@@ -57,20 +57,18 @@ class Phase15UsabilityDocsTests(unittest.TestCase):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
         for heading in (
-            "## 项目形态",
-            "## 核心入口",
-            "## 文档导航",
-            "## 当前边界",
+            "## 快速开始",
+            "## 项目结构",
+            "## 文档",
         ):
             self.assertIn(heading, readme)
-        self.assertIn("Claude Code 插件包", readme)
+        self.assertIn("1-10 万字", readme)
         self.assertIn("docs/quickstart.md", readme)
         self.assertIn("docs/claude-code-usage.md", readme)
         self.assertIn("docs/cli-usage.md", readme)
         self.assertIn("docs/data-formats.md", readme)
         self.assertIn("docs/troubleshooting.md", readme)
         self.assertIn("docs/development.md", readme)
-        self.assertIn("不提供独立的 `story-craft <subcommand>` 命令封装", readme)
 
     def test_usage_docs_are_split_by_category(self) -> None:
         docs = {

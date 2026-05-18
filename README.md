@@ -1,59 +1,97 @@
 # CLWriting
 
-CLWriting 是一个面向中文短篇/中篇小说创作的 Claude Code 插件项目。当前正式实现目录是 `story-craft/`。
+面向中文短篇/中篇小说（1-10 万字）的 Claude Code 插件。
 
-`story-craft` 面向 1-10 万字中文故事，目标是让作者在 Claude Code 中完成设定、规划、章节写作、审查、事实抽取和项目记忆维护。
+让作者在 Claude Code 中完成从构思到成稿的全流程：初始化项目、生成大纲、逐章写作、自动审查、事实抽取和写作经验积累。内置 37 个题材模板和 6 个流派知识库，覆盖悬疑、言情、修仙、科幻、知乎短篇等主流品类。
 
-当前已完成到 P18 真实 Agent 编排初版，并进入 P19 章节号体验与失败恢复打磨阶段。核心链路、Agent payload、真实冒烟、字数闸门、CLI 中文帮助、`/story-write` 工作台编排和章节号入口已落地。
+**核心特色：**
 
-## 项目形态
+- **Agent 协作写作** — 每章由三个专职 Agent 分工完成，主流程编排、不伪造输出
+- **结构化审查闸门** — 审查按设定一致性、时间线、角色动机、逻辑因果、AI 味六个维度输出结构化问题，阻断项未修复前不提交
+- **自动记忆维护** — 每章提交后自动提取角色出场、状态变化、伏笔埋设/回收、时间线，跨章记忆持续累积
+- **字数闸门** — 低于规划字数 60% 阻断提交，低于 80% 或超出 135% 发出警告
+- **中篇模式** — 5 万字以上项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪
 
-这是一个 Claude Code 插件包，不是 Web 应用。
+**内置 Agent：**
 
-- 插件清单：`story-craft/.claude-plugin/plugin.json`
-- Skills：`story-craft/skills/`
-- Agents：`story-craft/agents/`
-- 内部工具：`story-craft/scripts/story_craft.py`
+| Agent | 职责 |
+|-------|------|
+| `context-agent` | 搜集项目上下文（大纲、记忆、设定），输出本章创作任务书 |
+| `reviewer` | 审查正文，检查设定一致性、时间线、角色动机、逻辑因果和 AI 味，输出结构化问题清单 |
+| `data-agent` | 从已写正文中提取角色、伏笔、时间线等事实，生成章节增量数据 |
+| `deconstruction-agent` | 拆解参考短篇，提取可迁移的创作模式，不污染故事数据 |
 
-## 核心入口
+## 快速开始
 
-作者日常使用 Claude Code Skill 命令：
+在 Claude Code 中使用 `/story-*` 命令完成一本书的完整流程：
 
 ```text
-/story-init
-/story-plan
-/story-write 1
-/story-review 1
-/story-learn
-/story-query
+/story-init          # 初始化故事项目
+/story-plan          # 生成故事总纲
+/story-write 1       # 写第一章
+/story-review 1      # 审查第一章
+/story-learn         # 记录写作经验
+/story-query         # 查询故事状态与记忆
 ```
 
-终端 Python CLI 是底层工具入口，主要用于调试、验证、脚本化运维，或在 Skill 流程中被调用：
+## 项目结构
+
+```text
+story-craft/                  # Claude Code 插件包
+├── .claude-plugin/plugin.json
+├── skills/                   # 6 个 Skill 定义
+├── agents/                   # 4 个 Agent 定义（context-agent、reviewer、data-agent、deconstruction-agent）
+├── scripts/                  # Python 工具层
+│   ├── story_craft.py        # CLI 入口
+│   ├── core/                 # 配置、状态、记忆、上下文
+│   ├── tools/                # 规划、写作、审查、抽取等工具
+│   └── cli/                  # 参数解析与输出
+├── genres/                   # 6 个流派知识库
+├── templates/                # 37 个流派模板 + 11 个输出模板
+└── references/               # 共享参考资料
+```
+
+用户创建的故事项目结构：
+
+```text
+my-story/
+├── .story/
+│   ├── state.json            # 项目状态
+│   ├── memory.json           # 故事记忆（角色、伏笔、时间线）
+│   ├── project_learning.json # 写作经验
+│   ├── chapters/             # 章节提交记录
+│   └── workflows/ch_01/      # 写作工作台
+├── 大纲/
+├── 设定集/
+├── 正文/
+└── 审查报告/
+```
+
+## 终端 CLI
+
+Python CLI 是底层工具入口，用于调试、验证和脚本化运维：
 
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --help
+python3 -X utf8 story-craft/scripts/story_craft.py where
+python3 -X utf8 story-craft/scripts/story_craft.py query status --project-root ./my-story
 ```
 
-本项目不提供独立的 `story-craft <subcommand>` 命令封装，避免和 Claude Code `/story-*` 主入口混淆。
+不提供独立的 `story-craft <subcommand>` 命令封装。
 
-## 文档导航
+## 文档
 
-具体使用说明按场景拆分在 `docs/` 目录：
+- `docs/quickstart.md`：从零创建故事并完成第一章
+- `docs/claude-code-usage.md`：Claude Code 使用方式和 Agent 编排
+- `docs/cli-usage.md`：终端 CLI 命令参考
+- `docs/data-formats.md`：review.json、delta.json 等数据格式
+- `docs/troubleshooting.md`：常见问题与故障排查
+- `docs/development.md`：开发验证与测试命令
 
-- `docs/quickstart.md`：从零创建故事并完成第一章。
-- `docs/claude-code-usage.md`：Claude Code `/story-*` 主入口和 Agent 编排方式。
-- `docs/cli-usage.md`：终端 Python CLI 调试、验证和维护命令。
-- `docs/data-formats.md`：`review.json`、`delta.json` 和章节工作台文件格式。
-- `docs/troubleshooting.md`：常见失败、提交闸门和恢复方式。
-- `docs/development.md`：测试、编译检查和开发验证命令。
+## 致谢
 
-## 当前边界
-
-- 不做 Web dashboard。
-- 不恢复长篇项目的卷级结构、合同树、投影层、RAG 和观测系统。
-- 不让终端 CLI 自动伪造或替代 Claude Code Agent 输出。
-- 当前没有卷号；写作和审查按章节号操作。
+本项目参考了 webnovel-writer 的架构设计，包括 Agent 分工模式、Skill 流程编排和章节提交闸门机制，在此基础上针对短篇/中篇小说场景进行了重新设计和实现。
 
 ## 许可证
 
-本仓库当前使用 GPL-3.0 协议，详见 `LICENSE`。
+GPL-3.0，详见 `LICENSE`。
