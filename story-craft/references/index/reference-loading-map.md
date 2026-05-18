@@ -1,0 +1,53 @@
+# 参考加载映射
+
+本文件说明 Skill 和 Agent 何时读取哪些共享参考。
+读取参考时要保持最小化，只加载当前任务需要的文件。
+
+## Skill 映射
+
+- `/story-init`
+  - 总是可读：`references/genre-profiles.md`
+  - 按需可读：`references/csv/题材与调性推理.csv`
+  - 按题材可读：`genres/<pack>/README.md`
+  - 参考文本分析后：`references/shared/core-constraints.md`
+
+- `/story-plan`
+  - 总是可读：`references/outlining/plot-signal-vs-spoiler.md`
+  - 按需可读：`references/shared/strand-weave-pattern.md`
+  - 复合题材：`references/genre-profiles.md`
+  - 按题材可读：`genres/<pack>/patterns.md`
+
+- `/story-write`
+  - 总是可读：`references/shared/core-constraints.md`
+  - 按需可读：`references/shared/naming-and-voice-gaps.md`
+  - 多线中篇：`references/shared/strand-weave-pattern.md`
+  - 按题材可读：`genres/<pack>/checklist.md`
+
+- `/story-review`
+  - 总是可读：`references/review-schema.md`
+  - 总是可读：`references/shared/core-constraints.md`
+  - blocking 决策：`references/review/blocking-override-guidelines.md`
+
+- `/story-learn`
+  - 按需可读：`references/csv/写作技法.csv`
+  - 按需可读：`references/shared/payoff-points-guide.md`
+
+- `/story-query`
+  - 默认只读项目数据。
+  - 用户询问参考口径时读取本目录对应文件。
+
+## Agent 映射
+
+- `context-agent`：核心约束、命名语调、多线压缩。
+- `reviewer`：审查 schema、核心约束、blocking 覆盖指南。
+- `data-agent`：不读取参考，优先从正文抽取事实。
+- `deconstruction-agent`：核心约束，避免参考污染 canon。
+
+## 流派包映射
+
+- `realistic`：现实题材、都市日常、职场婚恋、年代。
+- `rules-mystery`：悬疑灵异、规则怪谈、悬疑脑洞、女频悬疑。
+- `dog-blood-romance`：狗血言情、替身文、豪门总裁、现言脑洞、青春甜宠。
+- `period-drama`：历史古代、历史脑洞、古言、宫斗宅斗、民国言情。
+- `xuanhuan`：修仙、高武、西幻、都市异能、系统流。
+- `zhihu-short`：知乎短篇、家庭反击、职场打脸、身份反转。

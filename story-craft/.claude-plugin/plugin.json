@@ -1,0 +1,14 @@
+{
+  "name": "story-craft",
+  "version": "0.1.0",
+  "description": "中文短篇/中篇小说交互式生成系统（1-10万字）",
+  "author": {},
+  "license": "GPL-3.0",
+  "keywords": [
+    "short-story",
+    "novella",
+    "chinese",
+    "writing",
+    "claude-code"
+  ]
+}

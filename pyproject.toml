@@ -1,0 +1,26 @@
+[project]
+name = "clwriting-story-craft"
+version = "0.1.0"
+description = "Claude Code plugin-style Chinese short and novella writing workflow."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "CLWriting contributors" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+locking = [
+  "filelock>=3.12"
+]
+
+[tool.story-craft]
+plugin-root = "story-craft"
+cli = "story-craft/scripts/story_craft.py"
+test-command = "python3 -B -m unittest discover -s story-craft/scripts/tests -p 'test_*.py'"
+compile-command = "env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craft/scripts"
+
+[tool.unittest]
+start-dir = "story-craft/scripts/tests"
+pattern = "test_*.py"
