@@ -4,13 +4,15 @@
 
 让作者在 Claude Code 中完成从构思到成稿的全流程：初始化项目、生成大纲、逐章写作、自动审查、事实抽取和写作经验积累。内置 37 个题材模板和 6 个流派知识库，覆盖悬疑、言情、修仙、科幻、知乎短篇等主流品类。
 
+主入口是 Claude Code 对话里的 `/story-*` 命令；Python CLI 是底层支撑工具，用于校验、生成工作台、提交章节和运维查询，不提供独立的 `story-craft <subcommand>` 命令封装。
+
 **核心特色：**
 
 - **Agent 协作写作** — 每章由三个专职 Agent 分工完成，主流程编排、不伪造输出
-- **结构化审查闸门** — 审查按设定一致性、时间线、角色动机、逻辑因果、AI 味六个维度输出结构化问题，阻断项未修复前不提交
+- **结构化审查闸门** — reviewer 原始输出只接受 `issues` / `summary`，围绕设定、时间线、连续性、角色、逻辑、节奏、格式和 AI 味输出结构化问题，阻断项未修复前不提交
 - **自动记忆维护** — 每章提交后自动提取角色出场、状态变化、伏笔埋设/回收、时间线，跨章记忆持续累积
 - **字数闸门** — 低于规划字数 60% 阻断提交，低于 80% 或超出 135% 发出警告
-- **中篇模式** — 5 万字以上项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪
+- **中篇模式** — 超过 5 万字的项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪
 
 **内置 Agent：**
 
@@ -43,9 +45,10 @@ story-craft/                  # Claude Code 插件包
 ├── agents/                   # 4 个 Agent 定义（context-agent、reviewer、data-agent、deconstruction-agent）
 ├── scripts/                  # Python 工具层
 │   ├── story_craft.py        # CLI 入口
-│   ├── core/                 # 配置、状态、记忆、上下文
+│   ├── core/                 # 配置、状态、记忆、上下文、日志、运行时诊断
 │   ├── tools/                # 规划、写作、审查、抽取等工具
-│   └── cli/                  # 参数解析与输出
+│   ├── cli/                  # 参数解析与输出
+│   └── tests/                # pytest 测试套件
 ├── genres/                   # 6 个流派知识库
 ├── templates/                # 37 个流派模板 + 11 个输出模板
 └── references/               # 共享参考资料
@@ -59,7 +62,9 @@ my-story/
 │   ├── state.json            # 项目状态
 │   ├── memory.json           # 故事记忆（角色、伏笔、时间线）
 │   ├── project_learning.json # 写作经验
+│   ├── memory.db             # 中篇模式索引（按需生成）
 │   ├── chapters/             # 章节提交记录
+│   ├── backups/              # 备份快照（按需生成）
 │   └── workflows/ch_01/      # 写作工作台
 ├── 大纲/
 ├── 设定集/
@@ -74,7 +79,7 @@ Python CLI 是底层工具入口，用于调试、验证和脚本化运维：
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --help
 python3 -X utf8 story-craft/scripts/story_craft.py where
-python3 -X utf8 story-craft/scripts/story_craft.py query status --project-root ./my-story
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root ./my-story query status
 ```
 
 不提供独立的 `story-craft <subcommand>` 命令封装。
@@ -87,6 +92,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py query status --project-root .
 - `docs/data-formats.md`：review.json、delta.json 等数据格式
 - `docs/troubleshooting.md`：常见问题与故障排查
 - `docs/development.md`：开发验证与测试命令
+- `story-craft/references/README.md`：Agent/Skill 可按需读取的参考资料索引
 
 ## 致谢
 
