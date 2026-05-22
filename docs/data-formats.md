@@ -1,14 +1,20 @@
 # 数据格式
 
-本文记录 `story-craft` 写作闭环中常见 JSON 文件格式。
+本文记录 `story-craft` 写作闭环中常见 JSON 文件格式。核心格式的 TypedDict 定义见 `story-craft/scripts/core/types.py`。
 
-## reviewer JSON
+## reviewer JSON 原始输出
+
+`reviewer` Agent 的原始输出以 `issues` 为权威。`blocking=true`，或
+`severity=critical` 的 issue，会在本地归一化为阻断项。
+`severity` 使用 `critical`、`high`、`medium`、`low`。
+
+原始输出不使用 `blocker_count` / `issue_count` 作为输入字段；计数只在提交
+结果里由本地根据归一化后的列表派生。
 
 最小通过示例：
 
 ```json
 {
-  "passed": true,
   "issues": [],
   "summary": "本章可提交。"
 }
@@ -18,7 +24,6 @@
 
 ```json
 {
-  "passed": false,
   "issues": [
     {
       "severity": "critical",
@@ -33,7 +38,9 @@
 }
 ```
 
-`severity` 为 `critical` 或 `blocker`，或 `blocking=true`，都会被视为阻断。
+本地归一化后会生成内部结构：`passed`、`blockers`、`warnings` 和
+`suggestions`。`blockers` 列表是提交闸门的唯一权威来源。
+审查维度包括设定一致性、时间线、角色动机、逻辑因果和 AI 味。
 
 ## delta JSON
 
@@ -96,6 +103,31 @@
 }
 ```
 
+## write-result JSON
+
+`write` 命令提交后生成的结果文件，记录本次提交的阶段、状态和字数检查结果：
+
+```json
+{
+  "stage": "commit",
+  "status": "accepted",
+  "chapter": 1,
+  "word_count_check": {
+    "planned": 3000,
+    "actual": 2850,
+    "ratio": 0.95,
+    "blocked": false,
+    "warning": false
+  }
+}
+```
+
+- `stage`：提交阶段，如 `commit`、`warnings`、`rejected`。
+- `status`：`accepted`（提交成功）、`rejected`（审查阻断）、`warnings`（警告阻断，`--strict-warnings` 模式）。
+- `word_count_check`：字数闸门结果，`blocked=true` 时低于 60% 阈值，`warning=true` 时低于 80% 或超出 135%。
+
+`status=rejected` 或 `stage=warnings` 时不会写入最终 `正文/`，不更新记忆。
+
 ## 工作台文件
 
 每章固定使用 `.story/workflows/ch_NN/` 保存中间产物：
@@ -112,3 +144,5 @@
 ├── review-report.md
 └── write-result.json
 ```
+
+`manifest.json` 中的 `cli_commands` 所有路径已做 shell quoting，支持项目路径含空格。

@@ -1,18 +1,14 @@
 # 审查输出 Schema
 
-本文件定义 `reviewer` 和 `/story-review` 的结构化输出口径。
+本文件定义 `reviewer` 和 `/story-review` 的原始结构化输出口径。
 审查目标是判断章节是否能进入提交或继续写作，而不是追求文学评论完整性。
 
 ## 顶层结构
 
 ```json
 {
-  "passed": true,
-  "summary": "",
-  "blockers": [],
-  "warnings": [],
-  "suggestions": [],
-  "anti_ai_force_check": "pass"
+  "issues": [],
+  "summary": ""
 }
 ```
 
@@ -33,19 +29,20 @@
 ## severity
 
 - `critical`：会破坏主线、事实连续性、人物动机或安全边界，必须 blocking。
-- `major`：明显影响阅读和本章目标，通常需要修复。
-- `minor`：局部表达、节奏或细节问题，可非阻断处理。
-- `note`：提示或改进建议，不影响提交。
+- `high`：明显影响阅读和本章目标，通常需要修复。
+- `medium`：局部表达、节奏或细节问题，可非阻断处理。
+- `low`：提示或改进建议，不影响提交。
 
 ## category
 
-- `structure`：本章目标、冲突、转折、章末变化。
-- `continuity`：人物、时间线、世界规则、伏笔连续性。
+- `setting`：时代、规则、独特优势、能力边界。
+- `timeline`：本章开始时间、场景切换、倒计时和同时在场。
+- `continuity`：人物、世界规则、伏笔连续性。
 - `character`：欲望、缺陷、动机、关系变化。
+- `logic`：因果链、行动代价、规则后果。
 - `pacing`：节奏、信息密度、场景长度。
-- `style`：语言、句式、视角、语调。
-- `anti_ai`：AI 味、抽象情绪、解释型对白、泛化比喻。
-- `safety`：不当内容、隐私、版权或用户边界。
+- `ai_flavor`：AI 味、抽象情绪、解释型对白、泛化比喻。
+- `format`：格式、文件、设定材料缺失等结构性问题。
 
 ## blocking 判定
 
@@ -55,11 +52,10 @@
 - 关键事实与 `memory.json` 或设定集冲突。
 - 角色关键选择缺少动机。
 - 结尾打开重大新问题却没有回收计划。
-- `anti_ai_force_check=fail` 且问题贯穿整章。
+- 系统性 AI 味问题贯穿整章，影响正文可信度。
 - 存在安全、版权或用户明确禁止的内容。
 
-## anti_ai_force_check
+## 本地归一化
 
-- `pass`：没有系统性 AI 味问题。
-- `warn`：有局部问题，可通过润色修复。
-- `fail`：整章存在模板化、抽象化或解释化问题，必须返修。
+`story-craft` 在本地会把原始 `issues` 归一化为 `blockers`、`warnings`
+和 `passed`。提交闸门只认归一化后的 `blockers` 列表，不依赖原始计数字段。

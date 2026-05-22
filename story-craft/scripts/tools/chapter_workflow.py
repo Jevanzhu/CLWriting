@@ -26,7 +26,13 @@ WORD_COUNT_OVER_RATIO = 1.35
 
 
 def _read_json(path: str | Path) -> dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    p = Path(path)
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise FileNotFoundError(f"文件不存在：{p}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON 解析失败（{p}）：{exc}")
 
 
 def _infer_title(chapter_text: str, chapter: int, fallback: str = "") -> str:
@@ -239,14 +245,14 @@ def commit_chapter_workflow(
     else:
         review_result = normalize_reviewer_output(
             {
-                "passed": True,
-                "warnings": [
+                "issues": [
                     {
                         "severity": "low",
                         "category": "length",
                         "description": "未提供 reviewer 结果，已执行本地占位符和字数检查。",
                     }
                 ],
+                "summary": "未提供 reviewer 结果，使用本地轻量检查兜底。",
             }
         )
     report_path = (

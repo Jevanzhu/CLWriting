@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,11 +10,8 @@ from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
 from core.security_utils import sanitize_filename
 from core.state_manager import StateManager
+from core.time_utils import now_utc_iso, now_utc_stamp
 from tools.quality_trend_report import QualityTrendReporter
-
-
-def now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 class OutlineReviser:
@@ -32,7 +28,7 @@ class OutlineReviser:
         memory = MemoryManager(self.config).load()
         quality = QualityTrendReporter(self.config).build()
         state = StateManager(self.config).get_full_state()
-        target = self.config.outline_dir / f"中期修正建议-{now_stamp()}-{sanitize_filename(str(chapter))}.md"
+        target = self.config.outline_dir / f"中期修正建议-{now_utc_stamp()}-{sanitize_filename(str(chapter))}.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         content = self._render_markdown(
             chapter=int(chapter),
@@ -45,7 +41,7 @@ class OutlineReviser:
 
         manager = StateManager(self.config)
         manager.update_maintenance(
-            last_outline_revision_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            last_outline_revision_at=now_utc_iso(),
             last_outline_revision_file=str(target),
         )
         manager.flush()

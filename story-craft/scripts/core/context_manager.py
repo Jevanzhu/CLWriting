@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any, Optional
@@ -18,6 +19,8 @@ from tools.writing_guidance_builder import (
     build_anti_ai_checklist,
     build_writing_checklist,
 )
+
+logger = logging.getLogger("core.context_manager")
 
 
 class ContextManager:
@@ -35,24 +38,31 @@ class ContextManager:
     def build_context(self, chapter: int, template: str = "default") -> dict[str, Any]:
         """Build the four-section writing context."""
         chapter_num = int(chapter)
+        memory = self.memory.load()
+        actual_timeline = [
+            item
+            for item in memory.get("timeline", [])
+            if not item.get("planned") and int(item.get("chapter") or 0) < chapter_num
+        ]
         payload = {
             "chapter": chapter_num,
             "template": template,
-            "core": self._build_core(chapter_num),
-            "scene": self._build_scene(chapter_num),
+            "core": self._build_core(chapter_num, actual_timeline),
+            "scene": self._build_scene(chapter_num, actual_timeline),
             "continuity": self._build_continuity(chapter_num),
             "guidance": self._build_guidance(chapter_num),
         }
         project = self.state.get_project()
         if project.get("tier") == "medium":
             payload["ranked_context"] = rank_context_items(
-                self.memory.load(),
+                memory,
                 chapter=chapter_num,
                 budget=20,
             )
+        logger.debug("context built for chapter %d, timeline=%d entries", chapter_num, len(actual_timeline))
         return payload
 
-    def _build_core(self, chapter: int) -> dict[str, Any]:
+    def _build_core(self, chapter: int, timeline: list[dict[str, Any]]) -> dict[str, Any]:
         state = self.state.get_full_state()
         project = state.get("project", {})
         constraints = state.get("creative_constraints", {})
@@ -65,21 +75,19 @@ class ContextManager:
             "chapter_outline": chapter_outline.get("text", ""),
             "must_cover": chapter_outline.get("must_cover", []),
             "forbidden": self._build_forbidden_list(constraints),
-            "time_anchor": self._latest_time_anchor(chapter),
+            "time_anchor": self._latest_time_anchor(timeline),
         }
 
-    def _build_scene(self, chapter: int) -> dict[str, Any]:
+    def _build_scene(self, chapter: int, timeline: list[dict[str, Any]]) -> dict[str, Any]:
         recent_start = max(0, chapter - self.config.context_recent_summaries)
         active_since = max(0, chapter - 3)
         active_characters = self.memory.get_active_characters(active_since)
         return {
             "active_characters": active_characters[: self.config.context_max_active_characters],
             "recent_summaries": self.memory.get_chapter_summaries(recent_start),
-            "recent_timeline": self._actual_timeline_before(chapter)[
-                -self.config.context_recent_timeline :
-            ],
-            "location": self._infer_latest_location(chapter),
-            "time_constraint": self._infer_time_constraint(chapter),
+            "recent_timeline": timeline[-self.config.context_recent_timeline :],
+            "location": self._infer_latest_location(timeline),
+            "time_constraint": self._infer_time_constraint(chapter, timeline),
         }
 
     def _build_continuity(self, chapter: int) -> dict[str, Any]:
@@ -151,30 +159,19 @@ class ContextManager:
             forbidden.extend(str(item) for item in hard_constraints if item)
         return forbidden
 
-    def _latest_time_anchor(self, chapter: int) -> str:
-        timeline = self._actual_timeline_before(chapter)
+    def _latest_time_anchor(self, timeline: list[dict[str, Any]]) -> str:
         if not timeline:
             return ""
         latest = timeline[-1]
         return str(latest.get("time_marker") or latest.get("time_elapsed") or "")
 
-    def _actual_timeline_before(self, chapter: int) -> list[dict[str, Any]]:
-        memory = self.memory.load()
-        return [
-            item
-            for item in memory.get("timeline", [])
-            if not item.get("planned") and int(item.get("chapter") or 0) < chapter
-        ]
-
-    def _infer_latest_location(self, chapter: int) -> str:
-        timeline = self._actual_timeline_before(chapter)
+    def _infer_latest_location(self, timeline: list[dict[str, Any]]) -> str:
         if not timeline:
             return ""
         latest = timeline[-1]
         return str(latest.get("location") or "")
 
-    def _infer_time_constraint(self, chapter: int) -> dict[str, Any]:
-        timeline = self._actual_timeline_before(chapter)
+    def _infer_time_constraint(self, chapter: int, timeline: list[dict[str, Any]]) -> dict[str, Any]:
         latest = timeline[-1] if timeline else {}
         return {
             "chapter": chapter,

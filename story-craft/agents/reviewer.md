@@ -86,7 +86,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 边界规则
 
-- 不输出 `overall_score`、`passed` 或任何评分。
+- 不输出 `overall_score`、`passed`、`blockers`、`warnings` 或任何评分。
 - 不把“我觉得不好看”写成 issue。
 - 不建议新增剧情，除非为修复已证实矛盾提供最小补丁。
 - 不泄露大纲中尚未发生的未来剧情。

@@ -6,22 +6,17 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from core.text_utils import count_chinese_chars
+from core.text_utils import count_chinese_chars, split_sentences
 
 
-SENTENCE_RE = re.compile(r"[^。！？!?]+[。！？!?]?")
 ACTION_WORDS = {"走", "跑", "推", "拉", "看", "听", "拿", "放", "转身", "抬头", "低头"}
 DESCRIPTION_WORDS = {"像", "仿佛", "颜色", "光", "影", "气味", "声音", "冷", "热", "潮湿"}
-
-
-def _sentences(text: str) -> list[str]:
-    return [item.strip() for item in SENTENCE_RE.findall(text or "") if item.strip()]
 
 
 def extract_style_sample(chapter_text: str, chapter: int) -> dict:
     """Extract coarse style features from one chapter."""
     text = chapter_text or ""
-    sentences = _sentences(text)
+    sentences = split_sentences(text)
     total_chars = max(count_chinese_chars(text), 1)
     dialogue_chars = sum(
         count_chinese_chars(match) for match in re.findall(r"[“\"]([^”\"]+)[”\"]", text)

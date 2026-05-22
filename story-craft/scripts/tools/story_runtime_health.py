@@ -63,8 +63,11 @@ class StoryRuntimeHealth:
         if graph["orphan_edges"]:
             warnings.append(f"存在未匹配目标的角色关系：{len(graph['orphan_edges'])} 条。")
 
-        runtime = build_runtime_diagnostics()
-        warnings.extend(runtime.get("warnings") or [])
+        try:
+            runtime = build_runtime_diagnostics()
+            warnings.extend(runtime.get("warnings") or [])
+        except Exception:
+            runtime = None
 
         info.append(f"当前章节：{progress.get('current_chapter', 0)}")
         info.append(f"累计字数：{progress.get('total_words', 0)}")

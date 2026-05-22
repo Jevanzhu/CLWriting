@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.security_utils import atomic_write_json, read_json_safe
+from core.time_utils import now_utc_iso
 
 
 VALID_PATTERN_TYPES = {
@@ -20,10 +20,6 @@ VALID_PATTERN_TYPES = {
     "format",
     "other",
 }
-
-
-def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def _learning_file(project_root: str | Path) -> Path:
@@ -56,7 +52,7 @@ def append_learning_pattern(
         "description": description,
         "example": example,
         "instruction": instruction,
-        "created_at": now_iso(),
+        "created_at": now_utc_iso(),
     }
     payload["patterns"].append(pattern)
     atomic_write_json(_learning_file(project_root), payload, use_lock=True, backup=True)

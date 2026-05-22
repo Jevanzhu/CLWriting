@@ -4,19 +4,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.security_utils import HAS_FILELOCK, FileLock, atomic_write_json, read_json_safe
+from core.time_utils import now_utc_iso
 
 
 SCHEMA_VERSION = "story-craft/v1"
-
-
-def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def default_creative_constraints() -> dict[str, Any]:
@@ -45,7 +41,7 @@ def default_state(
     sub_genre: Optional[str] = None,
     word_count_target: int = 30000,
 ) -> dict[str, Any]:
-    created_at = now_iso()
+    created_at = now_utc_iso()
     tier = "medium" if int(word_count_target or 0) > 50000 else "short"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -144,7 +140,7 @@ class StateManager:
     def update_project(self, **kwargs: Any) -> None:
         updates = self._pending.setdefault("project", {})
         updates.update(kwargs)
-        updates["updated_at"] = now_iso()
+        updates["updated_at"] = now_utc_iso()
 
     def update_progress(
         self,
@@ -159,7 +155,7 @@ class StateManager:
             updates["_words_delta"] = int(updates.get("_words_delta", 0)) + int(words_delta)
         if phase is not None:
             updates["phase"] = phase
-        updates["last_updated"] = now_iso()
+        updates["last_updated"] = now_utc_iso()
 
     def set_creative_constraints(self, constraints: dict[str, Any]) -> None:
         self._pending["creative_constraints"] = deepcopy(constraints)
@@ -216,6 +212,6 @@ class StateManager:
         merged["schema_version"] = SCHEMA_VERSION
         merged.setdefault("project", {})
         merged.setdefault("progress", {})
-        merged["project"].setdefault("updated_at", now_iso())
-        merged["progress"].setdefault("last_updated", now_iso())
+        merged["project"].setdefault("updated_at", now_utc_iso())
+        merged["progress"].setdefault("last_updated", now_utc_iso())
         return merged

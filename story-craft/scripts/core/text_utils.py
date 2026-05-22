@@ -35,3 +35,10 @@ def outline_value(outline_text: str, label: str) -> str:
 def first_int(text: str) -> int:
     match = re.search(r"\d+", str(text or ""))
     return int(match.group(0)) if match else 0
+
+
+CHINESE_SENTENCE_RE = re.compile(r"[^。！？!?]+[。！？!?]?")
+
+
+def split_sentences(text: str) -> list[str]:
+    return [item.strip() for item in CHINESE_SENTENCE_RE.findall(text or "") if item.strip()]

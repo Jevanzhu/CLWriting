@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,6 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+
+logger = logging.getLogger("core.security_utils")
 
 try:
     from filelock import FileLock
@@ -140,5 +143,5 @@ def read_json_safe(
             data = json.load(handle)
         return data if isinstance(data, dict) else dict(fallback)
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"Warning: failed to read JSON {target}: {exc}", file=sys.stderr)
+        logger.warning("failed to read JSON %s: %s", target, exc)
         return dict(fallback)
