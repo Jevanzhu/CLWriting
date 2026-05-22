@@ -17,10 +17,11 @@
 
 ## 常见问题
 
-- 找不到项目根目录：使用 `--project-root <项目>`，项目内必须有 `.story/state.json`。错误信息会提示下一步操作。
+- 找不到项目根目录：使用 `--project-root <项目>`，项目内必须有 `.story/state.json`。全局参数要放在子命令前，例如 `story_craft.py --project-root <项目> query status`。
 - 第 2 章无法写：确认第 1 章已经通过 `write` 提交，且 commit 状态为 `accepted`。
 - 字数不足：查看 `write` 输出中的 `word_count_check`，按 `planned_words` 扩写。
 - reviewer 阻断：先运行 `agent repair`，按 `blocker_actions` 修复后重新审查。
+- reviewer JSON 被拒绝：确认顶层包含 `issues` 数组和 `summary` 字符串；不要把 `passed`、`blockers`、`warnings` 当作原始输入字段。
 - delta 缺失：可以先用 `agent extract` 生成兜底 delta，再人工补充角色、伏笔和状态变化。
 - 路径含空格：CLI 命令和 manifest 中的路径已做 shell quoting，可直接使用。
 - 可选依赖缺失：`filelock` 不可用时会降级为无锁写入，`maintain health` 的 `runtime` 字段会显示降级提示。

@@ -7,6 +7,7 @@
 `reviewer` Agent 的原始输出以 `issues` 为权威。`blocking=true`，或
 `severity=critical` 的 issue，会在本地归一化为阻断项。
 `severity` 使用 `critical`、`high`、`medium`、`low`。
+`category` 使用 `setting`、`timeline`、`continuity`、`character`、`logic`、`ai_flavor`、`pacing`、`format`。
 
 原始输出不使用 `blocker_count` / `issue_count` 作为输入字段；计数只在提交
 结果里由本地根据归一化后的列表派生。
@@ -112,19 +113,31 @@
   "stage": "commit",
   "status": "accepted",
   "chapter": 1,
+  "title": "葬礼后的信",
+  "word_count": 2850,
+  "chapter_file": "/tmp/story-demo/正文/第01章-葬礼后的信.md",
+  "report_file": "/tmp/story-demo/审查报告/第01章审查报告.md",
+  "commit_file": "/tmp/story-demo/.story/chapters/ch_01_commit.json",
+  "memory_updated": true,
+  "state_updated": true,
+  "warnings": [],
   "word_count_check": {
-    "planned": 3000,
-    "actual": 2850,
+    "planned_words": 3000,
+    "actual_words": 2850,
     "ratio": 0.95,
-    "blocked": false,
-    "warning": false
+    "minimum_words": 1800,
+    "recommended_min_words": 2400,
+    "recommended_max_words": 4050,
+    "blockers": [],
+    "warnings": []
   }
 }
 ```
 
 - `stage`：提交阶段，如 `commit`、`warnings`、`rejected`。
 - `status`：`accepted`（提交成功）、`rejected`（审查阻断）、`warnings`（警告阻断，`--strict-warnings` 模式）。
-- `word_count_check`：字数闸门结果，`blocked=true` 时低于 60% 阈值，`warning=true` 时低于 80% 或超出 135%。
+- `word_count_check`：字数闸门结果，`blockers` 非空时低于 60% 阈值，`warnings` 非空时低于 80% 或超出 135%。
+- `memory_updated` / `state_updated`：只有 accepted commit 会更新故事记忆和项目进度。
 
 `status=rejected` 或 `stage=warnings` 时不会写入最终 `正文/`，不更新记忆。
 

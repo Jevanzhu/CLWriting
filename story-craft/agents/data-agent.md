@@ -74,7 +74,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 5. 生成 `chapter_summary`：100-150 字，必须包含因果链，不写流水账。
 6. 输出单一 JSON，不加 Markdown 包裹。
-7. 如果输入提供 `output_file`，最终 JSON 必须可由 `/story-write` 主流程原样保存到该文件。
+7. 如果输入提供 `output_file`，最终 JSON 必须可由 `/story-write` 主流程原样保存到该文件；如果当前运行环境不能直接写文件，就只输出单一 JSON 让主流程保存。
 
 ## 字段约束
 
@@ -85,7 +85,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 边界规则
 
-- 不直接写文件。
+- 不直接写项目状态、记忆、章节 commit 或最终正文文件。
 - 不调用 reviewer 或 context-agent。
 - 不补写未出现在正文里的事实。
 - 置信度 < 0.5 的实体不自动入库。

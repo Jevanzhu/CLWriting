@@ -74,7 +74,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - AI味：词汇层、句式层、叙事层、情感层、对话层。
 
 5. 输出单一 JSON，不加 Markdown 包裹。
-6. 如果输入提供 `output_file`，最终 JSON 必须可由 `/story-write` 主流程原样保存到该文件。
+6. 如果输入提供 `output_file`，最终 JSON 必须可由 `/story-write` 主流程原样保存到该文件；如果当前运行环境不能直接写文件，就只输出单一 JSON 让主流程保存。
 
 ## AI味检查细则
 

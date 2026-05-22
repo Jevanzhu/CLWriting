@@ -41,6 +41,7 @@ allowed-tools: Read Write Edit Grep Bash Agent
 - 必须使用 `Agent` 工具调用指定 Agent；不得由主流程口头替代 subagent 输出。
 - `context-agent` 只生成任务书，不写正文。
 - `reviewer` 必须输出结构化 JSON；不得由主流程伪造审查结果。
+- reviewer 原始 JSON 只接受 `issues` / `summary`，不要让 reviewer 输出 `passed`、`blockers` 或 `warnings`。
 - review.json 存在 blocking issue 时不得进入提交。
 - `data-agent` 只生成 delta，不直接写 `.story/state.json`、`.story/memory.json` 或 commit。
 - `write` 才是唯一提交入口，accepted 才更新 state/memory。
