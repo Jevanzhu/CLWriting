@@ -21,7 +21,7 @@ description: 为已初始化的 story-craft 项目生成或补全故事级总纲
 
 ## 流程
 
-1. 执行 P12 规划入口：
+1. 执行规划入口：
 
 ```bash
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" plan
@@ -62,7 +62,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 - 允许写：`大纲/总纲.md`、必要的 `设定集/*.md`、`.story/state.json`、`.story/memory.json`。
 - 不允许写正文。
-- 不调用 Agent，P5 阶段 story-plan 是纯流程 Skill。
+- 不调用 Agent，story-plan 是纯流程 Skill。
 
 ## 验证
 

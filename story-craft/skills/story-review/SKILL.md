@@ -57,6 +57,8 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 5. 如存在 blocking 问题，展示问题清单并询问处理方式：修复、跳过、标记为非阻断。
 
+reviewer 原始 JSON 必须包含 `issues` 数组和 `summary` 字符串。`blocking=true` 或 `severity=critical` 会被本地归一化为阻断项；不要要求 reviewer 输出 `passed`、`blockers` 或 `warnings`。
+
 ## 审查边界
 
 - 不自动提交章节。
@@ -67,7 +69,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 失败处理
 
 - 正文缺失：停止并提示可用章节文件。
-- reviewer 输出不是合法 JSON：要求重试一次。
+- reviewer 输出不是合法 JSON，或缺少 `issues` / `summary`：要求重试一次。
 - 报告写入失败：保留 reviewer 原始输出，提示路径错误。
 
 ## 完成条件

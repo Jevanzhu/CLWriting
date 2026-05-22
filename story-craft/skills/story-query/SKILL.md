@@ -15,8 +15,13 @@ description: 只读查询 story-craft 项目的状态、上下文、角色记忆
 
 ```bash
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query context --chapter "${CHAPTER}"
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query status
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query memory
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query learning
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query quality
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query entity-graph
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query ranked-context --chapter "${CHAPTER}" --budget 20
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query index --text "${TEXT}"
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 ```
 
@@ -31,6 +36,10 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 - 写作上下文：调用 `query context --chapter N`。
 - 学习记录：调用 `query learning`。
 - 支持流派：调用 `query genres`。
+- 质量趋势：调用 `query quality`。
+- 实体关系：调用 `query entity-graph`。
+- 索引检索：调用 `query index --text 关键词`。
+- 上下文裁剪：调用 `query ranked-context --chapter N --budget B`。
 
 ## 流程
 

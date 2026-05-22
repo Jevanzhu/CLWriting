@@ -10,6 +10,11 @@ python3 -X utf8 story-craft/scripts/story_craft.py preflight --format json
 ```
 
 本项目不提供独立的 `story-craft <subcommand>` wrapper。
+全局参数 `--project-root` 必须放在子命令前，例如：
+
+```bash
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query status
+```
 
 ## 子命令一览
 
@@ -24,7 +29,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py preflight --format json
 | `agent` | 生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta |
 | `review N` | 把 reviewer JSON 转为 Markdown 审查报告 |
 | `learn` | 记录可复用写作经验 |
-| `query` | 查询故事状态、上下文和记忆 |
+| `query` | 查询状态、上下文、记忆、学习记录、索引、实体图和质量趋势 |
 | `maintain` | 运行索引、备份、健康检查等维护任务 |
 
 ## 创建调试项目
@@ -51,6 +56,10 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo plan --chapter-count 8
 
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo agent workflow \
+  --chapter 1 \
+  --output-file /tmp/story-demo/.story/workflow-ch1.json
+
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo agent brief \
   --chapter 1 \
   --output-file /tmp/story-demo/.story/brief-ch1.json
@@ -70,6 +79,8 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 
 `write --chapter 1` 仍兼容；推荐使用 `write 1`。`--result-file` 可选，用于把提交结果保存成 JSON，便于工作台恢复。使用 `--strict-warnings` 可把字数偏差警告也视为阻断。
 
+真实 `/story-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件；CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
+
 ## 审查
 
 ```bash
@@ -81,6 +92,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> revie
 ```
 
 `review --chapter 1` 仍兼容；推荐使用 `review 1`。
+`reviewer` 原始 JSON 必须包含 `issues` 数组和 `summary` 字符串；`blocking=true` 或 `severity=critical` 会被本地视为阻断。
 
 ## 记录经验
 
@@ -103,7 +115,9 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query status
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query memory
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query context --chapter 2
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query quality
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query index --text "纸条"
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query entity-graph
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query ranked-context --chapter 12 --budget 20
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query learning

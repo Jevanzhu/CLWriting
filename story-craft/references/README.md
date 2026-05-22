@@ -13,10 +13,10 @@
 ## 目录
 
 - `genre-profiles.md`：题材画像与短篇适配建议。
-- `review-schema.md`：审查输出 schema 与 severity 规则。
+- `review-schema.md`：reviewer 原始输出 schema、severity/category 规则与本地归一化口径。
 - `reading-power-taxonomy.md`：短篇阅读驱动力分类。
 - `shared/`：核心约束、命名与语调、兑现点、多线压缩参考。
 - `csv/`：人设、技法、命名、场景、桥段、节奏等轻量参考。
 - `outlining/`：大纲阶段使用的情节信号参考。
-- `review/`：blocking 问题处理规则。
+- `review/`：blocking 问题处理规则；当前提交闸门以本地归一化后的 `blockers` 为准。
 - `index/`：参考加载映射与缺口登记。

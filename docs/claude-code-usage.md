@@ -1,6 +1,7 @@
 # Claude Code 使用说明
 
 `story-craft` 的主入口是在 Claude Code 对话中输入 `/story-*` Skill 命令。作者日常写作不需要先打开终端敲 Python 命令。
+底层 Python CLI 只负责确定性工具层，不自动调用 Agent，也不伪造 Agent 输出。
 
 ## Skill 命令
 
@@ -52,12 +53,21 @@
 
 CLI 不自动调用 Agent，只负责确定性校验、报告、修复计划、兜底抽取和提交。
 
+## reviewer 契约
+
+`reviewer` 的原始 JSON 只以 `issues` / `summary` 为输入契约：
+
+- `issues` 必须是数组。
+- `summary` 必须是字符串。
+- `blocking=true` 或 `severity=critical` 会在本地归一化为阻断项。
+- `passed`、`blockers`、`warnings`、`issue_count`、`blocker_count` 不作为 reviewer 原始输入字段。
+
 ## 写作闭环保障
 
 - **字数闸门**：低于规划字数 60% 阻断提交，低于 80% 或超出 135% 发出警告。使用 `--strict-warnings` 可把警告也视为阻断。
 - **审查闸门**：reviewer 发现 blocking issue 时章节 commit 为 rejected，不写入最终 `正文/`，不更新记忆。
 - **经验积累**：每章写完后用 `/story-learn` 记录写作经验，后续章节自动参考。
-- **中篇模式**：5 万字以上项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪。
+- **中篇模式**：超过 5 万字的项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪。
 
 ## 章节号
 
