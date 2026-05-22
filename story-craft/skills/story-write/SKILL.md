@@ -170,7 +170,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 - `review.json` 是合法 JSON。
 - `issues[]` 中无 `blocking=true`。
-- `severity=critical` 或 `severity=blocker` 视为 blocking。
+- `severity=critical` 视为 blocking。
 
 blocking 存在时：停在 Step 3，按 `repair.json` 修正文，再重新调用 reviewer。
 

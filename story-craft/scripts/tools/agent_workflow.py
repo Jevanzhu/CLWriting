@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
@@ -13,15 +14,14 @@ from typing import Any, Optional
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
 from core.memory_manager import MemoryManager
-from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value
-from core.types import ExtractionDelta, ReviewerResult, WorkflowManifest
+from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_sentences
+from core.types import ExtractionDelta, NormalizedReviewerResult, ReviewerResult, WorkflowManifest
 from tools.placeholder_scanner import scan_placeholders
 from tools.prewrite_validator import validate_prewrite
 from tools.style_sampler import extract_style_sample
 from tools.writing_guidance_builder import build_anti_ai_checklist
 
 
-CHINESE_SENTENCE_RE = re.compile(r"[^。！？!?]+[。！？!?]?")
 TITLE_RE = re.compile(r"第0?(?P<chapter>\d+)章[：:\-\s]*(?P<title>[^\n#]*)")
 WORKFLOW_FILE_NAMES = {
     "brief": "brief.json",
@@ -37,6 +37,9 @@ WORKFLOW_FILE_NAMES = {
 
 
 def _scripts_dir() -> Path:
+    env = os.environ.get("STORY_CRAFT_SCRIPTS_DIR")
+    if env:
+        return Path(env)
     return Path(__file__).resolve().parents[1]
 
 
@@ -251,45 +254,44 @@ def _as_issue_list(items: Any) -> list[dict[str, Any]]:
     return normalized
 
 
-def normalize_reviewer_output(review_result: ReviewerResult) -> ReviewerResult:
+def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
+    if not isinstance(review_result, dict):
+        raise ValueError("reviewer JSON 必须是对象")
+    if "issues" not in review_result:
+        raise ValueError("reviewer JSON 缺少必需字段：issues")
+    if "summary" not in review_result:
+        raise ValueError("reviewer JSON 缺少必需字段：summary")
+    if not isinstance(review_result["issues"], list):
+        raise ValueError("reviewer JSON 字段 issues 必须是数组")
+    if not isinstance(review_result["summary"], str):
+        raise ValueError("reviewer JSON 字段 summary 必须是字符串")
+    return dict(review_result)
+
+
+def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReviewerResult:
     """Normalize reviewer-agent JSON into commit-friendly blockers/warnings."""
-    normalized = dict(review_result or {})
+    normalized = _validate_raw_reviewer_output(review_result)
     issues = _as_issue_list(normalized.get("issues"))
-    blockers = _as_issue_list(normalized.get("blockers"))
-    warnings = _as_issue_list(normalized.get("warnings"))
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    suggestions = _as_issue_list(normalized.get("suggestions"))
 
-    if issues and not blockers and not warnings:
-        for issue in issues:
-            severity = str(issue.get("severity") or "").lower()
-            is_blocking = bool(issue.get("blocking")) or severity in {"critical", "blocker"}
-            target = blockers if is_blocking else warnings
-            target.append(issue)
-    elif issues:
-        known = {
-            json.dumps(item, ensure_ascii=False, sort_keys=True)
-            for item in blockers + warnings
-        }
-        for issue in issues:
-            key = json.dumps(issue, ensure_ascii=False, sort_keys=True)
-            if key in known:
-                continue
-            severity = str(issue.get("severity") or "").lower()
-            is_blocking = bool(issue.get("blocking")) or severity in {"critical", "blocker"}
-            (blockers if is_blocking else warnings).append(issue)
+    for issue in issues:
+        severity = str(issue.get("severity") or "").lower()
+        is_blocking = bool(issue.get("blocking")) or severity == "critical"
+        target = blockers if is_blocking else warnings
+        target.append(issue)
 
-    normalized["issues"] = issues or blockers + warnings
+    normalized["issues"] = issues
     normalized["blockers"] = blockers
     normalized["warnings"] = warnings
-    normalized["blocker_count"] = int(normalized.get("blocker_count") or len(blockers))
-    normalized["issue_count"] = int(
-        normalized.get("issue_count")
-        or len(normalized["issues"])
-        or normalized["blocker_count"] + len(warnings)
-    )
-    normalized["passed"] = bool(
-        normalized.get("passed", normalized["blocker_count"] == 0)
-    ) and normalized["blocker_count"] == 0
-    return normalized
+    normalized["suggestions"] = suggestions
+    normalized.pop("passed", None)
+    normalized.pop("blocker_count", None)
+    normalized.pop("issue_count", None)
+    normalized["passed"] = not blockers
+    normalized.setdefault("summary", "")
+    return normalized  # type: ignore[return-value]
 
 
 def build_writing_brief(project_root: str | Path, chapter: int) -> dict[str, Any]:
@@ -459,7 +461,7 @@ def build_polish_plan(
     draft_path = Path(draft_file).expanduser().resolve()
     text = draft_path.read_text(encoding="utf-8")
     style_sample = extract_style_sample(text, chapter)
-    normalized = normalize_reviewer_output(review_result or {})
+    normalized = normalize_reviewer_output(review_result or {"issues": [], "summary": ""})
     polish_issues = [
         item
         for item in normalized.get("warnings", [])
@@ -498,10 +500,6 @@ def build_polish_plan(
     }
 
 
-def _sentences(text: str) -> list[str]:
-    return [item.strip() for item in CHINESE_SENTENCE_RE.findall(text or "") if item.strip()]
-
-
 def _infer_chapter_heading(text: str, chapter: int, fallback_title: str = "") -> str:
     first_line = ""
     for raw_line in text.splitlines():
@@ -532,7 +530,7 @@ def build_extraction_delta(
     text = path.read_text(encoding="utf-8")
     memory = MemoryManager(config).load()
     inferred_title = title or _infer_chapter_heading(text, chapter)
-    sentences = _sentences(text)
+    sentences = split_sentences(text)
     key_events = [compact_line(sentence, 80) for sentence in sentences[:3]]
     entities_appeared = []
     for char in memory.get("characters", []):

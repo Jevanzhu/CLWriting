@@ -18,14 +18,25 @@ class ReviewerIssue(TypedDict, total=False):
 
 
 class ReviewerResult(TypedDict, total=False):
+    """Raw reviewer output before local normalization."""
+
+    issues: list[ReviewerIssue]
+    suggestions: list[ReviewerIssue]
+    summary: str
+
+
+class NormalizedReviewerResult(TypedDict):
+    """Reviewer output after normalize_reviewer_output().
+
+    blockers is the authoritative blocking source.
+    """
+
     passed: bool
     issues: list[ReviewerIssue]
     blockers: list[ReviewerIssue]
     warnings: list[ReviewerIssue]
     suggestions: list[ReviewerIssue]
     summary: str
-    issue_count: int
-    blocker_count: int
 
 
 class TimelineEntry(TypedDict, total=False):

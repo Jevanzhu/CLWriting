@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,15 +13,18 @@ from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
 from core.security_utils import atomic_write_json
 from core.state_manager import StateManager
-from core.types import ExtractionDelta, ReviewerResult
+from core.time_utils import now_utc_iso
+from core.types import ExtractionDelta, NormalizedReviewerResult
 
-
-def now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+logger = logging.getLogger("core.chapter_commit")
 
 
 class ChapterCommitService:
-    """Persist chapter commit payloads and update state/memory."""
+    """Persist chapter commit payloads and update state/memory.
+
+    review_result must already be normalized by normalize_reviewer_output().
+    The blockers list is authoritative.
+    """
 
     def __init__(self, config: Optional[StoryCraftConfig] = None):
         self.config = config or StoryCraftConfig()
@@ -31,7 +34,7 @@ class ChapterCommitService:
         chapter: int,
         title: str,
         word_count: int,
-        review_result: ReviewerResult,
+        review_result: NormalizedReviewerResult,
         extraction_delta: ExtractionDelta,
     ) -> dict[str, Any]:
         payload = self._build_commit_payload(
@@ -49,6 +52,9 @@ class ChapterCommitService:
             self._update_state(chapter, word_count)
             memory_updated = True
             state_updated = True
+            logger.info("chapter %d '%s' accepted, %d words", chapter, title, word_count)
+        else:
+            logger.info("chapter %d '%s' rejected, %d blockers", chapter, title, payload["review"]["blocker_count"])
 
         return {
             "chapter": chapter,
@@ -64,12 +70,16 @@ class ChapterCommitService:
         chapter: int,
         title: str,
         word_count: int,
-        review_result: ReviewerResult,
+        review_result: NormalizedReviewerResult,
         extraction_delta: ExtractionDelta,
     ) -> dict[str, Any]:
+        self._ensure_normalized_review_result(review_result)
         blockers = review_result.get("blockers") or []
-        blocker_count = int(review_result.get("blocker_count") or len(blockers))
-        passed = bool(review_result.get("passed", blocker_count == 0))
+        warnings = review_result.get("warnings") or []
+        issues = review_result.get("issues") or blockers + warnings
+        blocker_count = len(blockers)
+        issue_count = len(issues)
+        passed = blocker_count == 0
         status = "accepted" if passed and blocker_count == 0 else "rejected"
         delta = deepcopy(extraction_delta)
         delta.setdefault("chapter", int(chapter))
@@ -77,19 +87,31 @@ class ChapterCommitService:
             "chapter": int(chapter),
             "title": title,
             "word_count": int(word_count),
-            "written_at": now_utc(),
+            "written_at": now_utc_iso(),
             "status": status,
             "review": {
                 "passed": passed,
                 "blockers": blockers,
-                "warnings": review_result.get("warnings", []),
-                "issue_count": int(review_result.get("issue_count") or 0),
+                "warnings": warnings,
+                "issue_count": issue_count,
                 "blocker_count": blocker_count,
             },
             "delta": delta,
             "scenes": extraction_delta.get("scenes", []),
             "agent_calls": extraction_delta.get("agent_calls", {}),
         }
+
+    def _ensure_normalized_review_result(self, review_result: dict[str, Any]) -> None:
+        required = {"passed", "issues", "blockers", "warnings"}
+        missing = sorted(required - set(review_result))
+        if missing:
+            raise ValueError(
+                "review_result 必须先经过 normalize_reviewer_output()，缺少字段："
+                + ", ".join(missing)
+            )
+        blockers = review_result.get("blockers") or []
+        if bool(review_result.get("passed")) != (not blockers):
+            raise ValueError("review_result.passed 与 blockers 列表冲突")
 
     def _persist_commit(self, payload: dict[str, Any]) -> Path:
         self.config.chapters_dir.mkdir(parents=True, exist_ok=True)

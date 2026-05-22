@@ -14,13 +14,16 @@ dependencies = []
 locking = [
   "filelock>=3.12"
 ]
+test = [
+  "pytest>=8"
+]
 
 [tool.story-craft]
 plugin-root = "story-craft"
 cli = "story-craft/scripts/story_craft.py"
-test-command = "python3 -B -m unittest discover -s story-craft/scripts/tests -p 'test_*.py'"
+test-command = "python3 -m pytest story-craft/scripts/tests/"
 compile-command = "env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craft/scripts"
 
-[tool.unittest]
-start-dir = "story-craft/scripts/tests"
-pattern = "test_*.py"
+[tool.pytest.ini_options]
+testpaths = ["story-craft/scripts/tests"]
+python_files = ["test_*.py"]

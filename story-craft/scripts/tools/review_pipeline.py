@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.text_utils import count_chinese_chars
+from core.types import NormalizedReviewerResult
 
 
 def _issue_line(issue: Any) -> str:
@@ -19,32 +20,15 @@ def _issue_line(issue: Any) -> str:
     return f"- {issue}"
 
 
-def _split_issues(review_results: dict) -> tuple[list[Any], list[Any]]:
-    blockers = list(review_results.get("blockers") or [])
-    warnings = list(review_results.get("warnings") or [])
-    if blockers or warnings:
-        return blockers, warnings
-
-    for issue in review_results.get("issues") or []:
-        if not isinstance(issue, dict):
-            warnings.append(issue)
-            continue
-        severity = str(issue.get("severity") or "").lower()
-        if issue.get("blocking") or severity in {"critical", "blocker"}:
-            blockers.append(issue)
-        else:
-            warnings.append(issue)
-    return blockers, warnings
-
-
 def build_review_report(
     chapter: int,
-    review_results: dict,
+    review_results: NormalizedReviewerResult,
     chapter_text: str,
 ) -> str:
-    """Convert structured reviewer output to a Markdown report."""
-    blockers, warnings = _split_issues(review_results)
-    passed = bool(review_results.get("passed", not blockers)) and not blockers
+    """Convert normalized reviewer output to a Markdown report."""
+    blockers = list(review_results.get("blockers") or [])
+    warnings = list(review_results.get("warnings") or [])
+    passed = not blockers
     word_count = count_chinese_chars(chapter_text)
     lines = [
         f"# 第{int(chapter):02d}章审查报告",

@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-import sys
-import tempfile
-import unittest
 from pathlib import Path
-
-
-SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
 
 from core.memory_index import MemoryIndexService
 from core.memory_manager import MemoryManager
@@ -99,53 +91,47 @@ def seed_index_memory(project: Path) -> MemoryIndexService:
     return MemoryIndexService.from_project(project)
 
 
-class MemoryIndexTests(unittest.TestCase):
-    def test_rebuild_and_stats_report_kind_counts(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            service = seed_index_memory(Path(temp) / "demo")
+def test_rebuild_and_stats_report_kind_counts(tmp_path):
+    service = seed_index_memory(tmp_path / "demo")
 
-            result = service.rebuild()
-            stats = service.stats()
+    result = service.rebuild()
+    stats = service.stats()
 
-            self.assertTrue(Path(result["db_file"]).is_file())
-            self.assertEqual(result["entry_count"], 10)
-            self.assertEqual(stats["entry_count"], 10)
-            self.assertTrue(stats["exists"])
-            self.assertTrue(stats["rebuilt_at"])
-            self.assertEqual(result["by_kind"], stats["by_kind"])
-            self.assertEqual(stats["by_kind"]["character"], 2)
-            self.assertEqual(stats["by_kind"]["foreshadowing"], 2)
-            self.assertEqual(stats["by_kind"]["relationship"], 1)
-
-    def test_query_filters_by_kind_text_and_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            service = seed_index_memory(Path(temp) / "demo")
-            service.rebuild()
-
-            foreshadowing = service.query(kind="foreshadowing", text="纸条")
-            self.assertEqual(len(foreshadowing), 1)
-            self.assertEqual(foreshadowing[0]["entity_id"], "fh_001")
-            self.assertEqual(foreshadowing[0]["payload"]["urgency"], "high")
-
-            characters = service.query(kind="character", text="林墨")
-            self.assertEqual(len(characters), 1)
-            self.assertEqual(characters[0]["title"], "林墨")
-
-            limited = service.query(text="", limit=2)
-            self.assertEqual(len(limited), 2)
-            self.assertGreaterEqual(limited[0]["chapter"], limited[1]["chapter"])
-
-    def test_query_rebuilds_missing_database(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            project = Path(temp) / "demo"
-            service = seed_index_memory(project)
-            self.assertFalse(service.config.memory_db.exists())
-
-            matches = service.query(text="缺页")
-
-            self.assertTrue(service.config.memory_db.exists())
-            self.assertTrue(any(item["kind"] == "chapter_summary" for item in matches))
+    assert Path(result["db_file"]).is_file()
+    assert result["entry_count"] == 10
+    assert stats["entry_count"] == 10
+    assert stats["exists"]
+    assert stats["rebuilt_at"]
+    assert result["by_kind"] == stats["by_kind"]
+    assert stats["by_kind"]["character"] == 2
+    assert stats["by_kind"]["foreshadowing"] == 2
+    assert stats["by_kind"]["relationship"] == 1
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_query_filters_by_kind_text_and_limit(tmp_path):
+    service = seed_index_memory(tmp_path / "demo")
+    service.rebuild()
+
+    foreshadowing = service.query(kind="foreshadowing", text="纸条")
+    assert len(foreshadowing) == 1
+    assert foreshadowing[0]["entity_id"] == "fh_001"
+    assert foreshadowing[0]["payload"]["urgency"] == "high"
+
+    characters = service.query(kind="character", text="林墨")
+    assert len(characters) == 1
+    assert characters[0]["title"] == "林墨"
+
+    limited = service.query(text="", limit=2)
+    assert len(limited) == 2
+    assert limited[0]["chapter"] >= limited[1]["chapter"]
+
+
+def test_query_returns_empty_when_no_database(tmp_path):
+    project = tmp_path / "demo"
+    service = seed_index_memory(project)
+    assert not service.config.memory_db.exists()
+
+    matches = service.query(text="缺页")
+
+    assert matches == []
+    assert not service.config.memory_db.exists()

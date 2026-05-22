@@ -3,18 +3,17 @@
 
 from __future__ import annotations
 
+import logging
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
 from core.config import StoryCraftConfig
 from core.security_utils import sanitize_filename
 from core.state_manager import StateManager
+from core.time_utils import now_utc_iso, now_utc_stamp
 
-
-def now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+logger = logging.getLogger("tools.backup_manager")
 
 
 class BackupManager:
@@ -30,19 +29,25 @@ class BackupManager:
     def create_backup(self, label: str = "manual") -> dict[str, object]:
         self.config.backups_dir.mkdir(parents=True, exist_ok=True)
         safe_label = sanitize_filename(label, max_length=40)
-        backup_file = self.config.backups_dir / f"{now_stamp()}-{safe_label}.zip"
+        backup_file = self.config.backups_dir / f"{now_utc_stamp()}-{safe_label}.zip"
         files = list(self._iter_backup_files())
         with zipfile.ZipFile(backup_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in files:
-                archive.write(path, path.relative_to(self.config.project_root).as_posix())
+                try:
+                    arcname = path.relative_to(self.config.project_root).as_posix()
+                except ValueError:
+                    logger.debug("skipped file outside project root: %s", path)
+                    continue
+                archive.write(path, arcname)
 
         state = StateManager(self.config)
         state.update_maintenance(
-            last_backup_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            last_backup_at=now_utc_iso(),
             last_backup_file=str(backup_file),
         )
         state.flush()
 
+        logger.info("backup created: %s, %d files, %d bytes", backup_file.name, len(files), backup_file.stat().st_size)
         return {
             "backup_file": str(backup_file),
             "file_count": len(files),

@@ -24,11 +24,16 @@
 
 ## Agent 编排
 
-`/story-write N` 对齐参考项目 `webnovel-writer` 的做法：在 Claude Code 内使用 `Agent` 工具调用：
+`/story-write N` 在 Claude Code 内固定使用 `Agent` 工具调用三个专职 Agent：
 
-- `context-agent`
-- `reviewer`
-- `data-agent`
+| Agent | 职责 |
+|-------|------|
+| `context-agent` | 搜集项目上下文（大纲、记忆、设定），输出本章创作任务书 |
+| `reviewer` | 审查正文，检查设定一致性、时间线、角色动机、逻辑因果和 AI 味 |
+| `data-agent` | 从已写正文中提取角色、伏笔、时间线等事实，生成章节增量数据 |
+
+`deconstruction-agent` 用于 `/story-init` 或写前参考拆解，不是 `/story-write`
+固定提交流程的一部分。
 
 中间产物固定保存到：
 
@@ -46,6 +51,13 @@
 ```
 
 CLI 不自动调用 Agent，只负责确定性校验、报告、修复计划、兜底抽取和提交。
+
+## 写作闭环保障
+
+- **字数闸门**：低于规划字数 60% 阻断提交，低于 80% 或超出 135% 发出警告。使用 `--strict-warnings` 可把警告也视为阻断。
+- **审查闸门**：reviewer 发现 blocking issue 时章节 commit 为 rejected，不写入最终 `正文/`，不更新记忆。
+- **经验积累**：每章写完后用 `/story-learn` 记录写作经验，后续章节自动参考。
+- **中篇模式**：5 万字以上项目自动启用 SQLite 索引、备份快照、质量趋势分析和上下文裁剪。
 
 ## 章节号
 

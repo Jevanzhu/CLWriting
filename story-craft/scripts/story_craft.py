@@ -18,6 +18,7 @@ from core.project_locator import (
     write_current_project_pointer,
 )
 from core.runtime_compat import enable_windows_utf8_stdio
+from core.log import setup_logging
 from tools.genre_profile_builder import list_all_genres
 from tools.init_project import init_project
 from tools.agent_workflow import (
@@ -26,6 +27,7 @@ from tools.agent_workflow import (
     build_repair_plan,
     build_workflow_workspace,
     build_writing_brief,
+    normalize_reviewer_output,
 )
 from tools.backup_manager import BackupManager
 from tools.chapter_workflow import commit_chapter_workflow
@@ -174,9 +176,13 @@ def _resolve_chapter_arg(args) -> int:
         chapter = chapter_arg
     if chapter is None:
         raise ValueError("缺少章节号：请写成命令后接章节号，或使用 --chapter 指定。")
-    if int(chapter) < 1:
+    try:
+        val = int(chapter)
+    except (ValueError, TypeError):
+        raise ValueError(f"章节号必须为正整数，收到：{chapter!r}")
+    if val < 1:
         raise ValueError("章节号必须从 1 开始。")
-    return int(chapter)
+    return val
 
 
 def cmd_review(args) -> int:
@@ -191,7 +197,7 @@ def cmd_review(args) -> int:
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         _print_file_error("生成审查报告", exc)
         return 1
-    report = build_review_report(chapter, review_results, chapter_text)
+    report = build_review_report(chapter, normalize_reviewer_output(review_results), chapter_text)
     report_file = Path(args.report_file)
     report_file.parent.mkdir(parents=True, exist_ok=True)
     report_file.write_text(report, encoding="utf-8")
@@ -261,6 +267,9 @@ def cmd_query(args) -> int:
                 budget=args.budget,
             )
         )
+    else:
+        print_error(f"未知查询目标：{args.target}")
+        return 1
     return 0
 
 
@@ -302,7 +311,7 @@ def cmd_write(args) -> int:
             report_file=args.report_file,
             allow_warnings=not args.strict_warnings,
         )
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
         _print_file_error("提交章节", exc)
         return 1
     if args.result_file:
@@ -391,10 +400,14 @@ def cmd_maintain(args) -> int:
         print_json(StoryRuntimeHealth.from_project(project_root).check())
     elif args.target == "outline-revision":
         print_json(OutlineReviser.from_project(project_root).suggest(args.chapter, args.note))
+    else:
+        print_error(f"未知维护目标：{args.target}")
+        return 1
     return 0
 
 
 def main() -> int:
+    setup_logging()
     enable_windows_utf8_stdio(skip_in_pytest=True)
     parser = build_parser()
     args = parser.parse_args()
@@ -413,7 +426,11 @@ def main() -> int:
         "maintain": cmd_maintain,
     }
     handler = handlers[args.command]
-    return handler(args)
+    try:
+        return handler(args)
+    except Exception as exc:
+        print_error(f"内部错误：{exc}")
+        return 1
 
 
 if __name__ == "__main__":

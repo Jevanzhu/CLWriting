@@ -7,17 +7,13 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
 from core.state_manager import StateManager
-
-
-def now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+from core.time_utils import now_utc_iso
 
 
 @dataclass
@@ -46,33 +42,38 @@ class MemoryIndexService:
         self.config.story_dir.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.config.memory_db)) as conn:
             self._ensure_schema(conn)
-            conn.execute("DELETE FROM entries")
-            conn.executemany(
-                """
-                INSERT INTO entries(kind, entity_id, chapter, title, content, payload)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        entry.kind,
-                        entry.entity_id,
-                        entry.chapter,
-                        entry.title,
-                        entry.content,
-                        json.dumps(entry.payload, ensure_ascii=False),
-                    )
-                    for entry in entries
-                ],
-            )
-            conn.execute("DELETE FROM meta")
-            conn.execute(
-                "INSERT INTO meta(key, value) VALUES (?, ?)",
-                ("rebuilt_at", now_utc()),
-            )
+            conn.execute("BEGIN")
+            try:
+                conn.execute("DELETE FROM entries")
+                conn.executemany(
+                    """
+                    INSERT INTO entries(kind, entity_id, chapter, title, content, payload)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            entry.kind,
+                            entry.entity_id,
+                            entry.chapter,
+                            entry.title,
+                            entry.content,
+                            json.dumps(entry.payload, ensure_ascii=False),
+                        )
+                        for entry in entries
+                    ],
+                )
+                conn.execute("DELETE FROM meta")
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES (?, ?)",
+                    ("rebuilt_at", now_utc_iso()),
+                )
+            except BaseException:
+                conn.rollback()
+                raise
             conn.commit()
 
         state = StateManager(self.config)
-        state.update_maintenance(last_index_rebuild_at=now_utc())
+        state.update_maintenance(last_index_rebuild_at=now_utc_iso())
         state.flush()
 
         by_kind: dict[str, int] = {}
@@ -110,7 +111,7 @@ class MemoryIndexService:
         limit: int = 20,
     ) -> list[dict[str, Any]]:
         if not self.config.memory_db.exists():
-            self.rebuild()
+            return []
         where = []
         params: list[Any] = []
         if kind:

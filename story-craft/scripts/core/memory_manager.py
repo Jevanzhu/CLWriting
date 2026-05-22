@@ -4,21 +4,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.security_utils import atomic_write_json, read_json_safe
+from core.time_utils import now_utc_iso
 
-
-def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+logger = logging.getLogger("core.memory_manager")
 
 
 def default_memory() -> dict[str, Any]:
     return {
-        "last_updated": now_iso(),
+        "last_updated": now_utc_iso(),
         "last_updated_chapter": 0,
         "characters": [],
         "foreshadowing": [],
@@ -120,7 +119,14 @@ class MemoryManager:
         return deepcopy(timeline[-chapters:] if chapters > 0 else timeline)
 
     def append_timeline_entry(self, entry: dict[str, Any]) -> None:
-        self._memory.setdefault("timeline", []).append(deepcopy(entry))
+        timeline = self._memory.setdefault("timeline", [])
+        chapter = entry.get("chapter")
+        if chapter is not None:
+            for i, existing in enumerate(timeline):
+                if existing.get("chapter") == chapter:
+                    timeline[i] = deepcopy(entry)
+                    return
+        timeline.append(deepcopy(entry))
 
     def get_world_rules(self) -> list[dict[str, Any]]:
         return deepcopy(self._memory.get("world_rules", []))
@@ -187,11 +193,12 @@ class MemoryManager:
 
         if chapter:
             self._memory["last_updated_chapter"] = chapter
-        self._memory["last_updated"] = now_iso()
+        self._memory["last_updated"] = now_utc_iso()
 
     def flush(self) -> None:
         self._memory = self._ensure_memory_schema(self._memory)
         atomic_write_json(self.config.memory_file, self._memory, use_lock=True, backup=True)
+        logger.debug("memory flushed, chapter=%d", self._memory.get("last_updated_chapter", 0))
 
     @property
     def use_sqlite(self) -> bool:
@@ -253,6 +260,6 @@ class MemoryManager:
         for key in ("characters", "foreshadowing", "timeline", "world_rules", "chapter_summaries"):
             if not isinstance(merged.get(key), list):
                 merged[key] = []
-        merged.setdefault("last_updated", now_iso())
+        merged.setdefault("last_updated", now_utc_iso())
         merged.setdefault("last_updated_chapter", 0)
         return merged
