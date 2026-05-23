@@ -42,10 +42,11 @@ def _infer_title(chapter_text: str, chapter: int, fallback: str = "") -> str:
             continue
         if line.startswith("#"):
             title = line.lstrip("#").strip()
-            title = re.sub(rf"^第0?{int(chapter)}章[：:\-\s]*", "", title).strip()
-            if title:
-                return title
-        break
+            if re.match(rf"^第0?{int(chapter)}章(?:[：:\-\s]|$)", title):
+                title = re.sub(rf"^第0?{int(chapter)}章[：:\-\s]*", "", title).strip()
+                if title:
+                    return title
+                return f"第{int(chapter):02d}章"
     return fallback or f"第{int(chapter):02d}章"
 
 

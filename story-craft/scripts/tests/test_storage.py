@@ -173,6 +173,51 @@ def test_memory_manager_applies_chapter_delta(tmp_path):
     assert not reloaded.use_sqlite
 
 
+def test_memory_manager_normalizes_agent_entity_and_timeline_chapter(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑", protagonist_name="林墨")
+    memory = MemoryManager.from_project(project)
+    payload = memory.load()
+    payload["timeline"] = [
+        {"chapter": 1, "events": ["规划第1章"], "planned": True},
+        {"chapter": 2, "events": ["规划第2章"], "planned": True},
+    ]
+    memory.save(payload)
+
+    memory = MemoryManager.from_project(project)
+    memory.apply_chapter_delta(
+        {
+            "chapter": "1",
+            "entities_appeared": [
+                {
+                    "id": "char_protagonist",
+                    "type": "character",
+                    "mentions": ["林墨"],
+                    "confidence": 0.95,
+                }
+            ],
+            "timeline_entry": {"chapter": "1", "events": ["林墨收到来信"]},
+            "chapter_summary": {
+                "chapter": "1",
+                "title": "葬礼后的信",
+                "summary": "林墨收到来信",
+            },
+        }
+    )
+    memory.flush()
+
+    reloaded = MemoryManager.from_project(project)
+    timeline = reloaded.load()["timeline"]
+    chapter_one = [item for item in timeline if int(item.get("chapter") or 0) == 1]
+    protagonist = reloaded.get_character("char_protagonist")
+
+    assert len(chapter_one) == 1
+    assert chapter_one[0]["chapter"] == 1
+    assert not chapter_one[0].get("planned")
+    assert protagonist is not None
+    assert protagonist["last_appearance_chapter"] == 1
+
+
 def test_chapter_commit_service_updates_state_and_memory_only_when_accepted(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑", protagonist_name="林墨")

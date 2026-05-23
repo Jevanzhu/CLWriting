@@ -192,6 +192,46 @@ def test_commit_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_pat
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
 
 
+def test_commit_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        "雨先落在解剖楼的铁门上。\n"
+        "# 第01章 葬礼后的信\n\n"
+        + "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。"
+        * 100,
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = commit_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+
+    assert result["ok"], result
+    assert result["title"] == "葬礼后的信"
+    assert "葬礼后的信" in Path(result["chapter_file"]).name
+    commit_payload = json.loads(Path(result["commit_file"]).read_text(encoding="utf-8"))
+    assert commit_payload["title"] == "葬礼后的信"
+
+
 def test_cli_plan_and_write(tmp_path):
     project = tmp_path / "demo"
     init_project(

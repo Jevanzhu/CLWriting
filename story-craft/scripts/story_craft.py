@@ -194,10 +194,11 @@ def cmd_review(args) -> int:
     try:
         review_results = json.loads(Path(args.review_results).read_text(encoding="utf-8"))
         chapter_text = Path(args.chapter_file).read_text(encoding="utf-8")
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        normalized_review = normalize_reviewer_output(review_results)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
         _print_file_error("生成审查报告", exc)
         return 1
-    report = build_review_report(chapter, normalize_reviewer_output(review_results), chapter_text)
+    report = build_review_report(chapter, normalized_review, chapter_text)
     report_file = Path(args.report_file)
     report_file.parent.mkdir(parents=True, exist_ok=True)
     report_file.write_text(report, encoding="utf-8")
@@ -378,7 +379,7 @@ def cmd_agent(args) -> int:
         else:
             print_error(f"未知 agent 子命令：{args.agent_command}")
             return 1
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
         _print_file_error("生成 Agent payload", exc)
         return 1
 
