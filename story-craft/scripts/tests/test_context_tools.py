@@ -212,3 +212,47 @@ def test_cli_query_learn_review_paths(tmp_path):
     )
     assert review.returncode == 0, review.stderr
     assert report_file.is_file()
+
+
+def test_cli_reviewer_schema_errors_are_actionable(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    chapter_file = tmp_path / "chapter.md"
+    chapter_file.write_text("正文内容", encoding="utf-8")
+
+    missing_summary = tmp_path / "missing-summary.json"
+    missing_summary.write_text(json.dumps({"issues": []}), encoding="utf-8")
+    review = run_cli(
+        "--project-root",
+        str(project),
+        "review",
+        "--chapter",
+        "1",
+        "--review-results",
+        str(missing_summary),
+        "--chapter-file",
+        str(chapter_file),
+        "--report-file",
+        str(tmp_path / "report.md"),
+    )
+    assert review.returncode == 1
+    assert "内部错误" not in review.stderr
+    assert "reviewer JSON 缺少必需字段：summary" in review.stderr
+
+    missing_issues = tmp_path / "missing-issues.json"
+    missing_issues.write_text(json.dumps({"summary": "格式错误"}), encoding="utf-8")
+    repair = run_cli(
+        "--project-root",
+        str(project),
+        "agent",
+        "repair",
+        "--chapter",
+        "1",
+        "--review-results",
+        str(missing_issues),
+        "--draft-file",
+        str(chapter_file),
+    )
+    assert repair.returncode == 1
+    assert "内部错误" not in repair.stderr
+    assert "reviewer JSON 缺少必需字段：issues" in repair.stderr

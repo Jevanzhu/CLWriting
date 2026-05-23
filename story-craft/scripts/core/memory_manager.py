@@ -27,6 +27,26 @@ def default_memory() -> dict[str, Any]:
     }
 
 
+def _coerce_positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _entity_identifier(item: Any) -> str:
+    if isinstance(item, dict):
+        for key in ("id", "suggested_id", "name"):
+            value = item.get(key)
+            if value:
+                return str(value)
+        return ""
+    if item is None:
+        return ""
+    return str(item)
+
+
 class MemoryManager:
     """Runtime memory manager."""
 
@@ -120,12 +140,16 @@ class MemoryManager:
 
     def append_timeline_entry(self, entry: dict[str, Any]) -> None:
         timeline = self._memory.setdefault("timeline", [])
-        chapter = entry.get("chapter")
+        chapter = _coerce_positive_int(entry.get("chapter"))
         if chapter is not None:
+            normalized = deepcopy(entry)
+            normalized["chapter"] = chapter
             for i, existing in enumerate(timeline):
-                if existing.get("chapter") == chapter:
-                    timeline[i] = deepcopy(entry)
+                if _coerce_positive_int(existing.get("chapter")) == chapter:
+                    timeline[i] = normalized
                     return
+            timeline.append(normalized)
+            return
         timeline.append(deepcopy(entry))
 
     def get_world_rules(self) -> list[dict[str, Any]]:
@@ -169,15 +193,19 @@ class MemoryManager:
 
     def apply_chapter_delta(self, delta: dict[str, Any]) -> None:
         timeline_entry = delta.get("timeline_entry") or {}
-        chapter = int(delta.get("chapter") or timeline_entry.get("chapter") or 0)
+        chapter = _coerce_positive_int(delta.get("chapter")) or _coerce_positive_int(
+            timeline_entry.get("chapter")
+        ) or 0
         for char in delta.get("entities_new", []) or []:
             self.upsert_character(char)
             self._mark_character_appearance(
                 str(char.get("id") or char.get("suggested_id") or char.get("name") or ""),
                 chapter,
             )
-        for char_id in delta.get("entities_appeared", []) or []:
-            self._mark_character_appearance(str(char_id), chapter)
+        for item in delta.get("entities_appeared", []) or []:
+            identifier = _entity_identifier(item)
+            if identifier:
+                self._mark_character_appearance(identifier, chapter)
         for change in delta.get("state_changes", []) or []:
             self._apply_state_change(change)
         for item in delta.get("new_foreshadowing", []) or []:
