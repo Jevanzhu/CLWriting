@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quality trend reporting for story-craft chapter commits."""
+"""Quality trend reporting for story-craft chapter records."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
 
+from core.chapter_paths import iter_chapter_record_files
 from core.config import StoryCraftConfig
 from core.security_utils import read_json_safe
 
@@ -22,14 +23,14 @@ class QualityTrendReporter:
         return cls(StoryCraftConfig.from_project_root(project_root))
 
     def build(self) -> dict[str, Any]:
-        commits = self._load_commits()
-        accepted = [item for item in commits if item.get("status") == "accepted"]
+        records = self._load_records()
+        accepted = [item for item in records if item.get("status") == "accepted"]
         warning_counter: Counter[str] = Counter()
         blocker_counter: Counter[str] = Counter()
         words: list[int] = []
         warning_rows: list[dict[str, Any]] = []
 
-        for payload in commits:
+        for payload in records:
             review = payload.get("review", {})
             word_count = int(payload.get("word_count") or 0)
             if word_count:
@@ -48,9 +49,9 @@ class QualityTrendReporter:
                 blocker_counter[self._category(item)] += 1
 
         return {
-            "chapter_count": len(commits),
+            "chapter_count": len(records),
             "accepted_count": len(accepted),
-            "rejected_count": len(commits) - len(accepted),
+            "rejected_count": len(records) - len(accepted),
             "avg_words": round(sum(words) / len(words), 2) if words else 0,
             "min_words": min(words) if words else 0,
             "max_words": max(words) if words else 0,
@@ -60,15 +61,13 @@ class QualityTrendReporter:
             "risk_flags": self._risk_flags(words, warning_counter, blocker_counter),
         }
 
-    def _load_commits(self) -> list[dict[str, Any]]:
-        commits = []
-        if not self.config.chapters_dir.exists():
-            return commits
-        for path in sorted(self.config.chapters_dir.glob("ch_*_commit.json")):
+    def _load_records(self) -> list[dict[str, Any]]:
+        records = []
+        for path in iter_chapter_record_files(config=self.config):
             payload = read_json_safe(path, {})
             if payload:
-                commits.append(payload)
-        return commits
+                records.append(payload)
+        return records
 
     def _category(self, item: Any) -> str:
         if isinstance(item, dict):

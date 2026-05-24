@@ -1,24 +1,24 @@
 # 故障排查
 
-## 提交闸门
+## 验收闸门
 
-`write` 会在提交前执行这些检查：
+`write` 会在验收前执行这些检查：
 
 - 项目已完成 `init` 和 `plan`。
 - 目标章节存在于 `大纲/总纲.md`。
-- 第 2 章及以后必须存在上一章 accepted commit。
+- 第 2 章及以后必须存在上一章 accepted 验收记录。
 - 正文不能包含 `[TODO]`、`[待定]`、`[XXX]` 等占位符。
-- 实际字数低于本章规划字数 60% 会阻断提交。
+- 实际字数低于本章规划字数 60% 会阻断验收。
 - 实际字数低于 80% 或高于 135% 会返回 warning。使用 `--strict-warnings` 时 warning 也视为阻断。
-- reviewer JSON 中存在 blocking issue 时，章节 commit 为 rejected，不写入 `正文/`，不更新 `memory.json` / `state.json`。
-- `stage=warnings` 且启用 `--strict-warnings` 时，同样不写入 `正文/`、`审查报告/` 或 commit 文件。
+- reviewer JSON 中存在 blocking issue 时，章节记录为 rejected，不写入 `正文/`，不更新 `memory.json` / `state.json`。
+- `stage=warnings` 且启用 `--strict-warnings` 时，同样不写入 `正文/`、`审查报告/` 或验收记录。
 
 `write` 输出中的 `word_count_check` 会展示计划字数、实际字数、阈值和比例。
 
 ## 常见问题
 
 - 找不到项目根目录：使用 `--project-root <项目>`，项目内必须有 `.story/state.json`。全局参数要放在子命令前，例如 `story_craft.py --project-root <项目> query status`。
-- 第 2 章无法写：确认第 1 章已经通过 `write` 提交，且 commit 状态为 `accepted`。
+- 第 2 章无法写：确认第 1 章已经通过 `write` 验收，且记录状态为 `accepted`。
 - 字数不足：查看 `write` 输出中的 `word_count_check`，按 `planned_words` 扩写。
 - reviewer 阻断：先运行 `agent repair`，按 `blocker_actions` 修复后重新审查。
 - reviewer JSON 被拒绝：确认顶层包含 `issues` 数组和 `summary` 字符串；不要把 `passed`、`blockers`、`warnings` 当作原始输入字段。

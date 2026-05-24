@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 from conftest import run_cli
-from core.chapter_commit import ChapterCommitService
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
+from core.chapter_record import ChapterRecordService
 from core.memory_manager import MemoryManager
 from tools.genre_profile_builder import build_genre_hints
 from tools.init_project import init_project
@@ -70,7 +70,7 @@ def test_context_manager_builds_four_sections(tmp_path):
         "每章前300字内出现行动或异常",
         1,
     )
-    ChapterCommitService(StoryCraftConfig.from_project_root(project)).commit(
+    ChapterRecordService(StoryCraftConfig.from_project_root(project)).record(
         1,
         "葬礼后的信",
         1800,
@@ -158,7 +158,7 @@ def test_project_memory_and_prewrite_validator(tmp_path):
 
     validation = validate_prewrite(project, 2)
     assert not validation["ready"]
-    assert any("缺少上一章提交记录" in item for item in validation["blockers"])
+    assert any("缺少上一章验收记录" in item for item in validation["blockers"])
 
 
 def test_cli_query_learn_review_paths(tmp_path):

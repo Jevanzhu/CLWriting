@@ -7,8 +7,15 @@ import pytest
 
 from conftest import run_cli
 from core.chapter_commit import ChapterCommitService
-from core.chapter_paths import chapter_commit_file_name, chapter_file_name, find_chapter_file
+from core.chapter_paths import (
+    chapter_commit_file_name,
+    chapter_file_name,
+    chapter_record_file_name,
+    find_chapter_file,
+    find_chapter_record_file,
+)
 from core.config import StoryCraftConfig
+from core.chapter_record import ChapterRecordService
 from core.memory_manager import MemoryManager
 from core.security_utils import atomic_write_json
 from core.state_manager import SCHEMA_VERSION, StateManager
@@ -218,12 +225,12 @@ def test_memory_manager_normalizes_agent_entity_and_timeline_chapter(tmp_path):
     assert protagonist["last_appearance_chapter"] == 1
 
 
-def test_chapter_commit_service_updates_state_and_memory_only_when_accepted(tmp_path):
+def test_chapter_record_service_updates_state_and_memory_only_when_accepted(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑", protagonist_name="林墨")
-    service = ChapterCommitService(StoryCraftConfig.from_project_root(project))
+    service = ChapterRecordService(StoryCraftConfig.from_project_root(project))
 
-    rejected = service.commit(
+    rejected = service.record(
         1,
         "退稿章",
         900,
@@ -238,7 +245,7 @@ def test_chapter_commit_service_updates_state_and_memory_only_when_accepted(tmp_
     assert StateManager.from_project(project).get_progress()["total_words"] == 0
     assert MemoryManager.from_project(project).get_chapter_summaries() == []
 
-    accepted = service.commit(
+    accepted = service.record(
         1,
         "葬礼后的信",
         1800,
@@ -259,14 +266,14 @@ def test_chapter_commit_service_updates_state_and_memory_only_when_accepted(tmp_
     assert accepted["status"] == "accepted"
     assert accepted["memory_updated"]
     assert accepted["state_updated"]
-    assert Path(accepted["commit_file"]).is_file()
+    assert Path(accepted["record_file"]).is_file()
 
-    commit_payload = read_json(Path(accepted["commit_file"]))
-    assert commit_payload["status"] == "accepted"
-    assert commit_payload["review"]["warnings"][0]["category"] == "pacing"
-    assert commit_payload["review"]["issue_count"] == 1
-    assert commit_payload["review"]["blocker_count"] == 0
-    assert commit_payload["scenes"][0]["summary"] == "葬礼"
+    record_payload = read_json(Path(accepted["record_file"]))
+    assert record_payload["status"] == "accepted"
+    assert record_payload["review"]["warnings"][0]["category"] == "pacing"
+    assert record_payload["review"]["issue_count"] == 1
+    assert record_payload["review"]["blocker_count"] == 0
+    assert record_payload["scenes"][0]["summary"] == "葬礼"
     assert StateManager.from_project(project).get_progress()["total_words"] == 1800
     assert (
         MemoryManager.from_project(project).get_chapter_summaries(1)[0]["summary"]
@@ -274,13 +281,13 @@ def test_chapter_commit_service_updates_state_and_memory_only_when_accepted(tmp_
     )
 
 
-def test_chapter_commit_service_requires_normalized_review_result(tmp_path):
+def test_chapter_record_service_requires_normalized_review_result(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑", protagonist_name="林墨")
-    service = ChapterCommitService(StoryCraftConfig.from_project_root(project))
+    service = ChapterRecordService(StoryCraftConfig.from_project_root(project))
 
     with pytest.raises(ValueError, match="normalize_reviewer_output"):
-        service.commit(
+        service.record(
             1,
             "未归一化",
             900,
@@ -292,6 +299,23 @@ def test_chapter_commit_service_requires_normalized_review_result(tmp_path):
     assert MemoryManager.from_project(project).get_chapter_summaries() == []
 
 
+def test_legacy_chapter_commit_service_alias_returns_commit_file(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑", protagonist_name="林墨")
+    service = ChapterCommitService(StoryCraftConfig.from_project_root(project))
+
+    accepted = service.commit(
+        1,
+        "葬礼后的信",
+        1800,
+        normalize_reviewer_output({"issues": [], "summary": "可验收。"}),
+        {"chapter_summary": {"chapter": 1, "title": "葬礼后的信", "summary": "林墨收到来信"}},
+    )
+
+    assert accepted["record_file"] == accepted["commit_file"]
+    assert Path(accepted["record_file"]).name == "ch_01_record.json"
+
+
 def test_chapter_path_helpers_find_numbered_markdown(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑")
@@ -301,4 +325,19 @@ def test_chapter_path_helpers_find_numbered_markdown(tmp_path):
 
     assert chapter_file_name(2, "档案室/凌晨") == "第02章-凌晨.md"
     assert chapter_commit_file_name(2) == "ch_02_commit.json"
+    assert chapter_record_file_name(2) == "ch_02_record.json"
     assert find_chapter_file(2, config=config) == chapter_path
+
+
+def test_chapter_record_lookup_prefers_new_record_over_legacy_commit(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    config = StoryCraftConfig.from_project_root(project)
+    legacy = config.chapters_dir / chapter_commit_file_name(1)
+    record = config.chapters_dir / chapter_record_file_name(1)
+    atomic_write_json(legacy, {"chapter": 1, "status": "accepted"}, use_lock=False)
+
+    assert find_chapter_record_file(1, config=config) == legacy
+
+    atomic_write_json(record, {"chapter": 1, "status": "accepted"}, use_lock=False)
+    assert find_chapter_record_file(1, config=config) == record

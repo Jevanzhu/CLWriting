@@ -25,7 +25,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 | `use` | 把当前 Claude 工作区绑定到指定故事项目 |
 | `init` | 初始化一个故事项目 |
 | `plan` | 生成或刷新故事总纲 |
-| `write N` | 提交一章草稿并更新故事记忆 |
+| `write N` | 验收一章草稿并更新故事记忆 |
 | `agent` | 生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta |
 | `review N` | 把 reviewer JSON 转为 Markdown 审查报告 |
 | `learn` | 记录可复用写作经验 |
@@ -77,7 +77,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
   --result-file /tmp/story-demo/.story/write-result-ch1.json
 ```
 
-`write --chapter 1` 仍兼容；推荐使用 `write 1`。`--result-file` 可选，用于把提交结果保存成 JSON，便于工作台恢复。使用 `--strict-warnings` 可把字数偏差警告也视为阻断。
+`write --chapter 1` 仍兼容；推荐使用 `write 1`。`--result-file` 可选，用于把验收结果保存成 JSON，便于工作台恢复。使用 `--strict-warnings` 可把字数偏差警告也视为阻断。
 
 真实 `/story-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件；CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
 

@@ -209,8 +209,8 @@ def build_workflow_workspace(
         "hard_rules": [
             "必须使用 Agent 工具调用 context-agent/reviewer/data-agent；不得由主流程口头替代。",
             "review.json 存在 blocking issue 时不得进入 write。",
-            "data-agent 只生成 delta，不直接写 state/memory/commit。",
-            "CLI 只做确定性校验、报告、修复计划、兜底抽取和提交。",
+            "data-agent 只生成 delta，不直接写 state/memory/章节记录。",
+            "CLI 只做确定性校验、报告、修复计划、兜底抽取和章节验收记录。",
             "失败只补跑失败步骤，不回退已通过步骤。",
         ],
     }
@@ -269,7 +269,7 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
 
 
 def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReviewerResult:
-    """Normalize reviewer-agent JSON into commit-friendly blockers/warnings."""
+    """Normalize reviewer-agent JSON into record-ready blockers/warnings."""
     normalized = _validate_raw_reviewer_output(review_result)
     issues = _as_issue_list(normalized.get("issues"))
     blockers: list[dict[str, Any]] = []
@@ -426,7 +426,7 @@ def build_repair_plan(
         "ok": True,
         "chapter": int(chapter),
         "retry_required": bool(blockers or placeholders),
-        "can_commit": not blockers and not placeholders,
+        "can_record": not blockers and not placeholders,
         "blocker_actions": [
             {
                 "category": item.get("category", "general"),
@@ -445,7 +445,7 @@ def build_repair_plan(
             for item in warnings
         ],
         "placeholder_actions": placeholders,
-        "next_step": "重新起草并再次调用 reviewer" if blockers or placeholders else "进入润色或提交",
+        "next_step": "重新起草并再次调用 reviewer" if blockers or placeholders else "进入润色或验收",
         "project_root": str(config.project_root),
     }
 
@@ -524,7 +524,7 @@ def build_extraction_delta(
     chapter_file: str | Path,
     title: str = "",
 ) -> ExtractionDelta:
-    """Build a data-agent compatible fallback delta from committed text."""
+    """Build a data-agent compatible fallback delta from accepted text."""
     config = StoryCraftConfig.from_project_root(project_root)
     path = Path(chapter_file).expanduser().resolve()
     text = path.read_text(encoding="utf-8")

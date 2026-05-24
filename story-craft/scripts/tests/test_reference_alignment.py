@@ -61,7 +61,7 @@ def test_story_write_skill_requires_agent_tool_and_workflow_artifacts():
     assert 'subagent_type: "story-craft:context-agent"' in skill
     assert 'subagent_type: "story-craft:reviewer"' in skill
     assert 'subagent_type: "story-craft:data-agent"' in skill
-    assert "review.json 存在 blocking issue 时不得进入提交" in skill
+    assert "review.json 存在 blocking issue 时不得进入验收" in skill
 
 
 def test_agents_accept_workflow_output_files_without_direct_state_writes():

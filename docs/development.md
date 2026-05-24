@@ -4,14 +4,14 @@
 
 - Python 版本：3.10+
 - 运行入口：`python3 -X utf8 story-craft/scripts/story_craft.py`
-- 可选依赖：`filelock`，用于增强 state/memory/commit JSON 写入锁。
+- 可选依赖：`filelock`，用于增强 state/memory/record JSON 写入锁。
 - 测试依赖：`pytest`，用于运行脚本层测试套件。
 
 项目配置见根目录 `pyproject.toml`。当前测试入口使用 `pytest`。
 
 ## 当前状态
 
-当前主线已经完成 story-craft 的核心闭环：Skill 入口、Agent 编排工作台、CLI 工具层、章节提交、记忆维护、中篇索引/备份/健康检查和 pytest 测试套件。
+当前主线已经完成 story-craft 的核心闭环：Skill 入口、Agent 编排工作台、CLI 工具层、章节验收、记忆维护、中篇索引/备份/健康检查和 pytest 测试套件。
 
 后续开发重点应优先放在真实 `/story-write` Agent 输出联调、长一点的样例项目验证和文档/错误信息细节打磨。
 
@@ -51,7 +51,8 @@ python3 -m pytest story-craft/scripts/tests/test_memory_index.py
 | 模块 | 职责 |
 |------|------|
 | `core/types.py` | 核心边界 TypedDict（ReviewerResult、ExtractionDelta、WriteResult、WorkflowManifest 等） |
-| `core/chapter_commit.py` | 章节 commit 负载生成、提交记录持久化、accepted 后更新 state/memory |
+| `core/chapter_record.py` | 章节验收记录负载生成、记录持久化、accepted 后更新 state/memory |
+| `core/chapter_commit.py` | legacy 兼容导入层，旧调用转到 `chapter_record` |
 | `core/security_utils.py` | 原子 JSON 写入、可选 filelock 锁保护和备份 |
 | `core/text_utils.py` | 公共纯函数：中文字符计数、行压缩、整数提取、大纲字段解析 |
 | `core/log.py` | CLI 日志初始化 |

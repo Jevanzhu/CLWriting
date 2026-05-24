@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.chapter_paths import chapter_commit_file_name
+from core.chapter_paths import find_chapter_record_file
 from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
 from core.security_utils import read_json_safe
@@ -25,12 +25,9 @@ def _required_files(config: StoryCraftConfig) -> list[Path]:
     ]
 
 
-def _chapter_commit(config: StoryCraftConfig, chapter: int) -> dict:
-    path = config.chapters_dir / chapter_commit_file_name(
-        chapter,
-        pad_width=config.chapter_pad_width,
-    )
-    return read_json_safe(path, {}) if path.exists() else {}
+def _chapter_record(config: StoryCraftConfig, chapter: int) -> dict:
+    path = find_chapter_record_file(chapter, config=config)
+    return read_json_safe(path, {}) if path and path.exists() else {}
 
 
 def validate_prewrite(project_root: str | Path, chapter: int) -> dict:
@@ -52,13 +49,13 @@ def validate_prewrite(project_root: str | Path, chapter: int) -> dict:
     target_chapter = int(chapter)
 
     if target_chapter <= current_chapter:
-        warnings.append(f"目标章节不大于当前进度：current_chapter={current_chapter}")
+        blockers.append(f"目标章节不大于当前进度：current_chapter={current_chapter}")
 
     if target_chapter > 1:
-        previous_commit = _chapter_commit(config, target_chapter - 1)
-        if not previous_commit:
-            blockers.append(f"缺少上一章提交记录：第{target_chapter - 1:02d}章")
-        elif previous_commit.get("status") != "accepted":
+        previous_record = _chapter_record(config, target_chapter - 1)
+        if not previous_record:
+            blockers.append(f"缺少上一章验收记录：第{target_chapter - 1:02d}章")
+        elif previous_record.get("status") != "accepted":
             blockers.append(f"上一章未通过审查：第{target_chapter - 1:02d}章")
 
     outline_text = (config.outline_dir / "总纲.md").read_text(encoding="utf-8")

@@ -9,7 +9,7 @@
 `severity` 使用 `critical`、`high`、`medium`、`low`。
 `category` 使用 `setting`、`timeline`、`continuity`、`character`、`logic`、`ai_flavor`、`pacing`、`format`。
 
-原始输出不使用 `blocker_count` / `issue_count` 作为输入字段；计数只在提交
+原始输出不使用 `blocker_count` / `issue_count` 作为输入字段；计数只在验收
 结果里由本地根据归一化后的列表派生。
 
 最小通过示例：
@@ -17,7 +17,7 @@
 ```json
 {
   "issues": [],
-  "summary": "本章可提交。"
+  "summary": "本章可验收。"
 }
 ```
 
@@ -40,7 +40,7 @@
 ```
 
 本地归一化后会生成内部结构：`passed`、`blockers`、`warnings` 和
-`suggestions`。`blockers` 列表是提交闸门的唯一权威来源。
+`suggestions`。`blockers` 列表是验收闸门的唯一权威来源。
 审查维度包括设定一致性、时间线、角色动机、逻辑因果和 AI 味。
 
 ## delta JSON
@@ -106,18 +106,18 @@
 
 ## write-result JSON
 
-`write` 命令提交后生成的结果文件，记录本次提交的阶段、状态和字数检查结果：
+`write` 命令验收后生成的结果文件，记录本次验收的阶段、状态和字数检查结果：
 
 ```json
 {
-  "stage": "commit",
+  "stage": "record",
   "status": "accepted",
   "chapter": 1,
   "title": "葬礼后的信",
   "word_count": 2850,
   "chapter_file": "/tmp/story-demo/正文/第01章-葬礼后的信.md",
   "report_file": "/tmp/story-demo/审查报告/第01章审查报告.md",
-  "commit_file": "/tmp/story-demo/.story/chapters/ch_01_commit.json",
+  "record_file": "/tmp/story-demo/.story/chapters/ch_01_record.json",
   "memory_updated": true,
   "state_updated": true,
   "warnings": [],
@@ -134,10 +134,10 @@
 }
 ```
 
-- `stage`：提交阶段，如 `commit`、`warnings`、`rejected`。
-- `status`：`accepted`（提交成功）、`rejected`（审查阻断）、`warnings`（警告阻断，`--strict-warnings` 模式）。
+- `stage`：验收阶段，如 `record`、`warnings`、`write_error`。
+- `status`：`accepted`（验收成功）、`rejected`（审查阻断）、`failed`（正式写入失败）。
 - `word_count_check`：字数闸门结果，`blockers` 非空时低于 60% 阈值，`warnings` 非空时低于 80% 或超出 135%。
-- `memory_updated` / `state_updated`：只有 accepted commit 会更新故事记忆和项目进度。
+- `memory_updated` / `state_updated`：只有 accepted 验收记录会更新故事记忆和项目进度。
 
 `status=rejected` 或 `stage=warnings` 时不会写入最终 `正文/`，不更新记忆。
 

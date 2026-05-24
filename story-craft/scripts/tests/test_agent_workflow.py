@@ -17,7 +17,7 @@ from tools.agent_workflow import (
     build_writing_brief,
     normalize_reviewer_output,
 )
-from tools.chapter_workflow import commit_chapter_workflow
+from tools.chapter_workflow import record_chapter_workflow
 
 
 def test_build_writing_brief_matches_context_agent_shape(tmp_path):
@@ -125,10 +125,10 @@ def test_workflow_manifest_write_command_persists_write_result(tmp_path):
     assert result_file.is_file()
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     stdout_payload = json.loads(result.stdout)
-    assert payload["stage"] == "commit"
+    assert payload["stage"] == "record"
     assert payload["status"] == "accepted"
     assert "word_count_check" in payload
-    assert stdout_payload["commit_file"] == payload["commit_file"]
+    assert stdout_payload["record_file"] == payload["record_file"]
 
 
 def test_repair_and_polish_plans_handle_reviewer_issues(tmp_path):
@@ -164,7 +164,7 @@ def test_repair_and_polish_plans_handle_reviewer_issues(tmp_path):
 
     repair = build_repair_plan(project, 1, review_result, draft_file=draft)
     assert repair["ok"]
-    assert not repair["can_commit"]
+    assert not repair["can_record"]
     assert repair["retry_required"]
     assert repair["blocker_actions"][0]["instruction"] == "删掉未获得的信息来源"
 
@@ -210,7 +210,7 @@ def test_normalize_reviewer_output_rejects_missing_required_fields():
         normalize_reviewer_output({"issues": {}, "summary": "格式错误"})  # type: ignore[arg-type]
 
 
-def test_raw_reviewer_issues_block_commit_and_keep_state_memory_unchanged(tmp_path):
+def test_raw_reviewer_issues_block_record_and_keep_state_memory_unchanged(tmp_path):
     project = create_planned_project(tmp_path)
     draft = tmp_path / "draft.md"
     draft.write_text(
@@ -242,7 +242,7 @@ def test_raw_reviewer_issues_block_commit_and_keep_state_memory_unchanged(tmp_pa
         encoding="utf-8",
     )
 
-    result = commit_chapter_workflow(
+    result = record_chapter_workflow(
         project,
         chapter=1,
         draft_file=draft,
@@ -255,7 +255,7 @@ def test_raw_reviewer_issues_block_commit_and_keep_state_memory_unchanged(tmp_pa
     assert not result["state_updated"]
     assert result["chapter_file"] is None
     assert Path(result["report_file"]).is_file()
-    assert Path(result["commit_file"]).is_file()
+    assert Path(result["record_file"]).is_file()
     assert not any((project / "正文").glob("第01章*.md"))
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
     assert MemoryManager.from_project(project).load()["last_updated_chapter"] == 0

@@ -11,7 +11,7 @@ SKILLS_DIR = PLUGIN_ROOT / "skills"
 EXPECTED_SKILLS = {
     "story-init": ["充分性闸门", "init", "deconstruction-agent", "完成条件"],
     "story-plan": ["充分性闸门", "大纲/总纲.md", "memory.json", "完成条件"],
-    "story-write": ["充分性闸门", "context-agent", "reviewer", "data-agent", "ChapterCommitService.commit"],
+    "story-write": ["充分性闸门", "context-agent", "reviewer", "data-agent", "ChapterRecordService.record"],
     "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
     "story-learn": ["充分性闸门", "pattern_type", "project_learning.json", "learn"],
     "story-query": ["只读", "query context", "query memory", "query learning", "query genres"],

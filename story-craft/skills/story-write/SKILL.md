@@ -1,6 +1,6 @@
 ---
 name: story-write
-description: 为 story-craft 项目撰写下一章或指定章节。用于执行写前校验、调用 context-agent 生成任务书、起草正文、调用 reviewer 审查、润色、调用 data-agent 提取事实，并提交章节记忆时。
+description: 为 story-craft 项目撰写下一章或指定章节。用于执行写前校验、调用 context-agent 生成任务书、起草正文、调用 reviewer 审查、润色、调用 data-agent 提取事实，并生成章节验收记录时。
 allowed-tools: Read Write Edit Grep Bash Agent
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: Read Write Edit Grep Bash Agent
 
 ## 目标
 
-完成一章正文，并在审查通过后更新 `.story/chapters/ch_NN_commit.json`、`memory.json` 和 `state.json`。
+完成一章正文，并在审查通过后更新 `.story/chapters/ch_NN_record.json`、`memory.json` 和 `state.json`。
 
 推荐用法对齐参考项目，直接把章节号写在 Skill 后：
 
@@ -22,7 +22,7 @@ allowed-tools: Read Write Edit Grep Bash Agent
 本 Skill 对齐参考项目 `webnovel-write` 的职责边界：
 
 - `/story-write` 在 Claude Code 内编排 Agent。
-- `story_craft.py` 只做确定性校验、报告生成、修复计划、事实兜底抽取和提交。
+- `story_craft.py` 只做确定性校验、报告生成、修复计划、事实兜底抽取和验收记录。
 - 终端 CLI 不伪造 Agent 输出，也不负责自动调用 Agent。
 
 ## 模式
@@ -42,9 +42,9 @@ allowed-tools: Read Write Edit Grep Bash Agent
 - `context-agent` 只生成任务书，不写正文。
 - `reviewer` 必须输出结构化 JSON；不得由主流程伪造审查结果。
 - reviewer 原始 JSON 只接受 `issues` / `summary`，不要让 reviewer 输出 `passed`、`blockers` 或 `warnings`。
-- review.json 存在 blocking issue 时不得进入提交。
-- `data-agent` 只生成 delta，不直接写 `.story/state.json`、`.story/memory.json` 或 commit。
-- `write` 才是唯一提交入口，accepted 才更新 state/memory。
+- review.json 存在 blocking issue 时不得进入验收。
+- `data-agent` 只生成 delta，不直接写 `.story/state.json`、`.story/memory.json` 或 record。
+- `write` 才是唯一验收入口，accepted 才更新 state/memory。
 - 失败只补跑失败步骤，不回退已通过步骤。
 
 ## 充分性闸门
@@ -53,7 +53,7 @@ allowed-tools: Read Write Edit Grep Bash Agent
 
 - 项目已完成 init 和 plan。
 - `大纲/总纲.md` 覆盖目标章节。
-- 上一章 commit 存在且 status 为 `accepted`，第 1 章除外。
+- 上一章验收记录存在且 status 为 `accepted`，第 1 章除外。
 - 大纲和设定中无 `[TODO]`、`[待定]`、`[XXX]` 等占位符。
 
 ## 准备：工作台目录
@@ -198,7 +198,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ```text
 Agent(
   subagent_type: "story-craft:data-agent",
-  prompt: "chapter=${CHAPTER}; chapter_file=${CHAPTER_DRAFT_FILE}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}; output_file=${DELTA_JSON}。只提取正文事实，生成 write 可消费的 delta；不直接写 state/memory/commit。"
+  prompt: "chapter=${CHAPTER}; chapter_file=${CHAPTER_DRAFT_FILE}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}; output_file=${DELTA_JSON}。只提取正文事实，生成 write 可消费的 delta；不直接写 state/memory/record。"
 )
 ```
 
@@ -219,7 +219,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 包含 `chapter`、`entities_appeared`、`timeline_entry`、`chapter_summary`。
 - 不包含正文里未发生的事实。
 
-## Step 6：提交章节
+## Step 6：验收章节
 
 只有 Step 1-5 全部过闸后，才调用 `write`：
 
@@ -234,14 +234,14 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 `write` 会执行最终闸门：
 
-- 上一章 accepted commit 约束。
+- 上一章 accepted 验收记录约束。
 - 占位符扫描。
 - 字数闸门。
 - reviewer blocking 归一化。
 - 正文复制到 `正文/`。
 - 审查报告写入 `审查报告/`。
-- 章节 commit 写入 `.story/chapters/`。
-- 内部调用 `ChapterCommitService.commit()`，accepted 才更新 state/memory。
+- 章节验收记录写入 `.story/chapters/`。
+- 内部调用 `ChapterRecordService.record()`，accepted 才更新 state/memory。
 
 ## 失败处理
 
@@ -270,4 +270,4 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - `repair.json` / `polish.json`
 - `delta.json`
 - `write-result.json`
-- 最终正文文件、审查报告、commit 文件、memory/state 是否更新
+- 最终正文文件、审查报告、record 文件、memory/state 是否更新

@@ -8,9 +8,10 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from core.chapter_commit import ChapterCommitService
-from core.chapter_paths import chapter_file_name
+from core.chapter_paths import chapter_file_name, chapter_record_file_name
+from core.chapter_record import ChapterRecordService
 from core.config import StoryCraftConfig
+from core.security_utils import AtomicWriteError, atomic_write_text
 from core.context_manager import ContextManager
 from core.text_utils import count_chinese_chars, first_int, outline_value
 from core.types import ExtractionDelta, WriteResult
@@ -153,6 +154,69 @@ def _default_extraction_delta(
     }
 
 
+def _normalize_delta_chapter(
+    delta: ExtractionDelta,
+    *,
+    chapter: int,
+) -> tuple[ExtractionDelta, list[str]]:
+    normalized: ExtractionDelta = dict(delta)
+    errors: list[str] = []
+
+    def normalize_field(container: dict[str, Any], field_path: str) -> None:
+        raw = container.get("chapter")
+        if raw in (None, ""):
+            container["chapter"] = int(chapter)
+            return
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            errors.append(f"{field_path}.chapter 不是有效章节号：{raw!r}")
+            return
+        if value != int(chapter):
+            errors.append(
+                f"{field_path}.chapter={value} 与目标章节 {int(chapter)} 不一致"
+            )
+            return
+        container["chapter"] = value
+
+    normalize_field(normalized, "delta")
+    for key in ("timeline_entry", "chapter_summary"):
+        item = normalized.get(key)
+        if item is None:
+            continue
+        if not isinstance(item, dict):
+            errors.append(f"delta.{key} 必须是对象")
+            continue
+        nested = dict(item)
+        normalize_field(nested, f"delta.{key}")
+        normalized[key] = nested
+
+    return normalized, errors
+
+
+def _snapshot_files(paths: list[Path]) -> dict[Path, bytes | None]:
+    snapshots: dict[Path, bytes | None] = {}
+    for path in paths:
+        if path not in snapshots:
+            snapshots[path] = path.read_bytes() if path.exists() else None
+    return snapshots
+
+
+def _restore_snapshots(snapshots: dict[Path, bytes | None]) -> list[str]:
+    errors: list[str] = []
+    for path, data in snapshots.items():
+        try:
+            if data is None:
+                if path.exists():
+                    path.unlink()
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+        except OSError as exc:
+            errors.append(f"{path}: {exc}")
+    return errors
+
+
 def build_chapter_brief(project_root: str | Path, chapter: int) -> dict[str, Any]:
     """Build prewrite validation and context for a target chapter."""
     project = Path(project_root).expanduser().resolve()
@@ -166,7 +230,7 @@ def build_chapter_brief(project_root: str | Path, chapter: int) -> dict[str, Any
     }
 
 
-def commit_chapter_workflow(
+def record_chapter_workflow(
     project_root: str | Path,
     *,
     chapter: int,
@@ -178,7 +242,7 @@ def commit_chapter_workflow(
     report_file: Optional[str | Path] = None,
     allow_warnings: bool = True,
 ) -> WriteResult:
-    """Validate, persist, review-report, and commit a chapter draft."""
+    """Validate, persist, review-report, and record a chapter draft."""
     config = StoryCraftConfig.from_project_root(project_root)
     config.ensure_dirs()
     validation = validate_prewrite(config.project_root, chapter)
@@ -235,7 +299,7 @@ def commit_chapter_workflow(
             "warnings": all_warnings,
             "chapter_file": None,
             "report_file": None,
-            "commit_file": None,
+            "record_file": None,
             "draft_file": str(draft_path),
             "word_count_check": word_count_check,
         }
@@ -256,17 +320,6 @@ def commit_chapter_workflow(
                 "summary": "未提供 reviewer 结果，使用本地轻量检查兜底。",
             }
         )
-    report_path = (
-        Path(report_file).expanduser().resolve()
-        if report_file
-        else config.review_dir / f"第{int(chapter):02d}章审查报告.md"
-    )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(
-        build_review_report(chapter, review_result, chapter_text),
-        encoding="utf-8",
-    )
-
     if extraction_delta:
         delta: ExtractionDelta = _read_json(extraction_delta)  # type: ignore[assignment]
     else:
@@ -278,32 +331,99 @@ def commit_chapter_workflow(
             word_count=word_count,
             review_source=review_source,
         )
+    delta, delta_errors = _normalize_delta_chapter(delta, chapter=chapter)
+    if delta_errors:
+        return {
+            "ok": False,
+            "stage": "delta_validation",
+            "blockers": delta_errors,
+            "warnings": all_warnings,
+            "chapter_file": None,
+            "report_file": None,
+            "record_file": None,
+            "draft_file": str(draft_path),
+            "word_count_check": word_count_check,
+        }
 
-    commit_result = ChapterCommitService(config).commit(
+    report_path = (
+        Path(report_file).expanduser().resolve()
+        if report_file
+        else config.review_dir / f"第{int(chapter):02d}章审查报告.md"
+    )
+    record_path = config.chapters_dir / chapter_record_file_name(
         chapter,
-        chapter_title,
-        word_count,
-        review_result,
-        delta,
+        pad_width=config.chapter_pad_width,
+    )
+    snapshots = _snapshot_files(
+        [
+            report_path,
+            chapter_path,
+            record_path,
+            config.memory_file,
+            config.state_file,
+        ]
     )
     chapter_file = None
-    if commit_result["status"] == "accepted":
-        chapter_path.parent.mkdir(parents=True, exist_ok=True)
-        chapter_path.write_text(chapter_text, encoding="utf-8")
-        chapter_file = str(chapter_path)
+    try:
+        atomic_write_text(
+            report_path,
+            build_review_report(chapter, review_result, chapter_text),
+            backup=True,
+        )
+
+        if review_result["passed"]:
+            atomic_write_text(chapter_path, chapter_text, backup=True)
+            chapter_file = str(chapter_path)
+
+        record_result = ChapterRecordService(config).record(
+            chapter,
+            chapter_title,
+            word_count,
+            review_result,
+            delta,
+        )
+    except (AtomicWriteError, OSError, ValueError) as exc:
+        rollback_errors = _restore_snapshots(snapshots)
+        blockers = [f"正式写入失败：{exc}"]
+        if rollback_errors:
+            blockers.append("回滚失败：" + "；".join(rollback_errors))
+        return {
+            "ok": False,
+            "stage": "write_error",
+            "chapter": int(chapter),
+            "title": chapter_title,
+            "word_count": word_count,
+            "chapter_file": None,
+            "report_file": None,
+            "record_file": None,
+            "status": "failed",
+            "memory_updated": False,
+            "state_updated": False,
+            "blockers": blockers,
+            "warnings": all_warnings,
+            "draft_file": str(draft_path),
+            "word_count_check": word_count_check,
+        }
+    if record_result["status"] != "accepted":
+        chapter_file = None
 
     return {
-        "ok": commit_result["status"] == "accepted",
-        "stage": "commit",
+        "ok": record_result["status"] == "accepted",
+        "stage": "record",
         "chapter": int(chapter),
         "title": chapter_title,
         "word_count": word_count,
         "chapter_file": chapter_file,
         "report_file": str(report_path),
-        "commit_file": commit_result["commit_file"],
-        "status": commit_result["status"],
-        "memory_updated": commit_result["memory_updated"],
-        "state_updated": commit_result["state_updated"],
+        "record_file": record_result["record_file"],
+        "status": record_result["status"],
+        "memory_updated": record_result["memory_updated"],
+        "state_updated": record_result["state_updated"],
         "warnings": all_warnings,
         "word_count_check": word_count_check,
     }
+
+
+def commit_chapter_workflow(*args: Any, **kwargs: Any) -> WriteResult:
+    """Backward-compatible alias for older internal callers."""
+    return record_chapter_workflow(*args, **kwargs)

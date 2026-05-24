@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="story_craft.py",
         description=(
             "story-craft 内部 CLI。用于创建中文短篇/中篇项目、生成大纲、"
-            "提交章节、查询故事记忆，并为 Claude Code Skill/Agent 提供工具层。"
+            "验收章节、查询故事记忆，并为 Claude Code Skill/Agent 提供工具层。"
         ),
     )
     parser.add_argument(
@@ -101,19 +101,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     write_parser = subparsers.add_parser(
         "write",
-        help="提交一章草稿并更新故事记忆",
+        help="验收一章草稿并更新故事记忆",
         description=(
-            "提交一章草稿并更新故事记忆。可写成 write 3 或 write --chapter 3；"
-            "会检查上一章 commit、占位符、字数闸门和 reviewer 阻断。"
+            "验收一章草稿并更新故事记忆。可写成 write 3 或 write --chapter 3；"
+            "会检查上一章验收记录、占位符、字数闸门和 reviewer 阻断。"
         ),
     )
     write_parser.add_argument(
         "chapter_arg",
         nargs="?",
         type=int,
-        help="要提交的章节号，从 1 开始。等价于 --chapter。",
+        help="要验收的章节号，从 1 开始。等价于 --chapter。",
     )
-    write_parser.add_argument("--chapter", type=int, default=None, help="要提交的章节号，从 1 开始。")
+    write_parser.add_argument("--chapter", type=int, default=None, help="要验收的章节号，从 1 开始。")
     write_parser.add_argument("--title", default="", help="可选章节标题；未提供时从草稿一级标题推断。")
     write_parser.add_argument(
         "--draft-file",
