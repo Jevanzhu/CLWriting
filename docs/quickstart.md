@@ -62,7 +62,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 /story-write 1
 ```
 
-`review.json` 必须是 reviewer 原始 schema：顶层只要求 `issues` 和 `summary`。`issues[]` 中有 `blocking=true` 或 `severity=critical` 时不会进入提交，rejected 章节不写入最终 `正文/`。`data-agent` 只生成 `delta.json`，不直接写 state/memory。`write-result.json` 会记录本次提交的阶段、状态、字数检查、报告路径和 commit 路径。
+`review.json` 必须是 reviewer 原始 schema：顶层只要求 `issues` 和 `summary`。`issues[]` 中有 `blocking=true` 或 `severity=critical` 时不会进入验收，rejected 章节不写入最终 `正文/`。`data-agent` 只生成 `delta.json`，不直接写 state/memory。`write-result.json` 会记录本次验收的阶段、状态、字数检查、报告路径和 record 路径。
 
 ## 记录经验
 

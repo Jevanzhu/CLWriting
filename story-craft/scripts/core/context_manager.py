@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from core.chapter_paths import iter_chapter_record_files
 from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
 from core.security_utils import read_json_safe
@@ -191,9 +192,7 @@ class ContextManager:
 
     def _load_review_history(self) -> list[dict[str, Any]]:
         history: list[dict[str, Any]] = []
-        if not self.config.chapters_dir.exists():
-            return history
-        for path in sorted(self.config.chapters_dir.glob("ch_*_commit.json")):
+        for path in iter_chapter_record_files(config=self.config):
             payload = read_json_safe(path, {})
             if payload:
                 history.append(payload)

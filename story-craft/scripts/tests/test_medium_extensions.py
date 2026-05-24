@@ -5,8 +5,8 @@ import zipfile
 from pathlib import Path
 
 from conftest import run_cli
-from core.chapter_commit import ChapterCommitService
 from core.config import StoryCraftConfig
+from core.chapter_record import ChapterRecordService
 from core.memory_index import MemoryIndexService
 from core.memory_manager import MemoryManager
 from tools.backup_manager import BackupManager
@@ -88,22 +88,22 @@ def seed_medium_project(project: Path) -> StoryCraftConfig:
         }
     )
     memory.flush()
-    service = ChapterCommitService(config)
-    service.commit(
+    service = ChapterRecordService(config)
+    service.record(
         1,
         "天台纸条",
         2600,
         normalize_reviewer_output(
-            {"issues": [{"category": "pacing", "description": "开头稍慢"}], "summary": "可提交。"}
+            {"issues": [{"category": "pacing", "description": "开头稍慢"}], "summary": "可验收。"}
         ),
         {"chapter_summary": {"chapter": 1, "title": "天台纸条", "summary": "林墨发现纸条"}},
     )
-    service.commit(
+    service.record(
         2,
         "缺页报告",
         2400,
         normalize_reviewer_output(
-            {"issues": [{"category": "continuity", "description": "报告来源需明确"}], "summary": "可提交。"}
+            {"issues": [{"category": "continuity", "description": "报告来源需明确"}], "summary": "可验收。"}
         ),
         {
             "entities_appeared": ["char_protagonist", "char_su"],

@@ -18,6 +18,7 @@ from core.project_locator import (
     write_current_project_pointer,
 )
 from core.runtime_compat import enable_windows_utf8_stdio
+from core.security_utils import AtomicWriteError, atomic_write_text
 from core.log import setup_logging
 from tools.genre_profile_builder import list_all_genres
 from tools.init_project import init_project
@@ -30,7 +31,7 @@ from tools.agent_workflow import (
     normalize_reviewer_output,
 )
 from tools.backup_manager import BackupManager
-from tools.chapter_workflow import commit_chapter_workflow
+from tools.chapter_workflow import record_chapter_workflow
 from tools.context_ranker import rank_context_items
 from tools.entity_linker import build_entity_graph
 from tools.outline_planner import plan_story
@@ -301,7 +302,7 @@ def cmd_write(args) -> int:
         print_error(str(exc))
         return 1
     try:
-        result = commit_chapter_workflow(
+        result = record_chapter_workflow(
             project_root,
             chapter=chapter,
             title=args.title,
@@ -313,15 +314,19 @@ def cmd_write(args) -> int:
             allow_warnings=not args.strict_warnings,
         )
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
-        _print_file_error("提交章节", exc)
+        _print_file_error("记录章节", exc)
         return 1
     if args.result_file:
-        result_file = Path(args.result_file).expanduser().resolve()
-        result_file.parent.mkdir(parents=True, exist_ok=True)
-        result_file.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        try:
+            result_file = Path(args.result_file).expanduser().resolve()
+            atomic_write_text(
+                result_file,
+                json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+                backup=True,
+            )
+        except (AtomicWriteError, OSError) as exc:
+            _print_file_error("写入验收结果", exc)
+            return 1
     print_json(result)
     return 0 if result.get("ok") else 1
 

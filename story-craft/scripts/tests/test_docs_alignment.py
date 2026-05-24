@@ -33,7 +33,7 @@ def test_cli_help_is_chinese_and_author_facing():
 
     write_help = run_cli("write", "--help")
     assert write_help.returncode == 0, write_help.stderr
-    assert "提交一章草稿并更新故事记忆" in write_help.stdout
+    assert "验收一章草稿并更新故事记忆" in write_help.stdout
     assert "write 3" in write_help.stdout
     assert "把写前校验和字数偏差 warning 也视为阻断" in write_help.stdout
 

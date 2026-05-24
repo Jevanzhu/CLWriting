@@ -85,7 +85,7 @@ def test_two_chapter_smoke_keeps_context_clean(tmp_path):
         str(brief2_before),
     )
     assert blocked_brief.returncode == 1, blocked_brief.stderr
-    assert "缺少上一章提交记录" in " ".join(read_json(brief2_before)["prewrite"]["blockers"])
+    assert "缺少上一章验收记录" in " ".join(read_json(brief2_before)["prewrite"]["blockers"])
 
     draft1 = tmp_path / "chapter-01.md"
     draft1.write_text(

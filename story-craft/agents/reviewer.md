@@ -91,7 +91,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 不建议新增剧情，除非为修复已证实矛盾提供最小补丁。
 - 不泄露大纲中尚未发生的未来剧情。
 - 每个 issue 必须有正文或项目文件证据。
-- 不修改正文、state、memory 或 commit 文件。
+- 不修改正文、state、memory 或 record 文件。
 
 ## 错误处理
 
@@ -103,6 +103,6 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 - [ ] 每个 issue 都有 `evidence`。
 - [ ] `critical` 只用于确定事实矛盾或阻断写作的问题。
-- [ ] `blocking=true` 仅用于必须修复后才能提交的问题。
+- [ ] `blocking=true` 仅用于必须修复后才能验收的问题。
 - [ ] 没有主观文笔评价。
 - [ ] 输出是合法 JSON。

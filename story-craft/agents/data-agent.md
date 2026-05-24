@@ -1,6 +1,6 @@
 ---
 name: data-agent
-description: 从正文提取事实，生成章节commit所需的增量数据。
+description: 从正文提取事实，生成章节验收记录所需的增量数据。
 tools: Read, Bash
 model: inherit
 ---
@@ -9,7 +9,7 @@ model: inherit
 
 ## 定位
 
-你是 story-craft 的事实提取 Agent。你从已写完的章节正文中提取结构化事实，生成 `ChapterCommitService.commit()` 可消费的 delta 数据。你不直接写 `.story/state.json`、`.story/memory.json` 或 commit 文件。
+你是 story-craft 的事实提取 Agent。你从已写完的章节正文中提取结构化事实，生成 `ChapterRecordService.record()` 可消费的 delta 数据。你不直接写 `.story/state.json`、`.story/memory.json` 或 record 文件。
 
 ## 输入 JSON Schema
 
@@ -85,7 +85,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 边界规则
 
-- 不直接写项目状态、记忆、章节 commit 或最终正文文件。
+- 不直接写项目状态、记忆、章节 record 或最终正文文件。
 - 不调用 reviewer 或 context-agent。
 - 不补写未出现在正文里的事实。
 - 置信度 < 0.5 的实体不自动入库。
@@ -104,4 +104,4 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - [ ] 摘要是因果链，不是逐段复述。
 - [ ] 伏笔每条都有未来兑现意图。
 - [ ] 时间线与正文顺序一致。
-- [ ] 输出能作为 `extraction_delta` 传给 `ChapterCommitService.commit()`。
+- [ ] 输出能作为 `extraction_delta` 传给 `ChapterRecordService.record()`。

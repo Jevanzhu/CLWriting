@@ -6,8 +6,10 @@ from pathlib import Path
 from conftest import long_chapter, run_cli
 from core.context_manager import ContextManager
 from core.memory_manager import MemoryManager
+from core.security_utils import AtomicWriteError
 from core.state_manager import StateManager
-from tools.chapter_workflow import commit_chapter_workflow
+import tools.chapter_workflow as chapter_workflow_module
+from tools.chapter_workflow import record_chapter_workflow
 from tools.init_project import init_project
 from tools.outline_planner import plan_story
 
@@ -44,7 +46,7 @@ def test_plan_story_writes_outline_memory_and_state(tmp_path):
     assert progress["phase"] == "plan"
 
 
-def test_commit_chapter_workflow_updates_project_files_state_and_memory(tmp_path):
+def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path):
     project = tmp_path / "demo"
     init_project(
         project,
@@ -99,7 +101,7 @@ def test_commit_chapter_workflow_updates_project_files_state_and_memory(tmp_path
         encoding="utf-8",
     )
 
-    result = commit_chapter_workflow(
+    result = record_chapter_workflow(
         project,
         chapter=1,
         draft_file=draft,
@@ -111,7 +113,7 @@ def test_commit_chapter_workflow_updates_project_files_state_and_memory(tmp_path
     assert result["status"] == "accepted"
     assert Path(result["chapter_file"]).is_file()
     assert Path(result["report_file"]).is_file()
-    assert Path(result["commit_file"]).is_file()
+    assert Path(result["record_file"]).is_file()
     assert result["memory_updated"]
     assert result["state_updated"]
 
@@ -125,7 +127,7 @@ def test_commit_chapter_workflow_updates_project_files_state_and_memory(tmp_path
     assert memory.get_chapter_summaries(1)[0]["title"] == "葬礼后的信"
 
 
-def test_commit_chapter_workflow_blocks_underlength_draft(tmp_path):
+def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
     project = tmp_path / "demo"
     init_project(
         project,
@@ -143,7 +145,7 @@ def test_commit_chapter_workflow_blocks_underlength_draft(tmp_path):
         encoding="utf-8",
     )
 
-    result = commit_chapter_workflow(project, chapter=1, draft_file=draft)
+    result = record_chapter_workflow(project, chapter=1, draft_file=draft)
 
     assert not result["ok"]
     assert result["stage"] == "word_count"
@@ -152,7 +154,7 @@ def test_commit_chapter_workflow_blocks_underlength_draft(tmp_path):
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
 
 
-def test_commit_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_path):
+def test_record_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_path):
     project = tmp_path / "demo"
     init_project(
         project,
@@ -174,7 +176,7 @@ def test_commit_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_pat
         encoding="utf-8",
     )
 
-    result = commit_chapter_workflow(
+    result = record_chapter_workflow(
         project,
         chapter=1,
         draft_file=draft,
@@ -185,14 +187,14 @@ def test_commit_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_pat
     assert result["stage"] == "warnings"
     assert result["chapter_file"] is None
     assert result["report_file"] is None
-    assert result["commit_file"] is None
+    assert result["record_file"] is None
     assert not any((project / "正文").glob("第01章*.md"))
     assert not (project / "审查报告" / "第01章审查报告.md").exists()
-    assert not (project / ".story" / "chapters" / "ch_01_commit.json").exists()
+    assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
 
 
-def test_commit_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
+def test_record_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
     project = tmp_path / "demo"
     init_project(
         project,
@@ -218,7 +220,7 @@ def test_commit_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
         encoding="utf-8",
     )
 
-    result = commit_chapter_workflow(
+    result = record_chapter_workflow(
         project,
         chapter=1,
         draft_file=draft,
@@ -228,8 +230,253 @@ def test_commit_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
     assert result["ok"], result
     assert result["title"] == "葬礼后的信"
     assert "葬礼后的信" in Path(result["chapter_file"]).name
-    commit_payload = json.loads(Path(result["commit_file"]).read_text(encoding="utf-8"))
-    assert commit_payload["title"] == "葬礼后的信"
+    record_payload = json.loads(Path(result["record_file"]).read_text(encoding="utf-8"))
+    assert record_payload["title"] == "葬礼后的信"
+
+
+def test_record_chapter_workflow_blocks_completed_chapter(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    first = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+    progress_after_first = StateManager.from_project(project).get_progress()
+    second = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+    progress_after_second = StateManager.from_project(project).get_progress()
+
+    assert first["ok"], first
+    assert not second["ok"]
+    assert second["stage"] == "prewrite"
+    assert any("目标章节不大于当前进度" in item for item in second["blockers"])
+    assert progress_after_second["total_words"] == progress_after_first["total_words"]
+    assert progress_after_second["current_chapter"] == 1
+
+
+def test_record_chapter_workflow_rejects_mismatched_delta_chapter(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    delta = tmp_path / "delta.json"
+    delta.write_text(
+        json.dumps(
+            {
+                "chapter": 2,
+                "timeline_entry": {"chapter": 2, "events": ["错位事件"]},
+                "chapter_summary": {
+                    "chapter": 2,
+                    "title": "错位章节",
+                    "summary": "不应写入",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+        extraction_delta=delta,
+    )
+    progress = StateManager.from_project(project).get_progress()
+    memory = MemoryManager.from_project(project).load()
+
+    assert not result["ok"]
+    assert result["stage"] == "delta_validation"
+    assert any("与目标章节 1 不一致" in item for item in result["blockers"])
+    assert result["chapter_file"] is None
+    assert result["report_file"] is None
+    assert result["record_file"] is None
+    assert progress["current_chapter"] == 0
+    assert progress["total_words"] == 0
+    assert memory["last_updated_chapter"] == 0
+    assert not [item for item in memory["timeline"] if not item.get("planned")]
+    assert memory["chapter_summaries"] == []
+    assert not any((project / "正文").glob("第01章*.md"))
+    assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
+
+
+def test_record_chapter_workflow_does_not_record_when_chapter_write_fails(
+    tmp_path,
+    monkeypatch,
+):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    original_atomic_write_text = chapter_workflow_module.atomic_write_text
+
+    def fail_chapter_write(path, data, **kwargs):
+        if Path(path).parent == project / "正文":
+            raise AtomicWriteError("模拟正文写入失败")
+        return original_atomic_write_text(path, data, **kwargs)
+
+    monkeypatch.setattr(
+        chapter_workflow_module,
+        "atomic_write_text",
+        fail_chapter_write,
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+
+    progress = StateManager.from_project(project).get_progress()
+    memory = MemoryManager.from_project(project).load()
+    assert not result["ok"]
+    assert result["stage"] == "write_error"
+    assert result["status"] == "failed"
+    assert result["chapter_file"] is None
+    assert result["report_file"] is None
+    assert result["record_file"] is None
+    assert any("正式写入失败" in item for item in result["blockers"])
+    assert progress["current_chapter"] == 0
+    assert progress["total_words"] == 0
+    assert memory["last_updated_chapter"] == 0
+    assert memory["chapter_summaries"] == []
+    assert not any((project / "正文").glob("第01章*.md"))
+    assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
+
+
+def test_record_chapter_workflow_rolls_back_when_record_write_fails(
+    tmp_path,
+    monkeypatch,
+):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    class FailingRecordService:
+        def __init__(self, config):
+            self.config = config
+
+        def record(self, *args, **kwargs):
+            raise AtomicWriteError("模拟 record 写入失败")
+
+    monkeypatch.setattr(
+        chapter_workflow_module,
+        "ChapterRecordService",
+        FailingRecordService,
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+    progress = StateManager.from_project(project).get_progress()
+    memory = MemoryManager.from_project(project).load()
+
+    assert not result["ok"]
+    assert result["stage"] == "write_error"
+    assert result["status"] == "failed"
+    assert progress["current_chapter"] == 0
+    assert progress["total_words"] == 0
+    assert memory["last_updated_chapter"] == 0
+    assert memory["chapter_summaries"] == []
+    assert not any((project / "正文").glob("第01章*.md"))
+    assert not (project / "审查报告" / "第01章审查报告.md").exists()
+    assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
 
 
 def test_cli_plan_and_write(tmp_path):

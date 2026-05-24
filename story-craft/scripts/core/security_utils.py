@@ -42,16 +42,16 @@ def sanitize_filename(name: str, max_length: int = 100) -> str:
     return safe_name or "unnamed"
 
 
-def sanitize_commit_message(message: str, max_length: int = 200) -> str:
-    """Sanitize a git commit message."""
-    safe_msg = message.replace("\n", " ").replace("\r", " ")
-    safe_msg = re.sub(r"--[\w-]+", "", safe_msg)
-    safe_msg = safe_msg.replace("'", "").replace('"', "")
-    safe_msg = safe_msg.lstrip("-")
-    safe_msg = re.sub(r"\s+", " ", safe_msg).strip()
-    if len(safe_msg) > max_length:
-        safe_msg = safe_msg[:max_length].strip()
-    return safe_msg or "Untitled commit"
+def sanitize_record_label(label: str, max_length: int = 200) -> str:
+    """Sanitize a human-facing record label."""
+    safe_label = label.replace("\n", " ").replace("\r", " ")
+    safe_label = re.sub(r"--[\w-]+", "", safe_label)
+    safe_label = safe_label.replace("'", "").replace('"', "")
+    safe_label = safe_label.lstrip("-")
+    safe_label = re.sub(r"\s+", " ", safe_label).strip()
+    if len(safe_label) > max_length:
+        safe_label = safe_label[:max_length].strip()
+    return safe_label or "Untitled record"
 
 
 def is_git_available() -> bool:
@@ -103,6 +103,55 @@ def atomic_write_json(
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        lock = None
+        if use_lock and HAS_FILELOCK:
+            lock = FileLock(str(lock_path), timeout=10)
+            lock.acquire()
+
+        try:
+            if backup and target.exists():
+                backup_path.write_bytes(target.read_bytes())
+            os.replace(temp_file, target)
+        finally:
+            if lock is not None:
+                lock.release()
+    except Exception as exc:
+        raise AtomicWriteError(f"Failed to write {target}: {exc}") from exc
+    finally:
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except OSError:
+                pass
+
+
+def atomic_write_text(
+    file_path: Union[str, Path],
+    data: str,
+    *,
+    use_lock: bool = True,
+    backup: bool = False,
+    encoding: str = "utf-8",
+) -> None:
+    """Atomically write a text file."""
+    target = Path(file_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_path = target.with_suffix(target.suffix + ".lock")
+    backup_path = target.with_suffix(target.suffix + ".bak")
+    fd, temp_path = tempfile.mkstemp(
+        suffix=".tmp",
+        prefix=target.stem + "_",
+        dir=target.parent,
+    )
+    temp_file = Path(temp_path)
+
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as handle:
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
 

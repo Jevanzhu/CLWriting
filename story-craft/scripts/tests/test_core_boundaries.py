@@ -19,7 +19,7 @@ from core.security_utils import (
     AtomicWriteError,
     atomic_write_json,
     read_json_safe,
-    sanitize_commit_message,
+    sanitize_record_label,
     sanitize_filename,
 )
 from core.state_manager import StateManager
@@ -84,7 +84,7 @@ def test_project_locator_resolves_explicit_env_ancestor_and_pointer(tmp_path):
 
 def test_security_helpers_sanitize_and_preserve_json_backup(tmp_path):
     assert sanitize_filename("../第01章:雨夜?.md") == "第01章_雨夜_md"
-    assert sanitize_commit_message("--amend '坏消息'\n第二行") == "坏消息 第二行"
+    assert sanitize_record_label("--amend '坏消息'\n第二行") == "坏消息 第二行"
 
     target = tmp_path / "state.json"
     atomic_write_json(target, {"version": 1}, use_lock=False, backup=False)

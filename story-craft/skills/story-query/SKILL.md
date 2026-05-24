@@ -75,7 +75,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 
 - 项目未初始化：提示先执行 `/story-init`。
 - 查询目标不存在：列出可查询类型。
-- memory 为空：说明当前还没有章节提交记忆。
+- memory 为空：说明当前还没有章节验收记忆。
 
 ## 完成条件
 

@@ -83,7 +83,7 @@ class WriteResult(TypedDict, total=False):
     word_count: int
     chapter_file: str | None
     report_file: str | None
-    commit_file: str | None
+    record_file: str | None
     draft_file: str
     status: str
     memory_updated: bool
