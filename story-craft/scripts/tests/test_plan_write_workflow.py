@@ -405,6 +405,72 @@ def test_record_chapter_workflow_rejects_mismatched_delta_chapter(tmp_path):
     assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
 
 
+def test_record_chapter_workflow_warns_when_delta_chapter_is_missing(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    delta = tmp_path / "delta.json"
+    delta.write_text(
+        json.dumps(
+            {
+                "entities_appeared": ["char_protagonist"],
+                "timeline_entry": {"events": ["林墨收到亡友来信"]},
+                "chapter_summary": {
+                    "title": "葬礼后的信",
+                    "summary": "林墨收到亡友来信",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+        extraction_delta=delta,
+    )
+
+    assert result["ok"], result
+    assert result["status"] == "accepted"
+    assert any("delta.chapter 缺失，已补齐为 1" in item for item in result["warnings"])
+    assert any(
+        "delta.timeline_entry.chapter 缺失，已补齐为 1" in item
+        for item in result["warnings"]
+    )
+    assert any(
+        "delta.chapter_summary.chapter 缺失，已补齐为 1" in item
+        for item in result["warnings"]
+    )
+    record_payload = json.loads(Path(result["record_file"]).read_text(encoding="utf-8"))
+    assert record_payload["delta"]["chapter"] == 1
+    assert record_payload["delta"]["timeline_entry"]["chapter"] == 1
+    assert record_payload["delta"]["chapter_summary"]["chapter"] == 1
+
+
 def test_record_chapter_workflow_does_not_record_when_chapter_write_fails(
     tmp_path,
     monkeypatch,

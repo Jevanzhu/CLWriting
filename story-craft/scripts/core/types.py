@@ -64,7 +64,7 @@ class ExtractionDelta(TypedDict, total=False):
     chapter: int
     title: str
     entities_new: list[dict[str, Any]]
-    entities_appeared: list[str]
+    entities_appeared: list[str | dict[str, Any]]
     state_changes: list[dict[str, Any]]
     new_foreshadowing: list[dict[str, Any]]
     resolved_foreshadowing: list[dict[str, Any]]

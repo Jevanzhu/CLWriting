@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from conftest import run_cli
+from conftest import reviewer_issue, run_cli
 
 
 def test_cli_init_preflight_query_learn_and_review_chain(tmp_path):
@@ -92,12 +92,15 @@ def test_cli_init_preflight_query_learn_and_review_chain(tmp_path):
         json.dumps(
             {
                 "issues": [
-                    {
-                        "severity": "critical",
-                        "category": "continuity",
-                        "description": "主角动机断裂",
-                        "blocking": True,
-                    }
+                    reviewer_issue(
+                        severity="critical",
+                        category="continuity",
+                        location="第1段",
+                        description="主角动机断裂",
+                        evidence="主角突然放弃查清真相",
+                        fix_hint="补足动机转折",
+                        blocking=True,
+                    )
                 ],
                 "summary": "存在阻断问题。",
             },

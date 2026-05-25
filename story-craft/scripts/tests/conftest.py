@@ -29,6 +29,20 @@ def long_chapter(title: str, sentence: str, repeat: int = 100) -> str:
     return f"# {title}\n\n" + sentence * repeat
 
 
+def reviewer_issue(**overrides) -> dict:
+    issue = {
+        "severity": "low",
+        "category": "pacing",
+        "location": "全文",
+        "description": "局部节奏需要调整",
+        "evidence": "测试证据",
+        "fix_hint": "按审查意见微调",
+        "blocking": False,
+    }
+    issue.update(overrides)
+    return issue
+
+
 def create_planned_project(root: Path) -> Path:
     from tools.init_project import init_project
     from tools.outline_planner import plan_story

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import create_planned_project, long_chapter, run_cli
+from conftest import create_planned_project, long_chapter, reviewer_issue, run_cli
 from core.memory_manager import MemoryManager
 from core.state_manager import StateManager
 from tools.agent_workflow import (
@@ -180,13 +180,20 @@ def test_normalize_reviewer_output_derives_status_from_issues():
             {
                 "severity": "critical",
                 "category": "logic",
+                "location": "第1段",
                 "description": "关键因果断裂",
+                "evidence": "主角没有获得线索却直接推断真相",
+                "fix_hint": "补足线索来源",
                 "blocking": True,
             },
             {
                 "severity": "low",
                 "category": "pacing",
+                "location": "第3段",
                 "description": "局部节奏偏慢",
+                "evidence": "连续三段解释背景",
+                "fix_hint": "压缩背景说明",
+                "blocking": False,
             },
         ],
         "summary": "存在阻断和警告。",
@@ -208,6 +215,21 @@ def test_normalize_reviewer_output_rejects_missing_required_fields():
 
     with pytest.raises(ValueError, match="issues 必须是数组"):
         normalize_reviewer_output({"issues": {}, "summary": "格式错误"})  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=r"issues\[0\] 缺少必需字段"):
+        normalize_reviewer_output({"issues": [{"category": "logic"}], "summary": "格式错误"})  # type: ignore[arg-type]
+
+    invalid_severity = reviewer_issue(severity="blocker")
+    with pytest.raises(ValueError, match=r"issues\[0\]\.severity 非法"):
+        normalize_reviewer_output({"issues": [invalid_severity], "summary": "格式错误"})
+
+    invalid_category = reviewer_issue(category="length")
+    with pytest.raises(ValueError, match=r"issues\[0\]\.category 非法"):
+        normalize_reviewer_output({"issues": [invalid_category], "summary": "格式错误"})
+
+    invalid_blocking = reviewer_issue(blocking="true")
+    with pytest.raises(ValueError, match=r"issues\[0\]\.blocking 必须是布尔值"):
+        normalize_reviewer_output({"issues": [invalid_blocking], "summary": "格式错误"})  # type: ignore[list-item]
 
 
 def test_raw_reviewer_issues_block_record_and_keep_state_memory_unchanged(tmp_path):
