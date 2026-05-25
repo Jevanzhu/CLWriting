@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from conftest import run_cli
+from conftest import reviewer_issue, run_cli
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
 from core.chapter_record import ChapterRecordService
@@ -75,7 +75,17 @@ def test_context_manager_builds_four_sections(tmp_path):
         "葬礼后的信",
         1800,
         normalize_reviewer_output(
-            {"issues": [{"category": "pacing", "description": "节奏略慢"}], "summary": "可提交。"}
+            {
+                "issues": [
+                    reviewer_issue(
+                        category="pacing",
+                        description="节奏略慢",
+                        evidence="开头铺垫偏长",
+                        fix_hint="压缩背景说明",
+                    )
+                ],
+                "summary": "可提交。",
+            }
         ),
         {"chapter_summary": {"chapter": 1, "title": "葬礼后的信", "summary": "林墨收到亡友来信"}},
     )
@@ -123,11 +133,15 @@ def test_context_tools_return_expected_shapes():
         normalize_reviewer_output(
             {
                 "issues": [
-                    {
-                        "category": "continuity",
-                        "description": "规则冲突",
-                        "blocking": True,
-                    }
+                    reviewer_issue(
+                        severity="critical",
+                        category="continuity",
+                        location="第2段",
+                        description="规则冲突",
+                        evidence="正文规则与世界观冲突",
+                        fix_hint="按世界观修正规则表达",
+                        blocking=True,
+                    )
                 ],
                 "summary": "存在规则冲突。",
             }

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import run_cli
+from conftest import reviewer_issue, run_cli
 from core.chapter_commit import ChapterCommitService
 from core.chapter_paths import (
     chapter_commit_file_name,
@@ -180,7 +180,7 @@ def test_memory_manager_applies_chapter_delta(tmp_path):
     assert not reloaded.use_sqlite
 
 
-def test_memory_manager_normalizes_agent_entity_and_timeline_chapter(tmp_path):
+def test_memory_manager_accepts_string_and_object_entities_in_delta(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑", protagonist_name="林墨")
     memory = MemoryManager.from_project(project)
@@ -192,15 +192,17 @@ def test_memory_manager_normalizes_agent_entity_and_timeline_chapter(tmp_path):
     memory.save(payload)
 
     memory = MemoryManager.from_project(project)
+    memory.upsert_character({"id": "char_su", "name": "苏晚", "role": "ally"})
     memory.apply_chapter_delta(
         {
             "chapter": "1",
             "entities_appeared": [
+                "char_protagonist",
                 {
-                    "id": "char_protagonist",
+                    "id": "char_su",
                     "type": "character",
-                    "mentions": ["林墨"],
-                    "confidence": 0.95,
+                    "mentions": ["苏晚"],
+                    "confidence": 0.91,
                 }
             ],
             "timeline_entry": {"chapter": "1", "events": ["林墨收到来信"]},
@@ -217,12 +219,15 @@ def test_memory_manager_normalizes_agent_entity_and_timeline_chapter(tmp_path):
     timeline = reloaded.load()["timeline"]
     chapter_one = [item for item in timeline if int(item.get("chapter") or 0) == 1]
     protagonist = reloaded.get_character("char_protagonist")
+    su_wan = reloaded.get_character("char_su")
 
     assert len(chapter_one) == 1
     assert chapter_one[0]["chapter"] == 1
     assert not chapter_one[0].get("planned")
     assert protagonist is not None
     assert protagonist["last_appearance_chapter"] == 1
+    assert su_wan is not None
+    assert su_wan["last_appearance_chapter"] == 1
 
 
 def test_chapter_record_service_updates_state_and_memory_only_when_accepted(tmp_path):
@@ -235,7 +240,20 @@ def test_chapter_record_service_updates_state_and_memory_only_when_accepted(tmp_
         "退稿章",
         900,
         normalize_reviewer_output(
-            {"issues": [{"category": "continuity", "blocking": True}], "summary": "不通过。"}
+            {
+                "issues": [
+                    reviewer_issue(
+                        severity="critical",
+                        category="continuity",
+                        location="第1段",
+                        description="连续性冲突",
+                        evidence="前后信息不一致",
+                        fix_hint="修正本章信息来源",
+                        blocking=True,
+                    )
+                ],
+                "summary": "不通过。",
+            }
         ),
         {"chapter_summary": {"chapter": 1, "title": "退稿章", "summary": "不应入库"}},
     )
@@ -249,7 +267,19 @@ def test_chapter_record_service_updates_state_and_memory_only_when_accepted(tmp_
         1,
         "葬礼后的信",
         1800,
-        normalize_reviewer_output({"issues": [{"category": "pacing"}], "summary": "可提交。"}),
+        normalize_reviewer_output(
+            {
+                "issues": [
+                    reviewer_issue(
+                        category="pacing",
+                        description="节奏略慢",
+                        evidence="开头解释偏多",
+                        fix_hint="压缩背景说明",
+                    )
+                ],
+                "summary": "可提交。",
+            }
+        ),
         {
             "entities_appeared": ["char_protagonist"],
             "chapter_summary": {

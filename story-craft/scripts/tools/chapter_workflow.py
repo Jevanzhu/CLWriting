@@ -120,6 +120,7 @@ def _default_extraction_delta(
     word_count: int,
     review_source: str,
 ) -> ExtractionDelta:
+    """Build the write command's minimal consumable delta fallback."""
     core = context.get("core", {})
     chapter_outline = str(core.get("chapter_outline") or "")
     summary = chapter_outline.splitlines()[0].strip() if chapter_outline else ""
@@ -158,14 +159,16 @@ def _normalize_delta_chapter(
     delta: ExtractionDelta,
     *,
     chapter: int,
-) -> tuple[ExtractionDelta, list[str]]:
+) -> tuple[ExtractionDelta, list[str], list[str]]:
     normalized: ExtractionDelta = dict(delta)
     errors: list[str] = []
+    warnings: list[str] = []
 
     def normalize_field(container: dict[str, Any], field_path: str) -> None:
         raw = container.get("chapter")
         if raw in (None, ""):
             container["chapter"] = int(chapter)
+            warnings.append(f"{field_path}.chapter 缺失，已补齐为 {int(chapter)}")
             return
         try:
             value = int(raw)
@@ -191,7 +194,7 @@ def _normalize_delta_chapter(
         normalize_field(nested, f"delta.{key}")
         normalized[key] = nested
 
-    return normalized, errors
+    return normalized, errors, warnings
 
 
 def _failure_result(
@@ -337,8 +340,12 @@ def record_chapter_workflow(
                 "issues": [
                     {
                         "severity": "low",
-                        "category": "length",
+                        "category": "format",
+                        "location": "reviewer 结果",
                         "description": "未提供 reviewer 结果，已执行本地占位符和字数检查。",
+                        "evidence": "review_results 参数为空",
+                        "fix_hint": "正式验收前补充 reviewer JSON，或确认本地轻量检查足够。",
+                        "blocking": False,
                     }
                 ],
                 "summary": "未提供 reviewer 结果，使用本地轻量检查兜底。",
@@ -355,7 +362,8 @@ def record_chapter_workflow(
             word_count=word_count,
             review_source=review_source,
         )
-    delta, delta_errors = _normalize_delta_chapter(delta, chapter=chapter)
+    delta, delta_errors, delta_warnings = _normalize_delta_chapter(delta, chapter=chapter)
+    all_warnings.extend(delta_warnings)
     if delta_errors:
         return _failure_result(
             stage="delta_validation",

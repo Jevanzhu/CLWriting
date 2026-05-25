@@ -28,6 +28,11 @@ model: inherit
 
 ## 输出 JSON Schema
 
+这是 **data-agent 完整输出**，面向真实 Agent 调用。完整输出必须包含
+`required` 中列出的所有字段；未知但必填的信息使用空数组、空对象或空字符串，
+不得省略字段。`write` 命令另有更宽松的最小可消费 delta，用于 fallback
+或手工修复，见 `docs/data-formats.md`。
+
 ```json
 {
   "type": "object",
@@ -36,7 +41,15 @@ model: inherit
     "chapter": { "type": "integer" },
     "title": { "type": "string" },
     "entities_new": { "type": "array" },
-    "entities_appeared": { "type": "array" },
+    "entities_appeared": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "object" }
+        ]
+      }
+    },
     "state_changes": { "type": "array" },
     "new_foreshadowing": { "type": "array" },
     "resolved_foreshadowing": { "type": "array" },
@@ -78,7 +91,8 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 字段约束
 
-- `entities_appeared` 可用字符串 id 或对象；优先对象，包含 `id/type/mentions/confidence`。
+- `entities_appeared` 可用字符串 id 或对象；data-agent 完整输出优先对象，
+  包含 `id/type/mentions/confidence`，`write` 最小可消费 delta 可只提供字符串 id。
 - `chapter_summary` 必须包含 `chapter/title/summary/word_count/key_events/characters_appeared/hook_type/hook_strength`。
 - `timeline_entry` 必须包含 `chapter/time_marker/events/time_elapsed/time_delta`，未知字段用空字符串，不编造具体时间。
 - `scenes` 每项必须包含 `index/start_line/end_line/location/summary/characters/tone`。

@@ -74,7 +74,7 @@ def test_usage_docs_are_split_by_category():
         "quickstart.md": ("/story-init", "/story-write 1"),
         "claude-code-usage.md": ("Agent 编排", ".story/workflows/ch_NN/"),
         "cli-usage.md": ("write 1", "review 1"),
-        "data-formats.md": ("reviewer JSON", "delta JSON"),
+        "data-formats.md": ("reviewer JSON", "data-agent 完整输出", "write 最小可消费 delta"),
         "troubleshooting.md": ("word_count_check", "工作台恢复"),
         "development.md": ("测试命令", "README 只放项目介绍"),
     }

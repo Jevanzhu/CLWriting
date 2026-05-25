@@ -4,7 +4,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from conftest import run_cli
+from conftest import reviewer_issue, run_cli
 from core.config import StoryCraftConfig
 from core.chapter_record import ChapterRecordService
 from core.memory_index import MemoryIndexService
@@ -94,7 +94,17 @@ def seed_medium_project(project: Path) -> StoryCraftConfig:
         "天台纸条",
         2600,
         normalize_reviewer_output(
-            {"issues": [{"category": "pacing", "description": "开头稍慢"}], "summary": "可验收。"}
+            {
+                "issues": [
+                    reviewer_issue(
+                        category="pacing",
+                        description="开头稍慢",
+                        evidence="首段解释偏多",
+                        fix_hint="提前放入行动或异常",
+                    )
+                ],
+                "summary": "可验收。",
+            }
         ),
         {"chapter_summary": {"chapter": 1, "title": "天台纸条", "summary": "林墨发现纸条"}},
     )
@@ -103,7 +113,17 @@ def seed_medium_project(project: Path) -> StoryCraftConfig:
         "缺页报告",
         2400,
         normalize_reviewer_output(
-            {"issues": [{"category": "continuity", "description": "报告来源需明确"}], "summary": "可验收。"}
+            {
+                "issues": [
+                    reviewer_issue(
+                        category="continuity",
+                        description="报告来源需明确",
+                        evidence="正文只出现报告结论",
+                        fix_hint="补充报告取得过程",
+                    )
+                ],
+                "summary": "可验收。",
+            }
         ),
         {
             "entities_appeared": ["char_protagonist", "char_su"],

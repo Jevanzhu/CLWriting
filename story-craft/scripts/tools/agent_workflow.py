@@ -34,6 +34,34 @@ WORKFLOW_FILE_NAMES = {
     "review_report": "review-report.md",
     "manifest": "manifest.json",
 }
+REVIEWER_ISSUE_REQUIRED_FIELDS = {
+    "severity",
+    "category",
+    "location",
+    "description",
+    "evidence",
+    "fix_hint",
+    "blocking",
+}
+REVIEWER_ISSUE_STRING_FIELDS = {
+    "severity",
+    "category",
+    "location",
+    "description",
+    "evidence",
+    "fix_hint",
+}
+REVIEWER_SEVERITIES = {"critical", "high", "medium", "low"}
+REVIEWER_CATEGORIES = {
+    "setting",
+    "timeline",
+    "continuity",
+    "character",
+    "logic",
+    "ai_flavor",
+    "pacing",
+    "format",
+}
 
 
 def _scripts_dir() -> Path:
@@ -265,6 +293,32 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
         raise ValueError("reviewer JSON 字段 issues 必须是数组")
     if not isinstance(review_result["summary"], str):
         raise ValueError("reviewer JSON 字段 summary 必须是字符串")
+    for index, issue in enumerate(review_result["issues"]):
+        issue_path = f"issues[{index}]"
+        if not isinstance(issue, dict):
+            raise ValueError(f"reviewer JSON 字段 {issue_path} 必须是对象")
+        missing = sorted(REVIEWER_ISSUE_REQUIRED_FIELDS - set(issue))
+        if missing:
+            raise ValueError(
+                f"reviewer JSON 字段 {issue_path} 缺少必需字段：{', '.join(missing)}"
+            )
+        for field in sorted(REVIEWER_ISSUE_STRING_FIELDS):
+            if not isinstance(issue[field], str):
+                raise ValueError(f"reviewer JSON 字段 {issue_path}.{field} 必须是字符串")
+        severity = issue["severity"]
+        if severity not in REVIEWER_SEVERITIES:
+            allowed = ", ".join(sorted(REVIEWER_SEVERITIES))
+            raise ValueError(
+                f"reviewer JSON 字段 {issue_path}.severity 非法：{severity!r}；允许值：{allowed}"
+            )
+        category = issue["category"]
+        if category not in REVIEWER_CATEGORIES:
+            allowed = ", ".join(sorted(REVIEWER_CATEGORIES))
+            raise ValueError(
+                f"reviewer JSON 字段 {issue_path}.category 非法：{category!r}；允许值：{allowed}"
+            )
+        if not isinstance(issue["blocking"], bool):
+            raise ValueError(f"reviewer JSON 字段 {issue_path}.blocking 必须是布尔值")
     return dict(review_result)
 
 

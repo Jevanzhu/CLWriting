@@ -31,6 +31,7 @@
       "category": "continuity",
       "location": "第3段",
       "description": "主角提前知道尚未获得的线索。",
+      "evidence": "第3段直接写出主角已知道门禁记录被改写。",
       "fix_hint": "删掉未授权信息，改为现场验证后获得。",
       "blocking": true
     }
@@ -44,6 +45,99 @@
 审查维度包括设定一致性、时间线、角色动机、逻辑因果和 AI 味。
 
 ## delta JSON
+
+delta 分为两层契约：
+
+- **data-agent 完整输出**：面向真实 `data-agent` 调用，字段严格。Agent 必须输出完整字段，未知但必填的信息使用空数组、空对象或空字符串。
+- **write 最小可消费 delta**：面向 `write` 的 fallback / 手工修复，只要求能安全更新章节记录、memory 和 state，允许省略未发生变化的扩展字段。
+
+`ExtractionDelta` 是最小可消费格式的本地 TypedDict，因此保持 `total=False`。
+其中 `entities_appeared` 支持字符串 id 或对象：字符串用于 fallback / 手工修复，
+对象用于 data-agent 完整输出，可携带 `id/type/mentions/confidence`。
+
+### data-agent 完整输出
+
+完整输出必须包含以下顶层字段：
+
+- `chapter`
+- `title`
+- `entities_new`
+- `entities_appeared`
+- `state_changes`
+- `new_foreshadowing`
+- `resolved_foreshadowing`
+- `new_world_rules`
+- `timeline_entry`
+- `scenes`
+- `chapter_summary`
+
+完整示例：
+
+```json
+{
+  "chapter": 1,
+  "title": "开篇异常",
+  "entities_new": [],
+  "entities_appeared": [
+    {
+      "id": "char_protagonist",
+      "type": "character",
+      "mentions": ["林墨"],
+      "confidence": 0.98
+    }
+  ],
+  "state_changes": [
+    {
+      "entity_id": "char_protagonist",
+      "field": "current_status",
+      "new": "决定追查旧楼真相"
+    }
+  ],
+  "new_foreshadowing": [
+    {
+      "id": "fh_001",
+      "content": "信封背面的西门 23:40 水印",
+      "status": "open",
+      "urgency": "high",
+      "planted_chapter": 1,
+      "payoff_plan": "中段揭示水印对应被改写的门禁记录"
+    }
+  ],
+  "resolved_foreshadowing": [],
+  "new_world_rules": [],
+  "timeline_entry": {
+    "chapter": 1,
+    "time_marker": "",
+    "events": ["林墨收到亡友留下的空白来信。"],
+    "time_elapsed": "",
+    "time_delta": "",
+    "source": "data-agent"
+  },
+  "scenes": [
+    {
+      "index": 1,
+      "start_line": 1,
+      "end_line": 28,
+      "location": "雨夜街口",
+      "summary": "林墨收到异常来信并决定追查。",
+      "characters": ["char_protagonist"],
+      "tone": "克制悬疑"
+    }
+  ],
+  "chapter_summary": {
+    "chapter": 1,
+    "title": "开篇异常",
+    "summary": "林墨收到亡友来信，发现信封没有邮戳，决定回到旧楼追查线索。",
+    "word_count": 2800,
+    "key_events": ["收到空白来信", "发现无邮戳", "决定追查旧楼"],
+    "characters_appeared": ["char_protagonist"],
+    "hook_type": "线索钩",
+    "hook_strength": "高"
+  }
+}
+```
+
+### write 最小可消费 delta
 
 最小示例：
 
@@ -65,7 +159,7 @@
 }
 ```
 
-扩展字段：
+可选扩展字段：
 
 ```json
 {
