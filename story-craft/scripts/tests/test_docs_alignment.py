@@ -83,3 +83,19 @@ def test_usage_docs_are_split_by_category():
         text = (docs_dir / filename).read_text(encoding="utf-8")
         for fragment in expected_fragments:
             assert fragment in text
+
+
+def test_write_result_docs_list_actual_stage_contract():
+    text = (REPO_ROOT / "docs" / "data-formats.md").read_text(encoding="utf-8")
+
+    assert '"ok": true' in text
+    for stage in (
+        "prewrite",
+        "placeholder",
+        "word_count",
+        "warnings",
+        "delta_validation",
+        "record",
+        "write_error",
+    ):
+        assert f"`{stage}`" in text

@@ -73,3 +73,15 @@ def test_agents_accept_workflow_output_files_without_direct_state_writes():
     assert "output_file" in data_agent
     assert "tools: Read, Bash" in data_agent
     assert "不直接写 `.story/state.json`" in data_agent
+
+
+def test_plugin_manifest_and_discovery_paths_are_documented():
+    plugin_root = REPO_ROOT / "story-craft"
+    plugin = json.loads((plugin_root / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    development_doc = (REPO_ROOT / "docs/development.md").read_text(encoding="utf-8")
+
+    assert plugin["name"] == "story-craft"
+    assert (plugin_root / "skills").is_dir()
+    assert (plugin_root / "agents").is_dir()
+    assert "不写未确认 schema 的 `skills` / `agents` 路径字段" in development_doc
+    assert "按目录自动发现 `story-craft/skills/` 和 `story-craft/agents/`" in development_doc

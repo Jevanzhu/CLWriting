@@ -91,41 +91,7 @@ def atomic_write_json(
     except (TypeError, ValueError) as exc:
         raise AtomicWriteError(f"Failed to serialize JSON: {exc}") from exc
 
-    lock_path = target.with_suffix(target.suffix + ".lock")
-    backup_path = target.with_suffix(target.suffix + ".bak")
-    fd, temp_path = tempfile.mkstemp(
-        suffix=".tmp",
-        prefix=target.stem + "_",
-        dir=target.parent,
-    )
-    temp_file = Path(temp_path)
-
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-
-        lock = None
-        if use_lock and HAS_FILELOCK:
-            lock = FileLock(str(lock_path), timeout=10)
-            lock.acquire()
-
-        try:
-            if backup and target.exists():
-                backup_path.write_bytes(target.read_bytes())
-            os.replace(temp_file, target)
-        finally:
-            if lock is not None:
-                lock.release()
-    except Exception as exc:
-        raise AtomicWriteError(f"Failed to write {target}: {exc}") from exc
-    finally:
-        if temp_file.exists():
-            try:
-                temp_file.unlink()
-            except OSError:
-                pass
+    _atomic_write_payload(target, payload, use_lock=use_lock, backup=backup)
 
 
 def atomic_write_text(
@@ -139,7 +105,20 @@ def atomic_write_text(
     """Atomically write a text file."""
     target = Path(file_path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_payload(target, data, use_lock=use_lock, backup=backup, encoding=encoding)
 
+
+def _atomic_write_payload(
+    file_path: Union[str, Path],
+    payload: str,
+    *,
+    use_lock: bool = True,
+    backup: bool = False,
+    encoding: str = "utf-8",
+) -> None:
+    """Atomically write a serialized text payload."""
+    target = Path(file_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_suffix(target.suffix + ".lock")
     backup_path = target.with_suffix(target.suffix + ".bak")
     fd, temp_path = tempfile.mkstemp(
@@ -151,7 +130,7 @@ def atomic_write_text(
 
     try:
         with os.fdopen(fd, "w", encoding=encoding) as handle:
-            handle.write(data)
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
 

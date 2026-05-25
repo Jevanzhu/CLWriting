@@ -47,6 +47,24 @@ def _entity_identifier(item: Any) -> str:
     return str(item)
 
 
+def _timeline_entry_key(entry: dict[str, Any]) -> tuple[str, str, str] | None:
+    if _coerce_positive_int(entry.get("chapter")) is not None:
+        return None
+    events = entry.get("events")
+    if isinstance(events, list):
+        events_key = "\n".join(str(event) for event in events)
+    elif events is None:
+        events_key = ""
+    else:
+        events_key = str(events)
+    key = (
+        events_key,
+        str(entry.get("time_marker") or ""),
+        str(entry.get("location") or ""),
+    )
+    return key if any(key) else None
+
+
 class MemoryManager:
     """Runtime memory manager."""
 
@@ -150,6 +168,12 @@ class MemoryManager:
                     return
             timeline.append(normalized)
             return
+        dedupe_key = _timeline_entry_key(entry)
+        if dedupe_key is not None:
+            for i, existing in enumerate(timeline):
+                if _timeline_entry_key(existing) == dedupe_key:
+                    timeline[i] = deepcopy(entry)
+                    return
         timeline.append(deepcopy(entry))
 
     def get_world_rules(self) -> list[dict[str, Any]]:

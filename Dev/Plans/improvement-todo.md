@@ -20,8 +20,8 @@
 - P24-1 已完成：reviewer issue 字段已按 `reviewer.md` schema 严格校验，测试夹具已同步为完整 issue。
 - P24-2 已完成：delta 已分为 `data-agent 完整输出` 与 `write 最小可消费 delta` 两层契约，`entities_appeared` 类型已支持字符串 id 或对象。
 - P24-3 已完成：delta 缺失顶层或嵌套章节号时会补齐并追加 warning，章节号冲突仍阻断。
-- 当前进度：P24 已全部完成；下一步进入 P25-1（补全 write-result 文档）。
-- 最近一次整体验证：`story-craft/scripts/tests` 全量测试 81 passed，`compileall` 通过，`git diff --check` 通过。
+- 当前进度：P25 已全部完成并通过全量验证，待提交收口。
+- 最近一次整体验证：`story-craft/scripts/tests` 全量测试 85 passed，`compileall` 通过，`git diff --check` 通过。
 
 ## 执行原则
 
@@ -218,7 +218,7 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
 
 ### P25-1：补全 write-result 文档
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：中
 - 来源：opus-4.7
 - 位置：`docs/data-formats.md`
@@ -236,10 +236,15 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - 说明每个 stage 的触发条件。
 - 验证建议：
   - 文档对齐测试覆盖 `ok` 和完整 stage 枚举。
+- 完成记录：
+  - `docs/data-formats.md` 的 write-result 示例已补 `ok` 字段。
+  - `stage` 已补全 `prewrite`、`placeholder`、`word_count`、`warnings`、`delta_validation`、`record`、`write_error`。
+  - 已说明各 stage 触发条件，以及失败 / 退稿路径对正式正文、审查报告和验收记录的写入影响。
+  - 新增文档对齐测试锁定 `ok` 与完整 stage 枚举。
 
 ### P25-2：标注 legacy commit 兼容层退役计划
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：低
 - 来源：opus-4.7
 - 位置：
@@ -253,10 +258,14 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - 暂不删除，后续版本再移除。
 - 验证建议：
   - 保留 legacy lookup 测试。
+- 完成记录：
+  - `core/chapter_commit.py` docstring 已标注 deprecated，并说明保留原因。
+  - `ChapterCommitService` docstring 已标注为旧调用兼容别名。
+  - `docs/development.md` 已补兼容层退役计划，明确新代码不得继续新增 commit 命名持久化契约。
 
 ### P25-3：显式声明插件 skills / agents 路径
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：低
 - 来源：opus-4.7
 - 位置：`story-craft/.claude-plugin/plugin.json`
@@ -266,10 +275,14 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - 若当前 manifest schema 不支持相关字段，先补文档说明，不盲目写未知字段。
 - 验证建议：
   - 检查 plugin manifest 仍为合法 JSON。
+- 完成记录：
+  - 当前未向 `plugin.json` 写入未确认 schema 的 `skills` / `agents` 路径字段。
+  - `docs/development.md` 已说明 Claude Code 插件按目录自动发现 `story-craft/skills/` 和 `story-craft/agents/`。
+  - 新增参考对齐测试，确认 `plugin.json` 为合法 JSON 且 `skills/`、`agents/` 目录存在。
 
 ### P25-4：抽取原子写入公共实现
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：低
 - 来源：glm-5.1
 - 位置：`story-craft/scripts/core/security_utils.py`
@@ -279,10 +292,14 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - JSON/text 公开函数只负责序列化或传入字符串。
 - 验证建议：
   - 原有 atomic write 测试全部通过。
+- 完成记录：
+  - `atomic_write_json()` 仅负责 JSON 序列化和错误转换。
+  - `atomic_write_text()` 仅负责文本入口和编码参数。
+  - 公共原子写入、锁、备份和临时文件清理逻辑已抽到 `_atomic_write_payload()`。
 
 ### P25-5：统一 `cmd_agent` 章节号校验
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：低
 - 来源：opus-4.7
 - 位置：`story-craft/scripts/story_craft.py`
@@ -291,10 +308,16 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - 对需要章节号的 agent 子命令统一走 `_resolve_chapter_arg()` 或等价校验。
 - 验证建议：
   - `agent brief --chapter 0` 返回中文错误和非零退出码。
+- 完成记录：
+  - `cmd_agent()` 已统一调用 `_resolve_chapter_arg()`。
+  - `brief`、`repair`、`polish`、`extract`、`workflow` 均使用校验后的正整数章节号。
+  - 新增 `agent brief --chapter 0` 回归测试，确认返回非零退出码和中文错误。
+  - 定向验证通过：
+    - `timeout 60s python3 -B -m pytest story-craft/scripts/tests/test_agent_workflow.py::test_cli_agent_rejects_non_positive_chapter`
 
 ### P25-6：无 chapter timeline 幂等去重
 
-- 状态：待处理
+- 状态：已完成（2026-05-25）
 - 优先级：低
 - 来源：opus-4.7
 - 位置：`story-craft/scripts/core/memory_manager.py`
@@ -303,3 +326,10 @@ env PYTHONPYCACHEPREFIX=/tmp/story-craft-pyc python3 -m compileall -q story-craf
   - 对无 chapter entry 按 `events + time_marker + location` 做轻量去重。
 - 验证建议：
   - 重复追加无 chapter entry 时只保留一条。
+- 完成记录：
+  - `append_timeline_entry()` 对无正整数 `chapter` 的条目按 `events + time_marker + location` 生成轻量去重键。
+  - 重复 fallback / data-agent 条目会以后一次内容覆盖旧条目，不同地点或不同事件仍保留。
+  - 无可比较信号的空条目保持原追加行为，避免误合并。
+  - 新增无 chapter timeline 去重回归测试。
+  - 定向验证通过：
+    - `timeout 60s python3 -B -m pytest story-craft/scripts/tests/test_storage.py::test_memory_manager_deduplicates_timeline_entries_without_chapter`
