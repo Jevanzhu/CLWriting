@@ -139,7 +139,12 @@ class ChapterRecordService:
 
 
 class ChapterCommitService(ChapterRecordService):
-    """Backward-compatible alias for older internal callers."""
+    """Deprecated alias for older internal callers.
+
+    Kept only for old projects and tests that still expect commit_file or
+    ch_NN_commit.json compatibility. New code should use ChapterRecordService;
+    remove this alias after the legacy commit contract is retired.
+    """
 
     def commit(
         self,

@@ -50,6 +50,22 @@ def test_build_writing_brief_matches_context_agent_shape(tmp_path):
     assert json.loads(output_file.read_text(encoding="utf-8"))["meta"]["title"] == "开篇异常"
 
 
+def test_cli_agent_rejects_non_positive_chapter(tmp_path):
+    project = create_planned_project(tmp_path)
+
+    cli = run_cli(
+        "--project-root",
+        str(project),
+        "agent",
+        "brief",
+        "--chapter",
+        "0",
+    )
+
+    assert cli.returncode == 1
+    assert "章节号必须从 1 开始" in cli.stderr
+
+
 def test_workflow_manifest_commands_quote_paths_with_spaces(tmp_path):
     project = create_planned_project(tmp_path / "demo project")
 

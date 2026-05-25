@@ -180,6 +180,43 @@ def test_memory_manager_applies_chapter_delta(tmp_path):
     assert not reloaded.use_sqlite
 
 
+def test_memory_manager_deduplicates_timeline_entries_without_chapter(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑", protagonist_name="林墨")
+    memory = MemoryManager.from_project(project)
+
+    memory.append_timeline_entry(
+        {
+            "events": ["林墨在旧楼发现异常灯光"],
+            "time_marker": "雨夜",
+            "location": "旧楼",
+            "source": "fallback",
+        }
+    )
+    memory.append_timeline_entry(
+        {
+            "events": ["林墨在旧楼发现异常灯光"],
+            "time_marker": "雨夜",
+            "location": "旧楼",
+            "source": "data-agent",
+        }
+    )
+    memory.append_timeline_entry(
+        {
+            "events": ["林墨在旧楼发现异常灯光"],
+            "time_marker": "雨夜",
+            "location": "天台",
+        }
+    )
+    memory.flush()
+
+    timeline = MemoryManager.from_project(project).load()["timeline"]
+
+    assert len(timeline) == 2
+    assert timeline[0]["source"] == "data-agent"
+    assert timeline[1]["location"] == "天台"
+
+
 def test_memory_manager_accepts_string_and_object_entities_in_delta(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑", protagonist_name="林墨")

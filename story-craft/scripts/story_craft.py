@@ -350,15 +350,20 @@ def cmd_agent(args) -> int:
     except FileNotFoundError as exc:
         _print_project_root_error(exc)
         return 1
+    try:
+        chapter = _resolve_chapter_arg(args)
+    except ValueError as exc:
+        print_error(str(exc))
+        return 1
 
     try:
         if args.agent_command == "brief":
-            payload = build_writing_brief(project_root, args.chapter)
+            payload = build_writing_brief(project_root, chapter)
         elif args.agent_command == "repair":
             review_result = json.loads(Path(args.review_results).read_text(encoding="utf-8"))
             payload = build_repair_plan(
                 project_root,
-                args.chapter,
+                chapter,
                 review_result,
                 draft_file=args.draft_file,
             )
@@ -368,19 +373,19 @@ def cmd_agent(args) -> int:
                 review_result = json.loads(Path(args.review_results).read_text(encoding="utf-8"))
             payload = build_polish_plan(
                 project_root,
-                args.chapter,
+                chapter,
                 args.draft_file,
                 review_result=review_result,
             )
         elif args.agent_command == "extract":
             payload = build_extraction_delta(
                 project_root,
-                args.chapter,
+                chapter,
                 args.chapter_file,
                 title=args.title,
             )
         elif args.agent_command == "workflow":
-            payload = build_workflow_workspace(project_root, args.chapter)
+            payload = build_workflow_workspace(project_root, chapter)
         else:
             print_error(f"未知 agent 子命令：{args.agent_command}")
             return 1

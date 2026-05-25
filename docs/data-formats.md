@@ -204,6 +204,7 @@ delta 分为两层契约：
 
 ```json
 {
+  "ok": true,
   "stage": "record",
   "status": "accepted",
   "chapter": 1,
@@ -228,12 +229,22 @@ delta 分为两层契约：
 }
 ```
 
-- `stage`：验收阶段，如 `record`、`warnings`、`write_error`。
+- `ok`：本次 `write` 是否成功验收。`status=accepted` 时为 `true`，其他失败或退稿路径为 `false`。
+- `stage`：验收阶段，完整枚举如下：
+  - `prewrite`：写前校验未通过，例如缺少上一章验收记录或项目状态不满足。
+  - `placeholder`：正文存在 `[TODO]`、`{待定}` 等占位符。
+  - `word_count`：字数低于最低提交阈值。
+  - `warnings`：启用严格 warning 模式时，写前校验或字数 warning 被视为阻断。
+  - `delta_validation`：delta 章节号无法解析或与目标章节冲突。
+  - `record`：已完成审查报告和验收记录写入；可能是 `accepted` 或 reviewer 阻断后的 `rejected`。
+  - `write_error`：正式正文、审查报告、record、memory 或 state 写入过程中失败，并已尝试回滚。
 - `status`：`accepted`（验收成功）、`rejected`（审查阻断）、`failed`（正式写入失败）。
 - `word_count_check`：字数闸门结果，`blockers` 非空时低于 60% 阈值，`warnings` 非空时低于 80% 或超出 135%。
 - `memory_updated` / `state_updated`：只有 accepted 验收记录会更新故事记忆和项目进度。
 
-`status=rejected` 或 `stage=warnings` 时不会写入最终 `正文/`，不更新记忆。
+`stage=prewrite`、`placeholder`、`word_count`、`warnings` 或 `delta_validation`
+时不会写入最终 `正文/`、审查报告或验收记录。`status=rejected` 时只写审查
+报告和 rejected 验收记录，不写最终 `正文/`，不更新记忆。
 
 ## 工作台文件
 
