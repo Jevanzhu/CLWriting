@@ -194,6 +194,34 @@ def _normalize_delta_chapter(
     return normalized, errors
 
 
+def _failure_result(
+    *,
+    stage: str,
+    blockers: list[str],
+    warnings: list[str],
+    draft_path: Path,
+    chapter_file: str | Path | None = None,
+    report_file: str | Path | None = None,
+    record_file: str | Path | None = None,
+    word_count_check: dict[str, Any] | None = None,
+    **extra: Any,
+) -> WriteResult:
+    result: WriteResult = {
+        "ok": False,
+        "stage": stage,
+        "blockers": list(blockers),
+        "warnings": list(warnings),
+        "chapter_file": str(chapter_file) if chapter_file else None,
+        "report_file": str(report_file) if report_file else None,
+        "record_file": str(record_file) if record_file else None,
+        "draft_file": str(draft_path),
+    }
+    if word_count_check is not None:
+        result["word_count_check"] = word_count_check
+    result.update(extra)
+    return result
+
+
 def _snapshot_files(paths: list[Path]) -> dict[Path, bytes | None]:
     snapshots: dict[Path, bytes | None] = {}
     for path in paths:
@@ -245,26 +273,26 @@ def record_chapter_workflow(
     """Validate, persist, review-report, and record a chapter draft."""
     config = StoryCraftConfig.from_project_root(project_root)
     config.ensure_dirs()
+    draft_path = Path(draft_file).expanduser().resolve()
     validation = validate_prewrite(config.project_root, chapter)
     if not validation["ready"]:
-        return {
-            "ok": False,
-            "stage": "prewrite",
-            "blockers": validation["blockers"],
-            "warnings": validation["warnings"],
-        }
+        return _failure_result(
+            stage="prewrite",
+            blockers=validation["blockers"],
+            warnings=validation["warnings"],
+            draft_path=draft_path,
+        )
 
-    draft_path = Path(draft_file).expanduser().resolve()
     chapter_text = draft_path.read_text(encoding="utf-8")
     placeholders = scan_placeholders(chapter_text)
     if placeholders:
-        return {
-            "ok": False,
-            "stage": "placeholder",
-            "blockers": ["正文存在占位符"],
-            "placeholders": placeholders,
-            "warnings": validation["warnings"],
-        }
+        return _failure_result(
+            stage="placeholder",
+            blockers=["正文存在占位符"],
+            warnings=validation["warnings"],
+            draft_path=draft_path,
+            placeholders=placeholders,
+        )
 
     context = ContextManager(config).build_context(chapter)
     word_count = count_chinese_chars(chapter_text)
@@ -274,13 +302,13 @@ def record_chapter_workflow(
     )
     all_warnings = list(validation["warnings"]) + word_count_check["warnings"]
     if word_count_check["blockers"]:
-        return {
-            "ok": False,
-            "stage": "word_count",
-            "blockers": word_count_check["blockers"],
-            "warnings": all_warnings,
-            "word_count_check": word_count_check,
-        }
+        return _failure_result(
+            stage="word_count",
+            blockers=word_count_check["blockers"],
+            warnings=all_warnings,
+            draft_path=draft_path,
+            word_count_check=word_count_check,
+        )
 
     inferred_title = _infer_title(chapter_text, chapter, fallback=title)
     chapter_title = title or inferred_title
@@ -292,17 +320,13 @@ def record_chapter_workflow(
     )
 
     if not allow_warnings and all_warnings:
-        return {
-            "ok": False,
-            "stage": "warnings",
-            "blockers": ["写前校验存在警告，当前设置不允许继续"],
-            "warnings": all_warnings,
-            "chapter_file": None,
-            "report_file": None,
-            "record_file": None,
-            "draft_file": str(draft_path),
-            "word_count_check": word_count_check,
-        }
+        return _failure_result(
+            stage="warnings",
+            blockers=["写前校验存在警告，当前设置不允许继续"],
+            warnings=all_warnings,
+            draft_path=draft_path,
+            word_count_check=word_count_check,
+        )
 
     review_source = "provided" if review_results else "fallback"
     if review_results:
@@ -333,17 +357,13 @@ def record_chapter_workflow(
         )
     delta, delta_errors = _normalize_delta_chapter(delta, chapter=chapter)
     if delta_errors:
-        return {
-            "ok": False,
-            "stage": "delta_validation",
-            "blockers": delta_errors,
-            "warnings": all_warnings,
-            "chapter_file": None,
-            "report_file": None,
-            "record_file": None,
-            "draft_file": str(draft_path),
-            "word_count_check": word_count_check,
-        }
+        return _failure_result(
+            stage="delta_validation",
+            blockers=delta_errors,
+            warnings=all_warnings,
+            draft_path=draft_path,
+            word_count_check=word_count_check,
+        )
 
     report_path = (
         Path(report_file).expanduser().resolve()
@@ -371,10 +391,6 @@ def record_chapter_workflow(
             backup=True,
         )
 
-        if review_result["passed"]:
-            atomic_write_text(chapter_path, chapter_text, backup=True)
-            chapter_file = str(chapter_path)
-
         record_result = ChapterRecordService(config).record(
             chapter,
             chapter_title,
@@ -382,31 +398,28 @@ def record_chapter_workflow(
             review_result,
             delta,
         )
+
+        if record_result["status"] == "accepted":
+            atomic_write_text(chapter_path, chapter_text, backup=True)
+            chapter_file = str(chapter_path)
     except (AtomicWriteError, OSError, ValueError) as exc:
         rollback_errors = _restore_snapshots(snapshots)
         blockers = [f"正式写入失败：{exc}"]
         if rollback_errors:
             blockers.append("回滚失败：" + "；".join(rollback_errors))
-        return {
-            "ok": False,
-            "stage": "write_error",
-            "chapter": int(chapter),
-            "title": chapter_title,
-            "word_count": word_count,
-            "chapter_file": None,
-            "report_file": None,
-            "record_file": None,
-            "status": "failed",
-            "memory_updated": False,
-            "state_updated": False,
-            "blockers": blockers,
-            "warnings": all_warnings,
-            "draft_file": str(draft_path),
-            "word_count_check": word_count_check,
-        }
-    if record_result["status"] != "accepted":
-        chapter_file = None
-
+        return _failure_result(
+            stage="write_error",
+            blockers=blockers,
+            warnings=all_warnings,
+            draft_path=draft_path,
+            word_count_check=word_count_check,
+            chapter=int(chapter),
+            title=chapter_title,
+            word_count=word_count,
+            status="failed",
+            memory_updated=False,
+            state_updated=False,
+        )
     return {
         "ok": record_result["status"] == "accepted",
         "stage": "record",

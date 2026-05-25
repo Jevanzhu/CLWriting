@@ -85,7 +85,7 @@ class ChapterRecordService:
         blocker_count = len(blockers)
         issue_count = len(issues)
         passed = blocker_count == 0
-        status = "accepted" if passed and blocker_count == 0 else "rejected"
+        status = "accepted" if passed else "rejected"
         delta = deepcopy(extraction_delta)
         delta.setdefault("chapter", int(chapter))
         return {

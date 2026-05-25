@@ -14,6 +14,28 @@ from tools.init_project import init_project
 from tools.outline_planner import plan_story
 
 
+REQUIRED_FAILURE_KEYS = {
+    "ok",
+    "stage",
+    "blockers",
+    "warnings",
+    "chapter_file",
+    "report_file",
+    "record_file",
+    "draft_file",
+}
+
+
+def assert_failure_shape(result, draft_file, *, word_count_check=False):
+    assert REQUIRED_FAILURE_KEYS <= set(result)
+    assert result["ok"] is False
+    assert isinstance(result["blockers"], list)
+    assert isinstance(result["warnings"], list)
+    assert result["draft_file"] == str(Path(draft_file).resolve())
+    if word_count_check:
+        assert "word_count_check" in result
+
+
 def test_plan_story_writes_outline_memory_and_state(tmp_path):
     project = tmp_path / "demo"
     init_project(
@@ -149,9 +171,39 @@ def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
 
     assert not result["ok"]
     assert result["stage"] == "word_count"
+    assert_failure_shape(result, draft, word_count_check=True)
     assert "正文字数过低" in result["blockers"][0]
     assert result["word_count_check"]["planned_words"] > 0
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
+
+
+def test_record_chapter_workflow_placeholder_failure_has_common_shape(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        "# 第01章 葬礼后的信\n\n这里有[TODO:补线索]，不允许提交。",
+        encoding="utf-8",
+    )
+
+    result = record_chapter_workflow(project, chapter=1, draft_file=draft)
+
+    assert result["stage"] == "placeholder"
+    assert_failure_shape(result, draft)
+    assert result["chapter_file"] is None
+    assert result["report_file"] is None
+    assert result["record_file"] is None
+    assert result["placeholders"]
+    assert not any((project / "正文").glob("第01章*.md"))
 
 
 def test_record_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_path):
@@ -185,6 +237,7 @@ def test_record_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_pat
 
     assert not result["ok"]
     assert result["stage"] == "warnings"
+    assert_failure_shape(result, draft, word_count_check=True)
     assert result["chapter_file"] is None
     assert result["report_file"] is None
     assert result["record_file"] is None
@@ -278,6 +331,7 @@ def test_record_chapter_workflow_blocks_completed_chapter(tmp_path):
     assert first["ok"], first
     assert not second["ok"]
     assert second["stage"] == "prewrite"
+    assert_failure_shape(second, draft)
     assert any("目标章节不大于当前进度" in item for item in second["blockers"])
     assert progress_after_second["total_words"] == progress_after_first["total_words"]
     assert progress_after_second["current_chapter"] == 1
@@ -337,6 +391,7 @@ def test_record_chapter_workflow_rejects_mismatched_delta_chapter(tmp_path):
 
     assert not result["ok"]
     assert result["stage"] == "delta_validation"
+    assert_failure_shape(result, draft, word_count_check=True)
     assert any("与目标章节 1 不一致" in item for item in result["blockers"])
     assert result["chapter_file"] is None
     assert result["report_file"] is None
@@ -403,6 +458,7 @@ def test_record_chapter_workflow_does_not_record_when_chapter_write_fails(
     memory = MemoryManager.from_project(project).load()
     assert not result["ok"]
     assert result["stage"] == "write_error"
+    assert_failure_shape(result, draft, word_count_check=True)
     assert result["status"] == "failed"
     assert result["chapter_file"] is None
     assert result["report_file"] is None
@@ -414,6 +470,77 @@ def test_record_chapter_workflow_does_not_record_when_chapter_write_fails(
     assert memory["chapter_summaries"] == []
     assert not any((project / "正文").glob("第01章*.md"))
     assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
+
+
+def test_record_chapter_workflow_does_not_write_chapter_when_record_rejects(
+    tmp_path,
+    monkeypatch,
+):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "第1章可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    class RejectingRecordService:
+        def __init__(self, config):
+            self.config = config
+
+        def record(self, *args, **kwargs):
+            record_file = self.config.chapters_dir / "ch_01_record.json"
+            record_file.parent.mkdir(parents=True, exist_ok=True)
+            record_file.write_text(
+                json.dumps({"chapter": 1, "status": "rejected"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return {
+                "record_file": str(record_file),
+                "status": "rejected",
+                "memory_updated": False,
+                "state_updated": False,
+            }
+
+    monkeypatch.setattr(
+        chapter_workflow_module,
+        "ChapterRecordService",
+        RejectingRecordService,
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft,
+        review_results=review,
+    )
+
+    assert not result["ok"]
+    assert result["stage"] == "record"
+    assert result["status"] == "rejected"
+    assert result["chapter_file"] is None
+    assert Path(result["record_file"]).is_file()
+    assert Path(result["report_file"]).is_file()
+    assert not any((project / "正文").glob("第01章*.md"))
+    assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
+    assert MemoryManager.from_project(project).load()["last_updated_chapter"] == 0
 
 
 def test_record_chapter_workflow_rolls_back_when_record_write_fails(
@@ -469,6 +596,7 @@ def test_record_chapter_workflow_rolls_back_when_record_write_fails(
 
     assert not result["ok"]
     assert result["stage"] == "write_error"
+    assert_failure_shape(result, draft, word_count_check=True)
     assert result["status"] == "failed"
     assert progress["current_chapter"] == 0
     assert progress["total_words"] == 0
