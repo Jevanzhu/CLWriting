@@ -270,18 +270,6 @@ def _first_non_empty(items: list[str], fallback: str = "") -> str:
     return fallback
 
 
-def _as_issue_list(items: Any) -> list[dict[str, Any]]:
-    if not isinstance(items, list):
-        return []
-    normalized: list[dict[str, Any]] = []
-    for item in items:
-        if isinstance(item, dict):
-            normalized.append(dict(item))
-        else:
-            normalized.append({"description": str(item), "severity": "low", "category": "general"})
-    return normalized
-
-
 def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
     if not isinstance(review_result, dict):
         raise ValueError("reviewer JSON 必须是对象")
@@ -325,10 +313,9 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
 def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReviewerResult:
     """Normalize reviewer-agent JSON into record-ready blockers/warnings."""
     normalized = _validate_raw_reviewer_output(review_result)
-    issues = _as_issue_list(normalized.get("issues"))
+    issues = [dict(issue) for issue in normalized["issues"]]
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
-    suggestions = _as_issue_list(normalized.get("suggestions"))
 
     for issue in issues:
         severity = str(issue.get("severity") or "").lower()
@@ -339,7 +326,7 @@ def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReview
     normalized["issues"] = issues
     normalized["blockers"] = blockers
     normalized["warnings"] = warnings
-    normalized["suggestions"] = suggestions
+    normalized.pop("suggestions", None)
     normalized.pop("passed", None)
     normalized.pop("blocker_count", None)
     normalized.pop("issue_count", None)

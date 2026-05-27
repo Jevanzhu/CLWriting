@@ -46,7 +46,4 @@ def build_review_report(
     lines.extend([_issue_line(item) for item in blockers] or ["- 无"])
     lines.extend(["", "## 警告项", ""])
     lines.extend([_issue_line(item) for item in warnings] or ["- 无"])
-    if review_results.get("suggestions"):
-        lines.extend(["", "## 修改建议", ""])
-        lines.extend([_issue_line(item) for item in review_results["suggestions"]])
     return "\n".join(lines) + "\n"

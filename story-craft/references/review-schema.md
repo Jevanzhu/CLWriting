@@ -59,3 +59,5 @@
 
 `story-craft` 在本地会把原始 `issues` 归一化为 `blockers`、`warnings`
 和 `passed`。验收闸门只认归一化后的 `blockers` 列表，不依赖原始计数字段。
+原始输出不要提供 `suggestions`；可执行修复建议统一写入对应 issue 的
+`fix_hint`。本地归一化会忽略历史输入中的 `suggestions` 字段。

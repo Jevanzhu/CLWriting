@@ -40,8 +40,10 @@
 }
 ```
 
-本地归一化后会生成内部结构：`passed`、`blockers`、`warnings` 和
-`suggestions`。`blockers` 列表是验收闸门的唯一权威来源。
+本地归一化后会生成内部结构：`passed`、`blockers` 和 `warnings`。
+`blockers` 列表是验收闸门的唯一权威来源。
+原始输出不要提供 `suggestions`；可执行修复建议统一写入对应 issue 的
+`fix_hint`。历史输入中的 `suggestions` 会被本地归一化忽略。
 审查维度包括设定一致性、时间线、角色动机、逻辑因果和 AI 味。
 
 ## delta JSON
@@ -200,7 +202,12 @@ delta 分为两层契约：
 
 ## write-result JSON
 
-`write` 命令验收后生成的结果文件，记录本次验收的阶段、状态和字数检查结果：
+`write` 命令验收后生成的结果文件，记录本次验收的阶段、状态和字数检查结果。
+类型边界为 `WriteResult = WriteSuccess | WriteFailure`。
+
+### WriteSuccess
+
+`WriteSuccess` 只表示正式验收成功：`ok=true`、`stage=record`、`status=accepted`。
 
 ```json
 {
@@ -228,6 +235,13 @@ delta 分为两层契约：
   }
 }
 ```
+
+### WriteFailure
+
+`WriteFailure` 覆盖两类失败：
+
+- 闸门失败或写入失败：`stage` 为 `prewrite`、`placeholder`、`word_count`、`warnings`、`delta_validation` 或 `write_error`，会包含 `blockers`、`draft_file` 和固定文件字段。
+- reviewer 退稿：`stage=record`、`status=rejected`，已写审查报告和 rejected 验收记录，但不会写最终正文，也不会更新记忆或进度。
 
 - `ok`：本次 `write` 是否成功验收。`status=accepted` 时为 `true`，其他失败或退稿路径为 `false`。
 - `stage`：验收阶段，完整枚举如下：

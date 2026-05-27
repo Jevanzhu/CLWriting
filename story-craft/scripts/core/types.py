@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 
 class ReviewerIssue(TypedDict, total=False):
@@ -21,7 +21,6 @@ class ReviewerResult(TypedDict, total=False):
     """Raw reviewer output before local normalization."""
 
     issues: list[ReviewerIssue]
-    suggestions: list[ReviewerIssue]
     summary: str
 
 
@@ -35,7 +34,6 @@ class NormalizedReviewerResult(TypedDict):
     issues: list[ReviewerIssue]
     blockers: list[ReviewerIssue]
     warnings: list[ReviewerIssue]
-    suggestions: list[ReviewerIssue]
     summary: str
 
 
@@ -75,22 +73,72 @@ class ExtractionDelta(TypedDict, total=False):
     agent_calls: dict[str, str]
 
 
-class WriteResult(TypedDict, total=False):
-    ok: bool
-    stage: str
+WriteGateStage = Literal[
+    "prewrite",
+    "placeholder",
+    "word_count",
+    "warnings",
+    "delta_validation",
+    "write_error",
+]
+
+
+class WriteSuccess(TypedDict):
+    ok: Literal[True]
+    stage: Literal["record"]
     chapter: int
     title: str
     word_count: int
+    chapter_file: str
+    report_file: str
+    record_file: str
+    status: Literal["accepted"]
+    memory_updated: bool
+    state_updated: bool
+    warnings: list[str]
+    word_count_check: dict[str, Any]
+
+
+class WriteGateFailureBase(TypedDict):
+    ok: Literal[False]
+    stage: WriteGateStage
+    blockers: list[str]
+    warnings: list[str]
     chapter_file: str | None
     report_file: str | None
     record_file: str | None
     draft_file: str
-    status: str
-    memory_updated: bool
-    state_updated: bool
-    blockers: list[str]
+
+
+class WriteGateFailure(WriteGateFailureBase, total=False):
+    word_count_check: dict[str, Any]
+    placeholders: list[dict[str, str]]
+    chapter: int
+    title: str
+    word_count: int
+    status: Literal["failed"]
+    memory_updated: Literal[False]
+    state_updated: Literal[False]
+
+
+class WriteRejection(TypedDict):
+    ok: Literal[False]
+    stage: Literal["record"]
+    chapter: int
+    title: str
+    word_count: int
+    chapter_file: None
+    report_file: str
+    record_file: str
+    status: Literal["rejected"]
+    memory_updated: Literal[False]
+    state_updated: Literal[False]
     warnings: list[str]
     word_count_check: dict[str, Any]
+
+
+WriteFailure = WriteGateFailure | WriteRejection
+WriteResult = WriteSuccess | WriteFailure
 
 
 class WorkflowManifest(TypedDict, total=False):

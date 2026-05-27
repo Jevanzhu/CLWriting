@@ -89,6 +89,9 @@ def test_write_result_docs_list_actual_stage_contract():
     text = (REPO_ROOT / "docs" / "data-formats.md").read_text(encoding="utf-8")
 
     assert '"ok": true' in text
+    assert "WriteResult = WriteSuccess | WriteFailure" in text
+    assert "WriteSuccess" in text
+    assert "WriteFailure" in text
     for stage in (
         "prewrite",
         "placeholder",
