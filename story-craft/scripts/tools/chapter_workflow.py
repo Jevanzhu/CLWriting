@@ -14,7 +14,7 @@ from core.config import StoryCraftConfig
 from core.security_utils import AtomicWriteError, atomic_write_text
 from core.context_manager import ContextManager
 from core.text_utils import count_chinese_chars, first_int, outline_value
-from core.types import ExtractionDelta, WriteResult
+from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteResult
 from tools.agent_workflow import normalize_reviewer_output
 from tools.placeholder_scanner import scan_placeholders
 from tools.prewrite_validator import validate_prewrite
@@ -199,7 +199,7 @@ def _normalize_delta_chapter(
 
 def _failure_result(
     *,
-    stage: str,
+    stage: WriteGateStage,
     blockers: list[str],
     warnings: list[str],
     draft_path: Path,
@@ -208,8 +208,8 @@ def _failure_result(
     record_file: str | Path | None = None,
     word_count_check: dict[str, Any] | None = None,
     **extra: Any,
-) -> WriteResult:
-    result: WriteResult = {
+) -> WriteGateFailure:
+    result: WriteGateFailure = {
         "ok": False,
         "stage": stage,
         "blockers": list(blockers),

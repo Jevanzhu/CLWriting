@@ -81,7 +81,7 @@ class ChapterRecordService:
         self._ensure_normalized_review_result(review_result)
         blockers = review_result.get("blockers") or []
         warnings = review_result.get("warnings") or []
-        issues = review_result.get("issues") or blockers + warnings
+        issues = review_result["issues"]
         blocker_count = len(blockers)
         issue_count = len(issues)
         passed = blocker_count == 0

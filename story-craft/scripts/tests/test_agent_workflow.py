@@ -212,6 +212,16 @@ def test_normalize_reviewer_output_derives_status_from_issues():
                 "blocking": False,
             },
         ],
+        "suggestions": [
+            reviewer_issue(
+                severity="low",
+                category="ai_flavor",
+                description="可选润色建议",
+                evidence="局部表达偏模板",
+                fix_hint="改成具体动作",
+                blocking=False,
+            )
+        ],
         "summary": "存在阻断和警告。",
     }
 
@@ -220,6 +230,7 @@ def test_normalize_reviewer_output_derives_status_from_issues():
     assert not normalized["passed"]
     assert len(normalized["blockers"]) == 1
     assert len(normalized["warnings"]) == 1
+    assert "suggestions" not in normalized
 
 
 def test_normalize_reviewer_output_rejects_missing_required_fields():
