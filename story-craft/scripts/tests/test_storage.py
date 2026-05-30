@@ -7,7 +7,6 @@ import pytest
 
 from conftest import reviewer_issue, run_cli
 from core.chapter_paths import (
-    chapter_commit_file_name,
     chapter_file_name,
     commit_file_name,
     chapter_record_file_name,
@@ -405,21 +404,6 @@ def test_chapter_path_helpers_find_numbered_markdown(tmp_path):
     chapter_path.write_text("# 第02章\n", encoding="utf-8")
 
     assert chapter_file_name(2, "档案室/凌晨") == "第02章-凌晨.md"
-    assert chapter_commit_file_name(2) == "ch_02_commit.json"
     assert commit_file_name(2) == "chapter_002.commit.json"
     assert chapter_record_file_name(2) == "ch_02_record.json"
     assert find_chapter_file(2, config=config) == chapter_path
-
-
-def test_chapter_record_lookup_prefers_new_record_over_legacy_commit(tmp_path):
-    project = tmp_path / "demo"
-    init_project(project, "暗室", "悬疑")
-    config = StoryCraftConfig.from_project_root(project)
-    legacy = config.chapters_dir / chapter_commit_file_name(1)
-    record = config.chapters_dir / chapter_record_file_name(1)
-    atomic_write_json(legacy, {"chapter": 1, "status": "accepted"}, use_lock=False)
-
-    assert find_chapter_record_file(1, config=config) == legacy
-
-    atomic_write_json(record, {"chapter": 1, "status": "accepted"}, use_lock=False)
-    assert find_chapter_record_file(1, config=config) == record
