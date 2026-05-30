@@ -3,7 +3,12 @@ from __future__ import annotations
 from inspect import signature
 
 from core.config import StoryCraftConfig
-from core.projection import ProjectionResult, ProjectionWriter, StateProjectionWriter
+from core.projection import (
+    ProjectionResult,
+    ProjectionWriter,
+    StateProjectionWriter,
+    SummaryProjectionWriter,
+)
 from core.projection.base import ProjectionResult as BaseProjectionResult
 from core.state_manager import StateManager
 
@@ -125,3 +130,69 @@ def test_state_projection_writer_skips_rejected_commit(tmp_path):
     )
     assert progress["current_chapter"] == 0
     assert progress["total_words"] == 0
+
+
+def test_summary_projection_writer_renders_and_overwrites_summary(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = SummaryProjectionWriter(config)
+
+    result = writer.write(
+        {
+            "chapter": 5,
+            "title": "旧楼",
+            "status": "accepted",
+            "summary_text": "林墨进入旧楼，发现监控黑屏。",
+            "chapter_summary": {
+                "title": "旧楼",
+                "key_events": ["进入旧楼", "发现监控黑屏"],
+                "characters_appeared": ["char_lin", "char_su"],
+                "hook_type": "悬念",
+                "hook_strength": "strong",
+            },
+        }
+    )
+    path = config.summaries_dir / "ch0005.md"
+
+    assert result.name == "summary"
+    assert result.ok
+    assert not result.skipped
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "# 第0005章 旧楼" in text
+    assert "林墨进入旧楼，发现监控黑屏。" in text
+    assert "- 类型：悬念" in text
+    assert "- 进入旧楼" in text
+    assert "- char_su" in text
+
+    writer.write(
+        {
+            "chapter": 5,
+            "title": "旧楼",
+            "status": "accepted",
+            "summary_text": "修订后的摘要。",
+            "chapter_summary": {"title": "旧楼"},
+        }
+    )
+    overwritten = path.read_text(encoding="utf-8")
+    assert "修订后的摘要。" in overwritten
+    assert "林墨进入旧楼，发现监控黑屏。" not in overwritten
+
+
+def test_summary_projection_writer_skips_rejected_commit(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    result = SummaryProjectionWriter(config).write(
+        {
+            "chapter": 5,
+            "title": "退稿",
+            "status": "rejected",
+            "summary_text": "不应写出",
+        }
+    )
+
+    assert result == ProjectionResult(
+        name="summary",
+        ok=True,
+        skipped=True,
+        detail="rejected commit skipped",
+    )
+    assert not (config.summaries_dir / "ch0005.md").exists()
