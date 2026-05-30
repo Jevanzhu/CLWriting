@@ -4,6 +4,7 @@ from inspect import signature
 
 from core.config import StoryCraftConfig
 from core.projection import (
+    MarkdownViewProjectionWriter,
     MemoryProjectionWriter,
     ProjectionResult,
     ProjectionWriter,
@@ -335,3 +336,141 @@ def test_memory_projection_writer_skips_rejected_and_empty_commits(tmp_path):
     )
     assert memory["last_updated_chapter"] == 0
     assert memory["chapter_summaries"] == []
+
+
+def test_markdown_view_projection_writer_renders_project_views(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = MarkdownViewProjectionWriter(config)
+    commit = {
+        "chapter": 2,
+        "title": "旧楼",
+        "status": "accepted",
+        "summary_text": "林墨进入旧楼，苏晚发现监控黑屏。",
+        "dominant_strand": "quest",
+        "entity_deltas": [
+            {
+                "entity_id": "char_su",
+                "name": "苏晚",
+                "entity_type": "角色",
+                "role": "ally",
+                "tier": "核心",
+                "operation": "introduced",
+            },
+            {
+                "entity_id": "faction_watch",
+                "name": "观测局",
+                "entity_type": "势力",
+                "role": "opponent",
+                "tier": "核心",
+                "operation": "introduced",
+            },
+        ],
+        "state_deltas": [
+            {
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "field": "current_status",
+                "old": "等待",
+                "new": "发现旧楼灯光",
+                "chapter": 2,
+            }
+        ],
+        "world_rules": [{"id": "wr_1", "rule": "证据必须可回溯"}],
+        "accepted_events": [
+            {
+                "event_type": "open_loop_created",
+                "payload": {"id": "fh_2", "content": "旧楼灯光"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "open_loop_closed",
+                "payload": {"id": "fh_1", "content": "亡友信源"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"summary": "进入旧楼"},
+                "chapter": 2,
+            },
+        ],
+    }
+
+    result = writer.write(commit)
+
+    assert result == ProjectionResult(
+        name="markdown_view",
+        ok=True,
+        skipped=False,
+        detail="markdown views updated",
+    )
+
+    character = config.settings_view_dir / "角色" / "苏晚.md"
+    faction = config.settings_view_dir / "势力" / "观测局.md"
+    world = config.settings_view_dir / "世界观" / "wr_1.md"
+    context = config.tracking_dir / "上下文.md"
+    loops = config.tracking_dir / "伏笔.md"
+    timeline = config.tracking_dir / "时间线.md"
+    state = config.tracking_dir / "角色状态.md"
+
+    assert character.is_file()
+    assert faction.is_file()
+    assert world.is_file()
+    assert context.is_file()
+    assert loops.is_file()
+    assert timeline.is_file()
+    assert state.is_file()
+    assert "发现旧楼灯光" in character.read_text(encoding="utf-8")
+    assert "# 观测局" in faction.read_text(encoding="utf-8")
+    assert "证据必须可回溯" in world.read_text(encoding="utf-8")
+    assert "林墨进入旧楼" in context.read_text(encoding="utf-8")
+    assert "旧楼灯光" in loops.read_text(encoding="utf-8")
+    assert "亡友信源" in loops.read_text(encoding="utf-8")
+    assert "进入旧楼" in timeline.read_text(encoding="utf-8")
+    assert "current_status" in state.read_text(encoding="utf-8")
+
+
+def test_markdown_view_projection_writer_rebuilds_and_skips_rejected(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = MarkdownViewProjectionWriter(config)
+
+    rejected = writer.write(
+        {
+            "chapter": 1,
+            "title": "退稿",
+            "status": "rejected",
+            "summary_text": "不应写出",
+        }
+    )
+    rebuilt = writer.rebuild_all(
+        [
+            {
+                "chapter": 1,
+                "title": "退稿",
+                "status": "rejected",
+                "summary_text": "不应写出",
+            },
+            {
+                "chapter": 2,
+                "title": "旧楼",
+                "status": "accepted",
+                "summary_text": "只从 accepted commit 重建。",
+                "dominant_strand": "fire",
+            },
+        ]
+    )
+
+    context = config.tracking_dir / "上下文.md"
+    assert rejected == ProjectionResult(
+        name="markdown_view",
+        ok=True,
+        skipped=True,
+        detail="rejected commit skipped",
+    )
+    assert rebuilt == ProjectionResult(
+        name="markdown_view",
+        ok=True,
+        skipped=False,
+        detail="markdown views rebuilt from 1 commits",
+    )
+    assert "只从 accepted commit 重建。" in context.read_text(encoding="utf-8")
+    assert "不应写出" not in context.read_text(encoding="utf-8")
