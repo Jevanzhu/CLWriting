@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+import shutil
+
 from core.chapter_paths import summary_file_name
 from core.projection.base import ProjectionResult, ProjectionWriter
 from core.security_utils import atomic_write_text
@@ -40,6 +43,22 @@ class SummaryProjectionWriter(ProjectionWriter):
             ok=True,
             skipped=False,
             detail=str(path),
+        )
+
+    def rebuild_all(self, commits: Iterable[ChapterCommit]) -> ProjectionResult:
+        items = [commit for commit in commits if self.should_run(commit)]
+        shutil.rmtree(self.config.summaries_dir, ignore_errors=True)
+        results = [self.write(commit) for commit in items]
+        failed = [result for result in results if not result.ok]
+        return ProjectionResult(
+            name=self.name,
+            ok=not failed,
+            skipped=not items,
+            detail=(
+                f"replayed {len(items)} accepted commits"
+                if not failed
+                else f"{len(failed)} replay failures"
+            ),
         )
 
 

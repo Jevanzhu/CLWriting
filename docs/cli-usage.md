@@ -28,6 +28,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 | `write N` | 验收一章草稿并更新故事记忆 |
 | `agent` | 生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta |
 | `review N` | 把 reviewer JSON 转为 Markdown 审查报告 |
+| `rebuild-views` | 从 commit 真源幂等重建全部投影 |
 | `learn` | 记录可复用写作经验 |
 | `query` | 查询状态、上下文、记忆、学习记录、索引、实体图和质量趋势 |
 | `maintain` | 运行索引、备份、健康检查等维护任务 |
@@ -113,6 +114,8 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query
 ## 查询与维护
 
 ```bash
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> rebuild-views
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> rebuild-views --only summary
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query status
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query memory
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query context --chapter 2
@@ -126,5 +129,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> maint
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> maintain health
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> maintain outline-revision --chapter 6 --note "剧情需要转折"
 ```
+
+`rebuild-views` 会从 `.story/commits/` 重放 accepted commits，重建 state、memory、summary、index、vector 和 markdown_view。短篇项目会 lazy 跳过 index/vector。
 
 `maintain health` 输出包含项目状态摘要和运行时诊断（Python 版本、平台、可选依赖可用性）。

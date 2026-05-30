@@ -190,6 +190,22 @@ class StateManager:
         self.flush()
         return True
 
+    def reset_commit_progress(self, *, phase: str = "init") -> None:
+        """Reset chapter progress before replaying commit projections."""
+        self._state = self._load_state()
+        progress = deepcopy(self._state.get("progress", {}))
+        progress.update(
+            {
+                "current_chapter": 0,
+                "total_words": 0,
+                "phase": phase,
+                "last_updated": now_utc_iso(),
+                "projected_commit_words": {},
+            }
+        )
+        self._pending["progress"] = progress
+        self.flush()
+
     def flush(self) -> None:
         lock = None
         if HAS_FILELOCK:

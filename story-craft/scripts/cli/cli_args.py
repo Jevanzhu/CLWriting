@@ -215,6 +215,19 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--chapter-file", required=True, help="正文 Markdown 文件")
     review_parser.add_argument("--report-file", required=True, help="审查报告输出路径")
 
+    rebuild_parser = subparsers.add_parser(
+        "rebuild-views",
+        help="从 commit 真源重建全部投影视图",
+        description="从 .story/commits 全量重放，幂等重建 state、memory、summary、index、vector 和 markdown_view。",
+    )
+    rebuild_parser.add_argument(
+        "--only",
+        action="append",
+        choices=("state", "memory", "summary", "index", "vector", "markdown_view"),
+        default=None,
+        help="只重建指定投影；可重复传入。",
+    )
+
     learn_parser = subparsers.add_parser(
         "learn",
         help="记录可复用写作经验",

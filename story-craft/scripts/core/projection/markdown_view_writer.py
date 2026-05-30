@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import shutil
 from typing import Any
 
 from core.projection.base import ProjectionResult, ProjectionWriter
@@ -34,6 +35,8 @@ class MarkdownViewProjectionWriter(ProjectionWriter):
 
     def rebuild_all(self, commits: Iterable[ChapterCommit]) -> ProjectionResult:
         accepted = [commit for commit in commits if self.should_run(commit)]
+        shutil.rmtree(self.config.settings_view_dir, ignore_errors=True)
+        shutil.rmtree(self.config.tracking_dir, ignore_errors=True)
         _render_commit_views(self.config, accepted)
         return ProjectionResult(
             name=self.name,
