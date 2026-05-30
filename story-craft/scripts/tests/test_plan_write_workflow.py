@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from conftest import long_chapter, run_cli
+from core.commit_store import CommitStore
 from core.context_manager import ContextManager
 from core.memory_manager import MemoryManager
 from core.security_utils import AtomicWriteError
@@ -136,8 +137,13 @@ def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path
     assert Path(result["chapter_file"]).is_file()
     assert Path(result["report_file"]).is_file()
     assert Path(result["record_file"]).is_file()
+    assert Path(result["commit_file"]).is_file()
     assert result["memory_updated"]
     assert result["state_updated"]
+    assert result["projections"]["state"]["ok"]
+    assert result["projections"]["memory"]["ok"]
+    assert result["projections"]["summary"]["ok"]
+    assert result["projections"]["markdown_view"]["ok"]
 
     progress = StateManager.from_project(project).get_progress()
     assert progress["current_chapter"] == 1
@@ -147,6 +153,7 @@ def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path
     memory = MemoryManager.from_project(project)
     assert memory.get_open_foreshadowing()[0]["id"] == "fh_001"
     assert memory.get_chapter_summaries(1)[0]["title"] == "葬礼后的信"
+    assert CommitStore.from_project(project).read(1)["status"] == "accepted"
 
 
 def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
@@ -283,6 +290,7 @@ def test_record_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
     assert result["ok"], result
     assert result["title"] == "葬礼后的信"
     assert "葬礼后的信" in Path(result["chapter_file"]).name
+    assert Path(result["commit_file"]).is_file()
     record_payload = json.loads(Path(result["record_file"]).read_text(encoding="utf-8"))
     assert record_payload["title"] == "葬礼后的信"
 

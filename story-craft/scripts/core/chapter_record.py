@@ -8,11 +8,13 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
+from core.chapter_commit_builder import build_chapter_commit
 from core.chapter_paths import chapter_record_file_name
+from core.commit_store import CommitStore
 from core.config import StoryCraftConfig
-from core.memory_manager import MemoryManager
+from core.event_projection_router import EventProjectionRouter
+from core.projection.base import ProjectionResult
 from core.security_utils import atomic_write_json
-from core.state_manager import StateManager
 from core.time_utils import now_utc_iso
 from core.types import ExtractionDelta, NormalizedReviewerResult
 
@@ -45,13 +47,19 @@ class ChapterRecordService:
             extraction_delta,
         )
         record_file = self._persist_record(payload)
-        memory_updated = False
-        state_updated = False
+        commit = build_chapter_commit(
+            chapter=chapter,
+            title=title,
+            word_count=word_count,
+            review_result=review_result,
+            extraction_delta=extraction_delta,
+        )
+        commit_file = CommitStore(self.config).write(commit)
+        projection_results = EventProjectionRouter(self.config).dispatch(commit)
+        memory_updated = _projection_updated(projection_results.get("memory"))
+        state_updated = _projection_updated(projection_results.get("state"))
+
         if payload["status"] == "accepted":
-            self._update_memory(payload)
-            self._update_state(chapter, word_count)
-            memory_updated = True
-            state_updated = True
             logger.info("chapter %d '%s' accepted, %d words", chapter, title, word_count)
         else:
             logger.info(
@@ -66,6 +74,8 @@ class ChapterRecordService:
             "title": title,
             "status": payload["status"],
             "record_file": str(record_file),
+            "commit_file": str(commit_file),
+            "projections": _projection_payload(projection_results),
             "memory_updated": memory_updated,
             "state_updated": state_updated,
         }
@@ -127,41 +137,17 @@ class ChapterRecordService:
         atomic_write_json(record_file, payload, use_lock=True, backup=True)
         return record_file
 
-    def _update_memory(self, payload: dict[str, Any]) -> None:
-        memory = MemoryManager(self.config)
-        memory.apply_chapter_delta(payload["delta"])
-        memory.flush()
 
-    def _update_state(self, chapter: int, word_count: int) -> None:
-        state = StateManager(self.config)
-        state.update_progress(chapter=chapter, words_delta=word_count, phase="writing")
-        state.flush()
+def _projection_updated(result: ProjectionResult | None) -> bool:
+    return bool(result and result.ok and not result.skipped)
 
 
-class ChapterCommitService(ChapterRecordService):
-    """Deprecated alias for older internal callers.
-
-    Kept only for old projects and tests that still expect commit_file or
-    ch_NN_commit.json compatibility. New code should use ChapterRecordService;
-    remove this alias after the legacy commit contract is retired.
-    """
-
-    def commit(
-        self,
-        chapter: int,
-        title: str,
-        word_count: int,
-        review_result: NormalizedReviewerResult,
-        extraction_delta: ExtractionDelta,
-    ) -> dict[str, Any]:
-        result = self.record(
-            chapter,
-            title,
-            word_count,
-            review_result,
-            extraction_delta,
-        )
-        return {
-            **result,
-            "commit_file": result["record_file"],
+def _projection_payload(results: dict[str, ProjectionResult]) -> dict[str, dict[str, Any]]:
+    return {
+        name: {
+            "ok": result.ok,
+            "skipped": result.skipped,
+            "detail": result.detail,
         }
+        for name, result in results.items()
+    }

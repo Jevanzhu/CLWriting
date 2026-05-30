@@ -8,12 +8,17 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from core.chapter_paths import chapter_file_name, chapter_record_file_name
+from core.chapter_paths import (
+    chapter_file_name,
+    chapter_record_file_name,
+    commit_file_name,
+    summary_file_name,
+)
 from core.chapter_record import ChapterRecordService
 from core.config import StoryCraftConfig
-from core.security_utils import AtomicWriteError, atomic_write_text
+from core.security_utils import AtomicWriteError, atomic_write_text, sanitize_filename
 from core.context_manager import ContextManager
-from core.text_utils import count_chinese_chars, first_int, outline_value
+from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value
 from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteResult
 from tools.agent_workflow import normalize_reviewer_output
 from tools.placeholder_scanner import scan_placeholders
@@ -123,36 +128,198 @@ def _default_extraction_delta(
     """Build the write command's minimal consumable delta fallback."""
     core = context.get("core", {})
     chapter_outline = str(core.get("chapter_outline") or "")
-    summary = chapter_outline.splitlines()[0].strip() if chapter_outline else ""
+    summary = _fallback_summary(chapter_text, chapter_outline, title)
     if not summary:
-        summary = chapter_text.strip().splitlines()[0][:80] if chapter_text.strip() else title
-    characters = []
-    for item in context.get("scene", {}).get("active_characters", []) or []:
-        if isinstance(item, dict):
-            identifier = item.get("id") or item.get("name")
-            if identifier:
-                characters.append(str(identifier))
+        summary = title
+    characters = _fallback_appeared_characters(chapter_text, context)
+    new_entities = _fallback_entity_candidates(chapter_text, context)
+    key_events = _fallback_key_events(chapter_text, summary)
+    timeline_entry = {
+        "chapter": int(chapter),
+        "events": key_events or [summary],
+        "source": "story-write",
+    }
+    chapter_summary = {
+        "chapter": int(chapter),
+        "title": title,
+        "summary": summary,
+        "word_count": int(word_count),
+        "key_events": key_events,
+        "characters_appeared": characters,
+    }
+    scene = {
+        "index": 1,
+        "start_line": 1,
+        "end_line": max(1, len(chapter_text.splitlines())),
+        "summary": summary,
+        "characters": characters,
+        "strand": "quest",
+        "embedding_text": compact_line(
+            f"第{int(chapter):03d}章 {title} {summary} {chapter_text}",
+            max_length=500,
+        ),
+    }
+    accepted_events = _fallback_accepted_events(
+        chapter=chapter,
+        characters=characters,
+        entities_new=new_entities,
+        timeline_entry=timeline_entry,
+        chapter_summary=chapter_summary,
+    )
     return {
         "chapter": int(chapter),
+        "title": title,
+        "entities_new": new_entities,
         "entities_appeared": characters,
-        "timeline_entry": {
-            "chapter": int(chapter),
-            "events": [summary],
-            "source": "story-write",
-        },
-        "chapter_summary": {
-            "chapter": int(chapter),
-            "title": title,
-            "summary": summary,
-            "word_count": int(word_count),
-        },
-        "scenes": [],
+        "accepted_events": accepted_events,
+        "dominant_strand": "quest",
+        "timeline_entry": timeline_entry,
+        "chapter_summary": chapter_summary,
+        "scenes": [scene],
         "agent_calls": {
             "context": "cli",
             "review": review_source,
             "data": "fallback",
         },
     }
+
+
+def _fallback_summary(chapter_text: str, chapter_outline: str, title: str) -> str:
+    outline_first = chapter_outline.splitlines()[0].strip() if chapter_outline else ""
+    if outline_first:
+        return compact_line(outline_first, max_length=120)
+    for line in chapter_text.splitlines():
+        stripped = line.strip("# \t")
+        if stripped:
+            return compact_line(stripped, max_length=120)
+    return title
+
+
+def _fallback_key_events(chapter_text: str, summary: str) -> list[str]:
+    parts = [
+        compact_line(part, max_length=80)
+        for part in re.split(r"[。！？!?；;\n]+", chapter_text)
+    ]
+    events = [part for part in parts if part and not part.startswith("#")]
+    return events[:3] or ([summary] if summary else [])
+
+
+def _fallback_appeared_characters(
+    chapter_text: str,
+    context: dict[str, Any],
+) -> list[str]:
+    characters: list[str] = []
+    for item in context.get("scene", {}).get("active_characters", []) or []:
+        if not isinstance(item, dict):
+            continue
+        identifier = item.get("id") or item.get("name")
+        name = str(item.get("name") or "")
+        if identifier and (not name or name in chapter_text):
+            value = str(identifier)
+            if value not in characters:
+                characters.append(value)
+    return characters
+
+
+def _fallback_entity_candidates(
+    chapter_text: str,
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    known_names = {
+        str(item.get("name"))
+        for item in context.get("scene", {}).get("active_characters", []) or []
+        if isinstance(item, dict) and item.get("name")
+    }
+    stop_words = {
+        "第一章",
+        "第二章",
+        "第三章",
+        "本章",
+        "这里",
+        "那里",
+        "雨水",
+        "邮戳",
+        "档案",
+        "证词",
+        "线索",
+        "旧楼",
+    }
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"([\u4e00-\u9fff]{2,3})(?=说|问|看|站|走|跑|推|拿|收|回|想|把|将|听|抬|低|转|翻|查|盯|笑|哭|喊)",
+        chapter_text,
+    ):
+        name = match.group(1)
+        if name in known_names or name in stop_words or name in seen:
+            continue
+        seen.add(name)
+        candidates.append(
+            {
+                "id": f"ent_auto_{len(candidates) + 1:03d}",
+                "name": name,
+                "entity_type": "角色",
+                "role": "待确认",
+                "source": "story-write-fallback",
+            }
+        )
+        if len(candidates) >= 5:
+            break
+    return candidates
+
+
+def _fallback_accepted_events(
+    *,
+    chapter: int,
+    characters: list[str],
+    entities_new: list[dict[str, Any]],
+    timeline_entry: dict[str, Any],
+    chapter_summary: dict[str, Any],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for entity in entities_new:
+        events.append(
+            {
+                "event_type": "entity_introduced",
+                "entity_id": str(entity.get("id") or entity.get("name") or ""),
+                "entity_type": str(entity.get("entity_type") or "角色"),
+                "payload": entity,
+                "chapter": int(chapter),
+                "source": "story-write-fallback",
+                "strand": "quest",
+            }
+        )
+    for identifier in characters:
+        events.append(
+            {
+                "event_type": "entity_appeared",
+                "entity_id": identifier,
+                "entity_type": "角色",
+                "payload": {"id": identifier},
+                "chapter": int(chapter),
+                "source": "story-write-fallback",
+                "strand": "quest",
+            }
+        )
+    events.append(
+        {
+            "event_type": "timeline_advanced",
+            "payload": timeline_entry,
+            "chapter": int(chapter),
+            "source": "story-write-fallback",
+            "strand": "quest",
+        }
+    )
+    events.append(
+        {
+            "event_type": "summary_recorded",
+            "payload": chapter_summary,
+            "chapter": int(chapter),
+            "source": "story-write-fallback",
+            "strand": "quest",
+        }
+    )
+    return events
 
 
 def _normalize_delta_chapter(
@@ -387,6 +554,7 @@ def record_chapter_workflow(
             report_path,
             chapter_path,
             record_path,
+            *_projection_snapshot_paths(config, chapter, delta),
             config.memory_file,
             config.state_file,
         ]
@@ -442,9 +610,58 @@ def record_chapter_workflow(
         "state_updated": record_result["state_updated"],
         "warnings": all_warnings,
         "word_count_check": word_count_check,
+        "commit_file": record_result.get("commit_file"),
+        "projections": record_result.get("projections", {}),
     }
 
 
 def commit_chapter_workflow(*args: Any, **kwargs: Any) -> WriteResult:
     """Backward-compatible alias for older internal callers."""
     return record_chapter_workflow(*args, **kwargs)
+
+
+def _projection_snapshot_paths(
+    config: StoryCraftConfig,
+    chapter: int,
+    delta: ExtractionDelta,
+) -> list[Path]:
+    paths = [
+        config.commits_dir / commit_file_name(chapter),
+        config.summaries_dir / summary_file_name(chapter),
+        config.tracking_dir / "上下文.md",
+        config.tracking_dir / "伏笔.md",
+        config.tracking_dir / "时间线.md",
+        config.tracking_dir / "角色状态.md",
+    ]
+    for identifier in _projected_entity_names(delta):
+        paths.append(config.settings_view_dir / "角色" / f"{sanitize_filename(identifier)}.md")
+    for rule in delta.get("new_world_rules", []) or []:
+        if not isinstance(rule, dict):
+            continue
+        title = str(rule.get("id") or rule.get("title") or "")
+        if title:
+            paths.append(config.settings_view_dir / "世界观" / f"{sanitize_filename(title)}.md")
+    return paths
+
+
+def _projected_entity_names(delta: ExtractionDelta) -> list[str]:
+    names: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "")
+        if text and text not in names:
+            names.append(text)
+
+    for entity in delta.get("entities_new", []) or []:
+        if isinstance(entity, dict):
+            add(entity.get("name") or entity.get("id") or entity.get("suggested_id"))
+    for entity in delta.get("entities_appeared", []) or []:
+        if isinstance(entity, dict):
+            add(entity.get("name") or entity.get("id") or entity.get("suggested_id"))
+        else:
+            add(entity)
+    for event in delta.get("accepted_events", []) or []:
+        if event.get("event_type") in {"entity_introduced", "entity_appeared", "state_changed"}:
+            payload = event.get("payload") or {}
+            add(payload.get("name") or event.get("entity_id"))
+    return names

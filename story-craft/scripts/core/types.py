@@ -156,6 +156,12 @@ class ChapterCommit(TypedDict, total=False):
     agent_calls: dict[str, str]
 
 
+class ProjectionStatus(TypedDict):
+    ok: bool
+    skipped: bool
+    detail: str
+
+
 class MasterContract(TypedDict, total=False):
     contract_version: str
     project_type: Literal["short", "long"]
@@ -258,6 +264,8 @@ class WriteSuccess(TypedDict):
     chapter_file: str
     report_file: str
     record_file: str
+    commit_file: str
+    projections: dict[str, ProjectionStatus]
     status: Literal["accepted"]
     memory_updated: bool
     state_updated: bool
@@ -296,6 +304,8 @@ class WriteRejection(TypedDict):
     chapter_file: None
     report_file: str
     record_file: str
+    commit_file: str
+    projections: dict[str, ProjectionStatus]
     status: Literal["rejected"]
     memory_updated: Literal[False]
     state_updated: Literal[False]
