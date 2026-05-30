@@ -168,6 +168,28 @@ class StateManager:
         updates = self._pending.setdefault("maintenance", {})
         updates.update(kwargs)
 
+    def project_commit_progress(self, *, chapter: int, word_count: int) -> bool:
+        """Project one accepted chapter commit into progress, idempotent by chapter."""
+        chapter = int(chapter)
+        word_count = int(word_count)
+        self._state = self._load_state()
+        progress = self._state.setdefault("progress", {})
+        projected = dict(progress.get("projected_commit_words") or {})
+        key = str(chapter)
+        if key in projected:
+            return False
+
+        projected[key] = word_count
+        current_chapter = int(progress.get("current_chapter") or 0)
+        self.update_progress(
+            chapter=max(current_chapter, chapter),
+            words_delta=word_count,
+            phase="writing",
+        )
+        self._pending.setdefault("progress", {})["projected_commit_words"] = projected
+        self.flush()
+        return True
+
     def flush(self) -> None:
         lock = None
         if HAS_FILELOCK:
