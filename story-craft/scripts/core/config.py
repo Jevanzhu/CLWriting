@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.runtime_compat import normalize_windows_path
+from core.security_utils import read_json_safe
 
 
 @dataclass
@@ -38,8 +39,56 @@ class StoryCraftConfig:
         return self.story_dir / "memory.db"
 
     @property
+    def contracts_dir(self) -> Path:
+        return self.story_dir / "contracts"
+
+    @property
+    def volumes_dir(self) -> Path:
+        return self.contracts_dir / "volumes"
+
+    @property
+    def chapter_contracts_dir(self) -> Path:
+        return self.contracts_dir / "chapters"
+
+    @property
+    def review_contracts_dir(self) -> Path:
+        return self.contracts_dir / "reviews"
+
+    @property
+    def style_fingerprint_file(self) -> Path:
+        return self.contracts_dir / "style_fingerprint.yaml"
+
+    @property
+    def anti_patterns_file(self) -> Path:
+        return self.contracts_dir / "anti_patterns.json"
+
+    @property
+    def deployment_file(self) -> Path:
+        return self.contracts_dir / "deployment.json"
+
+    @property
+    def commits_dir(self) -> Path:
+        return self.story_dir / "commits"
+
+    @property
+    def summaries_dir(self) -> Path:
+        return self.story_dir / "summaries"
+
+    @property
+    def index_db(self) -> Path:
+        return self.story_dir / "index.db"
+
+    @property
+    def vector_db(self) -> Path:
+        return self.story_dir / "vector.db"
+
+    @property
     def chapters_dir(self) -> Path:
         return self.story_dir / "chapters"
+
+    @property
+    def workflows_dir(self) -> Path:
+        return self.story_dir / "workflows"
 
     @property
     def backups_dir(self) -> Path:
@@ -54,8 +103,16 @@ class StoryCraftConfig:
         return self.project_root / "设定集"
 
     @property
+    def settings_view_dir(self) -> Path:
+        return self.project_root / "设定"
+
+    @property
     def outline_dir(self) -> Path:
         return self.project_root / "大纲"
+
+    @property
+    def tracking_dir(self) -> Path:
+        return self.project_root / "追踪"
 
     @property
     def review_dir(self) -> Path:
@@ -77,6 +134,20 @@ class StoryCraftConfig:
     def use_sqlite(self) -> bool:
         return self.memory_db.exists()
 
+    def project_type(self) -> str:
+        """Return short or long project type from contracts, then legacy state."""
+        master = read_json_safe(self.contracts_dir / "master.json", {})
+        value = master.get("project_type")
+        if value in {"short", "long"}:
+            return str(value)
+
+        state = read_json_safe(self.state_file, {})
+        project = state.get("project") if isinstance(state.get("project"), dict) else {}
+        tier = project.get("tier") or state.get("tier")
+        if tier in {"medium", "long"}:
+            return "long"
+        return "short"
+
     @classmethod
     def from_project_root(cls, root: str | Path) -> "StoryCraftConfig":
         project_root = normalize_windows_path(root).expanduser().resolve()
@@ -85,6 +156,12 @@ class StoryCraftConfig:
     def ensure_dirs(self) -> None:
         for path in (
             self.story_dir,
+            self.contracts_dir,
+            self.volumes_dir,
+            self.chapter_contracts_dir,
+            self.review_contracts_dir,
+            self.commits_dir,
+            self.summaries_dir,
             self.chapters_dir,
             self.project_chapters_dir,
             self.settings_dir,

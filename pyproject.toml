@@ -14,6 +14,7 @@ dependencies = []
 locking = [
   "filelock>=3.12"
 ]
+rag = []
 test = [
   "pytest>=8"
 ]
