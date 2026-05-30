@@ -8,7 +8,6 @@ from core.chapter_commit_builder import (
     delta_to_events,
     derive_entity_deltas,
     derive_state_deltas,
-    events_to_legacy_delta,
 )
 from core.commit_store import CommitStore
 
@@ -70,7 +69,7 @@ def _legacy_delta():
     }
 
 
-def test_delta_to_events_and_legacy_conversion_cover_all_event_types():
+def test_delta_to_events_covers_legacy_event_fields():
     events = delta_to_events(_legacy_delta())
     event_types = [event["event_type"] for event in events]
 
@@ -84,30 +83,15 @@ def test_delta_to_events_and_legacy_conversion_cover_all_event_types():
         "timeline_advanced",
         "summary_recorded",
     ]
-
-    relationship_event = {
-        "event_type": "relationship_changed",
-        "entity_id": "char_lin",
-        "target_id": "char_su",
-        "field": "trust",
-        "old": "low",
-        "new": "medium",
-        "payload": {"note": "共同发现线索"},
-        "chapter": 2,
-        "source": "agent",
-    }
-    legacy = events_to_legacy_delta([*events, relationship_event])
-
-    assert legacy["chapter"] == 2
-    assert legacy["entities_new"][0]["id"] == "char_su"
-    assert legacy["entities_appeared"] == ["char_lin"]
-    assert legacy["state_changes"][0]["field"] == "current_status"
-    assert legacy["state_changes"][1]["target_id"] == "char_su"
-    assert legacy["new_foreshadowing"][0]["id"] == "fh_2"
-    assert legacy["resolved_foreshadowing"][0]["id"] == "fh_1"
-    assert legacy["new_world_rules"][0]["id"] == "wr_1"
-    assert legacy["timeline_entry"]["events"] == ["进入旧楼"]
-    assert legacy["chapter_summary"]["summary"] == "林墨进入旧楼"
+    assert events[0]["entity_id"] == "char_su"
+    assert events[0]["payload"]["suggested_id"] == "char_su"
+    assert events[1]["entity_id"] == "char_lin"
+    assert events[2]["field"] == "current_status"
+    assert events[3]["payload"]["id"] == "fh_2"
+    assert events[4]["payload"]["id"] == "fh_1"
+    assert events[5]["payload"]["id"] == "wr_1"
+    assert events[6]["payload"]["events"] == ["进入旧楼"]
+    assert events[7]["payload"]["summary"] == "林墨进入旧楼"
 
 
 def test_build_chapter_commit_derives_projection_triggers():
@@ -161,12 +145,24 @@ def test_event_derivation_helpers_accept_direct_events():
             "chapter": 3,
             "strand": "quest",
         },
+        {
+            "event_type": "relationship_changed",
+            "entity_id": "char_lin",
+            "target_id": "char_su",
+            "field": "trust",
+            "old": "low",
+            "new": "medium",
+            "payload": {"note": "共同发现线索"},
+            "chapter": 3,
+            "strand": "quest",
+        },
     ]
     scenes = [{"summary": "追问", "strand": "fire"}]
 
     assert derive_state_deltas(events)[0]["new"] == "tense"
+    assert derive_state_deltas(events)[1]["field"] == "trust"
     assert derive_entity_deltas(events)[1]["name"] == "苏晚"
-    assert compute_strand_distribution(events, scenes) == {"fire": 2, "quest": 1}
+    assert compute_strand_distribution(events, scenes) == {"fire": 2, "quest": 2}
     assert compute_dominant_strand(events, scenes) == "fire"
     assert delta_to_events({"accepted_events": events}) == events
 
