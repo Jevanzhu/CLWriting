@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from copy import deepcopy
 from typing import Any
 
-from core.chapter_commit_builder import events_to_legacy_delta
 from core.memory_manager import MemoryManager, default_memory
 from core.projection.base import ProjectionResult, ProjectionWriter
 from core.types import ChapterCommit
@@ -36,15 +35,13 @@ class MemoryProjectionWriter(ProjectionWriter):
                 detail="no accepted events",
             )
 
-        delta = events_to_legacy_delta(events)
-        delta.setdefault("chapter", int(commit.get("chapter") or 0))
-        if commit.get("timeline_entry"):
-            delta.setdefault("timeline_entry", commit["timeline_entry"])
-        if commit.get("chapter_summary"):
-            delta.setdefault("chapter_summary", commit["chapter_summary"])
-
         memory = MemoryManager(self.config)
-        memory.apply_chapter_delta(delta)
+        memory.apply_events(
+            events,
+            chapter=int(commit.get("chapter") or 0),
+            timeline_entry=commit.get("timeline_entry") or None,
+            chapter_summary=commit.get("chapter_summary") or None,
+        )
         memory.flush()
         return ProjectionResult(
             name=self.name,

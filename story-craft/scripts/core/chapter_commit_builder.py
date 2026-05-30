@@ -157,59 +157,6 @@ def delta_to_events(delta: ExtractionDelta) -> list[AcceptedEvent]:
     return events
 
 
-def events_to_legacy_delta(events: list[AcceptedEvent]) -> dict[str, Any]:
-    """Convert accepted event stream back to legacy delta shape."""
-    delta: dict[str, Any] = {
-        "entities_new": [],
-        "entities_appeared": [],
-        "state_changes": [],
-        "new_foreshadowing": [],
-        "resolved_foreshadowing": [],
-        "new_world_rules": [],
-    }
-    for event in events:
-        chapter = event.get("chapter")
-        if chapter and not delta.get("chapter"):
-            delta["chapter"] = chapter
-        event_type = event.get("event_type")
-        payload = deepcopy(event.get("payload") or {})
-        if event_type == "entity_introduced":
-            if event.get("entity_id") and "id" not in payload:
-                payload["id"] = event["entity_id"]
-            delta["entities_new"].append(payload)
-        elif event_type == "entity_appeared":
-            delta["entities_appeared"].append(event.get("entity_id") or payload)
-        elif event_type == "state_changed":
-            delta["state_changes"].append(
-                {
-                    "entity_id": event.get("entity_id", ""),
-                    "entity_type": event.get("entity_type", ""),
-                    "field": event.get("field", ""),
-                    "old": event.get("old"),
-                    "new": event.get("new"),
-                    "chapter": chapter,
-                }
-            )
-        elif event_type == "relationship_changed":
-            payload.setdefault("entity_id", event.get("entity_id", ""))
-            payload.setdefault("target_id", event.get("target_id", ""))
-            payload.setdefault("field", event.get("field", "relationship"))
-            payload.setdefault("new", event.get("new"))
-            payload.setdefault("chapter", chapter)
-            delta["state_changes"].append(payload)
-        elif event_type == "open_loop_created":
-            delta["new_foreshadowing"].append(payload)
-        elif event_type == "open_loop_closed":
-            delta["resolved_foreshadowing"].append(payload)
-        elif event_type == "rule_revealed":
-            delta["new_world_rules"].append(payload)
-        elif event_type == "timeline_advanced":
-            delta["timeline_entry"] = payload
-        elif event_type == "summary_recorded":
-            delta["chapter_summary"] = payload
-    return delta
-
-
 def derive_state_deltas(events: list[AcceptedEvent]) -> list[StateDelta]:
     deltas: list[StateDelta] = []
     for event in events:

@@ -285,7 +285,7 @@ def test_summary_projection_writer_skips_rejected_commit(tmp_path):
     assert not (config.summaries_dir / "ch0005.md").exists()
 
 
-def test_memory_projection_writer_uses_event_bridge_and_is_idempotent(tmp_path):
+def test_memory_projection_writer_consumes_events_directly_and_is_idempotent(tmp_path):
     config = StoryCraftConfig.from_project_root(tmp_path)
     writer = MemoryProjectionWriter(config)
     commit = {
@@ -824,7 +824,7 @@ def test_long_project_index_rebuilds_from_commits_and_vector_skips_without_rag(t
         name="vector",
         ok=True,
         skipped=True,
-        detail="rag unavailable",
+        detail="embedding unavailable",
     )
     assert second["index"].detail == first["index"].detail
     with sqlite3.connect(config.index_db) as conn:

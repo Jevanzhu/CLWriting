@@ -65,6 +65,15 @@ def _timeline_entry_key(entry: dict[str, Any]) -> tuple[str, str, str] | None:
     return key if any(key) else None
 
 
+def _events_chapter(events: list[dict[str, Any]]) -> int | None:
+    for event in events or []:
+        if isinstance(event, dict):
+            chapter = _coerce_positive_int(event.get("chapter"))
+            if chapter is not None:
+                return chapter
+    return None
+
+
 class MemoryManager:
     """Runtime memory manager."""
 
@@ -245,6 +254,74 @@ class MemoryManager:
 
         if chapter:
             self._memory["last_updated_chapter"] = chapter
+        self._memory["last_updated"] = now_utc_iso()
+
+    def apply_events(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        chapter: int = 0,
+        timeline_entry: dict[str, Any] | None = None,
+        chapter_summary: dict[str, Any] | None = None,
+    ) -> None:
+        """Project accepted commit events directly into memory.json."""
+        effective_chapter = _coerce_positive_int(chapter) or _events_chapter(events) or 0
+        projected_timeline = deepcopy(timeline_entry or {})
+        projected_summary = deepcopy(chapter_summary or {})
+
+        for event in events or []:
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("event_type")
+            payload = deepcopy(event.get("payload") or {})
+
+            if event_type == "entity_introduced":
+                if event.get("entity_id") and "id" not in payload:
+                    payload["id"] = event["entity_id"]
+                self.upsert_character(payload)
+                identifier = _entity_identifier(payload)
+                if identifier:
+                    self._mark_character_appearance(identifier, effective_chapter)
+            elif event_type == "entity_appeared":
+                identifier = str(event.get("entity_id") or "") or _entity_identifier(payload)
+                if identifier:
+                    self._mark_character_appearance(identifier, effective_chapter)
+            elif event_type == "state_changed":
+                self._apply_state_change(
+                    {
+                        "entity_id": event.get("entity_id", ""),
+                        "entity_type": event.get("entity_type", ""),
+                        "field": event.get("field", ""),
+                        "old": event.get("old"),
+                        "new": event.get("new"),
+                        "chapter": event.get("chapter"),
+                    }
+                )
+            elif event_type == "relationship_changed":
+                payload.setdefault("entity_id", event.get("entity_id", ""))
+                payload.setdefault("target_id", event.get("target_id", ""))
+                payload.setdefault("field", event.get("field", "relationship"))
+                payload.setdefault("new", event.get("new"))
+                payload.setdefault("chapter", event.get("chapter"))
+                self._apply_state_change(payload)
+            elif event_type == "open_loop_created":
+                self.upsert_foreshadowing(payload)
+            elif event_type == "open_loop_closed":
+                self._resolve_foreshadowing(payload, effective_chapter)
+            elif event_type == "rule_revealed":
+                self.add_world_rule(payload)
+            elif event_type == "timeline_advanced":
+                projected_timeline = payload
+            elif event_type == "summary_recorded":
+                projected_summary = payload
+
+        if projected_timeline:
+            self.append_timeline_entry(projected_timeline)
+        if projected_summary:
+            self.append_chapter_summary(projected_summary)
+
+        if effective_chapter:
+            self._memory["last_updated_chapter"] = effective_chapter
         self._memory["last_updated"] = now_utc_iso()
 
     def flush(self) -> None:
