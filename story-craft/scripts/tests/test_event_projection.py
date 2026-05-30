@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from inspect import signature
 
+from core.commit_store import CommitStore
 from core.config import StoryCraftConfig
+from core.event_projection_router import EventProjectionRouter
 from core.projection import (
     MarkdownViewProjectionWriter,
     MemoryProjectionWriter,
@@ -474,3 +476,157 @@ def test_markdown_view_projection_writer_rebuilds_and_skips_rejected(tmp_path):
     )
     assert "只从 accepted commit 重建。" in context.read_text(encoding="utf-8")
     assert "不应写出" not in context.read_text(encoding="utf-8")
+
+
+def test_event_projection_router_dispatches_available_writers_and_skips_missing(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    router = EventProjectionRouter(config)
+    commit = {
+        "chapter": 1,
+        "title": "开局",
+        "status": "accepted",
+        "word_count": 1800,
+        "summary_text": "林墨收到亡友来信。",
+        "chapter_summary": {"chapter": 1, "title": "开局", "summary": "林墨收到亡友来信。"},
+        "accepted_events": [
+            {
+                "event_type": "summary_recorded",
+                "payload": {"chapter": 1, "title": "开局", "summary": "林墨收到亡友来信。"},
+                "chapter": 1,
+            }
+        ],
+        "dominant_strand": "quest",
+    }
+
+    results = router.dispatch(commit)
+
+    assert set(results) == {
+        "state",
+        "memory",
+        "summary",
+        "index",
+        "vector",
+        "markdown_view",
+    }
+    assert results["state"].ok
+    assert results["memory"].ok
+    assert results["summary"].ok
+    assert results["markdown_view"].ok
+    assert results["index"] == ProjectionResult(
+        name="index",
+        ok=True,
+        skipped=True,
+        detail="writer unavailable",
+    )
+    assert results["vector"] == ProjectionResult(
+        name="vector",
+        ok=True,
+        skipped=True,
+        detail="writer unavailable",
+    )
+    assert StateManager(config).get_progress()["total_words"] == 1800
+    assert MemoryManager(config).get_chapter_summaries(1)[0]["summary"] == "林墨收到亡友来信。"
+    assert (config.summaries_dir / "ch0001.md").is_file()
+    assert "林墨收到亡友来信" in (config.tracking_dir / "上下文.md").read_text(encoding="utf-8")
+
+
+def test_event_projection_router_only_runs_selected_writer(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    router = EventProjectionRouter(config)
+
+    results = router.dispatch(
+        {
+            "chapter": 2,
+            "title": "旧楼",
+            "status": "accepted",
+            "word_count": 2200,
+            "summary_text": "只写 summary。",
+            "chapter_summary": {"chapter": 2, "title": "旧楼", "summary": "只写 summary。"},
+        },
+        only=["summary"],
+    )
+
+    assert list(results) == ["summary"]
+    assert results["summary"].ok
+    assert (config.summaries_dir / "ch0002.md").is_file()
+    assert StateManager(config).get_progress()["total_words"] == 0
+    assert not config.tracking_dir.exists()
+
+
+def test_event_projection_router_catches_writer_failure(monkeypatch, tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    router = EventProjectionRouter(config)
+
+    class OkWriter(ProjectionWriter):
+        name = "state"
+
+        def write(self, commit):
+            return ProjectionResult(name=self.name, ok=True, skipped=False, detail="ok")
+
+    class FailWriter(ProjectionWriter):
+        name = "memory"
+
+        def write(self, commit):
+            raise RuntimeError("memory boom")
+
+    def fake_load_writer(spec):
+        if spec.name == "state":
+            return OkWriter(config)
+        if spec.name == "memory":
+            return FailWriter(config)
+        return None
+
+    monkeypatch.setattr(router, "_load_writer", fake_load_writer)
+
+    results = router.dispatch({"chapter": 1, "status": "accepted"})
+
+    assert results["state"] == ProjectionResult(
+        name="state",
+        ok=True,
+        skipped=False,
+        detail="ok",
+    )
+    assert results["memory"].name == "memory"
+    assert not results["memory"].ok
+    assert "memory boom" in results["memory"].detail
+    assert results["summary"].skipped
+
+
+def test_event_projection_router_rebuild_replays_commit_store(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    store = CommitStore(config)
+    store.write(
+        {
+            "chapter": 1,
+            "title": "开局",
+            "status": "accepted",
+            "word_count": 1800,
+            "summary_text": "重建摘要。",
+            "chapter_summary": {"chapter": 1, "title": "开局", "summary": "重建摘要。"},
+            "accepted_events": [
+                {
+                    "event_type": "summary_recorded",
+                    "payload": {"chapter": 1, "summary": "重建摘要。"},
+                    "chapter": 1,
+                }
+            ],
+            "dominant_strand": "quest",
+        }
+    )
+
+    results = EventProjectionRouter(config).rebuild(only=["summary", "markdown_view"])
+
+    assert results["summary"] == ProjectionResult(
+        name="summary",
+        ok=True,
+        skipped=False,
+        detail="replayed 1 commits",
+    )
+    assert results["markdown_view"] == ProjectionResult(
+        name="markdown_view",
+        ok=True,
+        skipped=False,
+        detail="markdown views rebuilt from 1 commits",
+    )
+    assert "重建摘要。" in (config.summaries_dir / "ch0001.md").read_text(encoding="utf-8")
+    assert "重建摘要。" in (config.tracking_dir / "上下文.md").read_text(encoding="utf-8")
