@@ -11,6 +11,7 @@ from core.types import (
     ExtractionDelta,
     MasterContract,
     NormalizedReviewerResult,
+    ProjectionStatus,
     ReviewContract,
     ReviewerResult,
     SceneSlice,
@@ -104,3 +105,6 @@ def test_reviewer_meta_is_optional_and_write_stage_accepts_commit():
     assert "commit" in get_args(WriteGateStage)
     hints = get_type_hints(WriteSuccess)
     assert set(get_args(hints["stage"])) == {"record", "commit"}
+    assert {"ok", "skipped", "detail"} <= set(ProjectionStatus.__annotations__)
+    assert "commit_file" in hints
+    assert hints["projections"] == dict[str, ProjectionStatus]
