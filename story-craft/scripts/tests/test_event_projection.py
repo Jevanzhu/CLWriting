@@ -4,12 +4,14 @@ from inspect import signature
 
 from core.config import StoryCraftConfig
 from core.projection import (
+    MemoryProjectionWriter,
     ProjectionResult,
     ProjectionWriter,
     StateProjectionWriter,
     SummaryProjectionWriter,
 )
 from core.projection.base import ProjectionResult as BaseProjectionResult
+from core.memory_manager import MemoryManager
 from core.state_manager import StateManager
 
 
@@ -196,3 +198,140 @@ def test_summary_projection_writer_skips_rejected_commit(tmp_path):
         detail="rejected commit skipped",
     )
     assert not (config.summaries_dir / "ch0005.md").exists()
+
+
+def test_memory_projection_writer_uses_event_bridge_and_is_idempotent(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = MemoryProjectionWriter(config)
+    commit = {
+        "chapter": 2,
+        "title": "旧楼",
+        "status": "accepted",
+        "accepted_events": [
+            {
+                "event_type": "entity_introduced",
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "payload": {
+                    "id": "char_su",
+                    "name": "苏晚",
+                    "role": "ally",
+                    "tier": "核心",
+                },
+                "chapter": 2,
+            },
+            {
+                "event_type": "entity_appeared",
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "payload": {"id": "char_su"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "state_changed",
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "field": "current_status",
+                "old": "等待",
+                "new": "发现旧楼灯光",
+                "chapter": 2,
+            },
+            {
+                "event_type": "open_loop_created",
+                "payload": {"id": "fh_2", "content": "旧楼灯光", "status": "open"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "open_loop_closed",
+                "payload": {"id": "fh_1", "resolution": "找到信源"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "rule_revealed",
+                "payload": {"id": "wr_1", "rule": "证据必须可回溯"},
+                "chapter": 2,
+            },
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"chapter": 2, "events": ["进入旧楼"]},
+                "chapter": 2,
+            },
+            {
+                "event_type": "summary_recorded",
+                "payload": {
+                    "chapter": 2,
+                    "title": "旧楼",
+                    "summary": "林墨进入旧楼",
+                    "word_count": 2200,
+                },
+                "chapter": 2,
+            },
+        ],
+    }
+
+    first = writer.write(commit)
+    duplicate = writer.write(commit)
+    memory = MemoryManager(config).load()
+
+    assert first == ProjectionResult(
+        name="memory",
+        ok=True,
+        skipped=False,
+        detail="memory updated",
+    )
+    assert duplicate.ok
+    assert not duplicate.skipped
+    assert memory["last_updated_chapter"] == 2
+    assert len(memory["characters"]) == 1
+    assert memory["characters"][0]["current_status"] == "发现旧楼灯光"
+    assert memory["characters"][0]["last_appearance_chapter"] == 2
+    assert memory["foreshadowing"][0]["id"] == "fh_2"
+    assert len(memory["timeline"]) == 1
+    assert memory["timeline"][0]["events"] == ["进入旧楼"]
+    assert len(memory["chapter_summaries"]) == 1
+    assert memory["chapter_summaries"][0]["summary"] == "林墨进入旧楼"
+    assert memory["world_rules"][0]["id"] == "wr_1"
+
+
+def test_memory_projection_writer_skips_rejected_and_empty_commits(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = MemoryProjectionWriter(config)
+
+    rejected = writer.write(
+        {
+            "chapter": 1,
+            "title": "退稿",
+            "status": "rejected",
+            "accepted_events": [
+                {
+                    "event_type": "summary_recorded",
+                    "payload": {"chapter": 1, "summary": "不应写出"},
+                    "chapter": 1,
+                }
+            ],
+        }
+    )
+    empty = writer.write(
+        {
+            "chapter": 1,
+            "title": "空事件",
+            "status": "accepted",
+            "accepted_events": [],
+        }
+    )
+    memory = MemoryManager(config).load()
+
+    assert rejected == ProjectionResult(
+        name="memory",
+        ok=True,
+        skipped=True,
+        detail="rejected commit skipped",
+    )
+    assert empty == ProjectionResult(
+        name="memory",
+        ok=True,
+        skipped=True,
+        detail="no accepted events",
+    )
+    assert memory["last_updated_chapter"] == 0
+    assert memory["chapter_summaries"] == []
