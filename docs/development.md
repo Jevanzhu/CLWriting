@@ -51,8 +51,7 @@ python3 -m pytest story-craft/scripts/tests/test_memory_index.py
 | 模块 | 职责 |
 |------|------|
 | `core/types.py` | 核心边界 TypedDict（ReviewerResult、ExtractionDelta、WriteResult、WorkflowManifest 等） |
-| `core/chapter_record.py` | 章节验收记录负载生成、记录持久化、accepted 后更新 state/memory |
-| `core/chapter_commit.py` | deprecated legacy 兼容导入层，旧调用转到 `chapter_record` |
+| `core/chapter_record.py` | 章节验收记录负载生成，accepted 后写 commit 真源并派发投影 |
 | `core/security_utils.py` | 原子 JSON 写入、可选 filelock 锁保护和备份 |
 | `core/text_utils.py` | 公共纯函数：中文字符计数、行压缩、整数提取、大纲字段解析 |
 | `core/log.py` | CLI 日志初始化 |
@@ -76,9 +75,9 @@ python3 -m pytest story-craft/scripts/tests/test_memory_index.py
 - 若后续 manifest schema 明确支持显式路径字段，再把 `skills/` 和 `agents/` 写入 `plugin.json`。
 - 修改插件目录结构时，必须保持 `plugin.json` 为合法 JSON，并确认 `skills/`、`agents/` 目录仍存在。
 
-## 兼容层退役计划
+## 兼容层退役状态
 
 - `ChapterRecordService` 和 `ch_NN_record.json` 是当前章节验收记录契约。
-- `ChapterCommitService`、`core/chapter_commit.py` 和 `ch_NN_commit.json` 查找逻辑仅为兼容旧项目与旧测试夹具保留。
-- 新代码不得继续新增 commit 命名的持久化契约；后续版本可在迁移旧夹具和旧项目后删除该兼容层。
-- 删除兼容层前必须保留并通过 legacy lookup 测试，确认新旧记录查找行为已被替代。
+- `ChapterCommitService`、`core/chapter_commit.py` 和 `ch_NN_commit.json` 查找逻辑已退役。
+- commit 真源统一写入 `.story/commits/chapter_NNN.commit.json`。
+- 新代码不得继续新增旧 commit 命名或 legacy lookup 契约。
