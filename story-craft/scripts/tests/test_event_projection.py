@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import sqlite3
 from inspect import signature
 
 from core.commit_store import CommitStore
 from core.config import StoryCraftConfig
 from core.event_projection_router import EventProjectionRouter
 from core.projection import (
+    IndexProjectionWriter,
     MarkdownViewProjectionWriter,
     MemoryProjectionWriter,
     ProjectionResult,
     ProjectionWriter,
     StateProjectionWriter,
     SummaryProjectionWriter,
+    VectorProjectionWriter,
 )
 from core.projection.base import ProjectionResult as BaseProjectionResult
 from core.memory_manager import MemoryManager
+from core.security_utils import atomic_write_json
 from core.state_manager import StateManager
 
 
@@ -30,8 +34,86 @@ class FakeWriter(ProjectionWriter):
         )
 
 
+def accepted_commit(chapter: int, *, title: str, words: int, summary: str) -> dict:
+    return {
+        "chapter": chapter,
+        "title": title,
+        "status": "accepted",
+        "word_count": words,
+        "summary_text": summary,
+        "chapter_summary": {
+            "chapter": chapter,
+            "title": title,
+            "summary": summary,
+            "key_events": [summary],
+            "characters_appeared": ["char_su"],
+        },
+        "accepted_events": [
+            {
+                "event_type": "entity_introduced",
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "payload": {"id": "char_su", "name": "苏晚", "role": "ally"},
+                "chapter": chapter,
+            },
+            {
+                "event_type": "state_changed",
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "field": "current_status",
+                "old": "等待",
+                "new": summary,
+                "chapter": chapter,
+            },
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"chapter": chapter, "events": [summary]},
+                "chapter": chapter,
+            },
+            {
+                "event_type": "summary_recorded",
+                "payload": {"chapter": chapter, "title": title, "summary": summary},
+                "chapter": chapter,
+            },
+        ],
+        "entity_deltas": [
+            {
+                "entity_id": "char_su",
+                "name": "苏晚",
+                "entity_type": "角色",
+                "role": "ally",
+                "tier": "核心",
+                "operation": "introduced",
+                "chapter": chapter,
+            }
+        ],
+        "state_deltas": [
+            {
+                "entity_id": "char_su",
+                "entity_type": "角色",
+                "field": "current_status",
+                "old": "等待",
+                "new": summary,
+                "chapter": chapter,
+            }
+        ],
+        "scenes": [
+            {
+                "chunk_id": f"ch{chapter:03d}:scene:001",
+                "summary": summary,
+                "embedding_text": summary,
+                "strand": "quest",
+            }
+        ],
+        "dominant_strand": "quest",
+        "timeline_entry": {"chapter": chapter, "events": [summary]},
+    }
+
+
 def test_projection_result_is_exported_from_base():
     assert ProjectionResult is BaseProjectionResult
+    assert IndexProjectionWriter.name == "index"
+    assert VectorProjectionWriter.name == "vector"
     result = ProjectionResult(name="state", ok=True, skipped=False, detail="ok")
 
     assert result.name == "state"
@@ -478,7 +560,7 @@ def test_markdown_view_projection_writer_rebuilds_and_skips_rejected(tmp_path):
     assert "不应写出" not in context.read_text(encoding="utf-8")
 
 
-def test_event_projection_router_dispatches_available_writers_and_skips_missing(tmp_path):
+def test_event_projection_router_dispatches_available_writers_and_skips_lazy(tmp_path):
     config = StoryCraftConfig.from_project_root(tmp_path)
     router = EventProjectionRouter(config)
     commit = {
@@ -516,13 +598,13 @@ def test_event_projection_router_dispatches_available_writers_and_skips_missing(
         name="index",
         ok=True,
         skipped=True,
-        detail="writer unavailable",
+        detail="lazy projection skipped",
     )
     assert results["vector"] == ProjectionResult(
         name="vector",
         ok=True,
         skipped=True,
-        detail="writer unavailable",
+        detail="lazy projection skipped",
     )
     assert StateManager(config).get_progress()["total_words"] == 1800
     assert MemoryManager(config).get_chapter_summaries(1)[0]["summary"] == "林墨收到亡友来信。"
@@ -620,7 +702,7 @@ def test_event_projection_router_rebuild_replays_commit_store(tmp_path):
         name="summary",
         ok=True,
         skipped=False,
-        detail="replayed 1 commits",
+        detail="replayed 1 accepted commits",
     )
     assert results["markdown_view"] == ProjectionResult(
         name="markdown_view",
@@ -630,3 +712,125 @@ def test_event_projection_router_rebuild_replays_commit_store(tmp_path):
     )
     assert "重建摘要。" in (config.summaries_dir / "ch0001.md").read_text(encoding="utf-8")
     assert "重建摘要。" in (config.tracking_dir / "上下文.md").read_text(encoding="utf-8")
+
+
+def test_event_projection_router_rebuild_is_idempotent_and_selective(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    store = CommitStore(config)
+    store.write(accepted_commit(1, title="开局", words=1800, summary="林墨收到亡友来信。"))
+    store.write(accepted_commit(2, title="旧楼", words=2200, summary="苏晚发现监控黑屏。"))
+    store.write(
+        {
+            "chapter": 3,
+            "title": "退稿",
+            "status": "rejected",
+            "word_count": 2600,
+            "summary_text": "不应进入投影。",
+        }
+    )
+
+    StateManager(config).update_progress(chapter=9, words_delta=9999, phase="broken")
+    StateManager(config).flush()
+    MemoryManager(config).save(
+        {
+            "characters": [
+                {
+                    "id": "char_protagonist",
+                    "name": "林墨",
+                    "role": "protagonist",
+                    "first_appearance_chapter": 0,
+                    "last_appearance_chapter": 0,
+                },
+                {
+                    "id": "char_stale",
+                    "name": "旧残留",
+                    "role": "minor",
+                    "last_appearance_chapter": 8,
+                },
+            ],
+            "timeline": [
+                {"chapter": 9, "events": ["规划第9章"], "planned": True},
+                {"chapter": 8, "events": ["旧残留"]},
+            ],
+            "world_rules": [{"id": "wr_story_baseline", "rule": "基线", "source": "story-plan"}],
+            "chapter_summaries": [{"chapter": 8, "summary": "旧摘要"}],
+        }
+    )
+    stale_summary = config.summaries_dir / "ch0099.md"
+    stale_summary.parent.mkdir(parents=True, exist_ok=True)
+    stale_summary.write_text("旧摘要残留", encoding="utf-8")
+    stale_view = config.tracking_dir / "旧残留.md"
+    stale_view.parent.mkdir(parents=True, exist_ok=True)
+    stale_view.write_text("旧视图残留", encoding="utf-8")
+
+    first = EventProjectionRouter(config).rebuild()
+    second = EventProjectionRouter(config).rebuild()
+    progress = StateManager(config).get_progress()
+    memory = MemoryManager(config).load()
+
+    assert set(first) == {"state", "memory", "summary", "index", "vector", "markdown_view"}
+    assert all(result.ok for result in first.values())
+    assert first["index"] == ProjectionResult(
+        name="index",
+        ok=True,
+        skipped=True,
+        detail="lazy projection skipped",
+    )
+    assert first["vector"] == ProjectionResult(
+        name="vector",
+        ok=True,
+        skipped=True,
+        detail="lazy projection skipped",
+    )
+    assert second["state"].detail == "replayed 2 accepted commits"
+    assert progress["current_chapter"] == 2
+    assert progress["total_words"] == 4000
+    assert progress["projected_commit_words"] == {"1": 1800, "2": 2200}
+    assert [item["id"] for item in memory["characters"]] == [
+        "char_protagonist",
+        "char_su",
+    ]
+    assert any(item.get("planned") for item in memory["timeline"])
+    assert not any(item.get("events") == ["旧残留"] for item in memory["timeline"])
+    assert len(memory["chapter_summaries"]) == 2
+    assert not stale_summary.exists()
+    assert not stale_view.exists()
+    assert "不应进入投影" not in (config.tracking_dir / "上下文.md").read_text(encoding="utf-8")
+
+    only = EventProjectionRouter(config).rebuild(only=["summary"])
+    assert list(only) == ["summary"]
+    assert StateManager(config).get_progress()["total_words"] == 4000
+
+
+def test_long_project_index_rebuilds_from_commits_and_vector_skips_without_rag(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    config.ensure_dirs()
+    atomic_write_json(
+        config.contracts_dir / "master.json",
+        {"project_type": "long"},
+        use_lock=False,
+        backup=False,
+    )
+    CommitStore(config).write(
+        accepted_commit(1, title="开局", words=1800, summary="林墨收到亡友来信。")
+    )
+
+    first = EventProjectionRouter(config).rebuild(only=["index", "vector"])
+    second = EventProjectionRouter(config).rebuild(only=["index", "vector"])
+
+    assert first["index"].ok
+    assert not first["index"].skipped
+    assert first["vector"] == ProjectionResult(
+        name="vector",
+        ok=True,
+        skipped=True,
+        detail="rag unavailable",
+    )
+    assert second["index"].detail == first["index"].detail
+    with sqlite3.connect(config.index_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+        entities = conn.execute(
+            "SELECT title FROM entries WHERE kind = 'entity' ORDER BY title"
+        ).fetchall()
+    assert count > 0
+    assert ("苏晚",) in entities

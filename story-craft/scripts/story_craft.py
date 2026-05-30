@@ -10,6 +10,7 @@ from pathlib import Path
 from cli.cli_args import build_parser
 from cli.cli_output import print_error, print_info, print_json, print_kv
 from core.context_manager import ContextManager
+from core.event_projection_router import EventProjectionRouter
 from core.memory_index import MemoryIndexService
 from core.memory_manager import MemoryManager
 from core.project_locator import (
@@ -331,6 +332,30 @@ def cmd_write(args) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_rebuild_views(args) -> int:
+    try:
+        project_root = _require_project_root(args)
+    except FileNotFoundError as exc:
+        _print_project_root_error(exc)
+        return 1
+
+    results = EventProjectionRouter.from_project(project_root).rebuild(only=args.only)
+    payload = {
+        "ok": all(result.ok for result in results.values()),
+        "project_root": str(project_root),
+        "results": {
+            name: {
+                "ok": result.ok,
+                "skipped": result.skipped,
+                "detail": result.detail,
+            }
+            for name, result in results.items()
+        },
+    }
+    print_json(payload)
+    return 0 if payload["ok"] else 1
+
+
 def _print_or_write_json(payload: dict, output_file: str | None = None) -> None:
     if output_file:
         path = Path(output_file).expanduser().resolve()
@@ -430,6 +455,7 @@ def main() -> int:
         "init": cmd_init,
         "plan": cmd_plan,
         "write": cmd_write,
+        "rebuild-views": cmd_rebuild_views,
         "agent": cmd_agent,
         "review": cmd_review,
         "learn": cmd_learn,

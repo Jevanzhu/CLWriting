@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 from conftest import reviewer_issue, run_cli
+from core.commit_store import CommitStore
+from core.config import StoryCraftConfig
+from core.state_manager import StateManager
 
 
 def test_cli_init_preflight_query_learn_and_review_chain(tmp_path):
@@ -131,3 +134,63 @@ def test_cli_write_requires_chapter_argument():
 
     assert write.returncode == 2
     assert "--chapter" in write.stderr
+
+
+def test_cli_rebuild_views_replays_commits_and_supports_only(tmp_path):
+    project = tmp_path / "重建故事"
+    init = run_cli("init", str(project), "重建故事", "悬疑", "--protagonist-name", "林墨")
+    assert init.returncode == 0, init.stderr
+
+    config = StoryCraftConfig.from_project_root(project)
+    CommitStore(config).write(
+        {
+            "chapter": 1,
+            "title": "开局",
+            "status": "accepted",
+            "word_count": 1800,
+            "summary_text": "林墨收到亡友来信。",
+            "chapter_summary": {
+                "chapter": 1,
+                "title": "开局",
+                "summary": "林墨收到亡友来信。",
+            },
+            "accepted_events": [
+                {
+                    "event_type": "summary_recorded",
+                    "payload": {
+                        "chapter": 1,
+                        "title": "开局",
+                        "summary": "林墨收到亡友来信。",
+                    },
+                    "chapter": 1,
+                }
+            ],
+            "dominant_strand": "quest",
+        }
+    )
+    StateManager(config).update_progress(chapter=9, words_delta=9999, phase="broken")
+    StateManager(config).flush()
+
+    rebuilt = run_cli("--project-root", str(project), "rebuild-views")
+    assert rebuilt.returncode == 0, rebuilt.stderr
+    payload = json.loads(rebuilt.stdout)
+
+    assert payload["ok"]
+    assert set(payload["results"]) == {
+        "state",
+        "memory",
+        "summary",
+        "index",
+        "vector",
+        "markdown_view",
+    }
+    assert payload["results"]["state"]["detail"] == "replayed 1 accepted commits"
+    assert payload["results"]["index"]["skipped"]
+    assert StateManager(config).get_progress()["total_words"] == 1800
+    assert "林墨收到亡友来信" in (
+        config.summaries_dir / "ch0001.md"
+    ).read_text(encoding="utf-8")
+
+    selected = run_cli("--project-root", str(project), "rebuild-views", "--only", "summary")
+    assert selected.returncode == 0, selected.stderr
+    assert list(json.loads(selected.stdout)["results"]) == ["summary"]
