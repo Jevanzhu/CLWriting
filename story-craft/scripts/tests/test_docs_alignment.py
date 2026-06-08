@@ -79,6 +79,7 @@ def test_usage_docs_are_split_by_category():
         "data-formats.md": ("reviewer JSON", "data-agent 完整输出", "write 最小可消费 delta"),
         "troubleshooting.md": ("word_count_check", "工作台恢复", "章节合同"),
         "development.md": ("测试命令", "README 只放项目介绍"),
+        "stage3-cc-verification.md": ("已自动验证", "待 Claude Code 验证", "不得标为已通过"),
     }
     docs_dir = REPO_ROOT / "docs"
     for filename, expected_fragments in docs.items():
