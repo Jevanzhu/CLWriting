@@ -52,9 +52,9 @@ allowed-tools: Read Write Edit Grep Bash Agent
 写作前必须满足：
 
 - 项目已完成 init 和 plan。
-- `大纲/总纲.md` 覆盖目标章节。
+- `.story/contracts/chapters/chapter_NNN.json` 章节合同存在，且 `planned_word_count` 有效。
 - 上一章验收记录存在且 status 为 `accepted`，第 1 章除外。
-- 大纲和设定中无 `[TODO]`、`[待定]`、`[XXX]` 等占位符。
+- 章节合同、草稿和设定中无 `[TODO]`、`[待定]`、`[XXX]` 等占位符。
 
 ## 准备：工作台目录
 

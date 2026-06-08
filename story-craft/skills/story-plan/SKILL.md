@@ -47,7 +47,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 5-10 万字：18-30 章。
 
 4. 生成故事时间线主干：开篇时间锚点、中点转折、高潮、结尾。
-5. 重写或补全 `大纲/总纲.md`，每章至少包含：
+5. 重写或补全 `大纲/总纲.md`，并同步生成 `.story/contracts/chapters/chapter_NNN.json` 章节合同。`总纲.md` 是人类可读投影，章节合同才是后续写作校验真源。每章至少包含：
 
 - 本章目标。
 - 核心冲突。
@@ -60,7 +60,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 写入边界
 
-- 允许写：`大纲/总纲.md`、必要的 `设定集/*.md`、`.story/state.json`、`.story/memory.json`。
+- 允许写：`大纲/总纲.md`、`.story/contracts/chapters/*.json`、必要的 `设定集/*.md`、`.story/state.json`、`.story/memory.json`。
 - 不允许写正文。
 - 不调用 Agent，story-plan 是纯流程 Skill。
 

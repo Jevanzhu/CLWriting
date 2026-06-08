@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cli.cli_args import build_parser
+
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SCRIPTS_DIR.parents[1]
@@ -73,9 +75,9 @@ def test_usage_docs_are_split_by_category():
     docs = {
         "quickstart.md": ("/story-init", "/story-write 1"),
         "claude-code-usage.md": ("Agent 编排", ".story/workflows/ch_NN/"),
-        "cli-usage.md": ("write 1", "review 1"),
+        "cli-usage.md": ("write 1", "review 1", "当前共有 20 个顶层子命令"),
         "data-formats.md": ("reviewer JSON", "data-agent 完整输出", "write 最小可消费 delta"),
-        "troubleshooting.md": ("word_count_check", "工作台恢复"),
+        "troubleshooting.md": ("word_count_check", "工作台恢复", "章节合同"),
         "development.md": ("测试命令", "README 只放项目介绍"),
     }
     docs_dir = REPO_ROOT / "docs"
@@ -102,3 +104,47 @@ def test_write_result_docs_list_actual_stage_contract():
         "write_error",
     ):
         assert f"`{stage}`" in text
+
+
+def test_cli_usage_doc_matches_phase_two_root_commands():
+    parser = build_parser()
+    subparser_actions = [
+        action
+        for action in parser._actions
+        if getattr(action, "choices", None)
+    ]
+    root_commands = set(subparser_actions[0].choices)
+    docs_text = (REPO_ROOT / "docs" / "cli-usage.md").read_text(encoding="utf-8")
+
+    assert len(root_commands) == 20
+    assert "当前共有 20 个顶层子命令" in docs_text
+    for command in sorted(root_commands):
+        assert f"`{command}`" in docs_text
+
+    for obsolete in (
+        "maintain index",
+        "maintain backup",
+        "maintain health",
+        "maintain outline-revision",
+        "`maintain`",
+    ):
+        assert obsolete not in docs_text
+
+
+def test_write_and_context_docs_use_chapter_contract_truth_source():
+    troubleshooting = (REPO_ROOT / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
+    write_skill = (REPO_ROOT / "story-craft" / "skills" / "story-write" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    context_agent = (REPO_ROOT / "story-craft" / "agents" / "context-agent.md").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (troubleshooting, write_skill):
+        assert ".story/contracts/chapters/chapter_NNN.json" in text
+        assert "目标章节存在于 `大纲/总纲.md`" not in text
+        assert "`大纲/总纲.md` 覆盖目标章节" not in text
+
+    assert "章节合同缺失" in context_agent
+    assert "总纲未覆盖本章" not in context_agent
+    assert "大纲未覆盖本章" not in context_agent

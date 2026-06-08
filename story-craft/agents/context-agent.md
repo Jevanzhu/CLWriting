@@ -98,13 +98,13 @@ model: inherit
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query context --chapter "${CHAPTER}"
 ```
 
-3. 读取必要文件：`大纲/总纲.md`、`设定集/世界观.md`、`设定集/主角卡.md`、`设定集/独特优势.md`。
-4. 将 P3 上下文转换为任务书四板块。
+3. 读取必要设定文件：`设定集/世界观.md`、`设定集/主角卡.md`、`设定集/独特优势.md`。
+4. 将 `query context` 返回的合同派生上下文转换为任务书四板块。
 5. 输出单一 JSON，不加 Markdown 包裹，不附解释。
 
 ## 组装规则
 
-- `core_mission.goal` 来自 `context.core.chapter_goal`，为空时从本章大纲第一句提炼。
+- `core_mission.goal` 来自 `context.core.chapter_goal`，为空时标记缺失，不从 `大纲/总纲.md` 回退提炼。
 - `must_accomplish` 来自 `context.core.must_cover`；为空时至少给出一个从目标推断的任务。
 - `absolutely_forbidden` 来自 `context.core.forbidden` 和世界规则，不得编造未出现的禁令。
 - `active_characters` 必须补充动机推断；如果 `emotional_state` 为空，要根据最近摘要给出谨慎推断并标注 `inferred: true`。
@@ -124,7 +124,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - `project_root` 不存在：返回 `{"error": "project_root_not_found", "detail": "..."}`。
 - `query context` 失败：返回 `{"error": "context_query_failed", "detail": "..."}`。
 - 必需设定文件缺失：继续输出任务书，但在 `continuity_checks` 标记缺失文件。
-- 大纲未覆盖本章：`goal` 使用空字符串，`continuity_checks` 标记“总纲未覆盖本章”。
+- 章节合同缺失：`goal` 使用空字符串，`continuity_checks` 标记“章节合同缺失，请先运行 plan”。
 
 ## 自检清单
 
