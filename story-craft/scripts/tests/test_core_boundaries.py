@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from core import security_utils
+from core.contract_store import ContractStore
 from core.memory_index import MemoryIndexService
 from core.project_locator import (
     ENV_PROJECT_ROOT,
@@ -110,8 +111,24 @@ def test_state_and_prewrite_boundaries_for_medium_projects(tmp_path):
     state = StateManager.from_project(project).get_project()
     assert state["tier"] == "medium"
 
-    outline = project / "大纲" / "总纲.md"
-    outline.write_text("# 长夜\n\n## 第01章 开端\n\n有[TODO:补伏笔]。\n", encoding="utf-8")
+    ContractStore.from_project(project).write_chapter(
+        {
+            "contract_version": "story-craft/contract-v1",
+            "chapter": 1,
+            "volume": 0,
+            "title": "开端",
+            "chapter_directive": "推进长夜开端并处理[TODO:补伏笔]。",
+            "must_cover": ["建立主角处境"],
+            "forbidden_zones": [],
+            "planned_word_count": 3000,
+            "expected_strand": "quest",
+            "open_loops_to_plant": [],
+            "open_loops_to_close": [],
+            "created_at": "2026-06-08T00:00:00Z",
+            "updated_at": "2026-06-08T00:00:00Z",
+        }
+    )
+    (project / "大纲" / "总纲.md").unlink()
 
     memory_file = project / ".story" / "memory.json"
     memory = json.loads(memory_file.read_text(encoding="utf-8"))
@@ -124,5 +141,5 @@ def test_state_and_prewrite_boundaries_for_medium_projects(tmp_path):
 
     validation = validate_prewrite(project, 1)
     assert validation["ready"]
-    assert any("占位符" in warning for warning in validation["warnings"])
+    assert any("章节合同存在占位符" in warning for warning in validation["warnings"])
     assert any("伏笔债" in warning for warning in validation["warnings"])
