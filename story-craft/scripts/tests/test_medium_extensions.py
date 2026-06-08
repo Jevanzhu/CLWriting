@@ -190,7 +190,7 @@ def test_quality_ranker_entity_graph_and_outline_revision(tmp_path):
 def test_medium_cli_commands(tmp_path):
     seed_medium_project(tmp_path / "medium")
 
-    index = run_cli("--project-root", str(tmp_path / "medium"), "maintain", "index")
+    index = run_cli("--project-root", str(tmp_path / "medium"), "index")
     assert index.returncode == 0, index.stderr
     assert json.loads(index.stdout)["entry_count"] > 0
 
@@ -214,7 +214,6 @@ def test_medium_cli_commands(tmp_path):
     backup = run_cli(
         "--project-root",
         str(tmp_path / "medium"),
-        "maintain",
         "backup",
         "--label",
         "cli",
@@ -222,7 +221,7 @@ def test_medium_cli_commands(tmp_path):
     assert backup.returncode == 0, backup.stderr
     assert Path(json.loads(backup.stdout)["backup_file"]).is_file()
 
-    health = run_cli("--project-root", str(tmp_path / "medium"), "maintain", "health")
+    health = run_cli("--project-root", str(tmp_path / "medium"), "health")
     assert health.returncode == 0, health.stderr
     health_payload = json.loads(health.stdout)
     assert health_payload["ok"]
@@ -231,7 +230,6 @@ def test_medium_cli_commands(tmp_path):
     revision = run_cli(
         "--project-root",
         str(tmp_path / "medium"),
-        "maintain",
         "outline-revision",
         "--chapter",
         "2",
