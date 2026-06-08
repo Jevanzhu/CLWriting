@@ -31,6 +31,23 @@
   - AI 味：按需可读 `references/review/fallback-rubric.md`。
   - 按题材可读：`genres/<pack>/checklist.md`
 
+- `/story-long-plan`
+  - 总是可读：`references/outlining/plot-signal-vs-spoiler.md`
+  - 总是可读：`references/shared/strand-weave-pattern.md`
+  - 编排：`story-architect` 生成 master/volumes/chapters，`character-designer` 生成 character_registry。
+  - 按题材可读：`genres/<pack>/patterns.md`
+
+- `/story-long-analyze`
+  - 默认只读项目数据：status、memory、quality、entity-graph。
+  - 叙事线：调用 `tools.strand_calculator.evaluate_strand_balance`。
+  - 用户询问参考口径时读取本目录对应文件。
+
+- `/story-long-scan`
+  - 默认只读项目数据。
+  - 占位符：调用 `placeholder-scan`。
+  - 一致性：按需调用 `consistency-checker`。
+  - blocking 口径：按需读取 `references/review-schema.md`。
+
 - `/story-review`
   - 总是可读：`references/review-schema.md`
   - 总是可读：`references/shared/core-constraints.md`
