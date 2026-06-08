@@ -7,6 +7,7 @@ from conftest import reviewer_issue, run_cli
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
 from core.chapter_record import ChapterRecordService
+from core.contract_store import ContractStore
 from core.memory_manager import MemoryManager
 from tools.genre_profile_builder import build_genre_hints
 from tools.init_project import init_project
@@ -18,6 +19,26 @@ from tools.prewrite_validator import validate_prewrite
 from tools.review_pipeline import build_review_report
 from tools.style_sampler import detect_style_drift, extract_style_sample
 from tools.writing_guidance_builder import build_anti_ai_checklist, build_writing_checklist
+
+
+def _write_chapter_contract(project: Path, chapter: int = 1, **overrides) -> None:
+    payload = {
+        "contract_version": "story-craft/contract-v1",
+        "chapter": chapter,
+        "volume": 0,
+        "title": f"第{chapter:02d}章",
+        "chapter_directive": "推进本章核心冲突。",
+        "must_cover": ["兑现关键线索"],
+        "forbidden_zones": [],
+        "planned_word_count": 3000,
+        "expected_strand": "quest",
+        "open_loops_to_plant": [],
+        "open_loops_to_close": [],
+        "created_at": "2026-06-08T00:00:00Z",
+        "updated_at": "2026-06-08T00:00:00Z",
+    }
+    payload.update(overrides)
+    ContractStore.from_project(project).write_chapter(payload)
 
 
 def test_context_manager_builds_four_sections(tmp_path):
@@ -189,12 +210,78 @@ def test_project_memory_and_prewrite_validator(tmp_path):
     assert get_learning_patterns(project, "dialogue")[0]["instruction"] == "对白必须带冲突"
 
     validation = validate_prewrite(project, 1)
-    assert validation["ready"]
-    assert any("总纲未显式覆盖" in item for item in validation["warnings"])
+    assert not validation["ready"]
+    assert any("缺少章节合同" in item for item in validation["blockers"])
 
+    _write_chapter_contract(project, 1)
+    (project / "大纲" / "总纲.md").write_text(
+        "# 暗室\n\n## 第01章\n[TODO:总纲旧占位符]\n",
+        encoding="utf-8",
+    )
+    validation = validate_prewrite(project, 1)
+    assert validation["ready"]
+    assert not any("占位符" in item for item in validation["warnings"])
+
+    (project / "大纲" / "总纲.md").unlink()
+    validation = validate_prewrite(project, 1)
+    assert validation["ready"]
+    assert not any("总纲" in item for item in validation["warnings"])
+
+    _write_chapter_contract(project, 2)
     validation = validate_prewrite(project, 2)
     assert not validation["ready"]
     assert any("缺少上一章验收记录" in item for item in validation["blockers"])
+
+
+def test_prewrite_validator_blocks_incomplete_contract_and_scans_contract_placeholders(
+    tmp_path,
+):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+
+    _write_chapter_contract(
+        project,
+        1,
+        chapter_directive="进入旧楼并处理[TODO:补行动目标]。",
+        must_cover=["发现门卫证词", "{待定线索}"],
+        planned_word_count=0,
+    )
+
+    validation = validate_prewrite(project, 1)
+
+    assert not validation["ready"]
+    assert any("planned_word_count 无效" in item for item in validation["blockers"])
+    assert any("章节合同存在占位符" in item for item in validation["warnings"])
+
+
+def test_prewrite_validator_blocks_invalid_planned_word_count_values(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+
+    invalid_values = (None, -1, "三千")
+    for chapter, planned_word_count in enumerate(invalid_values, start=1):
+        if planned_word_count is None:
+            _write_chapter_contract(project, chapter)
+            contract_path = (
+                StoryCraftConfig.from_project_root(project).chapter_contracts_dir
+                / f"chapter_{chapter:03d}.json"
+            )
+            payload = json.loads(contract_path.read_text(encoding="utf-8"))
+            payload.pop("planned_word_count")
+            contract_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        else:
+            _write_chapter_contract(
+                project,
+                chapter,
+                planned_word_count=planned_word_count,
+            )
+
+        validation = validate_prewrite(project, chapter)
+        assert not validation["ready"]
+        assert any("planned_word_count 无效" in item for item in validation["blockers"])
 
 
 def test_cli_query_learn_review_paths(tmp_path):
