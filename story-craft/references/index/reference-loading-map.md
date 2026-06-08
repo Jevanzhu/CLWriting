@@ -23,6 +23,14 @@
   - 多线中篇：`references/shared/strand-weave-pattern.md`
   - 按题材可读：`genres/<pack>/checklist.md`
 
+- `/story-long-write`
+  - 总是可读：`references/shared/core-constraints.md`
+  - 总是可读：`references/review-schema.md`
+  - 场景路由：读取 `ChapterContract`、commit 摘要和 `tools.scenario_router.detect_scenario` 结果。
+  - 叙事线：按需可读 `references/shared/strand-weave-pattern.md`。
+  - AI 味：按需可读 `references/review/fallback-rubric.md`。
+  - 按题材可读：`genres/<pack>/checklist.md`
+
 - `/story-review`
   - 总是可读：`references/review-schema.md`
   - 总是可读：`references/shared/core-constraints.md`

@@ -45,7 +45,7 @@ REQUIRED_MARKDOWN_PHRASES = {
     "outlining/plot-signal-vs-spoiler.md": ["情节信号", "剧透", "回收"],
     "review/blocking-override-guidelines.md": ["不可覆盖", "可考虑覆盖", "用户确认"],
     "review/fallback-rubric.md": ["13 条核心 rubric", "AI 味速查", "Rubric Source"],
-    "index/reference-loading-map.md": ["/story-init", "/story-plan", "/story-write", "/story-review", "fallback rubric"],
+    "index/reference-loading-map.md": ["/story-init", "/story-plan", "/story-write", "/story-long-write", "/story-review", "fallback rubric"],
 }
 
 
@@ -90,6 +90,7 @@ def test_reference_loading_map_covers_agents_and_skills():
         "/story-init",
         "/story-plan",
         "/story-write",
+        "/story-long-write",
         "/story-review",
         "/story-learn",
         "/story-query",
