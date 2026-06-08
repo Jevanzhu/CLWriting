@@ -91,10 +91,17 @@ def test_reference_loading_map_covers_agents_and_skills():
         "/story-review",
         "/story-learn",
         "/story-query",
+        "story-architect",
+        "character-designer",
         "context-agent",
+        "narrative-writer",
         "reviewer",
+        "consistency-checker",
         "data-agent",
-        "deconstruction-agent",
+        "story-explorer",
+        "story-researcher",
+        "旧 `deconstruction-agent` 已在阶段 3 淘汰",
+        "参考拆解迁入 `story-import`",
     ):
         assert name in text
 

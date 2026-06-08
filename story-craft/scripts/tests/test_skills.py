@@ -9,7 +9,7 @@ SKILLS_DIR = PLUGIN_ROOT / "skills"
 
 
 EXPECTED_SKILLS = {
-    "story-init": ["充分性闸门", "init", "deconstruction-agent", "完成条件"],
+    "story-init": ["充分性闸门", "init", "story-import", "完成条件"],
     "story-plan": ["充分性闸门", "大纲/总纲.md", "memory.json", "完成条件"],
     "story-write": ["充分性闸门", "context-agent", "reviewer", "data-agent", "ChapterRecordService.record"],
     "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
