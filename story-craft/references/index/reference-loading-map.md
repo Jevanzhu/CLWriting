@@ -48,6 +48,23 @@
   - 一致性：按需调用 `consistency-checker`。
   - blocking 口径：按需读取 `references/review-schema.md`。
 
+- `/story-short-write`
+  - 总是可读：`references/shared/core-constraints.md`
+  - 短篇退化：只使用 4 核心 Agent，reviewer solo，index/vector lazy。
+  - AI 味：按需可读 `references/review/fallback-rubric.md`。
+  - 按题材可读：`genres/<pack>/checklist.md`
+
+- `/story-short-analyze`
+  - 默认只读短篇合同、正文、memory 和质量趋势。
+  - AI 味：调用 `tools.deslop_metrics.analyze_deslop_metrics`。
+  - 用户询问参考口径时读取 shared/short 相关文件。
+
+- `/story-short-scan`
+  - 默认只读项目数据。
+  - 占位符：调用 `placeholder-scan`。
+  - reviewer：按需用 solo mode 输出 S1-S4 findings。
+  - 不触发 data-agent 或 commit。
+
 - `/story-review`
   - 总是可读：`references/review-schema.md`
   - 总是可读：`references/shared/core-constraints.md`

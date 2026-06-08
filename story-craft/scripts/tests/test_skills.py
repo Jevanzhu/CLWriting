@@ -59,6 +59,37 @@ EXPECTED_SKILLS = {
         "默认只读",
         "CC 验证清单",
     ],
+    "story-short-write": [
+        "project_type=short",
+        "退化矩阵",
+        'subagent_type: "story-craft:context-agent"',
+        'subagent_type: "story-craft:narrative-writer"',
+        'subagent_type: "story-craft:reviewer"',
+        'subagent_type: "story-craft:data-agent"',
+        "requested_mode=solo",
+        "index/vector",
+        "lazy",
+        "chapter-commit",
+        "跳过 Git 备份",
+        "CC 验证清单",
+    ],
+    "story-short-analyze": [
+        "只读分析",
+        "情绪曲线",
+        "反转链",
+        "tools.deslop_metrics.analyze_deslop_metrics",
+        "结尾回响",
+        "CC 验证清单",
+    ],
+    "story-short-scan": [
+        "placeholder-scan",
+        "6-Gate",
+        'subagent_type: "story-craft:reviewer"',
+        "requested_mode=solo",
+        "默认只读",
+        "不执行 Git 备份",
+        "CC 验证清单",
+    ],
     "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
     "story-learn": ["充分性闸门", "pattern_type", "project_learning.json", "learn"],
     "story-query": ["只读", "query context", "query memory", "query learning", "query genres"],
@@ -137,3 +168,24 @@ def test_story_long_plan_analyze_scan_have_distinct_boundaries():
     assert "不生成新剧情事实" in long_analyze
     assert "默认只读" in long_scan
     assert "若用户要求修复，转入 `story-long-write` 的 `major_revision` 场景" in long_scan
+
+
+def test_story_short_skills_document_degradation_matrix():
+    short_write = (SKILLS_DIR / "story-short-write" / "SKILL.md").read_text(encoding="utf-8")
+    short_analyze = (SKILLS_DIR / "story-short-analyze" / "SKILL.md").read_text(encoding="utf-8")
+    short_scan = (SKILLS_DIR / "story-short-scan" / "SKILL.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "无 `volumes/`",
+        "`style_fingerprint` 可选",
+        "`state/memory/summary/markdown_view` 4 投影实时",
+        "`index/vector` 默认 lazy",
+        "只使用 4 核心 Agent",
+        "reviewer 默认 `solo` mode",
+        "跳过 Git 备份",
+    ):
+        assert phrase in short_write
+    assert "不生成新剧情事实" in short_analyze
+    assert "只读，不写 state、memory、commit、合同或正文" in short_analyze
+    assert "不改正文，不写 commit" in short_scan
+    assert "不调用 `data-agent`" in short_scan
