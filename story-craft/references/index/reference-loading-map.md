@@ -10,6 +10,7 @@
   - 按需可读：`references/csv/题材与调性推理.csv`
   - 按题材可读：`genres/<pack>/README.md`
   - 参考文本分析后：`references/shared/core-constraints.md`
+  - 双轨：`project_type=short` 启用 4 核心 Agent，`project_type=long` 启用 9 Agent。
 
 - `/story-plan`
   - 总是可读：`references/outlining/plot-signal-vs-spoiler.md`
@@ -69,14 +70,23 @@
   - 总是可读：`references/review-schema.md`
   - 总是可读：`references/shared/core-constraints.md`
   - blocking 决策：`references/review/blocking-override-guidelines.md`
+  - mode：短篇默认 reviewer `solo`，长篇默认 `lean`，深审可请求 `full`。
 
 - `/story-learn`
   - 按需可读：`references/csv/写作技法.csv`
   - 按需可读：`references/shared/payoff-points-guide.md`
+  - 双轨：经验规则需标注适用于短篇、长篇或 shared。
 
 - `/story-query`
   - 默认只读项目数据。
+  - 优先级：合同 `ContractStore` → 最新 accepted commit `CommitStore` → 投影 read-model。
   - 用户询问参考口径时读取本目录对应文件。
+
+- `/story-preflight`
+  - 默认只读项目数据。
+  - 合同：检查 master/chapter，长篇按需检查 volume。
+  - 占位符：调用 `placeholder-scan`。
+  - 双轨：短篇不因缺 `volumes/` 阻断，长篇缺 volume/chapter 合同时阻断。
 
 ## Agent 映射
 

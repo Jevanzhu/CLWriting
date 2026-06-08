@@ -58,6 +58,7 @@ REQUIRED_MARKDOWN_PHRASES = {
         "/story-short-scan",
         "/story-review",
         "fallback rubric",
+        "/story-preflight",
     ],
 }
 
@@ -113,6 +114,7 @@ def test_reference_loading_map_covers_agents_and_skills():
         "/story-review",
         "/story-learn",
         "/story-query",
+        "/story-preflight",
         "story-architect",
         "character-designer",
         "context-agent",

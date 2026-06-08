@@ -1,13 +1,14 @@
 ---
 name: story-learn
-description: 记录 story-craft 项目的写作经验和反复出现的问题。用于把用户观察、审查结论或写作偏好归类为 hook/pacing/dialogue/payoff/emotion/format/other，并写入 project_learning.json 时。
+description: 记录 story-craft 项目的双轨共享写作经验和反复出现的问题，写入 project_learning.json 供 short/long context 使用。
+allowed-tools: Read Write Bash
 ---
 
 # story-learn
 
 ## 目标
 
-把可复用的项目级写作经验写入 `.story/project_learning.json`，供后续 context 和 writing checklist 使用。
+把可复用的项目级写作经验写入 `.story/project_learning.json`，供后续 short/long 的 context-agent 和 writing checklist 使用。
 
 ## 充分性闸门
 
@@ -17,6 +18,7 @@ description: 记录 story-craft 项目的写作经验和反复出现的问题。
 - 章节号明确。
 - `description` 和 `instruction` 非空。
 - `pattern_type` 可归类为：`hook`、`pacing`、`dialogue`、`payoff`、`emotion`、`format`、`other`。
+- 明确适用轨道：短篇、长篇或 shared。当前 CLI 不存轨道字段时，在 `description` 或 `instruction` 中写清适用范围。
 
 ## 流程
 
@@ -43,6 +45,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - `description`：问题或模式描述。
 - `example`：正例或反例，可为空但建议提供。
 - `instruction`：后续写作必须遵守的具体指令。
+- `scope`：若只适用短篇或长篇，在 instruction 中显式写“仅短篇”或“仅长篇”。
 
 4. 写入：
 
@@ -66,6 +69,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 只写 `.story/project_learning.json`。
 - 不修改正文、memory 或 state。
 - 不记录一次性偏好；只记录后续可复用的模式。
+- 不把 reviewer 的一次性修复建议直接升级为全局规则，除非用户确认。
 
 ## 失败处理
 
@@ -75,4 +79,4 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 ## 完成条件
 
-输出新增 pattern id、类型、指令，以及它会在后续 `/story-write` 的 guidance 中生效。
+输出新增 pattern id、类型、适用轨道、指令，以及它会在后续 `/story-short-write` 或 `/story-long-write` 的 guidance 中生效。

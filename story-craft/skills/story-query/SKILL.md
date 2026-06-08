@@ -1,13 +1,14 @@
 ---
 name: story-query
-description: 只读查询 story-craft 项目的状态、上下文、角色记忆、伏笔、时间线、学习记录和支持流派。用于用户询问故事当前进度、角色状态、未回收伏笔、世界规则或写作上下文时。
+description: 只读查询 story-craft 项目的合同、commit、投影、状态、上下文、角色记忆、伏笔、时间线、学习记录和支持流派。
+allowed-tools: Read Grep Bash
 ---
 
 # story-query
 
 ## 目标
 
-只读回答项目状态和故事记忆问题，不写文件。
+只读回答项目状态和故事记忆问题，不写文件。查询优先级固定为：合同 `ContractStore` → 最新 accepted commit `CommitStore` → 投影 read-model。
 
 ## 查询入口
 
@@ -34,6 +35,8 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 - 世界规则：读取 `memory.world_rules`。
 - 章节摘要：读取 `memory.chapter_summaries`。
 - 写作上下文：调用 `query context --chapter N`。
+- 合同状态：读取 `master/volumes/chapters/reviews` 合同是否完整。
+- commit 真源：读取 `.story/commits/chapter_NNN.commit.json` 的 accepted 结果。
 - 学习记录：调用 `query learning`。
 - 支持流派：调用 `query genres`。
 - 质量趋势：调用 `query quality`。
@@ -53,6 +56,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 - 不写 state、memory、learning、正文或报告。
 - 不调用 Agent。
 - 不修改项目指针。
+- 不触发 `index/vector` rebuild，除非用户明确要求维护命令。
 - 不把推断当事实；推断必须标明“根据当前记录推断”。
 
 ## 输出建议
