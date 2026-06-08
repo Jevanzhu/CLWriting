@@ -75,15 +75,16 @@ GATE_THRESHOLDS: dict[str, tuple[float, float, float]] = {
 }
 
 
-def analyze_deslop_metrics(text: str) -> dict[str, Any]:
+def analyze_deslop_metrics(text: str, whitelist: list[str] | None = None) -> dict[str, Any]:
     """Return all 6-Gate metrics and an overall level for text."""
+    cleaned_text = apply_deslop_whitelist(text, whitelist)
     payload = {
-        "banned_word_density": banned_word_density(text),
-        "parallel_paragraph_run": parallel_paragraph_run(text),
-        "psychological_word_ratio": psychological_word_ratio(text),
-        "dialogue_tag_density": dialogue_tag_density(text),
-        "average_paragraph_sentences": average_paragraph_sentences(text),
-        "repetitive_description_density": repetitive_description_density(text),
+        "banned_word_density": banned_word_density(cleaned_text),
+        "parallel_paragraph_run": parallel_paragraph_run(cleaned_text),
+        "psychological_word_ratio": psychological_word_ratio(cleaned_text),
+        "dialogue_tag_density": dialogue_tag_density(cleaned_text),
+        "average_paragraph_sentences": average_paragraph_sentences(cleaned_text),
+        "repetitive_description_density": repetitive_description_density(cleaned_text),
     }
     gates = {
         name: {
@@ -96,7 +97,16 @@ def analyze_deslop_metrics(text: str) -> dict[str, Any]:
     return {
         "gates": gates,
         "overall_level": _max_level(item["level"] for item in gates.values()),
+        "whitelist_applied": sorted(set(_normalize_whitelist(whitelist))),
     }
+
+
+def apply_deslop_whitelist(text: str, whitelist: list[str] | None = None) -> str:
+    """Remove project-level exempt phrases before deterministic 6-Gate analysis."""
+    cleaned = str(text or "")
+    for phrase in _normalize_whitelist(whitelist):
+        cleaned = cleaned.replace(phrase, "")
+    return cleaned
 
 
 def banned_word_density(text: str) -> dict[str, Any]:
@@ -208,3 +218,7 @@ def _paragraph_signature(paragraph: str) -> str:
 
 def _top_hits(counter: Counter[str], limit: int = 5) -> list[str]:
     return [f"{word}:{count}" for word, count in counter.most_common(limit) if count > 0]
+
+
+def _normalize_whitelist(whitelist: list[str] | None) -> list[str]:
+    return [str(item).strip() for item in whitelist or [] if str(item).strip()]

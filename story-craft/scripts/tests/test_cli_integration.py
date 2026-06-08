@@ -233,9 +233,9 @@ def test_cli_init_project_type_and_from_config(tmp_path):
     assert state["project"]["word_count_target"] == 90000
 
 
-def test_cli_stage_three_skeletons_and_placeholder_scan(tmp_path):
+def test_cli_stage_three_tools_and_placeholder_scan(tmp_path):
     draft = tmp_path / "draft.md"
-    draft.write_text("正文\n[TODO:补线索]\n{待定结尾}\n", encoding="utf-8")
+    draft.write_text("正文\n[TODO:补线索]\n{待定结尾}\n缓缓缓缓\n", encoding="utf-8")
 
     scan = run_cli("placeholder-scan", str(draft))
     assert scan.returncode == 0, scan.stderr
@@ -243,13 +243,52 @@ def test_cli_stage_three_skeletons_and_placeholder_scan(tmp_path):
     assert scan_payload["ok"]
     assert scan_payload["placeholder_count"] == 2
 
-    for command in ("deslop", "repair", "import"):
-        result = run_cli(command)
-        assert result.returncode == 0, result.stderr
-        payload = json.loads(result.stdout)
-        assert payload["ok"]
-        assert payload["command"] == command
-        assert payload["status"] == "pending_phase_3"
+    whitelist = tmp_path / ".deslop-whitelist"
+    whitelist.write_text("缓缓\n", encoding="utf-8")
+    deslop = run_cli("deslop", "--draft-file", str(draft), "--whitelist-file", str(whitelist))
+    assert deslop.returncode == 0, deslop.stderr
+    deslop_payload = json.loads(deslop.stdout)
+    assert deslop_payload["ok"]
+    assert deslop_payload["command"] == "deslop"
+    assert deslop_payload["whitelist_applied"] == ["缓缓"]
+
+    review_json = tmp_path / "review.json"
+    review_json.write_text(
+        json.dumps(
+            {
+                "issues": [
+                    reviewer_issue(severity="S3", blocking=False),
+                    reviewer_issue(severity="high", blocking=False),
+                    reviewer_issue(severity="medium", blocking=False),
+                ],
+                "summary": "需要局部重写。",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    repair = run_cli("repair", "--chapter", "1", "--review-results", str(review_json))
+    assert repair.returncode == 0, repair.stderr
+    repair_payload = json.loads(repair.stdout)
+    assert repair_payload["ok"]
+    assert repair_payload["command"] == "repair"
+    assert repair_payload["repair_mode"] == "partial_rewrite"
+    assert [step["name"] for step in repair_payload["steps"]] == [
+        "diagnosis_report",
+        "rewrite_chapter",
+        "rewrite_delta",
+    ]
+
+    source = tmp_path / "import.md"
+    source.write_text("第一章 旧信\n信纸没有署名。\n\n第二章 雨夜\n雨声盖住脚步。", encoding="utf-8")
+    imported = run_cli("import", "--source", str(source))
+    assert imported.returncode == 0, imported.stderr
+    import_payload = json.loads(imported.stdout)
+    assert import_payload["ok"]
+    assert import_payload["command"] == "import"
+    assert not import_payload["is_v1_migration"]
+    assert import_payload["chapter_count"] == 2
+    assert import_payload["rebuild_command"] == "rebuild-views"
 
 
 def test_cli_write_requires_chapter_argument():

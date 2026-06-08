@@ -88,6 +88,24 @@
   - 占位符：调用 `placeholder-scan`。
   - 双轨：短篇不因缺 `volumes/` 阻断，长篇缺 volume/chapter 合同时阻断。
 
+- `/story-deslop`
+  - 默认只读目标草稿。
+  - AI 味：调用 `deslop --draft-file` 和 `tools.deslop_metrics.analyze_deslop_metrics`。
+  - 豁免：读取项目级 `.deslop-whitelist`。
+  - blocking 口径：按需读取 `references/review/fallback-rubric.md`。
+
+- `/story-repair`
+  - 默认读取 reviewer JSON、草稿和章节合同。
+  - 强度：调用 `repair --review-results`，判定 `complete_rewrite`、`partial_rewrite` 或 `polish_only`。
+  - 修复后必须重新调用 reviewer，不得跳过复审。
+  - rewrite_delta 交 `data-agent` 或 commit 链复核。
+
+- `/story-import`
+  - 只用于外部既有作品导入，非 v1 迁移。
+  - 解析：调用 `import --source` 解析 txt/md/docx 章节。
+  - 拆解：参考能力只保留 narrative_techniques、do_not_copy、differentiation。
+  - 重建：chapter-extractor/data-agent 生成合同与 commit 后调用 `rebuild-views`。
+
 ## Agent 映射
 
 - `story-architect`：大纲方法、主线/支线、节奏与卷章结构参考。

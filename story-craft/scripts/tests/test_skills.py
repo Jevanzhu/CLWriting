@@ -140,6 +140,42 @@ EXPECTED_SKILLS = {
         "只读",
         "CC 验证清单",
     ],
+    "story-deslop": [
+        "6-Gate",
+        "A 禁用词",
+        "B 句式",
+        "C 心理外化",
+        "D 节奏",
+        "E 对话",
+        "F 结尾",
+        ".deslop-whitelist",
+        "deslop --draft-file",
+        "只读",
+        "CC 验证清单",
+    ],
+    "story-repair": [
+        "diagnosis_report",
+        "rewrite_chapter",
+        "rewrite_delta",
+        "complete_rewrite",
+        "partial_rewrite",
+        "polish_only",
+        "repair --review-results",
+        "不得跳过复审",
+        "CC 验证清单",
+    ],
+    "story-import": [
+        "txt/md/docx",
+        "不是 v1 migrate",
+        "chapter-extractor",
+        "data-agent",
+        "重建合同",
+        "rebuild-views",
+        "narrative_techniques",
+        "do_not_copy",
+        "differentiation",
+        "CC 验证清单",
+    ],
 }
 
 
@@ -255,3 +291,18 @@ def test_common_skills_document_stage3_dual_track_contracts():
     assert "短篇项目不因缺 `volumes/` 阻断" in preflight
     assert "长篇项目缺 volume/chapter 合同时阻断" in preflight
     assert "不写 state、memory、commit、合同或正文" in preflight
+
+
+def test_stage3_independent_skills_document_tool_boundaries():
+    deslop = (SKILLS_DIR / "story-deslop" / "SKILL.md").read_text(encoding="utf-8")
+    repair = (SKILLS_DIR / "story-repair" / "SKILL.md").read_text(encoding="utf-8")
+    imported = (SKILLS_DIR / "story-import" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "不写 state、memory、commit、合同或正文" in deslop
+    assert "critical>=3 或 major>=5" in repair
+    assert "critical 1-2 或 major 3-4" in repair
+    assert "仅 minor" in repair
+    assert "重新调用 reviewer" in repair
+    assert "外部既有作品导入" in imported
+    assert "非 v1 迁移" in imported
+    assert "6 投影" in imported

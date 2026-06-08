@@ -59,6 +59,9 @@ REQUIRED_MARKDOWN_PHRASES = {
         "/story-review",
         "fallback rubric",
         "/story-preflight",
+        "/story-deslop",
+        "/story-repair",
+        "/story-import",
     ],
 }
 
@@ -115,6 +118,9 @@ def test_reference_loading_map_covers_agents_and_skills():
         "/story-learn",
         "/story-query",
         "/story-preflight",
+        "/story-deslop",
+        "/story-repair",
+        "/story-import",
         "story-architect",
         "character-designer",
         "context-agent",

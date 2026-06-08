@@ -38,10 +38,10 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 | `health` | 运行故事项目健康检查 |
 | `outline-revision` | 生成中期大纲修正建议 |
 | `chapter-commit` | 通过现有验收链路写入 chapter-commit 真源 |
-| `deslop` | 去 AI 味检测入口骨架，阶段 3 接入完整引擎 |
-| `repair` | 三段式修复入口骨架，阶段 3 接入完整流程 |
+| `deslop` | 运行 6-Gate 去 AI 味检测，支持 `.deslop-whitelist` |
+| `repair` | 根据 reviewer JSON 生成三段式修复强度计划 |
 | `placeholder-scan` | 扫描文本占位符 |
-| `import` | 外部作品导入入口骨架，不做 v1 迁移 |
+| `import` | 解析外部 txt/md/docx 作品章节，不做 v1 迁移 |
 
 ## 创建调试项目
 
@@ -152,12 +152,12 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> backu
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> health
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> outline-revision --chapter 6 --note "剧情需要转折"
 python3 -X utf8 story-craft/scripts/story_craft.py placeholder-scan <草稿.md>
-python3 -X utf8 story-craft/scripts/story_craft.py deslop
-python3 -X utf8 story-craft/scripts/story_craft.py repair
-python3 -X utf8 story-craft/scripts/story_craft.py import
+python3 -X utf8 story-craft/scripts/story_craft.py deslop --draft-file <草稿.md>
+python3 -X utf8 story-craft/scripts/story_craft.py repair --review-results <review.json>
+python3 -X utf8 story-craft/scripts/story_craft.py import --source <外部作品.txt>
 ```
 
 `rebuild-views` 会从 `.story/commits/` 重放 accepted commits，重建 state、memory、summary、index、vector 和 markdown_view。短篇项目会 lazy 跳过 index/vector。
 
 `health` 输出包含项目状态摘要和运行时诊断（Python 版本、平台、可选依赖可用性）。
-`deslop`、顶层 `repair` 和 `import` 当前是阶段 3 入口骨架，会返回明确的 `pending_phase_3` 状态而不是执行完整引擎。
+`deslop`、顶层 `repair` 和 `import` 是阶段 3 的确定性工具层。Claude Code 里的交互式 Skill 编排仍需按 CC 验证清单单独验证。

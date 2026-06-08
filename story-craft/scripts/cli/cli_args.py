@@ -330,19 +330,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     deslop_parser = subparsers.add_parser(
         "deslop",
-        help="去 AI 味检测入口骨架",
-        description="阶段 3 接入 6-Gate 去 AI 味引擎前的内部入口骨架。",
+        help="运行 6-Gate 去 AI 味检测",
+        description="运行 6-Gate 去 AI 味检测；支持项目级 .deslop-whitelist 豁免。",
     )
-    deslop_parser.add_argument("--draft-file", default=None, help="可选草稿文件")
+    deslop_parser.add_argument("--draft-file", required=True, help="草稿 Markdown 或文本文件")
+    deslop_parser.add_argument("--whitelist-file", default=None, help="可选 .deslop-whitelist 文件")
+    deslop_parser.add_argument("--output-file", default=None, help="可选输出 JSON 文件")
 
     repair_top_parser = subparsers.add_parser(
         "repair",
-        help="三段式修复入口骨架",
-        description="阶段 3 接入 story-repair skill 前的内部入口骨架。",
+        help="生成三段式修复强度计划",
+        description="根据 reviewer JSON 生成 diagnosis/rewrite/rewrite_delta 三段式修复计划。",
     )
     repair_top_parser.add_argument("--chapter", type=int, default=None, help="目标章节号")
-    repair_top_parser.add_argument("--review-results", default=None, help="可选 reviewer JSON")
+    repair_top_parser.add_argument("--review-results", required=True, help="reviewer JSON")
     repair_top_parser.add_argument("--draft-file", default=None, help="可选草稿文件")
+    repair_top_parser.add_argument("--output-file", default=None, help="可选输出 JSON 文件")
 
     placeholder_parser = subparsers.add_parser(
         "placeholder-scan",
@@ -354,9 +357,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     import_parser = subparsers.add_parser(
         "import",
-        help="外部作品导入入口骨架",
-        description="阶段 3 接入 story-import skill 前的内部入口骨架；不是 v1 迁移。",
+        help="解析外部作品导入源",
+        description="解析外部 txt/md/docx 作品并输出章节切分结果；不是 v1 迁移。",
     )
-    import_parser.add_argument("--source", default=None, help="外部 txt/md/docx 源文件或目录")
+    import_parser.add_argument("--source", required=True, help="外部 txt/md/docx 源文件或目录")
+    import_parser.add_argument("--output-file", default=None, help="可选输出 JSON 文件")
 
     return parser
