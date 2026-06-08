@@ -54,6 +54,10 @@ Agent(context-agent) → draft.md → Agent(reviewer) → repair/polish
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo plan --chapter-count 8
 ```
 
+底层 `init` 调试入口可通过 `--project-type short|long` 写入项目类型，
+也可通过 `--from-config <json>` 从配置文件初始化。日常仍建议优先使用
+`/story-init`。
+
 ## 写第一章
 
 在 Claude Code 中输入：
@@ -96,6 +100,6 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 完成第一章后，建议继续验证：
 
 ```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo maintain health
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo health
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query quality
 ```

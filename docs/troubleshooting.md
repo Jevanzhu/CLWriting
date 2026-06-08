@@ -5,7 +5,7 @@
 `write` 会在验收前执行这些检查：
 
 - 项目已完成 `init` 和 `plan`。
-- 目标章节存在于 `大纲/总纲.md`。
+- 目标章节存在 `.story/contracts/chapters/chapter_NNN.json` 章节合同；缺失时先运行 `plan`。
 - 第 2 章及以后必须存在上一章 accepted 验收记录。
 - 正文不能包含 `[TODO]`、`[待定]`、`[XXX]` 等占位符。
 - 实际字数低于本章规划字数 60% 会阻断验收。
@@ -24,8 +24,8 @@
 - reviewer JSON 被拒绝：确认顶层包含 `issues` 数组和 `summary` 字符串；不要把 `passed`、`blockers`、`warnings` 当作原始输入字段。
 - delta 缺失：可以先用 `agent extract` 生成兜底 delta，再人工补充角色、伏笔和状态变化。
 - 路径含空格：CLI 命令和 manifest 中的路径已做 shell quoting，可直接使用。
-- 可选依赖缺失：`filelock` 不可用时会降级为无锁写入，`maintain health` 的 `runtime` 字段会显示降级提示。
-- 中期需要修改大纲：运行 `maintain outline-revision --chapter N --note "修改原因"` 生成修正建议。
+- 可选依赖缺失：`filelock` 不可用时会降级为无锁写入，`health` 的 `runtime` 字段会显示降级提示。
+- 中期需要修改大纲：运行 `outline-revision --chapter N --note "修改原因"` 生成修正建议。
 
 ## 工作台恢复
 
@@ -43,7 +43,7 @@
 ## 健康检查
 
 ```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> maintain health
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> health
 ```
 
 输出包含项目状态摘要和运行时诊断（Python 版本、平台、`filelock` 可用性）。
