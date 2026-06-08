@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
+from core.contract_store import ContractStore
 from core.memory_manager import MemoryManager
 from core.state_manager import StateManager
 from core.text_utils import compact_line
+from core.time_utils import now_utc_iso
 
 
 REQUIRED_SETTING_FILES = (
@@ -251,6 +253,37 @@ def _update_memory_plan(
     MemoryManager(config).save(memory)
 
 
+def _write_chapter_contracts(
+    *,
+    config: StoryCraftConfig,
+    chapter_plans: list[dict[str, Any]],
+) -> None:
+    store = ContractStore(config)
+    timestamp = now_utc_iso()
+    for plan in chapter_plans:
+        conflict = str(plan.get("conflict") or "").strip()
+        foreshadowing = str(plan.get("foreshadowing") or "").strip()
+        must_cover = [item for item in (conflict, foreshadowing) if item]
+        open_loops_to_plant = [foreshadowing] if foreshadowing else []
+        store.write_chapter(
+            {
+                "contract_version": "story-craft/contract-v1",
+                "chapter": int(plan["chapter"]),
+                "volume": 0,
+                "title": str(plan.get("title") or ""),
+                "chapter_directive": str(plan.get("goal") or ""),
+                "must_cover": must_cover,
+                "forbidden_zones": [],
+                "planned_word_count": int(plan.get("target_words") or 0),
+                "expected_strand": "quest",
+                "open_loops_to_plant": open_loops_to_plant,
+                "open_loops_to_close": [],
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
+
+
 def plan_story(
     project_root: str | Path,
     *,
@@ -323,6 +356,7 @@ def plan_story(
 
     if not dry_run:
         _write_text(config.outline_dir / "总纲.md", outline)
+        _write_chapter_contracts(config=config, chapter_plans=chapter_plans)
         _update_memory_plan(
             config=config,
             memory=memory,
