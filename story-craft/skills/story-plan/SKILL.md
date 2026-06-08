@@ -1,6 +1,7 @@
 ---
 name: story-plan
 description: 为已初始化的 story-craft 项目生成或补全故事级总纲。用于把 state、memory、设定集整理成分段结构、故事时间线、每章目标/冲突/钩子，并更新大纲和项目进度时。
+allowed-tools: Read Write Grep Bash
 ---
 
 # story-plan
