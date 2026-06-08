@@ -57,6 +57,9 @@ def _infer_title(chapter_text: str, chapter: int, fallback: str = "") -> str:
 
 
 def _planned_word_count(context: dict[str, Any]) -> int:
+    planned_word_count = context.get("core", {}).get("planned_word_count")
+    if planned_word_count:
+        return int(planned_word_count)
     chapter_outline = str(context.get("core", {}).get("chapter_outline") or "")
     return first_int(outline_value(chapter_outline, "预计字数"))
 

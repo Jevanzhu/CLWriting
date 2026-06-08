@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any, Optional
 
 from core.chapter_paths import iter_chapter_record_files
 from core.config import StoryCraftConfig
+from core.directive_resolver import resolve_chapter_directive
 from core.memory_manager import MemoryManager
 from core.security_utils import read_json_safe
 from core.state_manager import StateManager
@@ -67,14 +67,16 @@ class ContextManager:
         state = self.state.get_full_state()
         project = state.get("project", {})
         constraints = state.get("creative_constraints", {})
-        outline_text = self._read_text(self.config.outline_dir / "总纲.md")
-        chapter_outline = self._extract_chapter_outline(outline_text, chapter)
+        directive = resolve_chapter_directive(self.config, chapter)
         return {
             "project": project,
             "creative_constraints": constraints,
-            "chapter_goal": chapter_outline.get("goal", ""),
-            "chapter_outline": chapter_outline.get("text", ""),
-            "must_cover": chapter_outline.get("must_cover", []),
+            "chapter_goal": directive["chapter_directive"],
+            "chapter_outline": directive["chapter_directive"],
+            "must_cover": directive["must_cover"],
+            "chapter_title": directive["title"],
+            "planned_word_count": directive["planned_word_count"],
+            "directive_source": directive["source"],
             "forbidden": self._build_forbidden_list(constraints),
             "time_anchor": self._latest_time_anchor(timeline),
         }
@@ -126,29 +128,6 @@ class ContextManager:
         if not path.exists():
             return ""
         return path.read_text(encoding="utf-8")
-
-    def _extract_chapter_outline(self, outline_text: str, chapter: int) -> dict[str, Any]:
-        if not outline_text:
-            return {"text": "", "goal": "", "must_cover": []}
-
-        heading_re = re.compile(rf"(^|\n)(#+\s*)?第0?{int(chapter)}章[^\n]*\n?", re.MULTILINE)
-        match = heading_re.search(outline_text)
-        if not match:
-            return {"text": "", "goal": "", "must_cover": []}
-
-        start = match.start()
-        next_heading = re.search(r"\n(#+\s*)?第\d+章[^\n]*", outline_text[match.end() :])
-        end = match.end() + next_heading.start() if next_heading else len(outline_text)
-        block = outline_text[start:end].strip()
-        lines = [line.strip("- 　\t") for line in block.splitlines() if line.strip()]
-        body_lines = lines[1:] if len(lines) > 1 else lines
-        must_cover = [
-            line
-            for line in body_lines
-            if any(keyword in line for keyword in ("必须", "覆盖", "线索", "伏笔", "转折"))
-        ]
-        goal = body_lines[0] if body_lines else ""
-        return {"text": block, "goal": goal, "must_cover": must_cover}
 
     def _build_forbidden_list(self, constraints: dict[str, Any]) -> list[str]:
         forbidden = []
