@@ -11,6 +11,7 @@ from core.memory_manager import MemoryManager
 from tools.genre_profile_builder import build_genre_hints
 from tools.init_project import init_project
 from tools.agent_workflow import normalize_reviewer_output
+from tools.outline_planner import plan_story
 from tools.placeholder_scanner import scan_placeholders
 from tools.project_memory import append_learning_pattern, get_learning_patterns
 from tools.prewrite_validator import validate_prewrite
@@ -28,11 +29,7 @@ def test_context_manager_builds_four_sections(tmp_path):
         synopsis="法医收到亡友来信",
         protagonist_name="林墨",
     )
-    outline = project / "大纲" / "总纲.md"
-    outline.write_text(
-        "# 暗室\n\n## 第01章 葬礼后的信\n必须埋下天台纸条线索。\n\n## 第02章 档案室\n必须发现尸检报告异常。\n",
-        encoding="utf-8",
-    )
+    plan_story(project, chapter_count=2)
     memory = MemoryManager.from_project(project)
     memory.apply_chapter_delta(
         {
@@ -93,12 +90,37 @@ def test_context_manager_builds_four_sections(tmp_path):
     context = ContextManager.from_project(project).build_context(2)
 
     assert {"core", "scene", "continuity", "guidance"}.issubset(context)
-    assert "必须发现尸检报告异常" in context["core"]["chapter_outline"]
+    assert context["core"]["chapter_goal"] == "完成主线选择，并兑现开篇承诺。"
+    assert context["core"]["chapter_outline"] == "完成主线选择，并兑现开篇承诺。"
+    assert context["core"]["must_cover"] == [
+        "真相、代价与角色欲望同时抵达临界点。",
+        "回收核心伏笔并保留必要余韵。",
+    ]
+    assert context["core"]["chapter_title"] == "终局回收"
+    assert context["core"]["planned_word_count"] == 15000
+    assert context["core"]["directive_source"] == "contract"
     assert context["scene"]["recent_summaries"][0]["chapter"] == 1
     assert context["continuity"]["unresolved_foreshadowing"][0]["id"] == "fh_001"
     assert context["guidance"]["genre_profile"]["genre"] == "悬疑灵异"
     assert context["guidance"]["learning_patterns"][0]["pattern_type"] == "pacing"
     assert context["guidance"]["anti_ai_checklist"]
+
+
+def test_context_manager_does_not_read_outline_without_contract(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    (project / "大纲" / "总纲.md").write_text(
+        "# 暗室\n\n## 第01章 葬礼后的信\n必须埋下天台纸条线索。\n",
+        encoding="utf-8",
+    )
+
+    context = ContextManager.from_project(project).build_context(1)
+
+    assert context["core"]["chapter_goal"] == ""
+    assert context["core"]["chapter_outline"] == ""
+    assert context["core"]["must_cover"] == []
+    assert context["core"]["planned_word_count"] == 0
+    assert context["core"]["directive_source"] == "none"
 
 
 def test_context_tools_return_expected_shapes():

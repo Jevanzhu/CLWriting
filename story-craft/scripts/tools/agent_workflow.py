@@ -345,8 +345,10 @@ def build_writing_brief(project_root: str | Path, chapter: int) -> dict[str, Any
     continuity = context.get("continuity", {})
     guidance = context.get("guidance", {})
     outline_text = str(core.get("chapter_outline") or "")
-    title = _chapter_title(outline_text, chapter)
-    target_words = first_int(outline_value(outline_text, "预计字数"))
+    title = str(core.get("chapter_title") or "") or _chapter_title(outline_text, chapter)
+    target_words = int(core.get("planned_word_count") or 0) or first_int(
+        outline_value(outline_text, "预计字数")
+    )
 
     goal = _first_non_empty(
         [outline_value(outline_text, "本章目标"), str(core.get("chapter_goal") or "")],
