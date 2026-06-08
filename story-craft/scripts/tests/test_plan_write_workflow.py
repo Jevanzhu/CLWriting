@@ -6,6 +6,7 @@ from pathlib import Path
 from conftest import long_chapter, run_cli
 from core.commit_store import CommitStore
 from core.context_manager import ContextManager
+from core.contract_store import ContractStore
 from core.memory_manager import MemoryManager
 from core.security_utils import AtomicWriteError
 from core.state_manager import StateManager
@@ -59,6 +60,27 @@ def test_plan_story_writes_outline_memory_and_state(tmp_path):
     assert "### 第01章" in outline_text
     assert "本章目标" in outline_text
 
+    store = ContractStore.from_project(project)
+    chapter_one = store.read_chapter(1)
+    assert chapter_one is not None
+    assert chapter_one["contract_version"] == "story-craft/contract-v1"
+    assert chapter_one["chapter"] == 1
+    assert chapter_one["title"] == "开篇异常"
+    assert chapter_one["planned_word_count"] == 3000
+    assert chapter_one["chapter_directive"].startswith("让林墨遇到")
+    assert chapter_one["must_cover"] == [
+        "日常秩序与异常证据正面冲突。",
+        "埋设核心谜面或情绪债。",
+    ]
+    assert chapter_one["open_loops_to_plant"] == ["埋设核心谜面或情绪债。"]
+    assert chapter_one["open_loops_to_close"] == []
+    assert chapter_one["expected_strand"] == "quest"
+    assert chapter_one["volume"] == 0
+    assert chapter_one["forbidden_zones"] == []
+    assert chapter_one["created_at"]
+    assert chapter_one["updated_at"] == chapter_one["created_at"]
+    assert store.read_chapter(10)["planned_word_count"] == 3000
+
     memory = MemoryManager.from_project(project).load()
     planned = [item for item in memory["timeline"] if item.get("planned")]
     assert len(planned) == 10
@@ -67,6 +89,30 @@ def test_plan_story_writes_outline_memory_and_state(tmp_path):
     assert any(rule.get("id") == "wr_story_baseline" for rule in memory["world_rules"])
     progress = StateManager.from_project(project).get_progress()
     assert progress["phase"] == "plan"
+
+
+def test_plan_story_dry_run_does_not_write_chapter_contracts(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        synopsis="法医收到亡友来信",
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市，证据必须可回溯",
+    )
+    outline_file = project / "大纲" / "总纲.md"
+    outline_before = outline_file.read_text(encoding="utf-8")
+
+    result = plan_story(project, chapter_count=8, dry_run=True)
+
+    assert result["ok"]
+    assert result["dry_run"] is True
+    assert outline_file.read_text(encoding="utf-8") == outline_before
+    assert ContractStore.from_project(project).read_chapter(1) is None
+    assert not list((project / ".story" / "contracts" / "chapters").glob("*.json"))
 
 
 def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path):
