@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tools.deslop_metrics import (
     analyze_deslop_metrics,
+    apply_deslop_whitelist,
     average_paragraph_sentences,
     banned_word_density,
     dialogue_tag_density,
@@ -29,6 +30,17 @@ def test_banned_word_density_thresholds_are_deterministic():
     assert metric["value"] >= 8
     assert result["gates"]["banned_word_density"]["level"] == "medium"
     assert "缓缓:2" in result["gates"]["banned_word_density"]["evidence"]
+
+
+def test_deslop_whitelist_removes_project_level_exemptions():
+    text = "缓缓" * 2 + "林墨" * 100
+
+    cleaned = apply_deslop_whitelist(text, ["缓缓"])
+    result = analyze_deslop_metrics(text, whitelist=["缓缓", ""])
+
+    assert "缓缓" not in cleaned
+    assert result["whitelist_applied"] == ["缓缓"]
+    assert result["gates"]["banned_word_density"]["level"] == "none"
 
 
 def test_parallel_paragraph_run_uses_consecutive_openers():

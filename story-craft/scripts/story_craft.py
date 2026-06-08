@@ -35,12 +35,15 @@ from tools.agent_workflow import (
 from tools.backup_manager import BackupManager
 from tools.chapter_workflow import record_chapter_workflow
 from tools.context_ranker import rank_context_items
+from tools.deslop_metrics import analyze_deslop_metrics
 from tools.entity_linker import build_entity_graph
+from tools.import_parser import parse_import_source
 from tools.outline_planner import plan_story
 from tools.outline_reviser import OutlineReviser
 from tools.placeholder_scanner import scan_placeholders
 from tools.project_memory import append_learning_pattern, get_learning_patterns
 from tools.quality_trend_report import QualityTrendReporter
+from tools.repair_strength import build_repair_workflow
 from tools.review_pipeline import build_review_report
 from tools.status_reporter import StatusReporter
 from tools.story_runtime_health import StoryRuntimeHealth
@@ -561,31 +564,45 @@ def cmd_outline_revision(args) -> int:
     return 0
 
 
-def _pending_phase_3(command: str, **extra: Any) -> dict[str, Any]:
-    payload = {
-        "ok": True,
-        "command": command,
-        "status": "pending_phase_3",
-        "message": "该入口已预留，完整能力待阶段 3 skill/engine 接入。",
-    }
-    payload.update(extra)
-    return payload
-
-
 def cmd_deslop(args) -> int:
-    print_json(_pending_phase_3("deslop", draft_file=args.draft_file))
+    try:
+        draft_path = Path(args.draft_file).expanduser().resolve()
+        text = draft_path.read_text(encoding="utf-8")
+        whitelist = _read_deslop_whitelist(args, draft_path)
+    except OSError as exc:
+        _print_file_error("运行去 AI 味检测", exc)
+        return 1
+
+    payload = analyze_deslop_metrics(text, whitelist=whitelist)
+    payload.update(
+        {
+            "ok": True,
+            "command": "deslop",
+            "draft_file": str(draft_path),
+            "recommendation": _deslop_recommendation(payload["overall_level"]),
+        }
+    )
+    _print_or_write_json(payload, args.output_file)
     return 0
 
 
 def cmd_repair_entry(args) -> int:
-    print_json(
-        _pending_phase_3(
-            "repair",
-            chapter=args.chapter,
-            review_results=args.review_results,
-            draft_file=args.draft_file,
-        )
+    try:
+        review_result = json.loads(Path(args.review_results).read_text(encoding="utf-8"))
+        payload = build_repair_workflow(review_result)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+        _print_file_error("生成修复计划", exc)
+        return 1
+
+    payload.update(
+        {
+            "command": "repair",
+            "chapter": args.chapter,
+            "review_results": str(Path(args.review_results).expanduser().resolve()),
+            "draft_file": str(Path(args.draft_file).expanduser().resolve()) if args.draft_file else None,
+        }
     )
+    _print_or_write_json(payload, args.output_file)
     return 0
 
 
@@ -614,8 +631,54 @@ def cmd_placeholder_scan(args) -> int:
 
 
 def cmd_import_project(args) -> int:
-    print_json(_pending_phase_3("import", source=args.source))
+    try:
+        payload = parse_import_source(args.source)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        _print_file_error("解析外部作品", exc)
+        return 1
+
+    payload.update(
+        {
+            "command": "import",
+            "is_v1_migration": False,
+            "rebuild_command": "rebuild-views",
+        }
+    )
+    _print_or_write_json(payload, args.output_file)
     return 0
+
+
+def _read_deslop_whitelist(args, draft_path: Path) -> list[str]:
+    whitelist_path = _deslop_whitelist_path(args, draft_path)
+    if not whitelist_path or not whitelist_path.is_file():
+        return []
+    return [
+        line.strip()
+        for line in whitelist_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _deslop_whitelist_path(args, draft_path: Path) -> Path | None:
+    if args.whitelist_file:
+        return Path(args.whitelist_file).expanduser().resolve()
+    try:
+        project_root, _source = locate_project_root(args.project_root, cwd=draft_path.parent)
+    except FileNotFoundError:
+        if args.project_root:
+            raise
+        return None
+    return project_root / ".deslop-whitelist"
+
+
+def _deslop_recommendation(level: str) -> str:
+    if level == "heavy":
+        return "先进入 story-deslop 或 story-repair，处理 heavy gate 后再审查。"
+    if level == "medium":
+        return "建议局部降 AI 味，再进入 reviewer。"
+    if level == "light":
+        return "可在润色阶段处理轻微模板化表达。"
+    return "无需额外 deslop。"
 
 
 def main() -> int:
