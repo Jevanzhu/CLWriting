@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core.config import StoryCraftConfig
+from core.contract_store import ContractStore
 from core.memory_manager import default_memory
 from core.security_utils import atomic_write_json
 from core.state_manager import default_state
+from core.time_utils import now_utc_iso
 
 
 def _write_text_if_missing(path: Path, content: str) -> None:
@@ -39,6 +41,7 @@ def init_project(
     world_setting: str = "",
     narrative_meta: Optional[dict[str, Any]] = None,
     creative_constraints: Optional[dict[str, Any]] = None,
+    project_type: Optional[str] = None,
 ) -> dict[str, Any]:
     """Initialize a story-craft project directory."""
     root = Path(project_root).expanduser().resolve()
@@ -106,6 +109,37 @@ def init_project(
     atomic_write_json(config.state_file, state, use_lock=True, backup=False)
     atomic_write_json(config.memory_file, memory, use_lock=True, backup=False)
     atomic_write_json(config.learning_file, {"patterns": []}, use_lock=True, backup=False)
+    master_file = None
+    if project_type:
+        timestamp = now_utc_iso()
+        master_file = ContractStore(config).write_master(
+            {
+                "contract_version": "story-craft/contract-v1",
+                "project_type": project_type,
+                "title": title,
+                "genre": genre,
+                "sub_genre": sub_genre or "",
+                "word_count_target": word_count_target,
+                "one_liner": synopsis,
+                "protagonist": {
+                    "name": protagonist_name,
+                    "desire": protagonist_desire,
+                    "flaw": protagonist_flaw,
+                },
+                "antagonist_mirror": antagonist_mirror,
+                "unique_advantage": {
+                    "type": unique_advantage_type,
+                    "description": unique_advantage_desc,
+                    "style": unique_advantage_style,
+                    "visibility": unique_advantage_visibility,
+                    "cost": unique_advantage_cost,
+                },
+                "route": "init",
+                "reasoning": "created by init --project-type",
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
 
     _write_text_if_missing(
         config.outline_dir / "总纲.md",
@@ -150,4 +184,5 @@ def init_project(
         "state_file": str(config.state_file),
         "memory_file": str(config.memory_file),
         "learning_file": str(config.learning_file),
+        "master_file": str(master_file) if master_file else None,
     }

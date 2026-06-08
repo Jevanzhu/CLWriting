@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from cli.cli_args import build_parser
 from cli.cli_output import print_error, print_info, print_json, print_kv
@@ -37,6 +38,7 @@ from tools.context_ranker import rank_context_items
 from tools.entity_linker import build_entity_graph
 from tools.outline_planner import plan_story
 from tools.outline_reviser import OutlineReviser
+from tools.placeholder_scanner import scan_placeholders
 from tools.project_memory import append_learning_pattern, get_learning_patterns
 from tools.quality_trend_report import QualityTrendReporter
 from tools.review_pipeline import build_review_report
@@ -126,27 +128,124 @@ def cmd_use(args) -> int:
 
 
 def cmd_init(args) -> int:
+    try:
+        init_values = _resolve_init_values(args)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+        _print_file_error("初始化项目", exc)
+        return 2
+
     result = init_project(
-        args.project_path,
-        args.title,
-        args.genre,
-        word_count_target=args.word_count_target,
-        sub_genre=args.sub_genre,
-        synopsis=args.synopsis,
-        protagonist_name=args.protagonist_name,
-        protagonist_desire=args.protagonist_desire,
-        protagonist_flaw=args.protagonist_flaw,
-        unique_advantage_type=args.unique_advantage_type,
-        unique_advantage_desc=args.unique_advantage_desc,
-        unique_advantage_style=args.unique_advantage_style,
-        unique_advantage_visibility=args.unique_advantage_visibility,
-        unique_advantage_cost=args.unique_advantage_cost,
-        golden_finger=args.golden_finger,
-        antagonist_mirror=args.antagonist_mirror,
-        world_setting=args.world_setting,
+        init_values["project_path"],
+        init_values["title"],
+        init_values["genre"],
+        project_type=init_values["project_type"],
+        word_count_target=init_values["word_count_target"],
+        sub_genre=init_values["sub_genre"],
+        synopsis=init_values["synopsis"],
+        protagonist_name=init_values["protagonist_name"],
+        protagonist_desire=init_values["protagonist_desire"],
+        protagonist_flaw=init_values["protagonist_flaw"],
+        unique_advantage_type=init_values["unique_advantage_type"],
+        unique_advantage_desc=init_values["unique_advantage_desc"],
+        unique_advantage_style=init_values["unique_advantage_style"],
+        unique_advantage_visibility=init_values["unique_advantage_visibility"],
+        unique_advantage_cost=init_values["unique_advantage_cost"],
+        golden_finger=init_values["golden_finger"],
+        antagonist_mirror=init_values["antagonist_mirror"],
+        world_setting=init_values["world_setting"],
     )
     print_json(result)
     return 0
+
+
+def _resolve_init_values(args) -> dict[str, Any]:
+    config = _read_init_config(args.from_config)
+    values = {
+        "project_path": _init_value(args, config, "project_path"),
+        "title": _init_value(args, config, "title"),
+        "genre": _init_value(args, config, "genre"),
+        "project_type": _init_value(args, config, "project_type"),
+        "word_count_target": _init_value(args, config, "word_count_target", 30000),
+        "sub_genre": _init_value(args, config, "sub_genre"),
+        "synopsis": _init_value(args, config, "synopsis", ""),
+        "protagonist_name": _init_value(args, config, "protagonist_name", ""),
+        "protagonist_desire": _init_value(args, config, "protagonist_desire", ""),
+        "protagonist_flaw": _init_value(args, config, "protagonist_flaw", ""),
+        "unique_advantage_type": _init_value(args, config, "unique_advantage_type", ""),
+        "unique_advantage_desc": _init_value(args, config, "unique_advantage_desc", ""),
+        "unique_advantage_style": _init_value(args, config, "unique_advantage_style", ""),
+        "unique_advantage_visibility": _init_value(
+            args,
+            config,
+            "unique_advantage_visibility",
+            "",
+        ),
+        "unique_advantage_cost": _init_value(args, config, "unique_advantage_cost", ""),
+        "golden_finger": _init_value(args, config, "golden_finger", ""),
+        "antagonist_mirror": _init_value(args, config, "antagonist_mirror", ""),
+        "world_setting": _init_value(args, config, "world_setting", ""),
+    }
+
+    missing = [key for key in ("project_path", "title", "genre") if not values[key]]
+    if missing:
+        raise ValueError(f"缺少必需初始化参数：{', '.join(missing)}")
+
+    if values["project_type"] not in {None, "", "short", "long"}:
+        raise ValueError("project_type 必须是 short 或 long")
+    values["project_type"] = values["project_type"] or None
+
+    try:
+        values["word_count_target"] = int(values["word_count_target"])
+    except (TypeError, ValueError):
+        raise ValueError("word_count_target 必须是整数") from None
+    return values
+
+
+def _read_init_config(config_file: str | None) -> dict[str, Any]:
+    if not config_file:
+        return {}
+    payload = json.loads(Path(config_file).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("--from-config 必须指向 JSON 对象")
+    return payload
+
+
+def _init_value(args, config: dict[str, Any], key: str, default: Any = None) -> Any:
+    cli_value = getattr(args, key, None)
+    if cli_value is not None:
+        return cli_value
+    value = _config_value(config, key)
+    return default if value is None else value
+
+
+def _config_value(config: dict[str, Any], key: str) -> Any:
+    if key in config:
+        return config[key]
+
+    protagonist = config.get("protagonist")
+    if isinstance(protagonist, dict):
+        protagonist_map = {
+            "protagonist_name": "name",
+            "protagonist_desire": "desire",
+            "protagonist_flaw": "flaw",
+        }
+        nested_key = protagonist_map.get(key)
+        if nested_key and nested_key in protagonist:
+            return protagonist[nested_key]
+
+    unique_advantage = config.get("unique_advantage")
+    if isinstance(unique_advantage, dict):
+        unique_map = {
+            "unique_advantage_type": "type",
+            "unique_advantage_desc": "description",
+            "unique_advantage_style": "style",
+            "unique_advantage_visibility": "visibility",
+            "unique_advantage_cost": "cost",
+        }
+        nested_key = unique_map.get(key)
+        if nested_key and nested_key in unique_advantage:
+            return unique_advantage[nested_key]
+    return None
 
 
 def _require_project_root(args) -> Path:
@@ -422,23 +521,100 @@ def cmd_agent(args) -> int:
     return 0 if payload.get("ok", True) else 1
 
 
-def cmd_maintain(args) -> int:
+def _maintenance_project_root(args) -> Path | None:
     try:
-        project_root = _require_project_root(args)
+        return _require_project_root(args)
     except FileNotFoundError as exc:
         _print_project_root_error(exc)
+        return None
+
+
+def cmd_index(args) -> int:
+    project_root = _maintenance_project_root(args)
+    if project_root is None:
         return 1
-    if args.target == "index":
-        print_json(MemoryIndexService.from_project(project_root).rebuild())
-    elif args.target == "backup":
-        print_json(BackupManager.from_project(project_root).create_backup(args.label))
-    elif args.target == "health":
-        print_json(StoryRuntimeHealth.from_project(project_root).check())
-    elif args.target == "outline-revision":
-        print_json(OutlineReviser.from_project(project_root).suggest(args.chapter, args.note))
-    else:
-        print_error(f"未知维护目标：{args.target}")
+    print_json(MemoryIndexService.from_project(project_root).rebuild())
+    return 0
+
+
+def cmd_backup(args) -> int:
+    project_root = _maintenance_project_root(args)
+    if project_root is None:
         return 1
+    print_json(BackupManager.from_project(project_root).create_backup(args.label))
+    return 0
+
+
+def cmd_health(args) -> int:
+    project_root = _maintenance_project_root(args)
+    if project_root is None:
+        return 1
+    print_json(StoryRuntimeHealth.from_project(project_root).check())
+    return 0
+
+
+def cmd_outline_revision(args) -> int:
+    project_root = _maintenance_project_root(args)
+    if project_root is None:
+        return 1
+    print_json(OutlineReviser.from_project(project_root).suggest(args.chapter, args.note))
+    return 0
+
+
+def _pending_phase_3(command: str, **extra: Any) -> dict[str, Any]:
+    payload = {
+        "ok": True,
+        "command": command,
+        "status": "pending_phase_3",
+        "message": "该入口已预留，完整能力待阶段 3 skill/engine 接入。",
+    }
+    payload.update(extra)
+    return payload
+
+
+def cmd_deslop(args) -> int:
+    print_json(_pending_phase_3("deslop", draft_file=args.draft_file))
+    return 0
+
+
+def cmd_repair_entry(args) -> int:
+    print_json(
+        _pending_phase_3(
+            "repair",
+            chapter=args.chapter,
+            review_results=args.review_results,
+            draft_file=args.draft_file,
+        )
+    )
+    return 0
+
+
+def cmd_placeholder_scan(args) -> int:
+    target_file = args.input_file or args.target_file
+    if not target_file:
+        print_error("缺少扫描文件：请提供 target_file 或 --input-file。")
+        return 1
+    try:
+        path = Path(target_file).expanduser().resolve()
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _print_file_error("扫描占位符", exc)
+        return 1
+
+    placeholders = scan_placeholders(text)
+    print_json(
+        {
+            "ok": True,
+            "file": str(path),
+            "placeholder_count": len(placeholders),
+            "placeholders": placeholders,
+        }
+    )
+    return 0
+
+
+def cmd_import_project(args) -> int:
+    print_json(_pending_phase_3("import", source=args.source))
     return 0
 
 
@@ -455,12 +631,20 @@ def main() -> int:
         "init": cmd_init,
         "plan": cmd_plan,
         "write": cmd_write,
+        "chapter-commit": cmd_write,
         "rebuild-views": cmd_rebuild_views,
         "agent": cmd_agent,
         "review": cmd_review,
         "learn": cmd_learn,
         "query": cmd_query,
-        "maintain": cmd_maintain,
+        "index": cmd_index,
+        "backup": cmd_backup,
+        "health": cmd_health,
+        "outline-revision": cmd_outline_revision,
+        "deslop": cmd_deslop,
+        "repair": cmd_repair_entry,
+        "placeholder-scan": cmd_placeholder_scan,
+        "import": cmd_import_project,
     }
     handler = handlers[args.command]
     try:
