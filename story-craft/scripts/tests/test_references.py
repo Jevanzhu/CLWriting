@@ -30,6 +30,7 @@ EXPECTED_REFERENCE_FILES = {
     "csv/题材与调性推理.csv",
     "outlining/plot-signal-vs-spoiler.md",
     "review/blocking-override-guidelines.md",
+    "review/fallback-rubric.md",
     "index/reference-loading-map.md",
     "index/reference-gap-register.md",
 }
@@ -38,12 +39,13 @@ CSV_FILES = [path for path in EXPECTED_REFERENCE_FILES if path.startswith("csv/"
 
 REQUIRED_MARKDOWN_PHRASES = {
     "genre-profiles.md": ["1-10 万字", "37 个题材标签", "结尾"],
-    "review-schema.md": ["blocking", "issues", "severity"],
+    "review-schema.md": ["blocking", "issues", "severity", "S1", "6-Gate"],
     "shared/core-constraints.md": ["1-10 万字", "伏笔", "结尾"],
     "shared/naming-and-voice-gaps.md": ["命名", "语调", "称呼"],
     "outlining/plot-signal-vs-spoiler.md": ["情节信号", "剧透", "回收"],
     "review/blocking-override-guidelines.md": ["不可覆盖", "可考虑覆盖", "用户确认"],
-    "index/reference-loading-map.md": ["/story-init", "/story-plan", "/story-write", "/story-review"],
+    "review/fallback-rubric.md": ["13 条核心 rubric", "AI 味速查", "Rubric Source"],
+    "index/reference-loading-map.md": ["/story-init", "/story-plan", "/story-write", "/story-review", "fallback rubric"],
 }
 
 
@@ -116,3 +118,32 @@ def test_review_schema_and_override_guidelines_share_blocking_policy():
     assert "不可覆盖" in override
     assert "安全" in schema
     assert "安全" in override
+
+
+def test_stage3_review_schema_documents_findings_contract():
+    schema = (REFERENCES_DIR / "review-schema.md").read_text(encoding="utf-8")
+    fallback = (REFERENCES_DIR / "review" / "fallback-rubric.md").read_text(
+        encoding="utf-8"
+    )
+    for severity in ("S1", "S2", "S3", "S4"):
+        assert severity in schema
+    for category in (
+        "high_point",
+        "consistency",
+        "pacing",
+        "ooc",
+        "continuity",
+        "reader_pull",
+        "setting",
+        "timeline",
+        "logic",
+        "ai_flavor",
+        "format",
+        "safety",
+        "contract",
+        "strand",
+    ):
+        assert category in schema
+    assert "tools/deslop_metrics.py" in schema
+    assert "fallback-rubric.md" in schema
+    assert "S1/S2 必须 `blocking=true`" in fallback

@@ -233,6 +233,74 @@ def test_normalize_reviewer_output_derives_status_from_issues():
     assert "suggestions" not in normalized
 
 
+def test_normalize_reviewer_output_supports_stage3_findings_schema():
+    review_result = {
+        "issues": [
+            {
+                "severity": "S2",
+                "category": "reader_pull",
+                "location": "结尾",
+                "issue": "章尾没有形成下一步期待",
+                "evidence": "结尾直接总结主题",
+                "fix": "用未解决选择或新信息收束",
+                "blocking": False,
+            },
+            {
+                "severity": "S3",
+                "category": "ai_flavor",
+                "location": "第4段",
+                "issue": "心理标签偏密",
+                "evidence": "连续使用感觉、意识到",
+                "fix": "改为动作和物件细节",
+                "blocking": False,
+            },
+        ],
+        "summary": "阶段三 findings schema。",
+        "meta": {
+            "requested_mode": "full",
+            "effective_mode": "solo",
+            "fallback_reason": "agent_frontmatter_missing",
+            "rubric_source": "fallback",
+        },
+    }
+
+    normalized = normalize_reviewer_output(review_result)
+
+    assert not normalized["passed"]
+    assert len(normalized["blockers"]) == 1
+    assert normalized["blockers"][0]["severity"] == "S2"
+    assert normalized["blockers"][0]["blocking"] is True
+    assert normalized["blockers"][0]["description"] == "章尾没有形成下一步期待"
+    assert normalized["blockers"][0]["fix_hint"] == "用未解决选择或新信息收束"
+    assert len(normalized["warnings"]) == 1
+    assert normalized["warnings"][0]["severity"] == "S3"
+    assert normalized["meta"]["rubric_source"] == "fallback"
+
+
+def test_s1_and_s2_are_blocking_even_when_raw_flag_is_false():
+    for severity in ("S1", "s2"):
+        normalized = normalize_reviewer_output(
+            {
+                "issues": [
+                    {
+                        "severity": severity,
+                        "category": "contract",
+                        "location": "全文",
+                        "issue": "未完成章节合同核心目标",
+                        "evidence": "must_cover 未出现",
+                        "fix": "补足章节核心行动",
+                        "blocking": False,
+                    }
+                ],
+                "summary": "阻断。",
+            }
+        )
+
+        assert not normalized["passed"]
+        assert normalized["blockers"][0]["blocking"] is True
+        assert normalized["blockers"][0]["severity"] == severity.upper()
+
+
 def test_normalize_reviewer_output_rejects_missing_required_fields():
     with pytest.raises(ValueError, match="issues"):
         normalize_reviewer_output({})
