@@ -31,6 +31,34 @@ EXPECTED_SKILLS = {
         "markdown_view",
         "CC 验证清单",
     ],
+    "story-long-plan": [
+        'subagent_type: "story-craft:story-architect"',
+        'subagent_type: "story-craft:character-designer"',
+        "master.json",
+        "volumes/",
+        "chapters/",
+        "character_registry",
+        "project_type=long",
+        "CC 验证清单",
+    ],
+    "story-long-analyze": [
+        "只读分析",
+        "query status",
+        "query memory",
+        "query quality",
+        "tools.strand_calculator.evaluate_strand_balance",
+        "伏笔债",
+        "Strand 分布",
+        "CC 验证清单",
+    ],
+    "story-long-scan": [
+        "placeholder-scan",
+        'subagent_type: "story-craft:consistency-checker"',
+        "grep-first",
+        "health",
+        "默认只读",
+        "CC 验证清单",
+    ],
     "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
     "story-learn": ["充分性闸门", "pattern_type", "project_learning.json", "learn"],
     "story-query": ["只读", "query context", "query memory", "query learning", "query genres"],
@@ -96,3 +124,16 @@ def test_story_long_write_documents_all_scenarios_and_pipeline_order():
     assert "无合同 = blocker" in text
     assert "不得读取 `大纲/总纲.md` 反推章节合同" in text
     assert "真实 Claude Code 端到端结果与本地 pytest 自动验证分开记录" in text
+
+
+def test_story_long_plan_analyze_scan_have_distinct_boundaries():
+    long_plan = (SKILLS_DIR / "story-long-plan" / "SKILL.md").read_text(encoding="utf-8")
+    long_analyze = (SKILLS_DIR / "story-long-analyze" / "SKILL.md").read_text(encoding="utf-8")
+    long_scan = (SKILLS_DIR / "story-long-scan" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "不写正文，不调用 `narrative-writer`" in long_plan
+    assert "最终合同写入必须由主流程确认后执行" in long_plan
+    assert "只读，不写 state、memory、commit、合同或正文" in long_analyze
+    assert "不生成新剧情事实" in long_analyze
+    assert "默认只读" in long_scan
+    assert "若用户要求修复，转入 `story-long-write` 的 `major_revision` 场景" in long_scan
