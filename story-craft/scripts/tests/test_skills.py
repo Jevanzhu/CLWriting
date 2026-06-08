@@ -9,7 +9,18 @@ SKILLS_DIR = PLUGIN_ROOT / "skills"
 
 
 EXPECTED_SKILLS = {
-    "story-init": ["充分性闸门", "init", "story-import", "完成条件"],
+    "story-init": [
+        "充分性闸门",
+        "init",
+        "--project-type",
+        "--from-config",
+        "project_type=short",
+        "project_type=long",
+        "4 核心 Agent",
+        "9 Agent",
+        "story-import",
+        "完成条件",
+    ],
     "story-plan": ["充分性闸门", "大纲/总纲.md", "memory.json", "完成条件"],
     "story-write": ["充分性闸门", "context-agent", "reviewer", "data-agent", "ChapterRecordService.record"],
     "story-long-write": [
@@ -90,9 +101,45 @@ EXPECTED_SKILLS = {
         "不执行 Git 备份",
         "CC 验证清单",
     ],
-    "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
-    "story-learn": ["充分性闸门", "pattern_type", "project_learning.json", "learn"],
-    "story-query": ["只读", "query context", "query memory", "query learning", "query genres"],
+    "story-review": [
+        "充分性闸门",
+        "reviewer",
+        "requested_mode",
+        "full",
+        "lean",
+        "solo",
+        "S1/S2",
+        "审查报告",
+        "完成条件",
+    ],
+    "story-learn": [
+        "充分性闸门",
+        "pattern_type",
+        "project_learning.json",
+        "短篇",
+        "长篇",
+        "shared",
+        "learn",
+    ],
+    "story-query": [
+        "只读",
+        "ContractStore",
+        "CommitStore",
+        "query context",
+        "query memory",
+        "query learning",
+        "query genres",
+    ],
+    "story-preflight": [
+        "充分性闸门",
+        "placeholder-scan",
+        "project_type=short",
+        "project_type=long",
+        "recommended_skill",
+        "无合同 = blocker",
+        "只读",
+        "CC 验证清单",
+    ],
 }
 
 
@@ -138,6 +185,7 @@ def test_story_query_is_read_only():
     text = (SKILLS_DIR / "story-query" / "SKILL.md").read_text(encoding="utf-8")
     assert "不写 state" in text
     assert "不调用 Agent" in text
+    assert "不触发 `index/vector` rebuild" in text
 
 
 def test_story_long_write_documents_all_scenarios_and_pipeline_order():
@@ -189,3 +237,21 @@ def test_story_short_skills_document_degradation_matrix():
     assert "只读，不写 state、memory、commit、合同或正文" in short_analyze
     assert "不改正文，不写 commit" in short_scan
     assert "不调用 `data-agent`" in short_scan
+
+
+def test_common_skills_document_stage3_dual_track_contracts():
+    init = (SKILLS_DIR / "story-init" / "SKILL.md").read_text(encoding="utf-8")
+    review = (SKILLS_DIR / "story-review" / "SKILL.md").read_text(encoding="utf-8")
+    learn = (SKILLS_DIR / "story-learn" / "SKILL.md").read_text(encoding="utf-8")
+    preflight = (SKILLS_DIR / "story-preflight" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "写入 `.story/contracts/master.json`" in init
+    assert "短篇 `/story-short-write`，长篇 `/story-long-plan`" in init
+    assert "project_type=short" in review
+    assert "project_type=long" in review
+    assert "requested/effective mode" in review
+    assert "适用轨道：短篇、长篇或 shared" in learn
+    assert "只写 `.story/project_learning.json`" in learn
+    assert "短篇项目不因缺 `volumes/` 阻断" in preflight
+    assert "长篇项目缺 volume/chapter 合同时阻断" in preflight
+    assert "不写 state、memory、commit、合同或正文" in preflight
