@@ -24,6 +24,7 @@ def build_review_report(
     chapter: int,
     review_results: NormalizedReviewerResult,
     chapter_text: str,
+    strand_diagnosis: dict[str, Any] | None = None,
 ) -> str:
     """Convert normalized reviewer output to a Markdown report."""
     blockers = list(review_results.get("blockers") or [])
@@ -46,4 +47,22 @@ def build_review_report(
     lines.extend([_issue_line(item) for item in blockers] or ["- 无"])
     lines.extend(["", "## 警告项", ""])
     lines.extend([_issue_line(item) for item in warnings] or ["- 无"])
+    if strand_diagnosis is not None:
+        lines.extend(["", "## 叙事线节奏", ""])
+        status = "平衡" if strand_diagnosis.get("balanced") else "失衡"
+        dominant = str(strand_diagnosis.get("dominant") or "未记录")
+        lines.append(f"- 状态：{status}")
+        lines.append(f"- 主导叙事线：{dominant}")
+
+        ratios = strand_diagnosis.get("ratios") or {}
+        if isinstance(ratios, dict) and ratios:
+            ratio_text = "，".join(
+                f"{strand} {float(ratio):.0%}" for strand, ratio in ratios.items()
+            )
+            lines.append(f"- 当前占比：{ratio_text}")
+
+        diagnosis = strand_diagnosis.get("diagnosis") or []
+        if diagnosis:
+            lines.append("- 诊断：")
+            lines.extend(f"  - {item}" for item in diagnosis)
     return "\n".join(lines) + "\n"
