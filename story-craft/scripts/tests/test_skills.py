@@ -12,6 +12,25 @@ EXPECTED_SKILLS = {
     "story-init": ["充分性闸门", "init", "story-import", "完成条件"],
     "story-plan": ["充分性闸门", "大纲/总纲.md", "memory.json", "完成条件"],
     "story-write": ["充分性闸门", "context-agent", "reviewer", "data-agent", "ChapterRecordService.record"],
+    "story-long-write": [
+        "5 个场景",
+        "8 步 commit pipeline",
+        "tools.scenario_router.detect_scenario",
+        'subagent_type: "story-craft:context-agent"',
+        'subagent_type: "story-craft:narrative-writer"',
+        'subagent_type: "story-craft:reviewer"',
+        'subagent_type: "story-craft:data-agent"',
+        "ChapterContract",
+        "chapter-commit",
+        "EventProjectionRouter.dispatch",
+        "state",
+        "memory",
+        "summary",
+        "index",
+        "vector",
+        "markdown_view",
+        "CC 验证清单",
+    ],
     "story-review": ["充分性闸门", "reviewer", "审查报告", "完成条件"],
     "story-learn": ["充分性闸门", "pattern_type", "project_learning.json", "learn"],
     "story-query": ["只读", "query context", "query memory", "query learning", "query genres"],
@@ -60,3 +79,20 @@ def test_story_query_is_read_only():
     text = (SKILLS_DIR / "story-query" / "SKILL.md").read_text(encoding="utf-8")
     assert "不写 state" in text
     assert "不调用 Agent" in text
+
+
+def test_story_long_write_documents_all_scenarios_and_pipeline_order():
+    text = (SKILLS_DIR / "story-long-write" / "SKILL.md").read_text(encoding="utf-8")
+    for scenario in (
+        "daily_continue",
+        "major_revision",
+        "new_volume",
+        "open_book",
+        "import_external",
+    ):
+        assert scenario in text
+    for step in range(1, 9):
+        assert f"Step {step}" in text
+    assert "无合同 = blocker" in text
+    assert "不得读取 `大纲/总纲.md` 反推章节合同" in text
+    assert "真实 Claude Code 端到端结果与本地 pytest 自动验证分开记录" in text
