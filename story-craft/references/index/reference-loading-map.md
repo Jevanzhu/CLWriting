@@ -42,7 +42,7 @@
 - `character-designer`：人设关系、角色动机、对照关系和命名语调参考。
 - `context-agent`：核心约束、命名语调、多线压缩、anti_patterns。
 - `narrative-writer`：核心约束、场景写法、对话、去 AI 味和题材包。
-- `reviewer`：审查 schema、核心约束、blocking 覆盖指南、Strand 诊断。
+- `reviewer`：审查 schema、fallback rubric、核心约束、blocking 覆盖指南、Strand 诊断。
 - `consistency-checker`：核心约束、已确认合同和 commit 投影视图；grep-first 查证。
 - `data-agent`：不读取创作参考，优先从正文抽取事实并输出 accepted_events。
 - `story-explorer`：默认只读项目数据；用户询问参考口径时读取本目录对应文件。

@@ -38,21 +38,26 @@ REVIEWER_ISSUE_REQUIRED_FIELDS = {
     "severity",
     "category",
     "location",
-    "description",
     "evidence",
-    "fix_hint",
     "blocking",
 }
 REVIEWER_ISSUE_STRING_FIELDS = {
     "severity",
     "category",
     "location",
-    "description",
     "evidence",
-    "fix_hint",
 }
-REVIEWER_SEVERITIES = {"critical", "high", "medium", "low"}
+REVIEWER_DESCRIPTION_FIELDS = ("description", "issue")
+REVIEWER_FIX_FIELDS = ("fix_hint", "fix")
+REVIEWER_SEVERITIES = {"critical", "high", "medium", "low", "S1", "S2", "S3", "S4"}
 REVIEWER_CATEGORIES = {
+    "high_point",
+    "consistency",
+    "reader_pull",
+    "ooc",
+    "safety",
+    "contract",
+    "strand",
     "setting",
     "timeline",
     "continuity",
@@ -290,14 +295,25 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
             raise ValueError(
                 f"reviewer JSON 字段 {issue_path} 缺少必需字段：{', '.join(missing)}"
             )
+        if not any(field in issue for field in REVIEWER_DESCRIPTION_FIELDS):
+            raise ValueError(
+                f"reviewer JSON 字段 {issue_path} 缺少必需字段：description 或 issue"
+            )
+        if not any(field in issue for field in REVIEWER_FIX_FIELDS):
+            raise ValueError(
+                f"reviewer JSON 字段 {issue_path} 缺少必需字段：fix_hint 或 fix"
+            )
         for field in sorted(REVIEWER_ISSUE_STRING_FIELDS):
             if not isinstance(issue[field], str):
                 raise ValueError(f"reviewer JSON 字段 {issue_path}.{field} 必须是字符串")
-        severity = issue["severity"]
+        for field in REVIEWER_DESCRIPTION_FIELDS + REVIEWER_FIX_FIELDS:
+            if field in issue and not isinstance(issue[field], str):
+                raise ValueError(f"reviewer JSON 字段 {issue_path}.{field} 必须是字符串")
+        severity = _canonical_severity(issue["severity"])
         if severity not in REVIEWER_SEVERITIES:
             allowed = ", ".join(sorted(REVIEWER_SEVERITIES))
             raise ValueError(
-                f"reviewer JSON 字段 {issue_path}.severity 非法：{severity!r}；允许值：{allowed}"
+                f"reviewer JSON 字段 {issue_path}.severity 非法：{issue['severity']!r}；允许值：{allowed}"
             )
         category = issue["category"]
         if category not in REVIEWER_CATEGORIES:
@@ -313,13 +329,14 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
 def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReviewerResult:
     """Normalize reviewer-agent JSON into record-ready blockers/warnings."""
     normalized = _validate_raw_reviewer_output(review_result)
-    issues = [dict(issue) for issue in normalized["issues"]]
+    issues = [_normalize_issue_fields(issue) for issue in normalized["issues"]]
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
     for issue in issues:
-        severity = str(issue.get("severity") or "").lower()
-        is_blocking = bool(issue.get("blocking")) or severity == "critical"
+        severity = _canonical_severity(issue.get("severity"))
+        is_blocking = bool(issue.get("blocking")) or severity in {"critical", "S1", "S2"}
+        issue["blocking"] = is_blocking
         target = blockers if is_blocking else warnings
         target.append(issue)
 
@@ -333,6 +350,32 @@ def normalize_reviewer_output(review_result: ReviewerResult) -> NormalizedReview
     normalized["passed"] = not blockers
     normalized.setdefault("summary", "")
     return normalized  # type: ignore[return-value]
+
+
+def _canonical_severity(raw: Any) -> str:
+    value = str(raw or "").strip()
+    upper = value.upper()
+    if upper in {"S1", "S2", "S3", "S4"}:
+        return upper
+    return value.lower()
+
+
+def _normalize_issue_fields(issue: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(issue)
+    normalized["severity"] = _canonical_severity(normalized.get("severity"))
+    description = str(
+        normalized.get("description")
+        if "description" in normalized
+        else normalized.get("issue", "")
+    )
+    fix_hint = str(
+        normalized.get("fix_hint") if "fix_hint" in normalized else normalized.get("fix", "")
+    )
+    normalized["description"] = description
+    normalized["issue"] = str(normalized.get("issue") or description)
+    normalized["fix_hint"] = fix_hint
+    normalized["fix"] = str(normalized.get("fix") or fix_hint)
+    return normalized
 
 
 def build_writing_brief(project_root: str | Path, chapter: int) -> dict[str, Any]:

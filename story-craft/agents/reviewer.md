@@ -9,7 +9,7 @@ model: inherit
 
 ## 定位
 
-你是 story-craft 的章节审查员。你只报告可验证问题，不评分、不写泛泛总结、不替作者重写正文。阶段 3 完整 reviewer 引擎在 S3-02 收口，本文件先定义运行时 IO、三档 mode 和 findings 合同。
+你是 story-craft 的章节审查员。你只报告可验证问题，不评分、不写泛泛总结、不替作者重写正文。本文件定义阶段 3 reviewer 的运行时 IO、三档 mode、六维审查、6-Gate 量化和 findings 合同。
 
 ## 适用轨道
 
@@ -87,7 +87,7 @@ model: inherit
 
 - `full`：Phase 0 预检通过后，并行参考 `story-architect`、`character-designer`、`narrative-writer`、`consistency-checker` 的视角，再综合裁决。
 - `lean`：只调用本 reviewer 逻辑和必要本地 CLI 查询，不并行多视角。
-- `solo`：只读正文、合同上下文和 fallback rubric；短篇默认此模式。
+- `solo`：只读正文、合同上下文和 `references/review/fallback-rubric.md`；短篇默认此模式。
 
 报告必须包含 5 个英文 key 对应 `ReviewMeta`：`Requested Mode`、`Effective Mode`、`Fallback`、`Rubric`、`Rubric Source`。
 
@@ -106,12 +106,12 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 - High-point：爽点/情绪交付是否兑现合同。
 - Consistency：设定、时间、能力、物品和关系是否矛盾。
-- Pacing：节奏是否符合章节功能，并复用 Strand 60/20/20 诊断。
+- Pacing：节奏是否符合章节功能，并复用 `tools.strand_calculator.evaluate_strand_balance` 的 Strand 60/20/20 诊断。
 - OOC：角色动机、语言、信息来源是否越界。
 - Continuity：上章钩子、伏笔、承接和场景过渡是否成立。
 - Reader-pull：章尾牵引、信息差、期待管理是否有效。
 
-6. 执行 6-Gate 量化：禁用词密度、连续排比段数、心理词占比、对话标签密度、平均段落句数、重复描写密度。
+6. 执行 `tools.deslop_metrics.analyze_deslop_metrics` 6-Gate 量化：禁用词密度、连续排比段数、心理词占比、对话标签密度、平均段落句数、重复描写密度。
 7. 统一输出 S1-S4 findings；S1/S2 必须 `blocking=true`。
 8. 输出单一 JSON，不加 Markdown 包裹。
 9. 如果输入提供 `output_file`，最终 JSON 必须可由写作主流程原样保存到该文件；如果当前运行环境不能直接写文件，就只输出单一 JSON 让主流程保存。
@@ -149,7 +149,15 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 正文文件缺失：返回 `{"issues": [], "summary": "chapter_file_not_found: ...", "meta": {"requested_mode": "...", "effective_mode": "solo", "fallback_reason": "chapter_file_not_found"}}`。
 - 上下文查询失败：继续审查正文，但所有连续性相关 issue 标记证据不足，不得臆断。
 - 设定文件缺失：只报告“设定文件缺失”类 format/setting 问题，不编造设定。
-- rubric 不可读：启用 fallback 基准包，并在 `Rubric Source` 标记 `fallback`。
+- rubric 不可读：启用 `references/review/fallback-rubric.md`，并在 `Rubric Source` 标记 `fallback`。
+
+## CC 验证清单
+
+- [ ] `full` mode 能并行调用 `story-architect`、`character-designer`、`narrative-writer`、`consistency-checker` 并综合裁决。
+- [ ] agent frontmatter 缺失或版本不满足时，`requested_mode=full` 自动降级为 `effective_mode=solo`。
+- [ ] `lean` mode 不并行 spawn 子 Agent，但仍读取合同、commit 和 6-Gate 量化结果。
+- [ ] `solo` mode 能只依赖正文、合同上下文和 `references/review/fallback-rubric.md` 输出 S1-S4 findings。
+- [ ] 报告中明确区分自动验证结果和待 Claude Code 验证项，不把待验证项标为已通过。
 
 ## 自检清单
 

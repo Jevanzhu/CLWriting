@@ -37,7 +37,16 @@ EXPECTED_STAGE3_AGENTS = {
         "name": "reviewer",
         "tools": "Read, Grep, Bash",
         "model": "inherit",
-        "required_phrases": ["三档 mode", "6-Gate", "S1-S4", "ReviewMeta"],
+        "required_phrases": [
+            "三档 mode",
+            "6-Gate",
+            "S1-S4",
+            "ReviewMeta",
+            "tools.deslop_metrics.analyze_deslop_metrics",
+            "tools.strand_calculator.evaluate_strand_balance",
+            "references/review/fallback-rubric.md",
+            "CC 验证清单",
+        ],
     },
     "consistency-checker.md": {
         "name": "consistency-checker",
