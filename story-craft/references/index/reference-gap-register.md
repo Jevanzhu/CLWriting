@@ -15,6 +15,12 @@
 
 ## 后续缺口
 
+### S5-02
+
+- `references/long/cool-points-guide.md` 未引入：本地 `oh-story-claudecode/skills/story-long-write/references/` 及其它 `skills/*/references/` 中没有同名文件。
+- 相关爽点内容分散在 `genre-core-mechanics.md`、`hooks-chapter.md`、`style-combat-face.md` 等已引入文件中，但这些文件已有独立归属，不冒充 `cool-points-guide.md`。
+- 后续若补齐该文件，必须有明确来源、MIT 许可或新的 clean-room 编写说明。
+
 ### Phase 8
 
 - 已完成 37 个流派模板。

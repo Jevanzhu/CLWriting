@@ -1,16 +1,25 @@
-# 长篇参考占位
+# 长篇参考资料
 
-本目录保留给长篇专用方法论资料。
+本目录存放长篇专用方法论资料。
+S5-02 从 `oh-story-claudecode/skills/story-long-write/references/` 引入可确认同名文件，并保留原文内容。
 
-S5-01 只完成 `references/` 三分重组，不引入新的长篇方法论内容。
-S5-02 将从已确认来源引入长篇参考，并补齐出处与版权标注。
+## 来源与版权
 
-当前长篇流程可读取 `references/shared/` 中的共用约束、题材画像、reviewer schema、CSV 参考和多线编织资料。
-这些资料足以支撑阶段 5 第一小任务的结构校验，但不代表长篇方法论已经就绪。
+- 来源项目：`oh-story-claudecode`
+- 来源目录：`oh-story-claudecode/skills/story-long-write/references/`
+- 许可证：MIT
+- 许可证文件：`references/long/LICENSE`
+- 每份引入的长篇参考文件顶部都包含 `source`、`license`、`adapted` frontmatter。
 
-## 当前边界
+## 当前范围
 
-- 本文件只是占位，不提供开篇、卷章、人物弧或日更流程方法论。
-- 长篇专用 Skill 在 S5-02 完成前不得把本目录当作完整知识库。
-- 若需要审查、题材画像、命名语调或 CSV 参考，继续读取 `references/shared/`。
-- 若需要短篇阅读力或剧透信号参考，只能在短篇流程中读取 `references/short/`。
+- 已引入 S5-02 清单中有明确同名来源的 30 份资料。
+- `cool-points-guide.md` 在 oh-story 本地蓝本中没有同名文件，已登记到 `references/index/reference-gap-register.md`。
+- `strand-weave-pattern.md` 继续保留在 `references/shared/`，不在 `long/` 重复。
+- S5-03 会进一步把这些文件挂接到双轨 loading-map 和 Skill 加载表。
+
+## 使用边界
+
+- 长篇流程读取 `references/long/` + `references/shared/`。
+- 短篇流程不得默认读取本目录。
+- 本目录资料是方法论参考，不是项目事实真源；故事事实仍以项目合同、commit、投影和设定集为准。

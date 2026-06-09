@@ -6,7 +6,7 @@
 ## 三分边界
 
 - 短篇：读取 `references/short/` + `references/shared/`，不默认加载 `references/long/`。
-- 长篇：读取 `references/long/` + `references/shared/`；S5-01 阶段 `long/` 只有占位 README。
+- 长篇：读取 `references/long/` + `references/shared/`；S5-02 已引入长篇方法论，S5-03 再细化按需加载映射。
 - 共用：读取 `references/shared/` 与必要题材包 `genres/<pack>/`。
 - `references/index/` 只保存加载映射和缺口登记，不作为创作参考正文加载。
 
@@ -34,14 +34,14 @@
 - `/story-long-write`
   - 总是可读：`references/shared/core-constraints.md`
   - 总是可读：`references/shared/review-schema.md`
-  - 长篇占位：S5-01 暂无 `references/long/` 方法论正文，S5-02 后再接入。
+  - 长篇方法论：S5-02 已引入 `references/long/`，S5-03 前仍按最小化原则按需读取。
   - 场景路由：读取 `ChapterContract`、commit 摘要和 `tools.scenario_router.detect_scenario` 结果。
   - 叙事线：按需可读 `references/shared/strand-weave-pattern.md`。
   - AI 味：按需可读 `references/shared/review/fallback-rubric.md`。
   - 按题材可读：`genres/<pack>/checklist.md`
 
 - `/story-long-plan`
-  - 短篇信号参考暂不默认加载；S5-02 后读取 `references/long/` 方法论正文。
+  - 长篇方法论：S5-02 已引入 `references/long/` 方法论正文，S5-03 再细化场景映射。
   - 总是可读：`references/shared/strand-weave-pattern.md`
   - 编排：`story-architect` 生成 master/volumes/chapters，`character-designer` 生成 character_registry。
   - 按题材可读：`genres/<pack>/patterns.md`
