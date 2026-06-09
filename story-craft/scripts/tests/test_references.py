@@ -7,6 +7,41 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 REFERENCES_DIR = PLUGIN_ROOT / "references"
 
+LONG_REFERENCE_FILES = {
+    "artifact-protocols.md",
+    "character-basics.md",
+    "character-design-methods.md",
+    "character-relations.md",
+    "dialogue-mastery.md",
+    "emotional-arc-design.md",
+    "emotional-methods.md",
+    "format-and-structure.md",
+    "genre-catalog.md",
+    "genre-core-mechanics.md",
+    "genre-readers.md",
+    "genre-writing-formulas.md",
+    "hooks-chapter.md",
+    "hooks-paragraph.md",
+    "hooks-suspense.md",
+    "narrative-units.md",
+    "opening-design.md",
+    "outline-methods.md",
+    "outline-rhythm.md",
+    "outline-structure-theory.md",
+    "plot-core-methods.md",
+    "plot-frameworks.md",
+    "reversal-toolkit.md",
+    "state-tracking.md",
+    "style-combat-face.md",
+    "style-commercial-theory.md",
+    "style-craft.md",
+    "style-genre-modules.md",
+    "workflow-daily.md",
+    "workflow-revision.md",
+}
+
+MISSING_LONG_REFERENCES = {"cool-points-guide.md"}
+
 
 EXPECTED_REFERENCE_FILES = {
     "README.md",
@@ -32,9 +67,10 @@ EXPECTED_REFERENCE_FILES = {
     "short/reading-power-taxonomy.md",
     "short/plot-signal-vs-spoiler.md",
     "long/README.md",
+    "long/LICENSE",
     "index/reference-loading-map.md",
     "index/reference-gap-register.md",
-}
+} | {f"long/{filename}" for filename in LONG_REFERENCE_FILES}
 
 CSV_FILES = [
     path
@@ -50,7 +86,7 @@ REQUIRED_MARKDOWN_PHRASES = {
     "shared/naming-and-voice-gaps.md": ["命名", "语调", "称呼"],
     "short/reading-power-taxonomy.md": ["阅读驱动力", "短篇", "结尾"],
     "short/plot-signal-vs-spoiler.md": ["情节信号", "剧透", "回收"],
-    "long/README.md": ["S5-01", "S5-02", "references/shared/"],
+    "long/README.md": ["oh-story-claudecode", "MIT", "cool-points-guide.md"],
     "shared/review/blocking-override-guidelines.md": ["不可覆盖", "可考虑覆盖", "用户确认"],
     "shared/review/fallback-rubric.md": ["13 条核心 rubric", "AI 味速查", "Rubric Source"],
     "index/reference-loading-map.md": [
@@ -74,6 +110,7 @@ REQUIRED_MARKDOWN_PHRASES = {
         "/story-repair",
         "/story-import",
     ],
+    "index/reference-gap-register.md": ["S5-02", "cool-points-guide.md", "不冒充"],
 }
 
 
@@ -203,6 +240,41 @@ def test_stage3_review_schema_documents_findings_contract():
     assert "tools/deslop_metrics.py" in schema
     assert "fallback-rubric.md" in schema
     assert "S1/S2 必须 `blocking=true`" in fallback
+
+
+def test_stage5_long_references_have_source_frontmatter_and_license():
+    for filename in LONG_REFERENCE_FILES:
+        path = REFERENCES_DIR / "long" / filename
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("---\n"), filename
+
+        header, separator, body = text[4:].partition("\n---\n")
+        assert separator, filename
+        assert (
+            f"source: oh-story-claudecode/skills/story-long-write/references/{filename}"
+            in header
+        )
+        assert "license: MIT" in header
+        assert "adapted: false" in header
+        assert body.lstrip().startswith("# "), filename
+
+    license_text = (REFERENCES_DIR / "long" / "LICENSE").read_text(encoding="utf-8")
+    assert "MIT License" in license_text
+    assert "Copyright (c) 2025-2026 oh-story-claudecode" in license_text
+
+
+def test_stage5_long_reference_gap_is_registered_not_fabricated():
+    actual_long_files = {
+        path.name for path in (REFERENCES_DIR / "long").glob("*.md")
+    }
+    assert MISSING_LONG_REFERENCES.isdisjoint(actual_long_files)
+
+    gap_register = (REFERENCES_DIR / "index" / "reference-gap-register.md").read_text(
+        encoding="utf-8"
+    )
+    for filename in MISSING_LONG_REFERENCES:
+        assert filename in gap_register
+    assert "不冒充 `cool-points-guide.md`" in gap_register
 
 
 def test_reference_loading_map_paths_exist_and_short_track_excludes_long():
