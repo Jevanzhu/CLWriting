@@ -4,7 +4,6 @@ __pycache__/
 .venv/
 venv/
 .env
-.short/commits/
 tmp/
 Dev/
 CLAUDE.md
