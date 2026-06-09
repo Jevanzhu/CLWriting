@@ -44,7 +44,7 @@ EXPECTED_STAGE3_AGENTS = {
             "ReviewMeta",
             "tools.deslop_metrics.analyze_deslop_metrics",
             "tools.strand_calculator.evaluate_strand_balance",
-            "references/review/fallback-rubric.md",
+            "references/shared/review/fallback-rubric.md",
             "CC 验证清单",
         ],
     },

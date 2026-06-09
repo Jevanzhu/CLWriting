@@ -16,7 +16,7 @@
     "requested_mode": "lean",
     "effective_mode": "solo",
     "fallback_reason": "",
-    "rubric_source": "references/review-schema.md"
+    "rubric_source": "references/shared/review-schema.md"
   }
 }
 ```
@@ -96,7 +96,7 @@ reviewer 的 AI 味量化由 `tools/deslop_metrics.py` 提供，包含：
 ## fallback rubric
 
 当题材 rubric 或多 Agent full mode 不可用时，启用
-`references/review/fallback-rubric.md`。输出 meta 中必须写明
+`references/shared/review/fallback-rubric.md`。输出 meta 中必须写明
 `rubric_source=fallback` 或 `Rubric Source: fallback`。
 
 ## 本地归一化

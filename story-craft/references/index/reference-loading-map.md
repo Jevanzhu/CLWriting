@@ -3,19 +3,26 @@
 本文件说明 Skill 和 Agent 何时读取哪些共享参考。
 读取参考时要保持最小化，只加载当前任务需要的文件。
 
+## 三分边界
+
+- 短篇：读取 `references/short/` + `references/shared/`，不默认加载 `references/long/`。
+- 长篇：读取 `references/long/` + `references/shared/`；S5-01 阶段 `long/` 只有占位 README。
+- 共用：读取 `references/shared/` 与必要题材包 `genres/<pack>/`。
+- `references/index/` 只保存加载映射和缺口登记，不作为创作参考正文加载。
+
 ## Skill 映射
 
 - `/story-init`
-  - 总是可读：`references/genre-profiles.md`
-  - 按需可读：`references/csv/题材与调性推理.csv`
+  - 总是可读：`references/shared/genre-profiles.md`
+  - 按需可读：`references/shared/csv/题材与调性推理.csv`
   - 按题材可读：`genres/<pack>/README.md`
   - 参考文本分析后：`references/shared/core-constraints.md`
   - 双轨：`project_type=short` 启用 4 核心 Agent，`project_type=long` 启用 9 Agent。
 
 - `/story-plan`
-  - 总是可读：`references/outlining/plot-signal-vs-spoiler.md`
+  - 总是可读：`references/short/plot-signal-vs-spoiler.md`
   - 按需可读：`references/shared/strand-weave-pattern.md`
-  - 复合题材：`references/genre-profiles.md`
+  - 复合题材：`references/shared/genre-profiles.md`
   - 按题材可读：`genres/<pack>/patterns.md`
 
 - `/story-write`
@@ -26,14 +33,15 @@
 
 - `/story-long-write`
   - 总是可读：`references/shared/core-constraints.md`
-  - 总是可读：`references/review-schema.md`
+  - 总是可读：`references/shared/review-schema.md`
+  - 长篇占位：S5-01 暂无 `references/long/` 方法论正文，S5-02 后再接入。
   - 场景路由：读取 `ChapterContract`、commit 摘要和 `tools.scenario_router.detect_scenario` 结果。
   - 叙事线：按需可读 `references/shared/strand-weave-pattern.md`。
-  - AI 味：按需可读 `references/review/fallback-rubric.md`。
+  - AI 味：按需可读 `references/shared/review/fallback-rubric.md`。
   - 按题材可读：`genres/<pack>/checklist.md`
 
 - `/story-long-plan`
-  - 总是可读：`references/outlining/plot-signal-vs-spoiler.md`
+  - 短篇信号参考暂不默认加载；S5-02 后读取 `references/long/` 方法论正文。
   - 总是可读：`references/shared/strand-weave-pattern.md`
   - 编排：`story-architect` 生成 master/volumes/chapters，`character-designer` 生成 character_registry。
   - 按题材可读：`genres/<pack>/patterns.md`
@@ -47,18 +55,19 @@
   - 默认只读项目数据。
   - 占位符：调用 `placeholder-scan`。
   - 一致性：按需调用 `consistency-checker`。
-  - blocking 口径：按需读取 `references/review-schema.md`。
+  - blocking 口径：按需读取 `references/shared/review-schema.md`。
 
 - `/story-short-write`
   - 总是可读：`references/shared/core-constraints.md`
+  - 总是可读：`references/short/reading-power-taxonomy.md`
   - 短篇退化：只使用 4 核心 Agent，reviewer solo，index/vector lazy。
-  - AI 味：按需可读 `references/review/fallback-rubric.md`。
+  - AI 味：按需可读 `references/shared/review/fallback-rubric.md`。
   - 按题材可读：`genres/<pack>/checklist.md`
 
 - `/story-short-analyze`
   - 默认只读短篇合同、正文、memory 和质量趋势。
   - AI 味：调用 `tools.deslop_metrics.analyze_deslop_metrics`。
-  - 用户询问参考口径时读取 shared/short 相关文件。
+  - 用户询问参考口径时读取 `references/shared/` 和 `references/short/` 相关文件。
 
 - `/story-short-scan`
   - 默认只读项目数据。
@@ -67,13 +76,13 @@
   - 不触发 data-agent 或 commit。
 
 - `/story-review`
-  - 总是可读：`references/review-schema.md`
+  - 总是可读：`references/shared/review-schema.md`
   - 总是可读：`references/shared/core-constraints.md`
-  - blocking 决策：`references/review/blocking-override-guidelines.md`
+  - blocking 决策：`references/shared/review/blocking-override-guidelines.md`
   - mode：短篇默认 reviewer `solo`，长篇默认 `lean`，深审可请求 `full`。
 
 - `/story-learn`
-  - 按需可读：`references/csv/写作技法.csv`
+  - 按需可读：`references/shared/csv/写作技法.csv`
   - 按需可读：`references/shared/payoff-points-guide.md`
   - 双轨：经验规则需标注适用于短篇、长篇或 shared。
 
@@ -92,7 +101,7 @@
   - 默认只读目标草稿。
   - AI 味：调用 `deslop --draft-file` 和 `tools.deslop_metrics.analyze_deslop_metrics`。
   - 豁免：读取项目级 `.deslop-whitelist`。
-  - blocking 口径：按需读取 `references/review/fallback-rubric.md`。
+  - blocking 口径：按需读取 `references/shared/review/fallback-rubric.md`。
 
 - `/story-repair`
   - 默认读取 reviewer JSON、草稿和章节合同。

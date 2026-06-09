@@ -4,7 +4,7 @@
 
 ## 启用条件
 
-- `references/review-schema.md` 或题材 rubric 不可读。
+- `references/shared/review-schema.md` 或题材 rubric 不可读。
 - `full` mode 预检失败，自动降级到 `solo`。
 - Claude Code 运行时无法 spawn 多视角 Agent。
 - 用户要求快速审查，但仍必须输出结构化 findings。
