@@ -130,6 +130,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root ./my-story reb
 - `docs/quickstart.md`：短篇/长篇双轨上手
 - `docs/claude-code-usage.md`：Claude Code commands、Skill 和 Agent 编排
 - `docs/cli-usage.md`：20 个 CLI 顶层子命令参考
+- `docs/rag-config.md`：embedding、rerank、`.env` 和降级行为配置
 - `docs/data-formats.md`：合同、commit、reviewer、delta、WriteResult 和 6 投影
 - `docs/troubleshooting.md`：合同缺失、工作台恢复、投影重建和降级排错
 - `docs/development.md`：开发验证、测试命令和插件发现约定

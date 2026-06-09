@@ -5,7 +5,7 @@
 - Python 版本：3.10+
 - 运行入口：`python3 -X utf8 story-craft/scripts/story_craft.py`
 - 测试依赖：`pytest`
-- 可选依赖：`filelock`，用于增强 JSON 写入锁；向量能力不可用时检索降级到 BM25/LIKE。
+- 可选依赖：`filelock`，用于增强 JSON 写入锁；向量能力不可用时检索降级到 BM25/LIKE，RAG 配置见 `docs/rag-config.md`。
 
 项目配置见根目录 `pyproject.toml`。当前测试入口使用 `pytest`。
 
