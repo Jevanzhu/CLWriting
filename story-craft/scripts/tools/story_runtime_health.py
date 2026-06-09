@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
+from core.rag import RagConfig, VectorStore
 from core.runtime_diagnostics import build_runtime_diagnostics
 from core.state_manager import StateManager
 from tools.entity_linker import build_entity_graph
@@ -85,6 +86,7 @@ class StoryRuntimeHealth:
                 "chapter_summaries": len(memory.get("chapter_summaries", []) or []),
                 "orphan_relationships": len(graph["orphan_edges"]),
             },
+            "rag": self._rag_status(),
             "runtime": runtime,
         }
 
@@ -95,3 +97,38 @@ class StoryRuntimeHealth:
             )
             manager.flush()
         return health
+
+    def _rag_status(self) -> dict[str, Any]:
+        config = RagConfig.from_env(self.config.project_root)
+        vector_exists = self.config.vector_db.exists()
+        chunk_count = VectorStore(self.config).count_chunks()
+        next_steps: list[str] = []
+        if chunk_count == 0:
+            next_steps.append("运行 rebuild-views --only vector 构建向量索引。")
+        if not (config.enable_embedding and config.api_base_url and config.api_key):
+            next_steps.append("配置 EMBED_BASE_URL、EMBED_MODEL 和 EMBED_API_KEY 以启用向量召回。")
+        if not (config.enable_rerank and config.rerank_base_url and config.rerank_api_key):
+            next_steps.append("可选配置 RERANK_BASE_URL、RERANK_MODEL 和 RERANK_API_KEY 以启用重排。")
+
+        return {
+            "vector_db": str(self.config.vector_db),
+            "vector_db_exists": vector_exists,
+            "chunk_count": chunk_count,
+            "embedding": {
+                "enabled": config.enable_embedding,
+                "configured": bool(config.enable_embedding and config.api_base_url and config.api_key),
+                "base_url": config.api_base_url,
+                "model": config.embedding_model,
+                "has_api_key": bool(config.api_key),
+            },
+            "rerank": {
+                "enabled": config.enable_rerank,
+                "configured": bool(
+                    config.enable_rerank and config.rerank_base_url and config.rerank_api_key
+                ),
+                "base_url": config.rerank_base_url,
+                "model": config.reranker_model,
+                "has_api_key": bool(config.rerank_api_key),
+            },
+            "next_steps": next_steps,
+        }

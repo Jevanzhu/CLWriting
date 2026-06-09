@@ -3,6 +3,18 @@
 story-craft 的 RAG 能力由 `core/rag/*` 提供，默认零三方依赖。未配置
 embedding key 时，`vector` 投影会跳过，查询自动降级到 BM25/LIKE，不阻断写作。
 
+常用入口：
+
+```bash
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query semantic --text "监控黑屏"
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> health
+```
+
+`query semantic` 优先使用 vector/BM25/RAG；如果 `.story/vector.db` 缺失或没有
+chunk，会降级到 memory index，并在 `next_steps` 给出重建建议。`health` 的
+`rag` 字段会显示 vector chunk 数、embedding/rerank 配置状态和下一步建议，不输出
+API key 明文。
+
 ## `.env` 加载顺序
 
 配置会从以下位置 best-effort 加载，显式进程环境变量始终优先：
@@ -54,4 +66,3 @@ rerank 同理，endpoint 为 `/v1/rerank`。
 - embedding 未配置或调用失败：`vector` 投影返回 skipped，查询降级到 BM25/LIKE。
 - rerank 未配置或调用失败：保留 vector/BM25 候选原始顺序。
 - rerank 返回部分结果：已重排结果优先，其余候选按原顺序补齐。
-

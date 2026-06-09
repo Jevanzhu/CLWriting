@@ -110,6 +110,20 @@ class VectorStore:
             for score, row in scored[: max(1, int(limit))]
         ]
 
+    def count_chunks(self) -> int:
+        if not self.config.vector_db.exists():
+            return 0
+        try:
+            with closing(sqlite3.connect(self.config.vector_db)) as conn:
+                table = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chunks'"
+                ).fetchone()
+                if not table:
+                    return 0
+                return int(conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+        except sqlite3.DatabaseError:
+            return 0
+
     def _load_rows(self, *, kind: str | None = None) -> list[dict[str, Any]]:
         if not self.config.vector_db.exists():
             return []

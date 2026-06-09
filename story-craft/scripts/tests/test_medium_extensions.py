@@ -211,6 +211,27 @@ def test_medium_cli_commands(tmp_path):
     assert ranked.returncode == 0, ranked.stderr
     assert len(json.loads(ranked.stdout)["selected"]) == 2
 
+    semantic = run_cli(
+        "--project-root",
+        str(tmp_path / "medium"),
+        "query",
+        "semantic",
+        "--text",
+        "纸条",
+        "--limit",
+        "5",
+    )
+    assert semantic.returncode == 0, semantic.stderr
+    semantic_payload = json.loads(semantic.stdout)
+    assert semantic_payload["retrieval"] == "memory_index"
+    assert semantic_payload["vector_chunk_count"] == 0
+    assert any(item["kind"] == "foreshadowing" for item in semantic_payload["entries"])
+    assert any("rebuild-views --only vector" in item for item in semantic_payload["next_steps"])
+
+    missing_text = run_cli("--project-root", str(tmp_path / "medium"), "query", "semantic")
+    assert missing_text.returncode == 1
+    assert json.loads(missing_text.stdout)["ok"] is False
+
     backup = run_cli(
         "--project-root",
         str(tmp_path / "medium"),
@@ -226,6 +247,9 @@ def test_medium_cli_commands(tmp_path):
     health_payload = json.loads(health.stdout)
     assert health_payload["ok"]
     assert "runtime" in health_payload
+    assert health_payload["rag"]["chunk_count"] == 0
+    assert "embedding" in health_payload["rag"]
+    assert "has_api_key" in health_payload["rag"]["embedding"]
 
     revision = run_cli(
         "--project-root",
