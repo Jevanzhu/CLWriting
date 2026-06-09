@@ -275,6 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
             "status",
             "quality",
             "index",
+            "semantic",
             "entity-graph",
             "ranked-context",
         ),
@@ -282,8 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument("--chapter", type=int, default=1, help="目标章节号，默认 1")
     query_parser.add_argument("--pattern-type", default=None, help="learning 查询的经验类型过滤")
-    query_parser.add_argument("--kind", default=None, help="index 查询的条目类型过滤")
-    query_parser.add_argument("--text", default="", help="index 查询文本")
+    query_parser.add_argument("--kind", default=None, help="index/semantic 查询的条目类型过滤")
+    query_parser.add_argument("--text", default="", help="index/semantic 查询文本")
     query_parser.add_argument("--limit", type=int, default=20, help="查询结果数量上限")
     query_parser.add_argument("--budget", type=int, default=20, help="ranked-context 上下文预算")
 

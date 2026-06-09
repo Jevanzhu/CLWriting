@@ -11,6 +11,7 @@ from typing import Any
 from cli.cli_args import build_parser
 from cli.cli_output import print_error, print_info, print_json, print_kv
 from core.context_manager import ContextManager
+from core.config import StoryCraftConfig
 from core.event_projection_router import EventProjectionRouter
 from core.memory_index import MemoryIndexService
 from core.memory_manager import MemoryManager
@@ -20,6 +21,7 @@ from core.project_locator import (
     write_current_project_pointer,
 )
 from core.runtime_compat import enable_windows_utf8_stdio
+from core.rag import HybridRetriever, VectorStore
 from core.security_utils import AtomicWriteError, atomic_write_text
 from core.log import setup_logging
 from tools.genre_profile_builder import list_all_genres
@@ -362,6 +364,10 @@ def cmd_query(args) -> int:
             )
         else:
             print_json(service.stats())
+    elif args.target == "semantic":
+        payload = _query_semantic(project_root, args.text, kind=args.kind, limit=args.limit)
+        print_json(payload)
+        return 0 if payload.get("ok") else 1
     elif args.target == "entity-graph":
         print_json(build_entity_graph(MemoryManager.from_project(project_root).load()))
     elif args.target == "ranked-context":
@@ -376,6 +382,72 @@ def cmd_query(args) -> int:
         print_error(f"未知查询目标：{args.target}")
         return 1
     return 0
+
+
+def _query_semantic(
+    project_root: Path,
+    text: str,
+    *,
+    kind: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    config = StoryCraftConfig.from_project_root(project_root)
+    query_text = str(text or "").strip()
+    if not query_text:
+        return {
+            "ok": False,
+            "query": query_text,
+            "kind": kind,
+            "entries": [],
+            "warnings": ["semantic 查询需要 --text。"],
+            "next_steps": ["补充 --text 后重试。"],
+        }
+
+    warnings: list[str] = []
+    next_steps: list[str] = []
+    vector_store = VectorStore(config)
+    vector_chunk_count = vector_store.count_chunks()
+    if vector_chunk_count == 0:
+        warnings.append("缺少可用 vector 索引，semantic 查询会降级到 memory index。")
+        next_steps.append("运行 rebuild-views --only vector 构建向量索引。")
+        if not config.memory_db.exists():
+            next_steps.append("运行 index 构建 memory index 兜底索引。")
+        entries = MemoryIndexService(config).query(
+            kind=kind,
+            text=query_text,
+            limit=max(1, int(limit)),
+        )
+        return {
+            "ok": True,
+            "query": query_text,
+            "kind": kind,
+            "limit": max(1, int(limit)),
+            "retrieval": "memory_index",
+            "vector_chunk_count": vector_chunk_count,
+            "entries": entries,
+            "warnings": warnings,
+            "next_steps": next_steps,
+        }
+
+    entries = HybridRetriever(config).search(
+        query_text,
+        kind=kind,
+        limit=max(1, int(limit)),
+    )
+    if not entries and not warnings:
+        warnings.append("未找到匹配条目。")
+
+    return {
+        "ok": True,
+        "query": query_text,
+        "kind": kind,
+        "limit": max(1, int(limit)),
+        "retrieval": "hybrid_rag",
+        "vector_chunk_count": vector_chunk_count,
+        "entries": entries,
+        "warnings": warnings,
+        "next_steps": next_steps,
+    }
 
 
 def cmd_plan(args) -> int:

@@ -1,6 +1,6 @@
 ---
-description: 只读查询故事状态、合同、记忆、学习记录、题材资料或质量信息。
-argument-hint: "<status|context|memory|learning|genres|quality> [参数]"
+description: 只读查询故事状态、合同、记忆、学习记录、题材资料、质量信息或语义索引。
+argument-hint: "<status|context|memory|learning|genres|quality|semantic> [参数]"
 ---
 
 # /story-query
