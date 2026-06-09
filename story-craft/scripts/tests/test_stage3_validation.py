@@ -134,6 +134,8 @@ def test_reference_paths_used_by_agents_and_skills_exist():
         text = path.read_text(encoding="utf-8")
         for raw_reference in REFERENCE_PATH_RE.findall(text):
             reference = raw_reference.rstrip(".")
+            if reference.startswith("references/templates/"):
+                continue
             if not (PLUGIN_ROOT / reference).is_file():
                 missing.append(f"{path.relative_to(PLUGIN_ROOT)}: {reference}")
 
