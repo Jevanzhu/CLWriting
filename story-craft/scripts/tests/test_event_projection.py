@@ -513,6 +513,28 @@ def test_markdown_view_projection_writer_renders_project_views(tmp_path):
     assert "current_status" in state.read_text(encoding="utf-8")
 
 
+def test_markdown_view_projection_writer_incremental_write_keeps_prior_chapters(tmp_path):
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    writer = MarkdownViewProjectionWriter(config)
+    first = accepted_commit(1, title="开局", words=1800, summary="林墨收到亡友来信。")
+    second = accepted_commit(2, title="旧楼", words=2200, summary="苏晚发现监控黑屏。")
+
+    CommitStore(config).write(first)
+    first_result = writer.write(first)
+    CommitStore(config).write(second)
+    second_result = writer.write(second)
+
+    context = (config.tracking_dir / "上下文.md").read_text(encoding="utf-8")
+    timeline = (config.tracking_dir / "时间线.md").read_text(encoding="utf-8")
+
+    assert first_result.ok
+    assert second_result.ok
+    assert "林墨收到亡友来信。" in context
+    assert "苏晚发现监控黑屏。" in context
+    assert "第001章" in timeline
+    assert "第002章" in timeline
+
+
 def test_markdown_view_projection_writer_rebuilds_and_skips_rejected(tmp_path):
     config = StoryCraftConfig.from_project_root(tmp_path)
     writer = MarkdownViewProjectionWriter(config)

@@ -26,7 +26,7 @@ model: inherit
   "properties": {
     "chapter": { "type": "integer", "minimum": 1 },
     "project_root": { "type": "string" },
-    "scenario": { "enum": ["daily_continue", "revision", "new_volume", "new_book", "import"] },
+    "scenario": { "enum": ["daily_continue", "major_revision", "new_volume", "open_book", "import_external"] },
     "project_type": { "enum": ["short", "long"] },
     "story_dir": { "type": "string", "default": ".story/" },
     "output_file": { "type": "string" }
@@ -128,10 +128,10 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 4. 按 `scenario` 做场景加载：
    - `daily_continue`：重点读取上一章 commit 摘要、未回收伏笔、当前章节合同。
-   - `revision`：额外读取审查报告和修复目标。
+   - `major_revision`：额外读取审查报告和修复目标。
    - `new_volume`：额外读取当前卷合同和新卷角色/势力变化。
-   - `new_book`：重点读取 `master.json`、首章合同、开篇约束。
-   - `import`：额外读取导入解析结果和重建合同提示。
+   - `open_book`：重点读取 `master.json`、首章合同、开篇约束。
+   - `import_external`：额外读取导入解析结果和重建合同提示。
 5. 读取 `contracts/anti_patterns.json`，注入 8 条 `anti_patterns`；不足 8 条时用 `writing_guidance_builder` 兜底并标记 warning。
 6. 将 `query context` 返回的合同派生上下文转换为五段任务书：`meta`、`core_mission`、`scene_and_characters`、`continuity`、`strand_plan`、`writing_guidance`。
 7. 如输入提供 `output_file`，可将 JSON 保存到该文件；否则只输出单一 JSON，不加 Markdown 包裹。

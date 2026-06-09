@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+
+from tools.scenario_router import (
+    SCENARIO_DAILY_CONTINUE,
+    SCENARIO_IMPORT_EXTERNAL,
+    SCENARIO_MAJOR_REVISION,
+    SCENARIO_NEW_VOLUME,
+    SCENARIO_OPEN_BOOK,
+)
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -130,6 +139,22 @@ def test_core_agents_reference_current_story_craft_entrypoint():
         text = (AGENTS_DIR / filename).read_text(encoding="utf-8")
         assert "story_craft.py" in text
         assert "--project-root" in text
+
+
+def test_context_agent_scenario_enum_matches_router_constants():
+    text = (AGENTS_DIR / "context-agent.md").read_text(encoding="utf-8")
+    match = re.search(r'"scenario": \{ "enum": (\[[^\]]+\]) \}', text)
+
+    assert match
+    assert set(json.loads(match.group(1))) == {
+        SCENARIO_DAILY_CONTINUE,
+        SCENARIO_IMPORT_EXTERNAL,
+        SCENARIO_MAJOR_REVISION,
+        SCENARIO_NEW_VOLUME,
+        SCENARIO_OPEN_BOOK,
+    }
+    for legacy in ("`revision`", "`new_book`", "`import`"):
+        assert legacy not in text
 
 
 def test_data_agent_uses_stage3_event_contract_and_style_fingerprint():
