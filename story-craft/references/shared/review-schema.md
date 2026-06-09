@@ -16,7 +16,16 @@
     "requested_mode": "lean",
     "effective_mode": "solo",
     "fallback_reason": "",
-    "rubric_source": "references/shared/review-schema.md"
+    "rubric_source": "references/shared/review-schema.md",
+    "dimensions": ["High-point", "Consistency", "Pacing", "OOC", "Continuity", "Reader-pull"],
+    "quant": {
+      "banned_word_density": {"value": 0.0, "level": "none", "evidence": []},
+      "parallel_paragraph_run": {"value": 0.0, "level": "none", "evidence": []},
+      "psychological_word_ratio": {"value": 0.0, "level": "none", "evidence": []},
+      "dialogue_tag_density": {"value": 0.0, "level": "none", "evidence": []},
+      "average_paragraph_sentences": {"value": 0.0, "level": "none", "evidence": []},
+      "repetitive_description_density": {"value": 0.0, "level": "none", "evidence": []}
+    }
   }
 }
 ```
@@ -67,6 +76,17 @@
 - `strand`：quest/fire/constellation 叙事线比例和章节功能偏差。
 
 兼容输入可继续使用旧 `character` 分类；本地归一化会接受，但新 reviewer 输出应优先使用 `ooc` 或 `consistency`。
+
+## meta 字段
+
+`meta` 用于记录审查 mode、fallback 来源、六维覆盖和 6-Gate 量化结果。
+
+- `requested_mode`：用户或命令请求的 `full` / `lean` / `solo`。
+- `effective_mode`：实际执行的 mode；预检失败时应降级为 `solo`。
+- `fallback_reason`：降级或 fallback 的原因；没有则为空字符串。
+- `rubric_source`：实际使用的 rubric；fallback 时写 `fallback`。
+- `dimensions`：六维审查覆盖项，必须包含 High-point、Consistency、Pacing、OOC、Continuity、Reader-pull。
+- `quant`：`tools/deslop_metrics.py` 输出的 6-Gate 量化结果，key 必须覆盖禁用词密度、连续排比段数、心理词占比、对话标签密度、平均段落句数、重复描写密度。
 
 ## blocking 判定
 

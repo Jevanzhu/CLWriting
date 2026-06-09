@@ -288,7 +288,7 @@ def _without_hook_commands(entries: list[Any], blocked_commands: set[str]) -> li
             if not isinstance(command, str) or command not in blocked_commands:
                 hooks.append(hook)
         clone["hooks"] = hooks
-        if hooks or any(key != "hooks" for key in clone):
+        if hooks or any(key not in {"hooks", "matcher"} for key in clone):
             preserved.append(clone)
     return preserved
 
