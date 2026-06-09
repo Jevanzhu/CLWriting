@@ -1,89 +1,121 @@
 # 快速开始
 
-本文说明如何从零创建一个 story-craft 故事项目，并完成第一章的基本闭环。
-日常入口是 Claude Code 中的 `/story-*` 命令；文中的 Python CLI 只作为调试和验证示例。
+本文说明如何用 story-craft 从零创建故事项目，并按短篇或长篇轨道进入第一轮写作闭环。
 
-## 推荐链路
+日常入口是 Claude Code 中的 `/story-*` 命令；Python CLI 只作为确定性工具层，用于初始化、校验、写入真源、重建投影和本地冒烟。
 
-在 Claude Code 中使用：
+## 选择轨道
 
-```text
-/story-init  →  /story-plan  →  /story-write 1  →  /story-review 1  →  /story-learn  →  /story-query
-```
+story-craft 使用 `project_type` 区分两条写作轨道：
 
-`/story-write N` 会准备 `.story/workflows/ch_NN/`，由三个专职 Agent 分工完成：
+- `short`：短篇项目，默认使用 4 核心 Agent，跳过 `volumes/`，`index/vector` 默认 lazy。
+- `long`：长篇项目，使用 9 Agent 能力，包含 master、volume、chapter 合同和 5 个写作场景。
 
-```text
-Agent(context-agent) → draft.md → Agent(reviewer) → repair/polish
-→ Agent(data-agent) → write
-```
-
-`Agent(deconstruction-agent)` 可在写作前单独调用，拆解参考短篇、提取可迁移的创作模式，不污染故事数据。
-
-`/story-write` 的工作台固定保存到 `.story/workflows/ch_NN/`，便于中断后从缺失步骤继续。
-
-## 创建故事
-
-在 Claude Code 中输入：
+先在 Claude Code 中执行：
 
 ```text
 /story-init
 ```
 
-按提示填写：
-
-- 书名
-- 题材
-- 目标字数
-- 故事梗概
-- 主角
-- 独特优势
-- 世界观
-
-## 生成总纲
-
-在 Claude Code 中输入：
-
-```text
-/story-plan
-```
-
-底层调试命令示例：
+初始化时确认书名、题材、目标字数、主角、核心卖点、硬约束和 `project_type=short|long`。底层调试命令示例：
 
 ```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo plan --chapter-count 8
+python3 -X utf8 story-craft/scripts/story_craft.py init /tmp/story-demo 暗室来信 悬疑 \
+  --project-type short \
+  --word-count-target 30000 \
+  --synopsis "法医收到亡友留下的空白来信，追查旧楼暗室真相。" \
+  --protagonist-name 林墨 \
+  --protagonist-desire "查清亡友死因"
 ```
 
-底层 `init` 调试入口可通过 `--project-type short|long` 写入项目类型，
-也可通过 `--from-config <json>` 从配置文件初始化。日常仍建议优先使用
-`/story-init`。
+`/story-init` 会写入 `.story/contracts/master.json`，并部署 Claude Code 运行时资产：17 个 Skill、13 个 commands、9 个 Agent、hooks、references 和 `.story/contracts/deployment.json`。
 
-## 写第一章
+## 短篇上手
 
-在 Claude Code 中输入：
+短篇轨道推荐链路：
 
 ```text
-/story-write 1
+/story-init  →  /story-preflight 1  →  /story-short-write 1
 ```
 
-`review.json` 必须是 reviewer 原始 schema：顶层只要求 `issues` 和 `summary`。`issues[]` 中有 `blocking=true` 或 `severity=critical` 时不会进入验收，rejected 章节不写入最终 `正文/`。`data-agent` 只生成 `delta.json`，不直接写 state/memory。`write-result.json` 会记录本次验收的阶段、状态、字数检查、报告路径和 record 路径。
-
-## 记录经验
-
-在 Claude Code 中输入：
+短篇写作使用 4 核心 Agent：
 
 ```text
+context-agent → narrative-writer → reviewer(solo) → data-agent
+```
+
+`/story-short-write 1` 会准备 `.story/workflows/ch_01/`，执行简化 8 步 pipeline，最后通过 `chapter-commit` 写入 `.story/commits/chapter_001.commit.json`。短篇不会因为缺少 `volumes/` 阻断，`style_fingerprint` 可选，`index/vector` 可等首次查询或重建时补建。
+
+短篇常用后续入口：
+
+```text
+/story-short-analyze
+/story-short-scan
+/story-review 1
+/story-deslop draft.md
+/story-repair review.json
+/story-query status
+```
+
+## 长篇上手
+
+长篇轨道推荐链路：
+
+```text
+/story-init  →  /story-long-plan  →  /story-preflight 1  →  /story-long-write 1
+```
+
+`/story-long-plan` 调用：
+
+- `story-architect`：生成 master、volumes、chapters 合同草案。
+- `character-designer`：生成 character_registry、角色档案和关系草案。
+
+`/story-long-write 1` 根据 `tools.scenario_router.detect_scenario` 路由到 5 个场景：
+
+- `daily_continue`
+- `major_revision`
+- `new_volume`
+- `open_book`
+- `import_external`
+
+长篇写作链使用 8 步 commit pipeline：预检、路由、context-agent、narrative-writer、reviewer、repair/polish、data-agent、chapter-commit + 6 投影。
+
+## 工作台
+
+写作中间产物固定保存到：
+
+```text
+.story/workflows/ch_NN/
+├── manifest.json
+├── brief.json
+├── draft.md
+├── review.json
+├── repair.json
+├── polish.json
+├── delta.json
+├── review-report.md
+└── write-result.json
+```
+
+工作台便于中断后从缺失步骤恢复。真实正文验收成功后，`chapter-commit` 写入 commit 真源，并触发 6 个投影：
+
+- `state`
+- `memory`
+- `summary`
+- `index`
+- `vector`
+- `markdown_view`
+
+## 查询与复盘
+
+常用 Claude Code 入口：
+
+```text
+/story-query status
+/story-query memory
+/story-query context 2
+/story-review 1
 /story-learn
-```
-
-记录本次写作中可复用的经验模式，后续 `/story-write` 会自动参考。
-
-## 查询状态
-
-在 Claude Code 中输入：
-
-```text
-/story-query
 ```
 
 底层调试命令示例：
@@ -92,7 +124,8 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query status
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query context --chapter 2
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query entity-graph
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query learning
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query ranked-context --chapter 2 --budget 20
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo rebuild-views
 ```
 
 ## 下一步验证
@@ -102,4 +135,10 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo health
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query quality
+```
+
+如写作前不确定是否满足条件，先运行：
+
+```text
+/story-preflight 2
 ```
