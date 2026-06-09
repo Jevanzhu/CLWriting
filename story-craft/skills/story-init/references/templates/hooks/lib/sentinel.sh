@@ -36,7 +36,7 @@ if value is None:
     sys.exit(0)
 if isinstance(value, bool):
     print("true" if value else "false")
-else:
+elif value != "":
     print(value)
 PY
   return 0
