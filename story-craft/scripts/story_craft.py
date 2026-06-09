@@ -25,6 +25,7 @@ from core.rag import HybridRetriever, VectorStore
 from core.security_utils import AtomicWriteError, atomic_write_text
 from core.log import setup_logging
 from tools.genre_profile_builder import list_all_genres
+from tools.impact_analyzer import analyze_chapter_impact
 from tools.init_project import init_project
 from tools.agent_workflow import (
     build_extraction_delta,
@@ -366,6 +367,10 @@ def cmd_query(args) -> int:
             print_json(service.stats())
     elif args.target == "semantic":
         payload = _query_semantic(project_root, args.text, kind=args.kind, limit=args.limit)
+        print_json(payload)
+        return 0 if payload.get("ok") else 1
+    elif args.target == "impact":
+        payload = analyze_chapter_impact(project_root, args.chapter)
         print_json(payload)
         return 0 if payload.get("ok") else 1
     elif args.target == "entity-graph":

@@ -29,7 +29,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 - `review`：把 reviewer JSON 转为 Markdown 审查报告，可写成 `review N`。
 - `rebuild-views`：从 commit 真源幂等重建全部投影。
 - `learn`：记录可复用写作经验。
-- `query`：查询状态、上下文、记忆、学习记录、索引、实体图和质量趋势。
+- `query`：查询状态、上下文、记忆、学习记录、章节影响、索引、实体图和质量趋势。
 - `index`：重建项目记忆索引。
 - `backup`：创建项目备份。
 - `health`：运行故事项目健康检查。
@@ -161,6 +161,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query quality
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query index --text "纸条"
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query semantic --text "监控黑屏" --kind scene
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query impact --chapter 3
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query entity-graph
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query ranked-context --chapter 12 --budget 20
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query learning
@@ -174,5 +175,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py import --source <外部作品
 `rebuild-views` 会从 `.story/commits/` 重放 accepted commits，重建 `state`、`memory`、`summary`、`index`、`vector` 和 `markdown_view`。短篇项目可 lazy 跳过 `index/vector`。
 
 `query semantic` 使用 vector/BM25/RAG 检索；缺少可用 vector 索引时会降级到 memory index，并在 `next_steps` 提示 `rebuild-views --only vector`。
+
+`query impact --chapter N` 只读分析目标章的 commit 真源、角色、伏笔、时间线和后续章节引用，用于改稿前判断需要同步复查的范围。
 
 `health` 输出包含项目状态摘要、RAG 状态和运行时诊断。`deslop`、顶层 `repair` 和 `import` 是确定性工具层；Claude Code 里的交互式 Skill 编排仍需按 CC 验证清单单独验证。

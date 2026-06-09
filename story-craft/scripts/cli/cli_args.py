@@ -276,6 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
             "quality",
             "index",
             "semantic",
+            "impact",
             "entity-graph",
             "ranked-context",
         ),
