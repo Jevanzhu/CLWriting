@@ -94,3 +94,12 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出章节解析结果、导入异常列表、合同重建摘要、参考拆解摘要和 `rebuild-views` 结果；明确下一步是人工检查、复审、还是进入写作链。
+
+## 参考加载表
+
+- 状态追踪：`references/long/state-tracking.md`
+- 格式结构：`references/long/format-and-structure.md`
+- 工件协议：`references/long/artifact-protocols.md`
+- 题材画像：`references/shared/genre-profiles.md`
+- 题材调性：`references/shared/csv/题材与调性推理.csv`
+- 裁决规则：`references/shared/csv/裁决规则.csv`

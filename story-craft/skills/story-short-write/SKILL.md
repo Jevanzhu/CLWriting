@@ -151,3 +151,16 @@ commit 成功后：
 ## 完成条件
 
 输出 `brief.json`、`draft.md`、`review.json`、`polish.json`、`delta.json`、`write-result.json` 和短篇正文。
+
+## 参考加载表
+
+- 核心约束：`references/shared/core-constraints.md`
+- 短篇阅读力：`references/short/reading-power-taxonomy.md`
+- 剧透信号：`references/short/plot-signal-vs-spoiler.md`
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 命名语调：`references/shared/naming-and-voice-gaps.md`
+- 兑现点：`references/shared/payoff-points-guide.md`
+- 爽点节奏：`references/shared/csv/爽点与节奏.csv`
+- 场景写法：`references/shared/csv/场景写法.csv`
+- 桥段套路：`references/shared/csv/桥段套路.csv`

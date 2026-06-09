@@ -96,3 +96,29 @@ Agent(
 - `chapters/chapter_NNN.json` 草案。
 - `character_registry` 与角色关系草案。
 - 下一步建议 `/story-long-write`。
+
+## 参考加载表
+
+- 开篇设计：`references/long/opening-design.md`
+- 大纲方法：`references/long/outline-methods.md`
+- 结构理论：`references/long/outline-structure-theory.md`
+- 节奏控制：`references/long/outline-rhythm.md`
+- 角色基础：`references/long/character-basics.md`
+- 角色设计：`references/long/character-design-methods.md`
+- 角色关系：`references/long/character-relations.md`
+- 题材目录：`references/long/genre-catalog.md`
+- 题材机制：`references/long/genre-core-mechanics.md`
+- 读者画像：`references/long/genre-readers.md`
+- 题材模块：`references/long/style-genre-modules.md`
+- 人设关系表：`references/shared/csv/人设与关系.csv`
+- 命名规则：`references/shared/csv/命名规则.csv`
+- 金手指设定：`references/shared/csv/金手指与设定.csv`
+- 叙事线：`references/shared/strand-weave-pattern.md`
+
+## Embedded Fallback 速查
+
+references 加载失败时不阻断规划，但必须降级使用本块最低口径：
+
+- rubric：master、volume、chapter、character_registry 缺任一核心字段都不得进入写作。
+- banned-words：规划摘要避免空泛卖点、模板爽点和无法验收的情绪词。
+- 规划：每章必须有目标、冲突、角色、时间锚点、伏笔或章末钩子。

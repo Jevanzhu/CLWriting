@@ -84,3 +84,11 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出章数、总字数分配、关键时间线、下一步建议 `/story-write`。
+
+## 参考加载表
+
+- 短篇信号：`references/short/plot-signal-vs-spoiler.md`
+- 多线压缩：`references/shared/strand-weave-pattern.md`
+- 复合题材：`references/shared/genre-profiles.md`
+- 桥段候选：`references/shared/csv/桥段套路.csv`
+- 爽点节奏：`references/shared/csv/爽点与节奏.csv`

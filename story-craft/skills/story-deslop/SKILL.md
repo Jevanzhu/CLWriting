@@ -79,3 +79,9 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出 6-Gate 去 AI 味报告、白名单命中说明、阻断级别和下一步建议：无需处理、人工微调、转入 `/story-repair` 或回到写作链复审。
+
+## 参考加载表
+
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 核心约束：`references/shared/core-constraints.md`
+- 命名语调：`references/shared/naming-and-voice-gaps.md`

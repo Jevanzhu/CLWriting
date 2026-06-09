@@ -80,3 +80,11 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出新增 pattern id、类型、适用轨道、指令，以及它会在后续 `/story-short-write` 或 `/story-long-write` 的 guidance 中生效。
+
+## 参考加载表
+
+- 写作技法：`references/shared/csv/写作技法.csv`
+- 兑现点：`references/shared/payoff-points-guide.md`
+- 题材归一：`references/shared/csv/genre-canonical.md`
+- 命名规则：`references/shared/csv/命名规则.csv`
+- 裁决规则：`references/shared/csv/裁决规则.csv`

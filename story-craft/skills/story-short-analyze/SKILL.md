@@ -66,3 +66,13 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出短篇分析报告，列出 blocker、warning 和可选优化项。
+
+## 参考加载表
+
+- 短篇阅读力：`references/short/reading-power-taxonomy.md`
+- 剧透信号：`references/short/plot-signal-vs-spoiler.md`
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 爽点节奏：`references/shared/csv/爽点与节奏.csv`
+- 题材调性：`references/shared/csv/题材与调性推理.csv`
+- 裁决规则：`references/shared/csv/裁决规则.csv`

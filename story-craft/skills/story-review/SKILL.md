@@ -83,3 +83,10 @@ reviewer 原始 JSON 必须包含 `issues` 数组和 `summary` 字符串。`S1/S
 ## 完成条件
 
 输出审查报告路径、requested/effective mode、blocking 数量、建议下一步：修复正文、重新审查或继续写作。
+
+## 参考加载表
+
+- 审查 schema：`references/shared/review-schema.md`
+- 核心约束：`references/shared/core-constraints.md`
+- blocking 决策：`references/shared/review/blocking-override-guidelines.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`

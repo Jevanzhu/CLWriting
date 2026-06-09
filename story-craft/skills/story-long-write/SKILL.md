@@ -241,3 +241,39 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - `write-result.json`
 - `.story/commits/chapter_NNN.commit.json`
 - 6 投影状态
+
+## 参考加载表
+
+- 核心约束：`references/shared/core-constraints.md`
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 命名语调：`references/shared/naming-and-voice-gaps.md`
+- 叙事线：`references/shared/strand-weave-pattern.md`
+- 章节钩子：`references/long/hooks-chapter.md`
+- 悬念钩子：`references/long/hooks-suspense.md`
+- 段落钩子：`references/long/hooks-paragraph.md`
+- 剧情核心：`references/long/plot-core-methods.md`
+- 剧情框架：`references/long/plot-frameworks.md`
+- 情绪弧：`references/long/emotional-arc-design.md`
+- 情绪方法：`references/long/emotional-methods.md`
+- 反转工具：`references/long/reversal-toolkit.md`
+- 文风技法：`references/long/style-craft.md`
+- 战斗打脸：`references/long/style-combat-face.md`
+- 商业理论：`references/long/style-commercial-theory.md`
+- 题材模块：`references/long/style-genre-modules.md`
+- 对话技巧：`references/long/dialogue-mastery.md`
+- 叙事单元：`references/long/narrative-units.md`
+- 格式结构：`references/long/format-and-structure.md`
+- 状态追踪：`references/long/state-tracking.md`
+- 工件协议：`references/long/artifact-protocols.md`
+- 题材公式：`references/long/genre-writing-formulas.md`
+- 日更流程：`references/long/workflow-daily.md`
+- 修订流程：`references/long/workflow-revision.md`
+
+## Embedded Fallback 速查
+
+references 加载失败时不阻断写作链，但必须降级使用本块最低口径：
+
+- rubric：S1/S2、`blocking=true`、合同缺失和安全问题一律阻断。
+- banned-words：套话、抽象升华、总结式段尾和解释性对白优先按 6-Gate 标记。
+- 写作：必须保留章节合同、场景目标、章末钩子、Strand 和 accepted_events。

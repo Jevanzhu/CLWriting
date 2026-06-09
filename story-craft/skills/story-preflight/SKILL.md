@@ -81,3 +81,10 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出写前检查结果，并明确下一步进入 `/story-short-write`、`/story-long-write` 或补合同。
+
+## 参考加载表
+
+- 核心约束：`references/shared/core-constraints.md`
+- 审查 schema：`references/shared/review-schema.md`
+- 剧透信号：`references/short/plot-signal-vs-spoiler.md`
+- 状态追踪：`references/long/state-tracking.md`
