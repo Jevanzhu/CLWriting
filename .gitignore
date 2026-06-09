@@ -8,6 +8,7 @@ venv/
 tmp/
 Dev/
 CLAUDE.md
+!story-craft/skills/story-init/references/templates/CLAUDE.md
 .claude/
 .codex/
 .agents/

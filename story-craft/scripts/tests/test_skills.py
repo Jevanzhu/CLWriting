@@ -293,6 +293,51 @@ def test_common_skills_document_stage3_dual_track_contracts():
     assert "不写 state、memory、commit、合同或正文" in preflight
 
 
+def test_story_init_documents_stage4_self_deployment_contract():
+    text = (SKILLS_DIR / "story-init" / "SKILL.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "deployment_manifest(PROJECT_TYPE)",
+        "read_deployment(config)",
+        "needs_redeploy(current, AGENTS_VERSION)",
+        "merge_claude_md",
+        "merge_settings",
+        "write_deployment",
+        "SETUP_SKILL_VERSION",
+        "TARGET_CLI",
+        "RESOLVER_STRATEGY",
+        ".story/contracts/deployment.json",
+        "settings-hooks.json",
+        "短篇项目目标 Agent 数为 4",
+        "长篇项目目标 Agent 数为 9",
+        "CC 验证清单",
+    ):
+        assert phrase in text
+
+    table_header = "| Source path | Target path | Owner class | Merge mode | Validation check |"
+    assert table_header in text
+    for asset_group in (
+        "skills/story-init/references/templates/hooks/*.sh",
+        "skills/story-init/references/templates/hooks/lib/common.sh",
+        "skills/story-init/references/templates/hooks/lib/sentinel.sh",
+        "agents/*.md",
+        "commands/*.md",
+        "references/",
+        "skills/story-init/references/templates/settings-hooks.json",
+        "skills/story-init/references/templates/CLAUDE.md",
+        "deployment-sentinel",
+    ):
+        assert asset_group in text
+    assert (SKILLS_DIR / "story-init" / "references" / "templates" / "CLAUDE.md").is_file()
+
+    assert "一项目一书" in text
+    assert "story_craft.py\" use" in text
+    assert "story_craft.py\" where" in text
+    assert ".story-craft-current-project" in text
+    assert ".active-book" not in text
+    assert "/story-setup" not in text
+
+
 def test_stage3_independent_skills_document_tool_boundaries():
     deslop = (SKILLS_DIR / "story-deslop" / "SKILL.md").read_text(encoding="utf-8")
     repair = (SKILLS_DIR / "story-repair" / "SKILL.md").read_text(encoding="utf-8")
