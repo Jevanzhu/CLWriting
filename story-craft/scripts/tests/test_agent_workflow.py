@@ -50,6 +50,29 @@ def test_build_writing_brief_matches_context_agent_shape(tmp_path):
     assert json.loads(output_file.read_text(encoding="utf-8"))["meta"]["title"] == "开篇异常"
 
 
+def test_build_writing_brief_uses_contract_truth_warnings(tmp_path):
+    from tools.init_project import init_project
+
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        synopsis="法医收到亡友来信",
+        protagonist_name="林墨",
+        protagonist_desire="查清亡友死因",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市，证据必须可回溯",
+    )
+
+    brief = build_writing_brief(project, 1)
+    checks = "\n".join(brief["continuity"]["continuity_checks"])
+
+    assert "章节合同未提供可用章节目标" in checks
+    assert "总纲未覆盖本章" not in checks
+    assert "大纲未覆盖本章" not in checks
+
+
 def test_cli_agent_rejects_non_positive_chapter(tmp_path):
     project = create_planned_project(tmp_path)
 
@@ -87,6 +110,25 @@ def test_workflow_manifest_commands_quote_paths_with_spaces(tmp_path):
     brief_file = Path(manifest["files"]["brief"])
     assert brief_file.is_file()
     assert json.loads(brief_file.read_text(encoding="utf-8"))["meta"]["chapter"] == 1
+
+
+def test_workflow_manifest_includes_all_core_agent_calls(tmp_path):
+    project = create_planned_project(tmp_path)
+
+    manifest = build_workflow_workspace(project, 1, create=False)
+    agent_calls = manifest["agent_calls"]
+
+    assert set(agent_calls) == {
+        "context_agent",
+        "narrative_writer",
+        "reviewer",
+        "data_agent",
+    }
+    assert agent_calls["narrative_writer"]["subagent_type"] == "story-craft:narrative-writer"
+    assert agent_calls["narrative_writer"]["input_file"] == manifest["files"]["brief"]
+    assert agent_calls["narrative_writer"]["output_file"] == manifest["files"]["draft"]
+    assert "Agent(narrative-writer) -> draft.md" in manifest["steps"]
+    assert any("narrative-writer" in rule for rule in manifest["hard_rules"])
 
 
 def test_workflow_manifest_write_command_persists_write_result(tmp_path):

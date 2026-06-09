@@ -7,6 +7,7 @@ from collections.abc import Iterable
 import shutil
 from typing import Any
 
+from core.commit_store import CommitStore
 from core.projection.base import ProjectionResult, ProjectionWriter
 from core.security_utils import atomic_write_text, sanitize_filename
 from core.types import AcceptedEvent, ChapterCommit, EntityDelta, StateDelta
@@ -25,7 +26,7 @@ class MarkdownViewProjectionWriter(ProjectionWriter):
                 skipped=True,
                 detail="rejected commit skipped",
             )
-        _render_commit_views(self.config, [commit])
+        _render_commit_views(self.config, _accepted_commits_with_current(self.config, commit))
         return ProjectionResult(
             name=self.name,
             ok=True,
@@ -44,6 +45,28 @@ class MarkdownViewProjectionWriter(ProjectionWriter):
             skipped=False,
             detail=f"markdown views rebuilt from {len(accepted)} commits",
         )
+
+
+def _accepted_commits_with_current(config, commit: ChapterCommit) -> list[ChapterCommit]:
+    commits_by_chapter: dict[int, ChapterCommit] = {}
+    for stored in CommitStore(config).iter_all():
+        if stored.get("status") == "rejected":
+            continue
+        chapter = _commit_chapter(stored)
+        if chapter:
+            commits_by_chapter[chapter] = stored
+
+    chapter = _commit_chapter(commit)
+    if chapter:
+        commits_by_chapter[chapter] = commit
+    return [commits_by_chapter[key] for key in sorted(commits_by_chapter)]
+
+
+def _commit_chapter(commit: ChapterCommit) -> int:
+    try:
+        return int(commit.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _render_commit_views(config, commits: list[ChapterCommit]) -> None:

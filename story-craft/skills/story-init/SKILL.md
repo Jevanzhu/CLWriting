@@ -10,7 +10,7 @@ allowed-tools: Read Write Grep Bash
 
 创建一个可被 story-craft 后续短篇或长篇 Skill 使用的项目。初始化必须明确 `project_type=short|long`，并写入 `.story/contracts/master.json`，供双轨运行时读取。
 
-初始化完成后，本 Skill 还负责把 story-craft 的 Claude Code 运行时资产部署到当前项目：短篇部署 4 核心 Agent，长篇部署 9 Agent，共用 hooks、commands、references、`CLAUDE.md` 管理段和 `.claude/settings.json` hooks 注册。部署版本写入 `.story/contracts/deployment.json`，后续 `/story-init` 可根据版本自动升级重部署。
+底层 `init` CLI 只初始化项目本体；初始化完成后，本 Skill 还负责把 story-craft 的 Claude Code 运行时资产部署到当前项目：短篇部署 4 核心 Agent，长篇部署 9 Agent，共用 hooks、commands、references、`CLAUDE.md` 管理段和 `.claude/settings.json` hooks 注册。部署版本写入 `.story/contracts/deployment.json`，后续 `/story-init` 可根据版本自动升级重部署。
 
 ## 充分性闸门
 
@@ -72,6 +72,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" init --from-config "${INIT_CONFIG
 
 9. 验证关键文件存在：`.story/state.json`、`.story/memory.json`、`.story/project_learning.json`、`.story/contracts/master.json`、`设定集/世界观.md`、`设定集/主角卡.md`、`设定集/独特优势.md`。
 10. 验证 `master.project_type` 与用户选择一致。
+    此时尚未完成 Claude Code 运行时部署；不要把 CLI `init` 结果等同于 `/story-init` 完成。
 11. 进入自部署编排。先读取当前部署状态，再判断是否需要部署或升级：
 
 ```python

@@ -132,6 +132,17 @@ def build_workflow_workspace(
                     "先 research，再输出 context-agent JSON 任务书；不得写正文。"
                 ),
             },
+            "narrative_writer": {
+                "subagent_type": "story-craft:narrative-writer",
+                "must_use_agent_tool": True,
+                "input_file": files["brief"],
+                "output_file": files["draft"],
+                "prompt": (
+                    f"chapter={int(chapter)}; project_root={config.project_root}; "
+                    f"brief_file={files['brief']}; output_file={files['draft']}。"
+                    "严格按 brief 和章节合同起草 draft.md；不得写最终正文目录。"
+                ),
+            },
             "reviewer": {
                 "subagent_type": "story-craft:reviewer",
                 "must_use_agent_tool": True,
@@ -233,7 +244,7 @@ def build_workflow_workspace(
         "steps": [
             "prepare-workflow",
             "Agent(context-agent) -> brief.json",
-            "draft.md",
+            "Agent(narrative-writer) -> draft.md",
             "Agent(reviewer) -> review.json",
             "review-pipeline/repair",
             "polish",
@@ -241,8 +252,9 @@ def build_workflow_workspace(
             "write -> write-result.json",
         ],
         "hard_rules": [
-            "必须使用 Agent 工具调用 context-agent/reviewer/data-agent；不得由主流程口头替代。",
+            "必须使用 Agent 工具调用 context-agent/narrative-writer/reviewer/data-agent；不得由主流程口头替代。",
             "review.json 存在 blocking issue 时不得进入 write。",
+            "narrative-writer 只写 workflow draft.md，不写最终正文目录。",
             "data-agent 只生成 delta，不直接写 state/memory/章节记录。",
             "CLI 只做确定性校验、报告、修复计划、兜底抽取和章节验收记录。",
             "失败只补跑失败步骤，不回退已通过步骤。",
@@ -396,7 +408,7 @@ def build_writing_brief(project_root: str | Path, chapter: int) -> dict[str, Any
 
     goal = _first_non_empty(
         [outline_value(outline_text, "本章目标"), str(core.get("chapter_goal") or "")],
-        "围绕本章大纲推进主线。",
+        "围绕本章核心目标推进主线。",
     )
     resistance = _first_non_empty(
         [outline_value(outline_text, "核心冲突")],
@@ -436,9 +448,9 @@ def build_writing_brief(project_root: str | Path, chapter: int) -> dict[str, Any
     ][:3]
     continuity_checks = list(validation.get("warnings") or [])
     if not outline_text:
-        continuity_checks.append("总纲未覆盖本章，任务书只能使用通用目标。")
+        continuity_checks.append("章节合同未提供可用章节目标，任务书只能使用通用目标。")
     if not scene.get("location"):
-        continuity_checks.append("缺少明确地点，起草时需要先选择与大纲一致的场景。")
+        continuity_checks.append("缺少明确地点，起草时需要先选择与章节合同一致的场景。")
 
     anti_ai_reminders = [
         item.get("instruction", str(item))
