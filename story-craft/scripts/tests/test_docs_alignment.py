@@ -49,6 +49,7 @@ def test_cli_help_is_chinese_and_author_facing():
     assert "验收一章草稿并更新故事记忆" in write_help.stdout
     assert "write 3" in write_help.stdout
     assert "把写前校验和字数偏差 warning 也视为阻断" in write_help.stdout
+    assert "强制要求 reviewer JSON" in write_help.stdout
 
     review_help = run_cli("review", "--help")
     assert review_help.returncode == 0, review_help.stderr
@@ -104,12 +105,19 @@ def test_usage_docs_are_split_by_category():
             "当前共有 9 个 Agent",
             ".story/workflows/ch_NN/",
         ),
-        "cli-usage.md": ("write 1", "review 1", "当前共有 20 个顶层子命令"),
+        "cli-usage.md": (
+            "write 1",
+            "review 1",
+            "当前共有 20 个顶层子命令",
+            "--require-review",
+        ),
         "data-formats.md": (
             "reviewer JSON",
             "data-agent 完整输出",
             "write 最小可消费 delta",
             ".story/commits/chapter_NNN.commit.json",
+            "review_status",
+            "review_meta.source",
             "6 投影",
         ),
         "troubleshooting.md": (
@@ -148,6 +156,9 @@ def test_write_result_docs_list_actual_stage_contract():
     assert "WriteResult = WriteSuccess | WriteFailure" in text
     assert "WriteSuccess" in text
     assert "WriteFailure" in text
+    assert "review_status" in text
+    assert "provided" in text
+    assert "skipped" in text
     for stage in (
         "prewrite",
         "placeholder",

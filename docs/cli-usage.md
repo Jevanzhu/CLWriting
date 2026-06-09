@@ -110,13 +110,14 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
   1 \
   --draft-file /tmp/story-demo/.story/workflows/ch_01/draft.md \
   --review-results /tmp/story-demo/.story/workflows/ch_01/review.json \
+  --require-review \
   --delta-file /tmp/story-demo/.story/workflows/ch_01/delta.json \
   --result-file /tmp/story-demo/.story/workflows/ch_01/write-result.json
 ```
 
-`write 1` 可用于验收一章草稿并更新故事记忆；`chapter-commit` 是阶段 3 后更明确的真源写入入口。使用 `--strict-warnings` 可把字数偏差 warning 也视为阻断。
+`write 1` 可用于验收一章草稿并更新故事记忆；`chapter-commit` 是阶段 3 后更明确的真源写入入口。使用 `--strict-warnings` 可把字数偏差 warning 也视为阻断；使用 `--require-review` 可强制要求 reviewer JSON，缺失时不会启用本地轻量兜底。
 
-真实 `/story-short-write` 或 `/story-long-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件。CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
+真实 `/story-short-write` 或 `/story-long-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件，并提供 reviewer 输出。直接调用 CLI 且不传 `--review-results` 时，默认只执行本地轻量兜底，结果会标记 `review_status=skipped`，commit 会记录 `review_meta.source=fallback`。CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
 
 ## 审查
 

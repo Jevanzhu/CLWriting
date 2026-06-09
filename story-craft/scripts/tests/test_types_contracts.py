@@ -12,13 +12,16 @@ from core.types import (
     MasterContract,
     NormalizedReviewerResult,
     ProjectionStatus,
+    ReviewStatus,
     ReviewContract,
     ReviewerResult,
     SceneSlice,
     StateDelta,
     StrandLiteral,
     VolumeContract,
+    WriteGateFailure,
     WriteGateStage,
+    WriteRejection,
     WriteSuccess,
 )
 
@@ -95,6 +98,7 @@ def test_extraction_delta_preserves_legacy_fields_and_adds_events():
 
 
 def test_reviewer_meta_is_optional_and_write_stage_accepts_commit():
+    assert set(get_args(ReviewStatus)) == {"provided", "skipped"}
     assert "meta" in ReviewerResult.__optional_keys__
     assert "meta" in NormalizedReviewerResult.__optional_keys__
     assert "meta" not in NormalizedReviewerResult.__required_keys__
@@ -105,6 +109,9 @@ def test_reviewer_meta_is_optional_and_write_stage_accepts_commit():
     assert "commit" in get_args(WriteGateStage)
     hints = get_type_hints(WriteSuccess)
     assert set(get_args(hints["stage"])) == {"record", "commit"}
+    assert hints["review_status"] == ReviewStatus
     assert {"ok", "skipped", "detail"} <= set(ProjectionStatus.__annotations__)
     assert "commit_file" in hints
     assert hints["projections"] == dict[str, ProjectionStatus]
+    assert get_type_hints(WriteRejection)["review_status"] == ReviewStatus
+    assert get_type_hints(WriteGateFailure)["review_status"] == ReviewStatus

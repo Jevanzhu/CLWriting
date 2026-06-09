@@ -34,6 +34,12 @@ def test_release_manifest_versions_are_bumped_and_aligned():
     assert plugin["version"] == "0.1.1"
     assert plugin["name"] == "story-craft"
     assert plugin["license"] == "GPL-3.0"
+    assert plugin["description"] == "中文短篇/长篇小说交互式写作系统（1-10 万字起步，可扩展长篇）"
+    assert plugin["author"] == {"name": "CLWriting contributors"}
+    assert "long-form" in plugin["keywords"]
+    assert "novella" not in plugin["keywords"]
+    assert "long-form" in pyproject
+    assert "novella" not in pyproject
 
 
 def test_release_asset_counts_match_phase_five_dod():

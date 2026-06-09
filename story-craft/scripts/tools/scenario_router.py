@@ -92,17 +92,17 @@ def detect_scenario(project_root: str | Path, *, user_input: str = "") -> dict[s
             signals,
         )
 
-    if not has_written_content:
-        return _result(
-            SCENARIO_OPEN_BOOK,
-            "尚未产生正文，进入开书场景。",
-            signals,
-        )
-
     if keyword_signals["import_external"]:
         return _result(
             SCENARIO_IMPORT_EXTERNAL,
             "命中导入或既有作品信号。",
+            signals,
+        )
+
+    if not has_written_content:
+        return _result(
+            SCENARIO_OPEN_BOOK,
+            "尚未产生正文，进入开书场景。",
             signals,
         )
 

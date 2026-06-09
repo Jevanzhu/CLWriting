@@ -415,6 +415,7 @@ def cmd_write(args) -> int:
             output_file=args.output_file,
             report_file=args.report_file,
             allow_warnings=not args.strict_warnings,
+            require_review=args.require_review,
         )
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
         _print_file_error("记录章节", exc)

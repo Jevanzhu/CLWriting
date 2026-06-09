@@ -96,6 +96,30 @@ def test_detect_scenario_short_project_does_not_route_new_volume(tmp_path):
     assert result["signals"]["keywords"]["new_volume"] is True
 
 
+def test_detect_scenario_routes_import_for_empty_project_with_master(tmp_path):
+    _project(tmp_path, project_type="long")
+
+    result = detect_scenario(tmp_path, user_input="导入外部作品")
+
+    assert result["scenario"] == "import_external"
+    assert result["signals"]["has_master"] is True
+    assert result["signals"]["chapter_file_count"] == 0
+    assert result["signals"]["commit_count"] == 0
+    assert result["signals"]["keywords"]["import_external"] is True
+
+
+def test_detect_scenario_empty_project_with_master_still_routes_open_book(tmp_path):
+    _project(tmp_path, project_type="long")
+
+    result = detect_scenario(tmp_path, user_input="我要开始一个新故事")
+
+    assert result["scenario"] == "open_book"
+    assert result["signals"]["has_master"] is True
+    assert result["signals"]["chapter_file_count"] == 0
+    assert result["signals"]["commit_count"] == 0
+    assert result["signals"]["keywords"]["import_external"] is False
+
+
 def test_detect_scenario_routes_import_for_existing_project(tmp_path):
     _project(tmp_path, project_type="long")
     chapter_dir = tmp_path / "正文"
