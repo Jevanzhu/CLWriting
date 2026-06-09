@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from core.projection.base import ProjectionResult, ProjectionWriter
-from core.rag import EmbeddingClient, EmbeddingError, VectorChunk, VectorStore
+from core.rag import EmbeddingClient, EmbeddingError, RagConfig, VectorChunk, VectorStore
 from core.types import ChapterCommit
 
 
@@ -103,7 +103,8 @@ def _write_chunks(
 ) -> ProjectionResult:
     texts = [str(chunk["text"]) for chunk in chunks]
     try:
-        vectors = EmbeddingClient().embed_texts(texts)
+        rag_config = RagConfig.from_env(config.project_root)
+        vectors = EmbeddingClient(rag_config).embed_texts(texts)
     except EmbeddingError:
         return ProjectionResult(
             name=name,

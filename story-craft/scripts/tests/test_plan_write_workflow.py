@@ -624,7 +624,7 @@ def test_record_chapter_workflow_rolls_back_sqlite_projections_when_chapter_writ
         project_type="long",
     )
     plan_story(project, chapter_count=8)
-    monkeypatch.setattr(vector_writer, "EmbeddingClient", lambda: FakeEmbeddingClient())
+    monkeypatch.setattr(vector_writer, "EmbeddingClient", lambda config=None: FakeEmbeddingClient())
 
     draft_one = tmp_path / "draft-1.md"
     draft_one.write_text(

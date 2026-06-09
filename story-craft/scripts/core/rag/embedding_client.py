@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 
+from core.rag.api_url import build_openai_endpoint_url
 from core.rag.rag_config import RagConfig
 
 
@@ -29,15 +30,19 @@ class EmbeddingClient:
         )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
         if not self.is_available():
             raise EmbeddingError("embedding unavailable")
+        texts = [text if text else " " for text in texts]
         payload = {
             "model": self.config.embedding_model,
             "input": texts,
+            "encoding_format": "float",
         }
         data = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
-            f"{self.config.api_base_url}/embeddings",
+            build_openai_endpoint_url(self.config.api_base_url, "embeddings"),
             data=data,
             headers={
                 "Authorization": f"Bearer {self.config.api_key}",
@@ -64,8 +69,12 @@ def _parse_embeddings(payload: dict, *, expected: int) -> list[list[float]]:
     data = payload.get("data")
     if not isinstance(data, list) or len(data) != expected:
         raise ValueError("embedding response item count mismatch")
+    sorted_data = sorted(
+        data,
+        key=lambda item: item.get("index", 0) if isinstance(item, dict) else 0,
+    )
     vectors: list[list[float]] = []
-    for item in data:
+    for item in sorted_data:
         vector = item.get("embedding") if isinstance(item, dict) else None
         if not isinstance(vector, list):
             raise ValueError("embedding response missing vector")
