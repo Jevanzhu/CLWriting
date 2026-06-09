@@ -1,22 +1,26 @@
-# story-craft 共享参考
+# story-craft 参考资料
 
-本目录存放 Skill 与 Agent 可按需读取的共享参考资料。
-这些资料只提供创作约束、审查口径和短篇/中篇题材判断，不作为故事事实真源。
+本目录存放 Skill 与 Agent 可按需读取的参考资料。
+这些资料只提供创作约束、审查口径、题材判断和方法论提示，不作为故事事实真源。
 
 ## 使用原则
 
 - 故事事实以用户项目中的 `.story/state.json`、`.story/memory.json`、`大纲/`、`设定集/` 为准。
 - 参考资料用于生成前的判断、审查时的口径统一和缺口排查。
 - CSV 文件是上下文参考，不是结构化检索数据库。
-- 所有建议都要适配 1-10 万字短篇/中篇，不展开长篇连载式分卷规划。
+- 短篇项目只加载 `short/` + `shared/`；不得默认读取 `long/`。
+- 长篇项目加载 `long/` + `shared/`；`long/` 的方法论资料在 S5-02 引入。
+- `index/` 只保存加载映射和缺口登记，不放创作内容。
 
 ## 目录
 
-- `genre-profiles.md`：题材画像与短篇适配建议。
-- `review-schema.md`：reviewer 原始输出 schema、severity/category 规则与本地归一化口径。
-- `reading-power-taxonomy.md`：短篇阅读驱动力分类。
-- `shared/`：核心约束、命名与语调、兑现点、多线压缩参考。
-- `csv/`：人设、技法、命名、场景、桥段、节奏等轻量参考。
-- `outlining/`：大纲阶段使用的情节信号参考。
-- `review/`：blocking 问题处理规则；当前验收闸门以本地归一化后的 `blockers` 为准。
+- `shared/`：短篇和长篇共用资料，包含核心约束、审查 schema、题材画像、CSV 参考和 reviewer 口径。
+- `short/`：短篇专用资料，包含阅读驱动力分类和情节信号/剧透边界。
+- `long/`：长篇专用资料；当前仅有占位 README，方法论内容留 S5-02 引入。
 - `index/`：参考加载映射与缺口登记。
+
+## 加载边界
+
+- `/story-short-*`、短篇 reviewer `solo` 和短篇扫描流程只读取 `references/short/`、`references/shared/` 与必要题材包。
+- `/story-long-*`、长篇 reviewer `lean/full` 和长篇规划流程读取 `references/long/`、`references/shared/` 与必要题材包。
+- 共用命令根据场景读取 `shared/`，只有用户明确询问短篇或长篇专项口径时才进入对应目录。

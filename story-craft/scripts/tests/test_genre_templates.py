@@ -102,8 +102,8 @@ def test_genre_templates_avoid_long_form_planning_terms():
 
 
 def test_genre_profile_reference_lists_same_genres():
-    text = (PLUGIN_ROOT / "references" / "genre-profiles.md").read_text(
-        encoding="utf-8"
-    )
+    text = (
+        PLUGIN_ROOT / "references" / "shared" / "genre-profiles.md"
+    ).read_text(encoding="utf-8")
     for filename in EXPECTED_GENRES:
         assert filename.removesuffix(".md") in text

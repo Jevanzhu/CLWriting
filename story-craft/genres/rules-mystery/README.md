@@ -24,4 +24,4 @@
 
 1. `patterns.md`：选择谜题或规则结构。
 2. `checklist.md`：检查线索公平性和回收。
-3. `references/outlining/plot-signal-vs-spoiler.md`：控制剧透边界。
+3. `references/short/plot-signal-vs-spoiler.md`：控制剧透边界。
