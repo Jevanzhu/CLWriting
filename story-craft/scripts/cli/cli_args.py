@@ -161,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="把写前校验和字数偏差 warning 也视为阻断。",
     )
+    write_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help="强制要求 reviewer JSON；缺失时不使用本地轻量兜底。",
+    )
 
     agent_parser = subparsers.add_parser(
         "agent",
@@ -326,6 +331,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict-warnings",
         action="store_true",
         help="把 warning 也视为阻断。",
+    )
+    chapter_commit_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help="强制要求 reviewer JSON；缺失时不使用本地轻量兜底。",
     )
 
     deslop_parser = subparsers.add_parser(

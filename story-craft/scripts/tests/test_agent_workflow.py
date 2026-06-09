@@ -128,6 +128,8 @@ def test_workflow_manifest_write_command_persists_write_result(tmp_path):
 
     command = manifest["cli_commands"]["write"]
     assert "--result-file" in command
+    assert "--review-results" in command
+    assert "--require-review" in command
     result = subprocess.run(
         command,
         shell=True,
@@ -143,6 +145,7 @@ def test_workflow_manifest_write_command_persists_write_result(tmp_path):
     stdout_payload = json.loads(result.stdout)
     assert payload["stage"] == "record"
     assert payload["status"] == "accepted"
+    assert payload["review_status"] == "provided"
     assert "word_count_check" in payload
     assert stdout_payload["record_file"] == payload["record_file"]
 

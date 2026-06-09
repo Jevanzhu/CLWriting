@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from conftest import long_chapter, run_cli
@@ -36,6 +37,16 @@ def assert_failure_shape(result, draft_file, *, word_count_check=False):
     assert result["draft_file"] == str(Path(draft_file).resolve())
     if word_count_check:
         assert "word_count_check" in result
+
+
+class FakeEmbeddingClient:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[float(index + 1), float(len(text))] for index, text in enumerate(texts)]
+
+
+def _sqlite_count(path: Path, table: str) -> int:
+    with sqlite3.connect(path) as conn:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
 def test_plan_story_writes_outline_memory_and_state(tmp_path):
@@ -180,6 +191,7 @@ def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path
 
     assert result["ok"], result
     assert result["status"] == "accepted"
+    assert result["review_status"] == "provided"
     assert Path(result["chapter_file"]).is_file()
     assert Path(result["report_file"]).is_file()
     assert Path(result["record_file"]).is_file()
@@ -199,7 +211,9 @@ def test_record_chapter_workflow_updates_project_files_state_and_memory(tmp_path
     memory = MemoryManager.from_project(project)
     assert memory.get_open_foreshadowing()[0]["id"] == "fh_001"
     assert memory.get_chapter_summaries(1)[0]["title"] == "葬礼后的信"
-    assert CommitStore.from_project(project).read(1)["status"] == "accepted"
+    commit = CommitStore.from_project(project).read(1)
+    assert commit["status"] == "accepted"
+    assert commit["review_meta"]["source"] == "agent"
 
 
 def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
@@ -592,6 +606,99 @@ def test_record_chapter_workflow_does_not_record_when_chapter_write_fails(
     assert not (project / ".story" / "chapters" / "ch_01_record.json").exists()
 
 
+def test_record_chapter_workflow_rolls_back_sqlite_projections_when_chapter_write_fails(
+    tmp_path,
+    monkeypatch,
+):
+    import core.projection.vector_writer as vector_writer
+
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+        project_type="long",
+    )
+    plan_story(project, chapter_count=8)
+    monkeypatch.setattr(vector_writer, "EmbeddingClient", lambda: FakeEmbeddingClient())
+
+    draft_one = tmp_path / "draft-1.md"
+    draft_one.write_text(
+        long_chapter(
+            "第01章 葬礼后的信",
+            "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。",
+        ),
+        encoding="utf-8",
+    )
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps({"issues": [], "summary": "章节可提交。"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    first = record_chapter_workflow(
+        project,
+        chapter=1,
+        draft_file=draft_one,
+        review_results=review,
+    )
+
+    config = StateManager.from_project(project).config
+    assert first["ok"], first
+    assert config.index_db.exists()
+    assert config.vector_db.exists()
+    assert _sqlite_count(config.index_db, "entries") > 0
+    assert _sqlite_count(config.vector_db, "chunks") > 0
+    index_before = config.index_db.read_bytes()
+    vector_before = config.vector_db.read_bytes()
+
+    draft_two = tmp_path / "draft-2.md"
+    draft_two.write_text(
+        long_chapter(
+            "第02章 旧楼档案",
+            "林墨沿着旧楼档案追查缺页报告，门禁记录、雨夜脚印和电话录音逐步拼出新的矛盾。",
+        ),
+        encoding="utf-8",
+    )
+    original_atomic_write_text = chapter_workflow_module.atomic_write_text
+
+    def fail_chapter_write(path, data, **kwargs):
+        if Path(path).parent == project / "正文":
+            raise AtomicWriteError("模拟正文写入失败")
+        return original_atomic_write_text(path, data, **kwargs)
+
+    monkeypatch.setattr(
+        chapter_workflow_module,
+        "atomic_write_text",
+        fail_chapter_write,
+    )
+
+    result = record_chapter_workflow(
+        project,
+        chapter=2,
+        draft_file=draft_two,
+        review_results=review,
+    )
+
+    progress = StateManager.from_project(project).get_progress()
+    memory = MemoryManager.from_project(project).load()
+    assert not result["ok"]
+    assert result["stage"] == "write_error"
+    assert_failure_shape(result, draft_two, word_count_check=True)
+    assert result["status"] == "failed"
+    assert any("正式写入失败" in item for item in result["blockers"])
+    assert progress["current_chapter"] == 1
+    assert memory["last_updated_chapter"] == 1
+    assert CommitStore.from_project(project).read(2) is None
+    assert not any((project / "正文").glob("第02章*.md"))
+    assert config.index_db.read_bytes() == index_before
+    assert config.vector_db.read_bytes() == vector_before
+
+
 def test_record_chapter_workflow_does_not_write_chapter_when_record_rejects(
     tmp_path,
     monkeypatch,
@@ -768,4 +875,31 @@ def test_cli_plan_and_write(tmp_path):
     assert write.returncode == 0, write.stderr
     payload = json.loads(write.stdout)
     assert payload["status"] == "accepted"
+    assert payload["review_status"] == "skipped"
     assert Path(payload["chapter_file"]).is_file()
+    commit = json.loads(Path(payload["commit_file"]).read_text(encoding="utf-8"))
+    assert commit["review_meta"]["source"] == "fallback"
+
+    draft_two = tmp_path / "draft-2.md"
+    draft_two.write_text(
+        long_chapter(
+            "第02章 旧楼档案",
+            "林墨沿着旧楼档案追查缺页报告，门禁记录、雨夜脚印和电话录音逐步拼出新的矛盾。",
+        ),
+        encoding="utf-8",
+    )
+    require_review = run_cli(
+        "--project-root",
+        str(project),
+        "write",
+        "2",
+        "--draft-file",
+        str(draft_two),
+        "--require-review",
+    )
+    assert require_review.returncode == 1
+    blocked = json.loads(require_review.stdout)
+    assert blocked["stage"] == "prewrite"
+    assert blocked["review_status"] == "skipped"
+    assert "未提供 reviewer 结果" in blocked["blockers"][0]
+    assert not (project / ".story" / "commits" / "chapter_002.commit.json").exists()

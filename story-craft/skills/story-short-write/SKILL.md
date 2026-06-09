@@ -115,6 +115,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
   "${CHAPTER}" \
   --draft-file "${CHAPTER_DRAFT_FILE}" \
   --review-results "${REVIEW_JSON}" \
+  --require-review \
   --delta-file "${DELTA_JSON}" \
   --result-file "${WRITE_RESULT}"
 ```

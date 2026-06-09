@@ -4,14 +4,14 @@
 
 story-craft 让作者在 Claude Code 中完成从构思到成稿的全流程：初始化项目、规划合同、逐章写作、自动审查、事实抽取、commit 真源写入、投影重建和写作经验积累。内置题材模板、流派知识库和 references 三分资料，覆盖悬疑、言情、修仙、科幻、知乎短篇等主流品类。
 
-主入口是 Claude Code 对话里的 `/story-*` 命令；Python CLI 是底层支撑工具，用于校验、生成工作台、写入真源、重建投影和运维查询。
+主入口是 Claude Code 对话里的 `/story-*` 命令；Python CLI 是底层支撑工具，用于校验、生成工作台、写入真源、重建投影和运维查询。`/story-*` 写作链必须提供 reviewer 结果；直接调用 CLI 时可用本地轻量兜底，结果会用 `review_status` 和 commit `review_meta.source` 留痕，也可用 `--require-review` 强制要求 reviewer JSON。
 
 **核心特色：**
 
 - **双轨写作**：短篇使用 4 核心 Agent 和 lazy 投影，长篇使用 9 Agent 能力、卷章合同和 5 场景路由。
 - **合同先行**：写前真源是 `.story/contracts/master.json` 和 `.story/contracts/chapters/chapter_NNN.json`。
 - **Agent 协作**：context-agent、narrative-writer、reviewer、data-agent 形成写作主链，规划、角色、一致性、查询和研究 Agent 按需加入。
-- **结构化审查**：reviewer 输出 `issues` / `summary`，S1/S2、`blocking=true` 和 critical issue 未修复前不进入 commit。
+- **结构化审查**：reviewer 输出 `issues` / `summary`，S1/S2、`blocking=true` 和 critical issue 未修复前不进入 commit；CLI 兜底路径会标记为 `review_status=skipped` 和 `review_meta.source=fallback`。
 - **commit 真源**：章节验收后写入 `.story/commits/chapter_NNN.commit.json`，再派发 6 个 read-model 投影。
 - **可恢复工作台**：每章中间产物固定保存在 `.story/workflows/ch_NN/`，便于中断后从缺失步骤继续。
 

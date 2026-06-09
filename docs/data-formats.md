@@ -66,7 +66,7 @@ story-craft 使用三类真源和六类投影：
 
 ## reviewer JSON 原始输出
 
-`reviewer` Agent 的原始输出以 `issues` 为权威。`S1/S2`、`blocking=true` 或 `severity=critical` 会在本地归一化为阻断项。
+`reviewer` Agent 的原始输出以 `issues` 为权威。`S1/S2`、`blocking=true` 或 `severity=critical` 会在本地归一化为阻断项。`write` / `chapter-commit` 会在归一化后补充审查来源：提供 reviewer JSON 时 commit 记录 `review_meta.source=agent`，CLI 本地兜底时记录 `review_meta.source=fallback`。
 
 最小通过示例：
 
@@ -210,6 +210,7 @@ delta 分为两层契约：
   "word_count": 2800,
   "written_at": "2026-06-09T00:00:00Z",
   "review_meta": {
+    "source": "agent",
     "requested_mode": "solo",
     "effective_mode": "solo"
   },
@@ -240,17 +241,18 @@ delta 分为两层契约：
 
 ## write-result JSON
 
-`write` 或 `chapter-commit` 命令验收后生成结果文件，记录本次验收的阶段、状态和投影结果。类型边界为 `WriteResult = WriteSuccess | WriteFailure`。
+`write` 或 `chapter-commit` 命令验收后生成结果文件，记录本次验收的阶段、状态、审查来源和投影结果。类型边界为 `WriteResult = WriteSuccess | WriteFailure`。
 
 ### WriteSuccess
 
-`WriteSuccess` 只表示正式验收成功：`"ok": true`、`status=accepted`。
+`WriteSuccess` 只表示正式验收成功：`"ok": true`、`status=accepted`。`review_status` 取值为 `provided` 或 `skipped`，分别表示本次是否提供了 reviewer JSON。
 
 ```json
 {
   "ok": true,
   "stage": "commit",
   "status": "accepted",
+  "review_status": "provided",
   "chapter": 1,
   "title": "空白来信",
   "word_count": 2800,
@@ -283,8 +285,8 @@ delta 分为两层契约：
 
 `WriteFailure` 覆盖两类失败：
 
-- 闸门失败或写入失败：`stage` 为 `prewrite`、`placeholder`、`word_count`、`warnings`、`delta_validation`、`commit` 或 `write_error`，会包含 `blockers`、`warnings`、`draft_file` 和固定文件字段。
-- reviewer 退稿：`stage=record`、`status=rejected`，可写审查报告、记录和 rejected commit，但不会写最终正文，也不会更新记忆或进度。
+- 闸门失败或写入失败：`stage` 为 `prewrite`、`placeholder`、`word_count`、`warnings`、`delta_validation`、`commit` 或 `write_error`，会包含 `blockers`、`warnings`、`draft_file` 和固定文件字段。进入 write 命令后，结果可带 `review_status` 用于追踪本次是否提供 reviewer。
+- reviewer 退稿：`stage=record`、`status=rejected`，可写审查报告、记录和 rejected commit，但不会写最终正文，也不会更新记忆或进度；此时同样会带 `review_status`。
 
 完整 stage 枚举：
 

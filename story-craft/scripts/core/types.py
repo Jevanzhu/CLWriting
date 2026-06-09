@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 
 
 StrandLiteral = Literal["quest", "fire", "constellation"]
+ReviewStatus = Literal["provided", "skipped"]
 
 EventType = Literal[
     "entity_introduced",
@@ -258,6 +259,7 @@ WriteGateStage = Literal[
 class WriteSuccess(TypedDict):
     ok: Literal[True]
     stage: Literal["record", "commit"]
+    review_status: ReviewStatus
     chapter: int
     title: str
     word_count: int
@@ -285,6 +287,7 @@ class WriteGateFailureBase(TypedDict):
 
 
 class WriteGateFailure(WriteGateFailureBase, total=False):
+    review_status: ReviewStatus
     word_count_check: dict[str, Any]
     placeholders: list[dict[str, str]]
     chapter: int
@@ -298,6 +301,7 @@ class WriteGateFailure(WriteGateFailureBase, total=False):
 class WriteRejection(TypedDict):
     ok: Literal[False]
     stage: Literal["record"]
+    review_status: ReviewStatus
     chapter: int
     title: str
     word_count: int

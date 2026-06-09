@@ -223,6 +223,7 @@ def build_workflow_workspace(
                 files["draft"],
                 "--review-results",
                 files["review"],
+                "--require-review",
                 "--delta-file",
                 files["delta"],
                 "--result-file",

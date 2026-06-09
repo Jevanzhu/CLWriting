@@ -442,11 +442,13 @@ def record_chapter_workflow(
     output_file: Optional[str | Path] = None,
     report_file: Optional[str | Path] = None,
     allow_warnings: bool = True,
+    require_review: bool = False,
 ) -> WriteResult:
     """Validate, persist, review-report, and record a chapter draft."""
     config = StoryCraftConfig.from_project_root(project_root)
     config.ensure_dirs()
     draft_path = Path(draft_file).expanduser().resolve()
+    review_status = "provided" if review_results else "skipped"
     validation = validate_prewrite(config.project_root, chapter)
     if not validation["ready"]:
         return _failure_result(
@@ -454,6 +456,7 @@ def record_chapter_workflow(
             blockers=validation["blockers"],
             warnings=validation["warnings"],
             draft_path=draft_path,
+            review_status=review_status,
         )
 
     chapter_text = draft_path.read_text(encoding="utf-8")
@@ -465,6 +468,7 @@ def record_chapter_workflow(
             warnings=validation["warnings"],
             draft_path=draft_path,
             placeholders=placeholders,
+            review_status=review_status,
         )
 
     context = ContextManager(config).build_context(chapter)
@@ -481,6 +485,7 @@ def record_chapter_workflow(
             warnings=all_warnings,
             draft_path=draft_path,
             word_count_check=word_count_check,
+            review_status=review_status,
         )
 
     inferred_title = _infer_title(chapter_text, chapter, fallback=title)
@@ -499,6 +504,17 @@ def record_chapter_workflow(
             warnings=all_warnings,
             draft_path=draft_path,
             word_count_check=word_count_check,
+            review_status=review_status,
+        )
+
+    if require_review and not review_results:
+        return _failure_result(
+            stage="prewrite",
+            blockers=["未提供 reviewer 结果，且已开启 --require-review"],
+            warnings=all_warnings,
+            draft_path=draft_path,
+            word_count_check=word_count_check,
+            review_status=review_status,
         )
 
     review_source = "provided" if review_results else "fallback"
@@ -521,6 +537,9 @@ def record_chapter_workflow(
                 "summary": "未提供 reviewer 结果，使用本地轻量检查兜底。",
             }
         )
+    review_meta = dict(review_result.get("meta") or {})
+    review_meta["source"] = "agent" if review_results else "fallback"
+    review_result["meta"] = review_meta
     if extraction_delta:
         delta: ExtractionDelta = _read_json(extraction_delta)  # type: ignore[assignment]
     else:
@@ -541,6 +560,7 @@ def record_chapter_workflow(
             warnings=all_warnings,
             draft_path=draft_path,
             word_count_check=word_count_check,
+            review_status=review_status,
         )
 
     report_path = (
@@ -598,10 +618,12 @@ def record_chapter_workflow(
             status="failed",
             memory_updated=False,
             state_updated=False,
+            review_status=review_status,
         )
     return {
         "ok": record_result["status"] == "accepted",
         "stage": "record",
+        "review_status": review_status,
         "chapter": int(chapter),
         "title": chapter_title,
         "word_count": word_count,
@@ -631,6 +653,8 @@ def _projection_snapshot_paths(
     paths = [
         config.commits_dir / commit_file_name(chapter),
         config.summaries_dir / summary_file_name(chapter),
+        config.index_db,
+        config.vector_db,
         config.tracking_dir / "上下文.md",
         config.tracking_dir / "伏笔.md",
         config.tracking_dir / "时间线.md",
