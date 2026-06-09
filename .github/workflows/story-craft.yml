@@ -1,0 +1,35 @@
+name: story-craft
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test runner
+        run: python3 -m pip install pytest
+
+      - name: Compile scripts
+        run: python3 -m compileall -q story-craft/scripts
+
+      - name: Run pytest
+        run: python3 -m pytest story-craft/scripts/tests/ -q
+
+      - name: Run CLI end-to-end smoke
+        env:
+          STORYCRAFT_ENABLE_EMBEDDING: "0"
+        run: python3 -B story-craft/scripts/ci_e2e_smoke.py
