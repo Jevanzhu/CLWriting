@@ -1,0 +1,14 @@
+{
+  "name": "clwriting",
+  "owner": {
+    "name": "Jevanzhu"
+  },
+  "description": "CLWriting 的 Claude Code 插件市场，提供中文短篇/长篇小说写作系统 story-craft。",
+  "plugins": [
+    {
+      "name": "story-craft",
+      "source": "./story-craft",
+      "description": "中文短篇/长篇小说交互式写作系统（1-10 万字起步，可扩展长篇）"
+    }
+  ]
+}
