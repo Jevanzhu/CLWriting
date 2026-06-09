@@ -9,7 +9,6 @@ python3 -X utf8 story-craft/scripts/story_craft.py --help
 python3 -X utf8 story-craft/scripts/story_craft.py preflight --format json
 ```
 
-本项目不提供独立的 `story-craft <subcommand>` wrapper。
 全局参数 `--project-root` 必须放在子命令前，例如：
 
 ```bash
@@ -20,28 +19,26 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 
 当前共有 20 个顶层子命令：
 
-| 子命令 | 用途 |
-|--------|------|
-| `where` | 打印当前解析到的故事项目根目录 |
-| `preflight` | 检查 CLI、插件目录和项目定位状态 |
-| `use` | 把当前 Claude 工作区绑定到指定故事项目 |
-| `init` | 初始化一个故事项目 |
-| `plan` | 生成或刷新故事总纲 |
-| `write` | 验收一章草稿并更新故事记忆，可写成 `write N` |
-| `agent` | 生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta |
-| `review` | 把 reviewer JSON 转为 Markdown 审查报告，可写成 `review N` |
-| `rebuild-views` | 从 commit 真源幂等重建全部投影 |
-| `learn` | 记录可复用写作经验 |
-| `query` | 查询状态、上下文、记忆、学习记录、索引、实体图和质量趋势 |
-| `index` | 重建项目记忆索引 |
-| `backup` | 创建项目备份 |
-| `health` | 运行故事项目健康检查 |
-| `outline-revision` | 生成中期大纲修正建议 |
-| `chapter-commit` | 通过现有验收链路写入 chapter-commit 真源 |
-| `deslop` | 运行 6-Gate 去 AI 味检测，支持 `.deslop-whitelist` |
-| `repair` | 根据 reviewer JSON 生成三段式修复强度计划 |
-| `placeholder-scan` | 扫描文本占位符 |
-| `import` | 解析外部 txt/md/docx 作品章节，不做 v1 迁移 |
+- `where`：打印当前解析到的故事项目根目录。
+- `preflight`：检查 CLI、插件目录和项目定位状态。
+- `use`：把当前 Claude 工作区绑定到指定故事项目。
+- `init`：初始化一个故事项目，可写入 `project_type=short|long`。
+- `plan`：生成或刷新短中篇总纲和章节合同。
+- `write`：验收一章草稿并更新故事记忆，可写成 `write N`。
+- `agent`：生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta。
+- `review`：把 reviewer JSON 转为 Markdown 审查报告，可写成 `review N`。
+- `rebuild-views`：从 commit 真源幂等重建全部投影。
+- `learn`：记录可复用写作经验。
+- `query`：查询状态、上下文、记忆、学习记录、索引、实体图和质量趋势。
+- `index`：重建项目记忆索引。
+- `backup`：创建项目备份。
+- `health`：运行故事项目健康检查。
+- `outline-revision`：生成中期大纲修正建议。
+- `chapter-commit`：通过现有验收链路写入 chapter-commit 真源。
+- `deslop`：运行 6-Gate 去 AI 味检测，支持 `.deslop-whitelist`。
+- `repair`：根据 reviewer JSON 生成三段式修复强度计划。
+- `placeholder-scan`：扫描文本占位符。
+- `import`：解析外部 txt/md/docx 作品章节。
 
 ## 创建调试项目
 
@@ -66,44 +63,60 @@ python3 -X utf8 story-craft/scripts/story_craft.py init \
   --protagonist-name 林墨
 ```
 
-`--project-type` 可取 `short` 或 `long`。显式传入时会写入
-`.story/contracts/master.json`，供双轨运行时读取。
+`--project-type` 可取 `short` 或 `long`。显式传入时会写入 `.story/contracts/master.json`，供双轨运行时读取。
 
 ## 绑定工作区
 
 ```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo use
+python3 -X utf8 story-craft/scripts/story_craft.py use /tmp/story-demo
+python3 -X utf8 story-craft/scripts/story_craft.py where
 ```
+
+`use` 会写入当前 Claude 工作区的项目指针；`where` 用于确认当前解析到的故事项目根。
 
 ## 规划与写作
 
+短中篇规划调试：
+
 ```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo plan --chapter-count 8
+```
 
+工作台冒烟：
+
+```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo agent workflow \
   --chapter 1 \
-  --output-file /tmp/story-demo/.story/workflow-ch1.json
+  --output-file /tmp/story-demo/.story/workflows/ch_01/manifest.json
+```
 
+本地兜底任务书与 delta：
+
+```bash
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo agent brief \
   --chapter 1 \
-  --output-file /tmp/story-demo/.story/brief-ch1.json
+  --output-file /tmp/story-demo/.story/workflows/ch_01/brief.json
 
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo agent extract \
   --chapter 1 \
-  --chapter-file /tmp/story-demo/.story/draft-ch1.md \
-  --output-file /tmp/story-demo/.story/delta-ch1.json
-
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo write \
-  1 \
-  --draft-file /tmp/story-demo/.story/draft-ch1.md \
-  --review-results /tmp/story-demo/.story/review-ch1.json \
-  --delta-file /tmp/story-demo/.story/delta-ch1.json \
-  --result-file /tmp/story-demo/.story/write-result-ch1.json
+  --chapter-file /tmp/story-demo/.story/workflows/ch_01/draft.md \
+  --output-file /tmp/story-demo/.story/workflows/ch_01/delta.json
 ```
 
-`write --chapter 1` 仍兼容；推荐使用 `write 1`。`chapter-commit` 复用同一验收链路，适合需要显式强调写入 chapter-commit 真源的内部流程。`--result-file` 可选，用于把验收结果保存成 JSON，便于工作台恢复。使用 `--strict-warnings` 可把字数偏差警告也视为阻断。
+正式写入 commit 真源：
 
-真实 `/story-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件；CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
+```bash
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo chapter-commit \
+  1 \
+  --draft-file /tmp/story-demo/.story/workflows/ch_01/draft.md \
+  --review-results /tmp/story-demo/.story/workflows/ch_01/review.json \
+  --delta-file /tmp/story-demo/.story/workflows/ch_01/delta.json \
+  --result-file /tmp/story-demo/.story/workflows/ch_01/write-result.json
+```
+
+`write 1` 可用于验收一章草稿并更新故事记忆；`chapter-commit` 是阶段 3 后更明确的真源写入入口。使用 `--strict-warnings` 可把字数偏差 warning 也视为阻断。
+
+真实 `/story-short-write` 或 `/story-long-write` 流程应优先使用 `.story/workflows/ch_NN/` 下的 `manifest.json`、`brief.json`、`draft.md`、`review.json`、`delta.json` 等固定文件。CLI 的 `agent brief` / `agent extract` 是本地兜底和冒烟验证工具，不替代真实 Agent 输出。
 
 ## 审查
 
@@ -115,24 +128,26 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> revie
   --report-file <报告.md>
 ```
 
-`review --chapter 1` 仍兼容；推荐使用 `review 1`。
-`reviewer` 原始 JSON 必须包含 `issues` 数组和 `summary` 字符串；`blocking=true` 或 `severity=critical` 会被本地视为阻断。
+推荐使用 `review 1`。`reviewer` 原始 JSON 必须包含 `issues` 数组和 `summary` 字符串；`S1/S2`、`blocking=true` 或 `severity=critical` 会被本地视为阻断。
 
-## 记录经验
+## 修复与去 AI 味
 
 ```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> learn \
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> deslop \
+  --draft-file <草稿.md> \
+  --whitelist-file <项目>/.deslop-whitelist \
+  --output-file <工作台>/deslop.json
+
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> repair \
   --chapter 1 \
-  --pattern-type hook \
-  --description "开篇异常进入得更快" \
-  --instruction "后续章节前300字内必须出现行动或异常"
+  --review-results <review.json> \
+  --draft-file <草稿.md> \
+  --output-file <工作台>/repair-plan.json
+
+python3 -X utf8 story-craft/scripts/story_craft.py placeholder-scan <草稿.md>
 ```
 
-查询已有经验：
-
-```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query learning
-```
+`repair` 根据 severity 数量生成 `complete_rewrite`、`partial_rewrite` 或 `polish_only`。修复后必须重新 reviewer，不得跳过复审。
 
 ## 查询与维护
 
@@ -151,13 +166,9 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> index
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> backup --label 阶段备份
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> health
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> outline-revision --chapter 6 --note "剧情需要转折"
-python3 -X utf8 story-craft/scripts/story_craft.py placeholder-scan <草稿.md>
-python3 -X utf8 story-craft/scripts/story_craft.py deslop --draft-file <草稿.md>
-python3 -X utf8 story-craft/scripts/story_craft.py repair --review-results <review.json>
 python3 -X utf8 story-craft/scripts/story_craft.py import --source <外部作品.txt>
 ```
 
-`rebuild-views` 会从 `.story/commits/` 重放 accepted commits，重建 state、memory、summary、index、vector 和 markdown_view。短篇项目会 lazy 跳过 index/vector。
+`rebuild-views` 会从 `.story/commits/` 重放 accepted commits，重建 `state`、`memory`、`summary`、`index`、`vector` 和 `markdown_view`。短篇项目可 lazy 跳过 `index/vector`。
 
-`health` 输出包含项目状态摘要和运行时诊断（Python 版本、平台、可选依赖可用性）。
-`deslop`、顶层 `repair` 和 `import` 是阶段 3 的确定性工具层。Claude Code 里的交互式 Skill 编排仍需按 CC 验证清单单独验证。
+`health` 输出包含项目状态摘要和运行时诊断。`deslop`、顶层 `repair` 和 `import` 是确定性工具层；Claude Code 里的交互式 Skill 编排仍需按 CC 验证清单单独验证。

@@ -11,6 +11,17 @@ from cli.cli_args import build_parser
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SCRIPTS_DIR.parents[1]
 SCRIPT = SCRIPTS_DIR / "story_craft.py"
+PLUGIN_ROOT = REPO_ROOT / "story-craft"
+DOCS_DIR = REPO_ROOT / "docs"
+USER_DOCS = [
+    REPO_ROOT / "README.md",
+    DOCS_DIR / "quickstart.md",
+    DOCS_DIR / "claude-code-usage.md",
+    DOCS_DIR / "cli-usage.md",
+    DOCS_DIR / "data-formats.md",
+    DOCS_DIR / "troubleshooting.md",
+    DOCS_DIR / "development.md",
+]
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -63,6 +74,12 @@ def test_readme_is_project_intro_and_docs_navigation():
     ):
         assert heading in readme
     assert "1-10 万字" in readme
+    assert "17 个 Skill" in readme
+    assert "13 个 Claude Code commands" in readme
+    assert "9 个 Agent" in readme
+    assert "20 个 CLI 顶层子命令" in readme
+    assert ".story/contracts/master.json" in readme
+    assert ".story/commits/chapter_NNN.commit.json" in readme
     assert "docs/quickstart.md" in readme
     assert "docs/claude-code-usage.md" in readme
     assert "docs/cli-usage.md" in readme
@@ -73,12 +90,41 @@ def test_readme_is_project_intro_and_docs_navigation():
 
 def test_usage_docs_are_split_by_category():
     docs = {
-        "quickstart.md": ("/story-init", "/story-write 1"),
-        "claude-code-usage.md": ("Agent 编排", ".story/workflows/ch_NN/"),
+        "quickstart.md": (
+            "/story-init",
+            "/story-short-write 1",
+            "/story-long-plan",
+            "/story-long-write 1",
+            ".story/workflows/ch_NN/",
+        ),
+        "claude-code-usage.md": (
+            "Agent 编排",
+            "当前插件定义 13 个 Claude Code commands",
+            "当前共有 17 个 Skill",
+            "当前共有 9 个 Agent",
+            ".story/workflows/ch_NN/",
+        ),
         "cli-usage.md": ("write 1", "review 1", "当前共有 20 个顶层子命令"),
-        "data-formats.md": ("reviewer JSON", "data-agent 完整输出", "write 最小可消费 delta"),
-        "troubleshooting.md": ("word_count_check", "工作台恢复", "章节合同"),
-        "development.md": ("测试命令", "README 只放项目介绍"),
+        "data-formats.md": (
+            "reviewer JSON",
+            "data-agent 完整输出",
+            "write 最小可消费 delta",
+            ".story/commits/chapter_NNN.commit.json",
+            "6 投影",
+        ),
+        "troubleshooting.md": (
+            "word_count_check",
+            "工作台恢复",
+            "章节合同",
+            "短篇退化",
+            "投影重建",
+        ),
+        "development.md": (
+            "测试命令",
+            "README 只放项目介绍",
+            "双轨冒烟",
+            "timeout 60s",
+        ),
         "stage3-cc-verification.md": ("已自动验证", "待 Claude Code 验证", "不得标为已通过"),
         "stage4-cc-verification.md": (
             "已自动验证",
@@ -109,12 +155,13 @@ def test_write_result_docs_list_actual_stage_contract():
         "warnings",
         "delta_validation",
         "record",
+        "commit",
         "write_error",
     ):
         assert f"`{stage}`" in text
 
 
-def test_cli_usage_doc_matches_phase_two_root_commands():
+def test_cli_usage_doc_matches_phase_five_root_commands():
     parser = build_parser()
     subparser_actions = [
         action
@@ -128,6 +175,93 @@ def test_cli_usage_doc_matches_phase_two_root_commands():
     assert "当前共有 20 个顶层子命令" in docs_text
     for command in sorted(root_commands):
         assert f"`{command}`" in docs_text
+
+
+def test_docs_match_phase_five_runtime_asset_counts():
+    command_files = sorted((PLUGIN_ROOT / "commands").glob("*.md"))
+    skill_files = sorted((PLUGIN_ROOT / "skills").glob("story-*/SKILL.md"))
+    agent_files = sorted((PLUGIN_ROOT / "agents").glob("*.md"))
+
+    assert len(command_files) == 13
+    assert len(skill_files) == 17
+    assert len(agent_files) == 9
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    cc_doc = (DOCS_DIR / "claude-code-usage.md").read_text(encoding="utf-8")
+    development = (DOCS_DIR / "development.md").read_text(encoding="utf-8")
+
+    for text in (readme, cc_doc, development):
+        assert "17 个 Skill" in text
+        assert "13 个 Claude Code commands" in text
+        assert "9 个 Agent" in text
+        assert "20 个 CLI 顶层子命令" in text
+
+
+def test_docs_cover_dual_track_contract_commit_and_projection_boundaries():
+    quickstart = (DOCS_DIR / "quickstart.md").read_text(encoding="utf-8")
+    data_formats = (DOCS_DIR / "data-formats.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS_DIR / "troubleshooting.md").read_text(encoding="utf-8")
+    development = (DOCS_DIR / "development.md").read_text(encoding="utf-8")
+
+    for text in (quickstart, troubleshooting, development):
+        assert "短篇" in text
+        assert "长篇" in text
+        assert ".story/contracts/master.json" in text
+
+    for text in (data_formats, troubleshooting, development):
+        assert ".story/contracts/chapters/chapter_NNN.json" in text
+        assert ".story/commits/chapter_NNN.commit.json" in text
+
+    for projection in ("state", "memory", "summary", "index", "vector", "markdown_view"):
+        assert f"`{projection}`" in data_formats
+        assert f"`{projection}`" in troubleshooting
+
+
+def test_troubleshooting_documents_short_track_degradation_and_search_fallback():
+    troubleshooting = (DOCS_DIR / "troubleshooting.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "无 `volumes/` 不阻断",
+        "reviewer 默认 `solo` mode",
+        "`style_fingerprint` 可选",
+        "`index/vector` 默认 lazy",
+        "BM25 或 LIKE",
+        "master contract 缺失",
+        "project_type 缺失",
+    ):
+        assert phrase in troubleshooting
+
+
+def test_user_docs_do_not_reintroduce_obsolete_entrypoints_or_migration_material():
+    forbidden = (
+        "story-craft <subcommand>",
+        "story-craft/bin",
+        "wrapper",
+        "migrate",
+        "migration",
+        "v1 compat",
+        "legacy",
+        "仍兼容",
+        "write --chapter",
+        "review --chapter",
+        "deconstruction-agent",
+        "6 个 Skill",
+        "4 个 Agent",
+        "maintain index",
+        "maintain backup",
+        "maintain health",
+        "maintain outline-revision",
+        "`maintain`",
+    )
+
+    for path in USER_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for phrase in forbidden:
+            assert phrase not in text, f"{path.name}: {phrase}"
+
+
+def test_cli_usage_does_not_document_removed_maintain_commands():
+    docs_text = (REPO_ROOT / "docs" / "cli-usage.md").read_text(encoding="utf-8")
 
     for obsolete in (
         "maintain index",
@@ -152,6 +286,13 @@ def test_write_and_context_docs_use_chapter_contract_truth_source():
         assert ".story/contracts/chapters/chapter_NNN.json" in text
         assert "目标章节存在于 `大纲/总纲.md`" not in text
         assert "`大纲/总纲.md` 覆盖目标章节" not in text
+
+    for doc_path in USER_DOCS:
+        text = doc_path.read_text(encoding="utf-8")
+        assert "目标章节存在于 `大纲/总纲.md`" not in text
+        assert "`大纲/总纲.md` 覆盖目标章节" not in text
+        assert "总纲未覆盖本章" not in text
+        assert "大纲未覆盖本章" not in text
 
     assert "章节合同缺失" in context_agent
     assert "总纲未覆盖本章" not in context_agent
