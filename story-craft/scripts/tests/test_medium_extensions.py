@@ -211,6 +211,45 @@ def test_medium_cli_commands(tmp_path):
     assert ranked.returncode == 0, ranked.stderr
     assert len(json.loads(ranked.stdout)["selected"]) == 2
 
+    impact = run_cli(
+        "--project-root",
+        str(tmp_path / "medium"),
+        "query",
+        "impact",
+        "--chapter",
+        "2",
+    )
+    assert impact.returncode == 0, impact.stderr
+    impact_payload = json.loads(impact.stdout)
+    assert impact_payload["ok"] is True
+    assert impact_payload["chapter"] == 2
+    assert impact_payload["commit"]["title"] == "缺页报告"
+    assert impact_payload["commit"]["status"] == "accepted"
+    assert impact_payload["commit"]["word_count"] == 2400
+    assert impact_payload["commit"]["summary"] == "尸检报告缺页"
+    assert impact_payload["characters"] == ["char_protagonist", "char_su"]
+    related_open_ids = {
+        item["id"] for item in impact_payload["foreshadowing"]["related_open"]
+    }
+    assert "fh_003" in related_open_ids
+    assert impact_payload["timeline"]["commit_entry"]["time_marker"] == "周四"
+    assert impact_payload["timeline"]["projected_entries"][0]["events"] == ["追查报告"]
+    assert impact_payload["later_chapters"] == []
+    assert any("时间线" in item for item in impact_payload["suggested_checks"])
+
+    missing_impact = run_cli(
+        "--project-root",
+        str(tmp_path / "medium"),
+        "query",
+        "impact",
+        "--chapter",
+        "99",
+    )
+    assert missing_impact.returncode == 1
+    missing_impact_payload = json.loads(missing_impact.stdout)
+    assert missing_impact_payload["ok"] is False
+    assert any("commit 真源" in item for item in missing_impact_payload["blockers"])
+
     semantic = run_cli(
         "--project-root",
         str(tmp_path / "medium"),
