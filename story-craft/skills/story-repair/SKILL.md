@@ -99,3 +99,11 @@ Agent(
 ## 完成条件
 
 输出 `diagnosis_report`、`rewrite_chapter`、`rewrite_delta`、复审结果和下一步建议：继续修复、交回写作链、或进入章节验收。
+
+## 参考加载表
+
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- blocking 决策：`references/shared/review/blocking-override-guidelines.md`
+- 核心约束：`references/shared/core-constraints.md`
+- 命名语调：`references/shared/naming-and-voice-gaps.md`

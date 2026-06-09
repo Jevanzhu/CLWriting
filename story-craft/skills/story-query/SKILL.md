@@ -84,3 +84,10 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 ## 完成条件
 
 回答用户问题，并确认本次没有写入文件。
+
+## 参考加载表
+
+- 核心约束：`references/shared/core-constraints.md`
+- 题材画像：`references/shared/genre-profiles.md`
+- 长篇状态口径：`references/long/state-tracking.md`
+- 短篇阅读力：`references/short/reading-power-taxonomy.md`

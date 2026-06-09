@@ -176,3 +176,10 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" where
 ## 完成条件
 
 输出项目根路径、`project_type`、已生成文件清单、部署资产摘要、deployment sentinel 路径、启用 Agent 轨道，以及下一步建议：短篇 `/story-short-write`，长篇 `/story-long-plan`。
+
+## 参考加载表
+
+- 初始化题材：`references/shared/genre-profiles.md`
+- 题材归一：`references/shared/csv/genre-canonical.md`
+- 调性推理：`references/shared/csv/题材与调性推理.csv`
+- 约束收口：`references/shared/core-constraints.md`

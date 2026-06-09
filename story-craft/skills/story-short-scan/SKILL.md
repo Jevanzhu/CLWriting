@@ -75,3 +75,11 @@ Agent(
 ## 完成条件
 
 输出扫描报告，包含占位符、结构缺口、AI 味指标、结尾风险和下一步建议。
+
+## 参考加载表
+
+- 短篇阅读力：`references/short/reading-power-taxonomy.md`
+- 剧透信号：`references/short/plot-signal-vs-spoiler.md`
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 核心约束：`references/shared/core-constraints.md`

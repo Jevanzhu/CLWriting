@@ -271,3 +271,11 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - `delta.json`
 - `write-result.json`
 - 最终正文文件、审查报告、record 文件、memory/state 是否更新
+
+## 参考加载表
+
+- 核心约束：`references/shared/core-constraints.md`
+- 命名语调：`references/shared/naming-and-voice-gaps.md`
+- 多线中篇：`references/shared/strand-weave-pattern.md`
+- 短篇阅读力：`references/short/reading-power-taxonomy.md`
+- 场景写法：`references/shared/csv/场景写法.csv`

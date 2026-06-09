@@ -76,3 +76,20 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出一份只读分析报告，并明确列出“已确认事实 / 推断 / 证据不足”。
+
+## 参考加载表
+
+- 状态追踪：`references/long/state-tracking.md`
+- 读者画像：`references/long/genre-readers.md`
+- 题材目录：`references/long/genre-catalog.md`
+- 剧情框架：`references/long/plot-frameworks.md`
+- 叙事线：`references/shared/strand-weave-pattern.md`
+- 审查 schema：`references/shared/review-schema.md`
+
+## Embedded Fallback 速查
+
+references 加载失败时不阻断只读分析，但必须降级使用本块最低口径：
+
+- rubric：只报告已确认事实、推断和证据不足，不把推断写成 canon。
+- banned-words：避免“整体不错”“节奏略慢”等无证据空泛评价。
+- 分析：优先看 state、memory、quality、entity-graph、commit 和合同覆盖。

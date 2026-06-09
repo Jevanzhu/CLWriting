@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from conftest import create_planned_project, run_cli
@@ -8,6 +9,50 @@ from tools.agent_workflow import build_workflow_workspace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+PLUGIN_ROOT = REPO_ROOT / "story-craft"
+REFERENCES_DIR = PLUGIN_ROOT / "references"
+SKILLS_DIR = PLUGIN_ROOT / "skills"
+REFERENCE_PATH_RE = re.compile(r"`(references/(?:shared|short|long)/[^`]+)`")
+
+SHORT_TRACK_SKILLS = {
+    "story-short-write",
+    "story-short-analyze",
+    "story-short-scan",
+}
+LONG_TRACK_SKILLS = {
+    "story-long-write",
+    "story-long-plan",
+    "story-long-analyze",
+    "story-long-scan",
+}
+
+
+def extract_loading_map_skill_refs() -> dict[str, set[str]]:
+    text = (REFERENCES_DIR / "index" / "reference-loading-map.md").read_text(
+        encoding="utf-8"
+    )
+    skill_section = text.split("## Skill 映射", 1)[1].split("## Agent 映射", 1)[0]
+    skill_refs: dict[str, set[str]] = {}
+    current_skill: str | None = None
+
+    for line in skill_section.splitlines():
+        skill_match = re.match(r"- `/(story-[^`]+)`", line)
+        if skill_match:
+            current_skill = skill_match.group(1)
+            skill_refs[current_skill] = set()
+            continue
+        if current_skill is None:
+            continue
+        skill_refs[current_skill].update(REFERENCE_PATH_RE.findall(line))
+
+    return skill_refs
+
+
+def extract_skill_reference_table_refs(skill_name: str) -> set[str]:
+    text = (SKILLS_DIR / skill_name / "SKILL.md").read_text(encoding="utf-8")
+    match = re.search(r"## 参考加载表\n(?P<body>.*?)(?:\n## |\Z)", text, re.DOTALL)
+    assert match, f"missing reference loading table in {skill_name}"
+    return set(REFERENCE_PATH_RE.findall(match.group("body")))
 
 
 def test_workflow_workspace_manifest_matches_reference_boundary(tmp_path):
@@ -85,3 +130,38 @@ def test_plugin_manifest_and_discovery_paths_are_documented():
     assert (plugin_root / "agents").is_dir()
     assert "不写未确认 schema 的 `skills` / `agents` 路径字段" in development_doc
     assert "按目录自动发现 `story-craft/skills/` 和 `story-craft/agents/`" in development_doc
+
+
+def test_skill_reference_tables_match_loading_map_and_files_exist():
+    loading_map_refs = extract_loading_map_skill_refs()
+    skill_names = {path.parent.name for path in SKILLS_DIR.glob("story-*/SKILL.md")}
+
+    assert loading_map_refs.keys() == skill_names
+
+    for skill_name, expected_refs in loading_map_refs.items():
+        table_refs = extract_skill_reference_table_refs(skill_name)
+        assert table_refs == expected_refs, skill_name
+        for reference_path in table_refs:
+            relative_path = reference_path.removeprefix("references/")
+            assert (REFERENCES_DIR / relative_path).is_file(), reference_path
+
+
+def test_short_track_skills_do_not_reference_long_material():
+    loading_map_refs = extract_loading_map_skill_refs()
+
+    for skill_name in SHORT_TRACK_SKILLS:
+        table_refs = extract_skill_reference_table_refs(skill_name)
+        assert not any(path.startswith("references/long/") for path in table_refs)
+        assert not any(
+            path.startswith("references/long/") for path in loading_map_refs[skill_name]
+        )
+
+
+def test_long_track_skills_have_embedded_fallback_quick_reference():
+    for skill_name in LONG_TRACK_SKILLS:
+        text = (SKILLS_DIR / skill_name / "SKILL.md").read_text(encoding="utf-8")
+
+        assert "## Embedded Fallback 速查" in text
+        assert "references 加载失败时不阻断" in text
+        assert "rubric" in text
+        assert "banned-words" in text

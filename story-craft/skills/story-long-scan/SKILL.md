@@ -80,3 +80,20 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 ## 完成条件
 
 输出扫描报告，清楚区分 blocker、warning 和待 Claude Code 验证项。
+
+## 参考加载表
+
+- 审查 schema：`references/shared/review-schema.md`
+- fallback rubric：`references/shared/review/fallback-rubric.md`
+- 核心约束：`references/shared/core-constraints.md`
+- 格式结构：`references/long/format-and-structure.md`
+- 状态追踪：`references/long/state-tracking.md`
+- 读者画像：`references/long/genre-readers.md`
+
+## Embedded Fallback 速查
+
+references 加载失败时不阻断扫描，但必须降级使用本块最低口径：
+
+- rubric：占位符、合同缺口、S1/S2 和 `blocking=true` 都按 blocker 输出。
+- banned-words：模板化结尾、总结式升华和解释性对白按 6-Gate 风险标注。
+- 扫描：坚持 grep-first，只报告可证实问题，不生成新剧情事实。
