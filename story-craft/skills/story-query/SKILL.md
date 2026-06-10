@@ -25,6 +25,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query index --text "${TEXT}"
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query semantic --text "${TEXT}"
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query impact --chapter "${CHAPTER}"
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query impact --chapter "${CHAPTER}" --format markdown
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 ```
 
@@ -45,7 +46,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" query genres
 - 实体关系：调用 `query entity-graph`。
 - 索引检索：调用 `query index --text 关键词`。
 - 语义检索：调用 `query semantic --text 关键词`；缺少 vector 索引时读取 memory index 兜底结果，并按 `next_steps` 提示维护命令。
-- 章节影响分析：调用 `query impact --chapter N`，只读汇总目标章 commit、角色、伏笔、时间线和后续章节引用。
+- 章节影响分析：调用 `query impact --chapter N`，只读汇总目标章 commit、角色、伏笔、时间线和后续章节引用；需要改稿复查清单时追加 `--format markdown`。
 - 上下文裁剪：调用 `query ranked-context --chapter N --budget B`。
 
 ## 流程

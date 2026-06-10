@@ -74,6 +74,204 @@ def analyze_chapter_impact(project_root: str | Path, chapter: int) -> dict[str, 
     }
 
 
+def render_chapter_impact_markdown(payload: dict[str, Any]) -> str:
+    """Render chapter impact analysis as a human-readable rewrite checklist."""
+    chapter = int(payload.get("chapter") or 0)
+    lines = [f"# 第{chapter:03d}章影响分析", ""]
+
+    if not payload.get("ok"):
+        lines.extend(_markdown_list_section("阻断", payload.get("blockers", []) or ["影响分析不可用。"]))
+        lines.extend(_markdown_list_section("下一步", payload.get("next_steps", [])))
+        return "\n".join(lines).rstrip() + "\n"
+
+    commit = payload.get("commit") if isinstance(payload.get("commit"), dict) else {}
+    lines.extend(
+        [
+            "## 目标章",
+            f"- 标题：{_display(commit.get('title'))}",
+            f"- 状态：{_display(commit.get('status'))}",
+            f"- 字数：{int(commit.get('word_count') or 0)}",
+            f"- 摘要：{_display(commit.get('summary'))}",
+            f"- 主导叙事线：{_display(commit.get('dominant_strand'))}",
+            "",
+        ]
+    )
+
+    lines.extend(_character_markdown(payload.get("characters", []), payload.get("character_details", [])))
+    lines.extend(_foreshadowing_markdown(payload.get("foreshadowing", {})))
+    lines.extend(_timeline_markdown(payload.get("timeline", {})))
+    lines.extend(_later_chapters_markdown(payload.get("later_chapters", [])))
+    lines.extend(_checklist_markdown(payload.get("suggested_checks", [])))
+    lines.extend(_markdown_list_section("警告", payload.get("warnings", [])))
+    lines.extend(_markdown_list_section("下一步", payload.get("next_steps", [])))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _character_markdown(characters: Any, details: Any) -> list[str]:
+    lines = ["## 相关角色"]
+    if not isinstance(characters, list) or not characters:
+        return lines + ["- 未发现直接相关角色。", ""]
+
+    detail_lookup: dict[str, dict[str, Any]] = {}
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            for key in (detail.get("id"), detail.get("name")):
+                if key:
+                    detail_lookup[str(key)] = detail
+
+    for character in characters:
+        character_id = str(character or "")
+        detail = detail_lookup.get(character_id, {})
+        name = str(detail.get("name") or "")
+        label = f"{character_id}（{name}）" if name and name != character_id else character_id
+        extra = _join_non_empty(
+            [
+                f"身份：{detail.get('role')}" if detail.get("role") else "",
+                f"层级：{detail.get('tier')}" if detail.get("tier") else "",
+                _appearance_range(detail),
+                f"状态：{detail.get('current_status')}" if detail.get("current_status") else "",
+            ]
+        )
+        lines.append(f"- {label}" + (f"；{extra}" if extra else ""))
+    return lines + [""]
+
+
+def _appearance_range(detail: dict[str, Any]) -> str:
+    first = detail.get("first_appearance_chapter")
+    last = detail.get("last_appearance_chapter")
+    if first and last:
+        return f"出场：第{int(first):03d}章-第{int(last):03d}章"
+    if first:
+        return f"首次出场：第{int(first):03d}章"
+    if last:
+        return f"最近出场：第{int(last):03d}章"
+    return ""
+
+
+def _foreshadowing_markdown(foreshadowing: Any) -> list[str]:
+    lines = ["## 伏笔影响"]
+    if not isinstance(foreshadowing, dict):
+        return lines + ["- 未发现相关伏笔。", ""]
+
+    sections = (
+        ("本章埋设", foreshadowing.get("planted", [])),
+        ("本章回收", foreshadowing.get("resolved", [])),
+        ("仍未回收", foreshadowing.get("related_open", [])),
+    )
+    has_items = False
+    for title, items in sections:
+        rows = items if isinstance(items, list) else []
+        if not rows:
+            continue
+        has_items = True
+        lines.append(f"- {title}：")
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            suffix = _join_non_empty(
+                [
+                    f"状态：{item.get('status')}" if item.get("status") else "",
+                    f"紧急度：{item.get('urgency')}" if item.get("urgency") else "",
+                    (
+                        f"计划第{int(item['planned_resolution_chapter']):03d}章回收"
+                        if item.get("planned_resolution_chapter")
+                        else ""
+                    ),
+                    (
+                        f"已在第{int(item['resolved_chapter']):03d}章回收"
+                        if item.get("resolved_chapter")
+                        else ""
+                    ),
+                ]
+            )
+            content = _display(item.get("content"))
+            lines.append(f"  - {item.get('id') or 'unknown'}：{content}" + (f"；{suffix}" if suffix else ""))
+    if not has_items:
+        lines.append("- 未发现相关伏笔。")
+    return lines + [""]
+
+
+def _timeline_markdown(timeline: Any) -> list[str]:
+    lines = ["## 时间线"]
+    if not isinstance(timeline, dict):
+        return lines + ["- 未发现时间线记录。", ""]
+
+    commit_entry = timeline.get("commit_entry") if isinstance(timeline.get("commit_entry"), dict) else {}
+    projected_entries = timeline.get("projected_entries") if isinstance(timeline.get("projected_entries"), list) else []
+    if not commit_entry and not projected_entries:
+        return lines + ["- 未发现时间线记录。", ""]
+    if commit_entry:
+        lines.append(f"- commit：{_timeline_entry_label(commit_entry)}")
+    for entry in projected_entries:
+        if isinstance(entry, dict):
+            lines.append(f"- memory：{_timeline_entry_label(entry)}")
+    return lines + [""]
+
+
+def _timeline_entry_label(entry: dict[str, Any]) -> str:
+    events = entry.get("events")
+    if isinstance(events, list):
+        events_text = "、".join(str(item) for item in events if item)
+    else:
+        events_text = str(events or "")
+    parts = [
+        f"第{int(entry.get('chapter') or 0):03d}章" if entry.get("chapter") else "",
+        str(entry.get("time_marker") or ""),
+        str(entry.get("location") or ""),
+        events_text,
+    ]
+    return _join_non_empty(parts, separator=" / ") or "未记录细节"
+
+
+def _later_chapters_markdown(later_chapters: Any) -> list[str]:
+    lines = ["## 后续章节引用"]
+    rows = later_chapters if isinstance(later_chapters, list) else []
+    if not rows:
+        return lines + ["- 未发现后续 commit 直接引用目标章角色或伏笔。", ""]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        matched_characters = [str(item) for item in row.get("matched_characters", []) or []]
+        matched_foreshadowing = [str(item) for item in row.get("matched_foreshadowing", []) or []]
+        matches = _join_non_empty(
+            [
+                "角色 " + "、".join(matched_characters) if matched_characters else "",
+                "伏笔 " + "、".join(matched_foreshadowing) if matched_foreshadowing else "",
+            ]
+        )
+        summary = _display(row.get("summary"))
+        lines.append(
+            f"- 第{int(row.get('chapter') or 0):03d}章《{_display(row.get('title'))}》："
+            f"{summary}" + (f"；命中：{matches}" if matches else "")
+        )
+    return lines + [""]
+
+
+def _checklist_markdown(checks: Any) -> list[str]:
+    rows = checks if isinstance(checks, list) else []
+    if not rows:
+        rows = ["复查本章 summary、timeline_entry 和 accepted_events 是否仍成立。"]
+    return ["## 改稿复查清单"] + [f"- [ ] {item}" for item in rows if item] + [""]
+
+
+def _markdown_list_section(title: str, items: Any) -> list[str]:
+    rows = items if isinstance(items, list) else []
+    if not rows:
+        return []
+    return [f"## {title}"] + [f"- {item}" for item in rows if item] + [""]
+
+
+def _join_non_empty(values: list[str], *, separator: str = "；") -> str:
+    return separator.join(str(value).strip() for value in values if str(value or "").strip())
+
+
+def _display(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text else "未记录"
+
+
 def _commit_summary(commit: dict[str, Any]) -> str:
     chapter_summary = commit.get("chapter_summary") if isinstance(commit.get("chapter_summary"), dict) else {}
     return str(

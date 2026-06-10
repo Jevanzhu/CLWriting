@@ -25,7 +25,7 @@ from core.rag import HybridRetriever, VectorStore
 from core.security_utils import AtomicWriteError, atomic_write_text
 from core.log import setup_logging
 from tools.genre_profile_builder import list_all_genres
-from tools.impact_analyzer import analyze_chapter_impact
+from tools.impact_analyzer import analyze_chapter_impact, render_chapter_impact_markdown
 from tools.init_project import init_project
 from tools.agent_workflow import (
     build_extraction_delta,
@@ -332,6 +332,10 @@ def cmd_learn(args) -> int:
 
 
 def cmd_query(args) -> int:
+    if getattr(args, "format", "json") == "markdown" and args.target != "impact":
+        print_error("query --format markdown 目前仅支持 impact。")
+        return 1
+
     if args.target == "genres":
         print_json({"genres": list_all_genres()})
         return 0
@@ -371,7 +375,10 @@ def cmd_query(args) -> int:
         return 0 if payload.get("ok") else 1
     elif args.target == "impact":
         payload = analyze_chapter_impact(project_root, args.chapter)
-        print_json(payload)
+        if args.format == "markdown":
+            print(render_chapter_impact_markdown(payload), end="")
+        else:
+            print_json(payload)
         return 0 if payload.get("ok") else 1
     elif args.target == "entity-graph":
         print_json(build_entity_graph(MemoryManager.from_project(project_root).load()))
