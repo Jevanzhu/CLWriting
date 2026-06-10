@@ -110,6 +110,8 @@ def test_markdown_residue_flags_markup_and_clean_prose_is_none():
         [
             "###1.",
             "**重点**在这里。",
+            "这句有*斜体*残留。",
+            "这句有_斜体_残留。",
             "---",
             "> 引用句",
             "- 列表项",
@@ -119,9 +121,21 @@ def test_markdown_residue_flags_markup_and_clean_prose_is_none():
     )
 
     assert markdown_residue(clean)["value"] == 0.0
+    assert markdown_residue("这句有*斜体*残留。")["value"] == 1.0
+    assert markdown_residue("这句有_斜体_残留。")["value"] == 1.0
 
     dirty_metric = markdown_residue(dirty)
     result = analyze_deslop_metrics(dirty)
     assert dirty_metric["value"] >= 6
     assert result["gates"]["markdown_residue"]["level"] == "heavy"
     assert result["gates"]["markdown_residue"]["evidence"]
+
+
+def test_markdown_residue_cannot_be_suppressed_by_whitelist():
+    text = "###1.\n正文里有**重点**。"
+
+    result = analyze_deslop_metrics(text, whitelist=["###", "**"])
+
+    assert result["whitelist_applied"] == ["###", "**"]
+    assert result["gates"]["markdown_residue"]["value"] == 2.0
+    assert result["gates"]["markdown_residue"]["level"] == "light"
