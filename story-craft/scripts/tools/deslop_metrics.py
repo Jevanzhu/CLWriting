@@ -66,6 +66,13 @@ CHINESE_PREFIX_RE = re.compile(r"^[^\u4e00-\u9fff]*([\u4e00-\u9fff]{1,2})")
 MARKDOWN_PATTERNS = (
     ("heading", re.compile(r"(?m)^[ \t]{0,3}#{1,6}")),
     ("bold", re.compile(r"\*\*[^\s*][^*]*\*\*|__[^\s_][^_]*__")),
+    (
+        "italic",
+        re.compile(
+            r"(?<![A-Za-z0-9_*])\*(?!\*)(?=[^\s*\n])[^*\n]*?[^\s*\n]\*(?![A-Za-z0-9_*])"
+            r"|(?<![A-Za-z0-9_*])_(?!_)(?=[^\s_\n])[^_\n]*?[^\s_\n]_(?![A-Za-z0-9_*])"
+        ),
+    ),
     ("rule", re.compile(r"(?m)^[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$")),
     ("list", re.compile(r"(?m)^[ \t]{0,3}[-+*][ \t]+")),
     ("quote", re.compile(r"(?m)^[ \t]{0,3}>[ \t]?")),
@@ -95,7 +102,7 @@ def analyze_deslop_metrics(text: str, whitelist: list[str] | None = None) -> dic
         "dialogue_tag_density": dialogue_tag_density(cleaned_text),
         "average_paragraph_sentences": average_paragraph_sentences(cleaned_text),
         "repetitive_description_density": repetitive_description_density(cleaned_text),
-        "markdown_residue": markdown_residue(cleaned_text),
+        "markdown_residue": markdown_residue(text),
     }
     gates = {
         name: {
