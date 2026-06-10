@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic 6-Gate anti-AI-flavor metrics."""
+"""Deterministic 6-Gate anti-AI-flavor metrics plus a publish-ready Markdown-residue gate."""
 
 from __future__ import annotations
 
@@ -63,6 +63,15 @@ DIALOGUE_TAG_RE = re.compile(
 )
 DIALOGUE_LINE_RE = re.compile(r"[“\"][^”\"\n]{1,120}[”\"]")
 CHINESE_PREFIX_RE = re.compile(r"^[^\u4e00-\u9fff]*([\u4e00-\u9fff]{1,2})")
+MARKDOWN_PATTERNS = (
+    ("heading", re.compile(r"(?m)^[ \t]{0,3}#{1,6}")),
+    ("bold", re.compile(r"\*\*[^\s*][^*]*\*\*|__[^\s_][^_]*__")),
+    ("rule", re.compile(r"(?m)^[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$")),
+    ("list", re.compile(r"(?m)^[ \t]{0,3}[-+*][ \t]+")),
+    ("quote", re.compile(r"(?m)^[ \t]{0,3}>[ \t]?")),
+    ("link", re.compile(r"\[[^\]\n]+\]\([^)\n]+\)")),
+    ("code", re.compile(r"`[^`\n]+`|```")),
+)
 
 
 GATE_THRESHOLDS: dict[str, tuple[float, float, float]] = {
@@ -72,6 +81,7 @@ GATE_THRESHOLDS: dict[str, tuple[float, float, float]] = {
     "dialogue_tag_density": (0.35, 0.60, 0.85),
     "average_paragraph_sentences": (4.0, 6.0, 8.0),
     "repetitive_description_density": (4.0, 8.0, 12.0),
+    "markdown_residue": (1.0, 3.0, 6.0),
 }
 
 
@@ -85,6 +95,7 @@ def analyze_deslop_metrics(text: str, whitelist: list[str] | None = None) -> dic
         "dialogue_tag_density": dialogue_tag_density(cleaned_text),
         "average_paragraph_sentences": average_paragraph_sentences(cleaned_text),
         "repetitive_description_density": repetitive_description_density(cleaned_text),
+        "markdown_residue": markdown_residue(cleaned_text),
     }
     gates = {
         name: {
@@ -188,6 +199,26 @@ def repetitive_description_density(text: str) -> dict[str, Any]:
     return {
         "value": round(repeated_total / total_chars * 1000, 3),
         "evidence": _top_hits(repeated),
+    }
+
+
+def markdown_residue(text: str) -> dict[str, Any]:
+    """Count residual Markdown markup that must not appear in publish-ready prose."""
+    source = str(text or "")
+    hits: list[str] = []
+    total = 0
+    for label, pattern in MARKDOWN_PATTERNS:
+        found = pattern.findall(source)
+        if not found:
+            continue
+        total += len(found)
+        for item in found[:2]:
+            sample = (item if isinstance(item, str) else str(item)).strip()
+            if sample:
+                hits.append(f"{label}:{sample[:12]}")
+    return {
+        "value": float(total),
+        "evidence": hits[:5],
     }
 
 

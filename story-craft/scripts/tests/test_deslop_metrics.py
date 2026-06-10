@@ -6,6 +6,7 @@ from tools.deslop_metrics import (
     average_paragraph_sentences,
     banned_word_density,
     dialogue_tag_density,
+    markdown_residue,
     parallel_paragraph_run,
     psychological_word_ratio,
     repetitive_description_density,
@@ -101,3 +102,26 @@ def test_repetitive_description_density_counts_repeats_beyond_first_use():
     assert metric["value"] >= 12
     assert result["gates"]["repetitive_description_density"]["level"] == "heavy"
     assert "昏黄:3" in result["gates"]["repetitive_description_density"]["evidence"]
+
+
+def test_markdown_residue_flags_markup_and_clean_prose_is_none():
+    clean = "她把门推开。\n外面下着雨。\n“你来了。”"
+    dirty = "\n".join(
+        [
+            "###1.",
+            "**重点**在这里。",
+            "---",
+            "> 引用句",
+            "- 列表项",
+            "[链接](http://x)",
+            "`代码`",
+        ]
+    )
+
+    assert markdown_residue(clean)["value"] == 0.0
+
+    dirty_metric = markdown_residue(dirty)
+    result = analyze_deslop_metrics(dirty)
+    assert dirty_metric["value"] >= 6
+    assert result["gates"]["markdown_residue"]["level"] == "heavy"
+    assert result["gates"]["markdown_residue"]["evidence"]

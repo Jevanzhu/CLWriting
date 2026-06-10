@@ -255,7 +255,11 @@ def test_stage5_long_references_have_source_frontmatter_and_license():
             in header
         )
         assert "license: MIT" in header
-        assert "adapted: false" in header
+        # format-and-structure.md 已按 webnovel「正文即成品」口径改编，标 adapted: true；其余原样引入
+        if filename == "format-and-structure.md":
+            assert "adapted: true" in header, filename
+        else:
+            assert "adapted: false" in header, filename
         assert body.lstrip().startswith("# "), filename
 
     license_text = (REFERENCES_DIR / "long" / "LICENSE").read_text(encoding="utf-8")

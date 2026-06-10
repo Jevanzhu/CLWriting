@@ -20,10 +20,11 @@ EXPECTED_GATES = {
     "dialogue_tag_density",
     "average_paragraph_sentences",
     "repetitive_description_density",
+    "markdown_residue",
 }
 
 
-def test_deslop_metrics_returns_exact_six_gate_set():
+def test_deslop_metrics_returns_exact_gate_set():
     result = analyze_deslop_metrics("缓缓" * 2 + "林墨" * 100)
 
     assert set(result["gates"]) == EXPECTED_GATES
