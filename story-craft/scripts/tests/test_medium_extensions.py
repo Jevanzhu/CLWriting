@@ -237,6 +237,33 @@ def test_medium_cli_commands(tmp_path):
     assert impact_payload["later_chapters"] == []
     assert any("时间线" in item for item in impact_payload["suggested_checks"])
 
+    impact_markdown = run_cli(
+        "--project-root",
+        str(tmp_path / "medium"),
+        "query",
+        "impact",
+        "--chapter",
+        "2",
+        "--format",
+        "markdown",
+    )
+    assert impact_markdown.returncode == 0, impact_markdown.stderr
+    assert "# 第002章影响分析" in impact_markdown.stdout
+    assert "## 改稿复查清单" in impact_markdown.stdout
+    assert "- [ ] 复查时间线顺序" in impact_markdown.stdout
+    assert "fh_003" in impact_markdown.stdout
+
+    unsupported_markdown = run_cli(
+        "--project-root",
+        str(tmp_path / "medium"),
+        "query",
+        "status",
+        "--format",
+        "markdown",
+    )
+    assert unsupported_markdown.returncode == 1
+    assert "仅支持 impact" in unsupported_markdown.stderr
+
     missing_impact = run_cli(
         "--project-root",
         str(tmp_path / "medium"),

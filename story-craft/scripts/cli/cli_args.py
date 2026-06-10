@@ -288,6 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument("--text", default="", help="index/semantic 查询文本")
     query_parser.add_argument("--limit", type=int, default=20, help="查询结果数量上限")
     query_parser.add_argument("--budget", type=int, default=20, help="ranked-context 上下文预算")
+    query_parser.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="查询输出格式；markdown 目前仅支持 impact。",
+    )
 
     subparsers.add_parser(
         "index",

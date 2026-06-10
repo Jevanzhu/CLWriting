@@ -129,6 +129,7 @@ EXPECTED_SKILLS = {
         "query memory",
         "query learning",
         "query impact",
+        "--format markdown",
         "query genres",
     ],
     "story-preflight": [
