@@ -1,0 +1,6 @@
+# CLWriting story-craft —— Python 运行依赖
+# Python >= 3.10
+# 注：pyproject.toml 的 [project] dependencies 为权威声明，本文件与其保持一致，
+#     供 `pip install -r requirements.txt` 的安装入口使用。测试依赖见 pyproject 的 [project.optional-dependencies].test。
+
+filelock>=3.12          # 跨进程文件锁：多进程并发写状态文件的保护；缺失时自动降级为仅原子替换（单进程使用无影响）
