@@ -112,7 +112,6 @@ def _clear_rag_env(monkeypatch) -> None:
     import core.rag.env_loader as env_loader
 
     for key in (
-        "CLAUDE_HOME",
         "EMBED_BASE_URL",
         "EMBED_MODEL",
         "EMBED_API_KEY",

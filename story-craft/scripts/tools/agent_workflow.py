@@ -14,7 +14,7 @@ from typing import Any, Optional
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
 from core.memory_manager import MemoryManager
-from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_sentences
+from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_paragraph_chunks, split_sentences
 from core.types import ExtractionDelta, NormalizedReviewerResult, ReviewerResult, WorkflowManifest
 from tools.placeholder_scanner import scan_placeholders
 from tools.prewrite_validator import validate_prewrite
@@ -645,6 +645,26 @@ def build_extraction_delta(
 
     summary = "；".join(key_events) or compact_line(text, 120)
     word_count = count_chinese_chars(text)
+    paragraphs = split_paragraph_chunks(text, min_chars=80)
+    if not paragraphs:
+        paragraphs = [
+            {"start_line": 1, "end_line": max(1, len(text.splitlines())), "text": compact_line(text, 600) or summary}
+        ]
+    scenes = [
+        {
+            "index": idx,
+            "start_line": int(para["start_line"]),
+            "end_line": int(para["end_line"]),
+            "location": "",
+            "summary": compact_line(str(para["text"]), 60),
+            "characters": entities_appeared,
+            "tone": "",
+            "embedding_text": compact_line(
+                f"第{int(chapter):03d}章 {inferred_title} {para['text']}", 600
+            ),
+        }
+        for idx, para in enumerate(paragraphs, start=1)
+    ]
     return {
         "chapter": int(chapter),
         "title": inferred_title,
@@ -662,17 +682,7 @@ def build_extraction_delta(
             "time_delta": "",
             "source": "agent-workflow-fallback",
         },
-        "scenes": [
-            {
-                "index": 1,
-                "start_line": 1,
-                "end_line": max(1, len(text.splitlines())),
-                "location": "",
-                "summary": summary,
-                "characters": entities_appeared,
-                "tone": "",
-            }
-        ],
+        "scenes": scenes,
         "chapter_summary": {
             "chapter": int(chapter),
             "title": inferred_title,

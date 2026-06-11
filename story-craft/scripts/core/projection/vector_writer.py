@@ -63,12 +63,13 @@ def _vector_chunks(commits: list[ChapterCommit]) -> list[dict[str, Any]]:
         chapter = int(commit.get("chapter") or 0)
         summary_text = str(commit.get("summary_text") or "")
         if summary_text:
+            chapter_title = str(commit.get("title") or "")
             chunks.append(
                 {
                     "chunk_id": f"ch{chapter:03d}:summary",
                     "kind": "summary",
                     "chapter": chapter,
-                    "text": summary_text,
+                    "text": f"第{chapter:03d}章 {chapter_title} 概要：{summary_text}".strip(),
                     "strand": commit.get("dominant_strand") or "",
                     "payload": {
                         "chapter": chapter,

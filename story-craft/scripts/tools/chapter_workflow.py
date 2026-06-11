@@ -18,7 +18,7 @@ from core.chapter_record import ChapterRecordService
 from core.config import StoryCraftConfig
 from core.security_utils import AtomicWriteError, atomic_write_text, sanitize_filename
 from core.context_manager import ContextManager
-from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value
+from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_paragraph_chunks
 from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteResult
 from tools.agent_workflow import normalize_reviewer_output
 from tools.deslop_metrics import markdown_residue
@@ -161,18 +161,13 @@ def _default_extraction_delta(
         "key_events": key_events,
         "characters_appeared": characters,
     }
-    scene = {
-        "index": 1,
-        "start_line": 1,
-        "end_line": max(1, len(chapter_text.splitlines())),
-        "summary": summary,
-        "characters": characters,
-        "strand": "quest",
-        "embedding_text": compact_line(
-            f"第{int(chapter):03d}章 {title} {summary} {chapter_text}",
-            max_length=500,
-        ),
-    }
+    scenes = _fallback_scenes(
+        chapter_text,
+        chapter=chapter,
+        title=title,
+        summary=summary,
+        characters=characters,
+    )
     accepted_events = _fallback_accepted_events(
         chapter=chapter,
         characters=characters,
@@ -189,7 +184,7 @@ def _default_extraction_delta(
         "dominant_strand": "quest",
         "timeline_entry": timeline_entry,
         "chapter_summary": chapter_summary,
-        "scenes": [scene],
+        "scenes": scenes,
         "agent_calls": {
             "context": "cli",
             "review": review_source,
@@ -216,6 +211,52 @@ def _fallback_key_events(chapter_text: str, summary: str) -> list[str]:
     ]
     events = [part for part in parts if part and not part.startswith("#")]
     return events[:3] or ([summary] if summary else [])
+
+
+# 段落级 chunk 的最小字数：过短的自然段并入前一段，避免碎片化降低召回质量。
+_SCENE_MIN_CHARS = 80
+# 单个段落 embedding_text 的字数上限：极长段落截断，避免向量被稀释。
+_SCENE_MAX_CHARS = 600
+
+
+def _fallback_scenes(
+    chapter_text: str,
+    *,
+    chapter: int,
+    title: str,
+    summary: str,
+    characters: list[str],
+) -> list[dict[str, Any]]:
+    """把章节正文按自然段切成段落级 scene，让向量检索覆盖全文而非仅前几句。
+
+    每个 scene 即一个 chunk：embedding_text 为段落原文（带章节标题前缀助章节级召回），
+    start_line/end_line 指向正文行范围。切分逻辑见 text_utils.split_paragraph_chunks。
+    """
+    paragraphs = split_paragraph_chunks(chapter_text, min_chars=_SCENE_MIN_CHARS)
+    if not paragraphs:
+        fallback_text = compact_line(chapter_text, max_length=_SCENE_MAX_CHARS) or summary
+        paragraphs = [
+            {"start_line": 1, "end_line": max(1, len(chapter_text.splitlines())), "text": fallback_text}
+        ]
+
+    scenes: list[dict[str, Any]] = []
+    for index, para in enumerate(paragraphs, start=1):
+        para_text = str(para["text"])
+        scenes.append(
+            {
+                "index": index,
+                "start_line": int(para["start_line"]),
+                "end_line": int(para["end_line"]),
+                "summary": compact_line(para_text, max_length=60),
+                "characters": characters,
+                "strand": "quest",
+                "embedding_text": compact_line(
+                    f"第{int(chapter):03d}章 {title} {para_text}",
+                    max_length=_SCENE_MAX_CHARS,
+                ),
+            }
+        )
+    return scenes
 
 
 def _fallback_appeared_characters(
