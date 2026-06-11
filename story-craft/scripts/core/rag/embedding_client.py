@@ -47,6 +47,7 @@ class EmbeddingClient:
             headers={
                 "Authorization": f"Bearer {self.config.api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "story-craft-rag/1.0",
             },
             method="POST",
         )
