@@ -476,6 +476,11 @@ def test_markdown_view_projection_writer_renders_project_views(tmp_path):
                 "payload": {"summary": "进入旧楼"},
                 "chapter": 2,
             },
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"chapter": 3, "events": ["复查门禁", "确认地下室入口"]},
+                "chapter": 3,
+            },
         ],
     }
 
@@ -510,6 +515,9 @@ def test_markdown_view_projection_writer_renders_project_views(tmp_path):
     assert "旧楼灯光" in loops.read_text(encoding="utf-8")
     assert "亡友信源" in loops.read_text(encoding="utf-8")
     assert "进入旧楼" in timeline.read_text(encoding="utf-8")
+    timeline_text = timeline.read_text(encoding="utf-8")
+    assert "复查门禁；确认地下室入口" in timeline_text
+    assert "'events':" not in timeline_text
     assert "current_status" in state.read_text(encoding="utf-8")
 
 

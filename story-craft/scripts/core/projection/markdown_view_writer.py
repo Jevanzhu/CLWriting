@@ -239,7 +239,9 @@ def _payload_lines(events: list[AcceptedEvent]) -> list[str]:
     for event in events:
         payload = event.get("payload") or {}
         label = payload.get("content") or payload.get("summary") or payload.get("rule")
+        if not label and payload.get("events"):
+            label = "；".join(str(item) for item in payload["events"] if item)
         if not label:
-            label = payload.get("id") or event.get("entity_id") or payload
+            label = payload.get("id") or event.get("entity_id") or "未记录"
         lines.append(f"- 第{int(event.get('chapter') or 0):03d}章：{label}")
     return lines
