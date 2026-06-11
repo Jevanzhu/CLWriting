@@ -26,7 +26,8 @@ def run_cli(*args: str, timeout: int = 10) -> subprocess.CompletedProcess[str]:
 
 
 def long_chapter(title: str, sentence: str, repeat: int = 100) -> str:
-    return f"# {title}\n\n" + sentence * repeat
+    del title
+    return sentence * repeat
 
 
 def reviewer_issue(**overrides) -> dict:

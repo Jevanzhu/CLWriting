@@ -162,6 +162,7 @@ def test_write_result_docs_list_actual_stage_contract():
     for stage in (
         "prewrite",
         "placeholder",
+        "markdown",
         "word_count",
         "warnings",
         "delta_validation",

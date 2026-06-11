@@ -230,7 +230,7 @@ def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
     plan_story(project, chapter_count=8)
     draft = tmp_path / "draft.md"
     draft.write_text(
-        "# 第01章 葬礼后的信\n\n林墨收到亡友寄来的信。",
+        "林墨收到亡友寄来的信。",
         encoding="utf-8",
     )
 
@@ -242,6 +242,39 @@ def test_record_chapter_workflow_blocks_underlength_draft(tmp_path):
     assert "正文字数过低" in result["blockers"][0]
     assert result["word_count_check"]["planned_words"] > 0
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
+
+
+def test_record_chapter_workflow_blocks_markdown_residue(tmp_path):
+    project = tmp_path / "demo"
+    init_project(
+        project,
+        "暗室",
+        "悬疑",
+        word_count_target=30000,
+        protagonist_name="林墨",
+        unique_advantage_desc="法医病理学",
+        world_setting="近现代城市",
+    )
+    plan_story(project, chapter_count=8)
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        "# 第01章 葬礼后的信\n\n"
+        + "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。"
+        * 100,
+        encoding="utf-8",
+    )
+
+    result = record_chapter_workflow(project, chapter=1, draft_file=draft)
+
+    assert not result["ok"]
+    assert result["stage"] == "markdown"
+    assert_failure_shape(result, draft)
+    assert "Markdown 残留" in result["blockers"][0]
+    assert result["markdown_residue"]["value"] > 0
+    assert result["chapter_file"] is None
+    assert result["report_file"] is None
+    assert result["record_file"] is None
+    assert not any((project / "正文").glob("第01章*.md"))
 
 
 def test_record_chapter_workflow_placeholder_failure_has_common_shape(tmp_path):
@@ -258,7 +291,7 @@ def test_record_chapter_workflow_placeholder_failure_has_common_shape(tmp_path):
     plan_story(project, chapter_count=8)
     draft = tmp_path / "draft.md"
     draft.write_text(
-        "# 第01章 葬礼后的信\n\n这里有[TODO:补线索]，不允许提交。",
+        "这里有[TODO:补线索]，不允许提交。",
         encoding="utf-8",
     )
 
@@ -314,7 +347,7 @@ def test_record_chapter_workflow_strict_warning_leaves_no_formal_outputs(tmp_pat
     assert StateManager.from_project(project).get_progress()["current_chapter"] == 0
 
 
-def test_record_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
+def test_record_chapter_workflow_uses_contract_title_for_clean_prose(tmp_path):
     project = tmp_path / "demo"
     init_project(
         project,
@@ -329,7 +362,6 @@ def test_record_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
     draft = tmp_path / "draft.md"
     draft.write_text(
         "雨先落在解剖楼的铁门上。\n"
-        "# 第01章 葬礼后的信\n\n"
         + "林墨站在雨里复查亡友留下的信封，雨水、邮戳、门卫证词和旧楼档案不断互相印证。"
         * 100,
         encoding="utf-8",
@@ -348,11 +380,11 @@ def test_record_chapter_workflow_infers_title_after_non_heading_line(tmp_path):
     )
 
     assert result["ok"], result
-    assert result["title"] == "葬礼后的信"
-    assert "葬礼后的信" in Path(result["chapter_file"]).name
+    assert result["title"] == "开篇异常"
+    assert "开篇异常" in Path(result["chapter_file"]).name
     assert Path(result["commit_file"]).is_file()
     record_payload = json.loads(Path(result["record_file"]).read_text(encoding="utf-8"))
-    assert record_payload["title"] == "葬礼后的信"
+    assert record_payload["title"] == "开篇异常"
 
 
 def test_record_chapter_workflow_blocks_completed_chapter(tmp_path):

@@ -233,7 +233,8 @@ def assert_project_artifacts(project: Path) -> None:
 
 
 def write_chapter_fixture(path: Path, title: str, sentence: str) -> None:
-    path.write_text(f"# {title}\n\n" + sentence * 160, encoding="utf-8")
+    del title
+    path.write_text(sentence * 160, encoding="utf-8")
 
 
 def write_review_fixture(path: Path, summary: str) -> None:
