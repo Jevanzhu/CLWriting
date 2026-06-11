@@ -8,12 +8,11 @@ license = { file = "LICENSE" }
 authors = [
   { name = "CLWriting contributors" }
 ]
-dependencies = []
-
-[project.optional-dependencies]
-locking = [
+dependencies = [
   "filelock>=3.12"
 ]
+
+[project.optional-dependencies]
 rag = []
 test = [
   "pytest>=8"
