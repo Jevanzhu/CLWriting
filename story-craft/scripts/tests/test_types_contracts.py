@@ -106,7 +106,16 @@ def test_reviewer_meta_is_optional_and_write_stage_accepts_commit():
         NormalizedReviewerResult.__required_keys__
     )
 
-    assert "commit" in get_args(WriteGateStage)
+    assert set(get_args(WriteGateStage)) == {
+        "prewrite",
+        "placeholder",
+        "markdown",
+        "word_count",
+        "warnings",
+        "delta_validation",
+        "write_error",
+        "commit",
+    }
     hints = get_type_hints(WriteSuccess)
     assert set(get_args(hints["stage"])) == {"record", "commit"}
     assert hints["review_status"] == ReviewStatus

@@ -248,6 +248,7 @@ class ExtractionDelta(TypedDict, total=False):
 WriteGateStage = Literal[
     "prewrite",
     "placeholder",
+    "markdown",
     "word_count",
     "warnings",
     "delta_validation",
@@ -290,6 +291,7 @@ class WriteGateFailure(WriteGateFailureBase, total=False):
     review_status: ReviewStatus
     word_count_check: dict[str, Any]
     placeholders: list[dict[str, str]]
+    markdown_residue: dict[str, Any]
     chapter: int
     title: str
     word_count: int

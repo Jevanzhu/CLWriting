@@ -285,13 +285,14 @@ delta 分为两层契约：
 
 `WriteFailure` 覆盖两类失败：
 
-- 闸门失败或写入失败：`stage` 为 `prewrite`、`placeholder`、`word_count`、`warnings`、`delta_validation`、`commit` 或 `write_error`，会包含 `blockers`、`warnings`、`draft_file` 和固定文件字段。进入 write 命令后，结果可带 `review_status` 用于追踪本次是否提供 reviewer。
+- 闸门失败或写入失败：`stage` 为 `prewrite`、`placeholder`、`markdown`、`word_count`、`warnings`、`delta_validation`、`commit` 或 `write_error`，会包含 `blockers`、`warnings`、`draft_file` 和固定文件字段。进入 write 命令后，结果可带 `review_status` 用于追踪本次是否提供 reviewer。
 - reviewer 退稿：`stage=record`、`status=rejected`，可写审查报告、记录和 rejected commit，但不会写最终正文，也不会更新记忆或进度；此时同样会带 `review_status`。
 
 完整 stage 枚举：
 
 - `prewrite`
 - `placeholder`
+- `markdown`
 - `word_count`
 - `warnings`
 - `delta_validation`

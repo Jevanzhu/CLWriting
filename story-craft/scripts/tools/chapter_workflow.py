@@ -21,6 +21,7 @@ from core.context_manager import ContextManager
 from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value
 from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteResult
 from tools.agent_workflow import normalize_reviewer_output
+from tools.deslop_metrics import markdown_residue
 from tools.placeholder_scanner import scan_placeholders
 from tools.prewrite_validator import validate_prewrite
 from tools.review_pipeline import build_review_report
@@ -117,6 +118,16 @@ def _build_word_count_check(
         "blockers": blockers,
         "warnings": warnings,
     }
+
+
+def _build_markdown_residue_blockers(metric: dict[str, Any]) -> list[str]:
+    """Build blockers for publish-ready prose Markdown residue."""
+    if float(metric.get("value") or 0) <= 0:
+        return []
+    evidence = metric.get("evidence") or []
+    detail = "；".join(str(item) for item in evidence[:5] if item)
+    suffix = f"命中：{detail}" if detail else "请移除 #、**、列表、引用、链接或代码等标记。"
+    return [f"正文存在 Markdown 残留，不符合正文即成品规范；{suffix}"]
 
 
 def _default_extraction_delta(
@@ -471,6 +482,18 @@ def record_chapter_workflow(
             review_status=review_status,
         )
 
+    residue_metric = markdown_residue(chapter_text)
+    markdown_blockers = _build_markdown_residue_blockers(residue_metric)
+    if markdown_blockers:
+        return _failure_result(
+            stage="markdown",
+            blockers=markdown_blockers,
+            warnings=validation["warnings"],
+            draft_path=draft_path,
+            markdown_residue=residue_metric,
+            review_status=review_status,
+        )
+
     context = ContextManager(config).build_context(chapter)
     word_count = count_chinese_chars(chapter_text)
     word_count_check = _build_word_count_check(
@@ -488,7 +511,8 @@ def record_chapter_workflow(
             review_status=review_status,
         )
 
-    inferred_title = _infer_title(chapter_text, chapter, fallback=title)
+    context_title = str(context.get("core", {}).get("chapter_title") or "")
+    inferred_title = _infer_title(chapter_text, chapter, fallback=title or context_title)
     chapter_title = title or inferred_title
     chapter_path = (
         Path(output_file).expanduser().resolve()
