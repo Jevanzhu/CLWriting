@@ -261,9 +261,9 @@ def build_parser() -> argparse.ArgumentParser:
     learn_parser.add_argument("--instruction", required=True, help="后续写作应遵守的具体指令")
     learn_parser.add_argument(
         "--source",
-        choices=("manual", "auto-review", "auto-style"),
+        choices=("manual", "auto-review", "auto-style", "import"),
         default="manual",
-        help="经验来源：人工标注或自动提炼",
+        help="经验来源：人工标注、自动提炼或参考作品拆解(import)",
     )
     learn_parser.add_argument(
         "--importance",
