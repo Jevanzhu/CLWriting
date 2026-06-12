@@ -287,17 +287,27 @@ def test_learning_pattern_dedup_and_metadata(tmp_path):
     assert punct2["merged"] is True
 
 
-def test_map_pattern_type_uses_word_boundary():
+def test_map_pattern_type_maps_reviewer_categories():
+    from tools.agent_workflow import REVIEWER_CATEGORIES
     from tools.learning_extractor import _map_pattern_type
 
-    # 英文用词边界，不再被子串误匹配
+    # 真实 reviewer category 的映射
+    assert _map_pattern_type("pacing") == "pacing"
+    assert _map_pattern_type("format") == "format"
+    assert _map_pattern_type("high_point") == "payoff"
+    assert _map_pattern_type("reader_pull") == "hook"
+    assert _map_pattern_type("ooc") == "dialogue"
+    assert _map_pattern_type("ai_flavor") == "format"
+    # 无 learning 对应的 reviewer 类归 other
+    assert _map_pattern_type("timeline") == "other"
+    assert _map_pattern_type("continuity") == "other"
+    # 非 reviewer 类/未知归 other（精确查表不再子串误匹配）
     assert _map_pattern_type("information") == "other"
     assert _map_pattern_type("spacing") == "other"
-    # 正常匹配仍工作
-    assert _map_pattern_type("format") == "format"
-    assert _map_pattern_type("pacing issue") == "pacing"
-    assert _map_pattern_type("节奏") == "pacing"
-    assert _map_pattern_type("排版问题") == "format"
+    # 所有真实 reviewer 类都映射到合法 learning 7 类（实战对齐保证）
+    valid = {"hook", "pacing", "dialogue", "payoff", "emotion", "format", "other"}
+    for category in REVIEWER_CATEGORIES:
+        assert _map_pattern_type(category) in valid
 
 
 def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
@@ -341,19 +351,24 @@ def test_extract_learning_candidates_from_reviews(tmp_path):
     init_project(project, "暗室", "悬疑")
     config = StoryCraftConfig.from_project_root(project)
 
-    # 同一节奏问题跨 3 章重复 → 提炼
+    # 同一节奏问题跨 3 章重复 → 提炼（pacing→pacing）
     for ch in (1, 2, 3):
         _write_chapter_record(
             config, ch, warnings=[{"category": "pacing", "description": "中段节奏拖沓"}]
         )
     # 单次 warning（仅 1 章）→ 不提炼
     _write_chapter_record(
-        config, 4, warnings=[{"category": "dialogue", "description": "对白偏白"}]
+        config, 4, warnings=[{"category": "reader_pull", "description": "开篇拉力不足"}]
     )
-    # blocker 单次 → 提炼为高重要度
+    # blocker 单次 → 提炼为高重要度（timeline 无 learning 对应，归 other）
     _write_chapter_record(
-        config, 5, blockers=[{"category": "continuity", "description": "时间线矛盾"}]
+        config, 5, blockers=[{"category": "timeline", "description": "时间线前后矛盾"}]
     )
+    # high_point 跨 2 章 → 提炼，映射到 payoff
+    for ch in (6, 7):
+        _write_chapter_record(
+            config, ch, warnings=[{"category": "high_point", "description": "高潮平淡收尾"}]
+        )
 
     candidates = extract_learning_candidates(project)
     by_type = {item["pattern_type"]: item for item in candidates}
@@ -366,10 +381,14 @@ def test_extract_learning_candidates_from_reviews(tmp_path):
     assert pacing["evidence"]["chapters"] == [1, 2, 3]
     assert "中段节奏拖沓" in pacing["instruction"]
 
-    # 单次 dialogue 未达阈值 → 不提炼
-    assert "dialogue" not in by_type
+    # high_point 跨 2 章 → 提炼并映射到 payoff
+    assert "payoff" in by_type
+    assert by_type["payoff"]["evidence"]["occurrences"] == 2
 
-    # blocker 单次即提炼，importance=high，continuity 归 other
+    # reader_pull 仅单次 → 未达阈值，hook 不出现
+    assert "hook" not in by_type
+
+    # timeline blocker 单次即提炼，importance=high，归 other
     assert "other" in by_type
     flagged = by_type["other"]
     assert flagged["importance"] == "high"
