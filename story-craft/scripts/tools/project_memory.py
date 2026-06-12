@@ -72,18 +72,27 @@ def append_learning_pattern(
     patterns = payload["patterns"]
     now = now_utc_iso()
 
-    instr_key = _normalize_instruction(instruction)
+    # 归一化为去重键；纯标点/空白导致归一化为空时回退到原文，确保仍能去重
+    instr_key = _normalize_instruction(instruction) or (instruction or "").strip()
     if instr_key:
         for existing in patterns:
             if existing.get("pattern_type") != normalized_type:
                 continue
-            if _normalize_instruction(existing.get("instruction", "")) != instr_key:
+            existing_instr = str(existing.get("instruction", ""))
+            existing_key = _normalize_instruction(existing_instr) or existing_instr.strip()
+            if existing_key != instr_key:
                 continue
             existing["importance"] = _higher_importance(
                 existing.get("importance", "medium"), normalized_importance
             )
             if not existing.get("example") and example:
                 existing["example"] = example
+            # 合并所有来源，避免丢失"被多来源确认过"的信息
+            merged_sources = {
+                part for part in str(existing.get("source") or "").split(",") if part
+            }
+            merged_sources.add(source)
+            existing["source"] = ",".join(sorted(merged_sources))
             existing["updated_at"] = now
             existing["merged"] = True
             atomic_write_json(_learning_file(project_root), payload, use_lock=True, backup=True)

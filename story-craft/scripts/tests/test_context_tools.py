@@ -269,6 +269,8 @@ def test_learning_pattern_dedup_and_metadata(tmp_path):
     assert merged["merged"] is True
     assert merged["importance"] == "high"
     assert merged["example"] == "他推开门，发现尸体"
+    # 合并保留所有来源，不丢失"被多来源确认"信息
+    assert set(merged["source"].split(",")) == {"manual", "auto-review"}
     assert len(get_learning_patterns(project)) == 1
 
     # 不同类型的相同指令 → 不合并
@@ -277,6 +279,45 @@ def test_learning_pattern_dedup_and_metadata(tmp_path):
     )
     assert other["id"] == "pat_002"
     assert len(get_learning_patterns(project)) == 2
+
+    # 纯标点 instruction 归一化为空时回退原文，仍能去重而非重复新增
+    punct1 = append_learning_pattern(project, "format", "排版1", "", "。。。", 4)
+    punct2 = append_learning_pattern(project, "format", "排版2", "", "。。。", 5)
+    assert punct2["id"] == punct1["id"]
+    assert punct2["merged"] is True
+
+
+def test_map_pattern_type_uses_word_boundary():
+    from tools.learning_extractor import _map_pattern_type
+
+    # 英文用词边界，不再被子串误匹配
+    assert _map_pattern_type("information") == "other"
+    assert _map_pattern_type("spacing") == "other"
+    # 正常匹配仍工作
+    assert _map_pattern_type("format") == "format"
+    assert _map_pattern_type("pacing issue") == "pacing"
+    assert _map_pattern_type("节奏") == "pacing"
+    assert _map_pattern_type("排版问题") == "format"
+
+
+def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    config = StoryCraftConfig.from_project_root(project)
+    config.chapters_dir.mkdir(parents=True, exist_ok=True)
+    (config.chapters_dir / chapter_record_file_name(1)).write_text(
+        json.dumps({"chapter": 1, "review": ["bad"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (config.chapters_dir / chapter_record_file_name(2)).write_text(
+        json.dumps(
+            {"chapter": 2, "review": {"warnings": "notalist", "blockers": None}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    # 畸形结构不崩溃且不产出垃圾候选
+    assert extract_learning_candidates(project) == []
 
 
 def _write_chapter_record(config, chapter, warnings=None, blockers=None):

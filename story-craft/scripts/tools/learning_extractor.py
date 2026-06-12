@@ -44,7 +44,12 @@ _IMPORTANCE_RANK = {"low": 0, "medium": 1, "high": 2}
 def _map_pattern_type(category: str) -> str:
     text = (category or "").strip().lower()
     for keyword, ptype in _CATEGORY_KEYWORDS:
-        if keyword in text:
+        # 英文关键词用词边界匹配，避免 "information"→format、"spacing"→pacing 这类子串误判；
+        # 中文无词边界，直接子串匹配
+        if keyword.isascii():
+            if re.search(rf"\b{re.escape(keyword)}\b", text):
+                return ptype
+        elif keyword in text:
             return ptype
     return "other"
 
@@ -76,11 +81,15 @@ def extract_learning_candidates(
 
     for path in iter_chapter_record_files(config=config):
         payload = read_json_safe(path, {})
-        review = payload.get("review") or {}
+        review = payload.get("review")
+        if not isinstance(review, dict):
+            review = {}
         chapter = payload.get("chapter")
+        warnings = review.get("warnings")
+        blockers = review.get("blockers")
         sources = (
-            ("warning", review.get("warnings") or []),
-            ("blocker", review.get("blockers") or []),
+            ("warning", warnings if isinstance(warnings, list) else []),
+            ("blocker", blockers if isinstance(blockers, list) else []),
         )
         for severity, items in sources:
             for item in items:
