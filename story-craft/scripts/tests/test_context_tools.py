@@ -334,9 +334,13 @@ def test_extract_learning_candidates_from_reviews(tmp_path):
     assert flagged["importance"] == "high"
     assert flagged["evidence"]["has_blocker"] is True
 
-    # 候选按置信度降序
-    confidences = [item["confidence"] for item in candidates]
-    assert confidences == sorted(confidences, reverse=True)
+    # 严重度优先：blocker/high importance 候选排最前
+    assert candidates[0]["importance"] == "high"
+    assert candidates[0]["evidence"]["has_blocker"] is True
+    # 同严重度内按置信度降序
+    ranks = {"low": 0, "medium": 1, "high": 2}
+    sort_keys = [(ranks[item["importance"]], item["confidence"]) for item in candidates]
+    assert sort_keys == sorted(sort_keys, reverse=True)
 
 
 def test_cli_learn_suggest(tmp_path):
