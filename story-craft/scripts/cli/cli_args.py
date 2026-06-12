@@ -249,16 +249,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="记录可复用写作经验",
         description="把可复用写作经验写入项目学习记忆，供后续章节使用。",
     )
-    learn_parser.add_argument("--chapter", type=int, required=True, help="来源章节号")
+    learn_parser.add_argument("--chapter", type=int, default=None, help="来源章节号")
     learn_parser.add_argument(
         "--pattern-type",
         choices=("hook", "pacing", "dialogue", "payoff", "emotion", "format", "other"),
         default="other",
         help="经验类型",
     )
-    learn_parser.add_argument("--description", required=True, help="经验描述")
+    learn_parser.add_argument("--description", default=None, help="经验描述")
     learn_parser.add_argument("--example", default="", help="可选原文例子")
-    learn_parser.add_argument("--instruction", required=True, help="后续写作应遵守的具体指令")
+    learn_parser.add_argument("--instruction", default=None, help="后续写作应遵守的具体指令")
+    learn_parser.add_argument(
+        "--forget", default=None, help="停用指定 id 的经验（软删除，可恢复，不再注入写作）"
+    )
     learn_parser.add_argument(
         "--source",
         choices=("manual", "auto-review", "auto-style", "import"),

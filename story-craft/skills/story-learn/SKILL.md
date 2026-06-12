@@ -95,6 +95,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 不修改正文、memory 或 state。
 - 不记录一次性偏好；只记录后续可复用的模式。
 - 不把 reviewer 的一次性修复建议直接升级为全局规则，除非用户确认。
+- 注入写作时按重要度+章节新近度排序并按上限截断（默认 12 条），高重要度经验始终优先；过时或错误的经验用 `learn --forget <id>` 停用（软删除，数据保留可恢复，不再注入）。
 
 ## 失败处理
 

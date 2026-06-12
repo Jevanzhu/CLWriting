@@ -147,7 +147,25 @@ def rank_learning_patterns(
             chapter = 0
         return (importance, chapter)
 
-    ranked = sorted(patterns, key=_key, reverse=True)
+    active = [pattern for pattern in patterns if not pattern.get("disabled")]
+    ranked = sorted(active, key=_key, reverse=True)
     if limit and limit > 0:
         return ranked[:limit]
     return ranked
+
+
+def disable_learning_pattern(project_root: str | Path, pattern_id: str) -> dict[str, Any]:
+    """软删除（停用）指定 id 的经验：标记 disabled，注入写作时排除，但数据保留可恢复。
+
+    用 disabled 标记而非物理删除，避免破坏 `pat_NNN` 的 len+1 顺序导致 id 冲突。
+    """
+    payload = _load_learning(project_root)
+    for pattern in payload["patterns"]:
+        if pattern.get("id") == pattern_id:
+            if pattern.get("disabled"):
+                return {"status": "already_disabled", "id": pattern_id}
+            pattern["disabled"] = True
+            pattern["updated_at"] = now_utc_iso()
+            atomic_write_json(_learning_file(project_root), payload, use_lock=True, backup=True)
+            return {"status": "disabled", "id": pattern_id}
+    return {"status": "not_found", "id": pattern_id}

@@ -45,7 +45,11 @@ from tools.outline_planner import plan_story
 from tools.outline_reviser import OutlineReviser
 from tools.placeholder_scanner import scan_placeholders
 from tools.learning_extractor import extract_learning_candidates
-from tools.project_memory import append_learning_pattern, get_learning_patterns
+from tools.project_memory import (
+    append_learning_pattern,
+    disable_learning_pattern,
+    get_learning_patterns,
+)
 from tools.quality_trend_report import QualityTrendReporter
 from tools.repair_strength import build_repair_workflow
 from tools.review_pipeline import build_review_report
@@ -319,6 +323,16 @@ def cmd_learn(args) -> int:
         project_root = _require_project_root(args)
     except FileNotFoundError as exc:
         _print_project_root_error(exc)
+        return 1
+    if args.forget:
+        result = disable_learning_pattern(project_root, args.forget)
+        print_json(result)
+        return 0 if result["status"] in ("disabled", "already_disabled") else 1
+    if args.chapter is None or not args.description or not args.instruction:
+        print_error(
+            "learn 需要 --chapter、--description 和 --instruction；"
+            "或用 --forget <id> 停用已有经验。"
+        )
         return 1
     pattern = append_learning_pattern(
         project_root,
