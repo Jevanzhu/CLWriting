@@ -38,6 +38,8 @@ _CATEGORY_KEYWORDS = (
 
 _NORM = re.compile(r"[\s，。、；：！？,.;:!?]+")
 
+_IMPORTANCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
 
 def _map_pattern_type(category: str) -> str:
     text = (category or "").strip().lower()
@@ -114,8 +116,9 @@ def extract_learning_candidates(
         if not qualifies:
             continue
         importance = "high" if (entry["has_blocker"] or occurrences >= 4) else "medium"
+        # blocker 是已确认的阻塞级问题，置信度基线更高
         confidence = round(
-            min(1.0, occurrences / 5 + (0.2 if entry["has_blocker"] else 0.0)), 2
+            min(1.0, occurrences / 5 + (0.4 if entry["has_blocker"] else 0.0)), 2
         )
         candidates.append(
             {
@@ -134,5 +137,9 @@ def extract_learning_candidates(
             }
         )
 
-    candidates.sort(key=lambda item: item["confidence"], reverse=True)
+    # 先按严重度（importance）再按置信度排序，确保 blocker/高危问题排在最前
+    candidates.sort(
+        key=lambda item: (_IMPORTANCE_RANK.get(item["importance"], 1), item["confidence"]),
+        reverse=True,
+    )
     return candidates
