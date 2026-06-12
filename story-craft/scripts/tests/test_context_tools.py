@@ -375,6 +375,22 @@ def test_cli_learn_forget_and_missing_args(tmp_path):
     assert bad.returncode != 0
 
 
+def test_failure_result_includes_next_step():
+    from pathlib import Path as _Path
+
+    from tools.chapter_workflow import _failure_result
+
+    result = _failure_result(
+        stage="markdown", blockers=["残留"], warnings=[], draft_path=_Path("/tmp/d.md")
+    )
+    assert "Markdown" in result["next_step"]
+    # 未知 stage 用兜底修复指引
+    fallback = _failure_result(
+        stage="write_error", blockers=["x"], warnings=[], draft_path=_Path("/tmp/d.md")
+    )
+    assert fallback["next_step"]
+
+
 def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑")

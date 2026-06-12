@@ -302,7 +302,7 @@ def _validate_raw_reviewer_output(review_result: Any) -> dict[str, Any]:
     if "issues" not in review_result:
         raise ValueError("reviewer JSON 缺少必需字段：issues")
     if "summary" not in review_result:
-        raise ValueError("reviewer JSON 缺少必需字段：summary")
+        raise ValueError("reviewer JSON 缺少必需字段：summary（顶层需要一句总体评价）")
     if not isinstance(review_result["issues"], list):
         raise ValueError("reviewer JSON 字段 issues 必须是数组")
     if not isinstance(review_result["summary"], str):

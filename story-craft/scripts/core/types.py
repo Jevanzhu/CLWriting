@@ -298,6 +298,7 @@ class WriteGateFailure(WriteGateFailureBase, total=False):
     status: Literal["failed"]
     memory_updated: Literal[False]
     state_updated: Literal[False]
+    next_step: str
 
 
 class WriteRejection(TypedDict):
