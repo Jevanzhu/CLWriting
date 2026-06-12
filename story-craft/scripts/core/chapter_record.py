@@ -38,6 +38,7 @@ class ChapterRecordService:
         word_count: int,
         review_result: NormalizedReviewerResult,
         extraction_delta: ExtractionDelta,
+        style_sample: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = self._build_record_payload(
             chapter,
@@ -45,6 +46,7 @@ class ChapterRecordService:
             word_count,
             review_result,
             extraction_delta,
+            style_sample,
         )
         record_file = self._persist_record(payload)
         commit = build_chapter_commit(
@@ -87,6 +89,7 @@ class ChapterRecordService:
         word_count: int,
         review_result: NormalizedReviewerResult,
         extraction_delta: ExtractionDelta,
+        style_sample: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._ensure_normalized_review_result(review_result)
         blockers = review_result.get("blockers") or []
@@ -114,6 +117,7 @@ class ChapterRecordService:
             "delta": delta,
             "scenes": extraction_delta.get("scenes", []),
             "agent_calls": extraction_delta.get("agent_calls", {}),
+            "style_sample": style_sample or {},
         }
 
     def _ensure_normalized_review_result(self, review_result: dict[str, Any]) -> None:

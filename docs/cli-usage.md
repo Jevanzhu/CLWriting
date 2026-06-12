@@ -28,7 +28,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 - `agent`：生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta。
 - `review`：把 reviewer JSON 转为 Markdown 审查报告，可写成 `review N`。
 - `rebuild-views`：从 commit 真源幂等重建全部投影。
-- `learn`：记录可复用写作经验；`--source` 区分来源（`manual` 人工 / `auto-review` 审查提炼 / `import` 参考拆解），`--importance` 标重要度，同类经验自动去重合并；`--forget <id>` 停用过时经验（软删除，可恢复，注入时按重要度+新近度排序并按上限截断）。
+- `learn`：记录可复用写作经验；`--source` 区分来源（`manual` 人工 / `auto-review` 审查提炼 / `auto-style` 风格漂移 / `import` 参考拆解），`--importance` 标重要度，同类经验自动去重合并；`--forget <id>` 停用过时经验（软删除，可恢复，注入时按重要度+新近度排序并按上限截断）。
 - `query`：查询状态、上下文、记忆、学习记录（`learning` 已入库 / `learning-suggestions` 从审查历史自动提炼候选）、章节影响、索引、实体图和质量趋势。
 - `index`：重建项目记忆索引。
 - `backup`：创建项目备份。

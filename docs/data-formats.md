@@ -220,7 +220,7 @@ delta 分为两层契约：
 ```
 
 - `pattern_type`：7 类之一（`hook`/`pacing`/`dialogue`/`payoff`/`emotion`/`format`/`other`）。`learning-suggestions` 从 reviewer 的受控 category 映射而来（`high_point→payoff`、`reader_pull→hook`、`pacing→pacing`、`format→format`、`ooc→dialogue`、`ai_flavor→format`，无对应者归 `other`）。
-- `source`：`manual`（人工）/ `auto-review`（审查历史提炼）/ `import`（参考拆解）；同类经验合并时来源累积为逗号分隔。
+- `source`：`manual`（人工）/ `auto-review`（审查历史提炼）/ `auto-style`（风格漂移提炼）/ `import`（参考拆解）；同类经验合并时来源累积为逗号分隔。
 - `importance`：`high`/`medium`/`low`，合并时取高；`learning-suggestions` 候选按严重度（blocker/importance）优先排序。
 - 同 `pattern_type` 且 `instruction` 实质相同（忽略标点空白）的记录自动去重合并，合并后追加 `updated_at` 并标记 `merged: true`。
 
