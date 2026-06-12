@@ -59,6 +59,7 @@ python3 -m pip install -r requirements.txt
 /story-preflight 1
 /story-short-write 1
 /story-review 1
+/story-query learning-suggestions
 /story-learn
 /story-query status
 ```
