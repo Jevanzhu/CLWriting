@@ -6,12 +6,14 @@ from pathlib import Path
 from conftest import reviewer_issue, run_cli
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
+from core.chapter_paths import chapter_record_file_name
 from core.chapter_record import ChapterRecordService
 from core.contract_store import ContractStore
 from core.memory_manager import MemoryManager
 from tools.genre_profile_builder import build_genre_hints
 from tools.init_project import init_project
 from tools.agent_workflow import normalize_reviewer_output
+from tools.learning_extractor import extract_learning_candidates
 from tools.outline_planner import plan_story
 from tools.placeholder_scanner import scan_placeholders
 from tools.project_memory import append_learning_pattern, get_learning_patterns
@@ -213,6 +215,25 @@ def test_project_memory_and_prewrite_validator(tmp_path):
     assert not validation["ready"]
     assert any("缺少章节合同" in item for item in validation["blockers"])
 
+    _write_chapter_contract(project, 1)
+    (project / "大纲" / "总纲.md").write_text(
+        "# 暗室\n\n## 第01章\n[TODO:总纲旧占位符]\n",
+        encoding="utf-8",
+    )
+    validation = validate_prewrite(project, 1)
+    assert validation["ready"]
+    assert not any("占位符" in item for item in validation["warnings"])
+
+    (project / "大纲" / "总纲.md").unlink()
+    validation = validate_prewrite(project, 1)
+    assert validation["ready"]
+    assert not any("总纲" in item for item in validation["warnings"])
+
+    _write_chapter_contract(project, 2)
+    validation = validate_prewrite(project, 2)
+    assert not validation["ready"]
+    assert any("缺少上一章验收记录" in item for item in validation["blockers"])
+
 
 def test_learning_pattern_dedup_and_metadata(tmp_path):
     project = tmp_path / "demo"
@@ -257,24 +278,65 @@ def test_learning_pattern_dedup_and_metadata(tmp_path):
     assert other["id"] == "pat_002"
     assert len(get_learning_patterns(project)) == 2
 
-    _write_chapter_contract(project, 1)
-    (project / "大纲" / "总纲.md").write_text(
-        "# 暗室\n\n## 第01章\n[TODO:总纲旧占位符]\n",
-        encoding="utf-8",
+
+def _write_chapter_record(config, chapter, warnings=None, blockers=None):
+    config.chapters_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "chapter": chapter,
+        "status": "accepted",
+        "word_count": 2000,
+        "review": {
+            "passed": not blockers,
+            "warnings": warnings or [],
+            "blockers": blockers or [],
+        },
+    }
+    path = config.chapters_dir / chapter_record_file_name(chapter)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def test_extract_learning_candidates_from_reviews(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    config = StoryCraftConfig.from_project_root(project)
+
+    # 同一节奏问题跨 3 章重复 → 提炼
+    for ch in (1, 2, 3):
+        _write_chapter_record(
+            config, ch, warnings=[{"category": "pacing", "description": "中段节奏拖沓"}]
+        )
+    # 单次 warning（仅 1 章）→ 不提炼
+    _write_chapter_record(
+        config, 4, warnings=[{"category": "dialogue", "description": "对白偏白"}]
     )
-    validation = validate_prewrite(project, 1)
-    assert validation["ready"]
-    assert not any("占位符" in item for item in validation["warnings"])
+    # blocker 单次 → 提炼为高重要度
+    _write_chapter_record(
+        config, 5, blockers=[{"category": "continuity", "description": "时间线矛盾"}]
+    )
 
-    (project / "大纲" / "总纲.md").unlink()
-    validation = validate_prewrite(project, 1)
-    assert validation["ready"]
-    assert not any("总纲" in item for item in validation["warnings"])
+    candidates = extract_learning_candidates(project)
+    by_type = {item["pattern_type"]: item for item in candidates}
 
-    _write_chapter_contract(project, 2)
-    validation = validate_prewrite(project, 2)
-    assert not validation["ready"]
-    assert any("缺少上一章验收记录" in item for item in validation["blockers"])
+    # 节奏问题被提炼，类型映射正确、跨 3 章、来源 auto-review
+    assert "pacing" in by_type
+    pacing = by_type["pacing"]
+    assert pacing["source"] == "auto-review"
+    assert pacing["evidence"]["occurrences"] == 3
+    assert pacing["evidence"]["chapters"] == [1, 2, 3]
+    assert "中段节奏拖沓" in pacing["instruction"]
+
+    # 单次 dialogue 未达阈值 → 不提炼
+    assert "dialogue" not in by_type
+
+    # blocker 单次即提炼，importance=high，continuity 归 other
+    assert "other" in by_type
+    flagged = by_type["other"]
+    assert flagged["importance"] == "high"
+    assert flagged["evidence"]["has_blocker"] is True
+
+    # 候选按置信度降序
+    confidences = [item["confidence"] for item in candidates]
+    assert confidences == sorted(confidences, reverse=True)
 
 
 def test_prewrite_validator_blocks_incomplete_contract_and_scans_contract_placeholders(
