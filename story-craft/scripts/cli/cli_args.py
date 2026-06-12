@@ -259,6 +259,18 @@ def build_parser() -> argparse.ArgumentParser:
     learn_parser.add_argument("--description", required=True, help="经验描述")
     learn_parser.add_argument("--example", default="", help="可选原文例子")
     learn_parser.add_argument("--instruction", required=True, help="后续写作应遵守的具体指令")
+    learn_parser.add_argument(
+        "--source",
+        choices=("manual", "auto-review", "auto-style"),
+        default="manual",
+        help="经验来源：人工标注或自动提炼",
+    )
+    learn_parser.add_argument(
+        "--importance",
+        choices=("high", "medium", "low"),
+        default="medium",
+        help="重要度，合并同类经验时取高",
+    )
 
     query_parser = subparsers.add_parser(
         "query",

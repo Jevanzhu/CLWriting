@@ -75,7 +75,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 
 - 分类不清：先用 `other`，但 instruction 必须具体。
 - instruction 太抽象：改写为可检查规则。
-- 重复记录：可以保留，但建议合并为更强规则。
+- 重复记录：同类型且 instruction 实质相同（忽略标点空白）时，CLI 会自动合并到已有记录、`importance` 取高并补全 `example`，不再新增重复条目。
 
 ## 完成条件
 

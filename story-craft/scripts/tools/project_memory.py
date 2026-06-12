@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,6 +21,22 @@ VALID_PATTERN_TYPES = {
     "format",
     "other",
 }
+
+VALID_IMPORTANCE = {"high", "medium", "low"}
+_IMPORTANCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+# 归一化 instruction 用于去重：去掉空白与常见中英文标点后比较
+_DEDUP_NOISE = re.compile(r"[\s，。、；：！？,.;:!?]+")
+
+
+def _normalize_instruction(text: str) -> str:
+    return _DEDUP_NOISE.sub("", (text or "").strip()).lower()
+
+
+def _higher_importance(a: str, b: str) -> str:
+    a = a if a in _IMPORTANCE_RANK else "medium"
+    b = b if b in _IMPORTANCE_RANK else "medium"
+    return a if _IMPORTANCE_RANK[a] >= _IMPORTANCE_RANK[b] else b
 
 
 def _learning_file(project_root: str | Path) -> Path:
@@ -40,11 +57,39 @@ def append_learning_pattern(
     example: str,
     instruction: str,
     chapter: int,
+    source: str = "manual",
+    importance: str = "medium",
 ) -> dict[str, Any]:
-    """Append one project learning pattern and return it."""
+    """Append one project learning pattern and return it.
+
+    同类型 + 归一化 instruction 命中已有记录时不新增，而是合并：
+    importance 取高、补全缺失的 example、刷新 updated_at，并标记 merged。
+    """
     normalized_type = pattern_type if pattern_type in VALID_PATTERN_TYPES else "other"
+    normalized_importance = importance if importance in VALID_IMPORTANCE else "medium"
+    source = (source or "manual").strip() or "manual"
     payload = _load_learning(project_root)
-    next_number = len(payload["patterns"]) + 1
+    patterns = payload["patterns"]
+    now = now_utc_iso()
+
+    instr_key = _normalize_instruction(instruction)
+    if instr_key:
+        for existing in patterns:
+            if existing.get("pattern_type") != normalized_type:
+                continue
+            if _normalize_instruction(existing.get("instruction", "")) != instr_key:
+                continue
+            existing["importance"] = _higher_importance(
+                existing.get("importance", "medium"), normalized_importance
+            )
+            if not existing.get("example") and example:
+                existing["example"] = example
+            existing["updated_at"] = now
+            existing["merged"] = True
+            atomic_write_json(_learning_file(project_root), payload, use_lock=True, backup=True)
+            return existing
+
+    next_number = len(patterns) + 1
     pattern = {
         "id": f"pat_{next_number:03d}",
         "chapter": int(chapter),
@@ -52,9 +97,11 @@ def append_learning_pattern(
         "description": description,
         "example": example,
         "instruction": instruction,
-        "created_at": now_utc_iso(),
+        "source": source,
+        "importance": normalized_importance,
+        "created_at": now,
     }
-    payload["patterns"].append(pattern)
+    patterns.append(pattern)
     atomic_write_json(_learning_file(project_root), payload, use_lock=True, backup=True)
     return pattern
 
