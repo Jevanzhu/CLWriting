@@ -1,145 +1,93 @@
 # 快速开始
 
-本文说明如何用 story-craft 从零创建故事项目，并按短篇或长篇轨道进入第一轮写作闭环。
+这篇带你用 story-craft 写出第一章——从建项目到正文落地。**全程在 Claude Code 对话里输入 `/story-*` 命令**，用大白话描述需求即可，不用碰终端。
 
-日常入口是 Claude Code 中的 `/story-*` 命令；Python CLI 只作为确定性工具层，用于初始化项目本体、校验、写入真源、重建投影和本地冒烟。
+story-craft 支持两条写作轨道：
 
-## 选择轨道
+- **短篇**：1-10 万字的短篇/中篇，流程轻，上手快。
+- **长篇**：多卷连载，多一步"规划"，适配长线的人物与伏笔管理。
 
-story-craft 使用 `project_type` 区分两条写作轨道：
+建项目时选定轨道，后面命令会自动适配；走错轨道的命令不会消失，而是提示你该用哪个。
 
-- `short`：短篇项目，默认使用 4 核心 Agent，跳过 `volumes/`，`index/vector` 默认 lazy。
-- `long`：长篇项目，使用 9 Agent 能力，包含 master、volume、chapter 合同和 5 个写作场景。
-
-先在 Claude Code 中执行：
+## 第一步：建项目
 
 ```text
 /story-init
 ```
 
-初始化时确认书名、题材、目标字数、主角、核心卖点、硬约束和 `project_type=short|long`。底层调试命令示例：
+它会和你确认书名、题材、目标字数、主角（欲望/缺陷）、核心卖点、硬约束，以及这是短篇还是长篇。聊清楚后，story-craft 把这些固化成项目的"设定真源"（`.story/contracts/master.json`）——之后所有写作都以它为准，保证越写越不跑偏。
 
-```bash
-python3 -X utf8 story-craft/scripts/story_craft.py init /tmp/story-demo 暗室来信 悬疑 \
-  --project-type short \
-  --word-count-target 30000 \
-  --synopsis "法医收到亡友留下的空白来信，追查旧楼暗室真相。" \
-  --protagonist-name 林墨 \
-  --protagonist-desire "查清亡友死因"
-```
+## 短篇：写第一章
 
-`/story-init` 会先调用底层 `init` CLI 写入 `.story/contracts/master.json` 和项目基础文件，再由 Skill 自部署 Claude Code 运行时资产：17 个 Skill、13 个 commands、按轨道选择的 Agent、hooks、references 和 `.story/contracts/deployment.json`。单独调用 `init` CLI 只初始化项目本体，不部署 `.claude/` 运行时资产。
-
-## 短篇上手
-
-短篇轨道推荐链路：
+确认是短篇项目后，最顺的链路是：
 
 ```text
-/story-init  →  /story-preflight 1  →  /story-short-write 1
+/story-preflight 1  →  /story-short-write 1  →  /story-review 1
 ```
 
-短篇写作使用 4 核心 Agent：
+- **`/story-preflight 1`**：动笔前的体检。确认这一章该有的设定都齐了，并告诉你推荐用哪个命令。
+- **`/story-short-write 1`**：写第 1 章正文。story-craft 会先读全前文设定，再起草，写完自动过一轮审查。
+- **`/story-review 1`**：对这一章做审查，列出逻辑、节奏、人物、AI 味等方面的问题。
+
+如果审查发现问题：
 
 ```text
-context-agent → narrative-writer → reviewer(solo) → data-agent
+/story-repair      根据审查结果修复（按严重度选重写/局部改/润色），修完强制复审
+/story-deslop 正文/第1章.md    单独跑一遍"去 AI 味"检查
 ```
 
-`/story-short-write 1` 会准备 `.story/workflows/ch_01/`，执行简化 8 步 pipeline，最后通过 `chapter-commit` 写入 `.story/commits/chapter_001.commit.json`。短篇不会因为缺少 `volumes/` 阻断，`style_fingerprint` 可选，`index/vector` 可等首次查询或重建时补建。
+短篇没有独立的结构分析命令——想检查质量和一致性，用 `/story-review` 和 `/story-deslop` 即可，再配合 `/story-query` 看状态。
 
-短篇常用后续入口：
+## 长篇：先规划，再逐章写
 
-```text
-/story-short-analyze
-/story-short-scan
-/story-review 1
-/story-deslop draft.md
-/story-repair review.json
-/story-query status
-```
-
-## 长篇上手
-
-长篇轨道推荐链路：
+长篇比短篇多一步规划：
 
 ```text
 /story-init  →  /story-long-plan  →  /story-preflight 1  →  /story-long-write 1
 ```
 
-`/story-long-plan` 调用：
+- **`/story-long-plan`**：规划全书。生成卷、章合同和长篇大纲，并帮你设计人物档案与关系。这是长篇的地基。
+- **`/story-long-write 1`**：写第 1 章。story-craft 会**按当前情境智能选择写法**（比如日常推进、重大转折、开新卷、开篇、导入既有素材等场景），用合适的节奏来写。
 
-- `story-architect`：生成 master、volumes、chapters 合同草案。
-- `character-designer`：生成 character_registry、角色档案和关系草案。
-
-`/story-long-write 1` 根据 `tools.scenario_router.detect_scenario` 路由到 5 个场景：
-
-- `daily_continue`
-- `major_revision`
-- `new_volume`
-- `open_book`
-- `import_external`
-
-长篇写作链使用 8 步 commit pipeline：预检、路由、context-agent、narrative-writer、reviewer、repair/polish、data-agent、chapter-commit + 6 投影。
-
-## 工作台
-
-写作中间产物固定保存到：
+长篇专属的两个**只读复盘命令**：
 
 ```text
-.story/workflows/ch_NN/
-├── manifest.json
-├── brief.json
-├── draft.md
-├── review.json
-├── repair.json
-├── polish.json
-├── delta.json
-├── review-report.md
-└── write-result.json
+/story-long-scan       一致性扫描：占位符、前后矛盾、健康检查
+/story-long-analyze    结构分析：伏笔债、人物线分布、质量与记忆状态
 ```
 
-工作台便于中断后从缺失步骤恢复。真实正文验收成功后，`chapter-commit` 写入 commit 真源，并触发 6 个投影：
+它们只看不改，随时可跑。
 
-- `state`
-- `memory`
-- `summary`
-- `index`
-- `vector`
-- `markdown_view`
+## 写到一半中断了怎么办
 
-## 查询与复盘
+不用担心。每章写作的中间产物都会留在 `.story/workflows/ch_NN/` 下（草稿、审查结果等）。下次接着写时，story-craft 会从缺失的那一步继续，不用从头来过。
 
-常用 Claude Code 入口：
+## 沉淀你的写作经验
+
+写着写着，你会发现一些反复出现的问题或想固定下来的写法。这时：
 
 ```text
-/story-query status
-/story-query memory
-/story-query context 2
-/story-review 1
-/story-query learning-suggestions
-/story-learn
+/story-query learning-suggestions   看系统从审查历史自动提炼的经验候选
+/story-learn                        把你认可的经验入库
 ```
 
-底层调试命令示例：
+入库的经验会自动注入后续章节的写作要求里——越写，story-craft 越懂你的偏好。详见 `/story-learn` 命令说明。
 
-```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query status
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query context --chapter 2
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query entity-graph
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query ranked-context --chapter 2 --budget 20
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo rebuild-views
-```
+## 随时复盘
 
-## 下一步验证
-
-完成第一章后，建议继续验证：
-
-```bash
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo health
-python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-demo query quality
-```
-
-如写作前不确定是否满足条件，先运行：
+`/story-query` 是你的项目仪表盘，只读不改：
 
 ```text
-/story-preflight 2
+/story-query status        项目进度、已写章节
+/story-query memory        人物、设定、已发生事件
+/story-query context 2     第 2 章能用到的上下文
+/story-query learning      已沉淀的写作经验
 ```
+
+## 下一步
+
+- 想看全部命令、Skill 和 Agent：`docs/claude-code-usage.md`
+- 遇到问题排错：`docs/troubleshooting.md`
+- 底层 CLI（高级/运维用，日常写作用不到）：`docs/cli-usage.md`
+
+不确定该干什么时，`/story-preflight` 永远能告诉你下一步。

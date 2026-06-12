@@ -1,5 +1,7 @@
 # 终端 CLI 使用说明
 
+> **日常写小说用不到本文档。** story-craft 的主入口是 Claude Code 对话里的 `/story-*` 命令，见 [`quickstart.md`](quickstart.md) 与 [`claude-code-usage.md`](claude-code-usage.md)。本文档面向需要调试、脚本化运维或深入排查的高级用户。
+
 终端命令是底层工具入口，主要用于调试、冒烟验证、脚本化运维，或在 Skill 流程中被调用。
 
 ## 基本入口
