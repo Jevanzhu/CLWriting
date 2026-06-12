@@ -334,6 +334,47 @@ def test_rank_learning_patterns_sorts_and_truncates():
     assert len(rank_learning_patterns(many)) == DEFAULT_LEARNING_LIMIT
 
 
+def test_disable_learning_pattern_excludes_from_injection(tmp_path):
+    from tools.project_memory import (
+        disable_learning_pattern,
+        rank_learning_patterns,
+    )
+
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    p1 = append_learning_pattern(project, "hook", "钩子", "", "每章末留悬念", 1)
+    append_learning_pattern(project, "pacing", "节奏", "", "中段保持密度", 2)
+
+    # 停用 p1
+    assert disable_learning_pattern(project, p1["id"])["status"] == "disabled"
+    # 注入路径排除已停用，但保留另一条
+    ranked = rank_learning_patterns(get_learning_patterns(project))
+    assert p1["id"] not in [p["id"] for p in ranked]
+    assert len(ranked) == 1
+    # 数据仍保留可恢复
+    assert any(p.get("disabled") for p in get_learning_patterns(project))
+    # 幂等 + 不存在 id
+    assert disable_learning_pattern(project, p1["id"])["status"] == "already_disabled"
+    assert disable_learning_pattern(project, "pat_999")["status"] == "not_found"
+
+
+def test_cli_learn_forget_and_missing_args(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    run_cli(
+        "--project-root", str(project), "learn",
+        "--chapter", "1", "--pattern-type", "hook",
+        "--description", "钩子", "--instruction", "每章末留悬念",
+    )
+    # --forget 停用
+    forget = run_cli("--project-root", str(project), "learn", "--forget", "pat_001")
+    assert forget.returncode == 0, forget.stderr
+    assert json.loads(forget.stdout)["status"] == "disabled"
+    # 记录模式缺必填参数 → 报错
+    bad = run_cli("--project-root", str(project), "learn", "--pattern-type", "hook")
+    assert bad.returncode != 0
+
+
 def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑")
