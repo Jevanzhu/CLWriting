@@ -357,8 +357,8 @@ def cmd_query(args) -> int:
     elif args.target == "learning-suggestions":
         candidates = extract_learning_candidates(
             project_root,
-            min_occurrences=getattr(args, "min_occurrences", 2),
-            min_chapters=getattr(args, "min_chapters", 2),
+            min_occurrences=args.min_occurrences,
+            min_chapters=args.min_chapters,
         )
         print_json({"candidates": candidates})
     elif args.target == "status":
