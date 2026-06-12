@@ -64,6 +64,31 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query learning --pattern-type "${PATTERN_TYPE}"
 ```
 
+## 自动提炼候选审阅（auto-review）
+
+除人工记录外，可让系统从章节审查历史自动提炼反复出现的问题作为候选：
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" query learning-suggestions
+```
+
+输出 `candidates` 列表，每条含 `pattern_type`、`description`、`instruction`、`evidence`（出现次数/涉及章节/是否含 blocker）、`confidence`。
+
+**人工确认闸门（强制）**：
+
+- 候选**只读、默认不生效**，绝不自动入库。
+- 必须把候选逐条展示给用户，由用户勾选认可的。
+- 仅对用户确认的候选，调用 `learn` 入库，并带 `--source auto-review`：
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" learn \
+  --chapter "${CHAPTER}" --pattern-type "${PATTERN_TYPE}" \
+  --description "${DESCRIPTION}" --instruction "${INSTRUCTION}" \
+  --source auto-review --importance "${IMPORTANCE}"
+```
+
+- 入库时去重/合并规则自动生效（同类型且 instruction 实质相同会合并）。
+
 ## 写入边界
 
 - 只写 `.story/project_learning.json`。
