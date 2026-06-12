@@ -124,3 +124,30 @@ def get_learning_patterns(
     if pattern_type is None:
         return patterns
     return [item for item in patterns if item.get("pattern_type") == pattern_type]
+
+
+DEFAULT_LEARNING_LIMIT = 12
+
+
+def rank_learning_patterns(
+    patterns: list[dict[str, Any]],
+    limit: int = DEFAULT_LEARNING_LIMIT,
+) -> list[dict[str, Any]]:
+    """按 importance 高优先、同级按章节新近度排序，并截断 top-N。
+
+    用于注入写作 guidance/checklist 前，防止 learning 无限膨胀淹没关键经验。
+    limit <= 0 表示不截断。
+    """
+
+    def _key(pattern: dict[str, Any]) -> tuple[int, int]:
+        importance = _IMPORTANCE_RANK.get(pattern.get("importance", "medium"), 1)
+        try:
+            chapter = int(pattern.get("chapter") or 0)
+        except (TypeError, ValueError):
+            chapter = 0
+        return (importance, chapter)
+
+    ranked = sorted(patterns, key=_key, reverse=True)
+    if limit and limit > 0:
+        return ranked[:limit]
+    return ranked

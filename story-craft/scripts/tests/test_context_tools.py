@@ -310,6 +310,30 @@ def test_map_pattern_type_maps_reviewer_categories():
         assert _map_pattern_type(category) in valid
 
 
+def test_rank_learning_patterns_sorts_and_truncates():
+    from tools.project_memory import DEFAULT_LEARNING_LIMIT, rank_learning_patterns
+
+    patterns = [
+        {"id": "p1", "importance": "low", "chapter": 1, "instruction": "a"},
+        {"id": "p2", "importance": "high", "chapter": 2, "instruction": "b"},
+        {"id": "p3", "importance": "medium", "chapter": 5, "instruction": "c"},
+        {"id": "p4", "importance": "high", "chapter": 8, "instruction": "d"},
+    ]
+    # importance 高优先，同级按章节新近度：p4(high,8) > p2(high,2) > p3(medium,5) > p1(low,1)
+    ranked = rank_learning_patterns(patterns, limit=0)
+    assert [p["id"] for p in ranked] == ["p4", "p2", "p3", "p1"]
+
+    # top-N 截断只保留最重要/最新的
+    assert [p["id"] for p in rank_learning_patterns(patterns, limit=2)] == ["p4", "p2"]
+
+    # 默认上限防膨胀
+    many = [
+        {"id": f"p{i}", "importance": "medium", "chapter": i, "instruction": f"i{i}"}
+        for i in range(20)
+    ]
+    assert len(rank_learning_patterns(many)) == DEFAULT_LEARNING_LIMIT
+
+
 def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
     project = tmp_path / "demo"
     init_project(project, "暗室", "悬疑")
