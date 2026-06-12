@@ -115,6 +115,7 @@ context-agent → narrative-writer → reviewer(solo) → data-agent
 /story-query memory
 /story-query context 2
 /story-review 1
+/story-query learning-suggestions
 /story-learn
 ```
 
