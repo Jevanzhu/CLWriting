@@ -197,6 +197,33 @@ delta 分为两层契约：
 }
 ```
 
+## project learning
+
+`.story/project_learning.json` 沉淀可复用写作经验，由 `context_manager` 注入后续章节的写作 guidance 与 checklist。三类来源：`/story-learn` 人工标注、`query learning-suggestions` 从审查历史自动提炼（经人工确认入库）、`learn --source import` 的参考作品拆解技法。
+
+```json
+{
+  "patterns": [
+    {
+      "id": "pat_001",
+      "chapter": 3,
+      "pattern_type": "hook",
+      "description": "问题或可复用模式的描述",
+      "example": "正例或反例，可为空",
+      "instruction": "后续写作必须遵守的可检查指令",
+      "source": "manual",
+      "importance": "medium",
+      "created_at": "2026-06-12T00:00:00Z"
+    }
+  ]
+}
+```
+
+- `pattern_type`：7 类之一（`hook`/`pacing`/`dialogue`/`payoff`/`emotion`/`format`/`other`）。`learning-suggestions` 从 reviewer 的受控 category 映射而来（`high_point→payoff`、`reader_pull→hook`、`pacing→pacing`、`format→format`、`ooc→dialogue`、`ai_flavor→format`，无对应者归 `other`）。
+- `source`：`manual`（人工）/ `auto-review`（审查历史提炼）/ `import`（参考拆解）；同类经验合并时来源累积为逗号分隔。
+- `importance`：`high`/`medium`/`low`，合并时取高；`learning-suggestions` 候选按严重度（blocker/importance）优先排序。
+- 同 `pattern_type` 且 `instruction` 实质相同（忽略标点空白）的记录自动去重合并，合并后追加 `updated_at` 并标记 `merged: true`。
+
 ## chapter commit
 
 `.story/commits/chapter_NNN.commit.json` 是写后真源。accepted commit 会驱动 6 投影，rejected commit 只保留审查阻断证据。

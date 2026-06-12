@@ -28,8 +28,8 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root /tmp/story-dem
 - `agent`：生成 Agent 所需的任务书、修复计划、润色计划或兜底 delta。
 - `review`：把 reviewer JSON 转为 Markdown 审查报告，可写成 `review N`。
 - `rebuild-views`：从 commit 真源幂等重建全部投影。
-- `learn`：记录可复用写作经验。
-- `query`：查询状态、上下文、记忆、学习记录、章节影响、索引、实体图和质量趋势。
+- `learn`：记录可复用写作经验；`--source` 区分来源（`manual` 人工 / `auto-review` 审查提炼 / `import` 参考拆解），`--importance` 标重要度，同类经验自动去重合并。
+- `query`：查询状态、上下文、记忆、学习记录（`learning` 已入库 / `learning-suggestions` 从审查历史自动提炼候选）、章节影响、索引、实体图和质量趋势。
 - `index`：重建项目记忆索引。
 - `backup`：创建项目备份。
 - `health`：运行故事项目健康检查。
@@ -166,6 +166,7 @@ python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query entity-graph
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query ranked-context --chapter 12 --budget 20
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query learning
+python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> query learning-suggestions --min-occurrences 2 --min-chapters 2
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> index
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> backup --label 阶段备份
 python3 -X utf8 story-craft/scripts/story_craft.py --project-root <项目> health

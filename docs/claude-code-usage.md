@@ -95,7 +95,7 @@ context-agent → narrative-writer → reviewer(solo) → data-agent
 
 ## 只读入口
 
-- `/story-query`：只读回答项目状态、合同、commit、memory、learning 和 references 口径。
+- `/story-query`：只读回答项目状态、合同、commit、memory、learning（含 `learning-suggestions` 从审查历史自动提炼的经验候选）和 references 口径。
 - `/story-preflight`：只读写前检查，输出 blockers、warnings 和 recommended_skill。
 - `/story-long-analyze`、`/story-short-analyze`：只读分析，不生成新剧情事实。
 - `/story-long-scan`、`/story-short-scan`：扫描占位符、一致性或 AI 味，不直接修复正文。
