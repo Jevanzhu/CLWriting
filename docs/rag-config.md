@@ -66,3 +66,11 @@ rerank 同理，endpoint 为 `/v1/rerank`。
 - embedding 未配置或调用失败：`vector` 投影返回 skipped，查询降级到 BM25/LIKE。
 - rerank 未配置或调用失败：保留 vector/BM25 候选原始顺序。
 - rerank 返回部分结果：已重排结果优先，其余候选按原顺序补齐。
+
+## rerank 是否值得开启（实测参考）
+
+rerank 并非总是有益。当 embedding 本身已足够强时，较弱的 reranker 重排反而可能拉低召回质量。
+
+一次小样本实测（中文悬疑检索，Qwen3-Embedding-8B + jina-reranker-v3）中，embedding 召回 top1 命中率已达 100%，叠加 rerank 后反而降到 33%–80%（负增益）。这说明 embedding 与 reranker 的能力需匹配：embedding 越强，越要求 reranker 同样强才有正收益。
+
+建议：**在自己的语料上实测后再决定**。若 embedding 已足够强、rerank 无正增益，可设 `STORYCRAFT_ENABLE_RERANK=0` 关闭（不影响其余检索）。
