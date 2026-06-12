@@ -53,6 +53,7 @@ Agent(
 - 长篇按需重建 `.story/contracts/volumes/volume_NNN.json`。
 - 重建 `.story/contracts/chapters/chapter_NNN.json`。
 - 参考拆解写入 `narrative_techniques`、`do_not_copy`、`differentiation`，不迁移旧 `deconstruction-agent`。
+- 其中 `narrative_techniques`（可迁移写作技法）经用户逐条确认后，用 `learn --source import` 写入 `.story/project_learning.json`，自动进入后续 `/story-short-write`、`/story-long-write` 的写作 checklist 生效；`do_not_copy`、`differentiation` 仍仅作 init/canon 约束，不入写作 checklist。
 
 4. 写入导入章节草稿或正文候选，等待用户确认是否进入验收。
 5. 用户确认后调用 `rebuild-views` 重建 6 投影：

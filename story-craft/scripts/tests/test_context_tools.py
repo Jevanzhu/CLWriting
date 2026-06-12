@@ -372,6 +372,33 @@ def test_cli_learn_suggest(tmp_path):
     assert json.loads(strict.stdout)["candidates"] == []
 
 
+def test_cli_learn_import_source(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+
+    result = run_cli(
+        "--project-root",
+        str(project),
+        "learn",
+        "--chapter",
+        "1",
+        "--pattern-type",
+        "pacing",
+        "--description",
+        "参考作品的快节奏开篇",
+        "--instruction",
+        "开篇用短句快速切入冲突",
+        "--source",
+        "import",
+    )
+    assert result.returncode == 0, result.stderr
+    pattern = json.loads(result.stdout)
+    assert pattern["source"] == "import"
+    # 参考拆解技法入库后与其它 learning 同一体系，可被写作上下文读取
+    patterns = get_learning_patterns(project)
+    assert any(item["source"] == "import" for item in patterns)
+
+
 def test_prewrite_validator_blocks_incomplete_contract_and_scans_contract_placeholders(
     tmp_path,
 ):
