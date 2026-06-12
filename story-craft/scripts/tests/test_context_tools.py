@@ -213,6 +213,50 @@ def test_project_memory_and_prewrite_validator(tmp_path):
     assert not validation["ready"]
     assert any("缺少章节合同" in item for item in validation["blockers"])
 
+
+def test_learning_pattern_dedup_and_metadata(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+
+    first = append_learning_pattern(
+        project,
+        "hook",
+        "章末钩子",
+        "",
+        "每章末留悬念钩子",
+        1,
+        source="manual",
+        importance="medium",
+    )
+    assert first["id"] == "pat_001"
+    assert first["source"] == "manual"
+    assert first["importance"] == "medium"
+    assert "merged" not in first
+
+    # 同类型 + 标点/空白差异的相同指令 → 合并而非新增；importance 取高、补 example
+    merged = append_learning_pattern(
+        project,
+        "hook",
+        "章末钩子（自动提炼）",
+        "他推开门，发现尸体",
+        "每章末，留悬念钩子。",
+        2,
+        source="auto-review",
+        importance="high",
+    )
+    assert merged["id"] == "pat_001"
+    assert merged["merged"] is True
+    assert merged["importance"] == "high"
+    assert merged["example"] == "他推开门，发现尸体"
+    assert len(get_learning_patterns(project)) == 1
+
+    # 不同类型的相同指令 → 不合并
+    other = append_learning_pattern(
+        project, "pacing", "节奏", "", "每章末留悬念钩子", 3
+    )
+    assert other["id"] == "pat_002"
+    assert len(get_learning_patterns(project)) == 2
+
     _write_chapter_contract(project, 1)
     (project / "大纲" / "总纲.md").write_text(
         "# 暗室\n\n## 第01章\n[TODO:总纲旧占位符]\n",

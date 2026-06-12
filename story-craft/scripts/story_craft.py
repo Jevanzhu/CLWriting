@@ -326,6 +326,8 @@ def cmd_learn(args) -> int:
         args.example,
         args.instruction,
         args.chapter,
+        source=getattr(args, "source", "manual"),
+        importance=getattr(args, "importance", "medium"),
     )
     print_json(pattern)
     return 0
