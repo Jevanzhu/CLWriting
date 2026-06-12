@@ -14,7 +14,15 @@ from typing import Any, Optional
 from core.config import StoryCraftConfig
 from core.context_manager import ContextManager
 from core.memory_manager import MemoryManager
-from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_paragraph_chunks, split_sentences
+from core.text_utils import (
+    build_heuristic_summary,
+    compact_line,
+    count_chinese_chars,
+    first_int,
+    outline_value,
+    split_paragraph_chunks,
+    split_sentences,
+)
 from core.types import ExtractionDelta, NormalizedReviewerResult, ReviewerResult, WorkflowManifest
 from tools.placeholder_scanner import scan_placeholders
 from tools.prewrite_validator import validate_prewrite
@@ -643,7 +651,7 @@ def build_extraction_delta(
             if isinstance(item, dict) and (item.get("id") or item.get("name")):
                 entities_appeared.append(str(item.get("id") or item.get("name")))
 
-    summary = "；".join(key_events) or compact_line(text, 120)
+    summary = build_heuristic_summary(text, max_length=120) or "；".join(key_events)
     word_count = count_chinese_chars(text)
     paragraphs = split_paragraph_chunks(text, min_chars=80)
     if not paragraphs:

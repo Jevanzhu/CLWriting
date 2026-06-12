@@ -18,7 +18,14 @@ from core.chapter_record import ChapterRecordService
 from core.config import StoryCraftConfig
 from core.security_utils import AtomicWriteError, atomic_write_text, sanitize_filename
 from core.context_manager import ContextManager
-from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value, split_paragraph_chunks
+from core.text_utils import (
+    build_heuristic_summary,
+    compact_line,
+    count_chinese_chars,
+    first_int,
+    outline_value,
+    split_paragraph_chunks,
+)
 from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteResult
 from tools.agent_workflow import normalize_reviewer_output
 from tools.deslop_metrics import markdown_residue
@@ -195,13 +202,8 @@ def _default_extraction_delta(
 
 def _fallback_summary(chapter_text: str, chapter_outline: str, title: str) -> str:
     outline_first = chapter_outline.splitlines()[0].strip() if chapter_outline else ""
-    if outline_first:
-        return compact_line(outline_first, max_length=120)
-    for line in chapter_text.splitlines():
-        stripped = line.strip("# \t")
-        if stripped:
-            return compact_line(stripped, max_length=120)
-    return title
+    summary = build_heuristic_summary(chapter_text, outline_hint=outline_first, max_length=120)
+    return summary or title
 
 
 def _fallback_key_events(chapter_text: str, summary: str) -> list[str]:

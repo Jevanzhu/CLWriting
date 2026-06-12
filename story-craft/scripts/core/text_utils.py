@@ -40,9 +40,73 @@ def first_int(text: str) -> int:
 
 CHINESE_SENTENCE_RE = re.compile(r"[^。！？!?]+[。！？!?]?")
 
+# 中文小说里标志冲突、转折、揭示、钩子的信号词，用于无 LLM 摘要选句。
+_SUMMARY_SIGNAL_WORDS = (
+    "却",
+    "但",
+    "突然",
+    "竟",
+    "竟然",
+    "原来",
+    "发现",
+    "其实",
+    "没想到",
+    "真相",
+    "秘密",
+    "死",
+    "杀",
+    "血",
+    "不是",
+    "并非",
+    "为什么",
+    "谁",
+    "决定",
+    "终于",
+    "警报",
+    "消失",
+    "背叛",
+    "可是",
+    "然而",
+)
+
 
 def split_sentences(text: str) -> list[str]:
     return [item.strip() for item in CHINESE_SENTENCE_RE.findall(text or "") if item.strip()]
+
+
+def _summary_source_text(text: str) -> str:
+    body_lines = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#"):
+            body_lines.append(line)
+    return "\n".join(body_lines) or str(text or "")
+
+
+def build_heuristic_summary(
+    text: str,
+    *,
+    outline_hint: str = "",
+    max_length: int = 120,
+) -> str:
+    """无 LLM 的启发式章节摘要：首句 + 关键转折句 + 末句。"""
+    source = _summary_source_text(text)
+    sentences = split_sentences(source)
+    if not sentences:
+        return compact_line(source or outline_hint, max_length=max_length)
+
+    last_index = len(sentences) - 1
+    middle_hits = []
+    for index in range(1, last_index):
+        sentence = sentences[index]
+        if "？" in sentence or "?" in sentence or any(
+            word in sentence for word in _SUMMARY_SIGNAL_WORDS
+        ):
+            middle_hits.append(index)
+
+    picked_indexes = {0, last_index, *middle_hits[:2]}
+    ordered = [sentences[index] for index in sorted(picked_indexes)]
+    return compact_line("；".join(ordered), max_length=max_length)
 
 
 def split_paragraph_chunks(text: str, *, min_chars: int = 80) -> list[dict[str, Any]]:
