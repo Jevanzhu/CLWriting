@@ -283,6 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
             "context",
             "memory",
             "learning",
+            "learning-suggestions",
             "genres",
             "status",
             "quality",
@@ -296,6 +297,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     query_parser.add_argument("--chapter", type=int, default=1, help="目标章节号，默认 1")
     query_parser.add_argument("--pattern-type", default=None, help="learning 查询的经验类型过滤")
+    query_parser.add_argument(
+        "--min-occurrences", type=int, default=2, help="learning-suggestions 候选最少累计出现次数"
+    )
+    query_parser.add_argument(
+        "--min-chapters", type=int, default=2, help="learning-suggestions 候选最少跨越章节数"
+    )
     query_parser.add_argument("--kind", default=None, help="index/semantic 查询的条目类型过滤")
     query_parser.add_argument("--text", default="", help="index/semantic 查询文本")
     query_parser.add_argument("--limit", type=int, default=20, help="查询结果数量上限")

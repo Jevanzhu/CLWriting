@@ -44,6 +44,7 @@ from tools.import_parser import parse_import_source
 from tools.outline_planner import plan_story
 from tools.outline_reviser import OutlineReviser
 from tools.placeholder_scanner import scan_placeholders
+from tools.learning_extractor import extract_learning_candidates
 from tools.project_memory import append_learning_pattern, get_learning_patterns
 from tools.quality_trend_report import QualityTrendReporter
 from tools.repair_strength import build_repair_workflow
@@ -353,6 +354,13 @@ def cmd_query(args) -> int:
         print_json(MemoryManager.from_project(project_root).load())
     elif args.target == "learning":
         print_json({"patterns": get_learning_patterns(project_root, args.pattern_type)})
+    elif args.target == "learning-suggestions":
+        candidates = extract_learning_candidates(
+            project_root,
+            min_occurrences=getattr(args, "min_occurrences", 2),
+            min_chapters=getattr(args, "min_chapters", 2),
+        )
+        print_json({"candidates": candidates})
     elif args.target == "status":
         print_json(StatusReporter.from_project(project_root).build())
     elif args.target == "quality":

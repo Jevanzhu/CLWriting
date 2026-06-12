@@ -339,6 +339,35 @@ def test_extract_learning_candidates_from_reviews(tmp_path):
     assert confidences == sorted(confidences, reverse=True)
 
 
+def test_cli_learn_suggest(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    config = StoryCraftConfig.from_project_root(project)
+    for ch in (1, 2):
+        _write_chapter_record(
+            config, ch, warnings=[{"category": "pacing", "description": "中段节奏拖沓"}]
+        )
+
+    result = run_cli("--project-root", str(project), "query", "learning-suggestions")
+    assert result.returncode == 0, result.stderr
+    candidates = json.loads(result.stdout)["candidates"]
+    assert len(candidates) == 1
+    assert candidates[0]["pattern_type"] == "pacing"
+    assert candidates[0]["source"] == "auto-review"
+
+    # 阈值收紧后不再产出候选
+    strict = run_cli(
+        "--project-root",
+        str(project),
+        "query",
+        "learning-suggestions",
+        "--min-occurrences",
+        "5",
+    )
+    assert strict.returncode == 0, strict.stderr
+    assert json.loads(strict.stdout)["candidates"] == []
+
+
 def test_prewrite_validator_blocks_incomplete_contract_and_scans_contract_placeholders(
     tmp_path,
 ):
