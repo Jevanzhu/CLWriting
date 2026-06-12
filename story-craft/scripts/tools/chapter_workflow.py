@@ -30,6 +30,7 @@ from core.types import ExtractionDelta, WriteGateFailure, WriteGateStage, WriteR
 from tools.agent_workflow import normalize_reviewer_output
 from tools.deslop_metrics import markdown_residue
 from tools.placeholder_scanner import scan_placeholders
+from tools.style_sampler import extract_style_sample
 from tools.prewrite_validator import validate_prewrite
 from tools.review_pipeline import build_review_report
 
@@ -663,6 +664,7 @@ def record_chapter_workflow(
             word_count,
             review_result,
             delta,
+            style_sample=extract_style_sample(chapter_text, chapter),
         )
 
         if record_result["status"] == "accepted":

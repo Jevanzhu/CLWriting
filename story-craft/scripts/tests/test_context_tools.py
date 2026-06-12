@@ -395,7 +395,7 @@ def test_extract_learning_candidates_tolerates_malformed_records(tmp_path):
     assert extract_learning_candidates(project) == []
 
 
-def _write_chapter_record(config, chapter, warnings=None, blockers=None):
+def _write_chapter_record(config, chapter, warnings=None, blockers=None, style_sample=None):
     config.chapters_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "chapter": chapter,
@@ -406,6 +406,7 @@ def _write_chapter_record(config, chapter, warnings=None, blockers=None):
             "warnings": warnings or [],
             "blockers": blockers or [],
         },
+        "style_sample": style_sample or {},
     }
     path = config.chapters_dir / chapter_record_file_name(chapter)
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -466,6 +467,48 @@ def test_extract_learning_candidates_from_reviews(tmp_path):
     ranks = {"low": 0, "medium": 1, "high": 2}
     sort_keys = [(ranks[item["importance"]], item["confidence"]) for item in candidates]
     assert sort_keys == sorted(sort_keys, reverse=True)
+
+
+def test_extract_style_drift_candidates_unit():
+    from tools.learning_extractor import _extract_style_drift_candidates
+
+    base = {
+        "avg_sentence_length": 15, "dialogue_ratio": 0.3,
+        "description_ratio": 0.2, "action_ratio": 0.2, "vocabulary_tier": "simple",
+    }
+    drifted = {
+        "avg_sentence_length": 33, "dialogue_ratio": 0.3,
+        "description_ratio": 0.2, "action_ratio": 0.2, "vocabulary_tier": "literary",
+    }
+    # 句长+词汇层级相对基准持续漂移，跨 ch2/3/4
+    records = [(1, base), (2, drifted), (3, drifted), (4, drifted)]
+    cands = _extract_style_drift_candidates(records, min_chapters=2)
+    assert cands
+    assert all(c["source"] == "auto-style" and c["pattern_type"] == "format" for c in cands)
+    assert any("句长" in c["description"] for c in cands)
+    # 样本不足（仅 baseline + 1 章）不提炼
+    assert _extract_style_drift_candidates([(1, base), (2, drifted)], min_chapters=2) == []
+
+
+def test_extract_includes_auto_style_from_records(tmp_path):
+    project = tmp_path / "demo"
+    init_project(project, "暗室", "悬疑")
+    config = StoryCraftConfig.from_project_root(project)
+    base = {
+        "avg_sentence_length": 15, "dialogue_ratio": 0.3,
+        "description_ratio": 0.2, "action_ratio": 0.2, "vocabulary_tier": "simple",
+    }
+    drifted = {
+        "avg_sentence_length": 33, "dialogue_ratio": 0.3,
+        "description_ratio": 0.2, "action_ratio": 0.2, "vocabulary_tier": "literary",
+    }
+    _write_chapter_record(config, 1, style_sample=base)
+    _write_chapter_record(config, 2, style_sample=drifted)
+    _write_chapter_record(config, 3, style_sample=drifted)
+
+    auto_style = [c for c in extract_learning_candidates(project) if c["source"] == "auto-style"]
+    assert auto_style
+    assert all(c["pattern_type"] == "format" for c in auto_style)
 
 
 def test_cli_learn_suggest(tmp_path):

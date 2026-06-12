@@ -14,6 +14,7 @@ from typing import Any
 from core.chapter_paths import iter_chapter_record_files
 from core.config import StoryCraftConfig
 from core.security_utils import read_json_safe
+from tools.style_sampler import detect_style_drift
 
 
 # 审查 category（自由文本）→ 7 类 pattern_type 的关键词映射
@@ -64,6 +65,7 @@ def extract_learning_candidates(
     """
     config = StoryCraftConfig.from_project_root(project_root)
     aggregated: dict[tuple[str, str], dict[str, Any]] = {}
+    style_records: list[tuple[Any, Any]] = []
 
     for path in iter_chapter_record_files(config=config):
         payload = read_json_safe(path, {})
@@ -71,6 +73,7 @@ def extract_learning_candidates(
         if not isinstance(review, dict):
             review = {}
         chapter = payload.get("chapter")
+        style_records.append((chapter, payload.get("style_sample")))
         warnings = review.get("warnings")
         blockers = review.get("blockers")
         sources = (
@@ -132,9 +135,58 @@ def extract_learning_candidates(
             }
         )
 
+    candidates.extend(_extract_style_drift_candidates(style_records, min_chapters))
+
     # 先按严重度（importance）再按置信度排序，确保 blocker/高危问题排在最前
     candidates.sort(
         key=lambda item: (_IMPORTANCE_RANK.get(item["importance"], 1), item["confidence"]),
         reverse=True,
     )
+    return candidates
+
+
+def _extract_style_drift_candidates(
+    style_records: list[tuple[Any, Any]],
+    min_chapters: int = 2,
+) -> list[dict[str, Any]]:
+    """从历史 style_sample 检测持续风格漂移，提炼 auto-style 候选。
+
+    以最早章节为基准，统计后续章节相对基准的漂移项；跨足够多章节持续出现的
+    漂移视为风格不稳定，提炼为 format 类候选（source=auto-style）。
+    """
+    samples = [
+        (int(chapter), sample)
+        for chapter, sample in style_records
+        if chapter is not None and isinstance(sample, dict) and sample
+    ]
+    if len(samples) <= min_chapters:
+        return []
+    samples.sort(key=lambda item: item[0])
+    baseline = samples[0][1]
+    drift: dict[str, set[int]] = {}
+    for chapter, sample in samples[1:]:
+        for warning in detect_style_drift(sample, baseline):
+            drift.setdefault(warning, set()).add(chapter)
+
+    candidates: list[dict[str, Any]] = []
+    for warning, chapter_set in drift.items():
+        chapters = sorted(chapter_set)
+        if len(chapters) < min_chapters:
+            continue
+        candidates.append(
+            {
+                "pattern_type": "format",
+                "description": f"风格持续漂移：{warning}",
+                "example": "",
+                "instruction": f"保持文风稳定，注意：{warning}",
+                "source": "auto-style",
+                "importance": "medium",
+                "evidence": {
+                    "occurrences": len(chapters),
+                    "chapters": chapters,
+                    "has_blocker": False,
+                },
+                "confidence": round(min(1.0, len(chapters) / 5), 2),
+            }
+        )
     return candidates
