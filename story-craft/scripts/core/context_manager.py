@@ -14,7 +14,7 @@ from core.memory_manager import MemoryManager
 from core.security_utils import read_json_safe
 from core.state_manager import StateManager
 from tools.genre_profile_builder import build_genre_hints
-from tools.project_memory import get_learning_patterns
+from tools.project_memory import get_learning_patterns, rank_learning_patterns
 from tools.context_ranker import rank_context_items
 from tools.writing_guidance_builder import (
     build_anti_ai_checklist,
@@ -105,7 +105,9 @@ class ContextManager:
 
     def _build_guidance(self, chapter: int) -> dict[str, Any]:
         project = self.state.get_project()
-        learning_patterns = get_learning_patterns(self.config.project_root)
+        learning_patterns = rank_learning_patterns(
+            get_learning_patterns(self.config.project_root)
+        )
         review_history = self._load_review_history()
         genre_profile = build_genre_hints(
             str(project.get("genre") or ""),
