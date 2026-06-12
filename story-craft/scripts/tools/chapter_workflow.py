@@ -422,6 +422,16 @@ def _normalize_delta_chapter(
     return normalized, errors, warnings
 
 
+_STAGE_FIX_HINTS = {
+    "prewrite": "先补齐缺失的章节合同或上一章验收记录，再重新提交。",
+    "placeholder": "替换正文中的占位符（如 [TODO]、{待定}）为具体内容后重试。",
+    "markdown": "删除正文中的 Markdown 标记（# 标题、* 强调、- 列表等），正文即成品需为纯文本段落。",
+    "word_count": "补足正文至接近计划字数；草稿过短通常意味着场景尚未充分展开。",
+    "warnings": "处理上述 warning，或去掉严格模式（默认允许带 warning 提交）。",
+    "delta_validation": "检查 data-agent 产出的 delta 结构（章节号、事件、场景字段），修正后重试。",
+}
+
+
 def _failure_result(
     *,
     stage: WriteGateStage,
@@ -446,6 +456,9 @@ def _failure_result(
     }
     if word_count_check is not None:
         result["word_count_check"] = word_count_check
+    result["next_step"] = _STAGE_FIX_HINTS.get(
+        stage, "查看 blockers 列表，逐项修正后重新提交。"
+    )
     result.update(extra)
     return result
 
