@@ -17,24 +17,18 @@ from core.security_utils import read_json_safe
 
 
 # 审查 category（自由文本）→ 7 类 pattern_type 的关键词映射
-_CATEGORY_KEYWORDS = (
-    ("pacing", "pacing"),
-    ("节奏", "pacing"),
-    ("hook", "hook"),
-    ("钩子", "hook"),
-    ("dialogue", "dialogue"),
-    ("对白", "dialogue"),
-    ("对话", "dialogue"),
-    ("payoff", "payoff"),
-    ("伏笔", "payoff"),
-    ("兑现", "payoff"),
-    ("emotion", "emotion"),
-    ("情绪", "emotion"),
-    ("情感", "emotion"),
-    ("format", "format"),
-    ("排版", "format"),
-    ("格式", "format"),
-)
+# reviewer 的受控 category（见 agent_workflow.REVIEWER_CATEGORIES，共 15 类）
+# → learning 的 7 类 pattern_type。未列出的 reviewer 类无对应，归 other。
+_CATEGORY_TO_PATTERN_TYPE = {
+    "pacing": "pacing",
+    "format": "format",
+    "ai_flavor": "format",    # AI 味≈文风/格式问题
+    "high_point": "payoff",   # 爽点/高潮兑现
+    "reader_pull": "hook",    # 读者拉力≈钩子
+    "ooc": "dialogue",        # 人物失格多体现在对白口吻
+    # 无 learning 对应、归 other：
+    # character / consistency / continuity / contract / logic / safety / setting / strand / timeline
+}
 
 _NORM = re.compile(r"[\s，。、；：！？,.;:!?]+")
 
@@ -42,16 +36,8 @@ _IMPORTANCE_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
 def _map_pattern_type(category: str) -> str:
-    text = (category or "").strip().lower()
-    for keyword, ptype in _CATEGORY_KEYWORDS:
-        # 英文关键词用词边界匹配，避免 "information"→format、"spacing"→pacing 这类子串误判；
-        # 中文无词边界，直接子串匹配
-        if keyword.isascii():
-            if re.search(rf"\b{re.escape(keyword)}\b", text):
-                return ptype
-        elif keyword in text:
-            return ptype
-    return "other"
+    """把 reviewer 受控 category 映射到 learning 7 类；未知归 other。"""
+    return _CATEGORY_TO_PATTERN_TYPE.get((category or "").strip().lower(), "other")
 
 
 def _norm_desc(text: str) -> str:
