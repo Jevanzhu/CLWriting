@@ -31,7 +31,7 @@ def test_release_manifest_versions_are_bumped_and_aligned():
 
     assert pyproject_version
     assert pyproject_version.group(1) == plugin["version"]
-    assert plugin["version"] == "0.1.1"
+    assert plugin["version"] == "0.2.0"
     assert plugin["name"] == "story-craft"
     assert plugin["license"] == "GPL-3.0"
     assert plugin["description"] == "中文短篇/长篇小说交互式写作系统（1-10 万字起步，可扩展长篇）"
