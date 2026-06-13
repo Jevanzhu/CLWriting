@@ -285,6 +285,28 @@ def test_summary_projection_writer_skips_rejected_commit(tmp_path):
     assert not (config.summaries_dir / "ch0005.md").exists()
 
 
+def test_apply_events_open_loop_accepts_loop_id_without_explicit_id(tmp_path):
+    """open_loop_created 用 loop_id（或仅 event.entity_id）而非 id 时，memory 投影应回填
+    id 写入伏笔，而非抛 'Foreshadowing item must include id' 致 memory 投影失败。"""
+    config = StoryCraftConfig.from_project_root(tmp_path)
+    memory = MemoryManager(config)
+
+    memory.apply_events(
+        [
+            {
+                "event_type": "open_loop_created",
+                "entity_id": "loop_parcel",
+                "payload": {"loop_id": "loop_parcel", "description": "匿名邮包来源未知"},
+                "chapter": 1,
+            }
+        ],
+        chapter=1,
+    )
+
+    loops = memory.get_open_foreshadowing()
+    assert any(item.get("id") == "loop_parcel" for item in loops)
+
+
 def test_memory_projection_writer_consumes_events_directly_and_is_idempotent(tmp_path):
     config = StoryCraftConfig.from_project_root(tmp_path)
     writer = MemoryProjectionWriter(config)
