@@ -702,6 +702,12 @@ def record_chapter_workflow(
             state_updated=False,
             review_status=review_status,
         )
+    for projection_name, projection_state in (record_result.get("projections") or {}).items():
+        if isinstance(projection_state, dict) and projection_state.get("ok") is False:
+            all_warnings.append(
+                f"投影 {projection_name} 写入失败：{projection_state.get('detail') or '未知原因'}"
+                "（commit 已落盘为真源，排查后可重跑 rebuild-views 恢复该视图）。"
+            )
     return {
         "ok": record_result["status"] == "accepted",
         "stage": "record",

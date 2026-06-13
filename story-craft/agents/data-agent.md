@@ -91,7 +91,7 @@ python -X utf8 "${SCRIPTS_DIR}/story_craft.py" --project-root "${PROJECT_ROOT}" 
 - 新角色或物品写为 `entity_introduced`，再次出现写为 `entity_appeared`。
 - 新伏笔写为 `open_loop_created`，回收伏笔写为 `open_loop_closed`。
 - 新世界规则写为 `rule_revealed`。
-- 时间推进写为 `timeline_advanced`。
+- 时间推进写为 `timeline_advanced`，其 `payload` 建议直接带 `events`（与 `timeline_entry.events` 一致）：Markdown 时间线投影读取的是 `timeline_advanced.payload.events`；仅填顶层 `timeline_entry` 时 commit 构建会自动回填，但显式提供更稳妥。
 - 章节摘要写为 `summary_recorded`。
 - `timeline_entry.events` 必须是按因果顺序排列的事件。
 - `scenes` 按地点、时间段或事件转折切分，每项必须包含 `embedding_text`，用于 vector 投影。
