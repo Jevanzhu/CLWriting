@@ -217,7 +217,7 @@ class StateManager:
 
         try:
             disk_state = self._ensure_state_schema(
-                read_json_safe(self.config.state_file, default_state())
+                read_json_safe(self.config.state_file, default_state(), preserve_corrupt=True)
             )
             for section, updates in self._pending.items():
                 updates_to_apply = deepcopy(updates)
@@ -241,7 +241,7 @@ class StateManager:
                 lock.release()
 
     def _load_state(self) -> dict[str, Any]:
-        raw = read_json_safe(self.config.state_file, default_state())
+        raw = read_json_safe(self.config.state_file, default_state(), preserve_corrupt=True)
         return self._ensure_state_schema(raw)
 
     def _ensure_state_schema(self, state: dict[str, Any]) -> dict[str, Any]:

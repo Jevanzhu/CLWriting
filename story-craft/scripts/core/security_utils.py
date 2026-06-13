@@ -7,9 +7,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -159,8 +161,15 @@ def _atomic_write_payload(
 def read_json_safe(
     file_path: Union[str, Path],
     default: Optional[Dict[str, Any]] = None,
+    *,
+    preserve_corrupt: bool = False,
 ) -> Dict[str, Any]:
-    """Safely read a JSON file and return a default dict on failure."""
+    """Safely read a JSON file and return a default dict on failure.
+
+    preserve_corrupt=True 时，若文件存在但 JSON 损坏，先把损坏内容另存为带时间戳的
+    .corrupt 副本再回退默认值——避免损坏内容被后续 atomic_write 覆盖、丢失取证线索。
+    供 state.json / memory.json 这类关键文件读取时启用。
+    """
     target = Path(file_path)
     fallback: Dict[str, Any] = default or {}
     if not target.exists():
@@ -170,6 +179,33 @@ def read_json_safe(
         with target.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         return data if isinstance(data, dict) else dict(fallback)
-    except (json.JSONDecodeError, OSError) as exc:
+    except json.JSONDecodeError as exc:
+        if preserve_corrupt:
+            _preserve_corrupt_file(target, exc)
+        else:
+            logger.warning("failed to read JSON %s: %s", target, exc)
+        return dict(fallback)
+    except OSError as exc:
         logger.warning("failed to read JSON %s: %s", target, exc)
         return dict(fallback)
+
+
+def _preserve_corrupt_file(target: Path, exc: Exception) -> None:
+    """把损坏的关键 JSON 另存为带时间戳的 .corrupt 副本供取证，避免被后续写入覆盖。"""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    corrupt_path = target.with_name(f"{target.name}.corrupt_{stamp}")
+    try:
+        shutil.copy2(target, corrupt_path)
+        logger.warning(
+            "JSON 文件损坏 %s：%s；已另存损坏副本 %s 供取证，本次回退到默认值。",
+            target,
+            exc,
+            corrupt_path,
+        )
+    except OSError as copy_exc:
+        logger.warning(
+            "JSON 文件损坏 %s：%s；保留损坏副本失败：%s",
+            target,
+            exc,
+            copy_exc,
+        )

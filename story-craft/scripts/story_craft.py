@@ -14,6 +14,7 @@ from core.context_manager import ContextManager
 from core.config import StoryCraftConfig
 from core.event_projection_router import EventProjectionRouter
 from core.memory_index import MemoryIndexService
+from core.projection_log import append_projection_run
 from core.memory_manager import MemoryManager
 from core.project_locator import (
     locate_project_root,
@@ -550,7 +551,15 @@ def cmd_rebuild_views(args) -> int:
         _print_project_root_error(exc)
         return 1
 
-    results = EventProjectionRouter.from_project(project_root).rebuild(only=args.only)
+    config = StoryCraftConfig.from_project_root(project_root)
+    results = EventProjectionRouter(config).rebuild(only=args.only)
+    append_projection_run(
+        config,
+        chapter=0,
+        commit_status="",
+        results=results,
+        source="rebuild-views",
+    )
     payload = {
         "ok": all(result.ok for result in results.values()),
         "project_root": str(project_root),
