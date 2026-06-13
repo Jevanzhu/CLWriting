@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from core.config import StoryCraftConfig
 from core.memory_manager import MemoryManager
+from core.projection_log import failed_writers, latest_projection_run
 from core.rag import RagConfig, VectorStore
 from core.runtime_diagnostics import build_runtime_diagnostics
 from core.state_manager import StateManager
@@ -73,6 +74,17 @@ class StoryRuntimeHealth:
         info.append(f"当前章节：{progress.get('current_chapter', 0)}")
         info.append(f"累计字数：{progress.get('total_words', 0)}")
         info.append(f"角色数：{len(memory.get('characters', []) or [])}")
+
+        latest_run = latest_projection_run(self.config)
+        if latest_run is not None:
+            failed = failed_writers(latest_run)
+            if failed:
+                warnings.append(
+                    f"最近一次投影有 {len(failed)} 路写入失败：{', '.join(failed)}"
+                    f"（章节 {latest_run.get('chapter') or '?'}，commit 是真源，可重跑 rebuild-views 恢复）。"
+                )
+            elif str(latest_run.get("status") or "") == "pending":
+                warnings.append("最近一次投影存在 pending，建议重跑 rebuild-views。")
 
         health = {
             "ok": not blockers,

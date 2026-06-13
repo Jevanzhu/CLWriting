@@ -17,7 +17,7 @@ from core.commit_store import CommitStore
 from core.config import StoryCraftConfig
 from core.chapter_record import ChapterRecordService
 from core.memory_manager import MemoryManager
-from core.security_utils import atomic_write_json
+from core.security_utils import atomic_write_json, read_json_safe
 from core.state_manager import SCHEMA_VERSION, StateManager
 from core.text_utils import compact_line, count_chinese_chars, first_int, outline_value
 from tools.agent_workflow import normalize_reviewer_output
@@ -26,6 +26,32 @@ from tools.init_project import init_project
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_read_json_safe_preserves_corrupt_file_when_enabled(tmp_path):
+    """preserve_corrupt=True：损坏 JSON 被另存为带时间戳的 .corrupt 副本，再返回默认值。"""
+    target = tmp_path / "state.json"
+    target.write_text('{"project_info": ', encoding="utf-8")  # 截断的损坏 JSON
+
+    result = read_json_safe(target, {"fallback": True}, preserve_corrupt=True)
+
+    assert result == {"fallback": True}
+    corrupt_copies = list(tmp_path.glob("state.json.corrupt_*"))
+    assert len(corrupt_copies) == 1
+    # 损坏内容被原样保留供取证；原文件仍在（copy 而非 move）
+    assert corrupt_copies[0].read_text(encoding="utf-8") == '{"project_info": '
+    assert target.exists()
+
+
+def test_read_json_safe_no_corrupt_copy_by_default(tmp_path):
+    """默认 preserve_corrupt=False：损坏时静默返默认值，不产生 .corrupt 副本。"""
+    target = tmp_path / "memory.json"
+    target.write_text("{bad json", encoding="utf-8")
+
+    result = read_json_safe(target, {"d": 1})
+
+    assert result == {"d": 1}
+    assert list(tmp_path.glob("*.corrupt_*")) == []
 
 
 def test_text_utils_cover_shared_low_level_parsing():

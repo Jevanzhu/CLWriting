@@ -14,6 +14,7 @@ from core.commit_store import CommitStore
 from core.config import StoryCraftConfig
 from core.event_projection_router import EventProjectionRouter
 from core.projection.base import ProjectionResult
+from core.projection_log import append_projection_run
 from core.security_utils import atomic_write_json
 from core.time_utils import now_utc_iso
 from core.types import ExtractionDelta, NormalizedReviewerResult
@@ -58,6 +59,13 @@ class ChapterRecordService:
         )
         commit_file = CommitStore(self.config).write(commit)
         projection_results = EventProjectionRouter(self.config).dispatch(commit)
+        append_projection_run(
+            self.config,
+            chapter=int(chapter),
+            commit_status=str(commit.get("status") or ""),
+            results=projection_results,
+            source="chapter-commit",
+        )
         memory_updated = _projection_updated(projection_results.get("memory"))
         state_updated = _projection_updated(projection_results.get("state"))
 

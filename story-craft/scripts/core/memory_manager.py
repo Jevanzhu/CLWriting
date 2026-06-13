@@ -80,7 +80,7 @@ class MemoryManager:
     def __init__(self, config: Optional[StoryCraftConfig] = None):
         self.config = config or StoryCraftConfig()
         self._memory = self._ensure_memory_schema(
-            read_json_safe(self.config.memory_file, default_memory())
+            read_json_safe(self.config.memory_file, default_memory(), preserve_corrupt=True)
         )
 
     @classmethod
@@ -89,7 +89,7 @@ class MemoryManager:
 
     def load(self) -> dict[str, Any]:
         self._memory = self._ensure_memory_schema(
-            read_json_safe(self.config.memory_file, default_memory())
+            read_json_safe(self.config.memory_file, default_memory(), preserve_corrupt=True)
         )
         return deepcopy(self._memory)
 
