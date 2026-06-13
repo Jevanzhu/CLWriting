@@ -70,6 +70,7 @@ def delta_to_events(delta: ExtractionDelta) -> list[AcceptedEvent]:
     """Convert legacy ExtractionDelta fields into accepted event stream."""
     events = [deepcopy(event) for event in delta.get("accepted_events", []) or []]
     if events:
+        _ensure_timeline_events(events, delta.get("timeline_entry") or {})
         return events
 
     chapter = _event_chapter(delta)
@@ -155,6 +156,41 @@ def delta_to_events(delta: ExtractionDelta) -> list[AcceptedEvent]:
         )
 
     return events
+
+
+def _ensure_timeline_events(
+    events: list[AcceptedEvent],
+    timeline_entry: dict[str, Any],
+) -> None:
+    """让 data-agent 直接提供的 accepted_events 也能在时间线视图渲染。
+
+    Markdown 时间线读取每个 timeline_advanced 事件的 ``payload.events``。当
+    data-agent 按 data-agent.md 把因果事件只放在 delta 顶层 ``timeline_entry``、
+    而 timeline_advanced 的 payload 未带 ``events`` 时，从 timeline_entry 回填，
+    避免时间线投影渲染成「未记录」。兜底（legacy）路径本就整体塞入 timeline_entry，
+    不受影响。
+    """
+    fallback_events = [str(item) for item in (timeline_entry.get("events") or []) if item]
+    if not fallback_events:
+        return
+    advanced = [event for event in events if event.get("event_type") == "timeline_advanced"]
+    if not advanced:
+        events.append(
+            {
+                "event_type": "timeline_advanced",
+                "payload": deepcopy(timeline_entry),
+                "chapter": int(timeline_entry.get("chapter") or 0),
+                "source": "agent",
+            }
+        )
+        return
+    for event in advanced:
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+            event["payload"] = payload
+        if not payload.get("events"):
+            payload["events"] = list(fallback_events)
 
 
 def derive_state_deltas(events: list[AcceptedEvent]) -> list[StateDelta]:

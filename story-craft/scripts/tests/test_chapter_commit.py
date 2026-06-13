@@ -94,6 +94,73 @@ def test_delta_to_events_covers_legacy_event_fields():
     assert events[7]["payload"]["summary"] == "林墨进入旧楼"
 
 
+def test_delta_to_events_backfills_timeline_events_for_agent_delta():
+    """data-agent 直接提供 accepted_events 时，若 timeline_advanced 的 payload 未带 events、
+    而 timeline_entry 顶层有因果事件，应回填 payload.events，避免时间线投影渲染成「未记录」。
+    """
+    delta = {
+        "chapter": 1,
+        "accepted_events": [
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"time_marker": "台风夜", "note": "无 events 字段"},
+                "chapter": 1,
+            }
+        ],
+        "timeline_entry": {"chapter": 1, "events": ["收到匿名邮包", "第九张照片现死者活影"]},
+    }
+
+    events = delta_to_events(delta)
+    advanced = [event for event in events if event["event_type"] == "timeline_advanced"]
+
+    assert len(advanced) == 1
+    assert advanced[0]["payload"]["events"] == ["收到匿名邮包", "第九张照片现死者活影"]
+
+
+def test_delta_to_events_synthesizes_timeline_advanced_when_agent_omits_it():
+    """accepted_events 未含 timeline_advanced，但 timeline_entry 有因果事件时，
+    从 timeline_entry 合成一个带 events 的 timeline_advanced，保证时间线投影可渲染。"""
+    delta = {
+        "chapter": 1,
+        "accepted_events": [
+            {
+                "event_type": "entity_introduced",
+                "entity_id": "char_zhou",
+                "entity_type": "角色",
+                "payload": {"id": "char_zhou", "name": "周慎"},
+                "chapter": 1,
+            }
+        ],
+        "timeline_entry": {"chapter": 1, "events": ["台风夜收到旧案邮包"]},
+    }
+
+    events = delta_to_events(delta)
+    advanced = [event for event in events if event["event_type"] == "timeline_advanced"]
+
+    assert len(advanced) == 1
+    assert advanced[0]["payload"]["events"] == ["台风夜收到旧案邮包"]
+
+
+def test_delta_to_events_keeps_existing_timeline_payload_events():
+    """timeline_advanced 已自带 events 时，不被 timeline_entry 覆盖。"""
+    delta = {
+        "chapter": 1,
+        "accepted_events": [
+            {
+                "event_type": "timeline_advanced",
+                "payload": {"events": ["事件A", "事件B"]},
+                "chapter": 1,
+            }
+        ],
+        "timeline_entry": {"chapter": 1, "events": ["不应覆盖"]},
+    }
+
+    events = delta_to_events(delta)
+    advanced = [event for event in events if event["event_type"] == "timeline_advanced"]
+
+    assert advanced[0]["payload"]["events"] == ["事件A", "事件B"]
+
+
 def test_build_chapter_commit_derives_projection_triggers():
     commit = build_chapter_commit(
         chapter=2,

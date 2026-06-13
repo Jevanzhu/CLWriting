@@ -305,8 +305,16 @@ class MemoryManager:
                 payload.setdefault("chapter", event.get("chapter"))
                 self._apply_state_change(payload)
             elif event_type == "open_loop_created":
+                if "id" not in payload:
+                    loop_key = event.get("entity_id") or payload.get("loop_id")
+                    if loop_key:
+                        payload["id"] = loop_key
                 self.upsert_foreshadowing(payload)
             elif event_type == "open_loop_closed":
+                if "id" not in payload:
+                    loop_key = event.get("entity_id") or payload.get("loop_id")
+                    if loop_key:
+                        payload["id"] = loop_key
                 self._resolve_foreshadowing(payload, effective_chapter)
             elif event_type == "rule_revealed":
                 self.add_world_rule(payload)
