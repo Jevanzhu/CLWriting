@@ -1,6 +1,6 @@
 [project]
 name = "clwriting-story-craft"
-version = "0.1.1"
+version = "0.2.0"
 description = "Claude Code plugin-style Chinese short and long-form writing workflow."
 readme = "README.md"
 requires-python = ">=3.10"
