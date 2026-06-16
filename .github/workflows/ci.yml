@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["v1"]
+  pull_request:
+    branches: ["v1"]
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 类型检查（tsc --noEmit 零错）
+        run: npm run typecheck
+
+      - name: 构建（src → dist）
+        run: npm run build
+
+      - name: 测试（含 node:sqlite smoke）
+        run: npm test
+
+      - name: bin 链路 smoke（build → bin 可执行）
+        run: node dist/cli.js --version
+
+      - name: 运行时零第三方依赖断言
+        run: node -e "const d=require('./package.json').dependencies||{}; if(Object.keys(d).length){console.error('运行时依赖非空:',d);process.exit(1)}"
