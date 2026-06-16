@@ -2,6 +2,10 @@
 node_modules/
 dist/
 
+# macOS 元数据垃圾（SMB 挂载产生，绝不进 git）
+._*
+.DS_Store
+
 # Python（v0.2 遗留，无害保留）
 __pycache__/
 *.py[cod]
