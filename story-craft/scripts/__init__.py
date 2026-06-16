@@ -1,1 +1,0 @@
-"""story-craft script package."""

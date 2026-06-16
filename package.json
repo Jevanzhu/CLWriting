@@ -1,0 +1,31 @@
+{
+  "name": "clwriting",
+  "version": "1.0.0-alpha.0",
+  "description": "为中文网文作者打造的开箱即用、全程中文、200 万字不崩的 AI 长篇创作系统",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "clwriting": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0",
+    "zod": "^3.23.0"
+  }
+}

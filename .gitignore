@@ -1,3 +1,8 @@
+# Node
+node_modules/
+dist/
+
+# Python（v0.2 遗留，无害保留）
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -5,10 +10,15 @@ __pycache__/
 venv/
 .env
 tmp/
+
+# 本地工作资料（方案、审阅、参考仓库）
 Dev/
-CLAUDE.md
-!story-craft/skills/story-init/references/templates/CLAUDE.md
+
+# 编辑器 / 工具壳
 .claude/
 .codex/
 .agents/
 .vscode/
+
+# 项目级私有备忘
+CLAUDE.md
