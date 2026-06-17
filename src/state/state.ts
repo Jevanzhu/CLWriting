@@ -22,6 +22,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { hashFile } from '../gate/confirm.js'
 import { assembleStatus } from '../process/assemble.js'
+import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
 import type { BookConfig } from '../format/types.js'
 
 /** 每卷章数（config 暂无卷大小字段，固定用此值；卷大小入 config 留待 M4，#15 第 2 节） */
@@ -137,9 +138,12 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     return { state: 5, volume: currentChapter / volumeSize }
   }
 
-  // #6 体检周期（M3 桩：先判未到期；#15 第 6 节，深度 M4）
-  // TODO M4: 读 .cache meta「上次体检章号」，距 currentChapter ≥ 阈值则到期
-  // M3 先不触发（返回不到期），避免误拦正常写章
+  // #6 体检周期（#15 第 6 节）：距上次体检 ≥ 阈值则到期，提示做账本对账体检。
+  // 体检周期标记存 .cache/health-check.json（独立于 index.db，不受 rebuild 清空影响）。
+  const chaptersSince = checkHealthDue(bookRoot, currentChapter, DEFAULT_HEALTH_CHECK_INTERVAL)
+  if (chaptersSince !== null) {
+    return { state: 6, chaptersSince }
+  }
 
   // #7 起草新章（兜底）
   return { state: 7, nextChapter: currentChapter + 1 }
@@ -241,9 +245,9 @@ export function routeState(detected: DetectedState): RouterAction {
     case 6:
       return {
         state: 6,
-        humanMsg: `该体检了（距上次体检 ${detected.chaptersSince} 章），建议做账本对账。`,
+        humanMsg: `该体检了（距上次体检 ${detected.chaptersSince} 章）。建议跑账本对账：先用 clwriting health 查 git 健康状况，再核对悬太久的线与形式三检。做完体检可跳过继续开新章。`,
         action: 'health-check-periodic',
-        needsAI: true, // 体检抽查 M4
+        needsAI: false, // M3 出触发 + 概要；深度账本对账 M4（#15 第 6 节）
       }
     case 7:
       return {

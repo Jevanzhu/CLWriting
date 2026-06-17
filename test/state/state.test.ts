@@ -12,6 +12,7 @@ import { execSync } from 'node:child_process'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
 import { detectState, routeState, enter, formatRecap, formatRoute } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { writeHealthCheck } from '../../src/cache/healthcheck.js'
 
 function sh(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe' })
@@ -96,13 +97,61 @@ test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 态 6: 体检周期（M3 桩，暂不触发）────────────────
+// ── 态 6: 体检周期（#15 第 6 节，距上次体检 ≥ 阈值则到期）────────
 
-test('detectState: M3 桩阶段体检周期不触发（暂返回态 7）', () => {
-  // M3 体检周期判定未实现（#15 第 6 节，深度 M4），正常书应落到态 7
-  const root = makeGitBook()
+test('detectState: 从未体检且章数够（35 章）→ 态 6 体检周期到期', () => {
+  // 35 章：越过态 5（35 % 50 ≠ 0），无 health-check.json → last=0 → 35 ≥ 30 → 态 6
+  const root = makeGitBookWithChapters(35)
   const d = detectState(root, DEFAULT_CONFIG)
-  expect(d.state).not.toBe(6) // M3 不触发态 6
+  expect(d.state).toBe(6)
+  if (d.state === 6) {
+    expect(d.chaptersSince).toBe(35)
+  }
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('detectState: 近期体检过（距上次 < 阈值）→ 不触发态 6，落态 7', () => {
+  const root = makeGitBookWithChapters(35)
+  writeHealthCheck(root, 30) // 第 30 章刚体检过 → 距今 5 章 < 30 → 未到期
+  const d = detectState(root, DEFAULT_CONFIG)
+  expect(d.state).toBe(7)
+  if (d.state === 7) {
+    expect(d.nextChapter).toBe(36)
+  }
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('detectState: 体检周期阈值边界（距上次恰好 = 阈值 → 到期）', () => {
+  const root = makeGitBookWithChapters(40)
+  writeHealthCheck(root, 10) // 距今 30 章 = 阈值 → 到期（≥ 判定）
+  const d = detectState(root, DEFAULT_CONFIG)
+  expect(d.state).toBe(6)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('routeState: 态 6 → 体检人话提示（非 AI 桩，建议跑 health）', () => {
+  const action = routeState({ state: 6, chaptersSince: 35 })
+  expect(action.state).toBe(6)
+  expect(action.needsAI).toBe(false)
+  expect(action.humanMsg).toContain('体检')
+  expect(action.humanMsg).toContain('35')
+})
+
+test('体检闭环: 态 6 → 跑 health 干净 → 写 health-check.json → 再 enter 落态 7', () => {
+  // 35 章从未体检 → 态 6
+  const root = makeGitBookWithChapters(35)
+  expect(detectState(root, DEFAULT_CONFIG).state).toBe(6)
+
+  // 模拟作者跑 clwriting health（干净 → 记账）
+  // 直接调 writeHealthCheck（healthCommand 干净分支做的事），免引 CLI 进程
+  writeHealthCheck(root, 35)
+
+  // 再判态：距上次体检 0 章 < 30 → 落态 7（提示消除）
+  const d = detectState(root, DEFAULT_CONFIG)
+  expect(d.state).toBe(7)
+  if (d.state === 7) {
+    expect(d.nextChapter).toBe(36)
+  }
   rmSync(root, { recursive: true, force: true })
 })
 
