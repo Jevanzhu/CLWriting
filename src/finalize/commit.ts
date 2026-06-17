@@ -16,7 +16,7 @@
 
 import { existsSync, writeFileSync, unlinkSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { writeChapter } from '../format/chapters.js'
@@ -136,20 +136,19 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   const trailer = confirm
     ? `\n\nConfirmed: ${confirm.confirmed_at} mode=${confirm.mode} hash=${confirm.outline_hash}`
     : ''
-  const commitMsg = `ch/${chapter.章号} ${chapter.标题}${trailer}`
+  // commit msg 前缀贴 ⑯ 第 4 节：ch:<4 位补零章号>（对齐 定稿/正文/0152-标题.md 补零约定，供 M3 回滚按 ch:<章号> grep 定位）
+  const commitMsg = `ch:${String(chapter.章号).padStart(4, '0')} ${chapter.标题}${trailer}`
 
   try {
-    execSync(`git add -A`, { cwd: bookRoot, stdio: 'pipe' })
-    execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, {
-      cwd: bookRoot,
-      stdio: 'pipe',
-    })
+    // execFileSync 数组形式不走 shell：章节标题（作者可控）不再拼进命令，免注入、免转义
+    execFileSync('git', ['add', '-A'], { cwd: bookRoot, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-m', commitMsg], { cwd: bookRoot, stdio: 'pipe' })
   } catch (e) {
     return { ok: false, reason: `git commit 失败：${e instanceof Error ? e.message : String(e)}` }
   }
 
   // commit 成功 → 定稿成立。获取 commit hash
-  const commitHash = execSync('git rev-parse HEAD', { cwd: bookRoot, encoding: 'utf-8' }).trim()
+  const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: bookRoot, encoding: 'utf-8' }).trim()
 
   // ④ 清空工作区
   clearWorkDir(workDir)
