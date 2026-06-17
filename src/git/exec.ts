@@ -168,7 +168,7 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
 
   // #3 僵死锁：.git/index.lock 存在 → 报 staleLock。
   // git 正常操作不留锁；若真有并发 git 在跑，清锁后它会失败重试被 try/catch 兜住（宁停勿崩）。
-  // M3 直接判锁存在即报（hasActiveGitProcess 全局 ps 在开发机恒 true，误判锁为活跃反不安全）；M4 可精细化锁年龄判定。
+  // M3 直接判锁存在即报（全局 ps 查活跃进程在开发机恒 true，误判锁为活跃反不安全，故不查）；M4 可精细化锁年龄判定。
   const indexLock = join(bookRoot, '.git', 'index.lock')
   if (existsSync(indexLock)) {
     issues.push({
@@ -191,18 +191,6 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
   }
 
   return { issues, clean: issues.length === 0 }
-}
-
-/** 是否有活跃 git 进程（判定锁是不是僵死的，#16 第 2 节僵死锁） */
-function hasActiveGitProcess(bookRoot: string): boolean {
-  try {
-    // ps 列进程，看是否有 cwd 在 bookRoot 的 git
-    const out = execFileSync('ps', ['-eo', 'command'], { encoding: 'utf-8' })
-    return /(^|\s)git(\s|$)/.test(out)
-  } catch {
-    // ps 不可用（非 POSIX），保守视为无活跃进程（锁当僵死处理）
-    return false
-  }
 }
 
 /** 扫描网盘副本残留（#16 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */
