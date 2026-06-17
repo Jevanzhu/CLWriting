@@ -14,6 +14,13 @@ import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { validateEnums, countWords } from '../format/chapters.js'
 
 /**
+ * 汉字字符范围（基本区 + 扩展 A 区）。
+ * 统一使用，避免不同检查项范围不一导致生僻字人名漏判。
+ * 「一-鿿」= \u4e00-\u9fa5（基本区），「㐀-䶿」= \u3400-\u4dbf（扩展 A 区）。
+ */
+const HANZI = '一-鿿㐀-䶿'
+
+/**
  * front matter 格式检查（#10 项 3，🔴 红）。
  * 章号==文件名、枚举合法、必填齐。
  */
@@ -247,7 +254,7 @@ export function checkStyleMetrics(
 
   // 形容词连续堆叠：超上限的连续「X的」
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    const stackRe = new RegExp(`(?:[\\u4e00-\\u9fa5]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
+    const stackRe = new RegExp(`(?:[${HANZI}]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
     const hits = body.match(stackRe)
     if (hits) {
       for (const h of new Set(hits)) {
@@ -261,7 +268,7 @@ export function checkStyleMetrics(
   }
 
   // 对话提示语堆叠（"…地说/地道"，优先"他说"，#5 第 8 节示例）
-  const tagHits = body.match(/[一-鿿㐀-䶿]{2,}地(说|道)/gu)
+  const tagHits = body.match(new RegExp(`[${HANZI}]{2,}地(说|道)`, 'gu'))
   if (tagHits) {
     for (const t of new Set(tagHits)) {
       items.push({

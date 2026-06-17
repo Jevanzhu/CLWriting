@@ -1,8 +1,25 @@
 #!/usr/bin/env node
 import process from 'node:process'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 const MIN_NODE_MAJOR = 24
-const VERSION = '1.0.0-alpha.0' // M0 暂硬编码，收尾改单源（第 12 节）
+
+/** 从 package.json 读版本号（单源；读取失败兜底回硬编码防崩） */
+function readVersion(): string {
+  try {
+    // 本文件在 src/（或打包后 dist/），包根是其上一级目录
+    const here = dirname(fileURLToPath(import.meta.url))
+    const pkgPath = join(here, '..', 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string }
+    return pkg.version ?? '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+const VERSION = readVersion()
 
 function ensureNodeVersion(): void {
   const major = Number(process.versions.node.split('.')[0])
