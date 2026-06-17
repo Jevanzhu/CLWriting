@@ -1,18 +1,18 @@
 /**
- * 重建器 —— 依据 ④ 第 5 节。
+ * 重建器 —— 依据 #4 第 5 节。
  *
  * 从 md 真源全量重建 .cache/index.db（幂等：删了能从零建回，逐字段等价）。
  *
- * 扫描顺序（④ 第 5 节）：
- * ① 大纲/{已启用类}/*.md → leads + lead_history
- * ② 定稿/正文/*.md → chapters
- * ③ 定稿/摘要/ → summaries
- * ④ 写 meta（重建戳 + 健康报告）
+ * 扫描顺序（#4 第 5 节）：
+ * #1 大纲/{已启用类}/*.md → leads + lead_history
+ * #2 定稿/正文/*.md → chapters
+ * #3 定稿/摘要/ → summaries
+ * #4 写 meta（重建戳 + 健康报告）
  *
- * 已启用类 = 基础三类（恒启用）+ book.yaml 的 leads.enabled（⑨ 第 5 节）。
+ * 已启用类 = 基础三类（恒启用）+ book.yaml 的 leads.enabled（#9 第 5 节）。
  * 未启用的扩展类目录不存在即跳过，不报错（母本第 2.1 节）。
  *
- * 容错（④ 第 5 节）：单个 md 解析失败不中断重建——跳过并计入 meta 健康报告。
+ * 容错（#4 第 5 节）：单个 md 解析失败不中断重建——跳过并计入 meta 健康报告。
  */
 
 import { DatabaseSync } from 'node:sqlite'
@@ -55,7 +55,7 @@ export function rebuild(
   let chapterCount = 0
   let summaryCount = 0
 
-  // 读 book.yaml → 决定启用哪些账本类（⑨ 第 5 节）
+  // 读 book.yaml → 决定启用哪些账本类（#9 第 5 节）
   const bookYamlPath = join(bookRoot, 'book.yaml')
   const cfgResult = readBookConfig(bookYamlPath)
   if (!cfgResult.ok) errors.push(cfgResult.error)
@@ -73,7 +73,7 @@ export function rebuild(
     createAllTables(db)
     clearAllTables(db) // 幂等：清空旧数据
 
-    // ① 扫描账本（大纲/{已启用类}/）
+    // #1 扫描账本（大纲/{已启用类}/）
     const outlineDir = join(bookRoot, '大纲')
     for (const typeName of enabledTypes) {
       const typeDir = join(outlineDir, typeName)
@@ -86,7 +86,7 @@ export function rebuild(
       errors.push(...errs)
     }
 
-    // ② 扫描章节（定稿/正文/）
+    // #2 扫描章节（定稿/正文/）
     const textDir = join(bookRoot, '定稿', '正文')
     if (existsSync(textDir)) {
       const files = readdirSync(textDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
@@ -103,12 +103,12 @@ export function rebuild(
       }
     }
 
-    // ③ 扫描摘要（定稿/摘要/章摘要/ + 卷摘要/）
+    // #3 扫描摘要（定稿/摘要/章摘要/ + 卷摘要/）
     const summaryBase = join(bookRoot, '定稿', '摘要')
     summaryCount += scanSummaries(db, join(summaryBase, '章摘要'), 'chapter', errors)
     summaryCount += scanSummaries(db, join(summaryBase, '卷摘要'), 'volume', errors)
 
-    // ④ 写 meta
+    // #4 写 meta
     setMeta(db, 'rebuilt_at', new Date().toISOString())
     setMeta(db, 'format_version', '1')
     setMeta(db, 'lead_count', String(leadCount))

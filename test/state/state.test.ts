@@ -1,5 +1,5 @@
 /**
- * 状态机 7 态判定测试 —— ⑮ 第 2 节。
+ * 状态机 7 态判定测试 —— #15 第 2 节。
  *
  * 工单施工序 1 验证点：7 种书仓库 fixture（各处一态）→ detectState 正确路由。
  * 每态一个 fixture，验证判定顺序与命中。
@@ -99,7 +99,7 @@ test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
 // ── 态 6: 体检周期（M3 桩，暂不触发）────────────────
 
 test('detectState: M3 桩阶段体检周期不触发（暂返回态 7）', () => {
-  // M3 体检周期判定未实现（⑮ 第 6 节，深度 M4），正常书应落到态 7
+  // M3 体检周期判定未实现（#15 第 6 节，深度 M4），正常书应落到态 7
   const root = makeGitBook()
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).not.toBe(6) // M3 不触发态 6
@@ -182,7 +182,7 @@ test('enter: 写满一卷 → 近况复述显示态 5 卷末', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 确认复述（⑮ 第 4 节，兜底闭环前置）────────────
+// ── 确认复述（#15 第 4 节，兜底闭环前置）────────────
 
 test('enter: 定稿带 Confirmed trailer → 确认复述带哈希', () => {
   const root = makeGitBookWithChapters(1)

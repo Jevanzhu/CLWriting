@@ -2,11 +2,11 @@
  * 极简 front matter 解析/回写 —— 运行时零第三方依赖的核心。
  *
  * 不是通用 YAML 解析器，只覆盖项目所需的受限子集：
- * - 平铺 key: value（③⑦ 主体）
- * - 内联数组 value: [a, b, c]（⑤ 标签、⑥ 序列）
- * - 缩进嵌套（⑥ 境界体系的 体系: / - 名称: / 序列:）
+ * - 平铺 key: value（#3#7 主体）
+ * - 内联数组 value: [a, b, c]（#5 标签、#6 序列）
+ * - 缩进嵌套（#6 境界体系的 体系: / - 名称: / 序列:）
  *
- * 容错约定（③ 第 8 节）：
+ * 容错约定（#3 第 8 节）：
  * - 未知字段原样保留、回写不重排顺序
  * - 解析失败返回结构化错误，不抛异常
  *
@@ -156,7 +156,7 @@ export function writeFile(filePath: string, fmText: string, body: string): void 
   writeFileSync(filePath, joinFrontMatter(fmText, body), 'utf-8')
 }
 
-// ── 境界体系嵌套解析（⑥ 第 2 节）────────────────
+// ── 境界体系嵌套解析（#6 第 2 节）────────────────
 
 /**
  * 解析境界体系的嵌套结构（体系: / - 名称: / 序列:）。
@@ -178,15 +178,15 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const systems: ParsedRealmSystem[] = []
   const lines = fmRaw.split('\n')
   let current: ParsedRealmSystem | null = null
-  let inLeads = false
+  let inRealms = false
 
   for (const line of lines) {
     // 体系: 段开始
     if (/^体系:\s*$/.test(line.trim())) {
-      inLeads = true
+      inRealms = true
       continue
     }
-    if (!inLeads) continue
+    if (!inRealms) continue
 
     // - 名称: xxx（新体系项）
     const nameMatch = line.match(/^\s*-\s*名称:\s*(.*)$/)

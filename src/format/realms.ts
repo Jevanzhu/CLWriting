@@ -1,10 +1,10 @@
 /**
- * 境界枚举读写 —— 依据 ⑥ 境界枚举 spec。
+ * 境界枚举读写 —— 依据 #6 境界枚举 spec。
  *
- * 落点：定稿/设定/境界体系.md（⑥ 第 2 节）
+ * 落点：定稿/设定/境界体系.md（#6 第 2 节）
  * 格式：front matter（体系嵌套数组）+ 正文（人话说明，不参与机检）
  *
- * 成长线机检的数据源（⑥ 第 4 节）：序列索引即高低，单调/跨度校验读此。
+ * 成长线机检的数据源（#6 第 4 节）：序列索引即高低，单调/跨度校验读此。
  */
 
 import { readFile, writeFile, parseRealmSystems, stringifyRealmSystems } from './frontmatter.js'
@@ -35,7 +35,7 @@ export function writeRealmDoc(filePath: string, doc: RealmDoc): void {
 }
 
 /**
- * 取某体系序列（成长线机检用，⑥ 第 4 节）。
+ * 取某体系序列（成长线机检用，#6 第 4 节）。
  * @returns 序列数组（索引即高低），不存在返回 null
  */
 export function getRealmSequence(
@@ -47,7 +47,7 @@ export function getRealmSequence(
 }
 
 /**
- * 查某境界在序列中的索引（⑥ 第 4 节单调性/跨度机检的基础）。
+ * 查某境界在序列中的索引（#6 第 4 节单调性/跨度机检的基础）。
  * @returns 索引（0 最低），未命中返回 -1
  */
 export function realmIndex(sequence: string[], realm: string): number {

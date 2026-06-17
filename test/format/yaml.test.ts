@@ -9,7 +9,7 @@ import {
   DEFAULT_CONFIG,
 } from '../../src/format/yaml.js'
 
-test('readBookConfig: 完整解析（⑨ 第 2 节）', () => {
+test('readBookConfig: 完整解析（#9 第 2 节）', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, [

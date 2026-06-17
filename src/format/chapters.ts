@@ -1,8 +1,8 @@
 /**
- * 章节元数据读写 —— 依据 ⑦ 章节元数据 spec。
+ * 章节元数据读写 —— 依据 #7 章节元数据 spec。
  *
  * 格式：定稿/正文/<章号>-<标题>.md，含 front matter（章号/标题/钩子/情绪）+ 正文。
- * 字数不入 front matter（机检算的派生，⑦ 第 2 节）。
+ * 字数不入 front matter（机检算的派生，#7 第 2 节）。
  */
 
 import { readdirSync, statSync } from 'node:fs'
@@ -10,14 +10,14 @@ import { basename, join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion } from './types.js'
 
-/** ⑦ 第 3 节枚举值校验集 */
+/** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
 const HOOK_LEVELS: HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 
 const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '时间锚点'])
 
-/** 计算正文字数（中文按字符计，⑦ 第 2 节） */
+/** 计算正文字数（中文按字符计，#7 第 2 节） */
 export function countWords(body: string): number {
   // 去掉 markdown 标记后按字符计（粗估，零 token）
   return body.replace(/[#>*_`~\-\[\]()!\s]/g, '').length
@@ -80,7 +80,7 @@ export function writeChapter(filePath: string, ch: ChapterMeta, body: string): v
   writeFile(filePath, stringifyFlat(chapterToMap(ch)), body)
 }
 
-/** 枚举校验（⑦ 第 4 节，机检用） */
+/** 枚举校验（#7 第 4 节，机检用） */
 export function validateEnums(ch: ChapterMeta): string[] {
   const errs: string[] = []
   if (!HOOK_TYPES.includes(ch.钩子类型)) errs.push(`钩子类型越界：${ch.钩子类型}`)

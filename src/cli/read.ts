@@ -1,5 +1,5 @@
 /**
- * 精准读取 —— 依据 ④ 第 4 节查询样例。
+ * 精准读取 —— 依据 #4 第 4 节查询样例。
  *
  * 从 .cache/index.db 按需读取片段（母本第 0.3 节原则 5「精准读取」）。
  * 不读正文全文（正文 grep 查），只读结构化字段 + 定位。
@@ -8,7 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LeadEntry, LeadStatus, LeadType } from '../format/types.js'
 
-// ── 账本查询（④ 第 4 节）────────────────────────
+// ── 账本查询（#4 第 4 节）────────────────────────
 
 /** 读某条线的履历（按行序） */
 export function readLeadHistory(db: DatabaseSync, leadId: string): LeadEntry[] {
@@ -83,7 +83,7 @@ export function readChapterLocation(
   }
 }
 
-// ── 摘要查询（④ 第 4 节）────────────────────────
+// ── 摘要查询（#4 第 4 节）────────────────────────
 
 /** 读某章号范围的章摘要 path */
 export function readChapterSummaries(
@@ -118,7 +118,7 @@ export function readVolumeSummaries(
   return rows.map((r) => ({ ref: r['ref'] as number, path: r['path'] as string }))
 }
 
-// ── 成长线语义机检取数（④ 第 4 节）──────────────
+// ── 成长线语义机检取数（#4 第 4 节）──────────────
 
 /** 读成长线履历（单调/跨度机检的数据源，校验逻辑属 M2） */
 export function readGrowthHistory(

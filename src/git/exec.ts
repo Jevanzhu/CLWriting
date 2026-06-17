@@ -1,19 +1,19 @@
 /**
- * git 执行器 + 健康检查 —— 依据 ⑯ git 隐身层 spec（M3 子 spec·⑯）。
+ * git 执行器 + 健康检查 —— 依据 #16 git 隐身层 spec（M3 子 spec·#16）。
  *
  * 落地母本第 0.3 节原则 3「git 隐身」+ 第 4.1 节原则 2（AI 经 CLI 动 git）：
  * - 所有 git 调用经本层统一执行，集中 try/catch + 人话收口（运行时零依赖，不引 git 库）。
- * - finalize（⑬）的 commit、状态机（⑮）的健康检查、回滚（⑯ 第 5 节）都在此之上。
+ * - finalize（#13）的 commit、状态机（#15）的健康检查、回滚（#16 第 5 节）都在此之上。
  *
- * ⑯ 第 2 节 4 异常健康检查：半提交 / 合并冲突 / 僵死锁 / 网盘副本残留。
- * ⑯ 第 3 节人话映射：对作者只出网文语言，永不出 git 命令、SHA、堆栈。
+ * #16 第 2 节 4 异常健康检查：半提交 / 合并冲突 / 僵死锁 / 网盘副本残留。
+ * #16 第 3 节人话映射：对作者只出网文语言，永不出 git 命令、SHA、堆栈。
  */
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 
-// ── 统一 git 执行器（⑯ 第 3 节）──────────────────
+// ── 统一 git 执行器（#16 第 3 节）──────────────────
 
 /** git 调用结果：成功带 stdout，失败带人话 */
 export type GitResult =
@@ -21,7 +21,7 @@ export type GitResult =
   | { ok: false; humanMsg: string; stderr?: string }
 
 /**
- * 执行一条 git 命令（统一收口，⑯ 第 3 节）。
+ * 执行一条 git 命令（统一收口，#16 第 3 节）。
  * execFileSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败 try/catch → 人话，不把作者丢给 git 报错。
  */
@@ -46,7 +46,7 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8' }):
   }
 }
 
-/** 把 git 原始报错翻成人话（⑯ 第 3 节，零机器味） */
+/** 把 git 原始报错翻成人话（#16 第 3 节，零机器味） */
 function humanizeGitError(args: string[], stderr?: string): string {
   const sub = args[0] ?? ''
   const hint = stderr ?? ''
@@ -56,7 +56,7 @@ function humanizeGitError(args: string[], stderr?: string): string {
   return hint.split('\n')[0] || '未知错误'
 }
 
-// ── 常用 git 操作（⑯ 第 3 节映射表，finalize / 状态机复用）──
+// ── 常用 git 操作（#16 第 3 节映射表，finalize / 状态机复用）──
 
 /** git status --porcelain（判定工作树脏不脏；core.quotepath=false 保中文路径不转义）。
  *  注意：只去末尾换行，**不动行首空格**——porcelain 是固定宽度格式（XY<空格>path），
@@ -75,13 +75,22 @@ export function lastCommitMsg(cwd: string): string {
 }
 
 /**
- * git add -A + 一次 commit（⑬ 第 4 节原子点 + ⑯ 第 3 节人话）。
- * finalize（⑬）写时入账、⑱ 手改补登 都复用本函数：add+commit 是一个原子单元。
+ * git add + 一次 commit（#13 第 4 节原子点 + #16 第 3 节人话）。
+ * finalize（#13）写时入账、#18 手改补登 都复用本函数：add+commit 是一个原子单元。
  *
+ * @param paths 显式指定要入账的路径列表（相对 cwd）。
+ *              传则只 `git add <paths>`，避免 `add -A` 误纳工作区无关改动（草稿残留/临时笔记等），
+ *              保证「一次 commit = 一章定稿」的语义纯净；
+ *              不传则回退到 `git add -A`（兼容手改补登等全量场景 + 既有测试）。
  * @returns 成功带 commit hash；失败带人话（不抛、调用方决定怎么报）
  */
-export function addCommit(cwd: string, msg: string): { ok: true; hash: string } | { ok: false; humanMsg: string } {
-  const addR = git(['add', '-A'], cwd)
+export function addCommit(
+  cwd: string,
+  msg: string,
+  paths?: string[],
+): { ok: true; hash: string } | { ok: false; humanMsg: string } {
+  const addArgs = paths && paths.length > 0 ? ['add', '--', ...paths] : ['add', '-A']
+  const addR = git(addArgs, cwd)
   if (!addR.ok) return { ok: false, humanMsg: addR.humanMsg }
 
   const commitR = git(['commit', '-m', msg], cwd)
@@ -93,16 +102,17 @@ export function addCommit(cwd: string, msg: string): { ok: true; hash: string } 
   return { ok: true, hash: headR.stdout.trim() }
 }
 
-/** 按 ch:<补零章号> 前缀反查某章定稿 commit 的 SHA（⑯ 第 5 节回滚定位） */
+/** 按 ch:<补零章号> 前缀反查某章定稿 commit 的 SHA（#16 第 5 节回滚定位）。
+ *  只搜当前分支历史，不用 --all——避免命中备份 ref（回收/回到N-*）上的旧 commit 导致定位错乱。 */
 export function findChapterCommit(cwd: string, chapterNum: number): string | null {
   const prefix = `ch:${String(chapterNum).padStart(4, '0')} `
-  const r = git(['log', '--all', '--grep', `^${prefix.trim()}`, '--format=%H'], cwd)
+  const r = git(['log', '--grep', `^${prefix.trim()}`, '--format=%H'], cwd)
   if (!r.ok) return null
   const lines = r.stdout.trim().split('\n').filter(Boolean)
   return lines.length > 0 ? lines[0]! : null
 }
 
-// ── 健康检查（⑯ 第 2 节，⑮ 态 1 路由进入）────────────
+// ── 健康检查（#16 第 2 节，#15 态 1 路由进入）────────────
 
 /** 健康检查发现的异常项（每类带人话 + 修复指引） */
 export interface HealthIssue {
@@ -125,14 +135,14 @@ export interface HealthReport {
 }
 
 /**
- * 进门 git 健康检查（⑯ 第 2 节）。
+ * 进门 git 健康检查（#16 第 2 节）。
  * 按序查 4 类异常，命中即入 issues。clean = issues 为空。
- * 不健康不放行写章（⑮ 态 1 路由逻辑由状态机定，本函数只负责检测 + 出人话）。
+ * 不健康不放行写章（#15 态 1 路由逻辑由状态机定，本函数只负责检测 + 出人话）。
  */
 export function gitHealthCheck(bookRoot: string): HealthReport {
   const issues: HealthIssue[] = []
 
-  // ① 半提交：staged 残留（commit 中断标志）
+  // #1 半提交：staged 残留（commit 中断标志）
   const staged = git(['diff', '--cached', '--name-only'], bookRoot)
   if (staged.ok && staged.stdout.trim().length > 0) {
     issues.push({
@@ -143,7 +153,7 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
     })
   }
 
-  // ② 合并冲突：.git/MERGE_HEAD 存在 或 status 含 UU/AA/DD
+  // #2 合并冲突：.git/MERGE_HEAD 存在 或 status 含 UU/AA/DD
   const mergeHead = existsSync(join(bookRoot, '.git', 'MERGE_HEAD'))
   const status = statusPorcelain(bookRoot)
   const conflictMarkers = status.split('\n').filter((l) => /^[UAD][UAD]/.test(l))
@@ -156,7 +166,7 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
     })
   }
 
-  // ③ 僵死锁：.git/index.lock 存在 → 报 staleLock。
+  // #3 僵死锁：.git/index.lock 存在 → 报 staleLock。
   // git 正常操作不留锁；若真有并发 git 在跑，清锁后它会失败重试被 try/catch 兜住（宁停勿崩）。
   // M3 直接判锁存在即报（hasActiveGitProcess 全局 ps 在开发机恒 true，误判锁为活跃反不安全）；M4 可精细化锁年龄判定。
   const indexLock = join(bookRoot, '.git', 'index.lock')
@@ -169,7 +179,7 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
     })
   }
 
-  // ④ 网盘副本残留：._*、.DS_Store、<名> 2.md、<名> (1).md 等同步盘冲突副本
+  // #4 网盘副本残留：._*、.DS_Store、<名> 2.md、<名> (1).md 等同步盘冲突副本
   const cloudCopies = scanCloudCopies(bookRoot)
   if (cloudCopies.length > 0) {
     issues.push({
@@ -183,7 +193,7 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
   return { issues, clean: issues.length === 0 }
 }
 
-/** 是否有活跃 git 进程（判定锁是不是僵死的，⑯ 第 2 节僵死锁） */
+/** 是否有活跃 git 进程（判定锁是不是僵死的，#16 第 2 节僵死锁） */
 function hasActiveGitProcess(bookRoot: string): boolean {
   try {
     // ps 列进程，看是否有 cwd 在 bookRoot 的 git
@@ -195,7 +205,7 @@ function hasActiveGitProcess(bookRoot: string): boolean {
   }
 }
 
-/** 扫描网盘副本残留（⑯ 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */
+/** 扫描网盘副本残留（#16 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */
 function scanCloudCopies(bookRoot: string): string[] {
   const copies: string[] = []
   const patterns = [

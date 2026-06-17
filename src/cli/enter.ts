@@ -1,5 +1,5 @@
 /**
- * `clwriting enter` —— 状态机单入口命令（⑮ 第 3 节，无 hook 等价入口）。
+ * `clwriting enter` —— 状态机单入口命令（#15 第 3 节，无 hook 等价入口）。
  *
  * 作者进书时敲这个：进门体检（git/文件/手改）→ 判态 → 路由 → 近况复述。
  * SessionStart 真 hook 由 M4 平台壳接，届时复用同一近况（enter 的库形态 enter()）。
@@ -21,9 +21,9 @@ export function enterCommand(args: string[]): void {
 
   const { recap, route } = enter(bookRoot)
 
-  // 近况复述（⑮ 第 4 节）
+  // 近况复述（#15 第 4 节）
   console.log(formatRecap(recap))
   console.log()
-  // 路由建议（⑮ 第 2 节）
+  // 路由建议（#15 第 2 节）
   console.log(formatRoute(route))
 }

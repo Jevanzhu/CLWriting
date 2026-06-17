@@ -50,7 +50,7 @@ test('splitFrontMatter: 无 front matter 返回 null', () => {
   expect(splitFrontMatter('---\n没有闭合')).toBeNull()
 })
 
-// ── 平铺解析往返（③ 容错核心：未知字段保留、顺序不重排）────
+// ── 平铺解析往返（#3 容错核心：未知字段保留、顺序不重排）────
 
 test('parseFlat + stringifyFlat: 往返不丢字段、保留顺序', () => {
   const fmRaw = '编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 12'
@@ -117,7 +117,7 @@ test('writeFile + readFile 往返', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ── 境界体系嵌套（⑥ 第 2 节）────────────────────
+// ── 境界体系嵌套（#6 第 2 节）────────────────────
 
 test('parseRealmSystems: 嵌套体系数组', () => {
   const fmRaw = [

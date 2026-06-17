@@ -1,13 +1,13 @@
 /**
- * 影响分析 —— 依据 ⑰ 影响分析 spec 第 3-4 节。
+ * 影响分析 —— 依据 #17 影响分析 spec 第 3-4 节。
  *
  * 改设定/大纲时，扫描该设定的引用足迹，按发布状态分桶（零 token 脚本）：
  * - 已发布影响清单：引用旧设定的已 commit 章（定稿/正文/，只读 → 顺势圆）
  * - 未发布影响清单：引用旧设定的大纲/草稿/未定稿（可改 → 随设定同步）
  *
- * 吃书检测（⑰ 第 4 节）：新设定值 vs 已发布章引用的旧值 → 直接冲突（数值/名称）脚本判。
+ * 吃书检测（#17 第 4 节）：新设定值 vs 已发布章引用的旧值 → 直接冲突（数值/名称）脚本判。
  *
- * 原则（⑰ 第 1 节）：
+ * 原则（#17 第 1 节）：
  * - 已发布只读、向后兼容——已 commit 正文永不改，错误后续圆。
  * - 影响可见——改设定前先看影响哪些章，不让作者盲改吃书。
  * - 脚本产清单、AI 出建议——引用扫描/分桶/直接冲突是零 token 脚本；顺势圆怎么圆 M4。
@@ -17,7 +17,7 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { join, extname } from 'node:path'
 
-/** 一处引用足迹（⑰ 第 3 节） */
+/** 一处引用足迹（#17 第 3 节） */
 export interface Reference {
   /** 引用所在的文件路径（相对 bookRoot） */
   file: string
@@ -27,7 +27,7 @@ export interface Reference {
   snippet: string
 }
 
-/** 影响清单（⑰ 第 3 节，按发布状态分桶） */
+/** 影响清单（#17 第 3 节，按发布状态分桶） */
 export interface ImpactReport {
   /** 被分析的设定名或编号 */
   target: string
@@ -35,11 +35,11 @@ export interface ImpactReport {
   published: Reference[]
   /** 未发布影响清单：引用旧设定的大纲/草稿/未定稿（可改） */
   unpublished: Reference[]
-  /** 吃书检测：直接冲突标记（⑰ 第 4 节） */
+  /** 吃书检测：直接冲突标记（#17 第 4 节） */
   conflicts: Conflict[]
 }
 
-/** 吃书冲突（⑰ 第 4 节，直接冲突——数值/名称硬性不符） */
+/** 吃书冲突（#17 第 4 节，直接冲突——数值/名称硬性不符） */
 export interface Conflict {
   /** 冲突所在文件 */
   file: string
@@ -54,11 +54,11 @@ export interface Conflict {
 }
 
 /**
- * 扫描某设定的引用足迹，按发布状态分桶（⑰ 第 3 节）。
+ * 扫描某设定的引用足迹，按发布状态分桶（#17 第 3 节）。
  *
  * @param bookRoot 书仓库根
  * @param target 设定名或账本编号（如「伏笔-031」「林晚」「筑基」），grep 命中
- * @param newValue 可选：设定改成的新值（用于吃书检测，⑰ 第 4 节）；不传则只扫描引用
+ * @param newValue 可选：设定改成的新值（用于吃书检测，#17 第 4 节）；不传则只扫描引用
  *
  * 精确匹配优先：显式编号（伏笔-031）/专名优先；模糊指代（代词/化名）留 M4。
  */
@@ -69,7 +69,7 @@ export function scanReferences(bookRoot: string, target: string, newValue?: stri
     ...scanDir(join(bookRoot, '工作区'), target),
   ]
 
-  // 吃书检测（⑰ 第 4 节）：新值 vs 已发布引用的旧值
+  // 吃书检测（#17 第 4 节）：新值 vs 已发布引用的旧值
   const conflicts: Conflict[] = []
   if (newValue !== undefined && published.length > 0) {
     for (const ref of published) {
@@ -82,7 +82,7 @@ export function scanReferences(bookRoot: string, target: string, newValue?: stri
 }
 
 /**
- * 扫描目录下含 target 的行（⑰ 第 3 节，零 token grep）。
+ * 扫描目录下含 target 的行（#17 第 3 节，零 token grep）。
  * 返回每处引用的 file（相对 bookRoot 不便，这里用相对 dir 的路径 + 前缀拼接）。
  */
 function scanDir(dir: string, target: string, prefix = ''): Reference[] {
@@ -132,7 +132,7 @@ function scanFile(filePath: string, relPath: string, target: string): Reference[
 }
 
 /**
- * 吃书检测（⑰ 第 4 节，M3 落地直接冲突）。
+ * 吃书检测（#17 第 4 节，M3 落地直接冲突）。
  * 直接冲突 = 数值/名称硬性不符（脚本可判）；复杂语义矛盾（情节逻辑/因果）M4。
  *
  * M3 实现：target 在已发布章出现 = 该处用了旧值 target（target 既是设定名又是其当前值）。
@@ -155,7 +155,7 @@ function detectConflict(ref: Reference, target: string, newValue: string): Confl
   return null
 }
 
-/** 影响清单 → 人话（⑰ 第 3-4 节，对作者零机器味 + 决策归作者） */
+/** 影响清单 → 人话（#17 第 3-4 节，对作者零机器味 + 决策归作者） */
 export function formatImpactReport(report: ImpactReport): string {
   const lines: string[] = []
   lines.push(`【影响分析：${report.target}】\n`)

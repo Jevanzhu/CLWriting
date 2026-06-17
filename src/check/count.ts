@@ -1,8 +1,8 @@
 /**
- * 可计数项 + 文风可量化 —— 依据 ⑩ 第 2 节项 3-11。
+ * 可计数项 + 文风可量化 —— 依据 #10 第 2 节项 3-11。
  *
- * 红（⑩ 项 3-4）：front matter 格式、禁词
- * 黄（⑩ 项 5-11）：字数/复读/意象/句式/文风可量化/专名/信息差候选
+ * 红（#10 项 3-4）：front matter 格式、禁词
+ * 黄（#10 项 5-11）：字数/复读/意象/句式/文风可量化/专名/信息差候选
  *
  * 全部零 token 脚本判定。
  */
@@ -14,7 +14,7 @@ import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { validateEnums, countWords } from '../format/chapters.js'
 
 /**
- * front matter 格式检查（⑩ 项 3，🔴 红）。
+ * front matter 格式检查（#10 项 3，🔴 红）。
  * 章号==文件名、枚举合法、必填齐。
  */
 export function checkFrontMatter(
@@ -44,7 +44,7 @@ export function checkFrontMatter(
 }
 
 /**
- * 禁词检查（⑩ 项 4，🔴 红）。
+ * 禁词检查（#10 项 4，🔴 红）。
  * 命中作者设的禁词表（文风铁律.md 的禁词段）。
  */
 export function checkBannedWords(
@@ -65,7 +65,7 @@ export function checkBannedWords(
 }
 
 /**
- * 字数检查（⑩ 项 5，🟡 黄）。
+ * 字数检查（#10 项 5，🟡 黄）。
  * 偏离细纲目标字数过多 → 提示。
  */
 export function checkWordCount(
@@ -88,7 +88,7 @@ export function checkWordCount(
 }
 
 /**
- * 复读检查（⑩ 项 6，🟡 黄）。
+ * 复读检查（#10 项 6，🟡 黄）。
  * 滑窗句级 n-gram 重复率。
  */
 export function checkRepeat(
@@ -120,7 +120,7 @@ export function checkRepeat(
 }
 
 /**
- * 句长体检（⑩ 项 8，🟡 黄）。
+ * 句长体检（#10 项 8，🟡 黄）。
  * 句长方差 / 超长句占比。
  */
 export function checkSentenceLength(
@@ -141,7 +141,7 @@ export function checkSentenceLength(
 }
 
 /**
- * 新专名比对名册（⑩ 项 10，🟡 黄）。
+ * 新专名比对名册（#10 项 10，🟡 黄）。
  * 新专名 vs 名册.md，未登记 → 候选（不自动入册）。
  */
 export function checkNewNames(
@@ -173,9 +173,9 @@ export function checkNewNames(
 }
 
 /**
- * 高频意象检查（⑩ 项 7，🟡 黄）。
+ * 高频意象检查（#10 项 7，🟡 黄）。
  * 套路词/意象表命中频次超阈 → 提示（PRD 问题 9，"空气仿佛凝固"）。
- * 意象表默认空——初始数据靠 M4 知识层平移 / book.yaml 配置（⑩ 第 4/8 节待 beta）。
+ * 意象表默认空——初始数据靠 M4 知识层平移 / book.yaml 配置（#10 第 4/8 节待 beta）。
  */
 export function checkImagery(
   body: string,
@@ -202,7 +202,7 @@ export function checkImagery(
   return { name: '高频意象', items }
 }
 
-/** 文风铁律可量化阈值（⑤ 第 8 节「## 可量化硬约束」段） */
+/** 文风铁律可量化阈值（#5 第 8 节「## 可量化硬约束」段） */
 export interface IronRules {
   /** 单句上限字数 */
   maxSentenceLen?: number
@@ -210,7 +210,7 @@ export interface IronRules {
   maxAdjStack?: number
 }
 
-/** 从 文风铁律.md 解析可量化硬约束阈值（⑤ 第 8 节）。 */
+/** 从 文风铁律.md 解析可量化硬约束阈值（#5 第 8 节）。 */
 export function parseIronRules(text: string): IronRules {
   const rules: IronRules = {}
   const lenM = text.match(/单句上限字数[:：]\s*(\d+)/)
@@ -221,8 +221,8 @@ export function parseIronRules(text: string): IronRules {
 }
 
 /**
- * 文风可量化检查（⑩ 项 9，🟡 黄）。
- * 贴近 文风铁律.md 的可量化硬约束：单句上限 / 形容词堆叠 / 对话提示语（⑤ 第 8 节）。
+ * 文风可量化检查（#10 项 9，🟡 黄）。
+ * 贴近 文风铁律.md 的可量化硬约束：单句上限 / 形容词堆叠 / 对话提示语（#5 第 8 节）。
  * 阈值来自铁律；缺省项不检。零 token 启发式，只报不拦（ask 不 deny）。
  */
 export function checkStyleMetrics(
@@ -260,8 +260,8 @@ export function checkStyleMetrics(
     }
   }
 
-  // 对话提示语堆叠（"…地说/地道"，优先"他说"，⑤ 第 8 节示例）
-  const tagHits = body.match(/[一-龥]{2,}地(说|道)/g)
+  // 对话提示语堆叠（"…地说/地道"，优先"他说"，#5 第 8 节示例）
+  const tagHits = body.match(/[一-鿿㐀-䶿]{2,}地(说|道)/gu)
   if (tagHits) {
     for (const t of new Set(tagHits)) {
       items.push({
@@ -276,9 +276,9 @@ export function checkStyleMetrics(
 }
 
 /**
- * 信息差泄密候选（⑩ 项 11，🟡 黄）。
+ * 信息差泄密候选（#10 项 11，🟡 黄）。
  * 关键词命中 → 只出候选、不拦截（真伪归阶段 6 三审，PRD 问题 3）。
- * 关键词源默认空——由信息差设定 / book.yaml 提供（⑩ 第 2 节项 11）。
+ * 关键词源默认空——由信息差设定 / book.yaml 提供（#10 第 2 节项 11）。
  */
 export function checkInfoLeak(
   body: string,

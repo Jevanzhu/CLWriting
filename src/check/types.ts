@@ -1,17 +1,17 @@
 /**
- * 机检基础类型 —— 依据 ⑩ 机检规则 spec。
+ * 机检基础类型 —— 依据 #10 机检规则 spec。
  *
- * 红/黄两级（⑩ 第 3 节）：
+ * 红/黄两级（#10 第 3 节）：
  * - 红 = 硬卡（自愈打回写稿重写）
  * - 黄 = 提醒（不卡，进三审报告）
  */
 
-/** 检查项级别（⑩ 第 2 节） */
+/** 检查项级别（#10 第 2 节） */
 export type CheckLevel = 'red' | 'yellow'
 
 /** 单条检查结果 */
 export interface CheckItem {
-  /** 检项编号（⑩ 第 2 节 #1-11） */
+  /** 检项编号（#10 第 2 节 #1-11） */
   checkId: string
   /** 红/黄 */
   level: CheckLevel
@@ -34,7 +34,7 @@ export interface CheckSectionResult {
 /** 机检报告（全部检项聚合） */
 export interface CheckReport {
   sections: CheckSectionResult[]
-  /** 顺带产出的料（⑩ 第 2 节末：账本变动清单等） */
+  /** 顺带产出的料（#10 第 2 节末：账本变动清单等） */
   byproducts?: {
     leadChanges?: { leadId: string; chapter: number; verb: string; evidence: string }[]
     infoLeakCandidates?: string[]
@@ -42,7 +42,7 @@ export interface CheckReport {
   }
 }
 
-/** 是否有红项（自愈打回的判定依据，⑩ 第 6 节） */
+/** 是否有红项（自愈打回的判定依据，#10 第 6 节） */
 export function hasRed(report: CheckReport): boolean {
   return report.sections.some((s) => s.items.some((i) => i.level === 'red'))
 }

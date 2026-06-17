@@ -60,7 +60,7 @@ function makeSeededDb(): { db: DatabaseSync; dir: string } {
   return { db, dir }
 }
 
-// ④ 第 4 节逐条查询测试
+// #4 第 4 节逐条查询测试
 
 test('readLeadHistory: 读伏笔履历', () => {
   const { db, dir } = makeSeededDb()

@@ -1,10 +1,10 @@
 /**
- * 文风样章库读写 —— 依据 ⑤ 文风样章库 spec。
+ * 文风样章库读写 —— 依据 #5 文风样章库 spec。
  *
- * 文件组织（⑤ 第 3 节）：文风/样章库/<场景>/<场景>-<序号>.md
+ * 文件组织（#5 第 3 节）：文风/样章库/<场景>/<场景>-<序号>.md
  * 格式：front matter（场景/来源/出处/标签）+ 正文（样章本身）
  *
- * 来源三值（⑤ 第 6 节）：作者原作 / 题材范文 / 导入
+ * 来源三值（#5 第 6 节）：作者原作 / 题材范文 / 导入
  */
 
 import { readdirSync, statSync } from 'node:fs'
@@ -14,7 +14,7 @@ import type { StyleSample, SampleSource, ParseError } from './types.js'
 
 const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签'])
 
-/** ⑤ 第 5 节：基础场景集 */
+/** #5 第 5 节：基础场景集 */
 export const BASE_SCENES = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] as const
 
 /** 读取一个样章 md → StyleSample（容错） */
@@ -68,7 +68,7 @@ export function writeSample(filePath: string, s: StyleSample): void {
 }
 
 /**
- * 按场景取样章（⑤ 第 6 节：同场景优先取"作者原作/导入"，范文兜底）。
+ * 按场景取样章（#5 第 6 节：同场景优先取"作者原作/导入"，范文兜底）。
  * 返回该场景目录下的全部样章。
  */
 export function readSamplesByScene(

@@ -78,7 +78,7 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
 
 /**
  * 造一个写了 N 章并逐章定稿 commit 的书仓库（回滚「回到第 N 章」测试用）。
- * 每章一个 `ch:<补零章号>` commit（对齐 ⑯ 第 4 节 commit msg 规范，回滚靠它定位）。
+ * 每章一个 `ch:<补零章号>` commit（对齐 #16 第 4 节 commit msg 规范，回滚靠它定位）。
  *
  * @param n 已定稿的章数（1..n）
  * @returns 书仓库根；定稿区有 n 章正文 + n 个 ch: commit
@@ -89,13 +89,13 @@ export function makeGitBookWithChapters(n: number): string {
   for (let i = 1; i <= n; i++) {
     const chNo = String(i).padStart(4, '0')
     const title = `第${i}章`
-    // 正文（含 ⑦ front matter）
+    // 正文（含 #7 front matter）
     writeFileSync(
       join(root, '定稿', '正文', `${chNo}-${title}.md`),
       `---\n章号: ${i}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${i}章的正文内容。\n`,
       'utf-8',
     )
-    // commit（⑯ 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
+    // commit（#16 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
     execSync('git add -A', { cwd: root, stdio: 'pipe' })
     execSync(`git commit -m "ch:${chNo} ${title}"`, { cwd: root, stdio: 'pipe' })
   }
