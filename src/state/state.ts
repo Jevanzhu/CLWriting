@@ -287,14 +287,7 @@ export interface StatusRecap {
  * 伪造确认（先盖章再偷改细纲）→ verified=false → 复述暴露 → 作者可「回到第 N 章」推翻（兜底闭环）。
  */
 export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState): StatusRecap {
-  const cachePath = join(bookRoot, '.cache', 'index.db')
-  const db = new DatabaseSync(cachePath)
-  let snapshot
-  try {
-    snapshot = assembleStatus(db, config)
-  } finally {
-    db.close()
-  }
+  const snapshot = readRecapSnapshot(bookRoot, config, detected)
 
   // 确认复述：从最近 ch: commit trailer 取
   const lastConfirm = parseLastConfirm(bookRoot)
@@ -309,6 +302,31 @@ export function buildRecap(bookRoot: string, config: BookConfig, detected: Detec
     state: detected.state,
     lastConfirm,
   }
+}
+
+function readRecapSnapshot(
+  bookRoot: string,
+  config: BookConfig,
+  detected: DetectedState,
+): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
+  const cachePath = join(bookRoot, '.cache', 'index.db')
+  let db: DatabaseSync | undefined
+  try {
+    db = new DatabaseSync(cachePath)
+    return assembleStatus(db, config)
+  } catch {
+    return fallbackRecapSnapshot(detected)
+  } finally {
+    db?.close()
+  }
+}
+
+function fallbackRecapSnapshot(detected: DetectedState): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
+  if (detected.state === 5) {
+    return { currentChapter: detected.volume * DEFAULT_VOLUME_SIZE, currentVolume: detected.volume }
+  }
+  const nextChapter = detected.state === 7 ? detected.nextChapter : 1
+  return { currentChapter: Math.max(0, nextChapter - 1), currentVolume: 1 }
 }
 
 /** 从最近 ch: commit 的 Confirmed: trailer 解析确认复述（#15 第 4 节 + #16 第 4 节） */
