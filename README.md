@@ -4,7 +4,7 @@
 >
 > 一本书是一个 git 仓库，AI 负责写和审，脚本负责数和记，作者只做三件事——确认细纲、审稿、拍创作决策。
 
-**状态**：v1.0 重写进行中（`v1` 分支）。当前 **M3 状态机 + git 隐身层已完成**，可用入口包括 `clwriting enter`、`clwriting health`、`clwriting revert`；**M4 AI 角色层 + 一级宿主尚未施工**，真 AI 写稿 / 三审 / 修复确认 / 复盘体检仍是后续工作。完整路线图见 [`Dev/Plans/`](Dev/Plans/)（本地资料）。
+**状态**：v1.0 重写进行中（`main` 主线）。当前 **M0-M3 已完成**，可用入口包括 `clwriting enter`、`clwriting health`、`clwriting revert`；**M4 AI 角色层 + 一级宿主是下一里程碑**，工单与子 spec 已起草待评审。完整路线图见 [`Dev/Plans/`](Dev/Plans/)（本地资料）。
 
 ---
 
