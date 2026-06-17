@@ -8,7 +8,17 @@ import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { runAllChecks, hasRed, getRedItems } from '../../src/check/runner.js'
 import { formatReport, formatRedForRewrite } from '../../src/check/report.js'
 import { checkGrowth } from '../../src/check/growth.js'
-import { checkFrontMatter, checkBannedWords, checkWordCount, checkRepeat } from '../../src/check/count.js'
+import {
+  checkFrontMatter,
+  checkBannedWords,
+  checkWordCount,
+  checkRepeat,
+  checkImagery,
+  checkStyleMetrics,
+  checkInfoLeak,
+  parseIronRules,
+} from '../../src/check/count.js'
+import { checkLeadsForm } from '../../src/check/leads.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { ChapterMeta, BookConfig, RealmDoc } from '../../src/format/types.js'
 
@@ -175,4 +185,137 @@ test('hasRed + getRedItems', () => {
   }
   expect(hasRed(report)).toBe(true)
   expect(getRedItems(report)).toHaveLength(1)
+})
+
+// ── 账本形式三检（⑩ 项 1，红）────────────────────
+
+/** 造一个最小书仓库（含 .cache + 定稿/正文/），供 checkLeadsForm 测试 */
+function makeLeadsBook(): { root: string; db: DatabaseSync } {
+  const root = mkdtempSync(join(tmpdir(), '账本-'))
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  createAllTables(db)
+  return { root, db }
+}
+
+test('checkLeadsForm: 引文命中正文 → 无红', () => {
+  const { root, db } = makeLeadsBook()
+  writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  syncLead(db, {
+    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['伏笔'])
+  expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
+  const { root, db } = makeLeadsBook()
+  writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
+  syncLead(db, {
+    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['伏笔'])
+  expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 履历声称未来章 → 红', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 99, 动词: '埋下', 证据: 'xx' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['伏笔'])
+  expect(r.items.some((i) => i.checkId === 'lead-chapter-future')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 履历章号乱序 → 红', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    履历: [
+      { 章号: 20, 动词: '埋下', 证据: 'a' },
+      { 章号: 10, 动词: '推进', 证据: 'b' }, // 乱序：10 < 20
+    ], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 30, ['伏笔'])
+  expect(r.items.some((i) => i.checkId === 'lead-chapter-disorder')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '回收', 证据: 'a' }], // 末条"回收"是收尾，但状态仍"进行中"
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['伏笔'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 两端闭合——声明了没做 / 做了没声明', () => {
+  const { root, db } = makeLeadsBook()
+  writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
+  syncLead(db, {
+    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
+  })
+  // declared = [悬念-001]（声明推进但没写），actual = [伏笔-031]（写了没声明）
+  const r = checkLeadsForm(db, root, 10, ['伏笔', '悬念'], ['悬念-001'], ['伏笔-031'])
+  expect(r.items.some((i) => i.checkId === 'lead-declared-not-done' && i.leadId === '悬念-001')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'lead-done-not-declared' && i.leadId === '伏笔-031')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
+  const { root, db } = makeLeadsBook()
+  writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
+  syncLead(db, {
+    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['伏笔'], ['伏笔-031'], ['伏笔-031'])
+  expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── 高频意象（⑩ 项 7，黄）────────────────────────
+
+test('checkImagery: 词表命中超阈 → 黄；空表 → 无', () => {
+  const body = '空气仿佛凝固。又一次空气仿佛凝固。还是空气仿佛凝固。'
+  expect(checkImagery(body, ['空气仿佛凝固'], 3).items.some((i) => i.level === 'yellow')).toBe(true)
+  expect(checkImagery(body, [], 3).items).toHaveLength(0)
+})
+
+// ── 文风可量化（⑩ 项 9，黄）──────────────────────
+
+test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄', () => {
+  const rules = parseIronRules('## 可量化硬约束\n- 单句上限字数: 20\n- 形容词连续堆叠上限: 3')
+  expect(rules.maxSentenceLen).toBe(20)
+  expect(rules.maxAdjStack).toBe(3)
+  const body = '他微笑着深情地说了一句很长很长很长很长很长很长很长很长的话。'
+  const r = checkStyleMetrics(body, rules)
+  expect(r.items.some((i) => i.checkId === 'style-sentence-overlong')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
+})
+
+// ── 信息差候选（⑩ 项 11，黄）─────────────────────
+
+test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 无', () => {
+  expect(checkInfoLeak('他其实是皇子。', ['皇子']).items.some((i) => i.checkId === 'info-leak-candidate')).toBe(true)
+  expect(checkInfoLeak('他其实是皇子。', []).items).toHaveLength(0)
 })

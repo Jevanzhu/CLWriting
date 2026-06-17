@@ -9,7 +9,7 @@
  * 状态闭合（③ 第 5 节）：状态 ⟷ 履历末条动词一致。
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
@@ -28,6 +28,8 @@ export function checkLeadsForm(
   bookRoot: string,
   currentChapter: number,
   enabledTypes: string[],
+  declaredLeadIds?: string[],
+  actualLeadIds?: string[],
 ): CheckSectionResult {
   const items: CheckItem[] = []
 
@@ -43,17 +45,30 @@ export function checkLeadsForm(
     const id = lead['id'] as string
     const history = readLeadHistory(db, id)
 
+    let prevChapter = 0 // 章号单调校验（履历按 seq 排序，非回填章号应不减）
     for (const entry of history) {
-      // ① 章号一致：非回填行的章号须 ≤ currentChapter（不能凭空声称未来章）
+      // ① 章号一致 a：非回填行的章号须 ≤ currentChapter（不能凭空声称未来章）
       if (!entry.回填 && entry.章号 > currentChapter) {
         items.push({
-          checkId: 'lead-chapter-mismatch',
+          checkId: 'lead-chapter-future',
           level: 'red',
           message: `${id} 履历声称第${entry.章号}章，但当前只定稿到第${currentChapter}章（凭空声称未来章）`,
           leadId: id,
           chapter: entry.章号,
         })
       }
+
+      // ① 章号一致 b：非回填履历章号随 seq 不减（乱序 = 章号写错的强信号）
+      if (!entry.回填 && entry.章号 < prevChapter) {
+        items.push({
+          checkId: 'lead-chapter-disorder',
+          level: 'red',
+          message: `${id} 履历章号乱序：第${entry.章号}章出现在第${prevChapter}章之后`,
+          leadId: id,
+          chapter: entry.章号,
+        })
+      }
+      if (!entry.回填) prevChapter = Math.max(prevChapter, entry.章号)
 
       // ② 引文命中：证据须在该章正文 grep 命中
       if (!entry.回填 && entry.证据) {
@@ -91,16 +106,48 @@ export function checkLeadsForm(
     }
   }
 
+  // ③ 两端闭合（③ 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
+  // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
+  if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
+    const declared = new Set(declaredLeadIds)
+    const actual = new Set(actualLeadIds)
+    // 声明了没做
+    for (const id of declared) {
+      if (!actual.has(id)) {
+        items.push({
+          checkId: 'lead-declared-not-done',
+          level: 'red',
+          message: `细纲声明本章推进 ${id}，但本章未写入其履历（声明了没做）`,
+          leadId: id,
+          chapter: currentChapter,
+        })
+      }
+    }
+    // 做了没声明
+    for (const id of actual) {
+      if (!declared.has(id)) {
+        items.push({
+          checkId: 'lead-done-not-declared',
+          level: 'red',
+          message: `本章为 ${id} 写入履历，但细纲未声明推进它（做了没声明）`,
+          leadId: id,
+          chapter: currentChapter,
+        })
+      }
+    }
+  }
+
   return { name: '账本形式三检', items }
 }
 
-/** 找某章的正文文件（定稿/正文/<章号>-*.md） */
+/** 找某章的正文文件（定稿/正文/<章号>-*.md，章号补零与否均匹配） */
 function findChapterFile(正文dir: string, chapter: number): string | null {
-  const { readdirSync, statSync } = require('node:fs')
   try {
-    const files = readdirSync(正文dir) as string[]
-    const prefix = String(chapter) + '-'
-    const match = files.find((f) => f.startsWith(prefix) && f.endsWith('.md') && !f.startsWith('._'))
+    const files = readdirSync(正文dir)
+    // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
+    const match = files.find(
+      (f) => f.endsWith('.md') && !f.startsWith('._') && Number(f.match(/^(\d+)-/)?.[1]) === chapter,
+    )
     return match ? join(正文dir, match) : null
   } catch {
     return null

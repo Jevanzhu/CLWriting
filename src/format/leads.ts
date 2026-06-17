@@ -135,6 +135,7 @@ export function readLead(
     开启章: Number(map.get('开启章') ?? 0),
     履历: parseHistory(r.body),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
+    _fmOrder: [...map.keys()],
     _path: filePath,
   }
 
@@ -148,27 +149,55 @@ export function readLead(
   return { ok: true, lead }
 }
 
-/** Lead 内存模型 → front matter Map（保留未知字段 + 顺序） */
+/** Lead 内存模型 → front matter Map（按源 md 原始字段顺序回写，③ 第 8 节"不重排"） */
 function leadToMap(lead: Lead): Map<string, unknown> {
   const map = new Map<string, unknown>()
-  // 已知字段按 ③ 第 3 节顺序
-  map.set('编号', lead.编号)
-  map.set('标题', lead.标题)
-  map.set('类型', lead.类型)
-  map.set('状态', lead.状态)
-  map.set('开启章', lead.开启章)
-  // 特化字段（按类型出现）
-  if (lead.境界体系) map.set('境界体系', lead.境界体系)
-  if (lead.当前境界) map.set('当前境界', lead.当前境界)
-  if (lead.父局线) map.set('父局线', lead.父局线)
-  if (lead.欠方) map.set('欠方', lead.欠方)
-  if (lead.债主) map.set('债主', lead.债主)
-  // 未知字段追加（容错保留）
-  if (lead._raw) {
-    for (const [k, v] of Object.entries(lead._raw)) {
-      if (!map.has(k)) map.set(k, v)
+
+  // 已知字段的当前值（按 key 取，含可能被更新的值）
+  const knownVal: Record<string, unknown> = {
+    编号: lead.编号,
+    标题: lead.标题,
+    类型: lead.类型,
+    状态: lead.状态,
+    开启章: lead.开启章,
+  }
+  if (lead.境界体系 !== undefined) knownVal['境界体系'] = lead.境界体系
+  if (lead.当前境界 !== undefined) knownVal['当前境界'] = lead.当前境界
+  if (lead.父局线 !== undefined) knownVal['父局线'] = lead.父局线
+  if (lead.欠方 !== undefined) knownVal['欠方'] = lead.欠方
+  if (lead.债主 !== undefined) knownVal['债主'] = lead.债主
+
+  const emitted = new Set<string>()
+
+  // ① 按源 md 原始顺序回写（保序，减少无谓 git diff）
+  for (const key of lead._fmOrder ?? []) {
+    if (key in knownVal) {
+      map.set(key, knownVal[key])
+      emitted.add(key)
+    } else if (lead._raw && key in lead._raw) {
+      map.set(key, lead._raw[key])
+      emitted.add(key)
     }
   }
+
+  // ② 原始顺序未覆盖的已知字段（内存新增）按 ③ 第 3 节标准顺序追加
+  for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父局线', '欠方', '债主']) {
+    if (key in knownVal && !emitted.has(key)) {
+      map.set(key, knownVal[key])
+      emitted.add(key)
+    }
+  }
+
+  // ③ 未知字段（_raw 中原始顺序未列的）追加末尾
+  if (lead._raw) {
+    for (const [k, v] of Object.entries(lead._raw)) {
+      if (!emitted.has(k)) {
+        map.set(k, v)
+        emitted.add(k)
+      }
+    }
+  }
+
   return map
 }
 

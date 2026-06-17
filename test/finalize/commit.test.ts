@@ -8,7 +8,7 @@ import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { doConfirm } from '../../src/gate/confirm.js'
+import { doConfirm, confirmPath } from '../../src/gate/confirm.js'
 import { doFinalize } from '../../src/finalize/commit.js'
 import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 
@@ -163,6 +163,63 @@ test('doFinalize: 细纲确认后被篡改 → 前置闸拦截', () => {
   })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('改过了')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('doFinalize: 定稿中断（git 失败）→ 错误且工作区原样保留（原子性，⑬ 第 5 节）', () => {
+  const root = makeGitBook()
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const workDir = join(root, '工作区')
+  const outline = join(workDir, '细纲.md')
+  writeFileSync(outline, '细纲', 'utf-8')
+  doConfirm(workDir, 1, outline, 'manual', DEFAULT_CONFIG)
+  writeFileSync(join(workDir, '草稿-1.md'), '草稿', 'utf-8')
+  writeFileSync(join(workDir, '审稿.md'), '通过', 'utf-8')
+
+  // 破坏 git 仓库 → addCommit 失败，模拟定稿在原子点中断
+  rmSync(join(root, '.git'), { recursive: true, force: true })
+
+  const ch: ChapterMeta = {
+    章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
+  }
+  const r = doFinalize({
+    bookRoot: root, workDir, outlinePath: outline, db, config: DEFAULT_CONFIG,
+    chapter: ch, body: '正文', fileName: '1-第一章.md', hasReviewVerdict: true,
+  })
+  expect(r.ok).toBe(false) // commit 失败 = 中断
+  // 工作区原样保留（未被 clearWorkDir 清空）：可续跑/可回滚（M3）
+  expect(existsSync(join(workDir, '草稿-1.md'))).toBe(true)
+  expect(existsSync(join(workDir, '细纲.md'))).toBe(true)
+  expect(existsSync(confirmPath(workDir))).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('doFinalize: leadUpdates 写入履历 + 幂等去重 + 跨章跳过', () => {
+  const root = makeGitBook()
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const workDir = join(root, '工作区')
+  const outline = join(workDir, '细纲.md')
+  writeFileSync(outline, '细纲', 'utf-8')
+  doConfirm(workDir, 1, outline, 'manual', DEFAULT_CONFIG)
+
+  const ch: ChapterMeta = {
+    章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
+  }
+  const r = doFinalize({
+    bookRoot: root, workDir, outlinePath: outline, db, config: DEFAULT_CONFIG,
+    chapter: ch, body: '焦痕。', fileName: '1-第一章.md', hasReviewVerdict: true,
+    leadUpdates: [{ leadId: '伏笔-031', entries: [
+      { 章号: 1, 动词: '推进', 证据: '焦痕一' },
+      { 章号: 1, 动词: '推进', 证据: '焦痕二' }, // 同章同动词 → 幂等去重
+      { 章号: 99, 动词: '推进', 证据: '跨章' }, // 非本章 → 跳过
+    ]}],
+  })
+  expect(r.ok).toBe(true)
+  const leadContent = readFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), 'utf-8')
+  expect(leadContent.match(/推进/g)?.length).toBe(1) // 幂等：只写一条
+  expect(leadContent).not.toContain('跨章') // 跨章 entry 被跳过
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
