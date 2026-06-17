@@ -14,9 +14,9 @@
  * 中断恢复（⑬ 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { existsSync, writeFileSync, unlinkSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { writeChapter } from '../format/chapters.js'
@@ -139,16 +139,12 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   // commit msg 前缀贴 ⑯ 第 4 节：ch:<4 位补零章号>（对齐 定稿/正文/0152-标题.md 补零约定，供 M3 回滚按 ch:<章号> grep 定位）
   const commitMsg = `ch:${String(chapter.章号).padStart(4, '0')} ${chapter.标题}${trailer}`
 
-  try {
-    // execFileSync 数组形式不走 shell：章节标题（作者可控）不再拼进命令，免注入、免转义
-    execFileSync('git', ['add', '-A'], { cwd: bookRoot, stdio: 'pipe' })
-    execFileSync('git', ['commit', '-m', commitMsg], { cwd: bookRoot, stdio: 'pipe' })
-  } catch (e) {
-    return { ok: false, reason: `git commit 失败：${e instanceof Error ? e.message : String(e)}` }
+  // ③ git add + commit（原子点）—— 经 ⑯ git 隐身层 addCommit（集中收口 + 人话）
+  const commit = addCommit(bookRoot, commitMsg)
+  if (!commit.ok) {
+    return { ok: false, reason: commit.humanMsg }
   }
-
-  // commit 成功 → 定稿成立。获取 commit hash
-  const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: bookRoot, encoding: 'utf-8' }).trim()
+  const commitHash = commit.hash
 
   // ④ 清空工作区
   clearWorkDir(workDir)
