@@ -108,7 +108,7 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   const chapterPath = join(正文dir, fileName)
   writeChapter(chapterPath, chapter, body)
 
-  // 账本履历更新
+  // 账本履历更新（幂等 + 本章校验）
   if (input.leadUpdates) {
     for (const update of input.leadUpdates) {
       const leadDir = join(bookRoot, '大纲')
@@ -117,8 +117,13 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
       if (leadFile) {
         const r = readLead(leadFile)
         if (r.ok) {
-          const newEntries = update.entries.map((e) => ({ 章号: e.章号, 动词: e.动词, 证据: e.证据 }))
-          r.lead.履历.push(...newEntries)
+          for (const e of update.entries) {
+            // 定稿只写本章（chapter.章号）的履历，章号不符跳过（防写错章）
+            if (e.章号 !== chapter.章号) continue
+            // 幂等：同章号 + 动词已存在则跳过（防二次 finalize / 重试重复追加）
+            if (r.lead.履历.some((h) => h.章号 === e.章号 && h.动词 === e.动词)) continue
+            r.lead.履历.push({ 章号: e.章号, 动词: e.动词, 证据: e.证据 })
+          }
           writeLead(leadFile, r.lead)
         }
       }
@@ -183,7 +188,7 @@ function findLeadFile(outlineDir: string, leadId: string): string | null {
     if (!existsSync(dir)) continue
     try {
       for (const f of readdirSync(dir)) {
-        if (f.startsWith(leadId) && f.endsWith('.md') && !f.startsWith('._')) {
+        if (f.startsWith(leadId + '-') && f.endsWith('.md') && !f.startsWith('._')) {
           return join(dir, f)
         }
       }

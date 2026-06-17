@@ -156,7 +156,7 @@ export function checkNewNames(
   const quoted = body.match(/[「『"]([^」』"]{2,4})[」』"]/g)
   if (quoted) {
     for (const q of quoted) {
-      const name = q.replace(/[「『」』"]「」『』/g, '')
+      const name = q.replace(/[「『」』"]/g, '')
       if (name.length >= 2 && name.length <= 4 && !roster.includes(name)) {
         candidates.add(name)
       }
@@ -170,4 +170,129 @@ export function checkNewNames(
     })
   }
   return { name: '新专名候选', items }
+}
+
+/**
+ * 高频意象检查（⑩ 项 7，🟡 黄）。
+ * 套路词/意象表命中频次超阈 → 提示（PRD 问题 9，"空气仿佛凝固"）。
+ * 意象表默认空——初始数据靠 M4 知识层平移 / book.yaml 配置（⑩ 第 4/8 节待 beta）。
+ */
+export function checkImagery(
+  body: string,
+  imageryWords: string[] = [],
+  threshold = 3,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  for (const word of imageryWords) {
+    if (!word) continue
+    let count = 0
+    let idx = body.indexOf(word)
+    while (idx !== -1) {
+      count++
+      idx = body.indexOf(word, idx + word.length)
+    }
+    if (count >= threshold) {
+      items.push({
+        checkId: 'imagery-overuse',
+        level: 'yellow',
+        message: `高频意象「${word}」本章出现 ${count} 次（≥${threshold}），疑似套路堆叠`,
+      })
+    }
+  }
+  return { name: '高频意象', items }
+}
+
+/** 文风铁律可量化阈值（⑤ 第 8 节「## 可量化硬约束」段） */
+export interface IronRules {
+  /** 单句上限字数 */
+  maxSentenceLen?: number
+  /** 形容词连续堆叠上限 */
+  maxAdjStack?: number
+}
+
+/** 从 文风铁律.md 解析可量化硬约束阈值（⑤ 第 8 节）。 */
+export function parseIronRules(text: string): IronRules {
+  const rules: IronRules = {}
+  const lenM = text.match(/单句上限字数[:：]\s*(\d+)/)
+  if (lenM) rules.maxSentenceLen = Number(lenM[1])
+  const stackM = text.match(/形容词连续堆叠上限[:：]\s*(\d+)/)
+  if (stackM) rules.maxAdjStack = Number(stackM[1])
+  return rules
+}
+
+/**
+ * 文风可量化检查（⑩ 项 9，🟡 黄）。
+ * 贴近 文风铁律.md 的可量化硬约束：单句上限 / 形容词堆叠 / 对话提示语（⑤ 第 8 节）。
+ * 阈值来自铁律；缺省项不检。零 token 启发式，只报不拦（ask 不 deny）。
+ */
+export function checkStyleMetrics(
+  body: string,
+  rules: IronRules,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+
+  // 单句超铁律上限
+  if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
+    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    for (const s of sentences) {
+      if (s.length > rules.maxSentenceLen) {
+        items.push({
+          checkId: 'style-sentence-overlong',
+          level: 'yellow',
+          message: `单句 ${s.length} 字超文风铁律上限 ${rules.maxSentenceLen} 字：「${s.slice(0, 16)}…」`,
+        })
+      }
+    }
+  }
+
+  // 形容词连续堆叠：超上限的连续「X的」
+  if (rules.maxAdjStack && rules.maxAdjStack > 0) {
+    const stackRe = new RegExp(`(?:[\\u4e00-\\u9fa5]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
+    const hits = body.match(stackRe)
+    if (hits) {
+      for (const h of new Set(hits)) {
+        items.push({
+          checkId: 'style-adj-stack',
+          level: 'yellow',
+          message: `形容词堆叠超上限（${rules.maxAdjStack}）：「${h}」`,
+        })
+      }
+    }
+  }
+
+  // 对话提示语堆叠（"…地说/地道"，优先"他说"，⑤ 第 8 节示例）
+  const tagHits = body.match(/[一-龥]{2,}地(说|道)/g)
+  if (tagHits) {
+    for (const t of new Set(tagHits)) {
+      items.push({
+        checkId: 'style-dialogue-tag',
+        level: 'yellow',
+        message: `对话提示语堆叠「${t}」，建议简化（优先"他${t.endsWith('说') ? '说' : '道'}"）`,
+      })
+    }
+  }
+
+  return { name: '文风可量化', items }
+}
+
+/**
+ * 信息差泄密候选（⑩ 项 11，🟡 黄）。
+ * 关键词命中 → 只出候选、不拦截（真伪归阶段 6 三审，PRD 问题 3）。
+ * 关键词源默认空——由信息差设定 / book.yaml 提供（⑩ 第 2 节项 11）。
+ */
+export function checkInfoLeak(
+  body: string,
+  leakKeywords: string[] = [],
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  for (const kw of leakKeywords) {
+    if (kw && body.includes(kw)) {
+      items.push({
+        checkId: 'info-leak-candidate',
+        level: 'yellow',
+        message: `信息差候选：正文出现「${kw}」，请确认是否提前泄露（真伪归三审）`,
+      })
+    }
+  }
+  return { name: '信息差候选', items }
 }

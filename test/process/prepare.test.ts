@@ -105,3 +105,38 @@ test('estimateTokens: 中文 0.6 token/字', () => {
   const t = estimateTokens('一二三四五六七八九十') // 10 字
   expect(t).toBe(6) // 10 * 0.6
 })
+
+test('prepare: 超预算优先降档（文风样章降浓度保留）而非整段删', () => {
+  const root = mkdtempSync(join(tmpdir(), '降档-'))
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  createAllTables(db)
+  syncChapter(db, {
+    章号: 10, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 1000, _path: 'p10',
+  })
+  // 3 个大样章（heavy 注入 3 段，制造超预算）
+  mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
+  const big = '刀'.repeat(1000)
+  for (let i = 1; i <= 3; i++) {
+    writeFileSync(
+      join(root, '文风', '样章库', '战斗', `战斗-00${i}.md`),
+      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`, 'utf-8',
+    )
+  }
+  // heavy 浓度 + 中等预算（够降档后、不够全量）
+  const cfg: BookConfig = {
+    ...DEFAULT_CONFIG,
+    style: { injection: 'heavy' },
+    budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 800 },
+  }
+  const r = prepare(db, cfg, root, [])
+
+  expect(r.trimmed).toBe(true)
+  expect(r.trimLog.some((l) => l.includes('降档'))).toBe(true)
+  const style = r.sections.find((s) => s.title === '文风样章')
+  expect(style).toBeDefined() // 降档保留，未整段删
+  expect(style!.content.length).toBeLessThan(1500) // 降档后仅 1 段（≈1000 字），非 heavy 全量 3 段
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
