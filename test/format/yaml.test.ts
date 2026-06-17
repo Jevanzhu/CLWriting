@@ -25,7 +25,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     '    成长线: 50',
     '',
     'budget:',
-    '  calls_per_chapter: 6',
+    '  calls_per_chapter: 8',
     '  input_per_chapter: 80000',
     '  summary_chapter_max: 200',
     '  summary_volume_max: 500',
@@ -48,7 +48,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     expect(r.config.book.genre).toBe('玄幻')
     expect(r.config.leads.enabled).toEqual(['局线', '设定线', '成长线'])
     expect(r.config.leads.thresholds?.['成长线']).toBe(50)
-    expect(r.config.budget.calls_per_chapter).toBe(6)
+    expect(r.config.budget.calls_per_chapter).toBe(8)
     expect(r.config.auto.confirm_outline).toBe(false)
     expect(r.config.growth.realm_span_max).toBe(2)
   }
