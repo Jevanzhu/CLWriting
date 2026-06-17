@@ -18,7 +18,7 @@ import {
 } from '../cli/read.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
-/** 账本阈值默认表（母本第 2.2 节，⑨ 可覆盖） */
+/** 账本阈值默认表（母本第 2.2 节，#9 可覆盖） */
 const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
   伏笔: 10,
   悬念: 10,
@@ -78,7 +78,7 @@ export function assembleStatus(
   // 当前卷号
   const currentVolume = currentChapter > 0 ? Math.ceil(currentChapter / volumeSize) : 1
 
-  // 账本阈值（⑨ 覆盖默认）
+  // 账本阈值（#9 覆盖默认）
   const thresholds: Record<string, number> = { ...DEFAULT_THRESHOLDS }
   if (config.leads.thresholds) {
     for (const [k, v] of Object.entries(config.leads.thresholds)) {

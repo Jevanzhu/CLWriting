@@ -1,18 +1,18 @@
 /**
- * book.yaml 读写 —— 依据 ⑨ book.yaml 配置 spec。
+ * book.yaml 读写 —— 依据 #9 book.yaml 配置 spec。
  *
  * 与 frontmatter.ts 的区别：
  * - book.yaml 是独立 .yaml 文件（无 --- 包裹），机器域英文 key，多层嵌套段
  * - front matter 是中文 key、平铺、--- 包裹
  *
- * 这里手写一个支持「段（顶层 key:）+ 缩进子字段」的极简解析，覆盖 ⑨ 第 2 节 schema。
+ * 这里手写一个支持「段（顶层 key:）+ 缩进子字段」的极简解析，覆盖 #9 第 2 节 schema。
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
 
-// ── 默认值（⑨ 第 3 节，待 beta 的给占位）────────
+// ── 默认值（#9 第 3 节，待 beta 的给占位）────────
 
 export const DEFAULT_CONFIG: BookConfig = {
   spec_version: 1,
@@ -74,7 +74,7 @@ function parseSections(text: string): RawSection[] {
   return roots
 }
 
-/** 段树 → BookConfig（⑨ 第 2 节） */
+/** 段树 → BookConfig（#9 第 2 节） */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, style: { ...DEFAULT_CONFIG.style }, auto: { ...DEFAULT_CONFIG.auto }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
@@ -172,7 +172,7 @@ export function readBookConfig(
   }
 }
 
-/** BookConfig → YAML 文本（⑨ 第 2 节格式） */
+/** BookConfig → YAML 文本（#9 第 2 节格式） */
 export function stringifyBookConfig(cfg: BookConfig): string {
   const lines: string[] = [
     `spec_version: ${cfg.spec_version}`,

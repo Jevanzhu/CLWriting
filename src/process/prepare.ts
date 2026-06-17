@@ -1,11 +1,11 @@
 /**
- * 备料 + 输入预算闸 —— 阶段 3（母本第 6.3 节，依据 ⑫ 输入预算闸 spec）。
+ * 备料 + 输入预算闸 —— 阶段 3（母本第 6.3 节，依据 #12 输入预算闸 spec）。
  *
  * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风铁律 + 文风样章 + 近章结尾。
  *
- * 预算闸（⑫）：
+ * 预算闸（#12）：
  * 1. 源头限流——账本只取本章细纲声明推进的条目 + 少数悬太久（不取全部 open）
- * 2. 兜底裁剪——超预算按弹性优先级 ④→③→②→① 先降档（减量保留）、仍超再整段移除，刚需绝不砍
+ * 2. 兜底裁剪——超预算按弹性优先级 #4→#3→#2→#1 先降档（减量保留）、仍超再整段移除，刚需绝不砍
  * 3. 软预算——不硬拒，裁剪 + 头部留痕
  */
 
@@ -25,9 +25,9 @@ export interface MaterialSection {
   content: string
   /** 刚需（永不裁剪）还是弹性（可降档/裁剪） */
   essential: boolean
-  /** 弹性优先级（⑫ 第 4 节，数字越大越先砍：4=非本章预警, 3=远期摘要, 2=文风样章, 1=近章结尾） */
+  /** 弹性优先级（#12 第 4 节，数字越大越先砍：4=非本章预警, 3=远期摘要, 2=文风样章, 1=近章结尾） */
   flexibleRank?: number
-  /** 降档版内容（减量保留，⑫ 第 4 节"按序降档"）；裁剪时先降档、仍超再整段移除 */
+  /** 降档版内容（减量保留，#12 第 4 节"按序降档"）；裁剪时先降档、仍超再整段移除 */
   degradedContent?: string
 }
 
@@ -45,7 +45,7 @@ export interface PrepareResult {
   trimLog: string[]
 }
 
-/** token 粗估（⑫ 第 5 节：中文约 0.6 token/字） */
+/** token 粗估（#12 第 5 节：中文约 0.6 token/字） */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length * 0.6)
 }
@@ -56,7 +56,7 @@ export function estimateTokens(text: string): number {
  * @param db 缓存
  * @param config book.yaml
  * @param bookRoot 书仓库根
- * @param chapterLeadIds 本章细纲声明推进的账本条目 id（⑫ 第 2 节② 源头限流）
+ * @param chapterLeadIds 本章细纲声明推进的账本条目 id（#12 第 2 节#2 源头限流）
  */
 export function prepare(
   db: DatabaseSync,
@@ -67,9 +67,9 @@ export function prepare(
   const sections: MaterialSection[] = []
   const trimLog: string[] = []
 
-  // ── 刚需段（⑫ 第 4 节：永不裁剪）──────────────
+  // ── 刚需段（#12 第 4 节：永不裁剪）──────────────
 
-  // ① 近况（刚需——AI 必须知道写到哪里了）
+  // #1 近况（刚需——AI 必须知道写到哪里了）
   const snapshot = assembleStatus(db, config)
   sections.push({
     title: '近况',
@@ -77,7 +77,7 @@ export function prepare(
     essential: true,
   })
 
-  // ② 本章账本推进条目（刚需——⑫ 第 2 节② 源头限流：只取本章涉及的）
+  // #2 本章账本推进条目（刚需——#12 第 2 节#2 源头限流：只取本章涉及的）
   if (chapterLeadIds.length > 0) {
     const parts: string[] = []
     for (const id of chapterLeadIds) {
@@ -95,7 +95,7 @@ export function prepare(
     })
   }
 
-  // ③ 文风铁律（刚需——⑫ 含反和解标准段）
+  // #3 文风铁律（刚需——#12 含反和解标准段）
   const ironPath = join(bookRoot, '文风', '文风铁律.md')
   if (existsSync(ironPath)) {
     sections.push({
@@ -105,9 +105,9 @@ export function prepare(
     })
   }
 
-  // ── 弹性段（⑫ 第 4 节：可裁剪，按优先级）──────
+  // ── 弹性段（#12 第 4 节：可裁剪，按优先级）──────
 
-  // 弹性① 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
+  // 弹性#1 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
   const recentEndings = readChapterSummaries(db, Math.max(1, snapshot.currentChapter - 1), snapshot.currentChapter)
   if (recentEndings.length > 0) {
     const parts: string[] = []
@@ -127,11 +127,11 @@ export function prepare(
     }
   }
 
-  // 弹性② 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
+  // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
   const sampleDir = join(bookRoot, '文风', '样章库')
   const { samples } = readSamplesByScene(sampleDir, '战斗') // 场景由细纲定，M2 桩用战斗
   if (samples.length > 0) {
-    // 轻注入：只取 1-2 段（⑫ + 母本第 1.4 节）
+    // 轻注入：只取 1-2 段（#12 + 母本第 1.4 节）
     const injected = config.style.injection === 'heavy' ? samples.slice(0, 3) : samples.slice(0, 1)
     const parts = injected.map((s) => s.正文)
     sections.push({
@@ -143,7 +143,7 @@ export function prepare(
     })
   }
 
-  // 弹性③ 远期卷摘要（降粗档，flexibleRank=3）
+  // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）
   if (snapshot.currentVolume > 1) {
     const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${snapshot.currentVolume - 1}.md`)
     if (existsSync(volSummaryPath)) {
@@ -156,7 +156,7 @@ export function prepare(
     }
   }
 
-  // 弹性④ 非本章悬太久预警（只列编号，flexibleRank=4，最先砍）
+  // 弹性#4 非本章悬太久预警（只列编号，flexibleRank=4，最先砍）
   const otherStale = snapshot.staleLeads.filter((s) => !chapterLeadIds.includes(s.id))
   if (otherStale.length > 0) {
     sections.push({
@@ -167,14 +167,14 @@ export function prepare(
     })
   }
 
-  // ── 预算兜底裁剪（⑫ 第 3/4 节）────────────────
+  // ── 预算兜底裁剪（#12 第 3/4 节）────────────────
 
   const budget = config.budget.input_per_chapter ?? 80000
   let totalTokens = sections.reduce((sum, s) => sum + estimateTokens(s.content), 0)
   let trimmed = false
 
   if (totalTokens > budget) {
-    // 按弹性优先级从高到低处理（④→③→②→①）：先降档（减量保留），仍超再整段移除
+    // 按弹性优先级从高到低处理（#4→#3→#2→#1）：先降档（减量保留），仍超再整段移除
     const flexSections = sections
       .filter((s) => !s.essential && s.flexibleRank !== undefined)
       .sort((a, b) => b.flexibleRank! - a.flexibleRank!)

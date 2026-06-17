@@ -23,7 +23,7 @@ function main(): void {
     return
   }
 
-  // 子命令路由（⑮ 状态机单入口；M3 起逐步补命令）
+  // 子命令路由（#15 状态机单入口；M3 起逐步补命令）
   const rest = process.argv.slice(3)
   switch (arg) {
     case 'enter': {

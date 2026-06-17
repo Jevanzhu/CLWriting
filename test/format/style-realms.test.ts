@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
 import { readRealmDoc, writeRealmDoc, getRealmSequence, realmIndex } from '../../src/format/realms.js'
 
-// ── 文风样章（⑤）──────────────────────────────
+// ── 文风样章（#5）──────────────────────────────
 
 test('readSample + writeSample: 往返（含标签数组）', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
@@ -57,7 +57,7 @@ test('parseSampleFileName', () => {
   expect(parseSampleFileName('乱.md')).toBeNull()
 })
 
-// ── 境界枚举（⑥）──────────────────────────────
+// ── 境界枚举（#6）──────────────────────────────
 
 test('readRealmDoc + writeRealmDoc: 嵌套体系往返', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
@@ -80,7 +80,7 @@ test('readRealmDoc + writeRealmDoc: 嵌套体系往返', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('getRealmSequence + realmIndex: 成长线机检数据源（⑥ 第 4 节）', () => {
+test('getRealmSequence + realmIndex: 成长线机检数据源（#6 第 4 节）', () => {
   const doc = {
     体系: [{ 名称: '修真境界', 序列: ['炼气', '筑基', '金丹', '元婴', '化神'] }],
   }

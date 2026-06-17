@@ -1,10 +1,10 @@
 /**
- * 账本七类容错读写 —— 依据 ③ 账本格式 spec。
+ * 账本七类容错读写 —— 依据 #3 账本格式 spec。
  *
- * 文件组织（③ 第 2 节）：大纲/{七类}/<编号>-<标题>.md
+ * 文件组织（#3 第 2 节）：大纲/{七类}/<编号>-<标题>.md
  * 格式：平铺 front matter（通用字段 + 各类特化） + 履历段（markdown 列表）
  *
- * 容错（③ 第 8 节）：未知字段保留、回写不重排、坏文件返回结构化错误不崩。
+ * 容错（#3 第 8 节）：未知字段保留、回写不重排、坏文件返回结构化错误不崩。
  */
 
 import { readdirSync, statSync } from 'node:fs'
@@ -22,7 +22,7 @@ import type {
   ParseError,
 } from './types.js'
 
-/** 账本七类的中文目录名（③ 第 2 节） */
+/** 账本七类的中文目录名（#3 第 2 节） */
 export const LEAD_TYPES: readonly LeadType[] = [
   '伏笔',
   '悬念',
@@ -33,7 +33,7 @@ export const LEAD_TYPES: readonly LeadType[] = [
   '关系债',
 ] as const
 
-/** ③ 第 5 节动词表：每类的合法动词（机检用，M2） */
+/** #3 第 5 节动词表：每类的合法动词（机检用，M2） */
 export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; drop: string[] }> = {
   伏笔: { open: ['埋下'], resolve: ['回收'], drop: ['放弃'] },
   悬念: { open: ['设下'], resolve: ['揭晓'], drop: ['放弃'] },
@@ -44,7 +44,7 @@ export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; d
   关系债: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
 }
 
-// ── 履历段解析（③ 第 4 节）──────────────────────
+// ── 履历段解析（#3 第 4 节）──────────────────────
 
 /**
  * 解析履历段（markdown 列表，每行：- 第N章 动词：章内证据）。
@@ -74,7 +74,7 @@ export function parseHistory(body: string): LeadEntry[] {
       const 动词 = m[2]!.trim()
       let 证据 = m[3]!.trim()
       let 回填 = false
-      // 回填标记（③ 第 4 节）：证据末尾的（回填·卷摘要级）
+      // 回填标记（#3 第 4 节）：证据末尾的（回填·卷摘要级）
       const bf = 证据.match(/（回填[^）]*）$/)
       if (bf) {
         回填 = true
@@ -113,7 +113,7 @@ export function readLead(
 
   const map = parseFlat(r.fmRaw)
 
-  // 必填校验（③ 第 3 节）
+  // 必填校验（#3 第 3 节）
   const 编号 = map.get('编号')
   if (typeof 编号 !== 'string' || !编号) {
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：编号' } }
@@ -149,7 +149,7 @@ export function readLead(
   return { ok: true, lead }
 }
 
-/** Lead 内存模型 → front matter Map（按源 md 原始字段顺序回写，③ 第 8 节"不重排"） */
+/** Lead 内存模型 → front matter Map（按源 md 原始字段顺序回写，#3 第 8 节"不重排"） */
 function leadToMap(lead: Lead): Map<string, unknown> {
   const map = new Map<string, unknown>()
 
@@ -169,7 +169,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 
   const emitted = new Set<string>()
 
-  // ① 按源 md 原始顺序回写（保序，减少无谓 git diff）
+  // #1 按源 md 原始顺序回写（保序，减少无谓 git diff）
   for (const key of lead._fmOrder ?? []) {
     if (key in knownVal) {
       map.set(key, knownVal[key])
@@ -180,7 +180,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
     }
   }
 
-  // ② 原始顺序未覆盖的已知字段（内存新增）按 ③ 第 3 节标准顺序追加
+  // #2 原始顺序未覆盖的已知字段（内存新增）按 #3 第 3 节标准顺序追加
   for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父局线', '欠方', '债主']) {
     if (key in knownVal && !emitted.has(key)) {
       map.set(key, knownVal[key])
@@ -188,7 +188,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
     }
   }
 
-  // ③ 未知字段（_raw 中原始顺序未列的）追加末尾
+  // #3 未知字段（_raw 中原始顺序未列的）追加末尾
   if (lead._raw) {
     for (const [k, v] of Object.entries(lead._raw)) {
       if (!emitted.has(k)) {
@@ -241,7 +241,7 @@ export function readLeadDir(
   return { leads, errors }
 }
 
-/** 从文件名提取编号（③ 第 2 节：<编号>-<标题>.md） */
+/** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md） */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {
   const base = basename(fileName, '.md')
   // 编号格式：类型-三位序号（如 伏笔-031），标题在编号之后

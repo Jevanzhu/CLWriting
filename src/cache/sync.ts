@@ -1,5 +1,5 @@
 /**
- * 内存模型 → 缓存入库 —— 中英 key 映射收口处（④ 第 6 节）。
+ * 内存模型 → 缓存入库 —— 中英 key 映射收口处（#4 第 6 节）。
  *
  * 所有 md（中文 key）↔ 内存模型 ↔ 缓存（英文列）的映射集中在此，
  * 便于「运行时零依赖」下集中维护。
@@ -8,7 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lead, LeadEntry, ChapterMeta } from '../format/types.js'
 
-// ── 账本入库（④ 第 6 节映射表）──────────────────
+// ── 账本入库（#4 第 6 节映射表）──────────────────
 
 /** 写入一个 Lead 到 leads 表 + lead_history 表 */
 export function syncLead(db: DatabaseSync, lead: Lead): void {
@@ -17,7 +17,7 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
       (id, type, title, status, opened_at, cur_realm, parent_id, debtor, creditor, path)
      VALUES (@id, @type, @title, @status, @opened_at, @cur_realm, @parent_id, @debtor, @creditor, @path)`,
   ).all({
-    // 中英映射（④ 第 6 节）
+    // 中英映射（#4 第 6 节）
     id: lead.编号,
     type: lead.类型,
     title: lead.标题,
@@ -84,7 +84,7 @@ export function loadLeadFromCache(
   return lead
 }
 
-// ── 章节入库（⑦ 第 5 节对接 chapters 表）────────
+// ── 章节入库（#7 第 5 节对接 chapters 表）────────
 
 export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   db.prepare(
@@ -102,7 +102,7 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   })
 }
 
-// ── 摘要入库（④ 第 3 节 summaries 表）────────────
+// ── 摘要入库（#4 第 3 节 summaries 表）────────────
 
 export function syncSummary(
   db: DatabaseSync,

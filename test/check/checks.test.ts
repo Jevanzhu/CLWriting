@@ -31,7 +31,7 @@ function makeFixture(): { root: string; db: DatabaseSync } {
   return { root, db: new DatabaseSync(join(root, '.cache', 'index.db')) }
 }
 
-// ── front matter 格式（⑩ 项 3，红）──────────────
+// ── front matter 格式（#10 项 3，红）──────────────
 
 test('checkFrontMatter: 章号与文件名一致 → 无红', () => {
   const ch: ChapterMeta = {
@@ -50,7 +50,7 @@ test('checkFrontMatter: 章号与文件名不一致 → 红', () => {
   expect(r.items[0]!.level).toBe('red')
 })
 
-// ── 禁词（⑩ 项 4，红）──────────────────────────
+// ── 禁词（#10 项 4，红）──────────────────────────
 
 test('checkBannedWords: 命中禁词 → 红', () => {
   const r = checkBannedWords('他微笑着深情地说了句废话', ['废话', '深情地说'])
@@ -58,7 +58,7 @@ test('checkBannedWords: 命中禁词 → 红', () => {
   expect(r.items.every((i) => i.level === 'red')).toBe(true)
 })
 
-// ── 字数（⑩ 项 5，黄）──────────────────────────
+// ── 字数（#10 项 5，黄）──────────────────────────
 
 test('checkWordCount: 偏离目标 → 黄', () => {
   const r = checkWordCount(2000, 3000, 30) // 偏差 33% > 30%
@@ -71,7 +71,7 @@ test('checkWordCount: 在容差内 → 无黄', () => {
   expect(r.items).toHaveLength(0)
 })
 
-// ── 复读（⑩ 项 6，黄）──────────────────────────
+// ── 复读（#10 项 6，黄）──────────────────────────
 
 test('checkRepeat: 重复句多 → 黄', () => {
   // 句子需 ≥6 字才计入（checkRepeat 过滤短句）
@@ -81,7 +81,7 @@ test('checkRepeat: 重复句多 → 黄', () => {
   expect(r.items[0]!.level).toBe('yellow')
 })
 
-// ── 成长线语义（⑥，红）─────────────────────────
+// ── 成长线语义（#6，红）─────────────────────────
 
 test('checkGrowth: 境界回退 → 红', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境-'))
@@ -92,9 +92,9 @@ test('checkGrowth: 境界回退 → 红', () => {
     编号: '成长线-003', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
     当前境界: '金丹',
     履历: [
-      { 章号: 10, 动词: '跃迁', 证据: '突破至筑基' },
-      { 章号: 20, 动词: '跃迁', 证据: '突破至金丹' },
-      { 章号: 30, 动词: '跃迁', 证据: '跌落至炼气' }, // 回退
+      { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
+      { 章号: 20, 动词: '突破', 证据: '突破至金丹' },
+      { 章号: 30, 动词: '突破', 证据: '跌落至炼气' }, // 回退
     ], _path: 'p',
   })
 
@@ -116,7 +116,7 @@ test('checkGrowth: 正常跃迁不报红', () => {
     当前境界: '筑基',
     履历: [
       { 章号: 5, 动词: '起步', 证据: '炼气' },
-      { 章号: 20, 动词: '跃迁', 证据: '突破至筑基' },
+      { 章号: 20, 动词: '突破', 证据: '突破至筑基' },
     ], _path: 'p',
   })
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
@@ -126,7 +126,7 @@ test('checkGrowth: 正常跃迁不报红', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ── 报告分级（⑩ 第 7 节）────────────────────────
+// ── 报告分级（#10 第 7 节）────────────────────────
 
 test('formatReport: brief 模式红项逐条 + 黄项计数', () => {
   const report = {
@@ -187,7 +187,7 @@ test('hasRed + getRedItems', () => {
   expect(getRedItems(report)).toHaveLength(1)
 })
 
-// ── 账本形式三检（⑩ 项 1，红）────────────────────
+// ── 账本形式三检（#10 项 1，红）────────────────────
 
 /** 造一个最小书仓库（含 .cache + 定稿/正文/），供 checkLeadsForm 测试 */
 function makeLeadsBook(): { root: string; db: DatabaseSync } {
@@ -293,7 +293,7 @@ test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 高频意象（⑩ 项 7，黄）────────────────────────
+// ── 高频意象（#10 项 7，黄）────────────────────────
 
 test('checkImagery: 词表命中超阈 → 黄；空表 → 无', () => {
   const body = '空气仿佛凝固。又一次空气仿佛凝固。还是空气仿佛凝固。'
@@ -301,7 +301,7 @@ test('checkImagery: 词表命中超阈 → 黄；空表 → 无', () => {
   expect(checkImagery(body, [], 3).items).toHaveLength(0)
 })
 
-// ── 文风可量化（⑩ 项 9，黄）──────────────────────
+// ── 文风可量化（#10 项 9，黄）──────────────────────
 
 test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄', () => {
   const rules = parseIronRules('## 可量化硬约束\n- 单句上限字数: 20\n- 形容词连续堆叠上限: 3')
@@ -313,7 +313,7 @@ test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
 })
 
-// ── 信息差候选（⑩ 项 11，黄）─────────────────────
+// ── 信息差候选（#10 项 11，黄）─────────────────────
 
 test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 无', () => {
   expect(checkInfoLeak('他其实是皇子。', ['皇子']).items.some((i) => i.checkId === 'info-leak-candidate')).toBe(true)

@@ -1,22 +1,22 @@
 /**
- * 定稿原子 commit —— 依据 ⑬ 定稿 commit spec。
+ * 定稿原子 commit —— 依据 #13 定稿 commit spec。
  *
- * finalize 是写定稿区的唯一入口（⑬ 第 1 节）。
+ * finalize 是写定稿区的唯一入口（#13 第 1 节）。
  * 一次 git commit = 原子点：commit 成功则定稿成立，失败/中断则定稿区无变化。
  *
- * 执行顺序（⑬ 第 4 节）：
+ * 执行顺序（#13 第 4 节）：
  * 1. 前置闸（审稿裁决 / 形式三检 / 确认哈希）
  * 2. 写定稿区变更到工作树
  * 3. git add + 一次 git commit（原子点）
  * 4. 清空工作区
  * 5. 重建缓存
  *
- * 中断恢复（⑬ 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
+ * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
 import { existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { addCommit } from '../git/exec.js'
+import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { writeChapter } from '../format/chapters.js'
@@ -27,13 +27,13 @@ import { runAllChecks, hasRed } from '../check/runner.js'
 import { rebuild } from '../cache/rebuild.js'
 import type { ParseError } from '../format/types.js'
 
-/** finalize 前置闸检查结果（⑬ 第 2 节） */
+/** finalize 前置闸检查结果（#13 第 2 节） */
 export type FinalizeGateResult =
   | { ok: true }
   | { ok: false; reason: string }
 
 /**
- * finalize 前置闸（⑬ 第 2 节）。
+ * finalize 前置闸（#13 第 2 节）。
  * - 审稿有作者裁决
  * - 账本形式三检通过
  * - 确认记录哈希一致
@@ -47,19 +47,19 @@ export function checkFinalizeGate(
   currentChapter: number,
   enabledTypes: string[],
 ): FinalizeGateResult {
-  // ① 审稿裁决
+  // #1 审稿裁决
   if (!hasReviewVerdict) {
     return { ok: false, reason: '你还没拍板（审稿无作者裁决）' }
   }
 
-  // ② 账本形式三检（定稿前再跑一次，⑬ 第 2 节）
+  // #2 账本形式三检（定稿前再跑一次，#13 第 2 节）
   const formCheck = checkLeadsForm(db, bookRoot, currentChapter, enabledTypes)
   const redForm = formCheck.items.filter((i) => i.level === 'red')
   if (redForm.length > 0) {
     return { ok: false, reason: `账本对不上：${redForm.map((r) => r.message).join('；')}` }
   }
 
-  // ③ 确认记录哈希
+  // #3 确认记录哈希
   const confirmGate = checkConfirmGate(workDir, outlinePath)
   if (!confirmGate.ok) {
     return { ok: false, reason: confirmGate.reason }
@@ -98,15 +98,19 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   const { bookRoot, workDir, outlinePath, db, config, chapter, body, fileName, hasReviewVerdict } = input
   const enabledTypes = ['伏笔', '悬念', '感情线', ...config.leads.enabled]
 
-  // ① 前置闸
+  // #1 前置闸
   const gate = checkFinalizeGate(workDir, outlinePath, hasReviewVerdict, db, bookRoot, chapter.章号, enabledTypes)
   if (!gate.ok) return gate
 
-  // ② 写定稿区变更
+  // #2 写定稿区变更（记录改动路径，供 commit 失败时原子回滚，#13 第 4 节）
+  const changedPaths: string[] = [] // 相对 bookRoot 的路径（commit 用 + 失败回滚用）
+
   // 正文
   const 正文dir = join(bookRoot, '定稿', '正文')
   const chapterPath = join(正文dir, fileName)
+  const chapterRel = `定稿/正文/${fileName}`
   writeChapter(chapterPath, chapter, body)
+  changedPaths.push(chapterRel)
 
   // 账本履历更新（幂等 + 本章校验）
   if (input.leadUpdates) {
@@ -125,40 +129,78 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
             r.lead.履历.push({ 章号: e.章号, 动词: e.动词, 证据: e.证据 })
           }
           writeLead(leadFile, r.lead)
+          // 记录账本路径（相对 bookRoot）供 commit + 回滚
+          const leadRel = r.lead._path ? r.lead._path.slice(bookRoot.length + 1) : ''
+          if (leadRel) changedPaths.push(leadRel.replace(/\\/g, '/'))
         }
       }
     }
   }
 
   // 章摘要
+  let summaryRel: string | null = null
   if (input.chapterSummary) {
     const summaryDir = join(bookRoot, '定稿', '摘要', '章摘要')
+    summaryRel = `定稿/摘要/章摘要/${chapter.章号}.md`
     writeFileSync(join(summaryDir, `${chapter.章号}.md`), input.chapterSummary, 'utf-8')
+    changedPaths.push(summaryRel)
   }
 
-  // ③ git add + commit（原子点）
+  // #3 git add + commit（原子点）—— 显式传本章路径，避免 add -A 误纳工作区无关改动（一 commit = 一章）
   const confirm = readConfirm(workDir)
   const trailer = confirm
     ? `\n\nConfirmed: ${confirm.confirmed_at} mode=${confirm.mode} hash=${confirm.outline_hash}`
     : ''
-  // commit msg 前缀贴 ⑯ 第 4 节：ch:<4 位补零章号>（对齐 定稿/正文/0152-标题.md 补零约定，供 M3 回滚按 ch:<章号> grep 定位）
+  // commit msg 前缀贴 #16 第 4 节：ch:<4 位补零章号>（对齐 定稿/正文/0152-标题.md 补零约定，供 M3 回滚按 ch:<章号> grep 定位）
   const commitMsg = `ch:${String(chapter.章号).padStart(4, '0')} ${chapter.标题}${trailer}`
 
-  // ③ git add + commit（原子点）—— 经 ⑯ git 隐身层 addCommit（集中收口 + 人话）
-  const commit = addCommit(bookRoot, commitMsg)
+  // #3 git add + commit（原子点）—— 经 #16 git 隐身层 addCommit（集中收口 + 人话）
+  const commit = addCommit(bookRoot, commitMsg, changedPaths)
   if (!commit.ok) {
+    // 原子回滚（#13 第 4 节「commit 失败则定稿区无变化」）：撤销 #2 写入的定稿区改动，
+    // 避免下次进门被状态机判为「态 3 未入账手改」。工作区原样保留（可续跑/可回滚）。
+    rollbackWorktreeChanges(bookRoot, changedPaths)
     return { ok: false, reason: commit.humanMsg }
   }
   const commitHash = commit.hash
 
-  // ④ 清空工作区
+  // #4 清空工作区
   clearWorkDir(workDir)
 
-  // ⑤ 重建缓存
+  // #5 重建缓存
   const cachePath = join(bookRoot, '.cache', 'index.db')
   rebuild(bookRoot, cachePath)
 
   return { ok: true, commitHash }
+}
+
+/**
+ * 撤销 finalize #2 写入定稿区的改动（commit 失败时调用，#13 第 4 节原子性）。
+ * - 先 git reset 清掉 index 中被 add 的暂存（addCommit 已 git add，但 commit 失败了）
+ * - 再判 HEAD 里有没有该文件（git ls-tree）：
+ *   - 有 = 改了已有正文/账本 → git checkout 恢复到 HEAD 版本
+ *   - 无 = 本章新建的正文/摘要 → unlink 删除
+ * 失败静默（best-effort：git 已坏时无法 checkout，至少删掉能删的新文件）。
+ */
+function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
+  for (const rel of relPaths) {
+    const full = join(bookRoot, rel)
+    // 先清 index 暂存（addCommit 执行了 git add，commit 失败后该路径在 index 里）
+    git(['reset', 'HEAD', '--', rel], bookRoot)
+    // 判该路径在 HEAD（上次 commit）里是否存在
+    const inHead = git(['ls-tree', 'HEAD', '--', rel], bookRoot)
+    if (inHead.ok && inHead.stdout.trim().length > 0) {
+      // HEAD 里有：恢复工作树到 HEAD 版本（丢弃本次改动）
+      git(['checkout', 'HEAD', '--', rel], bookRoot)
+    } else if (existsSync(full)) {
+      // HEAD 里没有（本章新建）：删除
+      try {
+        unlinkSync(full)
+      } catch {
+        // best-effort
+      }
+    }
+  }
 }
 
 /** 清空工作区（删草稿/细纲/材料/确认记录） */

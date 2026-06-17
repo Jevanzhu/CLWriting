@@ -1,7 +1,7 @@
 /**
- * 缓存表 DDL —— 依据 ④ 缓存表 DDL spec 第 3 节。
+ * 缓存表 DDL —— 依据 #4 缓存表 DDL spec 第 3 节。
  *
- * 设计原则（④ 第 1 节）：
+ * 设计原则（#4 第 1 节）：
  * 1. 派生不是真相——所有数据从 md 重建，删 .cache 可恢复
  * 2. 机器域用英文——表名/列名英文，与账本 md 的中文 key 通过 sync 映射
  * 3. 存索引与定位不存正文——正文 grep 查，DB 只存结构化字段 + path 回指
@@ -12,7 +12,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-/** 全部建表 DDL（④ 第 3 节） */
+/** 全部建表 DDL（#4 第 3 节） */
 const DDL_STATEMENTS = [
   // ── 账本主表：七类统一，type 区分 ──
   `CREATE TABLE IF NOT EXISTS leads (

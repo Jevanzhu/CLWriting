@@ -18,7 +18,7 @@ function makeWorkDir(): string {
   return mkdtempSync(join(tmpdir(), '北境往事-'))
 }
 
-// ── 哈希（⑪ 第 4 节）────────────────────────────
+// ── 哈希（#11 第 4 节）────────────────────────────
 
 test('hashContent: SHA-256 稳定 + sha256: 前缀', () => {
   const h = hashContent('细纲内容')
@@ -37,7 +37,7 @@ test('hashFile: 原始字节哈希', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ── confirm 命令（⑪ 第 3 节）────────────────────
+// ── confirm 命令（#11 第 3 节）────────────────────
 
 test('doConfirm: manual 模式写记录 + 哈希绑定', () => {
   const dir = makeWorkDir()
@@ -58,7 +58,7 @@ test('doConfirm: manual 模式写记录 + 哈希绑定', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('doConfirm: auto 模式需 book.yaml 开关（⑪ 第 6 节）', () => {
+test('doConfirm: auto 模式需 book.yaml 开关（#11 第 6 节）', () => {
   const dir = makeWorkDir()
   const outline = join(dir, '细纲.md')
   writeFileSync(outline, '内容', 'utf-8')
@@ -77,7 +77,7 @@ test('doConfirm: auto 模式需 book.yaml 开关（⑪ 第 6 节）', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ── 备料闸三态（⑪ 第 5 节）──────────────────────
+// ── 备料闸三态（#11 第 5 节）──────────────────────
 
 test('checkConfirmGate: 无记录 → 拒绝（细纲还没拍板）', () => {
   const dir = makeWorkDir()
@@ -99,7 +99,7 @@ test('checkConfirmGate: 哈希一致 → 放行', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('checkConfirmGate: 细纲改过后哈希不一致 → 拒绝（⑪ 第 5 节防偷改）', () => {
+test('checkConfirmGate: 细纲改过后哈希不一致 → 拒绝（#11 第 5 节防偷改）', () => {
   const dir = makeWorkDir()
   const outline = join(dir, '细纲.md')
   writeFileSync(outline, '原始细纲', 'utf-8')

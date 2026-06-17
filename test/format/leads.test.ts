@@ -12,7 +12,7 @@ import {
 } from '../../src/format/leads.js'
 import type { Lead } from '../../src/format/types.js'
 
-// ── 履历解析（③ 第 4 节）────────────────────────
+// ── 履历解析（#3 第 4 节）────────────────────────
 
 test('parseHistory: 解析履历列表', () => {
   const body = `
@@ -30,7 +30,7 @@ test('parseHistory: 解析履历列表', () => {
   expect(entries[2]!.动词).toBe('回收')
 })
 
-test('parseHistory: 回填标记（③ 第 4 节）', () => {
+test('parseHistory: 回填标记（#3 第 4 节）', () => {
   const body = `## 履历
 
 - 第050章 埋下：早期线索（回填·卷摘要级）`
@@ -112,7 +112,7 @@ test('readLead: 未知字段容错保留', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('readLead: 成长线特化字段（⑥ 境界体系）', () => {
+test('readLead: 成长线特化字段（#6 境界体系）', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '成长线-003-林晚修为.md')
   const lead: Lead = {

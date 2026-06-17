@@ -1,12 +1,12 @@
 /**
- * 账本形式三检 —— 依据 ③ 第 7 节 + ⑩ 第 2 节项 1（🔴 红）。
+ * 账本形式三检 —— 依据 #3 第 7 节 + #10 第 2 节项 1（🔴 红）。
  *
  * 三检（零 token 机检，全七类覆盖，定稿前校验）：
  * 1. 章号一致：履历章号 == 写入它的那次定稿章号（回填除外）
  * 2. 引文命中：履历的章内证据须在该章正文 grep 命中
  * 3. 两端闭合：细纲声明的本章变动 ⟷ 定稿实际写入的履历
  *
- * 状态闭合（③ 第 5 节）：状态 ⟷ 履历末条动词一致。
+ * 状态闭合（#3 第 5 节）：状态 ⟷ 履历末条动词一致。
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -21,7 +21,7 @@ import { readLeadHistory, readLeadStatus } from '../cli/read.js'
  * @param db 缓存
  * @param bookRoot 书仓库根（读正文 grep 引文）
  * @param currentChapter 当前定稿章号（章号一致校验用）
- * @param enabledTypes 已启用的账本类（只检这些类，⑩ 第 1 节原则 4）
+ * @param enabledTypes 已启用的账本类（只检这些类，#10 第 1 节原则 4）
  */
 export function checkLeadsForm(
   db: DatabaseSync,
@@ -47,7 +47,7 @@ export function checkLeadsForm(
 
     let prevChapter = 0 // 章号单调校验（履历按 seq 排序，非回填章号应不减）
     for (const entry of history) {
-      // ① 章号一致 a：非回填行的章号须 ≤ currentChapter（不能凭空声称未来章）
+      // #1 章号一致 a：非回填行的章号须 ≤ currentChapter（不能凭空声称未来章）
       if (!entry.回填 && entry.章号 > currentChapter) {
         items.push({
           checkId: 'lead-chapter-future',
@@ -58,7 +58,7 @@ export function checkLeadsForm(
         })
       }
 
-      // ① 章号一致 b：非回填履历章号随 seq 不减（乱序 = 章号写错的强信号）
+      // #1 章号一致 b：非回填履历章号随 seq 不减（乱序 = 章号写错的强信号）
       if (!entry.回填 && entry.章号 < prevChapter) {
         items.push({
           checkId: 'lead-chapter-disorder',
@@ -70,12 +70,12 @@ export function checkLeadsForm(
       }
       if (!entry.回填) prevChapter = Math.max(prevChapter, entry.章号)
 
-      // ② 引文命中：证据须在该章正文 grep 命中
+      // #2 引文命中：证据须在该章正文 grep 命中
       if (!entry.回填 && entry.证据) {
         const chapterPath = findChapterFile(正文dir, entry.章号)
         if (chapterPath) {
           const text = readFileSync(chapterPath, 'utf-8')
-          // 取引号内的核心片段 grep（③ 第 4 节：章内证据尽量是正文原文）
+          // 取引号内的核心片段 grep（#3 第 4 节：章内证据尽量是正文原文）
           const evidenceCore = extractEvidenceCore(entry.证据)
           if (evidenceCore && !text.includes(evidenceCore)) {
             items.push({
@@ -90,7 +90,7 @@ export function checkLeadsForm(
       }
     }
 
-    // 状态闭合（③ 第 5 节）：状态 ⟷ 履历末条动词
+    // 状态闭合（#3 第 5 节）：状态 ⟷ 履历末条动词
     if (history.length > 0) {
       const lastEntry = history[history.length - 1]!
       const status = lead['status'] as string
@@ -106,7 +106,7 @@ export function checkLeadsForm(
     }
   }
 
-  // ③ 两端闭合（③ 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
+  // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
   // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
   if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
     const declared = new Set(declaredLeadIds)
@@ -164,7 +164,7 @@ function extractEvidenceCore(evidence: string): string {
 }
 
 /**
- * 状态闭合校验（③ 第 5 节）：
+ * 状态闭合校验（#3 第 5 节）：
  * 末条动词是收尾类（回收/揭晓/修成/收网/固化/突破/清算）→ 状态须「已收尾」
  * 末条动词是放弃类（放弃/无疾/被破/倾覆/瓶颈/化解）→ 状态须「已放弃」
  */
