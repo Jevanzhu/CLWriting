@@ -380,7 +380,7 @@ export interface EnterResult {
 
 /**
  * 进门入口（#15 第 3 节）。
- * 串：判态 → 路由 → 近况复述。无 hook 等价入口（SessionStart 真 hook M4 接同一近况文件）。
+ * 串：判态 → 路由 → 近况复述。无 hook 等价入口（SessionStart 真 hook M4 接同一结构化结果）。
  */
 export function enter(bookRoot: string): EnterResult {
   const cfgPath = join(bookRoot, 'book.yaml')

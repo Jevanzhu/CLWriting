@@ -19,7 +19,7 @@ export const DEFAULT_CONFIG: BookConfig = {
   book: { title: '', genre: '' },
   leads: { enabled: [] },
   budget: {
-    calls_per_chapter: 6,
+    calls_per_chapter: 8,
     input_per_chapter: 80000,
     summary_chapter_max: 200,
     summary_volume_max: 500,
