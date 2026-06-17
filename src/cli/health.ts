@@ -10,10 +10,10 @@
 
 import process from 'node:process'
 import { resolve, join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { gitHealthCheck } from '../git/exec.js'
 import { writeHealthCheck } from '../cache/healthcheck.js'
+import { rebuild } from '../cache/rebuild.js'
 
 /** `clwriting health [bookRoot]` 命令处理器 */
 export function healthCommand(args: string[]): void {
@@ -38,11 +38,12 @@ export function healthCommand(args: string[]): void {
   }
 }
 
-/** 记体检完成（读当前章号写 health-check.json，失败静默不阻断 health 命令） */
+/** 记体检完成（先重建缓存，再读当前章号写 health-check.json；失败不阻断 health 命令） */
 function markHealthCheckDone(bookRoot: string): void {
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  if (!existsSync(cachePath)) return // 缓存未建（空书），略过记账
   try {
+    // health 可单独运行，不能假设 enter 已经把缓存重建到最新。
+    rebuild(bookRoot, cachePath)
     const db = new DatabaseSync(cachePath)
     let currentChapter = 0
     try {
