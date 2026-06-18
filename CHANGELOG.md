@@ -38,6 +38,7 @@ v1.0 从零重写（Node + TypeScript），与 v0.2 Python 版无代码继承关
   - 每章 AI 调用预算闸基础落地：工作区 `.ai-calls.json` 记录本章已用次数，续跑继承，超限拒绝并给决策提示；定稿清空工作区时一并清理计数。
   - 角色单源分发脚本层启动：`.clwriting/roles/*.md` 可生成 Claude / Codex / 通用三套壳，写入壳 manifest，并支持 source drift / output drift 检查。
   - 三审脚本契约启动：生成读者审 / 编辑审 / 设定校对三视角任务书，设定校对承接机检账本变动清单；审查档位支持满审 / 顺序审 / 合审的诚实降级；issue 聚合、证据硬闸与 blockers/warnings 归一化落地；新增 `clwriting review plan` 薄门面输出本章审查档位与任务书。
+  - 三审执行落地（脚本编排与宿主执行分离）：`review run` 打包执行包（档位 + 各视角任务书 + 正文 + 账本清单 + 输出契约）供宿主按视角调模型，`review collect` 回收 issues JSON 归一化写审稿单（blockers/warnings/无效分栏 + 账本核对专列）；finalize 前置闸改用 `readReviewVerdict` 读作者裁决标记（HTML 注释锚定，防误命中模板）；预算闸串联 review/review-combined 记账。出口验收达成：**账本声明推进但正文无证据 → 设定校对产出 ledger blocker → 审稿单不成立 → 无裁决 finalize 拒绝**；作者 override 放行自负。
   - SessionStart 注入脚本层启动：新增 `clwriting session-start`，复用 `enter()` 结构化近况生成给 AI 的有界开场上下文，包含当前态、路由、确认复述与本章调用余量；角色壳生成器同步提示 hook/无 hook 等价入口。
   - 知识层 manifest 骨架启动：新增正式 `知识层/` 最小目录、`_manifest.json` 可复现清单和 `clwriting knowledge check` 校验入口，检查素材存在、sha256、source/license 元信息与路径边界；第一批平移 oh-story MIT 素材速查（章节钩子、质量检查）与许可证说明。
   - 三审任务书单源（读者审 / 编辑审 / 设定校对），设定校对**账本清单驱动逐条核对**（不被降级稀释）。
