@@ -77,9 +77,15 @@ test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift chec
   expect(existsSync(join(root, 'AGENTS.md'))).toBe(true)
   expect(existsSync(join(root, '.clwriting', 'roles', 'roles.manifest.json'))).toBe(true)
 
+  const claudeSkill = readFileSync(join(root, '.claude', 'SKILL.md'), 'utf-8')
+  expect(claudeSkill).toContain('clwriting session-start')
+
   const claudeAgent = readFileSync(join(root, '.claude', 'agents', 'writer.md'), 'utf-8')
   expect(claudeAgent).toContain('source_hash: sha256:')
   expect(claudeAgent).toContain('按细纲写干净正文')
+
+  const codexIndex = readFileSync(join(root, '.codex', 'AGENTS.md'), 'utf-8')
+  expect(codexIndex).toContain('clwriting session-start')
 
   const drift = checkRoleShellDrift(root)
   expect(drift.ok).toBe(true)
@@ -105,6 +111,19 @@ test('checkRoleShellDrift: 派生壳手改会报 output-drift', () => {
   const drift = checkRoleShellDrift(root)
   expect(drift.ok).toBe(false)
   expect(drift.issues.some((issue) => issue.kind === 'output-drift' && issue.path === '.claude/agents/writer.md')).toBe(true)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkRoleShellDrift: Claude 角色壳 name 与 spawn 标识不一致时报 malformed', () => {
+  const root = makeProject()
+  generateRoleShells({ projectRoot: root })
+  const shellPath = join(root, '.claude', 'agents', 'writer.md')
+  const shell = readFileSync(shellPath, 'utf-8').replace('name: writer', 'name: other-writer')
+  writeFileSync(shellPath, shell, 'utf-8')
+
+  const drift = checkRoleShellDrift(root)
+  expect(drift.ok).toBe(false)
+  expect(drift.issues.some((issue) => issue.kind === 'output-malformed' && issue.path === '.claude/agents/writer.md')).toBe(true)
   rmSync(root, { recursive: true, force: true })
 })
 
