@@ -37,7 +37,7 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
   // 文风样章
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
   writeFileSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'),
-    '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。', 'utf-8')
+    '---\n场景: 战斗\n来源: 作者原作\n技法指令: 学它的停顿\n---\n刀光没入雪雾。', 'utf-8')
 
   // 章摘要
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
@@ -95,6 +95,7 @@ test('prepare: 文风轻注入只取 1 段', () => {
   if (styleSection) {
     // 轻注入 = 1 段
     expect(styleSection.content.split('\n\n').length).toBeLessThanOrEqual(1)
+    expect(styleSection.content).toContain('技法指令：学它的停顿')
   }
   db.close()
   rmSync(root, { recursive: true, force: true })

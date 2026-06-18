@@ -133,7 +133,10 @@ export function prepare(
   if (samples.length > 0) {
     // 轻注入：只取 1-2 段（#12 + 母本第 1.4 节）
     const injected = config.style.injection === 'heavy' ? samples.slice(0, 3) : samples.slice(0, 1)
-    const parts = injected.map((s) => s.正文)
+    const parts = injected.map((s) => {
+      if (!s.技法指令) return s.正文
+      return `技法指令：${s.技法指令}\n${s.正文}`
+    })
     sections.push({
       title: '文风样章',
       content: parts.join('\n\n'),
