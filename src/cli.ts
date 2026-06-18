@@ -56,6 +56,18 @@ function main(): void {
       import('./cli/revert.js').then(({ revertCommand }) => revertCommand(rest))
       return
     }
+    case 'confirm': {
+      import('./cli/confirm.js').then(({ confirmCommand }) => confirmCommand(rest))
+      return
+    }
+    case 'check': {
+      import('./cli/check.js').then(({ checkCommand }) => checkCommand(rest))
+      return
+    }
+    case 'finalize': {
+      import('./cli/finalize.js').then(({ finalizeCommand }) => finalizeCommand(rest))
+      return
+    }
     case '--help':
     case '-h':
     case undefined:
@@ -77,6 +89,9 @@ function printHelp(): void {
   console.log('  enter [书目录]   进书：进门体检 + 判态 + 近况复述（状态机单入口）')
   console.log('  health [书目录]  单独跑 git 健康检查（半提交/冲突/锁/同步盘副本）')
   console.log('  revert <章号> [书目录]  回到第 N 章（回滚，丢弃内容先进备份可找回）')
+  console.log('  confirm <章号> [书目录] [--auto]  确认工作区细纲（写 .confirm.json）')
+  console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
+  console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
   console.log('  --version, -v    显示版本')
   console.log('  --help, -h       显示帮助')
 }

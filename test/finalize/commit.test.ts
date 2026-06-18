@@ -10,6 +10,7 @@ import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { doConfirm, confirmPath } from '../../src/gate/confirm.js'
 import { doFinalize } from '../../src/finalize/commit.js'
+import { aiCallBudgetPath, recordAiCall } from '../../src/ai/calls.js'
 import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 
 /** 造一个完整的书仓库（含 git init） */
@@ -106,6 +107,8 @@ test('doFinalize: 全通过 → 原子 commit + 正文入定稿 + 工作区清�
   // 写草稿/审稿（模拟工作区有文件）
   writeFileSync(join(workDir, '草稿-1.md'), '草稿', 'utf-8')
   writeFileSync(join(workDir, '审稿.md'), '通过', 'utf-8')
+  recordAiCall({ workDir, chapter: 1, config: DEFAULT_CONFIG, step: 'outline', at: '2026-06-18T00:00:00.000Z' })
+  expect(existsSync(aiCallBudgetPath(workDir))).toBe(true)
 
   const ch: ChapterMeta = {
     章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
@@ -130,6 +133,7 @@ test('doFinalize: 全通过 → 原子 commit + 正文入定稿 + 工作区清�
     expect(existsSync(join(workDir, '草稿-1.md'))).toBe(false)
     expect(existsSync(join(workDir, '细纲.md'))).toBe(false)
     expect(existsSync(join(workDir, '审稿.md'))).toBe(false)
+    expect(existsSync(aiCallBudgetPath(workDir))).toBe(false)
     // commit 有确认留痕 trailer
     const log = execSync('git log -1 --format=%B', { cwd: root, encoding: 'utf-8' })
     // #16 第 4 节 commit msg 规范：ch:<4位补零章号> <标题>

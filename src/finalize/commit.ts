@@ -26,6 +26,7 @@ import { checkLeadsForm } from '../check/leads.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
 import { rebuild } from '../cache/rebuild.js'
 import type { ParseError } from '../format/types.js'
+import { clearAiCallBudget } from '../ai/calls.js'
 
 /** finalize 前置闸检查结果（#13 第 2 节） */
 export type FinalizeGateResult =
@@ -221,6 +222,7 @@ function clearWorkDir(workDir: string): void {
     // 目录不存在无妨
   }
   clearConfirm(workDir)
+  clearAiCallBudget(workDir)
 }
 
 /** 在大纲/ 下找某编号的账本文件 */
