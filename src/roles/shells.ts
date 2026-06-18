@@ -57,6 +57,7 @@ export type DriftIssueKind =
   | 'source-drift'
   | 'output-missing'
   | 'output-drift'
+  | 'output-malformed'
 
 export interface DriftIssue {
   kind: DriftIssueKind
@@ -220,7 +221,13 @@ export function checkRoleShellDrift(projectRoot: string): DriftReport {
       continue
     }
 
-    const currentOutputHash = hashText(readFileSync(outputPath, 'utf-8'))
+    const outputText = readFileSync(outputPath, 'utf-8')
+    if (output.role_id) {
+      const malformed = validateRoleShellFormat(output, outputText)
+      if (malformed) issues.push(malformed)
+    }
+
+    const currentOutputHash = hashText(outputText)
     if (currentOutputHash !== output.output_hash) {
       issues.push({
         kind: 'output-drift',
@@ -231,6 +238,41 @@ export function checkRoleShellDrift(projectRoot: string): DriftReport {
   }
 
   return { ok: issues.length === 0, issues }
+}
+
+/** 部署可用性检测的一部分：角色壳格式必须能被宿主识别，且名称对得上要 spawn 的角色。 */
+function validateRoleShellFormat(output: ShellManifestOutput, text: string): DriftIssue | null {
+  if (output.role_id === undefined) return null
+
+  if (output.platform === 'claude') {
+    const split = splitFrontMatter(text)
+    if (split === null) {
+      return {
+        kind: 'output-malformed',
+        path: output.path,
+        message: `Claude 角色壳缺少 front matter：${output.path}`,
+      }
+    }
+    const fm = parseFlat(split.fmRaw)
+    const name = String(fm.get('name') ?? '').trim()
+    if (name !== output.role_id) {
+      return {
+        kind: 'output-malformed',
+        path: output.path,
+        message: `Claude 角色壳 name=${name || '空'}，但待 spawn 标识是 ${output.role_id}`,
+      }
+    }
+  }
+
+  if (output.platform === 'codex' && !text.includes(`- id: ${output.role_id}`)) {
+    return {
+      kind: 'output-malformed',
+      path: output.path,
+      message: `Codex 角色壳缺少匹配的 id：${output.role_id}`,
+    }
+  }
+
+  return null
 }
 
 /** drift check 人话输出。 */
@@ -315,9 +357,13 @@ function renderClaudeSkill(roles: RoleDefinition[]): string {
     '',
     'Use this skill to run the CLWriting eight-stage chapter workflow.',
     '',
+    '## SessionStart',
+    '',
+    'On session start, run `clwriting session-start` for bounded AI context. If the host cannot run hooks, ask the author to run `clwriting enter` or run it manually before acting.',
+    '',
     '## Workflow',
     '',
-    '1. Run `clwriting enter` and follow the current route.',
+    '1. Read the SessionStart context or run `clwriting enter`, then follow the current route.',
     '2. Draft the outline with the outline role, then run `clwriting confirm <chapter>` after author approval.',
     '3. Prepare bounded context with CLWriting scripts and style samples.',
     '4. Draft prose with the writer role; record each model call with the call-budget gate.',
@@ -360,6 +406,7 @@ function renderCodexAgentsIndex(roles: RoleDefinition[]): string {
     '# CLWriting Codex Agents',
     '',
     'These role files are generated from `.clwriting/roles/*.md`.',
+    'At session start, run `clwriting session-start` for bounded context; if unavailable, use `clwriting enter`.',
     '',
     ...roles.map((role) => `- ${role.id}: .codex/agents/${role.id}.md`),
     '',
@@ -385,7 +432,13 @@ function renderCodexAgent(role: RoleDefinition): string {
 }
 
 function renderGenericAgents(roles: RoleDefinition[]): string {
-  const lines = [GENERATED_MARKER, '# CLWriting Agents', '']
+  const lines = [
+    GENERATED_MARKER,
+    '# CLWriting Agents',
+    '',
+    'Session start: run `clwriting session-start` for bounded AI context. Without hook support, run `clwriting enter` manually.',
+    '',
+  ]
   for (const role of roles) {
     lines.push(`## ${role.name}`, '', `id: ${role.id}`, `model: ${role.model}`, '', role.description, '', role.body, '')
   }
