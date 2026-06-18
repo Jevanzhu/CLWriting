@@ -31,23 +31,27 @@ v1.0 从零重写（Node + TypeScript），与 v0.2 Python 版无代码继承关
 - `findChapterCommit` 去 `--all` 防备份 ref 误命中；确认哈希复用 `hashFile` 单源；正则与引号覆盖统一；版本号改读 `package.json` 单源；死代码清理。
 - 性能基准：200 章 `enter()` 中位 58ms，全量 rebuild 无需优化。
 
-### 进行中
+### M4 AI 角色层 + 一级宿主（脚本层 + CC 真模型 smoke 出口达成，Codex smoke 手册就绪待跑）
 
-- **M4 AI 角色层 + 一级宿主**（**工单 #19 及子 spec #20-#24 已全部起草，待评审 / 待施工**）：
-  - 脚本层第一批已启动：补齐 `clwriting confirm` / `clwriting check` / `clwriting finalize` 薄门面，复用既有确认记录、机检、定稿原子 commit 硬闸。
-  - 每章 AI 调用预算闸基础落地：工作区 `.ai-calls.json` 记录本章已用次数，续跑继承，超限拒绝并给决策提示；定稿清空工作区时一并清理计数。
-  - 角色单源分发脚本层启动：`.clwriting/roles/*.md` 可生成 Claude / Codex / 通用三套壳，写入壳 manifest，并支持 source drift / output drift 检查。
-  - 三审脚本契约启动：生成读者审 / 编辑审 / 设定校对三视角任务书，设定校对承接机检账本变动清单；审查档位支持满审 / 顺序审 / 合审的诚实降级；issue 聚合、证据硬闸与 blockers/warnings 归一化落地；新增 `clwriting review plan` 薄门面输出本章审查档位与任务书。
-  - 三审执行落地（脚本编排与宿主执行分离）：`review run` 打包执行包（档位 + 各视角任务书 + 正文 + 账本清单 + 输出契约）供宿主按视角调模型，`review collect` 回收 issues JSON 归一化写审稿单（blockers/warnings/无效分栏 + 账本核对专列）；finalize 前置闸改用 `readReviewVerdict` 读作者裁决标记（HTML 注释锚定，防误命中模板）；预算闸串联 review/review-combined 记账。出口验收达成：**账本声明推进但正文无证据 → 设定校对产出 ledger blocker → 审稿单不成立 → 无裁决 finalize 拒绝**；作者 override 放行自负。
-  - SessionStart 注入脚本层启动：新增 `clwriting session-start`，复用 `enter()` 结构化近况生成给 AI 的有界开场上下文，包含当前态、路由、确认复述与本章调用余量；角色壳生成器同步提示 hook/无 hook 等价入口。
-  - 知识层 manifest 骨架启动：新增正式 `知识层/` 最小目录、`_manifest.json` 可复现清单和 `clwriting knowledge check` 校验入口，检查素材存在、sha256、source/license 元信息与路径边界；第一批平移 oh-story MIT 素材速查（章节钩子、质量检查）与许可证说明。
-  - 三审任务书单源（读者审 / 编辑审 / 设定校对），设定校对**账本清单驱动逐条核对**（不被降级稀释）。
-  - 角色单源 → 三平台壳（Claude Code / Codex / 通用）+ drift check 防漂移。
-  - 审查规格阶梯（默认满审三视角各独立 / 按宿主能力降级并诚实声明）+ 每章调用预算闸（`每章AI调用上限`）。
-  - SessionStart 真实注入（复用 M3 `enter()` 库形态 + `Recap`）。
-  - 知识层平移：v0.2 题材模板 / 追读力 / 爽点 / oh-story 方法论（MIT 署名随平移）。
-  - M3 的桩全换真模型：写稿 / 三审 / 顺势圆 / 修复确认 / 复盘体检。
-  - 出口：CC + Codex 各跑真模型 smoke（建书 → 写 1 章 → 分级审 → 定稿）；**账本造假被设定校对逮住**。
+- 脚本层第一批：补齐 `clwriting confirm` / `clwriting check` / `clwriting finalize` 薄门面，复用既有确认记录、机检、定稿原子 commit 硬闸。
+- 每章 AI 调用预算闸落地：工作区 `.ai-calls.json` 记录本章已用次数，续跑继承，超限拒绝并给决策提示；定稿清空工作区时一并清理计数。
+- 角色单源分发：`.clwriting/roles/*.md` 生成 Claude / Codex / 通用三套壳，写入壳 manifest，支持 source drift / output drift 检查（含壳部署格式硬闸）。
+- 三审脚本契约：生成读者审 / 编辑审 / 设定校对三视角任务书，设定校对承接机检账本变动清单；审查档位支持满审 / 顺序审 / 合审的诚实降级；issue 聚合、证据硬闸与 blockers/warnings 归一化落地；`clwriting review plan` 输出档位与任务书。
+- 三审执行落地（脚本编排与宿主执行分离）：`review run` 打包执行包供宿主按视角调模型，`review collect` 回收 issues JSON 归一化写审稿单；finalize 前置闸读作者裁决标记（HTML 注释锚定防误命中）；预算闸串联 review 记账。
+- SessionStart 注入：新增 `clwriting session-start`，复用 `enter()` 结构化近况生成有界开场上下文。
+- 知识层平移：正式 `知识层/` + `_manifest.json` 可复现清单 + `clwriting knowledge check` 校验入口；平移 oh-story MIT 素材精选速查（题材路由、章节钩子、节奏与升级感、反转设计、质量检查、人物与对话技法，共 6 篇速查 + 许可全文，13 条 manifest）。
+- **真模型 smoke（CC 侧）达成**：建书 → 写 1 章 → 满审（降级顺序审，诚实声明）→ 定稿全程跑通；**账本造假（声明揭凶手但正文不写）被设定校对逮住 → 审稿单不成立 → 无裁决 finalize 拒绝 → 作者 override 放行**闭环在真模型下复现。详见 `Dev/Reviews/clwriting-v1-M4-真模型smoke记录-2026-06-18.md`。
+
+### M4 收尾修复（smoke 暴露并修复）
+
+- **tsup 打包致命 bug 修复**：tsup 默认 `nodeProtocolPlugin` 把 `node:sqlite` 改写成 bare `sqlite`（兼容 Node<14.18，见 tsup#1003），导致 dist 产物运行时崩 `Cannot find package 'sqlite'`。199 测试用 tsx 跑源码未暴露，真模型 smoke 才暴露。修复：`tsup.config.ts` 加 `removeNodeProtocol: false`（本项目门槛 Node≥24，原生支持 `node:` 协议）。
+- **review 默认草稿路径 DX 修复**：`review run/collect` 原硬编码 `草稿-1.md`，第 N≠1 章必须显式传草稿路径。改为「显式参数 > 按 `--chapter=N` 推导 `草稿-N.md` > 回落 `草稿-1.md`」。
+
+### 待跑（M4 唯一剩余出口）
+
+- **Codex 真模型 smoke**：验证壳兼容（非 CC 专属语法）。手册见 smoke 记录第 6 节，待 Jevan 在 Codex 环境执行。
+
+> **测试**：199 个测试全绿（27 文件）；`tsc --noEmit` 通过；`dependencies: {}` 运行时零第三方依赖。
 
 > v0.2 Python 版（GPL-3.0）冻结为遗产，仅留在 `main` 分支修致命 bug。v1 在 `v1` 分支以 MIT 重新起步。
 
