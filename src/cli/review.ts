@@ -257,9 +257,12 @@ function parseCommonArgs(args: string[]): ParsedArgs {
   const bookRoot = positional[0] ? resolve(positional[0]) : process.cwd()
   const highRisk = args.includes('--high-risk')
   const capabilities = parseCapabilities(args)
-  const draftPath = positional[1]?.endsWith('.md')
-    ? resolve(positional[1])
-    : join(bookRoot, '工作区', '草稿-1.md')
+  // 草稿路径：显式参数 > 按 --chapter=N 推导「草稿-N.md」> 回落草稿-1.md
+  // （smoke 实测发现原硬编码草稿-1.md 导致第 N≠1 章必须显式传路径，DX 差）
+  const explicitDraft = positional[1]?.endsWith('.md') ? resolve(positional[1]) : undefined
+  const draftByChapter = join(bookRoot, '工作区', `草稿-${chapter}.md`)
+  const draftPath = explicitDraft
+    ?? (existsSync(draftByChapter) ? draftByChapter : join(bookRoot, '工作区', '草稿-1.md'))
 
   return {
     ok: true,
