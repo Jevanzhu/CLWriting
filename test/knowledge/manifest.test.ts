@@ -49,7 +49,7 @@ function writeManifest(root: string, manifest: KnowledgeManifest): void {
 test('validateKnowledgeManifest: 当前仓库知识层 manifest 与落地文件一致', () => {
   const report = validateKnowledgeManifest(process.cwd())
   expect(report.ok).toBe(true)
-  expect(report.manifest?.entries.length).toBe(9)
+  expect(report.manifest?.entries.length).toBe(13)
   expect(report.manifest?.entries.some((entry) => entry.source.includes('oh-story-claudecode'))).toBe(true)
 })
 
