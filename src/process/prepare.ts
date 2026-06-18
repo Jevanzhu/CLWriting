@@ -57,12 +57,16 @@ export function estimateTokens(text: string): number {
  * @param config book.yaml
  * @param bookRoot 书仓库根
  * @param chapterLeadIds 本章细纲声明推进的账本条目 id（#12 第 2 节#2 源头限流）
+ * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 R1 接缝）。
+ *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
+ *        **不传 → 无此段 → 行为与现状逐字节一致**（工单验收红线）。
  */
 export function prepare(
   db: DatabaseSync,
   config: BookConfig,
   bookRoot: string,
   chapterLeadIds: string[],
+  ragRecallText?: string,
 ): PrepareResult {
   const sections: MaterialSection[] = []
   const trimLog: string[] = []
@@ -167,6 +171,17 @@ export function prepare(
       content: otherStale.map((s) => `${s.id}（${s.type}）悬${s.age}章`).join('\n'),
       essential: false,
       flexibleRank: 4,
+    })
+  }
+
+  // #8 RAG 召回（弹性，flexibleRank 5 最先砍，#37 R1 接缝）
+  // 不传/空串 → 无此段 → prepare 行为逐字节不变（验收红线）
+  if (ragRecallText && ragRecallText.length > 0) {
+    sections.push({
+      title: 'RAG 召回',
+      content: ragRecallText,
+      essential: false,
+      flexibleRank: 5, // 比非本章预警（rank 4）还先砍——召回是锦上添花
     })
   }
 

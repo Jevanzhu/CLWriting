@@ -4,7 +4,7 @@
 >
 > 一本书是一个 git 仓库，AI 负责写和审，脚本负责数和记，作者只做三件事——确认细纲、审稿、拍创作决策。
 
-**状态**：v1.0 重写进行中（`main` 主线）。当前 **M0-M3 已完成**；**M4 脚本层 + Claude Code 真模型 smoke 已达成**，Codex 真模型 smoke 仍待跑。可用入口包括 `clwriting enter`、`health`、`revert`、`confirm`、`check`、`finalize`、`roles`、`knowledge`、`review`、`session-start`。完整路线图见 [`Dev/Plans/`](Dev/Plans/)（本地资料）。
+**状态**：v1.0 重写进行中（`main` 主线）。当前 **M0-M6 已完成**；**M7 导出 + 迁移指引 + RAG 插件出口达成**（321 测试全绿；`export` 定稿正文干净导出、v0.2→v1 轻量迁移指引、`learn` 文风样章/金句收割、`enable-rag` RAG 可选插件）。可用入口：`enter`、`health`、`revert`、`confirm`、`check`、`finalize`、`roles`、`knowledge`、`review`、`session-start`、`init`、`update`、`use`、`list`、`repair`、`auto`、`export`、`import`、`learn`、`enable-rag`。
 
 ---
 

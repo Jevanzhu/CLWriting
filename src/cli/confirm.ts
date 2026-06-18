@@ -5,9 +5,10 @@
  */
 
 import process from 'node:process'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { doConfirm } from '../gate/confirm.js'
 import { readBookConfig } from '../format/yaml.js'
+import { resolveBookRoot } from '../install/books.js'
 
 /** `clwriting confirm <章号> [bookRoot] [--auto]` 命令处理器 */
 export function confirmCommand(args: string[]): void {
@@ -30,7 +31,13 @@ export function confirmCommand(args: string[]): void {
     process.exit(1)
   }
 
-  const bookRoot = positional[1] ? resolve(positional[1]) : process.cwd()
+  // positional[0]=章号，positional[1]=可选书目录
+  const resolved = resolveBookRoot(positional.slice(1))
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
   const workDir = join(bookRoot, '工作区')
   const outlinePath = join(workDir, '细纲.md')
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config

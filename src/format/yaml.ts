@@ -79,7 +79,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, style: { ...DEFAULT_CONFIG.style }, auto: { ...DEFAULT_CONFIG.auto }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
 
-  if (find('spec_version')) cfg.spec_version = Number(find('spec_version')!.value) || 1
+  if (find('spec_version')) cfg.spec_version = parseFiniteNumber(find('spec_version')!.value, 1)
 
   const book = find('book')
   if (book) {
@@ -100,7 +100,8 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (th) {
       const thresholds: Record<string, number> = {}
       for (const c of th.children) {
-        thresholds[c.key] = Number(parseValue(c.value))
+        const num = parseFiniteNumber(c.value, NaN)
+        if (Number.isFinite(num)) thresholds[c.key] = num
       }
       if (Object.keys(thresholds).length > 0) cfg.leads.thresholds = thresholds
     }
@@ -109,8 +110,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const budget = find('budget')
   if (budget) {
     for (const c of budget.children) {
-      const num = Number(parseValue(c.value))
-      if (c.key in cfg.budget) (cfg.budget as Record<string, unknown>)[c.key] = num
+      if (c.key in cfg.budget) {
+        const budget = cfg.budget as Record<string, number>
+        budget[c.key] = parseFiniteNumber(c.value, budget[c.key] ?? 0)
+      }
     }
   }
 
@@ -125,16 +128,34 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const co = auto.children.find((c) => c.key === 'confirm_outline')
     if (co) cfg.auto.confirm_outline = String(parseValue(co.value)) === 'true'
     const bs = auto.children.find((c) => c.key === 'batch_size')
-    if (bs) cfg.auto.batch_size = Number(parseValue(bs.value))
+    if (bs) cfg.auto.batch_size = parseFiniteNumber(bs.value, DEFAULT_CONFIG.auto.batch_size)
   }
 
   const growth = find('growth')
   if (growth) {
     const rs = growth.children.find((c) => c.key === 'realm_span_max')
-    if (rs) cfg.growth.realm_span_max = Number(parseValue(rs.value))
+    if (rs) cfg.growth.realm_span_max = parseFiniteNumber(rs.value, DEFAULT_CONFIG.growth.realm_span_max ?? 2)
+  }
+
+  // RAG 可选段（#37，非密：enabled/endpoint/model；api_key 不入此）
+  const rag = find('rag')
+  if (rag) {
+    const en = rag.children.find((c) => c.key === 'enabled')
+    const ep = rag.children.find((c) => c.key === 'endpoint')
+    const md = rag.children.find((c) => c.key === 'model')
+    if (en) cfg.rag = {
+      enabled: String(parseValue(en.value)) === 'true',
+      ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
+      ...(md ? { model: String(parseValue(md.value)) } : {}),
+    }
   }
 
   return cfg
+}
+
+function parseFiniteNumber(raw: string, fallback: number): number {
+  const n = Number(parseValue(raw))
+  return Number.isFinite(n) ? n : fallback
 }
 
 // ── 公开 API ────────────────────────────────────
@@ -208,6 +229,16 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     'growth:',
     `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`,
   )
+  // RAG 可选段（#37，非密；key 绝不入此）
+  if (cfg.rag) {
+    lines.push(
+      '',
+      'rag:',
+      `  enabled: ${cfg.rag.enabled}`,
+      ...(cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
+      ...(cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
+    )
+  }
   return lines.join('\n') + '\n'
 }
 

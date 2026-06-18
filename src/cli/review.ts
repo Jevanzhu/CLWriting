@@ -16,6 +16,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { getAiCallBudgetState, recordAiCall, type AiCallStep } from '../ai/calls.js'
+import { hashFile } from '../gate/confirm.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { runAllChecks } from '../check/runner.js'
@@ -25,9 +26,18 @@ import {
   buildReviewPacket,
   collectReviewIssues,
   formatReviewPacket,
+  readReviewPacket,
+  writeReviewPacket,
   writeReviewVerdict,
 } from '../review/run.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
+import { resolveBookRoot } from '../install/books.js'
+import {
+  finalizePendingChapters,
+  listPendingChapters,
+  rejectPendingChapter,
+  rollbackPendingBatch,
+} from '../auto/review-batch.js'
 
 export function reviewCommand(args: string[]): void {
   if (args.includes('--help') || args.includes('-h')) {
@@ -39,6 +49,7 @@ export function reviewCommand(args: string[]): void {
   if (subcommand === 'plan') return planCommand(args.slice(1))
   if (subcommand === 'run') return runCommand(args.slice(1))
   if (subcommand === 'collect') return collectCommand(args.slice(1))
+  if (subcommand === 'batch') return batchCommand(args.slice(1))
   printReviewHelp(false)
   process.exit(1)
 }
@@ -49,7 +60,7 @@ function planCommand(args: string[]): void {
   const parsed = parseCommonArgs(args)
   if (!parsed.ok) {
     console.error(parsed.reason)
-      printReviewHelp(false)
+    printReviewHelp(false)
     process.exit(1)
   }
   const { config, workDir, remaining } = readReviewContext(parsed)
@@ -129,6 +140,8 @@ function runCommand(args: string[]): void {
     checkReport,
     body: draft.body,
     chapter: parsed.chapter,
+    draft_path: parsed.draftPath,
+    draft_hash: hashFile(parsed.draftPath),
     workDir,
     capabilities: parsed.capabilities,
     remaining_calls: remaining.remaining,
@@ -141,9 +154,11 @@ function runCommand(args: string[]): void {
 
   // 建 issues 回写目录
   mkdirSync(built.packet.out_dir, { recursive: true })
+  const packetPath = writeReviewPacket(built.packet)
 
   console.log(formatReviewPacket(built.packet))
   console.log('')
+  console.log(`执行包已写入：${packetPath}`)
   console.log(`预算校验通过：第 ${parsed.chapter} 章已用 ${remaining.used}/${remaining.limit}，本次三审预计 ${built.packet.planned_calls} 次调用。`)
   console.log('宿主按执行包各调一次模型，把 issues JSON 回写到上述目录后，运行：')
   console.log(`  clwriting review collect [书目录] --chapter=${parsed.chapter}`)
@@ -158,55 +173,39 @@ function collectCommand(args: string[]): void {
       printReviewHelp(false)
     process.exit(1)
   }
-  const { config, workDir, remaining, bookRoot } = readReviewContext(parsed)
-
-  // 重算执行包（与 run 同构，collect 据此知道期望哪些 issues 文件 + tier）
-  const draft = readDraftForReview(bookRoot, parsed.draftPath)
-  if (!draft.ok) {
-    console.error(`✗ ${draft.reason}`)
+  const { config, workDir } = readReviewContext(parsed)
+  const loaded = readReviewPacket(workDir)
+  if (!loaded.ok) {
+    console.error(`✗ ${loaded.reason}`)
     process.exit(1)
   }
-  const cachePath = join(bookRoot, '.cache', 'index.db')
-  const rebuilt = rebuild(bookRoot, cachePath)
-  if (rebuilt.errors.length > 0) {
-    console.error('✗ 源文件解析失败，先修这些文件后再 collect。')
+  const packet = loaded.packet
+  if (packet.chapter !== parsed.chapter) {
+    console.error(`✗ 三审执行包是第 ${packet.chapter} 章，但当前 collect 指定第 ${parsed.chapter} 章。请重新 review run。`)
     process.exit(1)
   }
-  let checkReport
-  const db = new DatabaseSync(cachePath)
-  try {
-    checkReport = runAllChecks({
-      db, bookRoot, config,
-      chapter: draft.chapter, body: draft.body,
-      fileName: `${draft.chapter.章号}-${draft.chapter.标题}.md`,
-    })
-  } finally {
-    db.close()
+  const draftPath = packet.draft_path ?? parsed.draftPath
+  if (packet.draft_hash) {
+    if (!existsSync(draftPath)) {
+      console.error(`✗ 三审执行包对应的草稿不存在：${draftPath}`)
+      process.exit(1)
+    }
+    const currentHash = hashFile(draftPath)
+    if (currentHash !== packet.draft_hash) {
+      console.error('✗ 草稿在 review run 之后发生变化。请重新运行 clwriting review run。')
+      process.exit(1)
+    }
   }
 
-  const built = buildReviewPacket({
-    checkReport,
-    body: draft.body,
-    chapter: parsed.chapter,
-    workDir,
-    capabilities: parsed.capabilities,
-    remaining_calls: remaining.remaining,
-    high_risk: parsed.highRisk,
-  })
-  if (!built.ok) {
-    console.error(`✗ ${built.reason}`)
-    process.exit(1)
-  }
-
-  const collected = collectReviewIssues({ packet: built.packet })
+  const collected = collectReviewIssues({ packet })
   const path = writeReviewVerdict(workDir, collected)
 
   // 记账调用预算（三审消耗 planned_calls 次）
-  const step: AiCallStep = built.packet.tier === 'combined' ? 'review-combined' : 'review'
+  const step: AiCallStep = packet.tier === 'combined' ? 'review-combined' : 'review'
   const recorded = recordAiCall({
     workDir, chapter: parsed.chapter, config,
-    step, calls: built.packet.planned_calls,
-    note: `${built.packet.tier} 三审`,
+    step, calls: packet.planned_calls,
+    note: `${packet.tier} 三审`,
   })
 
   console.log(`✓ 三审回收完成，审稿单已写入 ${path}`)
@@ -226,9 +225,102 @@ function collectCommand(args: string[]): void {
   if (!recorded.ok) {
     console.log(`· ⚠ 预算记账失败：${recorded.reason}（审稿单已写，但调用计数未更新）`)
   } else {
-    console.log(`· 调用记账：${step} +${built.packet.planned_calls}（第 ${parsed.chapter} 章已用 ${recorded.record.used}/${recorded.record.limit_override ?? config.budget.calls_per_chapter}）`)
+    console.log(`· 调用记账：${step} +${packet.planned_calls}（第 ${parsed.chapter} 章已用 ${recorded.record.used}/${recorded.record.limit_override ?? config.budget.calls_per_chapter}）`)
   }
   console.log('作者拍板后在审稿单写「verdict: 通过」，即可 finalize。')
+}
+
+// ── review batch：批量审稿入口（M6 #35）────────────
+
+function batchCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printReviewHelp(true)
+    return
+  }
+  const knownActions = new Set(['list', 'finalize', 'reject', 'rollback'])
+  const first = args[0]
+  const action = first && knownActions.has(first) ? first : 'list'
+  const rest = action === 'list' && first !== 'list' ? args : args.slice(1)
+
+  if (action === 'list') return batchListCommand(rest)
+  if (action === 'finalize') return batchFinalizeCommand(rest)
+  if (action === 'reject') return batchRejectCommand(rest)
+  return batchRollbackCommand(rest)
+}
+
+function batchListCommand(args: string[]): void {
+  const bookRoot = resolveBatchBookRoot(args)
+  const chapters = listPendingChapters(bookRoot)
+  if (chapters.length === 0) {
+    console.log('没有待审章。')
+    return
+  }
+  console.log(`待审章 ${chapters.length} 章：`)
+  for (const ch of chapters) {
+    const verdict = ch.verdict === 'approved' ? '已通过' : ch.verdict === 'rejected' ? '已打回' : '未裁决'
+    console.log(`· 第 ${ch.chapter} 章 ${ch.title}：${verdict}`)
+  }
+  console.log('通过后运行：clwriting review batch finalize [书目录]')
+}
+
+function batchFinalizeCommand(args: string[]): void {
+  const bookRoot = resolveBatchBookRoot(args)
+  const chapter = readOptionalChapter(args)
+  const targets = chapter === undefined
+    ? listPendingChapters(bookRoot).filter((ch) => ch.verdict === 'approved').map((ch) => ch.chapter)
+    : [chapter]
+  if (targets.length === 0) {
+    console.log('没有已通过裁决的待定稿章可定稿。')
+    return
+  }
+
+  const results = finalizePendingChapters(bookRoot, targets)
+  let failed = false
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`✓ 第 ${r.chapter} 章已定稿（commit ${r.commitHash}）`)
+    } else {
+      failed = true
+      console.error(`✗ 第 ${r.chapter} 章定稿失败：${r.reason}`)
+    }
+  }
+  if (failed) process.exit(1)
+}
+
+function batchRejectCommand(args: string[]): void {
+  const bookRoot = resolveBatchBookRoot(args)
+  const chapter = readRequiredChapter(args)
+  const reason = readStringFlag(args, '--reason') ?? '作者打回'
+  const result = rejectPendingChapter(bookRoot, chapter, reason)
+  if (!result.ok) {
+    console.error(`✗ ${result.reason}`)
+    process.exit(1)
+  }
+  console.log(`✓ 第 ${chapter} 章已打回，移入 .isolated。`)
+}
+
+function batchRollbackCommand(args: string[]): void {
+  const bookRoot = resolveBatchBookRoot(args)
+  if (!args.includes('--yes')) {
+    console.error('✗ 整批回滚会删除未定稿待定稿目录；确认执行请加 --yes。')
+    process.exit(1)
+  }
+  const result = rollbackPendingBatch(bookRoot)
+  if (!result.ok) {
+    console.error(`✗ ${result.reason}`)
+    process.exit(1)
+  }
+  console.log(`✓ 已清理待定稿，共 ${result.cleared} 个章目录。`)
+}
+
+function resolveBatchBookRoot(args: string[]): string {
+  const positional = args.filter((arg) => !arg.startsWith('--'))
+  const bookResolved = resolveBookRoot(undefined, positional[0])
+  if (!bookResolved.ok) {
+    console.error(`✗ ${bookResolved.reason}`)
+    process.exit(1)
+  }
+  return bookResolved.bookRoot
 }
 
 // ── 共用解析 ─────────────────────────────────────
@@ -259,7 +351,12 @@ function parseCommonArgs(args: string[]): ParsedArgs {
   }
 
   const positional = args.filter((arg) => !arg.startsWith('--'))
-  const bookRoot = positional[0] ? resolve(positional[0]) : process.cwd()
+  // bookRoot 走 resolveBookRoot（支持活动书/cwd 兜底）；positional[0] 是显式书目录
+  const bookResolved = resolveBookRoot(undefined, positional[0])
+  if (!bookResolved.ok) {
+    return { ok: false, reason: bookResolved.reason }
+  }
+  const bookRoot = bookResolved.bookRoot
   const highRisk = args.includes('--high-risk')
   const capabilities = parseCapabilities(args)
   // 草稿路径：显式参数 > 按 --chapter=N 推导「草稿-N.md」> 回落草稿-1.md
@@ -284,6 +381,35 @@ function parseCapabilities(args: string[]): ReviewHostCapabilities {
   if (args.includes('--parallel')) return { parallel_subagents: true, multiple_calls: true }
   if (args.includes('--single')) return { parallel_subagents: false, multiple_calls: false }
   return { parallel_subagents: false, multiple_calls: true }
+}
+
+function readOptionalChapter(args: string[]): number | undefined {
+  const value = readStringFlag(args, '--chapter')
+  if (value === undefined) return undefined
+  const chapter = Number(value)
+  if (!Number.isSafeInteger(chapter) || chapter < 1) {
+    console.error('✗ 章号得用 --chapter=N 指定正整数。')
+    process.exit(1)
+  }
+  return chapter
+}
+
+function readRequiredChapter(args: string[]): number {
+  const chapter = readOptionalChapter(args)
+  if (chapter === undefined) {
+    console.error('✗ 章号得用 --chapter=N 指定正整数。')
+    process.exit(1)
+  }
+  return chapter
+}
+
+function readStringFlag(args: string[], flag: string): string | undefined {
+  const eq = args.find((arg) => arg.startsWith(`${flag}=`))
+  if (eq) return eq.slice(flag.length + 1)
+  const idx = args.indexOf(flag)
+  if (idx === -1) return undefined
+  const value = args[idx + 1]
+  return value && !value.startsWith('--') ? value : undefined
 }
 
 /** 读预算余量（--remaining 覆盖；否则读工作区 .ai-calls.json）。 */
@@ -353,4 +479,8 @@ function printReviewHelp(toStdout: boolean): void {
   write('  clwriting review plan [书目录] --chapter=N [--parallel|--multi|--single] [--remaining=N] [--high-risk]')
   write('  clwriting review run  [书目录] --chapter=N [--parallel|--multi|--single] [--high-risk] [草稿文件]')
   write('  clwriting review collect [书目录] --chapter=N [--high-risk] [草稿文件]')
+  write('  clwriting review batch [list] [书目录]')
+  write('  clwriting review batch finalize [书目录] [--chapter=N]')
+  write('  clwriting review batch reject [书目录] --chapter=N [--reason=原因]')
+  write('  clwriting review batch rollback [书目录] --yes')
 }

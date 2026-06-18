@@ -9,9 +9,12 @@ import {
   renderReviewVerdict,
   writeReviewVerdict,
   readReviewVerdict,
+  readReviewPacket,
   lensIssuesFileName,
   COMBINED_ISSUES_FILE,
+  REVIEW_PACKET_FILE,
   REVIEW_VERDICT_MARKER,
+  writeReviewPacket,
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
 import type { CheckReport } from '../../src/check/types.js'
@@ -207,6 +210,23 @@ test('collectReviewIssues: 合审单文件回收三视角', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
+test('writeReviewPacket/readReviewPacket: run 落盘的执行包可被 collect 固定读取', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const packet = makeFullPacket(workDir)
+  const path = writeReviewPacket({ ...packet, draft_path: '/tmp/草稿.md', draft_hash: 'sha256:test' })
+
+  expect(path).toBe(join(packet.out_dir, REVIEW_PACKET_FILE))
+  const loaded = readReviewPacket(workDir)
+  expect(loaded.ok).toBe(true)
+  if (loaded.ok) {
+    expect(loaded.packet.chapter).toBe(12)
+    expect(loaded.packet.draft_hash).toBe('sha256:test')
+    expect(loaded.packet.packets).toHaveLength(3)
+  }
+
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 // ── 审稿单渲染 + 裁决读取 ─────────────────────────
 
 test('renderReviewVerdict: 有账本阻断 → 审稿单突出账本核对专列 + 不能直接通过', () => {
@@ -280,5 +300,23 @@ test('formatReviewPacket: 执行包含 issues 回写路径与各视角账本清�
   expect(text).toContain('issues 回写目录')
   expect(text).toContain('伏笔-031')
   expect(text).toContain('clwriting review collect')
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('formatReviewPacket: 合审档位提示回写 issues-combined.json', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const built = buildReviewPacket({
+    checkReport: reportWithLedger,
+    body: '正文。',
+    chapter: 5,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 1,
+    high_risk: false,
+  })
+  if (!built.ok) throw new Error('build failed')
+  const text = formatReviewPacket(built.packet)
+  expect(text).toContain(`回写 ${COMBINED_ISSUES_FILE}`)
+  expect(text).not.toContain('回写 issues-continuity.json')
   rmSync(workDir, { recursive: true, force: true })
 })

@@ -6,8 +6,8 @@
  */
 
 import process from 'node:process'
-import { resolve } from 'node:path'
 import { rollbackToChapter } from '../git/rollback.js'
+import { resolveBookRoot } from '../install/books.js'
 
 /** `clwriting revert <章号> [书目录]` 命令处理器 */
 export function revertCommand(args: string[]): void {
@@ -27,7 +27,13 @@ export function revertCommand(args: string[]): void {
     process.exit(1)
   }
 
-  const bookRoot = args[1] ? resolve(args[1]) : process.cwd()
+  // args[0]=章号，args[1]=可选书目录；书目录经 resolveBookRoot（支持活动书/cwd 兜底）
+  const resolved = resolveBookRoot(args.slice(1))
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
   const result = rollbackToChapter(bookRoot, chapterN)
 
   if (result.ok) {

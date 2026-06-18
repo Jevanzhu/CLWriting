@@ -9,11 +9,12 @@
  */
 
 import process from 'node:process'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gitHealthCheck } from '../git/exec.js'
 import { writeHealthCheck } from '../cache/healthcheck.js'
 import { rebuild } from '../cache/rebuild.js'
+import { resolveBookRoot } from '../install/books.js'
 
 /** `clwriting health [bookRoot]` 命令处理器 */
 export function healthCommand(args: string[]): void {
@@ -22,7 +23,12 @@ export function healthCommand(args: string[]): void {
     return
   }
 
-  const bookRoot = args[0] ? resolve(args[0]) : process.cwd()
+  const resolved = resolveBookRoot(args)
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
 
   const report = gitHealthCheck(bookRoot)
   if (report.clean) {

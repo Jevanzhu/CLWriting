@@ -145,6 +145,12 @@ export interface BookConfig {
   growth: {
     realm_span_max?: number // 跃迁跨度上限（O1，#6）
   }
+  /** RAG 可选插件配置（#37，非密段；api_key 不入此、不入 git） */
+  rag?: {
+    enabled: boolean
+    endpoint?: string // embedding 端点 base_url（非密）
+    model?: string // embedding 模型名（非密）
+  }
   _raw?: Record<string, unknown> // 容错：未知顶层段保留
 }
 

@@ -61,6 +61,18 @@ test('loadRoleDefinitions: 从 .clwriting/roles 读取平台无关角色源', ()
   rmSync(root, { recursive: true, force: true })
 })
 
+test('loadRoleDefinitions: tools 裸逗号写法直接报错，避免静默生成无工具壳', () => {
+  const root = makeProject()
+  const writerPath = join(root, '.clwriting', 'roles', 'writer.md')
+  const raw = readFileSync(writerPath, 'utf-8').replace('tools: [Read, Grep]', 'tools: Read, Grep')
+  writeFileSync(writerPath, raw, 'utf-8')
+
+  const loaded = loadRoleDefinitions(root)
+  expect(loaded.ok).toBe(false)
+  if (!loaded.ok) expect(loaded.reason).toContain('tools 必须写成方括号数组')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift check 通过', () => {
   const root = makeProject()
   const result = generateRoleShells({ projectRoot: root, now: '2026-06-18T00:00:00.000Z' })

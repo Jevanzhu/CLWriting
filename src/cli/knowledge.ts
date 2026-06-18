@@ -3,8 +3,8 @@
  */
 
 import process from 'node:process'
-import { resolve } from 'node:path'
 import { formatKnowledgeManifestReport, validateKnowledgeManifest } from '../knowledge/manifest.js'
+import { resolveBookRoot } from '../install/books.js'
 
 /** `clwriting knowledge check [书目录]` */
 export function knowledgeCommand(args: string[]): void {
@@ -19,7 +19,13 @@ export function knowledgeCommand(args: string[]): void {
     process.exit(1)
   }
 
-  const bookRoot = args[1] ? resolve(args[1]) : process.cwd()
+  // args[0]='check' 子命令，args[1]=可选书目录
+  const resolved = resolveBookRoot(args.slice(1))
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
   const report = validateKnowledgeManifest(bookRoot)
   console.log(formatKnowledgeManifestReport(report))
   if (!report.ok) process.exit(1)
