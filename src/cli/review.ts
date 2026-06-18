@@ -30,11 +30,16 @@ import {
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 
 export function reviewCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printReviewHelp(true)
+    return
+  }
+
   const subcommand = args[0]
   if (subcommand === 'plan') return planCommand(args.slice(1))
   if (subcommand === 'run') return runCommand(args.slice(1))
   if (subcommand === 'collect') return collectCommand(args.slice(1))
-  printReviewHelp()
+  printReviewHelp(false)
   process.exit(1)
 }
 
@@ -44,7 +49,7 @@ function planCommand(args: string[]): void {
   const parsed = parseCommonArgs(args)
   if (!parsed.ok) {
     console.error(parsed.reason)
-    printReviewHelp()
+      printReviewHelp(false)
     process.exit(1)
   }
   const { config, workDir, remaining } = readReviewContext(parsed)
@@ -79,7 +84,7 @@ function runCommand(args: string[]): void {
   const parsed = parseCommonArgs(args)
   if (!parsed.ok) {
     console.error(parsed.reason)
-    printReviewHelp()
+      printReviewHelp(false)
     process.exit(1)
   }
   const { config, workDir, remaining, bookRoot } = readReviewContext(parsed)
@@ -150,7 +155,7 @@ function collectCommand(args: string[]): void {
   const parsed = parseCommonArgs(args)
   if (!parsed.ok) {
     console.error(parsed.reason)
-    printReviewHelp()
+      printReviewHelp(false)
     process.exit(1)
   }
   const { config, workDir, remaining, bookRoot } = readReviewContext(parsed)
@@ -342,9 +347,10 @@ function lensLabel(lens: 'reader' | 'editor' | 'continuity'): string {
   return '设定校对'
 }
 
-function printReviewHelp(): void {
-  console.error('用法：')
-  console.error('  clwriting review plan [书目录] --chapter=N [--parallel|--multi|--single] [--remaining=N] [--high-risk]')
-  console.error('  clwriting review run  [书目录] --chapter=N [--parallel|--multi|--single] [--high-risk] [草稿文件]')
-  console.error('  clwriting review collect [书目录] --chapter=N [--high-risk] [草稿文件]')
+function printReviewHelp(toStdout: boolean): void {
+  const write = toStdout ? console.log : console.error
+  write('用法：')
+  write('  clwriting review plan [书目录] --chapter=N [--parallel|--multi|--single] [--remaining=N] [--high-risk]')
+  write('  clwriting review run  [书目录] --chapter=N [--parallel|--multi|--single] [--high-risk] [草稿文件]')
+  write('  clwriting review collect [书目录] --chapter=N [--high-risk] [草稿文件]')
 }

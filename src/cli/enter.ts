@@ -17,6 +17,11 @@ import { enter, formatRecap, formatRoute } from '../state/state.js'
 
 /** `clwriting enter [bookRoot]` 命令处理器 */
 export function enterCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printEnterHelp()
+    return
+  }
+
   const bookRoot = args[0] ? resolve(args[0]) : process.cwd()
 
   const { recap, route } = enter(bookRoot)
@@ -26,4 +31,9 @@ export function enterCommand(args: string[]): void {
   console.log()
   // 路由建议（#15 第 2 节）
   console.log(formatRoute(route))
+}
+
+function printEnterHelp(): void {
+  console.log('用法：clwriting enter [书目录]')
+  console.log('进书：进门体检 + 判态 + 近况复述。')
 }

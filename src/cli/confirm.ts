@@ -11,11 +11,16 @@ import { readBookConfig } from '../format/yaml.js'
 
 /** `clwriting confirm <章号> [bookRoot] [--auto]` 命令处理器 */
 export function confirmCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printConfirmHelp()
+    return
+  }
+
   const auto = args.includes('--auto')
   const positional = args.filter((a) => a !== '--auto')
 
   if (!positional[0]) {
-    console.error('用法：clwriting confirm <章号> [书目录] [--auto]')
+    printConfirmHelp(console.error)
     process.exit(1)
   }
 
@@ -37,4 +42,9 @@ export function confirmCommand(args: string[]): void {
   }
 
   console.log(`✓ 第 ${chapter} 章细纲已确认（${result.record.mode}，${result.record.outline_hash}）`)
+}
+
+function printConfirmHelp(write: (message: string) => void = console.log): void {
+  write('用法：clwriting confirm <章号> [书目录] [--auto]')
+  write('确认工作区/细纲.md，并写入带哈希的确认记录。')
 }

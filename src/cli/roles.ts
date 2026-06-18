@@ -15,9 +15,14 @@ import {
 
 /** `clwriting roles <generate|check> [书目录] [--platform=claude,codex,generic]` */
 export function rolesCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printRolesHelp()
+    return
+  }
+
   const subcommand = args[0]
   if (subcommand !== 'generate' && subcommand !== 'check') {
-    printRolesHelp()
+    printRolesHelp(console.error)
     process.exit(1)
   }
 
@@ -55,6 +60,6 @@ function parsePlatforms(raw: string): ShellPlatform[] {
   return platforms.length > 0 ? platforms : ['claude', 'codex', 'generic']
 }
 
-function printRolesHelp(): void {
-  console.error('用法：clwriting roles <generate|check> [书目录] [--platform=claude,codex,generic]')
+function printRolesHelp(write: (message: string) => void = console.log): void {
+  write('用法：clwriting roles <generate|check> [书目录] [--platform=claude,codex,generic]')
 }

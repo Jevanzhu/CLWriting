@@ -17,6 +17,11 @@ import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting check [draftPath] [bookRoot] [--full]` 命令处理器 */
 export function checkCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printCheckHelp()
+    return
+  }
+
   const mode = args.includes('--full') ? 'full' : 'brief'
   const positional = args.filter((a) => a !== '--full')
   const { draftPath, bookRoot } = resolveDraftAndBook(positional)
@@ -55,6 +60,11 @@ export function checkCommand(args: string[]): void {
     db.close()
   }
   if (hasBlockingRed) process.exit(1)
+}
+
+function printCheckHelp(): void {
+  console.log('用法：clwriting check [草稿文件] [书目录] [--full]')
+  console.log('运行机检；红项退出码 1，黄项只提醒。')
 }
 
 function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoot: string } {
