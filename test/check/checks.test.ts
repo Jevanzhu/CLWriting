@@ -313,6 +313,31 @@ test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
 })
 
+test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () => {
+  const rules = parseIronRules([
+    '对话标签占比: 50%',
+    '排比连续数: 2',
+    '结尾总结体: 禁止',
+  ].join('\n'))
+  expect(rules.maxDialogueTagRatio).toBe(0.5)
+  expect(rules.maxParallelStreak).toBe(2)
+  expect(rules.avoidSummaryEnding).toBe(true)
+
+  const body = [
+    '「你来了。」林晚说。',
+    '「我来了。」萧策道。',
+    '北风卷过长街。',
+    '少年握紧刀柄。',
+    '少年抬起眼。',
+    '少年走进雪里。',
+    '直到很久以后，他终于明白，原来这就是命运给他的答案。',
+  ].join('\n')
+  const r = checkStyleMetrics(body, rules)
+  expect(r.items.some((i) => i.checkId === 'style-dialogue-tag-ratio')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'style-parallel-streak')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
+})
+
 // ── 信息差候选（#10 项 11，黄）─────────────────────
 
 test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 无', () => {

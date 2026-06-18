@@ -215,6 +215,12 @@ export interface IronRules {
   maxSentenceLen?: number
   /** 形容词连续堆叠上限 */
   maxAdjStack?: number
+  /** 对话提示语占对话行比例上限，0-1 */
+  maxDialogueTagRatio?: number
+  /** 连续同构排比句式上限 */
+  maxParallelStreak?: number
+  /** 是否检查结尾总结体 */
+  avoidSummaryEnding?: boolean
 }
 
 /** 从 文风铁律.md 解析可量化硬约束阈值（#5 第 8 节）。 */
@@ -224,6 +230,11 @@ export function parseIronRules(text: string): IronRules {
   if (lenM) rules.maxSentenceLen = Number(lenM[1])
   const stackM = text.match(/形容词连续堆叠上限[:：]\s*(\d+)/)
   if (stackM) rules.maxAdjStack = Number(stackM[1])
+  const tagRatioM = text.match(/对话标签占比[:：]\s*(\d+(?:\.\d+)?%?)/)
+  if (tagRatioM) rules.maxDialogueTagRatio = parseRatio(tagRatioM[1]!)
+  const parallelM = text.match(/排比连续数[:：]\s*(\d+)/)
+  if (parallelM) rules.maxParallelStreak = Number(parallelM[1])
+  if (/结尾总结体[:：]\s*(禁止|避免|少用)/.test(text)) rules.avoidSummaryEnding = true
   return rules
 }
 
@@ -279,7 +290,70 @@ export function checkStyleMetrics(
     }
   }
 
+  // 对话标签占比：对话行里频繁用「他说/她问/某某道」会显机器味（#10 去 AI 味扩展）
+  if (rules.maxDialogueTagRatio !== undefined) {
+    const dialogueLines = body
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter((line) => /[「『“"][^」』”"]+[」』”"]/.test(line))
+    if (dialogueLines.length > 0) {
+      const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
+      const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
+      const ratio = tagged / dialogueLines.length
+      if (ratio > rules.maxDialogueTagRatio) {
+        items.push({
+          checkId: 'style-dialogue-tag-ratio',
+          level: 'yellow',
+          message: `对话标签占比 ${(ratio * 100).toFixed(0)}% 超文风铁律上限 ${(rules.maxDialogueTagRatio * 100).toFixed(0)}%，可增加无标签对话。`,
+        })
+      }
+    }
+  }
+
+  // 连续同构排比：同一开头连续出现过多，提示改成自然错落句式。
+  if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
+    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
+    let prev = ''
+    let streak = 0
+    for (const sentence of sentences) {
+      const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
+      if (prefix && prefix === prev) {
+        streak += 1
+      } else {
+        prev = prefix
+        streak = prefix ? 1 : 0
+      }
+      if (streak > rules.maxParallelStreak) {
+        items.push({
+          checkId: 'style-parallel-streak',
+          level: 'yellow',
+          message: `连续同构排比「${prefix}…」超过 ${rules.maxParallelStreak} 句，建议打散节奏。`,
+        })
+        break
+      }
+    }
+  }
+
+  // 结尾总结体：只在铁律显式要求时检查，避免误伤正常收束。
+  if (rules.avoidSummaryEnding) {
+    const ending = body.trim().slice(-140)
+    if (/(这一刻|那一刻|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|命运|人生|结束|开始|答案)/.test(ending)) {
+      items.push({
+        checkId: 'style-summary-ending',
+        level: 'yellow',
+        message: '结尾疑似总结体，可改成动作、物件或余韵画面收束。',
+      })
+    }
+  }
+
   return { name: '文风可量化', items }
+}
+
+function parseRatio(raw: string): number {
+  const text = raw.trim()
+  const n = Number(text.replace('%', ''))
+  if (!Number.isFinite(n)) return 0
+  return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
 }
 
 /**
