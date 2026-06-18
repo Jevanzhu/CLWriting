@@ -13,6 +13,7 @@ test('readSample + writeSample: 往返（含标签数组）', () => {
   const s = {
     场景: '战斗', 来源: '作者原作' as const,
     出处: '《北境往事》第12章', 标签: ['短句', '快节奏'],
+    技法指令: '学它的停顿和短句压迫感',
     正文: '刀光没入雪雾的刹那，他听见自己心跳。',
   }
   writeSample(fp, s)
@@ -22,6 +23,7 @@ test('readSample + writeSample: 往返（含标签数组）', () => {
     expect(r.sample.场景).toBe('战斗')
     expect(r.sample.来源).toBe('作者原作')
     expect(r.sample.标签).toEqual(['短句', '快节奏'])
+    expect(r.sample.技法指令).toBe('学它的停顿和短句压迫感')
     expect(r.sample.正文).toContain('刀光')
   }
   rmSync(dir, { recursive: true, force: true })

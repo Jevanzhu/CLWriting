@@ -12,7 +12,7 @@ import { basename, join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import type { StyleSample, SampleSource, ParseError } from './types.js'
 
-const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签'])
+const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法指令'])
 
 /** #5 第 5 节：基础场景集 */
 export const BASE_SCENES = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] as const
@@ -40,6 +40,7 @@ export function readSample(
     来源: (map.get('来源') as SampleSource) ?? '作者原作',
     ...(map.has('出处') ? { 出处: String(map.get('出处')) } : {}),
     ...(Array.isArray(map.get('标签')) ? { 标签: map.get('标签') as string[] } : {}),
+    ...(map.has('技法指令') ? { 技法指令: String(map.get('技法指令')) } : {}),
     正文: r.body.trim(),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _path: filePath,
@@ -54,6 +55,7 @@ function sampleToMap(s: StyleSample): Map<string, unknown> {
   map.set('来源', s.来源)
   if (s.出处) map.set('出处', s.出处)
   if (s.标签) map.set('标签', s.标签)
+  if (s.技法指令) map.set('技法指令', s.技法指令)
   if (s._raw) {
     for (const [k, v] of Object.entries(s._raw)) {
       if (!map.has(k)) map.set(k, v)

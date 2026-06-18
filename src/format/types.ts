@@ -94,6 +94,7 @@ export interface StyleSample {
   来源: SampleSource
   出处?: string // 可选
   标签?: string[] // 可选，内联数组
+  技法指令?: string // 可选：注入时提示重点学什么（M1 #5 新增吸收点）
   正文: string // 样章本身（front matter 之后的正文）
   _raw?: Record<string, string>
   _path?: string
