@@ -277,14 +277,15 @@ export interface StatusRecap {
   handEdits: boolean
   /** 当前态 */
   state: BookState
-  /** 上一章确认复述（哈希/mode/时间，从 commit trailer 取；伪造确认靠它暴露） */
-  lastConfirm?: { chapter: number; hash: string; mode: string; at: string; verified: boolean }
+  /** 上一章确认复述（哈希/mode/时间，从 commit trailer 取；细纲仍在时可复核） */
+  lastConfirm?: { chapter: number; hash: string; mode: string; at: string; verified: boolean | null }
 }
 
 /**
  * 组装近况复述（#15 第 4 节）。
- * 确认复述的哈希从最近 ch: commit 的 Confirmed: trailer 取，与当前细纲比对（verified）。
- * 伪造确认（先盖章再偷改细纲）→ verified=false → 复述暴露 → 作者可「回到第 N 章」推翻（兜底闭环）。
+ * 确认复述的哈希从最近 ch: commit 的 Confirmed: trailer 取。
+ * 若工作区还保留细纲，则与当前细纲比对；若 finalize 已清理细纲，则只复述留痕，
+ * 不把「无法复核」伪装成「哈希一致」。
  */
 export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState): StatusRecap {
   const snapshot = readRecapSnapshot(bookRoot, config, detected)
@@ -342,9 +343,9 @@ function parseLastConfirm(bookRoot: string): StatusRecap['lastConfirm'] {
   // 章号从 commit 标题 ch:NNNN 取
   const chMatch = msg.match(/^ch:(\d+)/)
   const chapter = chMatch && chMatch[1] ? Number(chMatch[1]) : 0
-  // verified：当前工作区细纲哈希是否与 trailer 一致（无细纲文件则不验）
+  // verified：当前工作区细纲哈希是否与 trailer 一致；无细纲文件则无法复核。
   // 复用 gate/confirm.ts 的 hashFile（原始字节哈希），与 doConfirm 写入算法保持单源一致
-  let verified = true
+  let verified: boolean | null = null
   const outline = join(bookRoot, '工作区', '细纲.md')
   if (chapter > 0 && existsSync(outline)) {
     verified = hashFile(outline) === hash
@@ -363,7 +364,11 @@ export function formatRecap(recap: StatusRecap): string {
   )
   if (recap.lastConfirm && recap.lastConfirm.chapter > 0) {
     const c = recap.lastConfirm
-    const flag = c.verified ? '一致 ✓' : '⚠ 不一致（确认后又改过细纲）'
+    const flag = c.verified === true
+      ? '一致 ✓'
+      : c.verified === false
+        ? '⚠ 不一致（确认后又改过细纲）'
+        : '未复核（工作区细纲已清理，仅复述提交留痕）'
     lines.push(`【确认复述】第 ${c.chapter} 章细纲确认哈希 ${c.hash.slice(0, 16)}…（${c.mode}，${c.at}）${flag}。`)
   }
   return lines.join('\n')

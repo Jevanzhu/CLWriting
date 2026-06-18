@@ -29,7 +29,7 @@ export function renderSessionStartInjection(bookRoot: string, enterResult: Enter
   const { recap, route, detected } = enterResult
   const budgetLine = formatBudgetLine(bookRoot, enterResult)
   const confirmLine = recap.lastConfirm
-    ? `- 确认复述：第 ${recap.lastConfirm.chapter} 章，${recap.lastConfirm.mode}，${recap.lastConfirm.hash}，${recap.lastConfirm.verified ? '哈希一致' : '哈希不一致，确认后疑似改过细纲'}`
+    ? `- 确认复述：第 ${recap.lastConfirm.chapter} 章，${recap.lastConfirm.mode}，${recap.lastConfirm.hash}，${formatConfirmVerification(recap.lastConfirm.verified)}`
     : '- 确认复述：最近提交没有确认记录。'
 
   const lines = [
@@ -69,6 +69,12 @@ export function renderSessionStartInjection(bookRoot: string, enterResult: Enter
   ]
 
   return lines.join('\n') + '\n'
+}
+
+function formatConfirmVerification(verified: boolean | null): string {
+  if (verified === true) return '哈希一致'
+  if (verified === false) return '哈希不一致，确认后疑似改过细纲'
+  return '未复核，工作区细纲已清理'
 }
 
 function formatBudgetLine(bookRoot: string, enterResult: EnterResult): string {
