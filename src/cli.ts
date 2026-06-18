@@ -72,6 +72,18 @@ function main(): void {
       import('./cli/roles.js').then(({ rolesCommand }) => rolesCommand(rest))
       return
     }
+    case 'knowledge': {
+      import('./cli/knowledge.js').then(({ knowledgeCommand }) => knowledgeCommand(rest))
+      return
+    }
+    case 'review': {
+      import('./cli/review.js').then(({ reviewCommand }) => reviewCommand(rest))
+      return
+    }
+    case 'session-start': {
+      import('./cli/session-start.js').then(({ sessionStartCommand }) => sessionStartCommand(rest))
+      return
+    }
     case '--help':
     case '-h':
     case undefined:
@@ -97,6 +109,9 @@ function printHelp(): void {
   console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
   console.log('  roles <generate|check> [书目录]  生成角色壳 / 检查壳漂移')
+  console.log('  knowledge check [书目录]  校验知识层 manifest 与素材哈希')
+  console.log('  review plan [书目录] --chapter=N  生成本章三审计划（档位 + 任务书）')
+  console.log('  session-start [书目录]  输出给 AI 的会话起始近况注入文本')
   console.log('  --version, -v    显示版本')
   console.log('  --help, -h       显示帮助')
 }
