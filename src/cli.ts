@@ -68,6 +68,10 @@ function main(): void {
       import('./cli/finalize.js').then(({ finalizeCommand }) => finalizeCommand(rest))
       return
     }
+    case 'roles': {
+      import('./cli/roles.js').then(({ rolesCommand }) => rolesCommand(rest))
+      return
+    }
     case '--help':
     case '-h':
     case undefined:
@@ -92,6 +96,7 @@ function printHelp(): void {
   console.log('  confirm <章号> [书目录] [--auto]  确认工作区细纲（写 .confirm.json）')
   console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
+  console.log('  roles <generate|check> [书目录]  生成角色壳 / 检查壳漂移')
   console.log('  --version, -v    显示版本')
   console.log('  --help, -h       显示帮助')
 }
