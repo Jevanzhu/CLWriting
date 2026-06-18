@@ -41,6 +41,7 @@ v1.0 从零重写（Node + TypeScript），与 v0.2 Python 版无代码继承关
 - SessionStart 注入：新增 `clwriting session-start`，复用 `enter()` 结构化近况生成有界开场上下文。
 - 知识层平移：正式 `知识层/` + `_manifest.json` 可复现清单 + `clwriting knowledge check` 校验入口；平移 oh-story MIT 素材精选速查（题材路由、章节钩子、节奏与升级感、反转设计、质量检查、人物与对话技法，共 6 篇速查 + 许可全文，13 条 manifest）。
 - **真模型 smoke（CC 侧）达成**：建书 → 写 1 章 → 满审（降级顺序审，诚实声明）→ 定稿全程跑通；**账本造假（声明揭凶手但正文不写）被设定校对逮住 → 审稿单不成立 → 无裁决 finalize 拒绝 → 作者 override 放行**闭环在真模型下复现。详见 `Dev/Reviews/clwriting-v1-M4-真模型smoke记录-2026-06-18.md`。
+- **仍未声称完成的真模型点**：Codex smoke 尚未跑；顺势圆、修复确认、卷复盘 / 体检深度目前有路由与 prompt 契约，尚未形成独立真模型 smoke 证据。
 
 ### M4 收尾修复（smoke 暴露并修复）
 
