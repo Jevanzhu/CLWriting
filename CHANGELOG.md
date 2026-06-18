@@ -36,6 +36,7 @@ v1.0 从零重写（Node + TypeScript），与 v0.2 Python 版无代码继承关
 - **M4 AI 角色层 + 一级宿主**（**工单 #19 及子 spec #20-#24 已全部起草，待评审 / 待施工**）：
   - 脚本层第一批已启动：补齐 `clwriting confirm` / `clwriting check` / `clwriting finalize` 薄门面，复用既有确认记录、机检、定稿原子 commit 硬闸。
   - 每章 AI 调用预算闸基础落地：工作区 `.ai-calls.json` 记录本章已用次数，续跑继承，超限拒绝并给决策提示；定稿清空工作区时一并清理计数。
+  - 角色单源分发脚本层启动：`.clwriting/roles/*.md` 可生成 Claude / Codex / 通用三套壳，写入壳 manifest，并支持 source drift / output drift 检查。
   - 三审任务书单源（读者审 / 编辑审 / 设定校对），设定校对**账本清单驱动逐条核对**（不被降级稀释）。
   - 角色单源 → 三平台壳（Claude Code / Codex / 通用）+ drift check 防漂移。
   - 审查规格阶梯（默认满审三视角各独立 / 按宿主能力降级并诚实声明）+ 每章调用预算闸（`每章AI调用上限`）。
