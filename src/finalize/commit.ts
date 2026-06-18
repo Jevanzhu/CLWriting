@@ -204,9 +204,10 @@ function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
   }
 }
 
-/** 清空工作区（删草稿/细纲/材料/确认记录） */
+/** 清空工作区（删草稿/细纲/材料/确认记录）。
+ *  草稿-N.md 全部交给下面的 readdir 循环兜底（覆盖 草稿-1 / 草稿-N / ._草稿-*）。 */
 function clearWorkDir(workDir: string): void {
-  const toDelete = ['草稿-1.md', '细纲.md', '本章写作材料.md', '审稿.md']
+  const toDelete = ['细纲.md', '本章写作材料.md', '审稿.md']
   for (const f of toDelete) {
     const fp = join(workDir, f)
     if (existsSync(fp)) unlinkSync(fp)
