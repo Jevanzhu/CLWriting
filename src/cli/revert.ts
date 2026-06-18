@@ -11,9 +11,13 @@ import { rollbackToChapter } from '../git/rollback.js'
 
 /** `clwriting revert <章号> [书目录]` 命令处理器 */
 export function revertCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printRevertHelp()
+    return
+  }
+
   if (args.length === 0 || !args[0]) {
-    console.error('用法：clwriting revert <回到第几章> [书目录]')
-    console.error('例：clwriting revert 152   # 回到第 152 章定稿后的状态')
+    printRevertHelp(console.error)
     process.exit(1)
   }
 
@@ -32,4 +36,9 @@ export function revertCommand(args: string[]): void {
     console.error(`✗ ${result.humanMsg}`)
     process.exit(1)
   }
+}
+
+function printRevertHelp(write: (message: string) => void = console.log): void {
+  write('用法：clwriting revert <回到第几章> [书目录]')
+  write('例：clwriting revert 152   # 回到第 152 章定稿后的状态')
 }

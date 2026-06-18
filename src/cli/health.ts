@@ -17,6 +17,11 @@ import { rebuild } from '../cache/rebuild.js'
 
 /** `clwriting health [bookRoot]` 命令处理器 */
 export function healthCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printHealthHelp()
+    return
+  }
+
   const bookRoot = args[0] ? resolve(args[0]) : process.cwd()
 
   const report = gitHealthCheck(bookRoot)
@@ -36,6 +41,11 @@ export function healthCommand(args: string[]): void {
     }
     console.log()
   }
+}
+
+function printHealthHelp(): void {
+  console.log('用法：clwriting health [书目录]')
+  console.log('单独跑 git 健康检查；干净时记录一次体检完成。')
 }
 
 /** 记体检完成（先重建缓存，再读当前章号写 health-check.json；失败不阻断 health 命令） */

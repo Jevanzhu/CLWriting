@@ -8,9 +8,14 @@ import { formatKnowledgeManifestReport, validateKnowledgeManifest } from '../kno
 
 /** `clwriting knowledge check [书目录]` */
 export function knowledgeCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printKnowledgeHelp()
+    return
+  }
+
   const subcommand = args[0]
   if (subcommand !== 'check') {
-    printKnowledgeHelp()
+    printKnowledgeHelp(console.error)
     process.exit(1)
   }
 
@@ -20,6 +25,6 @@ export function knowledgeCommand(args: string[]): void {
   if (!report.ok) process.exit(1)
 }
 
-function printKnowledgeHelp(): void {
-  console.error('用法：clwriting knowledge check [书目录]')
+function printKnowledgeHelp(write: (message: string) => void = console.log): void {
+  write('用法：clwriting knowledge check [书目录]')
 }

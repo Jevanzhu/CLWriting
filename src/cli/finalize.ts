@@ -17,6 +17,11 @@ import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting finalize [draftPath] [bookRoot]` 命令处理器 */
 export function finalizeCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    printFinalizeHelp()
+    return
+  }
+
   const { draftPath, bookRoot } = resolveDraftAndBook(args)
   const draft = readDraft(draftPath)
   if (!draft.ok) {
@@ -65,6 +70,11 @@ export function finalizeCommand(args: string[]): void {
     console.error(`✗ ${failedReason}`)
     process.exit(1)
   }
+}
+
+function printFinalizeHelp(): void {
+  console.log('用法：clwriting finalize [草稿文件] [书目录]')
+  console.log('定稿并提交；需要确认记录、机检通过、审稿裁决。')
 }
 
 function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoot: string } {
