@@ -2,7 +2,7 @@
   "version": 1,
   "generated_at": "2026-06-18T14:40:00+08:00",
   "summary": {
-    "migrated": 9,
+    "migrated": 13,
     "deferred": 1,
     "review_assets": 0
   },
@@ -12,9 +12,9 @@
       "source": "clwriting-v1-m4-scaffold",
       "source_ref": "workspace",
       "license": "MIT",
-      "sha256": "sha256:38255e2518a7e769eb2881f9a1ec10b87ab290d16c9917c980b00e94df204397",
+      "sha256": "sha256:60cd8fc2de1e52671c5ab5b64a815a2eaec7ce6a8eaf8138709c878135ccda7c",
       "category": "索引",
-      "note": "知识层最小骨架入口，真实素材平移前置说明"
+      "note": "知识层入口，说明平移原则与现有素材索引"
     },
     {
       "target": "知识层/题材/README.md",
@@ -63,19 +63,19 @@
     },
     {
       "target": "知识层/追读力/章节钩子速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-long-write/references/hooks-chapter.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/hooks-chapter.md",
       "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
       "license": "MIT",
-      "sha256": "sha256:9cbd2f583690eefd312eda8b8f5e37ae7a9c39db15ea2b28ab79eaa176028a84",
+      "sha256": "sha256:effee39b755328f57c00b38227784554f6828dbd1fe046d41729d21b5dbb5807",
       "category": "追读力",
       "note": "oh-story 章节钩子素材的精选速查版"
     },
     {
       "target": "知识层/方法论/质量检查清单速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-long-write/references/quality-checklist.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/quality-checklist.md",
       "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
       "license": "MIT",
-      "sha256": "sha256:a428bd2175e7e14bb1198c6069350ac59d5824d56ee558468ef0e7f08238b79a",
+      "sha256": "sha256:61db621238bd16534a9a0e266bf59ccf0d6c4cd6795902051f7b1c35650ae277",
       "category": "方法论",
       "note": "oh-story 质量检查素材的精选速查版"
     },
@@ -87,6 +87,42 @@
       "sha256": "sha256:d3c2090717b84fff79cf4fbc6b0f108b7fa6e49b486fc188e78126b9433cf9ac",
       "category": "许可",
       "note": "oh-story-claudecode MIT 许可证全文"
+    },
+    {
+      "target": "知识层/题材/题材路由速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/genre-catalog.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:4f2e2bdf50fa2d1d5eb2f6cbecf784d1d0cacc1263eba0c25132d74b8dbcb4b8",
+      "category": "题材",
+      "note": "oh-story 题材框架路由的精选速查版（建书选题/大纲定位）"
+    },
+    {
+      "target": "知识层/追读力/节奏与升级感速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/outline-rhythm.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:4b0b6c7a075418e4fd0f0dc0611ca62a7535b5af99fd94549f8211b789ea7243",
+      "category": "追读力",
+      "note": "oh-story 节奏与升级感的精选速查版（升级感三步/期待感管理/节奏底线）"
+    },
+    {
+      "target": "知识层/爽点/反转设计速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/reversal-toolkit.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:37900d3b9eac39fa4a86f32f75bf9f98785d242a87d0b99cdb7913e501ba218b",
+      "category": "爽点",
+      "note": "oh-story 反转设计工具箱的精选速查版（反转类型/埋线揭示/打脸节奏）"
+    },
+    {
+      "target": "知识层/方法论/人物与对话技法速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/character-design-methods.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:c7ee3c48386688501df2f6705d93110dc2afd8dc300a669ad89d020679115d5e",
+      "category": "方法论",
+      "note": "oh-story 人物设计与对话技法的精选速查版（合并 character-design + dialogue）"
     }
   ]
 }
