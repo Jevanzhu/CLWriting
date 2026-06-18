@@ -5,7 +5,6 @@
  */
 
 import process from 'node:process'
-import { existsSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { readFile } from '../format/frontmatter.js'
@@ -13,6 +12,7 @@ import { readChapter } from '../format/chapters.js'
 import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
+import { readReviewVerdict } from '../review/run.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting finalize [draftPath] [bookRoot]` 命令处理器 */
@@ -49,7 +49,7 @@ export function finalizeCommand(args: string[]): void {
       chapter: draft.chapter,
       body: draft.body,
       fileName: finalChapterFileName(draft.chapter),
-      hasReviewVerdict: existsSync(join(workDir, '审稿.md')),
+      hasReviewVerdict: readReviewVerdict(workDir).approved,
     })
 
     if (!result.ok) {
