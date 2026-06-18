@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-18T14:40:00+08:00",
+  "summary": {
+    "migrated": 9,
+    "deferred": 1,
+    "review_assets": 0
+  },
+  "entries": [
+    {
+      "target": "知识层/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:38255e2518a7e769eb2881f9a1ec10b87ab290d16c9917c980b00e94df204397",
+      "category": "索引",
+      "note": "知识层最小骨架入口，真实素材平移前置说明"
+    },
+    {
+      "target": "知识层/题材/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:0012e72f3cd679a3f39f9aea8f11c0f7790c345b90884655694fafa07f0edf71",
+      "category": "题材",
+      "note": "题材模板占位目录"
+    },
+    {
+      "target": "知识层/爽点/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:1b31de140724038f44760c1fc8e0e59a31729bc79b3623463ddc0056e8fe7454",
+      "category": "爽点",
+      "note": "爽点节奏占位目录"
+    },
+    {
+      "target": "知识层/追读力/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:16e96c44520dd6aeae12c7989827de818ff7198c41e7b5dedff98f7f9a356557",
+      "category": "追读力",
+      "note": "追读力素材占位目录"
+    },
+    {
+      "target": "知识层/方法论/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:958333b1a3e761835e49f70654cd1579659e62660fd8d030634e44418738b855",
+      "category": "方法论",
+      "note": "写作方法论占位目录"
+    },
+    {
+      "target": "知识层/许可/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "source_ref": "workspace",
+      "license": "MIT",
+      "sha256": "sha256:bd6c9d145cc54c01f7181fa5013a14aa85fc888e08316862ff2f604e1e583578",
+      "category": "许可",
+      "note": "外部素材许可证和致谢占位目录"
+    },
+    {
+      "target": "知识层/追读力/章节钩子速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-long-write/references/hooks-chapter.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:9cbd2f583690eefd312eda8b8f5e37ae7a9c39db15ea2b28ab79eaa176028a84",
+      "category": "追读力",
+      "note": "oh-story 章节钩子素材的精选速查版"
+    },
+    {
+      "target": "知识层/方法论/质量检查清单速查.md",
+      "source": "Dev/oh-story-claudecode/skills/story-long-write/references/quality-checklist.md",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:a428bd2175e7e14bb1198c6069350ac59d5824d56ee558468ef0e7f08238b79a",
+      "category": "方法论",
+      "note": "oh-story 质量检查素材的精选速查版"
+    },
+    {
+      "target": "知识层/许可/oh-story-claudecode-MIT.md",
+      "source": "Dev/oh-story-claudecode/LICENSE",
+      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
+      "license": "MIT",
+      "sha256": "sha256:d3c2090717b84fff79cf4fbc6b0f108b7fa6e49b486fc188e78126b9433cf9ac",
+      "category": "许可",
+      "note": "oh-story-claudecode MIT 许可证全文"
+    }
+  ]
+}
