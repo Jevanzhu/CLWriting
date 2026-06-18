@@ -28,10 +28,10 @@ import type { BookConfig } from '../format/types.js'
 /** 每卷章数（config 暂无卷大小字段，固定用此值；卷大小入 config 留待 M4，#15 第 2 节） */
 const DEFAULT_VOLUME_SIZE = 50
 
-/** 7 态枚举（#15 第 2 节顺序） */
-export type BookState = 1 | 2 | 3 | 4 | 5 | 6 | 7
+/** 7 态枚举（#15 第 2 节顺序）+ 态 8 待批量审稿（M6 #34） */
+export type BookState = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
-/** 态名（人话，#15 第 2 节表） */
+/** 态名（人话，#15 第 2 节表）+ 态 8（M6 #34） */
 export const STATE_NAMES: Record<BookState, string> = {
   1: 'git 健康检查',
   2: '源文件解析失败',
@@ -40,6 +40,7 @@ export const STATE_NAMES: Record<BookState, string> = {
   5: '卷末',
   6: '体检周期',
   7: '起草新章',
+  8: '待批量审稿',
 }
 
 /**
@@ -54,6 +55,7 @@ export type DetectedState =
   | { state: 5; volume: number } // 第几卷写完了
   | { state: 6; chaptersSince: number } // 距上次体检多少章
   | { state: 7; nextChapter: number }
+  | { state: 8; pendingChapters: number[] } // M6 #34：待定稿有完成章待批量审稿
 
 /** 路由动作（#15 第 2 节，各态路由去向；AI 执行处出桩标记） */
 export interface RouterAction {
@@ -74,6 +76,7 @@ export type RouterActionKind =
   | 'volume-review' // 态 5 → 卷复盘（M3 概要）
   | 'health-check-periodic' // 态 6 → 体检（M3 概要）
   | 'write-new-chapter' // 态 7 → M2 写章流程
+  | 'pending-batch-review' // 态 8 → M6 #35 批量审稿
   | 'pending-ai' // AI 介入点（M3 桩，M4 真执行）
 
 /**
@@ -120,6 +123,12 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
       chapterNum: incomplete,
       resumePoint: alreadyCommitted ? 'post-commit-residue' : 'pre-commit',
     }
+  }
+
+  // #8 待批量审稿（M6 #34）：待定稿有完成章 → 路由批量审稿（插态 4 后、态 5 前）
+  const pending = detectPendingBatch(bookRoot)
+  if (pending.length > 0) {
+    return { state: 8, pendingChapters: pending }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -176,6 +185,49 @@ function detectIncompleteWorkdir(bookRoot: string): number | null {
     }
   }
   return chapterNum > 0 ? chapterNum : null
+}
+
+/**
+ * 检测待定稿是否有完成章（态 8，M6 #34）。
+ * 扫 工作区/待定稿/ 下 `<章号4位>-<标题>/` 目录，返回待审章号列表（已排除 .isolated/ 隔离章）。
+ * 真相以磁盘目录为准（#33 第 3 节文件即真相）；连写产出待定稿时无审稿.md（审稿是作者硬闸后移），
+ * 故只按目录名判定，不要求审稿.md 存在。
+ */
+function detectPendingBatch(bookRoot: string): number[] {
+  const pendingDir = join(bookRoot, '工作区', '待定稿')
+  if (!existsSync(pendingDir)) return []
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = readdirSync(pendingDir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const chapters: number[] = []
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith('.')) continue // 跳过 .isolated/ / .auto-batch.json 等
+    // 目录名格式：<章号4位>-<标题>，如 0153-夜袭
+    const m = e.name.match(/^(\d+)-/)
+    if (m) chapters.push(Number(m[1]))
+  }
+  return chapters.sort((a, b) => a - b)
+}
+
+/**
+ * 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。
+ * 连写暂停叠加在态 4/8 之上，buildRecap 读它填充 recap.batchPause。
+ */
+function readBatchPause(bookRoot: string): { atChapter: number; reason: string; detail: string } | undefined {
+  const fp = join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
+  if (!existsSync(fp)) return undefined
+  try {
+    const obj = JSON.parse(readFileSync(fp, 'utf-8')) as { paused?: { at_chapter?: number; reason?: string; detail?: string } | null }
+    const p = obj.paused
+    if (!p || typeof p.at_chapter !== 'number' || typeof p.reason !== 'string') return undefined
+    return { atChapter: p.at_chapter, reason: p.reason, detail: String(p.detail ?? '') }
+  } catch {
+    return undefined
+  }
 }
 
 /** 工作区是否有任何草稿文件 */
@@ -256,7 +308,18 @@ export function routeState(detected: DetectedState): RouterAction {
         action: 'write-new-chapter',
         needsAI: false, // M2 流程接，AI 写稿由 M4 壳调
       }
+    case 8: {
+      const chs = detected.pendingChapters
+      const list = chs.map((c) => String(c)).join('、')
+      return {
+        state: 8,
+        humanMsg: `有 ${chs.length} 章待审稿（第 ${list} 章）。先用 clwriting review batch list 查看；通过后 clwriting review batch finalize 逐章定稿，或 clwriting review batch rollback --yes 整批回滚。`,
+        action: 'pending-batch-review',
+        needsAI: false, // 审稿是作者硬闸（品味归人，原则 7）
+      }
+    }
   }
+  throw new Error(`未知状态：${JSON.stringify(detected)}`)
 }
 
 // ── 近况复述（#15 第 4 节，含确认复述）──────────────
@@ -277,6 +340,8 @@ export interface StatusRecap {
   handEdits: boolean
   /** 当前态 */
   state: BookState
+  /** 连写暂停元状态（M6 #34，叠加在态 4/8 之上的批次暂停提示） */
+  batchPause?: { atChapter: number; reason: string; detail: string }
   /** 上一章确认复述（哈希/mode/时间，从 commit trailer 取；细纲仍在时可复核） */
   lastConfirm?: { chapter: number; hash: string; mode: string; at: string; verified: boolean | null }
 }
@@ -293,6 +358,9 @@ export function buildRecap(bookRoot: string, config: BookConfig, detected: Detec
   // 确认复述：从最近 ch: commit trailer 取
   const lastConfirm = parseLastConfirm(bookRoot)
 
+  // 连写暂停元状态（M6 #34）：读 .auto-batch.json paused（叠加在态 4/8 之上）
+  const batchPause = readBatchPause(bookRoot)
+
   return {
     currentChapter: snapshot.currentChapter,
     currentVolume: snapshot.currentVolume,
@@ -301,6 +369,7 @@ export function buildRecap(bookRoot: string, config: BookConfig, detected: Detec
     parseErrors: detected.state === 2,
     handEdits: detected.state === 3,
     state: detected.state,
+    ...(batchPause ? { batchPause } : {}),
     lastConfirm,
   }
 }
@@ -370,6 +439,10 @@ export function formatRecap(recap: StatusRecap): string {
         ? '⚠ 不一致（确认后又改过细纲）'
         : '未复核（工作区细纲已清理，仅复述提交留痕）'
     lines.push(`【确认复述】第 ${c.chapter} 章细纲确认哈希 ${c.hash.slice(0, 16)}…（${c.mode}，${c.at}）${flag}。`)
+  }
+  if (recap.batchPause) {
+    const p = recap.batchPause
+    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} 章暂停（${p.reason}：${p.detail}），处理后 \`clwriting auto --resume\`。`)
   }
   return lines.join('\n')
 }

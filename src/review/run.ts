@@ -47,6 +47,10 @@ export interface ReviewLensPacket {
 /** 三审执行包：一次三审的全部输入 + 各视角分包。 */
 export interface ReviewExecutionPacket {
   chapter: number
+  /** run 时使用的草稿路径；collect 用它做一致性校验。 */
+  draft_path?: string
+  /** run 时草稿原始字节 hash；collect 校验防止回收期间草稿漂移。 */
+  draft_hash?: string
   tier: ReviewTier
   requested_tier: ReviewTier
   fallback: string
@@ -68,6 +72,9 @@ export function lensIssuesFileName(lens: ReviewLens): string {
 /** 宿主回写的合审 issues 文件名（合审档位单文件）。 */
 export const COMBINED_ISSUES_FILE = 'issues-combined.json'
 
+/** review run 落盘的执行包文件名。collect 必须读它，不重算档位。 */
+export const REVIEW_PACKET_FILE = 'packet.json'
+
 /**
  * 组装三审执行包（#20/#22）。
  * 不调模型、只打包输入；宿主读包后按 packets 各调一次模型。
@@ -84,6 +91,8 @@ export function buildReviewPacket(input: {
   checkReport: CheckReport
   body: string
   chapter: number
+  draft_path?: string
+  draft_hash?: string
   workDir: string
   capabilities: ReviewHostCapabilities
   remaining_calls: number
@@ -110,6 +119,8 @@ export function buildReviewPacket(input: {
     decision,
     packet: {
       chapter: input.chapter,
+      ...(input.draft_path ? { draft_path: input.draft_path } : {}),
+      ...(input.draft_hash ? { draft_hash: input.draft_hash } : {}),
       tier: decision.tier,
       requested_tier: decision.requested_tier,
       fallback: decision.fallback,
@@ -120,6 +131,31 @@ export function buildReviewPacket(input: {
       out_dir: outDir,
     },
   }
+}
+
+/** 把三审执行包写到 `工作区/三审/packet.json`，供 collect 固定读取。 */
+export function writeReviewPacket(packet: ReviewExecutionPacket): string {
+  mkdirSync(packet.out_dir, { recursive: true })
+  const path = join(packet.out_dir, REVIEW_PACKET_FILE)
+  writeFileSync(path, JSON.stringify(packet, null, 2), 'utf-8')
+  return path
+}
+
+/** 从工作区读取 review run 当时的执行包。 */
+export function readReviewPacket(workDir: string): { ok: true; packet: ReviewExecutionPacket; path: string } | { ok: false; reason: string } {
+  const path = join(workDir, '三审', REVIEW_PACKET_FILE)
+  if (!existsSync(path)) {
+    return { ok: false, reason: `找不到三审执行包：${path}。先运行 clwriting review run。` }
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf-8'))
+  } catch {
+    return { ok: false, reason: `三审执行包损坏：${path}` }
+  }
+  const packet = coerceReviewPacket(raw)
+  if (!packet.ok) return { ok: false, reason: `三审执行包格式不对：${packet.reason}` }
+  return { ok: true, packet: packet.packet, path }
 }
 
 /** 把单视角任务书打包成执行包分项。 */
@@ -179,7 +215,8 @@ export function formatReviewPacket(packet: ReviewExecutionPacket): string {
     } else {
       lines.push('- 账本核对：本视角无账本清单（账本核对专属设定校对）。')
     }
-    lines.push(`- 输出契约：JSON only / 必带 evidence / 不打分；回写 ${lensIssuesFileName(p.lens)}`)
+    const issueFile = packet.tier === 'combined' ? COMBINED_ISSUES_FILE : lensIssuesFileName(p.lens)
+    lines.push(`- 输出契约：JSON only / 必带 evidence / 不打分；回写 ${issueFile}`)
     lines.push('')
   }
   lines.push('宿主按上述分包各调一次模型，把 issues JSON 回写到 issues 回写目录后，运行 `clwriting review collect` 归一化生成审稿单。')
@@ -479,6 +516,89 @@ function escapeRegExp(s: string): string {
 }
 
 // ── 辅助 ─────────────────────────────────────────
+
+function coerceReviewPacket(raw: unknown): { ok: true; packet: ReviewExecutionPacket } | { ok: false; reason: string } {
+  if (typeof raw !== 'object' || raw === null) return { ok: false, reason: '不是对象' }
+  const o = raw as Record<string, unknown>
+  const chapter = Number(o['chapter'])
+  if (!Number.isSafeInteger(chapter) || chapter < 1) return { ok: false, reason: 'chapter 非正整数' }
+
+  const tier = String(o['tier'] ?? '')
+  const requestedTier = String(o['requested_tier'] ?? '')
+  if (!isReviewTier(tier) || !isReviewTier(requestedTier)) return { ok: false, reason: 'tier 非法' }
+
+  const fallback = String(o['fallback'] ?? '')
+  const plannedCalls = Number(o['planned_calls'])
+  if (plannedCalls !== 1 && plannedCalls !== 3) return { ok: false, reason: 'planned_calls 非法' }
+
+  const lensesRaw = o['lenses_run']
+  if (!Array.isArray(lensesRaw) || !lensesRaw.every((l) => isReviewLens(String(l)))) {
+    return { ok: false, reason: 'lenses_run 非法' }
+  }
+
+  const outDir = String(o['out_dir'] ?? '')
+  if (outDir === '') return { ok: false, reason: 'out_dir 为空' }
+
+  const packetsRaw = o['packets']
+  if (!Array.isArray(packetsRaw)) return { ok: false, reason: 'packets 非数组' }
+  const packets: ReviewLensPacket[] = []
+  for (const pRaw of packetsRaw) {
+    const p = coerceReviewLensPacket(pRaw)
+    if (!p.ok) return { ok: false, reason: `packet 分项非法：${p.reason}` }
+    packets.push(p.packet)
+  }
+
+  return {
+    ok: true,
+    packet: {
+      chapter,
+      ...(typeof o['draft_path'] === 'string' ? { draft_path: o['draft_path'] } : {}),
+      ...(typeof o['draft_hash'] === 'string' ? { draft_hash: o['draft_hash'] } : {}),
+      tier,
+      requested_tier: requestedTier,
+      fallback,
+      ...(typeof o['downgrade_reason'] === 'string' ? { downgrade_reason: o['downgrade_reason'] } : {}),
+      lenses_run: lensesRaw.map((l) => String(l) as ReviewLens),
+      planned_calls: plannedCalls,
+      packets,
+      out_dir: outDir,
+    },
+  }
+}
+
+function coerceReviewLensPacket(raw: unknown): { ok: true; packet: ReviewLensPacket } | { ok: false; reason: string } {
+  if (typeof raw !== 'object' || raw === null) return { ok: false, reason: '不是对象' }
+  const o = raw as Record<string, unknown>
+  const lens = String(o['lens'] ?? '')
+  if (!isReviewLens(lens)) return { ok: false, reason: 'lens 非法' }
+  const title = String(o['title'] ?? '')
+  const focusRaw = o['focus']
+  if (!Array.isArray(focusRaw)) return { ok: false, reason: 'focus 非数组' }
+  const chapter = Number(o['chapter'])
+  if (!Number.isSafeInteger(chapter) || chapter < 1) return { ok: false, reason: 'chapter 非正整数' }
+  if (!Array.isArray(o['ledger_checks'])) return { ok: false, reason: 'ledger_checks 非数组' }
+  if (typeof o['output_contract'] !== 'object' || o['output_contract'] === null) {
+    return { ok: false, reason: 'output_contract 非对象' }
+  }
+  if (typeof o['body'] !== 'string') return { ok: false, reason: 'body 非字符串' }
+
+  return {
+    ok: true,
+    packet: {
+      lens,
+      title,
+      focus: focusRaw.map(String),
+      ledger_checks: o['ledger_checks'] as ReviewTask['ledger_checks'],
+      output_contract: o['output_contract'] as ReviewTask['output_contract'],
+      body: o['body'],
+      chapter,
+    },
+  }
+}
+
+function isReviewTier(tier: string): tier is ReviewTier {
+  return tier === 'full' || tier === 'sequential' || tier === 'combined'
+}
 
 function tierLabel(tier: ReviewTier): string {
   if (tier === 'full') return '满审'

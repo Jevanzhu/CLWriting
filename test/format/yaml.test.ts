@@ -80,6 +80,36 @@ test('writeBookConfig + readBookConfig 往返', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('readBookConfig: 数字字段坏值回落默认，不注入 NaN', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const fp = join(dir, 'book.yaml')
+  writeFileSync(fp, [
+    'spec_version: abc',
+    'leads:',
+    '  thresholds:',
+    '    成长线: nope',
+    'budget:',
+    '  calls_per_chapter: abc',
+    '  input_per_chapter: 90000',
+    'auto:',
+    '  batch_size: nope',
+    'growth:',
+    '  realm_span_max: nope',
+  ].join('\n'), 'utf-8')
+
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.config.spec_version).toBe(1)
+    expect(r.config.budget.calls_per_chapter).toBe(DEFAULT_CONFIG.budget.calls_per_chapter)
+    expect(r.config.budget.input_per_chapter).toBe(90000)
+    expect(r.config.auto.batch_size).toBe(DEFAULT_CONFIG.auto.batch_size)
+    expect(r.config.growth.realm_span_max).toBe(DEFAULT_CONFIG.growth.realm_span_max)
+    expect(r.config.leads.thresholds?.['成长线']).toBeUndefined()
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('stringifyBookConfig: leads.enabled 为空数组时合法', () => {
   const text = stringifyBookConfig(DEFAULT_CONFIG)
   expect(text).toContain('enabled: []')

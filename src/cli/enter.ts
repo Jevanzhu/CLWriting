@@ -12,7 +12,7 @@
  */
 
 import process from 'node:process'
-import { resolve } from 'node:path'
+import { resolveBookRoot } from '../install/books.js'
 import { enter, formatRecap, formatRoute } from '../state/state.js'
 
 /** `clwriting enter [bookRoot]` 命令处理器 */
@@ -22,7 +22,12 @@ export function enterCommand(args: string[]): void {
     return
   }
 
-  const bookRoot = args[0] ? resolve(args[0]) : process.cwd()
+  const resolved = resolveBookRoot(args)
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
 
   const { recap, route } = enter(bookRoot)
 

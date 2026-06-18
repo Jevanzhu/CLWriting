@@ -47,6 +47,7 @@ test('CLI 子命令 --help 只打印用法，不误当业务参数', () => {
     ['review plan', () => reviewCommand(['plan', '--help'])],
     ['review run', () => reviewCommand(['run', '--help'])],
     ['review collect', () => reviewCommand(['collect', '--help'])],
+    ['review batch', () => reviewCommand(['batch', '--help'])],
     ['session-start', () => sessionStartCommand(['--help'])],
   ]
 

@@ -104,7 +104,12 @@ export function loadRoleDefinitions(projectRoot: string): { ok: true; roles: Rol
     if (seen.has(id)) return { ok: false, reason: `角色 id 重复：${id}` }
     seen.add(id)
 
+    // tools 必须用方括号语法 `tools: [Read, Write]`——parseValue 只认 [a,b] 为数组，
+    // 裸逗号 `Read, Write` 会被当整体字符串致 tools 渲染成 none（M4 smoke P4）。
     const toolsRaw = fm.get('tools')
+    if (toolsRaw !== undefined && !Array.isArray(toolsRaw)) {
+      return { ok: false, reason: `${file} 的 tools 必须写成方括号数组，例如 tools: [Read, Write]` }
+    }
     const tools = Array.isArray(toolsRaw) ? toolsRaw.map(String) : []
     roles.push({
       id,

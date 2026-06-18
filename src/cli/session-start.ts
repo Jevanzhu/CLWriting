@@ -5,8 +5,8 @@
  */
 
 import process from 'node:process'
-import { resolve } from 'node:path'
 import { buildSessionStartInjection } from '../session/injection.js'
+import { resolveBookRoot } from '../install/books.js'
 
 /** `clwriting session-start [书目录]` 命令处理器 */
 export function sessionStartCommand(args: string[]): void {
@@ -15,7 +15,12 @@ export function sessionStartCommand(args: string[]): void {
     return
   }
 
-  const bookRoot = args[0] ? resolve(args[0]) : process.cwd()
+  const resolved = resolveBookRoot(args)
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  const bookRoot = resolved.bookRoot
   const injection = buildSessionStartInjection(bookRoot)
   process.stdout.write(injection.text)
 }

@@ -13,6 +13,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
 import { formatReport } from '../check/report.js'
+import { resolveBookRoot } from '../install/books.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting check [draftPath] [bookRoot] [--full]` 命令处理器 */
@@ -68,15 +69,25 @@ function printCheckHelp(): void {
 }
 
 function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoot: string } {
+  // 草稿文件（.md 结尾）是第一个位置参；书目录是第二个
   if (positional[0]?.endsWith('.md')) {
-    return {
-      draftPath: resolve(positional[0]),
-      bookRoot: positional[1] ? resolve(positional[1]) : process.cwd(),
+    const draftPath = resolve(positional[0])
+    // 第二个位置参（书目录）经 resolveBookRoot，支持活动书/cwd 兜底
+    const resolved = resolveBookRoot(undefined, positional[1])
+    if (!resolved.ok) {
+      console.error(`✗ ${resolved.reason}`)
+      process.exit(1)
     }
+    return { draftPath, bookRoot: resolved.bookRoot }
   }
 
-  const bookRoot = positional[0] ? resolve(positional[0]) : process.cwd()
-  return { draftPath: join(bookRoot, '工作区', '草稿-1.md'), bookRoot }
+  // 无草稿位置参：位置参直接是书目录
+  const resolved = resolveBookRoot(positional)
+  if (!resolved.ok) {
+    console.error(`✗ ${resolved.reason}`)
+    process.exit(1)
+  }
+  return { draftPath: join(resolved.bookRoot, '工作区', '草稿-1.md'), bookRoot: resolved.bookRoot }
 }
 
 function readDraft(
