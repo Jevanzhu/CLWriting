@@ -102,6 +102,43 @@ test('short finalize: 清单.md 随正文同 pc commit 归档', () => {
   }
 })
 
+test('short finalize: commit 失败回滚不残留空篇目录，解锁后可重试', () => {
+  const root = makeShortBook()
+  try {
+    const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+    const workDir = join(root, '工作区')
+    const outline = join(workDir, '细纲.md')
+    writeFileSync(outline, '雪夜细纲', 'utf-8')
+    writeFileSync(join(workDir, '清单.md'), '## 反转线索表\n- 核心反转：来客就是死者\n', 'utf-8')
+    doConfirm(workDir, 1, outline, 'manual', SHORT_CONFIG)
+
+    const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折' }
+    const locked = join(root, '.git', 'index.lock')
+    writeFileSync(locked, 'lock', 'utf-8')
+
+    const failed = doFinalize({
+      bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
+      chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
+      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+    })
+    expect(failed.ok).toBe(false)
+    expect(existsSync(join(root, '篇', '001-雪夜'))).toBe(false)
+
+    rmSync(locked, { force: true })
+    const retried = doFinalize({
+      bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
+      chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
+      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+    })
+    expect(retried.ok).toBe(true)
+    expect(existsSync(join(root, '篇', '001-雪夜', '正文.md'))).toBe(true)
+
+    db.close()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('short finalize: 跳账本履历 + 跳章摘要（篇/ 下无 大纲/无 定稿/摘要）', () => {
   const root = makeShortBook()
   try {
