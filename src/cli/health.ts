@@ -33,6 +33,7 @@ export function healthCommand(args: string[]): void {
   const report = gitHealthCheck(bookRoot)
   if (report.clean) {
     console.log('✓ 书仓库 git 干净，没有半提交 / 冲突 / 锁 / 同步盘副本残留。')
+    printWarnings(report.warnings)
     // 体检闭环：干净则记账，消除态 6 提示（#15 第 6 节）
     markHealthCheckDone(bookRoot)
     return
@@ -46,6 +47,19 @@ export function healthCommand(args: string[]): void {
       console.log(`  相关文件：${issue.files.join('、')}`)
     }
     console.log()
+  }
+  printWarnings(report.warnings)
+}
+
+function printWarnings(warnings: ReturnType<typeof gitHealthCheck>['warnings']): void {
+  if (warnings.length === 0) return
+  console.log('\n安全提醒：')
+  for (const warning of warnings) {
+    console.log(`· ${warning.humanMsg}`)
+    console.log(`  怎么办：${warning.fix}`)
+    if (warning.remotes && warning.remotes.length > 0) {
+      console.log(`  remote：${warning.remotes.join('、')}`)
+    }
   }
 }
 

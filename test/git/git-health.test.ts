@@ -22,6 +22,21 @@ test('gitHealthCheck: 干净书仓库 → clean', () => {
   const report = gitHealthCheck(root)
   expect(report.clean).toBe(true)
   expect(report.issues).toHaveLength(0)
+  expect(report.warnings).toHaveLength(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('gitHealthCheck: 配置 remote → 只报安全提醒，不阻断 clean', () => {
+  const root = makeGitBook()
+  sh('git remote add origin https://example.invalid/private-novel.git', root)
+
+  const report = gitHealthCheck(root)
+  expect(report.clean).toBe(true)
+  expect(report.issues).toHaveLength(0)
+  expect(report.warnings).toHaveLength(1)
+  expect(report.warnings[0]?.kind).toBe('remoteConfigured')
+  expect(report.warnings[0]?.humanMsg).toContain('小说正文')
+  expect(report.warnings[0]?.remotes).toEqual(['origin'])
   rmSync(root, { recursive: true, force: true })
 })
 

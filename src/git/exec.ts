@@ -6,6 +6,7 @@
  * - finalize（#13）的 commit、状态机（#15）的健康检查、回滚（#16 第 5 节）都在此之上。
  *
  * #16 第 2 节 4 异常健康检查：半提交 / 合并冲突 / 僵死锁 / 网盘副本残留。
+ * 另有安全提示：书仓库配置 remote 时提醒正文外传风险，但不阻断正常写作。
  * #16 第 3 节人话映射：对作者只出网文语言，永不出 git 命令、SHA、堆栈。
  */
 
@@ -125,7 +126,7 @@ export function findChapterCommit(
 
 // ── 健康检查（#16 第 2 节，#15 态 1 路由进入）────────────
 
-/** 健康检查发现的异常项（每类带人话 + 修复指引） */
+/** 健康检查发现的异常项（每类带人话 + 修复指引；会阻断写作入口） */
 export interface HealthIssue {
   /** 异常种类：halfCommit / mergeConflict / staleLock / cloudCopy */
   kind: 'halfCommit' | 'mergeConflict' | 'staleLock' | 'cloudCopy'
@@ -137,10 +138,24 @@ export interface HealthIssue {
   files?: string[]
 }
 
+/** 健康检查发现的风险提示（不阻断写作入口） */
+export interface HealthWarning {
+  /** 提示种类 */
+  kind: 'remoteConfigured'
+  /** 人话提示 */
+  humanMsg: string
+  /** 建议处理方式 */
+  fix: string
+  /** 相关 remote 名称 */
+  remotes?: string[]
+}
+
 /** 健康检查报告 */
 export interface HealthReport {
-  /** 干净则空数组 */
+  /** 阻断性问题；干净则空数组 */
   issues: HealthIssue[]
+  /** 非阻断风险提示 */
+  warnings: HealthWarning[]
   /** 便利标志 */
   clean: boolean
 }
@@ -152,6 +167,7 @@ export interface HealthReport {
  */
 export function gitHealthCheck(bookRoot: string): HealthReport {
   const issues: HealthIssue[] = []
+  const warnings: HealthWarning[] = []
 
   // #1 半提交：staged 残留（commit 中断标志）
   const staged = git(['diff', '--cached', '--name-only'], bookRoot)
@@ -201,7 +217,23 @@ export function gitHealthCheck(bookRoot: string): HealthReport {
     })
   }
 
-  return { issues, clean: issues.length === 0 }
+  const remotes = listRemotes(bookRoot)
+  if (remotes.length > 0) {
+    warnings.push({
+      kind: 'remoteConfigured',
+      humanMsg: '这本书配置了 git remote，小说正文存在被推到远端的风险。',
+      fix: '默认 pre-push 会拦住误推；若不是你明确设置的备份远端，建议删除 remote 或保留本地仓库。',
+      remotes,
+    })
+  }
+
+  return { issues, warnings, clean: issues.length === 0 }
+}
+
+function listRemotes(bookRoot: string): string[] {
+  const r = git(['remote'], bookRoot)
+  if (!r.ok) return []
+  return r.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
 }
 
 /** 扫描网盘副本残留（#16 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */
