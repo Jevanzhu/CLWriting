@@ -64,28 +64,36 @@ function planCommand(args: string[]): void {
     process.exit(1)
   }
   const { config, workDir, remaining } = readReviewContext(parsed)
+  const kind = config.kind ?? 'long'
+  const isShort = kind === 'short'
+  const unit = isShort ? '篇' : '章'
   const decision = selectReviewTier({
     capabilities: parsed.capabilities,
     remaining_calls: remaining.remaining,
     high_risk: parsed.highRisk,
+    kind,
   })
   if (!decision.ok) {
     console.error(`✗ ${decision.reason}`)
     process.exit(1)
   }
   const emptyReport = { sections: [] }
-  const tasks = buildReviewTasks(emptyReport)
-  console.log(`✓ 第 ${parsed.chapter} 章三审计划：${tierLabel(decision.tier)}（预计 ${decision.calls} 次 AI 调用）`)
+  const tasks = buildReviewTasks(emptyReport, kind)
+  console.log(`✓ 第 ${parsed.chapter} ${unit}三审计划：${tierLabel(decision.tier)}（预计 ${decision.calls} 次 AI 调用）`)
   console.log(`· 请求档：${tierLabel(decision.requested_tier)}；实际档：${tierLabel(decision.tier)}；fallback：${decision.fallback}`)
   if (decision.downgrade_reason) console.log(`· 降级说明：${decision.downgrade_reason}`)
   console.log(`· 剩余调用预算：${remaining.remaining}`)
-  console.log(`· 实跑视角：${decision.lenses_run.map(lensLabel).join(' / ')}；账本核对：${decision.ledger_check}`)
+  const checkLabel = isShort ? '清单核对' : '账本核对'
+  console.log(`· 实跑视角：${decision.lenses_run.map(lensLabel).join(' / ')}；${checkLabel}：${decision.ledger_check}`)
   console.log('· 三审任务：')
   for (const task of tasks) {
     console.log(`  - ${task.title}：${task.focus.join(' / ')}`)
   }
-  console.log('· 账本核对：由机检 byproducts.leadChanges 接入设定校对；空清单不跳过设定校对。')
-  void config
+  if (isShort) {
+    console.log('· 清单核对：设定收尾审对 清单.md（反转线索表 + 伏笔回收）逐条核对；机检形式检挡在前。')
+  } else {
+    console.log('· 账本核对：由机检 byproducts.leadChanges 接入设定校对；空清单不跳过设定校对。')
+  }
   void workDir
 }
 
@@ -101,17 +109,19 @@ function runCommand(args: string[]): void {
   const { config, workDir, remaining, bookRoot } = readReviewContext(parsed)
 
   // 预算闸：执行前校验本章余量是否够本次三审调用
+  const isShort = (config.kind ?? 'long') === 'short'
   const decision = selectReviewTier({
     capabilities: parsed.capabilities,
     remaining_calls: remaining.remaining,
     high_risk: parsed.highRisk,
+    kind: config.kind ?? 'long',
   })
   if (!decision.ok) {
     console.error(`✗ ${decision.reason}`)
     process.exit(1)
   }
 
-  // 读草稿正文 + 跑机检（取 byproducts.leadChanges → 设定校对账本清单）
+  // 读草稿正文 + 跑机检（长篇取 byproducts.leadChanges；短篇无账本，机检走短篇分支）
   const draft = readDraftForReview(bookRoot, parsed.draftPath)
   if (!draft.ok) {
     console.error(`✗ ${draft.reason}`)
@@ -127,10 +137,14 @@ function runCommand(args: string[]): void {
   let checkReport
   const db = new DatabaseSync(cachePath)
   try {
+    const fileName = isShort
+      ? `${String(draft.chapter.章号).padStart(3, '0')}-${draft.chapter.标题}/正文.md`
+      : `${draft.chapter.章号}-${draft.chapter.标题}.md`
     checkReport = runAllChecks({
-      db, bookRoot, config,
+      db: isShort ? undefined : db,
+      bookRoot, config,
       chapter: draft.chapter, body: draft.body,
-      fileName: `${draft.chapter.章号}-${draft.chapter.标题}.md`,
+      fileName,
     })
   } finally {
     db.close()
@@ -146,6 +160,7 @@ function runCommand(args: string[]): void {
     capabilities: parsed.capabilities,
     remaining_calls: remaining.remaining,
     high_risk: parsed.highRisk,
+    kind: config.kind ?? 'long',
   })
   if (!built.ok) {
     console.error(`✗ ${built.reason}`)
@@ -467,10 +482,13 @@ function tierLabel(tier: 'full' | 'sequential' | 'combined'): string {
   return '合审'
 }
 
-function lensLabel(lens: 'reader' | 'editor' | 'continuity'): string {
+function lensLabel(lens: string): string {
   if (lens === 'reader') return '读者审'
   if (lens === 'editor') return '编辑审'
-  return '设定校对'
+  if (lens === 'continuity') return '设定校对'
+  if (lens === 'hook') return '钩子审'
+  if (lens === 'emotion_peak') return '情绪反转审'
+  return '设定收尾审'
 }
 
 function printReviewHelp(toStdout: boolean): void {

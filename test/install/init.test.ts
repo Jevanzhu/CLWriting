@@ -33,12 +33,12 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(wd, '.codex', 'AGENTS.md'))).toBe(true)
   expect(existsSync(join(wd, 'AGENTS.md'))).toBe(true) // 通用壳
 
-  // 角色源种子 4 个
+  // 角色源种子 7 个（4 长篇 reader/editor/continuity/writer + 3 短篇 hook/emotion/payoff，M8 #28）
   const roleFiles = readdirSync(join(wd, '.clwriting', 'roles')).filter((f) => f.endsWith('.md'))
-  expect(roleFiles.length).toBe(4)
+  expect(roleFiles.length).toBe(7)
   expect(existsSync(join(wd, '.clwriting', 'templates.manifest.json'))).toBe(true)
   const templatesManifest = JSON.parse(readFileSync(join(wd, '.clwriting', 'templates.manifest.json'), 'utf-8'))
-  expect(templatesManifest.records).toHaveLength(4)
+  expect(templatesManifest.records).toHaveLength(7)
   expect(templatesManifest.records[0]!.installed_hash).toMatch(/^sha256:/)
 
   // 书仓库层：独立 git + book.yaml + 6.2 目录 + 初始 commit
