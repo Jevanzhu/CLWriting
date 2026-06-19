@@ -2,7 +2,7 @@
  * `clwriting update` 逻辑层 —— 依据 M5 #31。
  *
  * 三类文件分治（#31 第 2 节）：
- * - 插件本体（.clwriting/dist）：升级（最小实现：标记，物理 dist 升级留 TODO）
+ * - 插件本体（.clwriting/dist）：从当前包 dist 同步到工作目录
  * - 派生物（.claude/.codex/AGENTS.md 壳）：generateRoleShells 重生
  * - 作者数据（book.yaml/角色源/知识层）：只增不覆盖 + 模板哈希差异提示
  *

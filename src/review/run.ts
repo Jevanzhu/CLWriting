@@ -207,7 +207,8 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
  */
 export function formatReviewPacket(packet: ReviewExecutionPacket): string {
   const lines: string[] = []
-  lines.push(`# 三审执行包 · 第 ${packet.chapter} 章`)
+  const isShortPacket = packet.lenses_run.includes('hook') || packet.lenses_run.includes('payoff')
+  lines.push(`# 三审执行包 · 第 ${packet.chapter} ${isShortPacket ? '篇' : '章'}`)
   lines.push('')
   lines.push(`- 档位：${tierLabel(packet.tier)}（请求 ${tierLabel(packet.requested_tier)}）`)
   lines.push(`- 预计调用：${packet.planned_calls} 次`)
@@ -216,7 +217,6 @@ export function formatReviewPacket(packet: ReviewExecutionPacket): string {
   lines.push(`- issues 回写目录：${packet.out_dir}`)
   lines.push('')
   // 短篇三视角（hook/emotion_peak/payoff）vs 长篇三视角（reader/editor/continuity）决定核对口径文案
-  const isShortPacket = packet.lenses_run.includes('hook') || packet.lenses_run.includes('payoff')
   lines.push('## 各视角分包')
   lines.push('')
   for (const p of packet.packets) {
@@ -607,6 +607,18 @@ function coerceReviewLensPacket(raw: unknown): { ok: true; packet: ReviewLensPac
   const chapter = Number(o['chapter'])
   if (!Number.isSafeInteger(chapter) || chapter < 1) return { ok: false, reason: 'chapter 非正整数' }
   if (!Array.isArray(o['ledger_checks'])) return { ok: false, reason: 'ledger_checks 非数组' }
+  const listChecksRaw = o['list_checks']
+  const listChecks = Array.isArray(listChecksRaw)
+    ? listChecksRaw.map((c) => {
+        const item = c as Record<string, unknown>
+        return {
+          type: String(item['type']) as PieceListCheck['type'],
+          subject: String(item['subject'] ?? ''),
+          location: String(item['location'] ?? ''),
+          detail: String(item['detail'] ?? ''),
+        }
+      }).filter((c) => c.type === 'reversal' || c.type === 'payoff')
+    : []
   if (typeof o['output_contract'] !== 'object' || o['output_contract'] === null) {
     return { ok: false, reason: 'output_contract 非对象' }
   }
@@ -619,6 +631,7 @@ function coerceReviewLensPacket(raw: unknown): { ok: true; packet: ReviewLensPac
       title,
       focus: focusRaw.map(String),
       ledger_checks: o['ledger_checks'] as ReviewTask['ledger_checks'],
+      ...(listChecks.length > 0 ? { list_checks: listChecks } : {}),
       output_contract: o['output_contract'] as ReviewTask['output_contract'],
       body: o['body'],
       chapter,

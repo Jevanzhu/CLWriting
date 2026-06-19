@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -98,6 +98,17 @@ test('init: 工作目录不能位于 git 仓库内', () => {
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('工作目录不能放在 git 仓库里')
   rmSync(wd, { recursive: true, force: true })
+})
+
+test('init: 空 .git 目录不是有效仓库祖先，不应误拦', () => {
+  const parent = mkdtempSync(join(tmpdir(), 'init-empty-git-parent-'))
+  mkdirSync(join(parent, '.git'))
+  const wd = join(parent, 'work')
+  mkdirSync(wd)
+
+  const r = doInit({ workDir: wd, name: '空Git目录测试', genre: '玄幻' })
+  expect(r.ok).toBe(true)
+  rmSync(parent, { recursive: true, force: true })
 })
 
 test('init: 冷门题材仅基础三类（leads.enabled 空）', () => {

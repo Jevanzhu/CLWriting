@@ -19,6 +19,7 @@ import { getAiCallBudgetState, recordAiCall, type AiCallStep } from '../ai/calls
 import { hashFile } from '../gate/confirm.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
+import { readPiece } from '../format/pieces.js'
 import { runAllChecks } from '../check/runner.js'
 import { rebuild } from '../cache/rebuild.js'
 import { buildReviewTasks, selectReviewTier, type ReviewHostCapabilities } from '../review/contract.js'
@@ -122,7 +123,7 @@ function runCommand(args: string[]): void {
   }
 
   // 读草稿正文 + 跑机检（长篇取 byproducts.leadChanges；短篇无账本，机检走短篇分支）
-  const draft = readDraftForReview(bookRoot, parsed.draftPath)
+  const draft = readDraftForReview(bookRoot, parsed.draftPath, isShort)
   if (!draft.ok) {
     console.error(`✗ ${draft.reason}`)
     process.exit(1)
@@ -460,10 +461,31 @@ function readRemainingFromBudget(
 function readDraftForReview(
   bookRoot: string,
   draftPath: string,
+  isShort: boolean,
 ): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
   if (!existsSync(draftPath)) return { ok: false, reason: `草稿不存在：${draftPath}` }
   const file = readFile(draftPath)
   if (!file.ok) return { ok: false, reason: file.error.message }
+  if (isShort) {
+    const piece = readPiece(draftPath)
+    if (!piece.ok) return { ok: false, reason: piece.error.message }
+    const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
+    if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
+    if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
+    return {
+      ok: true,
+      chapter: {
+        章号: piece.piece.篇号,
+        标题: piece.piece.标题,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
+        _path: piece.piece._path,
+      },
+      body: file.body,
+    }
+  }
   const fm = parseFlat(file.fmRaw)
   const chapterNum = Number(fm.get('章号'))
   const title = String(fm.get('标题') ?? '')

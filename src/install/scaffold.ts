@@ -9,7 +9,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { BASE_LEAD_TYPES } from './data.js'
@@ -215,16 +215,27 @@ export function findGitAncestor(startDir: string): string | null {
   }
   for (;;) {
     const gitPath = join(dir, '.git')
-    if (existsSync(gitPath)) {
-      try {
-        const stat = statSync(gitPath)
-        if (stat.isDirectory() || stat.isFile()) return dir
-      } catch {
-        return dir
-      }
+    if (isGitMarker(gitPath)) {
+      return dir
     }
     const parent = dirname(dir)
     if (parent === dir) return null
     dir = parent
+  }
+}
+
+function isGitMarker(gitPath: string): boolean {
+  if (!existsSync(gitPath)) return false
+  try {
+    const stat = statSync(gitPath)
+    if (stat.isDirectory()) {
+      return existsSync(join(gitPath, 'HEAD'))
+    }
+    if (stat.isFile()) {
+      return readFileSync(gitPath, 'utf-8').trimStart().startsWith('gitdir:')
+    }
+    return false
+  } catch {
+    return false
   }
 }

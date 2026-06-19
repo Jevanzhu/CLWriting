@@ -25,8 +25,13 @@ import { assembleStatus } from '../process/assemble.js'
 import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
 import type { BookConfig } from '../format/types.js'
 
-/** 每卷章数（config 暂无卷大小字段，固定用此值；卷大小入 config 留待 M4，#15 第 2 节） */
+/** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
 const DEFAULT_VOLUME_SIZE = 50
+
+function volumeSizeOf(config: BookConfig): number {
+  const size = config.book.volume_size
+  return typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? size : DEFAULT_VOLUME_SIZE
+}
 
 /** 7 态枚举（#15 第 2 节顺序）+ 态 8 待批量审稿（M6 #34） */
 export type BookState = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
@@ -141,7 +146,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
-  const volumeSize = DEFAULT_VOLUME_SIZE
+  const volumeSize = volumeSizeOf(config)
   const db = new DatabaseSync(cachePath)
   let snapshot
   try {
@@ -419,17 +424,20 @@ function readRecapSnapshot(
   let db: DatabaseSync | undefined
   try {
     db = new DatabaseSync(cachePath)
-    return assembleStatus(db, config)
+    return assembleStatus(db, config, volumeSizeOf(config))
   } catch {
-    return fallbackRecapSnapshot(detected)
+    return fallbackRecapSnapshot(detected, volumeSizeOf(config))
   } finally {
     db?.close()
   }
 }
 
-function fallbackRecapSnapshot(detected: DetectedState): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
+function fallbackRecapSnapshot(
+  detected: DetectedState,
+  volumeSize = DEFAULT_VOLUME_SIZE,
+): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
   if (detected.state === 5) {
-    return { currentChapter: detected.volume * DEFAULT_VOLUME_SIZE, currentVolume: detected.volume }
+    return { currentChapter: detected.volume * volumeSize, currentVolume: detected.volume }
   }
   const nextChapter = detected.state === 7 ? detected.nextChapter : 1
   return { currentChapter: Math.max(0, nextChapter - 1), currentVolume: 1 }

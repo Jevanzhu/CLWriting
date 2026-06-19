@@ -181,6 +181,7 @@ export interface BookConfig {
   book: {
     title: string
     genre: string
+    volume_size?: number
   }
   leads: {
     enabled: string[] // 启用的扩展类（基础三类恒启用、不列）

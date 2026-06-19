@@ -92,8 +92,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (book) {
     const t = book.children.find((c) => c.key === 'title')
     const g = book.children.find((c) => c.key === 'genre')
+    const vs = book.children.find((c) => c.key === 'volume_size')
     if (t) cfg.book.title = String(parseValue(t.value))
     if (g) cfg.book.genre = String(parseValue(g.value))
+    if (vs) {
+      const volumeSize = parseFiniteNumber(vs.value, NaN)
+      if (Number.isSafeInteger(volumeSize) && volumeSize > 0) cfg.book.volume_size = volumeSize
+    }
   }
 
   const leads = find('leads')
@@ -211,6 +216,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     `  title: ${stringifyValue(cfg.book.title)}`,
     `  genre: ${stringifyValue(cfg.book.genre)}`,
   ]
+  if (cfg.book.volume_size !== undefined) {
+    lines.push(`  volume_size: ${cfg.book.volume_size}`)
+  }
 
   // leads 段：长篇恒输出（账本类）；短篇无（账本降级单篇清单 #27）
   if (!isShort) {

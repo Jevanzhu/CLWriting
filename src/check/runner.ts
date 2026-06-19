@@ -35,7 +35,7 @@ import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
-import type { ChapterMeta, BookConfig, RealmDoc } from '../format/types.js'
+import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
 
 /** 机检输入 */
 export interface CheckInput {
@@ -213,14 +213,40 @@ function runShort(input: CheckInput): CheckReport {
   // 清单形式检（若篇目录有 清单.md，#27 第 5 节 + #28 第 3 节分工）
   // chapter._path 是正文路径，清单.md 同目录
   const pieceDir = chapter._path ? join(chapter._path, '..') : null
+  let pieceList: PieceList | null = null
   if (pieceDir) {
     const manifestPath = join(pieceDir, '清单.md')
     if (existsSync(manifestPath)) {
       const r = readPieceList(manifestPath)
-      if (r.ok) sections.push(checkPieceListForm(r.list))
+      if (r.ok) {
+        pieceList = r.list
+        sections.push(checkPieceListForm(r.list))
+      }
     }
   }
 
-  // 短篇无账本变动清单 / 信息差 / 新专名候选（无长程账本，byproducts 留空）
-  return { sections, byproducts: {} }
+  // 短篇无长程账本；清单条目作为设定收尾审的核对输入。
+  return { sections, byproducts: { pieceListChecks: pieceList ? collectPieceListChecks(pieceList) : [] } }
+}
+
+function collectPieceListChecks(list: PieceList): NonNullable<CheckReport['byproducts']>['pieceListChecks'] {
+  const checks: NonNullable<CheckReport['byproducts']>['pieceListChecks'] = []
+  const core = list.反转线索表.核心反转
+  for (const setup of list.反转线索表.铺垫点) {
+    checks.push({
+      type: 'reversal',
+      subject: core || '核心反转',
+      location: setup.位置,
+      detail: setup.内容,
+    })
+  }
+  for (const payoff of list.伏笔回收) {
+    checks.push({
+      type: 'payoff',
+      subject: payoff.伏笔,
+      location: payoff.回收位置,
+      detail: payoff.未回收 ? '未回收' : payoff.回收位置,
+    })
+  }
+  return checks
 }

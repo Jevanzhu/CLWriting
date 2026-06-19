@@ -98,6 +98,18 @@ test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('detectState: book.volume_size 覆盖每卷章数', () => {
+  const root = makeGitBookWithChapters(10)
+  const config = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 10 } }
+
+  const d = detectState(root, config)
+  expect(d.state).toBe(5)
+  if (d.state === 5) {
+    expect(d.volume).toBe(1)
+  }
+  rmSync(root, { recursive: true, force: true })
+})
+
 // ── 态 6: 体检周期（#15 第 6 节，距上次体检 ≥ 阈值则到期）────────
 
 test('detectState: 从未体检且章数够（35 章）→ 态 6 体检周期到期', () => {
