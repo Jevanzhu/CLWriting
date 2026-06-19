@@ -167,4 +167,22 @@ describe('commitSamples / commitQuotes', () => {
     expect(content).toContain('忽然一剑封喉')
     expect(content).toContain('——《测试》第 1 章')
   })
+
+  it('G5：commitSamples 带技法指令则写入，缺省不写该字段', () => {
+    const picks: SampleCandidate[] = [
+      { 场景: '战斗', 正文: '一剑破阵', 出处: '《测试》第 1 章', 章号: 1, 打分: 90, 技法指令: '学它的短句节奏' },
+      { 场景: '战斗', 正文: '无技法指令段', 出处: '《测试》第 2 章', 章号: 2, 打分: 88 },
+    ]
+    commitSamples(bookRoot, picks)
+
+    // 带技法指令 → 读回有该字段
+    const withSkill = readSample(join(bookRoot, '文风', '样章库', '战斗', '战斗-001.md'))
+    expect(withSkill.ok).toBe(true)
+    if (withSkill.ok) expect(withSkill.sample.技法指令).toBe('学它的短句节奏')
+
+    // 缺省 → 无该字段（不写空串）
+    const without = readSample(join(bookRoot, '文风', '样章库', '战斗', '战斗-002.md'))
+    expect(without.ok).toBe(true)
+    if (without.ok) expect(without.sample.技法指令).toBeUndefined()
+  })
 })

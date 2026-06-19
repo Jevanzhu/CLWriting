@@ -20,6 +20,7 @@ import {
 } from '../../src/check/count.js'
 import { checkLeadsForm } from '../../src/check/leads.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { renderStyleRules } from '../../src/install/scaffold.js'
 import type { ChapterMeta, BookConfig, RealmDoc } from '../../src/format/types.js'
 
 function makeFixture(): { root: string; db: DatabaseSync } {
@@ -311,6 +312,25 @@ test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄
   const r = checkStyleMetrics(body, rules)
   expect(r.items.some((i) => i.checkId === 'style-sentence-overlong')).toBe(true)
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
+})
+
+test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ 含 deslop 段', () => {
+  const iron = renderStyleRules('玄幻')
+  // 机检激活：parseIronRules 从 scaffold 铁律解析出全部可量化阈值（修复「骨架阈值睡着」）
+  const rules = parseIronRules(iron)
+  expect(rules.maxSentenceLen).toBe(60)
+  expect(rules.maxAdjStack).toBe(3)
+  expect(rules.maxDialogueTagRatio).toBe(0.5)
+  expect(rules.maxParallelStreak).toBe(3)
+  expect(rules.avoidSummaryEnding).toBe(true)
+  // deslop 软约束段（吸收点 2.5）：替换库 + 删除上限分级 + 需复核
+  expect(iron).toContain('AI 味替换参考')
+  expect(iron).toContain('深吸一口气')
+  expect(iron).toContain('轻度 ≤15%')
+  expect(iron).toContain('[需复核]')
+  // 保留 import.test.ts 依赖的两个锚点标题
+  expect(iron).toContain('反和解段')
+  expect(iron).toContain('可量化约束')
 })
 
 test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () => {

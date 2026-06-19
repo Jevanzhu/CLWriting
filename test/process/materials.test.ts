@@ -109,6 +109,104 @@ test('prepareMaterials: 透传 sampleScene 给文风样章', async () => {
   }
 })
 
+test('G1: 未传 sampleScene → 从细纲 front matter 解析场景', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // 细纲在 工作区/细纲.md，front matter 声明本章场景为「对话」（OQ1）
+    const wd = join(root, '工作区')
+    mkdirSync(wd, { recursive: true })
+    writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 对话\n---\n本章主角与对手长谈。', 'utf-8')
+
+    // 不传 sampleScene —— 应从细纲自动解析出「对话」
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir: wd, chapterLeadIds: [],
+    })
+    const styleSection = r.sections.find((s) => s.title === '文风样章')
+    expect(styleSection).toBeDefined()
+    expect(styleSection!.content).toContain('你早就知道') // 命中对话样章
+    expect(styleSection!.content).toContain('学它的留白')
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('G1: 细纲无场景声明 → 回落默认「战斗」（不误注入对话样章）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // 细纲无 front matter 场景字段 → readOutlineScene 返回 undefined → prepare 回落「战斗」
+    // makeBook 只有「对话」样章、无「战斗」样章 → 文风样章段缺席（逐字节不变红线）
+    const wd = join(root, '工作区')
+    mkdirSync(wd, { recursive: true })
+    writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n本章无场景声明。', 'utf-8')
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir: wd, chapterLeadIds: [],
+    })
+    const styleSection = r.sections.find((s) => s.title === '文风样章')
+    expect(styleSection).toBeUndefined() // 战斗场景无样章 → 无文风样章段，未误注入对话
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('G3: 细纲声明场景但无样章 → styleNote 留痕（提示去 learn 补）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // makeBook 只有「对话」样章；细纲声明「抒情」→ 查无样章 → 留痕
+    const wd = join(root, '工作区')
+    mkdirSync(wd, { recursive: true })
+    writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 抒情\n---\n本章抒情。', 'utf-8')
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir: wd, chapterLeadIds: [],
+    })
+    expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined()
+    expect(r.styleNote).toBeDefined()
+    expect(r.styleNote).toContain('抒情')
+    expect(r.styleNote).toContain('learn')
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('G3: 细纲声明场景且有样章 → 无 styleNote 留痕', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    const wd = join(root, '工作区')
+    mkdirSync(wd, { recursive: true })
+    writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 对话\n---\n本章对话。', 'utf-8')
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir: wd, chapterLeadIds: [],
+    })
+    expect(r.sections.find((s) => s.title === '文风样章')).toBeDefined()
+    expect(r.styleNote).toBeUndefined() // 有样章不留痕
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('G3: 无场景声明（冷启动）→ 无 styleNote（逐字节红线）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    const wd = join(root, '工作区')
+    mkdirSync(wd, { recursive: true })
+    writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n无场景声明。', 'utf-8')
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir: wd, chapterLeadIds: [],
+    })
+    expect(r.styleNote).toBeUndefined() // 无声明不留痕
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
 test('已配 RAG + key + 命中 → 备料含「RAG 召回」段', async () => {
   const { root, workDir, db } = makeBook()
   try {

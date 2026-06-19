@@ -106,6 +106,9 @@ async function learnCommit(args: string[]): Promise<void> {
       const ans = await ask('入库？[y=是 n=否 a=剩下全选 q=放弃] ')
       const lower = ans.toLowerCase()
       if (lower === 'y' || lower === '是') {
+        // G5：选中后追问技法指令（这段学什么，可空）——闭合「样章配技法指令」
+        const skill = await ask('  技法指令（这段学什么，留空跳过）：')
+        if (skill) c.技法指令 = skill
         pickedSamples.push(c)
       } else if (lower === 'a' || lower === '全选') {
         pickedSamples.push(c)

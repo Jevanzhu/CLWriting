@@ -15,7 +15,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile } from '../format/frontmatter.js'
+import { readFile, parseFlat } from '../format/frontmatter.js'
 import { prepare, type PrepareResult } from './prepare.js'
 import { readRagConfig, readApiKey } from '../rag/config.js'
 import { recall, type RecallHit } from '../rag/index.js'
@@ -70,8 +70,8 @@ export interface PrepareMaterialsOptions {
   chapterLeadIds: string[]
   /** RAG 召回的 query（默认用本章细纲/标题；调用方可显式传） */
   query?: string
-  /** 文风样章场景；缺省由 prepare 回落「战斗」 */
-  sampleScene?: string
+  /** 文风样章场景；可单值或多值（G2 跨场景）。缺省由 prepare 回落「战斗」 */
+  sampleScene?: string | string[]
   /** 召回 topK（默认 5） */
   topK?: number
   /** 可选：注入 embed 函数（测试用桩，默认调真实 embed）—— 与 buildIndex/recall 对齐 */
@@ -85,6 +85,38 @@ export interface PrepareMaterialsResult extends PrepareResult {
   ragHitCount: number
   /** 降级原因（召回失败/未配 key 等留痕；无降级则空） */
   ragNote?: string
+  /** 文风留痕（G3）：声明了场景却查无样章时提示去 learn 补；无声明/有样章则空 */
+  styleNote?: string
+}
+
+/**
+ * G3 文风留痕：声明了场景（细纲/显式入参）却查无样章 → 提示去 learn 收割补。
+ * 范文回落待知识层补数据（OQ2）。空声明（冷启动无场景）不留痕，保逐字节红线。
+ */
+function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: string } {
+  if (scenes.length === 0) return {}
+  if (base.sections.some((s) => s.title === '文风样章')) return {}
+  return { styleNote: `场景「${scenes.join('、')}」无样章，文风未对齐，可运行 learn 收割补（范文回落待知识层补数据）。` }
+}
+
+/**
+ * 从工作区细纲 front matter 读「场景」声明（G1 场景水源 + G2 多场景，OQ1 已定）。
+ *
+ * 细纲正文是 freeform，但 front matter 的「场景」是结构化声明——读它是「数」不是「判」。
+ * 单值 `场景: 对话` → ['对话']；多值 `场景: [战斗, 对话]` → ['战斗','对话']（首为主场景）。
+ * 缺省/无细纲/无 front matter → [] → prepare 回落默认「战斗」（逐字节不变红线）。
+ */
+function readOutlineScenes(workDir: string): string[] {
+  const outlinePath = join(workDir, '细纲.md')
+  if (!existsSync(outlinePath)) return []
+  const r = readFile(outlinePath)
+  if (!r.ok) return [] // 无 front matter → 安全回落
+  const scene = parseFlat(r.fmRaw).get('场景')
+  if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
+  if (Array.isArray(scene)) {
+    return scene.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+  }
+  return []
 }
 
 /**
@@ -100,12 +132,17 @@ export async function prepareMaterials(
   opts: PrepareMaterialsOptions,
 ): Promise<PrepareMaterialsResult> {
   const { bookRoot, workDir, chapterLeadIds } = opts
+  // 文风样章场景（G1/G2）：显式入参优先，否则从细纲 front matter 推导（OQ1）；空 → undefined → prepare 回落「战斗」
+  const outlineScenes = readOutlineScenes(workDir)
+  const sampleScene = opts.sampleScene ?? (outlineScenes.length > 0 ? outlineScenes : undefined)
+  // G3 留痕判定用：实际生效的场景（空 = 无声明，不留痕）
+  const effectiveScenes = sampleScene === undefined ? [] : Array.isArray(sampleScene) ? sampleScene : [sampleScene]
   const ragConfig = readRagConfig(bookRoot)
 
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!ragConfig.enabled || !ragConfig.endpoint || !ragConfig.model) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0 }
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
+    return { ...base, ragUsed: false, ragHitCount: 0, ...styleNoteOf(effectiveScenes, base) }
   }
 
   // 已配 RAG → 读 key（环境变量 > .clwriting/rag.secret）
@@ -114,8 +151,8 @@ export async function prepareMaterials(
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
   const apiKey = readApiKey(realWorkDir)
   if (!apiKey) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）' }
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
+    return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(effectiveScenes, base) }
   }
 
   // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」
@@ -132,21 +169,23 @@ export async function prepareMaterials(
   }
 
   if (hits.length === 0) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
     return {
       ...base,
       ragUsed: false,
       ragHitCount: 0,
       ragNote: ragNote ?? 'RAG 召回无命中（降级回落精准读取）',
+      ...styleNoteOf(effectiveScenes, base),
     }
   }
 
   // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText
   const ragRecallText = renderRecallHits(bookRoot, hits)
-  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, opts.sampleScene)
+  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene)
   return {
     ...base,
     ragUsed: true,
     ragHitCount: hits.length,
+    ...styleNoteOf(effectiveScenes, base),
   }
 }
