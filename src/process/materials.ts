@@ -70,6 +70,8 @@ export interface PrepareMaterialsOptions {
   chapterLeadIds: string[]
   /** RAG 召回的 query（默认用本章细纲/标题；调用方可显式传） */
   query?: string
+  /** 文风样章场景；缺省由 prepare 回落「战斗」 */
+  sampleScene?: string
   /** 召回 topK（默认 5） */
   topK?: number
   /** 可选：注入 embed 函数（测试用桩，默认调真实 embed）—— 与 buildIndex/recall 对齐 */
@@ -102,7 +104,7 @@ export async function prepareMaterials(
 
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!ragConfig.enabled || !ragConfig.endpoint || !ragConfig.model) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
     return { ...base, ragUsed: false, ragHitCount: 0 }
   }
 
@@ -112,7 +114,7 @@ export async function prepareMaterials(
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
   const apiKey = readApiKey(realWorkDir)
   if (!apiKey) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
     return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）' }
   }
 
@@ -130,7 +132,7 @@ export async function prepareMaterials(
   }
 
   if (hits.length === 0) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, opts.sampleScene)
     return {
       ...base,
       ragUsed: false,
@@ -141,7 +143,7 @@ export async function prepareMaterials(
 
   // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText
   const ragRecallText = renderRecallHits(bookRoot, hits)
-  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText)
+  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, opts.sampleScene)
   return {
     ...base,
     ragUsed: true,

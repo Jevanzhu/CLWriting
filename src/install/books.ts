@@ -231,6 +231,7 @@ export function repairBooks(workDir: string): RepairResult {
   const existing = readBooks(workDir)
   const rebuilt: BookEntry[] = existing.map((b) => ({ ...b }))
   const relinked: { name: string; from: string; to: string }[] = []
+  let updated = false
 
   // 扫描工作目录直接子目录（不递归深扫，避免误纳嵌套/无关目录）
   const scanned: BookEntry[] = []
@@ -250,6 +251,22 @@ export function repairBooks(workDir: string): RepairResult {
     const bookName = detectBookName(dir, name)
     const kind = detectBookKind(dir)
     const createdAt = detectBookCreatedAt(dir)
+
+    const existingPathIndex = rebuilt.findIndex((b) => b.path === name)
+    if (existingPathIndex >= 0) {
+      const entry = rebuilt[existingPathIndex]!
+      const nextEntry = {
+        ...entry,
+        name: bookName,
+        kind,
+        ...(entry.created_at || !createdAt ? {} : { created_at: createdAt }),
+      }
+      if (entry.name !== nextEntry.name || entry.kind !== nextEntry.kind || entry.created_at !== nextEntry.created_at) {
+        rebuilt[existingPathIndex] = nextEntry
+        updated = true
+      }
+      continue
+    }
 
     const existingIndex = rebuilt.findIndex((b) => b.name === bookName)
     if (existingIndex >= 0) {
@@ -279,7 +296,7 @@ export function repairBooks(workDir: string): RepairResult {
 
   // 只剩无法重关联的缺失登记进入 missing；已重关联的用 relinked 报告。
   const missing = rebuilt.filter((b) => !existsSync(join(workDir, b.path)))
-  const changed = scanned.length > 0 || relinked.length > 0 || missing.length > 0
+  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0
 
   if (changed) {
     writeBooks(workDir, rebuilt)

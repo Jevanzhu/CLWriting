@@ -93,6 +93,24 @@ test('连写: 章号从既有定稿续算（不从1开始）', async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('连写: 最近 20 条非章提交不影响下一章号（定稿目录是真源）', async () => {
+  const root = makeBookWithVolumeOutline()
+  writeFileSync(join(root, '定稿', '正文', '0005-第五章.md'), '---\n章号: 5\n---\n正文', 'utf-8')
+  execSync('git add -A && git commit -m "ch:0005 第五章"', { cwd: root, stdio: 'pipe' })
+  for (let i = 0; i < 21; i++) {
+    writeFileSync(join(root, '大纲', '卷纲', `杂项-${i}.md`), `杂项 ${i}`, 'utf-8')
+    execSync(`git add -A && git commit -m "docs: 杂项 ${i}"`, { cwd: root, stdio: 'pipe' })
+  }
+
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 1, produce: makeProduceStub() })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.progress.start_chapter).toBe(6)
+  expect(r.produced).toEqual([6])
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('连写: 卷纲为空 → 拒绝启动', async () => {
   const root = mkdtempSync(join(tmpdir(), '无纲-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })

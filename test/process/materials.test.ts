@@ -36,6 +36,12 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
   mkdirSync(join(root, '.cache'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '## 反和解\n禁止和解\n', 'utf-8')
+  mkdirSync(join(root, '文风', '样章库', '对话'), { recursive: true })
+  writeFileSync(
+    join(root, '文风', '样章库', '对话', '对话-001.md'),
+    '---\n场景: 对话\n来源: 作者原作\n技法指令: 学它的留白\n---\n她沉默了一会儿，说：你早就知道。',
+    'utf-8',
+  )
 
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
@@ -81,6 +87,22 @@ test('未配 RAG → prepareMaterials 行为与 prepare 逐字节一致', async 
     // 无 RAG 段
     expect(r.sections.find((s) => s.title === 'RAG 召回')).toBeUndefined()
     expect(r.ragNote).toBeUndefined() // 未配不算降级
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('prepareMaterials: 透传 sampleScene 给文风样章', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], sampleScene: '对话',
+    })
+    const styleSection = r.sections.find((s) => s.title === '文风样章')
+    expect(styleSection).toBeDefined()
+    expect(styleSection!.content).toContain('学它的留白')
+    expect(styleSection!.content).toContain('你早就知道')
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })
