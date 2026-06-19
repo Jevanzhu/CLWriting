@@ -14,8 +14,8 @@
  * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync, rmSync, rmdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta, BookConfig, PieceMeta } from '../format/types.js'
@@ -244,8 +244,11 @@ function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'sh
       const m = name.match(/^(\d+)-/)
       if (!m) continue
       const n = Number(m[1])
-      if (n === unitNum) return kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
-      if (name.startsWith(`${prefix}-`)) return kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
+      if (n === unitNum || name.startsWith(`${prefix}-`)) {
+        const rel = kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
+        if (kind === 'short' && !existsSync(join(bookRoot, rel))) continue
+        return rel
+      }
     }
   } catch {
     return null
@@ -275,6 +278,7 @@ function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
       // HEAD 里没有（本章新建）：删除
       try {
         unlinkSync(full)
+        rmdirSync(dirname(full))
       } catch {
         // best-effort
       }
