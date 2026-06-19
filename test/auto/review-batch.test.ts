@@ -158,3 +158,19 @@ test('单章打回: 移到 .isolated/ 留痕', async () => {
 
   rmSync(root, { recursive: true, force: true })
 })
+
+test('单章打回: 移动失败时不在原待审目录残留 rejection 标记', async () => {
+  const root = await makeBookWithPending(1)
+  const srcName = readdirSync(pendingRoot(root)).find((f) => f.startsWith('0001-'))!
+  const conflictDir = join(pendingRoot(root), '.isolated', srcName)
+  mkdirSync(conflictDir, { recursive: true })
+  writeFileSync(join(conflictDir, '占位.md'), '已有隔离目录，制造 rename 失败。', 'utf-8')
+
+  const r = rejectPendingChapter(root, 1, '情节不合理')
+
+  expect(r.ok).toBe(false)
+  expect(existsSync(join(pendingRoot(root), srcName))).toBe(true)
+  expect(existsSync(join(pendingRoot(root), srcName, '.rejection.json'))).toBe(false)
+
+  rmSync(root, { recursive: true, force: true })
+})
