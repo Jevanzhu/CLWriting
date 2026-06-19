@@ -30,7 +30,7 @@ test('回滚: 写到第 5 章 → 回到第 3 章，定稿区只剩 1-3 章', ()
   if (r.ok) {
     expect(r.revertedTo).toBe(3)
     expect(r.discardedChapters).toBe(2) // 第 4、5 章丢弃
-    expect(r.backupRef).toContain('回到3')
+    expect(r.backupRef).toContain('回到章3')
     // 定稿区只剩 0001/0002/0003
     const chapters = readdirSync(join(root, '定稿', '正文')).filter((f) => f.endsWith('.md'))
     expect(chapters.some((f) => f.startsWith('0001'))).toBe(true)

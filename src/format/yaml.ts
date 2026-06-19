@@ -81,6 +81,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   if (find('spec_version')) cfg.spec_version = parseFiniteNumber(find('spec_version')!.value, 1)
 
+  // kind（M8 #25）：顶层标量，缺省 long；只有显式 kind: short 才路由短篇轨
+  const kindNode = find('kind')
+  if (kindNode) {
+    const k = String(parseValue(kindNode.value))
+    if (k === 'short' || k === 'long') cfg.kind = k
+  }
+
   const book = find('book')
   if (book) {
     const t = book.children.find((c) => c.key === 'title')
@@ -193,31 +200,40 @@ export function readBookConfig(
   }
 }
 
-/** BookConfig → YAML 文本（#9 第 2 节格式） */
+/** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，M8 #25） */
 export function stringifyBookConfig(cfg: BookConfig): string {
+  const isShort = cfg.kind === 'short'
   const lines: string[] = [
     `spec_version: ${cfg.spec_version}`,
-    '',
+    // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，M8 #25）
+    ...(isShort ? ['kind: short', ''] : ['']),
     'book:',
     `  title: ${stringifyValue(cfg.book.title)}`,
     `  genre: ${stringifyValue(cfg.book.genre)}`,
-    '',
-    'leads:',
-    `  enabled: ${stringifyValue(cfg.leads.enabled)}`,
   ]
-  if (cfg.leads.thresholds) {
-    lines.push('  thresholds:')
-    for (const [k, v] of Object.entries(cfg.leads.thresholds)) {
-      lines.push(`    ${k}: ${v}`)
+
+  // leads 段：长篇恒输出（账本类）；短篇无（账本降级单篇清单 #27）
+  if (!isShort) {
+    lines.push('', 'leads:', `  enabled: ${stringifyValue(cfg.leads.enabled)}`)
+    if (cfg.leads.thresholds) {
+      lines.push('  thresholds:')
+      for (const [k, v] of Object.entries(cfg.leads.thresholds)) {
+        lines.push(`    ${k}: ${v}`)
+      }
     }
   }
+
+  // budget 段：长短共用 calls_per_chapter；长篇额外含 summary 长程项（短篇无分层摘要）
+  lines.push('', 'budget:', `  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)
+  if (!isShort) {
+    lines.push(
+      `  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`,
+      `  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`,
+      `  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`,
+    )
+  }
+
   lines.push(
-    '',
-    'budget:',
-    `  calls_per_chapter: ${cfg.budget.calls_per_chapter}`,
-    `  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`,
-    `  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`,
-    `  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`,
     '',
     'style:',
     `  injection: ${cfg.style.injection}`,
@@ -225,11 +241,14 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     'auto:',
     `  confirm_outline: ${cfg.auto.confirm_outline}`,
     `  batch_size: ${cfg.auto.batch_size}`,
-    '',
-    'growth:',
-    `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`,
   )
-  // RAG 可选段（#37，非密；key 绝不入此）
+
+  // growth 段：长篇输出（成长线/境界）；短篇无（无成长线）
+  if (!isShort) {
+    lines.push('', 'growth:', `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`)
+  }
+
+  // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）
   if (cfg.rag) {
     lines.push(
       '',

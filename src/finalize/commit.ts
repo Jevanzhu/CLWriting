@@ -14,7 +14,7 @@
  * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
+import { existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -69,6 +69,27 @@ export function checkFinalizeGate(
   return { ok: true }
 }
 
+/**
+ * 短篇前置闸（M8 #26）：只跑审稿裁决 + 确认哈希两道刚需闸，跳形式三检。
+ * 短篇无七类长程账本（账本降级单篇清单 #27），形式三检对清单的适配归 #27；本期短篇 finalize 不跑形式三检。
+ */
+function checkFinalizeGateShort(
+  workDir: string,
+  outlinePath: string,
+  hasReviewVerdict: boolean,
+): FinalizeGateResult {
+  // #1 审稿裁决（刚需）
+  if (!hasReviewVerdict) {
+    return { ok: false, reason: '你还没拍板（审稿无作者裁决）' }
+  }
+  // #2 确认记录哈希（刚需）
+  const confirmGate = checkConfirmGate(workDir, outlinePath)
+  if (!confirmGate.ok) {
+    return { ok: false, reason: confirmGate.reason }
+  }
+  return { ok: true }
+}
+
 /** finalize 输入 */
 export interface FinalizeInput {
   bookRoot: string
@@ -80,9 +101,11 @@ export interface FinalizeInput {
   body: string // 正文
   fileName: string // 正文文件名
   hasReviewVerdict: boolean
-  /** 本章需更新的账本履历（leadId → 新增的履历行） */
+  /** 双轨标识（M8 #26）：long（缺省）→ ch: 前缀 + 定稿/正文/ + 账本摘要；short → pc: 前缀 + 篇/ + 跳账本摘要 */
+  kind?: 'long' | 'short'
+  /** 本章需更新的账本履历（leadId → 新增的履历行）；短篇无账本，不传 */
   leadUpdates?: { leadId: string; entries: { 章号: number; 动词: string; 证据: string }[] }[]
-  /** 章摘要文本 */
+  /** 章摘要文本；短篇无分层摘要，不传 */
   chapterSummary?: string
 }
 
@@ -97,24 +120,37 @@ export type FinalizeResult =
  */
 export function doFinalize(input: FinalizeInput): FinalizeResult {
   const { bookRoot, workDir, outlinePath, db, config, chapter, body, fileName, hasReviewVerdict } = input
-  const enabledTypes = ['伏笔', '悬念', '感情线', ...config.leads.enabled]
+  const kind = input.kind ?? 'long'
+  const isShort = kind === 'short'
 
-  // #1 前置闸
-  const gate = checkFinalizeGate(workDir, outlinePath, hasReviewVerdict, db, bookRoot, chapter.章号, enabledTypes)
+  // #1 前置闸：长篇跑形式三检（账本对账）；短篇无七类账本，跳形式三检（清单核对归 #27），只留审稿裁决 + 确认哈希
+  const gate = isShort
+    ? checkFinalizeGateShort(workDir, outlinePath, hasReviewVerdict)
+    : checkFinalizeGate(workDir, outlinePath, hasReviewVerdict, db, bookRoot, chapter.章号, ['伏笔', '悬念', '感情线', ...config.leads.enabled])
   if (!gate.ok) return gate
 
   // #2 写定稿区变更（记录改动路径，供 commit 失败时原子回滚，#13 第 4 节）
   const changedPaths: string[] = [] // 相对 bookRoot 的路径（commit 用 + 失败回滚用）
 
-  // 正文
-  const 正文dir = join(bookRoot, '定稿', '正文')
-  const chapterPath = join(正文dir, fileName)
-  const chapterRel = `定稿/正文/${fileName}`
-  writeChapter(chapterPath, chapter, body)
-  changedPaths.push(chapterRel)
+  if (isShort) {
+    // 短篇落点：篇/<篇号>-<标题>/正文.md（M8 #26）；fileName 约定 = `<篇号>-<标题>/正文.md`，落 篇/ 下
+    const chapterPath = join(bookRoot, '篇', fileName)
+    // 篇目录可能不存在（新篇），写正文前建（fileName 含子路径，需 mkdir 父目录）
+    mkdirSync(join(bookRoot, '篇', fileName.split('/')[0]!), { recursive: true })
+    const chapterRel = `篇/${fileName}`
+    writeChapter(chapterPath, chapter, body)
+    changedPaths.push(chapterRel)
+  } else {
+    // 长篇落点：定稿/正文/<章号>-<标题>.md（行为逐字节不变）
+    const 正文dir = join(bookRoot, '定稿', '正文')
+    const chapterPath = join(正文dir, fileName)
+    const chapterRel = `定稿/正文/${fileName}`
+    writeChapter(chapterPath, chapter, body)
+    changedPaths.push(chapterRel)
+  }
 
-  // 账本履历更新（幂等 + 本章校验）
-  if (input.leadUpdates) {
+  // 账本履历更新（幂等 + 本章校验）。短篇无长程账本（降级单篇清单 #27），强制跳过
+  if (!isShort && input.leadUpdates) {
     for (const update of input.leadUpdates) {
       const leadDir = join(bookRoot, '大纲')
       // 找到该 lead 的文件
@@ -138,22 +174,24 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     }
   }
 
-  // 章摘要
+  // 章摘要（短篇无分层摘要 #27，强制跳过）
   let summaryRel: string | null = null
-  if (input.chapterSummary) {
+  if (!isShort && input.chapterSummary) {
     const summaryDir = join(bookRoot, '定稿', '摘要', '章摘要')
     summaryRel = `定稿/摘要/章摘要/${chapter.章号}.md`
     writeFileSync(join(summaryDir, `${chapter.章号}.md`), input.chapterSummary, 'utf-8')
     changedPaths.push(summaryRel)
   }
 
-  // #3 git add + commit（原子点）—— 显式传本章路径，避免 add -A 误纳工作区无关改动（一 commit = 一章）
+  // commit msg 前缀按 kind（M8 #26）：long → ch:<4 位补零章号>；short → pc:<3 位补零篇号>
   const confirm = readConfirm(workDir)
   const trailer = confirm
     ? `\n\nConfirmed: ${confirm.confirmed_at} mode=${confirm.mode} hash=${confirm.outline_hash}`
     : ''
-  // commit msg 前缀贴 #16 第 4 节：ch:<4 位补零章号>（对齐 定稿/正文/0152-标题.md 补零约定，供 M3 回滚按 ch:<章号> grep 定位）
-  const commitMsg = `ch:${String(chapter.章号).padStart(4, '0')} ${chapter.标题}${trailer}`
+  const prefix = isShort
+    ? `pc:${String(chapter.章号).padStart(3, '0')}`
+    : `ch:${String(chapter.章号).padStart(4, '0')}`
+  const commitMsg = `${prefix} ${chapter.标题}${trailer}`
 
   // #3 git add + commit（原子点）—— 经 #16 git 隐身层 addCommit（集中收口 + 人话）
   const commit = addCommit(bookRoot, commitMsg, changedPaths)

@@ -121,6 +121,8 @@ export interface RealmDoc {
 /** book.yaml 配置（#9 第 2 节，机器域英文 key） */
 export interface BookConfig {
   spec_version: number
+  /** 双轨标识（M8 #25）：long（缺省，长篇）/ short（短篇集）。缺省 = long，现有仓库零改动 */
+  kind?: 'long' | 'short'
   book: {
     title: string
     genre: string

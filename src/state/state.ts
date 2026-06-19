@@ -99,30 +99,39 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     return { state: 2, parseErrors: rebuildResult.errors }
   }
 
-  // #3 未入账手改（#18 第 3 节）：定稿/、大纲/ 有未 commit 改动
+  // #3 未入账手改（#18 第 3 节）：定稿区/账本区有未 commit 改动
   // porcelain 格式：XY<空格>path，XY 是 2 字符状态码（" M"=worktree改、"M?"=staged等），path 从第 3 字符起。
+  // 手改目录按 kind 适配（M8 #25）：short 看 篇/，long 看 定稿/ + 大纲/
   const dirty = statusPorcelain(bookRoot)
   if (dirty) {
+    const handEditPrefixes = config.kind === 'short' ? ['篇/'] : ['定稿/', '大纲/']
     const handEdits = dirty
       .split('\n')
       .filter((l) => l.length > 3) // 有效行（XY + 至少 1 字符 path）
       .map((l) => l.slice(3)) // 去 XY+空格，剩 path
-      .filter((path) => path.startsWith('定稿/') || path.startsWith('大纲/'))
+      .filter((path) => handEditPrefixes.some((p) => path.startsWith(p)))
     if (handEdits.length > 0) {
       return { state: 3, handEdits }
     }
   }
 
-  // #4 工作区未完成（#13 第 5 节中断恢复）：有草稿/细纲/.confirm 但无对应 ch: commit
+  // #4 工作区未完成（#13 第 5 节中断恢复）：有草稿/细纲/.confirm 但无对应定稿 commit
   // 按 #13 第 5 节判中断点：无对应 commit = pre-commit（续写）；有对应 commit = post-commit-residue（幂等清理）
+  // 前缀按 kind（M8 #26）：long → ch:，short → pc:
   const incomplete = detectIncompleteWorkdir(bookRoot)
   if (incomplete) {
-    const alreadyCommitted = findChapterCommit(bookRoot, incomplete) !== null
+    const alreadyCommitted = findChapterCommit(bookRoot, incomplete, config.kind ?? 'long') !== null
     return {
       state: 4,
       chapterNum: incomplete,
       resumePoint: alreadyCommitted ? 'post-commit-residue' : 'pre-commit',
     }
+  }
+
+  // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
+  // 短篇分支：无态 8（本期不批量）/5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 篇/ 目录
+  if (config.kind === 'short') {
+    return { state: 7, nextChapter: countPieces(bookRoot) + 1 }
   }
 
   // #8 待批量审稿（M6 #34）：待定稿有完成章 → 路由批量审稿（插态 4 后、态 5 前）
@@ -211,6 +220,27 @@ function detectPendingBatch(bookRoot: string): number[] {
     if (m) chapters.push(Number(m[1]))
   }
   return chapters.sort((a, b) => a - b)
+}
+
+/**
+ * 数短篇集已定稿篇数（M8 #26）：扫 篇/ 下 `<篇号>-<标题>/` 目录数。
+ * 短篇判进度不依赖 .cache/index.db 章统计（无长程账本缓存）；篇/ 子目录数即已定稿篇数。
+ */
+function countPieces(bookRoot: string): number {
+  const piecesDir = join(bookRoot, '篇')
+  if (!existsSync(piecesDir)) return 0
+  let count = 0
+  try {
+    for (const e of readdirSync(piecesDir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue
+      if (e.name.startsWith('.')) continue
+      // 目录名格式：<篇号>-<标题>，如 001-雪夜来客
+      if (/^\d+-/.test(e.name)) count++
+    }
+  } catch {
+    return 0
+  }
+  return count
 }
 
 /**
@@ -379,6 +409,10 @@ function readRecapSnapshot(
   config: BookConfig,
   detected: DetectedState,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
+  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；用 fallback 从 detected 推篇号
+  if (config.kind === 'short') {
+    return fallbackRecapSnapshot(detected)
+  }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined
   try {
@@ -409,8 +443,8 @@ function parseLastConfirm(bookRoot: string): StatusRecap['lastConfirm'] {
   const at = m[1]
   const mode = m[2]
   const hash = m[3]
-  // 章号从 commit 标题 ch:NNNN 取
-  const chMatch = msg.match(/^ch:(\d+)/)
+  // 章号/篇号从 commit 标题取（long → ch:NNNN；short → pc:NNN，M8 #26）
+  const chMatch = msg.match(/^(?:ch|pc):(\d+)/)
   const chapter = chMatch && chMatch[1] ? Number(chMatch[1]) : 0
   // verified：当前工作区细纲哈希是否与 trailer 一致；无细纲文件则无法复核。
   // 复用 gate/confirm.ts 的 hashFile（原始字节哈希），与 doConfirm 写入算法保持单源一致

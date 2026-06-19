@@ -38,13 +38,19 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   execSync('git config user.name author', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git config commit.gpgsign false', { cwd: bookRoot, stdio: 'pipe' })
 
-  // book.yaml（#9 schema，题材驱动 leads.enabled）
-  const config: BookConfig = {
-    ...DEFAULT_CONFIG,
-    book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
-    leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
-    ...(opts.kind === 'short' ? { kind: 'short' } : {}),
-  }
+  // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）
+  const config: BookConfig = opts.kind === 'short'
+    ? {
+        ...DEFAULT_CONFIG,
+        // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
+        kind: 'short',
+        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
+      }
+    : {
+        ...DEFAULT_CONFIG,
+        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
+        leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
+      }
   writeBookConfig(join(bookRoot, 'book.yaml'), config)
 
   // 母本 6.2 目录：定稿 / 大纲 / 文风 / 工作区
@@ -65,8 +71,12 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   execSync('git commit -m "init"', { cwd: bookRoot, stdio: 'pipe' })
 }
 
-/** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。 */
+/** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（M8 #25）。 */
 export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
+  if (opts.kind === 'short') {
+    scaffoldShortDirectories(bookRoot, opts)
+    return
+  }
   // 定稿区
   for (const d of ['定稿/正文', '定稿/摘要/章摘要', '定稿/摘要/卷摘要', '定稿/设定/角色', '定稿/设定/时间线']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
@@ -86,14 +96,35 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   }
 
   // 文风冷启动占位（O2）：五场景空目录 + 文风铁律骨架
+  scaffoldSharedStyle(bookRoot, opts.genre)
+
+  // 工作区（临时区，gitignore）
+  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+}
+
+/**
+ * 短篇集目录布局（M8 #25 第 3 节）：一仓库一短篇集。
+ * 建 `篇/`（空，不预建篇）+ 整集共享 `文风/` + `工作区/`。
+ * 不建 定稿/、大纲/、卷纲、设定、growth——短篇无长程载重。
+ */
+function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): void {
+  // 篇/：多篇并存，替代长篇 定稿/正文/；建空（第一篇走单篇流程创建，#27）
+  mkdirSync(join(bookRoot, '篇'), { recursive: true })
+
+  // 文风/：整集共享（样章库 few-shot + 文风铁律含禁词 + 金句库），长短同构
+  scaffoldSharedStyle(bookRoot, _opts.genre)
+
+  // 工作区/：临时区（当前在写的篇，态 4 续跑粒度=篇）
+  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+}
+
+/** 文风冷启动占位（O2，长短共用——整集/整本书共享笔感/禁词/机检）。 */
+function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   for (const scene of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
     mkdirSync(join(bookRoot, '文风', '样章库', scene), { recursive: true })
   }
   mkdirSync(join(bookRoot, '文风', '金句库'), { recursive: true })
-  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(opts.genre), 'utf-8')
-
-  // 工作区（临时区，gitignore）
-  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre), 'utf-8')
 }
 
 /** 文风铁律模板（冷启动占位，作者后续按本书调性补）。 */
@@ -114,8 +145,31 @@ export function renderStyleRules(_genre: string): string {
   ].join('\n')
 }
 
-/** 书仓库层 AGENTS.md（书级指路）。 */
+/** 书仓库层 AGENTS.md（书级指路；长短分轨文案）。 */
 export function renderBookAgentsMd(opts: BookScaffoldOpts): string {
+  if (opts.kind === 'short') {
+    return [
+      `# ${opts.name}`,
+      '',
+      `这是 CLWriting 短篇集仓库。题材：${opts.genre || '（未指定）'}。`,
+      '',
+      '## 配置',
+      '',
+      '`book.yaml` 是机器域配置（`kind: short`，经对话改，不手编）。',
+      '短篇集无长程账本（账本降级为单篇 `清单.md`，#27）、无卷/体检/分层摘要。',
+      '',
+      '## 结构',
+      '',
+      '- `篇/<篇号>-<标题>/`：已定稿篇（`正文.md` + `清单.md`），只进不改',
+      '- `文风/`：整集共享（样章库 / 文风铁律 / 金句库）',
+      '- `工作区/`：当前在写的篇（定稿后移入 `篇/`）',
+      '',
+      '## 下一步',
+      '',
+      '运行 `clwriting enter` 看这个集写到哪、下一步干啥。',
+      '',
+    ].join('\n')
+  }
   const leadsList = [...BASE_LEAD_TYPES, ...opts.leadsEnabled]
   return [
     `# ${opts.name}`,
