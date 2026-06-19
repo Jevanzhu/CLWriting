@@ -10,13 +10,14 @@
  * 幂等：同版本重跑无副作用。不碰书仓库内容。
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, cpSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { generateRoleShells, checkRoleShellDrift, formatDriftReport, type ShellPlatform } from '../roles/shells.js'
 import { findWorkDir, readBooks } from './books.js'
 import { installBookPushGuard } from './scaffold.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 
 export interface UpdateOptions {
   workDir: string
@@ -251,7 +252,7 @@ function readTemplatesManifest(path: string): TemplatesManifest {
 
 function writeTemplatesManifest(path: string, records: TemplateRecord[]): void {
   const manifest: TemplatesManifest = { version: 1, records }
-  writeFileSync(path, JSON.stringify(manifest, null, 2), 'utf-8')
+  atomicWriteFile(path, JSON.stringify(manifest, null, 2))
 }
 
 function hashText(text: string): string {

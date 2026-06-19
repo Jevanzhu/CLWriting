@@ -18,6 +18,7 @@ import type { BookConfig, ChapterMeta } from '../format/types.js'
 import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { prepareMaterials } from '../process/materials.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 
 // ── 待定稿路径常量 ─────────────────────────────────
 
@@ -91,7 +92,7 @@ export function readBatchProgress(bookRoot: string): BatchProgress | null {
 /** 写批次进度。 */
 export function writeBatchProgress(bookRoot: string, progress: BatchProgress): void {
   mkdirSync(pendingRoot(bookRoot), { recursive: true })
-  writeFileSync(batchFilePath(bookRoot), JSON.stringify(progress, null, 2), 'utf-8')
+  atomicWriteFile(batchFilePath(bookRoot), JSON.stringify(progress, null, 2))
 }
 
 // ── 搬运：工作区根产出 → 待定稿/<章>/（#33 第 4 节）──

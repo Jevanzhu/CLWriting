@@ -15,6 +15,7 @@ import { generateRoleShells, type ShellPlatform } from '../roles/shells.js'
 import { matchGenreLeads } from './data.js'
 import { appendBook, writeActive, readBooks } from './books.js'
 import { scaffoldBookRepo, findGitAncestor, type BookScaffoldOpts } from './scaffold.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { LeadType } from '../format/types.js'
 
 export interface InitOptions {
@@ -142,10 +143,9 @@ function writeTemplatesManifest(workDir: string, srcDir: string): void {
     path: `${CLWRITING_DIR}/roles/${f}`,
     installed_hash: hashText(readFileSync(join(srcDir, f), 'utf-8')),
   }))
-  writeFileSync(
+  atomicWriteFile(
     join(workDir, TEMPLATES_MANIFEST),
     JSON.stringify({ version: 1, records }, null, 2),
-    'utf-8',
   )
 }
 

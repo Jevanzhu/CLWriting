@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -74,6 +74,19 @@ test('repairBooks: 书目录丢失且无法重关联 → 标 missing 并保留�
   // missing 登记保留，避免静默丢书；由 CLI 提示作者重关联
   expect(result.rebuilt.find((b) => b.name === '书X')).toBeDefined()
   expect(readBooks(wd).find((b) => b.name === '书X')).toBeDefined()
+
+  rmSync(wd, { recursive: true, force: true })
+})
+
+test('writeBooks: books.jsonl 原子写入且不残留临时文件', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'rep-atomic-'))
+  const entry: BookEntry = { name: '书A', path: '书A', kind: 'long' }
+
+  writeBooks(wd, [entry])
+
+  expect(JSON.parse(readFileSync(join(wd, '.clwriting', 'books.jsonl'), 'utf-8').trim())).toEqual(entry)
+  const leftovers = readdirSync(join(wd, '.clwriting')).filter((f) => f.includes('books.jsonl') && f.endsWith('.tmp'))
+  expect(leftovers).toEqual([])
 
   rmSync(wd, { recursive: true, force: true })
 })
