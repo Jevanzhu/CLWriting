@@ -18,6 +18,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     'book:',
     '  title: 北境往事',
     '  genre: 玄幻',
+    '  volume_size: 40',
     '',
     'leads:',
     '  enabled: [局线, 设定线, 成长线]',
@@ -46,11 +47,27 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
   if (r.ok) {
     expect(r.config.book.title).toBe('北境往事')
     expect(r.config.book.genre).toBe('玄幻')
+    expect(r.config.book.volume_size).toBe(40)
     expect(r.config.leads.enabled).toEqual(['局线', '设定线', '成长线'])
     expect(r.config.leads.thresholds?.['成长线']).toBe(50)
     expect(r.config.budget.calls_per_chapter).toBe(8)
     expect(r.config.auto.confirm_outline).toBe(false)
     expect(r.config.growth.realm_span_max).toBe(2)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('writeBookConfig + readBookConfig: 可选 volume_size 往返', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const fp = join(dir, 'book.yaml')
+  writeBookConfig(fp, {
+    ...DEFAULT_CONFIG,
+    book: { title: '雪落长安', genre: '历史', volume_size: 30 },
+  })
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.config.book.volume_size).toBe(30)
   }
   rmSync(dir, { recursive: true, force: true })
 })

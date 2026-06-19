@@ -39,6 +39,12 @@ export interface CheckReport {
     leadChanges?: { leadId: string; chapter: number; verb: string; evidence: string }[]
     infoLeakCandidates?: string[]
     newNames?: string[]
+    pieceListChecks?: {
+      type: 'reversal' | 'payoff'
+      subject: string
+      location: string
+      detail: string
+    }[]
   }
 }
 

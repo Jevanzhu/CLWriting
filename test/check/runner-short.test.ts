@@ -115,6 +115,10 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
   })
   const names = r.sections.map((s) => s.name)
   expect(names).toContain('清单形式检')
+  expect(r.byproducts?.pieceListChecks).toEqual([
+    { type: 'reversal', subject: 'x', location: 'a', detail: 'x' },
+    { type: 'payoff', subject: 'y', location: '', detail: '未回收' },
+  ])
   const form = r.sections.find((s) => s.name === '清单形式检')!
   expect(form.items.length).toBeGreaterThanOrEqual(2) // 铺垫<3 + 未回收
 })

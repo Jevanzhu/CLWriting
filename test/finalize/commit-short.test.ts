@@ -72,6 +72,36 @@ test('short finalize: 落 篇/<篇号>-<标题>/正文.md + commit pc: 前缀', 
   }
 })
 
+test('short finalize: 清单.md 随正文同 pc commit 归档', () => {
+  const root = makeShortBook()
+  try {
+    const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+    const workDir = join(root, '工作区')
+    const outline = join(workDir, '细纲.md')
+    writeFileSync(outline, '雪夜细纲', 'utf-8')
+    writeFileSync(join(workDir, '清单.md'), '## 反转线索表\n- 核心反转：来客就是死者\n', 'utf-8')
+    doConfirm(workDir, 1, outline, 'manual', SHORT_CONFIG)
+
+    const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折' }
+    const r = doFinalize({
+      bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
+      chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
+      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+    })
+    expect(r.ok).toBe(true)
+
+    const manifestPath = join(root, '篇', '001-雪夜', '清单.md')
+    expect(existsSync(manifestPath)).toBe(true)
+    expect(readFileSync(manifestPath, 'utf-8')).toContain('来客就是死者')
+    const committedFiles = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
+    expect(committedFiles).toContain('篇/001-雪夜/正文.md')
+    expect(committedFiles).toContain('篇/001-雪夜/清单.md')
+    db.close()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('short finalize: 跳账本履历 + 跳章摘要（篇/ 下无 大纲/无 定稿/摘要）', () => {
   const root = makeShortBook()
   try {

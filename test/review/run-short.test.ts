@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,12 +8,19 @@ import {
   renderReviewVerdict,
   lensIssuesFileName,
   COMBINED_ISSUES_FILE,
+  readReviewPacket,
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
+import { reviewCommand } from '../../src/cli/review.js'
+import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { writePiece } from '../../src/format/pieces.js'
+import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { ReviewIssue } from '../../src/review/contract.js'
+import type { BookConfig, PieceList } from '../../src/format/types.js'
 
 const emptyReport: CheckReport = { sections: [], byproducts: {} }
+const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
 /** 造短篇满审 packet（短篇三视角） */
 function makeShortFullPacket(workDir: string): ReviewExecutionPacket {
@@ -51,6 +58,62 @@ test('buildReviewPacket short: 满审产短篇三视角分包', () => {
   expect(packet.lenses_run).toEqual(['hook', 'emotion_peak', 'payoff'])
   expect(packet.packets.map((p) => p.lens)).toEqual(['hook', 'emotion_peak', 'payoff'])
   rmSync(workDir, { recursive: true, force: true })
+})
+
+test('review run short: 读取篇号草稿并把清单核对写入执行包', () => {
+  const root = mkdtempSync(join(tmpdir(), 'review-short-cli-'))
+  const workDir = join(root, '工作区')
+  try {
+    writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
+    mkdirSync(workDir, { recursive: true })
+    mkdirSync(join(root, '文风'), { recursive: true })
+    writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n', 'utf-8')
+    writePiece(
+      join(workDir, '草稿-1.md'),
+      { 篇号: 1, 标题: '雪夜来客', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
+      ['第一节。', '第二节。', '第三节。', '第四节。', '第五节。'].join('\n\n'),
+    )
+    const list: PieceList = {
+      反转线索表: {
+        核心反转: '来客就是死者',
+        铺垫点: [
+          { 位置: '开头', 内容: '门外没有脚印' },
+          { 位置: '中段', 内容: '镜中没有影子' },
+          { 位置: '尾声', 内容: '钟表倒走' },
+        ],
+      },
+      伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
+    }
+    writePieceList(join(workDir, '清单.md'), list)
+
+    const out: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
+    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit ${code ?? ''}`)
+    }) as typeof process.exit)
+    try {
+      reviewCommand(['run', root, '--chapter=1', '--single'])
+    } finally {
+      log.mockRestore()
+      err.mockRestore()
+      exit.mockRestore()
+    }
+
+    expect(out.join('\n')).toContain('第 1 篇')
+    const loaded = readReviewPacket(workDir)
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(loaded.packet.packets[0]?.lens).toBe('payoff')
+    expect(loaded.packet.packets[0]?.list_checks).toEqual([
+      { type: 'reversal', subject: '来客就是死者', location: '开头', detail: '门外没有脚印' },
+      { type: 'reversal', subject: '来客就是死者', location: '中段', detail: '镜中没有影子' },
+      { type: 'reversal', subject: '来客就是死者', location: '尾声', detail: '钟表倒走' },
+      { type: 'payoff', subject: '门外没有脚印', location: '结尾', detail: '结尾' },
+    ])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 // ── 白名单双改：短篇 category/lens 不进 bad_entries ──

@@ -14,7 +14,7 @@
  * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -135,9 +135,10 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
 
   if (isShort) {
     // 短篇落点：篇/<篇号>-<标题>/正文.md（M8 #26）；fileName 约定 = `<篇号>-<标题>/正文.md`，落 篇/ 下
+    const pieceDirName = fileName.split('/')[0]!
     const chapterPath = join(bookRoot, '篇', fileName)
     // 篇目录可能不存在（新篇），写正文前建（fileName 含子路径，需 mkdir 父目录）
-    mkdirSync(join(bookRoot, '篇', fileName.split('/')[0]!), { recursive: true })
+    mkdirSync(join(bookRoot, '篇', pieceDirName), { recursive: true })
     const chapterRel = `篇/${fileName}`
     // 短篇正文用 PieceMeta（篇号/标题/目标情绪/核心反转），从 ChapterMeta（章号承载篇号）映射；
     // 目标情绪/核心反转藏在 _raw（readDraft 短篇分支保留），无则按篇号/标题最小字段写
@@ -148,6 +149,12 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     }
     writePiece(chapterPath, piece, body)
     changedPaths.push(chapterRel)
+    const sourceManifest = join(workDir, '清单.md')
+    if (existsSync(sourceManifest)) {
+      const manifestRel = `篇/${pieceDirName}/清单.md`
+      copyFileSync(sourceManifest, join(bookRoot, manifestRel))
+      changedPaths.push(manifestRel)
+    }
   } else {
     // 长篇落点：定稿/正文/<章号>-<标题>.md（行为逐字节不变）
     const 正文dir = join(bookRoot, '定稿', '正文')
