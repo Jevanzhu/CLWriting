@@ -64,6 +64,61 @@ export interface Lead {
 /** 钩子类型（#7 第 3 节，追读力 5 类） */
 export type HookType = '危机钩' | '悬念钩' | '渴望钩' | '情绪钩' | '选择钩'
 
+// ── 短篇正文元数据（M8 #27，单篇爆破力目标函数）──
+
+/**
+ * 短篇正文 front matter（M8 #27 第 6 节，最小字段集）。
+ *
+ * 短篇目标函数是「单篇情绪爆破」，与长篇 ChapterMeta（钩子/情绪定位追读力向）字段不重合。
+ * 落点：篇/<篇号>-<标题>/正文.md（与长篇 定稿/正文/<章号>-<标题>.md 分轨，读写函数分轨对齐）。
+ */
+export interface PieceMeta {
+  篇号: number
+  标题: string
+  /** 目标情绪（P1 拍板，情绪是短篇目标函数） */
+  目标情绪?: string
+  /** 核心反转（P1 拍板，一反转撑全篇） */
+  核心反转?: string
+  _raw?: Record<string, string>
+  _path?: string
+  /** 机检算的字数派生（不入 front matter） */
+  _wordCount?: number
+}
+
+// ── 单篇清单（M8 #27，账本降级：反转线索表 + 伏笔回收）──
+
+/** 反转线索表的铺垫点（结构物件三现，吸收点 7.4） */
+export interface SetupPoint {
+  位置: string
+  内容: string
+}
+
+/** 反转线索表（核心反转 + ≥3 铺垫点，反转可回溯） */
+export interface ReversalLead {
+  核心反转: string
+  铺垫点: SetupPoint[]
+}
+
+/** 伏笔回收条目（单篇内闭合，弃坑 = 阻断） */
+export interface PayoffEntry {
+  伏笔: string
+  回收位置: string
+  /** 未回收标记（机检形式检 / 设定收尾审语义核对） */
+  未回收?: boolean
+}
+
+/**
+ * 单篇清单（M8 #27 第 4 节）。
+ * 范围限单篇、写完即归档；复用账本格式骨架降级，无跨篇长程线。
+ * 落点：篇/<篇号>-<标题>/清单.md。
+ */
+export interface PieceList {
+  反转线索表: ReversalLead
+  伏笔回收: PayoffEntry[]
+  _raw?: Record<string, string>
+  _path?: string
+}
+
 /** 钩子强弱 */
 export type HookLevel = '强' | '中' | '弱'
 

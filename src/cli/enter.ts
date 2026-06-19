@@ -29,10 +29,10 @@ export function enterCommand(args: string[]): void {
   }
   const bookRoot = resolved.bookRoot
 
-  const { recap, route } = enter(bookRoot)
+  const { recap, route, kind } = enter(bookRoot)
 
   // 近况复述（#15 第 4 节）
-  console.log(formatRecap(recap))
+  console.log(formatRecap(recap, kind))
   console.log()
   // 路由建议（#15 第 2 节）
   console.log(formatRoute(route))

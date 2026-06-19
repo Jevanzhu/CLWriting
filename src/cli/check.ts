@@ -34,6 +34,7 @@ export function checkCommand(args: string[]): void {
   }
 
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const isShort = (config.kind ?? 'long') === 'short'
   const cachePath = join(bookRoot, '.cache', 'index.db')
   const rebuilt = rebuild(bookRoot, cachePath)
   if (rebuilt.errors.length > 0) {
@@ -48,12 +49,12 @@ export function checkCommand(args: string[]): void {
   let hasBlockingRed = false
   try {
     const report = runAllChecks({
-      db,
+      db: isShort ? undefined : db,
       bookRoot,
       config,
       chapter: draft.chapter,
       body: draft.body,
-      fileName: finalChapterFileName(draft.chapter),
+      fileName: finalChapterFileName(draft.chapter, isShort),
     })
     console.log(formatReport(report, mode))
     hasBlockingRed = hasRed(report)
@@ -102,6 +103,9 @@ function readDraft(
   return { ok: true, chapter: chapter.chapter, body: file.body }
 }
 
-function finalChapterFileName(chapter: ChapterMeta): string {
+function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
+  if (isShort) {
+    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
+  }
   return `${chapter.章号}-${chapter.标题}.md`
 }

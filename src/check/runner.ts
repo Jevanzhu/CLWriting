@@ -24,14 +24,23 @@ import {
   checkStyleMetrics,
   checkInfoLeak,
   parseIronRules,
+  checkPieceFrontMatter,
+  checkPieceWordCount,
+  checkBodyParts,
+  checkSimile,
+  checkSectionCount,
+  checkOpeningNoEnv,
 } from './count.js'
+import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
+import { readPieceList } from '../format/manifest.js'
 import type { ChapterMeta, BookConfig, RealmDoc } from '../format/types.js'
 
 /** 机检输入 */
 export interface CheckInput {
-  db: DatabaseSync
+  /** 缓存 db（长篇必填；短篇无 db，不传） */
+  db?: DatabaseSync
   bookRoot: string
   config: BookConfig
   chapter: ChapterMeta
@@ -45,9 +54,26 @@ export interface CheckInput {
   leakKeywords?: string[] // 信息差关键词（#10 项 11，默认空，数据源待定）
 }
 
-/** 跑全套机检（#10 第 2 节 11 项）→ CheckReport */
+/**
+ * 跑全套机检（#10 第 2 节 11 项）→ CheckReport。
+ *
+ * 按 `config.kind` 分支（M8 #27 第 5 节，H2 合并设计）：
+ * - long（缺省）：长篇 11 项（账本/成长线/db 强依赖），行为逐字节不变
+ * - short：跳账本/成长线/专名/信息差（长程项），跑通用项（禁词/复读/句式/文风）+ 短篇专属项（身体部位词/「像」/节数/开头零环境）+ 清单形式检
+ */
 export function runAllChecks(input: CheckInput): CheckReport {
+  const { config, body, fileName } = input
+  const isShort = (config.kind ?? 'long') === 'short'
+  return isShort ? runShort(input) : runLong(input)
+}
+
+/** 长篇机检（#10 第 2 节 11 项，db 强依赖，行为逐字节不变） */
+function runLong(input: CheckInput): CheckReport {
   const { db, bookRoot, config, chapter, body, fileName } = input
+  if (!db) {
+    // 长篇必须带 db（账本/成长线项强依赖）；防御性兜底
+    throw new Error('runAllChecks: 长篇机检需要 db（缓存 index.db）')
+  }
   const sections: CheckSectionResult[] = []
 
   // 当前章号
@@ -147,3 +173,54 @@ function collectByproducts(
 
 /** 导出 hasRed/getRedItems 方便调用方 */
 export { hasRed, getRedItems }
+
+/**
+ * 短篇机检（M8 #27 第 5 节）。
+ *
+ * 关闭长程项（账本形式三检/成长线/专名/信息差——短篇无长程载重），
+ * 保留通用项（禁词/复读/句式/文风可量化），新增短篇专属项（身体部位词/「像」/节数/开头零环境），
+ * 加跑清单形式检（反转线索 ≥3 铺垫、伏笔回收闭合）。
+ * 零 db 依赖（短篇无缓存章表）。
+ */
+function runShort(input: CheckInput): CheckReport {
+  const { bookRoot, chapter, body, fileName } = input
+  const sections: CheckSectionResult[] = []
+
+  // front matter（短篇口径：篇号 + 标题，无钩子/情绪枚举）
+  // 短篇复用 ChapterMeta 内存模型（章号字段承载篇号），按短篇字段校验
+  sections.push(checkPieceFrontMatter({ 篇号: chapter.章号, 标题: chapter.标题 }, fileName))
+
+  // 禁词（长短通用）
+  sections.push(checkBannedWords(body, input.bannedWords ?? []))
+
+  // 短篇字数（8000–20000，#27 第 5.2 节）
+  sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body)))
+
+  // 复读 / 句式 / 文风可量化（长短通用）
+  sections.push(checkRepeat(body))
+  sections.push(checkSentenceLength(body))
+
+  const ironPath = join(bookRoot, '文风', '文风铁律.md')
+  const ironRules = existsSync(ironPath) ? parseIronRules(readFileSync(ironPath, 'utf-8')) : {}
+  sections.push(checkStyleMetrics(body, ironRules))
+
+  // 短篇专属项（#27 第 5.3 节，吸收点 7.1）
+  sections.push(checkBodyParts(body))
+  sections.push(checkSimile(body))
+  sections.push(checkSectionCount(body))
+  sections.push(checkOpeningNoEnv(body))
+
+  // 清单形式检（若篇目录有 清单.md，#27 第 5 节 + #28 第 3 节分工）
+  // chapter._path 是正文路径，清单.md 同目录
+  const pieceDir = chapter._path ? join(chapter._path, '..') : null
+  if (pieceDir) {
+    const manifestPath = join(pieceDir, '清单.md')
+    if (existsSync(manifestPath)) {
+      const r = readPieceList(manifestPath)
+      if (r.ok) sections.push(checkPieceListForm(r.list))
+    }
+  }
+
+  // 短篇无账本变动清单 / 信息差 / 新专名候选（无长程账本，byproducts 留空）
+  return { sections, byproducts: {} }
+}

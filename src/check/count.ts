@@ -377,3 +377,172 @@ export function checkInfoLeak(
   }
   return { name: '信息差候选', items }
 }
+
+// ── 短篇专属机检项（M8 #27 第 5.3 节，新增）──────────
+//
+// 短篇目标函数是单篇情绪爆破，4 项专属软约束（吸收点 7.1）：
+// 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
+// 全部零 token 脚本判定，黄项只报不拦（ask 不 deny）。
+
+/** 短篇正文 front matter 检查（#27 第 6 节，🔴 红）。
+ *  篇号必填、标题非空。与长篇 checkFrontMatter 分轨（短篇无钩子/情绪定位枚举）。 */
+export function checkPieceFrontMatter(
+  piece: { 篇号: number; 标题: string },
+  fileName: string,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  // 篇号 == 文件名前缀（篇/001-标题/正文.md → 取 001）
+  const fileNum = Number(fileName.match(/(\d+)-/)?.[1])
+  if (!Number.isNaN(fileNum) && fileNum !== piece.篇号) {
+    items.push({
+      checkId: 'fm-piece-mismatch',
+      level: 'red',
+      message: `篇号「${piece.篇号}」与文件名「${fileName}」前缀不一致`,
+    })
+  }
+  if (!piece.标题) {
+    items.push({ checkId: 'fm-piece-title', level: 'red', message: '缺少标题' })
+  }
+  return { name: '短篇 front matter', items }
+}
+
+/** 短篇字数阈值（#27 第 5.2 节，🟡 黄）。
+ *  总字数 8000–20000（工单第 0 节）；阈值待 beta 校准，本期定方向。 */
+export function checkPieceWordCount(
+  actualWords: number,
+  min = 8000,
+  max = 20000,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  if (actualWords < min) {
+    items.push({
+      checkId: 'piece-word-short',
+      level: 'yellow',
+      message: `字数 ${actualWords} 低于短篇下限 ${min}（短篇目标 8000–20000）`,
+    })
+  } else if (actualWords > max) {
+    items.push({
+      checkId: 'piece-word-long',
+      level: 'yellow',
+      message: `字数 ${actualWords} 超过短篇上限 ${max}（短篇目标 8000–20000）`,
+    })
+  }
+  return { name: '短篇字数', items }
+}
+
+/** 默认身体部位词表（吸收点 7.1 正文洁净，AI 味堆砌高发项） */
+const DEFAULT_BODY_PARTS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
+
+/**
+ * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
+ * 正文洁净：眼/手/心脏等堆砌计数超阈报黄（AI 味高发）。
+ */
+export function checkBodyParts(
+  body: string,
+  threshold = 5,
+  words: string[] = DEFAULT_BODY_PARTS,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  const over: string[] = []
+  for (const word of words) {
+    if (!word) continue
+    let count = 0
+    let idx = body.indexOf(word)
+    while (idx !== -1) {
+      count++
+      idx = body.indexOf(word, idx + word.length)
+    }
+    if (count > threshold) over.push(`${word}×${count}`)
+  }
+  if (over.length > 0) {
+    items.push({
+      checkId: 'body-parts',
+      level: 'yellow',
+      message: `身体部位词堆砌超阈（≤${threshold}）：${over.join('、')}`,
+    })
+  }
+  return { name: '身体部位词', items }
+}
+
+/**
+ * 「像」比喻密度检查（#27 第 5.3 节，🟡 黄）。
+ * 比喻泛滥计数：以「像」开头的比喻句超阈报黄。
+ */
+export function checkSimile(
+  body: string,
+  threshold = 10,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  // 统计「像」字出现次数（粗计；精确判定比喻句需语义，零 token 取近似）
+  let count = 0
+  let idx = body.indexOf('像')
+  while (idx !== -1) {
+    count++
+    idx = body.indexOf('像', idx + 1)
+  }
+  if (count > threshold) {
+    items.push({
+      checkId: 'simile-density',
+      level: 'yellow',
+      message: `「像」出现 ${count} 次超阈值（≤${threshold}），比喻泛滥疑似 AI 味`,
+    })
+  }
+  return { name: '比喻密度', items }
+}
+
+/**
+ * 节数守恒检查（#27 第 5.3 节，🟡 黄）。
+ * 正文实际节数（按空行切块）与五段结构一致。严重不符可定红（阈值实现期定）。
+ */
+export function checkSectionCount(
+  body: string,
+  expected = 5,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  // 按 markdown ## 标题或连续空行切块
+  const byHeading = body.split(/^##\s/m).filter((s) => s.trim().length > 0)
+  let sections: number
+  if (byHeading.length >= 2) {
+    // 有 ## 标题：按标题数
+    sections = byHeading.length
+  } else {
+    // 无标题：按双空行切块
+    sections = body.split(/\n\s*\n/).filter((s) => s.trim().length > 0).length
+  }
+  if (sections !== expected) {
+    items.push({
+      checkId: 'section-count',
+      level: 'yellow',
+      message: `正文 ${sections} 节，五段结构期望 ${expected} 节（节数守恒）`,
+    })
+  }
+  return { name: '节数守恒', items }
+}
+
+/** 默认环境描写关键词表（黄金 300 字直入钩子，吸收点 7.1） */
+const DEFAULT_ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '风声', '雨声', '景色', '远山', '树林', '街道', '建筑']
+
+/**
+ * 开头零环境检查（#27 第 5.3 节，🟡 黄）。
+ * 黄金 300 字直入钩子：开篇 300 字命中环境描写词报黄。
+ */
+export function checkOpeningNoEnv(
+  body: string,
+  openingChars = 300,
+  envWords: string[] = DEFAULT_ENV_WORDS,
+): CheckSectionResult {
+  const items: CheckItem[] = []
+  const opening = body.slice(0, openingChars)
+  const hits: string[] = []
+  for (const word of envWords) {
+    if (word && opening.includes(word)) hits.push(word)
+  }
+  if (hits.length > 0) {
+    items.push({
+      checkId: 'opening-env',
+      level: 'yellow',
+      message: `开头 ${openingChars} 字出现环境描写（${hits.slice(0, 3).join('、')}），黄金 300 字应直入钩子`,
+    })
+  }
+  return { name: '开头零环境', items }
+}

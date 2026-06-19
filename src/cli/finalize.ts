@@ -57,6 +57,7 @@ export function finalizeCommand(args: string[]): void {
     process.exit(1)
   }
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const isShort = (config.kind ?? 'long') === 'short'
   const cachePath = join(bookRoot, '.cache', 'index.db')
   const rebuilt = rebuild(bookRoot, cachePath)
   if (rebuilt.errors.length > 0) {
@@ -78,14 +79,16 @@ export function finalizeCommand(args: string[]): void {
       config,
       chapter: draft.chapter,
       body: draft.body,
-      fileName: finalChapterFileName(draft.chapter),
+      fileName: finalChapterFileName(draft.chapter, isShort),
       hasReviewVerdict: readReviewVerdict(workDir).approved,
+      kind: isShort ? 'short' : 'long',
     })
 
     if (!result.ok) {
       failedReason = result.reason
     } else {
-      console.log(`✓ 第 ${draft.chapter.章号} 章已定稿（commit ${result.commitHash}）`)
+      const unit = isShort ? '篇' : '章'
+      console.log(`✓ 第 ${draft.chapter.章号} ${unit}已定稿（commit ${result.commitHash}）`)
       if (fromArg) cleanupPendingSource(bookRoot, workDir, draft.chapter.章号)
     }
   } finally {
@@ -136,7 +139,14 @@ function readDraft(
   return { ok: true, chapter: chapter.chapter, body: file.body }
 }
 
-function finalChapterFileName(chapter: ChapterMeta): string {
+/** 定稿文件名规则（kind 分支）：
+ *  - long：定稿/正文/<章号>-<标题>.md（扁平）
+ *  - short：篇/<篇号3位>-<标题>/正文.md（子路径，doFinalize 短篇分支 join(bookRoot,'篇',fileName)）
+ */
+function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
+  if (isShort) {
+    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
+  }
   return `${chapter.章号}-${chapter.标题}.md`
 }
 

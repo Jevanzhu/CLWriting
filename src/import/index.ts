@@ -12,13 +12,15 @@
  * 红线：短篇分流 M8；v0.2 无 v1 机检元数据 → 钩子/情绪填占位默认 + 诚实标注，不伪装。
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { execSync } from 'node:child_process'
 import { writeChapter } from '../format/chapters.js'
+import { writePiece } from '../format/pieces.js'
+import { writePieceList, emptyPieceList } from '../format/manifest.js'
 import { scaffoldBookRepo } from '../install/scaffold.js'
 import { appendBook, writeActive, readBooks } from '../install/books.js'
-import type { ChapterMeta } from '../format/types.js'
+import type { ChapterMeta, PieceMeta } from '../format/types.js'
 
 export interface ImportOptions {
   /** v0.2 正文路径（文件） */
@@ -49,13 +51,26 @@ interface V02Chapter {
   body: string
 }
 
-/** length-routing 判定（#36 第 3.1 节）。优先级：--kind > 章节数≥5 > 字数≥30000。 */
-function determineKind(chapters: V02Chapter[], declared?: 'long' | 'short'): 'long' | 'short' {
-  if (declared) return declared
-  if (chapters.length >= 5) return 'long'
+/** length-routing 判定（#36 第 3.1 节 + #29 第 2 节冲突回退）。
+ *  优先级：--kind 声明 > 章节数≥5（长）> 字数≥30000（长）。
+ *  冲突回退（#29 优先级 3）：章节数<5 倾向短、但字数≥30000 倾向长 → 信号矛盾，请作者 --kind 拍板。
+ *  （注：「章节数≥5 但字数少」不算冲突——章节数≥5 已明确判长篇。） */
+function determineKindWithConflict(
+  chapters: V02Chapter[],
+  declared?: 'long' | 'short',
+): { kind: 'long' | 'short'; conflict: boolean; totalWords: number } {
   const totalWords = chapters.reduce((sum, ch) => sum + ch.body.length, 0)
-  if (totalWords >= 30000) return 'long'
-  return 'short'
+  if (declared) return { kind: declared, conflict: false, totalWords }
+
+  // 章节数≥5 → 明确长篇（不论字数）
+  if (chapters.length >= 5) return { kind: 'long', conflict: false, totalWords }
+
+  // 章节数<5：字数≥30000 倾向长、<30000 倾向短
+  // 冲突仅在「章节<5 且 字数≥30000」时发生（章节信号短、字数信号长）
+  if (totalWords >= 30000) {
+    return { kind: 'short', conflict: true, totalWords }
+  }
+  return { kind: 'short', conflict: false, totalWords }
 }
 
 /**
@@ -126,50 +141,72 @@ export function importV02Book(options: ImportOptions): ImportResult {
     return { ok: false, error: '未解析到有效章节（请检查 v0.2 格式）' }
   }
 
-  // 3. length-routing 判定
-  const kind = determineKind(chapters, declaredKind)
-
-  // 4. 短篇分流到 M8（本模块只处理长篇）
-  if (kind === 'short') {
-    return { ok: false, error: '短篇导入归 M8（章节数<5 且字数<30000），请用 --kind long 强制长篇或等 M8' }
+  // 3. length-routing 判定（含冲突回退）
+  const routing = determineKindWithConflict(chapters, declaredKind)
+  if (routing.conflict) {
+    return {
+      ok: false,
+      error: `长短信号冲突：解析出 ${chapters.length} 篇/章、总字数 ${routing.totalWords}。请用 --kind long|short 拍板（章节<5 倾向短、字数≥30000 倾向长）`,
+    }
   }
+  const kind = routing.kind
 
-  // 5. 推导书名
-  const bookName = nameOpt || basename(sourcePath, '.md') || '导入书籍'
+  // 4. 推导书名
+  const bookName = nameOpt || basename(sourcePath, '.md') || (kind === 'short' ? '导入短篇集' : '导入书籍')
 
-  // 6. 同名冲突检查
+  // 5. 同名冲突检查
   const existing = readBooks(workDir)
   if (existing.some((b) => b.name === bookName)) {
     return { ok: false, error: `已有一本叫「${bookName}」的书，换个名字或先删掉旧的` }
   }
 
-  // 7. 复用 scaffoldBookRepo 建书（6.2 完整目录 + git + 文风铁律 + AGENTS.md + init commit）
+  // 6. 复用 scaffoldBookRepo 建书（按 kind 建长篇 6.2 目录 / 短篇集 篇/ 布局 + git + 文风铁律 + AGENTS.md + init commit）
   const bookRoot = join(workDir, bookName)
   if (existsSync(bookRoot)) {
     return { ok: false, error: `目录「${bookName}」已存在` }
   }
   scaffoldBookRepo(bookRoot, { name: bookName, genre: genre ?? '', leadsEnabled: [], kind })
 
-  // 8. 落定稿正文（复用 writeChapter，钩子/情绪填占位 + 诚实标注，不伪装）
-  for (const ch of chapters) {
-    const meta: ChapterMeta = {
-      章号: ch.章号,
-      标题: ch.标题,
-      钩子类型: '悬念钩',
-      钩子强弱: '中',
-      情绪定位: '铺垫',
-      _path: '',
-      _wordCount: ch.body.length,
-      _raw: { 导入: '待标注' },
+  // 7. 落正文（按 kind 分支落点）
+  if (kind === 'short') {
+    // 短篇集：每篇 → 篇/<篇号3位>-<标题>/正文.md（#29 第 4 节）；清单.md 留空占位（不臆造反转线索，吸收点 7.5）
+    for (let i = 0; i < chapters.length; i++) {
+      const ch = chapters[i]!
+      const 篇号 = i + 1
+      const pieceDir = join(bookRoot, '篇', `${String(篇号).padStart(3, '0')}-${ch.标题}`)
+      mkdirSync(pieceDir, { recursive: true })
+      const piece: PieceMeta = {
+        篇号,
+        标题: ch.标题,
+        // 外部短篇无 v1 目标情绪/核心反转 → 占位 + 诚实标注，不伪装（#29 第 4 节）
+        _raw: { 导入: '待标注' },
+      }
+      writePiece(join(pieceDir, '正文.md'), piece, ch.body)
+      writePieceList(join(pieceDir, '清单.md'), emptyPieceList())
     }
-    writeChapter(join(bookRoot, '定稿', '正文', `${ch.章号}-${ch.标题}.md`), meta, ch.body)
+  } else {
+    // 长篇：定稿/正文/<章号>-<标题>.md（行为逐字节不变，#36）
+    for (const ch of chapters) {
+      const meta: ChapterMeta = {
+        章号: ch.章号,
+        标题: ch.标题,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: ch.body.length,
+        _raw: { 导入: '待标注' },
+      }
+      writeChapter(join(bookRoot, '定稿', '正文', `${ch.章号}-${ch.标题}.md`), meta, ch.body)
+    }
   }
 
-  // 9. 正文 commit（scaffoldBookRepo 已留 init commit 作为 HEAD）
+  // 8. 正文 commit（scaffoldBookRepo 已留 init commit 作为 HEAD）
+  const unit = kind === 'short' ? '篇' : '章'
   execSync('git add -A', { cwd: bookRoot, stdio: 'pipe' })
-  execSync(`git commit -m "import: 导入 ${chapters.length} 章"`, { cwd: bookRoot, stdio: 'pipe' })
+  execSync(`git commit -m "import: 导入 ${chapters.length} ${unit}"`, { cwd: bookRoot, stdio: 'pipe' })
 
-  // 10. 登记 + 设活动书（复用 M5 范式）
+  // 9. 登记 + 设活动书（复用 M5 范式）
   const appendRes = appendBook(workDir, { name: bookName, path: bookName, kind, created_at: new Date().toISOString() })
   if (!appendRes.ok) return { ok: false, error: appendRes.reason }
   writeActive(workDir, bookName)

@@ -94,24 +94,56 @@ describe('importV02Book', () => {
     expect(readActive(workDir)).toBe('导入书')
   })
 
-  it('短篇（<5 章 <30000 字）分流到 M8', () => {
+  it('短篇（<5 章 <30000 字）建短篇集 + 落篇', () => {
     const sourcePath = join(workDir, 'short.md')
-    writeFileSync(sourcePath, '第1章：短篇\n\n短内容。\n\n第2章：短篇\n\n继续。\n', 'utf-8')
+    writeFileSync(sourcePath, '第1章：短篇\n\n短内容。\n\n第2章：续\n\n继续。\n', 'utf-8')
 
-    const result = importV02Book({ sourcePath, workDir })
+    const result = importV02Book({ sourcePath, workDir, name: '夜语集' })
 
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain('短篇导入归 M8')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.kind).toBe('short')
+    expect(result.chapterCount).toBe(2)
+    const bookRoot = result.bookRoot!
+    // 短篇集布局：篇/ 子目录，无 定稿/正文/
+    expect(existsSync(join(bookRoot, '篇', '001-短篇', '正文.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '篇', '002-续', '正文.md'))).toBe(true)
+    // 清单.md 占位（不臆造反转线索）
+    expect(existsSync(join(bookRoot, '篇', '001-短篇', '清单.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '定稿', '正文'))).toBe(false)
+    // book.yaml kind: short
+    const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
+    expect(cfg.kind).toBe('short')
   })
 
-  it('显式 --kind short 强制分流（即使章节数≥5）', () => {
+  it('显式 --kind short 强制短篇（即使章节数≥5）', () => {
     const sourcePath = join(workDir, 'forced-short.md')
     writeV02LongBook(sourcePath)
 
     const result = importV02Book({ sourcePath, workDir, kind: 'short' })
 
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.kind).toBe('short')
+    // 5 篇落 篇/
+    expect(result.chapterCount).toBe(5)
+    expect(existsSync(join(result.bookRoot!, '篇', '005-第5章标题', '正文.md'))).toBe(true)
+  })
+
+  it('长短信号冲突（<5 章但 ≥30000 字）→ 请 --kind 拍板', () => {
+    const sourcePath = join(workDir, 'conflict.md')
+    // 4 章但每章 8000 字（总 32000 ≥30000）→ 章节信号短、字数信号长
+    const longPara = '字'.repeat(8000)
+    const content = Array.from({ length: 4 }, (_, i) =>
+      `第${i + 1}章：章${i + 1}\n\n${longPara}\n`,
+    ).join('\n')
+    writeFileSync(sourcePath, content, 'utf-8')
+
+    const result = importV02Book({ sourcePath, workDir })
+
     expect(result.ok).toBe(false)
-    expect(result.error).toContain('短篇导入归 M8')
+    expect(result.error).toContain('冲突')
+    expect(result.error).toContain('--kind')
   })
 
   it('文件不存在报错', () => {

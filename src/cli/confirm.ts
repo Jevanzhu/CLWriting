@@ -27,11 +27,11 @@ export function confirmCommand(args: string[]): void {
 
   const chapter = Number(positional[0])
   if (!Number.isSafeInteger(chapter) || chapter < 1) {
-    console.error(`章号得是正整数，你给的是「${positional[0]}」。`)
+    console.error(`章号/篇号得是正整数，你给的是「${positional[0]}」。`)
     process.exit(1)
   }
 
-  // positional[0]=章号，positional[1]=可选书目录
+  // positional[0]=章号/篇号，positional[1]=可选书目录
   const resolved = resolveBookRoot(positional.slice(1))
   if (!resolved.ok) {
     console.error(`✗ ${resolved.reason}`)
@@ -41,6 +41,7 @@ export function confirmCommand(args: string[]): void {
   const workDir = join(bookRoot, '工作区')
   const outlinePath = join(workDir, '细纲.md')
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const isShort = (config.kind ?? 'long') === 'short'
 
   const result = doConfirm(workDir, chapter, outlinePath, auto ? 'auto' : 'manual', config)
   if (!result.ok) {
@@ -48,7 +49,8 @@ export function confirmCommand(args: string[]): void {
     process.exit(1)
   }
 
-  console.log(`✓ 第 ${chapter} 章细纲已确认（${result.record.mode}，${result.record.outline_hash}）`)
+  const unit = isShort ? '篇' : '章'
+  console.log(`✓ 第 ${chapter} ${unit}细纲已确认（${result.record.mode}，${result.record.outline_hash}）`)
 }
 
 function printConfirmHelp(write: (message: string) => void = console.log): void {

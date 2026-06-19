@@ -22,8 +22,8 @@ export function importCommand(args: string[]): void {
     console.log('  --kind long|short    长短篇（可选，自动判定：章节数≥5 或字数≥30000 为长篇）')
     console.log('  --genre <题材>       题材（可选，驱动账本类推荐）')
     console.log()
-    console.log('自动判定（length-routing）：优先级 --kind > 章节数≥5 > 字数≥30000；短篇分流 M8。')
-    console.log('导入后：正文落 定稿/正文/，元数据占位（钩子/情绪填默认，_raw 标「导入: 待标注」）。')
+    console.log('自动判定（length-routing）：优先级 --kind > 章节数≥5 > 字数≥30000；长短信号冲突会请 --kind 拍板。')
+    console.log('导入后：长篇正文落 定稿/正文/；短篇正文落 篇/<篇号>-<标题>/正文.md（集布局）。元数据占位（_raw 标「导入: 待标注」，不伪装）。')
     return
   }
 
@@ -66,13 +66,22 @@ export function importCommand(args: string[]): void {
     process.exit(1)
   }
 
-  console.log(`✓ 已导入 ${result.chapterCount} 章（${result.kind}）`)
+  const unit = result.kind === 'short' ? '篇' : '章'
+  console.log(`✓ 已导入 ${result.chapterCount} ${unit}（${result.kind}）`)
   console.log(`  书名：${result.bookName}`)
   console.log(`  路径：${result.bookRoot}`)
   console.log()
-  console.log('下一步：')
-  console.log('  1. 补章节元数据（钩子/情绪）—— 导入占位为「待标注」')
-  console.log('  2. 补账本/设定（v1 账本是新规划，只搬正文不搬投影）')
-  console.log('  3. clwriting enter 体检')
-  console.log('  4. clwriting learn 收割样章候选')
+  if (result.kind === 'short') {
+    console.log('下一步：')
+    console.log('  1. 补单篇元数据（目标情绪/核心反转）+ 清单.md（反转线索表/伏笔回收）—— 导入占位为「待标注」')
+    console.log('  2. clwriting check 跑短篇机检（身体部位词/「像」/节数/开头零环境）')
+    console.log('  3. clwriting enter 进短篇轨（写新篇 / 续写）')
+    console.log('  4. clwriting learn 收割样章候选（来源: 导入）')
+  } else {
+    console.log('下一步：')
+    console.log('  1. 补章节元数据（钩子/情绪）—— 导入占位为「待标注」')
+    console.log('  2. 补账本/设定（v1 账本是新规划，只搬正文不搬投影）')
+    console.log('  3. clwriting enter 体检')
+    console.log('  4. clwriting learn 收割样章候选')
+  }
 }

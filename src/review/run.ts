@@ -27,6 +27,7 @@ import {
   type ReviewTier,
   type ReviewTierDecision,
   type NormalizedReviewResult,
+  type PieceListCheck,
 } from './contract.js'
 
 /** 单视角的执行包：宿主据此调一次模型产出该视角的 issues。 */
@@ -36,6 +37,8 @@ export interface ReviewLensPacket {
   focus: string[]
   /** 设定校对专属：本章账本变动清单（账本清单驱动逐条核对，恒跑不被降级稀释） */
   ledger_checks: ReviewTask['ledger_checks']
+  /** 短篇设定收尾审专属：单篇清单核对条目（反转线索表 + 伏笔回收，恒跑） */
+  list_checks?: PieceListCheck[]
   /** 输出契约：JSON only / 必带证据 / 不打分 */
   output_contract: ReviewTask['output_contract']
   /** 本章正文（front matter 之后的正文体） */
@@ -97,15 +100,19 @@ export function buildReviewPacket(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
+  /** 长短篇（M8 #28）：缺省 long；short 用短篇三视角 + 清单核对 */
+  kind?: 'long' | 'short'
 }): { ok: true; packet: ReviewExecutionPacket; decision: ReviewTierDecision } | { ok: false; reason: string } {
+  const kind = input.kind ?? 'long'
   const decision = selectReviewTier({
     capabilities: input.capabilities,
     remaining_calls: input.remaining_calls,
     high_risk: input.high_risk,
+    kind,
   })
   if (!decision.ok) return { ok: false, reason: decision.reason }
 
-  const tasks = buildReviewTasks(input.checkReport)
+  const tasks = buildReviewTasks(input.checkReport, kind)
   const outDir = join(input.workDir, '三审')
 
   // 合审：三视角合并成单个分包（宿主单次调用覆盖三视角）
@@ -165,23 +172,29 @@ function taskToPacket(task: ReviewTask, body: string, chapter: number): ReviewLe
     title: task.title,
     focus: task.focus,
     ledger_checks: task.ledger_checks,
+    ...(task.list_checks && task.list_checks.length > 0 ? { list_checks: task.list_checks } : {}),
     output_contract: task.output_contract,
     body,
     chapter,
   }
 }
 
-/** 合审档位：三视角焦点 + 账本清单合并成单个分包。 */
+/** 合审档位：三视角焦点 + 账本/清单核对合并成单个分包。 */
 function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number): ReviewLensPacket {
-  // 账本清单恒属设定校对（continuity），合审也必须带
+  // 长篇：账本清单恒属设定校对（continuity）；短篇：清单核对恒属设定收尾审（payoff）
   const continuity = tasks.find((t) => t.lens === 'continuity')
+  const payoff = tasks.find((t) => t.lens === 'payoff')
   const ledgerChecks = continuity?.ledger_checks ?? []
+  const listChecks = payoff?.list_checks ?? []
+  // 合审锚定 lens：长篇 continuity（账本核对不丢）/ 短篇 payoff（清单核对不丢）
+  const anchor = payoff ?? continuity ?? tasks[0]!
   const focus = ['合审：覆盖三视角'].concat(tasks.flatMap((t) => t.focus.map((f) => `[${t.title}] ${f}`)))
   return {
-    lens: 'continuity', // 合审单包以 continuity 为锚（账本核对不丢）
+    lens: anchor.lens,
     title: '三审合审',
     focus,
     ledger_checks: ledgerChecks,
+    ...(listChecks.length > 0 ? { list_checks: listChecks } : {}),
     output_contract: tasks[0]!.output_contract,
     body,
     chapter,
@@ -282,17 +295,14 @@ export function collectReviewIssues(input: {
     // 文件存在即视为该视角已回收（空数组 = 合法的「没问题」结论，不算缺失）
     rawIssues.push(...lensIssues)
     collectedLenses.add(expected.lens)
-    // 合审单文件覆盖三视角
+    // 合审单文件覆盖三视角（长短各三，按 packet.lenses_run 标记）
     if (input.packet.tier === 'combined') {
-      collectedLenses.add('reader')
-      collectedLenses.add('editor')
+      for (const l of input.packet.lenses_run) collectedLenses.add(l)
     }
   }
 
-  // 合审：期望三视角都回收（单文件覆盖）；独立档位：按 lenses_run 校
-  const expectedLenses = input.packet.tier === 'combined'
-    ? (['reader', 'editor', 'continuity'] as ReviewLens[])
-    : input.packet.lenses_run
+  // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含三视角（长短各三，buildReviewPacket 决定）
+  const expectedLenses = input.packet.lenses_run
   for (const lens of expectedLenses) {
     if (!collectedLenses.has(lens) && !missingLenses.includes(lens)) {
       missingLenses.push(lens)
@@ -408,12 +418,17 @@ export function renderReviewVerdict(collected: CollectedReview): string {
   }
   lines.push('')
 
-  // 账本核对专列（ledger 类 issue 单独突出，呼应「账本造假被设定校对逮住」出口验收）
-  const ledgerBlockers = normalized.blockers.filter((i) => i.category === 'ledger')
-  if (ledgerBlockers.length > 0) {
-    lines.push('## ⚠ 账本核对阻断（设定校对）')
+  // 核对阻断专列（长篇 ledger 账本造假 / 短篇 reversal 反转不成立 + payoff 伏笔未回收）
+  // 呼应出口验收：账本造假被设定校对逮住 / 反转无铺垫被情绪反转审逮住
+  const CHECK_BLOCKER_CATS = new Set(['ledger', 'reversal', 'payoff'])
+  const checkBlockers = normalized.blockers.filter((i) => CHECK_BLOCKER_CATS.has(i.category))
+  if (checkBlockers.length > 0) {
+    const label = checkBlockers.some((i) => i.category === 'reversal' || i.category === 'payoff')
+      ? '清单核对阻断（设定收尾审：反转/伏笔）'
+      : '账本核对阻断（设定校对）'
+    lines.push(`## ⚠ ${label}`)
     lines.push('')
-    for (const i of ledgerBlockers) {
+    for (const i of checkBlockers) {
       lines.push(`- [${i.severity}] ${i.location}：${i.issue}`)
       lines.push(`  - 证据：${i.evidence.join('；') || '（无）'}`)
       lines.push(`  - 建议：${i.fix || '（无）'}`)
@@ -423,11 +438,11 @@ export function renderReviewVerdict(collected: CollectedReview): string {
 
   lines.push('## 阻断项（blockers）')
   lines.push('')
-  const otherBlockers = normalized.blockers.filter((i) => i.category !== 'ledger')
-  if (otherBlockers.length === 0 && ledgerBlockers.length === 0) {
+  const otherBlockers = normalized.blockers.filter((i) => !CHECK_BLOCKER_CATS.has(i.category))
+  if (otherBlockers.length === 0 && checkBlockers.length === 0) {
     lines.push('（无）')
   } else if (otherBlockers.length === 0) {
-    lines.push('（除账本阻断外无其他阻断项）')
+    lines.push('（除核对阻断外无其他阻断项）')
   } else {
     for (const i of otherBlockers) {
       lines.push(`- [${i.severity}] ${lensLabel(i.lens)} · ${i.location}：${i.issue}`)
@@ -609,7 +624,10 @@ function tierLabel(tier: ReviewTier): string {
 function lensLabel(lens: ReviewLens): string {
   if (lens === 'reader') return '读者审'
   if (lens === 'editor') return '编辑审'
-  return '设定校对'
+  if (lens === 'continuity') return '设定校对'
+  if (lens === 'hook') return '钩子审'
+  if (lens === 'emotion_peak') return '情绪反转审'
+  return '设定收尾审'
 }
 
 const SEVERITIES: ReadonlySet<string> = new Set(['S1', 'S2', 'S3', 'S4'])
@@ -620,12 +638,18 @@ function isReviewSeverity(s: string): s is ReviewIssue['severity'] {
 const CATEGORIES: ReadonlySet<string> = new Set([
   'high_point', 'reader_pull', 'pacing', 'ooc', 'logic', 'consistency',
   'continuity', 'setting', 'timeline', 'strand', 'ledger', 'safety',
+  // 短篇单篇爆破力维（M8 #28 第 4 节）
+  'hook', 'emotion_peak', 'reversal', 'payoff',
 ])
 function isReviewCategory(c: string): c is ReviewIssue['category'] {
   return CATEGORIES.has(c)
 }
 
-const LENSES: ReadonlySet<string> = new Set(['reader', 'editor', 'continuity'])
+const LENSES: ReadonlySet<string> = new Set([
+  'reader', 'editor', 'continuity',
+  // 短篇三视角（M8 #28 第 2 节）
+  'hook', 'emotion_peak', 'payoff',
+])
 function isReviewLens(l: string): l is ReviewLens {
   return LENSES.has(l)
 }

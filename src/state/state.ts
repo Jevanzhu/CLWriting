@@ -273,7 +273,7 @@ function existsDraft(workDir: string): boolean {
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
  * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，M3 出人话不真执行。
  */
-export function routeState(detected: DetectedState): RouterAction {
+export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long'): RouterAction {
   switch (detected.state) {
     case 1: {
       const list = detected.issues.map((i) => `· ${i.humanMsg}（${i.fix}）`).join('\n')
@@ -331,13 +331,15 @@ export function routeState(detected: DetectedState): RouterAction {
         action: 'health-check-periodic',
         needsAI: false, // M3 出触发 + 概要；深度账本对账 M4（#15 第 6 节）
       }
-    case 7:
+    case 7: {
+      const unit = kind === 'short' ? '篇' : '章'
       return {
         state: 7,
-        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} 章。`,
+        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
         action: 'write-new-chapter',
         needsAI: false, // M2 流程接，AI 写稿由 M4 壳调
       }
+    }
     case 8: {
       const chs = detected.pendingChapters
       const list = chs.map((c) => String(c)).join('、')
@@ -457,9 +459,14 @@ function parseLastConfirm(bookRoot: string): StatusRecap['lastConfirm'] {
 }
 
 /** 近况复述 → 人话文本（#15 第 4 节，对作者零机器味） */
-export function formatRecap(recap: StatusRecap): string {
+export function formatRecap(recap: StatusRecap, kind: 'long' | 'short' = 'long'): string {
   const lines: string[] = []
-  lines.push(`【近况】已定稿到第 ${recap.currentChapter} 章（第 ${recap.currentVolume} 卷），下一章 ${recap.nextChapter}。`)
+  const unit = kind === 'short' ? '篇' : '章'
+  if (kind === 'short') {
+    lines.push(`【近况】已定稿到第 ${recap.currentChapter} ${unit}，下一篇 ${recap.nextChapter}。`)
+  } else {
+    lines.push(`【近况】已定稿到第 ${recap.currentChapter} ${unit}（第 ${recap.currentVolume} 卷），下一章 ${recap.nextChapter}。`)
+  }
   lines.push(
     `【体检】git ${recap.gitClean ? '干净 ✓' : '有问题 ✗'}；` +
       `${recap.parseErrors ? '有源文件坏 ✗' : '账本无解析错误 ✓'}；` +
@@ -472,11 +479,11 @@ export function formatRecap(recap: StatusRecap): string {
       : c.verified === false
         ? '⚠ 不一致（确认后又改过细纲）'
         : '未复核（工作区细纲已清理，仅复述提交留痕）'
-    lines.push(`【确认复述】第 ${c.chapter} 章细纲确认哈希 ${c.hash.slice(0, 16)}…（${c.mode}，${c.at}）${flag}。`)
+    lines.push(`【确认复述】第 ${c.chapter} ${unit}细纲确认哈希 ${c.hash.slice(0, 16)}…（${c.mode}，${c.at}）${flag}。`)
   }
   if (recap.batchPause) {
     const p = recap.batchPause
-    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} 章暂停（${p.reason}：${p.detail}），处理后 \`clwriting auto --resume\`。`)
+    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} ${unit}暂停（${p.reason}：${p.detail}），处理后 \`clwriting auto --resume\`。`)
   }
   return lines.join('\n')
 }
@@ -488,6 +495,8 @@ export interface EnterResult {
   recap: StatusRecap
   detected: DetectedState
   route: RouterAction
+  /** 长短篇（M8，CLI 文案按 kind 出「章/篇」） */
+  kind: 'long' | 'short'
 }
 
 /**
@@ -498,9 +507,9 @@ export function enter(bookRoot: string): EnterResult {
   const cfgPath = join(bookRoot, 'book.yaml')
   const { config } = readBookConfig(cfgPath)
   const detected = detectState(bookRoot, config)
-  const route = routeState(detected)
+  const route = routeState(detected, config.kind ?? 'long')
   const recap = buildRecap(bookRoot, config, detected)
-  return { recap, detected, route }
+  return { recap, detected, route, kind: config.kind ?? 'long' }
 }
 
 /** 路由 → 人话（对作者：现在该干什么） */
