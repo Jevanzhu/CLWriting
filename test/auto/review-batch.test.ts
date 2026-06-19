@@ -15,8 +15,8 @@ import {
 } from '../../src/auto/review-batch.js'
 import { reviewCommand } from '../../src/cli/review.js'
 
-/** 建书 + 连写 2 章进待定稿（用 doAutoBatch 桩）。 */
-function makeBookWithPending(n: number): string {
+/** 建书 + 连写 N 章进待定稿（用 doAutoBatch 桩）。 */
+async function makeBookWithPending(n: number): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), '批审-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })
   execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
@@ -29,7 +29,7 @@ function makeBookWithPending(n: number): string {
   mkdirSync(join(root, '.cache'), { recursive: true })
   execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
 
-  const produce = ({ chapter }: { chapter: number }): ChapterProduction => {
+  const produce = async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => {
     const meta = chapter === 1
       ? { hook: '情绪钩' as const, level: '弱' as const, emotion: '转折' as const }
       : { hook: '悬念钩' as const, level: '强' as const, emotion: '铺垫' as const }
@@ -39,7 +39,7 @@ function makeBookWithPending(n: number): string {
       chapter: { 章号: chapter, 标题: `第${chapter}章`, 钩子类型: meta.hook, 钩子强弱: meta.level, 情绪定位: meta.emotion },
     }
   }
-  doAutoBatch({ bookRoot: root, targetCount: n, produce })
+  await doAutoBatch({ bookRoot: root, targetCount: n, produce })
   return root
 }
 
@@ -52,8 +52,8 @@ function approvePending(bookRoot: string, chapter: number): void {
   doConfirm(dir, chapter, join(dir, '细纲.md'), 'manual', DEFAULT_CONFIG)
 }
 
-test('listPendingChapters: 列待审章 + 识别裁决状态', () => {
-  const root = makeBookWithPending(2)
+test('listPendingChapters: 列待审章 + 识别裁决状态', async () => {
+  const root = await makeBookWithPending(2)
   const list = listPendingChapters(root)
   expect(list).toHaveLength(2)
   expect(list[0]!.chapter).toBe(1)
@@ -63,8 +63,8 @@ test('listPendingChapters: 列待审章 + 识别裁决状态', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('逐章定稿: approved 章 finalize --from 原子 commit + 删待定稿目录', () => {
-  const root = makeBookWithPending(2)
+test('逐章定稿: approved 章 finalize --from 原子 commit + 删待定稿目录', async () => {
+  const root = await makeBookWithPending(2)
   approvePending(root, 1) // 第1章 approved
 
   const results = finalizePendingChapters(root, [1])
@@ -87,8 +87,8 @@ test('逐章定稿: approved 章 finalize --from 原子 commit + 删待定稿目
   rmSync(root, { recursive: true, force: true })
 })
 
-test('CLI: review batch list/finalize 可达并清理已定稿章', () => {
-  const root = makeBookWithPending(1)
+test('CLI: review batch list/finalize 可达并清理已定稿章', async () => {
+  const root = await makeBookWithPending(1)
   approvePending(root, 1)
   const lines: string[] = []
   const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
@@ -106,8 +106,8 @@ test('CLI: review batch list/finalize 可达并清理已定稿章', () => {
   }
 })
 
-test('CLI: review batch rollback --yes 清理待定稿', () => {
-  const root = makeBookWithPending(1)
+test('CLI: review batch rollback --yes 清理待定稿', async () => {
+  const root = await makeBookWithPending(1)
   const log = vi.spyOn(console, 'log').mockImplementation(() => {})
   try {
     reviewCommand(['batch', 'rollback', root, '--yes'])
@@ -118,8 +118,8 @@ test('CLI: review batch rollback --yes 清理待定稿', () => {
   }
 })
 
-test('逐章定稿: 未裁决章被前置闸拦', () => {
-  const root = makeBookWithPending(1)
+test('逐章定稿: 未裁决章被前置闸拦', async () => {
+  const root = await makeBookWithPending(1)
   // 不写审稿裁决
   const results = finalizePendingChapters(root, [1])
   expect(results[0]!.ok).toBe(false)
@@ -130,8 +130,8 @@ test('逐章定稿: 未裁决章被前置闸拦', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('整批回滚: 清待定稿不涉 git', () => {
-  const root = makeBookWithPending(2)
+test('整批回滚: 清待定稿不涉 git', async () => {
+  const root = await makeBookWithPending(2)
   expect(existsSync(pendingRoot(root))).toBe(true)
   const r = rollbackPendingBatch(root)
   expect(r.ok).toBe(true)
@@ -145,8 +145,8 @@ test('整批回滚: 清待定稿不涉 git', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('单章打回: 移到 .isolated/ 留痕', () => {
-  const root = makeBookWithPending(2)
+test('单章打回: 移到 .isolated/ 留痕', async () => {
+  const root = await makeBookWithPending(2)
   const r = rejectPendingChapter(root, 1, '情节不合理')
   expect(r.ok).toBe(true)
   // 第1章移到 .isolated/

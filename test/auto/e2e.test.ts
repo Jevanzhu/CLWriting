@@ -29,16 +29,16 @@ function makeBook(): string {
   return root
 }
 
-test('M6 端到端: 连写→态8→逐章定稿→态7', () => {
+test('M6 端到端: 连写→态8→逐章定稿→态7', async () => {
   const root = makeBook()
-  const produce = ({ chapter }: { chapter: number }): ChapterProduction => ({
+  const produce = async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
     title: `第${chapter}章`, outline: `纲${chapter}`,
     body: `---\n章号: ${chapter}\n标题: 第${chapter}章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${chapter}章正文。\n`,
     chapter: { 章号: chapter, 标题: `第${chapter}章`, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' },
   })
 
   // 1. 连写 2 章
-  const batch = doAutoBatch({ bookRoot: root, targetCount: 2, produce })
+  const batch = await doAutoBatch({ bookRoot: root, targetCount: 2, produce })
   expect(batch.ok).toBe(true)
   if (!batch.ok) return
   expect(batch.produced).toEqual([1, 2])
@@ -70,9 +70,9 @@ test('M6 端到端: 连写→态8→逐章定稿→态7', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('M6 端到端: 连写暂停 → resume 续完 → 态8', () => {
+test('M6 端到端: 连写暂停 → resume 续完 → 态8', async () => {
   const root = makeBook()
-  const produce = ({ chapter }: { chapter: number }): ChapterProduction | null => {
+  const produce = async ({ chapter }: { chapter: number }): Promise<ChapterProduction | null> => {
     if (chapter >= 2) return null // 第2章暂停（需人）
     return {
       title: `第${chapter}章`, outline: `纲${chapter}`,
@@ -82,18 +82,18 @@ test('M6 端到端: 连写暂停 → resume 续完 → 态8', () => {
   }
 
   // 第一轮：第1章产、第2章停
-  const r1 = doAutoBatch({ bookRoot: root, targetCount: 2, produce })
+  const r1 = await doAutoBatch({ bookRoot: root, targetCount: 2, produce })
   expect(r1.ok).toBe(true)
   if (!r1.ok) return
   expect(r1.progress.paused?.at_chapter).toBe(2)
 
   // resume：续写第2章（换全产出桩）
-  const full = ({ chapter }: { chapter: number }): ChapterProduction => ({
+  const full = async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
     title: `第${chapter}章`, outline: `纲${chapter}`,
     body: `---\n章号: ${chapter}\n标题: 第${chapter}章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n`,
     chapter: { 章号: chapter, 标题: `第${chapter}章`, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' },
   })
-  const r2 = doAutoBatch({ bookRoot: root, targetCount: 2, produce: full, resume: true })
+  const r2 = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: full, resume: true })
   expect(r2.ok).toBe(true)
   if (!r2.ok) return
   expect(r2.progress.completed).toEqual([1, 2]) // 进度继承 + 续写第2章

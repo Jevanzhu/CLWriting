@@ -33,8 +33,8 @@ function makeBookWithVolumeOutline(): string {
 }
 
 /** 造一个产出回调（桩：按章号产出固定标题+细纲+正文）。 */
-function makeProduceStub(): (input: { chapter: number }) => ChapterProduction | null {
-  return ({ chapter }) => ({
+function makeProduceStub() {
+  return async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
     title: `第${chapter}章`,
     outline: `第${chapter}章细纲`,
     body: `---\n章号: ${chapter}\n标题: 第${chapter}章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${chapter}章正文。\n`,
@@ -42,9 +42,9 @@ function makeProduceStub(): (input: { chapter: number }) => ChapterProduction | 
   })
 }
 
-test('连写: 批次进度正确（章号自管，不重复）', () => {
+test('连写: 批次进度正确（章号自管，不重复）', async () => {
   const root = makeBookWithVolumeOutline()
-  const r = doAutoBatch({ bookRoot: root, targetCount: 3, produce: makeProduceStub() })
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 3, produce: makeProduceStub() })
 
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -56,9 +56,9 @@ test('连写: 批次进度正确（章号自管，不重复）', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('连写: 产出搬入 待定稿/<章号-标题>/，工作区根清空', () => {
+test('连写: 产出搬入 待定稿/<章号-标题>/，工作区根清空', async () => {
   const root = makeBookWithVolumeOutline()
-  doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
+  await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
 
   // 待定稿有两个章目录
   const pending = pendingRoot(root)
@@ -78,13 +78,13 @@ test('连写: 产出搬入 待定稿/<章号-标题>/，工作区根清空', () 
   rmSync(root, { recursive: true, force: true })
 })
 
-test('连写: 章号从既有定稿续算（不从1开始）', () => {
+test('连写: 章号从既有定稿续算（不从1开始）', async () => {
   const root = makeBookWithVolumeOutline()
   // 先手工造一章定稿（ch:0005）
   writeFileSync(join(root, '定稿', '正文', '0005-第五章.md'), '---\n章号: 5\n---\n正文', 'utf-8')
   execSync('git add -A && git commit -m "ch:0005 第五章"', { cwd: root, stdio: 'pipe' })
 
-  const r = doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.progress.start_chapter).toBe(6) // 从第6章起
@@ -93,7 +93,7 @@ test('连写: 章号从既有定稿续算（不从1开始）', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('连写: 卷纲为空 → 拒绝启动', () => {
+test('连写: 卷纲为空 → 拒绝启动', async () => {
   const root = mkdtempSync(join(tmpdir(), '无纲-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })
   execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
@@ -102,49 +102,49 @@ test('连写: 卷纲为空 → 拒绝启动', () => {
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
 
-  const r = doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('卷纲')
 
   rmSync(root, { recursive: true, force: true })
 })
 
-test('连写: 已有未完批次 → 拒绝静默覆盖', () => {
+test('连写: 已有未完批次 → 拒绝静默覆盖', async () => {
   const root = makeBookWithVolumeOutline()
   // 先跑一批（target=3，但只产出1章就停——用提前返回的桩）
   let callCount = 0
-  const stopEarly = ({ chapter }: { chapter: number }): ChapterProduction | null => {
+  const stopEarly = async ({ chapter }: { chapter: number }): Promise<ChapterProduction | null> => {
     callCount++
     if (chapter > 1) return null // 第2章停止
-    return makeProduceStub()({ chapter })
+    return await makeProduceStub()({ chapter })
   }
-  doAutoBatch({ bookRoot: root, targetCount: 3, produce: stopEarly })
+  await doAutoBatch({ bookRoot: root, targetCount: 3, produce: stopEarly })
   // 批次未完（completed=[1], target=3）
 
   // 再开新批应拒绝
-  const r = doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('未完批次')
 
   rmSync(root, { recursive: true, force: true })
 })
 
-test('连写 --resume: 续跑未完批次，进度继承', () => {
+test('连写 --resume: 续跑未完批次，进度继承', async () => {
   const root = makeBookWithVolumeOutline()
   // 先跑一批，第2章停止
   let phase = 1
-  const stopAt2 = ({ chapter }: { chapter: number }): ChapterProduction | null => {
+  const stopAt2 = async ({ chapter }: { chapter: number }): Promise<ChapterProduction | null> => {
     if (phase === 1 && chapter >= 2) return null
-    return makeProduceStub()({ chapter })
+    return await makeProduceStub()({ chapter })
   }
-  const r1 = doAutoBatch({ bookRoot: root, targetCount: 3, produce: stopAt2 })
+  const r1 = await doAutoBatch({ bookRoot: root, targetCount: 3, produce: stopAt2 })
   expect(r1.ok).toBe(true)
   if (!r1.ok) return
   expect(r1.produced).toEqual([1]) // 只产出第1章就停
 
   // resume 续跑（清暂停 + 从 next_chapter=2 继续）
   phase = 2
-  const r2 = doAutoBatch({ bookRoot: root, targetCount: 3, produce: makeProduceStub(), resume: true })
+  const r2 = await doAutoBatch({ bookRoot: root, targetCount: 3, produce: makeProduceStub(), resume: true })
   expect(r2.ok).toBe(true)
   if (!r2.ok) return
   expect(r2.produced).toEqual([2, 3]) // 续写第2、3章
@@ -153,9 +153,9 @@ test('连写 --resume: 续跑未完批次，进度继承', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('整批回滚: 清待定稿不涉 git', () => {
+test('整批回滚: 清待定稿不涉 git', async () => {
   const root = makeBookWithVolumeOutline()
-  doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
+  await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
   expect(existsSync(pendingRoot(root))).toBe(true)
 
   const r = clearPendingBatch(root)
