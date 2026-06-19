@@ -78,10 +78,11 @@ test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift chec
   const result = generateRoleShells({ projectRoot: root, now: '2026-06-18T00:00:00.000Z' })
   expect(result.ok).toBe(true)
   if (result.ok) {
-    expect(result.manifest.outputs).toHaveLength(7) // Claude skill + 2 agents + Codex index + 2 agents + generic AGENTS
+    expect(result.manifest.outputs).toHaveLength(8) // Claude entry + skill + 2 agents + Codex index + 2 agents + generic AGENTS
     expect(result.written).toContain('.clwriting/shells.manifest.json')
   }
 
+  expect(existsSync(join(root, 'CLAUDE.md'))).toBe(true)
   expect(existsSync(join(root, '.claude', 'SKILL.md'))).toBe(true)
   expect(existsSync(join(root, '.claude', 'agents', 'writer.md'))).toBe(true)
   expect(existsSync(join(root, '.codex', 'AGENTS.md'))).toBe(true)
@@ -91,6 +92,10 @@ test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift chec
 
   const claudeSkill = readFileSync(join(root, '.claude', 'SKILL.md'), 'utf-8')
   expect(claudeSkill).toContain('clwriting session-start')
+
+  const claudeEntry = readFileSync(join(root, 'CLAUDE.md'), 'utf-8')
+  expect(claudeEntry).toContain('CLWriting Claude Code')
+  expect(claudeEntry).toContain('writer')
 
   const claudeAgent = readFileSync(join(root, '.claude', 'agents', 'writer.md'), 'utf-8')
   expect(claudeAgent).toContain('source_hash: sha256:')

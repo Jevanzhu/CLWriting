@@ -41,7 +41,7 @@ export interface ShellManifest {
 export interface ShellManifestOutput {
   platform: ShellPlatform
   path: string
-  kind: 'skill' | 'agent' | 'agents-index'
+  kind: 'skill' | 'agent' | 'agents-index' | 'entry'
   role_id?: string
   source_hash: string
   output_hash: string
@@ -303,6 +303,13 @@ function buildOutputs(projectRoot: string, roles: RoleDefinition[], platforms: S
     if (platform === 'claude') {
       outputs.push({
         platform,
+        path: 'CLAUDE.md',
+        kind: 'entry',
+        sourceHash: aggregateHash,
+        content: renderClaudeEntry(roles),
+      })
+      outputs.push({
+        platform,
         path: '.claude/SKILL.md',
         kind: 'skill',
         sourceHash: aggregateHash,
@@ -353,6 +360,22 @@ function buildOutputs(projectRoot: string, roles: RoleDefinition[], platforms: S
     if (normalizeRel(projectRoot, abs).startsWith('..')) throw new Error(`非法输出路径：${output.path}`)
   }
   return outputs
+}
+
+function renderClaudeEntry(roles: RoleDefinition[]): string {
+  return [
+    GENERATED_MARKER,
+    '# CLWriting Claude Code',
+    '',
+    'This workspace uses CLWriting. Run `clwriting session-start` at session start for bounded context; if unavailable, run `clwriting enter`.',
+    '',
+    'Workflow details live in `.claude/SKILL.md`. Role shells live in `.claude/agents/*.md`.',
+    '',
+    '## Roles',
+    '',
+    ...roles.map((role) => `- ${role.id}: ${role.description || role.name}`),
+    '',
+  ].join('\n')
 }
 
 function renderClaudeSkill(roles: RoleDefinition[]): string {

@@ -12,8 +12,9 @@ import {
   generateRoleShells,
   type ShellPlatform,
 } from '../roles/shells.js'
+import { findWorkDir } from '../install/books.js'
 
-/** `clwriting roles <generate|check> [书目录] [--platform=claude,codex,generic]` */
+/** `clwriting roles <generate|check> [工作目录|书目录] [--platform=claude,codex,generic]` */
 export function rolesCommand(args: string[]): void {
   if (args.includes('--help') || args.includes('-h')) {
     printRolesHelp()
@@ -29,7 +30,8 @@ export function rolesCommand(args: string[]): void {
   const platformArg = args.find((arg) => arg.startsWith('--platform='))
   const platforms = platformArg ? parsePlatforms(platformArg.slice('--platform='.length)) : undefined
   const positional = args.slice(1).filter((arg) => !arg.startsWith('--platform='))
-  const projectRoot = positional[0] ? resolve(positional[0]) : process.cwd()
+  const candidateRoot = positional[0] ? resolve(positional[0]) : process.cwd()
+  const projectRoot = findWorkDir(candidateRoot) ?? candidateRoot
 
   if (subcommand === 'generate') {
     const result = generateRoleShells({ projectRoot, ...(platforms ? { platforms } : {}) })
@@ -61,5 +63,5 @@ function parsePlatforms(raw: string): ShellPlatform[] {
 }
 
 function printRolesHelp(write: (message: string) => void = console.log): void {
-  write('用法：clwriting roles <generate|check> [书目录] [--platform=claude,codex,generic]')
+  write('用法：clwriting roles <generate|check> [工作目录|书目录] [--platform=claude,codex,generic]')
 }
