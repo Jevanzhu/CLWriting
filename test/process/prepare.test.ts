@@ -116,6 +116,22 @@ test('prepare: 可按场景注入文风样章，避免固定战斗样章', () =>
   rmSync(root, { recursive: true, force: true })
 })
 
+test('prepare: 近况卷号使用 book.volume_size', () => {
+  const root = mkdtempSync(join(tmpdir(), '卷大小-'))
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  createAllTables(db)
+  syncChapter(db, {
+    章号: 31, 标题: '第三十一章', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 1000, _path: 'p31',
+  })
+  const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 30 } }
+  const r = prepare(db, cfg, root, [])
+  expect(r.text).toContain('已写到第 31 章（第 2 卷）')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('estimateTokens: 中文 0.6 token/字', () => {
   expect(estimateTokens('')).toBe(0)
   const t = estimateTokens('一二三四五六七八九十') // 10 字
