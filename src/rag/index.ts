@@ -82,6 +82,16 @@ export async function buildIndex(
 
   const db = openRagDb(bookRoot)
   try {
+    const indexedModel = getRagMeta(db, 'embedding_model')
+    if (indexedModel && indexedModel !== config.model) {
+      return {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        error: `embedding 模型与现有索引不一致（现有：${indexedModel}，当前：${config.model}），请重建索引。`,
+      }
+    }
+
     // 增量：读已索引到第几章，跳过已索引的
     const indexedChStr = getRagMeta(db, 'indexed_max_chapter')
     const indexedMax = indexedChStr ? Number(indexedChStr) : 0
@@ -115,6 +125,16 @@ export async function buildIndex(
     const vectors = await embedFn(config.endpoint, config.model, apiKey, texts)
     if (vectors === null) {
       return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+    }
+    const indexedDim = getRagMeta(db, 'embedding_dim')
+    const vectorDim = vectors[0]!.length
+    if (indexedDim && Number(indexedDim) !== vectorDim) {
+      return {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        error: `embedding 维度与现有索引不一致（现有：${indexedDim}，当前：${vectorDim}），请重建索引。`,
+      }
     }
 
     // 存向量
@@ -164,22 +184,30 @@ export async function recall(
 ): Promise<RecallHit[]> {
   if (!config.enabled || !config.endpoint || !config.model) return []
 
-  // query embed
-  const qVec = await embedFn(config.endpoint, config.model, apiKey, [query])
-  if (qVec === null || qVec.length === 0) return []
-  const queryVec = Float32Array.from(qVec[0]!)
-
   const db = openRagDb(bookRoot)
   try {
+    const indexedModel = getRagMeta(db, 'embedding_model')
+    if (indexedModel && indexedModel !== config.model) return []
+
+    // query embed
+    const qVec = await embedFn(config.endpoint, config.model, apiKey, [query])
+    if (qVec === null || qVec.length === 0) return []
+    const queryVec = Float32Array.from(qVec[0]!)
+
+    const indexedDim = getRagMeta(db, 'embedding_dim')
+    if (indexedDim && Number(indexedDim) !== queryVec.length) return []
+
     const chunks = readAllChunks(db)
     if (chunks.length === 0) return []
 
-    const hits: RecallHit[] = chunks.map((c) => ({
-      章号: c.章号,
-      start_offset: c.start_offset,
-      end_offset: c.end_offset,
-      score: cosineSimilarity(queryVec, c.embedding),
-    }))
+    const hits: RecallHit[] = chunks
+      .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
+      .map((c) => ({
+        章号: c.章号,
+        start_offset: c.start_offset,
+        end_offset: c.end_offset,
+        score: cosineSimilarity(queryVec, c.embedding),
+      }))
 
     hits.sort((a, b) => b.score - a.score)
     return hits.slice(0, topK)
