@@ -60,6 +60,7 @@ export function estimateTokens(text: string): number {
  * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 R1 接缝）。
  *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
  *        **不传 → 无此段 → 行为与现状逐字节一致**（工单验收红线）。
+ * @param sampleScene 文风样章场景。缺省回落「战斗」，保持旧调用兼容。
  */
 export function prepare(
   db: DatabaseSync,
@@ -67,6 +68,7 @@ export function prepare(
   bookRoot: string,
   chapterLeadIds: string[],
   ragRecallText?: string,
+  sampleScene = '战斗',
 ): PrepareResult {
   const sections: MaterialSection[] = []
   const trimLog: string[] = []
@@ -133,7 +135,7 @@ export function prepare(
 
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
   const sampleDir = join(bookRoot, '文风', '样章库')
-  const { samples } = readSamplesByScene(sampleDir, '战斗') // 场景由细纲定，M2 桩用战斗
+  const { samples } = readSamplesByScene(sampleDir, sampleScene)
   if (samples.length > 0) {
     // 轻注入：只取 1-2 段（#12 + 母本第 1.4 节）
     const injected = config.style.injection === 'heavy' ? samples.slice(0, 3) : samples.slice(0, 1)

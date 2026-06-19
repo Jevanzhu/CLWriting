@@ -185,7 +185,7 @@ export interface ChapterProduction {
  */
 export interface ProduceTools {
   /** 备料（近况+账本+文风+RAG 召回），返回写作材料文本 */
-  prepareMaterials: (chapterLeadIds: string[], query?: string) => Promise<{
+  prepareMaterials: (chapterLeadIds: string[], query?: string, sampleScene?: string) => Promise<{
     text: string
     /** 是否触发 RAG 召回（未配/降级 → false） */
     ragUsed: boolean
@@ -386,7 +386,7 @@ function makeDefaultTools(
   workDir: string,
 ): ProduceTools {
   return {
-    prepareMaterials: async (chapterLeadIds: string[], query?: string) => {
+    prepareMaterials: async (chapterLeadIds: string[], query?: string, sampleScene?: string) => {
       // 惰性开 db：宿主不调本方法就零开销（M6 原 doAutoBatch 不碰 db，此处保持）
       const cachePath = join(bookRoot, '.cache', 'index.db')
       rebuildCache(bookRoot, cachePath)
@@ -397,6 +397,7 @@ function makeDefaultTools(
           workDir,
           chapterLeadIds,
           ...(query ? { query } : {}),
+          ...(sampleScene ? { sampleScene } : {}),
         })
         return { text: r.text, ragUsed: r.ragUsed, ragHitCount: r.ragHitCount }
       } finally {
@@ -449,12 +450,17 @@ function isolateCurrentChapter(workDir: string, bookRoot: string, chapter: numbe
 
 /**
  * 算下一章号（新批次起始章）。
- * 从 git log 找最大 ch:<章号> commit 推算（定稿区章号 + 1）。
+ * 从定稿目录扫描最大章号推算（文件名是真源；不受 git log 条数影响）。
  * 不依赖 detectState（连写时 currentChapter 不含待定稿）。
  */
 function detectNextChapter(bookRoot: string): number {
+  const nums: number[] = []
+  collectUnitNumbers(join(bookRoot, '定稿', '正文'), nums)
+  collectUnitNumbers(join(bookRoot, '篇'), nums)
+  if (nums.length > 0) return Math.max(...nums) + 1
+
   try {
-    const log = execSync('git log --oneline -20', { cwd: bookRoot, stdio: 'pipe', encoding: 'utf-8' })
+    const log = execSync('git log --oneline', { cwd: bookRoot, stdio: 'pipe', encoding: 'utf-8' })
     // 兼容长短轨前缀（M8 #26）：long → ch:NNNN，short → pc:NNN
     const matches = [...log.matchAll(/(?:ch|pc):(\d+)/g)]
     if (matches.length > 0) {
@@ -465,6 +471,21 @@ function detectNextChapter(bookRoot: string): number {
     // 无 git 历史忽略
   }
   return 1
+}
+
+function collectUnitNumbers(dir: string, out: number[]): void {
+  if (!existsSync(dir)) return
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('._')) continue
+      const m = name.match(/^(\d+)-/)
+      if (!m) continue
+      const n = Number(m[1])
+      if (Number.isSafeInteger(n) && n > 0) out.push(n)
+    }
+  } catch {
+    // 目录不可读时回退 git log
+  }
 }
 
 // ── 整批回滚（#35 第 4 节）─────────────────────────

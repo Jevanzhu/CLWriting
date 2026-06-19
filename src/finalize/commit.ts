@@ -130,6 +130,12 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     : checkFinalizeGate(workDir, outlinePath, hasReviewVerdict, db, bookRoot, chapter.章号, ['伏笔', '悬念', '感情线', ...config.leads.enabled])
   if (!gate.ok) return gate
 
+  const occupied = findFinalizedUnit(bookRoot, chapter.章号, kind)
+  if (occupied) {
+    const unit = isShort ? '篇' : '章'
+    return { ok: false, reason: `第 ${chapter.章号} ${unit}已定稿（${occupied}），拒绝覆盖已有正文。请改用下一${unit}号或先回滚。` }
+  }
+
   // #2 写定稿区变更（记录改动路径，供 commit 失败时原子回滚，#13 第 4 节）
   const changedPaths: string[] = [] // 相对 bookRoot 的路径（commit 用 + 失败回滚用）
 
@@ -226,6 +232,25 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   rebuild(bookRoot, cachePath)
 
   return { ok: true, commitHash }
+}
+
+function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'short'): string | null {
+  const dir = kind === 'short' ? join(bookRoot, '篇') : join(bookRoot, '定稿', '正文')
+  if (!existsSync(dir)) return null
+  const prefix = kind === 'short' ? String(unitNum).padStart(3, '0') : String(unitNum)
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('._')) continue
+      const m = name.match(/^(\d+)-/)
+      if (!m) continue
+      const n = Number(m[1])
+      if (n === unitNum) return kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
+      if (name.startsWith(`${prefix}-`)) return kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 /**
