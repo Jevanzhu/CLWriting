@@ -18,8 +18,9 @@ import { existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync } from 'n
 import { join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
-import type { ChapterMeta, BookConfig } from '../format/types.js'
+import type { ChapterMeta, BookConfig, PieceMeta } from '../format/types.js'
 import { writeChapter } from '../format/chapters.js'
+import { writePiece } from '../format/pieces.js'
 import { writeLead, readLead } from '../format/leads.js'
 import { checkConfirmGate, readConfirm, clearConfirm } from '../gate/confirm.js'
 import { checkLeadsForm } from '../check/leads.js'
@@ -138,7 +139,14 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     // 篇目录可能不存在（新篇），写正文前建（fileName 含子路径，需 mkdir 父目录）
     mkdirSync(join(bookRoot, '篇', fileName.split('/')[0]!), { recursive: true })
     const chapterRel = `篇/${fileName}`
-    writeChapter(chapterPath, chapter, body)
+    // 短篇正文用 PieceMeta（篇号/标题/目标情绪/核心反转），从 ChapterMeta（章号承载篇号）映射；
+    // 目标情绪/核心反转藏在 _raw（readDraft 短篇分支保留），无则按篇号/标题最小字段写
+    const piece: PieceMeta = {
+      篇号: chapter.章号,
+      标题: chapter.标题,
+      ...(chapter._raw ? { _raw: chapter._raw } : {}),
+    }
+    writePiece(chapterPath, piece, body)
     changedPaths.push(chapterRel)
   } else {
     // 长篇落点：定稿/正文/<章号>-<标题>.md（行为逐字节不变）

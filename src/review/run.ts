@@ -215,18 +215,33 @@ export function formatReviewPacket(packet: ReviewExecutionPacket): string {
   lines.push(`- 视角：${packet.lenses_run.map(lensLabel).join(' / ')}`)
   lines.push(`- issues 回写目录：${packet.out_dir}`)
   lines.push('')
+  // 短篇三视角（hook/emotion_peak/payoff）vs 长篇三视角（reader/editor/continuity）决定核对口径文案
+  const isShortPacket = packet.lenses_run.includes('hook') || packet.lenses_run.includes('payoff')
   lines.push('## 各视角分包')
   lines.push('')
   for (const p of packet.packets) {
     lines.push(`### ${lensLabel(p.lens)}（${p.title}）`)
     lines.push(`- 焦点：${p.focus.join(' / ')}`)
-    if (p.ledger_checks.length > 0) {
-      lines.push('- 账本核对（设定校对恒跑，逐条核对）：')
-      for (const c of p.ledger_checks) {
-        lines.push(`  - ${c.lead_id} 第${c.chapter}章 ${c.verb}：${c.evidence}`)
+    if (isShortPacket) {
+      // 短篇：清单核对专属设定收尾审（payoff）
+      if (p.lens === 'payoff' && p.list_checks && p.list_checks.length > 0) {
+        lines.push('- 清单核对（设定收尾审恒跑，逐条核对反转线索表 + 伏笔回收）：')
+        for (const c of p.list_checks) {
+          lines.push(`  - [${c.type}] ${c.subject}${c.location ? ` @ ${c.location}` : ''}：${c.detail}`)
+        }
+      } else if (p.lens === 'payoff') {
+        lines.push('- 清单核对：设定收尾审读 清单.md 逐条核对（无预填条目时由宿主读清单）。')
       }
     } else {
-      lines.push('- 账本核对：本视角无账本清单（账本核对专属设定校对）。')
+      // 长篇：账本核对专属设定校对（continuity）
+      if (p.ledger_checks.length > 0) {
+        lines.push('- 账本核对（设定校对恒跑，逐条核对）：')
+        for (const c of p.ledger_checks) {
+          lines.push(`  - ${c.lead_id} 第${c.chapter}章 ${c.verb}：${c.evidence}`)
+        }
+      } else {
+        lines.push('- 账本核对：本视角无账本清单（账本核对专属设定校对）。')
+      }
     }
     const issueFile = packet.tier === 'combined' ? COMBINED_ISSUES_FILE : lensIssuesFileName(p.lens)
     lines.push(`- 输出契约：JSON only / 必带 evidence / 不打分；回写 ${issueFile}`)

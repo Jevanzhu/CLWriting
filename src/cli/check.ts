@@ -9,6 +9,7 @@ import { resolve, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { readFile } from '../format/frontmatter.js'
 import { readChapter } from '../format/chapters.js'
+import { readPiece } from '../format/pieces.js'
 import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
@@ -27,14 +28,15 @@ export function checkCommand(args: string[]): void {
   const positional = args.filter((a) => a !== '--full')
   const { draftPath, bookRoot } = resolveDraftAndBook(positional)
 
-  const draft = readDraft(draftPath)
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const isShort = (config.kind ?? 'long') === 'short'
+
+  const draft = readDraft(draftPath, isShort)
   if (!draft.ok) {
     console.error(`✗ ${draft.reason}`)
     process.exit(1)
   }
 
-  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-  const isShort = (config.kind ?? 'long') === 'short'
   const cachePath = join(bookRoot, '.cache', 'index.db')
   const rebuilt = rebuild(bookRoot, cachePath)
   if (rebuilt.errors.length > 0) {
@@ -93,7 +95,30 @@ function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoo
 
 function readDraft(
   draftPath: string,
+  isShort: boolean,
 ): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
+  if (isShort) {
+    // 短篇草稿用 篇号（readPiece），映射成 ChapterMeta（章号字段承载篇号）供 runAllChecks 短篇分支
+    const piece = readPiece(draftPath)
+    if (!piece.ok) return { ok: false, reason: piece.error.message }
+    const file = readFile(draftPath)
+    if (!file.ok) return { ok: false, reason: file.error.message }
+    // 目标情绪/核心反转是 PieceMeta 直属字段，带进 _raw 供 finalize 映射回 PieceMeta 保留
+    const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
+    if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
+    if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
+    const chapter: ChapterMeta = {
+      章号: piece.piece.篇号,
+      标题: piece.piece.标题,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
+      _path: piece.piece._path,
+    }
+    return { ok: true, chapter, body: file.body }
+  }
+
   const chapter = readChapter(draftPath)
   if (!chapter.ok) return { ok: false, reason: chapter.error.message }
 

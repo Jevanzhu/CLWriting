@@ -174,7 +174,7 @@ function runCommand(args: string[]): void {
   console.log(formatReviewPacket(built.packet))
   console.log('')
   console.log(`执行包已写入：${packetPath}`)
-  console.log(`预算校验通过：第 ${parsed.chapter} 章已用 ${remaining.used}/${remaining.limit}，本次三审预计 ${built.packet.planned_calls} 次调用。`)
+  console.log(`预算校验通过：第 ${parsed.chapter} ${isShort ? '篇' : '章'}已用 ${remaining.used}/${remaining.limit}，本次三审预计 ${built.packet.planned_calls} 次调用。`)
   console.log('宿主按执行包各调一次模型，把 issues JSON 回写到上述目录后，运行：')
   console.log(`  clwriting review collect [书目录] --chapter=${parsed.chapter}`)
 }
@@ -189,6 +189,8 @@ function collectCommand(args: string[]): void {
     process.exit(1)
   }
   const { config, workDir } = readReviewContext(parsed)
+  const isShort = (config.kind ?? 'long') === 'short'
+  const unit = isShort ? '篇' : '章'
   const loaded = readReviewPacket(workDir)
   if (!loaded.ok) {
     console.error(`✗ ${loaded.reason}`)
@@ -196,7 +198,7 @@ function collectCommand(args: string[]): void {
   }
   const packet = loaded.packet
   if (packet.chapter !== parsed.chapter) {
-    console.error(`✗ 三审执行包是第 ${packet.chapter} 章，但当前 collect 指定第 ${parsed.chapter} 章。请重新 review run。`)
+    console.error(`✗ 三审执行包是第 ${packet.chapter} ${unit}，但当前 collect 指定第 ${parsed.chapter} ${unit}。请重新 review run。`)
     process.exit(1)
   }
   const draftPath = packet.draft_path ?? parsed.draftPath
@@ -240,7 +242,7 @@ function collectCommand(args: string[]): void {
   if (!recorded.ok) {
     console.log(`· ⚠ 预算记账失败：${recorded.reason}（审稿单已写，但调用计数未更新）`)
   } else {
-    console.log(`· 调用记账：${step} +${packet.planned_calls}（第 ${parsed.chapter} 章已用 ${recorded.record.used}/${recorded.record.limit_override ?? config.budget.calls_per_chapter}）`)
+    console.log(`· 调用记账：${step} +${packet.planned_calls}（第 ${parsed.chapter} ${unit}已用 ${recorded.record.used}/${recorded.record.limit_override ?? config.budget.calls_per_chapter}）`)
   }
   console.log('作者拍板后在审稿单写「verdict: 通过」，即可 finalize。')
 }
