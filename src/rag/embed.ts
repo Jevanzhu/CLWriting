@@ -8,6 +8,11 @@
 /** embedding 调用结果（null = 失败/降级） */
 export type EmbedResult = number[][] | null
 
+export interface EmbedOptions {
+  /** 请求超时毫秒；默认 30s。<=0 表示不启用超时。 */
+  timeoutMs?: number
+}
+
 /**
  * 调外部 embedding 端点（OpenAI 兼容：POST { input, model }，Bearer 鉴权）。
  *
@@ -22,12 +27,20 @@ export async function embed(
   model: string,
   apiKey: string,
   texts: string[],
+  options: EmbedOptions = {},
 ): Promise<EmbedResult> {
   if (texts.length === 0) return []
+
+  const timeoutMs = options.timeoutMs ?? 30_000
+  const controller = timeoutMs > 0 ? new AbortController() : null
+  const timer = controller
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null
 
   try {
     const resp = await fetch(endpoint, {
       method: 'POST',
+      ...(controller ? { signal: controller.signal } : {}),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
@@ -48,5 +61,7 @@ export async function embed(
   } catch {
     // 网络/解析错误：静默降级（#37 第 6.2 节，不崩主路径）
     return null
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }

@@ -76,7 +76,7 @@ export function prepare(
   // ── 刚需段（#12 第 4 节：永不裁剪）──────────────
 
   // #1 近况（刚需——AI 必须知道写到哪里了）
-  const snapshot = assembleStatus(db, config)
+  const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50)
   sections.push({
     title: '近况',
     content: formatStatus(snapshot),
