@@ -58,6 +58,7 @@ export function commitSamples(
       场景: pick.场景,
       来源: source,
       出处: pick.出处,
+      ...(pick.技法指令 ? { 技法指令: pick.技法指令 } : {}),
       正文: pick.正文,
     }
     writeSample(join(sceneDir, fileName), sample)

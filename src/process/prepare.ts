@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../cli/read.js'
 import { readSamplesByScene } from '../format/style.js'
-import type { BookConfig, LeadType } from '../format/types.js'
+import type { BookConfig, LeadType, StyleSample } from '../format/types.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -60,7 +60,7 @@ export function estimateTokens(text: string): number {
  * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 R1 接缝）。
  *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
  *        **不传 → 无此段 → 行为与现状逐字节一致**（工单验收红线）。
- * @param sampleScene 文风样章场景。缺省回落「战斗」，保持旧调用兼容。
+ * @param sampleScene 文风样章场景。可单值或多值（G2 跨场景）；缺省回落「战斗」，保持旧调用兼容。
  */
 export function prepare(
   db: DatabaseSync,
@@ -68,7 +68,7 @@ export function prepare(
   bookRoot: string,
   chapterLeadIds: string[],
   ragRecallText?: string,
-  sampleScene = '战斗',
+  sampleScene: string | string[] = '战斗',
 ): PrepareResult {
   const sections: MaterialSection[] = []
   const trimLog: string[] = []
@@ -134,11 +134,21 @@ export function prepare(
   }
 
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
+  // G2 跨场景：主场景优先、次场景补，总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
   const sampleDir = join(bookRoot, '文风', '样章库')
-  const { samples } = readSamplesByScene(sampleDir, sampleScene)
-  if (samples.length > 0) {
-    // 轻注入：只取 1-2 段（#12 + 母本第 1.4 节）
-    const injected = config.style.injection === 'heavy' ? samples.slice(0, 3) : samples.slice(0, 1)
+  const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
+  const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+  const maxTotal = config.style.injection === 'heavy' ? 3 : 1
+  // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
+  const picked: StyleSample[] = []
+  for (const samples of perScene) {
+    if (samples.length > 0) picked.push(samples[0]!)
+  }
+  for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
+    picked.push(perScene[0]![i]!)
+  }
+  const injected = picked.slice(0, maxTotal)
+  if (injected.length > 0) {
     const parts = injected.map((s) => {
       if (!s.技法指令) return s.正文
       return `技法指令：${s.技法指令}\n${s.正文}`

@@ -34,6 +34,8 @@ export interface SampleCandidate {
   章号: number
   /** 打分（0-100，借 #10 机检） */
   打分: number
+  /** 技法指令（作者审核时一句话标注「这段学什么」，可空；G5 闭合样章配技法指令） */
+  技法指令?: string
 }
 
 /** 金句候选 */

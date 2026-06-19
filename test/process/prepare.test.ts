@@ -116,6 +116,38 @@ test('prepare: 可按场景注入文风样章，避免固定战斗样章', () =>
   rmSync(root, { recursive: true, force: true })
 })
 
+test('G2: 多场景注入（heavy）→ 主场景优先 + 次场景补', () => {
+  const { root, db } = makeBookWithMaterial()
+  // makeBookWithMaterial 各场景仅 1 样章，再给主场景「战斗」补 1 段，验证主优先填满
+  writeFileSync(
+    join(root, '文风', '样章库', '战斗', '战斗-002.md'),
+    '---\n场景: 战斗\n来源: 作者原作\n---\n第二段战斗：长枪破阵。', 'utf-8',
+  )
+  const cfg: BookConfig = { ...DEFAULT_CONFIG, style: { injection: 'heavy' } }
+  // 主场景=战斗，次场景=对话
+  const r = prepare(db, cfg, root, [], undefined, ['战斗', '对话'])
+  const styleSection = r.sections.find((s) => s.title === '文风样章')
+  expect(styleSection).toBeDefined()
+  // heavy 总量 3：战斗各取 1（主）+ 对话 1（次）+ 战斗补 1 = 战斗×2 + 对话×1
+  expect(styleSection!.content).toContain('刀光没入雪雾') // 主场景首段
+  expect(styleSection!.content).toContain('长枪破阵') // 主场景补段
+  expect(styleSection!.content).toContain('你早就知道') // 次场景代表
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('G2: 轻档多场景 → 只主场景 1 段（保持轻注入）', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 默认轻注入
+  const r = prepare(db, DEFAULT_CONFIG, root, [], undefined, ['对话', '战斗'])
+  const styleSection = r.sections.find((s) => s.title === '文风样章')
+  expect(styleSection).toBeDefined()
+  expect(styleSection!.content).toContain('你早就知道') // 主场景=对话
+  expect(styleSection!.content).not.toContain('刀光没入雪雾') // 轻档不带次场景
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('prepare: 近况卷号使用 book.volume_size', () => {
   const root = mkdtempSync(join(tmpdir(), '卷大小-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
