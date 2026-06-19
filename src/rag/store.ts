@@ -33,11 +33,13 @@ export interface ChunkInput {
 
 /** Float32Array ↔ Buffer（BLOB 序列化） */
 export function float32ToBuffer(arr: Float32Array): Buffer {
-  return Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength)
+  return Buffer.from(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength))
 }
 
-export function bufferToFloat32(buf: Buffer): Float32Array {
-  return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4)
+export function bufferToFloat32(blob: Uint8Array): Float32Array {
+  if (blob.byteLength % 4 !== 0) return new Float32Array()
+  const bytes = Uint8Array.from(blob)
+  return new Float32Array(bytes.buffer)
 }
 
 /** 打开 per-book .rag.db（书仓库内，gitignore，独立 .cache） */
@@ -69,7 +71,7 @@ export function readAllChunks(db: DatabaseSync): RagChunk[] {
   const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
   const rows = stmt.all() as Array<{
     id: number; 章号: number; start_offset: number; end_offset: number
-    embedding: Buffer; model: string; indexed_at: string
+    embedding: Uint8Array; model: string; indexed_at: string
   }>
   return rows.map((r) => ({
     id: r.id,

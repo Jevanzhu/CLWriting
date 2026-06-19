@@ -9,11 +9,14 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { openRagDb, storeChunk, readAllChunks, getRagMeta, setRagMeta, cosineSimilarity } from './store.js'
 import { embed } from './embed.js'
 import type { RagConfig } from './config.js'
+import type { DatabaseSync } from 'node:sqlite'
+import type { ChapterMeta } from '../format/types.js'
 
 /** 一个分块（文本 + 在该章正文的偏移） */
 export interface TextChunk {
@@ -42,6 +45,39 @@ export function chunkBody(body: string): TextChunk[] {
     chunks.push({ text: tail.trim(), start: lastEnd, end: body.length })
   }
   return chunks
+}
+
+function chapterHashKey(chapterNumber: number): string {
+  return `chapter_hash:${chapterNumber}`
+}
+
+function hashChapterContent(fmRaw: string, body: string): string {
+  return 'sha256:' + createHash('sha256').update(fmRaw).update('\n---body---\n').update(body).digest('hex')
+}
+
+function readChapterFingerprint(ch: ChapterMeta): string | null {
+  if (!ch._path) return null
+  const r = readFile(ch._path)
+  if (!r.ok) return null
+  return hashChapterContent(r.fmRaw, r.body)
+}
+
+function validateIndexedChapterFingerprints(
+  db: DatabaseSync,
+  chapters: ChapterMeta[],
+): string | null {
+  for (const ch of chapters) {
+    const currentHash = readChapterFingerprint(ch)
+    if (!currentHash) continue
+    const indexedHash = getRagMeta(db, chapterHashKey(ch.章号))
+    if (!indexedHash) {
+      return `RAG 索引缺少第 ${ch.章号} 章内容指纹，请删除 .rag.db 后重建索引。`
+    }
+    if (indexedHash !== currentHash) {
+      return `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .rag.db 后重建索引。`
+    }
+  }
+  return null
 }
 
 export interface BuildIndexResult {
@@ -95,6 +131,13 @@ export async function buildIndex(
     // 增量：读已索引到第几章，跳过已索引的
     const indexedChStr = getRagMeta(db, 'indexed_max_chapter')
     const indexedMax = indexedChStr ? Number(indexedChStr) : 0
+    const fingerprintIssue = validateIndexedChapterFingerprints(
+      db,
+      chapters.filter((ch) => ch.章号 <= indexedMax),
+    )
+    if (fingerprintIssue) {
+      return { ok: false, chunkCount: 0, chapterCount: 0, error: fingerprintIssue }
+    }
 
     const toIndex = chapters.filter((ch) => ch.章号 > indexedMax).sort((a, b) => a.章号 - b.章号)
     if (toIndex.length === 0) {
@@ -103,11 +146,13 @@ export async function buildIndex(
 
     // 收集所有待 embed 的块（批量请求减往返）
     const allChunks: Array<{ 章号: number; chunk: TextChunk }> = []
+    const chapterHashes = new Map<number, string>()
     for (const ch of toIndex) {
       const path = ch._path
       if (!path) continue
       const r = readFile(path)
       if (!r.ok) continue
+      chapterHashes.set(ch.章号, hashChapterContent(r.fmRaw, r.body))
       for (const chunk of chunkBody(r.body)) {
         allChunks.push({ 章号: ch.章号, chunk })
       }
@@ -117,6 +162,9 @@ export async function buildIndex(
       // 没有有效块，但章节已处理，更新游标
       const maxCh = toIndex[toIndex.length - 1]!.章号
       setRagMeta(db, 'indexed_max_chapter', String(maxCh))
+      for (const [chapterNumber, hash] of chapterHashes) {
+        setRagMeta(db, chapterHashKey(chapterNumber), hash)
+      }
       return { ok: true, chunkCount: 0, chapterCount: toIndex.length }
     }
 
@@ -154,6 +202,9 @@ export async function buildIndex(
     setRagMeta(db, 'indexed_max_chapter', String(maxCh))
     setRagMeta(db, 'embedding_model', config.model)
     setRagMeta(db, 'embedding_dim', String(vectors[0]!.length))
+    for (const [chapterNumber, hash] of chapterHashes) {
+      setRagMeta(db, chapterHashKey(chapterNumber), hash)
+    }
 
     return { ok: true, chunkCount: allChunks.length, chapterCount: toIndex.length }
   } finally {
@@ -199,6 +250,15 @@ export async function recall(
 
     const chunks = readAllChunks(db)
     if (chunks.length === 0) return []
+
+    const bodyDir = join(bookRoot, '定稿', '正文')
+    const { chapters } = readChapterDir(bodyDir)
+    const chapterNumbers = new Set(chunks.map((c) => c.章号))
+    const fingerprintIssue = validateIndexedChapterFingerprints(
+      db,
+      chapters.filter((ch) => chapterNumbers.has(ch.章号)),
+    )
+    if (fingerprintIssue) return []
 
     const hits: RecallHit[] = chunks
       .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
