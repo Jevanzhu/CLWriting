@@ -15,7 +15,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { doAutoBatch, readBatchProgress, type ChapterProduction, type ProduceChapter } from '../auto/batch.js'
 
 /** `clwriting auto [N] [--resume]` */
-export function autoCommand(args: string[]): void {
+export async function autoCommand(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     printAutoHelp()
     return
@@ -55,15 +55,19 @@ export function autoCommand(args: string[]): void {
   }
 
   // AI 步接缝：CLI 层无内置模型，produce 用占位实现提示宿主驱动
-  // 真模型宿主（Claude Code/Codex）会在编排点接管 produce，产出细纲+正文
-  const produce: ProduceChapter = ({ chapter }) => {
+  // 真模型宿主（Claude Code/Codex）会在编排点接管 produce，产出细纲+正文（可 await tools.prepareMaterials 拿含 RAG 召回的备料）
+  const produce: ProduceChapter = async ({ chapter, tools }) => {
     console.log(`\n▶ 第 ${chapter} 章：宿主在此产出细纲 + 正文（AI 步接缝）。`)
     console.log('  连写编排已串联脚本步（确认/机检/三审）；真模型调用由宿主填入。')
+    console.log('  备料含 RAG 召回：宿主在 produce 内 `await tools.prepareMaterials(leadIds)` 拿写作材料。')
     console.log('  CLI 直跑（无宿主）→ 返回需人停止。')
+    // 证实 tools 已注入（CLI 无模型，仅展示备料降级能力：未配 RAG 时 prepareMaterials 也正常）
+    const m = await tools.prepareMaterials([], `第${chapter}章`)
+    console.log(`  （备料预览：${m.ragUsed ? `含 RAG 召回 ${m.ragHitCount} 命中` : '无 RAG 召回（未配/降级）'}，材料 ${m.text.length} 字符）`)
     return { reason: 'human', detail: 'CLI 无内置模型，需宿主（Claude Code/Codex）驱动 AI 步产出' }
   }
 
-  const result = doAutoBatch({ bookRoot, targetCount, produce, resume })
+  const result = await doAutoBatch({ bookRoot, targetCount, produce, resume })
 
   // 输出结果
   if (!result.ok) {

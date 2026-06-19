@@ -13,8 +13,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
 import type { BookConfig, ChapterMeta } from '../format/types.js'
 import { readBookConfig } from '../format/yaml.js'
+import { rebuild } from '../cache/rebuild.js'
+import { prepareMaterials } from '../process/materials.js'
 
 // ── 待定稿路径常量 ─────────────────────────────────
 
@@ -172,6 +175,25 @@ export interface ChapterProduction {
   chapter: ChapterMeta
 }
 
+/**
+ * 备料工具（M7 #37 R1 接缝接入）。
+ * 编排层把它注入 produce 回调，宿主在 produce 内 `await tools.prepareMaterials(leadIds)` 拿含
+ * RAG 召回的备料（未配 RAG 时行为逐字节不变；端点挂/未配 key 自动降级回落精准读取）。
+ *
+ * 这样备料时机仍归宿主控制（#33 原则：编排层只管搬运+游标，脚本步在 produce 内串联），
+ * 编排层不主动调 prepare——尊重 M2 既有的「prepare 是宿主在 produce 内组织」的现状。
+ */
+export interface ProduceTools {
+  /** 备料（近况+账本+文风+RAG 召回），返回写作材料文本 */
+  prepareMaterials: (chapterLeadIds: string[], query?: string) => Promise<{
+    text: string
+    /** 是否触发 RAG 召回（未配/降级 → false） */
+    ragUsed: boolean
+    /** 召回命中数 */
+    ragHitCount: number
+  }>
+}
+
 /** 停止触发（四件套，#34 第 3 节）。宿主返回此值 → 编排层记 paused + 按类处置。 */
 export interface StopTrigger {
   /** 触发类型：budget 预算 / quality 质量 / human 需人 / system 系统 */
@@ -183,16 +205,21 @@ export interface StopTrigger {
 }
 
 /**
- * 单章产出回调：编排层传章号 + bookRoot + config，宿主返回本章产出或停止触发。
+ * 单章产出回调：编排层传章号 + bookRoot + config + 备料工具，宿主返回本章产出或停止触发。
  * - 返回 ChapterProduction：本章成功产出 → 搬入待定稿
  * - 返回 StopTrigger：触发停止四件套 → 编排层记 paused + 按类处置（②④隔离）
+ *
+ * **async**（M7 #37 R1 接缝）：宿主可在 produce 内 await prepareMaterials（含 RAG 召回，
+ * 联网 embed 必须异步）。编排层 await 此回调。
  */
 export type ProduceChapter = (input: {
   chapter: number
   bookRoot: string
   workDir: string
   config: BookConfig
-}) => ChapterProduction | StopTrigger | null
+  /** 备料工具（含 RAG 召回接缝）；宿主在 produce 内按需 await 调用 */
+  tools: ProduceTools
+}) => Promise<ChapterProduction | StopTrigger | null>
 
 export interface AutoBatchOptions {
   bookRoot: string
@@ -202,6 +229,12 @@ export interface AutoBatchOptions {
   startChapter?: number
   /** 单章产出回调（AI 步接缝） */
   produce: ProduceChapter
+  /**
+   * 备料工具工厂（M7 #37 R1 接缝接入）。
+   * 编排层每章为 produce 注入一个 tools 实例（绑定本章 config+bookRoot+workDir）。
+   * 默认用 process/materials.ts 的 prepareMaterials（惰性开 db）；测试可注入桩。
+   */
+  toolsFactory?: (ctx: { config: BookConfig; bookRoot: string; workDir: string }) => ProduceTools
   /** resume 模式：读既有批次进度续跑（不重置） */
   resume?: boolean
 }
@@ -214,14 +247,16 @@ export type AutoBatchResult =
  * 连写编排主循环（#33 第 4 节）。
  *
  * 循环（next_chapter < start + target 且未触发停止）：
- *   1. 工作区根写第 next_chapter 章（produce 回调产出细纲+正文）
+ *   1. 工作区根写第 next_chapter 章（await produce 回调产出细纲+正文）
  *   2. 搬运：工作区根产出移入 待定稿/<next_chapter>-<标题>/
  *   3. 清空工作区根；progress.completed += next_chapter；next_chapter += 1
  *
  * 章号自管：只认 progress.next_chapter，不靠 detectState。
  * 自动确认/机检/调用闸在 produce 内由宿主串联（编排层只管搬运 + 游标）。
+ *
+ * **async**（M7 #37 R1）：produce 是 async（宿主可在内 await prepareMaterials 含 RAG 召回）。
  */
-export function doAutoBatch(opts: AutoBatchOptions): AutoBatchResult {
+export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResult> {
   const { bookRoot, targetCount, produce } = opts
   const workDir = join(bookRoot, '工作区')
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
@@ -281,8 +316,15 @@ export function doAutoBatch(opts: AutoBatchOptions): AutoBatchResult {
       break
     }
 
-    // AI 步接缝：宿主产出本章（或返回停止触发）
-    const result = produce({ chapter: chapterNum, bookRoot, workDir, config })
+    // 备料工具注入（M7 #37 R1 接缝）：宿主在 produce 内按需 await tools.prepareMaterials
+    // 才真正开 db + 重建缓存 + 召回。惰性设计——桩 produce 不调 tools 时零开销、不碰 db
+    // （M6 原 doAutoBatch 根本不碰 db，这保证未用备料的连写行为逐字节不变）。
+    const tools = opts.toolsFactory
+      ? opts.toolsFactory({ config, bookRoot, workDir })
+      : makeDefaultTools(config, bookRoot, workDir)
+
+    // AI 步接缝：宿主产出本章（或返回停止触发）—— async（宿主可内 await prepareMaterials）
+    const result = await produce({ chapter: chapterNum, bookRoot, workDir, config, tools })
 
     // null → 需人（兼容旧接口，宿主未明确原因）
     if (!result) {
@@ -333,6 +375,46 @@ export function doAutoBatch(opts: AutoBatchOptions): AutoBatchResult {
   return { ok: true, progress, produced }
 }
 
+/**
+ * 默认备料工具工厂（M7 #37 R1 接缝）。
+ * 惰性：宿主真调 prepareMaterials 时才开 db + 重建缓存 + 召回。
+ * 未配 RAG → 行为逐字节不变；端点挂/未配 key → 自动降级回落精准读取。
+ */
+function makeDefaultTools(
+  config: BookConfig,
+  bookRoot: string,
+  workDir: string,
+): ProduceTools {
+  return {
+    prepareMaterials: async (chapterLeadIds: string[], query?: string) => {
+      // 惰性开 db：宿主不调本方法就零开销（M6 原 doAutoBatch 不碰 db，此处保持）
+      const cachePath = join(bookRoot, '.cache', 'index.db')
+      rebuildCache(bookRoot, cachePath)
+      const db = new DatabaseSync(cachePath)
+      try {
+        const r = await prepareMaterials(db, config, {
+          bookRoot,
+          workDir,
+          chapterLeadIds,
+          ...(query ? { query } : {}),
+        })
+        return { text: r.text, ragUsed: r.ragUsed, ragHitCount: r.ragHitCount }
+      } finally {
+        db.close()
+      }
+    },
+  }
+}
+
+/** 备料前重建缓存（让近况/账本反映已定稿章）。失败不阻断连写。 */
+function rebuildCache(bookRoot: string, cachePath: string): void {
+  try {
+    rebuild(bookRoot, cachePath)
+  } catch {
+    // 缓存重建失败：备料照常（prepare 内 assembleStatus 会基于现有 db 给出近况）
+  }
+}
+
 /** ④ 系统：git 健康检查（简版，调 git status 判是否有半提交/冲突）。 */
 function checkGitHealthy(bookRoot: string): boolean {
   try {
@@ -373,7 +455,8 @@ function isolateCurrentChapter(workDir: string, bookRoot: string, chapter: numbe
 function detectNextChapter(bookRoot: string): number {
   try {
     const log = execSync('git log --oneline -20', { cwd: bookRoot, stdio: 'pipe', encoding: 'utf-8' })
-    const matches = [...log.matchAll(/ch:(\d{4})/g)]
+    // 兼容长短轨前缀（M8 #26）：long → ch:NNNN，short → pc:NNN
+    const matches = [...log.matchAll(/(?:ch|pc):(\d+)/g)]
     if (matches.length > 0) {
       const max = Math.max(...matches.map((m) => Number(m[1])))
       return max + 1
