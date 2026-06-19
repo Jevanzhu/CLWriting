@@ -9,7 +9,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { BASE_LEAD_TYPES } from './data.js'
@@ -37,6 +37,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   execSync('git config user.email author@clwriting.local', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git config user.name author', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git config commit.gpgsign false', { cwd: bookRoot, stdio: 'pipe' })
+  installBookPushGuard(bookRoot)
 
   // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）
   const config: BookConfig = opts.kind === 'short'
@@ -69,6 +70,39 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   // 初始 commit（让 enter/状态机有 HEAD 可判，避开态 3 误判）
   execSync('git add -A', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git commit -m "init"', { cwd: bookRoot, stdio: 'pipe' })
+}
+
+/**
+ * 书仓库默认禁止推送。
+ *
+ * 书仓库存的是作者正文、账本、大纲等私有创作资料；CLWriting 的默认安全模型是
+ * 「本地 git 用来回滚，不等于远端备份」。如果作者明确要自行远程备份，需要显式设置
+ * CLWRITING_ALLOW_BOOK_PUSH=1，这能避免误把小说正文推到 GitHub。
+ */
+export function installBookPushGuard(bookRoot: string): void {
+  const hooksDir = join(bookRoot, '.git', 'hooks')
+  if (!existsSync(hooksDir)) return
+  const hookPath = join(hooksDir, 'pre-push')
+  writeFileSync(hookPath, renderBookPushGuardHook(), 'utf-8')
+  chmodSync(hookPath, 0o755)
+}
+
+export function renderBookPushGuardHook(): string {
+  return [
+    '#!/bin/sh',
+    'if [ "$CLWRITING_ALLOW_BOOK_PUSH" = "1" ]; then',
+    '  exit 0',
+    'fi',
+    'cat >&2 <<\'MSG\'',
+    'CLWriting safety guard: this book repository contains private novel text.',
+    'Push is blocked by default so drafts/final text are not sent to a remote.',
+    '',
+    'If you intentionally want to push this book repository, rerun with:',
+    '  CLWRITING_ALLOW_BOOK_PUSH=1 git push',
+    'MSG',
+    'exit 1',
+    '',
+  ].join('\n')
 }
 
 /** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（M8 #25）。 */

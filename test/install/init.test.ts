@@ -44,6 +44,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   // 书仓库层：独立 git + book.yaml + 6.2 目录 + 初始 commit
   const bookRoot = r.bookRoot
   expect(existsSync(join(bookRoot, '.git'))).toBe(true)
+  expect(existsSync(join(bookRoot, '.git', 'hooks', 'pre-push'))).toBe(true)
   expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
   expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(true)
   expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
@@ -70,6 +71,9 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   // 初始 commit 存在（git 有 HEAD）
   const head = execSync('git rev-parse HEAD', { cwd: bookRoot, stdio: 'pipe' }).toString().trim()
   expect(head.length).toBe(40)
+  const pushHook = readFileSync(join(bookRoot, '.git', 'hooks', 'pre-push'), 'utf-8')
+  expect(pushHook).toContain('CLWRITING_ALLOW_BOOK_PUSH=1')
+  expect(pushHook).toContain('Push is blocked by default')
 
   // books.jsonl 登记 + 设为活动书
   const books = readBooks(wd)

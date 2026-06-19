@@ -73,6 +73,20 @@ test('update: 不碰书仓库内容（book.yaml 不被改）', () => {
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('update: 给已有书仓库补装推送保护 hook', () => {
+  const wd = makeWorkDir()
+  const hookPath = join(wd, '升级测试书', '.git', 'hooks', 'pre-push')
+  writeFileSync(hookPath, '#!/bin/sh\nexit 0\n', 'utf-8')
+
+  const r = doUpdate({ workDir: wd, detail: 'brief' })
+  expect(r.ok).toBe(true)
+  const hook = readFileSync(hookPath, 'utf-8')
+  expect(hook).toContain('Push is blocked by default')
+  expect(hook).toContain('CLWRITING_ALLOW_BOOK_PUSH=1')
+  if (r.ok) expect(r.report.join('\n')).toContain('书仓库推送保护')
+  rmSync(wd, { recursive: true, force: true })
+})
+
 test('update: 作者改过的角色源被保留（不覆盖）', () => {
   const wd = makeWorkDir()
   // 模拟作者改了 writer.md
