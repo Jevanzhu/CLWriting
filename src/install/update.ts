@@ -168,8 +168,10 @@ function syncTemplateHashes(workDir: string, detail: 'brief' | 'full'): string[]
   }
 
   const newFiles = readdirSync(newTemplatesDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+  const newFileSet = new Set(newFiles)
   const updated: string[] = []
   const conflicts: { name: string; cur: string; newHash: string }[] = []
+  const removedTemplates: string[] = []
   const nextRecords: TemplateRecord[] = []
 
   for (const file of newFiles) {
@@ -212,6 +214,15 @@ function syncTemplateHashes(workDir: string, detail: 'brief' | 'full'): string[]
     }
   }
 
+  for (const record of manifest.records) {
+    const name = templateName(record.path)
+    if (newFileSet.has(name)) continue
+    if (existsSync(join(workDir, record.path))) {
+      removedTemplates.push(name)
+      nextRecords.push(record)
+    }
+  }
+
   // 写回 manifest（更新 installed_hash）
   writeTemplatesManifest(manifestPath, nextRecords)
 
@@ -227,7 +238,11 @@ function syncTemplateHashes(workDir: string, detail: 'brief' | 'full'): string[]
       }
     }
   }
-  if (updated.length === 0 && conflicts.length === 0) {
+  if (removedTemplates.length > 0) {
+    lines.push('· ⚠ 模板已从新版移除，但本地文件已保留（如不再需要可手动删除）：')
+    for (const name of removedTemplates) lines.push(`    - ${name}`)
+  }
+  if (updated.length === 0 && conflicts.length === 0 && removedTemplates.length === 0) {
     lines.push('· 模板哈希：无变化')
   }
   return lines

@@ -412,7 +412,7 @@ function renderClaudeAgent(role: RoleDefinition): string {
     '---',
     `name: ${role.id}`,
     `description: ${role.description}`,
-    `tools: ${role.tools.join(', ')}`,
+    `tools: ${role.tools.join(', ') || 'none'}`,
     `model: ${role.model}`,
     '---',
     '',

@@ -155,6 +155,17 @@ test('resolveBookRoot: 草稿位置参(.md)不误判为书目录', () => {
   rmSync(book, { recursive: true, force: true })
 })
 
+test('resolveBookRoot: 纯数字位置参不误判为书目录', () => {
+  const book = mkdtempSync(join(tmpdir(), 'bk-num-'))
+  makeBookRepo(book)
+  process.chdir(book)
+  // 纯数字通常是章号/篇号/批量数量，应回落 cwd 书仓库。
+  const r = resolveBookRoot(['2'])
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.bookRoot).toBe(book)
+  rmSync(book, { recursive: true, force: true })
+})
+
 test('resolveBookRoot: explicitBookRoot 参数优先', () => {
   const book = mkdtempSync(join(tmpdir(), 'bk3-'))
   makeBookRepo(book)

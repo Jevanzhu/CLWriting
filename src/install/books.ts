@@ -194,6 +194,7 @@ export function resolveBookRoot(
 function findPositionalBookRoot(args: readonly string[]): string | undefined {
   for (const arg of args) {
     if (arg.startsWith('--')) continue
+    if (/^\d+$/.test(arg)) continue // 章号/篇号/批量数量等数字位置参，不是书目录
     if (arg.endsWith('.md')) continue // 草稿文件，不是书目录
     return arg
   }

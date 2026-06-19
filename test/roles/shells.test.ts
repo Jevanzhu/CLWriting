@@ -109,6 +109,35 @@ test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift chec
   rmSync(root, { recursive: true, force: true })
 })
 
+test('generateRoleShells: 空 tools 在 Claude/Codex 壳都渲染为 none', () => {
+  const root = makeProject()
+  writeFileSync(
+    join(root, '.clwriting', 'roles', 'planner.md'),
+    [
+      '---',
+      'id: planner',
+      'name: 规划角色',
+      'description: 只做规划',
+      'model: inherit',
+      '---',
+      '',
+      '不需要工具。',
+      '',
+    ].join('\n'),
+    'utf-8',
+  )
+
+  const result = generateRoleShells({ projectRoot: root })
+
+  expect(result.ok).toBe(true)
+  const claudeAgent = readFileSync(join(root, '.claude', 'agents', 'planner.md'), 'utf-8')
+  const codexAgent = readFileSync(join(root, '.codex', 'agents', 'planner.md'), 'utf-8')
+  expect(claudeAgent).toContain('tools: none')
+  expect(codexAgent).toContain('- tools: none')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('checkRoleShellDrift: 角色源变化会报 source-drift', () => {
   const root = makeProject()
   generateRoleShells({ projectRoot: root })
