@@ -164,6 +164,9 @@ test('short finalize 成功后工作区清空', () => {
     const outline = join(workDir, '细纲.md')
     writeFileSync(outline, '细纲', 'utf-8')
     writeFileSync(join(workDir, '草稿-1.md'), '草稿', 'utf-8')
+    writeFileSync(join(workDir, '清单.md'), '清单', 'utf-8')
+    mkdirSync(join(workDir, '三审'), { recursive: true })
+    writeFileSync(join(workDir, '三审', 'packet.json'), '{}', 'utf-8')
     doConfirm(workDir, 1, outline, 'manual', SHORT_CONFIG)
 
     const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折' }
@@ -173,9 +176,11 @@ test('short finalize 成功后工作区清空', () => {
     })
     expect(r.ok).toBe(true)
 
-    // 工作区清空（草稿/细纲/.confirm 都没了）
+    // 工作区清空（草稿/细纲/清单/三审/.confirm 都没了）
     expect(existsSync(outline)).toBe(false)
     expect(existsSync(join(workDir, '草稿-1.md'))).toBe(false)
+    expect(existsSync(join(workDir, '清单.md'))).toBe(false)
+    expect(existsSync(join(workDir, '三审'))).toBe(false)
     expect(existsSync(join(workDir, '.confirm.json'))).toBe(false)
     db.close()
   } finally {
