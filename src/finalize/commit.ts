@@ -14,7 +14,7 @@
  * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -257,13 +257,13 @@ function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
   }
 }
 
-/** 清空工作区（删草稿/细纲/材料/确认记录）。
+/** 清空工作区（删草稿/细纲/材料/审稿/三审/确认记录）。
  *  草稿-N.md 全部交给下面的 readdir 循环兜底（覆盖 草稿-1 / 草稿-N / ._草稿-*）。 */
 function clearWorkDir(workDir: string): void {
-  const toDelete = ['细纲.md', '本章写作材料.md', '审稿.md']
+  const toDelete = ['细纲.md', '本章写作材料.md', '审稿.md', '清单.md', '三审']
   for (const f of toDelete) {
     const fp = join(workDir, f)
-    if (existsSync(fp)) unlinkSync(fp)
+    if (existsSync(fp)) rmSync(fp, { recursive: true, force: true })
   }
   // 删所有草稿-*
   try {
