@@ -141,6 +141,29 @@ test('update: templates.manifest.json 原子写入且不残留临时文件', () 
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('update: 新版已删除的模板仅提示并保留本地文件和 manifest 记录', () => {
+  const wd = makeWorkDir()
+  const oldPath = join(wd, '.clwriting', 'roles', 'old-role.md')
+  writeFileSync(oldPath, '# 旧模板\n', 'utf-8')
+  const manifestPath = join(wd, '.clwriting', 'templates.manifest.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+  manifest.records.push({
+    path: '.clwriting/roles/old-role.md',
+    installed_hash: 'sha256:old',
+  })
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
+
+  const r = doUpdate({ workDir: wd, detail: 'brief' })
+
+  expect(r.ok).toBe(true)
+  expect(existsSync(oldPath)).toBe(true)
+  if (r.ok) expect(r.report.join('\n')).toContain('old-role.md')
+  const after = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+  expect(after.records.some((record: { path: string }) => record.path.endsWith('/old-role.md'))).toBe(true)
+
+  rmSync(wd, { recursive: true, force: true })
+})
+
 test('update: 报告含三类文件分治信息', () => {
   const wd = makeWorkDir()
   const r = doUpdate({ workDir: wd, detail: 'brief' })
