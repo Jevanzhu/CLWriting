@@ -11,7 +11,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { readFile } from '../format/frontmatter.js'
@@ -19,6 +19,7 @@ import { readChapter } from '../format/chapters.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
 import { readReviewVerdict, REVIEW_VERDICT_MARKER } from '../review/run.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import {
   pendingRoot,
   readBatchProgress,
@@ -199,11 +200,14 @@ export function rejectPendingChapter(
   const src = join(pendingRoot(bookRoot), dirName)
   const dst = join(pendingRoot(bookRoot), '.isolated', dirName)
   mkdirSync(join(pendingRoot(bookRoot), '.isolated'), { recursive: true })
-  writeFileSync(join(src, '.rejection.json'), JSON.stringify({ chapter, reason, at: new Date().toISOString() }), 'utf-8')
   try {
     renameSync(src, dst)
   } catch {
     return { ok: false, reason: `打回第 ${chapter} 章移动失败` }
   }
+  atomicWriteFile(
+    join(dst, '.rejection.json'),
+    JSON.stringify({ chapter, reason, at: new Date().toISOString() }, null, 2),
+  )
   return { ok: true }
 }
