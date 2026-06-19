@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../../src/format/chapters.js'
+import { writePiece } from '../../src/format/pieces.js'
 import { doConfirm } from '../../src/gate/confirm.js'
 import { REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
 import { finalizeCommand } from '../../src/cli/finalize.js'
@@ -63,9 +64,8 @@ function captureCli(run: () => void): { stdout: string; exitCode: string | null 
 test('finalize CLI short: 落 篇/ + pc: 前缀 + 文案出「篇」', () => {
   const root = makeShortBook()
   try {
-    // 工作区放草稿（短篇复用 ChapterMeta，章号字段承载篇号）
-    const ch: ChapterMeta = { 章号: 1, 标题: '雪夜来客', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '转折' }
-    writeChapter(join(root, '工作区', '草稿-1.md'), ch, '他推开门，血溅了一地。')
+    // 工作区放草稿（短篇用 篇号，writePiece；readDraft 短篇分支读篇号）
+    writePiece(join(root, '工作区', '草稿-1.md'), { 篇号: 1, 标题: '雪夜来客' }, '他推开门，血溅了一地。')
     writeFileSync(join(root, '工作区', '细纲.md'), '细纲内容', 'utf-8')
     // 确认细纲（前置闸刚需）
     doConfirm(join(root, '工作区'), 1, join(root, '工作区', '细纲.md'), 'manual', SHORT_CONFIG)
@@ -92,8 +92,7 @@ test('finalize CLI short: 落 篇/ + pc: 前缀 + 文案出「篇」', () => {
 test('finalize CLI short: 无裁决 → 前置闸拦', () => {
   const root = makeShortBook()
   try {
-    const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '转折' }
-    writeChapter(join(root, '工作区', '草稿-1.md'), ch, '正文')
+    writePiece(join(root, '工作区', '草稿-1.md'), { 篇号: 1, 标题: '雪夜' }, '正文')
     writeFileSync(join(root, '工作区', '细纲.md'), '细纲', 'utf-8')
     doConfirm(join(root, '工作区'), 1, join(root, '工作区', '细纲.md'), 'manual', SHORT_CONFIG)
     // 无审稿裁决（不写 审稿.md approved）

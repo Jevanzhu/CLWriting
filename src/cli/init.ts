@@ -40,7 +40,7 @@ export async function initCommand(args: string[]): Promise<void> {
   if (name && (genre || leadsRaw)) {
     const leads = leadsRaw ? leadsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined
     const result = doInit({ workDir, name, genre, leads, kind })
-    reportInitResult(result)
+    reportInitResult(result, kind)
     return
   }
 
@@ -83,22 +83,30 @@ export async function initCommand(args: string[]): Promise<void> {
     }
 
     const result = doInit({ workDir, name: bookName, genre: bookGenre || undefined, leads, kind })
-    reportInitResult(result)
+    reportInitResult(result, kind)
   } finally {
     rl.close()
   }
 }
 
-function reportInitResult(result: { ok: true; bookName: string } | { ok: false; reason: string }): void {
+function reportInitResult(
+  result: { ok: true; bookName: string } | { ok: false; reason: string },
+  kind: 'long' | 'short' = 'long',
+): void {
   if (!result.ok) {
     console.error(`✗ ${result.reason}`)
     process.exit(1)
   }
-  console.log(`✓ 书「${result.bookName}」建好了。`)
+  const isShort = kind === 'short'
+  console.log(`✓ ${isShort ? '短篇集' : '书'}「${result.bookName}」建好了。`)
   console.log('· 工作目录：已装角色壳 + 插件本体（.clwriting/）')
-  console.log('· 书仓库：book.yaml + 大纲/定稿/文风目录 + 初始 git commit')
+  if (isShort) {
+    console.log('· 书仓库：book.yaml（kind: short）+ 篇/ + 文风/ + 工作区/ + 初始 git commit')
+  } else {
+    console.log('· 书仓库：book.yaml + 大纲/定稿/文风目录 + 初始 git commit')
+  }
   console.log('')
-  console.log('下一步：敲 `clwriting enter` 起草第一章。')
+  console.log(`下一步：敲 \`clwriting enter\` 起草第一${isShort ? '篇' : '章'}。`)
 }
 
 function argValue(args: readonly string[], flag: string): string | undefined {
