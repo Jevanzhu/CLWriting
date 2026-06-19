@@ -181,7 +181,7 @@ auto 连写一批
 
 - **439 个测试全绿**，`tsc --noEmit` 通过，构建通过。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
-- 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与同仓库定稿验证。
+- 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
 
 ---
 
