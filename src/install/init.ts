@@ -66,12 +66,14 @@ export function doInit(opts: InitOptions): InitResult {
     return { ok: false, reason: `已有一本叫「${bookName}」的书` }
   }
 
-  // 确定扩展账本类（显式 > 题材推荐 > 空）
-  const leadsEnabled: LeadType[] = opts.leads
-    ? sanitizeToExtendedLeads(opts.leads)
-    : opts.genre
-      ? matchGenreLeads(opts.genre)
-      : []
+  // 确定扩展账本类（显式 > 题材推荐 > 空）。短篇集无长程账本（降级单篇清单 #27），恒空
+  const leadsEnabled: LeadType[] = kind === 'short'
+    ? []
+    : opts.leads
+      ? sanitizeToExtendedLeads(opts.leads)
+      : opts.genre
+        ? matchGenreLeads(opts.genre)
+        : []
 
   // 步骤 5：工作目录骨架（非 git，幂等复用）+ 插件本体 dist
   const workDirResult = scaffoldWorkDir(workDir)

@@ -37,30 +37,37 @@ export type RollbackResult =
   | { ok: false; humanMsg: string }
 
 /**
- * 回滚到第 N 章（#16 第 5 节）。
+ * 回滚到第 N 章/篇（#16 第 5 节）。
  * @param bookRoot 书仓库根
- * @param chapterN 回退到的章号（该章定稿后的状态）
+ * @param chapterN 回退到的章号/篇号（该单元定稿后的状态）
+ * @param kind 双轨标识（M8 #26）：long（缺省）→ ch: 前缀 + 「章」文案；short → pc: 前缀 + 「篇」文案
  */
-export function rollbackToChapter(bookRoot: string, chapterN: number): RollbackResult {
-  // #1 定位第 N 章 commit
-  const targetCommit = findChapterCommit(bookRoot, chapterN)
+export function rollbackToChapter(bookRoot: string, chapterN: number, kind: 'long' | 'short' = 'long'): RollbackResult {
+  const isShort = kind === 'short'
+  const unitWord = isShort ? '篇' : '章'
+  const prefixLabel = isShort
+    ? `pc:${String(chapterN).padStart(3, '0')}`
+    : `ch:${String(chapterN).padStart(4, '0')}`
+
+  // #1 定位第 N 章/篇 commit
+  const targetCommit = findChapterCommit(bookRoot, chapterN, kind)
   if (!targetCommit) {
     return {
       ok: false,
-      humanMsg: `找不到第 ${chapterN} 章的定稿记录（没有 ch:${String(chapterN).padStart(4, '0')} 的 commit）。确认章号没错？`,
+      humanMsg: `找不到第 ${chapterN} ${unitWord}的定稿记录（没有 ${prefixLabel} 的 commit）。确认${unitWord}号没错？`,
     }
   }
 
   // #2 备份再丢（可逆铁律）：当前 HEAD 存备份 ref，丢弃的内容可找回
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const backupRef = `回收/回到${chapterN}-${timestamp}`
+  const backupRef = `回收/回到${unitWord}${chapterN}-${timestamp}`
   const backupR = git(['branch', backupRef], bookRoot)
   if (!backupR.ok) {
     return { ok: false, humanMsg: `备份失败，为安全起见中止回滚：${backupR.humanMsg}` }
   }
 
-  // 算丢弃的章数（回滚前 HEAD 比 targetCommit 多的 ch: commit 数）
-  const discardedChapters = countDiscardedChapters(bookRoot, targetCommit)
+  // 算丢弃的单元数（回滚前 HEAD 比 targetCommit 多的定稿 commit 数，按轨选前缀）
+  const discardedChapters = countDiscardedChapters(bookRoot, targetCommit, kind)
 
   // #3 回退定稿区：git reset --hard（丢弃 N 之后的 commit）
   const resetR = git(['reset', '--hard', targetCommit], bookRoot)
@@ -83,13 +90,14 @@ export function rollbackToChapter(bookRoot: string, chapterN: number): RollbackR
     revertedTo: chapterN,
     backupRef,
     discardedChapters,
-    humanMsg: formatRollbackMsg(chapterN, discardedChapters, backupRef),
+    humanMsg: formatRollbackMsg(chapterN, discardedChapters, backupRef, kind),
   }
 }
 
-/** 算回滚丢弃的章数（targetCommit 之后的 ch: commit 数） */
-function countDiscardedChapters(bookRoot: string, targetCommit: string): number {
-  const r = git(['log', '--grep', '^ch:', '--format=%H', `${targetCommit}..HEAD`], bookRoot)
+/** 算回滚丢弃的单元数（targetCommit 之后的定稿 commit 数，按轨选前缀 ch:/pc:） */
+function countDiscardedChapters(bookRoot: string, targetCommit: string, kind: 'long' | 'short' = 'long'): number {
+  const grep = kind === 'short' ? '^pc:' : '^ch:'
+  const r = git(['log', '--grep', grep, '--format=%H', `${targetCommit}..HEAD`], bookRoot)
   if (!r.ok) return 0
   return r.stdout.split('\n').filter(Boolean).length
 }
@@ -111,15 +119,16 @@ function clearWorkdir(bookRoot: string): void {
   }
 }
 
-/** 回滚人话确认（#16 第 5 节步骤 6，对作者零机器味 + 可找回） */
-function formatRollbackMsg(chapterN: number, discarded: number, backupRef: string): string {
+/** 回滚人话确认（#16 第 5 节步骤 6，对作者零机器味 + 可找回；长短分轨文案） */
+function formatRollbackMsg(chapterN: number, discarded: number, backupRef: string, kind: 'long' | 'short' = 'long'): string {
+  const unitWord = kind === 'short' ? '篇' : '章'
   const lines: string[] = []
-  lines.push(`已回到第 ${chapterN} 章。`)
+  lines.push(`已回到第 ${chapterN} ${unitWord}。`)
   if (discarded > 0) {
-    lines.push(`之后的 ${discarded} 章退回草稿状态。`)
+    lines.push(`之后的 ${discarded} ${unitWord}退回草稿状态。`)
     lines.push(`旧内容存在「${backupRef}」，要找回告诉我（这是你的创作决策，不该丢）。`)
   } else {
-    lines.push(`（这章之后的暂无定稿，无需丢弃。）`)
+    lines.push(`（这${unitWord}之后暂无定稿，无需丢弃。）`)
   }
   return lines.join('')
 }
