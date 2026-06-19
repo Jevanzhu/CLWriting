@@ -168,5 +168,7 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
     expect(cosineSimilarity(a, c)).toBeCloseTo(0, 5)
     // 零向量不崩
     expect(cosineSimilarity(new Float32Array([0, 0, 0]), a)).toBe(0)
+    // 维度不一致不崩、不截断误算
+    expect(cosineSimilarity(new Float32Array([1, 0]), a)).toBe(0)
   })
 })

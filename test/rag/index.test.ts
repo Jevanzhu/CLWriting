@@ -65,6 +65,10 @@ describe('buildIndex + recall（桩 embed）', () => {
     )
   }
 
+  function twoDimEmbed(_endpoint: string, _model: string, _key: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(texts.map(() => [0.1, 0.2]))
+  }
+
   it('建索引：分块 embed 存 .rag.db（增量，不重跑已索引章）', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     const result = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
@@ -81,6 +85,16 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(result2.chunkCount).toBe(0)
   })
 
+  it('建索引：已有索引模型不一致时拒绝混写', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    const result = await buildIndex(bookRoot, { ...config, model: 'other-model' }, 'stub-key', stubEmbed)
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('模型')
+  })
+
   it('召回：query embed → 余弦 topK → 返回位置', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
@@ -95,6 +109,24 @@ describe('buildIndex + recall（桩 embed）', () => {
       expect(typeof h.start_offset).toBe('number')
       expect(typeof h.score).toBe('number')
     }
+  })
+
+  it('召回：模型不一致时降级为空，避免混用旧索引', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    const hits = await recall(bookRoot, { ...config, model: 'other-model' }, 'stub-key', '第1章', 5, stubEmbed)
+
+    expect(hits).toEqual([])
+  })
+
+  it('召回：查询向量维度不一致时降级为空', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    const hits = await recall(bookRoot, config, 'stub-key', '第1章', 5, twoDimEmbed)
+
+    expect(hits).toEqual([])
   })
 
   it('未完整配置 → 建索引失败但不崩', async () => {

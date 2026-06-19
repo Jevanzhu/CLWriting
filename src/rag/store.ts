@@ -99,6 +99,7 @@ export function setRagMeta(db: DatabaseSync, key: string, value: string): void {
  * cos = dot(a,b) / (||a|| * ||b||)
  */
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) return 0
   const len = Math.min(a.length, b.length)
   let dot = 0
   let normA = 0
