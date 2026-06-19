@@ -5,6 +5,7 @@
  * - 插件本体（.clwriting/dist）：从当前包 dist 同步到工作目录
  * - 派生物（.claude/.codex/AGENTS.md 壳）：generateRoleShells 重生
  * - 作者数据（book.yaml/角色源/知识层）：只增不覆盖 + 模板哈希差异提示
+ * - 本地安全护栏（书仓库 .git/hooks/pre-push）：补装，不改作者正文
  *
  * 幂等：同版本重跑无副作用。不碰书仓库内容。
  */
@@ -14,7 +15,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { generateRoleShells, checkRoleShellDrift, formatDriftReport, type ShellPlatform } from '../roles/shells.js'
-import { findWorkDir } from './books.js'
+import { findWorkDir, readBooks } from './books.js'
+import { installBookPushGuard } from './scaffold.js'
 
 export interface UpdateOptions {
   workDir: string
@@ -80,9 +82,35 @@ export function doUpdate(opts: UpdateOptions): UpdateResult {
   const templateReport = syncTemplateHashes(workDir, opts.detail)
   report.push(...templateReport)
 
+  // 步骤 5：本地安全护栏（不改作者正文，只补书仓库本地 hook）
+  installPushGuardsForBooks(workDir, report)
+
   report.push('')
   report.push('升级完成。作者数据（book.yaml/角色源/正文）未被覆盖。')
   return { ok: true, report }
+}
+
+function installPushGuardsForBooks(workDir: string, report: string[]): void {
+  const books = readBooks(workDir)
+  let installed = 0
+  let skipped = 0
+  for (const book of books) {
+    const bookRoot = join(workDir, book.path)
+    if (!existsSync(join(bookRoot, '.git'))) {
+      skipped += 1
+      continue
+    }
+    installBookPushGuard(bookRoot)
+    installed += 1
+  }
+  if (installed > 0) {
+    report.push(`· 书仓库推送保护：已补装 ${installed} 本（pre-push 默认阻止推送正文）`)
+  } else {
+    report.push('· 书仓库推送保护：无可补装书仓库')
+  }
+  if (skipped > 0) {
+    report.push(`· 书仓库推送保护：跳过 ${skipped} 本（目录不存在或不是 git 仓库）`)
+  }
 }
 
 /** 角色源备份（.clwriting/roles → .clwriting/roles.bak，单份覆盖）。 */
