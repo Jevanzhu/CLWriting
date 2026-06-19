@@ -1,10 +1,17 @@
 # CLWriting
 
-> 为中文网文作者打造的开箱即用、全程中文、200 万字不崩的 AI 长篇创作系统。
+> 为中文网文作者打造的开箱即用、全程中文的 AI 创作系统——**双轨**：长篇（200 万字不崩、不吃书）+ 短篇集（单篇情绪爆破、一反转撑全篇）。
 >
-> 一本书是一个 git 仓库，AI 负责写和审，脚本负责数和记，作者只做三件事——确认细纲、审稿、拍创作决策。
+> 一本书/一个集是一个 git 仓库，AI 负责写和审，脚本负责数和记，作者只做三件事——确认细纲、审稿、拍创作决策。
 
-**状态**：v1.0 重写进行中（`main` 主线）。当前 **M0-M6 已完成**；**M7 导出 + 迁移指引 + RAG 插件出口达成**（321 测试全绿；`export` 定稿正文干净导出、v0.2→v1 轻量迁移指引、`learn` 文风样章/金句收割、`enable-rag` RAG 可选插件）。可用入口：`enter`、`health`、`revert`、`confirm`、`check`、`finalize`、`roles`、`knowledge`、`review`、`session-start`、`init`、`update`、`use`、`list`、`repair`、`auto`、`export`、`import`、`learn`、`enable-rag`。
+**状态**：v1.0 重写进行中（`main` 主线）。**M0–M8 已完成**：
+- M0–M4：格式层/缓存/写章机检/状态机/git 隐身/三审/角色分发/知识层
+- M5–M7：安装器（多书）+ 自动连写 + 导出/迁移/RAG 插件
+- **M8 短篇轨**：双轨第二轨——`kind: short` 分流 + 短篇集布局 + 精简态机 + 按篇定稿 + 单篇清单（反转线索/伏笔回收）+ 短篇专属机检 + 短篇三审（钩子/情绪反转/设定收尾）+ 短篇导入。ZCode 等价宿主 smoke 出口达成（正反向闭环复现）；真 CC/Codex smoke 待跑。
+
+401 测试全绿；运行时零第三方依赖。可用入口：`enter`、`health`、`revert`、`confirm`、`check`、`finalize`、`roles`、`knowledge`、`review`、`session-start`、`init`、`update`、`use`、`list`、`repair`、`auto`、`export`、`import`、`learn`、`enable-rag`。
+
+> **短篇轨用法**：`clwriting init --kind short --name <集名> --genre <题材>` 建短篇集 → `enter` 起草第一篇 → 按 P1–P4（定情绪+反转 → 五段大纲+清单 → 正文 → 三审定稿）走。`import` 自动按 length-routing 分流短篇分支。
 
 ---
 
