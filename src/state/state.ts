@@ -311,10 +311,11 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
     }
     case 4: {
       // #13 第 5 节中断点：pre-commit = 续写（草稿还在没定稿）；post-commit-residue = 定稿了但工作区没收尾（幂等清理）
+      const unit = kind === 'short' ? '篇' : '章'
       const msg =
         detected.resumePoint === 'pre-commit'
-          ? `第 ${detected.chapterNum} 章写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
-          : `第 ${detected.chapterNum} 章其实已定稿，但工作区没收尾（草稿/细纲残留），幂等清理一下就好。`
+          ? `第 ${detected.chapterNum} ${unit}写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
+          : `第 ${detected.chapterNum} ${unit}其实已定稿，但工作区没收尾（草稿/细纲残留），幂等清理一下就好。`
       return {
         state: 4,
         humanMsg: msg,
