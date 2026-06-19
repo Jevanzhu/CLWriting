@@ -277,6 +277,7 @@ export interface CollectedReview {
   requested_tier: ReviewTier
   fallback: string
   chapter: number
+  lenses_run: ReviewLens[]
 }
 
 export function collectReviewIssues(input: {
@@ -284,7 +285,7 @@ export function collectReviewIssues(input: {
 }): CollectedReview {
   const expectedFiles: { lens: ReviewLens; file: string }[] =
     input.packet.tier === 'combined'
-      ? [{ lens: 'continuity', file: COMBINED_ISSUES_FILE }]
+      ? [{ lens: input.packet.lenses_run[0] ?? 'continuity', file: COMBINED_ISSUES_FILE }]
       : input.packet.lenses_run.map((lens) => ({ lens, file: lensIssuesFileName(lens) }))
 
   const rawIssues: ReviewIssue[] = []
@@ -349,6 +350,7 @@ export function collectReviewIssues(input: {
     requested_tier: input.packet.requested_tier,
     fallback: input.packet.fallback,
     chapter: input.packet.chapter,
+    lenses_run: input.packet.lenses_run,
   }
 }
 
@@ -421,7 +423,8 @@ export const REVIEW_VERDICT_MARKER = '<!-- verdict: approved -->'
 export function renderReviewVerdict(collected: CollectedReview): string {
   const lines: string[] = []
   const { normalized } = collected
-  lines.push(`# 审稿单 · 第 ${collected.chapter} 章`)
+  const isShort = collected.lenses_run.some((lens) => lens === 'hook' || lens === 'emotion_peak' || lens === 'payoff')
+  lines.push(`# 审稿单 · 第 ${collected.chapter} ${isShort ? '篇' : '章'}`)
   lines.push('')
   lines.push(`- 档位：${tierLabel(collected.tier)}（请求 ${tierLabel(collected.requested_tier)}，fallback：${collected.fallback}）`)
   lines.push(`- 视角：${collected.collected_lenses.map(lensLabel).join(' / ')}`)
