@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  # 临时暂停自动 CI：保留手动触发入口，恢复时再打开 push / pull_request。
+  workflow_dispatch:
 
 jobs:
   build-test:
