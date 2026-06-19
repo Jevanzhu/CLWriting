@@ -17,6 +17,7 @@ import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { LeadType } from '../format/types.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
@@ -72,7 +73,7 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   const fp = join(workDir, BOOKS_FILE)
   const lines = books.map((b) => JSON.stringify(b)).join('\n')
-  writeFileSync(fp, lines + (lines ? '\n' : ''), 'utf-8')
+  atomicWriteFile(fp, lines + (lines ? '\n' : ''))
 }
 
 /** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */

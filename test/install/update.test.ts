@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { doInit } from '../../src/install/init.js'
@@ -124,6 +124,20 @@ test('update: 作者改过的角色源不推进 installed_hash 到新版模板',
   const afterWriter = after.records.find((r: { path: string }) => r.path.endsWith('/writer.md'))
   expect(afterWriter.installed_hash).toBe(writerRecord.installed_hash)
   expect(readFileSync(writerPath, 'utf-8')).toContain('作者改过')
+  rmSync(wd, { recursive: true, force: true })
+})
+
+test('update: templates.manifest.json 原子写入且不残留临时文件', () => {
+  const wd = makeWorkDir()
+  const r = doUpdate({ workDir: wd, detail: 'brief' })
+  expect(r.ok).toBe(true)
+
+  const manifestPath = join(wd, '.clwriting', 'templates.manifest.json')
+  expect(JSON.parse(readFileSync(manifestPath, 'utf-8')).version).toBe(1)
+  const leftovers = readdirSync(join(wd, '.clwriting'))
+    .filter((f) => f.includes('templates.manifest.json') && f.endsWith('.tmp'))
+  expect(leftovers).toEqual([])
+
   rmSync(wd, { recursive: true, force: true })
 })
 

@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-422%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-425%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/runtime%20deps-0-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20alpha-orange)](#-项目状态)
@@ -179,7 +179,7 @@ auto 连写一批
 | M5-M7 | 已完成 | 安装器、多书、自动连写、导出、迁移、RAG 插件。 |
 | M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入。 |
 
-- **422 个测试全绿**，`tsc --noEmit` 通过，构建通过。
+- **425 个测试全绿**，`tsc --noEmit` 通过，构建通过。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code / Codex CLI 短篇 smoke 待 beta 环境跑，属于平台兼容性验收，不是逻辑层缺口。
 

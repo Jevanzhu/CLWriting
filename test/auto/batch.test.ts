@@ -11,6 +11,7 @@ import {
   pendingChapterDirName,
   clearPendingBatch,
   pendingRoot,
+  writeBatchProgress,
   type ChapterProduction,
 } from '../../src/auto/batch.js'
 
@@ -194,6 +195,25 @@ test('readBatchProgress: 容错（坏文件返回 null 不崩）', () => {
   mkdirSync(pendingRoot(root), { recursive: true })
   writeFileSync(join(pendingRoot(root), '.auto-batch.json'), '这不是JSON', 'utf-8')
   expect(readBatchProgress(root)).toBeNull()
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('writeBatchProgress: .auto-batch.json 原子写入且不残留临时文件', () => {
+  const root = makeBookWithVolumeOutline()
+  writeBatchProgress(root, {
+    start_chapter: 1,
+    target_count: 2,
+    next_chapter: 1,
+    completed: [],
+    isolated: [],
+    paused: null,
+    started_at: '2026-06-19T00:00:00.000Z',
+  })
+
+  expect(readBatchProgress(root)?.target_count).toBe(2)
+  const leftovers = readdirSync(pendingRoot(root)).filter((f) => f.includes('.auto-batch.json') && f.endsWith('.tmp'))
+  expect(leftovers).toEqual([])
 
   rmSync(root, { recursive: true, force: true })
 })
