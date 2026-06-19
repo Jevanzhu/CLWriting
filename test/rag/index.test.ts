@@ -95,6 +95,25 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(result.error).toContain('模型')
   })
 
+  it('建索引：已索引章节正文变更时拒绝沿用旧索引', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+    const meta: ChapterMeta = {
+      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+      _path: '', _wordCount: 100,
+    }
+    writeChapter(
+      join(bookRoot, '定稿', '正文', '1-第1章.md'),
+      meta,
+      '第1章的正文段落内容已经重写，这是一个完全不同的追逃场景，旧向量不能继续使用。',
+    )
+
+    const result = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('已变更')
+  })
+
   it('召回：query embed → 余弦 topK → 返回位置', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
@@ -125,6 +144,24 @@ describe('buildIndex + recall（桩 embed）', () => {
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
 
     const hits = await recall(bookRoot, config, 'stub-key', '第1章', 5, twoDimEmbed)
+
+    expect(hits).toEqual([])
+  })
+
+  it('召回：已索引章节正文变更时降级为空，避免返回旧向量位置', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+    const meta: ChapterMeta = {
+      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+      _path: '', _wordCount: 100,
+    }
+    writeChapter(
+      join(bookRoot, '定稿', '正文', '1-第1章.md'),
+      meta,
+      '第1章的正文段落内容已经重写，这是一个完全不同的追逃场景，旧向量不能继续使用。',
+    )
+
+    const hits = await recall(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed)
 
     expect(hits).toEqual([])
   })

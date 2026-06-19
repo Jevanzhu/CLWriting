@@ -61,6 +61,7 @@ describe('RAG config（红线 H1：key 不进 git）', () => {
 
     // key 落 .clwriting/rag.secret（gitignore 区）
     expect(existsSync(join(workDir, '.clwriting', 'rag.secret'))).toBe(true)
+    expect(readFileSync(join(workDir, '.clwriting', '.gitignore'), 'utf-8')).toContain('rag.secret')
     const secret = readFileSync(join(workDir, '.clwriting', 'rag.secret'), 'utf-8')
     expect(secret).toContain('sk-secret-key-12345')
   })
@@ -115,11 +116,23 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
   it('float32 ↔ Buffer 往返无损', () => {
     const arr = new Float32Array([0.1, 0.2, 0.3, -0.4, 0.5])
     const buf = float32ToBuffer(arr)
+    arr[0] = 9
     const back = bufferToFloat32(buf)
     expect(back.length).toBe(arr.length)
+    expect(back[0]).toBeCloseTo(0.1, 5)
     for (let i = 0; i < arr.length; i++) {
+      if (i === 0) continue
       expect(back[i]).toBeCloseTo(arr[i]!, 5)
     }
+  })
+
+  it('bufferToFloat32 显式拷贝 BLOB，不共享底层内存', () => {
+    const buf = float32ToBuffer(new Float32Array([0.1, 0.2, 0.3]))
+    const back = bufferToFloat32(buf)
+
+    buf.writeFloatLE(9, 0)
+
+    expect(back[0]).toBeCloseTo(0.1, 5)
   })
 
   it('存取 chunk：BLOB 往返 + 字段完整', () => {

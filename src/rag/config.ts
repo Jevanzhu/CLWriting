@@ -59,7 +59,19 @@ export function readApiKey(workDir: string): string | null {
 export function writeApiKey(workDir: string, key: string): void {
   const clwritingDir = join(workDir, '.clwriting')
   mkdirSync(clwritingDir, { recursive: true })
+  ensureRagSecretGitignore(workDir)
   writeFileSync(join(clwritingDir, RAG_SECRET_FILE), key + '\n', 'utf-8')
+}
+
+/** 给 rag.secret 加显式忽略兜底，避免工作目录被误放进 git 后泄露 key。 */
+function ensureRagSecretGitignore(workDir: string): void {
+  const clwritingDir = join(workDir, '.clwriting')
+  const ignorePath = join(clwritingDir, '.gitignore')
+  const existing = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf-8') : ''
+  const lines = existing.split(/\r?\n/)
+  if (lines.includes(RAG_SECRET_FILE)) return
+  const prefix = existing === '' || existing.endsWith('\n') ? existing : existing + '\n'
+  writeFileSync(ignorePath, prefix + RAG_SECRET_FILE + '\n', 'utf-8')
 }
 
 /**
