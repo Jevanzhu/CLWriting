@@ -127,3 +127,38 @@ test('check CLI long: 细纲声明推进但未兑现 → 两端闭合报红（ex
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('check CLI long: 默认草稿缺失但存在草稿-N 时提示候选序号语义', () => {
+  const root = makeLongBook()
+  try {
+    writeChapter(join(root, '工作区', '草稿-2.md'), CH1, '误把章号写进草稿名。')
+    const { exitCode, stdout } = captureCli(() => checkCommand([root]))
+    expect(exitCode).toBe('1')
+    expect(stdout).toContain('候选序号，不是章号')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('finalize CLI long: 账本推进指向不存在文件时拒绝假成功', () => {
+  const root = makeLongBook()
+  try {
+    const wd = join(root, '工作区')
+    writeFileSync(
+      join(wd, '细纲.md'),
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-099]\n---\n本章埋伏笔。',
+      'utf-8',
+    )
+    writeChapter(join(wd, '草稿-1.md'), CH1, '桌上多了一封没有署名的信。')
+    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-099 埋下：桌上多了一封没有署名的信\n', 'utf-8')
+    doConfirm(wd, 1, join(wd, '细纲.md'), 'manual', DEFAULT_CONFIG)
+    writeFileSync(join(wd, '审稿.md'), `${REVIEW_VERDICT_MARKER} verdict: 通过\n`, 'utf-8')
+
+    const { exitCode, stdout } = captureCli(() => finalizeCommand([root]))
+    expect(exitCode).toBe('1')
+    expect(stdout).toContain('找不到对应账本文件')
+    expect(execSync('git log --oneline --grep "^ch:0001"', { cwd: root, encoding: 'utf-8' }).trim()).toBe('')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

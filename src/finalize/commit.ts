@@ -137,6 +137,11 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     return { ok: false, reason: `第 ${chapter.章号} ${unit}已定稿（${occupied}），拒绝覆盖已有正文。请改用下一${unit}号或先回滚。` }
   }
 
+  if (!isShort) {
+    const leadTargetCheck = validateLeadUpdateTargets(bookRoot, chapter.章号, input.leadUpdates)
+    if (!leadTargetCheck.ok) return { ok: false, reason: leadTargetCheck.reason }
+  }
+
   // #2 写定稿区变更（记录改动路径，供 commit 失败时原子回滚，#13 第 4 节）
   const changedPaths: string[] = [] // 相对 bookRoot 的路径（commit 用 + 失败回滚用）
 
@@ -250,6 +255,31 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   return { ok: true, commitHash }
 }
 
+function validateLeadUpdateTargets(
+  bookRoot: string,
+  chapter: number,
+  leadUpdates?: FinalizeInput['leadUpdates'],
+): { ok: true } | { ok: false; reason: string } {
+  if (!leadUpdates || leadUpdates.length === 0) return { ok: true }
+  const outlineDir = join(bookRoot, '大纲')
+  for (const update of leadUpdates) {
+    const currentEntries = update.entries.filter((e) => e.章号 === chapter)
+    if (currentEntries.length === 0) continue
+    const leadFile = findLeadFile(outlineDir, update.leadId)
+    if (!leadFile) {
+      return {
+        ok: false,
+        reason: `账本推进声明了「${update.leadId}」，但大纲里找不到对应账本文件。请先建立「大纲/<类>/${update.leadId}-<标题>.md」。`,
+      }
+    }
+    const r = readLead(leadFile)
+    if (!r.ok) {
+      return { ok: false, reason: `账本文件读不了：${r.error.file} ${r.error.message}` }
+    }
+  }
+  return { ok: true }
+}
+
 function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'short'): string | null {
   const dir = kind === 'short' ? join(bookRoot, '篇') : join(bookRoot, '定稿', '正文')
   if (!existsSync(dir)) return null
@@ -326,7 +356,13 @@ function clearWorkDir(workDir: string): void {
 
 /** 在大纲/ 下找某编号的账本文件 */
 function findLeadFile(outlineDir: string, leadId: string): string | null {
-  for (const typeDir of readdirSync(outlineDir)) {
+  let typeDirs: string[]
+  try {
+    typeDirs = readdirSync(outlineDir)
+  } catch {
+    return null
+  }
+  for (const typeDir of typeDirs) {
     const dir = join(outlineDir, typeDir)
     if (!existsSync(dir)) continue
     try {

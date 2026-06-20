@@ -289,6 +289,16 @@ test('freezeBaseline: 空样章库 → 报错不写文件', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('freezeBaseline: 样章文件无 场景 front matter → 提示样章格式', () => {
+  const root = mkdtempSync(join(tmpdir(), 'style-bad-sample-'))
+  writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
+  mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
+  writeFileSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'), '只有正文，没有 front matter', 'utf-8')
+  expect(() => freezeBaseline(root)).toThrow(/front matter.*场景/)
+  expect(existsSync(baselinePath(root))).toBe(false)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('freezeBaseline: 样章库目录不存在 → 报错', () => {
   const root = mkdtempSync(join(tmpdir(), 'style-nodir-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })

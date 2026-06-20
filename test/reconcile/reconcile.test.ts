@@ -42,7 +42,7 @@ test('修复确认: 坏账本文件 → 检测到 ParseError + 人话定位', ()
 test('修复确认: 缺必填字段 → obvious 建议给具体改法', () => {
   const root = makeGitBook()
   // 缺「编号」字段
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-098.md'),
+  writeFileSync(join(root, '大纲', '伏笔', '伏笔-098-无编号.md'),
     '---\n标题: 无编号\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
   sh('git add -A && git commit -m "加缺字段文件"', root)
 

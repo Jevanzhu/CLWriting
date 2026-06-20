@@ -298,10 +298,12 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 
   const byScene: Record<string, FullStyleStats> = {}
   const allBodies: { scene: string; body: string }[] = []
+  let invalidSampleCount = 0
   for (const scene of sceneEntries) {
     const scenePath = join(sampleDir, scene)
     if (!statSync(scenePath).isDirectory()) continue
-    const { samples } = readSamplesByScene(sampleDir, scene)
+    const { samples, errors } = readSamplesByScene(sampleDir, scene)
+    invalidSampleCount += errors.length
     if (samples.length === 0) continue // 空场景目录跳过
     const combined = samples.map((s) => s.正文).join('\n\n')
     byScene[scene] = computeFullStats(combined, rules)
@@ -309,6 +311,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
   }
 
   if (Object.keys(byScene).length === 0) {
+    if (invalidSampleCount > 0) {
+      throw new Error('样章库没有有效样章：样章必须放在 文风/样章库/<场景>/<场景>-001.md，且 front matter 至少包含「场景: <场景>」。')
+    }
     throw new Error('样章库为空（无有效样章），无法冻结基线')
   }
 
