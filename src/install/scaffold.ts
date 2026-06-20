@@ -125,7 +125,7 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
   writeFileSync(join(bookRoot, '定稿', '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
-  writeFileSync(join(bookRoot, '定稿', '设定', '境界体系.md'), '', 'utf-8')
+  writeFileSync(join(bookRoot, '定稿', '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
   writeFileSync(join(bookRoot, '定稿', '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
 
   // 大纲：基础三类恒建 + 扩展类按启用
@@ -214,6 +214,45 @@ export function renderStyleRules(_genre: string): string {
     '- 超过对应比例 → 报告标「超限风险」+ 分段方案，不整段删',
     '- 拿不准是否 AI 味 → 标 `[需复核]`，不删、不塞进正文',
     '- 任何情况都不删伏笔 / 钩子 / 角色特征 / 关键信息 / 必要转折',
+    '',
+  ].join('\n')
+}
+
+/** 境界体系模板：成长线启用时给可解析序列，避免 growth 检测静默空跑。 */
+export function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEnabled'>): string {
+  if (!opts.leadsEnabled.includes('成长线')) {
+    return [
+      '# 境界体系',
+      '',
+      '本书未启用成长线；如后续启用，请补充 front matter：',
+      '',
+      '```yaml',
+      '---',
+      '体系:',
+      '  - 名称: 成长阶段',
+      '    序列: [起步, 小成, 大成, 圆满]',
+      '---',
+      '```',
+      '',
+    ].join('\n')
+  }
+
+  const isCultivation = /玄幻|仙侠|修仙|修真/.test(opts.genre)
+  const systemName = isCultivation ? '修真境界' : '成长阶段'
+  const sequence = isCultivation
+    ? ['炼气一层', '炼气二层', '炼气三层', '炼气四层', '炼气五层', '炼气六层', '炼气七层', '炼气八层', '炼气九层', '筑基', '金丹', '元婴', '化神']
+    : ['起步', '小成', '大成', '圆满']
+
+  return [
+    '---',
+    '体系:',
+    `  - 名称: ${systemName}`,
+    `    序列: [${sequence.join(', ')}]`,
+    '---',
+    '',
+    '# 境界体系',
+    '',
+    '机检读取上方 front matter 的「体系/序列」做成长线跳跃、回退检测；正文只写说明，不参与机检。',
     '',
   ].join('\n')
 }

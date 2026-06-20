@@ -104,8 +104,11 @@ function runLong(input: CheckInput): CheckReport {
   // #10 项 3 front matter 格式（红）
   sections.push(checkFrontMatter(chapter, fileName))
 
+  // 文风铁律（禁词红项 + 可量化黄项）
+  const ironRules = readIronRules(bookRoot)
+
   // #10 项 4 禁词（红）
-  sections.push(checkBannedWords(body, input.bannedWords ?? []))
+  sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
 
   // #10 项 5 字数（黄）
   sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0))
@@ -120,8 +123,6 @@ function runLong(input: CheckInput): CheckReport {
   sections.push(checkSentenceLength(body))
 
   // #10 项 9 文风可量化（黄）—— 读 文风铁律.md 的可量化硬约束阈值（#5 第 8 节）
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  const ironRules = existsSync(ironPath) ? parseIronRules(readFileSync(ironPath, 'utf-8')) : {}
   sections.push(checkStyleMetrics(body, ironRules))
 
   // #10 项 10 新专名候选（黄）
@@ -190,8 +191,10 @@ function runShort(input: CheckInput): CheckReport {
   // 短篇复用 ChapterMeta 内存模型（章号字段承载篇号），按短篇字段校验
   sections.push(checkPieceFrontMatter({ 篇号: chapter.章号, 标题: chapter.标题 }, fileName))
 
+  const ironRules = readIronRules(bookRoot)
+
   // 禁词（长短通用）
-  sections.push(checkBannedWords(body, input.bannedWords ?? []))
+  sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
 
   // 短篇字数（8000–20000，#27 第 5.2 节）
   sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body)))
@@ -200,8 +203,6 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkRepeat(body))
   sections.push(checkSentenceLength(body))
 
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  const ironRules = existsSync(ironPath) ? parseIronRules(readFileSync(ironPath, 'utf-8')) : {}
   sections.push(checkStyleMetrics(body, ironRules))
 
   // 短篇专属项（#27 第 5.3 节，吸收点 7.1）
@@ -227,6 +228,15 @@ function runShort(input: CheckInput): CheckReport {
 
   // 短篇无长程账本；清单条目作为设定收尾审的核对输入。
   return { sections, byproducts: { pieceListChecks: pieceList ? collectPieceListChecks(pieceList) : [] } }
+}
+
+function readIronRules(bookRoot: string) {
+  const ironPath = join(bookRoot, '文风', '文风铁律.md')
+  return existsSync(ironPath) ? parseIronRules(readFileSync(ironPath, 'utf-8')) : {}
+}
+
+function mergeBannedWords(...lists: Array<string[] | undefined>): string[] {
+  return [...new Set(lists.flatMap((list) => list ?? []).filter(Boolean))]
 }
 
 function collectPieceListChecks(list: PieceList): NonNullable<CheckReport['byproducts']>['pieceListChecks'] {

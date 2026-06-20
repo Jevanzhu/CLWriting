@@ -2,13 +2,20 @@ import { test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { doInit } from '../../src/install/init.js'
 import { readBooks, readActive, findWorkDir } from '../../src/install/books.js'
 import { enter } from '../../src/state/state.js'
 import { readBookConfig } from '../../src/format/yaml.js'
+import { readRealmDoc } from '../../src/format/realms.js'
 
 const ORIG_CWD = process.cwd()
+
+function git(args: string[], cwd: string): string {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' })
+  if (r.status !== 0) throw new Error(r.stderr || r.error?.message || `git ${args.join(' ')} failed`)
+  return r.stdout
+}
 
 beforeEach(() => {
   process.chdir(ORIG_CWD)
@@ -61,6 +68,12 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(bookRoot, '文风', '文风铁律.md'))).toBe(true)
   // 定稿区
   expect(existsSync(join(bookRoot, '定稿', '正文'))).toBe(true)
+  const realms = readRealmDoc(join(bookRoot, '定稿', '设定', '境界体系.md'))
+  expect(realms.ok).toBe(true)
+  if (realms.ok) {
+    expect(realms.doc.体系[0]?.序列).toContain('炼气一层')
+    expect(realms.doc.体系[0]?.序列).toContain('金丹')
+  }
 
   // book.yaml 内容正确
   const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
@@ -69,7 +82,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(cfg.leads.enabled).toEqual(['成长线', '设定线'])
 
   // 初始 commit 存在（git 有 HEAD）
-  const head = execSync('git rev-parse HEAD', { cwd: bookRoot, stdio: 'pipe' }).toString().trim()
+  const head = git(['rev-parse', 'HEAD'], bookRoot).trim()
   expect(head.length).toBe(40)
   const pushHook = readFileSync(join(bookRoot, '.git', 'hooks', 'pre-push'), 'utf-8')
   expect(pushHook).toContain('CLWRITING_ALLOW_BOOK_PUSH=1')
@@ -97,7 +110,7 @@ test('init: 题材驱动 leads 推荐（玄幻 → 设定线+成长线）', () =
 
 test('init: 工作目录不能位于 git 仓库内', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-git-'))
-  execSync('git init', { cwd: wd, stdio: 'pipe' })
+  git(['init'], wd)
   const r = doInit({ workDir: wd, name: '误装书', genre: '玄幻' })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('工作目录不能放在 git 仓库里')

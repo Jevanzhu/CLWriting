@@ -221,9 +221,11 @@ export interface IronRules {
   maxParallelStreak?: number
   /** 是否检查结尾总结体 */
   avoidSummaryEnding?: boolean
+  /** 文风铁律里的反和解/硬禁词清单，命中即红 */
+  bannedWords?: string[]
 }
 
-/** 从 文风铁律.md 解析可量化硬约束阈值（#5 第 8 节）。 */
+/** 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。 */
 export function parseIronRules(text: string): IronRules {
   const rules: IronRules = {}
   const lenM = text.match(/单句上限字数[:：]\s*(\d+)/)
@@ -235,6 +237,8 @@ export function parseIronRules(text: string): IronRules {
   const parallelM = text.match(/排比连续数[:：]\s*(\d+)/)
   if (parallelM) rules.maxParallelStreak = Number(parallelM[1])
   if (/结尾总结体[:：]\s*(禁止|避免|少用)/.test(text)) rules.avoidSummaryEnding = true
+  const bannedWords = parseAntiReconciliationWords(text)
+  if (bannedWords.length > 0) rules.bannedWords = bannedWords
   return rules
 }
 
@@ -278,7 +282,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   // 形容词堆叠去重命中数
   let adjStackHits = 0
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    const stackRe = new RegExp(`(?:[${HANZI}]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
+    const stackRe = adjStackRegex(rules.maxAdjStack)
     const hits = body.match(stackRe)
     if (hits) adjStackHits = new Set(hits).size
   }
@@ -317,7 +321,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   let summaryEnding = false
   if (rules.avoidSummaryEnding) {
     const ending = body.trim().slice(-140)
-    summaryEnding = /(这一刻|那一刻|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|命运|人生|结束|开始|答案)/.test(ending)
+    summaryEnding = summaryEndingRegex().test(ending)
   }
 
   return {
@@ -358,7 +362,7 @@ export function checkStyleMetrics(
 
   // 形容词连续堆叠：去重后逐个推（保持原行为）
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    const stackRe = new RegExp(`(?:[${HANZI}]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
+    const stackRe = adjStackRegex(rules.maxAdjStack)
     const hits = body.match(stackRe)
     if (hits) {
       for (const h of new Set(hits)) {
@@ -436,6 +440,62 @@ function parseRatio(raw: string): number {
   const n = Number(text.replace('%', ''))
   if (!Number.isFinite(n)) return 0
   return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
+}
+
+function adjStackRegex(maxAdjStack: number): RegExp {
+  return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
+}
+
+function summaryEndingRegex(): RegExp {
+  return /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
+}
+
+function parseAntiReconciliationWords(text: string): string[] {
+  const section = extractSection(text, /反和解/)
+  if (!section) return []
+
+  const words: string[] = []
+  for (const rawLine of section.split('\n')) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) continue
+
+    const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
+    if (quoted.length > 0) {
+      words.push(...quoted)
+      continue
+    }
+
+    const cleaned = line
+      .replace(/^[-*+]\s*/, '')
+      .replace(/^\d+[.)、]\s*/, '')
+      .replace(/^(禁止|禁用|不要|不得|避免|少用)\s*/, '')
+      .replace(/[（(].*?[）)]/g, '')
+      .trim()
+    if (!cleaned || /[:：]/.test(cleaned)) continue
+
+    for (const part of cleaned.split(/[、，,\/／]/)) {
+      const word = part.trim()
+      if (word.length >= 2 && word.length <= 24 && !/待/.test(word)) words.push(word)
+    }
+  }
+  return [...new Set(words)]
+}
+
+function extractSection(text: string, headingRe: RegExp): string {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let inSection = false
+  for (const line of lines) {
+    if (/^#{1,6}\s+/.test(line)) {
+      if (inSection) break
+      if (headingRe.test(line)) {
+        inSection = true
+        continue
+      }
+    }
+    if (inSection) out.push(line)
+  }
+  return out.join('\n').trim()
 }
 
 /**

@@ -73,6 +73,29 @@ test('runAllChecks short: 含禁词/复读/句式 + 短篇专属项', () => {
   expect(names).toContain('开头零环境')
 })
 
+test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () => {
+  mkdirSync(join(tmp, '文风'), { recursive: true })
+  writeFileSync(join(tmp, '文风', '文风铁律.md'), [
+    '## 反和解段（AI 味防御）',
+    '- 倒吸凉气、时间静止',
+    '',
+    '## 可量化约束',
+    '- 单句上限字数: 60',
+  ].join('\n'), 'utf-8')
+
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: shortConfig(),
+    chapter: ch,
+    body: '全场倒吸凉气，仿佛时间静止。',
+    fileName: '篇/001-雪夜/正文.md',
+  })
+  const red = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')
+  expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('倒吸凉气'))).toBe(true)
+  expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('时间静止'))).toBe(true)
+})
+
 // ── 篇号文件名不一致报红（短篇 front matter）──────
 
 test('runAllChecks short: 篇号文件名不一致 → 红项', () => {
