@@ -5,7 +5,7 @@
  */
 
 import process from 'node:process'
-import { resolve, join } from 'node:path'
+import { resolve, join, dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { readFile } from '../format/frontmatter.js'
 import { readChapter } from '../format/chapters.js'
@@ -15,6 +15,9 @@ import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
 import { formatReport } from '../check/report.js'
 import { resolveBookRoot } from '../install/books.js'
+import { readOutlineLeads } from '../process/materials.js'
+import { readChapterLeadUpdates } from '../process/lead-updates.js'
+import { extractEvidenceCore } from '../check/leads.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting check [draftPath] [bookRoot] [--full]` 命令处理器 */
@@ -50,6 +53,14 @@ export function checkCommand(args: string[]): void {
   const db = new DatabaseSync(cachePath)
   let hasBlockingRed = false
   try {
+    // 账本两端闭合数据流（账本 CLI 接缝修复）：长篇装配 declared（细纲 推进:）/ actual（账本推进.md 证据命中草稿正文的）
+    const workDir = dirname(draftPath)
+    const declaredLeadIds = isShort ? undefined : readOutlineLeads(workDir)
+    const actualLeadIds = isShort
+      ? undefined
+      : readChapterLeadUpdates(workDir)
+          .filter((u) => draft.body.includes(extractEvidenceCore(u.证据)))
+          .map((u) => u.leadId)
     const report = runAllChecks({
       db: isShort ? undefined : db,
       bookRoot,
@@ -57,6 +68,8 @@ export function checkCommand(args: string[]): void {
       chapter: draft.chapter,
       body: draft.body,
       fileName: finalChapterFileName(draft.chapter, isShort),
+      declaredLeadIds,
+      actualLeadIds,
     })
     console.log(formatReport(report, mode))
     hasBlockingRed = hasRed(report)

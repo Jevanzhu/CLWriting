@@ -120,6 +120,26 @@ function readOutlineScenes(workDir: string): string[] {
 }
 
 /**
+ * 从工作区细纲 front matter 读「推进」声明（账本 CLI 接缝修复：declaredLeadIds + chapterLeadIds 源）。
+ *
+ * 与「场景」同范式——front matter 的「推进」是结构化声明（本章计划推进的账本编号），读它是「数」不是「判」。
+ * 单值 `推进: 成长线-001` → ['成长线-001']；多值 `推进: [成长线-001, 设定线-001]` → [...]。
+ * 缺省/无细纲/无 front matter → []（无声明，两端闭合左侧空）。
+ */
+export function readOutlineLeads(workDir: string): string[] {
+  const outlinePath = join(workDir, '细纲.md')
+  if (!existsSync(outlinePath)) return []
+  const r = readFile(outlinePath)
+  if (!r.ok) return []
+  const v = parseFlat(r.fmRaw).get('推进')
+  if (typeof v === 'string' && v.trim()) return [v.trim()]
+  if (Array.isArray(v)) {
+    return v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+  }
+  return []
+}
+
+/**
  * 备料 + RAG 召回编排（M7 #37 R1 接缝真正接入）。
  *
  * @param db 缓存

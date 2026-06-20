@@ -154,8 +154,8 @@ function findChapterFile(正文dir: string, chapter: number): string | null {
   }
 }
 
-/** 提取证据的核心片段（引号内的内容优先，否则取前 N 字） */
-function extractEvidenceCore(evidence: string): string {
+/** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。 */
+export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（覆盖半角/全角弯引号 + 中文直角引号「」『』）
   const quoted = evidence.match(/["""]([^"""]{4,})["""]|「([^」]{4,})」|『([^』]{4,})』/)
   if (quoted) {

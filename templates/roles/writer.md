@@ -10,6 +10,8 @@ tools: [Read, Write]
 
 按已确认的细纲与备料写正文。写完后运行 `clwriting record-call <章号> --step draft` 记录调用；best-of-N 草稿传 `--calls N`，宿主可见 usage 时传 `--tokens N`。
 
+长篇账本兑现：写完正文后，把本章实际推进的账本写进 `工作区/账本推进.md`，每行 `- <编号> <动词>：<正文中的证据原句>`；本章开启新线时，先在 `大纲/<类>/<编号>-<标题>.md` 建账本文件（front matter + 空履历）。finalize 据此把履历写入账本并入 commit。
+
 ## 要求
 
 - 章节正文 2000–4000 字，单章聚焦一个主场景。
