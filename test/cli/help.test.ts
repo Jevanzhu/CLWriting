@@ -1,4 +1,6 @@
 import { test, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { checkCommand } from '../../src/cli/check.js'
 import { confirmCommand } from '../../src/cli/confirm.js'
 import { enterCommand } from '../../src/cli/enter.js'
@@ -55,4 +57,9 @@ test('CLI 子命令 --help 只打印用法，不误当业务参数', () => {
     const output = captureHelp(run)
     expect(output, name).toContain('用法')
   }
+})
+
+test('CLI 主帮助露出 health 体检子模式', () => {
+  const source = readFileSync(join(process.cwd(), 'src', 'cli.ts'), 'utf-8')
+  expect(source).toContain('health [书目录] [--metrics|--style|--report]')
 })

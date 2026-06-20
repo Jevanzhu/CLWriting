@@ -239,6 +239,98 @@ export function parseIronRules(text: string): IronRules {
 }
 
 /**
+ * 文风机检纯统计（文风方案 §4.2，体检报告重扫用）。
+ *
+ * 把 checkStyleMetrics 的「判定 + 推 CheckItem」拆成两层：本函数只算数值指纹，
+ * checkStyleMetrics 内部委托它再包装成 CheckItem（DRY + 守 439 绿）。
+ *
+ * 字段口径以现 checkStyleMetrics 实现为准（文风方案 §4.2 表为意向非契约）：
+ * - overlongRatio：超 maxSentenceLen 的句子数 / 总句数；无 maxSentenceLen 时记 0
+ * - adjStackHits：形容词堆叠去重命中数（与 checkStyleMetrics 的 new Set 口径一致）
+ * - dialogueTagRatio：对话行中被标签修饰的占比（分母=含引号的对话行数，非全文）
+ * - parallelStreakMax：最大同构排比连续数（补全统计；checkStyleMetrics 仍按首次越界推一条）
+ * - summaryEnding：结尾 140 字是否命中总结体套路
+ *
+ * `_dialogueLines` 是内部辅助字段（对话行总数，供 checkStyleMetrics 判"有无对话行"不崩），外部聚合不用。
+ */
+export interface StyleStats {
+  overlongRatio: number
+  adjStackHits: number
+  dialogueTagRatio: number
+  parallelStreakMax: number
+  summaryEnding: boolean
+  /** 对话行总数（>0 才允许 dialogueTagRatio 有意义）；内部用，聚合层可忽略 */
+  _dialogueLines: number
+}
+
+/** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */
+export function computeStyleMetrics(body: string, rules: IronRules): StyleStats {
+  // 单句超限占比
+  let overlongRatio = 0
+  if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
+    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    if (sentences.length > 0) {
+      const overlong = sentences.filter((s) => s.length > rules.maxSentenceLen!).length
+      overlongRatio = overlong / sentences.length
+    }
+  }
+
+  // 形容词堆叠去重命中数
+  let adjStackHits = 0
+  if (rules.maxAdjStack && rules.maxAdjStack > 0) {
+    const stackRe = new RegExp(`(?:[${HANZI}]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
+    const hits = body.match(stackRe)
+    if (hits) adjStackHits = new Set(hits).size
+  }
+
+  // 对话标签占比（分母=对话行数）
+  let dialogueTagRatio = 0
+  const dialogueLines = body
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => /[「『“"][^」』”"]+[」』”"]/.test(line))
+  if (rules.maxDialogueTagRatio !== undefined && dialogueLines.length > 0) {
+    const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
+    const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
+    dialogueTagRatio = tagged / dialogueLines.length
+  }
+
+  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的"首次越界即 break"）
+  let parallelStreakMax = 0
+  if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
+    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
+    let prev = ''
+    let streak = 0
+    for (const sentence of sentences) {
+      const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
+      if (prefix && prefix === prev) {
+        streak += 1
+      } else {
+        prev = prefix
+        streak = prefix ? 1 : 0
+      }
+      if (streak > parallelStreakMax) parallelStreakMax = streak
+    }
+  }
+
+  // 结尾总结体
+  let summaryEnding = false
+  if (rules.avoidSummaryEnding) {
+    const ending = body.trim().slice(-140)
+    summaryEnding = /(这一刻|那一刻|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|命运|人生|结束|开始|答案)/.test(ending)
+  }
+
+  return {
+    overlongRatio,
+    adjStackHits,
+    dialogueTagRatio,
+    parallelStreakMax,
+    summaryEnding,
+    _dialogueLines: dialogueLines.length,
+  }
+}
+
+/**
  * 文风可量化检查（#10 项 9，🟡 黄）。
  * 贴近 文风铁律.md 的可量化硬约束：单句上限 / 形容词堆叠 / 对话提示语（#5 第 8 节）。
  * 阈值来自铁律；缺省项不检。零 token 启发式，只报不拦（ask 不 deny）。
@@ -247,9 +339,10 @@ export function checkStyleMetrics(
   body: string,
   rules: IronRules,
 ): CheckSectionResult {
+  const stats = computeStyleMetrics(body, rules)
   const items: CheckItem[] = []
 
-  // 单句超铁律上限
+  // 单句超铁律上限（逐句推一条，保持原行为）
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
     const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
     for (const s of sentences) {
@@ -263,7 +356,7 @@ export function checkStyleMetrics(
     }
   }
 
-  // 形容词连续堆叠：超上限的连续「X的」
+  // 形容词连续堆叠：去重后逐个推（保持原行为）
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
     const stackRe = new RegExp(`(?:[${HANZI}]{1,6}的){${rules.maxAdjStack + 1},}`, 'g')
     const hits = body.match(stackRe)
@@ -290,31 +383,22 @@ export function checkStyleMetrics(
     }
   }
 
-  // 对话标签占比：对话行里频繁用「他说/她问/某某道」会显机器味（#10 去 AI 味扩展）
-  if (rules.maxDialogueTagRatio !== undefined) {
-    const dialogueLines = body
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter((line) => /[「『“"][^」』”"]+[」』”"]/.test(line))
-    if (dialogueLines.length > 0) {
-      const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
-      const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
-      const ratio = tagged / dialogueLines.length
-      if (ratio > rules.maxDialogueTagRatio) {
-        items.push({
-          checkId: 'style-dialogue-tag-ratio',
-          level: 'yellow',
-          message: `对话标签占比 ${(ratio * 100).toFixed(0)}% 超文风铁律上限 ${(rules.maxDialogueTagRatio * 100).toFixed(0)}%，可增加无标签对话。`,
-        })
-      }
-    }
+  // 对话标签占比：用 stats 算好的 ratio（口径与原实现一致，分母=对话行数）
+  if (rules.maxDialogueTagRatio !== undefined && stats.dialogueTagRatio > rules.maxDialogueTagRatio && stats._dialogueLines > 0) {
+    items.push({
+      checkId: 'style-dialogue-tag-ratio',
+      level: 'yellow',
+      message: `对话标签占比 ${(stats.dialogueTagRatio * 100).toFixed(0)}% 超文风铁律上限 ${(rules.maxDialogueTagRatio * 100).toFixed(0)}%，可增加无标签对话。`,
+    })
   }
 
-  // 连续同构排比：同一开头连续出现过多，提示改成自然错落句式。
-  if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
+  // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）
+  if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
+    // 复算首个越界 prefix（与原实现一致的消息文案）
     const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
     let prev = ''
     let streak = 0
+    let hitPrefix = ''
     for (const sentence of sentences) {
       const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
       if (prefix && prefix === prev) {
@@ -324,26 +408,24 @@ export function checkStyleMetrics(
         streak = prefix ? 1 : 0
       }
       if (streak > rules.maxParallelStreak) {
-        items.push({
-          checkId: 'style-parallel-streak',
-          level: 'yellow',
-          message: `连续同构排比「${prefix}…」超过 ${rules.maxParallelStreak} 句，建议打散节奏。`,
-        })
+        hitPrefix = prefix
         break
       }
     }
+    items.push({
+      checkId: 'style-parallel-streak',
+      level: 'yellow',
+      message: `连续同构排比「${hitPrefix}…」超过 ${rules.maxParallelStreak} 句，建议打散节奏。`,
+    })
   }
 
-  // 结尾总结体：只在铁律显式要求时检查，避免误伤正常收束。
-  if (rules.avoidSummaryEnding) {
-    const ending = body.trim().slice(-140)
-    if (/(这一刻|那一刻|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|命运|人生|结束|开始|答案)/.test(ending)) {
-      items.push({
-        checkId: 'style-summary-ending',
-        level: 'yellow',
-        message: '结尾疑似总结体，可改成动作、物件或余韵画面收束。',
-      })
-    }
+  // 结尾总结体
+  if (rules.avoidSummaryEnding && stats.summaryEnding) {
+    items.push({
+      checkId: 'style-summary-ending',
+      level: 'yellow',
+      message: '结尾疑似总结体，可改成动作、物件或余韵画面收束。',
+    })
   }
 
   return { name: '文风可量化', items }
