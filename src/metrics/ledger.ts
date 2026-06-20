@@ -8,7 +8,7 @@
  * 容错：逐行 parse，坏行跳过不崩（采集/读取均不阻断主流程）。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { BookConfig } from '../format/types.js'
 
@@ -61,6 +61,19 @@ export function appendMetric(bookRoot: string, rec: MetricRecord): void {
   appendFileSync(fp, JSON.stringify(rec) + '\n', 'utf-8')
 }
 
+/** 回滚到第 N 章/篇后，裁掉目标轨道上 N 之后的指标账（过程数据不可重建，只能保守修剪）。 */
+export function trimMetricsAfter(
+  bookRoot: string,
+  kind: 'long' | 'short',
+  maxNum: number,
+): { kept: number; removed: number } {
+  const records = readMetrics(bookRoot)
+  if (records.length === 0) return { kept: 0, removed: 0 }
+  const kept = records.filter((r) => r.kind !== kind || r.num <= maxNum)
+  writeMetrics(bookRoot, kept)
+  return { kept: kept.length, removed: records.length - kept.length }
+}
+
 /**
  * 读取全部指标记录。逐行 parse，坏行跳过（容错不崩）。
  * 文件不存在 → 空数组（尚无定稿指标）。
@@ -87,6 +100,15 @@ export function readMetrics(bookRoot: string): MetricRecord[] {
     }
   }
   return records
+}
+
+function writeMetrics(bookRoot: string, records: MetricRecord[]): void {
+  const fp = metricsPath(bookRoot)
+  mkdirSync(dirname(fp), { recursive: true })
+  const body = records.length > 0
+    ? `${records.map((r) => JSON.stringify(r)).join('\n')}\n`
+    : ''
+  writeFileSync(fp, body, 'utf-8')
 }
 
 /** 松散对象 → MetricRecord 强类型校验；缺关键字段返回 null（坏行丢弃） */

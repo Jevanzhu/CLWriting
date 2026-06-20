@@ -8,6 +8,7 @@ import {
   appendMetric,
   readMetrics,
   metricsPath,
+  trimMetricsAfter,
   type MetricRecord,
 } from '../../src/metrics/ledger.js'
 import { collectMetrics } from '../../src/metrics/collect.js'
@@ -94,6 +95,20 @@ test('ledger: 缺关键字段的记录被丢弃（强类型校验）', () => {
   writeFileSync(fp, `${noCalls}\n${badKind}\n${ok}\n`, 'utf-8')
   expect(readMetrics(root)).toHaveLength(1)
   expect(readMetrics(root)[0]!.num).toBe(5)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('ledger: 回滚裁剪只删除同轨目标之后的指标', () => {
+  const root = mkdtempSync(join(tmpdir(), 'metrics-ledger-'))
+  appendMetric(root, sampleRecord({ kind: 'long', num: 1 }))
+  appendMetric(root, sampleRecord({ kind: 'long', num: 2 }))
+  appendMetric(root, sampleRecord({ kind: 'long', num: 3 }))
+  appendMetric(root, sampleRecord({ kind: 'short', num: 1, title: '短篇一' }))
+
+  const trimmed = trimMetricsAfter(root, 'long', 2)
+  const records = readMetrics(root)
+  expect(trimmed.removed).toBe(1)
+  expect(records.map((r) => `${r.kind}:${r.num}`)).toEqual(['long:1', 'long:2', 'short:1'])
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -276,7 +291,7 @@ test('report: 聚合平均调用 / 超限章次 / 满审率 / 降级率正确', 
 })
 
 test('report: --last=N 只取最近 N 条', () => {
-  const records = [1, 2, 3, 4, 5].map((n) => sampleRecord({ num: n }))
+  const records = [5, 1, 4, 2, 3].map((n) => sampleRecord({ num: n }))
   const report = aggregateMetrics(records, { last: 2 })
   expect(report.count).toBe(2)
   expect(report.range).toEqual({ from: 4, to: 5 })
