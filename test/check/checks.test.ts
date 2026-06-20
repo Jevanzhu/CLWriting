@@ -59,6 +59,18 @@ test('checkBannedWords: 命中禁词 → 红', () => {
   expect(r.items.every((i) => i.level === 'red')).toBe(true)
 })
 
+test('parseIronRules: 反和解段解析为硬禁词', () => {
+  const rules = parseIronRules([
+    '## 反和解段（AI 味防御）',
+    '- 轰动体、倒吸凉气、时间静止',
+    '- 「蝼蚁」',
+    '',
+    '## 可量化约束',
+    '- 单句上限字数: 60',
+  ].join('\n'))
+  expect(rules.bannedWords).toEqual(['轰动体', '倒吸凉气', '时间静止', '蝼蚁'])
+})
+
 // ── 字数（#10 项 5，黄）──────────────────────────
 
 test('checkWordCount: 偏离目标 → 黄', () => {
@@ -123,6 +135,37 @@ test('checkGrowth: 正常跃迁不报红', () => {
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
   expect(r.items).toHaveLength(0)
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('checkGrowth: 成长线启用但境界序列缺失 → 黄项告警，不静默空跑', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const db = new DatabaseSync(join(dir, 'index.db'))
+  createAllTables(db)
+  syncLead(db, {
+    编号: '成长线-001', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    当前境界: '炼气一层',
+    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至金丹' }], _path: 'p',
+  })
+  const r = checkGrowth(db, { 体系: [] }, ['成长线-001'], 2)
+  expect(r.items.some((i) => i.checkId === 'growth-realm-sequence-missing' && i.level === 'yellow')).toBe(true)
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('checkGrowth: 成长线非法履历动词 → 黄项告警', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const db = new DatabaseSync(join(dir, 'index.db'))
+  createAllTables(db)
+  syncLead(db, {
+    编号: '成长线-001', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    当前境界: '炼气一层',
+    履历: [{ 章号: 5, 动词: '跨层', 证据: '跨层至炼气四层' }], _path: 'p',
+  })
+  const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气一层', '炼气四层'] }] }
+  const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
+  expect(r.items.some((i) => i.checkId === 'growth-verb-invalid' && i.level === 'yellow')).toBe(true)
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -355,6 +398,20 @@ test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () =>
   const r = checkStyleMetrics(body, rules)
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag-ratio')).toBe(true)
   expect(r.items.some((i) => i.checkId === 'style-parallel-streak')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
+})
+
+test('checkStyleMetrics: 顿号分隔形容词堆叠 + 扩展总结体 → 黄', () => {
+  const rules = parseIronRules([
+    '形容词连续堆叠上限: 3',
+    '结尾总结体: 禁止',
+  ].join('\n'))
+  const body = [
+    '幽暗的、冰冷的、古老的、腐朽的气息从门缝里漫出来。',
+    '这一战让沈砚终于明白，所谓修行的真谛从来不是退让。',
+  ].join('\n')
+  const r = checkStyleMetrics(body, rules)
+  expect(r.items.some((i) => i.checkId === 'style-adj-stack')).toBe(true)
   expect(r.items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
 })
 

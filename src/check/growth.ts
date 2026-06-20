@@ -17,6 +17,11 @@ import type { RealmDoc } from '../format/types.js'
 
 /** 成长线跃迁动词（单源取自 LEAD_VERBS，避免硬编码错配） */
 const GROWTH_TRANSITION_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
+const GROWTH_VALID_VERBS = new Set<string>([
+  ...LEAD_VERBS.成长线.open,
+  ...LEAD_VERBS.成长线.resolve,
+  ...LEAD_VERBS.成长线.drop,
+])
 
 /**
  * 成长线语义校验。
@@ -35,6 +40,14 @@ export function checkGrowth(
 
   if (growthLeadIds.length === 0) {
     return { name: '成长线境界语义', items }
+  }
+
+  if (!realmDoc || realmDoc.体系.length === 0) {
+    items.push({
+      checkId: 'growth-realm-sequence-missing',
+      level: 'yellow',
+      message: '已启用成长线，但 定稿/设定/境界体系.md 没有可解析的「体系/序列」front matter，境界跳跃/回退检测会降级。',
+    })
   }
 
   for (const id of growthLeadIds) {
@@ -56,21 +69,28 @@ export function checkGrowth(
     }
 
     // #1 命中：当前境界在序列内
-    if (currentRealm && sequence) {
-      if (!sequence.includes(currentRealm)) {
-        items.push({
-          checkId: 'growth-realm-miss',
-          level: 'red',
-          message: `${id} 当前境界「${currentRealm}」不在体系「${systemName}」的序列中`,
-          leadId: id,
-        })
-        continue // 序列都没有，后续检查无意义
-      }
+    if (currentRealm && realmDoc && realmDoc.体系.length > 0 && !sequence) {
+      items.push({
+        checkId: 'growth-realm-miss',
+        level: 'red',
+        message: `${id} 当前境界「${currentRealm}」不在任何境界体系序列中`,
+        leadId: id,
+      })
+      continue // 当前境界找不到体系，后续检查无意义
     }
 
     // 提取履历中的跃迁境界（动词=突破 等收尾类动词，取自 LEAD_VERBS.成长线.resolve）
     const transitions: { chapter: number; realm: string; evidence: string }[] = []
     for (const h of history) {
+      if (!GROWTH_VALID_VERBS.has(h.verb)) {
+        items.push({
+          checkId: 'growth-verb-invalid',
+          level: 'yellow',
+          message: `${id} 第${h.chapter}章履历动词「${h.verb}」不是成长线合法动词（${[...GROWTH_VALID_VERBS].join(' / ')}），该条不会计入境界跃迁。`,
+          leadId: id,
+          chapter: h.chapter,
+        })
+      }
       if (GROWTH_TRANSITION_VERBS.has(h.verb)) {
         // 从证据提取境界：如「突破至筑基」→ 筑基
         const realm = extractRealmFromEvidence(h.evidence, sequence)
