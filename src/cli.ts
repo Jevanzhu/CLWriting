@@ -60,6 +60,10 @@ function main(): void {
       import('./cli/confirm.js').then(({ confirmCommand }) => confirmCommand(rest))
       return
     }
+    case 'record-call': {
+      import('./cli/record-call.js').then(({ recordCallCommand }) => recordCallCommand(rest))
+      return
+    }
     case 'check': {
       import('./cli/check.js').then(({ checkCommand }) => checkCommand(rest))
       return
@@ -146,6 +150,7 @@ function printHelp(): void {
   console.log('  health [书目录] [--metrics|--style|--report]  git/指标/文风体检')
   console.log('  revert <章号> [书目录]  回到第 N 章（回滚，丢弃内容先进备份可找回）')
   console.log('  confirm <章号> [书目录] [--auto]  确认工作区细纲（写 .confirm.json）')
+  console.log('  record-call <章号> --step <outline|draft> [--calls N] [--tokens N]  记一次大纲/草稿 AI 调用（成本采集）')
   console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
   console.log('  roles <generate|check> [工作目录|书目录]  生成角色壳 / 检查壳漂移')

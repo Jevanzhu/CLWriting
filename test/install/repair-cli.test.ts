@@ -46,10 +46,14 @@ test('repair CLI: 删 books.jsonl 后 repair 重建（端到端门面）', () =>
 })
 
 test('repair CLI: 无工作目录时退出非零（不在 .clwriting/ 下）', () => {
-  const empty = mkdtempSync(join(tmpdir(), 'repcli2-'))
+  // 注意：empty 建在项目下而非 tmpdir()——findWorkDir 向上找 .clwriting/，
+  // 若 empty 在 /tmp 子树会命中环境里的 /tmp/.clwriting 污染源导致测试失败。
+  // 项目祖先链无 .clwriting（已验证），且本测试不调 doInit，不受项目是 git 仓库影响。
+  const empty = mkdtempSync(join(ORIG_CWD, '.vitest-repair-empty-'))
   process.chdir(empty)
   // 门面 console.error + process.exit(1)；测试期望它抛（exit 被测试运行时转抛）
   expect(() => repairCommand([])).toThrow()
+  process.chdir(ORIG_CWD)
   rmSync(empty, { recursive: true, force: true })
 })
 
