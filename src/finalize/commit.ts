@@ -28,6 +28,7 @@ import { runAllChecks, hasRed } from '../check/runner.js'
 import { rebuild } from '../cache/rebuild.js'
 import type { ParseError } from '../format/types.js'
 import { clearAiCallBudget } from '../ai/calls.js'
+import { collectAndAppend } from '../metrics/collect.js'
 
 /** finalize 前置闸检查结果（#13 第 2 节） */
 export type FinalizeGateResult =
@@ -223,6 +224,21 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     return { ok: false, reason: commit.humanMsg }
   }
   const commitHash = commit.hash
+
+  // 落账成本/审查指标（指标方案 §3.1）：commit 成功后、clearWorkDir 前采集。
+  // .ai-calls.json 和 三审/ 在 clearWorkDir 才删，必须在此之前读。
+  // try/catch 不阻断定稿（指标是附带功能，同 markHealthCheckDone 容错风格）。
+  try {
+    collectAndAppend(bookRoot, workDir, {
+      kind,
+      num: chapter.章号,
+      title: chapter.标题,
+      body,
+      config,
+    })
+  } catch {
+    // 采集失败绝不阻断定稿
+  }
 
   // #4 清空工作区
   clearWorkDir(workDir)
