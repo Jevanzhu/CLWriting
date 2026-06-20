@@ -13,11 +13,11 @@
  */
 
 import process from 'node:process'
-import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { git } from '../git/exec.js'
 import type { LeadType } from '../format/types.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
@@ -341,9 +341,6 @@ function detectBookCreatedAt(dir: string): string | undefined {
 }
 
 function execGit(args: string[], cwd: string): string | null {
-  try {
-    return execSync(['git', ...args].join(' '), { cwd, stdio: 'pipe', encoding: 'utf-8' }).trim() || null
-  } catch {
-    return null
-  }
+  const r = git(args, cwd)
+  return r.ok ? r.stdout.trim() || null : null
 }

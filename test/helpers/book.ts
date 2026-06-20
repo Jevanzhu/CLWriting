@@ -8,7 +8,7 @@
  * 全程中文目录名（验证中文路径全链路，沿用 rebuild.test 约定）。
  */
 
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,7 +21,9 @@ import type { BookConfig } from '../../src/format/types.js'
 
 /** 跑一条 git 命令（fixture 用，stdio pipe 免污染测试输出） */
 export function git(args: string[], cwd: string): string {
-  return execSync(['git', ...args].join(' '), { cwd, encoding: 'utf-8', stdio: 'pipe' })
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' })
+  if (r.status !== 0) throw new Error(r.stderr || r.error?.message || `git ${args.join(' ')} failed`)
+  return r.stdout
 }
 
 /**
@@ -33,10 +35,10 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
   const root = mkdtempSync(join(tmpdir(), '北境往事-'))
 
   // git init + 身份（fixture 隔离，不污染全局 git config）
-  execSync('git init', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.email test@test.com', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.name test', { cwd: root, stdio: 'pipe' })
-  execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  git(['init'], root)
+  git(['config', 'user.email', 'test@test.com'], root)
+  git(['config', 'user.name', 'test'], root)
+  git(['config', 'commit.gpgsign', 'false'], root)
 
   // book.yaml
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
@@ -70,8 +72,8 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
   }
 
   // 初始 commit（git 干净基线）
-  execSync('git add -A', { cwd: root, stdio: 'pipe' })
-  execSync('git commit -m "init"', { cwd: root, stdio: 'pipe' })
+  git(['add', '-A'], root)
+  git(['commit', '-m', 'init'], root)
 
   return root
 }
@@ -96,8 +98,8 @@ export function makeGitBookWithChapters(n: number): string {
       'utf-8',
     )
     // commit（#16 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
-    execSync('git add -A', { cwd: root, stdio: 'pipe' })
-    execSync(`git commit -m "ch:${chNo} ${title}"`, { cwd: root, stdio: 'pipe' })
+    git(['add', '-A'], root)
+    git(['commit', '-m', `ch:${chNo} ${title}`], root)
   }
 
   return root

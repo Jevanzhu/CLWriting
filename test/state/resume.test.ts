@@ -132,7 +132,7 @@ test('commit msg 合规（#16 第 4 节前缀）: ch:0001 标题 + Confirmed tra
 // ── git 隐身验收：作者侧零裸 git 命令 ────────────────
 
 test('git 隐身: finalize 全链路经人话层，作者不敲 git（验收点）', () => {
-  // 这是个验收性测试：finalize 内部不直接调 execFileSync('git')，
+  // 这是个验收性测试：finalize 内部不直接裸调 git，
   // 全经 git/exec.ts 的 addCommit（#16 第 3 节）。
   // 验证方式：finalize 成功后 commit 存在 + msg 合规，且 finalize 源码不含裸 git 调用。
   const root = makeGitBook({ withCache: true })

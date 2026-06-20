@@ -5,7 +5,7 @@
  */
 
 import { test, expect } from 'vitest'
-import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { makeGitBook } from '../helpers/book.js'
@@ -102,7 +102,7 @@ test('手改对账: 手改账本履历 → 检测到 + ledger 分类 + 提议同
 test('手改对账: 手改设定 → 检测到 + 触发影响分析（#17）', () => {
   const root = makeGitBook()
   // 定稿/设定/ 加个设定文件再手改
-  sh('mkdir -p 定稿/设定', root)
+  mkdirSync(join(root, '定稿', '设定'), { recursive: true })
   writeFileSync(join(root, '定稿', '设定', '林晚.md'), '---\n姓名: 林晚\n境界: 炼气\n---\n主角。\n', 'utf-8')
   sh('git add -A && git commit -m "加设定"', root)
   // 手改设定
@@ -124,7 +124,7 @@ test('手改对账: 手改设定 → 检测到 + 触发影响分析（#17）', (
 test('手改对账: 手改已发布正文 → published-text 警示 + 不强制拒（作者有权）', () => {
   const root = makeGitBook()
   // 先定稿一章（产生已发布正文）
-  sh('mkdir -p 定稿/正文', root)
+  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   writeFileSync(join(root, '定稿', '正文', '0001-第一章.md'),
     '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文内容。\n', 'utf-8')
   sh('git add -A && git commit -m "ch:0001 第一章"', root)

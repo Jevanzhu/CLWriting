@@ -8,11 +8,11 @@
  * 不装角色壳、不登记 books.jsonl（那些是 doInit 编排层的事）。
  */
 
-import { execSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { BASE_LEAD_TYPES } from './data.js'
+import { addCommit, git } from '../git/exec.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 书仓库 scaffold 入参（init 和 import 共用）。 */
@@ -33,10 +33,10 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   mkdirSync(bookRoot, { recursive: true })
 
   // git init + 身份（隔离，不污染全局 config）
-  execSync('git init', { cwd: bookRoot, stdio: 'pipe' })
-  execSync('git config user.email author@clwriting.local', { cwd: bookRoot, stdio: 'pipe' })
-  execSync('git config user.name author', { cwd: bookRoot, stdio: 'pipe' })
-  execSync('git config commit.gpgsign false', { cwd: bookRoot, stdio: 'pipe' })
+  mustGit(bookRoot, ['init'])
+  mustGit(bookRoot, ['config', 'user.email', 'author@clwriting.local'])
+  mustGit(bookRoot, ['config', 'user.name', 'author'])
+  mustGit(bookRoot, ['config', 'commit.gpgsign', 'false'])
   installBookPushGuard(bookRoot)
 
   // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）
@@ -68,8 +68,13 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   writeFileSync(join(bookRoot, 'AGENTS.md'), renderBookAgentsMd(opts), 'utf-8')
 
   // 初始 commit（让 enter/状态机有 HEAD 可判，避开态 3 误判）
-  execSync('git add -A', { cwd: bookRoot, stdio: 'pipe' })
-  execSync('git commit -m "init"', { cwd: bookRoot, stdio: 'pipe' })
+  const commit = addCommit(bookRoot, 'init')
+  if (!commit.ok) throw new Error(commit.humanMsg)
+}
+
+function mustGit(cwd: string, args: string[]): void {
+  const r = git(args, cwd)
+  if (!r.ok) throw new Error(r.humanMsg)
 }
 
 /**
@@ -84,7 +89,11 @@ export function installBookPushGuard(bookRoot: string): void {
   if (!existsSync(hooksDir)) return
   const hookPath = join(hooksDir, 'pre-push')
   writeFileSync(hookPath, renderBookPushGuardHook(), 'utf-8')
-  chmodSync(hookPath, 0o755)
+  try {
+    chmodSync(hookPath, 0o755)
+  } catch {
+    // Windows 权限位不稳定；Git for Windows 仍会按 hook 文件内容执行。
+  }
 }
 
 export function renderBookPushGuardHook(): string {

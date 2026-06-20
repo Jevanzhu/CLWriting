@@ -8,13 +8,14 @@
 import { test, expect } from 'vitest'
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
 import { makeGitBook } from '../helpers/book.js'
 import { gitHealthCheck, git } from '../../src/git/exec.js'
 
-/** 跑 shell（fixture 注入异常用） */
-function sh(cmd: string, cwd: string): void {
-  execSync(cmd, { cwd, stdio: 'pipe' })
+/** 跑 git（fixture 注入异常用）：参数数组避免 Windows shell 差异。 */
+function mustGit(args: string[], cwd: string): string {
+  const r = git(args, cwd)
+  if (!r.ok) throw new Error(r.humanMsg)
+  return r.stdout
 }
 
 test('gitHealthCheck: 干净书仓库 → clean', () => {
@@ -28,7 +29,7 @@ test('gitHealthCheck: 干净书仓库 → clean', () => {
 
 test('gitHealthCheck: 配置 remote → 只报安全提醒，不阻断 clean', () => {
   const root = makeGitBook()
-  sh('git remote add origin https://example.invalid/private-novel.git', root)
+  mustGit(['remote', 'add', 'origin', 'https://example.invalid/private-novel.git'], root)
 
   const report = gitHealthCheck(root)
   expect(report.clean).toBe(true)
@@ -44,7 +45,7 @@ test('gitHealthCheck: 半提交（staged 残留）→ halfCommit 命中出人话
   const root = makeGitBook()
   // 改文件后 git add 但不 commit → staged 残留
   writeFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), '改了内容', 'utf-8')
-  sh('git add -A', root)
+  mustGit(['add', '-A'], root)
 
   const report = gitHealthCheck(root)
   expect(report.clean).toBe(false)
@@ -57,16 +58,19 @@ test('gitHealthCheck: 半提交（staged 残留）→ halfCommit 命中出人话
 
 test('gitHealthCheck: 合并冲突（MERGE_HEAD + 冲突标记）→ mergeConflict 命中', () => {
   const root = makeGitBook()
+  const baseBranch = mustGit(['rev-parse', '--abbrev-ref', 'HEAD'], root).trim()
   // 制造一个冲突：两边改同一行
-  sh('git checkout -b feature', root)
+  mustGit(['checkout', '-b', 'feature'], root)
   writeFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), 'feature 分支改的', 'utf-8')
-  sh('git add -A && git commit -m "feature 改"', root)
-  sh('git checkout master 2>/dev/null || git checkout main 2>/dev/null || true', root)
+  mustGit(['add', '-A'], root)
+  mustGit(['commit', '-m', 'feature 改'], root)
+  mustGit(['checkout', baseBranch], root)
   writeFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), '主干改的', 'utf-8')
-  sh('git add -A && git commit -m "主干改"', root)
+  mustGit(['add', '-A'], root)
+  mustGit(['commit', '-m', '主干改'], root)
   // 合并 feature，产生冲突
   try {
-    sh('git merge feature', root)
+    mustGit(['merge', 'feature'], root)
   } catch {
     // 合并冲突会让 git 返回非零，预期内
   }
@@ -123,7 +127,7 @@ test('gitHealthCheck: 多异常同时存在 → 全部入 issues', () => {
   const root = makeGitBook()
   // 半提交 + 锁 + 网盘副本
   writeFileSync(join(root, '大纲', '伏笔', '伏笔-099.md'), '新增', 'utf-8')
-  sh('git add -A', root)
+  mustGit(['add', '-A'], root)
   writeFileSync(join(root, '.git', 'index.lock'), '', 'utf-8')
   writeFileSync(join(root, '定稿', '正文', '某章 2.md'), '副本', 'utf-8')
 
