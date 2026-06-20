@@ -15,9 +15,23 @@ import { makeGitBook, makeGitBookWithChapters } from '../helpers/book.js'
 import { rollbackToChapter } from '../../src/git/rollback.js'
 import { enter, formatRecap } from '../../src/state/state.js'
 import { findChapterCommit } from '../../src/git/exec.js'
+import { appendMetric, readMetrics, type MetricRecord } from '../../src/metrics/ledger.js'
 
 function sh(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: 'utf-8', stdio: 'pipe' })
+}
+
+function metricRecord(num: number): MetricRecord {
+  return {
+    kind: 'long',
+    num,
+    title: `第${num}章`,
+    words: 1000,
+    at: `2026-06-20T00:00:0${num}.000Z`,
+    calls: { outline: 1, draft: 1, review: 3, total: 5, limit: 8 },
+    tokens: null,
+    review: null,
+  }
 }
 
 // ── #16 第 5 节：回滚三者一致 ─────────────────────────
@@ -58,6 +72,21 @@ test('回滚: 三者一致——定稿区 / .cache / HEAD 对齐（M3 出口）'
   // HEAD：最近 commit 是 ch:0002
   const log = sh('git log --oneline -1', root)
   expect(log).toMatch(/ch:0002/)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('回滚: 指标账保留到目标章，删除目标章之后的记录', () => {
+  const root = makeGitBookWithChapters(5)
+  for (let i = 1; i <= 5; i++) appendMetric(root, metricRecord(i))
+
+  const r = rollbackToChapter(root, 3)
+  expect(r.ok).toBe(true)
+  expect(readMetrics(root).map((m) => m.num)).toEqual([1, 2, 3])
+
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const row = db.prepare('SELECT count(*) AS c FROM chapters').get() as { c: number }
+  db.close()
+  expect(row.c).toBe(3)
   rmSync(root, { recursive: true, force: true })
 })
 

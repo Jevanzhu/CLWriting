@@ -40,7 +40,10 @@ export interface AggregateOptions {
  * - 长短篇混存时 kind='mixed'，报告仍聚合（不分轨，beta 阶段够用）
  */
 export function aggregateMetrics(records: MetricRecord[], opts: AggregateOptions = {}): MetricsReport {
-  let pool = [...records]
+  let pool = records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => a.record.num - b.record.num || a.index - b.index)
+    .map((entry) => entry.record)
   if (opts.last !== undefined && opts.last > 0 && pool.length > opts.last) {
     pool = pool.slice(-opts.last)
   }

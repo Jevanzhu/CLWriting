@@ -7,7 +7,7 @@
  * 1. 定位：findChapterCommit(N) 按 ch:<章号> 前缀反查
  * 2. 备份再丢（可逆铁律）：N+1…M 章存备份 ref（git branch 回收/回到N-<时间戳>），可找回
  * 3. 回退定稿区：git reset --hard <第N章commit>，丢弃 N 之后的 commit
- * 4. 重建缓存：删 .cache 全量重建（#4 重建器），与回退后定稿区对齐
+ * 4. 重建缓存：删可重建的 index.db 后重建，保留 metrics/health-check 等机器账
  * 5. 清工作区：删未完成的草稿/细纲/.confirm（工作区不在 git）
  * 6. 人话确认
  *
@@ -20,6 +20,7 @@ import { existsSync, readdirSync, unlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, findChapterCommit } from './exec.js'
 import { rebuild } from '../cache/rebuild.js'
+import { trimMetricsAfter } from '../metrics/ledger.js'
 
 /** 回滚结果 */
 export type RollbackResult =
@@ -75,11 +76,12 @@ export function rollbackToChapter(bookRoot: string, chapterN: number, kind: 'lon
     return { ok: false, humanMsg: `回退定稿区失败（内容已备份在 ${backupRef}）：${resetR.humanMsg}` }
   }
 
-  // #4 重建缓存：删 .cache 全量重建，与回退后定稿区对齐
+  // #4 重建缓存：只删可重建的 index.db，保留 .cache 下不可重算的指标账。
   const cacheDir = join(bookRoot, '.cache')
-  if (existsSync(cacheDir)) {
-    rmSync(cacheDir, { recursive: true, force: true })
+  for (const name of ['index.db', 'index.db-shm', 'index.db-wal']) {
+    rmSync(join(cacheDir, name), { force: true })
   }
+  trimMetricsAfter(bookRoot, kind, chapterN)
   rebuild(bookRoot, join(cacheDir, 'index.db'))
 
   // #5 清工作区：删未完成的草稿/细纲/.confirm（工作区不在 git，是文件系统删除）
