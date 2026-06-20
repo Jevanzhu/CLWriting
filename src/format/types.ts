@@ -53,6 +53,8 @@ export interface Lead {
 
   // 容错：未知字段原样保留（#3 第 8 节）
   _raw?: Record<string, string>
+  /** 履历段前的人工说明正文（如人物/设定简介），回写时保留 */
+  _bodyBeforeHistory?: string
   /** 源 md 的 front matter 字段顺序（回写保序用，#3 第 8 节"不重排已有字段顺序"） */
   _fmOrder?: string[]
   /** 源 md 路径（重建时回填，非 front matter 字段） */

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -88,7 +88,6 @@ test('readLead: 未知字段容错保留', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '伏笔-031.md')
   // 手工写一个含未知字段的文件
-  const { writeFileSync } = require('node:fs')
   writeFileSync(fp, [
     '---',
     '编号: 伏笔-031',
@@ -109,6 +108,37 @@ test('readLead: 未知字段容错保留', () => {
   if (r.ok) {
     expect(r.lead._raw?.['自定义备注']).toBe('作者手写的备注')
   }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('writeLead: 保留履历前的人工说明正文', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '设定线-001-噬灵玉.md')
+  writeFileSync(fp, [
+    '---',
+    '编号: 设定线-001',
+    '标题: 噬灵玉',
+    '类型: 设定线',
+    '状态: 进行中',
+    '开启章: 1',
+    '---',
+    '',
+    '噬灵玉是母亲遗物，可以吞噬炼化外物灵气。',
+    '',
+    '## 履历',
+    '',
+    '- 第001章 树立：玉佩初醒',
+  ].join('\n'), 'utf-8')
+
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    r.lead.履历.push({ 章号: 2, 动词: '深化', 证据: '吞掉妖丹残灵' })
+    writeLead(fp, r.lead)
+  }
+  const content = readFileSync(fp, 'utf-8')
+  expect(content).toContain('噬灵玉是母亲遗物')
+  expect(content).toContain('吞掉妖丹残灵')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -141,7 +171,6 @@ test('readLead: 成长线特化字段（#6 境界体系）', () => {
 test('readLead: 坏文件返回错误不崩', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '坏文件.md')
-  const { writeFileSync } = require('node:fs')
   writeFileSync(fp, '没有 front matter 的裸文件', 'utf-8')
   const r = readLead(fp)
   expect(r.ok).toBe(false)
@@ -162,12 +191,33 @@ test('readLeadDir: 扫描目录、容错跳过坏文件', () => {
   writeLead(join(伏笔dir, '伏笔-002-b.md'), {
     编号: '伏笔-002', 标题: 'b', 类型: '伏笔', 状态: '进行中', 开启章: 5, 履历: [],
   })
-  const { writeFileSync } = require('node:fs')
   writeFileSync(join(伏笔dir, '伏笔-099-坏.md'), '坏的', 'utf-8')
 
   const { leads, errors } = readLeadDir(伏笔dir)
   expect(leads).toHaveLength(2)
   expect(errors).toHaveLength(1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('readLeadDir: 文件名缺标题后缀时报错，避免履历落盘静默失配', () => {
+  const dir = makeTmpBook()
+  const 设定dir = join(dir, '设定线')
+  mkdirSync(设定dir)
+  writeFileSync(join(设定dir, '设定线-001.md'), [
+    '---',
+    '编号: 设定线-001',
+    '标题: 噬灵玉',
+    '类型: 设定线',
+    '状态: 进行中',
+    '开启章: 1',
+    '---',
+    '',
+    '## 履历',
+  ].join('\n'), 'utf-8')
+
+  const { leads, errors } = readLeadDir(设定dir)
+  expect(leads).toHaveLength(0)
+  expect(errors[0]?.message).toContain('<编号>-<标题>.md')
   rmSync(dir, { recursive: true, force: true })
 })
 

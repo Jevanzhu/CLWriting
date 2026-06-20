@@ -6,7 +6,7 @@
 
 import process from 'node:process'
 import { resolve, join, dirname } from 'node:path'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, rmSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { readFile } from '../format/frontmatter.js'
 import { readChapter } from '../format/chapters.js'
@@ -139,6 +139,9 @@ function readDraft(
   draftPath: string,
   isShort: boolean,
 ): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
+  if (!existsSync(draftPath)) {
+    return { ok: false, reason: missingDraftReason(draftPath) }
+  }
   if (isShort) {
     // 短篇草稿用 篇号（readPiece），映射成 ChapterMeta（章号字段承载篇号）
     const piece = readPiece(draftPath)
@@ -162,12 +165,33 @@ function readDraft(
   }
 
   const chapter = readChapter(draftPath)
-  if (!chapter.ok) return { ok: false, reason: chapter.error.message }
+  if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message) }
 
   const file = readFile(draftPath)
-  if (!file.ok) return { ok: false, reason: file.error.message }
+  if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message) }
 
   return { ok: true, chapter: chapter.chapter, body: file.body }
+}
+
+function draftParseReason(message: string): string {
+  if (message.includes('front matter')) {
+    return `${message}。草稿必须以章节 front matter 开头，至少包含：章号、标题、钩子类型、钩子强弱、情绪定位。`
+  }
+  return message
+}
+
+function missingDraftReason(draftPath: string): string {
+  const dir = dirname(draftPath)
+  let candidates: string[] = []
+  try {
+    candidates = readdirSync(dir).filter((f) => /^草稿-\d+\.md$/.test(f))
+  } catch {
+    // ignore
+  }
+  if (draftPath.endsWith('草稿-1.md') && candidates.length > 0) {
+    return `找不到默认草稿-1.md。草稿-N 的 N 是候选序号，不是章号；请把当前候选写为 草稿-1.md，或显式传入草稿路径。当前有：${candidates.join('、')}`
+  }
+  return `找不到草稿文件：${draftPath}`
 }
 
 /** 定稿文件名规则（kind 分支）：

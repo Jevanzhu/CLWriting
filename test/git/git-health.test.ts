@@ -109,6 +109,16 @@ test('gitHealthCheck: 网盘副本残留（文件 2.md）→ cloudCopy 命中', 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('gitHealthCheck: .cache 内 AppleDouble 副本不阻断写作', () => {
+  const root = makeGitBook()
+  writeFileSync(join(root, '.cache', '._index.db'), 'AppleDouble', 'utf-8')
+
+  const report = gitHealthCheck(root)
+  expect(report.clean).toBe(true)
+  expect(report.issues.find((i) => i.kind === 'cloudCopy')).toBeUndefined()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('gitHealthCheck: 多异常同时存在 → 全部入 issues', () => {
   const root = makeGitBook()
   // 半提交 + 锁 + 网盘副本

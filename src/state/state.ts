@@ -304,7 +304,7 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       const list = detected.handEdits.map((f) => `· ${f}`).join('\n')
       return {
         state: 3,
-        humanMsg: `检测到未入账的手改，要不要补登：\n${list}`,
+        humanMsg: `检测到未入账的手改。先运行 clwriting rebook 查看对账报告；确认入账后运行 clwriting rebook --yes：\n${list}`,
         action: 'rebook',
         needsAI: true, // 补登内容判断 M4
       }

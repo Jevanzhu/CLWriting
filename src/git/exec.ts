@@ -254,8 +254,8 @@ function scanCloudCopies(bookRoot: string): string[] {
       return
     }
     for (const e of entries) {
-      // 跳过 .git / node_modules（不扫 git 内部与依赖）
-      if (e.name === '.git' || e.name === 'node_modules') continue
+      // 跳过 .git / node_modules / .cache（不扫 git 内部、依赖与可重建缓存）
+      if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cache') continue
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         walk(full)

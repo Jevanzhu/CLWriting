@@ -64,12 +64,20 @@ function main(): void {
       import('./cli/record-call.js').then(({ recordCallCommand }) => recordCallCommand(rest))
       return
     }
+    case 'prepare': {
+      import('./cli/prepare.js').then(({ prepareCommand }) => void prepareCommand(rest))
+      return
+    }
     case 'check': {
       import('./cli/check.js').then(({ checkCommand }) => checkCommand(rest))
       return
     }
     case 'finalize': {
       import('./cli/finalize.js').then(({ finalizeCommand }) => finalizeCommand(rest))
+      return
+    }
+    case 'rebook': {
+      import('./cli/rebook.js').then(({ rebookCommand }) => rebookCommand(rest))
       return
     }
     case 'roles': {
@@ -151,8 +159,10 @@ function printHelp(): void {
   console.log('  revert <章号> [书目录]  回到第 N 章（回滚，丢弃内容先进备份可找回）')
   console.log('  confirm <章号> [书目录] [--auto]  确认工作区细纲（写 .confirm.json）')
   console.log('  record-call <章号> --step <outline|draft> [--calls N] [--tokens N]  记一次大纲/草稿 AI 调用（成本采集）')
+  console.log('  prepare [书目录] [--lead A,B] [--scene 场景]  生成工作区/本章写作材料.md')
   console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
+  console.log('  rebook [书目录] [--yes]  报告/补登定稿区与大纲区手改')
   console.log('  roles <generate|check> [工作目录|书目录]  生成角色壳 / 检查壳漂移')
   console.log('  knowledge check [书目录]  校验知识层 manifest 与素材哈希')
   console.log('  review <plan|run|collect|batch> [书目录] --chapter=N  三审计划 / 打包执行包 / 回收写审稿单 / 批量审稿')

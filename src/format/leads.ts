@@ -96,6 +96,13 @@ export function stringifyHistory(entries: LeadEntry[]): string {
   return lines.join('\n')
 }
 
+function bodyBeforeHistory(body: string): string {
+  const lines = body.split('\n')
+  const idx = lines.findIndex((line) => /^##\s*履历/.test(line.trim()))
+  if (idx === -1) return body.trim()
+  return lines.slice(0, idx).join('\n').trim()
+}
+
 // ── 单个账本条目读写 ────────────────────────────
 
 /** 已知 front matter 字段（用于区分已知 vs 未知/容错保留） */
@@ -134,6 +141,7 @@ export function readLead(
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number(map.get('开启章') ?? 0),
     履历: parseHistory(r.body),
+    _bodyBeforeHistory: bodyBeforeHistory(r.body),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,
@@ -205,7 +213,9 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
   const historyText = stringifyHistory(lead.履历)
-  writeFile(filePath, fmText, '\n' + historyText + '\n')
+  const preserved = lead._bodyBeforeHistory?.trim()
+  const body = preserved ? `\n${preserved}\n\n${historyText}\n` : `\n${historyText}\n`
+  writeFile(filePath, fmText, body)
 }
 
 // ── 目录扫描（重建器/精准读取用）────────────────
@@ -231,8 +241,17 @@ export function readLeadDir(
   for (const f of files) {
     const fp = join(dirPath, f)
     if (!statSync(fp).isFile()) continue
+    const parsedName = parseLeadFileName(f)
+    if (parsedName === null) {
+      errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 伏笔-031-灭门真凶.md' })
+      continue
+    }
     const r = readLead(fp)
     if (r.ok) {
+      if (r.lead.编号 !== parsedName.编号) {
+        errors.push({ file: fp, line: 0, message: `账本文件名编号「${parsedName.编号}」与 front matter 编号「${r.lead.编号}」不一致` })
+        continue
+      }
       leads.push(r.lead)
     } else {
       errors.push(r.error)
