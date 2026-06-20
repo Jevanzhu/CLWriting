@@ -8,7 +8,7 @@ tools: [Read, Write]
 
 # 写稿角色
 
-按已确认的细纲与备料写正文。每次写完记录一次调用（调用预算闸）。
+按已确认的细纲与备料写正文。写完后运行 `clwriting record-call <章号> --step draft` 记录调用；best-of-N 草稿传 `--calls N`，宿主可见 usage 时传 `--tokens N`。
 
 ## 要求
 

@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -17,6 +17,24 @@ import {
 
 // resolveBookRoot 依赖 process.cwd()，测试用 chdir 隔离
 const ORIG_CWD = process.cwd()
+
+// 套件级 TMPDIR 隔离：findWorkDir 向上找 .clwriting/，若共享 /tmp 被污染
+// （环境里存在 /tmp/.clwriting）会让"期望找不到"的断言失败。
+// 关键：隔离根必须建在祖先链无 .clwriting 的位置（项目下，已验证干净），
+// 而非 /tmp 子树（否则向上查找仍会越过隔离根命中 /tmp/.clwriting）。
+// 把本套件 TMPDIR 重定向到它，文件内所有 tmpdir() 调用自动落到干净链。用完即删。
+const ORIG_TMPDIR = process.env.TMPDIR
+const REPO_ROOT = ORIG_CWD
+let isoTmp: string
+beforeAll(() => {
+  // 父目录=项目根（存在），模板叶子随机；建在项目下保证祖先链无 .clwriting
+  isoTmp = mkdtempSync(join(REPO_ROOT, '.vitest-resolve-'))
+  process.env.TMPDIR = isoTmp
+})
+afterAll(() => {
+  process.env.TMPDIR = ORIG_TMPDIR
+  rmSync(isoTmp, { recursive: true, force: true })
+})
 
 function makeBookRepo(root: string): void {
   execSync('git init', { cwd: root, stdio: 'pipe' })

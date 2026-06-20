@@ -20,6 +20,8 @@ export interface AiCallEntry {
   calls: number
   at: string
   note?: string
+  /** 可选：本次调用的 token 消耗（宿主拿得到 usage 就填，否则省略） */
+  tokens?: number
 }
 
 /** 每章调用计数记录（工作区机器域） */
@@ -187,10 +189,15 @@ export function recordAiCall(input: {
   config: BookConfig
   step: AiCallStep
   calls?: number
+  /** 可选：本次调用 token 消耗（宿主拿得到 usage 就填；与 calls 透传进 entry） */
+  tokens?: number
   note?: string
   at?: string
 }): AiCallRecordResult {
   const calls = input.calls ?? 1
+  if (!Number.isSafeInteger(calls) || calls < 1) {
+    return { ok: false, reason: `调用次数必须是正整数，当前为 ${String(input.calls)}` }
+  }
   const decision = checkAiCallBudget({
     workDir: input.workDir,
     chapter: input.chapter,
@@ -215,6 +222,7 @@ export function recordAiCall(input: {
         calls,
         at: now,
         ...(input.note ? { note: input.note } : {}),
+        ...(input.tokens !== undefined && Number.isFinite(input.tokens) ? { tokens: input.tokens } : {}),
       },
     ],
     updated_at: now,
@@ -288,11 +296,14 @@ function normalizeEntry(raw: unknown): AiCallEntry {
   if (!isAiCallStep(step) || !Number.isSafeInteger(calls) || calls < 1 || at === '') {
     throw new Error('bad entry')
   }
+  const tokensRaw = obj['tokens']
+  const tokens = typeof tokensRaw === 'number' && Number.isFinite(tokensRaw) && tokensRaw >= 0 ? tokensRaw : undefined
   return {
     step,
     calls,
     at,
     ...(typeof obj['note'] === 'string' ? { note: obj['note'] } : {}),
+    ...(tokens !== undefined ? { tokens } : {}),
   }
 }
 

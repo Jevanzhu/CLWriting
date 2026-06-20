@@ -208,6 +208,7 @@ export function aggregateStyleTrend(
     drifts.push(...detectConsecutiveOver(
       dialogueTagSeries, samples.map((s) => s.num), tagThreshold, window,
       `对话标签占比连续 ${window}+ 章超 ${Math.round(tagThreshold * 100)}%`,
+      'dialogueTag',
     ))
     // 结尾总结体：后 1/3 突增报漂移（疑似 AI 接管）
     const third = Math.floor(count / 3)
@@ -243,13 +244,14 @@ export function aggregateStyleTrend(
   }
 }
 
-/** 检测连续 N 个超阈值的点，返回漂移信号 */
+/** 检测连续 N 个超阈值的点，返回漂移信号。metricKey 贴到 drift.metric（泛化用） */
 function detectConsecutiveOver(
   series: number[],
   nums: number[],
   threshold: number,
   window: number,
   msg: string,
+  metricKey: string,
 ): StyleDrift[] {
   let streak = 0
   let streakStart = -1
@@ -258,7 +260,7 @@ function detectConsecutiveOver(
       if (streak === 0) streakStart = nums[i]!
       streak++
       if (streak >= window) {
-        return [{ metric: 'dialogueTag', message: `${msg}（起于第 ${streakStart} 章）` }]
+        return [{ metric: metricKey, message: `${msg}（起于第 ${streakStart} 章）` }]
       }
     } else {
       streak = 0
@@ -390,11 +392,14 @@ function formatLine(metric: string, value: string, extra: string, mark: string):
   return `  ${pad(metric, 12)} ${pad(value, 18)} ${pad(extra, 16)} ${mark}`
 }
 
-/** 近似显示宽度（中文算 2） */
-function width(s: string): number {
+/** 近似显示宽度（中文算 2）
+ *  覆盖：CJK 统一表意 + 扩展A + CJK 标点(　-〿) + 全角ASCII(！-｠) + 全角符号(￠-￦)。
+ *  注意半宽片假名 ｡-ￜ 是窄字符，不纳入（故上限取 ｠），否则表格列错位。
+ *  导出供报告对齐测试断言（#2）。 */
+export function width(s: string): number {
   let w = 0
   for (const ch of s) {
-    w += /[\u4e00-\u9fff\u3400-\u4dbf]/.test(ch) ? 2 : 1
+    w += /[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff01-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
   }
   return w
 }

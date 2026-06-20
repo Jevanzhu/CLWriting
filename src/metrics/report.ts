@@ -62,6 +62,7 @@ export function aggregateMetrics(records: MetricRecord[], opts: AggregateOptions
   const avgOutline = avg(pool.map((r) => r.calls.outline))
   const avgDraft = avg(pool.map((r) => r.calls.draft))
   const avgReview = avg(pool.map((r) => r.calls.review))
+  const tokensNote = buildTokensNote(pool, kind)
 
   // 审查（只统计 review 非 null 的）
   const reviewed = pool.filter((r) => r.review !== null)
@@ -96,7 +97,7 @@ export function aggregateMetrics(records: MetricRecord[], opts: AggregateOptions
     cost: {
       avgCalls: count > 0 ? totalCalls / count : 0,
       overLimitChapters: overLimit,
-      tokensNote: '仅调用次数粒度（真实 token 未采集）',
+      tokensNote,
       avgByStep: { outline: avgOutline, draft: avgDraft, review: avgReview },
     },
     review: {
@@ -153,4 +154,22 @@ export function formatMetricsReport(report: MetricsReport): string {
 function avg(nums: number[]): number {
   if (nums.length === 0) return 0
   return nums.reduce((a, b) => a + b, 0) / nums.length
+}
+
+/**
+ * 生成 token 维度的人话备注（成本闭环 §2 D3）。
+ * - 全部记录无 token → 「仅调用次数粒度」（宿主未回填，诚实标注）
+ * - 全部有 → 平均 token/单位
+ * - 部分 → 标注覆盖度 + 平均（避免「部分和」被误读为全集）
+ */
+function buildTokensNote(pool: MetricRecord[], kind: MetricsReport['kind']): string {
+  const unit = kind === 'short' ? '篇' : '章'
+  const withTokens = pool.filter((r) => r.tokens !== null && Number.isFinite(r.tokens))
+  if (withTokens.length === 0) return '仅调用次数粒度（真实 token 未采集）'
+  const tokenAvg = avg(withTokens.map((r) => r.tokens as number))
+  const rounded = Math.round(tokenAvg)
+  if (withTokens.length === pool.length) {
+    return `平均 ${rounded} token/${unit}`
+  }
+  return `部分 token 采集（${withTokens.length}/${pool.length} ${unit}有，平均 ${rounded}）`
 }

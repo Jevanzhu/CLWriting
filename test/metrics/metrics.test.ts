@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { execSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
@@ -152,6 +152,29 @@ test('collect: words 现算（countWords 去 markdown 标记按字符计）', ()
   rmSync(root, { recursive: true, force: true })
 })
 
+test('collect: tokens 有则求和（entries 部分带 token 仍出真值）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const root = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  recordAiCall({ workDir, chapter: 1, config, step: 'outline', tokens: 1000, at: 't1' })
+  recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 2, tokens: 3000, at: 't2' })
+  recordAiCall({ workDir, chapter: 1, config, step: 'review', calls: 3, at: 't3' }) // 不带 tokens
+  const rec = collectMetrics(root, workDir, { kind: 'long', num: 1, title: '一', body: '正文', config })
+  expect(rec.tokens).toBe(4000) // 1000 + 3000；review 那条缺省不影响求和
+  rmSync(workDir, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('collect: 全部 entry 无 tokens → tokens 为 null（诚实降级）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const root = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  recordAiCall({ workDir, chapter: 1, config, step: 'outline', at: 't1' })
+  recordAiCall({ workDir, chapter: 1, config, step: 'draft', at: 't2' })
+  const rec = collectMetrics(root, workDir, { kind: 'long', num: 1, title: '一', body: '正文', config })
+  expect(rec.tokens).toBeNull()
+  rmSync(workDir, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('collect: 三审 packet 回收 → review 字段含 tier/blockers/warnings/lenses', () => {
   const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
   // 造满审 packet 并写盘
@@ -237,6 +260,75 @@ test('collect: 三审 issues JSON 损坏 → review=null，不污染审查指标
   rmSync(root, { recursive: true, force: true })
 })
 
+test('collect: 三审产物损坏 → review=null 且 console.warn 留痕（#4 区分损坏与缺失）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const built = buildReviewPacket({
+    checkReport: { sections: [], byproducts: { leadChanges: [] } },
+    body: '正文。',
+    chapter: 1,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 8,
+    high_risk: false,
+  })
+  if (!built.ok) throw new Error('packet build failed')
+  writeReviewPacket(built.packet)
+  const outDir = built.packet.out_dir
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(outDir, lensIssuesFileName('editor')), '[]', 'utf-8')
+  // continuity 文件损坏 → collectReviewIssues 不 ok → 应 warn
+  writeFileSync(join(outDir, lensIssuesFileName('continuity')), '{not json', 'utf-8')
+
+  const root = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const warns: string[] = []
+  const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => { warns.push(args.join(' ')) })
+  try {
+    const rec = collectMetrics(root, workDir, { kind: 'long', num: 1, title: '一', body: '正文。', config })
+    expect(rec.review).toBeNull() // 仍不阻断，诚实记 null
+    expect(warns.join('\n')).toMatch(/三审产物异常/) // stderr 留痕（损坏可见，不被静默）
+    expect(warns.join('\n')).toMatch(/损坏/) // 带上具体损坏信息
+  } finally {
+    spy.mockRestore()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('collect: 三审缺视角（非损坏）→ review=null 且 warn 留痕（缺视角与损坏同样留痕，便于排查）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const built = buildReviewPacket({
+    checkReport: { sections: [], byproducts: { leadChanges: [] } },
+    body: '正文。',
+    chapter: 1,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 8,
+    high_risk: false,
+  })
+  if (!built.ok) throw new Error('packet build failed')
+  writeReviewPacket(built.packet)
+  const outDir = built.packet.out_dir
+  mkdirSync(outDir, { recursive: true })
+  writeFileSync(join(outDir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(outDir, lensIssuesFileName('editor')), '[]', 'utf-8')
+  // 注意：continuity 文件不存在 → collectReviewIssues 因缺视角返回 ok:false
+  // 但属「产物不完整」非「损坏」。这里验证：只要是不 ok 都 warn（缺视角也留痕，便于排查）。
+
+  const root = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
+  const warns: string[] = []
+  const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => { warns.push(args.join(' ')) })
+  try {
+    const rec = collectMetrics(root, workDir, { kind: 'long', num: 1, title: '一', body: '正文。', config })
+    expect(rec.review).toBeNull()
+    expect(warns.join('\n')).toMatch(/三审产物异常/) // 缺视角也留痕
+  } finally {
+    spy.mockRestore()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('collect: 合审档位 → downgrade=true + downgrade_reason', () => {
   const workDir = mkdtempSync(join(tmpdir(), 'metrics-collect-'))
   const built = buildReviewPacket({
@@ -302,6 +394,27 @@ test('report: review 全 null（短篇合审）→ 审查段诚实降级', () =>
   const report = aggregateMetrics(records)
   expect(report.review.reviewedCount).toBe(0)
   expect(formatMetricsReport(report)).toContain('无三审记录')
+})
+
+test('report: token 维度三态备注', () => {
+  // 全 null → 仅调用次数粒度
+  const noneReport = aggregateMetrics([sampleRecord({ num: 1, tokens: null }), sampleRecord({ num: 2, tokens: null })])
+  expect(noneReport.cost.tokensNote).toContain('仅调用次数粒度')
+
+  // 全有 → 平均 token/章
+  const allReport = aggregateMetrics([
+    sampleRecord({ num: 1, tokens: 4000 }),
+    sampleRecord({ num: 2, tokens: 6000 }),
+  ])
+  expect(allReport.cost.tokensNote).toContain('平均 5000 token/章')
+
+  // 部分 → 标注覆盖度
+  const partialReport = aggregateMetrics([
+    sampleRecord({ num: 1, tokens: 3000 }),
+    sampleRecord({ num: 2, tokens: null }),
+  ])
+  expect(partialReport.cost.tokensNote).toContain('部分 token 采集')
+  expect(partialReport.cost.tokensNote).toContain('1/2')
 })
 
 // ── 落账点：doFinalize 后 metrics.jsonl 落一行 ─────

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -73,6 +73,16 @@ test('调用预算: 将超上限时拒绝并给决策提示', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
+test('调用预算: recordAiCall 拒绝非正 calls，避免写出不可读计数', () => {
+  const workDir = makeWorkDir()
+  const config = configWithLimit(8)
+  const record = recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 0 })
+  expect(record.ok).toBe(false)
+  if (!record.ok) expect(record.reason).toContain('正整数')
+  expect(existsSync(aiCallBudgetPath(workDir))).toBe(false)
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 test('调用预算: 损坏文件保守阻断，不静默归零', () => {
   const workDir = makeWorkDir()
   const config = configWithLimit(8)
@@ -117,5 +127,49 @@ test('调用预算: 本章临时提额只写机器域记录，clear 会删除', 
 
   clearAiCallBudget(workDir)
   expect(existsSync(aiCallBudgetPath(workDir))).toBe(false)
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('recordAiCall: tokens 可选透传进 entry，缺省不写字段', () => {
+  const workDir = makeWorkDir()
+  const config = configWithLimit(8)
+  // outline 不带 tokens
+  recordAiCall({ workDir, chapter: 1, config, step: 'outline', at: 't1' })
+  // draft 带 tokens
+  recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 2, tokens: 1800, at: 't2' })
+
+  const state = getAiCallBudgetState(workDir, 1, config)
+  expect(state.ok).toBe(true)
+  if (state.ok && state.record) {
+    const [outline, draft] = state.record.entries
+    expect(outline!.step).toBe('outline')
+    expect(outline!.tokens).toBeUndefined() // 缺省不写
+    expect(draft!.step).toBe('draft')
+    expect(draft!.tokens).toBe(1800)
+  }
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('recordAiCall: tokens 持久化往返（写盘 → 重读 normalizeEntry 保留 tokens）', () => {
+  const workDir = makeWorkDir()
+  const config = configWithLimit(8)
+  recordAiCall({ workDir, chapter: 7, config, step: 'draft', calls: 1, tokens: 4096, at: 't' })
+
+  // 重新读盘（normalizeRecord → normalizeEntry）
+  const reRead = getAiCallBudgetState(workDir, 7, config)
+  expect(reRead.ok).toBe(true)
+  if (reRead.ok && reRead.record) {
+    expect(reRead.record.entries[0]!.tokens).toBe(4096)
+  }
+
+  // 非法 tokens（字符串）被 normalizeEntry 容错丢弃，不阻断读取
+  const raw = JSON.parse(readFileSync(aiCallBudgetPath(workDir), 'utf-8')) as { entries: { tokens: unknown }[] }
+  raw.entries[0]!.tokens = 'bad'
+  writeFileSync(aiCallBudgetPath(workDir), JSON.stringify(raw), 'utf-8')
+  const afterBad = getAiCallBudgetState(workDir, 7, config)
+  expect(afterBad.ok).toBe(true)
+  if (afterBad.ok && afterBad.record) {
+    expect(afterBad.record.entries[0]!.tokens).toBeUndefined()
+  }
   rmSync(workDir, { recursive: true, force: true })
 })
