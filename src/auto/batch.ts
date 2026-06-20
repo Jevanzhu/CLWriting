@@ -12,13 +12,13 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import type { BookConfig, ChapterMeta } from '../format/types.js'
 import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { prepareMaterials } from '../process/materials.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { git } from '../git/exec.js'
 
 // ── 待定稿路径常量 ─────────────────────────────────
 
@@ -419,15 +419,11 @@ function rebuildCache(bookRoot: string, cachePath: string): void {
 
 /** ④ 系统：git 健康检查（简版，调 git status 判是否有半提交/冲突）。 */
 function checkGitHealthy(bookRoot: string): boolean {
-  try {
-    // git 健康的最低判据：能跑 status 且无 MERGE_HEAD/index.lock
-    execSync('git status --porcelain', { cwd: bookRoot, stdio: 'pipe' })
-    if (existsSync(join(bookRoot, '.git', 'MERGE_HEAD'))) return false
-    if (existsSync(join(bookRoot, '.git', 'index.lock'))) return false
-    return true
-  } catch {
-    return false
-  }
+  // git 健康的最低判据：能跑 status 且无 MERGE_HEAD/index.lock
+  if (!git(['status', '--porcelain'], bookRoot).ok) return false
+  if (existsSync(join(bookRoot, '.git', 'MERGE_HEAD'))) return false
+  if (existsSync(join(bookRoot, '.git', 'index.lock'))) return false
+  return true
 }
 
 /** ②④ 坏章隔离：工作区根半截产出移到 待定稿/.isolated/<章>/，不进 completed（#34 第 4 节）。 */
@@ -460,16 +456,14 @@ function detectNextChapter(bookRoot: string): number {
   collectUnitNumbers(join(bookRoot, '篇'), nums)
   if (nums.length > 0) return Math.max(...nums) + 1
 
-  try {
-    const log = execSync('git log --oneline', { cwd: bookRoot, stdio: 'pipe', encoding: 'utf-8' })
+  const log = git(['log', '--oneline'], bookRoot)
+  if (log.ok) {
     // 兼容长短轨前缀（M8 #26）：long → ch:NNNN，short → pc:NNN
-    const matches = [...log.matchAll(/(?:ch|pc):(\d+)/g)]
+    const matches = [...log.stdout.matchAll(/(?:ch|pc):(\d+)/g)]
     if (matches.length > 0) {
       const max = Math.max(...matches.map((m) => Number(m[1])))
       return max + 1
     }
-  } catch {
-    // 无 git 历史忽略
   }
   return 1
 }

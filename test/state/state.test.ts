@@ -14,9 +14,15 @@ import { detectState, routeState, enter, formatRecap, formatRoute } from '../../
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readHealthCheck, writeHealthCheck } from '../../src/cache/healthcheck.js'
 import { healthCommand } from '../../src/cli/health.js'
+import { git } from '../../src/git/exec.js'
 
 function sh(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: 'pipe' })
+}
+
+function mustGit(args: string[], cwd: string): void {
+  const r = git(args, cwd)
+  if (!r.ok) throw new Error(r.humanMsg)
 }
 
 // ── 态 1: git 健康检查 ──────────────────────────────
@@ -279,7 +285,13 @@ test('enter: 写满一卷 → 近况复述显示态 5 卷末', () => {
 test('enter: 定稿带 Confirmed trailer → 确认复述带哈希', () => {
   const root = makeGitBookWithChapters(1)
   // 手动给最后 commit 加 trailer（模拟 finalize 的 Confirmed 留痕）
-  sh('git commit --amend -m "ch:0001 第一章\n\nConfirmed: 2026-06-17T10:00 mode=manual hash=sha256:abc123" --no-edit', root)
+  mustGit([
+    'commit',
+    '--amend',
+    '-m',
+    'ch:0001 第一章\n\nConfirmed: 2026-06-17T10:00 mode=manual hash=sha256:abc123',
+    '--no-edit',
+  ], root)
 
   const { recap } = enter(root)
   expect(recap.lastConfirm).toBeDefined()

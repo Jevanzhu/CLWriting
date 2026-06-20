@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest'
 import { execSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -243,7 +243,11 @@ test('doFinalize: commit 被 hook 拒绝（git 完好）→ 定稿区原子回�
   const hookDir = join(root, '.git', 'hooks')
   mkdirSync(hookDir, { recursive: true })
   writeFileSync(join(hookDir, 'pre-commit'), '#!/bin/sh\nexit 1\n')
-  execSync('chmod +x .git/hooks/pre-commit', { cwd: root, stdio: 'pipe' })
+  try {
+    chmodSync(join(hookDir, 'pre-commit'), 0o755)
+  } catch {
+    // Windows 下权限位可能不可用；Git for Windows 仍会读取 hook 文件。
+  }
 
   const ch: ChapterMeta = {
     章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',

@@ -14,12 +14,12 @@
 
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { execSync } from 'node:child_process'
 import { writeChapter } from '../format/chapters.js'
 import { writePiece } from '../format/pieces.js'
 import { writePieceList, emptyPieceList } from '../format/manifest.js'
 import { scaffoldBookRepo } from '../install/scaffold.js'
 import { appendBook, writeActive, readBooks } from '../install/books.js'
+import { addCommit } from '../git/exec.js'
 import type { ChapterMeta, PieceMeta } from '../format/types.js'
 
 export interface ImportOptions {
@@ -203,8 +203,8 @@ export function importV02Book(options: ImportOptions): ImportResult {
 
   // 8. 正文 commit（scaffoldBookRepo 已留 init commit 作为 HEAD）
   const unit = kind === 'short' ? '篇' : '章'
-  execSync('git add -A', { cwd: bookRoot, stdio: 'pipe' })
-  execSync(`git commit -m "import: 导入 ${chapters.length} ${unit}"`, { cwd: bookRoot, stdio: 'pipe' })
+  const commit = addCommit(bookRoot, `import: 导入 ${chapters.length} ${unit}`)
+  if (!commit.ok) return { ok: false, error: commit.humanMsg }
 
   // 9. 登记 + 设活动书（复用 M5 范式）
   const appendRes = appendBook(workDir, { name: bookName, path: bookName, kind, created_at: new Date().toISOString() })

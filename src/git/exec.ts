@@ -10,7 +10,7 @@
  * #16 第 3 节人话映射：对作者只出网文语言，永不出 git 命令、SHA、堆栈。
  */
 
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 
@@ -23,27 +23,22 @@ export type GitResult =
 
 /**
  * 执行一条 git 命令（统一收口，#16 第 3 节）。
- * execFileSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
- * 失败 try/catch → 人话，不把作者丢给 git 报错。
+ * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
+ * 失败按退出码 → 人话，不把作者丢给 git 报错。
  */
 export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8' }): GitResult {
-  try {
-    // encoding 指定 'utf-8' → execFileSync 返回 string
-    const stdout = execFileSync('git', args, {
-      cwd,
-      stdio: 'pipe',
-      encoding: opts?.encoding ?? 'utf-8',
-    })
-    return { ok: true, stdout }
-  } catch (e) {
-    const err = e as { stderr?: Buffer | string; message?: string }
-    const stderr =
-      typeof err.stderr === 'string' ? err.stderr : err.stderr ? err.stderr.toString() : undefined
-    return {
-      ok: false,
-      humanMsg: `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
-      stderr,
-    }
+  const r = spawnSync('git', args, {
+    cwd,
+    stdio: 'pipe',
+    encoding: opts?.encoding ?? 'utf-8',
+  })
+  if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
+
+  const stderr = String(r.stderr || r.error?.message || '')
+  return {
+    ok: false,
+    humanMsg: `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+    stderr,
   }
 }
 
