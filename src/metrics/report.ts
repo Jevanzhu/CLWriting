@@ -19,6 +19,15 @@ export interface MetricsReport {
     overLimitChapters: number
     tokensNote: string // 本期恒「仅调用次数粒度」
     avgByStep: { outline: number; draft: number; review: number }
+    calibration: {
+      nearLimitUnits: number
+      missingOutline: number
+      missingDraft: number
+      reviewedButNoReviewCall: number
+      zeroCallUnits: number
+      budgetNote: string
+      accountingNote: string | null
+    }
   }
   review: {
     fullRate: number
@@ -59,10 +68,25 @@ export function aggregateMetrics(records: MetricRecord[], opts: AggregateOptions
   // 成本
   const totalCalls = pool.reduce((sum, r) => sum + r.calls.total, 0)
   const overLimit = pool.filter((r) => r.calls.total > r.calls.limit).length
+  const nearLimitUnits = pool.filter((r) => r.calls.limit > 0 && r.calls.total >= r.calls.limit * 0.8).length
+  const missingOutline = pool.filter((r) => r.calls.outline === 0).length
+  const missingDraft = pool.filter((r) => r.calls.draft === 0).length
+  const reviewedButNoReviewCall = pool.filter((r) => r.review !== null && r.calls.review === 0).length
+  const zeroCallUnits = pool.filter((r) => r.calls.total === 0).length
   const avgOutline = avg(pool.map((r) => r.calls.outline))
   const avgDraft = avg(pool.map((r) => r.calls.draft))
   const avgReview = avg(pool.map((r) => r.calls.review))
   const tokensNote = buildTokensNote(pool, kind)
+  const avgCalls = count > 0 ? totalCalls / count : 0
+  const budgetNote = buildBudgetNote(pool, avgCalls, overLimit, nearLimitUnits, kind)
+  const accountingNote = buildAccountingNote({
+    missingOutline,
+    missingDraft,
+    reviewedButNoReviewCall,
+    zeroCallUnits,
+    count,
+    kind,
+  })
 
   // 审查（只统计 review 非 null 的）
   const reviewed = pool.filter((r) => r.review !== null)
@@ -99,6 +123,15 @@ export function aggregateMetrics(records: MetricRecord[], opts: AggregateOptions
       overLimitChapters: overLimit,
       tokensNote,
       avgByStep: { outline: avgOutline, draft: avgDraft, review: avgReview },
+      calibration: {
+        nearLimitUnits,
+        missingOutline,
+        missingDraft,
+        reviewedButNoReviewCall,
+        zeroCallUnits,
+        budgetNote,
+        accountingNote,
+      },
     },
     review: {
       fullRate: reviewedCount > 0 ? fullCount / reviewedCount : 0,
@@ -128,6 +161,10 @@ export function formatMetricsReport(report: MetricsReport): string {
     `（大纲 ${report.cost.avgByStep.outline.toFixed(1)} / 草稿 ${report.cost.avgByStep.draft.toFixed(1)} / 审查 ${report.cost.avgByStep.review.toFixed(1)}）`)
   lines.push(`  超上限 ${report.cost.overLimitChapters} ${unit}`)
   lines.push(`  token：${report.cost.tokensNote}`)
+  lines.push(`  预算校准：${report.cost.calibration.budgetNote}`)
+  if (report.cost.calibration.accountingNote) {
+    lines.push(`  记账提示：${report.cost.calibration.accountingNote}`)
+  }
   lines.push('')
 
   // 审查段
@@ -172,4 +209,42 @@ function buildTokensNote(pool: MetricRecord[], kind: MetricsReport['kind']): str
     return `平均 ${rounded} token/${unit}`
   }
   return `部分 token 采集（${withTokens.length}/${pool.length} ${unit}有，平均 ${rounded}）`
+}
+
+function buildBudgetNote(
+  pool: MetricRecord[],
+  avgCalls: number,
+  overLimit: number,
+  nearLimit: number,
+  kind: MetricsReport['kind'],
+): string {
+  const unit = kind === 'short' ? '篇' : '章'
+  if (pool.length === 0) return '暂无样本'
+  const limits = [...new Set(pool.map((r) => r.calls.limit))]
+  const limitText = limits.length === 1 ? `默认上限 ${limits[0]}` : `上限 ${limits.join('/')}`
+  if (overLimit > 0) {
+    return `${limitText}，平均 ${avgCalls.toFixed(1)}；${overLimit} ${unit}超限，建议用实测调高 calls_per_chapter 或降低 best-of-N/审查档位`
+  }
+  if (nearLimit > 0) {
+    return `${limitText}，平均 ${avgCalls.toFixed(1)}；${nearLimit} ${unit}接近上限，50 章验证后再校准默认值`
+  }
+  return `${limitText}，平均 ${avgCalls.toFixed(1)}，未见触顶，先保持默认`
+}
+
+function buildAccountingNote(input: {
+  missingOutline: number
+  missingDraft: number
+  reviewedButNoReviewCall: number
+  zeroCallUnits: number
+  count: number
+  kind: MetricsReport['kind']
+}): string | null {
+  const unit = input.kind === 'short' ? '篇' : '章'
+  const parts: string[] = []
+  if (input.zeroCallUnits > 0) parts.push(`${input.zeroCallUnits}/${input.count} ${unit}调用全为 0`)
+  if (input.missingOutline > 0) parts.push(`${input.missingOutline} ${unit} outline 为 0`)
+  if (input.missingDraft > 0) parts.push(`${input.missingDraft} ${unit} draft 为 0`)
+  if (input.reviewedButNoReviewCall > 0) parts.push(`${input.reviewedButNoReviewCall} ${unit}有三审但 review 记账为 0`)
+  if (parts.length === 0) return null
+  return `${parts.join('；')}，疑似宿主漏记 record-call 或 review collect 未落账`
 }
