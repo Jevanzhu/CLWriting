@@ -375,11 +375,53 @@ test('report: 聚合平均调用 / 超限章次 / 满审率 / 降级率正确', 
   expect(report.count).toBe(3)
   expect(report.cost.avgCalls).toBeCloseTo((5 + 9 + 3) / 3, 5) // 5.667
   expect(report.cost.overLimitChapters).toBe(1) // 第2章 9>8
+  expect(report.cost.calibration.nearLimitUnits).toBe(1)
+  expect(report.cost.calibration.budgetNote).toContain('1 章超限')
   expect(report.review.reviewedCount).toBe(3)
   expect(report.review.fullRate).toBeCloseTo(2 / 3, 5) // 第1/2章满审
   expect(report.review.downgradeRate).toBeCloseTo(1 / 3, 5) // 第3章降级
   expect(report.review.avgBlockers).toBeCloseTo(1 / 3, 5)
   expect(report.review.topDowngradeReasons[0]).toEqual({ reason: '调用不足', n: 1 })
+})
+
+test('report: 接近预算上限时给 beta 校准提示', () => {
+  const records: MetricRecord[] = [
+    sampleRecord({ num: 1, calls: { outline: 1, draft: 2, review: 3, total: 6, limit: 8 } }),
+    sampleRecord({ num: 2, calls: { outline: 1, draft: 2, review: 4, total: 7, limit: 8 } }),
+  ]
+  const report = aggregateMetrics(records)
+  expect(report.cost.calibration.nearLimitUnits).toBe(1)
+  expect(report.cost.calibration.budgetNote).toContain('接近上限')
+  expect(formatMetricsReport(report)).toContain('预算校准')
+})
+
+test('report: outline/draft/review 漏记时给宿主软提示', () => {
+  const records: MetricRecord[] = [
+    sampleRecord({
+      num: 1,
+      calls: { outline: 0, draft: 1, review: 3, total: 4, limit: 8 },
+    }),
+    sampleRecord({
+      num: 2,
+      calls: { outline: 1, draft: 0, review: 0, total: 1, limit: 8 },
+      review: {
+        tier: 'full',
+        downgrade: false,
+        downgrade_reason: null,
+        blockers: 0,
+        warnings: 0,
+        invalid: 0,
+        lenses: ['reader', 'editor', 'continuity'],
+      },
+    }),
+  ]
+  const report = aggregateMetrics(records)
+  expect(report.cost.calibration.missingOutline).toBe(1)
+  expect(report.cost.calibration.missingDraft).toBe(1)
+  expect(report.cost.calibration.reviewedButNoReviewCall).toBe(1)
+  expect(report.cost.calibration.accountingNote).toContain('outline 为 0')
+  expect(report.cost.calibration.accountingNote).toContain('draft 为 0')
+  expect(formatMetricsReport(report)).toContain('记账提示')
 })
 
 test('report: --last=N 只取最近 N 条', () => {
