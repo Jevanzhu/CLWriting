@@ -83,10 +83,11 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
  * 每章一个 `ch:<补零章号>` commit（对齐 #16 第 4 节 commit msg 规范，回滚靠它定位）。
  *
  * @param n 已定稿的章数（1..n）
- * @returns 书仓库根；定稿区有 n 章正文 + n 个 ch: commit
+ * @returns 书仓库根；定稿区有 n 章正文 + n 个 ch: commit（commitEach=false 时为单个 ch: commit）
  */
-export function makeGitBookWithChapters(n: number): string {
+export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean }): string {
   const root = makeGitBook()
+  const commitEach = opts?.commitEach ?? true
 
   for (let i = 1; i <= n; i++) {
     const chNo = String(i).padStart(4, '0')
@@ -97,9 +98,17 @@ export function makeGitBookWithChapters(n: number): string {
       `---\n章号: ${i}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${i}章的正文内容。\n`,
       'utf-8',
     )
-    // commit（#16 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
+    if (commitEach) {
+      // commit（#16 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
+      git(['add', '-A'], root)
+      git(['commit', '-m', `ch:${chNo} ${title}`], root)
+    }
+  }
+
+  if (!commitEach && n > 0) {
+    const chNo = String(n).padStart(4, '0')
     git(['add', '-A'], root)
-    git(['commit', '-m', `ch:${chNo} ${title}`], root)
+    git(['commit', '-m', `ch:${chNo} 第${n}章`], root)
   }
 
   return root
