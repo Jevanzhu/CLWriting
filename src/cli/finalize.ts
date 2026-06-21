@@ -17,8 +17,7 @@ import { doFinalize } from '../finalize/commit.js'
 import { readReviewVerdict } from '../review/run.js'
 import { resolveBookRoot } from '../install/books.js'
 import { pendingRoot, readBatchProgress, writeBatchProgress } from '../auto/batch.js'
-import { readChapterLeadUpdates, type ChapterLeadUpdate } from '../process/lead-updates.js'
-import { extractEvidenceCore } from '../check/leads.js'
+import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting finalize [draftPath] [bookRoot]` 命令处理器 */
@@ -245,24 +244,4 @@ function findBookRootFromPath(start: string): string | null {
     dir = parent
   }
   return null
-}
-
-/**
- * 账本推进声明 → doFinalize 的 leadUpdates（账本 CLI 接缝修复）。
- * 只落「证据在草稿正文命中」的兑现项（与 check 的 actualLeadIds 同口径，假履历不落盘）；
- * 按 leadId 聚合，章号补当前定稿章号。
- */
-function aggregateLeadUpdates(
-  updates: ChapterLeadUpdate[],
-  body: string,
-  chapter: number,
-): { leadId: string; entries: { 章号: number; 动词: string; 证据: string }[] }[] {
-  const byId = new Map<string, { 章号: number; 动词: string; 证据: string }[]>()
-  for (const u of updates) {
-    if (!body.includes(extractEvidenceCore(u.证据))) continue
-    const list = byId.get(u.leadId) ?? []
-    list.push({ 章号: chapter, 动词: u.动词, 证据: u.证据 })
-    byId.set(u.leadId, list)
-  }
-  return [...byId.entries()].map(([leadId, entries]) => ({ leadId, entries }))
 }

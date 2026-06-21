@@ -87,6 +87,30 @@ test('逐章定稿: approved 章 finalize --from 原子 commit + 删待定稿目
   rmSync(root, { recursive: true, force: true })
 })
 
+test('逐章定稿: 待定稿账本推进随 batch finalize 落盘履历', async () => {
+  const root = await makeBookWithPending(1)
+  const pendingName = readdirSync(pendingRoot(root)).find((f) => !f.startsWith('.') && f.startsWith('0001-'))!
+  const pendingDir = join(pendingRoot(root), pendingName)
+  writeFileSync(
+    join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
+    '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+    'utf-8',
+  )
+  writeFileSync(join(pendingDir, '账本推进.md'), '- 伏笔-040 埋下：第1章正文\n', 'utf-8')
+  writeFileSync(join(pendingDir, '细纲.md'), '---\n章号: 1\n推进: [伏笔-040]\n---\n纲1', 'utf-8')
+  approvePending(root, 1)
+
+  const results = finalizePendingChapters(root, [1])
+
+  expect(results[0]!.ok).toBe(true)
+  const lead = readFileSync(join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'), 'utf-8')
+  expect(lead).toContain('第001章 埋下：第1章正文')
+  const files = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
+  expect(files).toContain('伏笔-040-神秘信件.md')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('CLI: review batch list/finalize 可达并清理已定稿章', async () => {
   const root = await makeBookWithPending(1)
   approvePending(root, 1)

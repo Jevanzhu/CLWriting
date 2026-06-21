@@ -79,6 +79,19 @@ test('连写: 产出搬入 待定稿/<章号-标题>/，工作区根清空', asy
   rmSync(root, { recursive: true, force: true })
 })
 
+test('moveToPending: 账本推进.md 随章搬入待定稿', () => {
+  const root = makeBookWithVolumeOutline()
+  const workDir = join(root, '工作区')
+  writeFileSync(join(workDir, '账本推进.md'), '- 伏笔-001 埋下：信在桌上\n', 'utf-8')
+
+  const dir = moveToPending(workDir, root, 1, '第一章')
+
+  expect(existsSync(join(dir, '账本推进.md'))).toBe(true)
+  expect(existsSync(join(workDir, '账本推进.md'))).toBe(false)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('连写: 章号从既有定稿续算（不从1开始）', async () => {
   const root = makeBookWithVolumeOutline()
   // 先手工造一章定稿（ch:0005）

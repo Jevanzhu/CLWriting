@@ -9,16 +9,17 @@
 import { test, expect, vi } from 'vitest'
 import { execSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../../src/format/chapters.js'
 import { doConfirm } from '../../src/gate/confirm.js'
-import { REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
+import { lensIssuesFileName, readReviewPacket, REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
 import { finalizeCommand } from '../../src/cli/finalize.js'
 import { checkCommand } from '../../src/cli/check.js'
+import { reviewCommand } from '../../src/cli/review.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const CH1: ChapterMeta = { 章号: 1, 标题: '来信', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
@@ -123,6 +124,95 @@ test('check CLI long: 细纲声明推进但未兑现 → 两端闭合报红（ex
     const { exitCode, stdout } = captureCli(() => checkCommand([root]))
     expect(exitCode).toBe('1')
     expect(stdout).toContain('声明')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('check CLI long: 账本推进空证据不算兑现', () => {
+  const root = makeLongBook()
+  try {
+    const wd = join(root, '工作区')
+    writeFileSync(
+      join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
+      '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      'utf-8',
+    )
+    writeFileSync(
+      join(wd, '细纲.md'),
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-040]\n---\n本章埋下神秘信件。',
+      'utf-8',
+    )
+    writeChapter(join(wd, '草稿-1.md'), CH1, '桌上多了一封没有署名的信。')
+    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-040 埋下:    \n', 'utf-8')
+
+    const { exitCode, stdout } = captureCli(() => checkCommand([root]))
+    expect(exitCode).toBe('1')
+    expect(stdout).toContain('声明本章推进 伏笔-040')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('review run long: 账本推进写入设定校对执行包', () => {
+  const root = makeLongBook()
+  try {
+    stageChapter(root, { 推进: '伏笔-040', 兑现: true, 证据命中: true })
+    const { exitCode } = captureCli(() => reviewCommand(['run', root, '--chapter=1', '--parallel']))
+    expect(exitCode).toBeNull()
+
+    const loaded = readReviewPacket(join(root, '工作区'))
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    const continuity = loaded.packet.packets.find((p) => p.lens === 'continuity')
+    expect(continuity).toBeDefined()
+    expect(continuity!.ledger_checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        lead_id: '伏笔-040',
+        chapter: 1,
+        verb: '埋下',
+        evidence: '桌上多了一封没有署名的信',
+      }),
+    ]))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('review run/collect long: 显式待定稿草稿路径使用待定稿章目录', () => {
+  const root = makeLongBook()
+  try {
+    writeFileSync(
+      join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
+      '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      'utf-8',
+    )
+    const pendingDir = join(root, '工作区', '待定稿', '0001-来信')
+    mkdirSync(pendingDir, { recursive: true })
+    writeFileSync(
+      join(pendingDir, '细纲.md'),
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-040]\n---\n本章埋信。',
+      'utf-8',
+    )
+    writeChapter(join(pendingDir, '草稿-1.md'), CH1, '夜里，桌上多了一封没有署名的信。')
+    writeFileSync(join(pendingDir, '账本推进.md'), '- 伏笔-040 埋下：桌上多了一封没有署名的信\n', 'utf-8')
+
+    const draftPath = join(pendingDir, '草稿-1.md')
+    const run = captureCli(() => reviewCommand(['run', root, '--chapter=1', '--parallel', draftPath]))
+    expect(run.exitCode).toBeNull()
+
+    const loaded = readReviewPacket(pendingDir)
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(existsSync(join(root, '工作区', '三审', 'packet.json'))).toBe(false)
+    for (const packet of loaded.packet.packets) {
+      writeFileSync(join(pendingDir, '三审', lensIssuesFileName(packet.lens)), '[]', 'utf-8')
+    }
+
+    const collect = captureCli(() => reviewCommand(['collect', root, '--chapter=1', '--parallel', draftPath]))
+    expect(collect.exitCode).toBeNull()
+    expect(existsSync(join(pendingDir, '审稿.md'))).toBe(true)
+    expect(existsSync(join(root, '工作区', '审稿.md'))).toBe(false)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

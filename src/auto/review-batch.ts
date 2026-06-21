@@ -18,6 +18,7 @@ import { readFile } from '../format/frontmatter.js'
 import { readChapter } from '../format/chapters.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
+import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import { readReviewVerdict, REVIEW_VERDICT_MARKER } from '../review/run.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import {
@@ -142,6 +143,7 @@ export function finalizePendingChapters(
         body: file.body,
         fileName: `${chapterMeta.章号}-${chapterMeta.标题}.md`,
         hasReviewVerdict: readReviewVerdict(chapterDir).approved,
+        leadUpdates: aggregateLeadUpdates(readChapterLeadUpdates(chapterDir), file.body, chapterMeta.章号),
       })
       if (!r.ok) {
         results.push({ chapter, ok: false, reason: r.reason })

@@ -98,7 +98,7 @@ export function writeBatchProgress(bookRoot: string, progress: BatchProgress): v
 // ── 搬运：工作区根产出 → 待定稿/<章>/（#33 第 4 节）──
 
 /** 连写产出在工作区根的固定文件名（与单章工作区一致，复用既有命名）。 */
-const WORKDIR_PRODUCT_FILES = ['细纲.md', '本章写作材料.md', '审稿.md']
+const WORKDIR_PRODUCT_FILES = ['细纲.md', '本章写作材料.md', '审稿.md', '账本推进.md']
 
 /** 工作区根前缀的产出文件（草稿-N.md + 机器域）。 */
 interface WorkDirProducts {

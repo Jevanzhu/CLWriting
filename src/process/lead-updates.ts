@@ -14,12 +14,18 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { extractEvidenceCore } from '../check/leads.js'
 
 /** 本章一条账本推进声明（章号在落盘时由定稿章号补齐） */
 export interface ChapterLeadUpdate {
   leadId: string
   动词: string
   证据: string
+}
+
+export interface AggregatedLeadUpdate {
+  leadId: string
+  entries: { 章号: number; 动词: string; 证据: string }[]
 }
 
 /**
@@ -38,8 +44,35 @@ export function readChapterLeadUpdates(workDir: string): ChapterLeadUpdate[] {
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
     if (m) {
-      out.push({ leadId: m[1]!.trim(), 动词: m[2]!.trim(), 证据: m[3]!.trim() })
+      const evidence = m[3]!.trim()
+      if (!evidence) continue
+      out.push({ leadId: m[1]!.trim(), 动词: m[2]!.trim(), 证据: evidence })
     }
   }
   return out
+}
+
+/** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。 */
+export function leadEvidenceMatchesBody(body: string, evidence: string): boolean {
+  const core = extractEvidenceCore(evidence).trim()
+  return core.length > 0 && body.includes(core)
+}
+
+/**
+ * 账本推进声明 → doFinalize 的 leadUpdates。
+ * 只落「证据在草稿正文命中」的兑现项，避免假履历写入。
+ */
+export function aggregateLeadUpdates(
+  updates: ChapterLeadUpdate[],
+  body: string,
+  chapter: number,
+): AggregatedLeadUpdate[] {
+  const byId = new Map<string, { 章号: number; 动词: string; 证据: string }[]>()
+  for (const u of updates) {
+    if (!leadEvidenceMatchesBody(body, u.证据)) continue
+    const list = byId.get(u.leadId) ?? []
+    list.push({ 章号: chapter, 动词: u.动词, 证据: u.证据 })
+    byId.set(u.leadId, list)
+  }
+  return [...byId.entries()].map(([leadId, entries]) => ({ leadId, entries }))
 }

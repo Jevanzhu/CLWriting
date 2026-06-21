@@ -190,6 +190,16 @@ export function checkImagery(
   threshold = 3,
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  if (imageryWords.length === 0) {
+    return {
+      name: '高频意象',
+      items: [{
+        checkId: 'imagery-source-disabled',
+        level: 'yellow',
+        message: '高频意象词表未启用（数据源待接入），本项未实际检测。',
+      }],
+    }
+  }
   for (const word of imageryWords) {
     if (!word) continue
     let count = 0
@@ -451,34 +461,51 @@ function summaryEndingRegex(): RegExp {
 }
 
 function parseAntiReconciliationWords(text: string): string[] {
-  const section = extractSection(text, /反和解/)
-  if (!section) return []
+  const sections = [
+    extractSection(text, /反和解/),
+    extractSection(text, /硬禁词|禁词清单/),
+  ].filter((section) => section.length > 0)
+  if (sections.length === 0) return []
 
   const words: string[] = []
-  for (const rawLine of section.split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) continue
-
-    const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
-    if (quoted.length > 0) {
-      words.push(...quoted)
-      continue
-    }
-
-    const cleaned = line
-      .replace(/^[-*+]\s*/, '')
-      .replace(/^\d+[.)、]\s*/, '')
-      .replace(/^(禁止|禁用|不要|不得|避免|少用)\s*/, '')
-      .replace(/[（(].*?[）)]/g, '')
-      .trim()
-    if (!cleaned || /[:：]/.test(cleaned)) continue
-
-    for (const part of cleaned.split(/[、，,\/／]/)) {
-      const word = part.trim()
-      if (word.length >= 2 && word.length <= 24 && !/待/.test(word)) words.push(word)
+  for (const section of sections) {
+    for (const rawLine of section.split('\n')) {
+      words.push(...parseBannedWordsLine(rawLine))
     }
   }
   return [...new Set(words)]
+}
+
+function parseBannedWordsLine(rawLine: string): string[] {
+  const line = rawLine.trim()
+  if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
+
+  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
+  if (quoted.length > 0) return quoted
+
+  let cleaned = line
+    .replace(/^[-*+]\s*/, '')
+    .replace(/^\d+[.)、]\s*/, '')
+    .replace(/[（(].*?[）)]/g, '')
+    .trim()
+
+  const colon = cleaned.match(/^([^:：]{1,24})[:：]\s*(.+)$/)
+  if (colon) {
+    const label = colon[1]!.trim()
+    const value = colon[2]!.trim()
+    if (!/(禁止|禁用|不要|不得|避免|少用|硬禁词|禁词|禁句|套话|反和解|清单|词表|不可出现)/.test(label)) {
+      return []
+    }
+    cleaned = value
+  } else {
+    cleaned = cleaned.replace(/^(禁止|禁用|不要|不得|避免|少用)\s+/, '').trim()
+  }
+
+  if (!cleaned) return []
+  return cleaned
+    .split(/[、，,\/／；;]/)
+    .map((part) => part.trim())
+    .filter((word) => word.length >= 2 && word.length <= 24 && !/待/.test(word))
 }
 
 function extractSection(text: string, headingRe: RegExp): string {
@@ -508,6 +535,16 @@ export function checkInfoLeak(
   leakKeywords: string[] = [],
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  if (leakKeywords.length === 0) {
+    return {
+      name: '信息差候选',
+      items: [{
+        checkId: 'info-leak-source-disabled',
+        level: 'yellow',
+        message: '信息差关键词未启用（数据源待接入），本项未实际检测。',
+      }],
+    }
+  }
   for (const kw of leakKeywords) {
     if (kw && body.includes(kw)) {
       items.push({
@@ -576,8 +613,15 @@ export function checkPieceWordCount(
 const DEFAULT_BODY_PARTS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
 
 /**
+ * 「手」的动作语境模式 —— 单字「手」直接 indexOf 会误伤「对手/高手/随手/手段」等非部位词，
+ * 只统计带动作前/后缀的肢体动作（伸手、握住手等），剔除隐喻与惯用语。
+ */
+const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
+
+/**
  * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
- * 正文洁净：眼/手/心脏等堆砌计数超阈报黄（AI 味高发）。
+ * 正文洁净：眼/心脏等堆砌计数超阈报黄（AI 味高发）。
+ * 单字「手」单独走 HAND_ACTION_RE 动作语境匹配，避免「对手/高手/随手」误报。
  */
 export function checkBodyParts(
   body: string,
@@ -596,6 +640,9 @@ export function checkBodyParts(
     }
     if (count > threshold) over.push(`${word}×${count}`)
   }
+  // 单字「手」走动作语境匹配，避免误伤惯用语
+  const handCount = (body.match(HAND_ACTION_RE) ?? []).length
+  if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
     items.push({
       checkId: 'body-parts',
@@ -641,15 +688,19 @@ export function checkSectionCount(
   expected = 5,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 按 markdown ## 标题或连续空行切块
+  // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   const byHeading = body.split(/^##\s/m).filter((s) => s.trim().length > 0)
   let sections: number
   if (byHeading.length >= 2) {
     // 有 ## 标题：按标题数
     sections = byHeading.length
   } else {
-    // 无标题：按双空行切块
-    sections = body.split(/\n\s*\n/).filter((s) => s.trim().length > 0).length
+    items.push({
+      checkId: 'section-count-heading-missing',
+      level: 'yellow',
+      message: `正文未使用 ## 标注五段结构；建议写成 ## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵，本项不按自然段计节。`,
+    })
+    return { name: '节数守恒', items }
   }
   if (sections !== expected) {
     items.push({
@@ -662,7 +713,7 @@ export function checkSectionCount(
 }
 
 /** 默认环境描写关键词表（黄金 300 字直入钩子，吸收点 7.1） */
-const DEFAULT_ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '风声', '雨声', '景色', '远山', '树林', '街道', '建筑']
+const DEFAULT_ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '乌云', '风声', '狂风', '雨声', '雨点', '景色', '远山', '树林', '街道', '建筑']
 
 /**
  * 开头零环境检查（#27 第 5.3 节，🟡 黄）。

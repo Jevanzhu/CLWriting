@@ -23,12 +23,14 @@ import { writeChapter } from '../format/chapters.js'
 import { writePiece } from '../format/pieces.js'
 import { writeLead, readLead } from '../format/leads.js'
 import { checkConfirmGate, readConfirm, clearConfirm } from '../gate/confirm.js'
-import { checkLeadsForm } from '../check/leads.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
+import { formatRedForRewrite } from '../check/report.js'
 import { rebuild } from '../cache/rebuild.js'
 import type { ParseError } from '../format/types.js'
 import { clearAiCallBudget } from '../ai/calls.js'
 import { collectAndAppend } from '../metrics/collect.js'
+import { readOutlineLeads } from '../process/materials.js'
+import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 
 /** finalize 前置闸检查结果（#13 第 2 节） */
 export type FinalizeGateResult =
@@ -38,31 +40,22 @@ export type FinalizeGateResult =
 /**
  * finalize 前置闸（#13 第 2 节）。
  * - 审稿有作者裁决
- * - 账本形式三检通过
  * - 确认记录哈希一致
+ *
+ * 账本形式三检不在此闸重复跑——已被随后的 checkFinalizeFullReport 通过
+ * runAllChecks 覆盖（两者口径一致，幂等），避免双倍开销与文案分叉。
  */
 export function checkFinalizeGate(
   workDir: string,
   outlinePath: string,
   hasReviewVerdict: boolean,
-  db: DatabaseSync,
-  bookRoot: string,
-  currentChapter: number,
-  enabledTypes: string[],
 ): FinalizeGateResult {
   // #1 审稿裁决
   if (!hasReviewVerdict) {
     return { ok: false, reason: '你还没拍板（审稿无作者裁决）' }
   }
 
-  // #2 账本形式三检（定稿前再跑一次，#13 第 2 节）
-  const formCheck = checkLeadsForm(db, bookRoot, currentChapter, enabledTypes)
-  const redForm = formCheck.items.filter((i) => i.level === 'red')
-  if (redForm.length > 0) {
-    return { ok: false, reason: `账本对不上：${redForm.map((r) => r.message).join('；')}` }
-  }
-
-  // #3 确认记录哈希
+  // #2 确认记录哈希
   const confirmGate = checkConfirmGate(workDir, outlinePath)
   if (!confirmGate.ok) {
     return { ok: false, reason: confirmGate.reason }
@@ -128,8 +121,14 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   // #1 前置闸：长篇跑形式三检（账本对账）；短篇无七类账本，跳形式三检（清单核对归 #27），只留审稿裁决 + 确认哈希
   const gate = isShort
     ? checkFinalizeGateShort(workDir, outlinePath, hasReviewVerdict)
-    : checkFinalizeGate(workDir, outlinePath, hasReviewVerdict, db, bookRoot, chapter.章号, ['伏笔', '悬念', '感情线', ...config.leads.enabled])
+    : checkFinalizeGate(workDir, outlinePath, hasReviewVerdict)
   if (!gate.ok) return gate
+
+  const effectiveLeadUpdates = isShort
+    ? undefined
+    : (input.leadUpdates ?? aggregateLeadUpdates(readChapterLeadUpdates(workDir), body, chapter.章号))
+  const checkGate = checkFinalizeFullReport({ ...input, kind, leadUpdates: effectiveLeadUpdates })
+  if (!checkGate.ok) return checkGate
 
   const occupied = findFinalizedUnit(bookRoot, chapter.章号, kind)
   if (occupied) {
@@ -138,7 +137,7 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   }
 
   if (!isShort) {
-    const leadTargetCheck = validateLeadUpdateTargets(bookRoot, chapter.章号, input.leadUpdates)
+    const leadTargetCheck = validateLeadUpdateTargets(bookRoot, chapter.章号, effectiveLeadUpdates)
     if (!leadTargetCheck.ok) return { ok: false, reason: leadTargetCheck.reason }
   }
 
@@ -177,8 +176,8 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   }
 
   // 账本履历更新（幂等 + 本章校验）。短篇无长程账本（降级单篇清单 #27），强制跳过
-  if (!isShort && input.leadUpdates) {
-    for (const update of input.leadUpdates) {
+  if (!isShort && effectiveLeadUpdates) {
+    for (const update of effectiveLeadUpdates) {
       const leadDir = join(bookRoot, '大纲')
       // 找到该 lead 的文件
       const leadFile = findLeadFile(leadDir, update.leadId)
@@ -253,6 +252,22 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   rebuild(bookRoot, cachePath)
 
   return { ok: true, commitHash }
+}
+
+function checkFinalizeFullReport(input: FinalizeInput & { kind: 'long' | 'short' }): FinalizeGateResult {
+  const isShort = input.kind === 'short'
+  const report = runAllChecks({
+    db: isShort ? undefined : input.db,
+    bookRoot: input.bookRoot,
+    config: input.config,
+    chapter: input.chapter,
+    body: input.body,
+    fileName: input.fileName,
+    declaredLeadIds: isShort ? undefined : readOutlineLeads(input.workDir),
+    actualLeadIds: isShort ? undefined : (input.leadUpdates ?? []).map((u) => u.leadId),
+  })
+  if (!hasRed(report)) return { ok: true }
+  return { ok: false, reason: `机检红项未过：\n${formatRedForRewrite(report)}` }
 }
 
 function validateLeadUpdateTargets(
