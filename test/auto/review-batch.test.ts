@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { doConfirm } from '../../src/gate/confirm.js'
+import { recordAiCall } from '../../src/ai/calls.js'
+import { readMetrics } from '../../src/metrics/ledger.js'
 import { REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
 import { doAutoBatch, pendingRoot, type ChapterProduction } from '../../src/auto/batch.js'
 import {
@@ -107,6 +109,27 @@ test('逐章定稿: 待定稿账本推进随 batch finalize 落盘履历', async
   expect(lead).toContain('第001章 埋下：第1章正文')
   const files = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
   expect(files).toContain('伏笔-040-神秘信件.md')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('逐章定稿: 待定稿 .ai-calls.json 经 batch finalize 落入 metrics', async () => {
+  const root = await makeBookWithPending(1)
+  const pendingName = readdirSync(pendingRoot(root)).find((f) => !f.startsWith('.') && f.startsWith('0001-'))!
+  const pendingDir = join(pendingRoot(root), pendingName)
+  recordAiCall({ workDir: pendingDir, chapter: 1, config: DEFAULT_CONFIG, step: 'outline', tokens: 1000, at: 't1' })
+  recordAiCall({ workDir: pendingDir, chapter: 1, config: DEFAULT_CONFIG, step: 'draft', calls: 2, tokens: 3000, at: 't2' })
+  recordAiCall({ workDir: pendingDir, chapter: 1, config: DEFAULT_CONFIG, step: 'review', calls: 3, at: 't3' })
+  approvePending(root, 1)
+
+  const results = finalizePendingChapters(root, [1])
+
+  expect(results[0]!.ok).toBe(true)
+  const records = readMetrics(root)
+  expect(records).toHaveLength(1)
+  expect(records[0]!.num).toBe(1)
+  expect(records[0]!.calls).toEqual({ outline: 1, draft: 2, review: 3, total: 6, limit: 8 })
+  expect(records[0]!.tokens).toBe(4000)
 
   rmSync(root, { recursive: true, force: true })
 })
