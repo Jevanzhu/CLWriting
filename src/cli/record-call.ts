@@ -1,5 +1,6 @@
 /**
  * `clwriting record-call <章号> --step <outline|draft> [书目录] [--calls N] [--tokens N]`
+ * `clwriting record-call <章号> --step <outline|draft> [书目录] --set-tokens N`
  *
  * outline/draft 调用记账的薄门面（成本采集闭环方案 §1）。
  * 把宿主侧（outline/writer 角色）的模型调用接回已有的 recordAiCall（含预算闸 + entries 留痕），
@@ -9,7 +10,7 @@
 
 import process from 'node:process'
 import { join } from 'node:path'
-import { recordAiCall, type AiCallStep } from '../ai/calls.js'
+import { recordAiCall, setAiCallTokens, type AiCallStep } from '../ai/calls.js'
 import { readBookConfig } from '../format/yaml.js'
 import { resolveBookRoot } from '../install/books.js'
 
@@ -21,6 +22,7 @@ interface ParsedArgs {
   step: string
   calls: number | undefined
   tokens: number | undefined
+  setTokens: number | undefined
   positional: string[]
 }
 
@@ -66,14 +68,22 @@ export function recordCallCommand(args: string[]): void {
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const step = parsed.step as AiCallStep
 
-  const recorded = recordAiCall({
-    workDir,
-    chapter: parsed.chapter,
-    config,
-    step,
-    ...(parsed.calls !== undefined ? { calls: parsed.calls } : {}),
-    ...(parsed.tokens !== undefined ? { tokens: parsed.tokens } : {}),
-  })
+  const recorded = parsed.setTokens !== undefined
+    ? setAiCallTokens({
+        workDir,
+        chapter: parsed.chapter,
+        config,
+        step,
+        tokens: parsed.setTokens,
+      })
+    : recordAiCall({
+        workDir,
+        chapter: parsed.chapter,
+        config,
+        step,
+        ...(parsed.calls !== undefined ? { calls: parsed.calls } : {}),
+        ...(parsed.tokens !== undefined ? { tokens: parsed.tokens } : {}),
+      })
   if (!recorded.ok) {
     console.error(`✗ ${recorded.reason}`)
     process.exit(1)
@@ -83,7 +93,11 @@ export function recordCallCommand(args: string[]): void {
   const limit = config.budget.calls_per_chapter
   const callsPart = parsed.calls !== undefined ? ` ×${parsed.calls}` : ''
   const tokensPart = parsed.tokens !== undefined ? `、tokens ${parsed.tokens}` : ''
-  console.log(`✓ 第 ${parsed.chapter} ${unit}已记一次 ${step} 调用${callsPart}${tokensPart}`)
+  if (parsed.setTokens !== undefined) {
+    console.log(`✓ 第 ${parsed.chapter} ${unit} ${step} 调用已回填 tokens ${parsed.setTokens}`)
+  } else {
+    console.log(`✓ 第 ${parsed.chapter} ${unit}已记一次 ${step} 调用${callsPart}${tokensPart}`)
+  }
   console.log(`· 本章累计 ${recorded.record.used}/${limit} 次调用`)
 }
 
@@ -92,6 +106,7 @@ function parseArgs(args: string[]): ParseResult | null {
   let step: string | undefined
   let calls: number | undefined
   let tokens: number | undefined
+  let setTokens: number | undefined
   const positional: string[] = []
 
   for (let i = 0; i < args.length; i++) {
@@ -106,6 +121,10 @@ function parseArgs(args: string[]): ParseResult | null {
       const parsed = parseIntegerOption('--tokens', args[++i], { min: 0 })
       if (!parsed.ok) return { error: parsed.reason }
       tokens = parsed.value
+    } else if (a === '--set-tokens') {
+      const parsed = parseIntegerOption('--set-tokens', args[++i], { min: 0 })
+      if (!parsed.ok) return { error: parsed.reason }
+      setTokens = parsed.value
     } else if (a.startsWith('--step=')) {
       step = a.slice('--step='.length)
     } else if (a.startsWith('--calls=')) {
@@ -116,18 +135,25 @@ function parseArgs(args: string[]): ParseResult | null {
       const parsed = parseIntegerOption('--tokens', a.slice('--tokens='.length), { min: 0 })
       if (!parsed.ok) return { error: parsed.reason }
       tokens = parsed.value
+    } else if (a.startsWith('--set-tokens=')) {
+      const parsed = parseIntegerOption('--set-tokens', a.slice('--set-tokens='.length), { min: 0 })
+      if (!parsed.ok) return { error: parsed.reason }
+      setTokens = parsed.value
     } else {
       positional.push(a)
     }
   }
 
   if (!positional[0] || step === undefined) return null
+  if (setTokens !== undefined && (calls !== undefined || tokens !== undefined)) {
+    return { error: '--set-tokens 是回填模式，不能和 --calls / --tokens 混用。' }
+  }
   const chapter = Number(positional[0])
-  return { chapter, step, calls, tokens, positional }
+  return { chapter, step, calls, tokens, setTokens, positional }
 }
 
 function parseIntegerOption(
-  name: '--calls' | '--tokens',
+  name: '--calls' | '--tokens' | '--set-tokens',
   raw: string | undefined,
   opts: { min: number },
 ): { ok: true; value: number } | { ok: false; reason: string } {
@@ -144,7 +170,9 @@ function parseIntegerOption(
 
 function printRecordCallHelp(write: (message: string) => void = console.log): void {
   write('用法：clwriting record-call <章号> --step <outline|draft> [书目录] [--calls N] [--tokens N]')
+  write('回填：clwriting record-call <章号> --step <outline|draft> [书目录] --set-tokens N')
   write('记一次 outline/draft 的 AI 调用到预算闸（review 由 review collect 自动记）。')
   write('--calls N：本次调用次数（best-of-N 草稿传 N，默认 1）。')
   write('--tokens N：本次 token 消耗（宿主拿得到 usage 才填，可选）。')
+  write('--set-tokens N：事后回填该 step 最近一次调用的 token 真值，不增加 calls。')
 }

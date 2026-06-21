@@ -9,6 +9,7 @@ import {
   clearAiCallBudget,
   getAiCallBudgetState,
   recordAiCall,
+  setAiCallTokens,
   setAiCallLimitOverride,
 } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -170,6 +171,27 @@ test('recordAiCall: tokens 持久化往返（写盘 → 重读 normalizeEntry �
   expect(afterBad.ok).toBe(true)
   if (afterBad.ok && afterBad.record) {
     expect(afterBad.record.entries[0]!.tokens).toBeUndefined()
+  }
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('setAiCallTokens: 事后回填最近一次 step 的 token，不增加调用次数', () => {
+  const workDir = makeWorkDir()
+  const config = configWithLimit(8)
+  recordAiCall({ workDir, chapter: 1, config, step: 'outline', at: 't1' })
+  recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 2, at: 't2' })
+
+  const updated = setAiCallTokens({ workDir, chapter: 1, config, step: 'draft', tokens: 3600, at: 't3' })
+
+  expect(updated.ok).toBe(true)
+  const state = getAiCallBudgetState(workDir, 1, config)
+  expect(state.ok).toBe(true)
+  if (state.ok && state.record) {
+    expect(state.record.used).toBe(3)
+    expect(state.record.entries).toHaveLength(2)
+    expect(state.record.entries[0]!.tokens).toBeUndefined()
+    expect(state.record.entries[1]!.tokens).toBe(3600)
+    expect(state.record.updated_at).toBe('t3')
   }
   rmSync(workDir, { recursive: true, force: true })
 })

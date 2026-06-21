@@ -231,6 +231,50 @@ export function recordAiCall(input: {
   return { ok: true, record: next }
 }
 
+/** 事后回填某一步最近一次调用的 token 真值；不增加 calls。 */
+export function setAiCallTokens(input: {
+  workDir: string
+  chapter: number
+  config: BookConfig
+  step: AiCallStep
+  tokens: number
+  at?: string
+}): AiCallRecordResult {
+  if (!Number.isSafeInteger(input.tokens) || input.tokens < 0) {
+    return { ok: false, reason: `token 数必须是非负整数，当前为 ${String(input.tokens)}` }
+  }
+  const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
+  if (!state.ok) return { ok: false, reason: state.reason }
+  if (!state.record) {
+    return { ok: false, reason: `第 ${input.chapter} 章还没有调用记录，不能回填 token` }
+  }
+
+  let targetIndex = -1
+  for (let i = state.record.entries.length - 1; i >= 0; i--) {
+    if (state.record.entries[i]!.step === input.step) {
+      targetIndex = i
+      break
+    }
+  }
+  if (targetIndex === -1) {
+    return { ok: false, reason: `第 ${input.chapter} 章没有 ${input.step} 调用记录，不能回填 token` }
+  }
+
+  const now = input.at ?? new Date().toISOString()
+  const entries = state.record.entries.map((entry, index) =>
+    index === targetIndex ? { ...entry, tokens: input.tokens } : entry,
+  )
+  const next: AiCallBudgetRecord = {
+    chapter: input.chapter,
+    used: state.record.used,
+    ...(state.record.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
+    entries,
+    updated_at: now,
+  }
+  writeFileSync(aiCallBudgetPath(input.workDir), JSON.stringify(next, null, 2), 'utf-8')
+  return { ok: true, record: next }
+}
+
 /** 设置本章临时上限；只影响当前工作区章节，不改 book.yaml 默认值。 */
 export function setAiCallLimitOverride(
   workDir: string,
