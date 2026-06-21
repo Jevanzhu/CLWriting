@@ -33,6 +33,9 @@ jobs:
       - name: 测试（含 node:sqlite smoke）
         run: npm test
 
+      - name: RC 中文路径专项（Windows 发布门）
+        run: npm run test:rc-path
+
       - name: bin 链路 smoke（build → bin 可执行）
         run: node dist/cli.js --version
 
