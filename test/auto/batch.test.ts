@@ -92,6 +92,31 @@ test('moveToPending: 账本推进.md 随章搬入待定稿', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('moveToPending: .ai-calls.json 随章搬入待定稿（auto 记账源保留）', () => {
+  const root = makeBookWithVolumeOutline()
+  const workDir = join(root, '工作区')
+  writeFileSync(
+    join(workDir, '.ai-calls.json'),
+    JSON.stringify({
+      chapter: 1,
+      used: 2,
+      entries: [
+        { step: 'outline', calls: 1, at: 't1' },
+        { step: 'draft', calls: 1, at: 't2', tokens: 800 },
+      ],
+      updated_at: 't2',
+    }, null, 2),
+    'utf-8',
+  )
+
+  const dir = moveToPending(workDir, root, 1, '第一章')
+
+  expect(existsSync(join(dir, '.ai-calls.json'))).toBe(true)
+  expect(existsSync(join(workDir, '.ai-calls.json'))).toBe(false)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('连写: 章号从既有定稿续算（不从1开始）', async () => {
   const root = makeBookWithVolumeOutline()
   // 先手工造一章定稿（ch:0005）
