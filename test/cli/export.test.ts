@@ -2,10 +2,11 @@
  * export 命令测试 —— M7 #36。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { exportCommand } from '../../src/cli/export.js'
 import { exportBook } from '../../src/export/index.js'
 import { writeChapter } from '../../src/format/chapters.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -92,6 +93,18 @@ describe('exportBook', () => {
     expect(result.ok).toBe(true)
     expect(result.chapterCount).toBe(3)
     expect(result.files).toHaveLength(4) // 1 合并 + 3 分章
+  })
+
+  it('CLI: --format 在书目录前也能正确解析书仓库', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      exportCommand(['--format', 'split', bookRoot])
+    } finally {
+      logSpy.mockRestore()
+    }
+
+    expect(existsSync(join(bookRoot, '工作区', '导出', '分章', '0001-第一章.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '工作区', '导出', '全本-测试书名.md'))).toBe(false)
   })
 
   it('空书（无定稿正文目录）应报错', () => {
