@@ -7,8 +7,10 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { buildSessionStartInjection, renderSessionStartInjection } from '../../src/session/injection.js'
 import { enter } from '../../src/state/state.js'
 
+const FAST_CHAPTER_FIXTURE = { commitEach: false }
+
 test('SessionStart 注入: 复用 enter() 结构化结果，输出有界 AI 近况', () => {
-  const root = makeGitBookWithChapters(3)
+  const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
   const injection = buildSessionStartInjection(root)
 
   expect(injection.enter_result.recap.currentChapter).toBe(3)
@@ -22,7 +24,7 @@ test('SessionStart 注入: 复用 enter() 结构化结果，输出有界 AI 近�
 })
 
 test('SessionStart 注入: 与手动 enter 同源同果，并带调用预算余量', () => {
-  const root = makeGitBookWithChapters(3)
+  const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
   recordAiCall({
     workDir: join(root, '工作区'),
     chapter: 4,

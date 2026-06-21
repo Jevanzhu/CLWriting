@@ -17,6 +17,11 @@ afterEach(() => {
   process.chdir(ORIG_CWD)
 })
 
+function cleanupTempDir(root: string): void {
+  process.chdir(ORIG_CWD)
+  rmSync(root, { recursive: true, force: true })
+}
+
 function gitInitBook(root: string, name: string): void {
   execSync('git init', { cwd: root, stdio: 'pipe' })
   execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
@@ -42,7 +47,7 @@ test('repair CLI: 删 books.jsonl 后 repair 重建（端到端门面）', () =>
   const books = readBooks(wd)
   expect(books.some((b) => b.name === '门面测书')).toBe(true)
 
-  rmSync(wd, { recursive: true, force: true })
+  cleanupTempDir(wd)
 })
 
 test('repair CLI: 无工作目录时退出非零（不在 .clwriting/ 下）', () => {
@@ -66,5 +71,5 @@ test('repair CLI: 登记完好时报「无需修复」', () => {
   repairCommand([])
   const after = readBooks(wd)
   expect(after).toEqual(before)
-  rmSync(wd, { recursive: true, force: true })
+  cleanupTempDir(wd)
 })
