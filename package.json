@@ -1,6 +1,6 @@
 {
   "name": "clwriting",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-rc.0",
   "description": "为中文网文作者打造的开箱即用、全程中文、200 万字不崩的 AI 长篇创作系统",
   "type": "module",
   "license": "MIT",
