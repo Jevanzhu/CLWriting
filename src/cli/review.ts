@@ -13,7 +13,7 @@
 
 import process from 'node:process'
 import { existsSync, mkdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { getAiCallBudgetState, recordAiCall, type AiCallStep } from '../ai/calls.js'
 import { hashFile } from '../gate/confirm.js'
@@ -33,6 +33,8 @@ import {
 } from '../review/run.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { resolveBookRoot } from '../install/books.js'
+import { readOutlineLeads } from '../process/materials.js'
+import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import {
   finalizePendingChapters,
   listPendingChapters,
@@ -138,6 +140,7 @@ function runCommand(args: string[]): void {
   let checkReport
   const db = new DatabaseSync(cachePath)
   try {
+    const leadUpdates = isShort ? [] : aggregateLeadUpdates(readChapterLeadUpdates(workDir), draft.body, draft.chapter.章号)
     const fileName = isShort
       ? `${String(draft.chapter.章号).padStart(3, '0')}-${draft.chapter.标题}/正文.md`
       : `${draft.chapter.章号}-${draft.chapter.标题}.md`
@@ -146,7 +149,23 @@ function runCommand(args: string[]): void {
       bookRoot, config,
       chapter: draft.chapter, body: draft.body,
       fileName,
+      declaredLeadIds: isShort ? undefined : readOutlineLeads(workDir),
+      actualLeadIds: isShort ? undefined : leadUpdates.map((u) => u.leadId),
     })
+    if (!isShort && leadUpdates.length > 0) {
+      checkReport.byproducts = {
+        ...checkReport.byproducts,
+        leadChanges: [
+          ...(checkReport.byproducts?.leadChanges ?? []),
+          ...leadUpdates.flatMap((update) => update.entries.map((entry) => ({
+            leadId: update.leadId,
+            chapter: entry.章号,
+            verb: entry.动词,
+            evidence: entry.证据,
+          }))),
+        ],
+      }
+    }
   } finally {
     db.close()
   }
@@ -177,7 +196,11 @@ function runCommand(args: string[]): void {
   console.log(`执行包已写入：${packetPath}`)
   console.log(`预算校验通过：第 ${parsed.chapter} ${isShort ? '篇' : '章'}已用 ${remaining.used}/${remaining.limit}，本次三审预计 ${built.packet.planned_calls} 次调用。`)
   console.log('宿主按执行包各调一次模型，把 issues JSON 回写到上述目录后，运行：')
-  console.log(`  clwriting review collect [书目录] --chapter=${parsed.chapter}`)
+  const defaultWorkDir = join(bookRoot, '工作区')
+  const collectHint = workDir === defaultWorkDir
+    ? `clwriting review collect [书目录] --chapter=${parsed.chapter}`
+    : `clwriting review collect [书目录] --chapter=${parsed.chapter} ${parsed.draftPath}`
+  console.log(`  ${collectHint}`)
 }
 
 // ── review collect：回收 issues + 归一化 + 写审稿单 ──────
@@ -438,7 +461,7 @@ function readReviewContext(parsed: Extract<ParsedArgs, { ok: true }>): {
   bookRoot: string
 } {
   const config = readBookConfig(join(parsed.bookRoot, 'book.yaml')).config
-  const workDir = join(parsed.bookRoot, '工作区')
+  const workDir = dirname(parsed.draftPath)
   const remaining = parsed.remainingCalls === undefined
     ? readRemainingFromBudget(workDir, parsed.chapter, config)
     : { remaining: parsed.remainingCalls, used: 0, limit: config.budget.calls_per_chapter }
@@ -525,4 +548,6 @@ function printReviewHelp(toStdout: boolean): void {
   write('  clwriting review batch finalize [书目录] [--chapter=N]')
   write('  clwriting review batch reject [书目录] --chapter=N [--reason=原因]')
   write('  clwriting review batch rollback [书目录] --yes')
+  write('')
+  write('说明：草稿文件可指向 工作区/草稿-1.md 或 工作区/待定稿/<章>/草稿-1.md；review run/collect 会使用草稿所在目录读写三审产物。')
 }

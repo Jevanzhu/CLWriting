@@ -17,8 +17,7 @@ import { runAllChecks, hasRed } from '../check/runner.js'
 import { formatReport } from '../check/report.js'
 import { resolveBookRoot } from '../install/books.js'
 import { readOutlineLeads } from '../process/materials.js'
-import { readChapterLeadUpdates } from '../process/lead-updates.js'
-import { extractEvidenceCore } from '../check/leads.js'
+import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../process/lead-updates.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** `clwriting check [draftPath] [bookRoot] [--full]` 命令处理器 */
@@ -60,7 +59,7 @@ export function checkCommand(args: string[]): void {
     const actualLeadIds = isShort
       ? undefined
       : readChapterLeadUpdates(workDir)
-          .filter((u) => draft.body.includes(extractEvidenceCore(u.证据)))
+          .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
     const report = runAllChecks({
       db: isShort ? undefined : db,

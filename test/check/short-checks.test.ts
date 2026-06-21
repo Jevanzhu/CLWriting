@@ -45,6 +45,15 @@ test('checkBodyParts: 堆砌超阈报黄', () => {
   expect(r.items[0]!.message).toContain('手指')
 })
 
+test('checkBodyParts: 动作语境的「手」纳入计数，惯用语不误报', () => {
+  // 带动作前缀的肢体动作计入（伸手/握手/抬手…）
+  const r = checkBodyParts('伸手 握手 抬手 拉手 挥手 抓住手')
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.message).toContain('手×6')
+  // 惯用语/隐喻里的「手」不误报
+  expect(checkBodyParts('他不是对手。随手放下。高手过招。手段高明。一把好手。三只手。').items).toHaveLength(0)
+})
+
 test('checkBodyParts: 未超阈通过', () => {
   expect(checkBodyParts('眼睛手指心脏').items).toHaveLength(0) // 各 1 次
 })
@@ -73,9 +82,12 @@ test('checkSectionCount: 节数不符报黄', () => {
   expect(checkSectionCount(body, 5).items).toHaveLength(1)
 })
 
-test('checkSectionCount: 无标题按空行切块', () => {
+test('checkSectionCount: 无标题不按自然段计节，只提示补五段标题', () => {
   const body = '段一\n\n段二\n\n段三' // 3 段
-  expect(checkSectionCount(body, 5).items).toHaveLength(1)
+  const r = checkSectionCount(body, 5)
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.checkId).toBe('section-count-heading-missing')
+  expect(r.items[0]!.message).toContain('不按自然段计节')
 })
 
 // ── checkOpeningNoEnv ────────────────────────────
@@ -88,6 +100,12 @@ test('checkOpeningNoEnv: 开头有环境报黄', () => {
   const r = checkOpeningNoEnv('阳光洒在街道上，一切如常。他推开门。')
   expect(r.items).toHaveLength(1)
   expect(r.items[0]!.message).toContain('阳光')
+})
+
+test('checkOpeningNoEnv: 常见天气变体纳入环境词', () => {
+  const r = checkOpeningNoEnv('乌云压下来，狂风卷着雨点。他推开门。')
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.message).toContain('乌云')
 })
 
 // ── checkPieceListForm（清单形式检）──────────────

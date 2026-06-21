@@ -45,8 +45,8 @@ export function checkGrowth(
   if (!realmDoc || realmDoc.体系.length === 0) {
     items.push({
       checkId: 'growth-realm-sequence-missing',
-      level: 'yellow',
-      message: '已启用成长线，但 定稿/设定/境界体系.md 没有可解析的「体系/序列」front matter，境界跳跃/回退检测会降级。',
+      level: 'red',
+      message: '已启用成长线，但 定稿/设定/境界体系.md 没有可解析的「体系/序列」front matter，境界跳跃/回退检测未生效。',
     })
   }
 
