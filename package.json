@@ -19,6 +19,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
     "test:watch": "vitest"
   },
   "dependencies": {},
