@@ -37,9 +37,10 @@ export function exportCommand(args: string[]): void {
       process.exit(1)
     }
   }
+  const bookArgs = formatIdx === -1 ? args : args.filter((_, i) => i !== formatIdx && i !== formatIdx + 1)
 
   // 解析书仓库（作用于活动书）
-  const r = resolveBookRoot(args)
+  const r = resolveBookRoot(bookArgs)
   if (!r.ok) {
     console.error(`✗ ${r.reason}`)
     process.exit(1)
