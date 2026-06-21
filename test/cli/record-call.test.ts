@@ -83,6 +83,33 @@ test('record-call --step draft --calls N --tokens M → 透传 calls 与 tokens'
   rmSync(root, { recursive: true, force: true })
 })
 
+test('record-call --set-tokens → 回填最近一次 step，不增加 calls', () => {
+  const root = makeBook()
+  run(['1', '--step', 'draft', '--calls', '2'], root)
+  const { out, exitCalled } = run(['1', '--step', 'draft', '--set-tokens', '4096'], root)
+
+  expect(exitCalled).toBe(false)
+  expect(out).toContain('已回填')
+  const budget = readBudget(root)
+  expect(budget.used).toBe(2)
+  expect(budget.entries).toHaveLength(1)
+  expect(budget.entries[0]!.tokens).toBe(4096)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('record-call --set-tokens 无对应 step → 拒绝且不新增调用', () => {
+  const root = makeBook()
+  run(['1', '--step', 'outline'], root)
+  const { err, exitCalled } = run(['1', '--step', 'draft', '--set-tokens', '123'], root)
+
+  expect(exitCalled).toBe(true)
+  expect(err).toContain('没有 draft 调用记录')
+  const budget = readBudget(root)
+  expect(budget.used).toBe(1)
+  expect(budget.entries).toHaveLength(1)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('record-call --step review 被拒（review 由 review collect 自动记）', () => {
   const root = makeBook()
   const { err, exitCalled } = run(['1', '--step', 'review'], root)
@@ -149,10 +176,12 @@ test('record-call 非法数值参数 → 拒绝，不静默退回默认值', () 
     ['1', '--step', 'draft', '--calls'],
     ['1', '--step', 'draft', '--tokens', 'bad'],
     ['1', '--step', 'draft', '--tokens', '-1'],
+    ['1', '--step', 'draft', '--set-tokens', 'bad'],
+    ['1', '--step', 'draft', '--set-tokens', '-1'],
   ]) {
     const { err, exitCalled } = run(args, root)
     expect(exitCalled).toBe(true)
-    expect(err).toMatch(/--calls|--tokens/)
+    expect(err).toMatch(/--calls|--tokens|--set-tokens/)
   }
 
   expect(existsSync(aiCallBudgetPath(join(root, '工作区')))).toBe(false)
@@ -181,5 +210,6 @@ test('record-call --help → 含用法与参数说明', () => {
   expect(out).toContain('--step')
   expect(out).toContain('--calls')
   expect(out).toContain('--tokens')
+  expect(out).toContain('--set-tokens')
   rmSync(root, { recursive: true, force: true })
 })
