@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -24,6 +24,10 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(ORIG_CWD)
 })
+
+function samePath(path: string): string {
+  return realpathSync.native(path)
+}
 
 test('init: 非交互一条命令装出工作目录 + 建书', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-'))
@@ -177,10 +181,11 @@ test('接缝闭环: 工作目录内裸命令经活动书定位到书仓库（R1 
 
   // chdir 到工作目录（非书仓库），裸命令应经活动书定位
   process.chdir(wd)
-  expect(findWorkDir(process.cwd())).toBe(wd)
+  expect(samePath(findWorkDir(process.cwd())!)).toBe(samePath(wd))
   // readActive 应返回书名
   expect(readActive(wd)).toBe('活动书测试')
 
+  process.chdir(ORIG_CWD)
   rmSync(wd, { recursive: true, force: true })
 })
 
