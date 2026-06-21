@@ -40,7 +40,7 @@ export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; d
   感情线: { open: ['开启'], resolve: ['修成'], drop: ['无疾'] },
   局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
   设定线: { open: ['树立'], resolve: ['固化'], drop: ['倾覆'] },
-  成长线: { open: ['起步'], resolve: ['突破'], drop: ['瓶颈'] },
+  成长线: { open: ['起步'], resolve: ['突破', '跨层', '跃迁'], drop: ['瓶颈'] },
   关系债: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
 }
 

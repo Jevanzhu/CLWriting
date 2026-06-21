@@ -53,3 +53,31 @@ export function getRealmSequence(
 export function realmIndex(sequence: string[], realm: string): number {
   return sequence.indexOf(realm)
 }
+
+/**
+ * 从一句证据里提取境界体系中的精确境界名。
+ *
+ * 只接受完整枚举值命中，避免把「筑基初期」误判成枚举里的「筑基」。
+ * 一句里出现多个境界时取最靠后的一个，适配「炼气一层→炼气二层」这类写法。
+ */
+export function extractExactRealmFromEvidence(evidence: string, sequence: string[]): string | null {
+  const matches: Array<{ realm: string; index: number }> = []
+  const realms = [...sequence].sort((a, b) => b.length - a.length)
+  for (const realm of realms) {
+    let start = 0
+    while (start < evidence.length) {
+      const index = evidence.indexOf(realm, start)
+      if (index === -1) break
+      const next = evidence[index + realm.length]
+      if (next === undefined || isRealmBoundary(next)) matches.push({ realm, index })
+      start = index + Math.max(realm.length, 1)
+    }
+  }
+  if (matches.length === 0) return null
+  matches.sort((a, b) => a.index - b.index)
+  return matches[matches.length - 1]!.realm
+}
+
+function isRealmBoundary(char: string): boolean {
+  return /[\s,，.。;；:：!！?？、）)\]】》〉>（(\[【《〈<\-—→]/.test(char)
+}

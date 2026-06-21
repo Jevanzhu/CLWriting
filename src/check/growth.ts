@@ -11,7 +11,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { readGrowthHistory, readCurrentRealm } from '../cli/read.js'
-import { getRealmSequence, realmIndex } from '../format/realms.js'
+import { extractExactRealmFromEvidence, realmIndex } from '../format/realms.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import type { RealmDoc } from '../format/types.js'
 
@@ -91,9 +91,9 @@ export function checkGrowth(
           chapter: h.chapter,
         })
       }
-      if (GROWTH_TRANSITION_VERBS.has(h.verb)) {
+      if (GROWTH_TRANSITION_VERBS.has(h.verb) && sequence) {
         // 从证据提取境界：如「突破至筑基」→ 筑基
-        const realm = extractRealmFromEvidence(h.evidence, sequence)
+        const realm = extractExactRealmFromEvidence(h.evidence, sequence)
         if (realm) {
           transitions.push({ chapter: h.chapter, realm, evidence: h.evidence })
         }
@@ -145,14 +145,4 @@ export function checkGrowth(
   }
 
   return { name: '成长线境界语义', items }
-}
-
-/** 从证据提取目标境界（如「突破至筑基，渡过心魔劫」→ 筑基） */
-function extractRealmFromEvidence(evidence: string, sequence: string[] | null): string | null {
-  if (!sequence) return null
-  // 在证据里找序列中的境界名
-  for (const realm of sequence) {
-    if (evidence.includes(realm)) return realm
-  }
-  return null
 }
