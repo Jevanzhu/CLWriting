@@ -7,7 +7,7 @@
  */
 
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -48,7 +48,7 @@ test('RC: 中文空格路径下导入 v0.2 → 重建缓存 → 导出成稿', (
     const resolved = resolveBookRoot([])
     expect(resolved.ok).toBe(true)
     if (!resolved.ok) return
-    expect(resolved.bookRoot).toBe(bookRoot)
+    expect(realpathSync(resolved.bookRoot)).toBe(realpathSync(bookRoot))
 
     const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
     expect(rebuilt.chapterCount).toBe(5)
