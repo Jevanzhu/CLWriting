@@ -14,14 +14,16 @@
  * 中断恢复（#13 第 5 节）：commit 前崩 = 工作区原样保留；commit 后崩 = 已定稿。
  */
 
-import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync, rmSync, rmdirSync } from 'node:fs'
+import { copyFileSync, existsSync, writeFileSync, unlinkSync, readdirSync, mkdirSync, rmSync, rmdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { git, addCommit } from '../git/exec.js'
 import type { DatabaseSync } from 'node:sqlite'
-import type { ChapterMeta, BookConfig, PieceMeta } from '../format/types.js'
+import type { ChapterMeta, BookConfig, PieceMeta, Lead, RealmDoc } from '../format/types.js'
 import { writeChapter } from '../format/chapters.js'
 import { writePiece } from '../format/pieces.js'
 import { writeLead, readLead } from '../format/leads.js'
+import { LEAD_VERBS } from '../format/leads.js'
+import { extractExactRealmFromEvidence, readRealmDoc } from '../format/realms.js'
 import { checkConfirmGate, readConfirm, clearConfirm } from '../gate/confirm.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
 import { formatRedForRewrite } from '../check/report.js'
@@ -187,6 +189,7 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
           for (const e of update.entries) {
             // 定稿只写本章（chapter.章号）的履历，章号不符跳过（防写错章）
             if (e.章号 !== chapter.章号) continue
+            syncGrowthCurrentRealm(bookRoot, r.lead, e)
             // 幂等：同章号 + 动词已存在则跳过（防二次 finalize / 重试重复追加）
             if (r.lead.履历.some((h) => h.章号 === e.章号 && h.动词 === e.动词)) continue
             r.lead.履历.push({ 章号: e.章号, 动词: e.动词, 证据: e.证据 })
@@ -208,6 +211,10 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     writeFileSync(join(summaryDir, `${chapter.章号}.md`), input.chapterSummary, 'utf-8')
     changedPaths.push(summaryRel)
   }
+
+  // 卷摘要（长篇卷末自动生成轻量汇总，#13 定稿 spec / 50章验证 E1）
+  const volumeSummaryRel = !isShort ? writeVolumeSummaryIfNeeded(input) : null
+  if (volumeSummaryRel) changedPaths.push(volumeSummaryRel)
 
   // commit msg 前缀按 kind（M8 #26）：long → ch:<4 位补零章号>；short → pc:<3 位补零篇号>
   const confirm = readConfirm(workDir)
@@ -277,6 +284,7 @@ function validateLeadUpdateTargets(
 ): { ok: true } | { ok: false; reason: string } {
   if (!leadUpdates || leadUpdates.length === 0) return { ok: true }
   const outlineDir = join(bookRoot, '大纲')
+  const realmDoc = readRealmDocIfExists(bookRoot)
   for (const update of leadUpdates) {
     const currentEntries = update.entries.filter((e) => e.章号 === chapter)
     if (currentEntries.length === 0) continue
@@ -291,8 +299,78 @@ function validateLeadUpdateTargets(
     if (!r.ok) {
       return { ok: false, reason: `账本文件读不了：${r.error.file} ${r.error.message}` }
     }
+    for (const entry of currentEntries) {
+      const growthCheck = validateGrowthRealmUpdate(bookRoot, r.lead, entry, realmDoc)
+      if (!growthCheck.ok) return growthCheck
+    }
   }
   return { ok: true }
+}
+
+function readRealmDocIfExists(bookRoot: string): RealmDoc | null {
+  const realmPath = join(bookRoot, '定稿', '设定', '境界体系.md')
+  if (!existsSync(realmPath)) return null
+  const r = readRealmDoc(realmPath)
+  return r.ok ? r.doc : null
+}
+
+function validateGrowthRealmUpdate(
+  bookRoot: string,
+  lead: Lead,
+  entry: { 动词: string; 证据: string },
+  realmDoc: RealmDoc | null,
+): { ok: true } | { ok: false; reason: string } {
+  if (!shouldUpdateGrowthRealm(lead, entry.动词)) return { ok: true }
+  const sequence = resolveGrowthSequence(lead, realmDoc)
+  if (!sequence) {
+    return {
+      ok: false,
+      reason: `成长线「${lead.编号}」声明了「${entry.动词}」，但找不到可用境界体系。请检查 ${relativeOrFallback(bookRoot, lead._path)} 的「境界体系」和 定稿/设定/境界体系.md。`,
+    }
+  }
+  const nextRealm = extractExactRealmFromEvidence(entry.证据, sequence)
+  if (!nextRealm) {
+    return {
+      ok: false,
+      reason: `成长线「${lead.编号}」声明了「${entry.动词}」，但证据「${entry.证据}」里找不到境界体系的精确境界值。请使用枚举值，如「${sequence.join(' / ')}」。`,
+    }
+  }
+  return { ok: true }
+}
+
+function syncGrowthCurrentRealm(
+  bookRoot: string,
+  lead: Lead,
+  entry: { 动词: string; 证据: string },
+): void {
+  if (!shouldUpdateGrowthRealm(lead, entry.动词)) return
+  const sequence = resolveGrowthSequence(lead, readRealmDocIfExists(bookRoot))
+  if (!sequence) return
+  const nextRealm = extractExactRealmFromEvidence(entry.证据, sequence)
+  if (!nextRealm) return
+  lead.当前境界 = nextRealm
+}
+
+function shouldUpdateGrowthRealm(lead: Lead, verb: string): boolean {
+  if (lead.类型 !== '成长线') return false
+  return [...LEAD_VERBS.成长线.open, ...LEAD_VERBS.成长线.resolve].includes(verb)
+}
+
+function resolveGrowthSequence(lead: Lead, realmDoc: RealmDoc | null): string[] | null {
+  if (!realmDoc || realmDoc.体系.length === 0) return null
+  if (lead.境界体系) {
+    const matched = realmDoc.体系.find((system) => system.名称 === lead.境界体系)
+    if (matched) return matched.序列
+  }
+  if (lead.当前境界) {
+    const matched = realmDoc.体系.find((system) => system.序列.includes(lead.当前境界!))
+    if (matched) return matched.序列
+  }
+  return realmDoc.体系.length === 1 ? realmDoc.体系[0]!.序列 : null
+}
+
+function relativeOrFallback(root: string, path: string | undefined): string {
+  return path ? path.slice(root.length + 1).replace(/\\/g, '/') : '对应账本文件'
 }
 
 function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'short'): string | null {
@@ -315,6 +393,62 @@ function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'sh
     return null
   }
   return null
+}
+
+function writeVolumeSummaryIfNeeded(input: FinalizeInput): string | null {
+  const volumeSize = input.config.book.volume_size ?? 50
+  if (volumeSize <= 0 || input.chapter.章号 <= 0 || input.chapter.章号 % volumeSize !== 0) return null
+
+  const volume = input.chapter.章号 / volumeSize
+  const start = input.chapter.章号 - volumeSize + 1
+  const end = input.chapter.章号
+  const summaryDir = join(input.bookRoot, '定稿', '摘要', '卷摘要')
+  mkdirSync(summaryDir, { recursive: true })
+
+  const lines = [
+    `# 第${volume}卷摘要`,
+    '',
+    `范围：第${start}章–第${end}章。`,
+    '',
+    '## 章节概览',
+    '',
+  ]
+  for (let chapter = start; chapter <= end; chapter++) {
+    lines.push(`- 第${String(chapter).padStart(3, '0')}章：${chapterSummaryLine(input, chapter)}`)
+  }
+  lines.push('')
+
+  const rel = `定稿/摘要/卷摘要/${volume}.md`
+  writeFileSync(join(input.bookRoot, rel), lines.join('\n'), 'utf-8')
+  return rel
+}
+
+function chapterSummaryLine(input: FinalizeInput, chapter: number): string {
+  if (chapter === input.chapter.章号) {
+    return input.chapterSummary?.trim() || `${input.chapter.标题}。${briefText(input.body)}`
+  }
+
+  const summaryPath = join(input.bookRoot, '定稿', '摘要', '章摘要', `${chapter}.md`)
+  if (existsSync(summaryPath)) {
+    const text = readFileSync(summaryPath, 'utf-8').trim()
+    if (text) return oneLine(text)
+  }
+
+  const chapterPath = findFinalizedUnit(input.bookRoot, chapter, 'long')
+  if (chapterPath) {
+    const name = chapterPath.split('/').pop() ?? ''
+    const title = name.replace(/^\d+-/, '').replace(/\.md$/, '')
+    return title || '（无章摘要）'
+  }
+  return '（无章摘要）'
+}
+
+function briefText(text: string): string {
+  return oneLine(text).slice(0, 80)
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
 }
 
 /**

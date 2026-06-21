@@ -58,6 +58,46 @@ function makeGitBook(): string {
   return root
 }
 
+function addGrowthFixture(root: string, config: BookConfig = growthConfig()): void {
+  writeBookConfig(join(root, 'book.yaml'), config)
+  mkdirSync(join(root, '大纲', '成长线'), { recursive: true })
+  mkdirSync(join(root, '定稿', '设定'), { recursive: true })
+  mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+  writeFileSync(
+    join(root, '定稿', '设定', '境界体系.md'),
+    '---\n体系:\n  - 名称: 修真境界\n    序列: [炼气一层, 炼气二层, 筑基]\n---\n\n修真境界。\n',
+    'utf-8',
+  )
+  writeFileSync(
+    join(root, '大纲', '成长线', '成长线-001-陆沉修为.md'),
+    '---\n编号: 成长线-001\n标题: 陆沉修为\n类型: 成长线\n状态: 进行中\n开启章: 1\n境界体系: 修真境界\n当前境界: 炼气一层\n---\n\n## 履历\n\n- 第001章 起步：踏入炼气一层\n',
+    'utf-8',
+  )
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  syncLead(db, {
+    编号: '成长线-001',
+    标题: '陆沉修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
+    境界体系: '修真境界',
+    当前境界: '炼气一层',
+    履历: [{ 章号: 1, 动词: '起步', 证据: '踏入炼气一层' }],
+    _path: join(root, '大纲', '成长线', '成长线-001-陆沉修为.md'),
+  })
+  db.close()
+  execSync('git add -A && git commit -m "growth fixtures"', { cwd: root, stdio: 'pipe' })
+}
+
+function growthConfig(overrides: Partial<BookConfig> = {}): BookConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...overrides,
+    leads: { ...DEFAULT_CONFIG.leads, enabled: ['成长线'], ...(overrides.leads ?? {}) },
+    growth: { ...DEFAULT_CONFIG.growth, realm_span_max: 2, ...(overrides.growth ?? {}) },
+  }
+}
+
 test('doFinalize: 前置闸未过（无审稿裁决）→ 拒绝', () => {
   const root = makeGitBook()
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -322,6 +362,113 @@ test('doFinalize: leadUpdates 写入履历 + 幂等去重 + 跨章跳过', () =>
   const leadContent = readFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), 'utf-8')
   expect(leadContent.match(/推进/g)?.length).toBe(1) // 幂等：只写一条
   expect(leadContent).not.toContain('跨章') // 跨章 entry 被跳过
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('doFinalize: 成长线跨层落履历时同步当前境界 front matter', () => {
+  const root = makeGitBook()
+  const config = growthConfig()
+  addGrowthFixture(root, config)
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const workDir = join(root, '工作区')
+  const outline = join(workDir, '细纲.md')
+  writeFileSync(outline, '---\n章号: 2\n推进: [成长线-001]\n---\n细纲', 'utf-8')
+  doConfirm(workDir, 2, outline, 'manual', config)
+
+  const ch: ChapterMeta = {
+    章号: 2, 标题: '暗流', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
+  }
+  const r = doFinalize({
+    bookRoot: root,
+    workDir,
+    outlinePath: outline,
+    db,
+    config,
+    chapter: ch,
+    body: '陆沉突破至炼气二层，观微镜光芒一闪。',
+    fileName: '2-暗流.md',
+    hasReviewVerdict: true,
+    leadUpdates: [{ leadId: '成长线-001', entries: [{ 章号: 2, 动词: '跨层', 证据: '突破至炼气二层' }] }],
+  })
+
+  expect(r.ok).toBe(true)
+  const leadContent = readFileSync(join(root, '大纲', '成长线', '成长线-001-陆沉修为.md'), 'utf-8')
+  expect(leadContent).toContain('当前境界: 炼气二层')
+  expect(leadContent).toContain('第002章 跨层：突破至炼气二层')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('doFinalize: 成长线跨层证据必须使用境界体系精确值', () => {
+  const root = makeGitBook()
+  const config = growthConfig()
+  addGrowthFixture(root, config)
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const workDir = join(root, '工作区')
+  const outline = join(workDir, '细纲.md')
+  writeFileSync(outline, '---\n章号: 2\n推进: [成长线-001]\n---\n细纲', 'utf-8')
+  doConfirm(workDir, 2, outline, 'manual', config)
+
+  const ch: ChapterMeta = {
+    章号: 2, 标题: '筑基', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
+  }
+  const r = doFinalize({
+    bookRoot: root,
+    workDir,
+    outlinePath: outline,
+    db,
+    config,
+    chapter: ch,
+    body: '陆沉突破至筑基初期，气息大涨。',
+    fileName: '2-筑基.md',
+    hasReviewVerdict: true,
+    leadUpdates: [{ leadId: '成长线-001', entries: [{ 章号: 2, 动词: '跨层', 证据: '突破至筑基初期' }] }],
+  })
+
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.reason).toContain('精确境界值')
+  const leadContent = readFileSync(join(root, '大纲', '成长线', '成长线-001-陆沉修为.md'), 'utf-8')
+  expect(leadContent).toContain('当前境界: 炼气一层')
+  expect(leadContent).not.toContain('第002章')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('doFinalize: 卷末自动生成卷摘要', () => {
+  const root = makeGitBook()
+  const config: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 2 } }
+  writeBookConfig(join(root, 'book.yaml'), config)
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  const workDir = join(root, '工作区')
+  const outline = join(workDir, '细纲.md')
+  writeFileSync(join(root, '定稿', '正文', '1-开端.md'), '---\n章号: 1\n标题: 开端\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第一章正文有焦痕。', 'utf-8')
+  writeFileSync(join(root, '定稿', '摘要', '章摘要', '1.md'), '第一章摘要。', 'utf-8')
+  execSync('git add -A && git commit -m "ch:0001 开端"', { cwd: root, stdio: 'pipe' })
+  writeFileSync(outline, '---\n章号: 2\n---\n细纲', 'utf-8')
+  doConfirm(workDir, 2, outline, 'manual', config)
+
+  const ch: ChapterMeta = {
+    章号: 2, 标题: '卷末', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折',
+  }
+  const r = doFinalize({
+    bookRoot: root,
+    workDir,
+    outlinePath: outline,
+    db,
+    config,
+    chapter: ch,
+    body: '第二章卷末正文。',
+    fileName: '2-卷末.md',
+    hasReviewVerdict: true,
+    chapterSummary: '第二章摘要。',
+  })
+
+  expect(r.ok).toBe(true)
+  const volumeSummary = readFileSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), 'utf-8')
+  expect(volumeSummary).toContain('第1卷摘要')
+  expect(volumeSummary).toContain('第一章摘要')
+  expect(volumeSummary).toContain('第二章摘要')
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
