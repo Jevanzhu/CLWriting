@@ -21,20 +21,28 @@ interface StudioArgs {
   book?: string
 }
 
+function parsePort(value: string | undefined): number {
+  if (!value) throw new Error('--port 需要端口值')
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`端口必须是 1-65535 的整数：${value}`)
+  }
+  return port
+}
+
 /** 解析 clwriting studio [--port N] [--book <path>] */
-function parseArgs(argv: string[]): StudioArgs {
+export function parseArgs(argv: string[]): StudioArgs {
   const args: StudioArgs = { port: DEFAULT_PORT }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (!a) continue
     if (a === '--port') {
-      const v = argv[++i]
-      if (v) args.port = Number(v) || DEFAULT_PORT
+      args.port = parsePort(argv[++i])
     } else if (a === '--book') {
       const v = argv[++i]
       if (v) args.book = v
     } else if (a.startsWith('--port=')) {
-      args.port = Number(a.slice(7)) || DEFAULT_PORT
+      args.port = parsePort(a.slice(7))
     } else if (a.startsWith('--book=')) {
       args.book = a.slice(7)
     }
@@ -68,22 +76,40 @@ async function resolveStaticDir(): Promise<string | undefined> {
 }
 
 /** 跨平台开浏览器（失败不致命，打印 URL 让用户手动开） */
-function openBrowser(url: string): void {
-  try {
-    if (process.platform === 'win32') {
-      spawn('start', ['""', url], { shell: true, detached: true, stdio: 'ignore' }).unref()
-    } else {
-      const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open'
-      spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref()
-    }
-  } catch {
+export function openBrowser(url: string): void {
+  let printedFallback = false
+  const printFallback = (): void => {
+    if (printedFallback) return
+    printedFallback = true
     console.log(`请在浏览器手动打开：${url}`)
+  }
+
+  try {
+    const child =
+      process.platform === 'win32'
+        ? spawn('start', ['""', url], { shell: true, detached: true, stdio: 'ignore' })
+        : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], {
+            detached: true,
+            stdio: 'ignore',
+          })
+
+    child.on('error', printFallback)
+    child.unref()
+  } catch {
+    printFallback()
   }
 }
 
 /** `clwriting studio` 命令处理器 */
 export async function studioCommand(argv: string[]): Promise<void> {
-  const args = parseArgs(argv)
+  let args: StudioArgs
+  try {
+    args = parseArgs(argv)
+  } catch (e) {
+    console.error(`✗ ${e instanceof Error ? e.message : String(e)}`)
+    process.exit(1)
+  }
+
   const staticDir = await resolveStaticDir()
 
   const server = startServer({ port: args.port, staticDir })

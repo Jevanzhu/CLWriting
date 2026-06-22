@@ -28,8 +28,17 @@ export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+    let decodedPathname: string
+    try {
+      decodedPathname = decodeURIComponent(pathname)
+    } catch {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('bad request')
+      return
+    }
+
     // 防路径穿越：normalize 后必须在 root 内
-    const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '')
+    const rel = normalize(decodedPathname).replace(/^(\.\.[/\\])+/, '')
     const abs = join(root, rel)
     if (!abs.startsWith(root)) {
       res.writeHead(403)
