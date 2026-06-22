@@ -119,9 +119,9 @@ function readDraft(
   if (isShort) {
     // 短篇草稿用 篇号（readPiece），映射成 ChapterMeta（章号字段承载篇号）供 runAllChecks 短篇分支
     const piece = readPiece(draftPath)
-    if (!piece.ok) return { ok: false, reason: piece.error.message }
+    if (!piece.ok) return { ok: false, reason: draftParseReason(piece.error.message, true) }
     const file = readFile(draftPath)
-    if (!file.ok) return { ok: false, reason: file.error.message }
+    if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message, true) }
     // 目标情绪/核心反转是 PieceMeta 直属字段，带进 _raw 供 finalize 映射回 PieceMeta 保留
     const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
     if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
@@ -139,16 +139,19 @@ function readDraft(
   }
 
   const chapter = readChapter(draftPath)
-  if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message) }
+  if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message, false) }
 
   const file = readFile(draftPath)
-  if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message) }
+  if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message, false) }
 
   return { ok: true, chapter: chapter.chapter, body: file.body }
 }
 
-function draftParseReason(message: string): string {
+function draftParseReason(message: string, isShort: boolean): string {
   if (message.includes('front matter')) {
+    if (isShort) {
+      return `${message}。草稿必须以短篇 front matter 开头，至少包含：篇号、标题、目标情绪、核心反转。`
+    }
     return `${message}。草稿必须以章节 front matter 开头，至少包含：章号、标题、钩子类型、钩子强弱、情绪定位。`
   }
   return message
