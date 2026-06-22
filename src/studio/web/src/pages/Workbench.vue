@@ -3,7 +3,7 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import BookTabs from '../components/BookTabs.vue'
 
-/** driver 事件(松类型,前端按 type 分支取字段) */
+/** driver 事件(松类型,按 type 分支取字段) */
 interface DriverEvent {
   type: string
   [k: string]: unknown
@@ -12,14 +12,30 @@ interface DriverEvent {
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 
-const roles = ['writer', 'continuity-review', 'editor-review', 'reader-review']
-const role = ref('writer')
-const prompt = ref('写第 1 章开头约 300 字(测试 mock driver 事件流)')
-const mode = ref<'spawnRole' | 'send'>('spawnRole')
+// 八阶段骨架(C.1 draft 激活,余占位;C.2/C.3 补)
+const stages = [
+  { id: 'enter', label: '进入' },
+  { id: 'outline', label: '细纲' },
+  { id: 'confirm', label: '确认' },
+  { id: 'prepare', label: '备料' },
+  { id: 'draft', label: '写稿' },
+  { id: 'check', label: '机检' },
+  { id: 'review', label: '审稿' },
+  { id: 'finalize', label: '定稿' },
+]
+const activeStage = ref('draft')
+
+const chapter = ref(1)
 const running = ref(false)
+const draftMode = ref(false)
 const textOut = ref('')
 const log = ref<{ t: string; type: string; text: string }[]>([])
+const saved = ref<{ path: string; words: number } | null>(null)
 let es: EventSource | null = null
+
+function ts(): string {
+  return new Date().toLocaleTimeString('zh-CN')
+}
 
 function connect(n: string): void {
   es?.close()
@@ -33,11 +49,10 @@ function connect(n: string): void {
     }
     handleEvent(ev)
   }
-  // EventSource 自动重连,onerror 静默
 }
 
 function handleEvent(ev: DriverEvent): void {
-  const t = new Date().toLocaleTimeString('zh-CN')
+  const t = ts()
   switch (ev.type) {
     case 'init':
       log.value.push({ t, type: 'init', text: `会话就绪 · 角色 ${((ev.agents as string[]) ?? []).join('/')}` })
@@ -45,14 +60,8 @@ function handleEvent(ev: DriverEvent): void {
     case 'text':
       textOut.value += String(ev.text ?? '')
       break
-    case 'role_spawn':
-      log.value.push({ t, type: 'spawn', text: `spawn ${ev.role}` })
-      break
     case 'tool_use':
       log.value.push({ t, type: 'tool', text: `🔧 ${ev.tool}` })
-      break
-    case 'tool_result':
-      log.value.push({ t, type: 'result', text: '工具结果' })
       break
     case 'usage':
       log.value.push({ t, type: 'usage', text: `成本 $${ev.cost} · ${ev.tokens} tokens` })
@@ -60,39 +69,70 @@ function handleEvent(ev: DriverEvent): void {
     case 'done':
       running.value = false
       log.value.push({ t, type: 'done', text: `完成(${ev.reason})` })
+      if (draftMode.value) void saveDraft()
       break
     case 'error':
       running.value = false
+      draftMode.value = false
       log.value.push({ t, type: 'error', text: `错误:${ev.message}` })
       break
-    default:
-      log.value.push({ t, type: ev.type, text: JSON.stringify(ev).slice(0, 80) })
   }
 }
 
-async function fire(): Promise<void> {
+/** draft 写稿:组 prompt → spawnRole(writer)→ 事件流收 text → done 后 saveDraft 落盘 */
+async function draftWrite(): Promise<void> {
   if (running.value || !name.value) return
-  running.value = true
+  draftMode.value = true
+  saved.value = null
   textOut.value = ''
+  running.value = true
+  activeStage.value = 'draft'
+  // C.1 简化 prompt(无细纲/备料,归 C.2);writer 规则已在 .claude/agents/writer.md
+  const prompt = `## 任务\n写第 ${chapter.value} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。\n\n## 要求\n按你的角色规则直接输出正文(纯文本,禁 MD 标题/格式,仅段落+空行),不要读任何文件、不要用任何工具。`
+  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} 章` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/spawn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: role.value, prompt: prompt.value, mode: mode.value }),
+      body: JSON.stringify({ role: 'writer', prompt, mode: 'spawnRole' }),
     })
     if (!r.ok) {
       running.value = false
+      draftMode.value = false
       const e = (await r.json().catch(() => ({}))) as { error?: string }
-      log.value.push({ t: new Date().toLocaleTimeString('zh-CN'), type: 'error', text: e.error ?? `HTTP ${r.status}` })
+      log.value.push({ t: ts(), type: 'error', text: e.error ?? `HTTP ${r.status}` })
     }
   } catch (e) {
     running.value = false
-    log.value.push({
-      t: new Date().toLocaleTimeString('zh-CN'),
-      type: 'error',
-      text: e instanceof Error ? e.message : String(e),
-    })
+    draftMode.value = false
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
   }
+}
+
+/** done 后落盘:driver text → 工作区/草稿-N.md */
+async function saveDraft(): Promise<void> {
+  const content = textOut.value.trim()
+  if (!content) {
+    draftMode.value = false
+    return
+  }
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/draft-save`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chapter: chapter.value, content }),
+    })
+    const d = (await r.json()) as { ok?: boolean; path?: string; words?: number; error?: string }
+    if (r.ok && d.ok) {
+      saved.value = { path: d.path ?? '', words: d.words ?? 0 }
+      log.value.push({ t: ts(), type: 'saved', text: `已保存 ${d.path}(${d.words} 字)` })
+    } else {
+      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    }
+  } catch (e) {
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+  }
+  draftMode.value = false
 }
 
 onMounted(() => {
@@ -108,32 +148,34 @@ onUnmounted(() => es?.close())
   <section class="wb-page">
     <BookTabs :name="name" active="workbench" />
 
-    <div class="cc-banner">⚡ cc driver:经 claude CLI 生成(复用你的认证 / GLM 网关)。spawnRole 触发单步生成;角色规则(.claude/agents/)待建书段2。</div>
+    <div class="cc-banner">⚡ cc driver:经 claude CLI 生成(复用你的认证 / GLM 网关)。C.1:draft 写稿 + 落盘 工作区/草稿-N.md。</div>
 
-    <!-- 触发控制 -->
+    <!-- 八阶段骨架 -->
+    <nav class="stages">
+      <span
+        v-for="s in stages"
+        :key="s.id"
+        class="stage"
+        :class="{ active: s.id === activeStage }"
+      >{{ s.label }}</span>
+    </nav>
+
+    <!-- draft 写稿 -->
     <article class="card ctrl">
       <div class="ctrl-row">
-        <label>角色
-          <select v-model="role">
-            <option v-for="r in roles" :key="r" :value="r">{{ r }}</option>
-          </select>
+        <label>章号
+          <input v-model.number="chapter" type="number" min="1" :disabled="running" />
         </label>
-        <label>模式
-          <select v-model="mode">
-            <option value="spawnRole">spawnRole(干净上下文)</option>
-            <option value="send">send(主 agent 软触发)</option>
-          </select>
-        </label>
+        <button class="btn-fire" :disabled="running" @click="draftWrite">
+          {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章 →` }}
+        </button>
       </div>
-      <textarea v-model="prompt" rows="2" class="prompt-input" placeholder="prompt"></textarea>
-      <button class="btn-fire" :disabled="running" @click="fire">
-        {{ running ? '生成中…' : `${mode === 'send' ? 'send' : `spawnRole(${role})`} →` }}
-      </button>
+      <p v-if="saved" class="saved-tip">✅ 已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
     </article>
 
-    <!-- 文本输出 -->
+    <!-- 正文输出 -->
     <article class="card">
-      <h3 class="block-title">输出</h3>
+      <h3 class="block-title">正文输出</h3>
       <pre class="text-out">{{ textOut || '(尚未生成)' }}</pre>
     </article>
 
@@ -146,7 +188,7 @@ onUnmounted(() => es?.close())
           <span class="ev-type">{{ l.type }}</span>
           <span class="ev-text">{{ l.text }}</span>
         </li>
-        <li v-if="!log.length" class="empty">等待事件…(init 应已到)</li>
+        <li v-if="!log.length" class="empty">等待事件…</li>
       </ul>
     </article>
   </section>
@@ -182,10 +224,33 @@ onUnmounted(() => es?.close())
   letter-spacing: 0.04em;
 }
 
+/* 八阶段骨架 */
+.stages {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.stage {
+  padding: 5px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  font-size: 13px;
+  color: #9ca3af;
+  background: #fff;
+}
+.stage.active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+  font-weight: 600;
+}
+
+/* draft 控制 */
 .ctrl-row {
   display: flex;
-  gap: 20px;
-  margin-bottom: 12px;
+  gap: 16px;
+  align-items: flex-end;
 }
 .ctrl-row label {
   display: grid;
@@ -193,23 +258,12 @@ onUnmounted(() => es?.close())
   font-size: 13px;
   color: #6b7280;
 }
-select {
-  padding: 5px 8px;
+input[type='number'] {
+  width: 80px;
+  padding: 6px 8px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 14px;
-  background: #fff;
-}
-.prompt-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 14px;
-  font-family: inherit;
-  resize: vertical;
-  margin-bottom: 12px;
 }
 .btn-fire {
   padding: 8px 18px;
@@ -224,7 +278,19 @@ select {
   background: #d1d5db;
   cursor: not-allowed;
 }
+.saved-tip {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.mono {
+  font-family: ui-monospace, monospace;
+}
 
+/* 输出 + 事件流 */
 .text-out {
   margin: 0;
   padding: 12px;
@@ -235,15 +301,16 @@ select {
   color: #111827;
   white-space: pre-wrap;
   min-height: 48px;
+  max-height: 360px;
+  overflow-y: auto;
 }
-
 .log {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
   gap: 4px;
-  max-height: 260px;
+  max-height: 220px;
   overflow-y: auto;
 }
 .log li {
@@ -267,19 +334,20 @@ select {
   color: #6b7280;
   font-size: 12px;
 }
-.ev-init .ev-type {
-  color: #059669;
-}
+.ev-init .ev-type,
 .ev-done .ev-type {
   color: #059669;
-  font-weight: 600;
+}
+.ev-saved .ev-type,
+.ev-saved .ev-text {
+  color: #065f46;
+}
+.ev-spawn .ev-type {
+  color: #7c3aed;
 }
 .ev-error .ev-type,
 .ev-error .ev-text {
   color: #dc2626;
-}
-.ev-spawn .ev-type {
-  color: #7c3aed;
 }
 .ev-text {
   color: #4b5563;
