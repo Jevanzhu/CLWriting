@@ -172,7 +172,7 @@ function printHelp(): void {
   console.log('  use <书名>   切换当前活动书')
   console.log('  list      列出已登记的所有书')
   console.log('  repair    自愈 books.jsonl（扫描重建登记，报告丢失的书）')
-  console.log('  auto [N] [--resume]   连写 N 章（自动模式，产出攒进待定稿）')
+  console.log('  auto [N] [--resume]   连写 N 章/篇（自动模式，产出攒进待定稿）')
   console.log('  export [--format <merged|split|both>]  干净导出定稿正文（剥 front matter）')
   console.log('  import <v0.2正文> [--name 书名] [--kind long|short]  导入 v0.2 正文（复用 scaffold 建书）')
   console.log('  learn [commit] [书目录]  文风样章/金句收割（#10 打分，候选制，交互式挑选入库）')

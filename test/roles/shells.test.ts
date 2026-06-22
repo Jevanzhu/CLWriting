@@ -93,6 +93,10 @@ test('generateRoleShells: 生成 Claude/Codex/通用壳与 manifest，drift chec
   const claudeSkill = readFileSync(join(root, '.claude', 'SKILL.md'), 'utf-8')
   expect(claudeSkill).toContain('clwriting session-start')
   expect(claudeSkill).toContain('Draft the outline in the host session')
+  expect(claudeSkill).toContain('chapter/piece workflow')
+  expect(claudeSkill).toContain('篇号')
+  expect(claudeSkill).toContain('工作区/清单.md')
+  expect(claudeSkill).toContain('clwriting record-call <chapter|piece> --step draft')
   expect(claudeSkill).not.toContain('outline role')
 
   const claudeEntry = readFileSync(join(root, 'CLAUDE.md'), 'utf-8')

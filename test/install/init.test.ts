@@ -197,6 +197,9 @@ test('init: 角色源种子用方括号 tools 语法（P4 修复验证）', () =
 
   const writer = readFileSync(join(wd, '.clwriting', 'roles', 'writer.md'), 'utf-8')
   expect(writer).toContain('tools: [Read, Write]')
+  expect(writer).toContain('record-call <章号|篇号>')
+  expect(writer).toContain('front matter 使用 `篇号`')
+  expect(writer).toContain('工作区/清单.md')
   // 不应是裸逗号写法
   expect(writer).not.toMatch(/^tools: Read,\s*Write$/m)
 

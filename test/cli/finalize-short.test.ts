@@ -17,6 +17,7 @@ import { writeChapter } from '../../src/format/chapters.js'
 import { writePiece } from '../../src/format/pieces.js'
 import { doConfirm } from '../../src/gate/confirm.js'
 import { REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
+import { checkCommand } from '../../src/cli/check.js'
 import { finalizeCommand } from '../../src/cli/finalize.js'
 import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 
@@ -100,6 +101,27 @@ test('finalize CLI short: 无裁决 → 前置闸拦', () => {
     const { exitCode, stdout } = captureCli(() => finalizeCommand([root]))
     expect(exitCode).toBe('1')
     expect(stdout).toContain('还没拍板')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('check/finalize CLI short: 坏草稿提示短篇 front matter 字段', () => {
+  const root = makeShortBook()
+  try {
+    writeFileSync(join(root, '工作区', '草稿-1.md'), '没有 front matter 的短篇正文', 'utf-8')
+
+    const check = captureCli(() => checkCommand([root]))
+    expect(check.exitCode).toBe('1')
+    expect(check.stdout).toContain('短篇 front matter')
+    expect(check.stdout).toContain('篇号、标题、目标情绪、核心反转')
+    expect(check.stdout).not.toContain('钩子类型')
+
+    const finalize = captureCli(() => finalizeCommand([root]))
+    expect(finalize.exitCode).toBe('1')
+    expect(finalize.stdout).toContain('短篇 front matter')
+    expect(finalize.stdout).toContain('篇号、标题、目标情绪、核心反转')
+    expect(finalize.stdout).not.toContain('钩子类型')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
