@@ -30,8 +30,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       res.end('no book')
       return
     }
-    const bookRoot = join(ctx.workDir, entry.path)
-    const session = await ensureSession(params['name']!, bookRoot)
+    // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
+    const session = await ensureSession(params['name']!, ctx.workDir)
     const driver = getDriver('cc')
 
     res.writeHead(200, {
@@ -75,8 +75,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
     const mode = body['mode'] === 'send' ? 'send' : 'spawnRole'
 
-    const bookRoot = join(ctx.workDir, entry.path)
-    const session = await ensureSession(params['name']!, bookRoot)
+    // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
+    const session = await ensureSession(params['name']!, ctx.workDir)
     const driver = getDriver('cc')
     if (mode === 'send') driver.send(session, prompt)
     else driver.spawnRole(session, role, prompt)

@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { splitFrontMatter } from '../format/frontmatter.js'
 import type {
   Session,
   SessionOptions,
@@ -46,14 +47,15 @@ function push(id: string, ev: DriverEvent): void {
 function readRolePrompt(cwd: string, role: string): string {
   const fp = join(cwd, '.claude', 'agents', `${role}.md`)
   if (!existsSync(fp)) return ''
-  let text = ''
+  let raw = ''
   try {
-    text = readFileSync(fp, 'utf8')
+    raw = readFileSync(fp, 'utf8')
   } catch {
     return ''
   }
-  const parts = text.split(/\n---\n/)
-  return (parts[2] ?? text).trim()
+  // renderClaudeAgent 格式:--- frontmatter --- 正文;取正文作系统提示
+  const split = splitFrontMatter(raw)
+  return split === null ? raw.trim() : split.body.trim()
 }
 
 /** 解析 stream-json 一行 → DriverEvent[] */
@@ -108,10 +110,19 @@ function parseLine(line: string, role: string | undefined): DriverEvent[] {
 }
 
 /** spawn claude 子进程,解析 stream-json 推 events */
-function runClaude(session: Session, prompt: string, allowedTools: string[], role?: string): void {
+function runClaude(
+  session: Session,
+  prompt: string,
+  opts: { allowedTools?: string[]; role?: string },
+): void {
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose']
-  // spawnRole 禁工具(空 join);send 放指定工具
-  args.push('--allowedTools', allowedTools.join(','))
+  // spawnRole 禁所有工具(--tools '');send 放指定工具(--allowedTools)
+  if (opts.allowedTools && opts.allowedTools.length) {
+    args.push('--allowedTools', opts.allowedTools.join(','))
+  } else {
+    args.push('--tools', '')
+  }
+  const role = opts.role
   const child = spawn('claude', args, { cwd: session.cwd, env: process.env })
 
   let buf = ''
@@ -147,12 +158,12 @@ export const ccDriver: StudioDriver = {
   spawnRole(session: Session, role: string, prompt: string): void {
     const sys = readRolePrompt(session.cwd, role)
     const full = sys ? `${sys}\n\n---\n\n${prompt}` : prompt
-    runClaude(session, full, [], role)
+    runClaude(session, full, { role })
   },
 
   send(session: Session, prompt: string): void {
     // 软触发主 agent 调 Agent/Task 工具(--resume 续主 session 留后续)
-    runClaude(session, prompt, ['Agent', 'Task', 'Read'], 'main')
+    runClaude(session, prompt, { allowedTools: ['Agent', 'Task', 'Read'], role: 'main' })
   },
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
