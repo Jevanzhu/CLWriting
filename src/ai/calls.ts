@@ -5,11 +5,14 @@
  * 计数存在工作区机器域，续跑继承；损坏时保守阻断，避免静默归零绕过预算。
  */
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BookConfig } from '../format/types.js'
 
 const CALL_BUDGET_FILE = '.ai-calls.json'
+const CALL_BUDGET_LOCK_DIR = '.ai-calls.lock'
+const CALL_BUDGET_LOCK_TIMEOUT_MS = 2000
+const CALL_BUDGET_LOCK_STALE_MS = 30000
 
 /** 写章流程内会计入预算的 AI 步骤 */
 export type AiCallStep = 'outline' | 'draft' | 'review' | 'review-combined'
@@ -81,6 +84,10 @@ export type AiCallRecordResult =
 /** 调用计数文件路径（工作区/.ai-calls.json） */
 export function aiCallBudgetPath(workDir: string): string {
   return join(workDir, CALL_BUDGET_FILE)
+}
+
+function aiCallBudgetLockPath(workDir: string): string {
+  return join(workDir, CALL_BUDGET_LOCK_DIR)
 }
 
 /** 预算展示单位：短篇集按篇解释 calls_per_chapter，长篇按章解释。 */
@@ -205,37 +212,40 @@ export function recordAiCall(input: {
   if (!Number.isSafeInteger(calls) || calls < 1) {
     return { ok: false, reason: `调用次数必须是正整数，当前为 ${String(input.calls)}` }
   }
-  const decision = checkAiCallBudget({
-    workDir: input.workDir,
-    chapter: input.chapter,
-    config: input.config,
-    plannedCalls: calls,
-    label: input.step,
+
+  return withAiCallBudgetLock(input.workDir, () => {
+    const decision = checkAiCallBudget({
+      workDir: input.workDir,
+      chapter: input.chapter,
+      config: input.config,
+      plannedCalls: calls,
+      label: input.step,
+    })
+    if (!decision.ok) return { ok: false, reason: decision.reason }
+
+    const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
+    if (!state.ok) return { ok: false, reason: state.reason }
+
+    const now = input.at ?? new Date().toISOString()
+    const next: AiCallBudgetRecord = {
+      chapter: input.chapter,
+      used: state.used + calls,
+      ...(state.record?.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
+      entries: [
+        ...(state.record?.entries ?? []),
+        {
+          step: input.step,
+          calls,
+          at: now,
+          ...(input.note ? { note: input.note } : {}),
+          ...(input.tokens !== undefined && Number.isFinite(input.tokens) ? { tokens: input.tokens } : {}),
+        },
+      ],
+      updated_at: now,
+    }
+    writeAiCallBudget(input.workDir, next)
+    return { ok: true, record: next }
   })
-  if (!decision.ok) return { ok: false, reason: decision.reason }
-
-  const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
-  if (!state.ok) return { ok: false, reason: state.reason }
-
-  const now = input.at ?? new Date().toISOString()
-  const next: AiCallBudgetRecord = {
-    chapter: input.chapter,
-    used: state.used + calls,
-    ...(state.record?.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
-    entries: [
-      ...(state.record?.entries ?? []),
-      {
-        step: input.step,
-        calls,
-        at: now,
-        ...(input.note ? { note: input.note } : {}),
-        ...(input.tokens !== undefined && Number.isFinite(input.tokens) ? { tokens: input.tokens } : {}),
-      },
-    ],
-    updated_at: now,
-  }
-  writeFileSync(aiCallBudgetPath(input.workDir), JSON.stringify(next, null, 2), 'utf-8')
-  return { ok: true, record: next }
 }
 
 /** 事后回填某一步最近一次调用的 token 真值；不增加 calls。 */
@@ -251,36 +261,38 @@ export function setAiCallTokens(input: {
   if (!Number.isSafeInteger(input.tokens) || input.tokens < 0) {
     return { ok: false, reason: `token 数必须是非负整数，当前为 ${String(input.tokens)}` }
   }
-  const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
-  if (!state.ok) return { ok: false, reason: state.reason }
-  if (!state.record) {
-    return { ok: false, reason: `第 ${input.chapter} ${unit}还没有调用记录，不能回填 token` }
-  }
-
-  let targetIndex = -1
-  for (let i = state.record.entries.length - 1; i >= 0; i--) {
-    if (state.record.entries[i]!.step === input.step) {
-      targetIndex = i
-      break
+  return withAiCallBudgetLock(input.workDir, () => {
+    const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
+    if (!state.ok) return { ok: false, reason: state.reason }
+    if (!state.record) {
+      return { ok: false, reason: `第 ${input.chapter} ${unit}还没有调用记录，不能回填 token` }
     }
-  }
-  if (targetIndex === -1) {
-    return { ok: false, reason: `第 ${input.chapter} ${unit}没有 ${input.step} 调用记录，不能回填 token` }
-  }
 
-  const now = input.at ?? new Date().toISOString()
-  const entries = state.record.entries.map((entry, index) =>
-    index === targetIndex ? { ...entry, tokens: input.tokens } : entry,
-  )
-  const next: AiCallBudgetRecord = {
-    chapter: input.chapter,
-    used: state.record.used,
-    ...(state.record.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
-    entries,
-    updated_at: now,
-  }
-  writeFileSync(aiCallBudgetPath(input.workDir), JSON.stringify(next, null, 2), 'utf-8')
-  return { ok: true, record: next }
+    let targetIndex = -1
+    for (let i = state.record.entries.length - 1; i >= 0; i--) {
+      if (state.record.entries[i]!.step === input.step) {
+        targetIndex = i
+        break
+      }
+    }
+    if (targetIndex === -1) {
+      return { ok: false, reason: `第 ${input.chapter} ${unit}没有 ${input.step} 调用记录，不能回填 token` }
+    }
+
+    const now = input.at ?? new Date().toISOString()
+    const entries = state.record.entries.map((entry, index) =>
+      index === targetIndex ? { ...entry, tokens: input.tokens } : entry,
+    )
+    const next: AiCallBudgetRecord = {
+      chapter: input.chapter,
+      used: state.record.used,
+      ...(state.record.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
+      entries,
+      updated_at: now,
+    }
+    writeAiCallBudget(input.workDir, next)
+    return { ok: true, record: next }
+  })
 }
 
 /** 设置本章临时上限；只影响当前工作区章节，不改 book.yaml 默认值。 */
@@ -290,28 +302,92 @@ export function setAiCallLimitOverride(
   config: BookConfig,
   limit: number,
 ): AiCallRecordResult {
-  const state = getAiCallBudgetState(workDir, chapter, config)
-  if (!state.ok) return { ok: false, reason: state.reason }
-  if (!Number.isSafeInteger(limit) || limit < state.used) {
-    return { ok: false, reason: `临时上限不能低于已调用次数 ${state.used}` }
-  }
+  return withAiCallBudgetLock(workDir, () => {
+    const state = getAiCallBudgetState(workDir, chapter, config)
+    if (!state.ok) return { ok: false, reason: state.reason }
+    if (!Number.isSafeInteger(limit) || limit < state.used) {
+      return { ok: false, reason: `临时上限不能低于已调用次数 ${state.used}` }
+    }
 
-  const now = new Date().toISOString()
-  const next: AiCallBudgetRecord = {
-    chapter,
-    used: state.used,
-    limit_override: limit,
-    entries: state.record?.entries ?? [],
-    updated_at: now,
-  }
-  writeFileSync(aiCallBudgetPath(workDir), JSON.stringify(next, null, 2), 'utf-8')
-  return { ok: true, record: next }
+    const now = new Date().toISOString()
+    const next: AiCallBudgetRecord = {
+      chapter,
+      used: state.used,
+      limit_override: limit,
+      entries: state.record?.entries ?? [],
+      updated_at: now,
+    }
+    writeAiCallBudget(workDir, next)
+    return { ok: true, record: next }
+  })
 }
 
 /** 定稿清空工作区时删除调用计数。 */
 export function clearAiCallBudget(workDir: string): void {
-  const fp = aiCallBudgetPath(workDir)
-  if (existsSync(fp)) unlinkSync(fp)
+  const result = withAiCallBudgetLock(workDir, () => {
+    const fp = aiCallBudgetPath(workDir)
+    if (existsSync(fp)) unlinkSync(fp)
+    return null
+  })
+  void result
+}
+
+function writeAiCallBudget(workDir: string, record: AiCallBudgetRecord): void {
+  const target = aiCallBudgetPath(workDir)
+  const tmp = join(workDir, `${CALL_BUDGET_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`)
+  writeFileSync(tmp, JSON.stringify(record, null, 2), 'utf-8')
+  renameSync(tmp, target)
+}
+
+function withAiCallBudgetLock<T>(workDir: string, fn: () => T): T | AiCallRecordResult {
+  const acquired = acquireAiCallBudgetLock(workDir)
+  if (!acquired.ok) return { ok: false, reason: acquired.reason }
+  try {
+    return fn()
+  } finally {
+    releaseAiCallBudgetLock(workDir)
+  }
+}
+
+function acquireAiCallBudgetLock(workDir: string): { ok: true } | { ok: false; reason: string } {
+  const lockDir = aiCallBudgetLockPath(workDir)
+  const deadline = Date.now() + CALL_BUDGET_LOCK_TIMEOUT_MS
+  while (Date.now() <= deadline) {
+    try {
+      mkdirSync(lockDir)
+      return { ok: true }
+    } catch (error) {
+      if (!isErrnoException(error) || error.code !== 'EEXIST') {
+        return { ok: false, reason: `调用计数加锁失败：${error instanceof Error ? error.message : String(error)}` }
+      }
+      clearStaleAiCallBudgetLock(lockDir)
+      sleepSync(20)
+    }
+  }
+  return { ok: false, reason: '调用计数文件正被其他进程写入，请稍后重试' }
+}
+
+function releaseAiCallBudgetLock(workDir: string): void {
+  rmSync(aiCallBudgetLockPath(workDir), { recursive: true, force: true })
+}
+
+function clearStaleAiCallBudgetLock(lockDir: string): void {
+  try {
+    const ageMs = Date.now() - statSync(lockDir).mtimeMs
+    if (ageMs > CALL_BUDGET_LOCK_STALE_MS) rmSync(lockDir, { recursive: true, force: true })
+  } catch {
+    // The lock may have been released between mkdir attempts.
+  }
+}
+
+function sleepSync(ms: number): void {
+  const buffer = new SharedArrayBuffer(4)
+  const view = new Int32Array(buffer)
+  Atomics.wait(view, 0, 0, ms)
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error
 }
 
 function normalizeRecord(raw: unknown): AiCallBudgetRecord {

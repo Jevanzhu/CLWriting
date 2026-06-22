@@ -1,6 +1,6 @@
 import { test, expect, vi } from 'vitest'
 import { execSync } from 'node:child_process'
-import { mkdtempSync, rmSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, existsSync, readFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { recordCallCommand } from '../../src/cli/record-call.js'
@@ -147,6 +147,24 @@ test('record-call outline 后再 draft：累计 used 正确（预算闸续跑）
   const budget = readBudget(root)
   expect(budget.used).toBe(3) // 1 outline + 2 draft
   expect(budget.entries.map((e) => e.step)).toEqual(['outline', 'draft'])
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('record-call: 清理过期写锁后继续记账', () => {
+  const root = makeBook()
+  const lockDir = join(root, '工作区', '.ai-calls.lock')
+  mkdirSync(lockDir)
+  const old = new Date(Date.now() - 60_000)
+  utimesSync(lockDir, old, old)
+
+  const { out, exitCalled } = run(['1', '--step', 'outline'], root)
+
+  expect(exitCalled).toBe(false)
+  expect(out).toContain('outline')
+  expect(existsSync(lockDir)).toBe(false)
+  const budget = readBudget(root)
+  expect(budget.used).toBe(1)
+  expect(budget.entries).toHaveLength(1)
   rmSync(root, { recursive: true, force: true })
 })
 
