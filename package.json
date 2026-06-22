@@ -16,7 +16,10 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:web": "npm --prefix src/studio/web run build",
+    "build:all": "tsup && npm --prefix src/studio/web run build",
     "dev": "tsup --watch",
+    "dev:web": "npm --prefix src/studio/web run dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
