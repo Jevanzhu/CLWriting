@@ -118,6 +118,7 @@ node dist/cli.js --help
 
 ```yaml
 short:
+  profile: 悬疑反转
   word_min: 6000
   word_max: 16000
   body_part_threshold: 5
@@ -126,7 +127,7 @@ short:
   opening_env_chars: 220
 ```
 
-内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材；`health --report` 会基于已定稿短篇回灌阈值建议，`short.strict: true` 可把短篇专属黄项升为硬闸。
+内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile` 作为平台/栏目画像。`health --report` 会基于已定稿短篇输出平台画像、反转质量评分、短篇集策划视图、阈值回灌建议和预算校准建议；`short.strict: true` 可把短篇专属黄项升为硬闸。
 
 调用预算仍使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
 
@@ -158,7 +159,7 @@ auto 连写一批
 | 创作主链 | `finalize` | 前置闸通过后原子定稿并提交。 |
 | 编排回滚 | `auto` | 长篇/短篇连写一批，支持 `--resume`，坏章/坏篇自动隔离。 |
 | 编排回滚 | `revert` | 回到第 N 章 / 篇，备份后回滚并重建缓存。 |
-| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示情绪、反转、结构物件重复风险、阈值回灌和预算校准建议。 |
+| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示平台画像、反转评分、策划分布、重复风险、阈值回灌和预算校准建议。 |
 | 编排回滚 | `session-start` | 输出给宿主 AI 的有界开场上下文。 |
 | 书库管理 | `init` | 建工作目录和第一本书，支持 `--kind short`。 |
 | 书库管理 | `use` / `list` / `repair` | 换书、列书、自愈登记。 |

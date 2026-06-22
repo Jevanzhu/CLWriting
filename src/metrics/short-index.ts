@@ -18,11 +18,23 @@ import type { MetricRecord } from './ledger.js'
 export interface ShortPieceIndexEntry {
   num: number
   title: string
+  wordCount: number
   targetEmotion: string
   coreReversal: string
   reversalType: string
   structureObjects: string[]
   endingFlavor: string
+  reversalQuality: ShortReversalQuality
+}
+
+export interface ShortReversalQuality {
+  score: number
+  grade: '弱' | '中' | '强'
+  setupCount: number
+  payoffClosed: number
+  payoffOpen: number
+  peakStrength: number | null
+  issues: string[]
 }
 
 export interface ShortCollectionRisk {
@@ -35,7 +47,33 @@ export interface ShortCollectionRisk {
 export interface ShortCollectionReport {
   count: number
   entries: ShortPieceIndexEntry[]
+  platform: ShortPlatformProfileReport
+  planning: ShortPlanningView
   risks: ShortCollectionRisk[]
+}
+
+export interface ShortPlatformProfileReport {
+  profile: string
+  wordMin: number
+  wordMax: number
+  hookWindow: number
+  emphasis: string
+  avgWords: number
+  weakReversals: number
+  notes: string[]
+}
+
+export interface ShortPlanningView {
+  emotions: DistributionItem[]
+  reversalTypes: DistributionItem[]
+  endingFlavors: DistributionItem[]
+  structureObjects: DistributionItem[]
+}
+
+export interface DistributionItem {
+  value: string
+  count: number
+  pieces: number[]
 }
 
 export interface ShortCalibrationSample {
@@ -59,6 +97,7 @@ export interface ShortCalibrationReport {
 
 export interface ShortBudgetCalibrationReport {
   count: number
+  usableCount: number
   currentLimit: number
   avgCalls: number
   p80Calls: number
@@ -70,6 +109,7 @@ export interface ShortBudgetCalibrationReport {
 }
 
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
+  profile: '通用短篇',
   word_min: 8000,
   word_max: 20000,
   body_part_threshold: 5,
@@ -103,25 +143,34 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
 
     const piece = readPiece(bodyPath)
     if (!piece.ok) continue
+    const file = readFile(bodyPath)
     const list = readListIfExists(join(dir, '清单.md'))
     const coreReversal = firstReal(piece.piece.核心反转, list?.反转线索表.核心反转)
     entries.push({
       num: piece.piece.篇号,
       title: piece.piece.标题,
+      wordCount: file.ok ? countWords(file.body) : 0,
       targetEmotion: cleanValue(piece.piece.目标情绪),
       coreReversal,
       reversalType: classifyReversal(coreReversal),
       structureObjects: collectStructureObjects(list),
       endingFlavor: endingFlavorOf(list),
+      reversalQuality: scoreReversalQuality(coreReversal, list),
     })
   }
   return entries.sort((a, b) => a.num - b.num)
 }
 
-export function analyzeShortCollection(entries: ShortPieceIndexEntry[]): ShortCollectionReport {
+export function analyzeShortCollection(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+): ShortCollectionReport {
+  const config = { ...DEFAULT_SHORT_CONFIG, ...shortConfig }
   return {
     count: entries.length,
     entries,
+    platform: analyzePlatformProfile(entries, config),
+    planning: analyzePlanningView(entries),
     risks: [
       ...recentRepeatRisks(entries, 'targetEmotion', '目标情绪'),
       ...recentRepeatRisks(entries, 'reversalType', '反转类型'),
@@ -138,6 +187,15 @@ export function formatShortCollectionReport(report: ShortCollectionReport): stri
   lines.push('短篇集节奏体检')
   lines.push('─'.repeat(48))
   lines.push(`  已定稿 ${report.count} 篇；索引维度：目标情绪 / 反转类型 / 结构物件 / 结尾味道`)
+  lines.push(`  短篇平台画像：${report.platform.profile}（建议 ${report.platform.wordMin}–${report.platform.wordMax} 字，开头窗口 ${report.platform.hookWindow} 字）`)
+  lines.push(`  画像重点：${report.platform.emphasis}`)
+  for (const note of report.platform.notes.slice(0, 2)) lines.push(`  · ${note}`)
+  lines.push(`  短篇集策划视图：情绪 ${formatDistribution(report.planning.emotions)}；反转 ${formatDistribution(report.planning.reversalTypes)}`)
+  lines.push(`  结尾味道 ${formatDistribution(report.planning.endingFlavors)}；结构物件 ${formatDistribution(report.planning.structureObjects)}`)
+  lines.push(`  反转质量评分：平均 ${avg(report.entries.map((entry) => entry.reversalQuality.score)).toFixed(0)}；弱项 ${report.platform.weakReversals} 篇`)
+  for (const entry of report.entries.filter((e) => e.reversalQuality.grade === '弱').slice(0, 3)) {
+    lines.push(`  · 第 ${entry.num} 篇「${entry.title}」${entry.reversalQuality.score} 分：${entry.reversalQuality.issues.slice(0, 2).join('；')}`)
+  }
   if (report.risks.length === 0) {
     lines.push('  ✓ 暂未发现明显重复风险')
   } else {
@@ -257,23 +315,25 @@ export function analyzeShortBudgetCalibration(
   const shortRecords = records
     .filter((r) => r.kind === 'short')
     .sort((a, b) => a.num - b.num)
-  const totals = shortRecords.map((r) => r.calls.total).sort((a, b) => a - b)
+  const completeRecords = shortRecords.filter(hasCompleteAccounting)
+  const totals = completeRecords.map((r) => r.calls.total).sort((a, b) => a - b)
   const avgCalls = avg(totals)
   const p80Calls = percentile(totals, 0.8)
   const p90Calls = percentile(totals, 0.9)
-  const recommendedLimit = totals.length === 0
+  const recommendedLimit = totals.length < 3
     ? currentLimit
     : clamp(Math.max(3, Math.ceil(p90Calls) + 1), 3, 20)
   return {
     count: shortRecords.length,
+    usableCount: completeRecords.length,
     currentLimit,
     avgCalls,
     p80Calls,
     p90Calls,
     recommendedLimit,
-    overLimit: shortRecords.filter((r) => r.calls.total > r.calls.limit).length,
-    nearLimit: shortRecords.filter((r) => r.calls.limit > 0 && r.calls.total >= r.calls.limit * 0.8).length,
-    missingAccounting: shortRecords.filter((r) => r.calls.total === 0 || r.calls.outline === 0 || r.calls.draft === 0 || (r.review !== null && r.calls.review === 0)).length,
+    overLimit: completeRecords.filter((r) => r.calls.total > r.calls.limit).length,
+    nearLimit: completeRecords.filter((r) => r.calls.limit > 0 && r.calls.total >= r.calls.limit * 0.8).length,
+    missingAccounting: shortRecords.length - completeRecords.length,
   }
 }
 
@@ -282,8 +342,12 @@ export function formatShortBudgetCalibrationReport(report: ShortBudgetCalibratio
   const lines: string[] = []
   lines.push('短篇预算校准建议')
   lines.push('─'.repeat(48))
-  lines.push(`  样本 ${report.count} 篇：平均 ${report.avgCalls.toFixed(1)} 次/篇，P80 ${report.p80Calls.toFixed(1)}，P90 ${report.p90Calls.toFixed(1)}`)
-  lines.push(`  当前 calls_per_chapter ${report.currentLimit}；建议候选 ${report.recommendedLimit}`)
+  lines.push(`  样本 ${report.count} 篇（完整记账 ${report.usableCount} 篇）：平均 ${report.avgCalls.toFixed(1)} 次/篇，P80 ${report.p80Calls.toFixed(1)}，P90 ${report.p90Calls.toFixed(1)}`)
+  if (report.usableCount < 3) {
+    lines.push(`  当前 calls_per_chapter ${report.currentLimit}；完整样本不足，暂不输出候选`)
+  } else {
+    lines.push(`  当前 calls_per_chapter ${report.currentLimit}；建议候选 ${report.recommendedLimit}`)
+  }
   if (report.overLimit > 0 || report.nearLimit > 0) {
     lines.push(`  · ${report.overLimit} 篇超限，${report.nearLimit} 篇接近上限；建议调高或降低 best-of-N/审查档位。`)
   } else {
@@ -294,6 +358,14 @@ export function formatShortBudgetCalibrationReport(report: ShortBudgetCalibratio
   }
   lines.push('')
   return lines.join('\n')
+}
+
+function hasCompleteAccounting(record: MetricRecord): boolean {
+  if (record.calls.total <= 0) return false
+  if (record.calls.outline <= 0) return false
+  if (record.calls.draft <= 0) return false
+  if (record.review !== null && record.calls.review <= 0) return false
+  return true
 }
 
 function readListIfExists(path: string): PieceList | null {
@@ -324,6 +396,125 @@ function endingFlavorOf(list: PieceList | null): string {
   const curve = list?.情绪曲线 ?? []
   const last = [...curve].reverse().find((p) => !isPlaceholder(p.情绪))
   return cleanValue(last?.情绪)
+}
+
+function scoreReversalQuality(coreReversal: string, list: PieceList | null): ShortReversalQuality {
+  const issues: string[] = []
+  const setups = list?.反转线索表.铺垫点 ?? []
+  const realSetups = setups.filter((p) => !isPlaceholder(p.内容))
+  const uniqueSetupCount = new Set(realSetups.map((p) => normalize(p.内容))).size
+  const payoffs = list?.伏笔回收 ?? []
+  const payoffOpen = payoffs.filter((p) => p.未回收 || isPlaceholder(p.回收位置)).length
+  const payoffClosed = payoffs.length - payoffOpen
+  const peakStrength = reversalPeakStrength(list)
+
+  let score = 0
+  if (isPlaceholder(coreReversal)) {
+    issues.push('核心反转未落成')
+  } else {
+    score += 30
+  }
+  score += Math.min(25, uniqueSetupCount * 8)
+  if (uniqueSetupCount < 3) issues.push(`有效铺垫点 ${uniqueSetupCount}/3，不足以支撑公平反转`)
+  if (payoffs.length === 0) {
+    score += 6
+    issues.push('伏笔回收为空，收尾闭合证据不足')
+  } else if (payoffOpen === 0) {
+    score += 20
+  } else {
+    score += Math.max(0, 20 - payoffOpen * 8)
+    issues.push(`${payoffOpen} 个伏笔未回收`)
+  }
+  if (peakStrength === null) {
+    score += 5
+    issues.push('情绪曲线缺少反转峰值')
+  } else if (peakStrength >= 8) {
+    score += 15
+  } else {
+    score += Math.max(0, peakStrength)
+    issues.push(`反转峰值 ${peakStrength}/10，爆点偏弱`)
+  }
+  if (uniqueSetupCount >= 3 && payoffOpen === 0 && !isPlaceholder(coreReversal)) score += 10
+  const finalScore = clamp(Math.round(score), 0, 100)
+  return {
+    score: finalScore,
+    grade: finalScore >= 80 ? '强' : finalScore >= 60 ? '中' : '弱',
+    setupCount: uniqueSetupCount,
+    payoffClosed,
+    payoffOpen,
+    peakStrength,
+    issues,
+  }
+}
+
+function reversalPeakStrength(list: PieceList | null): number | null {
+  const curve = list?.情绪曲线 ?? []
+  if (curve.length === 0) return null
+  const reversalPoint = curve.find((p) => /反转|真相|揭露|爆点/.test(p.段落))
+  if (reversalPoint) return reversalPoint.强度
+  return Math.max(...curve.map((p) => p.强度))
+}
+
+function analyzePlatformProfile(
+  entries: ShortPieceIndexEntry[],
+  config: NonNullable<BookConfig['short']>,
+): ShortPlatformProfileReport {
+  const profile = config.profile || '通用短篇'
+  const notes: string[] = []
+  const avgWords = avg(entries.map((entry) => entry.wordCount))
+  const weakReversals = entries.filter((entry) => entry.reversalQuality.grade === '弱').length
+  if (entries.length > 0 && avgWords > (config.word_max ?? 20000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆篇或压缩铺陈。`)
+  if (entries.length > 0 && avgWords < (config.word_min ?? 8000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 低于画像下限，反转前因后果可能偏薄。`)
+  if (weakReversals > 0) notes.push(`${weakReversals} 篇反转质量偏弱，优先补铺垫/回收/峰值。`)
+  if (notes.length === 0) notes.push('当前样本与画像约束基本贴合，可继续观察分布重复。')
+  return {
+    profile,
+    wordMin: config.word_min ?? 8000,
+    wordMax: config.word_max ?? 20000,
+    hookWindow: config.opening_env_chars ?? 300,
+    emphasis: profileEmphasis(profile),
+    avgWords,
+    weakReversals,
+    notes,
+  }
+}
+
+function profileEmphasis(profile: string): string {
+  if (/悬疑|怪谈|推理|惊悚/.test(profile)) return '强钩子、可回溯铺垫、结尾后怕'
+  if (/爽|打脸|复仇|逆袭/.test(profile)) return '快开局、连续爽点、反转后即时清算'
+  if (/情感|治愈|言情|余韵/.test(profile)) return '情绪递进、关系真相、余韵闭合'
+  if (/设定|科幻|奇观|玄幻|奇幻/.test(profile)) return '规则亮相、设定反转、物件闭环'
+  return '单篇闭环、一反转撑全篇、避免相邻篇同质'
+}
+
+function analyzePlanningView(entries: ShortPieceIndexEntry[]): ShortPlanningView {
+  return {
+    emotions: distribution(entries, (entry) => entry.targetEmotion),
+    reversalTypes: distribution(entries, (entry) => entry.reversalType),
+    endingFlavors: distribution(entries, (entry) => entry.endingFlavor),
+    structureObjects: distribution(
+      entries.flatMap((entry) => entry.structureObjects.map((object) => ({ ...entry, object }))),
+      (entry) => entry.object,
+    ),
+  }
+}
+
+function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) => string): DistributionItem[] {
+  const grouped = groupBy(items, (item) => normalize(valueOf(item)))
+  return [...grouped.entries()]
+    .map(([_, group]) => ({
+      value: cleanValue(valueOf(group[0]!)) || '未知',
+      count: group.length,
+      pieces: [...new Set(group.map((item) => item.num))],
+    }))
+    .filter((item) => item.value !== '未知')
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, 'zh-Hans'))
+    .slice(0, 5)
+}
+
+function formatDistribution(items: DistributionItem[]): string {
+  if (items.length === 0) return '暂无'
+  return items.slice(0, 3).map((item) => `${item.value}×${item.count}`).join(' / ')
 }
 
 function recentRepeatRisks(

@@ -138,6 +138,11 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const short = find('short')
   if (short) {
     const shortConfig: NonNullable<BookConfig['short']> = {}
+    const profile = short.children.find((c) => c.key === 'profile')
+    if (profile) {
+      const value = String(parseValue(profile.value)).trim()
+      if (value.length > 0) shortConfig.profile = value
+    }
     const strict = short.children.find((c) => c.key === 'strict')
     if (strict) shortConfig.strict = String(parseValue(strict.value)) === 'true'
     for (const key of [
@@ -270,6 +275,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 
   if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
     lines.push('', 'short:')
+    if (cfg.short.profile) lines.push(`  profile: ${stringifyValue(cfg.short.profile)}`)
     if (cfg.short.strict) lines.push('  strict: true')
     for (const key of [
       'word_min',

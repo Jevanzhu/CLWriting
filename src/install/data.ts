@@ -68,6 +68,7 @@ export function sanitizeLeadsEnabled(raw: string[]): LeadType[] {
 type ShortCheckConfig = NonNullable<BookConfig['short']>
 
 const DEFAULT_SHORT_CHECKS: ShortCheckConfig = {
+  profile: '通用短篇',
   word_min: 8000,
   word_max: 20000,
   body_part_threshold: 5,
@@ -83,6 +84,7 @@ const SHORT_CHECK_PRESETS: readonly {
   {
     keywords: ['悬疑', '推理', '怪谈', '惊悚', '恐怖', '无限流'],
     config: {
+      profile: '悬疑反转',
       word_min: 6000,
       word_max: 16000,
       body_part_threshold: 5,
@@ -94,6 +96,7 @@ const SHORT_CHECK_PRESETS: readonly {
   {
     keywords: ['爽文', '打脸', '反转', '复仇', '逆袭', '都市'],
     config: {
+      profile: '快节奏爽点',
       word_min: 5000,
       word_max: 14000,
       body_part_threshold: 4,
@@ -105,6 +108,7 @@ const SHORT_CHECK_PRESETS: readonly {
   {
     keywords: ['情感', '言情', '治愈', '婚恋', '家庭', '青春'],
     config: {
+      profile: '情感余韵',
       word_min: 6000,
       word_max: 18000,
       body_part_threshold: 6,
@@ -116,6 +120,7 @@ const SHORT_CHECK_PRESETS: readonly {
   {
     keywords: ['科幻', '奇幻', '玄幻', '仙侠', '修仙', '架空'],
     config: {
+      profile: '设定奇观',
       word_min: 8000,
       word_max: 22000,
       body_part_threshold: 5,

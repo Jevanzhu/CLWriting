@@ -211,6 +211,8 @@ export interface BookConfig {
   }
   /** 短篇集专属配置；长篇缺省忽略 */
   short?: {
+    /** 短篇平台/栏目画像；用于 health --report 给出集级策划提示 */
+    profile?: string
     strict?: boolean
     /** 短篇总字数下限；缺省 8000 */
     word_min?: number

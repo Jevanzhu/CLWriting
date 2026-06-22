@@ -87,6 +87,7 @@ test('init short: 按题材写入短篇机检推荐阈值', () => {
 
     const cfg = readBookConfig(join(r.bookRoot, 'book.yaml')).config
     expect(cfg.short).toEqual({
+      profile: '悬疑反转',
       word_min: 6000,
       word_max: 16000,
       body_part_threshold: 5,
@@ -97,6 +98,7 @@ test('init short: 按题材写入短篇机检推荐阈值', () => {
 
     const text = readFileSync(join(r.bookRoot, 'book.yaml'), 'utf-8')
     expect(text).toContain('short:')
+    expect(text).toContain('  profile: 悬疑反转')
     expect(text).toContain('  word_min: 6000')
     expect(text).toContain('  opening_env_chars: 220')
   } finally {
