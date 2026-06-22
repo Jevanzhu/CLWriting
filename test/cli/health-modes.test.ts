@@ -176,6 +176,8 @@ test('health --report short: 追加短篇集节奏体检与重复风险', () => 
   expect(out).toContain('反转质量评分')
   expect(out).toContain('最近 3 篇目标情绪都为「惊悚」')
   expect(out).toContain('结构物件/伏笔「门外没有脚印」重复出现')
+  expect(out).toContain('短篇质量趋势评分')
+  expect(out).toContain('短篇系列母题')
   expect(out).toContain('短篇阈值回灌建议')
   expect(out).toContain('短篇预算校准建议')
   rmSync(root, { recursive: true, force: true })

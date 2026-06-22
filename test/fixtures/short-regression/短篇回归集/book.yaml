@@ -1,0 +1,25 @@
+spec_version: 1
+kind: short
+
+book:
+  title: 短篇回归集
+  genre: 多题材短篇
+
+budget:
+  calls_per_chapter: 8
+
+style:
+  injection: light
+
+short:
+  profile: 多题材短篇回归
+  target_emotions: [惊悚, 爽感, 温暖, 后怕, 酸涩]
+  target_reversal_types: [死者反转, 真凶反转, 身份反转, 时间/记忆反转, 现实层反转]
+  target_ending_flavors: [后怕, 释然, 反噬, 余寒, 温暖]
+  series_motifs: [七号公寓, 红伞, 旧收音机]
+  word_min: 80
+  word_max: 2000
+  body_part_threshold: 8
+  simile_threshold: 8
+  section_count: 5
+  opening_env_chars: 220

@@ -105,6 +105,38 @@ export interface ShortSubmissionItem {
   pitch: string
 }
 
+export type ShortSubmissionPlatform = 'generic' | 'wechat' | 'zhihu-salt' | 'fanqie' | 'xiaohongshu'
+
+export interface ShortSubmissionTemplate {
+  platform: ShortSubmissionPlatform
+  label: string
+  titleStyle: string
+  introLength: string
+  sellingPoints: string[]
+}
+
+export interface ShortQualityTrendReport {
+  count: number
+  window: number
+  recentAvgScore: number
+  previousAvgScore: number | null
+  direction: '上升' | '下降' | '持平' | '样本不足'
+  recentWordMin: number
+  recentWordMax: number
+  recentEndingFlavor: DistributionItem | null
+  signals: string[]
+  notes: string[]
+}
+
+export interface ShortSeriesMotifReport {
+  count: number
+  declaredMotifs: string[]
+  observedMotifs: DistributionItem[]
+  underusedMotifs: string[]
+  repeatedMotifs: DistributionItem[]
+  notes: string[]
+}
+
 export interface ShortCalibrationSample {
   num: number
   title: string
@@ -137,6 +169,27 @@ export interface ShortBudgetCalibrationReport {
   missingAccounting: number
 }
 
+export interface ShortRepairPlanIssue {
+  reason: string
+  action: string
+}
+
+export interface ShortRepairPlanItem {
+  num: number
+  title: string
+  priority: '高' | '中' | '低'
+  score: number
+  reasons: string[]
+  actions: string[]
+}
+
+export interface ShortRepairPlanReport {
+  count: number
+  items: ShortRepairPlanItem[]
+  collectionActions: string[]
+  notes: string[]
+}
+
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
   profile: '通用短篇',
   target_emotions: ['惊悚', '爽感', '酸涩', '温暖'],
@@ -153,6 +206,44 @@ const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
 const BODY_PART_WORDS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
 const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
 const ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '乌云', '风声', '狂风', '雨声', '雨点', '景色', '远山', '树林', '街道', '建筑']
+
+const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTemplate> = {
+  generic: {
+    platform: 'generic',
+    label: '通用',
+    titleStyle: '保留作品原题，突出题材与核心反转',
+    introLength: '80-150 字',
+    sellingPoints: ['目标情绪', '核心反转', '结尾味道'],
+  },
+  wechat: {
+    platform: 'wechat',
+    label: '公众号',
+    titleStyle: '情绪钩 + 人物困境，少用平台黑话',
+    introLength: '100-180 字',
+    sellingPoints: ['开头钩子', '人物共情点', '转发讨论点'],
+  },
+  'zhihu-salt': {
+    platform: 'zhihu-salt',
+    label: '知乎盐选',
+    titleStyle: '第一人称困境或强问题句，悬念前置',
+    introLength: '120-200 字',
+    sellingPoints: ['强悬念', '信息差', '付费后反转'],
+  },
+  fanqie: {
+    platform: 'fanqie',
+    label: '番茄短故事',
+    titleStyle: '题材词 + 冲突关系 + 明确爽点',
+    introLength: '80-140 字',
+    sellingPoints: ['快节奏', '冲突升级', '即时清算'],
+  },
+  xiaohongshu: {
+    platform: 'xiaohongshu',
+    label: '小红书故事号',
+    titleStyle: '口语化爆点标题，适合截图传播',
+    introLength: '40-90 字',
+    sellingPoints: ['一句话钩子', '情绪标签', '评论区讨论点'],
+  },
+}
 
 /** 扫描短篇集索引。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
@@ -298,14 +389,20 @@ export function formatShortSubmissionView(
   entries: ShortPieceIndexEntry[],
   shortConfig: BookConfig['short'] | undefined = undefined,
   title = '短篇集',
+  platform: ShortSubmissionPlatform = 'generic',
 ): string {
   const report = analyzeShortCollection(entries, shortConfig)
   const items = entries.map(toSubmissionItem)
+  const template = SUBMISSION_TEMPLATES[platform] ?? SUBMISSION_TEMPLATES.generic
   const lines: string[] = []
-  lines.push(`# 投稿视图-${title}`)
+  lines.push(`# 投稿视图-${title}${platform === 'generic' ? '' : `-${template.label}`}`)
   lines.push('')
   lines.push(`- 平台画像：${report.platform.profile}`)
   lines.push(`- 画像重点：${report.platform.emphasis}`)
+  lines.push(`- 平台模板：${template.label}`)
+  lines.push(`- 标题风格：${template.titleStyle}`)
+  lines.push(`- 简介长度：${template.introLength}`)
+  lines.push(`- 卖点字段：${template.sellingPoints.join(' / ')}`)
   lines.push(`- 篇数：${items.length}`)
   lines.push('')
   lines.push('| 篇号 | 标题 | 字数 | 情绪 | 反转类型 | 结尾味道 | 一句卖点 |')
@@ -319,6 +416,127 @@ export function formatShortSubmissionView(
   lines.push(`- 反转：${formatDistribution(report.planning.reversalTypes)}`)
   lines.push(`- 结尾味道：${formatDistribution(report.planning.endingFlavors)}`)
   lines.push(`- 结构物件：${formatDistribution(report.planning.structureObjects)}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function analyzeShortQualityTrend(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+  window = 5,
+): ShortQualityTrendReport {
+  const config = { ...DEFAULT_SHORT_CONFIG, ...shortConfig }
+  const sorted = [...entries].sort((a, b) => a.num - b.num)
+  const size = Math.max(1, window)
+  const recent = sorted.slice(-size)
+  const previous = sorted.slice(Math.max(0, sorted.length - size * 2), Math.max(0, sorted.length - size))
+  const recentScores = recent.map((entry) => entry.reversalQuality.score)
+  const previousScores = previous.map((entry) => entry.reversalQuality.score)
+  const recentAvgScore = avg(recentScores)
+  const previousAvgScore = previous.length > 0 ? avg(previousScores) : null
+  const recentRisks = analyzeShortCollection(recent, config).risks
+  const ending = distribution(recent, (entry) => entry.endingFlavor)[0] ?? null
+  const wordCounts = recent.map((entry) => entry.wordCount).filter((n) => n > 0)
+  const outOfRange = recent.filter((entry) => (
+    entry.wordCount > 0
+    && (entry.wordCount < (config.word_min ?? 8000) || entry.wordCount > (config.word_max ?? 20000))
+  ))
+  const weakRecent = recent.filter((entry) => entry.reversalQuality.grade === '弱')
+  const signals: string[] = []
+  if (previousAvgScore !== null && recentAvgScore + 5 < previousAvgScore) {
+    signals.push(`最近 ${recent.length} 篇反转均分下降 ${Math.round(previousAvgScore - recentAvgScore)} 分`)
+  }
+  if (weakRecent.length > 0) signals.push(`最近窗口有 ${weakRecent.length} 篇弱反转`)
+  if (recentRisks.length > 0) signals.push(`最近窗口同质风险 ${recentRisks.length} 项`)
+  if (ending && ending.count >= Math.min(3, recent.length) && recent.length >= 3) {
+    signals.push(`结尾味道集中在「${ending.value}」`)
+  }
+  if (outOfRange.length > 0) signals.push(`${outOfRange.length} 篇字数超出画像范围`)
+
+  const notes: string[] = []
+  if (entries.length < size) notes.push(`样本 ${entries.length} 篇，小于趋势窗口 ${size}，只做提示不下判决。`)
+  if (signals.length === 0 && entries.length > 0) notes.push('最近窗口未见明显质量退化，可继续扩充样本。')
+  if (entries.length === 0) notes.push('暂无已定稿短篇，趋势评分待样本生成。')
+
+  return {
+    count: entries.length,
+    window: size,
+    recentAvgScore,
+    previousAvgScore,
+    direction: trendDirection(recentAvgScore, previousAvgScore),
+    recentWordMin: wordCounts.length > 0 ? Math.min(...wordCounts) : 0,
+    recentWordMax: wordCounts.length > 0 ? Math.max(...wordCounts) : 0,
+    recentEndingFlavor: ending,
+    signals,
+    notes,
+  }
+}
+
+export function formatShortQualityTrend(report: ShortQualityTrendReport): string {
+  if (report.count === 0) return ''
+  const lines: string[] = []
+  lines.push('短篇质量趋势评分')
+  lines.push('─'.repeat(48))
+  lines.push(`  样本 ${report.count} 篇；窗口 ${report.window} 篇；最近反转均分 ${report.recentAvgScore.toFixed(0)}（${report.direction}）`)
+  if (report.previousAvgScore !== null) lines.push(`  上一窗口均分 ${report.previousAvgScore.toFixed(0)}`)
+  if (report.recentWordMin > 0) lines.push(`  最近窗口字数范围 ${report.recentWordMin}–${report.recentWordMax}`)
+  if (report.recentEndingFlavor) lines.push(`  最近结尾味道：${report.recentEndingFlavor.value}×${report.recentEndingFlavor.count}`)
+  if (report.signals.length === 0) {
+    lines.push('  ✓ 暂未发现明显趋势退化')
+  } else {
+    for (const signal of report.signals.slice(0, 5)) lines.push(`  · ${signal}`)
+  }
+  for (const note of report.notes.slice(0, 3)) lines.push(`  · ${note}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function analyzeShortSeriesMotifs(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+): ShortSeriesMotifReport {
+  const declaredMotifs = (shortConfig?.series_motifs ?? []).map((motif) => motif.trim()).filter(Boolean)
+  const observedMotifs = distribution(
+    entries.flatMap((entry) => entry.structureObjects.map((motif) => ({ ...entry, motif }))),
+    (entry) => entry.motif,
+  )
+  const observedKeys = new Set(observedMotifs.map((item) => normalize(item.value)))
+  const underusedMotifs = declaredMotifs.filter((motif) => !observedKeys.has(normalize(motif)))
+  const repeatedMotifs = observedMotifs.filter((item) => item.count >= 2)
+  const notes: string[] = []
+  if (declaredMotifs.length === 0) {
+    notes.push('未声明 series_motifs；可在 book.yaml short 中列共享地点、传说或物件。')
+  }
+  if (declaredMotifs.length > 0 && underusedMotifs.length === 0) {
+    notes.push('声明母题均已在定稿短篇中出现。')
+  }
+  if (repeatedMotifs.length > 0) {
+    notes.push('重复母题只做系列化提示，不等同于短篇账本。')
+  }
+  return {
+    count: entries.length,
+    declaredMotifs,
+    observedMotifs,
+    underusedMotifs,
+    repeatedMotifs,
+    notes,
+  }
+}
+
+export function formatShortSeriesMotifs(report: ShortSeriesMotifReport): string {
+  if (report.count === 0 && report.declaredMotifs.length === 0) return ''
+  const lines: string[] = []
+  lines.push('短篇系列母题')
+  lines.push('─'.repeat(48))
+  lines.push(`  声明母题：${report.declaredMotifs.length > 0 ? report.declaredMotifs.join(' / ') : '暂无'}`)
+  lines.push(`  观察母题：${formatDistribution(report.observedMotifs)}`)
+  if (report.underusedMotifs.length > 0) {
+    lines.push(`  未使用：${report.underusedMotifs.slice(0, 5).join(' / ')}`)
+  }
+  if (report.repeatedMotifs.length > 0) {
+    lines.push(`  可系列化：${report.repeatedMotifs.slice(0, 5).map((item) => `${item.value}（篇 ${item.pieces.join('、')}）`).join('；')}`)
+  }
+  for (const note of report.notes.slice(0, 3)) lines.push(`  · ${note}`)
   lines.push('')
   return lines.join('\n')
 }
@@ -475,12 +693,173 @@ export function formatShortBudgetCalibrationReport(report: ShortBudgetCalibratio
   return lines.join('\n')
 }
 
+export function analyzeShortRepairPlan(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+  records: MetricRecord[] = [],
+): ShortRepairPlanReport {
+  const config = { ...DEFAULT_SHORT_CONFIG, ...shortConfig }
+  const collection = analyzeShortCollection(entries, config)
+  const metricByNum = new Map(records.filter((r) => r.kind === 'short').map((r) => [r.num, r]))
+  const items = entries
+    .map((entry) => buildRepairPlanItem(entry, collection.risks, metricByNum.get(entry.num), config))
+    .filter((item): item is ShortRepairPlanItem => item !== null)
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.score - b.score || a.num - b.num)
+
+  const collectionActions = collection.risks
+    .slice(0, 5)
+    .map((risk) => `${risk.message}：${riskAction(risk.field)}`)
+
+  const notes: string[] = []
+  if (collection.platform.targetGaps.length > 0) {
+    notes.push(`后续新稿优先补画像缺口：${collection.platform.targetGaps.slice(0, 3).join('、')}`)
+  }
+  if (collection.platform.weakReversals > 0) {
+    notes.push(`${collection.platform.weakReversals} 篇反转质量偏弱，先修高优先级篇，再开新篇。`)
+  }
+  if (entries.length > 0 && items.length === 0) {
+    notes.push('当前短篇集未发现明确返修项，可继续扩充真实样本回归集。')
+  }
+
+  return { count: entries.length, items, collectionActions, notes }
+}
+
+export function formatShortRepairPlan(report: ShortRepairPlanReport): string {
+  if (report.count === 0) {
+    return '短篇重修计划\n────────────────────────────────────────────────\n  尚无已定稿短篇。先完成定稿，再从 health --report 进入重修。\n\n'
+  }
+
+  const lines: string[] = []
+  lines.push('短篇重修计划')
+  lines.push('─'.repeat(48))
+  lines.push(`  样本 ${report.count} 篇；重修候选 ${report.items.length} 篇`)
+  if (report.items.length === 0) {
+    lines.push('  ✓ 暂无明确重修项')
+  } else {
+    for (const item of report.items.slice(0, 8)) {
+      lines.push(`  【${item.priority}】第 ${item.num} 篇「${item.title}」 · 反转 ${item.score} 分`)
+      lines.push(`    弱项：${item.reasons.slice(0, 4).join('；')}`)
+      lines.push(`    动作：${item.actions.slice(0, 4).join('；')}`)
+    }
+  }
+  if (report.collectionActions.length > 0) {
+    lines.push('  集级动作：')
+    for (const action of report.collectionActions.slice(0, 4)) lines.push(`  · ${action}`)
+  }
+  for (const note of report.notes.slice(0, 3)) lines.push(`  · ${note}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
 function hasCompleteAccounting(record: MetricRecord): boolean {
   if (record.calls.total <= 0) return false
   if (record.calls.outline <= 0) return false
   if (record.calls.draft <= 0) return false
   if (record.review !== null && record.calls.review <= 0) return false
   return true
+}
+
+function buildRepairPlanItem(
+  entry: ShortPieceIndexEntry,
+  risks: ShortCollectionRisk[],
+  record: MetricRecord | undefined,
+  config: NonNullable<BookConfig['short']>,
+): ShortRepairPlanItem | null {
+  const issues: ShortRepairPlanIssue[] = []
+  for (const issue of entry.reversalQuality.issues) {
+    issues.push({ reason: issue, action: actionForReversalIssue(issue) })
+  }
+  if (entry.wordCount > 0 && entry.wordCount < (config.word_min ?? 8000)) {
+    issues.push({
+      reason: `字数 ${entry.wordCount} 低于画像下限 ${config.word_min ?? 8000}`,
+      action: '补足反转前因、人物动机和结尾回味，不只加描写字数',
+    })
+  }
+  if (entry.wordCount > (config.word_max ?? 20000)) {
+    issues.push({
+      reason: `字数 ${entry.wordCount} 超过画像上限 ${config.word_max ?? 20000}`,
+      action: '压缩重复铺陈，必要时拆成两篇独立闭环',
+    })
+  }
+
+  for (const risk of risks.filter((r) => r.pieces.includes(entry.num)).slice(0, 3)) {
+    issues.push({ reason: risk.message, action: riskAction(risk.field) })
+  }
+
+  if (record) {
+    if (record.review === null) {
+      issues.push({ reason: '缺少三审指标', action: '补跑 review run/collect，再看阻断项是否仍存在' })
+    } else {
+      if (record.review.blockers > 0) {
+        issues.push({ reason: `三审阻断项 ${record.review.blockers} 个`, action: '先逐条消除阻断项，再重跑 review collect' })
+      }
+      if (record.review.downgrade) {
+        issues.push({
+          reason: `审查降级：${record.review.downgrade_reason ?? '未记录原因'}`,
+          action: '补齐缺失审查视角，避免用降级结论直接定稿',
+        })
+      }
+      if (record.review.warnings >= 3) {
+        issues.push({ reason: `三审警告 ${record.review.warnings} 个`, action: '集中处理重复出现的黄项，再做一次轻量复审' })
+      }
+    }
+    if (record.calls.total > record.calls.limit) {
+      issues.push({ reason: `AI 调用 ${record.calls.total}/${record.calls.limit} 超预算`, action: '复盘 outline/draft/review 哪一步返工最多，收窄下一轮改稿范围' })
+    }
+  }
+
+  const uniqueIssues = dedupeIssues(issues)
+  if (uniqueIssues.length === 0) return null
+  const priority = entry.reversalQuality.grade === '弱' || uniqueIssues.some((i) => /阻断|降级|核心反转/.test(i.reason))
+    ? '高'
+    : entry.reversalQuality.grade === '中' || uniqueIssues.length >= 2
+      ? '中'
+      : '低'
+  return {
+    num: entry.num,
+    title: entry.title,
+    priority,
+    score: entry.reversalQuality.score,
+    reasons: uniqueIssues.map((i) => i.reason),
+    actions: uniqueIssues.map((i) => i.action),
+  }
+}
+
+function dedupeIssues(issues: ShortRepairPlanIssue[]): ShortRepairPlanIssue[] {
+  const seen = new Set<string>()
+  const out: ShortRepairPlanIssue[] = []
+  for (const issue of issues) {
+    const key = `${issue.reason}\n${issue.action}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(issue)
+  }
+  return out
+}
+
+function actionForReversalIssue(issue: string): string {
+  if (issue.includes('核心反转')) return '先重写一句核心反转，让真相、误导对象和情绪落点都可验证'
+  if (issue.includes('有效铺垫点')) return '补足至少 3 个可回溯铺垫，分别放在开头、升级和反转前'
+  if (issue.includes('正文锚点')) return '给铺垫位置补正文 ## 段落锚点，让清单能回指具体段落'
+  if (issue.includes('未回收')) return '把未回收伏笔改成明确回收位置，或从清单删除无效伏笔'
+  if (issue.includes('回收条目')) return '让回收条目复用铺垫关键词，避免伏笔链路松散'
+  if (issue.includes('反转峰值') || issue.includes('情绪曲线')) return '重写反转段情绪曲线，把爆点强度推到 8/10 以上'
+  if (issue.includes('伏笔回收为空')) return '新增伏笔回收表，至少闭合一个关键物件或一句误导'
+  return '按该弱项重写清单，再同步修改正文对应段落'
+}
+
+function riskAction(field: ShortCollectionRisk['field']): string {
+  if (field === 'targetEmotion') return '换一篇的目标情绪或追加反向情绪，让相邻篇读感错开'
+  if (field === 'reversalType') return '改其中一篇的反转机制，避免连续使用同一种真相揭露'
+  if (field === 'endingFlavor') return '重写结尾余味，至少让一篇从后怕/释然/遗憾中换档'
+  if (field === 'coreReversal') return '保留题材外壳，替换真相主体或误导视角'
+  return '替换重复结构物件，给新物件绑定铺垫和回收'
+}
+
+function priorityRank(priority: ShortRepairPlanItem['priority']): number {
+  if (priority === '高') return 0
+  if (priority === '中') return 1
+  return 2
 }
 
 function readListIfExists(path: string): PieceList | null {
@@ -894,4 +1273,11 @@ function confidenceLabel(confidence: ShortCalibrationReport['confidence']): stri
   if (confidence === 'high') return '高'
   if (confidence === 'medium') return '中'
   return '低'
+}
+
+function trendDirection(recent: number, previous: number | null): ShortQualityTrendReport['direction'] {
+  if (previous === null) return '样本不足'
+  if (recent >= previous + 5) return '上升'
+  if (recent + 5 < previous) return '下降'
+  return '持平'
 }

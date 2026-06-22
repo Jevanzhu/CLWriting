@@ -17,15 +17,22 @@ import { readChapterDir } from '../format/chapters.js'
 import { readPieceDir } from '../format/pieces.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
-import { formatShortSubmissionView, scanShortCollection } from '../metrics/short-index.js'
+import {
+  formatShortSubmissionView,
+  scanShortCollection,
+  type ShortSubmissionPlatform,
+} from '../metrics/short-index.js'
 
 export type ExportFormat = 'merged' | 'split' | 'both'
+export type ExportPlatform = ShortSubmissionPlatform
 
 export interface ExportOptions {
   /** 书仓库根 */
   bookRoot: string
   /** 导出形态（默认 both） */
   format?: ExportFormat
+  /** 短篇投稿视图模板（长篇忽略） */
+  platform?: ExportPlatform
 }
 
 export interface ExportResult {
@@ -50,7 +57,7 @@ interface ExportUnit {
  * 导出定稿正文（多形态 + 净化）。
  */
 export function exportBook(options: ExportOptions): ExportResult {
-  const { bookRoot, format = 'both' } = options
+  const { bookRoot, format = 'both', platform = 'generic' } = options
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const unitLabel = kind === 'short' ? '篇' : '章'
@@ -126,7 +133,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     const entries = scanShortCollection(bookRoot)
     writeFileSync(
       join(exportDir, submissionName),
-      formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle),
+      formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),
       'utf-8',
     )
     files.push(`工作区/导出/${submissionName}`)

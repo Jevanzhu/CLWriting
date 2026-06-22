@@ -38,9 +38,13 @@ import {
   analyzeShortBudgetCalibration,
   analyzeShortCalibration,
   analyzeShortCollection,
+  analyzeShortQualityTrend,
+  analyzeShortSeriesMotifs,
   formatShortBudgetCalibrationReport,
   formatShortCalibrationReport,
   formatShortCollectionReport,
+  formatShortQualityTrend,
+  formatShortSeriesMotifs,
   scanShortCalibrationSamples,
   scanShortCollection,
 } from '../metrics/short-index.js'
@@ -170,8 +174,11 @@ function runFullReport(bookRoot: string, last: number | undefined): void {
   process.stdout.write(formatMetricsReport(report))
   if (kind === 'short') {
     const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-    const collection = analyzeShortCollection(recentShortEntries(scanShortCollection(bookRoot), last), config.short)
+    const shortEntries = recentShortEntries(scanShortCollection(bookRoot), last)
+    const collection = analyzeShortCollection(shortEntries, config.short)
     process.stdout.write(formatShortCollectionReport(collection))
+    process.stdout.write(formatShortQualityTrend(analyzeShortQualityTrend(shortEntries, config.short)))
+    process.stdout.write(formatShortSeriesMotifs(analyzeShortSeriesMotifs(shortEntries, config.short)))
     const calibration = analyzeShortCalibration(
       recentShortEntries(scanShortCalibrationSamples(bookRoot, config.short?.opening_env_chars), last),
       config.short,
@@ -227,7 +234,7 @@ function printHealthHelp(): void {
   console.log('  --style           文风重扫报告 + 基线对照')
   console.log('  --style --freeze  冻结文风基线（文风/基线.json）')
   console.log('  --report          三维综合（文风重扫 + 成本/审查读账）')
-  console.log('                    短篇集会追加画像、反转评分、策划视图、阈值回灌/预算校准建议')
+  console.log('                    短篇集追加画像、反转评分、趋势、系列母题、阈值回灌/预算建议')
   console.log('  --last=N          只看近 N 章/篇')
 }
 

@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-557%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-603%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/runtime%20deps-0-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -122,6 +122,7 @@ short:
   target_emotions: [惊悚, 后怕, 震惊, 不安]
   target_reversal_types: [死者反转, 真凶反转, 身份反转, 时间/记忆反转]
   target_ending_flavors: [后怕, 反噬, 余寒, 真相落地]
+  series_motifs: [七号公寓, 红伞, 旧收音机]
   word_min: 6000
   word_max: 16000
   body_part_threshold: 5
@@ -130,7 +131,7 @@ short:
   opening_env_chars: 220
 ```
 
-内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile` 与目标分布作为平台/栏目画像。`enter` 起草新篇时会生成 `工作区/策划导航.md`，提示本篇避开项、补位项和清单底线；`health --report` 会基于已定稿短篇输出平台画像、反转质量评分、短篇集策划视图、阈值回灌建议和预算校准建议；`short.strict: true` 可把短篇专属黄项升为硬闸。
+内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile` 与目标分布作为平台/栏目画像。`enter` 起草新篇时会生成 `工作区/策划导航.md`，提示本篇避开项、补位项和清单底线；`health --report` 会基于已定稿短篇输出平台画像、反转质量评分、质量趋势、轻量系列母题、阈值回灌建议和预算校准建议；`repair-plan` 会把弱项转成重修动作；`short.strict: true` 可把短篇专属黄项升为硬闸。
 
 调用预算仍使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
 
@@ -162,7 +163,8 @@ auto 连写一批
 | 创作主链 | `finalize` | 前置闸通过后原子定稿并提交。 |
 | 编排回滚 | `auto` | 长篇/短篇连写一批，支持 `--resume`，坏章/坏篇自动隔离。 |
 | 编排回滚 | `revert` | 回到第 N 章 / 篇，备份后回滚并重建缓存。 |
-| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示平台画像、反转评分、策划分布、重复风险、阈值回灌和预算校准建议。 |
+| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示平台画像、反转评分、质量趋势、系列母题、策划分布、重复风险、阈值回灌和预算校准建议。 |
+| 编排回滚 | `repair-plan` | 短篇重修计划，把反转弱项、清单缺口、审查指标和集级重复风险转成改稿动作。 |
 | 编排回滚 | `session-start` | 输出给宿主 AI 的有界开场上下文。 |
 | 书库管理 | `init` | 建工作目录和第一本书，支持 `--kind short`。 |
 | 书库管理 | `use` / `list` / `repair` | 换书、列书、自愈登记。 |
@@ -171,7 +173,7 @@ auto 连写一批
 | 知识插件 | `knowledge` | 知识层素材速查与 manifest 校验。 |
 | 知识插件 | `learn` | 文风样章与金句收割入库。 |
 | 知识插件 | `enable-rag` | 启用 RAG 可选插件。 |
-| 数据流转 | `export` / `import` | 定稿导出（长篇全本 / 短篇全篇集；短篇附投稿视图）/ v0.2 正文导入。 |
+| 数据流转 | `export` / `import` | 定稿导出（长篇全本 / 短篇全篇集；短篇附投稿视图，支持 `--platform` 投稿模板）/ v0.2 正文导入。 |
 
 ---
 
@@ -208,10 +210,10 @@ auto 连写一批
 | M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入、题材阈值推荐和样本回灌报告。 |
 | Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
 
-- **73 个测试文件 / 592 个测试全绿**，`tsc --noEmit` 通过，构建通过；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
+- **75 个测试文件 / 603 个测试全绿**，`tsc --noEmit` 通过，构建通过；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
-- 当前 RC 基线：50 章规模验证已完成并回收 D9/E1 修复；`health --metrics` 已接入宿主漏记软提示与预算校准提示，短篇 `health --report` 已追加阈值回灌与每篇预算候选，auto 待定稿记账链路已回归覆盖，`record-call --set-tokens` 已支持 token 真值事后回填；v0.2 实书迁移验证因当前无待迁移数据标记为 N/A。
+- 当前 RC 基线：50 章规模验证已完成并回收 D9/E1 修复；`health --metrics` 已接入宿主漏记软提示与预算校准提示，短篇 `health --report` 已追加阈值回灌、每篇预算候选、质量趋势和系列母题；`repair-plan` 已接入短篇重修建议；auto 待定稿记账链路已回归覆盖，`record-call --set-tokens` 已支持 token 真值事后回填；v0.2 实书迁移验证因当前无待迁移数据标记为 N/A。
 - RC 能力边界：`auto` 已支持长篇批量连写与短篇集批量连写；AI 产出仍由宿主在编排接缝提供，脚本负责待定稿、批量审稿、逐章/逐篇定稿与回滚。
 
 ---
