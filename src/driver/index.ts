@@ -5,6 +5,7 @@
  */
 import type { Session, StudioDriver } from './types.js'
 import { mockDriver } from './mock.js'
+import { ccDriver } from './cc.js'
 
 export type {
   Session,
@@ -17,9 +18,9 @@ export type {
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()
 
-/** 取 driver(批1 固定 mock;批2 按 host 选 cc / mock) */
-export function getDriver(_host: string): StudioDriver {
-  return mockDriver
+/** 取 driver:host='mock' → mock(开发/debug);其余 → cc(真 claude CLI) */
+export function getDriver(host: string): StudioDriver {
+  return host === 'mock' ? mockDriver : ccDriver
 }
 
 /** 取 / 建某书的 session(已存在且未关则复用) */
