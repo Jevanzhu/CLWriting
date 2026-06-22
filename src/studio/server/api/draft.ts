@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 
@@ -42,6 +42,42 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     }
     reply(res, 200, { ok: true, path: relPath, words: content.length })
   })
+
+  // 组 draft prompt(读细纲+备料,方案 6.6)——前端 draftWrite 拉取后 POST /spawn
+  route('GET', '/api/books/:name/draft-prompt', (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    const chapter = Number(url.searchParams.get('chapter') ?? '1')
+    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
+    const bookRoot = join(ctx.workDir, entry.path)
+    reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter) })
+  })
+}
+
+/** 组 draft prompt:细纲 + 备料 + 要求(方案 6.6:draft prompt = 细纲.md + 本章写作材料.md) */
+function buildDraftPrompt(bookRoot: string, chapter: number): string {
+  const parts: string[] = [
+    `## 任务\n按细纲与备料写第 ${chapter} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。`,
+  ]
+  const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
+  if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
+  const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
+  if (materials) parts.push(`## 备料\n${materials}`)
+  parts.push(
+    `## 要求\n按你的角色规则直接输出正文(纯文本,禁 MD 标题/格式,仅段落+空行),不要读文件、不要用任何工具。`,
+  )
+  return parts.join('\n\n')
+}
+
+function readSafe(fp: string): string {
+  if (!existsSync(fp)) return ''
+  try {
+    return readFileSync(fp, 'utf8')
+  } catch {
+    return ''
+  }
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

@@ -56,10 +56,10 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 
     const content = text.trim()
     const outlineDir = join(bookRoot, '工作区')
-    const relPath = `工作区/细纲-${chapter}.md`
+    const relPath = `工作区/细纲.md` // CLI prepare/confirm 读固定 工作区/细纲.md(当前章,覆盖)
     try {
       mkdirSync(outlineDir, { recursive: true })
-      writeFileSync(join(outlineDir, `细纲-${chapter}.md`), content || '(空细纲)', 'utf8')
+      writeFileSync(join(outlineDir, `细纲.md`), content || '(空细纲)', 'utf8')
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }
