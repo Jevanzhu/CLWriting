@@ -11,6 +11,7 @@ import { dispatch } from './router.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
+import { registerOverviewRoutes } from './api/overview.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -21,6 +22,7 @@ function ensureRoutes(workDir: string | null): void {
   registerBookRoutes({ workDir })
   registerHealthRoutes({ workDir })
   registerFileRoutes({ workDir })
+  registerOverviewRoutes({ workDir })
   routesRegistered = true
 }
 
