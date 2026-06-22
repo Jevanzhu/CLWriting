@@ -15,13 +15,14 @@ export function exportCommand(args: string[]): void {
     console.log('用法：clwriting export [--format <merged|split|both>] [书目录]')
     console.log()
     console.log('把定稿正文干净导出（剥所有 front matter），长篇按章，短篇集按篇。')
+    console.log('短篇集会额外生成 投稿视图-<集名>.md，便于出版/投稿整理。')
     console.log()
     console.log('选项：')
     console.log('  --format merged  单文件合并（长篇全本 / 短篇全篇集）')
     console.log('  --format split   分章/分篇导出（工作区/导出/分章|分篇/）')
     console.log('  --format both    两者都导出（默认）')
     console.log()
-    console.log('导出只取定稿正文，不含账本/大纲/工作区/摘要。')
+    console.log('正文导出只取定稿正文，不含账本/大纲/工作区/摘要。')
     return
   }
 

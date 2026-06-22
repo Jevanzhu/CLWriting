@@ -213,6 +213,12 @@ export interface BookConfig {
   short?: {
     /** 短篇平台/栏目画像；用于 health --report 给出集级策划提示 */
     profile?: string
+    /** 画像目标情绪池；用于策划视图判断缺口 */
+    target_emotions?: string[]
+    /** 画像目标反转类型池；用于策划视图判断缺口 */
+    target_reversal_types?: string[]
+    /** 画像目标结尾味道池；用于策划视图判断缺口 */
+    target_ending_flavors?: string[]
     strict?: boolean
     /** 短篇总字数下限；缺省 8000 */
     word_min?: number

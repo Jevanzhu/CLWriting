@@ -17,6 +17,7 @@ import { readChapterDir } from '../format/chapters.js'
 import { readPieceDir } from '../format/pieces.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
+import { formatShortSubmissionView, scanShortCollection } from '../metrics/short-index.js'
 
 export type ExportFormat = 'merged' | 'split' | 'both'
 
@@ -118,6 +119,17 @@ export function exportBook(options: ExportOptions): ExportResult {
       writeFileSync(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`, 'utf-8')
       files.push(`工作区/导出/${splitName}/${fileName}`)
     }
+  }
+
+  if (kind === 'short') {
+    const submissionName = `投稿视图-${bookTitle}.md`
+    const entries = scanShortCollection(bookRoot)
+    writeFileSync(
+      join(exportDir, submissionName),
+      formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle),
+      'utf-8',
+    )
+    files.push(`工作区/导出/${submissionName}`)
   }
 
   return { ok: true, files, chapterCount: units.length, unit: unitLabel }

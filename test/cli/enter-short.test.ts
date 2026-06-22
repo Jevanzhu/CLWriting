@@ -20,8 +20,10 @@ test('enter CLI short: 起草新篇时生成细纲和清单骨架', () => {
 
     const outlinePath = join(init.bookRoot, '工作区', '细纲.md')
     const manifestPath = join(init.bookRoot, '工作区', '清单.md')
+    const guidancePath = join(init.bookRoot, '工作区', '策划导航.md')
     expect(existsSync(outlinePath)).toBe(true)
     expect(existsSync(manifestPath)).toBe(true)
+    expect(existsSync(guidancePath)).toBe(true)
 
     const outline = readFileSync(outlinePath, 'utf-8')
     expect(outline).toContain('篇号: 1')
@@ -36,7 +38,13 @@ test('enter CLI short: 起草新篇时生成细纲和清单骨架', () => {
     expect(manifest).toContain('- [反转] 待定 9/10：待补')
     expect(manifest).toContain('## 伏笔回收')
 
+    const guidance = readFileSync(guidancePath, 'utf-8')
+    expect(guidance).toContain('短篇起草前策划导航')
+    expect(guidance).toContain('第 1 篇画像：悬疑反转')
+    expect(guidance).toContain('清单至少 3 个铺垫点')
+
     expect(lines.join('\n')).toContain('已生成短篇起草骨架')
+    expect(lines.join('\n')).toContain('短篇起草前策划导航')
     expect(lines.join('\n')).toContain('【起草新篇】')
     expect(lines.join('\n')).not.toContain('【起草新章】')
   } finally {
