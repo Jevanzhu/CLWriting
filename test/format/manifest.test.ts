@@ -21,13 +21,20 @@ afterEach(() => {
 
 // ── parsePieceListBody ───────────────────────────
 
-test('parsePieceListBody: 完整两段解析', () => {
+test('parsePieceListBody: 完整三段解析', () => {
   const body = `## 反转线索表
 - 核心反转：来客即凶手
 - 铺垫点（≥3，反转可回溯）：
   - [开头] 雪夜敲门
   - [中段] 来客手上的焦痕
   - [结尾] 二叔的异常沉默
+
+## 情绪曲线
+- [开头钩子] 惊悚 3/10：雪夜敲门
+- [铺垫] 疑惧 5/10：焦痕出现
+- [升级] 紧张 7/10：二叔沉默
+- [反转] 震惊 9/10：来客即凶手
+- [余韵] 后怕 6/10：门外无人
 
 ## 伏笔回收
 - 雪地脚印 → 回收于 结尾二叔被揭穿
@@ -37,6 +44,8 @@ test('parsePieceListBody: 完整两段解析', () => {
   expect(list.反转线索表.核心反转).toBe('来客即凶手')
   expect(list.反转线索表.铺垫点).toHaveLength(3)
   expect(list.反转线索表.铺垫点[0]).toEqual({ 位置: '开头', 内容: '雪夜敲门' })
+  expect(list.情绪曲线).toHaveLength(5)
+  expect(list.情绪曲线?.[3]).toEqual({ 段落: '反转', 情绪: '震惊', 强度: 9, 说明: '来客即凶手' })
   expect(list.伏笔回收).toHaveLength(2)
   expect(list.伏笔回收[0]).toEqual({ 伏笔: '雪地脚印', 回收位置: '结尾二叔被揭穿' })
 })
@@ -77,6 +86,13 @@ test('stringifyPieceList + parsePieceListBody 往返', () => {
         { 位置: '结尾', 内容: '沉默' },
       ],
     },
+    情绪曲线: [
+      { 段落: '开头钩子', 情绪: '惊悚', 强度: 3, 说明: '敲门' },
+      { 段落: '铺垫', 情绪: '疑惧', 强度: 5 },
+      { 段落: '升级', 情绪: '紧张', 强度: 7 },
+      { 段落: '反转', 情绪: '震惊', 强度: 9, 说明: '真相揭开' },
+      { 段落: '余韵', 情绪: '后怕', 强度: 6 },
+    ],
     伏笔回收: [
       { 伏笔: '脚印', 回收位置: '结尾' },
       { 伏笔: '玉佩', 回收位置: '', 未回收: true },
@@ -86,6 +102,8 @@ test('stringifyPieceList + parsePieceListBody 往返', () => {
   const reparsed = parsePieceListBody(text)
   expect(reparsed.反转线索表.核心反转).toBe('来客即凶手')
   expect(reparsed.反转线索表.铺垫点).toHaveLength(3)
+  expect(reparsed.情绪曲线).toHaveLength(5)
+  expect(reparsed.情绪曲线?.[0]!.情绪).toBe('惊悚')
   expect(reparsed.伏笔回收).toHaveLength(2)
   expect(reparsed.伏笔回收[1]!.未回收).toBe(true)
 })
@@ -96,6 +114,7 @@ test('emptyPieceList: 空占位不臆造反转线索', () => {
   const empty = emptyPieceList()
   expect(empty.反转线索表.核心反转).toBe('')
   expect(empty.反转线索表.铺垫点).toHaveLength(0)
+  expect(empty.情绪曲线).toHaveLength(0)
   expect(empty.伏笔回收).toHaveLength(0)
 })
 

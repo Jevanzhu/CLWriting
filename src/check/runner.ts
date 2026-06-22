@@ -52,6 +52,8 @@ export interface CheckInput {
   actualLeadIds?: string[] // 本章实际写入履历的账本编号（两端闭合对照侧）
   imageryWords?: string[] // 高频意象表（#10 项 7，默认空，数据待 M4 知识层平移）
   leakKeywords?: string[] // 信息差关键词（#10 项 11，默认空，数据源待定）
+  /** 短篇严格模式：把短篇专属黄项提升为红项，用于真实生产硬闸 */
+  strictShort?: boolean
 }
 
 /**
@@ -227,7 +229,37 @@ function runShort(input: CheckInput): CheckReport {
   }
 
   // 短篇无长程账本；清单条目作为设定收尾审的核对输入。
-  return { sections, byproducts: { pieceListChecks: pieceList ? collectPieceListChecks(pieceList) : [] } }
+  const report: CheckReport = { sections, byproducts: { pieceListChecks: pieceList ? collectPieceListChecks(pieceList) : [] } }
+  if (input.strictShort || input.config.short?.strict) promoteStrictShort(report)
+  return report
+}
+
+const STRICT_SHORT_CHECK_IDS = new Set([
+  'piece-word-short',
+  'piece-word-long',
+  'body-parts',
+  'simile-density',
+  'section-count-heading-missing',
+  'section-count',
+  'opening-env',
+  'manifest-no-reversal',
+  'manifest-setup-short',
+  'manifest-payoff-open',
+  'emotion-curve-short',
+  'emotion-curve-strength',
+  'emotion-curve-no-reversal',
+  'emotion-curve-peak-low',
+])
+
+function promoteStrictShort(report: CheckReport): void {
+  for (const section of report.sections) {
+    for (const item of section.items) {
+      if (item.level === 'yellow' && STRICT_SHORT_CHECK_IDS.has(item.checkId)) {
+        item.level = 'red'
+        item.message = `短篇严格模式：${item.message}`
+      }
+    }
+  }
 }
 
 function readIronRules(bookRoot: string) {

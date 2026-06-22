@@ -21,18 +21,55 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
 
   // 反转线索表形式
   const lead = list.反转线索表
-  if (!lead.核心反转) {
+  if (isPlaceholder(lead.核心反转)) {
     items.push({
       checkId: 'manifest-no-reversal',
       level: 'yellow',
       message: '清单反转线索表缺少核心反转',
     })
   }
-  if (lead.铺垫点.length < 3) {
+  const realSetups = lead.铺垫点.filter((p) => !isPlaceholder(p.位置) && !isPlaceholder(p.内容))
+  if (realSetups.length < 3) {
     items.push({
       checkId: 'manifest-setup-short',
       level: 'yellow',
-      message: `反转线索表铺垫点仅 ${lead.铺垫点.length} 处（<3），反转信息差可能不成立`,
+      message: `反转线索表有效铺垫点仅 ${realSetups.length} 处（<3），反转信息差可能不成立`,
+    })
+  }
+
+  // 情绪曲线形式：五段都要有情绪与 1-10 强度；语义达峰归情绪反转审。
+  const curve = list.情绪曲线 ?? []
+  const realCurve = curve.filter((p) => {
+    const noteIsPlaceholder = p.说明 !== undefined && isPlaceholder(p.说明)
+    return !isPlaceholder(p.段落) && !isPlaceholder(p.情绪) && !noteIsPlaceholder
+  })
+  if (realCurve.length < 5) {
+    items.push({
+      checkId: 'emotion-curve-short',
+      level: 'yellow',
+      message: `情绪曲线有效段仅 ${realCurve.length} 段（<5），无法核对单篇情绪爆破`,
+    })
+  }
+  const invalidStrength = curve.filter((p) => !Number.isFinite(p.强度) || p.强度 < 1 || p.强度 > 10)
+  if (invalidStrength.length > 0) {
+    items.push({
+      checkId: 'emotion-curve-strength',
+      level: 'yellow',
+      message: `情绪曲线有 ${invalidStrength.length} 段强度不在 1-10`,
+    })
+  }
+  if (realCurve.length > 0 && !realCurve.some((p) => p.段落.includes('反转'))) {
+    items.push({
+      checkId: 'emotion-curve-no-reversal',
+      level: 'yellow',
+      message: '情绪曲线缺少反转段，情绪峰值无锚点',
+    })
+  }
+  if (realCurve.length > 0 && Math.max(...realCurve.map((p) => p.强度)) < 8) {
+    items.push({
+      checkId: 'emotion-curve-peak-low',
+      level: 'yellow',
+      message: '情绪曲线最高强度低于 8/10，单篇爆破力可能不足',
     })
   }
 
@@ -47,4 +84,9 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
   }
 
   return { name: '清单形式检', items }
+}
+
+function isPlaceholder(value: string | undefined): boolean {
+  const v = (value ?? '').trim()
+  return v === '' || v === '待定' || v === '待补' || v === '（待补）'
 }

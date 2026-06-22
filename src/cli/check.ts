@@ -28,7 +28,8 @@ export function checkCommand(args: string[]): void {
   }
 
   const mode = args.includes('--full') ? 'full' : 'brief'
-  const positional = args.filter((a) => a !== '--full')
+  const strictShort = args.includes('--strict-short')
+  const positional = args.filter((a) => a !== '--full' && a !== '--strict-short')
   const { draftPath, bookRoot } = resolveDraftAndBook(positional)
 
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
@@ -70,6 +71,7 @@ export function checkCommand(args: string[]): void {
       fileName: finalChapterFileName(draft.chapter, isShort),
       declaredLeadIds,
       actualLeadIds,
+      strictShort,
     })
     console.log(formatReport(report, mode))
     hasBlockingRed = hasRed(report)
@@ -80,8 +82,9 @@ export function checkCommand(args: string[]): void {
 }
 
 function printCheckHelp(): void {
-  console.log('用法：clwriting check [草稿文件] [书目录] [--full]')
+  console.log('用法：clwriting check [草稿文件] [书目录] [--full] [--strict-short]')
   console.log('运行机检；红项退出码 1，黄项只提醒。')
+  console.log('--strict-short  短篇专属黄项按红项处理，用于真实生产硬闸。')
 }
 
 function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoot: string } {

@@ -109,6 +109,15 @@ export interface PayoffEntry {
   未回收?: boolean
 }
 
+/** 情绪曲线点（短篇单篇爆破力：每段情绪与强度） */
+export interface EmotionCurvePoint {
+  段落: string
+  情绪: string
+  /** 1-10，反转峰值/余韵由机检与三审共同核对 */
+  强度: number
+  说明?: string
+}
+
 /**
  * 单篇清单（M8 #27 第 4 节）。
  * 范围限单篇、写完即归档；复用账本格式骨架降级，无跨篇长程线。
@@ -116,6 +125,7 @@ export interface PayoffEntry {
  */
 export interface PieceList {
   反转线索表: ReversalLead
+  情绪曲线?: EmotionCurvePoint[]
   伏笔回收: PayoffEntry[]
   _raw?: Record<string, string>
   _path?: string
@@ -197,6 +207,10 @@ export interface BookConfig {
   }
   style: {
     injection: 'light' | 'heavy'
+  }
+  /** 短篇集专属配置；长篇缺省忽略 */
+  short?: {
+    strict?: boolean
   }
   auto: {
     confirm_outline: boolean
