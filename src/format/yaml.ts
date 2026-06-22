@@ -143,6 +143,19 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       const value = String(parseValue(profile.value)).trim()
       if (value.length > 0) shortConfig.profile = value
     }
+    for (const key of [
+      'target_emotions',
+      'target_reversal_types',
+      'target_ending_flavors',
+    ] as const) {
+      const node = short.children.find((c) => c.key === key)
+      if (!node) continue
+      const value = parseValue(node.value)
+      if (Array.isArray(value)) {
+        const items = value.map(String).map((v) => v.trim()).filter(Boolean)
+        if (items.length > 0) shortConfig[key] = items
+      }
+    }
     const strict = short.children.find((c) => c.key === 'strict')
     if (strict) shortConfig.strict = String(parseValue(strict.value)) === 'true'
     for (const key of [
@@ -276,6 +289,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
     lines.push('', 'short:')
     if (cfg.short.profile) lines.push(`  profile: ${stringifyValue(cfg.short.profile)}`)
+    if (cfg.short.target_emotions) lines.push(`  target_emotions: ${stringifyValue(cfg.short.target_emotions)}`)
+    if (cfg.short.target_reversal_types) lines.push(`  target_reversal_types: ${stringifyValue(cfg.short.target_reversal_types)}`)
+    if (cfg.short.target_ending_flavors) lines.push(`  target_ending_flavors: ${stringifyValue(cfg.short.target_ending_flavors)}`)
     if (cfg.short.strict) lines.push('  strict: true')
     for (const key of [
       'word_min',

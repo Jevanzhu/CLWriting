@@ -12,10 +12,16 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveBookRoot } from '../install/books.js'
 import { enter, formatRecap, formatRoute } from '../state/state.js'
+import { readBookConfig } from '../format/yaml.js'
+import {
+  analyzeShortDraftGuidance,
+  formatShortDraftGuidance,
+  scanShortCollection,
+} from '../metrics/short-index.js'
 
 /** `clwriting enter [bookRoot]` 命令处理器 */
 export function enterCommand(args: string[]): void {
@@ -42,6 +48,8 @@ export function enterCommand(args: string[]): void {
   if (templates.length > 0) {
     console.log(`已生成短篇起草骨架：${templates.map((p) => `工作区/${p}`).join('、')}`)
   }
+  const guidance = renderShortGuidance(bookRoot, kind, route)
+  if (guidance) console.log(guidance)
 }
 
 function printEnterHelp(): void {
@@ -70,7 +78,43 @@ function ensureShortDraftTemplates(
     writeFileSync(manifestPath, renderShortManifestTemplate(), 'utf-8')
     created.push('清单.md')
   }
+
+  const guidancePath = join(workDir, '策划导航.md')
+  if (shouldWriteGuidance(guidancePath)) {
+    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+    const guidance = analyzeShortDraftGuidance(
+      scanShortCollection(bookRoot),
+      config.short,
+      nextPieceNumber(route),
+    )
+    writeFileSync(guidancePath, `<!-- CLWriting generated: short-draft-guidance -->\n\n${formatShortDraftGuidance(guidance)}`, 'utf-8')
+    created.push('策划导航.md')
+  }
   return created
+}
+
+function renderShortGuidance(
+  bookRoot: string,
+  kind: 'long' | 'short',
+  route: { state: number; action: string; nextChapter?: unknown },
+): string {
+  if (kind !== 'short' || route.state !== 7 || route.action !== 'write-new-chapter') return ''
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const guidance = analyzeShortDraftGuidance(
+    scanShortCollection(bookRoot),
+    config.short,
+    nextPieceNumber(route),
+  )
+  return formatShortDraftGuidance(guidance)
+}
+
+function shouldWriteGuidance(path: string): boolean {
+  if (!existsSync(path)) return true
+  try {
+    return readFileSync(path, 'utf-8').startsWith('<!-- CLWriting generated: short-draft-guidance -->')
+  } catch {
+    return false
+  }
 }
 
 function nextPieceNumber(route: { nextChapter?: unknown }): number {

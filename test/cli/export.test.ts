@@ -143,6 +143,7 @@ describe('exportBook', () => {
       expect(result.files).toContain('工作区/导出/分篇/001-第一夜.md')
       expect(result.files).toContain('工作区/导出/分篇/002-第二夜.md')
       expect(result.files).toContain('工作区/导出/分篇/003-第三夜.md')
+      expect(result.files).toContain('工作区/导出/投稿视图-夜语集.md')
 
       const merged = readFileSync(join(shortRoot, '工作区/导出/全篇集-夜语集.md'), 'utf-8')
       expect(merged).toMatch(/# 第一夜\n\n第一夜正文/)
@@ -153,6 +154,12 @@ describe('exportBook', () => {
 
       const first = readFileSync(join(shortRoot, '工作区/导出/分篇/001-第一夜.md'), 'utf-8')
       expect(first).toBe('# 第一夜\n\n第一夜正文')
+
+      const submission = readFileSync(join(shortRoot, '工作区/导出/投稿视图-夜语集.md'), 'utf-8')
+      expect(submission).toContain('# 投稿视图-夜语集')
+      expect(submission).toContain('| 001 | 第一夜 |')
+      expect(submission).toContain('核心反转：来客就是死者')
+      expect(submission).toContain('## 策划分布')
     } finally {
       rmSync(shortRoot, { recursive: true, force: true })
     }

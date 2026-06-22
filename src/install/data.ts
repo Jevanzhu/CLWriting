@@ -69,6 +69,9 @@ type ShortCheckConfig = NonNullable<BookConfig['short']>
 
 const DEFAULT_SHORT_CHECKS: ShortCheckConfig = {
   profile: '通用短篇',
+  target_emotions: ['惊悚', '爽感', '酸涩', '温暖'],
+  target_reversal_types: ['身份反转', '亲密关系反转', '时间/记忆反转', '其他反转'],
+  target_ending_flavors: ['后怕', '释然', '遗憾', '余韵'],
   word_min: 8000,
   word_max: 20000,
   body_part_threshold: 5,
@@ -85,6 +88,9 @@ const SHORT_CHECK_PRESETS: readonly {
     keywords: ['悬疑', '推理', '怪谈', '惊悚', '恐怖', '无限流'],
     config: {
       profile: '悬疑反转',
+      target_emotions: ['惊悚', '后怕', '震惊', '不安'],
+      target_reversal_types: ['死者反转', '真凶反转', '身份反转', '时间/记忆反转'],
+      target_ending_flavors: ['后怕', '反噬', '余寒', '真相落地'],
       word_min: 6000,
       word_max: 16000,
       body_part_threshold: 5,
@@ -97,6 +103,9 @@ const SHORT_CHECK_PRESETS: readonly {
     keywords: ['爽文', '打脸', '反转', '复仇', '逆袭', '都市'],
     config: {
       profile: '快节奏爽点',
+      target_emotions: ['爽感', '愤怒', '扬眉吐气', '痛快'],
+      target_reversal_types: ['身份反转', '自我反转', '亲密关系反转', '其他反转'],
+      target_ending_flavors: ['清算', '痛快', '扬眉吐气', '反噬'],
       word_min: 5000,
       word_max: 14000,
       body_part_threshold: 4,
@@ -109,6 +118,9 @@ const SHORT_CHECK_PRESETS: readonly {
     keywords: ['情感', '言情', '治愈', '婚恋', '家庭', '青春'],
     config: {
       profile: '情感余韵',
+      target_emotions: ['酸涩', '温暖', '遗憾', '释然'],
+      target_reversal_types: ['亲密关系反转', '身份反转', '时间/记忆反转', '其他反转'],
+      target_ending_flavors: ['释然', '遗憾', '温暖', '余韵'],
       word_min: 6000,
       word_max: 18000,
       body_part_threshold: 6,
@@ -121,6 +133,9 @@ const SHORT_CHECK_PRESETS: readonly {
     keywords: ['科幻', '奇幻', '玄幻', '仙侠', '修仙', '架空'],
     config: {
       profile: '设定奇观',
+      target_emotions: ['震撼', '惊奇', '压迫', '爽感'],
+      target_reversal_types: ['现实层反转', '时间/记忆反转', '身份反转', '其他反转'],
+      target_ending_flavors: ['震撼', '余韵', '反噬', '新规则'],
       word_min: 8000,
       word_max: 22000,
       body_part_threshold: 5,

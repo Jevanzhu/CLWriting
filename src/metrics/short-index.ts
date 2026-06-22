@@ -12,7 +12,7 @@ import { readPiece } from '../format/pieces.js'
 import { readPieceList } from '../format/manifest.js'
 import { readFile } from '../format/frontmatter.js'
 import { countWords } from '../format/chapters.js'
-import type { BookConfig, PieceList } from '../format/types.js'
+import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
 import type { MetricRecord } from './ledger.js'
 
 export interface ShortPieceIndexEntry {
@@ -31,8 +31,10 @@ export interface ShortReversalQuality {
   score: number
   grade: '弱' | '中' | '强'
   setupCount: number
+  anchoredSetupCount: number
   payoffClosed: number
   payoffOpen: number
+  payoffMatched: number
   peakStrength: number | null
   issues: string[]
 }
@@ -48,6 +50,7 @@ export interface ShortCollectionReport {
   count: number
   entries: ShortPieceIndexEntry[]
   platform: ShortPlatformProfileReport
+  platformTargets: ShortPlatformTargets
   planning: ShortPlanningView
   risks: ShortCollectionRisk[]
 }
@@ -60,7 +63,14 @@ export interface ShortPlatformProfileReport {
   emphasis: string
   avgWords: number
   weakReversals: number
+  targetGaps: string[]
   notes: string[]
+}
+
+export interface ShortPlatformTargets {
+  targetEmotions: string[]
+  targetReversalTypes: string[]
+  targetEndingFlavors: string[]
 }
 
 export interface ShortPlanningView {
@@ -74,6 +84,25 @@ export interface DistributionItem {
   value: string
   count: number
   pieces: number[]
+}
+
+export interface ShortDraftGuidance {
+  nextPiece: number
+  profile: string
+  emphasis: string
+  avoid: string[]
+  fill: string[]
+  checklist: string[]
+}
+
+export interface ShortSubmissionItem {
+  num: number
+  title: string
+  words: number
+  targetEmotion: string
+  reversalType: string
+  endingFlavor: string
+  pitch: string
 }
 
 export interface ShortCalibrationSample {
@@ -110,6 +139,9 @@ export interface ShortBudgetCalibrationReport {
 
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
   profile: '通用短篇',
+  target_emotions: ['惊悚', '爽感', '酸涩', '温暖'],
+  target_reversal_types: ['身份反转', '亲密关系反转', '时间/记忆反转', '其他反转'],
+  target_ending_flavors: ['后怕', '释然', '遗憾', '余韵'],
   word_min: 8000,
   word_max: 20000,
   body_part_threshold: 5,
@@ -146,16 +178,17 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     const file = readFile(bodyPath)
     const list = readListIfExists(join(dir, '清单.md'))
     const coreReversal = firstReal(piece.piece.核心反转, list?.反转线索表.核心反转)
+    const body = file.ok ? file.body : ''
     entries.push({
       num: piece.piece.篇号,
       title: piece.piece.标题,
-      wordCount: file.ok ? countWords(file.body) : 0,
+      wordCount: file.ok ? countWords(body) : 0,
       targetEmotion: cleanValue(piece.piece.目标情绪),
       coreReversal,
       reversalType: classifyReversal(coreReversal),
       structureObjects: collectStructureObjects(list),
       endingFlavor: endingFlavorOf(list),
-      reversalQuality: scoreReversalQuality(coreReversal, list),
+      reversalQuality: scoreReversalQuality(coreReversal, list, body),
     })
   }
   return entries.sort((a, b) => a.num - b.num)
@@ -170,6 +203,7 @@ export function analyzeShortCollection(
     count: entries.length,
     entries,
     platform: analyzePlatformProfile(entries, config),
+    platformTargets: platformTargetsOf(config),
     planning: analyzePlanningView(entries),
     risks: [
       ...recentRepeatRisks(entries, 'targetEmotion', '目标情绪'),
@@ -190,6 +224,7 @@ export function formatShortCollectionReport(report: ShortCollectionReport): stri
   lines.push(`  短篇平台画像：${report.platform.profile}（建议 ${report.platform.wordMin}–${report.platform.wordMax} 字，开头窗口 ${report.platform.hookWindow} 字）`)
   lines.push(`  画像重点：${report.platform.emphasis}`)
   for (const note of report.platform.notes.slice(0, 2)) lines.push(`  · ${note}`)
+  for (const gap of report.platform.targetGaps.slice(0, 3)) lines.push(`  · 画像缺口：${gap}`)
   lines.push(`  短篇集策划视图：情绪 ${formatDistribution(report.planning.emotions)}；反转 ${formatDistribution(report.planning.reversalTypes)}`)
   lines.push(`  结尾味道 ${formatDistribution(report.planning.endingFlavors)}；结构物件 ${formatDistribution(report.planning.structureObjects)}`)
   lines.push(`  反转质量评分：平均 ${avg(report.entries.map((entry) => entry.reversalQuality.score)).toFixed(0)}；弱项 ${report.platform.weakReversals} 篇`)
@@ -204,6 +239,86 @@ export function formatShortCollectionReport(report: ShortCollectionReport): stri
       lines.push(`  · ${risk.message}（篇 ${risk.pieces.join('、')}）`)
     }
   }
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function analyzeShortDraftGuidance(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+  nextPiece?: number,
+): ShortDraftGuidance {
+  const report = analyzeShortCollection(entries, shortConfig)
+  const avoid = report.risks
+    .filter((risk) => risk.kind === 'recent-repeat')
+    .slice(0, 4)
+    .map((risk) => risk.message.replace(/^最近 3 篇/, '避免继续让最近篇目'))
+  const fill = [
+    ...missingTargets(report.planning.emotions, report.platformTargets.targetEmotions),
+    ...missingTargets(report.planning.reversalTypes, report.platformTargets.targetReversalTypes),
+    ...missingTargets(report.planning.endingFlavors, report.platformTargets.targetEndingFlavors),
+  ].slice(0, 5)
+
+  return {
+    nextPiece: nextPiece ?? ((entries.at(-1)?.num ?? 0) + 1),
+    profile: report.platform.profile,
+    emphasis: report.platform.emphasis,
+    avoid,
+    fill,
+    checklist: [
+      `目标字数 ${report.platform.wordMin}–${report.platform.wordMax}`,
+      `开头 ${report.platform.hookWindow} 字内给出人物困境或异常信号`,
+      '清单至少 3 个铺垫点，位置需能回指正文段落',
+      '伏笔回收必须能对应铺垫点，反转峰值建议 ≥8/10',
+    ],
+  }
+}
+
+export function formatShortDraftGuidance(guidance: ShortDraftGuidance): string {
+  const lines: string[] = []
+  lines.push('短篇起草前策划导航')
+  lines.push('─'.repeat(48))
+  lines.push(`  第 ${guidance.nextPiece} 篇画像：${guidance.profile}`)
+  lines.push(`  本篇方向：${guidance.emphasis}`)
+  if (guidance.avoid.length > 0) {
+    lines.push('  避开：')
+    for (const item of guidance.avoid) lines.push(`  · ${item}`)
+  }
+  if (guidance.fill.length > 0) {
+    lines.push('  补位：')
+    for (const item of guidance.fill) lines.push(`  · ${item}`)
+  }
+  lines.push('  清单底线：')
+  for (const item of guidance.checklist) lines.push(`  · ${item}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function formatShortSubmissionView(
+  entries: ShortPieceIndexEntry[],
+  shortConfig: BookConfig['short'] | undefined = undefined,
+  title = '短篇集',
+): string {
+  const report = analyzeShortCollection(entries, shortConfig)
+  const items = entries.map(toSubmissionItem)
+  const lines: string[] = []
+  lines.push(`# 投稿视图-${title}`)
+  lines.push('')
+  lines.push(`- 平台画像：${report.platform.profile}`)
+  lines.push(`- 画像重点：${report.platform.emphasis}`)
+  lines.push(`- 篇数：${items.length}`)
+  lines.push('')
+  lines.push('| 篇号 | 标题 | 字数 | 情绪 | 反转类型 | 结尾味道 | 一句卖点 |')
+  lines.push('| --- | --- | ---: | --- | --- | --- | --- |')
+  for (const item of items) {
+    lines.push(`| ${String(item.num).padStart(3, '0')} | ${escapeTable(item.title)} | ${item.words} | ${escapeTable(item.targetEmotion)} | ${escapeTable(item.reversalType)} | ${escapeTable(item.endingFlavor)} | ${escapeTable(item.pitch)} |`)
+  }
+  lines.push('')
+  lines.push('## 策划分布')
+  lines.push(`- 情绪：${formatDistribution(report.planning.emotions)}`)
+  lines.push(`- 反转：${formatDistribution(report.planning.reversalTypes)}`)
+  lines.push(`- 结尾味道：${formatDistribution(report.planning.endingFlavors)}`)
+  lines.push(`- 结构物件：${formatDistribution(report.planning.structureObjects)}`)
   lines.push('')
   return lines.join('\n')
 }
@@ -398,14 +513,17 @@ function endingFlavorOf(list: PieceList | null): string {
   return cleanValue(last?.情绪)
 }
 
-function scoreReversalQuality(coreReversal: string, list: PieceList | null): ShortReversalQuality {
+function scoreReversalQuality(coreReversal: string, list: PieceList | null, body = ''): ShortReversalQuality {
   const issues: string[] = []
   const setups = list?.反转线索表.铺垫点 ?? []
   const realSetups = setups.filter((p) => !isPlaceholder(p.内容))
   const uniqueSetupCount = new Set(realSetups.map((p) => normalize(p.内容))).size
+  const anchors = collectBodyAnchors(body)
+  const anchoredSetupCount = realSetups.filter((p) => setupHasAnchor(p.位置, anchors)).length
   const payoffs = list?.伏笔回收 ?? []
   const payoffOpen = payoffs.filter((p) => p.未回收 || isPlaceholder(p.回收位置)).length
   const payoffClosed = payoffs.length - payoffOpen
+  const payoffMatched = payoffs.filter((p) => payoffMatchesSetup(p.伏笔, realSetups)).length
   const peakStrength = reversalPeakStrength(list)
 
   let score = 0
@@ -416,6 +534,13 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null): Sho
   }
   score += Math.min(25, uniqueSetupCount * 8)
   if (uniqueSetupCount < 3) issues.push(`有效铺垫点 ${uniqueSetupCount}/3，不足以支撑公平反转`)
+  if (anchors.length > 0) {
+    score += Math.min(10, anchoredSetupCount * 3)
+    if (anchoredSetupCount < Math.min(3, realSetups.length)) issues.push(`铺垫正文锚点 ${anchoredSetupCount}/${realSetups.length}，位置回指不足`)
+  } else if (realSetups.length > 0) {
+    score += 4
+    issues.push('正文缺少 ## 段落锚点，铺垫位置只能做弱校验')
+  }
   if (payoffs.length === 0) {
     score += 6
     issues.push('伏笔回收为空，收尾闭合证据不足')
@@ -424,6 +549,10 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null): Sho
   } else {
     score += Math.max(0, 20 - payoffOpen * 8)
     issues.push(`${payoffOpen} 个伏笔未回收`)
+  }
+  if (payoffs.length > 0) {
+    score += Math.min(10, payoffMatched * 4)
+    if (payoffMatched < payoffClosed) issues.push(`回收条目 ${payoffMatched}/${payoffClosed} 能对应铺垫，伏笔链路偏松`)
   }
   if (peakStrength === null) {
     score += 5
@@ -440,11 +569,39 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null): Sho
     score: finalScore,
     grade: finalScore >= 80 ? '强' : finalScore >= 60 ? '中' : '弱',
     setupCount: uniqueSetupCount,
+    anchoredSetupCount,
     payoffClosed,
     payoffOpen,
+    payoffMatched,
     peakStrength,
     issues,
   }
+}
+
+function collectBodyAnchors(body: string): string[] {
+  return body
+    .split('\n')
+    .map((line) => line.match(/^##\s+(.+)$/)?.[1]?.trim() ?? '')
+    .filter(Boolean)
+}
+
+function setupHasAnchor(position: string, anchors: string[]): boolean {
+  const pos = normalize(position)
+  if (!pos || isPlaceholder(position)) return false
+  if (anchors.length === 0) return true
+  return anchors.some((anchor) => {
+    const a = normalize(anchor)
+    return a.includes(pos) || pos.includes(a)
+  })
+}
+
+function payoffMatchesSetup(payoff: string, setups: SetupPoint[]): boolean {
+  const p = normalize(payoff)
+  if (!p || isPlaceholder(payoff)) return false
+  return setups.some((setup) => {
+    const s = normalize(setup.内容)
+    return s.includes(p) || p.includes(s)
+  })
 }
 
 function reversalPeakStrength(list: PieceList | null): number | null {
@@ -461,6 +618,8 @@ function analyzePlatformProfile(
 ): ShortPlatformProfileReport {
   const profile = config.profile || '通用短篇'
   const notes: string[] = []
+  const targets = platformTargetsOf(config)
+  const planning = analyzePlanningView(entries)
   const avgWords = avg(entries.map((entry) => entry.wordCount))
   const weakReversals = entries.filter((entry) => entry.reversalQuality.grade === '弱').length
   if (entries.length > 0 && avgWords > (config.word_max ?? 20000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆篇或压缩铺陈。`)
@@ -475,7 +634,20 @@ function analyzePlatformProfile(
     emphasis: profileEmphasis(profile),
     avgWords,
     weakReversals,
+    targetGaps: [
+      ...missingTargets(planning.emotions, targets.targetEmotions).map((item) => `情绪 ${item}`),
+      ...missingTargets(planning.reversalTypes, targets.targetReversalTypes).map((item) => `反转 ${item}`),
+      ...missingTargets(planning.endingFlavors, targets.targetEndingFlavors).map((item) => `结尾 ${item}`),
+    ],
     notes,
+  }
+}
+
+function platformTargetsOf(config: NonNullable<BookConfig['short']>): ShortPlatformTargets {
+  return {
+    targetEmotions: config.target_emotions ?? [],
+    targetReversalTypes: config.target_reversal_types ?? [],
+    targetEndingFlavors: config.target_ending_flavors ?? [],
   }
 }
 
@@ -515,6 +687,34 @@ function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) 
 function formatDistribution(items: DistributionItem[]): string {
   if (items.length === 0) return '暂无'
   return items.slice(0, 3).map((item) => `${item.value}×${item.count}`).join(' / ')
+}
+
+function missingTargets(distributionItems: DistributionItem[], targets: string[]): string[] {
+  if (targets.length === 0) return []
+  const seen = new Set(distributionItems.map((item) => normalize(item.value)))
+  return targets.filter((target) => !seen.has(normalize(target))).slice(0, 3)
+}
+
+function toSubmissionItem(entry: ShortPieceIndexEntry): ShortSubmissionItem {
+  const targetEmotion = entry.targetEmotion || '未标注'
+  const reversalType = entry.reversalType || '未知'
+  const endingFlavor = entry.endingFlavor || '未标注'
+  const pitch = entry.coreReversal
+    ? `${targetEmotion}走向，核心反转：${entry.coreReversal}`
+    : `${targetEmotion}走向，核心反转待补`
+  return {
+    num: entry.num,
+    title: entry.title,
+    words: entry.wordCount,
+    targetEmotion,
+    reversalType,
+    endingFlavor,
+    pitch,
+  }
+}
+
+function escapeTable(value: string): string {
+  return value.replace(/\|/g, '/').replace(/\n/g, ' ')
 }
 
 function recentRepeatRisks(
