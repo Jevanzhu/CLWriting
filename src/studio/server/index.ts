@@ -14,6 +14,7 @@ import { registerFileRoutes } from './api/files.js'
 import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerLeadsRoutes } from './api/leads.js'
+import { registerSettingsRoutes } from './api/settings.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -27,6 +28,7 @@ function ensureRoutes(workDir: string | null): void {
   registerOverviewRoutes({ workDir })
   registerRhythmRoutes({ workDir })
   registerLeadsRoutes({ workDir })
+  registerSettingsRoutes({ workDir })
   routesRegistered = true
 }
 
