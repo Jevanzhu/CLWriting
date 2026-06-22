@@ -18,6 +18,7 @@ import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
+import { registerCliRoutes } from './api/cli.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -35,6 +36,7 @@ function ensureRoutes(workDir: string | null): void {
   registerStreamRoutes({ workDir })
   registerDraftRoutes({ workDir })
   registerOutlineRoutes({ workDir })
+  registerCliRoutes({ workDir })
   routesRegistered = true
 }
 

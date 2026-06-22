@@ -29,6 +29,7 @@ const chapter = ref(1)
 const running = ref(false)
 const outlineRunning = ref(false)
 const draftMode = ref(false)
+const cliRunning = ref(false)
 const textOut = ref('')
 const log = ref<{ t: string; type: string; text: string }[]>([])
 const saved = ref<{ path: string; words: number } | null>(null)
@@ -81,6 +82,30 @@ function handleEvent(ev: DriverEvent): void {
   }
 }
 
+/** CLI 确定性步(confirm/prepare):POST /cli → spawn clwriting → 结果入事件流 */
+async function runCliStep(step: 'confirm' | 'prepare'): Promise<void> {
+  if (cliRunning.value || running.value || outlineRunning.value || !name.value) return
+  cliRunning.value = true
+  activeStage.value = step
+  log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} 章…` })
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/cli`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step, chapter: chapter.value }),
+    })
+    const d = (await r.json()) as { ok?: boolean; stdout?: string; stderr?: string }
+    if (d.ok) {
+      log.value.push({ t: ts(), type: 'saved', text: `${step} ✓ ${String(d.stdout ?? '').trim().slice(0, 80)}` })
+    } else {
+      log.value.push({ t: ts(), type: 'error', text: `${step} 失败:${String(d.stderr ?? d.stdout ?? '').trim().slice(0, 100)}` })
+    }
+  } catch (e) {
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+  }
+  cliRunning.value = false
+}
+
 /** outline 生成:POST /outline(后端组 prompt + spawnRole('outline')禁工具 + 落盘 细纲) */
 async function outlineGen(): Promise<void> {
   if (outlineRunning.value || running.value || !name.value) return
@@ -115,9 +140,25 @@ async function draftWrite(): Promise<void> {
   textOut.value = ''
   running.value = true
   activeStage.value = 'draft'
-  // C.1 简化 prompt(无细纲/备料,归 C.2);writer 规则已在 .claude/agents/writer.md
-  const prompt = `## 任务\n写第 ${chapter.value} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。\n\n## 要求\n按你的角色规则直接输出正文(纯文本,禁 MD 标题/格式,仅段落+空行),不要读任何文件、不要用任何工具。`
-  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} 章` })
+  // 拉后端组的 draft prompt(细纲+备料,方案 6.6)
+  let prompt = ''
+  try {
+    const pr = await fetch(`/api/books/${encodeURIComponent(name.value)}/draft-prompt?chapter=${chapter.value}`)
+    const pd = (await pr.json()) as { prompt?: string; error?: string }
+    prompt = pd.prompt ?? ''
+  } catch (e) {
+    running.value = false
+    draftMode.value = false
+    log.value.push({ t: ts(), type: 'error', text: `拉 draft-prompt 失败:${e instanceof Error ? e.message : String(e)}` })
+    return
+  }
+  if (!prompt.includes('本章细纲')) {
+    running.value = false
+    draftMode.value = false
+    log.value.push({ t: ts(), type: 'error', text: 'draft 缺细纲——请先「生成细纲→确认→备料」再写稿' })
+    return
+  }
+  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} 章(含细纲+备料)` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/spawn`, {
       method: 'POST',
@@ -194,10 +235,12 @@ onUnmounted(() => es?.close())
         <label>章号
           <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning" />
         </label>
-        <button class="btn-outline" :disabled="outlineRunning || running" @click="outlineGen">
+        <button class="btn-outline" :disabled="outlineRunning || running || cliRunning" @click="outlineGen">
           {{ outlineRunning ? '生成细纲中…' : '📋 生成细纲 →' }}
         </button>
-        <button class="btn-fire" :disabled="running || outlineRunning" @click="draftWrite">
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning" @click="runCliStep('confirm')">✓ 确认</button>
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning" @click="runCliStep('prepare')">📦 备料</button>
+        <button class="btn-fire" :disabled="running || outlineRunning || cliRunning" @click="draftWrite">
           {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章 →` }}
         </button>
       </div>
@@ -308,6 +351,20 @@ input[type='number'] {
 }
 .btn-outline:disabled {
   border-color: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+.btn-cli {
+  padding: 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-cli:disabled {
+  border-color: #e5e7eb;
   color: #9ca3af;
   cursor: not-allowed;
 }
