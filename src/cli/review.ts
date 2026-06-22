@@ -291,27 +291,29 @@ function batchCommand(args: string[]): void {
 
 function batchListCommand(args: string[]): void {
   const bookRoot = resolveBatchBookRoot(args)
+  const unit = readBatchUnit(bookRoot)
   const chapters = listPendingChapters(bookRoot)
   if (chapters.length === 0) {
-    console.log('没有待审章。')
+    console.log(`没有待审${unit}。`)
     return
   }
-  console.log(`待审章 ${chapters.length} 章：`)
+  console.log(`待审${unit} ${chapters.length} ${unit}：`)
   for (const ch of chapters) {
     const verdict = ch.verdict === 'approved' ? '已通过' : ch.verdict === 'rejected' ? '已打回' : '未裁决'
-    console.log(`· 第 ${ch.chapter} 章 ${ch.title}：${verdict}`)
+    console.log(`· 第 ${ch.chapter} ${unit} ${ch.title}：${verdict}`)
   }
   console.log('通过后运行：clwriting review batch finalize [书目录]')
 }
 
 function batchFinalizeCommand(args: string[]): void {
   const bookRoot = resolveBatchBookRoot(args)
+  const unit = readBatchUnit(bookRoot)
   const chapter = readOptionalChapter(args)
   const targets = chapter === undefined
     ? listPendingChapters(bookRoot).filter((ch) => ch.verdict === 'approved').map((ch) => ch.chapter)
     : [chapter]
   if (targets.length === 0) {
-    console.log('没有已通过裁决的待定稿章可定稿。')
+    console.log(`没有已通过裁决的待定稿${unit}可定稿。`)
     return
   }
 
@@ -319,10 +321,10 @@ function batchFinalizeCommand(args: string[]): void {
   let failed = false
   for (const r of results) {
     if (r.ok) {
-      console.log(`✓ 第 ${r.chapter} 章已定稿（commit ${r.commitHash}）`)
+      console.log(`✓ 第 ${r.chapter} ${unit}已定稿（commit ${r.commitHash}）`)
     } else {
       failed = true
-      console.error(`✗ 第 ${r.chapter} 章定稿失败：${r.reason}`)
+      console.error(`✗ 第 ${r.chapter} ${unit}定稿失败：${r.reason}`)
     }
   }
   if (failed) process.exit(1)
@@ -330,6 +332,7 @@ function batchFinalizeCommand(args: string[]): void {
 
 function batchRejectCommand(args: string[]): void {
   const bookRoot = resolveBatchBookRoot(args)
+  const unit = readBatchUnit(bookRoot)
   const chapter = readRequiredChapter(args)
   const reason = readStringFlag(args, '--reason') ?? '作者打回'
   const result = rejectPendingChapter(bookRoot, chapter, reason)
@@ -337,11 +340,12 @@ function batchRejectCommand(args: string[]): void {
     console.error(`✗ ${result.reason}`)
     process.exit(1)
   }
-  console.log(`✓ 第 ${chapter} 章已打回，移入 .isolated。`)
+  console.log(`✓ 第 ${chapter} ${unit}已打回，移入 .isolated。`)
 }
 
 function batchRollbackCommand(args: string[]): void {
   const bookRoot = resolveBatchBookRoot(args)
+  const unit = readBatchUnit(bookRoot)
   if (!args.includes('--yes')) {
     console.error('✗ 整批回滚会删除未定稿待定稿目录；确认执行请加 --yes。')
     process.exit(1)
@@ -351,7 +355,7 @@ function batchRollbackCommand(args: string[]): void {
     console.error(`✗ ${result.reason}`)
     process.exit(1)
   }
-  console.log(`✓ 已清理待定稿，共 ${result.cleared} 个章目录。`)
+  console.log(`✓ 已清理待定稿，共 ${result.cleared} 个${unit}目录。`)
 }
 
 function resolveBatchBookRoot(args: string[]): string {
@@ -362,6 +366,11 @@ function resolveBatchBookRoot(args: string[]): string {
     process.exit(1)
   }
   return bookResolved.bookRoot
+}
+
+function readBatchUnit(bookRoot: string): '章' | '篇' {
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  return config.kind === 'short' ? '篇' : '章'
 }
 
 // ── 共用解析 ─────────────────────────────────────
@@ -549,5 +558,5 @@ function printReviewHelp(toStdout: boolean): void {
   write('  clwriting review batch reject [书目录] --chapter=N [--reason=原因]')
   write('  clwriting review batch rollback [书目录] --yes')
   write('')
-  write('说明：草稿文件可指向 工作区/草稿-1.md 或 工作区/待定稿/<章>/草稿-1.md；review run/collect 会使用草稿所在目录读写三审产物。')
+  write('说明：草稿文件可指向 工作区/草稿-1.md 或 工作区/待定稿/<章或篇>/草稿-1.md；review run/collect 会使用草稿所在目录读写三审产物。')
 }

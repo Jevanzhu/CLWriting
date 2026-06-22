@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import type { BookConfig } from '../../src/format/types.js'
 import { doConfirm } from '../../src/gate/confirm.js'
 import { recordAiCall } from '../../src/ai/calls.js'
 import { readMetrics } from '../../src/metrics/ledger.js'
@@ -16,6 +17,8 @@ import {
   rejectPendingChapter,
 } from '../../src/auto/review-batch.js'
 import { reviewCommand } from '../../src/cli/review.js'
+
+const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
 /** 建书 + 连写 N 章进待定稿（用 doAutoBatch 桩）。 */
 async function makeBookWithPending(n: number): Promise<string> {
@@ -45,6 +48,26 @@ async function makeBookWithPending(n: number): Promise<string> {
   return root
 }
 
+async function makeShortBookWithPending(n: number): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), '短篇批审-'))
+  execSync('git init', { cwd: root, stdio: 'pipe' })
+  execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
+  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
+
+  const produce = async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
+    title: `第${chapter}夜`,
+    outline: `纲${chapter}`,
+    body: `---\n篇号: ${chapter}\n标题: 第${chapter}夜\n目标情绪: 惊悚\n核心反转: 来客就是死者\n---\n\n第${chapter}夜正文。\n`,
+    chapter: { 章号: chapter, 标题: `第${chapter}夜`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
+  })
+  await doAutoBatch({ bookRoot: root, targetCount: n, produce })
+  return root
+}
+
 /** 给待定稿章写 approved 审稿裁决。 */
 function approvePending(bookRoot: string, chapter: number): void {
   const pending = readdirSync(pendingRoot(bookRoot)).filter((f) => !f.startsWith('.') && f.startsWith(String(chapter).padStart(4, '0')))
@@ -52,6 +75,13 @@ function approvePending(bookRoot: string, chapter: number): void {
   writeFileSync(join(dir, '审稿.md'), `\`\`\`\n${REVIEW_VERDICT_MARKER} verdict: 通过\n\`\`\`\n`, 'utf-8')
   // 待定稿章需有确认记录（前置闸 #3 哈希闸）
   doConfirm(dir, chapter, join(dir, '细纲.md'), 'manual', DEFAULT_CONFIG)
+}
+
+function approveShortPending(bookRoot: string, chapter: number): void {
+  const pending = readdirSync(pendingRoot(bookRoot)).filter((f) => !f.startsWith('.') && f.startsWith(String(chapter).padStart(3, '0')))
+  const dir = join(pendingRoot(bookRoot), pending[0]!)
+  writeFileSync(join(dir, '审稿.md'), `\`\`\`\n${REVIEW_VERDICT_MARKER} verdict: 通过\n\`\`\`\n`, 'utf-8')
+  doConfirm(dir, chapter, join(dir, '细纲.md'), 'manual', SHORT_CONFIG)
 }
 
 test('listPendingChapters: 列待审章 + 识别裁决状态', async () => {
@@ -85,6 +115,42 @@ test('逐章定稿: approved 章 finalize --from 原子 commit + 删待定稿目
   expect(finalized).toContain('钩子类型: 情绪钩')
   expect(finalized).toContain('钩子强弱: 弱')
   expect(finalized).toContain('情绪定位: 转折')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('短篇逐篇定稿: approved 待定稿篇落 篇/ + pc commit + 清单归档', async () => {
+  const root = await makeShortBookWithPending(2)
+  const pendingName = readdirSync(pendingRoot(root)).find((f) => !f.startsWith('.') && f.startsWith('001-'))!
+  const pendingDir = join(pendingRoot(root), pendingName)
+  writeFileSync(join(pendingDir, '清单.md'), '## 反转线索表\n- 核心反转：来客就是死者\n', 'utf-8')
+  approveShortPending(root, 1)
+
+  const results = finalizePendingChapters(root, [1])
+
+  expect(results[0]!.ok).toBe(true)
+  expect(existsSync(join(root, '篇', '001-第1夜', '正文.md'))).toBe(true)
+  expect(existsSync(join(root, '篇', '001-第1夜', '清单.md'))).toBe(true)
+  const log = execSync('git log --oneline', { cwd: root, stdio: 'pipe' }).toString()
+  expect(log).toContain('pc:001')
+  expect(log).not.toContain('ch:0001')
+  const remaining = listPendingChapters(root)
+  expect(remaining).toHaveLength(1)
+  expect(remaining[0]!.chapter).toBe(2)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('短篇 listPendingChapters: 识别 3 位篇号目录与裁决状态', async () => {
+  const root = await makeShortBookWithPending(2)
+  approveShortPending(root, 2)
+
+  const list = listPendingChapters(root)
+
+  expect(list.map((p) => p.chapter)).toEqual([1, 2])
+  expect(list[0]!.title).toBe('第1夜')
+  expect(list[0]!.hasVerdict).toBe(false)
+  expect(list[1]!.verdict).toBe('approved')
 
   rmSync(root, { recursive: true, force: true })
 })
@@ -146,6 +212,26 @@ test('CLI: review batch list/finalize 可达并清理已定稿章', async () => 
     expect(lines.join('\n')).toContain('第 1 章')
     reviewCommand(['batch', 'finalize', root])
     expect(existsSync(join(root, '定稿', '正文', '1-第1章.md'))).toBe(true)
+    expect(listPendingChapters(root)).toHaveLength(0)
+  } finally {
+    log.mockRestore()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('CLI: 短篇 review batch list/finalize 文案按篇输出', async () => {
+  const root = await makeShortBookWithPending(1)
+  approveShortPending(root, 1)
+  const lines: string[] = []
+  const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '))
+  })
+  try {
+    reviewCommand(['batch', 'list', root])
+    expect(lines.join('\n')).toContain('待审篇 1 篇')
+    expect(lines.join('\n')).toContain('第 1 篇')
+    reviewCommand(['batch', 'finalize', root])
+    expect(existsSync(join(root, '篇', '001-第1夜', '正文.md'))).toBe(true)
     expect(listPendingChapters(root)).toHaveLength(0)
   } finally {
     log.mockRestore()

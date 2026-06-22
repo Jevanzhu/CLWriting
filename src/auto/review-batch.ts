@@ -16,17 +16,33 @@ import { join } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { readFile } from '../format/frontmatter.js'
 import { readChapter } from '../format/chapters.js'
+import { readPiece } from '../format/pieces.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import { readReviewVerdict, REVIEW_VERDICT_MARKER } from '../review/run.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import type { BookConfig, ChapterMeta } from '../format/types.js'
 import {
   pendingRoot,
   readBatchProgress,
   writeBatchProgress,
   clearPendingBatch,
 } from './batch.js'
+
+type UnitKind = 'long' | 'short'
+
+function unitKind(config: BookConfig): UnitKind {
+  return config.kind === 'short' ? 'short' : 'long'
+}
+
+function unitLabel(kind: UnitKind): '章' | '篇' {
+  return kind === 'short' ? '篇' : '章'
+}
+
+function unitWidth(kind: UnitKind): number {
+  return kind === 'short' ? 3 : 4
+}
 
 /** 待审章信息（态 8 列出 + 批量审稿呈现）。 */
 export interface PendingChapter {
@@ -95,6 +111,9 @@ export function finalizePendingChapters(
   chapters: number[],
 ): { chapter: number; ok: boolean; commitHash?: string; reason?: string }[] {
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const kind = unitKind(config)
+  const unit = unitLabel(kind)
+  const isShort = kind === 'short'
   const cachePath = join(bookRoot, '.cache', 'index.db')
   const results: { chapter: number; ok: boolean; commitHash?: string; reason?: string }[] = []
 
@@ -102,7 +121,7 @@ export function finalizePendingChapters(
   for (const chapter of chapters) {
     const dirName = findPendingDirByName(bookRoot, chapter)
     if (!dirName) {
-      results.push({ chapter, ok: false, reason: `待定稿找不到第 ${chapter} 章` })
+      results.push({ chapter, ok: false, reason: `待定稿找不到第 ${chapter} ${unit}` })
       continue
     }
     const chapterDir = join(pendingRoot(bookRoot), dirName)
@@ -110,20 +129,15 @@ export function finalizePendingChapters(
     // 读草稿取章元数据 + 正文
     const draftPath = join(chapterDir, '草稿-1.md')
     if (!existsSync(draftPath)) {
-      results.push({ chapter, ok: false, reason: `第 ${chapter} 章无草稿-1.md` })
+      results.push({ chapter, ok: false, reason: `第 ${chapter} ${unit}无草稿-1.md` })
       continue
     }
-    const chapterRead = readChapter(draftPath)
-    if (!chapterRead.ok) {
-      results.push({ chapter, ok: false, reason: chapterRead.error.message })
+    const draft = readPendingDraft(draftPath, isShort)
+    if (!draft.ok) {
+      results.push({ chapter, ok: false, reason: draft.reason })
       continue
     }
-    const file = readFile(draftPath)
-    if (!file.ok) {
-      results.push({ chapter, ok: false, reason: file.error.message })
-      continue
-    }
-    const chapterMeta = chapterRead.chapter
+    const { chapter: chapterMeta, body } = draft
 
     // rebuild + doFinalize（workDir = 待定稿章目录，R2）
     const rebuilt = rebuild(bookRoot, cachePath)
@@ -140,10 +154,13 @@ export function finalizePendingChapters(
         db,
         config,
         chapter: chapterMeta,
-        body: file.body,
-        fileName: `${chapterMeta.章号}-${chapterMeta.标题}.md`,
+        body,
+        fileName: finalUnitFileName(chapterMeta, kind),
         hasReviewVerdict: readReviewVerdict(chapterDir).approved,
-        leadUpdates: aggregateLeadUpdates(readChapterLeadUpdates(chapterDir), file.body, chapterMeta.章号),
+        kind,
+        leadUpdates: isShort
+          ? undefined
+          : aggregateLeadUpdates(readChapterLeadUpdates(chapterDir), body, chapterMeta.章号),
       })
       if (!r.ok) {
         results.push({ chapter, ok: false, reason: r.reason })
@@ -162,11 +179,52 @@ export function finalizePendingChapters(
   return results
 }
 
-/** 按 chapter 章号找待定稿章目录名（<章号4位>-<标题>）。 */
+function readPendingDraft(
+  draftPath: string,
+  isShort: boolean,
+): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
+  const file = readFile(draftPath)
+  if (!file.ok) return { ok: false, reason: file.error.message }
+  if (!isShort) {
+    const chapterRead = readChapter(draftPath)
+    if (!chapterRead.ok) return { ok: false, reason: chapterRead.error.message }
+    return { ok: true, chapter: chapterRead.chapter, body: file.body }
+  }
+
+  const piece = readPiece(draftPath)
+  if (!piece.ok) return { ok: false, reason: piece.error.message }
+  const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
+  if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
+  if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
+  return {
+    ok: true,
+    chapter: {
+      章号: piece.piece.篇号,
+      标题: piece.piece.标题,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
+      _path: piece.piece._path,
+    },
+    body: file.body,
+  }
+}
+
+function finalUnitFileName(chapter: ChapterMeta, kind: UnitKind): string {
+  if (kind === 'short') {
+    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
+  }
+  return `${chapter.章号}-${chapter.标题}.md`
+}
+
+/** 按 chapter 章号/篇号找待定稿目录名。 */
 function findPendingDirByName(bookRoot: string, chapter: number): string | null {
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const kind = unitKind(config)
   const root = pendingRoot(bookRoot)
   if (!existsSync(root)) return null
-  const prefix = `${String(chapter).padStart(4, '0')}-`
+  const prefix = `${String(chapter).padStart(unitWidth(kind), '0')}-`
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue
     if (entry.name.startsWith(prefix)) return entry.name
@@ -196,8 +254,10 @@ export function rejectPendingChapter(
   chapter: number,
   reason: string,
 ): { ok: true } | { ok: false; reason: string } {
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const unit = unitLabel(unitKind(config))
   const dirName = findPendingDirByName(bookRoot, chapter)
-  if (!dirName) return { ok: false, reason: `待定稿找不到第 ${chapter} 章` }
+  if (!dirName) return { ok: false, reason: `待定稿找不到第 ${chapter} ${unit}` }
   // 打回 = 移到 .isolated/（与隔离章同构，留痕）
   const src = join(pendingRoot(bookRoot), dirName)
   const dst = join(pendingRoot(bookRoot), '.isolated', dirName)
@@ -205,7 +265,7 @@ export function rejectPendingChapter(
   try {
     renameSync(src, dst)
   } catch {
-    return { ok: false, reason: `打回第 ${chapter} 章移动失败` }
+    return { ok: false, reason: `打回第 ${chapter} ${unit}移动失败` }
   }
   atomicWriteFile(
     join(dst, '.rejection.json'),
