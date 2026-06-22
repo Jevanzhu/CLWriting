@@ -126,6 +126,13 @@ short:
   opening_env_chars: 300
 ```
 
+调用预算仍使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
+
+```yaml
+budget:
+  calls_per_chapter: 8
+```
+
 自动模式会把多章/多篇草稿攒进 `工作区/待定稿/`：
 
 ```text
