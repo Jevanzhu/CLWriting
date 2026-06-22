@@ -211,6 +211,18 @@ export interface BookConfig {
   /** 短篇集专属配置；长篇缺省忽略 */
   short?: {
     strict?: boolean
+    /** 短篇总字数下限；缺省 8000 */
+    word_min?: number
+    /** 短篇总字数上限；缺省 20000 */
+    word_max?: number
+    /** 单个身体部位词允许出现次数；缺省 5 */
+    body_part_threshold?: number
+    /** 「像」字比喻密度阈值；缺省 10 */
+    simile_threshold?: number
+    /** 期望正文结构节数；缺省 5 */
+    section_count?: number
+    /** 开头零环境检查的前 N 字；缺省 300 */
+    opening_env_chars?: number
   }
   auto: {
     confirm_outline: boolean

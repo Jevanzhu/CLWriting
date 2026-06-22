@@ -597,13 +597,13 @@ export function checkPieceWordCount(
     items.push({
       checkId: 'piece-word-short',
       level: 'yellow',
-      message: `字数 ${actualWords} 低于短篇下限 ${min}（短篇目标 8000–20000）`,
+      message: `字数 ${actualWords} 低于短篇下限 ${min}（短篇目标 ${min}–${max}）`,
     })
   } else if (actualWords > max) {
     items.push({
       checkId: 'piece-word-long',
       level: 'yellow',
-      message: `字数 ${actualWords} 超过短篇上限 ${max}（短篇目标 8000–20000）`,
+      message: `字数 ${actualWords} 超过短篇上限 ${max}（短篇目标 ${min}–${max}）`,
     })
   }
   return { name: '短篇字数', items }

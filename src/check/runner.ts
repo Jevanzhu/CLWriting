@@ -188,6 +188,7 @@ export { hasRed, getRedItems }
 function runShort(input: CheckInput): CheckReport {
   const { bookRoot, chapter, body, fileName } = input
   const sections: CheckSectionResult[] = []
+  const short = input.config.short
 
   // front matter（短篇口径：篇号 + 标题，无钩子/情绪枚举）
   // 短篇复用 ChapterMeta 内存模型（章号字段承载篇号），按短篇字段校验
@@ -199,7 +200,7 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
 
   // 短篇字数（8000–20000，#27 第 5.2 节）
-  sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body)))
+  sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short?.word_min, short?.word_max))
 
   // 复读 / 句式 / 文风可量化（长短通用）
   sections.push(checkRepeat(body))
@@ -208,10 +209,10 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkStyleMetrics(body, ironRules))
 
   // 短篇专属项（#27 第 5.3 节，吸收点 7.1）
-  sections.push(checkBodyParts(body))
-  sections.push(checkSimile(body))
-  sections.push(checkSectionCount(body))
-  sections.push(checkOpeningNoEnv(body))
+  sections.push(checkBodyParts(body, short?.body_part_threshold))
+  sections.push(checkSimile(body, short?.simile_threshold))
+  sections.push(checkSectionCount(body, short?.section_count))
+  sections.push(checkOpeningNoEnv(body, short?.opening_env_chars))
 
   // 清单形式检（若篇目录有 清单.md，#27 第 5 节 + #28 第 3 节分工）
   // chapter._path 是正文路径，清单.md 同目录

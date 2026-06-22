@@ -113,6 +113,19 @@ node dist/cli.js --help
     → finalize 按篇定稿
 ```
 
+短篇机检阈值可在 `book.yaml` 按集调整，未配置时沿用默认值：
+
+```yaml
+short:
+  strict: true
+  word_min: 8000
+  word_max: 20000
+  body_part_threshold: 5
+  simile_threshold: 10
+  section_count: 5
+  opening_env_chars: 300
+```
+
 自动模式会把多章/多篇草稿攒进 `工作区/待定稿/`：
 
 ```text
@@ -182,7 +195,7 @@ auto 连写一批
 | M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入。 |
 | Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
 
-- **71 个测试文件 / 575 个测试全绿**，`tsc --noEmit` 通过，构建通过；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
+- **71 个测试文件 / 577 个测试全绿**，`tsc --noEmit` 通过，构建通过；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
 - 当前 RC 基线：50 章规模验证已完成并回收 D9/E1 修复；`health --metrics` 已接入宿主漏记软提示与预算校准提示，auto 待定稿记账链路已回归覆盖，`record-call --set-tokens` 已支持 token 真值事后回填；v0.2 实书迁移验证因当前无待迁移数据标记为 N/A。
