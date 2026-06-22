@@ -97,8 +97,18 @@ export function writeBatchProgress(bookRoot: string, progress: BatchProgress): v
 
 // ── 搬运：工作区根产出 → 待定稿/<章>/（#33 第 4 节）──
 
-/** 连写产出在工作区根的固定文件名（与单章工作区一致，复用既有命名）。 */
-const WORKDIR_PRODUCT_FILES = ['细纲.md', '本章写作材料.md', '审稿.md', '账本推进.md']
+type UnitKind = 'long' | 'short'
+
+function unitKind(config: BookConfig): UnitKind {
+  return config.kind === 'short' ? 'short' : 'long'
+}
+
+function unitWidth(kind: UnitKind): number {
+  return kind === 'short' ? 3 : 4
+}
+
+/** 连写产出在工作区根的固定文件名（与单章/单篇工作区一致，复用既有命名）。 */
+const WORKDIR_PRODUCT_FILES = ['细纲.md', '本章写作材料.md', '审稿.md', '账本推进.md', '清单.md']
 
 /** 工作区根前缀的产出文件（草稿-N.md + 机器域）。 */
 interface WorkDirProducts {
@@ -128,17 +138,28 @@ function scanWorkDirProducts(workDir: string): WorkDirProducts {
   return { drafts, machine, others }
 }
 
-/** 待定稿章目录名：<章号4位补零>-<标题>（对齐定稿 commit 口径）。 */
+/** 待定稿单元目录名：长篇 4 位章号，短篇 3 位篇号（对齐 commit 口径）。 */
+export function pendingUnitDirName(chapter: number, title: string, kind: UnitKind = 'long'): string {
+  return `${String(chapter).padStart(unitWidth(kind), '0')}-${title}`
+}
+
+/** 待定稿章目录名：<章号4位补零>-<标题>（兼容旧调用）。 */
 export function pendingChapterDirName(chapter: number, title: string): string {
-  return `${String(chapter).padStart(4, '0')}-${title}`
+  return pendingUnitDirName(chapter, title, 'long')
 }
 
 /**
  * 搬运：工作区根产出整体移入 待定稿/<章号-标题>/，清空工作区根。
  * 写完一章的固定产出 + 机器域全部搬走（逐章可追溯，#33 第 5 节）。
  */
-export function moveToPending(workDir: string, bookRoot: string, chapter: number, title: string): string {
-  const dirName = pendingChapterDirName(chapter, title)
+export function moveToPending(
+  workDir: string,
+  bookRoot: string,
+  chapter: number,
+  title: string,
+  kind: UnitKind = 'long',
+): string {
+  const dirName = pendingUnitDirName(chapter, title, kind)
   const dest = join(pendingRoot(bookRoot), dirName)
   mkdirSync(dest, { recursive: true })
 
@@ -261,11 +282,14 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
   const { bookRoot, targetCount, produce } = opts
   const workDir = join(bookRoot, '工作区')
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const kind = unitKind(config)
 
-  // 卷纲硬闸（简化版，#34 第 3 节 ③需人）：查 大纲/卷纲/ 非空
-  const volumeOutlineDir = join(bookRoot, '大纲', '卷纲')
-  if (!existsSync(volumeOutlineDir) || readdirSync(volumeOutlineDir).length === 0) {
-    return { ok: false, reason: '当前卷纲是空的，连写前先写卷纲（大纲/卷纲/）。' }
+  // 卷纲硬闸只属于长篇；短篇集无卷纲。
+  if (kind === 'long') {
+    const volumeOutlineDir = join(bookRoot, '大纲', '卷纲')
+    if (!existsSync(volumeOutlineDir) || readdirSync(volumeOutlineDir).length === 0) {
+      return { ok: false, reason: '当前卷纲是空的，连写前先写卷纲（大纲/卷纲/）。' }
+    }
   }
 
   // 初始化或续读批次进度
@@ -344,7 +368,7 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
       const trigger = result as StopTrigger
       // ②④ 隔离坏章（工作区根半截产出移到 .isolated/，不出批次）
       if (trigger.isolate) {
-        isolateCurrentChapter(workDir, bookRoot, chapterNum, trigger)
+        isolateCurrentChapter(workDir, bookRoot, chapterNum, trigger, kind)
         progress.isolated.push({ chapter: chapterNum, reason: trigger.reason === 'human' ? 'quality' : (trigger.reason as 'quality' | 'system'), detail: trigger.detail })
         // 隔离章不回填、不复用，#34 第 4 节。
         progress.next_chapter = chapterNum + 1
@@ -365,7 +389,7 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
     writeFileSync(join(workDir, '细纲.md'), production.outline, 'utf-8')
     writeFileSync(join(workDir, '草稿-1.md'), production.body, 'utf-8')
 
-    moveToPending(workDir, bookRoot, chapterNum, production.title)
+    moveToPending(workDir, bookRoot, chapterNum, production.title, kind)
 
     progress.completed.push(chapterNum)
     progress.next_chapter = chapterNum + 1
@@ -427,8 +451,14 @@ function checkGitHealthy(bookRoot: string): boolean {
 }
 
 /** ②④ 坏章隔离：工作区根半截产出移到 待定稿/.isolated/<章>/，不进 completed（#34 第 4 节）。 */
-function isolateCurrentChapter(workDir: string, bookRoot: string, chapter: number, trigger: StopTrigger): void {
-  const isoDir = join(pendingRoot(bookRoot), ISOLATED_DIR_NAME, String(chapter).padStart(4, '0'))
+function isolateCurrentChapter(
+  workDir: string,
+  bookRoot: string,
+  chapter: number,
+  trigger: StopTrigger,
+  kind: UnitKind,
+): void {
+  const isoDir = join(pendingRoot(bookRoot), ISOLATED_DIR_NAME, String(chapter).padStart(unitWidth(kind), '0'))
   mkdirSync(isoDir, { recursive: true })
   // 把工作区根现有的半截产出搬过去（若 produce 写了部分文件）
   if (existsSync(workDir)) {

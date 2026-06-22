@@ -133,16 +133,17 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     }
   }
 
-  // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
-  // 短篇分支：无态 8（本期不批量）/5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 篇/ 目录
-  if (config.kind === 'short') {
-    return { state: 7, nextChapter: countPieces(bookRoot) + 1 }
-  }
-
   // #8 待批量审稿（M6 #34）：待定稿有完成章 → 路由批量审稿（插态 4 后、态 5 前）
+  // 长篇/短篇共用；短篇仍跳过卷末/体检，只在有待定稿篇时进入态 8。
   const pending = detectPendingBatch(bookRoot)
   if (pending.length > 0) {
     return { state: 8, pendingChapters: pending }
+  }
+
+  // ── 态 4/8 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
+  // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 篇/ 目录
+  if (config.kind === 'short') {
+    return { state: 7, nextChapter: countPieces(bookRoot) + 1 }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -203,7 +204,7 @@ function detectIncompleteWorkdir(bookRoot: string): number | null {
 
 /**
  * 检测待定稿是否有完成章（态 8，M6 #34）。
- * 扫 工作区/待定稿/ 下 `<章号4位>-<标题>/` 目录，返回待审章号列表（已排除 .isolated/ 隔离章）。
+ * 扫 工作区/待定稿/ 下 `<编号>-<标题>/` 目录，返回待审章/篇号列表（已排除 .isolated/ 隔离章）。
  * 真相以磁盘目录为准（#33 第 3 节文件即真相）；连写产出待定稿时无审稿.md（审稿是作者硬闸后移），
  * 故只按目录名判定，不要求审稿.md 存在。
  */
@@ -349,9 +350,10 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
     case 8: {
       const chs = detected.pendingChapters
       const list = chs.map((c) => String(c)).join('、')
+      const unit = kind === 'short' ? '篇' : '章'
       return {
         state: 8,
-        humanMsg: `有 ${chs.length} 章待审稿（第 ${list} 章）。先用 clwriting review batch list 查看；通过后 clwriting review batch finalize 逐章定稿，或 clwriting review batch rollback --yes 整批回滚。`,
+        humanMsg: `有 ${chs.length} ${unit}待审稿（第 ${list} ${unit}）。先用 clwriting review batch list 查看；通过后 clwriting review batch finalize 逐${unit}定稿，或 clwriting review batch rollback --yes 整批回滚。`,
         action: 'pending-batch-review',
         needsAI: false, // 审稿是作者硬闸（品味归人，原则 7）
       }
@@ -417,9 +419,9 @@ function readRecapSnapshot(
   config: BookConfig,
   detected: DetectedState,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
-  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；用 fallback 从 detected 推篇号
+  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 篇/ 作为已定稿篇数。
   if (config.kind === 'short') {
-    return fallbackRecapSnapshot(detected)
+    return { currentChapter: countPieces(bookRoot), currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined

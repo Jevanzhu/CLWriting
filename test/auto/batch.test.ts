@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import type { BookConfig } from '../../src/format/types.js'
 import {
   doAutoBatch,
   readBatchProgress,
@@ -14,6 +15,8 @@ import {
   writeBatchProgress,
   type ChapterProduction,
 } from '../../src/auto/batch.js'
+
+const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
 /** 建一本干净书（git init + book.yaml + 卷纲非空 + 初始 commit）。 */
 function makeBookWithVolumeOutline(): string {
@@ -33,6 +36,21 @@ function makeBookWithVolumeOutline(): string {
   return root
 }
 
+/** 建一本短篇集（无卷纲，kind:short）。 */
+function makeShortBook(): string {
+  const root = mkdtempSync(join(tmpdir(), '短篇连写-'))
+  execSync('git init', { cwd: root, stdio: 'pipe' })
+  execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
+  execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
+  execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
+  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
+  return root
+}
+
 /** 造一个产出回调（桩：按章号产出固定标题+细纲+正文）。 */
 function makeProduceStub() {
   return async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
@@ -40,6 +58,15 @@ function makeProduceStub() {
     outline: `第${chapter}章细纲`,
     body: `---\n章号: ${chapter}\n标题: 第${chapter}章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${chapter}章正文。\n`,
     chapter: { 章号: chapter, 标题: `第${chapter}章`, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' },
+  })
+}
+
+function makeShortProduceStub() {
+  return async ({ chapter }: { chapter: number }): Promise<ChapterProduction> => ({
+    title: `第${chapter}夜`,
+    outline: `第${chapter}夜细纲`,
+    body: `---\n篇号: ${chapter}\n标题: 第${chapter}夜\n目标情绪: 惊悚\n核心反转: 来客就是死者\n---\n\n第${chapter}夜正文。\n`,
+    chapter: { 章号: chapter, 标题: `第${chapter}夜`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
   })
 }
 
@@ -162,6 +189,53 @@ test('连写: 卷纲为空 → 拒绝启动', async () => {
   const r = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeProduceStub() })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toContain('卷纲')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('短篇连写: 无卷纲也能批量产出待定稿篇目录', async () => {
+  const root = makeShortBook()
+
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 2, produce: makeShortProduceStub() })
+
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.produced).toEqual([1, 2])
+  const dirs = readdirSync(pendingRoot(root)).filter((f) => !f.startsWith('.')).sort()
+  expect(dirs).toEqual(['001-第1夜', '002-第2夜'])
+  expect(existsSync(join(pendingRoot(root), '001-第1夜', '草稿-1.md'))).toBe(true)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('短篇 moveToPending: 清单.md 随篇搬入待定稿', () => {
+  const root = makeShortBook()
+  const workDir = join(root, '工作区')
+  writeFileSync(join(workDir, '清单.md'), '反转线索表\n', 'utf-8')
+
+  const dir = moveToPending(workDir, root, 1, '雪夜来客', 'short')
+
+  expect(dir.endsWith('001-雪夜来客')).toBe(true)
+  expect(existsSync(join(dir, '清单.md'))).toBe(true)
+  expect(existsSync(join(workDir, '清单.md'))).toBe(false)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('短篇连写: 篇号从既有定稿续算', async () => {
+  const root = makeShortBook()
+  const dir = join(root, '篇', '005-第五夜')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, '正文.md'), '---\n篇号: 5\n标题: 第五夜\n---\n正文', 'utf-8')
+  execSync('git add -A && git commit -m "pc:005 第五夜"', { cwd: root, stdio: 'pipe' })
+
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 1, produce: makeShortProduceStub() })
+
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.progress.start_chapter).toBe(6)
+  expect(r.produced).toEqual([6])
+  expect(existsSync(join(pendingRoot(root), '006-第6夜'))).toBe(true)
 
   rmSync(root, { recursive: true, force: true })
 })
