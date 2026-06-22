@@ -10,6 +10,7 @@ interface BookIdentity {
   created_at?: string
   title: string
   genre: string
+  host: string
 }
 
 const route = useRoute()
@@ -50,6 +51,10 @@ function fmtDate(iso?: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
 }
+
+function hostLabel(host: string): string {
+  return host === 'codex' ? 'Codex' : 'Claude Code (cc)'
+}
 </script>
 
 <template>
@@ -66,7 +71,7 @@ function fmtDate(iso?: string): string {
       <dl class="meta">
         <div><dt>题材</dt><dd>{{ book.genre || '—' }}</dd></div>
         <div><dt>类型</dt><dd>{{ book.kind === 'short' ? '短篇集' : '长篇' }}</dd></div>
-        <div><dt>宿主</dt><dd>未设置（默认 cc）</dd></div>
+        <div><dt>宿主</dt><dd>{{ hostLabel(book.host) }}</dd></div>
         <div><dt>创建于</dt><dd>{{ fmtDate(book.created_at) }}</dd></div>
         <div><dt>目录</dt><dd class="mono">{{ book.path }}</dd></div>
       </dl>

@@ -1,28 +1,26 @@
 /**
- * 书架 + 单书 REST 端点（#12.3）。
+ * 书架 + 单书 + 建书 REST 端点（#12.3 + 5.1）。
  *
- * - GET /api/books        书架列表（读 books.jsonl）
- * - GET /api/books/:name  单书身份（读该书 book.yaml）
- * - GET /api/boot         启动初始态（--book 直进支持）
+ * - GET  /api/books          书架列表（读 books.jsonl）
+ * - POST /api/books          建书（doInit；1.5 段 1 表单）
+ * - GET  /api/books/:name    单书身份（读该书 book.yaml，含 host）
+ * - GET  /api/boot           启动初始态（--book 直进支持）
  *
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
- * host 暂不返：内核 book.yaml 无 host 字段（GUI 建书 1.5 起写入），前端兜底「未设置（默认 cc）」。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { doInit } from '../../../install/init.js'
 
-/** workDir 上下文（server 启动时注入一次） */
 interface BookCtx {
   workDir: string | null
 }
 
-/** 启动初始书名（--book 指定）；缺省 undefined。由 studio-cli 调 setInitialBook 设置 */
 let initialBook: string | undefined
 
-/** 注册书架 + 单书路由（server 启动时调用一次） */
 export function registerBookRoutes(ctx: BookCtx): void {
   // 书架列表
   route('GET', '/api/books', (_req: IncomingMessage, res: ServerResponse) => {
@@ -35,6 +33,45 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     reply(res, 200, { books: readBooks(ctx.workDir), workDir: true })
+  })
+
+  // 建书（1.5 段 1 表单 → doInit）
+  route('POST', '/api/books', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.workDir) {
+      reply(res, 400, { error: '未定位到工作目录，无法建书' })
+      return
+    }
+    const body = (await readJson(req)) as {
+      name?: unknown
+      genre?: unknown
+      kind?: unknown
+      leads?: unknown
+      host?: unknown
+    }
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (!name) {
+      reply(res, 400, { error: '书名不能为空' })
+      return
+    }
+    const genre = typeof body.genre === 'string' ? body.genre.trim() : ''
+    const kind = body.kind === 'short' ? 'short' : 'long'
+    const leads = Array.isArray(body.leads)
+      ? body.leads.filter((x): x is string => typeof x === 'string')
+      : undefined
+    const host = body.host === 'codex' ? 'codex' : 'cc'
+    const result = doInit({
+      workDir: ctx.workDir,
+      name,
+      genre: genre || undefined,
+      leads,
+      kind,
+      host,
+    })
+    if (!result.ok) {
+      reply(res, 400, { error: result.reason })
+      return
+    }
+    reply(res, 200, { name: result.bookName, kind, path: result.bookName })
   })
 
   // 单书身份
@@ -60,6 +97,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
         ...(entry.created_at ? { created_at: entry.created_at } : {}),
         title: config.book.title,
         genre: config.book.genre,
+        host: config.host ?? 'cc',
       })
     },
   )
@@ -70,12 +108,27 @@ export function registerBookRoutes(ctx: BookCtx): void {
   })
 }
 
-/** 设置启动初始书名（--book；studio-cli 调用） */
 export function setInitialBook(name: string | undefined): void {
   initialBook = name
 }
 
-/** 统一 JSON 响应 */
+/** 读 request body JSON（容错：空/坏 → {}） */
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve) => {
+    let data = ''
+    req.on('data', (c: Buffer) => {
+      data += c.toString('utf-8')
+    })
+    req.on('end', () => {
+      try {
+        resolve(data.trim() === '' ? {} : JSON.parse(data))
+      } catch {
+        resolve({})
+      }
+    })
+  })
+}
+
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))

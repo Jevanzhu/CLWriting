@@ -41,6 +41,10 @@ function open(name: string): void {
   router.push(`/books/${encodeURIComponent(name)}`)
 }
 
+function newBook(): void {
+  router.push('/books/new')
+}
+
 function fmtDate(iso?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -54,7 +58,7 @@ onMounted(loadBooks)
   <section class="bookshelf">
     <div class="bookshelf-head">
       <h2>书架</h2>
-      <button class="btn-new" disabled title="1.5 起支持建书">+ 新建</button>
+      <button class="btn-new" @click="newBook">+ 新建</button>
     </div>
 
     <p v-if="loading" class="hint">加载中…</p>
@@ -65,9 +69,7 @@ onMounted(loadBooks)
     </div>
     <div v-else-if="books.length === 0" class="empty">
       <p class="hint">暂无书籍</p>
-      <p class="sub">
-        1.5 起支持在 GUI 建书；现可用 <code>clwriting init</code> 建书后刷新
-      </p>
+      <p class="sub">点右上「+ 新建」建第一本书</p>
     </div>
     <ul v-else class="book-list">
       <li
@@ -108,8 +110,10 @@ onMounted(loadBooks)
   border-radius: 6px;
   background: #3b82f6;
   color: #fff;
-  cursor: not-allowed;
-  opacity: 0.5;
+  cursor: pointer;
+}
+.btn-new:hover {
+  background: #2563eb;
 }
 .hint {
   color: #6b7280;
@@ -125,11 +129,6 @@ onMounted(loadBooks)
   color: #9ca3af;
   font-size: 13px;
   margin-top: 8px;
-}
-.empty code {
-  background: #e5e7eb;
-  padding: 1px 5px;
-  border-radius: 3px;
 }
 .book-list {
   list-style: none;

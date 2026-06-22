@@ -16,6 +16,7 @@ import { parseValue, stringifyValue } from './frontmatter.js'
 
 export const DEFAULT_CONFIG: BookConfig = {
   spec_version: 1,
+  host: 'cc',
   book: { title: '', genre: '' },
   leads: { enabled: [] },
   budget: {
@@ -86,6 +87,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (kindNode) {
     const k = String(parseValue(kindNode.value))
     if (k === 'short' || k === 'long') cfg.kind = k
+  }
+
+  // host（决策 12）：AI 宿主，缺省 cc；只认 cc/codex
+  const hostNode = find('host')
+  if (hostNode) {
+    const h = String(parseValue(hostNode.value))
+    if (h === 'cc' || h === 'codex') cfg.host = h
   }
 
   const book = find('book')
@@ -233,6 +241,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     `spec_version: ${cfg.spec_version}`,
     // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，M8 #25）
     ...(isShort ? ['kind: short', ''] : ['']),
+    `host: ${cfg.host ?? 'cc'}`,
     'book:',
     `  title: ${stringifyValue(cfg.book.title)}`,
     `  genre: ${stringifyValue(cfg.book.genre)}`,
