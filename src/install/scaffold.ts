@@ -21,6 +21,8 @@ export interface BookScaffoldOpts {
   genre: string
   leadsEnabled: LeadType[]
   kind: 'long' | 'short'
+  /** AI 宿主（决策 12/22，缺省 cc） */
+  host?: 'cc' | 'codex'
 }
 
 /**
@@ -45,11 +47,13 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         ...DEFAULT_CONFIG,
         // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
         kind: 'short',
+        host: opts.host ?? 'cc',
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
         short: recommendShortChecks(opts.genre),
       }
     : {
         ...DEFAULT_CONFIG,
+        host: opts.host ?? 'cc',
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
         leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
       }

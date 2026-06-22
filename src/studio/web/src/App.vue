@@ -1,5 +1,22 @@
 <script setup lang="ts">
-import Bookshelf from './pages/Bookshelf.vue'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+// 启动初始态：--book 指定的书 → 直进单书（仅当当前停在书架首页时）
+onMounted(async () => {
+  try {
+    const r = await fetch('/api/boot')
+    if (!r.ok) return
+    const data = (await r.json()) as { initialBook?: string }
+    if (data.initialBook && router.currentRoute.value.path === '/') {
+      router.push(`/books/${encodeURIComponent(data.initialBook)}`)
+    }
+  } catch {
+    // boot 失败不影响书架浏览
+  }
+})
 </script>
 
 <template>
@@ -8,7 +25,7 @@ import Bookshelf from './pages/Bookshelf.vue'
       <h1>CLWriting Studio</h1>
     </header>
     <main class="studio-main">
-      <Bookshelf />
+      <router-view />
     </main>
   </div>
 </template>
