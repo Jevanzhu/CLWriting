@@ -29,6 +29,8 @@ export interface InitOptions {
   leads?: readonly string[]
   /** 长篇/短篇（默认 long；short 细节归 M8） */
   kind?: 'long' | 'short'
+  /** AI 宿主（决策 12/22，默认 cc；首版只 cc） */
+  host?: 'cc' | 'codex'
   /** 装哪些平台壳（默认全装） */
   platforms?: ShellPlatform[]
 }
@@ -81,7 +83,7 @@ export function doInit(opts: InitOptions): InitResult {
   if (!workDirResult.ok) return workDirResult
 
   // 步骤 6：书仓库 scaffold（独立 git + book.yaml + 6.2 目录 + 文风占位 + 初始 commit）
-  scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind })
+  scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host })
 
   // 步骤 7：装壳（种默认角色源 → generateRoleShells）
   const seedResult = seedDefaultRoles(workDir)
