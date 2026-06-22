@@ -4,6 +4,7 @@ import BookNew from './pages/BookNew.vue'
 import BookDetail from './pages/BookDetail.vue'
 import Health from './pages/Health.vue'
 import Editor from './pages/Editor.vue'
+import Rhythm from './pages/Rhythm.vue'
 
 /**
  * 前端路由：/ 书架，/books/new 建书，/books/:name 单书，/books/:name/health 体检，/books/:name/edit 编辑。
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/books/:name', component: BookDetail },
     { path: '/books/:name/health', component: Health },
     { path: '/books/:name/edit', component: Editor },
+    { path: '/books/:name/rhythm', component: Rhythm },
   ],
 })
 
