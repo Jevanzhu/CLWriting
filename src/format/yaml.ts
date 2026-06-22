@@ -147,6 +147,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       'target_emotions',
       'target_reversal_types',
       'target_ending_flavors',
+      'series_motifs',
     ] as const) {
       const node = short.children.find((c) => c.key === key)
       if (!node) continue
@@ -292,6 +293,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     if (cfg.short.target_emotions) lines.push(`  target_emotions: ${stringifyValue(cfg.short.target_emotions)}`)
     if (cfg.short.target_reversal_types) lines.push(`  target_reversal_types: ${stringifyValue(cfg.short.target_reversal_types)}`)
     if (cfg.short.target_ending_flavors) lines.push(`  target_ending_flavors: ${stringifyValue(cfg.short.target_ending_flavors)}`)
+    if (cfg.short.series_motifs) lines.push(`  series_motifs: ${stringifyValue(cfg.short.series_motifs)}`)
     if (cfg.short.strict) lines.push('  strict: true')
     for (const key of [
       'word_min',

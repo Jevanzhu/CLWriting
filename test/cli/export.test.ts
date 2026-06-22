@@ -191,6 +191,34 @@ describe('exportBook', () => {
     }
   })
 
+  it('CLI short: --platform 生成平台化投稿视图', () => {
+    const shortRoot = join(tmpdir(), `clwriting-export-short-platform-${Date.now()}`)
+    mkdirSync(join(shortRoot, '篇', '001-第一夜'), { recursive: true })
+    writeFileSync(
+      join(shortRoot, 'book.yaml'),
+      'spec_version: 1\nkind: short\n\nbook:\n  title: 夜语集\n  genre: 悬疑\n',
+      'utf-8',
+    )
+    writePiece(join(shortRoot, '篇', '001-第一夜', '正文.md'), {
+      篇号: 1,
+      标题: '第一夜',
+      目标情绪: '惊悚',
+      核心反转: '来客就是死者',
+    }, '第一夜正文')
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      exportCommand(['--platform', 'zhihu-salt', shortRoot])
+      const submission = readFileSync(join(shortRoot, '工作区', '导出', '投稿视图-夜语集.md'), 'utf-8')
+      expect(submission).toContain('# 投稿视图-夜语集-知乎盐选')
+      expect(submission).toContain('平台模板：知乎盐选')
+      expect(submission).toContain('付费后反转')
+    } finally {
+      logSpy.mockRestore()
+      rmSync(shortRoot, { recursive: true, force: true })
+    }
+  })
+
   it('空书（无定稿正文目录）应报错', () => {
     const empty = join(tmpdir(), `clwriting-export-empty-${Date.now()}`)
     mkdirSync(empty, { recursive: true })

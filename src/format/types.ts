@@ -219,6 +219,8 @@ export interface BookConfig {
     target_reversal_types?: string[]
     /** 画像目标结尾味道池；用于策划视图判断缺口 */
     target_ending_flavors?: string[]
+    /** 轻量跨篇母题；只做整集提示，不引入长篇账本 */
+    series_motifs?: string[]
     strict?: boolean
     /** 短篇总字数下限；缺省 8000 */
     word_min?: number

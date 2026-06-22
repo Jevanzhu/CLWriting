@@ -7,6 +7,7 @@ import { enterCommand } from '../../src/cli/enter.js'
 import { finalizeCommand } from '../../src/cli/finalize.js'
 import { healthCommand } from '../../src/cli/health.js'
 import { knowledgeCommand } from '../../src/cli/knowledge.js'
+import { repairPlanCommand } from '../../src/cli/repair-plan.js'
 import { revertCommand } from '../../src/cli/revert.js'
 import { reviewCommand } from '../../src/cli/review.js'
 import { rolesCommand } from '../../src/cli/roles.js'
@@ -45,6 +46,7 @@ test('CLI 子命令 --help 只打印用法，不误当业务参数', () => {
     ['finalize', () => finalizeCommand(['--help'])],
     ['roles', () => rolesCommand(['--help'])],
     ['knowledge', () => knowledgeCommand(['--help'])],
+    ['repair-plan', () => repairPlanCommand(['--help'])],
     ['review', () => reviewCommand(['--help'])],
     ['review plan', () => reviewCommand(['plan', '--help'])],
     ['review run', () => reviewCommand(['run', '--help'])],
@@ -63,5 +65,6 @@ test('CLI 主帮助露出 health 体检子模式', () => {
   const source = readFileSync(join(process.cwd(), 'src', 'cli.ts'), 'utf-8')
   expect(source).toContain('health [书目录] [--metrics|--style|--report]')
   expect(source).toContain('record-call <章号|篇号>')
+  expect(source).toContain('repair-plan [书目录] [--last=N]')
   expect(source).toContain('auto [N] [--resume]   连写 N 章/篇')
 })
