@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import BookTabs from '../components/BookTabs.vue'
 
 interface BookIdentity {
   name: string
@@ -13,16 +14,17 @@ interface BookIdentity {
 
 const route = useRoute()
 const router = useRouter()
+const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const book = ref<BookIdentity | null>(null)
 const loading = ref(true)
 const error = ref('')
 
-async function load(name: string): Promise<void> {
+async function load(n: string): Promise<void> {
   loading.value = true
   error.value = ''
   book.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name)}`)
+    const r = await fetch(`/api/books/${encodeURIComponent(n)}`)
     if (!r.ok) {
       const e = (await r.json().catch(() => ({}))) as { error?: string }
       throw new Error(e.error ?? `HTTP ${r.status}`)
@@ -35,7 +37,6 @@ async function load(name: string): Promise<void> {
   }
 }
 
-// :name 变化（如书架→单书、或直接访问 URL）时重新加载
 watch(
   () => route.params.name,
   (n) => {
@@ -53,6 +54,7 @@ function fmtDate(iso?: string): string {
 
 <template>
   <section class="book-detail">
+    <BookTabs :name="name" active="overview" />
     <div class="detail-head">
       <button class="btn-back" @click="router.push('/')">← 返回书架</button>
     </div>
@@ -69,7 +71,7 @@ function fmtDate(iso?: string): string {
         <div><dt>目录</dt><dd class="mono">{{ book.path }}</dd></div>
       </dl>
       <div class="placeholder">
-        <p class="hint">工作台 / 统计台 / 设定台将在 1.3+ 陆续上线。</p>
+        <p class="hint">统计台其余 / 工作台 / 设定台将在 1.4+ / Step 2 陆续上线。</p>
       </div>
     </article>
   </section>
