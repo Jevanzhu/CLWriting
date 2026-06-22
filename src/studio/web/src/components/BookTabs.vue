@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{ name: string; active: 'overview' | 'health' | 'rhythm' | 'leads' | 'edit' }>()
+const props = defineProps<{
+  name: string
+  active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'edit'
+}>()
 const enc = computed(() => encodeURIComponent(props.name))
 </script>
 
@@ -11,6 +14,7 @@ const enc = computed(() => encodeURIComponent(props.name))
     <RouterLink :to="`/books/${enc}/health`" :class="{ active: active === 'health' }">体检</RouterLink>
     <RouterLink :to="`/books/${enc}/rhythm`" :class="{ active: active === 'rhythm' }">节奏</RouterLink>
     <RouterLink :to="`/books/${enc}/leads`" :class="{ active: active === 'leads' }">账本</RouterLink>
+    <RouterLink :to="`/books/${enc}/settings`" :class="{ active: active === 'settings' }">设定</RouterLink>
     <RouterLink :to="`/books/${enc}/edit`" :class="{ active: active === 'edit' }">编辑</RouterLink>
     <span class="placeholder" title="Step 2 起上线">工作台</span>
   </nav>
