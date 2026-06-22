@@ -27,10 +27,12 @@ const activeStage = ref('draft')
 
 const chapter = ref(1)
 const running = ref(false)
+const outlineRunning = ref(false)
 const draftMode = ref(false)
 const textOut = ref('')
 const log = ref<{ t: string; type: string; text: string }[]>([])
 const saved = ref<{ path: string; words: number } | null>(null)
+const outlineSaved = ref<{ path: string; words: number } | null>(null)
 let es: EventSource | null = null
 
 function ts(): string {
@@ -77,6 +79,32 @@ function handleEvent(ev: DriverEvent): void {
       log.value.push({ t, type: 'error', text: `错误:${ev.message}` })
       break
   }
+}
+
+/** outline 生成:POST /outline(后端组 prompt + spawnRole('outline')禁工具 + 落盘 细纲) */
+async function outlineGen(): Promise<void> {
+  if (outlineRunning.value || running.value || !name.value) return
+  outlineRunning.value = true
+  outlineSaved.value = null
+  activeStage.value = 'outline'
+  log.value.push({ t: ts(), type: 'spawn', text: `生成第 ${chapter.value} 章细纲…` })
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/outline`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chapter: chapter.value }),
+    })
+    const d = (await r.json()) as { ok?: boolean; path?: string; words?: number; error?: string }
+    if (r.ok && d.ok) {
+      outlineSaved.value = { path: d.path ?? '', words: d.words ?? 0 }
+      log.value.push({ t: ts(), type: 'saved', text: `细纲已生成 ${d.path}(${d.words} 字)` })
+    } else {
+      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    }
+  } catch (e) {
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+  }
+  outlineRunning.value = false
 }
 
 /** draft 写稿:组 prompt → spawnRole(writer)→ 事件流收 text → done 后 saveDraft 落盘 */
@@ -160,17 +188,21 @@ onUnmounted(() => es?.close())
       >{{ s.label }}</span>
     </nav>
 
-    <!-- draft 写稿 -->
+    <!-- outline + draft 控制 -->
     <article class="card ctrl">
       <div class="ctrl-row">
         <label>章号
-          <input v-model.number="chapter" type="number" min="1" :disabled="running" />
+          <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning" />
         </label>
-        <button class="btn-fire" :disabled="running" @click="draftWrite">
+        <button class="btn-outline" :disabled="outlineRunning || running" @click="outlineGen">
+          {{ outlineRunning ? '生成细纲中…' : '📋 生成细纲 →' }}
+        </button>
+        <button class="btn-fire" :disabled="running || outlineRunning" @click="draftWrite">
           {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章 →` }}
         </button>
       </div>
-      <p v-if="saved" class="saved-tip">✅ 已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
+      <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成:<span class="mono">{{ outlineSaved.path }}</span>({{ outlineSaved.words }} 字)</p>
+      <p v-if="saved" class="saved-tip">✅ 草稿已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
     </article>
 
     <!-- 正文输出 -->
@@ -264,6 +296,20 @@ input[type='number'] {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 14px;
+}
+.btn-outline {
+  padding: 8px 18px;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  background: #fff;
+  color: #3b82f6;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-outline:disabled {
+  border-color: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
 .btn-fire {
   padding: 8px 18px;
