@@ -136,6 +136,10 @@ function main(): void {
       import('./cli/enable-rag.js').then(({ enableRagCommand }) => enableRagCommand(rest))
       return
     }
+    case 'studio': {
+      import('./cli/studio.js').then(({ studioCommand }) => studioCommand(rest))
+      return
+    }
     case '--help':
     case '-h':
     case undefined:
@@ -177,6 +181,7 @@ function printHelp(): void {
   console.log('  import <v0.2正文> [--name 书名] [--kind long|short]  导入 v0.2 正文（复用 scaffold 建书）')
   console.log('  learn [commit] [书目录]  文风样章/金句收割（#10 打分，候选制，交互式挑选入库）')
   console.log('  enable-rag --endpoint URL --model NAME [--key KEY]  启用 RAG 可选插件（key 不进 git）')
+  console.log('  studio [--port N] [--book <路径>]  启动 GUI（本地 Web，常驻；Ctrl+C 停）')
   console.log('  --version, -v    显示版本')
   console.log('  --help, -h       显示帮助')
 }
