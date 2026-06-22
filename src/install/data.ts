@@ -8,7 +8,7 @@
  * 纯函数、零依赖、零 AI——init 第 4 步查本表推荐，非调模型。
  */
 
-import type { LeadType } from '../format/types.js'
+import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 基础三类（恒启用，不列入 book.yaml 的 leads.enabled） */
 export const BASE_LEAD_TYPES: readonly LeadType[] = ['伏笔', '悬念', '感情线']
@@ -63,4 +63,78 @@ export function sanitizeLeadsEnabled(raw: string[]): LeadType[] {
     }
   }
   return out
+}
+
+type ShortCheckConfig = NonNullable<BookConfig['short']>
+
+const DEFAULT_SHORT_CHECKS: ShortCheckConfig = {
+  word_min: 8000,
+  word_max: 20000,
+  body_part_threshold: 5,
+  simile_threshold: 10,
+  section_count: 5,
+  opening_env_chars: 300,
+}
+
+const SHORT_CHECK_PRESETS: readonly {
+  keywords: readonly string[]
+  config: ShortCheckConfig
+}[] = [
+  {
+    keywords: ['悬疑', '推理', '怪谈', '惊悚', '恐怖', '无限流'],
+    config: {
+      word_min: 6000,
+      word_max: 16000,
+      body_part_threshold: 5,
+      simile_threshold: 8,
+      section_count: 5,
+      opening_env_chars: 220,
+    },
+  },
+  {
+    keywords: ['爽文', '打脸', '反转', '复仇', '逆袭', '都市'],
+    config: {
+      word_min: 5000,
+      word_max: 14000,
+      body_part_threshold: 4,
+      simile_threshold: 8,
+      section_count: 5,
+      opening_env_chars: 180,
+    },
+  },
+  {
+    keywords: ['情感', '言情', '治愈', '婚恋', '家庭', '青春'],
+    config: {
+      word_min: 6000,
+      word_max: 18000,
+      body_part_threshold: 6,
+      simile_threshold: 12,
+      section_count: 5,
+      opening_env_chars: 360,
+    },
+  },
+  {
+    keywords: ['科幻', '奇幻', '玄幻', '仙侠', '修仙', '架空'],
+    config: {
+      word_min: 8000,
+      word_max: 22000,
+      body_part_threshold: 5,
+      simile_threshold: 10,
+      section_count: 5,
+      opening_env_chars: 420,
+    },
+  },
+]
+
+/**
+ * 短篇集题材 → 机检阈值推荐。
+ *
+ * 这是 init 的起始校准值，不是检查器硬编码；作者可继续在 book.yaml short
+ * 下按平台/栏目经验调整。未命中时回落到短篇通用默认。
+ */
+export function recommendShortChecks(genre: string): ShortCheckConfig {
+  for (const preset of SHORT_CHECK_PRESETS) {
+    if (preset.keywords.some((kw) => genre.includes(kw))) return { ...preset.config }
+  }
+  return { ...DEFAULT_SHORT_CHECKS }
 }

@@ -11,7 +11,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
-import { BASE_LEAD_TYPES } from './data.js'
+import { BASE_LEAD_TYPES, recommendShortChecks } from './data.js'
 import { addCommit, git } from '../git/exec.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
@@ -46,6 +46,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
         kind: 'short',
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
+        short: recommendShortChecks(opts.genre),
       }
     : {
         ...DEFAULT_CONFIG,

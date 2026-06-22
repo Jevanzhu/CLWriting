@@ -1,5 +1,11 @@
 import { test, expect } from 'vitest'
-import { matchGenreLeads, sanitizeLeadsEnabled, BASE_LEAD_TYPES, EXTENDED_LEAD_TYPES } from '../../src/install/data.js'
+import {
+  BASE_LEAD_TYPES,
+  EXTENDED_LEAD_TYPES,
+  matchGenreLeads,
+  recommendShortChecks,
+  sanitizeLeadsEnabled,
+} from '../../src/install/data.js'
 
 test('BASE_LEAD_TYPES 恒为三类、EXTENDED 四类', () => {
   expect(BASE_LEAD_TYPES).toEqual(['伏笔', '悬念', '感情线'])
@@ -57,4 +63,45 @@ test('sanitizeLeadsEnabled: 剔除基础类 + 未知类 + 去重', () => {
   expect(sanitizeLeadsEnabled(['成长线', '成长线'])).toEqual(['成长线'])
   // 空入空出
   expect(sanitizeLeadsEnabled([])).toEqual([])
+})
+
+test('recommendShortChecks: 悬疑/怪谈使用更紧开头与较短篇幅', () => {
+  expect(recommendShortChecks('悬疑怪谈')).toEqual({
+    word_min: 6000,
+    word_max: 16000,
+    body_part_threshold: 5,
+    simile_threshold: 8,
+    section_count: 5,
+    opening_env_chars: 220,
+  })
+})
+
+test('recommendShortChecks: 爽文打脸压缩起篇窗口', () => {
+  expect(recommendShortChecks('都市打脸爽文')).toMatchObject({
+    word_min: 5000,
+    word_max: 14000,
+    body_part_threshold: 4,
+    opening_env_chars: 180,
+  })
+})
+
+test('recommendShortChecks: 情感治愈允许更软的开头铺陈', () => {
+  expect(recommendShortChecks('情感治愈')).toMatchObject({
+    word_min: 6000,
+    word_max: 18000,
+    body_part_threshold: 6,
+    simile_threshold: 12,
+    opening_env_chars: 360,
+  })
+})
+
+test('recommendShortChecks: 未命中题材回落通用默认', () => {
+  expect(recommendShortChecks('冷门实验')).toEqual({
+    word_min: 8000,
+    word_max: 20000,
+    body_part_threshold: 5,
+    simile_threshold: 10,
+    section_count: 5,
+    opening_env_chars: 300,
+  })
 })

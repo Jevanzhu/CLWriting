@@ -10,7 +10,10 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readPiece } from '../format/pieces.js'
 import { readPieceList } from '../format/manifest.js'
-import type { PieceList } from '../format/types.js'
+import { readFile } from '../format/frontmatter.js'
+import { countWords } from '../format/chapters.js'
+import type { BookConfig, PieceList } from '../format/types.js'
+import type { MetricRecord } from './ledger.js'
 
 export interface ShortPieceIndexEntry {
   num: number
@@ -34,6 +37,50 @@ export interface ShortCollectionReport {
   entries: ShortPieceIndexEntry[]
   risks: ShortCollectionRisk[]
 }
+
+export interface ShortCalibrationSample {
+  num: number
+  title: string
+  words: number
+  sectionCount: number | null
+  maxBodyPartCount: number
+  simileCount: number
+  openingEnvHits: string[]
+}
+
+export interface ShortCalibrationReport {
+  count: number
+  current: NonNullable<BookConfig['short']>
+  recommended: NonNullable<BookConfig['short']>
+  confidence: 'low' | 'medium' | 'high'
+  samples: ShortCalibrationSample[]
+  notes: string[]
+}
+
+export interface ShortBudgetCalibrationReport {
+  count: number
+  currentLimit: number
+  avgCalls: number
+  p80Calls: number
+  p90Calls: number
+  recommendedLimit: number
+  overLimit: number
+  nearLimit: number
+  missingAccounting: number
+}
+
+const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
+  word_min: 8000,
+  word_max: 20000,
+  body_part_threshold: 5,
+  simile_threshold: 10,
+  section_count: 5,
+  opening_env_chars: 300,
+}
+
+const BODY_PART_WORDS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
+const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
+const ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '乌云', '风声', '狂风', '雨声', '雨点', '景色', '远山', '树林', '街道', '建筑']
 
 /** 扫描短篇集索引。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
@@ -98,6 +145,152 @@ export function formatShortCollectionReport(report: ShortCollectionReport): stri
     for (const risk of report.risks.slice(0, 8)) {
       lines.push(`  · ${risk.message}（篇 ${risk.pieces.join('、')}）`)
     }
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function scanShortCalibrationSamples(bookRoot: string, openingChars = 300): ShortCalibrationSample[] {
+  const piecesDir = join(bookRoot, '篇')
+  if (!existsSync(piecesDir)) return []
+  let names: string[]
+  try {
+    names = readdirSync(piecesDir)
+  } catch {
+    return []
+  }
+
+  const samples: ShortCalibrationSample[] = []
+  for (const name of names) {
+    if (name.startsWith('._')) continue
+    const dir = join(piecesDir, name)
+    if (!safeIsDirectory(dir)) continue
+    const bodyPath = join(dir, '正文.md')
+    if (!existsSync(bodyPath)) continue
+    const piece = readPiece(bodyPath)
+    const file = readFile(bodyPath)
+    if (!piece.ok || !file.ok) continue
+    samples.push({
+      num: piece.piece.篇号,
+      title: piece.piece.标题,
+      words: countWords(file.body),
+      sectionCount: countHeadingSections(file.body),
+      maxBodyPartCount: countMaxBodyPart(file.body),
+      simileCount: countLiteral(file.body, '像'),
+      openingEnvHits: collectOpeningEnvHits(file.body, openingChars),
+    })
+  }
+  return samples.sort((a, b) => a.num - b.num)
+}
+
+export function analyzeShortCalibration(
+  samples: ShortCalibrationSample[],
+  currentConfig: BookConfig['short'] | undefined,
+): ShortCalibrationReport {
+  const current = { ...DEFAULT_SHORT_CONFIG, ...currentConfig }
+  const notes: string[] = []
+  if (samples.length === 0) {
+    return {
+      count: 0,
+      current,
+      recommended: { ...current },
+      confidence: 'low',
+      samples,
+      notes: ['暂无已定稿短篇样本，先沿用当前阈值。'],
+    }
+  }
+
+  const words = samples.map((s) => s.words).sort((a, b) => a - b)
+  const bodyParts = samples.map((s) => s.maxBodyPartCount).sort((a, b) => a - b)
+  const similes = samples.map((s) => s.simileCount).sort((a, b) => a - b)
+  const sectionCounts = samples.map((s) => s.sectionCount).filter((v): v is number => v !== null)
+  const openingHitRate = samples.filter((s) => s.openingEnvHits.length > 0).length / samples.length
+
+  const wordMin = clamp(roundDown(percentile(words, 0.2), 500), 3000, 12000)
+  const wordMax = Math.max(wordMin + 2000, clamp(roundUp(percentile(words, 0.9), 500), 6000, 30000))
+  const recommended: NonNullable<BookConfig['short']> = {
+    word_min: wordMin,
+    word_max: wordMax,
+    body_part_threshold: clamp(Math.max(3, Math.ceil(percentile(bodyParts, 0.9)) + 1), 3, 12),
+    simile_threshold: clamp(Math.max(5, Math.ceil(percentile(similes, 0.9)) + 1), 5, 20),
+    section_count: mode(sectionCounts) ?? current.section_count,
+    opening_env_chars: openingHitRate > 0.4
+      ? clamp((current.opening_env_chars ?? 300) - 80, 160, 500)
+      : current.opening_env_chars,
+  }
+
+  if (samples.length < 5) notes.push(`样本 ${samples.length} 篇，建议先当趋势参考，不直接覆盖配置。`)
+  if (sectionCounts.length < samples.length) notes.push(`${samples.length - sectionCounts.length} 篇未使用 ## 五段标题，节数建议置信度偏低。`)
+  if (openingHitRate > 0.4) notes.push(`开头环境词命中率 ${(openingHitRate * 100).toFixed(0)}%，建议缩短黄金开头检查窗口或重写开篇。`)
+  if (notes.length === 0) notes.push('样本分布稳定，可把推荐值作为下一轮 book.yaml short 候选。')
+
+  return {
+    count: samples.length,
+    current,
+    recommended,
+    confidence: samples.length >= 10 ? 'high' : samples.length >= 5 ? 'medium' : 'low',
+    samples,
+    notes,
+  }
+}
+
+export function formatShortCalibrationReport(report: ShortCalibrationReport): string {
+  if (report.count === 0) return ''
+  const lines: string[] = []
+  const avgWords = avg(report.samples.map((s) => s.words))
+  const openingHits = report.samples.filter((s) => s.openingEnvHits.length > 0).length
+  lines.push('短篇阈值回灌建议')
+  lines.push('─'.repeat(48))
+  lines.push(`  样本 ${report.count} 篇，置信度：${confidenceLabel(report.confidence)}，平均字数 ${avgWords.toFixed(0)}`)
+  lines.push(`  建议 short: word_min ${report.recommended.word_min} / word_max ${report.recommended.word_max}`)
+  lines.push(`  建议洁净阈值：身体部位词 ≤${report.recommended.body_part_threshold} / 「像」≤${report.recommended.simile_threshold} / 节数 ${report.recommended.section_count}`)
+  lines.push(`  开头环境词：${openingHits}/${report.count} 篇命中，opening_env_chars 建议 ${report.recommended.opening_env_chars}`)
+  for (const note of report.notes.slice(0, 3)) lines.push(`  · ${note}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function analyzeShortBudgetCalibration(
+  records: MetricRecord[],
+  currentLimit: number,
+): ShortBudgetCalibrationReport {
+  const shortRecords = records
+    .filter((r) => r.kind === 'short')
+    .sort((a, b) => a.num - b.num)
+  const totals = shortRecords.map((r) => r.calls.total).sort((a, b) => a - b)
+  const avgCalls = avg(totals)
+  const p80Calls = percentile(totals, 0.8)
+  const p90Calls = percentile(totals, 0.9)
+  const recommendedLimit = totals.length === 0
+    ? currentLimit
+    : clamp(Math.max(3, Math.ceil(p90Calls) + 1), 3, 20)
+  return {
+    count: shortRecords.length,
+    currentLimit,
+    avgCalls,
+    p80Calls,
+    p90Calls,
+    recommendedLimit,
+    overLimit: shortRecords.filter((r) => r.calls.total > r.calls.limit).length,
+    nearLimit: shortRecords.filter((r) => r.calls.limit > 0 && r.calls.total >= r.calls.limit * 0.8).length,
+    missingAccounting: shortRecords.filter((r) => r.calls.total === 0 || r.calls.outline === 0 || r.calls.draft === 0 || (r.review !== null && r.calls.review === 0)).length,
+  }
+}
+
+export function formatShortBudgetCalibrationReport(report: ShortBudgetCalibrationReport): string {
+  if (report.count === 0) return ''
+  const lines: string[] = []
+  lines.push('短篇预算校准建议')
+  lines.push('─'.repeat(48))
+  lines.push(`  样本 ${report.count} 篇：平均 ${report.avgCalls.toFixed(1)} 次/篇，P80 ${report.p80Calls.toFixed(1)}，P90 ${report.p90Calls.toFixed(1)}`)
+  lines.push(`  当前 calls_per_chapter ${report.currentLimit}；建议候选 ${report.recommendedLimit}`)
+  if (report.overLimit > 0 || report.nearLimit > 0) {
+    lines.push(`  · ${report.overLimit} 篇超限，${report.nearLimit} 篇接近上限；建议调高或降低 best-of-N/审查档位。`)
+  } else {
+    lines.push('  · 暂未触顶；候选值用于后续真实批量样本复核。')
+  }
+  if (report.missingAccounting > 0) {
+    lines.push(`  · ${report.missingAccounting} 篇疑似记账不完整，先补 record-call/token 再拍默认值。`)
   }
   lines.push('')
   return lines.join('\n')
@@ -243,4 +436,71 @@ function normalize(value: string): string {
 function isPlaceholder(value: string | undefined): boolean {
   const v = cleanValue(value)
   return v === '' || v === '待定' || v === '待补' || v === '（待补）'
+}
+
+function countHeadingSections(body: string): number | null {
+  const count = body.split(/^##\s/m).filter((s) => s.trim().length > 0).length
+  return count >= 2 ? count : null
+}
+
+function countMaxBodyPart(body: string): number {
+  const counts = BODY_PART_WORDS.map((word) => countLiteral(body, word))
+  counts.push((body.match(HAND_ACTION_RE) ?? []).length)
+  return Math.max(0, ...counts)
+}
+
+function countLiteral(body: string, needle: string): number {
+  if (!needle) return 0
+  let count = 0
+  let idx = body.indexOf(needle)
+  while (idx !== -1) {
+    count++
+    idx = body.indexOf(needle, idx + needle.length)
+  }
+  return count
+}
+
+function collectOpeningEnvHits(body: string, openingChars: number): string[] {
+  const opening = body.slice(0, openingChars)
+  return ENV_WORDS.filter((word) => opening.includes(word))
+}
+
+function percentile(sortedNums: number[], p: number): number {
+  if (sortedNums.length === 0) return 0
+  const idx = (sortedNums.length - 1) * p
+  const lo = Math.floor(idx)
+  const hi = Math.ceil(idx)
+  if (lo === hi) return sortedNums[lo]!
+  const weight = idx - lo
+  return sortedNums[lo]! * (1 - weight) + sortedNums[hi]! * weight
+}
+
+function roundDown(value: number, step: number): number {
+  return Math.floor(value / step) * step
+}
+
+function roundUp(value: number, step: number): number {
+  return Math.ceil(value / step) * step
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function avg(nums: number[]): number {
+  if (nums.length === 0) return 0
+  return nums.reduce((sum, n) => sum + n, 0) / nums.length
+}
+
+function mode(nums: number[]): number | undefined {
+  if (nums.length === 0) return undefined
+  const counts = new Map<number, number>()
+  for (const n of nums) counts.set(n, (counts.get(n) ?? 0) + 1)
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0]
+}
+
+function confidenceLabel(confidence: ShortCalibrationReport['confidence']): string {
+  if (confidence === 'high') return '高'
+  if (confidence === 'medium') return '中'
+  return '低'
 }
