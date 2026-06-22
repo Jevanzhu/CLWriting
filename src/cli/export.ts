@@ -14,11 +14,11 @@ export function exportCommand(args: string[]): void {
   if (args.includes('--help') || args.includes('-h')) {
     console.log('用法：clwriting export [--format <merged|split|both>] [书目录]')
     console.log()
-    console.log('把定稿正文干净导出（剥所有 front matter）。')
+    console.log('把定稿正文干净导出（剥所有 front matter），长篇按章，短篇集按篇。')
     console.log()
     console.log('选项：')
-    console.log('  --format merged  单文件合并（工作区/导出/全本-<书名>.md）')
-    console.log('  --format split   分章导出（工作区/导出/分章/）')
+    console.log('  --format merged  单文件合并（长篇全本 / 短篇全篇集）')
+    console.log('  --format split   分章/分篇导出（工作区/导出/分章|分篇/）')
     console.log('  --format both    两者都导出（默认）')
     console.log()
     console.log('导出只取定稿正文，不含账本/大纲/工作区/摘要。')
@@ -52,7 +52,7 @@ export function exportCommand(args: string[]): void {
     process.exit(1)
   }
 
-  console.log(`✓ 已导出 ${result.chapterCount} 章：`)
+  console.log(`✓ 已导出 ${result.chapterCount} ${result.unit}：`)
   for (const f of result.files) {
     console.log(`  ${f}`)
   }

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { exportCommand } from '../../src/cli/export.js'
 import { exportBook } from '../../src/export/index.js'
 import { writeChapter } from '../../src/format/chapters.js'
+import { writePiece } from '../../src/format/pieces.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 describe('exportBook', () => {
@@ -105,6 +106,82 @@ describe('exportBook', () => {
 
     expect(existsSync(join(bookRoot, '工作区', '导出', '分章', '0001-第一章.md'))).toBe(true)
     expect(existsSync(join(bookRoot, '工作区', '导出', '全本-测试书名.md'))).toBe(false)
+  })
+
+  it('短篇集导出：按篇号排序 + 全篇集/分篇 + 无 front matter', () => {
+    const shortRoot = join(tmpdir(), `clwriting-export-short-${Date.now()}`)
+    mkdirSync(shortRoot, { recursive: true })
+    mkdirSync(join(shortRoot, '篇'), { recursive: true })
+    writeFileSync(
+      join(shortRoot, 'book.yaml'),
+      'spec_version: 1\nkind: short\n\nbook:\n  title: 夜语集\n  genre: 悬疑\n',
+      'utf-8',
+    )
+    const pieces = [
+      { 篇号: 3, 标题: '第三夜', body: '第三夜正文' },
+      { 篇号: 1, 标题: '第一夜', body: '第一夜正文' },
+      { 篇号: 2, 标题: '第二夜', body: '第二夜正文' },
+    ]
+    for (const piece of pieces) {
+      const dir = join(shortRoot, '篇', `${String(piece.篇号).padStart(3, '0')}-${piece.标题}`)
+      mkdirSync(dir, { recursive: true })
+      writePiece(join(dir, '正文.md'), {
+        篇号: piece.篇号,
+        标题: piece.标题,
+        目标情绪: '惊悚',
+        核心反转: '来客就是死者',
+      }, piece.body)
+    }
+
+    try {
+      const result = exportBook({ bookRoot: shortRoot, format: 'both' })
+
+      expect(result.ok).toBe(true)
+      expect(result.unit).toBe('篇')
+      expect(result.chapterCount).toBe(3)
+      expect(result.files).toContain('工作区/导出/全篇集-夜语集.md')
+      expect(result.files).toContain('工作区/导出/分篇/001-第一夜.md')
+      expect(result.files).toContain('工作区/导出/分篇/002-第二夜.md')
+      expect(result.files).toContain('工作区/导出/分篇/003-第三夜.md')
+
+      const merged = readFileSync(join(shortRoot, '工作区/导出/全篇集-夜语集.md'), 'utf-8')
+      expect(merged).toMatch(/# 第一夜\n\n第一夜正文/)
+      expect(merged).toMatch(/# 第二夜\n\n第二夜正文/)
+      expect(merged).toMatch(/# 第三夜\n\n第三夜正文/)
+      expect(merged).not.toContain('目标情绪')
+      expect(merged).not.toContain('核心反转')
+
+      const first = readFileSync(join(shortRoot, '工作区/导出/分篇/001-第一夜.md'), 'utf-8')
+      expect(first).toBe('# 第一夜\n\n第一夜正文')
+    } finally {
+      rmSync(shortRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('CLI short: 输出篇数文案', () => {
+    const shortRoot = join(tmpdir(), `clwriting-export-short-cli-${Date.now()}`)
+    mkdirSync(join(shortRoot, '篇', '001-第一夜'), { recursive: true })
+    writeFileSync(
+      join(shortRoot, 'book.yaml'),
+      'spec_version: 1\nkind: short\n\nbook:\n  title: 夜语集\n  genre: 悬疑\n',
+      'utf-8',
+    )
+    writePiece(join(shortRoot, '篇', '001-第一夜', '正文.md'), {
+      篇号: 1,
+      标题: '第一夜',
+    }, '第一夜正文')
+
+    const lines: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '))
+    })
+    try {
+      exportCommand(['--format', 'merged', shortRoot])
+      expect(lines.join('\n')).toContain('已导出 1 篇')
+    } finally {
+      logSpy.mockRestore()
+      rmSync(shortRoot, { recursive: true, force: true })
+    }
   })
 
   it('空书（无定稿正文目录）应报错', () => {
