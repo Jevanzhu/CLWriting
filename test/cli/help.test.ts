@@ -62,4 +62,5 @@ test('CLI 子命令 --help 只打印用法，不误当业务参数', () => {
 test('CLI 主帮助露出 health 体检子模式', () => {
   const source = readFileSync(join(process.cwd(), 'src', 'cli.ts'), 'utf-8')
   expect(source).toContain('health [书目录] [--metrics|--style|--report]')
+  expect(source).toContain('record-call <章号|篇号>')
 })

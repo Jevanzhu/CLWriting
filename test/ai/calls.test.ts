@@ -74,6 +74,22 @@ test('调用预算: 将超上限时拒绝并给决策提示', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
+test('调用预算 short: 将超上限时按篇提示', () => {
+  const workDir = makeWorkDir()
+  const config: BookConfig = { ...configWithLimit(4), kind: 'short' }
+  recordAiCall({ workDir, chapter: 3, config, step: 'outline', calls: 1 })
+  recordAiCall({ workDir, chapter: 3, config, step: 'draft', calls: 3 })
+
+  const decision = checkAiCallBudget({ workDir, chapter: 3, config, plannedCalls: 1, label: '短篇满审' })
+  expect(decision.ok).toBe(false)
+  if (!decision.ok) {
+    expect(decision.reason).toContain('本篇已调用 AI 4 次')
+    expect(decision.reason).toContain('超过每篇上限 4')
+    expect(decision.reason).not.toContain('每章上限')
+  }
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 test('调用预算: recordAiCall 拒绝非正 calls，避免写出不可读计数', () => {
   const workDir = makeWorkDir()
   const config = configWithLimit(8)

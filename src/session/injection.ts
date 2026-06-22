@@ -6,7 +6,7 @@
  */
 
 import { join } from 'node:path'
-import { getAiCallBudgetState } from '../ai/calls.js'
+import { aiCallUnit, getAiCallBudgetState } from '../ai/calls.js'
 import { readBookConfig } from '../format/yaml.js'
 import { enter, formatRoute, STATE_NAMES, type EnterResult } from '../state/state.js'
 
@@ -82,5 +82,6 @@ function formatBudgetLine(bookRoot: string, enterResult: EnterResult): string {
   const chapter = enterResult.detected.state === 4 ? enterResult.detected.chapterNum : enterResult.recap.nextChapter
   const state = getAiCallBudgetState(join(bookRoot, '工作区'), chapter, config)
   if (!state.ok) return `- 调用预算：无法确认（${state.reason}）`
-  return `- 调用预算：第 ${chapter} 章已用 ${state.used}/${state.limit}，剩余 ${state.remaining}`
+  const unit = aiCallUnit(config)
+  return `- 调用预算：第 ${chapter} ${unit}已用 ${state.used}/${state.limit}，剩余 ${state.remaining}`
 }

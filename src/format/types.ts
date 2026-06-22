@@ -200,6 +200,7 @@ export interface BookConfig {
     thresholds?: Record<string, number> // 各类「悬太久」阈值覆盖
   }
   budget: {
+    /** 长篇为每章调用上限；kind: short 时按每篇调用上限解释。 */
     calls_per_chapter: number
     input_per_chapter?: number
     summary_chapter_max?: number

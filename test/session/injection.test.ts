@@ -1,9 +1,11 @@
 import { test, expect } from 'vitest'
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeGitBookWithChapters, makeGitBook, stageIncompleteChapter, seedChapterToCache } from '../helpers/book.js'
 import { recordAiCall } from '../../src/ai/calls.js'
-import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { DEFAULT_CONFIG, readBookConfig } from '../../src/format/yaml.js'
+import { doInit } from '../../src/install/init.js'
 import { buildSessionStartInjection, renderSessionStartInjection } from '../../src/session/injection.js'
 import { enter } from '../../src/state/state.js'
 
@@ -41,6 +43,28 @@ test('SessionStart 注入: 与手动 enter 同源同果，并带调用预算余�
   expect(rendered).toContain(`路由：${enterResult.route.action}`)
   expect(rendered).toContain(`状态：起草新章（态 ${enterResult.route.state}）`)
   rmSync(root, { recursive: true, force: true })
+})
+
+test('SessionStart 注入 short: 调用预算按篇展示', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'session-short-'))
+  const init = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
+  expect(init.ok).toBe(true)
+  if (!init.ok) return
+  const config = readBookConfig(join(init.bookRoot, 'book.yaml')).config
+  recordAiCall({
+    workDir: join(init.bookRoot, '工作区'),
+    chapter: 1,
+    config,
+    step: 'outline',
+    calls: 2,
+    at: '2026-06-18T00:00:00.000Z',
+  })
+
+  const rendered = renderSessionStartInjection(init.bookRoot, enter(init.bookRoot))
+
+  expect(rendered).toContain('调用预算：第 1 篇已用 2/8，剩余 6')
+  expect(rendered).not.toContain('调用预算：第 1 章已用')
+  rmSync(wd, { recursive: true, force: true })
 })
 
 test('SessionStart 注入: 态 4 续跑信息归属「当前态」段且紧跟调用预算行', () => {

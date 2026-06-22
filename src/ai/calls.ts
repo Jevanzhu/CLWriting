@@ -1,7 +1,7 @@
 /**
- * 每章 AI 调用预算闸 —— 依据 M4 #23。
+ * 每章/篇 AI 调用预算闸 —— 依据 M4 #23。
  *
- * 管「单章调用几次」，与 #12 输入预算闸（每次多大）正交。
+ * 管「单章/篇调用几次」，与 #12 输入预算闸（每次多大）正交。
  * 计数存在工作区机器域，续跑继承；损坏时保守阻断，避免静默归零绕过预算。
  */
 
@@ -24,7 +24,7 @@ export interface AiCallEntry {
   tokens?: number
 }
 
-/** 每章调用计数记录（工作区机器域） */
+/** 每章/篇调用计数记录（工作区机器域）；字段名沿用 chapter 以保持兼容。 */
 export interface AiCallBudgetRecord {
   chapter: number
   used: number
@@ -83,6 +83,11 @@ export function aiCallBudgetPath(workDir: string): string {
   return join(workDir, CALL_BUDGET_FILE)
 }
 
+/** 预算展示单位：短篇集按篇解释 calls_per_chapter，长篇按章解释。 */
+export function aiCallUnit(config: BookConfig): '章' | '篇' {
+  return (config.kind ?? 'long') === 'short' ? '篇' : '章'
+}
+
 /** 读调用预算记录；不存在表示本章还未调用。 */
 export function readAiCallBudget(workDir: string): AiCallBudgetRead {
   const fp = aiCallBudgetPath(workDir)
@@ -103,6 +108,7 @@ export function getAiCallBudgetState(
   config: BookConfig,
 ): AiCallBudgetState {
   const limit = config.budget.calls_per_chapter
+  const unit = aiCallUnit(config)
   const read = readAiCallBudget(workDir)
   if (!read.ok) {
     return { ok: false, chapter, used: limit, limit, remaining: 0, reason: `${read.reason}，按已达上限处理` }
@@ -119,7 +125,7 @@ export function getAiCallBudgetState(
       used: limit,
       limit,
       remaining: 0,
-      reason: `调用计数属于第 ${read.record.chapter} 章，不是第 ${chapter} 章；请先处理工作区残留`,
+      reason: `调用计数属于第 ${read.record.chapter} ${unit}，不是第 ${chapter} ${unit}；请先处理工作区残留`,
     }
   }
 
@@ -143,6 +149,7 @@ export function checkAiCallBudget(input: {
   label: string
 }): AiCallBudgetDecision {
   const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
+  const unit = aiCallUnit(input.config)
   if (!state.ok) {
     return {
       ok: false,
@@ -176,9 +183,9 @@ export function checkAiCallBudget(input: {
     remaining: state.remaining,
     projected,
     reason:
-      `这章已调用 AI ${state.used} 次；要执行「${input.label}」还要 +${planned}，` +
-      `合计 ${projected}，超过每章上限 ${state.limit}。` +
-      '请选择：临时提高本章上限、调高 book.yaml 的 budget.calls_per_chapter、降低 best-of-N，或按审查规格降级后重试。',
+      `本${unit}已调用 AI ${state.used} 次；要执行「${input.label}」还要 +${planned}，` +
+      `合计 ${projected}，超过每${unit}上限 ${state.limit}。` +
+      `请选择：临时提高本${unit}上限、调高 book.yaml 的 budget.calls_per_chapter、降低 best-of-N，或按审查规格降级后重试。`,
   }
 }
 
@@ -240,13 +247,14 @@ export function setAiCallTokens(input: {
   tokens: number
   at?: string
 }): AiCallRecordResult {
+  const unit = aiCallUnit(input.config)
   if (!Number.isSafeInteger(input.tokens) || input.tokens < 0) {
     return { ok: false, reason: `token 数必须是非负整数，当前为 ${String(input.tokens)}` }
   }
   const state = getAiCallBudgetState(input.workDir, input.chapter, input.config)
   if (!state.ok) return { ok: false, reason: state.reason }
   if (!state.record) {
-    return { ok: false, reason: `第 ${input.chapter} 章还没有调用记录，不能回填 token` }
+    return { ok: false, reason: `第 ${input.chapter} ${unit}还没有调用记录，不能回填 token` }
   }
 
   let targetIndex = -1
@@ -257,7 +265,7 @@ export function setAiCallTokens(input: {
     }
   }
   if (targetIndex === -1) {
-    return { ok: false, reason: `第 ${input.chapter} 章没有 ${input.step} 调用记录，不能回填 token` }
+    return { ok: false, reason: `第 ${input.chapter} ${unit}没有 ${input.step} 调用记录，不能回填 token` }
   }
 
   const now = input.at ?? new Date().toISOString()

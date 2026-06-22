@@ -6,14 +6,19 @@ import { join } from 'node:path'
 import { recordCallCommand } from '../../src/cli/record-call.js'
 import { aiCallBudgetPath } from '../../src/ai/calls.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import type { BookConfig } from '../../src/format/types.js'
 
 /** 造一个 git 书仓库（含 工作区 + book.yaml） */
-function makeBook(limit = 8): string {
+function makeBook(limit = 8, kind: 'long' | 'short' = 'long'): string {
   const root = mkdtempSync(join(tmpdir(), 'record-call-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })
   execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
   execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
-  const config = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, calls_per_chapter: limit } }
+  const config: BookConfig = {
+    ...DEFAULT_CONFIG,
+    ...(kind === 'short' ? { kind: 'short' as const } : {}),
+    budget: { ...DEFAULT_CONFIG.budget, calls_per_chapter: limit },
+  }
   writeBookConfig(join(root, 'book.yaml'), config)
   mkdirSync(join(root, '工作区'), { recursive: true })
   execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
@@ -80,6 +85,21 @@ test('record-call --step draft --calls N --tokens M → 透传 calls 与 tokens'
   expect(budget.entries[0]!.step).toBe('draft')
   expect(budget.entries[0]!.calls).toBe(3)
   expect(budget.entries[0]!.tokens).toBe(2500)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('record-call short: 文案按篇展示，超限提示用每篇上限', () => {
+  const root = makeBook(3, 'short')
+  const first = run(['1', '--step', 'outline', '--calls', '2'], root)
+  expect(first.exitCalled).toBe(false)
+  expect(first.out).toContain('第 1 篇')
+  expect(first.out).toContain('本篇累计 2/3')
+  expect(first.out).not.toContain('本章累计')
+
+  const second = run(['1', '--step', 'draft', '--calls', '2'], root)
+  expect(second.exitCalled).toBe(true)
+  expect(second.err).toContain('超过每篇上限 3')
+  expect(second.err).not.toContain('超过每章上限')
   rmSync(root, { recursive: true, force: true })
 })
 
