@@ -106,3 +106,40 @@ test('short.strict: 短篇严格模式可读写，长篇不输出 short 段', ()
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('short thresholds: 短篇机检阈值可读写，长篇不输出 short 段', () => {
+  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-thresholds-'))
+  try {
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      kind: 'short' as const,
+      short: {
+        word_min: 6000,
+        word_max: 16000,
+        body_part_threshold: 3,
+        simile_threshold: 6,
+        section_count: 5,
+        opening_env_chars: 200,
+      },
+      book: { title: '集', genre: '悬疑' },
+    }
+    const text = stringifyBookConfig(cfg)
+    expect(text).toContain('short:')
+    expect(text).toContain('  word_min: 6000')
+    expect(text).toContain('  opening_env_chars: 200')
+
+    writeFileSync(join(root, 'book.yaml'), text, 'utf-8')
+    const back = readBookConfig(join(root, 'book.yaml')).config
+    expect(back.short?.word_min).toBe(6000)
+    expect(back.short?.word_max).toBe(16000)
+    expect(back.short?.body_part_threshold).toBe(3)
+    expect(back.short?.simile_threshold).toBe(6)
+    expect(back.short?.section_count).toBe(5)
+    expect(back.short?.opening_env_chars).toBe(200)
+
+    const longYaml = stringifyBookConfig({ ...DEFAULT_CONFIG, short: cfg.short, book: { title: '长', genre: '玄幻' } })
+    expect(longYaml).not.toContain('short:')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

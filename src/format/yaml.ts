@@ -137,8 +137,23 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   const short = find('short')
   if (short) {
+    const shortConfig: NonNullable<BookConfig['short']> = {}
     const strict = short.children.find((c) => c.key === 'strict')
-    if (strict) cfg.short = { strict: String(parseValue(strict.value)) === 'true' }
+    if (strict) shortConfig.strict = String(parseValue(strict.value)) === 'true'
+    for (const key of [
+      'word_min',
+      'word_max',
+      'body_part_threshold',
+      'simile_threshold',
+      'section_count',
+      'opening_env_chars',
+    ] as const) {
+      const node = short.children.find((c) => c.key === key)
+      if (!node) continue
+      const value = parseFiniteNumber(node.value, NaN)
+      if (Number.isFinite(value) && value > 0) shortConfig[key] = value
+    }
+    if (Object.keys(shortConfig).length > 0) cfg.short = shortConfig
   }
 
   const auto = find('auto')
@@ -253,8 +268,20 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     `  injection: ${cfg.style.injection}`,
   )
 
-  if (isShort && cfg.short?.strict) {
-    lines.push('', 'short:', '  strict: true')
+  if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
+    lines.push('', 'short:')
+    if (cfg.short.strict) lines.push('  strict: true')
+    for (const key of [
+      'word_min',
+      'word_max',
+      'body_part_threshold',
+      'simile_threshold',
+      'section_count',
+      'opening_env_chars',
+    ] as const) {
+      const value = cfg.short[key]
+      if (value !== undefined) lines.push(`  ${key}: ${value}`)
+    }
   }
 
   lines.push(

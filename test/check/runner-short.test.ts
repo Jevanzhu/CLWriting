@@ -188,3 +188,38 @@ test('runAllChecks short: book.yaml short.strict 同样启用严格模式', () =
   expect(hasRed(r)).toBe(true)
   expect(r.sections.flatMap((s) => s.items).some((i) => i.checkId === 'piece-word-short' && i.level === 'red')).toBe(true)
 })
+
+test('runAllChecks short: book.yaml short 阈值覆盖短篇专属机检', () => {
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const body = [
+    '## 开头',
+    '他眼睛像刀。',
+    '',
+    '## 反转',
+    '她眼睛像雪。天气忽然亮了。',
+  ].join('\n')
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: {
+      ...shortConfig(),
+      short: {
+        word_min: 1,
+        word_max: 100,
+        body_part_threshold: 1,
+        simile_threshold: 1,
+        section_count: 2,
+        opening_env_chars: 2,
+      },
+    },
+    chapter: ch,
+    body,
+    fileName: '篇/001-雪夜/正文.md',
+  })
+  const items = r.sections.flatMap((s) => s.items)
+  expect(items.some((i) => i.checkId === 'piece-word-short')).toBe(false)
+  expect(items.some((i) => i.checkId === 'piece-word-long')).toBe(false)
+  expect(items.some((i) => i.checkId === 'body-parts' && i.message.includes('≤1'))).toBe(true)
+  expect(items.some((i) => i.checkId === 'simile-density' && i.message.includes('≤1'))).toBe(true)
+  expect(items.some((i) => i.checkId === 'section-count')).toBe(false)
+  expect(items.some((i) => i.checkId === 'opening-env')).toBe(false)
+})
