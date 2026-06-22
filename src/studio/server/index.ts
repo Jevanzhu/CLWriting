@@ -9,6 +9,7 @@ import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dispatch } from './router.js'
 import { registerBookRoutes } from './api/books.js'
+import { registerHealthRoutes } from './api/health.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -17,6 +18,7 @@ let routesRegistered = false
 function ensureRoutes(workDir: string | null): void {
   if (routesRegistered) return
   registerBookRoutes({ workDir })
+  registerHealthRoutes({ workDir })
   routesRegistered = true
 }
 
