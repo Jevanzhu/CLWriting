@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 
-interface Book {
-  id: string
+interface BookEntry {
   name: string
-  genre?: string
-  kind?: string
-  host?: string
+  path: string
+  kind: 'long' | 'short'
+  created_at?: string
 }
 
-const books = ref<Book[]>([])
+const router = useRouter()
+const books = ref<BookEntry[]>([])
+const workDir = ref(true)
+const hint = ref('')
 const loading = ref(true)
 const error = ref('')
 
@@ -19,13 +22,33 @@ async function loadBooks(): Promise<void> {
   try {
     const r = await fetch('/api/books')
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const data = (await r.json()) as { books: Book[] }
+    const data = (await r.json()) as {
+      books: BookEntry[]
+      workDir: boolean
+      hint?: string
+    }
     books.value = data.books ?? []
+    workDir.value = data.workDir
+    hint.value = data.hint ?? ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
+}
+
+function open(name: string): void {
+  router.push(`/books/${encodeURIComponent(name)}`)
+}
+
+function newBook(): void {
+  router.push('/books/new')
+}
+
+function fmtDate(iso?: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
 }
 
 onMounted(loadBooks)
@@ -35,22 +58,31 @@ onMounted(loadBooks)
   <section class="bookshelf">
     <div class="bookshelf-head">
       <h2>书架</h2>
-      <button class="btn-new" disabled title="1.5 起支持建书">+ 新建</button>
+      <button class="btn-new" @click="newBook">+ 新建</button>
     </div>
 
     <p v-if="loading" class="hint">加载中…</p>
     <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+    <div v-else-if="!workDir" class="empty">
+      <p class="hint">未定位到工作目录</p>
+      <p class="sub">{{ hint || '请在 CLWriting 工作目录（含 .clwriting/）下启动 studio。' }}</p>
+    </div>
     <div v-else-if="books.length === 0" class="empty">
       <p class="hint">暂无书籍</p>
-      <p class="sub">
-        1.5 起支持在 GUI 建书；现可用 <code>clwriting init</code> 建书后刷新
-      </p>
+      <p class="sub">点右上「+ 新建」建第一本书</p>
     </div>
     <ul v-else class="book-list">
-      <li v-for="b in books" :key="b.id" class="book-card">
+      <li
+        v-for="b in books"
+        :key="b.name"
+        class="book-card"
+        tabindex="0"
+        @click="open(b.name)"
+        @keydown.enter="open(b.name)"
+      >
         <div class="book-name">{{ b.name }}</div>
         <div class="book-meta">
-          {{ b.genre ?? '—' }} · {{ b.kind ?? '—' }} · {{ b.host ?? '—' }}
+          {{ b.kind === 'short' ? '短篇集' : '长篇' }} · 创建于 {{ fmtDate(b.created_at) }}
         </div>
       </li>
     </ul>
@@ -78,8 +110,10 @@ onMounted(loadBooks)
   border-radius: 6px;
   background: #3b82f6;
   color: #fff;
-  cursor: not-allowed;
-  opacity: 0.5;
+  cursor: pointer;
+}
+.btn-new:hover {
+  background: #2563eb;
 }
 .hint {
   color: #6b7280;
@@ -96,11 +130,6 @@ onMounted(loadBooks)
   font-size: 13px;
   margin-top: 8px;
 }
-.empty code {
-  background: #e5e7eb;
-  padding: 1px 5px;
-  border-radius: 3px;
-}
 .book-list {
   list-style: none;
   padding: 0;
@@ -113,6 +142,14 @@ onMounted(loadBooks)
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.book-card:hover,
+.book-card:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.15);
+  outline: none;
 }
 .book-name {
   font-weight: 600;

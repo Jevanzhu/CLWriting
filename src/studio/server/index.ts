@@ -3,20 +3,32 @@
  *
  * 单进程 server：/api/* 走 REST 分发器，其余路径静态托管前端 dist。
  * 只监听 127.0.0.1（本地 GUI，不对外）。driver 会话、SSE 等在后续
- * Step 引入；1.1 仅起骨架 + 书架占位端点。
+ * Step 引入。
  */
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dispatch } from './router.js'
 import { registerBookRoutes } from './api/books.js'
+import { registerHealthRoutes } from './api/health.js'
+import { registerFileRoutes } from './api/files.js'
+import { registerOverviewRoutes } from './api/overview.js'
+import { registerRhythmRoutes } from './api/rhythm.js'
+import { registerLeadsRoutes } from './api/leads.js'
+import { registerSettingsRoutes } from './api/settings.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
 
 /** 注册 REST 路由（幂等，避免多入口重复注册） */
-function ensureRoutes(): void {
+function ensureRoutes(workDir: string | null): void {
   if (routesRegistered) return
-  registerBookRoutes()
+  registerBookRoutes({ workDir })
+  registerHealthRoutes({ workDir })
+  registerFileRoutes({ workDir })
+  registerOverviewRoutes({ workDir })
+  registerRhythmRoutes({ workDir })
+  registerLeadsRoutes({ workDir })
+  registerSettingsRoutes({ workDir })
   routesRegistered = true
 }
 
@@ -25,11 +37,13 @@ export interface StudioServerOptions {
   host?: string
   /** 前端构建产物目录；缺省则不托管静态（仅 API） */
   staticDir?: string
+  /** CLWriting 工作目录（含 .clwriting/）；null/缺省 = 未定位，书架将为空 + 提示 */
+  workDir?: string | null
 }
 
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
-  ensureRoutes()
+  ensureRoutes(opts.workDir ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 

@@ -190,6 +190,8 @@ export interface BookConfig {
   spec_version: number
   /** 双轨标识（M8 #25）：long（缺省，长篇）/ short（短篇集）。缺省 = long，现有仓库零改动 */
   kind?: 'long' | 'short'
+  /** AI 宿主（决策 12/22）：cc（缺省，Claude Code）/ codex。首版只 cc */
+  host?: 'cc' | 'codex'
   book: {
     title: string
     genre: string

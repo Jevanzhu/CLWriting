@@ -1,18 +1,20 @@
 /**
- * `clwriting studio [--port N] [--book <path>]` —— GUI 子命令入口（#12.2）。
+ * `clwriting studio [--port N] [--book <书名或路径>]` —— GUI 子命令入口（#12.2）。
  *
  * 起 server（默认 127.0.0.1:7878）→ 静态托管前端 → 自动开浏览器；
  * Ctrl+C 优雅关闭。这是 clwriting 单入口之一，只是其「执行」= 起常驻
  * server（不进状态机轮转）。
  *
- * --book 直进某书（1.2 起支持）；省略进书架。
+ * --book <书名或路径> 直进单书（1.2 起支持）；省略进书架。
  */
 import process from 'node:process'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { startServer } from './index.js'
+import { findWorkDir, readBooks } from '../../install/books.js'
+import { setInitialBook } from './api/books.js'
 
 const DEFAULT_PORT = 7878
 
@@ -100,6 +102,26 @@ export function openBrowser(url: string): void {
   }
 }
 
+/**
+ * 把 --book（书名或书路径）解析成书名，设为启动初始书。
+ * 匹配优先级：name 相等 > path 相等 > 绝对路径相等；都不匹配则原样（前端 404 提示）。
+ */
+function resolveInitialBook(bookArg: string | undefined, workDir: string | null): void {
+  if (!bookArg) {
+    setInitialBook(undefined)
+    return
+  }
+  if (!workDir) {
+    setInitialBook(bookArg)
+    return
+  }
+  const abs = resolve(bookArg)
+  const matched = readBooks(workDir).find(
+    (b) => b.name === bookArg || b.path === bookArg || resolve(workDir, b.path) === abs,
+  )
+  setInitialBook(matched?.name ?? bookArg)
+}
+
 /** `clwriting studio` 命令处理器 */
 export async function studioCommand(argv: string[]): Promise<void> {
   let args: StudioArgs
@@ -112,12 +134,19 @@ export async function studioCommand(argv: string[]): Promise<void> {
 
   const staticDir = await resolveStaticDir()
 
-  const server = startServer({ port: args.port, staticDir })
+  // 工作目录定位（向上找 .clwriting/）+ --book 解析为初始书名
+  const workDir = findWorkDir(process.cwd())
+  resolveInitialBook(args.book, workDir)
+
+  const server = startServer({ port: args.port, staticDir, workDir })
 
   server.on('listening', () => {
     const url = `http://127.0.0.1:${args.port}`
     console.log(`\n✓ CLWriting Studio 已启动 → ${url}`)
-    if (args.book) console.log(`  --book ${args.book}（1.2 起支持直进单书）`)
+    if (args.book) console.log(`  --book ${args.book} → 直进单书`)
+    if (!workDir) {
+      console.log('  ⚠ 未定位到工作目录（当前目录不含 .clwriting/），书架将为空。')
+    }
     if (!staticDir) {
       console.log('  ⚠ 前端尚未构建，书架页将显示构建提示。')
       console.log('    构建：npm --prefix src/studio/web run build')
