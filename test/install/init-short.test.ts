@@ -78,6 +78,32 @@ test('init short: book.yaml 含 kind: short、无 leads/growth 段', () => {
   }
 })
 
+test('init short: 按题材写入短篇机检推荐阈值', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-short-calibration-'))
+  try {
+    const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑怪谈', kind: 'short' })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+
+    const cfg = readBookConfig(join(r.bookRoot, 'book.yaml')).config
+    expect(cfg.short).toEqual({
+      word_min: 6000,
+      word_max: 16000,
+      body_part_threshold: 5,
+      simile_threshold: 8,
+      section_count: 5,
+      opening_env_chars: 220,
+    })
+
+    const text = readFileSync(join(r.bookRoot, 'book.yaml'), 'utf-8')
+    expect(text).toContain('short:')
+    expect(text).toContain('  word_min: 6000')
+    expect(text).toContain('  opening_env_chars: 220')
+  } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
 test('init short: books.jsonl 登记 kind=short', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
   try {
