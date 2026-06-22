@@ -114,6 +114,7 @@ test('short thresholds: 短篇机检阈值可读写，长篇不输出 short 段'
       ...DEFAULT_CONFIG,
       kind: 'short' as const,
       short: {
+        profile: '悬疑反转',
         word_min: 6000,
         word_max: 16000,
         body_part_threshold: 3,
@@ -125,11 +126,13 @@ test('short thresholds: 短篇机检阈值可读写，长篇不输出 short 段'
     }
     const text = stringifyBookConfig(cfg)
     expect(text).toContain('short:')
+    expect(text).toContain('  profile: 悬疑反转')
     expect(text).toContain('  word_min: 6000')
     expect(text).toContain('  opening_env_chars: 200')
 
     writeFileSync(join(root, 'book.yaml'), text, 'utf-8')
     const back = readBookConfig(join(root, 'book.yaml')).config
+    expect(back.short?.profile).toBe('悬疑反转')
     expect(back.short?.word_min).toBe(6000)
     expect(back.short?.word_max).toBe(16000)
     expect(back.short?.body_part_threshold).toBe(3)

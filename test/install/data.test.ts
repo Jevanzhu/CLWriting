@@ -67,6 +67,7 @@ test('sanitizeLeadsEnabled: 剔除基础类 + 未知类 + 去重', () => {
 
 test('recommendShortChecks: 悬疑/怪谈使用更紧开头与较短篇幅', () => {
   expect(recommendShortChecks('悬疑怪谈')).toEqual({
+    profile: '悬疑反转',
     word_min: 6000,
     word_max: 16000,
     body_part_threshold: 5,
@@ -78,6 +79,7 @@ test('recommendShortChecks: 悬疑/怪谈使用更紧开头与较短篇幅', () 
 
 test('recommendShortChecks: 爽文打脸压缩起篇窗口', () => {
   expect(recommendShortChecks('都市打脸爽文')).toMatchObject({
+    profile: '快节奏爽点',
     word_min: 5000,
     word_max: 14000,
     body_part_threshold: 4,
@@ -87,6 +89,7 @@ test('recommendShortChecks: 爽文打脸压缩起篇窗口', () => {
 
 test('recommendShortChecks: 情感治愈允许更软的开头铺陈', () => {
   expect(recommendShortChecks('情感治愈')).toMatchObject({
+    profile: '情感余韵',
     word_min: 6000,
     word_max: 18000,
     body_part_threshold: 6,
@@ -97,6 +100,7 @@ test('recommendShortChecks: 情感治愈允许更软的开头铺陈', () => {
 
 test('recommendShortChecks: 未命中题材回落通用默认', () => {
   expect(recommendShortChecks('冷门实验')).toEqual({
+    profile: '通用短篇',
     word_min: 8000,
     word_max: 20000,
     body_part_threshold: 5,
