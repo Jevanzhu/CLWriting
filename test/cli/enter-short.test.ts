@@ -32,9 +32,13 @@ test('enter CLI short: 起草新篇时生成细纲和清单骨架', () => {
     const manifest = readFileSync(manifestPath, 'utf-8')
     expect(manifest).toContain('## 反转线索表')
     expect(manifest).toContain('- [开头钩子] 待补')
+    expect(manifest).toContain('## 情绪曲线')
+    expect(manifest).toContain('- [反转] 待定 9/10：待补')
     expect(manifest).toContain('## 伏笔回收')
 
     expect(lines.join('\n')).toContain('已生成短篇起草骨架')
+    expect(lines.join('\n')).toContain('【起草新篇】')
+    expect(lines.join('\n')).not.toContain('【起草新章】')
   } finally {
     log.mockRestore()
     rmSync(wd, { recursive: true, force: true })

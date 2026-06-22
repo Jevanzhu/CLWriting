@@ -160,7 +160,7 @@ function printHelp(): void {
   console.log('  confirm <章号> [书目录] [--auto]  确认工作区细纲（写 .confirm.json）')
   console.log('  record-call <章号> --step <outline|draft> ([--calls N] [--tokens N] | --set-tokens N)  记账/回填 AI 调用')
   console.log('  prepare [书目录] [--lead A,B] [--scene 场景]  生成工作区/本章写作材料.md')
-  console.log('  check [草稿文件] [书目录] [--full]  运行机检（红项退出码 1）')
+  console.log('  check [草稿文件] [书目录] [--full] [--strict-short]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
   console.log('  rebook [书目录] [--yes]  报告/补登定稿区与大纲区手改')
   console.log('  roles <generate|check> [工作目录|书目录]  生成角色壳 / 检查壳漂移')

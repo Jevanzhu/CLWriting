@@ -9,9 +9,11 @@ import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { createAllTables } from '../../src/cache/schema.js'
 import { appendMetric, type MetricRecord } from '../../src/metrics/ledger.js'
 import { writeChapter } from '../../src/format/chapters.js'
+import { writePiece } from '../../src/format/pieces.js'
+import { writePieceList } from '../../src/format/manifest.js'
 import { writeSample } from '../../src/format/style.js'
 import { baselinePath } from '../../src/metrics/style.js'
-import type { ChapterMeta } from '../../src/format/types.js'
+import type { ChapterMeta, PieceList } from '../../src/format/types.js'
 function captureHealth(args: string[], bookRoot: string): { out: string; err: string; exitCalled: boolean } {
   const out: string[] = []
   const err: string[] = []
@@ -71,6 +73,52 @@ function makeBookWithMetrics(count = 1): string {
   return root
 }
 
+function makeShortBookWithRepeats(): string {
+  const root = mkdtempSync(join(tmpdir(), 'health-short-'))
+  execSync('git init', { cwd: root, stdio: 'pipe' })
+  execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
+  execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
+  writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } })
+  mkdirSync(join(root, '文风'), { recursive: true })
+  writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
+  for (let i = 1; i <= 3; i++) {
+    const dir = join(root, '篇', `${String(i).padStart(3, '0')}-雪夜${i}`)
+    mkdirSync(dir, { recursive: true })
+    writePiece(join(dir, '正文.md'), {
+      篇号: i,
+      标题: `雪夜${i}`,
+      目标情绪: '惊悚',
+      核心反转: i < 3 ? '来客就是死者' : '门后的人是死者',
+    }, '「来了。」他说。\n雪落无声。')
+    const list: PieceList = {
+      反转线索表: {
+        核心反转: i < 3 ? '来客就是死者' : '门后的人是死者',
+        铺垫点: [
+          { 位置: '开头钩子', 内容: '门外没有脚印' },
+          { 位置: '铺垫', 内容: '镜中没有影子' },
+          { 位置: '升级', 内容: '钟表倒走' },
+        ],
+      },
+      情绪曲线: [
+        { 段落: '开头钩子', 情绪: '惊悚', 强度: 3 },
+        { 段落: '铺垫', 情绪: '惊悚', 强度: 5 },
+        { 段落: '升级', 情绪: '惊悚', 强度: 7 },
+        { 段落: '反转', 情绪: '惊悚', 强度: 9 },
+        { 段落: '余韵', 情绪: '后怕', 强度: 6 },
+      ],
+      伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
+    }
+    writePieceList(join(dir, '清单.md'), list)
+    appendMetric(root, {
+      kind: 'short', num: i, title: `雪夜${i}`, words: 10, at: `2026-06-20T00:00:0${i}.000Z`,
+      calls: { outline: 1, draft: 1, review: 3, total: 5, limit: 8 }, tokens: null,
+      review: { tier: 'full', downgrade: false, downgrade_reason: null, blockers: 0, warnings: 1, invalid: 0, lenses: ['hook', 'emotion_peak', 'payoff'] },
+    })
+  }
+  execSync('git add -A && git commit -m "init"', { cwd: root, stdio: 'pipe' })
+  return root
+}
+
 test('health 无参 → git 体检（默认路径不受子参数影响）', () => {
   const root = makeBookWithMetrics()
   const { out } = captureHealth([], root)
@@ -116,6 +164,15 @@ test('health --report --last=N → 文风和指标都只看近 N 章', () => {
   const { out } = captureHealth(['--report', '--last=2'], root)
   expect(out).toContain('文风对齐体检 · 基于 2 章')
   expect(out).toContain('成本/审查体检 · 2 条记录（第 2–3 章）')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('health --report short: 追加短篇集节奏体检与重复风险', () => {
+  const root = makeShortBookWithRepeats()
+  const { out } = captureHealth(['--report'], root)
+  expect(out).toContain('短篇集节奏体检')
+  expect(out).toContain('最近 3 篇目标情绪都为「惊悚」')
+  expect(out).toContain('结构物件/伏笔「门外没有脚印」重复出现')
   rmSync(root, { recursive: true, force: true })
 })
 

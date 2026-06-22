@@ -82,3 +82,27 @@ test('stringify → parse 往返：短篇 kind 不丢', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('short.strict: 短篇严格模式可读写，长篇不输出 short 段', () => {
+  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  try {
+    const cfg = {
+      ...DEFAULT_CONFIG,
+      kind: 'short' as const,
+      short: { strict: true },
+      book: { title: '集', genre: '悬疑' },
+    }
+    const text = stringifyBookConfig(cfg)
+    expect(text).toContain('short:')
+    expect(text).toContain('  strict: true')
+
+    writeFileSync(join(root, 'book.yaml'), text, 'utf-8')
+    const back = readBookConfig(join(root, 'book.yaml')).config
+    expect(back.short?.strict).toBe(true)
+
+    const longYaml = stringifyBookConfig({ ...DEFAULT_CONFIG, short: { strict: true }, book: { title: '长', genre: '玄幻' } })
+    expect(longYaml).not.toContain('short:')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

@@ -120,6 +120,13 @@ test('checkPieceListForm: 完整清单通过', () => {
         { 位置: 'c', 内容: 'x' },
       ],
     },
+    情绪曲线: [
+      { 段落: '开头钩子', 情绪: '惊悚', 强度: 3 },
+      { 段落: '铺垫', 情绪: '疑惧', 强度: 5 },
+      { 段落: '升级', 情绪: '紧张', 强度: 7 },
+      { 段落: '反转', 情绪: '震惊', 强度: 9 },
+      { 段落: '余韵', 情绪: '后怕', 强度: 6 },
+    ],
     伏笔回收: [{ 伏笔: 'y', 回收位置: 'z' }],
   }
   expect(checkPieceListForm(list).items).toHaveLength(0)
@@ -131,8 +138,56 @@ test('checkPieceListForm: 铺垫<3 报黄', () => {
     伏笔回收: [],
   }
   const r = checkPieceListForm(list)
-  expect(r.items).toHaveLength(1)
-  expect(r.items[0]!.checkId).toBe('manifest-setup-short')
+  expect(r.items.some((i) => i.checkId === 'manifest-setup-short')).toBe(true)
+})
+
+test('checkPieceListForm: 待定/待补占位不算有效内容', () => {
+  const list: PieceList = {
+    反转线索表: {
+      核心反转: '待定',
+      铺垫点: [
+        { 位置: '开头钩子', 内容: '待补' },
+        { 位置: '铺垫', 内容: '待补' },
+        { 位置: '升级', 内容: '待补' },
+      ],
+    },
+    情绪曲线: [
+      { 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' },
+      { 段落: '铺垫', 情绪: '待定', 强度: 3, 说明: '待补' },
+      { 段落: '升级', 情绪: '待定', 强度: 5, 说明: '待补' },
+      { 段落: '反转', 情绪: '待定', 强度: 9, 说明: '待补' },
+      { 段落: '余韵', 情绪: '待定', 强度: 6, 说明: '待补' },
+    ],
+    伏笔回收: [],
+  }
+  const ids = checkPieceListForm(list).items.map((i) => i.checkId)
+  expect(ids).toContain('manifest-no-reversal')
+  expect(ids).toContain('manifest-setup-short')
+  expect(ids).toContain('emotion-curve-short')
+})
+
+test('checkPieceListForm: 情绪曲线缺反转或峰值不足报黄', () => {
+  const list: PieceList = {
+    反转线索表: {
+      核心反转: 'x',
+      铺垫点: [
+        { 位置: 'a', 内容: 'x' },
+        { 位置: 'b', 内容: 'x' },
+        { 位置: 'c', 内容: 'x' },
+      ],
+    },
+    情绪曲线: [
+      { 段落: '开头钩子', 情绪: '惊悚', 强度: 3 },
+      { 段落: '铺垫', 情绪: '疑惧', 强度: 4 },
+      { 段落: '升级', 情绪: '紧张', 强度: 6 },
+      { 段落: '揭示', 情绪: '震惊', 强度: 7 },
+      { 段落: '余韵', 情绪: '后怕', 强度: 5 },
+    ],
+    伏笔回收: [],
+  }
+  const ids = checkPieceListForm(list).items.map((i) => i.checkId)
+  expect(ids).toContain('emotion-curve-no-reversal')
+  expect(ids).toContain('emotion-curve-peak-low')
 })
 
 test('checkPieceListForm: 未回收伏笔报黄', () => {
@@ -148,8 +203,7 @@ test('checkPieceListForm: 未回收伏笔报黄', () => {
     伏笔回收: [{ 伏笔: 'y', 回收位置: '', 未回收: true }],
   }
   const r = checkPieceListForm(list)
-  expect(r.items).toHaveLength(1)
-  expect(r.items[0]!.checkId).toBe('manifest-payoff-open')
+  expect(r.items.some((i) => i.checkId === 'manifest-payoff-open')).toBe(true)
 })
 
 test('checkPieceListForm: 缺核心反转报黄', () => {
@@ -165,5 +219,5 @@ test('checkPieceListForm: 缺核心反转报黄', () => {
     伏笔回收: [],
   }
   const r = checkPieceListForm(list)
-  expect(r.items[0]!.checkId).toBe('manifest-no-reversal')
+  expect(r.items.some((i) => i.checkId === 'manifest-no-reversal')).toBe(true)
 })

@@ -145,3 +145,46 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
   const form = r.sections.find((s) => s.name === '清单形式检')!
   expect(form.items.length).toBeGreaterThanOrEqual(2) // 铺垫<3 + 未回收
 })
+
+test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () => {
+  const pieceDir = join(tmp, '篇', '001-雪夜')
+  mkdirSync(pieceDir, { recursive: true })
+  const piecePath = join(pieceDir, '正文.md')
+  writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
+  writePieceList(join(pieceDir, '清单.md'), {
+    反转线索表: { 核心反转: '待定', 铺垫点: [{ 位置: '开头钩子', 内容: '待补' }] },
+    情绪曲线: [{ 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' }],
+    伏笔回收: [],
+  })
+
+  const ch: ChapterMeta = {
+    章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+    _path: piecePath,
+  }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: shortConfig(),
+    chapter: ch,
+    body: '正文',
+    fileName: '篇/001-雪夜/正文.md',
+    strictShort: true,
+  })
+  expect(hasRed(r)).toBe(true)
+  const reds = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')
+  expect(reds.some((i) => i.checkId === 'manifest-no-reversal')).toBe(true)
+  expect(reds.some((i) => i.checkId === 'emotion-curve-short')).toBe(true)
+  expect(reds.every((i) => i.message.startsWith('短篇严格模式：'))).toBe(true)
+})
+
+test('runAllChecks short: book.yaml short.strict 同样启用严格模式', () => {
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: { ...shortConfig(), short: { strict: true } },
+    chapter: ch,
+    body: '正文',
+    fileName: '篇/001-雪夜/正文.md',
+  })
+  expect(hasRed(r)).toBe(true)
+  expect(r.sections.flatMap((s) => s.items).some((i) => i.checkId === 'piece-word-short' && i.level === 'red')).toBe(true)
+})

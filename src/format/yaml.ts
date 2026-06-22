@@ -135,6 +135,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (inj) cfg.style.injection = String(parseValue(inj.value)) as 'light' | 'heavy'
   }
 
+  const short = find('short')
+  if (short) {
+    const strict = short.children.find((c) => c.key === 'strict')
+    if (strict) cfg.short = { strict: String(parseValue(strict.value)) === 'true' }
+  }
+
   const auto = find('auto')
   if (auto) {
     const co = auto.children.find((c) => c.key === 'confirm_outline')
@@ -245,6 +251,13 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     '',
     'style:',
     `  injection: ${cfg.style.injection}`,
+  )
+
+  if (isShort && cfg.short?.strict) {
+    lines.push('', 'short:', '  strict: true')
+  }
+
+  lines.push(
     '',
     'auto:',
     `  confirm_outline: ${cfg.auto.confirm_outline}`,

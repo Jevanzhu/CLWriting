@@ -38,7 +38,7 @@ export function enterCommand(args: string[]): void {
   console.log(formatRecap(recap, kind))
   console.log()
   // 路由建议（#15 第 2 节）
-  console.log(formatRoute(route))
+  console.log(formatRoute(route, kind))
   if (templates.length > 0) {
     console.log(`已生成短篇起草骨架：${templates.map((p) => `工作区/${p}`).join('、')}`)
   }
@@ -114,6 +114,13 @@ function renderShortManifestTemplate(): string {
     '  - [开头钩子] 待补',
     '  - [铺垫] 待补',
     '  - [升级] 待补',
+    '',
+    '## 情绪曲线',
+    '- [开头钩子] 待定 1/10：待补',
+    '- [铺垫] 待定 3/10：待补',
+    '- [升级] 待定 5/10：待补',
+    '- [反转] 待定 9/10：待补',
+    '- [余韵] 待定 6/10：待补',
     '',
     '## 伏笔回收',
     '- 待补伏笔 → 回收于 待补',

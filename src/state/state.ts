@@ -522,7 +522,8 @@ export function enter(bookRoot: string): EnterResult {
 }
 
 /** 路由 → 人话（对作者：现在该干什么） */
-export function formatRoute(route: RouterAction): string {
-  const prefix = `【${STATE_NAMES[route.state]}】`
+export function formatRoute(route: RouterAction, kind: 'long' | 'short' = 'long'): string {
+  const stateName = kind === 'short' && route.state === 7 ? '起草新篇' : STATE_NAMES[route.state]
+  const prefix = `【${stateName}】`
   return `${prefix} ${route.humanMsg}`
 }

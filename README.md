@@ -107,7 +107,7 @@ node dist/cli.js --help
   init --kind short 建集
     → enter 出下一篇
     → 定情绪 + 核心反转
-    → 五段大纲 + 清单.md
+    → 五段大纲 + 情绪曲线 + 清单.md
     → 正文
     → check + review
     → finalize 按篇定稿
@@ -131,12 +131,12 @@ auto 连写一批
 | 创作主链 | `enter` | 单入口：进门体检、判态、路由到当前动作。 |
 | 创作主链 | `confirm` | 细纲确认留痕，哈希绑定章 / 篇号。 |
 | 创作主链 | `record-call` | 记录大纲 / 草稿 AI 调用次数与 token，支持事后回填 token 真值。 |
-| 创作主链 | `check` | 机检硬闸，长篇查账本，短篇查清单与专属项。 |
+| 创作主链 | `check` | 机检硬闸，长篇查账本，短篇查清单与专属项；短篇可用 `--strict-short` 把专属黄项升为硬闸。 |
 | 创作主链 | `review` | 三审编排：`plan` / `run` / `collect` / `batch`。 |
 | 创作主链 | `finalize` | 前置闸通过后原子定稿并提交。 |
 | 编排回滚 | `auto` | 长篇连写一批，支持 `--resume`，坏章自动隔离；短篇批量自动暂不承诺。 |
 | 编排回滚 | `revert` | 回到第 N 章 / 篇，备份后回滚并重建缓存。 |
-| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`。 |
+| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示情绪、反转和结构物件重复风险。 |
 | 编排回滚 | `session-start` | 输出给宿主 AI 的有界开场上下文。 |
 | 书库管理 | `init` | 建工作目录和第一本书，支持 `--kind short`。 |
 | 书库管理 | `use` / `list` / `repair` | 换书、列书、自愈登记。 |

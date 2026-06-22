@@ -34,6 +34,7 @@ import {
   type ChapterSample,
 } from '../metrics/style.js'
 import { readBookConfig } from '../format/yaml.js'
+import { analyzeShortCollection, formatShortCollectionReport, scanShortCollection } from '../metrics/short-index.js'
 
 /** `clwriting health [bookRoot] [子参数]` 命令处理器 */
 export function healthCommand(args: string[]): void {
@@ -158,11 +159,20 @@ function runFullReport(bookRoot: string, last: number | undefined): void {
   const records = readMetrics(bookRoot)
   const report = aggregateMetrics(records, { last })
   process.stdout.write(formatMetricsReport(report))
+  if (kind === 'short') {
+    const collection = analyzeShortCollection(recentShortEntries(scanShortCollection(bookRoot), last))
+    process.stdout.write(formatShortCollectionReport(collection))
+  }
 }
 
 function recentStyleSamples(samples: ChapterSample[], last: number | undefined): ChapterSample[] {
   if (last === undefined || last <= 0 || samples.length <= last) return samples
   return [...samples].sort((a, b) => a.num - b.num).slice(-last)
+}
+
+function recentShortEntries<T extends { num: number }>(entries: T[], last: number | undefined): T[] {
+  if (last === undefined || last <= 0 || entries.length <= last) return entries
+  return [...entries].sort((a, b) => a.num - b.num).slice(-last)
 }
 
 /** 解析书仓库 kind（long/short）；读不到配置默认 long */
@@ -197,6 +207,7 @@ function printHealthHelp(): void {
   console.log('  --style           文风重扫报告 + 基线对照')
   console.log('  --style --freeze  冻结文风基线（文风/基线.json）')
   console.log('  --report          三维综合（文风重扫 + 成本/审查读账）')
+  console.log('                    短篇集会追加节奏体检（反转/情绪/物件重复风险）')
   console.log('  --last=N          只看近 N 章/篇')
 }
 
