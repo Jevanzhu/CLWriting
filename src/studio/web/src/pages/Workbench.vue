@@ -108,7 +108,7 @@ onUnmounted(() => es?.close())
   <section class="wb-page">
     <BookTabs :name="name" active="workbench" />
 
-    <div class="mock-banner">⚡ mock driver(批1):无 CLI / 无认证,事件流为模拟。真 driver(批2)接 claude CLI。</div>
+    <div class="cc-banner">⚡ cc driver:经 claude CLI 生成(复用你的认证 / GLM 网关)。spawnRole 触发单步生成;角色规则(.claude/agents/)待建书段2。</div>
 
     <!-- 触发控制 -->
     <article class="card ctrl">
@@ -157,10 +157,10 @@ onUnmounted(() => es?.close())
   max-width: 960px;
   margin: 0 auto;
 }
-.mock-banner {
+.cc-banner {
   padding: 8px 12px;
-  background: #fef3c7;
-  color: #92400e;
+  background: #dbeafe;
+  color: #1e40af;
   border-radius: 6px;
   font-size: 13px;
   margin-bottom: 16px;
