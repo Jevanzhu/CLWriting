@@ -59,7 +59,7 @@ function readRolePrompt(cwd: string, role: string): string {
 }
 
 /** 解析 stream-json 一行 → DriverEvent[] */
-function parseLine(line: string, role: string | undefined): DriverEvent[] {
+export function parseLine(line: string, role: string | undefined): DriverEvent[] {
   let obj: Record<string, unknown>
   try {
     obj = JSON.parse(line) as Record<string, unknown>
