@@ -53,11 +53,20 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         genre: config.book.genre,
         host: config.host ?? 'cc',
       },
-      progress: computeProgress(bookRoot, kind),
+      progress: withTarget(computeProgress(bookRoot, kind), config.book.target_words),
       state,
       volumes: kind === 'short' ? [] : listVolumes(bookRoot),
     })
   })
+}
+
+/** 附完成度：target_words 存在且 words>0 时算 percent（决策 14，直除） */
+function withTarget(
+  p: { chapters: number; words: number },
+  targetWords?: number,
+): { chapters: number; words: number; targetWords?: number; percent?: number } {
+  if (!targetWords || targetWords <= 0 || p.words <= 0) return p
+  return { ...p, targetWords, percent: Math.min(100, Math.round((p.words / targetWords) * 1000) / 10) }
 }
 
 /** 进度：长篇=定稿正文章数+字数；短篇=篇/ 目录数 */

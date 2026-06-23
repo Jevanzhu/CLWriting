@@ -101,11 +101,16 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const t = book.children.find((c) => c.key === 'title')
     const g = book.children.find((c) => c.key === 'genre')
     const vs = book.children.find((c) => c.key === 'volume_size')
+    const tw = book.children.find((c) => c.key === 'target_words')
     if (t) cfg.book.title = String(parseValue(t.value))
     if (g) cfg.book.genre = String(parseValue(g.value))
     if (vs) {
       const volumeSize = parseFiniteNumber(vs.value, NaN)
       if (Number.isSafeInteger(volumeSize) && volumeSize > 0) cfg.book.volume_size = volumeSize
+    }
+    if (tw) {
+      const targetWords = parseFiniteNumber(tw.value, NaN)
+      if (Number.isFinite(targetWords) && targetWords > 0) cfg.book.target_words = targetWords
     }
   }
 
@@ -267,6 +272,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   ]
   if (cfg.book.volume_size !== undefined) {
     lines.push(`  volume_size: ${cfg.book.volume_size}`)
+  }
+  if (cfg.book.target_words !== undefined) {
+    lines.push(`  target_words: ${cfg.book.target_words}`)
   }
 
   // leads 段：长篇恒输出（账本类）；短篇无（账本降级单篇清单 #27）

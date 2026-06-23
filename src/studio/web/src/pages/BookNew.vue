@@ -19,6 +19,7 @@ const name = ref('')
 const genre = ref('')
 const kind = ref<'long' | 'short'>('long')
 const leads = ref<string[]>([])
+const targetWords = ref('')
 const submitting = ref(false)
 const error = ref('')
 
@@ -52,6 +53,9 @@ async function submit(): Promise<void> {
     }
     // 长篇且用户勾选了扩展类才传；留空 → doInit 按题材自动推荐
     if (kind.value === 'long' && leads.value.length > 0) body.leads = leads.value
+    // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
+    const tw = Number(targetWords.value)
+    if (Number.isFinite(tw) && tw > 0) body.targetWords = tw
     const r = await fetch('/api/books', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -127,6 +131,11 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
             <button type="button" :class="{ active: kind === 'long' }" @click="kind = 'long'">长篇</button>
             <button type="button" :class="{ active: kind === 'short' }" @click="kind = 'short'">短篇集</button>
           </div>
+        </div>
+
+        <div class="field">
+          <label>目标字数 <span class="tip">可选，填了总览页显示完成度</span></label>
+          <input type="number" v-model="targetWords" placeholder="如：300000（30 万字）" />
         </div>
 
         <div v-if="kind === 'long'" class="field">

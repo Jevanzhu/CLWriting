@@ -112,6 +112,26 @@ test('init: 题材驱动 leads 推荐（玄幻 → 设定线+成长线）', () =
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('init: targetWords 落 book.yaml target_words + 读回（决策 14 完成度链路）', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-tw-'))
+  const r = doInit({ workDir: wd, name: '目标书', genre: '玄幻', targetWords: 300000 })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const cfg = readBookConfig(join(r.bookRoot, 'book.yaml')).config
+  expect(cfg.book.target_words).toBe(300000)
+  rmSync(wd, { recursive: true, force: true })
+})
+
+test('init: targetWords 缺省不写 target_words（可选字段，向后兼容）', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-tw2-'))
+  const r = doInit({ workDir: wd, name: '无目标', genre: '玄幻' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const cfg = readBookConfig(join(r.bookRoot, 'book.yaml')).config
+  expect(cfg.book.target_words).toBeUndefined()
+  rmSync(wd, { recursive: true, force: true })
+})
+
 test('init: 工作目录不能位于 git 仓库内', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-git-'))
   git(['init'], wd)

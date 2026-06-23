@@ -13,7 +13,7 @@ interface Overview {
     genre: string
     host: string
   }
-  progress: { chapters: number; words: number }
+  progress: { chapters: number; words: number; targetWords?: number; percent?: number }
   state: { state: number; name: string; detail: unknown }
   volumes: { name: string; path: string }[]
 }
@@ -144,6 +144,9 @@ function onWrite(): void {
             <span class="unit">{{ data.identity.kind === 'short' ? '篇' : '章' }}</span>
           </div>
           <p class="progress-words">已写 {{ fmtWords(data.progress.words) }} 字</p>
+          <p v-if="data.progress.percent !== undefined" class="progress-target">
+            目标 {{ fmtWords(data.progress.targetWords ?? 0) }} 字 · 完成 <strong>{{ data.progress.percent }}%</strong>
+          </p>
         </article>
 
         <!-- 状态机卡 -->
