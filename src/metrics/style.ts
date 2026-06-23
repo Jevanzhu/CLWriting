@@ -161,7 +161,13 @@ export function scanShortPieces(bookRoot: string): ChapterSample[] {
   for (const name of entries) {
     if (name.startsWith('._')) continue
     const dir = join(piecesDir, name)
-    if (!statSync(dir).isDirectory()) continue
+    let isDir = false
+    try {
+      isDir = statSync(dir).isDirectory()
+    } catch {
+      continue // 竞态(目录被删)/坏符号链接,跳过(同 short-index.ts safeIsDirectory 范式)
+    }
+    if (!isDir) continue
     const bodyPath = join(dir, '正文.md')
     if (!existsSync(bodyPath)) continue
     const r = readFile(bodyPath)

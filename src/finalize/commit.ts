@@ -474,6 +474,8 @@ function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
       try {
         unlinkSync(full)
         rmdirSync(dirname(full))
+        // 短篇落点 篇/<篇>/正文.md:清空后尝试删 篇/(仅当空);长篇 grand=定稿/ 非空自动失败忽略
+        rmdirSync(dirname(dirname(full)))
       } catch {
         // best-effort
       }

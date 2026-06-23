@@ -100,10 +100,10 @@ export function readActive(workDir: string): string | null {
   return name === '' ? null : name
 }
 
-/** 写活动书 name（单文件，换书只改它）。 */
+/** 写活动书 name（单文件，换书只改它）。原子写防并发/崩溃致半截文件。 */
 export function writeActive(workDir: string, name: string): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-  writeFileSync(join(workDir, ACTIVE_FILE), name + '\n', 'utf-8')
+  atomicWriteFile(join(workDir, ACTIVE_FILE), name + '\n')
 }
 
 // ── 工作目录定位（向上找 .clwriting/）──────────────

@@ -328,9 +328,10 @@ export function clearAiCallBudget(workDir: string): void {
   const result = withAiCallBudgetLock(workDir, () => {
     const fp = aiCallBudgetPath(workDir)
     if (existsSync(fp)) unlinkSync(fp)
-    return null
+    return { ok: true as const }
   })
-  void result
+  // 锁竞争失败时计数文件未删;下次进同章可能读到旧计数误阻断,记 warning 供排查
+  if (!result.ok) console.warn(`⚠️ clearAiCallBudget 未拿到锁:${result.reason}`)
 }
 
 function writeAiCallBudget(workDir: string, record: AiCallBudgetRecord): void {

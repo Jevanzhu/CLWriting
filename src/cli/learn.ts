@@ -14,7 +14,7 @@ import { learnFromBook, type SampleCandidate, type QuoteCandidate } from '../lea
 import { commitSamples, commitQuotes } from '../learn/commit.js'
 
 /** `clwriting learn` / `clwriting learn commit` */
-export function learnCommand(args: string[]): void {
+export async function learnCommand(args: string[]): Promise<void> {
   const sub = args[0]
 
   if (sub === '--help' || sub === '-h' || (sub === undefined && args.includes('--help'))) {
@@ -23,7 +23,7 @@ export function learnCommand(args: string[]): void {
   }
 
   if (sub === 'commit') {
-    learnCommit(args.slice(1))
+    await learnCommit(args.slice(1))
     return
   }
 

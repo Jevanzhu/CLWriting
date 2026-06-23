@@ -6,7 +6,7 @@
  * 走 Vite dev server（5173），proxy /api 到后端，不经此处理。
  */
 import { readFile, stat } from 'node:fs/promises'
-import { join, normalize, extname } from 'node:path'
+import { join, normalize, extname, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 const MIME: Record<string, string> = {
@@ -40,7 +40,8 @@ export function createStaticHandler(rootDir: string) {
     // 防路径穿越：normalize 后必须在 root 内
     const rel = normalize(decodedPathname).replace(/^(\.\.[/\\])+/, '')
     const abs = join(root, rel)
-    if (!abs.startsWith(root)) {
+    // 路径边界检查:必须等于 root 或在其下(root+sep),防 root='dist' 时 'dist-evil' 前缀欺骗
+    if (abs !== root && !abs.startsWith(root + sep)) {
       res.writeHead(403)
       res.end('forbidden')
       return

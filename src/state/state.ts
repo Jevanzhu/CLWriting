@@ -23,6 +23,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { hashFile } from '../gate/confirm.js'
 import { assembleStatus } from '../process/assemble.js'
 import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
+import { countPieces } from '../format/pieces.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
@@ -159,7 +160,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   // ── 态 4/8 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
   // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 篇/ 目录
   if (config.kind === 'short') {
-    return { state: 7, nextChapter: countPieces(bookRoot) + 1 }
+    return { state: 7, nextChapter: countPieces(join(bookRoot, '篇')) + 1 }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -244,26 +245,7 @@ function detectPendingBatch(bookRoot: string): number[] {
   return chapters.sort((a, b) => a - b)
 }
 
-/**
- * 数短篇集已定稿篇数（M8 #26）：扫 篇/ 下 `<篇号>-<标题>/` 目录数。
- * 短篇判进度不依赖 .cache/index.db 章统计（无长程账本缓存）；篇/ 子目录数即已定稿篇数。
- */
-function countPieces(bookRoot: string): number {
-  const piecesDir = join(bookRoot, '篇')
-  if (!existsSync(piecesDir)) return 0
-  let count = 0
-  try {
-    for (const e of readdirSync(piecesDir, { withFileTypes: true })) {
-      if (!e.isDirectory()) continue
-      if (e.name.startsWith('.')) continue
-      // 目录名格式：<篇号>-<标题>，如 001-雪夜来客
-      if (/^\d+-/.test(e.name)) count++
-    }
-  } catch {
-    return 0
-  }
-  return count
-}
+// countPieces 复用 format/pieces.ts 单源(避免两份计数逻辑漂移);签名接收 篇/ 目录路径
 
 /**
  * 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。
@@ -437,7 +419,7 @@ function readRecapSnapshot(
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
   // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 篇/ 作为已定稿篇数。
   if (config.kind === 'short') {
-    return { currentChapter: countPieces(bookRoot), currentVolume: 1 }
+    return { currentChapter: countPieces(join(bookRoot, '篇')), currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined
