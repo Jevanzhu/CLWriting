@@ -9,6 +9,7 @@
  *   user.content[tool_result] → tool_result · result → done
  */
 import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
@@ -26,6 +27,8 @@ interface Channel {
   waiters: Array<() => void>
 }
 const channels = new Map<string, Channel>()
+/** session → claude 子进程(dispose 时 kill 防僵尸,Opus P1) */
+const sessionChild = new Map<string, ChildProcess>()
 
 function channel(id: string): Channel {
   let ch = channels.get(id)
@@ -124,6 +127,14 @@ function runClaude(
   }
   const role = opts.role
   const child = spawn('claude', args, { cwd: session.cwd, env: process.env })
+  sessionChild.set(session.id, child)
+  // 超时保护(5min,claude 挂起时 kill 防 session 永久等待)
+  const timer = setTimeout(() => {
+    if (!child.killed) {
+      child.kill('SIGTERM')
+      push(session.id, { type: 'error', kind: 'spawn', message: 'claude 子进程超时(5min)被终止', recoverable: true })
+    }
+  }, 5 * 60 * 1000)
 
   let buf = ''
   child.stdout.on('data', (chunk: Buffer) => {
@@ -137,9 +148,12 @@ function runClaude(
     }
   })
   child.on('error', (e) => {
+    clearTimeout(timer)
     push(session.id, { type: 'error', kind: 'spawn', message: e.message, recoverable: false })
   })
   child.on('close', () => {
+    clearTimeout(timer)
+    sessionChild.delete(session.id)
     // result 已推 done;若异常退出无 result,唤醒 waiter 避免 stream 卡死
     const ch = channel(session.id)
     for (const w of ch.waiters) w()
@@ -187,6 +201,10 @@ export const ccDriver: StudioDriver = {
 
   dispose(session: Session): void {
     session.closed = true
+    // kill 子进程(防僵尸:claude 挂起时 dispose 不杀会泄漏)
+    const child = sessionChild.get(session.id)
+    if (child && !child.killed) child.kill('SIGTERM')
+    sessionChild.delete(session.id)
     const ch = channels.get(session.id)
     if (ch) {
       for (const w of ch.waiters) w()
