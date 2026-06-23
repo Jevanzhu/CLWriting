@@ -2,6 +2,18 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 
+interface OnboardResult {
+  path: string
+  words: number
+  content: string
+}
+interface OnboardStep {
+  key: 'synopsis' | 'characters' | 'world' | 'realm'
+  label: string
+  running: boolean
+  result: OnboardResult | null
+}
+
 const router = useRouter()
 const name = ref('')
 const genre = ref('')
@@ -9,6 +21,16 @@ const kind = ref<'long' | 'short'>('long')
 const leads = ref<string[]>([])
 const submitting = ref(false)
 const error = ref('')
+
+// 段 2:onboard(AI 填设定)
+const phase = ref<'form' | 'onboard'>('form')
+const createdName = ref('')
+const onboardSteps = ref<OnboardStep[]>([
+  { key: 'synopsis', label: '📋 总纲', running: false, result: null },
+  { key: 'characters', label: '👥 角色', running: false, result: null },
+  { key: 'world', label: '🌍 世界观', running: false, result: null },
+  { key: 'realm', label: '⚡ 境界体系', running: false, result: null },
+])
 
 const EXTENDED_LEADS = ['局线', '设定线', '成长线', '关系债']
 
@@ -37,12 +59,42 @@ async function submit(): Promise<void> {
     })
     const data = (await r.json().catch(() => ({}))) as { name?: string; error?: string }
     if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
-    router.push(`/books/${encodeURIComponent(data.name ?? name.value.trim())}`)
+    createdName.value = data.name ?? name.value.trim()
+    phase.value = 'onboard' // 建书成功 → 进段 2(不直接跳单书)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     submitting.value = false
   }
+}
+
+/** 段 2 各步:POST /onboard-ai → spawnRole 产设定 → 落盘 + 展示 */
+async function onboardRun(step: OnboardStep['key']): Promise<void> {
+  const s = onboardSteps.value.find((x) => x.key === step)
+  if (!s || s.running || !createdName.value) return
+  s.running = true
+  s.result = null
+  error.value = ''
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(createdName.value)}/onboard-ai`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step }),
+    })
+    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; path?: string; words?: number; content?: string; error?: string }
+    if (r.ok && d.ok) {
+      s.result = { path: d.path ?? '', words: d.words ?? 0, content: d.content ?? '' }
+    } else {
+      error.value = d.error ?? `HTTP ${r.status}`
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+  s.running = false
+}
+
+function finishOnboard(): void {
+  router.push(`/books/${encodeURIComponent(createdName.value)}`)
 }
 
 const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.value)
@@ -53,52 +105,86 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
     <div class="head">
       <button class="btn-back" @click="router.push('/')">← 返回书架</button>
     </div>
-    <h2>新建书籍</h2>
 
-    <form class="form" @submit.prevent="submit">
-      <div class="field">
-        <label>书名 <span class="req">*</span></label>
-        <input v-model="name" placeholder="如：我的世界" />
-      </div>
+    <!-- 段 1:init 表单 -->
+    <template v-if="phase === 'form'">
+      <h2>新建书籍</h2>
 
-      <div class="field">
-        <label>题材</label>
-        <input v-model="genre" placeholder="如：玄幻 / 悬疑 / 言情（驱动账本推荐）" />
-      </div>
-
-      <div class="field">
-        <label>类型</label>
-        <div class="seg">
-          <button type="button" :class="{ active: kind === 'long' }" @click="kind = 'long'">长篇</button>
-          <button type="button" :class="{ active: kind === 'short' }" @click="kind = 'short'">短篇集</button>
+      <form class="form" @submit.prevent="submit">
+        <div class="field">
+          <label>书名 <span class="req">*</span></label>
+          <input v-model="name" placeholder="如：我的世界" />
         </div>
-      </div>
 
-      <div v-if="kind === 'long'" class="field">
-        <label>扩展账本类 <span class="tip">留空则按题材自动推荐</span></label>
-        <div class="leads">
-          <label v-for="l in EXTENDED_LEADS" :key="l" class="lead">
-            <input type="checkbox" :checked="leads.includes(l)" @change="toggleLead(l)" /> {{ l }}
-          </label>
+        <div class="field">
+          <label>题材</label>
+          <input v-model="genre" placeholder="如：玄幻 / 悬疑 / 言情（驱动账本推荐）" />
         </div>
-      </div>
 
-      <div class="field">
-        <label>AI 宿主</label>
-        <div class="host">
-          <span class="host-active">Claude Code (cc)</span>
-          <span class="host-disabled" title="首版暂不支持（决策 22）">Codex（暂未支持）</span>
+        <div class="field">
+          <label>类型</label>
+          <div class="seg">
+            <button type="button" :class="{ active: kind === 'long' }" @click="kind = 'long'">长篇</button>
+            <button type="button" :class="{ active: kind === 'short' }" @click="kind = 'short'">短篇集</button>
+          </div>
         </div>
+
+        <div v-if="kind === 'long'" class="field">
+          <label>扩展账本类 <span class="tip">留空则按题材自动推荐</span></label>
+          <div class="leads">
+            <label v-for="l in EXTENDED_LEADS" :key="l" class="lead">
+              <input type="checkbox" :checked="leads.includes(l)" @change="toggleLead(l)" /> {{ l }}
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>AI 宿主</label>
+          <div class="host">
+            <span class="host-active">Claude Code (cc)</span>
+            <span class="host-disabled" title="首版暂不支持（决策 22）">Codex（暂未支持）</span>
+          </div>
+        </div>
+
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <div class="actions">
+          <button type="submit" class="btn-primary" :disabled="!canSubmit">
+            {{ submitting ? '创建中…' : '创建' }}
+          </button>
+        </div>
+      </form>
+    </template>
+
+    <!-- 段 2:AI 填设定 -->
+    <template v-else>
+      <h2>段 2 · AI 填设定</h2>
+      <p class="onboard-tip">《{{ createdName }}》已创建。让 AI 据题材填设定(各步独立生成,可重跑覆盖)。</p>
+
+      <div class="onboard-steps">
+        <button
+          v-for="s in onboardSteps"
+          :key="s.key"
+          class="btn-step"
+          :class="{ done: !!s.result }"
+          :disabled="s.running"
+          @click="onboardRun(s.key)"
+        >
+          {{ s.running ? '生成中…' : s.label }}
+        </button>
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
 
+      <article v-for="s in onboardSteps" :key="s.key">
+        <p v-if="s.result" class="result-tip">✓ 已生成 <span class="mono">{{ s.result.path }}</span>({{ s.result.words }} 字)</p>
+        <pre v-if="s.result" class="result-content">{{ s.result.content }}</pre>
+      </article>
+
       <div class="actions">
-        <button type="submit" class="btn-primary" :disabled="!canSubmit">
-          {{ submitting ? '创建中…' : '创建' }}
-        </button>
+        <button class="btn-primary" @click="finishOnboard">完成 → 进单书</button>
       </div>
-    </form>
+    </template>
   </section>
 </template>
 
@@ -207,6 +293,7 @@ h2 {
 .actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 8px;
 }
 .btn-primary {
   padding: 8px 24px;
@@ -220,5 +307,58 @@ h2 {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 段 2 onboard */
+.onboard-tip {
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.onboard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.btn-step {
+  padding: 8px 16px;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  background: #fff;
+  color: #7c3aed;
+  cursor: pointer;
+  font-size: 14px;
+}
+.btn-step:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.btn-step.done {
+  border-color: #059669;
+  color: #059669;
+}
+.result-tip {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #065f46;
+}
+.mono {
+  font-family: ui-monospace, monospace;
+}
+.result-content {
+  margin: 0 0 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #111827;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
 }
 </style>
