@@ -17,6 +17,7 @@ const BOOK = '测试书'
 let workDir = ''
 let server: http.Server | undefined
 let baseUrl = ''
+let token = ''
 
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-api-'))
@@ -45,6 +46,8 @@ beforeAll(async () => {
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const bootR = await fetch(`${baseUrl}/api/boot`)
+  token = ((await bootR.json()) as { token: string }).token
 })
 
 afterAll(async () => {
@@ -77,7 +80,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   it('PUT /settings/character 角色卡写回 + 再读验证', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
       body: JSON.stringify({
         file: '定稿/设定/角色/林远.md',
         姓名: '林远',
@@ -99,7 +102,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   it('PUT /settings/character 防穿越:拒绝非法 file(大纲/总纲.md)', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
       body: JSON.stringify({ file: '大纲/总纲.md', 姓名: 'X' }),
     })
     expect(r.status).toBe(400)
@@ -108,7 +111,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   it('PUT /settings/character 防穿越:拒绝 .. 穿越', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
       body: JSON.stringify({ file: '定稿/设定/角色/../../../etc/passwd.md', 姓名: 'X' }),
     })
     expect(r.status).toBe(400)
@@ -117,7 +120,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   it('PUT /settings/realm 境界写回 + 再读验证', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/realm`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
       body: JSON.stringify({
         体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹', '元婴'] }],
         正文: '新增元婴境',
