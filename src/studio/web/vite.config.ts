@@ -12,6 +12,16 @@ export default defineConfig({
   build: {
     outDir: join(here, '..', '..', '..', 'dist', 'web'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // vendor 拆包(P2 前端首包优化):echarts/codemirror 大库单独 chunk,主包减负
+        manualChunks(id) {
+          if (id.includes('node_modules/echarts')) return 'echarts'
+          if (id.includes('node_modules/@codemirror') || id.includes('node_modules/codemirror')) return 'codemirror'
+          return undefined
+        },
+      },
+    },
   },
   server: {
     port: 5173,
