@@ -1,8 +1,8 @@
 /**
- * onboard 段2 端点(2.4):AI 填设定(总纲/角色/世界观/境界)。
+ * onboard 段2 端点(2.4):AI 填设定(长篇 9 步 / 短篇专属待补)。
  *
  * POST /api/books/:name/onboard-ai  body {step}
- *   step: synopsis | characters | world | realm
+ *   长篇 step: synopsis|characters|world|realm|volume|leads-seed|style-sample|style-rules|style-quotes
  *   → 组 prompt(title/genre/kind)→ spawnRole('onboard', prompt)禁工具 → 收 text → 落盘
  *   → {ok, step, path, words, content}
  *
@@ -11,7 +11,7 @@
  * realm 仅成长线书(leads enabled 含「成长线」)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
@@ -23,7 +23,16 @@ interface OnboardCtx {
   workDir: string | null
 }
 
-type OnboardStep = 'synopsis' | 'characters' | 'world' | 'realm'
+type OnboardStep =
+  | 'synopsis'
+  | 'characters'
+  | 'world'
+  | 'realm'
+  | 'volume'
+  | 'leads-seed'
+  | 'style-sample'
+  | 'style-rules'
+  | 'style-quotes'
 
 /** 各步落盘路径(相对 bookRoot)*/
 const STEP_PATH: Record<OnboardStep, string> = {
@@ -31,6 +40,11 @@ const STEP_PATH: Record<OnboardStep, string> = {
   characters: '定稿/设定/名册.md',
   world: '定稿/设定/世界观.md',
   realm: '定稿/设定/境界体系.md',
+  volume: '大纲/卷纲/卷纲_第1卷.md',
+  'leads-seed': '大纲/账本种子.md',
+  'style-sample': '文风/样章库.md',
+  'style-rules': '文风/文风铁律.md',
+  'style-quotes': '文风/金句库.md',
 }
 
 export function registerOnboardRoutes(ctx: OnboardCtx): void {
@@ -40,7 +54,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const reqBody = await readJson(req)
     const step = String(reqBody['step'] ?? '') as OnboardStep
-    if (!['synopsis', 'characters', 'world', 'realm'].includes(step)) {
+    if (!(step in STEP_PATH)) {
       return reply(res, 400, { error: `step 不支持:${step}` })
     }
 
@@ -82,7 +96,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const content = text.trim() || '(空产出)'
     const relPath = STEP_PATH[step]
     try {
-      mkdirSync(join(bookRoot, step === 'synopsis' ? '大纲' : '定稿/设定'), { recursive: true })
+      mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
       writeFileSync(join(bookRoot, relPath), content, 'utf8')
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
@@ -104,6 +118,16 @@ function buildOnboardPrompt(step: OnboardStep, title: string, genre: string, kin
       return `## 任务\n为这部${genre}小说《${title}》生成世界观。\n\n${ctx}\n\n## 要求\n产出世界观,含:力量体系(境界/修炼法门)、社会结构(势力/组织/阶层)、核心规则(世界运转法则/禁忌)。${common}`
     case 'realm':
       return `## 任务\n为这部${genre}小说《${title}》生成境界体系(成长线进阶链)。\n\n${ctx}\n\n## 要求\n产出境界体系:进阶链(低→高,如炼气→筑基→金丹→…→最高),每境界一句话简述特征;留高层境界余地(后续卷可揭)。${common}`
+    case 'volume':
+      return `## 任务\n为这部${genre}小说《${title}》生成第一卷卷纲。\n\n${ctx}\n\n## 要求\n产出第一卷卷纲,含:本卷主线阶段、核心冲突、关键角色登场顺序、章数预估(30-50 章)、卷末钩子(勾向第二卷)。若已有总纲则据其推导。${common}`
+    case 'leads-seed':
+      return `## 任务\n为这部${genre}小说《${title}》生成账本种子(各类初始线)。\n\n${ctx}\n\n## 要求\n产出账本种子汇总,基础三类各 1-2 条(伏笔/悬念/感情线),据题材酌加扩展线。每条格式:\n### <类型> <编号> <标题>\n- 开启章: 1  状态: 进行中\n- 线索: 一句话内容\n- 预期回收: 第 N 章\n留余地,不过度填死。${common}`
+    case 'style-sample':
+      return `## 任务\n为这部${genre}小说《${title}》生成文风样章(5 场景 few-shot)。\n\n${ctx}\n\n## 要求\n产出 5 个场景样章,每场景 200-400 字,体现题材典型笔法。每场景一段:\n### 场景:战斗\n<样章>\n### 场景:对话\n<样章>\n### 场景:抒情\n<样章>\n### 场景:铺陈\n<样章>\n### 场景:爽点\n<样章>\n供写章时文风对齐。${common}`
+    case 'style-rules':
+      return `## 任务\n为这部${genre}小说《${title}》生成文风铁律(题材定制,替代通用占位)。\n\n${ctx}\n\n## 要求\n产出文风铁律 markdown,含:正文纯文本(禁 MD 语法)、对话标签占比上限、句长方差区间、重复率上限、题材专属规范(如玄幻禁现代词汇、言情禁说教)。${common}`
+    case 'style-quotes':
+      return `## 任务\n为这部${genre}小说《${title}》生成金句库种子。\n\n${ctx}\n\n## 要求\n产出 20-30 条题材典型金句(角色台词/叙事金句),每条一行,可带角色标注。供写章时点缀。${common}`
   }
 }
 

@@ -8,7 +8,7 @@ interface OnboardResult {
   content: string
 }
 interface OnboardStep {
-  key: 'synopsis' | 'characters' | 'world' | 'realm'
+  key: 'synopsis' | 'characters' | 'world' | 'realm' | 'volume' | 'leads-seed' | 'style-sample' | 'style-rules' | 'style-quotes'
   label: string
   running: boolean
   result: OnboardResult | null
@@ -27,12 +27,24 @@ const error = ref('')
 // 段 2:onboard(AI 填设定)
 const phase = ref<'form' | 'onboard'>('form')
 const createdName = ref('')
-const onboardSteps = ref<OnboardStep[]>([
-  { key: 'synopsis', label: '📋 总纲', running: false, result: null },
-  { key: 'characters', label: '👥 角色', running: false, result: null },
-  { key: 'world', label: '🌍 世界观', running: false, result: null },
-  { key: 'realm', label: '⚡ 境界体系', running: false, result: null },
-])
+const onboardSteps = ref<OnboardStep[]>([])
+/** 按 kind 构建段 2 步骤集（长篇 9 步 / 短篇专属待 5.2 短篇补全） */
+function buildOnboardSteps(k: 'long' | 'short'): OnboardStep[] {
+  if (k === 'short') {
+    return [{ key: 'synopsis', label: '📋 集子定位', running: false, result: null }]
+  }
+  return [
+    { key: 'synopsis', label: '📋 总纲', running: false, result: null },
+    { key: 'characters', label: '👥 角色', running: false, result: null },
+    { key: 'world', label: '🌍 世界观', running: false, result: null },
+    { key: 'realm', label: '⚡ 境界体系', running: false, result: null },
+    { key: 'volume', label: '📚 卷纲', running: false, result: null },
+    { key: 'leads-seed', label: '🎯 账本种子', running: false, result: null },
+    { key: 'style-sample', label: '✍️ 文风样章', running: false, result: null },
+    { key: 'style-rules', label: '📜 文风铁律', running: false, result: null },
+    { key: 'style-quotes', label: '💎 金句库', running: false, result: null },
+  ]
+}
 
 const EXTENDED_LEADS = ['局线', '设定线', '成长线', '关系债']
 
@@ -68,6 +80,7 @@ async function submit(): Promise<void> {
     if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
     createdName.value = data.name ?? name.value.trim()
     phase.value = 'onboard' // 建书成功 → 进段 2(不直接跳单书)
+    onboardSteps.value = buildOnboardSteps(kind.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
