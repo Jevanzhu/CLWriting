@@ -19,6 +19,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readFile } from '../../../format/frontmatter.js'
+import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 
@@ -30,6 +31,22 @@ const LENS_LABEL: Record<string, string> = {
   reader: '读者',
   editor: '编辑',
   continuity: '连续性',
+  hook: '钩子',
+  emotion_peak: '情绪反转',
+  payoff: '回报',
+}
+
+/** 镜头 → 角色文件名(emotion_peak 镜头对应 emotion-review 角色文件,名不一致) */
+function lensToRole(lens: string): string {
+  if (lens === 'emotion_peak') return 'emotion-review'
+  return `${lens}-review`
+}
+
+/** 读 book.yaml kind(long 缺省 / short) */
+function readKind(bookRoot: string): 'long' | 'short' {
+  const r = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!r.ok) return 'long'
+  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 const REVIEW_VERDICT_MARKER = '<!-- verdict: approved -->'
@@ -45,6 +62,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
 
     const bookRoot = join(ctx.workDir, entry.path)
+    const kind = readKind(bookRoot)
     const workDir = join(bookRoot, '工作区')
 
     // ① review run(CLI 打包,产 工作区/三审/packet.json)
@@ -65,8 +83,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       }>
     }
 
-    // 草稿正文(去 front matter)—— 草稿-<章号>.md,与 /draft-save 落盘 + review run 推导一致
-    const draftPath = join(workDir, `草稿-${chapter}.md`)
+    // 草稿正文(去 front matter):长篇 草稿-<章号>.md;短篇 草稿-1.md(候选),与 /draft-save 落盘一致
+    const draftPath = join(workDir, kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`)
     if (!existsSync(draftPath)) return reply(res, 400, { error: '无草稿(先写稿)' })
     const draftFile = readFile(draftPath)
     const draftBody = draftFile.ok ? (draftFile as { body: string }).body : readFileSync(draftPath, 'utf8')
@@ -78,9 +96,9 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     for (const sub of packet.packets) {
       const lens = sub.lens
       lenses.push(lens)
-      const prompt = buildLensPrompt(lens, sub, draftBody, chapter)
+      const prompt = buildLensPrompt(lens, sub, draftBody, chapter, kind)
       const session = await driver.startSession(ctx.workDir!)
-      driver.spawnRole(session, `${lens}-review`, prompt)
+      driver.spawnRole(session, lensToRole(lens), prompt)
       let text = ''
       try {
         for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
@@ -140,8 +158,10 @@ function buildLensPrompt(
   sub: { title?: string; focus?: string[]; ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }> },
   draftBody: string,
   chapter: number,
+  kind: 'long' | 'short',
 ): string {
-  const parts: string[] = [`## 任务\n你是第 ${chapter} 章的${LENS_LABEL[lens] ?? lens}审稿员,按视角审正文,只报问题。`]
+  const unit = kind === 'short' ? '篇' : '章'
+  const parts: string[] = [`## 任务\n你是第 ${chapter} ${unit}的${LENS_LABEL[lens] ?? lens}审稿员,按视角审正文,只报问题。`]
   if (sub.focus?.length) parts.push(`## 焦点\n${sub.focus.map((f) => `- ${f}`).join('\n')}`)
   if (lens === 'continuity') {
     const checks = sub.ledger_checks ?? []

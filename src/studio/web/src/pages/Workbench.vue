@@ -199,7 +199,7 @@ async function reviewRun(): Promise<void> {
   reviewReport.value = ''
   verdictApproved.value = false
   activeStage.value = 'review'
-  log.value.push({ t: ts(), type: 'spawn', text: `三审第 ${chapter.value} 章(run→reader/editor/continuity→collect)…` })
+  log.value.push({ t: ts(), type: 'spawn', text: `三审第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}(run→镜头审→collect)…` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/review`, {
       method: 'POST',
@@ -323,7 +323,7 @@ onUnmounted(() => es?.close())
           {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
-        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning || kind === 'short'" :title="kind === 'short' ? '短篇三审(待支持)' : ''" @click="reviewRun">
+        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
           {{ reviewRunning ? '三审中…' : '📝 三审' }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
