@@ -49,6 +49,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       kind?: unknown
       leads?: unknown
       host?: unknown
+      targetWords?: unknown
     }
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     if (!name) {
@@ -61,6 +62,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
       ? body.leads.filter((x): x is string => typeof x === 'string')
       : undefined
     const host = body.host === 'codex' ? 'codex' : 'cc'
+    // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
+    const targetWords =
+      typeof body.targetWords === 'number' && Number.isFinite(body.targetWords) && body.targetWords > 0
+        ? body.targetWords
+        : undefined
     const result = doInit({
       workDir: ctx.workDir,
       name,
@@ -68,6 +74,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       leads,
       kind,
       host,
+      targetWords,
     })
     if (!result.ok) {
       reply(res, 400, { error: result.reason })

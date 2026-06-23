@@ -23,6 +23,8 @@ export interface BookScaffoldOpts {
   kind: 'long' | 'short'
   /** AI 宿主（决策 12/22，缺省 cc） */
   host?: 'cc' | 'codex'
+  /** 全书目标字数（决策 14，落 book.yaml target_words，完成度直除） */
+  targetWords?: number
 }
 
 /**
@@ -48,13 +50,13 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
-        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
+        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
         short: recommendShortChecks(opts.genre),
       }
     : {
         ...DEFAULT_CONFIG,
         host: opts.host ?? 'cc',
-        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre },
+        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
         leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
       }
   writeBookConfig(join(bookRoot, 'book.yaml'), config)

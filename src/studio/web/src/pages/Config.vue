@@ -8,7 +8,7 @@ interface BookConfigLoose {
   spec_version: number
   kind?: 'long' | 'short'
   host?: 'cc' | 'codex'
-  book: { title: string; genre: string; volume_size?: number }
+  book: { title: string; genre: string; volume_size?: number; target_words?: number }
   leads: { enabled: string[]; thresholds?: Record<string, number> }
   budget: { calls_per_chapter: number; input_per_chapter?: number; summary_chapter_max?: number; summary_volume_max?: number }
   style: { injection: 'light' | 'heavy' }
@@ -123,6 +123,7 @@ onMounted(load)
         <div class="form">
           <label class="field">书名 <input v-model="config.book.title" /></label>
           <label class="field">题材 <input v-model="config.book.genre" placeholder="玄幻/悬疑/言情…" /></label>
+          <label class="field">目标字数(book.target_words) <input type="number" v-model.number="config.book.target_words" placeholder="如：300000" /></label>
           <div class="field">
             <span class="lbl">类型</span>
             <div class="seg">
