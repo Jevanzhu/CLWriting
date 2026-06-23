@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import type { EChartsOption } from 'echarts'
+import EChart from '../components/EChart.vue'
 import BookTabs from '../components/BookTabs.vue'
 
 interface RealmSystem {
@@ -153,6 +155,37 @@ async function saveRealm(): Promise<void> {
   realmSaving.value = false
 }
 
+/** 关系图:角色 + 关系债网络(角色节点 + 欠/债边,力导向布局) */
+const graphOption = computed<EChartsOption | null>(() => {
+  if (!data.value) return null
+  const names = new Set<string>()
+  data.value.characters.forEach((c) => names.add(c.姓名))
+  data.value.debtGraph.forEach((d) => {
+    if (d.欠方) names.add(d.欠方)
+    if (d.债主) names.add(d.债主)
+  })
+  if (names.size === 0) return null
+  return {
+    tooltip: {},
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        force: { repulsion: 300, edgeLength: 140, gravity: 0.1 },
+        roam: true,
+        label: { show: true, position: 'right', fontSize: 12 },
+        edgeLabel: { show: true, fontSize: 11, formatter: '欠' },
+        data: [...names].map((n) => ({ name: n, symbolSize: 40 })),
+        links: data.value.debtGraph
+          .filter((d) => d.欠方 && d.债主)
+          .map((d) => ({ source: d.欠方, target: d.债主 })),
+        lineStyle: { color: '#fca5a5', width: 2, curveness: 0.2 },
+        itemStyle: { color: '#3b82f6' },
+      },
+    ],
+  }
+})
+
 watch(
   () => route.params.name,
   (n) => {
@@ -251,9 +284,10 @@ watch(
         <p v-else class="hint">暂无时间线(定稿/设定/时间线/*.md)</p>
       </article>
 
-      <!-- 关系债子图 -->
+      <!-- 关系图(P2 角色 + 关系债网络) -->
       <article v-if="data.debtGraph.length" class="card">
-        <h3 class="block-title">关系债子图</h3>
+        <h3 class="block-title">关系图 <span class="title-hint">· 角色 + 关系债网络(可拖拽/缩放)</span></h3>
+        <EChart v-if="graphOption" :option="graphOption" />
         <ul class="debt-list">
           <li v-for="d in data.debtGraph" :key="d.编号">
             <span class="debt-party">{{ d.欠方 || '—' }}</span>
