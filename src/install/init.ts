@@ -35,6 +35,8 @@ export interface InitOptions {
   platforms?: ShellPlatform[]
   /** 全书目标字数（决策 14，落 book.yaml target_words） */
   targetWords?: number
+  /** 简介（GUI 新增 5.1，落 简介.md） */
+  brief?: string
 }
 
 export type InitResult =
@@ -85,7 +87,7 @@ export function doInit(opts: InitOptions): InitResult {
   if (!workDirResult.ok) return workDirResult
 
   // 步骤 6：书仓库 scaffold（独立 git + book.yaml + 6.2 目录 + 文风占位 + 初始 commit）
-  scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords })
+  scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
 
   // 步骤 7：装壳（种默认角色源 → generateRoleShells）
   const seedResult = seedDefaultRoles(workDir)
