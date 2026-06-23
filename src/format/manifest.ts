@@ -40,20 +40,19 @@ function parseReversalSection(lines: string[], startIdx: number): { lead: Revers
   let i = startIdx
 
   while (i < lines.length) {
-    const line = lines[i]!
-    const trimmed = line.trim()
+    const trimmed = lines[i]!.trim()
     // 遇下一个 ## 段结束
     if (/^##\s/.test(trimmed) && !trimmed.includes(SECTION_REVERSAL)) break
 
     // 核心反转
-    const coreM = line.match(/^\s*[-*]\s*核心反转[:：]\s*(.+)$/)
+    const coreM = trimmed.match(/^[-*]\s*核心反转[:：]\s*(.+)$/)
     if (coreM) {
       核心反转 = coreM[1]!.trim()
       i++
       continue
     }
     // 铺垫点：- [位置] 内容
-    const setupM = line.match(/^\s*[-*]\s*\[([^\]]*)\]\s*(.+)$/)
+    const setupM = trimmed.match(/^[-*]\s*\[([^\]]*)\]\s*(.+)$/)
     if (setupM) {
       铺垫点.push({ 位置: setupM[1]!.trim(), 内容: setupM[2]!.trim() })
       i++
@@ -76,11 +75,10 @@ function parseEmotionSection(lines: string[], startIdx: number): { curve: Emotio
   let i = startIdx
 
   while (i < lines.length) {
-    const line = lines[i]!
-    const trimmed = line.trim()
+    const trimmed = lines[i]!.trim()
     if (/^##\s/.test(trimmed) && !trimmed.includes(SECTION_EMOTION)) break
 
-    const m = line.match(/^\s*[-*]\s*\[([^\]]+)\]\s*([^\s：:]+)\s+(\d+)\s*\/\s*10(?:\s*[:：]\s*(.*))?\s*$/)
+    const m = trimmed.match(/^[-*]\s*\[([^\]]+)\]\s*([^\s：:]+)\s+(\d+)\s*\/\s*10(?:\s*[:：]\s*(.*))?$/)
     if (m) {
       curve.push({
         段落: m[1]!.trim(),
@@ -107,19 +105,18 @@ function parsePayoffSection(lines: string[], startIdx: number): { entries: Payof
   let i = startIdx
 
   while (i < lines.length) {
-    const line = lines[i]!
-    const trimmed = line.trim()
+    const trimmed = lines[i]!.trim()
     if (/^##\s/.test(trimmed) && !trimmed.includes(SECTION_PAYOFF)) break
 
     // 未回收标记：- <伏笔>（未回收）
-    const unresM = line.match(/^\s*[-*]\s*(.+?)（未回收）\s*$/)
+    const unresM = trimmed.match(/^[-*]\s*(.+?)（未回收）$/)
     if (unresM) {
       entries.push({ 伏笔: unresM[1]!.trim(), 回收位置: '', 未回收: true })
       i++
       continue
     }
     // 已回收：- <伏笔> → 回收于 <位置>（兼容 → 或 -> )
-    const resM = line.match(/^\s*[-*]\s*(.+?)\s*(?:→|->)\s*回收于\s*(.+)$/)
+    const resM = trimmed.match(/^[-*]\s*(.+?)\s*(?:→|->)\s*回收于\s*(.+)$/)
     if (resM) {
       entries.push({ 伏笔: resM[1]!.trim(), 回收位置: resM[2]!.trim() })
       i++

@@ -50,6 +50,31 @@ test('parsePieceListBody: 完整三段解析', () => {
   expect(list.伏笔回收[0]).toEqual({ 伏笔: '雪地脚印', 回收位置: '结尾二叔被揭穿' })
 })
 
+test('parsePieceListBody: CRLF 清单仍解析嵌套铺垫与伏笔回收', () => {
+  const body = [
+    '## 反转线索表',
+    '- 核心反转：来客即凶手',
+    '- 铺垫点（≥3，反转可回溯）：',
+    '  - [开头] 雪夜敲门',
+    '  - [中段] 来客手上的焦痕',
+    '  - [结尾] 二叔的异常沉默',
+    '',
+    '## 情绪曲线',
+    '- [反转] 震惊 9/10：来客即凶手',
+    '',
+    '## 伏笔回收',
+    '- 雪地脚印 → 回收于 结尾二叔被揭穿',
+    '- 半枚玉佩 -> 回收于 中段认出族徽',
+    '',
+  ].join('\r\n')
+
+  const list = parsePieceListBody(body)
+  expect(list.反转线索表.铺垫点).toHaveLength(3)
+  expect(list.反转线索表.铺垫点[1]).toEqual({ 位置: '中段', 内容: '来客手上的焦痕' })
+  expect(list.伏笔回收).toHaveLength(2)
+  expect(list.伏笔回收[1]).toEqual({ 伏笔: '半枚玉佩', 回收位置: '中段认出族徽' })
+})
+
 test('parsePieceListBody: 未回收标记', () => {
   const body = `## 伏笔回收
 - 雪地脚印 → 回收于 结尾
