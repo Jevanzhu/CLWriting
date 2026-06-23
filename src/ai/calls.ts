@@ -301,6 +301,7 @@ export function setAiCallLimitOverride(
   chapter: number,
   config: BookConfig,
   limit: number,
+  at?: string,
 ): AiCallRecordResult {
   return withAiCallBudgetLock(workDir, () => {
     const state = getAiCallBudgetState(workDir, chapter, config)
@@ -309,7 +310,7 @@ export function setAiCallLimitOverride(
       return { ok: false, reason: `临时上限不能低于已调用次数 ${state.used}` }
     }
 
-    const now = new Date().toISOString()
+    const now = at ?? new Date().toISOString()
     const next: AiCallBudgetRecord = {
       chapter,
       used: state.used,

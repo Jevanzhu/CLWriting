@@ -96,8 +96,13 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // 全量重建一次（#2#3 都要用它的结果；幂等，删了能建回）
+  // 短篇跳过 rebuild：短篇不依赖 index.db（态7 分支 + readRecapSnapshot 短篇分支都直扫 篇/ 目录），
+  // rebuild 扫的是长篇结构（大纲/账本 + 定稿/正文），对短篇是纯浪费；态2 解析错误检测对短篇无意义（真相源是 篇/）。
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  const rebuildResult = rebuild(bookRoot, cachePath)
+  const rebuildResult =
+    config.kind === 'short'
+      ? { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [] }
+      : rebuild(bookRoot, cachePath)
 
   // #2 源文件解析失败（#18 第 2 节）
   if (rebuildResult.errors.length > 0) {
