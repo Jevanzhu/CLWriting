@@ -12,7 +12,7 @@ interface DriverEvent {
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 
-// 八阶段骨架(C.1 draft 激活,余占位;C.2/C.3 补)
+// 八阶段骨架(C.3 全接:细纲/确认/备料/写稿/机检/三审/定稿)
 const stages = [
   { id: 'enter', label: '进入' },
   { id: 'outline', label: '细纲' },
@@ -30,10 +30,14 @@ const running = ref(false)
 const outlineRunning = ref(false)
 const draftMode = ref(false)
 const cliRunning = ref(false)
+const reviewRunning = ref(false)
 const textOut = ref('')
 const log = ref<{ t: string; type: string; text: string }[]>([])
 const saved = ref<{ path: string; words: number } | null>(null)
 const outlineSaved = ref<{ path: string; words: number } | null>(null)
+const checkReport = ref('') // 机检报告(check stdout)
+const reviewReport = ref('') // 审稿单(review report 全文)
+const verdictApproved = ref(false)
 let es: EventSource | null = null
 
 function ts(): string {
@@ -82,9 +86,9 @@ function handleEvent(ev: DriverEvent): void {
   }
 }
 
-/** CLI 确定性步(confirm/prepare):POST /cli → spawn clwriting → 结果入事件流 */
-async function runCliStep(step: 'confirm' | 'prepare'): Promise<void> {
-  if (cliRunning.value || running.value || outlineRunning.value || !name.value) return
+/** CLI 确定性步:confirm/prepare/check/finalize。check 存机检报告,余入事件流 */
+async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): Promise<void> {
+  if (cliRunning.value || running.value || outlineRunning.value || reviewRunning.value || !name.value) return
   cliRunning.value = true
   activeStage.value = step
   log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} 章…` })
@@ -95,10 +99,20 @@ async function runCliStep(step: 'confirm' | 'prepare'): Promise<void> {
       body: JSON.stringify({ step, chapter: chapter.value }),
     })
     const d = (await r.json()) as { ok?: boolean; stdout?: string; stderr?: string }
+    const out = String(d.stdout ?? '').trim()
+    const err = String(d.stderr || d.stdout || '').trim()
     if (d.ok) {
-      log.value.push({ t: ts(), type: 'saved', text: `${step} ✓ ${String(d.stdout ?? '').trim().slice(0, 80)}` })
+      if (step === 'check') {
+        checkReport.value = out
+        log.value.push({ t: ts(), type: 'saved', text: `机检 ✓(见机检报告)` })
+      } else if (step === 'finalize') {
+        log.value.push({ t: ts(), type: 'saved', text: `定稿 ✓ ${out.slice(0, 80)}` })
+      } else {
+        log.value.push({ t: ts(), type: 'saved', text: `${step} ✓ ${out.slice(0, 80)}` })
+      }
     } else {
-      log.value.push({ t: ts(), type: 'error', text: `${step} 失败:${String(d.stderr ?? d.stdout ?? '').trim().slice(0, 100)}` })
+      if (step === 'check') checkReport.value = err
+      log.value.push({ t: ts(), type: 'error', text: `${step} 失败:${err.slice(0, 120)}` })
     }
   } catch (e) {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
@@ -178,7 +192,55 @@ async function draftWrite(): Promise<void> {
   }
 }
 
-/** done 后落盘:driver text → 工作区/草稿-N.md */
+/** 三审:POST /review(run→spawnRole×3 reader/editor/continuity→collect)→ 审稿单 */
+async function reviewRun(): Promise<void> {
+  if (reviewRunning.value || running.value || cliRunning.value || outlineRunning.value || !name.value) return
+  reviewRunning.value = true
+  reviewReport.value = ''
+  verdictApproved.value = false
+  activeStage.value = 'review'
+  log.value.push({ t: ts(), type: 'spawn', text: `三审第 ${chapter.value} 章(run→reader/editor/continuity→collect)…` })
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chapter: chapter.value }),
+    })
+    const d = (await r.json()) as { ok?: boolean; lenses?: string[]; report?: string; error?: string }
+    if (r.ok && d.ok) {
+      reviewReport.value = d.report ?? ''
+      log.value.push({ t: ts(), type: 'saved', text: `三审 ✓ 视角:${(d.lenses ?? []).join('/')}(见审稿单)` })
+    } else {
+      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    }
+  } catch (e) {
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+  }
+  reviewRunning.value = false
+}
+
+/** 裁决通过:POST /review-verdict {approved:true} → finalize 可放行 */
+async function verdictApprove(): Promise<void> {
+  if (!name.value || !reviewReport.value) return
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/review-verdict`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approved: true }),
+    })
+    const d = (await r.json()) as { ok?: boolean; approved?: boolean; error?: string }
+    if (r.ok && d.ok) {
+      verdictApproved.value = true
+      log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
+    } else {
+      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    }
+  } catch (e) {
+    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/** done 后落盘:driver text → 工作区/草稿-1.md */
 async function saveDraft(): Promise<void> {
   const content = textOut.value.trim()
   if (!content) {
@@ -217,7 +279,10 @@ onUnmounted(() => es?.close())
   <section class="wb-page">
     <BookTabs :name="name" active="workbench" />
 
-    <div class="cc-banner">⚡ cc driver:经 claude CLI 生成(复用你的认证 / GLM 网关)。C.1:draft 写稿 + 落盘 工作区/草稿-N.md。</div>
+    <div class="cc-banner">
+      ⚡ 八阶段全接(细纲→确认→备料→写稿→机检→三审→定稿)。AI 步(细纲/写稿/三审)经 claude
+      CLI,确定性步(确认/备料/机检/定稿)经 clwriting CLI。
+    </div>
 
     <!-- 八阶段骨架 -->
     <nav class="stages">
@@ -229,29 +294,50 @@ onUnmounted(() => es?.close())
       >{{ s.label }}</span>
     </nav>
 
-    <!-- outline + draft 控制 -->
+    <!-- 控制区:七按钮(进入隐含在选章)-->
     <article class="card ctrl">
       <div class="ctrl-row">
         <label>章号
-          <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning" />
+          <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
         </label>
-        <button class="btn-outline" :disabled="outlineRunning || running || cliRunning" @click="outlineGen">
-          {{ outlineRunning ? '生成细纲中…' : '📋 生成细纲 →' }}
+        <button class="btn-outline" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
+          {{ outlineRunning ? '细纲中…' : '📋 细纲' }}
         </button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning" @click="runCliStep('confirm')">✓ 确认</button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning" @click="runCliStep('prepare')">📦 备料</button>
-        <button class="btn-fire" :disabled="running || outlineRunning || cliRunning" @click="draftWrite">
-          {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章 →` }}
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
+        <button class="btn-fire" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
+          {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章` }}
         </button>
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
+        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
+          {{ reviewRunning ? '三审中…' : '📝 三审' }}
+        </button>
+        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
       </div>
       <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成:<span class="mono">{{ outlineSaved.path }}</span>({{ outlineSaved.words }} 字)</p>
       <p v-if="saved" class="saved-tip">✅ 草稿已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
+      <p v-if="verdictApproved" class="saved-tip">✓ 裁决通过,可定稿</p>
     </article>
 
     <!-- 正文输出 -->
     <article class="card">
       <h3 class="block-title">正文输出</h3>
       <pre class="text-out">{{ textOut || '(尚未生成)' }}</pre>
+    </article>
+
+    <!-- 机检报告 -->
+    <article v-if="checkReport" class="card">
+      <h3 class="block-title">机检报告</h3>
+      <pre class="report-out">{{ checkReport }}</pre>
+    </article>
+
+    <!-- 审稿单 -->
+    <article v-if="reviewReport" class="card">
+      <h3 class="block-title">
+        审稿单
+        <button v-if="!verdictApproved" class="btn-approve" @click="verdictApprove">裁决通过 →</button>
+      </h3>
+      <pre class="report-out">{{ reviewReport }}</pre>
     </article>
 
     <!-- 事件流 -->
@@ -297,6 +383,9 @@ onUnmounted(() => es?.close())
   font-weight: 600;
   color: #6b7280;
   letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* 八阶段骨架 */
@@ -321,11 +410,12 @@ onUnmounted(() => es?.close())
   font-weight: 600;
 }
 
-/* draft 控制 */
+/* 控制区 */
 .ctrl-row {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   align-items: flex-end;
+  flex-wrap: wrap;
 }
 .ctrl-row label {
   display: grid;
@@ -341,7 +431,7 @@ input[type='number'] {
   font-size: 14px;
 }
 .btn-outline {
-  padding: 8px 18px;
+  padding: 8px 14px;
   border: 1px solid #3b82f6;
   border-radius: 6px;
   background: #fff;
@@ -355,7 +445,7 @@ input[type='number'] {
   cursor: not-allowed;
 }
 .btn-cli {
-  padding: 8px 14px;
+  padding: 8px 12px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   background: #fff;
@@ -369,7 +459,7 @@ input[type='number'] {
   cursor: not-allowed;
 }
 .btn-fire {
-  padding: 8px 18px;
+  padding: 8px 16px;
   border: none;
   border-radius: 6px;
   background: #3b82f6;
@@ -380,6 +470,30 @@ input[type='number'] {
 .btn-fire:disabled {
   background: #d1d5db;
   cursor: not-allowed;
+}
+.btn-review {
+  padding: 8px 14px;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  background: #fff;
+  color: #7c3aed;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-review:disabled {
+  border-color: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+.btn-approve {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
 }
 .saved-tip {
   margin: 12px 0 0;
@@ -393,19 +507,22 @@ input[type='number'] {
   font-family: ui-monospace, monospace;
 }
 
-/* 输出 + 事件流 */
-.text-out {
+/* 输出 + 报告 + 事件流 */
+.text-out,
+.report-out {
   margin: 0;
   padding: 12px;
   background: #f9fafb;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
   color: #111827;
   white-space: pre-wrap;
-  min-height: 48px;
   max-height: 360px;
   overflow-y: auto;
+}
+.text-out {
+  min-height: 48px;
 }
 .log {
   margin: 0;

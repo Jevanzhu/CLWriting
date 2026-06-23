@@ -33,6 +33,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
 
     const bookRoot = join(ctx.workDir, entry.path)
     const draftDir = join(bookRoot, '工作区')
+    // 草稿-<章号>.md:与 review --chapter=N 推导一致(check/finalize 显式传此路径)
     const relPath = `工作区/草稿-${chapter}.md`
     try {
       mkdirSync(draftDir, { recursive: true })
@@ -66,7 +67,7 @@ function buildDraftPrompt(bookRoot: string, chapter: number): string {
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   if (materials) parts.push(`## 备料\n${materials}`)
   parts.push(
-    `## 要求\n按你的角色规则直接输出正文(纯文本,禁 MD 标题/格式,仅段落+空行),不要读文件、不要用任何工具。`,
+    `## 要求\n按你的角色规则产出完整草稿:以章节 front matter 开头(章号: ${chapter} / 标题 / 钩子类型 / 钩子强弱 / 情绪定位),紧跟正文(纯文本段落,章尾留钩)。直接输出 front matter + 正文全文,不要读文件、不要用任何工具。`,
   )
   return parts.join('\n\n')
 }
