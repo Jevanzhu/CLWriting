@@ -96,6 +96,63 @@ async function saveCharacter(c: CharacterCard, i: number): Promise<void> {
   charSaving.value = false
 }
 
+// P2 境界体系编辑
+interface RealmSysForm {
+  名称: string
+  _seqText: string
+}
+const editingRealm = ref(false)
+const realmForm = ref<{ 体系: RealmSysForm[]; 正文: string }>({ 体系: [], 正文: '' })
+const realmSaving = ref(false)
+
+function startEditRealm(): void {
+  if (!data.value?.realm) return
+  editingRealm.value = true
+  realmForm.value = {
+    体系: data.value.realm.体系.map((s) => ({ 名称: s.名称, _seqText: s.序列.join(', ') })),
+    正文: data.value.realm.正文 ?? '',
+  }
+}
+
+function addRealmSys(): void {
+  realmForm.value.体系.push({ 名称: '', _seqText: '' })
+}
+
+function removeRealmSys(i: number): void {
+  realmForm.value.体系.splice(i, 1)
+}
+
+async function saveRealm(): Promise<void> {
+  if (!name.value) return
+  realmSaving.value = true
+  const 体系 = realmForm.value.体系
+    .filter((s) => s.名称.trim() !== '')
+    .map((s) => ({
+      名称: s.名称.trim(),
+      序列: s._seqText.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    }))
+  const 正文 = realmForm.value.正文.trim()
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/settings/realm`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ 体系, ...(正文 ? { 正文 } : {}) }),
+    })
+    const d = (await r.json()) as { ok?: boolean; error?: string }
+    if (r.ok && d.ok) {
+      if (data.value) {
+        data.value.realm = { 体系, ...(正文 ? { 正文 } : {}) }
+      }
+      editingRealm.value = false
+    } else {
+      alert(d.error ?? `HTTP ${r.status}`)
+    }
+  } catch (e) {
+    alert(e instanceof Error ? e.message : String(e))
+  }
+  realmSaving.value = false
+}
+
 watch(
   () => route.params.name,
   (n) => {
@@ -112,21 +169,42 @@ watch(
     <p v-if="loading" class="hint">加载中…</p>
     <p v-else-if="error" class="hint error">加载失败:{{ error }}</p>
     <template v-else-if="data && data.kind === 'long'">
-      <!-- 境界体系(强结构化,核心) -->
+      <!-- 境界体系(P2 可编辑) -->
       <article class="card">
-        <h3 class="block-title">境界体系</h3>
-        <div v-if="data.realm && data.realm.体系.length">
-          <div v-for="sys in data.realm.体系" :key="sys.名称" class="realm-system">
-            <div class="realm-name">{{ sys.名称 }}</div>
-            <div class="realm-chain">
-              <template v-for="(r, i) in sys.序列" :key="r">
-                <span class="realm-chip">{{ r }}</span>
-                <span v-if="i < sys.序列.length - 1" class="realm-arrow">→</span>
-              </template>
+        <h3 class="block-title">境界体系 <span class="title-hint">· 点击编辑</span></h3>
+        <template v-if="data.realm">
+          <template v-if="!editingRealm">
+            <div v-if="data.realm.体系.length">
+              <div v-for="sys in data.realm.体系" :key="sys.名称" class="realm-system">
+                <div class="realm-name">{{ sys.名称 }}</div>
+                <div class="realm-chain">
+                  <template v-for="(r, i) in sys.序列" :key="r + i">
+                    <span class="realm-chip">{{ r }}</span>
+                    <span v-if="i < sys.序列.length - 1" class="realm-arrow">→</span>
+                  </template>
+                </div>
+              </div>
+              <p v-if="data.realm.正文" class="realm-note">{{ data.realm.正文 }}</p>
+            </div>
+            <p v-else class="hint">暂无体系(点编辑添加一个)</p>
+            <button class="btn-edit" @click="startEditRealm">✍ 编辑</button>
+          </template>
+          <div v-else class="realm-edit">
+            <div v-for="(sys, si) in realmForm.体系" :key="si" class="realm-sys-edit">
+              <input v-model="sys.名称" class="char-input" placeholder="体系名(如 修真境界)" />
+              <input v-model="sys._seqText" class="char-input" placeholder="序列(逗号分隔: 炼气, 筑基, 金丹)" />
+              <button class="btn-del" @click="removeRealmSys(si)">删除体系</button>
+            </div>
+            <button class="btn-add" @click="addRealmSys">+ 添加体系</button>
+            <textarea v-model="realmForm.正文" class="char-textarea" placeholder="境界说明(正文,人话描述,不参与机检)" rows="3"></textarea>
+            <div class="char-edit-btns">
+              <button class="btn-save-char" :disabled="realmSaving" @click="saveRealm">
+                {{ realmSaving ? '保存中…' : '💾 保存' }}
+              </button>
+              <button class="btn-cancel-char" :disabled="realmSaving" @click="editingRealm = false">取消</button>
             </div>
           </div>
-          <p v-if="data.realm.正文" class="realm-note">{{ data.realm.正文 }}</p>
-        </div>
+        </template>
         <p v-else class="hint">暂无境界体系(定稿/设定/境界体系.md)</p>
       </article>
 
@@ -356,6 +434,39 @@ watch(
   color: #6b7280;
   font-size: 12px;
   cursor: pointer;
+}
+
+/* P2 境界编辑 */
+.realm-edit {
+  display: grid;
+  gap: 10px;
+}
+.realm-sys-edit {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+.btn-del {
+  padding: 4px 10px;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 12px;
+  cursor: pointer;
+  justify-self: start;
+}
+.btn-add {
+  padding: 4px 12px;
+  border: 1px dashed #3b82f6;
+  border-radius: 4px;
+  background: #fff;
+  color: #3b82f6;
+  font-size: 13px;
+  cursor: pointer;
+  justify-self: start;
 }
 
 /* 关系债 */

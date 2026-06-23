@@ -14,7 +14,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { readRealmDoc } from '../../../format/realms.js'
+import { readRealmDoc, writeRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat, stringifyFlat, writeFile } from '../../../format/frontmatter.js'
 import type { RealmSystem } from '../../../format/types.js'
@@ -81,6 +81,37 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       return reply(res, 500, { error: `写回失败:${e instanceof Error ? e.message : String(e)}` })
     }
     reply(res, 200, { ok: true, file })
+  })
+
+  // P2 境界体系写回(固定路径 定稿/设定/境界体系.md,无 file 参数故无穿越风险)
+  route('PUT', '/api/books/:name/settings/realm', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const body = await readJson(req)
+    const 体系Raw = Array.isArray(body['体系']) ? (body['体系'] as unknown[]) : []
+    // 规范化:名称必填,序列 string[](跳过缺名/非对象项)
+    const 体系: RealmSystem[] = 体系Raw.flatMap((s): RealmSystem[] => {
+      if (!s || typeof s !== 'object') return []
+      const rec = s as Record<string, unknown>
+      const 名称 = String(rec['名称'] ?? '').trim()
+      if (!名称) return []
+      return [
+        {
+          名称,
+          序列: Array.isArray(rec['序列']) ? (rec['序列'] as unknown[]).map(String).filter((x) => x.trim() !== '') : [],
+        },
+      ]
+    })
+    const 正文 = String(body['正文'] ?? '').trim()
+    const bookRoot = join(ctx.workDir, entry.path)
+    const fp = join(bookRoot, '定稿', '设定', '境界体系.md')
+    try {
+      writeRealmDoc(fp, { 体系, _path: fp, ...(正文 ? { 正文 } : {}) })
+    } catch (e) {
+      return reply(res, 500, { error: `写回失败:${e instanceof Error ? e.message : String(e)}` })
+    }
+    reply(res, 200, { ok: true })
   })
 }
 
