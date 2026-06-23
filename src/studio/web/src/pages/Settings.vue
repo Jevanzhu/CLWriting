@@ -11,6 +11,14 @@ interface FreeCard {
   标题: string
   摘要: string
 }
+interface CharacterCard {
+  file: string
+  姓名: string
+  身份: string
+  目标: string
+  境界: string
+  正文: string
+}
 interface DebtEdge {
   编号: string
   标题: string
@@ -21,7 +29,7 @@ interface DebtEdge {
 interface SettingsData {
   kind: 'long'
   realm: { 体系: RealmSystem[]; 正文?: string } | null
-  characters: FreeCard[]
+  characters: CharacterCard[]
   timeline: FreeCard[]
   debtGraph: DebtEdge[]
 }
@@ -48,6 +56,44 @@ async function load(n: string): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+// P2 角色卡编辑
+const editingChar = ref<string | null>(null)
+const charForm = ref<CharacterCard>({ file: '', 姓名: '', 身份: '', 目标: '', 境界: '', 正文: '' })
+const charSaving = ref(false)
+
+function startEditChar(c: CharacterCard): void {
+  editingChar.value = c.file
+  charForm.value = { ...c }
+}
+
+async function saveCharacter(c: CharacterCard, i: number): Promise<void> {
+  if (!name.value) return
+  if (!charForm.value.姓名.trim()) {
+    alert('姓名必填')
+    return
+  }
+  charSaving.value = true
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/settings/character`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(charForm.value),
+    })
+    const d = (await r.json()) as { ok?: boolean; error?: string }
+    if (r.ok && d.ok) {
+      if (data.value && data.value.characters[i]) {
+        data.value.characters[i] = { ...charForm.value, file: c.file }
+      }
+      editingChar.value = null
+    } else {
+      alert(d.error ?? `HTTP ${r.status}`)
+    }
+  } catch (e) {
+    alert(e instanceof Error ? e.message : String(e))
+  }
+  charSaving.value = false
 }
 
 watch(
@@ -84,13 +130,32 @@ watch(
         <p v-else class="hint">暂无境界体系(定稿/设定/境界体系.md)</p>
       </article>
 
-      <!-- 角色卡片 -->
+      <!-- 角色卡片(P2 结构化可编辑) -->
       <article class="card">
-        <h3 class="block-title">角色</h3>
+        <h3 class="block-title">角色 <span class="title-hint">· 点击编辑</span></h3>
         <div v-if="data.characters.length" class="card-grid">
-          <div v-for="(c, i) in data.characters" :key="i" class="free-card">
-            <div class="free-title">{{ c.标题 }}</div>
-            <p class="free-summary">{{ c.摘要 }}</p>
+          <div v-for="(c, i) in data.characters" :key="c.file" class="char-card">
+            <template v-if="editingChar !== c.file">
+              <div class="free-title">{{ c.姓名 }}</div>
+              <p v-if="c.身份" class="char-meta"><span>身份</span>{{ c.身份 }}</p>
+              <p v-if="c.目标" class="char-meta"><span>目标</span>{{ c.目标 }}</p>
+              <p v-if="c.境界" class="char-meta"><span>境界</span>{{ c.境界 }}</p>
+              <p class="free-summary">{{ c.正文.slice(0, 100) }}{{ c.正文.length > 100 ? '…' : '' }}</p>
+              <button class="btn-edit" @click="startEditChar(c)">✍ 编辑</button>
+            </template>
+            <div v-else class="char-edit">
+              <input v-model="charForm.姓名" class="char-input" placeholder="姓名(必填)" />
+              <input v-model="charForm.身份" class="char-input" placeholder="身份" />
+              <input v-model="charForm.目标" class="char-input" placeholder="目标" />
+              <input v-model="charForm.境界" class="char-input" placeholder="境界" />
+              <textarea v-model="charForm.正文" class="char-textarea" placeholder="性格/外貌/履历…(正文,自由描述)" rows="5"></textarea>
+              <div class="char-edit-btns">
+                <button class="btn-save-char" :disabled="charSaving" @click="saveCharacter(c, i)">
+                  {{ charSaving ? '保存中…' : '💾 保存' }}
+                </button>
+                <button class="btn-cancel-char" :disabled="charSaving" @click="editingChar = null">取消</button>
+              </div>
+            </div>
           </div>
         </div>
         <p v-else class="hint">暂无角色(定稿/设定/角色/*.md)</p>
@@ -214,6 +279,83 @@ watch(
 .free-summary.pre {
   white-space: pre-wrap;
   font-family: inherit;
+}
+
+/* P2 角色卡编辑 */
+.title-hint {
+  font-weight: 400;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.char-card {
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+.char-meta {
+  margin: 2px 0;
+  font-size: 13px;
+  color: #4b5563;
+}
+.char-meta span {
+  display: inline-block;
+  min-width: 36px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.btn-edit {
+  margin-top: 8px;
+  padding: 3px 10px;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  background: #fff;
+  color: #3b82f6;
+  font-size: 12px;
+  cursor: pointer;
+}
+.char-edit {
+  display: grid;
+  gap: 6px;
+}
+.char-input {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.char-textarea {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 13px;
+  resize: vertical;
+  font-family: inherit;
+}
+.char-edit-btns {
+  display: flex;
+  gap: 8px;
+}
+.btn-save-char {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #059669;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-save-char:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+.btn-cancel-char {
+  padding: 4px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 /* 关系债 */
