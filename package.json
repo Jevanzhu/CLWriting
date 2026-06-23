@@ -18,6 +18,7 @@
     "build": "tsup",
     "build:web": "npm --prefix src/studio/web run build",
     "build:all": "tsup && npm --prefix src/studio/web run build",
+    "prepack": "npm run build:all",
     "dev": "tsup --watch",
     "dev:web": "npm --prefix src/studio/web run dev",
     "typecheck": "tsc --noEmit",

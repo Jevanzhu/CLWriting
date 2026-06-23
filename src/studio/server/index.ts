@@ -63,14 +63,39 @@ export function startServer(opts: StudioServerOptions): http.Server {
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 
+  // Origin 白名单(防 localhost 跨站调用,P0):dev Vite(5173)固定 + 实际 listening 端口(下方补)
+  const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173'])
+  const isAllowedOrigin = (req: IncomingMessage): boolean => {
+    const origin = req.headers.origin
+    // 无 Origin(同源请求 / curl / 非浏览器)放行;浏览器带 Origin 则校验白名单
+    return !origin || allowedOrigins.has(origin)
+  }
+
   const server = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // 本地用，CORS 宽松（dev 时 Vite 5173 → 后端 7878 跨端口）
-    res.setHeader('access-control-allow-origin', '*')
-    res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS')
-    res.setHeader('access-control-allow-headers', 'content-type')
+    const origin = req.headers.origin
+    // CORS:只对白名单 Origin 设 ACAO(跨站浏览器读被阻)
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader('access-control-allow-origin', origin)
+      res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS')
+      res.setHeader('access-control-allow-headers', 'content-type')
+      res.setHeader('vary', 'origin')
+    }
+    // 预检 OPTIONS:非白名单 Origin → 403(阻跨站实际请求)
     if (req.method === 'OPTIONS') {
+      if (origin && !allowedOrigins.has(origin)) {
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'forbidden origin' }))
+        return
+      }
       res.writeHead(204)
       res.end()
+      return
+    }
+    // 写端点(POST/PUT/DELETE)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
+    const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE'
+    if (isWrite && !isAllowedOrigin(req)) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'forbidden origin' }))
       return
     }
 
@@ -90,5 +115,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
   })
 
   server.listen(opts.port, host)
+  // listening 后补实际端口(port 0 随机端口)
+  server.on('listening', () => {
+    const addr = server.address()
+    if (addr && typeof addr === 'object') {
+      allowedOrigins.add(`http://127.0.0.1:${addr.port}`)
+      allowedOrigins.add(`http://localhost:${addr.port}`)
+    }
+  })
   return server
 }

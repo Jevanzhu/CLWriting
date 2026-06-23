@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  # 临时暂停自动 CI：保留手动触发入口，恢复时再打开 push / pull_request。
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -24,11 +27,20 @@ jobs:
       - name: 装依赖
         run: npm ci
 
+      - name: 装前端依赖（web node_modules）
+        run: npm --prefix src/studio/web ci
+
       - name: 类型检查（tsc --noEmit 零错）
         run: npm run typecheck
 
-      - name: 构建（src → dist）
-        run: npm run build
+      - name: 前端类型检查（vue-tsc）
+        run: npm --prefix src/studio/web run typecheck
+
+      - name: 构建（src + web → dist，发布资产门）
+        run: npm run build:all
+
+      - name: Studio 前端资产 smoke（dist/web/index.html 必须存在）
+        run: node -e "const fs=require('fs');if(!fs.existsSync('dist/web/index.html')){console.error('dist/web/index.html 缺失,发布包会无前端');process.exit(1)}"
 
       - name: 测试（含 node:sqlite smoke）
         run: npm test
