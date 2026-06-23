@@ -33,6 +33,8 @@ type OnboardStep =
   | 'style-sample'
   | 'style-rules'
   | 'style-quotes'
+  | 'collection-pitch'
+  | 'first-outline'
 
 /** 各步落盘路径(相对 bookRoot)*/
 const STEP_PATH: Record<OnboardStep, string> = {
@@ -45,6 +47,8 @@ const STEP_PATH: Record<OnboardStep, string> = {
   'style-sample': '文风/样章库.md',
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
+  'collection-pitch': '定稿/设定/集子定位.md',
+  'first-outline': '工作区/首篇细纲.md',
 }
 
 export function registerOnboardRoutes(ctx: OnboardCtx): void {
@@ -128,6 +132,10 @@ function buildOnboardPrompt(step: OnboardStep, title: string, genre: string, kin
       return `## 任务\n为这部${genre}小说《${title}》生成文风铁律(题材定制,替代通用占位)。\n\n${ctx}\n\n## 要求\n产出文风铁律 markdown,含:正文纯文本(禁 MD 语法)、对话标签占比上限、句长方差区间、重复率上限、题材专属规范(如玄幻禁现代词汇、言情禁说教)。${common}`
     case 'style-quotes':
       return `## 任务\n为这部${genre}小说《${title}》生成金句库种子。\n\n${ctx}\n\n## 要求\n产出 20-30 条题材典型金句(角色台词/叙事金句),每条一行,可带角色标注。供写章时点缀。${common}`
+    case 'collection-pitch':
+      return `## 任务\n为这部${genre}短篇集《${title}》生成集子定位。\n\n${ctx}\n\n## 要求\n产出集子定位,含:集子主线(贯穿主题)、题材定位、目标读者、整体调性、首篇切入点。整集共享设定,各篇独立成篇但有母题串联。${common}`
+    case 'first-outline':
+      return `## 任务\n为这部${genre}短篇集《${title}》生成首篇细纲。\n\n${ctx}\n\n## 要求\n产出首篇细纲(单篇结构),含:目标情绪、核心反转、五段结构(开场/发展/转折/高潮/余韵,每段一句话)、伏笔回收设计、字数预估(8000-20000)。${common}`
   }
 }
 

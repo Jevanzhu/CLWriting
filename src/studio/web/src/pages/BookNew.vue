@@ -8,7 +8,7 @@ interface OnboardResult {
   content: string
 }
 interface OnboardStep {
-  key: 'synopsis' | 'characters' | 'world' | 'realm' | 'volume' | 'leads-seed' | 'style-sample' | 'style-rules' | 'style-quotes'
+  key: 'synopsis' | 'characters' | 'world' | 'realm' | 'volume' | 'leads-seed' | 'style-sample' | 'style-rules' | 'style-quotes' | 'collection-pitch' | 'first-outline'
   label: string
   running: boolean
   result: OnboardResult | null
@@ -31,7 +31,13 @@ const onboardSteps = ref<OnboardStep[]>([])
 /** 按 kind 构建段 2 步骤集（长篇 9 步 / 短篇专属待 5.2 短篇补全） */
 function buildOnboardSteps(k: 'long' | 'short'): OnboardStep[] {
   if (k === 'short') {
-    return [{ key: 'synopsis', label: '📋 集子定位', running: false, result: null }]
+    return [
+      { key: 'collection-pitch', label: '📋 集子定位', running: false, result: null },
+      { key: 'first-outline', label: '📝 首篇细纲', running: false, result: null },
+      { key: 'style-sample', label: '✍️ 文风样章', running: false, result: null },
+      { key: 'style-rules', label: '📜 文风铁律', running: false, result: null },
+      { key: 'style-quotes', label: '💎 金句库', running: false, result: null },
+    ]
   }
   return [
     { key: 'synopsis', label: '📋 总纲', running: false, result: null },
