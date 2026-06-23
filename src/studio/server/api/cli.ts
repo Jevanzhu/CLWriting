@@ -1,17 +1,18 @@
 /**
- * CLI 确定性步端点(C.2b):spawn `clwriting` CLI 跑 prepare/confirm/check/finalize/enter。
+ * CLI 确定性步端点(C.2b + 短篇轮1):spawn clwriting 跑 prepare/confirm/check/finalize/enter。
  *
  * POST /api/books/:name/cli  body {step, chapter?}
- *   → spawn `clwriting <step> <chapter?>` (cwd=bookRoot)→ {ok, code, stdout, stderr}
+ *   → spawn `clwriting <step> [args]` (cwd=bookRoot)→ {ok, code, stdout, stderr}
  *
- * 确定性步(非大模型),走 CLI(封装 db / 细纲解析 / 哈希 / finalize 等),不违反 GUI 不直连大模型红线。
- * 通用端点:C.2b prepare/confirm + C.3 check/finalize/enter 共用。
+ * 确定性步(非大模型),走 CLI。prepare/confirm 传章号;
+ * check/finalize 长篇传 工作区/草稿-<章号>.md,短篇不传(默认 草稿-1.md 候选);enter 无参。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
+import { readBookConfig } from '../../../format/yaml.js'
 
 interface CliCtx {
   workDir: string | null
@@ -30,18 +31,26 @@ export function registerCliRoutes(ctx: CliCtx): void {
     const step = String(body['step'] ?? '')
     if (!ALLOWED_STEPS.has(step)) return reply(res, 400, { error: `step 不支持:${step}` })
     const chapter = Number(body['chapter'])
+    const bookRoot = join(ctx.workDir, entry.path)
+    const kind = readKind(bookRoot)
     const args = [step]
-    // prepare/confirm 传章号;check/finalize 显式传草稿路径 工作区/草稿-<章号>.md(与 review --chapter=N 推导一致);enter 无参
+    // prepare/confirm 传章号;check/finalize 长篇传草稿路径,短篇默认草稿-1.md(不传);enter 无参
     if ((step === 'prepare' || step === 'confirm') && Number.isInteger(chapter) && chapter > 0) {
       args.push(String(chapter))
-    } else if ((step === 'check' || step === 'finalize') && Number.isInteger(chapter) && chapter > 0) {
+    } else if ((step === 'check' || step === 'finalize') && kind === 'long' && Number.isInteger(chapter) && chapter > 0) {
       args.push(`工作区/草稿-${chapter}.md`)
     }
 
-    const bookRoot = join(ctx.workDir, entry.path)
     const result = await runClwriting(args, bookRoot)
     reply(res, result.ok ? 200 : 500, { ...result, step })
   })
+}
+
+/** 读 book.yaml kind(long 缺省 / short) */
+function readKind(bookRoot: string): 'long' | 'short' {
+  const r = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!r.ok) return 'long'
+  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 /** spawn `node <cli.js> <args>`(cwd=bookRoot;cli.js = studio 自身入口 process.argv[1]) */

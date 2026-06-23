@@ -266,8 +266,22 @@ async function saveDraft(): Promise<void> {
   draftMode.value = false
 }
 
+const kind = ref<'long' | 'short'>('long')
+async function loadKind(): Promise<void> {
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`)
+    const d = (await r.json()) as { config?: { kind?: string } }
+    kind.value = (d.config?.kind ?? 'long') === 'short' ? 'short' : 'long'
+  } catch {
+    /* ignore */
+  }
+}
+
 onMounted(() => {
-  if (name.value) connect(name.value)
+  if (name.value) {
+    connect(name.value)
+    void loadKind()
+  }
 })
 watch(name, (n) => {
   if (n) connect(n)
@@ -297,7 +311,7 @@ onUnmounted(() => es?.close())
     <!-- 控制区:七按钮(进入隐含在选章)-->
     <article class="card ctrl">
       <div class="ctrl-row">
-        <label>章号
+        <label>{{ kind === 'short' ? '篇号' : '章号' }}
           <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
         </label>
         <button class="btn-outline" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
@@ -306,10 +320,10 @@ onUnmounted(() => es?.close())
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
         <button class="btn-fire" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
-          {{ running ? '写稿中…' : `✍ 写第 ${chapter} 章` }}
+          {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
-        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
+        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning || kind === 'short'" :title="kind === 'short' ? '短篇三审(待支持)' : ''" @click="reviewRun">
           {{ reviewRunning ? '三审中…' : '📝 三审' }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
