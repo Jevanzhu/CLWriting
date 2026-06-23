@@ -178,6 +178,31 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   return out
 }
 
+/** 组设定上下文(角色卡摘要 + 境界体系)供 outline/draft prompt 注入(RAG 第一刀:全注入,设定量可控) */
+export function buildSettingsContext(bookRoot: string): string {
+  const parts: string[] = []
+  const chars = readCharacterCards(join(bookRoot, '定稿', '设定', '角色'), bookRoot)
+  if (chars.length) {
+    parts.push(
+      '## 角色设定(供参考,保持人物一致)',
+      chars
+        .map((c) => {
+          const meta = [c.身份, c.目标, c.境界].filter(Boolean).join('/')
+          return `- ${c.姓名}${meta ? `(${meta})` : ''}`
+        })
+        .join('\n'),
+    )
+  }
+  const rr = readRealmDoc(join(bookRoot, '定稿', '设定', '境界体系.md'))
+  if (rr.ok && rr.doc.体系.length) {
+    parts.push(
+      '## 境界体系(成长线机检依据)',
+      rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
+    )
+  }
+  return parts.join('\n\n')
+}
+
 /** 自由 MD 卡片扫描(时间线用):标题（首行 # 或文件名）+ 摘要（正文前 120 字） */
 function scanFreeMd(dirPath: string): { 标题: string; 摘要: string }[] {
   const out: { 标题: string; 摘要: string }[] = []

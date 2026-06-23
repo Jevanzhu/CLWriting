@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { buildSettingsContext } from './settings.js'
 
 interface DraftCtx {
   workDir: string | null
@@ -77,6 +78,8 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
       `## 任务\n写第 ${chapter} 篇正文(短篇,8000-20000 字,单篇完整开合:铺垫→反转→收尾,目标情绪落地)。`,
     ]
     if (outline) parts.push(`## 本篇细纲(已确认)\n${outline}`)
+    const settingsCtx = buildSettingsContext(bookRoot)
+    if (settingsCtx) parts.push(settingsCtx)
     parts.push(
       `## 要求\n按你的角色规则产出完整草稿:以短篇 front matter 开头(篇号: ${chapter} / 标题 / 目标情绪 / 核心反转),紧跟正文(纯文本段落,单篇闭合,余韵收尾)。直接输出 front matter + 正文全文,不要读文件、不要用任何工具。`,
     )
@@ -87,6 +90,8 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
   ]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
+  const settingsCtx = buildSettingsContext(bookRoot)
+  if (settingsCtx) parts.push(settingsCtx)
   parts.push(
     `## 要求\n按你的角色规则产出完整草稿:以章节 front matter 开头(章号: ${chapter} / 标题 / 钩子类型 / 钩子强弱 / 情绪定位),紧跟正文(纯文本段落,章尾留钩)。直接输出 front matter + 正文全文,不要读文件、不要用任何工具。`,
   )

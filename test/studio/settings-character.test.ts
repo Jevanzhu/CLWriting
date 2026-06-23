@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readCharacterCards, validateCharacterFile } from '../../src/studio/server/api/settings.js'
+import { readCharacterCards, validateCharacterFile, buildSettingsContext } from '../../src/studio/server/api/settings.js'
 
 let root = ''
 
@@ -83,5 +83,36 @@ describe('validateCharacterFile(防穿越)', () => {
   })
   it('非法:非 .md 后缀', () => {
     expect(validateCharacterFile('定稿/设定/角色/林远.txt')).toBe(false)
+  })
+})
+
+describe('buildSettingsContext(RAG 注入)', () => {
+  it('角色 + 境界 → 两段注入', () => {
+    writeFileSync(
+      join(root, '定稿', '设定', '角色', '林远.md'),
+      '---\n姓名: 林远\n身份: 弟子\n境界: 练气\n---\n正文',
+    )
+    writeFileSync(
+      join(root, '定稿', '设定', '境界体系.md'),
+      '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明',
+    )
+    const ctx = buildSettingsContext(root)
+    expect(ctx).toContain('角色设定')
+    expect(ctx).toContain('林远')
+    expect(ctx).toContain('弟子')
+    expect(ctx).toContain('境界体系')
+    expect(ctx).toContain('炼气')
+    expect(ctx).toContain('筑基')
+  })
+
+  it('无角色无境界 → 空串(不注入)', () => {
+    expect(buildSettingsContext(root)).toBe('')
+  })
+
+  it('只有角色 → 只角色段(无境界段)', () => {
+    writeFileSync(join(root, '定稿', '设定', '角色', '张三.md'), '---\n姓名: 张三\n---\n正文')
+    const ctx = buildSettingsContext(root)
+    expect(ctx).toContain('张三')
+    expect(ctx).not.toContain('境界体系')
   })
 })

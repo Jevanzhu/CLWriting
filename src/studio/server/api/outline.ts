@@ -16,6 +16,7 @@ import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
+import { buildSettingsContext } from './settings.js'
 
 interface OutlineCtx {
   workDir: string | null
@@ -90,6 +91,8 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
           .join('\n')}`,
       )
     }
+    const settingsCtx = buildSettingsContext(bookRoot)
+    if (settingsCtx) parts.push(settingsCtx)
     parts.push(
       `## 要求\n产出第 ${chapter} 篇篇纲:① 目标情绪(本篇要落地的核心情绪);② 核心反转(单篇反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单篇闭合不烂尾)。直接输出篇纲 markdown,不要读文件、不要用工具。`,
     )
@@ -113,6 +116,8 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
     )
   }
 
+  const settingsCtx = buildSettingsContext(bookRoot)
+  if (settingsCtx) parts.push(settingsCtx)
   parts.push(
     `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(场景: 对话/战斗/...);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown,不要读文件、不要用工具。`,
   )
