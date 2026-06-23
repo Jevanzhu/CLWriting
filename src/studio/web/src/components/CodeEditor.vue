@@ -35,6 +35,16 @@ watch(
   },
 )
 
+// 暴露选区供局部改写取用
+defineExpose({
+  getSelection: (): { text: string; from: number; to: number } | null => {
+    if (!view) return null
+    const sel = view.state.selection.main
+    if (sel.from === sel.to) return null
+    return { text: view.state.sliceDoc(sel.from, sel.to), from: sel.from, to: sel.to }
+  },
+})
+
 onUnmounted(() => view?.destroy())
 </script>
 

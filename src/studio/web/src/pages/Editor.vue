@@ -2,11 +2,22 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
+import DiffView from '../components/DiffView.vue'
 import BookTabs from '../components/BookTabs.vue'
 
 interface FileEntry {
   path: string
   mode: 'text' | 'md'
+}
+interface DiffLine {
+  type: 'same' | 'add' | 'del'
+  text: string
+}
+interface RewriteResult {
+  mode: 'local' | 'whole'
+  original: string
+  rewritten: string
+  diff: DiffLine[]
 }
 
 const route = useRoute()
@@ -20,6 +31,18 @@ const saving = ref(false)
 const reverting = ref(false)
 const error = ref('')
 const savedMsg = ref('')
+
+const codeRef = ref<{ getSelection: () => { text: string; from: number; to: number } | null } | null>(null)
+
+// 改写(2.5):仅草稿 工作区/草稿-N.md 可用
+const rewriteInstruction = ref('')
+const rewriteResult = ref<RewriteResult | null>(null)
+const rewriteRunning = ref(false)
+const rewriteApplying = ref(false)
+const draftChapter = computed<number | null>(() => {
+  const m = selected.value.match(/工作区[\/\\]草稿-(\d+)\.md$/)
+  return m ? Number(m[1]) : null
+})
 
 const selectedMode = computed<'text' | 'md'>(() => {
   const f = files.value.find((x) => x.path === selected.value)
@@ -46,6 +69,7 @@ async function loadFile(): Promise<void> {
   if (!selected.value) return
   loading.value = true
   error.value = ''
+  rewriteResult.value = null
   try {
     const r = await fetch(
       `/api/books/${encodeURIComponent(name.value)}/file?file=${encodeURIComponent(selected.value)}`,
@@ -102,11 +126,7 @@ async function revert(): Promise<void> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chapter }),
     })
-    const data = (await r.json().catch(() => ({}))) as {
-      ok?: boolean
-      message?: string
-      error?: string
-    }
+    const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string }
     if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
     savedMsg.value = data.message ?? '已回滚'
     setTimeout(() => (savedMsg.value = ''), 3000)
@@ -117,6 +137,90 @@ async function revert(): Promise<void> {
   } finally {
     reverting.value = false
   }
+}
+
+/** 改写:local(选段)/ whole(整章)→ POST /rewrite → DiffView */
+async function rewriteRun(mode: 'local' | 'whole'): Promise<void> {
+  if (!draftChapter.value || !name.value || rewriteRunning.value) return
+  if (!rewriteInstruction.value.trim()) {
+    error.value = '请填改写指令'
+    return
+  }
+  let selection = ''
+  if (mode === 'local') {
+    const sel = codeRef.value?.getSelection()
+    if (!sel || !sel.text.trim()) {
+      error.value = '局部改写需先在编辑器选中段落'
+      return
+    }
+    selection = sel.text
+  }
+  rewriteRunning.value = true
+  error.value = ''
+  rewriteResult.value = null
+  try {
+    const body: Record<string, unknown> = {
+      chapter: draftChapter.value,
+      mode,
+      instruction: rewriteInstruction.value.trim(),
+    }
+    if (mode === 'local') body.selection = selection
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/rewrite`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const d = (await r.json().catch(() => ({}))) as {
+      ok?: boolean
+      mode?: 'local' | 'whole'
+      original?: string
+      rewritten?: string
+      diff?: DiffLine[]
+      error?: string
+    }
+    if (r.ok && d.ok) {
+      rewriteResult.value = {
+        mode: d.mode ?? mode,
+        original: d.original ?? '',
+        rewritten: d.rewritten ?? '',
+        diff: d.diff ?? [],
+      }
+    } else {
+      error.value = d.error ?? `HTTP ${r.status}`
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+  rewriteRunning.value = false
+}
+
+/** 应用改写:accept 落盘(更新编辑器),false 丢弃 */
+async function rewriteApply(accept: boolean): Promise<void> {
+  if (!draftChapter.value || !name.value || !rewriteResult.value) return
+  rewriteApplying.value = true
+  error.value = ''
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/rewrite-apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chapter: draftChapter.value, content: rewriteResult.value.rewritten, accept }),
+    })
+    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; applied?: boolean; error?: string }
+    if (r.ok && d.ok) {
+      if (accept && d.applied) {
+        content.value = rewriteResult.value.rewritten
+        original.value = rewriteResult.value.rewritten
+        savedMsg.value = '改写已落盘(原稿备份 草稿-' + draftChapter.value + '.bak.md)'
+        setTimeout(() => (savedMsg.value = ''), 3000)
+      }
+      rewriteResult.value = null
+    } else {
+      error.value = d.error ?? `HTTP ${r.status}`
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+  rewriteApplying.value = false
 }
 
 watch(
@@ -166,6 +270,7 @@ watch(selected, () => {
         <p v-if="error" class="error">{{ error }}</p>
         <CodeEditor
           v-else-if="selected && !loading"
+          ref="codeRef"
           :key="selected"
           :model-value="content"
           :mode="selectedMode"
@@ -173,6 +278,31 @@ watch(selected, () => {
         />
         <p v-else-if="loading" class="hint">加载中…</p>
         <p v-else class="hint">从左侧选一个文件开始编辑。</p>
+
+        <!-- 改写入口(仅草稿 工作区/草稿-N.md)-->
+        <div v-if="draftChapter && selected && !loading" class="rewrite-panel">
+          <h4>✍ 改写 · 第 {{ draftChapter }} 章草稿</h4>
+          <textarea
+            v-model="rewriteInstruction"
+            class="rewrite-instr"
+            placeholder="改写指令,如「更紧张」「压到 300 字」;整章返修可粘贴审稿意见"
+          ></textarea>
+          <div class="rewrite-btns">
+            <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('local')">
+              局部改写选段
+            </button>
+            <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('whole')">
+              {{ rewriteRunning ? '生成中…' : '整章返修' }}
+            </button>
+          </div>
+          <DiffView
+            v-if="rewriteResult"
+            :diff="rewriteResult.diff"
+            :applying="rewriteApplying"
+            @accept="rewriteApply(true)"
+            @reject="rewriteApply(false)"
+          />
+        </div>
       </div>
     </div>
   </section>
@@ -305,5 +435,46 @@ watch(selected, () => {
   font-size: 13px;
   padding: 24px 0;
   text-align: center;
+}
+
+/* 改写面板 */
+.rewrite-panel {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #e5e7eb;
+}
+.rewrite-panel h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #374151;
+}
+.rewrite-instr {
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.rewrite-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.btn-rw {
+  padding: 6px 14px;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  background: #fff;
+  color: #7c3aed;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn-rw:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
