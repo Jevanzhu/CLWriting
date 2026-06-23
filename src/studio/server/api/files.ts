@@ -26,6 +26,7 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
   { dir: '定稿/正文', mode: 'text' },
   { dir: '定稿/设定', mode: 'md' },
   { dir: '大纲', mode: 'md' },
+  { dir: '工作区', mode: 'md' }, // 2.5:草稿/细纲/审稿可见可改(改写针对草稿)
 ]
 
 export function registerFileRoutes(ctx: FileCtx): void {
@@ -38,7 +39,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const abs = join(r.bookRoot, dir)
       if (!existsSync(abs)) continue
       for (const p of walkMd(abs)) {
-        files.push({ path: relative(r.bookRoot, p).split('\\').join('/'), mode })
+        const rel = relative(r.bookRoot, p).split('\\').join('/')
+        // 工作区草稿-N.md 用 text(同定稿正文纯文本),其余 md
+        const fileMode = dir === '工作区' && /(?:^|\/)草稿-\d+\.md$/.test(rel) ? 'text' : mode
+        files.push({ path: rel, mode: fileMode })
       }
     }
     reply(res, 200, { files })
