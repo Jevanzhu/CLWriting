@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
+import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 
@@ -46,11 +47,13 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const reviewIssues = Array.isArray(reviewIssuesRaw) ? reviewIssuesRaw.map(String) : []
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const draftPath = join(bookRoot, '工作区', `草稿-${chapter}.md`)
-    if (!existsSync(draftPath)) return reply(res, 400, { error: `无草稿(工作区/草稿-${chapter}.md),先写稿` })
+    const kind = readKind(bookRoot)
+    const draftFile = draftFileName(chapter, kind)
+    const draftPath = join(bookRoot, '工作区', draftFile)
+    if (!existsSync(draftPath)) return reply(res, 400, { error: `无草稿(工作区/${draftFile}),先写稿` })
     const original = readFileSync(draftPath, 'utf8')
 
-    const prompt = buildRewritePrompt(mode, original, selection, instruction, reviewIssues, chapter)
+    const prompt = buildRewritePrompt(mode, original, selection, instruction, reviewIssues, chapter, kind)
 
     const driver = getDriver('cc')
     const session = await driver.startSession(ctx.workDir)
@@ -96,13 +99,15 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if (accept && !content.trim()) return reply(res, 400, { error: 'content 为空' })
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const draftPath = join(bookRoot, '工作区', `草稿-${chapter}.md`)
+    const kind = readKind(bookRoot)
+    const draftFile = draftFileName(chapter, kind)
+    const draftPath = join(bookRoot, '工作区', draftFile)
     if (!existsSync(draftPath)) return reply(res, 404, { error: '无草稿' })
-    const relPath = `工作区/草稿-${chapter}.md`
+    const relPath = `工作区/${draftFile}`
 
     if (!accept) return reply(res, 200, { ok: true, applied: false })
     try {
-      copyFileSync(draftPath, join(bookRoot, '工作区', `草稿-${chapter}.bak.md`)) // 备份可回滚
+      copyFileSync(draftPath, join(bookRoot, '工作区', draftFile.replace('.md', '.bak.md'))) // 备份可回滚
       writeFileSync(draftPath, content, 'utf8')
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
@@ -119,6 +124,7 @@ function buildRewritePrompt(
   instruction: string,
   reviewIssues: string[],
   chapter: number,
+  kind: 'long' | 'short',
 ): string {
   if (mode === 'local') {
     return [
@@ -132,11 +138,12 @@ function buildRewritePrompt(
       '只改写选中段落,不动其他;保持正文纯文本(段落+空行,禁 MD 标题/格式)。直接输出改写后的段落全文,不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
     ].join('\n')
   }
+  const unit = kind === 'short' ? '篇' : '章'
   const parts = [
     '## 任务',
-    `按指令${reviewIssues.length ? ' / 审稿意见' : ''}重写第 ${chapter} 章正文。`,
+    `按指令${reviewIssues.length ? ' / 审稿意见' : ''}重写第 ${chapter} ${unit}正文。`,
     '',
-    '## 原章正文',
+    `## 原${unit}正文`,
     original,
     '',
     '## 改写指令',
@@ -148,9 +155,23 @@ function buildRewritePrompt(
   parts.push(
     '',
     '## 要求',
-    '按指令重写整章正文(保留 front matter,2000-4000 字,单章一主场景,章尾留钩)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
+    kind === 'short'
+      ? '按指令重写整篇正文(保留 front matter,8000-20000 字,单篇完整开合:铺垫→反转→收尾)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。'
+      : '按指令重写整章正文(保留 front matter,2000-4000 字,单章一主场景,章尾留钩)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
   )
   return parts.join('\n')
+}
+
+/** 读 book.yaml kind(long 缺省 / short) */
+function readKind(bookRoot: string): 'long' | 'short' {
+  const r = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!r.ok) return 'long'
+  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
+}
+
+/** 草稿文件名:长篇 草稿-<章号>.md;短篇 草稿-1.md(候选) */
+function draftFileName(chapter: number, kind: 'long' | 'short'): string {
+  return kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
 }
 
 /** 行级 LCS diff → DiffLine[](export 供测试)*/

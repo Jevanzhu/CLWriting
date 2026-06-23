@@ -44,6 +44,17 @@ const draftChapter = computed<number | null>(() => {
   return m ? Number(m[1]) : null
 })
 
+const kind = ref<'long' | 'short'>('long')
+async function loadKind(): Promise<void> {
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`)
+    const d = (await r.json()) as { config?: { kind?: string } }
+    kind.value = (d.config?.kind ?? 'long') === 'short' ? 'short' : 'long'
+  } catch {
+    /* ignore */
+  }
+}
+
 const selectedMode = computed<'text' | 'md'>(() => {
   const f = files.value.find((x) => x.path === selected.value)
   return f?.mode ?? 'md'
@@ -226,7 +237,10 @@ async function rewriteApply(accept: boolean): Promise<void> {
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') loadFiles()
+    if (typeof n === 'string') {
+      loadFiles()
+      void loadKind()
+    }
   },
   { immediate: true },
 )
@@ -281,18 +295,18 @@ watch(selected, () => {
 
         <!-- 改写入口(仅草稿 工作区/草稿-N.md)-->
         <div v-if="draftChapter && selected && !loading" class="rewrite-panel">
-          <h4>✍ 改写 · 第 {{ draftChapter }} 章草稿</h4>
+          <h4>✍ 改写 · 第 {{ draftChapter }} {{ kind === 'short' ? '篇' : '章' }}草稿</h4>
           <textarea
             v-model="rewriteInstruction"
             class="rewrite-instr"
-            placeholder="改写指令,如「更紧张」「压到 300 字」;整章返修可粘贴审稿意见"
+            :placeholder="`改写指令,如「更紧张」「压到 300 字」;整${kind === 'short' ? '篇' : '章'}返修可粘贴审稿意见`"
           ></textarea>
           <div class="rewrite-btns">
             <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('local')">
               局部改写选段
             </button>
             <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('whole')">
-              {{ rewriteRunning ? '生成中…' : '整章返修' }}
+              {{ rewriteRunning ? '生成中…' : '整' + (kind === 'short' ? '篇' : '章') + '返修' }}
             </button>
           </div>
           <DiffView
