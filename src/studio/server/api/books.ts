@@ -50,6 +50,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       leads?: unknown
       host?: unknown
       targetWords?: unknown
+      brief?: unknown
     }
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     if (!name) {
@@ -67,6 +68,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       typeof body.targetWords === 'number' && Number.isFinite(body.targetWords) && body.targetWords > 0
         ? body.targetWords
         : undefined
+    // 简介（可选，落 简介.md）
+    const brief = typeof body.brief === 'string' ? body.brief.trim() : undefined
     const result = doInit({
       workDir: ctx.workDir,
       name,
@@ -75,6 +78,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       kind,
       host,
       targetWords,
+      brief,
     })
     if (!result.ok) {
       reply(res, 400, { error: result.reason })

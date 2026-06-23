@@ -20,6 +20,7 @@ const genre = ref('')
 const kind = ref<'long' | 'short'>('long')
 const leads = ref<string[]>([])
 const targetWords = ref('')
+const brief = ref('')
 const submitting = ref(false)
 const error = ref('')
 
@@ -56,6 +57,8 @@ async function submit(): Promise<void> {
     // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
     const tw = Number(targetWords.value)
     if (Number.isFinite(tw) && tw > 0) body.targetWords = tw
+    // 简介（可选，落 简介.md）
+    if (brief.value.trim()) body.brief = brief.value.trim()
     const r = await fetch('/api/books', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -101,6 +104,12 @@ function finishOnboard(): void {
   router.push(`/books/${encodeURIComponent(createdName.value)}`)
 }
 
+// kind 切换实时预览长/短篇目录结构差异（5.1 三点增强③）
+const dirPreview = computed(() =>
+  kind.value === 'short'
+    ? ['篇/NNN-标题/正文.md（每篇独立）', '定稿/设定/（角色·境界·集子定位）', '文风/（样章·铁律·金句，整集共享）', '工作区/']
+    : ['定稿/正文/章号-标题.md（每章一文件）', '大纲/（总纲·卷纲·账本类）', '定稿/设定/（角色·境界·世界观）', '文风/（样章·铁律·金句）', '工作区/'],
+)
 const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.value)
 </script>
 
@@ -136,6 +145,16 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
         <div class="field">
           <label>目标字数 <span class="tip">可选，填了总览页显示完成度</span></label>
           <input type="number" v-model="targetWords" placeholder="如：300000（30 万字）" />
+        </div>
+
+        <div class="field">
+          <label>简介 <span class="tip">可选，落 简介.md（长篇简介 / 短篇集定位）</span></label>
+          <textarea v-model="brief" rows="3" placeholder="一两句话讲清这本书讲什么、主角是谁、核心看点"></textarea>
+        </div>
+
+        <div class="field">
+          <label>目录结构（{{ kind === 'short' ? '短篇集' : '长篇' }}）</label>
+          <pre class="dir-preview">{{ dirPreview.join('\n') }}</pre>
         </div>
 
         <div v-if="kind === 'long'" class="field">

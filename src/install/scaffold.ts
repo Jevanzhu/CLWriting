@@ -25,6 +25,8 @@ export interface BookScaffoldOpts {
   host?: 'cc' | 'codex'
   /** 全书目标字数（决策 14，落 book.yaml target_words，完成度直除） */
   targetWords?: number
+  /** 简介（GUI 新增 5.1，落 简介.md，长篇简介/短篇集定位） */
+  brief?: string
 }
 
 /**
@@ -73,6 +75,11 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
 
   // 书仓库层 AGENTS.md（书级指路，非 #21 派生）
   writeFileSync(join(bookRoot, 'AGENTS.md'), renderBookAgentsMd(opts), 'utf-8')
+
+  // 简介（GUI 新增 5.1，落 简介.md；CLI init 无，仅 GUI 建书时写）
+  if (opts.brief && opts.brief.trim()) {
+    writeFileSync(join(bookRoot, '简介.md'), opts.brief.trim(), 'utf-8')
+  }
 
   // 初始 commit（让 enter/状态机有 HEAD 可判，避开态 3 误判）
   const commit = addCommit(bookRoot, 'init')
