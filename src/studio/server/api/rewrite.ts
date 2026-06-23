@@ -153,8 +153,8 @@ function buildRewritePrompt(
   return parts.join('\n')
 }
 
-/** 行级 LCS diff → DiffLine[] */
-function lineDiff(a: string, b: string): DiffLine[] {
+/** 行级 LCS diff → DiffLine[](export 供测试)*/
+export function lineDiff(a: string, b: string): DiffLine[] {
   const la = a.split('\n')
   const lb = b.split('\n')
   const n = la.length
