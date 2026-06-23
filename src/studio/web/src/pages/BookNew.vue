@@ -12,6 +12,7 @@ interface OnboardStep {
   label: string
   running: boolean
   result: OnboardResult | null
+  skipped?: boolean
 }
 
 const router = useRouter()
@@ -23,6 +24,7 @@ const targetWords = ref('')
 const brief = ref('')
 const submitting = ref(false)
 const error = ref('')
+const savedMsg = ref('')
 
 // 段 2:onboard(AI 填设定)
 const phase = ref<'form' | 'onboard'>('form')
@@ -119,6 +121,28 @@ async function onboardRun(step: OnboardStep['key']): Promise<void> {
   s.running = false
 }
 
+/** 保存段 2 某步的编辑（作者预览后改内容再落盘，5.2 交互） */
+async function onboardSave(s: OnboardStep): Promise<void> {
+  if (!s.result || !createdName.value) return
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(createdName.value)}/onboard-save`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step: s.key, content: s.result.content }),
+    })
+    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; words?: number; error?: string }
+    if (r.ok && d.ok) {
+      s.result.words = d.words ?? s.result.content.length
+      savedMsg.value = `✓ ${s.label} 已保存`
+      error.value = ''
+    } else {
+      error.value = d.error ?? `HTTP ${r.status}`
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 function finishOnboard(): void {
   router.push(`/books/${encodeURIComponent(createdName.value)}`)
 }
@@ -206,27 +230,36 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
     <!-- 段 2:AI 填设定 -->
     <template v-else>
       <h2>段 2 · AI 填设定</h2>
-      <p class="onboard-tip">《{{ createdName }}》已创建。让 AI 据题材填设定(各步独立生成,可重跑覆盖)。</p>
+      <p class="onboard-tip">《{{ createdName }}》已创建。让 AI 据题材填设定(每步可生成/编辑/重生成/跳过)。</p>
 
-      <div class="onboard-steps">
-        <button
-          v-for="s in onboardSteps"
-          :key="s.key"
-          class="btn-step"
-          :class="{ done: !!s.result }"
-          :disabled="s.running"
-          @click="onboardRun(s.key)"
-        >
-          {{ s.running ? '生成中…' : s.label }}
-        </button>
+      <div
+        v-for="s in onboardSteps"
+        :key="s.key"
+        class="onboard-step"
+        :class="{ done: !!s.result, skipped: s.skipped }"
+      >
+        <div class="step-head">
+          <span class="step-label">{{ s.label }}</span>
+          <span class="step-status">{{ s.skipped ? '⏭ 已跳过' : s.result ? '✓ 已生成' : '待处理' }}</span>
+          <div class="step-ops">
+            <button class="btn-small" :disabled="s.running" @click="onboardRun(s.key)">
+              {{ s.running ? '生成中…' : s.result ? '🔄 重生成' : '⚡ 生成' }}
+            </button>
+            <button v-if="!s.result && !s.skipped" class="btn-small" @click="s.skipped = true">⏭ 跳过</button>
+            <button v-else-if="s.skipped" class="btn-small" @click="s.skipped = false">恢复</button>
+          </div>
+        </div>
+        <template v-if="s.result">
+          <textarea v-model="s.result.content" class="result-edit" rows="8"></textarea>
+          <div class="step-foot">
+            <span class="result-path"><span class="mono">{{ s.result.path }}</span> · {{ s.result.words }} 字</span>
+            <button class="btn-small" @click="onboardSave(s)">💾 保存编辑</button>
+          </div>
+        </template>
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
-
-      <article v-for="s in onboardSteps" :key="s.key">
-        <p v-if="s.result" class="result-tip">✓ 已生成 <span class="mono">{{ s.result.path }}</span>({{ s.result.words }} 字)</p>
-        <pre v-if="s.result" class="result-content">{{ s.result.content }}</pre>
-      </article>
+      <p v-if="savedMsg" class="saved-msg">{{ savedMsg }}</p>
 
       <div class="actions">
         <button class="btn-primary" @click="finishOnboard">完成 → 进单书</button>
@@ -365,47 +398,78 @@ h2 {
   font-size: 13px;
   margin-bottom: 16px;
 }
-.onboard-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
+.onboard-step {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
 }
-.btn-step {
-  padding: 8px 16px;
-  border: 1px solid #7c3aed;
+.onboard-step.done {
+  border-color: #a7f3d0;
+}
+.onboard-step.skipped {
+  opacity: 0.6;
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.step-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #111827;
+}
+.step-status {
+  font-size: 12px;
+  color: #6b7280;
+  flex: 1;
+}
+.step-ops {
+  display: flex;
+  gap: 6px;
+}
+.btn-small {
+  padding: 4px 10px;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
   background: #fff;
-  color: #7c3aed;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
 }
-.btn-step:disabled {
+.btn-small:disabled {
   opacity: 0.6;
   cursor: progress;
 }
-.btn-step.done {
-  border-color: #059669;
-  color: #059669;
-}
-.result-tip {
-  margin: 0 0 6px;
+.result-edit {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
   font-size: 13px;
-  color: #065f46;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+}
+.step-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+.result-path {
+  font-size: 12px;
+  color: #6b7280;
 }
 .mono {
   font-family: ui-monospace, monospace;
 }
-.result-content {
-  margin: 0 0 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 6px;
+.saved-msg {
+  color: #059669;
   font-size: 13px;
-  line-height: 1.6;
-  color: #111827;
-  white-space: pre-wrap;
-  max-height: 300px;
-  overflow-y: auto;
+  margin: 8px 0;
 }
 </style>

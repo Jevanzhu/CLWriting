@@ -107,6 +107,26 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     }
     reply(res, 200, { ok: true, step, path: relPath, words: content.length, content })
   })
+
+  // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
+  route('POST', '/api/books/:name/onboard-save', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const body = await readJson(req)
+    const step = String(body['step'] ?? '') as OnboardStep
+    if (!(step in STEP_PATH)) return reply(res, 400, { error: `step 不支持:${step}` })
+    const content = typeof body['content'] === 'string' ? body['content'] : ''
+    const bookRoot = join(ctx.workDir, entry.path)
+    const relPath = STEP_PATH[step]
+    try {
+      mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
+      writeFileSync(join(bookRoot, relPath), content, 'utf8')
+    } catch (e) {
+      return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
+    }
+    reply(res, 200, { ok: true, step, path: relPath, words: content.length })
+  })
 }
 
 /** 组 onboard prompt(各步任务 + 设定规范防臆造)*/
