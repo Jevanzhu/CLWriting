@@ -3,7 +3,7 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   name: string
-  active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'workbench' | 'edit'
+  active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'workbench' | 'edit' | 'config'
 }>()
 const enc = computed(() => encodeURIComponent(props.name))
 </script>
@@ -17,6 +17,7 @@ const enc = computed(() => encodeURIComponent(props.name))
     <RouterLink :to="`/books/${enc}/settings`" :class="{ active: active === 'settings' }">设定</RouterLink>
     <RouterLink :to="`/books/${enc}/workbench`" :class="{ active: active === 'workbench' }">工作台</RouterLink>
     <RouterLink :to="`/books/${enc}/edit`" :class="{ active: active === 'edit' }">编辑</RouterLink>
+    <RouterLink :to="`/books/${enc}/config`" :class="{ active: active === 'config' }">配置</RouterLink>
   </nav>
 </template>
 
