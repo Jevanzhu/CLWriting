@@ -71,7 +71,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 }
 
 /** 组 outline prompt:长篇(总纲+前章+章细纲)/短篇(总纲+前篇+篇纲)分支 */
-function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
+export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const synopsis = readSafe(join(bookRoot, '大纲', '总纲.md'))
 
   // 短篇:单篇闭合,前篇避重复主题/情绪,篇纲要目标情绪+核心反转+开合骨架

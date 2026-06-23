@@ -117,7 +117,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 }
 
 /** 组改写 prompt(方案 6.7:原文 + 指令 + 要求)*/
-function buildRewritePrompt(
+export function buildRewritePrompt(
   mode: 'local' | 'whole',
   original: string,
   selection: string,
@@ -170,7 +170,7 @@ function readKind(bookRoot: string): 'long' | 'short' {
 }
 
 /** 草稿文件名:长篇 草稿-<章号>.md;短篇 草稿-1.md(候选) */
-function draftFileName(chapter: number, kind: 'long' | 'short'): string {
+export function draftFileName(chapter: number, kind: 'long' | 'short'): string {
   return kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
 }
 
