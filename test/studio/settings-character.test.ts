@@ -72,6 +72,9 @@ describe('validateCharacterFile(防穿越)', () => {
   it('合法:去前导斜杠', () => {
     expect(validateCharacterFile('/定稿/设定/角色/林远.md')).toBe(true)
   })
+  it('合法:Windows 路径分隔符归一化', () => {
+    expect(validateCharacterFile('定稿\\设定\\角色\\林远.md')).toBe(true)
+  })
   it('非法:不在角色目录', () => {
     expect(validateCharacterFile('定稿/设定/境界体系.md')).toBe(false)
     expect(validateCharacterFile('大纲/总纲.md')).toBe(false)

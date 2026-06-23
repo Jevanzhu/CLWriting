@@ -35,8 +35,12 @@ export interface CharacterCard {
 
 /** 校验角色卡文件路径(防穿越:必须在 定稿/设定/角色/ 下,不含 ..,以 .md 结尾) */
 export function validateCharacterFile(file: string): boolean {
-  const f = file.replace(/^\/+/, '')
+  const f = normalizeProjectPath(file)
   return f.startsWith('定稿/设定/角色/') && !f.includes('..') && f.endsWith('.md')
+}
+
+function normalizeProjectPath(file: string): string {
+  return file.replace(/\\/g, '/').replace(/^\/+/, '')
 }
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
@@ -60,7 +64,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const body = await readJson(req)
-    const file = String(body['file'] ?? '').replace(/^\/+/, '')
+    const file = normalizeProjectPath(String(body['file'] ?? ''))
     // 防穿越:必须在 定稿/设定/角色/ 下,不含 ..,以 .md 结尾
     if (!validateCharacterFile(file)) {
       return reply(res, 400, { error: 'file 必须为 定稿/设定/角色/<名>.md' })
@@ -155,7 +159,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
     if (r.ok) {
       const map = parseFlat(r.fmRaw)
       out.push({
-        file: relative(bookRoot, fp),
+        file: normalizeProjectPath(relative(bookRoot, fp)),
         姓名: String(map.get('姓名') ?? basename(f, '.md')),
         身份: String(map.get('身份') ?? ''),
         目标: String(map.get('目标') ?? ''),
@@ -166,7 +170,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
       // 降级:无 front matter(旧自由 MD),姓名=文件名,正文=全文
       const text = readFileSync(fp, 'utf8')
       out.push({
-        file: relative(bookRoot, fp),
+        file: normalizeProjectPath(relative(bookRoot, fp)),
         姓名: basename(f, '.md'),
         身份: '',
         目标: '',

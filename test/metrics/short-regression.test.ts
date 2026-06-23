@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { readBookConfig } from '../../src/format/yaml.js'
 import {
   analyzeShortCollection,
@@ -13,7 +14,7 @@ import {
   scanShortCollection,
 } from '../../src/metrics/short-index.js'
 
-const FIXTURE_ROOT = join(process.cwd(), 'test', 'fixtures', 'short-regression', '短篇回归集')
+const FIXTURE_ROOT = fileURLToPath(new URL('../fixtures/short-regression/短篇回归集', import.meta.url))
 
 describe('短篇真实样本回归集', () => {
   it('固定 5 篇样本能跑完整短篇分析链路', () => {
@@ -22,7 +23,16 @@ describe('短篇真实样本回归集', () => {
 
     expect(entries).toHaveLength(5)
     expect(entries.map((entry) => entry.num)).toEqual([1, 2, 3, 4, 5])
-    expect(entries.every((entry) => entry.reversalQuality.score >= 70)).toBe(true)
+    expect(
+      entries
+        .filter((entry) => entry.reversalQuality.score < 70)
+        .map((entry) => ({
+          num: entry.num,
+          title: entry.title,
+          score: entry.reversalQuality.score,
+          issues: entry.reversalQuality.issues,
+        })),
+    ).toEqual([])
 
     const collection = analyzeShortCollection(entries, cfg.short)
     expect(collection.platform.profile).toBe('多题材短篇回归')
