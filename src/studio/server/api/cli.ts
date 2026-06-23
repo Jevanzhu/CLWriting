@@ -31,7 +31,12 @@ export function registerCliRoutes(ctx: CliCtx): void {
     if (!ALLOWED_STEPS.has(step)) return reply(res, 400, { error: `step 不支持:${step}` })
     const chapter = Number(body['chapter'])
     const args = [step]
-    if (Number.isInteger(chapter) && chapter > 0) args.push(String(chapter))
+    // prepare/confirm 传章号;check/finalize 显式传草稿路径 工作区/草稿-<章号>.md(与 review --chapter=N 推导一致);enter 无参
+    if ((step === 'prepare' || step === 'confirm') && Number.isInteger(chapter) && chapter > 0) {
+      args.push(String(chapter))
+    } else if ((step === 'check' || step === 'finalize') && Number.isInteger(chapter) && chapter > 0) {
+      args.push(`工作区/草稿-${chapter}.md`)
+    }
 
     const bookRoot = join(ctx.workDir, entry.path)
     const result = await runClwriting(args, bookRoot)
