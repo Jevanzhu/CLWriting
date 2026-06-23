@@ -79,7 +79,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (origin && allowedOrigins.has(origin)) {
       res.setHeader('access-control-allow-origin', origin)
       res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS')
-      res.setHeader('access-control-allow-headers', 'content-type')
+      res.setHeader('access-control-allow-headers', 'content-type, x-studio-token')
       res.setHeader('vary', 'origin')
     }
     // 预检 OPTIONS:非白名单 Origin → 403(阻跨站实际请求)

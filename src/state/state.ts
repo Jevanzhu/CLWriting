@@ -23,7 +23,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { hashFile } from '../gate/confirm.js'
 import { assembleStatus } from '../process/assemble.js'
 import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
-import type { BookConfig } from '../format/types.js'
+import type { BookConfig, ParseError } from '../format/types.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
 const DEFAULT_VOLUME_SIZE = 50
@@ -99,10 +99,21 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   // 短篇跳过 rebuild：短篇不依赖 index.db（态7 分支 + readRecapSnapshot 短篇分支都直扫 篇/ 目录），
   // rebuild 扫的是长篇结构（大纲/账本 + 定稿/正文），对短篇是纯浪费；态2 解析错误检测对短篇无意义（真相源是 篇/）。
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  const rebuildResult =
-    config.kind === 'short'
-      ? { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [] }
-      : rebuild(bookRoot, cachePath)
+  let rebuildResult: { leadCount: number; chapterCount: number; summaryCount: number; errors: ParseError[] }
+  if (config.kind === 'short') {
+    rebuildResult = { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [] }
+  } else {
+    // rebuild 仅在 db 层故障(磁盘满/权限/损坏)抛异常;catch 后降级态2,不崩整个 enter
+    try {
+      rebuildResult = rebuild(bookRoot, cachePath)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return {
+        state: 2,
+        parseErrors: [{ file: cachePath, line: 0, message: `缓存重建失败：${msg}（可删 .cache/index.db 重试）` }],
+      }
+    }
+  }
 
   // #2 源文件解析失败（#18 第 2 节）
   if (rebuildResult.errors.length > 0) {

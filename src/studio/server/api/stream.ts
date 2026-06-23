@@ -38,7 +38,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
-      'access-control-allow-origin': '*',
+      // ACAO 由全局 CORS 白名单统一设置(index.ts);不再覆写为 *,防跨站订阅 driver 流(创作内容泄露)
     })
 
     // driver.stream 实现为 async generator(mock async * / 批2 cc 解析 stream-json)

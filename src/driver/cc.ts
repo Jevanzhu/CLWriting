@@ -25,6 +25,8 @@ import type {
 interface Channel {
   events: DriverEvent[]
   waiters: Array<() => void>
+  /** 本次 spawn 是否已推过终止事件(done/error);close 时据此补推,防 SSE 收不到终止信号 */
+  terminated?: boolean
 }
 const channels = new Map<string, Channel>()
 /** session → claude 子进程(dispose 时 kill 防僵尸,Opus P1) */
@@ -42,6 +44,7 @@ function channel(id: string): Channel {
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
   ch.events.push(ev)
+  if (ev.type === 'done' || ev.type === 'error') ch.terminated = true
   for (const w of ch.waiters) w()
   ch.waiters = []
 }
@@ -126,6 +129,9 @@ function runClaude(
     args.push('--tools', '')
   }
   const role = opts.role
+  // 同 session 快速二次 spawn 时,先 kill 上一个未结束的子进程,防泄漏 + 事件交错(P1)
+  const prev = sessionChild.get(session.id)
+  if (prev && !prev.killed) prev.kill('SIGTERM')
   const child = spawn('claude', args, { cwd: session.cwd, env: process.env })
   sessionChild.set(session.id, child)
   // 超时保护(5min,claude 挂起时 kill 防 session 永久等待)
@@ -154,8 +160,13 @@ function runClaude(
   child.on('close', () => {
     clearTimeout(timer)
     sessionChild.delete(session.id)
-    // result 已推 done;若异常退出无 result,唤醒 waiter 避免 stream 卡死
     const ch = channel(session.id)
+    // 异常退出(无 result/无前置 error)时未推终止事件 → 补推 done,
+    // 否则持久 SSE 消费方收不到本次 spawn 的终止信号,UI 卡在等待(P0)
+    if (!ch.terminated) {
+      ch.terminated = true
+      ch.events.push({ type: 'done', cost: 0, usage: 0, reason: 'error' })
+    }
     for (const w of ch.waiters) w()
     ch.waiters = []
   })
