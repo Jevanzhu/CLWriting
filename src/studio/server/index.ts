@@ -6,6 +6,7 @@
  * Step 引入。
  */
 import http from 'node:http'
+import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dispatch } from './router.js'
 import { registerBookRoutes } from './api/books.js'
@@ -28,9 +29,9 @@ import { createStaticHandler } from './static.js'
 let routesRegistered = false
 
 /** 注册 REST 路由（幂等，避免多入口重复注册） */
-function ensureRoutes(workDir: string | null): void {
+function ensureRoutes(workDir: string | null, token: string): void {
   if (routesRegistered) return
-  registerBookRoutes({ workDir })
+  registerBookRoutes({ workDir, token })
   registerHealthRoutes({ workDir })
   registerFileRoutes({ workDir })
   registerOverviewRoutes({ workDir })
@@ -59,7 +60,8 @@ export interface StudioServerOptions {
 
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
-  ensureRoutes(opts.workDir ?? null)
+  const studioToken = randomUUID()
+  ensureRoutes(opts.workDir ?? null, studioToken)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 
@@ -96,6 +98,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (isWrite && !isAllowedOrigin(req)) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'forbidden origin' }))
+      return
+    }
+    // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
+    if (isWrite && req.headers['x-studio-token'] !== studioToken) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'invalid or missing studio token' }))
       return
     }
 

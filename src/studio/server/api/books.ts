@@ -17,6 +17,8 @@ import { doInit } from '../../../install/init.js'
 
 interface BookCtx {
   workDir: string | null
+  /** session token(P0 defense-in-depth,boot 注入前端,写端点校验) */
+  token: string
 }
 
 let initialBook: string | undefined
@@ -102,9 +104,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     },
   )
 
-  // 启动初始态（--book 直进）
+  // 启动初始态（--book 直进 + session token 注入前端）
   route('GET', '/api/boot', (_req: IncomingMessage, res: ServerResponse) => {
-    reply(res, 200, { initialBook })
+    reply(res, 200, { initialBook, token: ctx.token })
   })
 }
 
