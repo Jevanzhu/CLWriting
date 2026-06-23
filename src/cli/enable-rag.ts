@@ -28,7 +28,10 @@ export function enableRagCommand(args: string[]): void {
 
   const val = (flag: string): string | undefined => {
     const idx = args.indexOf(flag)
-    return idx !== -1 ? args[idx + 1] : undefined
+    if (idx === -1) return undefined
+    const v = args[idx + 1]
+    // 值缺失或误指向下一个 flag(如 `--key --use-env`)→ 视为未提供,防吞 flag 落脏值
+    return typeof v === 'string' && !v.startsWith('--') ? v : undefined
   }
   const endpoint = val('--endpoint')
   const model = val('--model')

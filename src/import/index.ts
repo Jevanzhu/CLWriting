@@ -22,6 +22,13 @@ import { appendBook, writeActive, readBooks } from '../install/books.js'
 import { addCommit } from '../git/exec.js'
 import type { ChapterMeta, PieceMeta } from '../format/types.js'
 
+/** 净化文件名用字符串:剥离路径分隔符/连续点/控制字符,防落盘路径穿越 */
+export function sanitizeName(s: string): string {
+  const cleaned = s.replace(/[/\\]/g, '').replace(/\.{2,}/g, '.').replace(/[\x00-\x1f]/g, '').trim()
+  // 净化后仅剩点('.' = 当前目录)或空 → 占位,防落盘成当前目录(如 '../' 折叠为 '.')
+  return cleaned && cleaned !== '.' ? cleaned : '未命名'
+}
+
 export interface ImportOptions {
   /** v0.2 正文路径（文件） */
   sourcePath: string
@@ -152,7 +159,8 @@ export function importV02Book(options: ImportOptions): ImportResult {
   const kind = routing.kind
 
   // 4. 推导书名
-  const bookName = nameOpt || basename(sourcePath, '.md') || (kind === 'short' ? '导入短篇集' : '导入书籍')
+  // 净化书名防穿越(--name 或文件名含 ../ 或路径分隔符时,join 会逃出 workDir)
+  const bookName = sanitizeName(nameOpt || basename(sourcePath, '.md') || (kind === 'short' ? '导入短篇集' : '导入书籍'))
 
   // 5. 同名冲突检查
   const existing = readBooks(workDir)
@@ -173,11 +181,13 @@ export function importV02Book(options: ImportOptions): ImportResult {
     for (let i = 0; i < chapters.length; i++) {
       const ch = chapters[i]!
       const 篇号 = i + 1
-      const pieceDir = join(bookRoot, '篇', `${String(篇号).padStart(3, '0')}-${ch.标题}`)
+      // 净化标题防穿越(源文件标题含 ../ 或 / 时,pieceDir 会逃出 bookRoot)
+      const safeTitle = sanitizeName(ch.标题)
+      const pieceDir = join(bookRoot, '篇', `${String(篇号).padStart(3, '0')}-${safeTitle}`)
       mkdirSync(pieceDir, { recursive: true })
       const piece: PieceMeta = {
         篇号,
-        标题: ch.标题,
+        标题: safeTitle,
         // 外部短篇无 v1 目标情绪/核心反转 → 占位 + 诚实标注，不伪装（#29 第 4 节）
         _raw: { 导入: '待标注' },
       }
@@ -187,9 +197,10 @@ export function importV02Book(options: ImportOptions): ImportResult {
   } else {
     // 长篇：定稿/正文/<章号>-<标题>.md（行为逐字节不变，#36）
     for (const ch of chapters) {
+      const safeTitle = sanitizeName(ch.标题)
       const meta: ChapterMeta = {
         章号: ch.章号,
-        标题: ch.标题,
+        标题: safeTitle,
         钩子类型: '悬念钩',
         钩子强弱: '中',
         情绪定位: '铺垫',
@@ -197,7 +208,7 @@ export function importV02Book(options: ImportOptions): ImportResult {
         _wordCount: ch.body.length,
         _raw: { 导入: '待标注' },
       }
-      writeChapter(join(bookRoot, '定稿', '正文', `${ch.章号}-${ch.标题}.md`), meta, ch.body)
+      writeChapter(join(bookRoot, '定稿', '正文', `${ch.章号}-${safeTitle}.md`), meta, ch.body)
     }
   }
 
