@@ -37,7 +37,7 @@ const LENS_LABEL: Record<string, string> = {
 }
 
 /** 镜头 → 角色文件名(emotion_peak 镜头对应 emotion-review 角色文件,名不一致) */
-function lensToRole(lens: string): string {
+export function lensToRole(lens: string): string {
   if (lens === 'emotion_peak') return 'emotion-review'
   return `${lens}-review`
 }

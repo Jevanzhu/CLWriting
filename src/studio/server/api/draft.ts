@@ -69,7 +69,7 @@ function readKind(bookRoot: string): 'long' | 'short' {
 }
 
 /** 组 draft prompt:细纲 + 备料 + 要求(方案 6.6,长短篇 front matter 分支)*/
-function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
+export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   if (kind === 'short') {
