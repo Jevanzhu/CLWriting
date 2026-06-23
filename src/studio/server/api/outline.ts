@@ -13,6 +13,8 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import { readPieceDir } from '../../../format/pieces.js'
+import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
 
 interface OutlineCtx {
@@ -30,7 +32,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const prompt = buildOutlinePrompt(bookRoot, chapter)
+    const kind = readKind(bookRoot)
+    const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
 
     // spawnRole('outline') 禁工具(--tools '')主 agent 直接产细纲,避 send 软触发 spawn Agent 卡住;
     // 无 outline 角色文件则 readRolePrompt 返空 → 纯 prompt
@@ -67,11 +70,34 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** 组 outline prompt:总纲 + 前章摘要(近 3 章)+ 任务要求 */
-function buildOutlinePrompt(bookRoot: string, chapter: number): string {
-  const parts: string[] = [`## 任务\n为第 ${chapter} 章生成细纲。`]
-
+/** 组 outline prompt:长篇(总纲+前章+章细纲)/短篇(总纲+前篇+篇纲)分支 */
+function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const synopsis = readSafe(join(bookRoot, '大纲', '总纲.md'))
+
+  // 短篇:单篇闭合,前篇避重复主题/情绪,篇纲要目标情绪+核心反转+开合骨架
+  if (kind === 'short') {
+    const parts: string[] = [`## 任务\n为第 ${chapter} 篇生成篇纲(短篇,单篇 8000-20000 字完整开合)。`]
+    if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
+    const { pieces } = readPieceDir(join(bookRoot, '篇'))
+    const recent = pieces
+      .filter((p) => p.篇号 < chapter)
+      .sort((a, b) => b.篇号 - a.篇号)
+      .slice(0, 3)
+    if (recent.length) {
+      parts.push(
+        `## 前篇(近 ${recent.length} 篇,避重复主题/情绪)\n${recent
+          .map((p) => `- 第${p.篇号}篇 ${p.标题}(${p.目标情绪 ?? '?'}/${p.核心反转 ?? '?'})`)
+          .join('\n')}`,
+      )
+    }
+    parts.push(
+      `## 要求\n产出第 ${chapter} 篇篇纲:① 目标情绪(本篇要落地的核心情绪);② 核心反转(单篇反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单篇闭合不烂尾)。直接输出篇纲 markdown,不要读文件、不要用工具。`,
+    )
+    return parts.join('\n\n')
+  }
+
+  // 长篇:连续章节,前章承接,章细纲要场景+账本推进+章尾钩
+  const parts: string[] = [`## 任务\n为第 ${chapter} 章生成细纲。`]
   if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
 
   const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
@@ -91,6 +117,13 @@ function buildOutlinePrompt(bookRoot: string, chapter: number): string {
     `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(场景: 对话/战斗/...);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown,不要读文件、不要用工具。`,
   )
   return parts.join('\n\n')
+}
+
+/** 读 book.yaml kind(long 缺省 / short) */
+function readKind(bookRoot: string): 'long' | 'short' {
+  const r = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!r.ok) return 'long'
+  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 function readSafe(fp: string): string {

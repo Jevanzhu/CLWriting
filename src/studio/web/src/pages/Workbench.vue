@@ -91,7 +91,7 @@ async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): P
   if (cliRunning.value || running.value || outlineRunning.value || reviewRunning.value || !name.value) return
   cliRunning.value = true
   activeStage.value = step
-  log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} 章…` })
+  log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}…` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/cli`, {
       method: 'POST',
@@ -126,7 +126,7 @@ async function outlineGen(): Promise<void> {
   outlineRunning.value = true
   outlineSaved.value = null
   activeStage.value = 'outline'
-  log.value.push({ t: ts(), type: 'spawn', text: `生成第 ${chapter.value} 章细纲…` })
+  log.value.push({ t: ts(), type: 'spawn', text: `生成第 ${chapter.value} ${kind.value === 'short' ? '篇篇纲' : '章细纲'}…` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/outline`, {
       method: 'POST',
@@ -136,7 +136,7 @@ async function outlineGen(): Promise<void> {
     const d = (await r.json()) as { ok?: boolean; path?: string; words?: number; error?: string }
     if (r.ok && d.ok) {
       outlineSaved.value = { path: d.path ?? '', words: d.words ?? 0 }
-      log.value.push({ t: ts(), type: 'saved', text: `细纲已生成 ${d.path}(${d.words} 字)` })
+      log.value.push({ t: ts(), type: 'saved', text: `${kind.value === 'short' ? '篇纲' : '细纲'}已生成 ${d.path}(${d.words} 字)` })
     } else {
       log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
     }
@@ -172,7 +172,7 @@ async function draftWrite(): Promise<void> {
     log.value.push({ t: ts(), type: 'error', text: 'draft 缺细纲——请先「生成细纲→确认→备料」再写稿' })
     return
   }
-  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} 章(含细纲+备料)` })
+  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} ${kind.value === 'short' ? '篇(含篇纲)' : '章(含细纲+备料)'}` })
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/spawn`, {
       method: 'POST',
@@ -315,7 +315,7 @@ onUnmounted(() => es?.close())
           <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
         </label>
         <button class="btn-outline" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
-          {{ outlineRunning ? '细纲中…' : '📋 细纲' }}
+          {{ outlineRunning ? (kind === 'short' ? '篇纲中…' : '细纲中…') : (kind === 'short' ? '📋 篇纲' : '📋 细纲') }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
