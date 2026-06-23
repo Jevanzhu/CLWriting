@@ -122,6 +122,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     res.end(JSON.stringify({ error: 'not found' }))
   })
 
+  // 固定端口同步入白名单(避免 listen→listening 间毫秒级窗口校验失败);port 0 仍靠 listening 回调补实际端口
+  if (opts.port > 0) {
+    allowedOrigins.add(`http://127.0.0.1:${opts.port}`)
+    allowedOrigins.add(`http://localhost:${opts.port}`)
+  }
   server.listen(opts.port, host)
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {
