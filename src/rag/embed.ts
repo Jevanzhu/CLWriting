@@ -55,7 +55,8 @@ export async function embed(
 
     const vectors = data.data.map((d) => d.embedding)
     // 任一向量缺失 → 失败
-    if (vectors.some((v) => !v || v.length === 0)) return null
+    // 任一向量缺失或含非 finite(Infinity/NaN,坏端点) → 失败(防 cosineSimilarity 产 NaN 污染 topK)
+    if (vectors.some((v) => !v || v.length === 0 || v.some((x) => !Number.isFinite(x)))) return null
 
     return vectors as number[][]
   } catch {

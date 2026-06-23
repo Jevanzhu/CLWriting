@@ -525,6 +525,7 @@ export function clearPendingBatch(bookRoot: string): { ok: true; cleared: number
   let count = 0
   try {
     for (const entry of readdirSync(root)) {
+      if (entry.startsWith('.')) continue // 跳 .isolated/ 等隐藏目录,不计入清理章数
       const fp = join(root, entry)
       if (statSync(fp).isDirectory()) count++
     }

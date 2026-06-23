@@ -73,7 +73,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 
     const packetPath = join(workDir, '三审', 'packet.json')
     if (!existsSync(packetPath)) return reply(res, 500, { error: 'review run 未产出 packet.json' })
-    const packet = JSON.parse(readFileSync(packetPath, 'utf8')) as {
+    let packet: {
       lenses_run: string[]
       packets: Array<{
         lens: string
@@ -81,6 +81,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         focus?: string[]
         ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }>
       }>
+    }
+    try {
+      packet = JSON.parse(readFileSync(packetPath, 'utf8'))
+    } catch {
+      return reply(res, 500, { error: 'packet.json 解析失败(文件损坏或写入未完成)' })
     }
 
     // 草稿正文(去 front matter):长篇 草稿-<章号>.md;短篇 草稿-1.md(候选),与 /draft-save 落盘一致

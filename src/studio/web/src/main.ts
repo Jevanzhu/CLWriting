@@ -15,7 +15,7 @@ const bootReady = new Promise<void>((r) => {
 const originalFetch = window.fetch
 const WRITE_METHODS = new Set(['POST', 'PUT', 'DELETE'])
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url
+  const url = (typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url) ?? ''
   // 仅写请求等 token 注入完成(GET 不阻塞,保持读路径即时)
   if (url.includes('/api/') && init?.method && WRITE_METHODS.has(init.method.toUpperCase())) {
     await bootReady
