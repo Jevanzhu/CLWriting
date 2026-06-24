@@ -1,11 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{
   name: string
   active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'workbench' | 'edit' | 'config' | 'piece'
 }>()
 const enc = computed(() => encodeURIComponent(props.name))
+
+// #1.5 单写者协作：进书心跳写 .gui-active（每 20s 续期），CLI 写命令据此轻提示
+let timer: ReturnType<typeof setInterval> | null = null
+async function heartbeat(): Promise<void> {
+  try {
+    await fetch(`/api/books/${enc.value}/heartbeat`, { method: 'POST' })
+  } catch {
+    // 心跳失败忽略（尽力而为，不阻塞 UI）
+  }
+}
+onMounted(() => {
+  heartbeat()
+  timer = setInterval(heartbeat, 20_000)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
 </script>
 
 <template>

@@ -28,6 +28,7 @@ import { registerPiecesRoutes } from './api/pieces.js'
 import { registerStateRoutes } from './api/state.js'
 import { registerIoRoutes } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
+import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -54,6 +55,7 @@ function ensureRoutes(workDir: string | null, token: string): void {
   registerStateRoutes({ workDir })
   registerIoRoutes({ workDir, token })
   registerKnowledgeRoutes({ workDir, token })
+  registerHeartbeatRoutes({ workDir })
   routesRegistered = true
 }
 

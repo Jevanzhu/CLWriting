@@ -16,6 +16,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
 import { readReviewVerdict } from '../review/run.js'
 import { resolveBookRoot } from '../install/books.js'
+import { warnIfGuiActive } from '../process/gui-active.js'
 import { pendingRoot, readBatchProgress, writeBatchProgress } from '../auto/batch.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import type { ChapterMeta } from '../format/types.js'
@@ -53,6 +54,7 @@ export function finalizeCommand(args: string[]): void {
   }
 
   const outlinePath = join(workDir, '细纲.md')
+  warnIfGuiActive(bookRoot) // #1.5 GUI 活跃轻提示
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const isShort = (config.kind ?? 'long') === 'short'
   const draft = readDraft(draftPath, isShort)

@@ -16,6 +16,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from '../check/runner.js'
 import { formatReport } from '../check/report.js'
 import { resolveBookRoot } from '../install/books.js'
+import { warnIfGuiActive } from '../process/gui-active.js'
 import { readOutlineLeads } from '../process/materials.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../process/lead-updates.js'
 import type { ChapterMeta } from '../format/types.js'
@@ -31,6 +32,7 @@ export function checkCommand(args: string[]): void {
   const strictShort = args.includes('--strict-short')
   const positional = args.filter((a) => a !== '--full' && a !== '--strict-short')
   const { draftPath, bookRoot } = resolveDraftAndBook(positional)
+  warnIfGuiActive(bookRoot) // #1.5 GUI 活跃轻提示
 
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const isShort = (config.kind ?? 'long') === 'short'

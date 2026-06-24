@@ -13,7 +13,7 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
-import type { HookType, HookLevel, Emotion } from '../../../format/types.js'
+import type { HookType, HookLevel, Emotion, SceneType } from '../../../format/types.js'
 
 interface RhythmCtx {
   workDir: string | null
@@ -22,6 +22,7 @@ interface RhythmCtx {
 const HOOK_TYPES: readonly HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
 const HOOK_LEVELS: readonly HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
+const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
 export function registerRhythmRoutes(ctx: RhythmCtx): void {
   route('GET', '/api/books/:name/rhythm', (_req: IncomingMessage, res: ServerResponse, params) => {
@@ -49,6 +50,9 @@ function rhythmLong(bookRoot: string): unknown {
     hookTypeDist: countDist(chapters.map((c) => c.钩子类型), HOOK_TYPES),
     hookLevelDist: countDist(chapters.map((c) => c.钩子强弱), HOOK_LEVELS),
     emotionDist: countDist(chapters.map((c) => c.情绪定位), EMOTIONS),
+    sceneDist: countDist(chapters.map((c) => c.场景), SCENE_TYPES),
+    // 场景 × 情绪增强矩阵（#7.4 增强区）
+    sceneEmotion: crossCount(chapters, SCENE_TYPES, EMOTIONS, (c) => c.场景, (c) => c.情绪定位),
   }
 }
 
@@ -66,7 +70,7 @@ function rhythmShort(bookRoot: string): unknown {
 }
 
 /** 固定枚举分布（按枚举顺序，缺项补 0） */
-function countDist<T extends string>(values: T[], keys: readonly T[]): Record<string, number> {
+function countDist<T extends string>(values: (T | undefined)[], keys: readonly T[]): Record<string, number> {
   const out: Record<string, number> = {}
   for (const k of keys) out[k] = 0
   for (const v of values) {
@@ -81,6 +85,27 @@ function countDynamic(values: (string | undefined)[]): Record<string, number> {
   for (const v of values) {
     if (!v) continue
     out[v] = (out[v] ?? 0) + 1
+  }
+  return out
+}
+
+/** 交叉分布矩阵（#7.4 增强区：场景 × 情绪） */
+function crossCount<T, R extends string, C extends string>(
+  items: T[],
+  rowKeys: readonly R[],
+  colKeys: readonly C[],
+  rowOf: (t: T) => R | undefined,
+  colOf: (t: T) => C | undefined,
+): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {}
+  for (const r of rowKeys) {
+    out[r] = {}
+    for (const c of colKeys) out[r]![c] = 0
+  }
+  for (const it of items) {
+    const r = rowOf(it)
+    const c = colOf(it)
+    if (r && c && out[r]) out[r]![c]! += 1
   }
   return out
 }

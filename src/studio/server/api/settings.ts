@@ -30,6 +30,7 @@ export interface CharacterCard {
   身份: string
   目标: string
   境界: string
+  关系: string // 原始（如 "林远(师徒);赵衡(仇敌)"）
   正文: string
 }
 
@@ -78,6 +79,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (body['身份']) map.set('身份', String(body['身份']))
     if (body['目标']) map.set('目标', String(body['目标']))
     if (body['境界']) map.set('境界', String(body['境界']))
+    if (body['关系']) map.set('关系', String(body['关系']))
     const 正文 = String(body['正文'] ?? '').trim()
     try {
       writeFile(fp, stringifyFlat(map), 正文)
@@ -140,7 +142,26 @@ function settingsLong(bookRoot: string): unknown {
     .filter((l) => l.欠方 || l.债主)
     .map((l) => ({ 编号: l.编号, 标题: l.标题, 状态: l.状态, 欠方: l.欠方 ?? '', 债主: l.债主 ?? '' }))
 
-  return { kind: 'long' as const, realm, characters, timeline, debtGraph }
+  // 角色关系（角色卡 front matter「关系」字段 → 关系边，#7.5）
+  const characterRelations: { from: string; to: string; type: string }[] = []
+  for (const c of characters) {
+    for (const r of parseRelations(c.关系)) {
+      characterRelations.push({ from: c.姓名, to: r.to, type: r.type })
+    }
+  }
+
+  return { kind: 'long' as const, realm, characters, timeline, debtGraph, characterRelations }
+}
+
+/** 解析角色卡「关系」字段 → 关系边：「林远(师徒);赵衡(仇敌)」→ [{to:林远,type:师徒}]（#7.5） */
+export function parseRelations(raw: string): { to: string; type: string }[] {
+  if (!raw) return []
+  const out: { to: string; type: string }[] = []
+  for (const part of raw.split(/[;；]/)) {
+    const m = part.trim().match(/^(.+?)\((.+?)\)$/)
+    if (m) out.push({ to: m[1]!.trim(), type: m[2]!.trim() })
+  }
+  return out
 }
 
 /** 角色卡结构化读(P2):front matter 姓名/身份/目标/境界 + 正文;无 front matter 降级(姓名=文件名,正文=全文) */
@@ -164,6 +185,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         身份: String(map.get('身份') ?? ''),
         目标: String(map.get('目标') ?? ''),
         境界: String(map.get('境界') ?? ''),
+        关系: String(map.get('关系') ?? ''),
         正文: r.body.trim(),
       })
     } else {
@@ -175,6 +197,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         身份: '',
         目标: '',
         境界: '',
+        关系: '',
         正文: text.trim(),
       })
     }

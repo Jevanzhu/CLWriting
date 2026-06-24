@@ -137,6 +137,9 @@ export type HookLevel = '强' | '中' | '弱'
 /** 情绪定位（#7 第 3 节） */
 export type Emotion = '压抑' | '铺垫' | '小爽' | '大爽' | '转折'
 
+/** 章节场景类型（节奏页场景分布，#7.4） */
+export type SceneType = '战斗' | '对话' | '抒情' | '叙事铺陈' | '爽点高潮'
+
 /** 章节元数据（#7 第 2 节，正文 front matter） */
 export interface ChapterMeta {
   章号: number
@@ -144,6 +147,7 @@ export interface ChapterMeta {
   钩子类型: HookType
   钩子强弱: HookLevel
   情绪定位: Emotion
+  场景?: SceneType // 可选（#7.4 节奏页场景分布）
   时间锚点?: string // 可选（#7 第 2 节）
   _raw?: Record<string, string>
   _path?: string
