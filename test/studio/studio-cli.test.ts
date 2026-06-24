@@ -25,6 +25,20 @@ test('parseArgs rejects invalid studio ports', () => {
   expect(() => parseArgs(['--port'])).toThrow('--port 需要端口值')
 })
 
+test('parseArgs accepts --workdir (空间隔/等号/缺省/共存)', () => {
+  expect(parseArgs(['--workdir', '/my/library']).workdir).toBe('/my/library')
+  expect(parseArgs(['--workdir=/lib']).workdir).toBe('/lib')
+  expect(parseArgs([]).workdir).toBeUndefined()
+  // --workdir 后无值不越界
+  expect(parseArgs(['--workdir']).workdir).toBeUndefined()
+  // 与 --port / --book 共存
+  expect(parseArgs(['--port', '9000', '--workdir', '/lib', '--book', '书'])).toEqual({
+    port: 9000,
+    workdir: '/lib',
+    book: '书',
+  })
+})
+
 test('openBrowser tolerates missing opener command', () => {
   const child = new EventEmitter() as EventEmitter & { unref: () => void }
   child.unref = vi.fn()

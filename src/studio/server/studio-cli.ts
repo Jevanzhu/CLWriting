@@ -1,11 +1,12 @@
 /**
- * `clwriting studio [--port N] [--book <书名或路径>]` —— GUI 子命令入口（#12.2）。
+ * `clwriting studio [--port N] [--book <书名或路径>] [--workdir <路径>]` —— GUI 子命令入口（#12.2）。
  *
  * 起 server（默认 127.0.0.1:7878）→ 静态托管前端 → 自动开浏览器；
  * Ctrl+C 优雅关闭。这是 clwriting 单入口之一，只是其「执行」= 起常驻
  * server（不进状态机轮转）。
  *
  * --book <书名或路径> 直进单书（1.2 起支持）；省略进书架。
+ * --workdir <路径> 指定工作目录（书库根），省略则从 cwd 向上找 .clwriting/。
  */
 import process from 'node:process'
 import { spawn } from 'node:child_process'
@@ -21,6 +22,7 @@ const DEFAULT_PORT = 7878
 interface StudioArgs {
   port: number
   book?: string
+  workdir?: string
 }
 
 function parsePort(value: string | undefined): number {
@@ -47,6 +49,11 @@ export function parseArgs(argv: string[]): StudioArgs {
       args.port = parsePort(a.slice(7))
     } else if (a.startsWith('--book=')) {
       args.book = a.slice(7)
+    } else if (a === '--workdir') {
+      const v = argv[++i]
+      if (v) args.workdir = v
+    } else if (a.startsWith('--workdir=')) {
+      args.workdir = a.slice(10)
     }
   }
   return args
@@ -134,8 +141,8 @@ export async function studioCommand(argv: string[]): Promise<void> {
 
   const staticDir = await resolveStaticDir()
 
-  // 工作目录定位（向上找 .clwriting/）+ --book 解析为初始书名
-  const workDir = findWorkDir(process.cwd())
+  // 工作目录定位：--workdir 显式指定优先，否则从 cwd 向上找 .clwriting/
+  const workDir = findWorkDir(args.workdir ?? process.cwd())
   resolveInitialBook(args.book, workDir)
 
   const server = startServer({ port: args.port, staticDir, workDir })
@@ -144,6 +151,7 @@ export async function studioCommand(argv: string[]): Promise<void> {
     const url = `http://127.0.0.1:${args.port}`
     console.log(`\n✓ CLWriting Studio 已启动 → ${url}`)
     if (args.book) console.log(`  --book ${args.book} → 直进单书`)
+    if (args.workdir) console.log(`  --workdir ${args.workdir} → 工作目录已定位`)
     if (!workDir) {
       console.log('  ⚠ 未定位到工作目录（当前目录不含 .clwriting/），书架将为空。')
     }

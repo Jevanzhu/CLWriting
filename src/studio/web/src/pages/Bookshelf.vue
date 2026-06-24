@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 interface BookEntry {
@@ -15,6 +15,17 @@ const workDir = ref(true)
 const hint = ref('')
 const loading = ref(true)
 const error = ref('')
+
+// 桌面版书库管理（preload 注入；浏览器版不存在 → isDesktop=false，隐藏桌面入口）
+const desktop = window.clwritingDesktop ?? null
+const isDesktop = computed(() => desktop !== null)
+const recentLibs = ref<{ path: string; label: string }[]>([])
+const currentLib = ref<string | null>(null)
+const currentLibLabel = computed(() => {
+  if (!currentLib.value) return ''
+  const seg = currentLib.value.split(/[/\\]/).filter(Boolean)
+  return seg[seg.length - 1] ?? currentLib.value
+})
 
 async function loadBooks(): Promise<void> {
   loading.value = true
@@ -37,6 +48,33 @@ async function loadBooks(): Promise<void> {
   }
 }
 
+/** 拉桌面版当前书库 + 最近列表（浏览器版空操作）。 */
+async function loadDesktop(): Promise<void> {
+  if (!desktop) return
+  try {
+    const [recent, current] = await Promise.all([
+      desktop.getRecentLibraries(),
+      desktop.getCurrentLibrary(),
+    ])
+    recentLibs.value = recent
+    currentLib.value = current
+  } catch {
+    // preload API 失败静默，不影响书架核心功能
+  }
+}
+
+/** 打开书库选择器（主进程 relaunch 到新目录；取消无操作）。 */
+async function openLibrary(): Promise<void> {
+  if (!desktop) return
+  await desktop.openLibrary()
+}
+
+/** 切换到最近书库（主进程 relaunch）。 */
+async function switchTo(path: string): Promise<void> {
+  if (!desktop) return
+  await desktop.switchLibrary(path)
+}
+
 function open(name: string): void {
   router.push(`/books/${encodeURIComponent(name)}`)
 }
@@ -51,21 +89,50 @@ function fmtDate(iso?: string): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
 }
 
-onMounted(loadBooks)
+onMounted(() => {
+  loadBooks()
+  loadDesktop()
+})
 </script>
 
 <template>
   <section class="bookshelf">
     <div class="bookshelf-head">
-      <h2>书架</h2>
-      <button class="btn-new" @click="newBook">+ 新建</button>
+      <div class="head-left">
+        <h2>书架</h2>
+        <span v-if="currentLibLabel" class="current-lib" :title="currentLib ?? ''">{{
+          currentLibLabel
+        }}</span>
+      </div>
+      <div class="head-right">
+        <button v-if="isDesktop" class="btn-ghost" @click="openLibrary">📁 打开书库</button>
+        <details v-if="isDesktop && recentLibs.length" class="recent-dropdown">
+          <summary>最近 ▾</summary>
+          <ul>
+            <li
+              v-for="r in recentLibs"
+              :key="r.path"
+              :title="r.path"
+              tabindex="0"
+              @click="switchTo(r.path)"
+              @keydown.enter="switchTo(r.path)"
+            >
+              {{ r.label }}
+            </li>
+          </ul>
+        </details>
+        <button class="btn-new" @click="newBook">+ 新建</button>
+      </div>
     </div>
 
     <p v-if="loading" class="hint">加载中…</p>
     <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
     <div v-else-if="!workDir" class="empty">
       <p class="hint">未定位到工作目录</p>
-      <p class="sub">{{ hint || '请在 CLWriting 工作目录（含 .clwriting/）下启动 studio。' }}</p>
+      <p v-if="isDesktop" class="sub">
+        <button class="btn-new" @click="openLibrary">📁 选择书库目录</button>
+      </p>
+      <p v-else class="sub">{{ hint || '请在 CLWriting 工作目录（含 .clwriting/）下启动 studio。' }}</p>
     </div>
     <div v-else-if="books.length === 0" class="empty">
       <p class="hint">暂无书籍</p>
@@ -99,10 +166,29 @@ onMounted(loadBooks)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  gap: 8px;
+}
+.head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .bookshelf-head h2 {
   margin: 0;
   font-size: 16px;
+}
+.current-lib {
+  color: #9ca3af;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .btn-new {
   padding: 6px 14px;
@@ -114,6 +200,62 @@ onMounted(loadBooks)
 }
 .btn-new:hover {
   background: #2563eb;
+}
+.btn-ghost {
+  padding: 6px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 13px;
+}
+.btn-ghost:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+.recent-dropdown {
+  position: relative;
+}
+.recent-dropdown summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #6b7280;
+  padding: 6px 8px;
+  border-radius: 6px;
+  list-style: none;
+}
+.recent-dropdown summary:hover {
+  background: #f3f4f6;
+}
+.recent-dropdown ul {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  min-width: 160px;
+  z-index: 10;
+}
+.recent-dropdown li {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+.recent-dropdown li:hover,
+.recent-dropdown li:focus-visible {
+  background: #eff6ff;
+  color: #3b82f6;
+  outline: none;
 }
 .hint {
   color: #6b7280;
