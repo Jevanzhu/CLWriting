@@ -1,0 +1,21 @@
+# Electron 桌面打包配置（#electron）
+appId: com.clwriting.studio
+productName: CLWriting
+directories:
+  output: dist-electron
+# asar 内容：主进程 + cli + chunks + 前端 + 模板
+files:
+  - dist/**/*
+  - templates/**/*
+  - package.json
+asar: true
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage

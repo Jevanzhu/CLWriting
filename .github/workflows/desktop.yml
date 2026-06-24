@@ -1,0 +1,35 @@
+# Electron 桌面应用三平台构建（#electron）
+# 手动触发 或 tag v* 触发；每平台打本平台产物（macOS→dmg / Windows→exe / Linux→AppImage）
+name: Desktop Build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）
+      - run: npm run build:desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clwriting-desktop-${{ matrix.os }}
+          path: |
+            dist-electron/*.dmg
+            dist-electron/*.exe
+            dist-electron/*.AppImage
+            dist-electron/mac*/
+            dist-electron/win*/
+          if-no-files-found: error
