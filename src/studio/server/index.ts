@@ -24,6 +24,7 @@ import { registerReviewRoutes } from './api/review.js'
 import { registerOnboardRoutes } from './api/onboard.js'
 import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
+import { registerPiecesRoutes } from './api/pieces.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -46,6 +47,7 @@ function ensureRoutes(workDir: string | null, token: string): void {
   registerOnboardRoutes({ workDir })
   registerRewriteRoutes({ workDir })
   registerConfigRoutes({ workDir })
+  registerPiecesRoutes({ workDir })
   routesRegistered = true
 }
 

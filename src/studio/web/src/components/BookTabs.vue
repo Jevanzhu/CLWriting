@@ -3,7 +3,7 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   name: string
-  active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'workbench' | 'edit' | 'config'
+  active: 'overview' | 'health' | 'rhythm' | 'leads' | 'settings' | 'workbench' | 'edit' | 'config' | 'piece'
 }>()
 const enc = computed(() => encodeURIComponent(props.name))
 </script>

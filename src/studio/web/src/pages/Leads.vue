@@ -45,24 +45,51 @@ interface LeadsData {
   currentChapter: number
   stale: Stale[]
 }
+/** 短篇分支：无七类账本，单篇清单归篇详情（6.5） */
+interface ShortData {
+  kind: 'short'
+  hint: string
+}
+interface PieceSummary {
+  篇号: number
+  标题: string
+  字数: number
+  目标情绪?: string
+  核心反转?: string
+}
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<LeadsData | null>(null)
+const data = ref<LeadsData | ShortData | null>(null)
+const shortPieces = ref<PieceSummary[]>([])
 const loading = ref(true)
 const error = ref('')
+
+/** 短篇：拉篇列表（账本页作篇详情入口） */
+async function loadShortPieces(n: string): Promise<void> {
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(n)}/pieces`)
+    const d = (await r.json().catch(() => ({}))) as { pieces?: PieceSummary[] }
+    if (r.ok && d.pieces) shortPieces.value = d.pieces
+  } catch {
+    /* 篇列表可选，失败不阻塞 */
+  }
+}
 
 async function load(n: string): Promise<void> {
   loading.value = true
   error.value = ''
   data.value = null
+  shortPieces.value = []
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(n)}/leads`)
     if (!r.ok) {
       const e = (await r.json().catch(() => ({}))) as { error?: string }
       throw new Error(e.error ?? `HTTP ${r.status}`)
     }
-    data.value = (await r.json()) as LeadsData
+    const j = (await r.json()) as LeadsData | ShortData
+    data.value = j
+    if (j.kind === 'short') await loadShortPieces(n)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -198,6 +225,21 @@ function specialties(l: Lead): string[] {
         </div>
       </article>
     </template>
+    <article v-else-if="data && data.kind === 'short'" class="card short-card">
+      <h3 class="block-title">短篇账本 · 单篇清单</h3>
+      <p class="short-hint">短篇无跨篇账本。每篇的清单（反转线索表 + 情绪曲线 + 伏笔回收）在「篇详情」里查看。</p>
+      <ul v-if="shortPieces.length" class="piece-links">
+        <li v-for="p in shortPieces" :key="p.篇号">
+          <RouterLink class="pl-item" :to="`/books/${encodeURIComponent(name)}/piece/${p.篇号}`">
+            <span class="pl-no">第 {{ p.篇号 }} 篇</span>
+            <span class="pl-title">{{ p.标题 }}</span>
+            <span v-if="p.核心反转" class="pl-rev">{{ p.核心反转 }}</span>
+            <span class="pl-go">查看详情 →</span>
+          </RouterLink>
+        </li>
+      </ul>
+      <p v-else class="hint">（暂无定稿篇，先在工作台写一篇）</p>
+    </article>
   </section>
 </template>
 
@@ -388,5 +430,59 @@ function specialties(l: Lead): string[] {
 }
 .hist-evid {
   color: #4b5563;
+}
+
+/* 短篇分支：篇详情入口 */
+.short-card {
+  background: #f0f7ff;
+  border-color: #bfdbfe;
+}
+.short-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #1e40af;
+  line-height: 1.6;
+}
+.piece-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.pl-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+}
+.pl-item:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+.pl-no {
+  font-size: 13px;
+  color: #3b82f6;
+  font-weight: 600;
+}
+.pl-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+.pl-rev {
+  flex: 1;
+  font-size: 13px;
+  color: #6b7280;
+}
+.pl-go {
+  font-size: 13px;
+  color: #3b82f6;
 }
 </style>
