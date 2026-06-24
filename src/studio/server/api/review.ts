@@ -20,7 +20,7 @@ import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readFile } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { getDriver } from '../../../driver/index.js'
+import { getDriver, ensureSession } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 
 interface ReviewCtx {
@@ -94,13 +94,18 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const draftFile = readFile(draftPath)
     const draftBody = draftFile.ok ? (draftFile as { body: string }).body : readFileSync(draftPath, 'utf8')
 
-    // ② 各 lens spawnRole 产 issues JSON(串行)
+    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流(6.8④)
     const driver = getDriver('cc')
     const lenses: string[] = []
     mkdirSync(join(workDir, '三审'), { recursive: true })
+    const mainSession = await ensureSession(params['name']!, ctx.workDir!)
+    const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
+      if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+    }
     for (const sub of packet.packets) {
       const lens = sub.lens
       lenses.push(lens)
+      emitProgress(lens, 'start')
       const prompt = buildLensPrompt(lens, sub, draftBody, chapter, kind)
       const session = await driver.startSession(ctx.workDir!)
       driver.spawnRole(session, lensToRole(lens), prompt)
@@ -120,6 +125,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       }
       driver.dispose(session)
       writeFileSync(join(workDir, '三审', `issues-${lens}.json`), extractJson(text), 'utf8')
+      emitProgress(lens, 'done')
     }
 
     // ③ review collect(CLI 回收产审稿.md)

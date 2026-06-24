@@ -83,6 +83,17 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     reply(res, 200, { ok: true, mode, role })
   })
+
+  // 中断当前生成(6.8③):kill 子进程 + 推 interrupted,session 保留可再 spawn
+  route('POST', '/api/books/:name/interrupt', async (_req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const session = await ensureSession(params['name']!, ctx.workDir)
+    const driver = getDriver('cc')
+    if (driver.interrupt) driver.interrupt(session)
+    reply(res, 200, { ok: true })
+  })
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

@@ -36,6 +36,7 @@ export type DriverEvent =
   | { type: 'usage'; cost: number; tokens: number }
   | { type: 'error'; kind: string; message: string; recoverable: boolean }
   | { type: 'interrupted'; reason: string }
+  | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
   | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
 
 /** driver 接口(B 编排:单步生成器,窄化) */
@@ -54,4 +55,8 @@ export interface StudioDriver {
   resume(sessionId: string): Promise<Session>
   /** 结束会话 */
   dispose(session: Session): void
+  /** 中断当前生成(kill 子进程 + 推 interrupted;session 保留可再 spawn)。可选,mock 可不实现 */
+  interrupt?(session: Session): void
+  /** 往 session 事件流推自定义事件(编排层回推进度,如 review 逐角)。可选 */
+  emit?(session: Session, ev: DriverEvent): void
 }
