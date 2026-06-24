@@ -7,6 +7,7 @@
   "engines": {
     "node": ">=24"
   },
+  "main": "dist/desktop/main.js",
   "bin": {
     "clwriting": "./dist/cli.js"
   },
@@ -26,13 +27,18 @@
     "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build:web && playwright test",
-    "test:e2e:true-host": "npm run build:web && playwright test --config playwright.true-host.config.ts"
+    "test:e2e:true-host": "npm run build:web && playwright test --config playwright.true-host.config.ts",
+    "dev:electron": "npm run build:web && tsup && electron .",
+    "build:desktop": "npm run build:all && electron-builder",
+    "build:desktop:dir": "npm run build:all && electron-builder --dir"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/test-utils": "^2.4.11",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
     "happy-dom": "^20.10.6",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",

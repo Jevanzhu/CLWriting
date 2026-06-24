@@ -9,7 +9,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -20,6 +21,10 @@ interface CliCtx {
 
 /** 允许的确定性 CLI 步(白名单防注入) */
 const ALLOWED_STEPS = new Set(['prepare', 'confirm', 'check', 'finalize', 'enter'])
+
+/** Electron 运行时?Electron 下 spawn clwriting CLI 需 ELECTRON_RUN_AS_NODE + 定位 dist/cli.js */
+const isElectron = !!process.versions.electron
+const here = dirname(fileURLToPath(import.meta.url))
 
 export function registerCliRoutes(ctx: CliCtx): void {
   route('POST', '/api/books/:name/cli', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -53,13 +58,30 @@ function readKind(bookRoot: string): 'long' | 'short' {
   return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
-/** spawn `node <cli.js> <args>`(cwd=bookRoot;cli.js = studio 自身入口 process.argv[1]) */
+/** 定位 clwriting CLI spawn 目标（双模式,#electron）。
+ *  studio 模式:node + process.argv[1](=dist/cli.js)。
+ *  Electron 模式:electron + ELECTRON_RUN_AS_NODE + here/../cli.js(否则 electron 会起 GUI)。 */
+export function resolveSpawnTarget(
+  isElectron: boolean,
+  here: string,
+  argv1: string,
+): { cliJs: string; useRunAsNode: boolean } {
+  return isElectron
+    ? { cliJs: resolve(here, '..', 'cli.js'), useRunAsNode: true }
+    : { cliJs: argv1, useRunAsNode: false }
+}
+
+/** spawn clwriting CLI 跑确定性步(cwd=bookRoot)。
+ *  studio 模式:node dist/cli.js(process.argv[1])。
+ *  Electron 模式:electron + ELECTRON_RUN_AS_NODE=1 跑 dist/cli.js(here/../cli.js),否则 electron 会起 GUI。 */
 function runClwriting(
   args: string[],
   cwd: string,
 ): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [process.argv[1] as string, ...args], { cwd })
+  const { cliJs, useRunAsNode } = resolveSpawnTarget(isElectron, here, process.argv[1] as string)
+  const env = useRunAsNode ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env
+  return new Promise((done) => {
+    const child = spawn(process.execPath, [cliJs, ...args], { cwd, env })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (c) => {
@@ -68,8 +90,8 @@ function runClwriting(
     child.stderr.on('data', (c) => {
       stderr += c.toString()
     })
-    child.on('error', (e) => resolve({ ok: false, code: -1, stdout, stderr: e.message }))
-    child.on('close', (code) => resolve({ ok: code === 0, code: code ?? 0, stdout, stderr }))
+    child.on('error', (e) => done({ ok: false, code: -1, stdout, stderr: e.message }))
+    child.on('close', (code) => done({ ok: code === 0, code: code ?? 0, stdout, stderr }))
   })
 }
 
