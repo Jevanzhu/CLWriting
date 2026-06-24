@@ -179,10 +179,10 @@ const graphOption = computed<EChartsOption | null>(() => {
   // 关系债边(红,label 欠) + 角色关系边(绿,label 关系类型)
   const debtLinks = data.value.debtGraph
     .filter((d) => d.欠方 && d.债主)
-    .map((d) => ({ source: d.欠方, target: d.债主, label: '欠', lineStyle: { color: '#fca5a5' } }))
+    .map((d) => ({ source: d.欠方, target: d.债主, label: { show: true, formatter: '欠' }, lineStyle: { color: '#fca5a5' } }))
   const relLinks = data.value.characterRelations
     .filter((r) => r.from && r.to)
-    .map((r) => ({ source: r.from, target: r.to, label: r.type, lineStyle: { color: '#34d399' } }))
+    .map((r) => ({ source: r.from, target: r.to, label: { show: true, formatter: r.type }, lineStyle: { color: '#34d399' } }))
   return {
     tooltip: {},
     series: [

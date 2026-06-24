@@ -136,7 +136,9 @@ function seedDefaultRoles(workDir: string): { ok: true } | { ok: false; reason: 
     if (!file.endsWith('.md') || file.startsWith('._')) continue
     const dest = join(destDir, file)
     if (!existsSync(dest)) {
-      cpSync(join(srcDir, file), dest)
+      // readFileSync+atomicWriteFile 明确支持 asar 读(Electron 打包态 templates 在 app.asar 内);
+      // cpSync 单文件 from asar 在部分 Node 版本不稳。
+      atomicWriteFile(dest, readFileSync(join(srcDir, file)))
     }
   }
   writeTemplatesManifest(workDir, srcDir)
@@ -171,6 +173,10 @@ function syncPackageDist(workDir: string): { ok: true } | { ok: false; reason: s
   const root = resolvePackageDir()
   if (!root) return { ok: false, reason: '找不到 clwriting 包根目录，请重装 clwriting' }
   const src = join(root, 'dist')
+  // Electron 打包态:dist 在 app.asar 内(只读虚拟 fs),cpSync 递归拷贝会 ENOENT。
+  // 桌面版 claude 子进程用 app 内 dist/cli.js(ELECTRON_RUN_AS_NODE,见 api/cli.ts),
+  // 不消费 .clwriting/dist → 跳过同步。CLI/npm 模式(src 不含 app.asar)不受影响。
+  if (src.includes('app.asar')) return { ok: true }
   if (!existsSync(src)) {
     return { ok: false, reason: '找不到当前包 dist，请先运行 npm run build 或重装 clwriting' }
   }
