@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # 暂停 push / pull_request 自动触发，避免频繁 push 时反复跑 CI。
+  # 需要验证时在 GitHub Actions 页面手动 Run workflow。
   workflow_dispatch:
 
 jobs:
