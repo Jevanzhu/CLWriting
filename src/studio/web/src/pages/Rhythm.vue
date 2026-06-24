@@ -12,6 +12,8 @@ interface RhythmLong {
   hookTypeDist: Record<string, number>
   hookLevelDist: Record<string, number>
   emotionDist: Record<string, number>
+  sceneDist: Record<string, number>
+  sceneEmotion: Record<string, Record<string, number>>
 }
 interface RhythmShort {
   kind: 'short'
@@ -111,6 +113,42 @@ const emotionOption = computed<EChartsOption | null>(() => {
   const d = data.value
   return d ? barOption(d.emotionDist, d.kind === 'long' ? '情绪定位分布' : '目标情绪分布') : null
 })
+
+/** 场景分布（长篇，#7.4） */
+const sceneOption = computed<EChartsOption | null>(() => {
+  const d = data.value
+  return d && d.kind === 'long' ? barOption(d.sceneDist, '场景分布') : null
+})
+
+/** 场景 × 情绪热力矩阵（长篇增强区，#7.4） */
+const sceneEmotionOption = computed<EChartsOption | null>(() => {
+  const d = data.value
+  if (!d || d.kind !== 'long') return null
+  const scenes = Object.keys(d.sceneEmotion)
+  const emotions = scenes.length ? Object.keys(d.sceneEmotion[scenes[0]] ?? {}) : []
+  const heat: [number, number, number][] = []
+  let max = 0
+  scenes.forEach((sc, i) => {
+    emotions.forEach((em, j) => {
+      const v = d.sceneEmotion[sc]?.[em] ?? 0
+      if (v > max) max = v
+      heat.push([j, i, v])
+    })
+  })
+  return {
+    title: { text: '场景 × 情绪', left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' } },
+    tooltip: { position: 'top' },
+    grid: { left: 84, right: 24, top: 44, bottom: 64 },
+    xAxis: { type: 'category', data: emotions, splitArea: { show: true } },
+    yAxis: { type: 'category', data: scenes, splitArea: { show: true } },
+    visualMap: {
+      min: 0, max: Math.max(1, max), calculable: true, orient: 'horizontal',
+      left: 'center', bottom: 4,
+      inRange: { color: ['#e5e7eb', '#bfdbfe', '#3b82f6'] },
+    },
+    series: [{ type: 'heatmap', data: heat, label: { show: true } }],
+  }
+})
 </script>
 
 <template>
@@ -136,11 +174,11 @@ const emotionOption = computed<EChartsOption | null>(() => {
       <!-- 情绪分布 -->
       <article class="card"><EChart v-if="emotionOption" :option="emotionOption" /></article>
 
-      <!-- 场景占位(长篇) -->
-      <article v-if="data.kind === 'long'" class="card placeholder-card">
-        <h3 class="block-title">场景分布</h3>
-        <p class="hint">正文 ChapterMeta 无场景字段;需细纲数据(定稿书细纲已归档),后续接入。</p>
-      </article>
+      <!-- 场景分布 + 场景×情绪（长篇，#7.4） -->
+      <div v-if="data.kind === 'long'" class="grid-2">
+        <article class="card"><EChart v-if="sceneOption" :option="sceneOption" /></article>
+        <article class="card"><EChart v-if="sceneEmotionOption" :option="sceneEmotionOption" /></article>
+      </div>
 
       <!-- 核心反转(短篇) -->
       <article v-if="data.kind === 'short' && data.reversals.length" class="card">
@@ -191,9 +229,6 @@ const emotionOption = computed<EChartsOption | null>(() => {
   text-align: center;
   font-size: 12px;
   color: #9ca3af;
-}
-.placeholder-card {
-  background: #f9fafb;
 }
 .hint {
   color: #6b7280;

@@ -8,14 +8,15 @@
 import { readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
-import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion } from './types.js'
+import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
 
 /** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
 const HOOK_LEVELS: HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
+const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '时间锚点'])
+const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点'])
 
 /** 计算正文字数（中文按字符计，#7 第 2 节） */
 export function countWords(body: string): number {
@@ -54,6 +55,7 @@ export function readChapter(
     _wordCount: countWords(r.body),
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
+  if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
 
   return { ok: true, chapter }
 }
@@ -67,6 +69,7 @@ function chapterToMap(ch: ChapterMeta): Map<string, unknown> {
   map.set('钩子强弱', ch.钩子强弱)
   map.set('情绪定位', ch.情绪定位)
   if (ch.时间锚点) map.set('时间锚点', ch.时间锚点)
+  if (ch.场景) map.set('场景', ch.场景)
   if (ch._raw) {
     for (const [k, v] of Object.entries(ch._raw)) {
       if (!map.has(k)) map.set(k, v)
@@ -86,6 +89,7 @@ export function validateEnums(ch: ChapterMeta): string[] {
   if (!HOOK_TYPES.includes(ch.钩子类型)) errs.push(`钩子类型越界：${ch.钩子类型}`)
   if (!HOOK_LEVELS.includes(ch.钩子强弱)) errs.push(`钩子强弱越界：${ch.钩子强弱}`)
   if (!EMOTIONS.includes(ch.情绪定位)) errs.push(`情绪定位越界：${ch.情绪定位}`)
+  if (ch.场景 && !SCENE_TYPES.includes(ch.场景)) errs.push(`场景越界：${ch.场景}`)
   return errs
 }
 

@@ -19,7 +19,13 @@ interface CharacterCard {
   身份: string
   目标: string
   境界: string
+  关系: string
   正文: string
+}
+interface CharacterRelation {
+  from: string
+  to: string
+  type: string
 }
 interface DebtEdge {
   编号: string
@@ -34,6 +40,7 @@ interface SettingsData {
   characters: CharacterCard[]
   timeline: FreeCard[]
   debtGraph: DebtEdge[]
+  characterRelations: CharacterRelation[]
 }
 
 const route = useRoute()
@@ -62,7 +69,7 @@ async function load(n: string): Promise<void> {
 
 // P2 角色卡编辑
 const editingChar = ref<string | null>(null)
-const charForm = ref<CharacterCard>({ file: '', 姓名: '', 身份: '', 目标: '', 境界: '', 正文: '' })
+const charForm = ref<CharacterCard>({ file: '', 姓名: '', 身份: '', 目标: '', 境界: '', 关系: '', 正文: '' })
 const charSaving = ref(false)
 
 function startEditChar(c: CharacterCard): void {
@@ -155,7 +162,7 @@ async function saveRealm(): Promise<void> {
   realmSaving.value = false
 }
 
-/** 关系图:角色 + 关系债网络(角色节点 + 欠/债边,力导向布局) */
+/** 关系图:角色 + 角色关系 + 关系债网络(力导向布局,#7.5) */
 const graphOption = computed<EChartsOption | null>(() => {
   if (!data.value) return null
   const names = new Set<string>()
@@ -164,22 +171,35 @@ const graphOption = computed<EChartsOption | null>(() => {
     if (d.欠方) names.add(d.欠方)
     if (d.债主) names.add(d.债主)
   })
+  data.value.characterRelations.forEach((r) => {
+    if (r.from) names.add(r.from)
+    if (r.to) names.add(r.to)
+  })
   if (names.size === 0) return null
+  // 关系债边(红,label 欠) + 角色关系边(绿,label 关系类型)
+  const debtLinks = data.value.debtGraph
+    .filter((d) => d.欠方 && d.债主)
+    .map((d) => ({ source: d.欠方, target: d.债主, label: '欠', lineStyle: { color: '#fca5a5' } }))
+  const relLinks = data.value.characterRelations
+    .filter((r) => r.from && r.to)
+    .map((r) => ({ source: r.from, target: r.to, label: r.type, lineStyle: { color: '#34d399' } }))
   return {
     tooltip: {},
     series: [
       {
         type: 'graph',
         layout: 'force',
-        force: { repulsion: 300, edgeLength: 140, gravity: 0.1 },
+        force: { repulsion: 340, edgeLength: 140, gravity: 0.1 },
         roam: true,
         label: { show: true, position: 'right', fontSize: 12 },
-        edgeLabel: { show: true, fontSize: 11, formatter: '欠' },
+        edgeLabel: {
+          show: true,
+          fontSize: 11,
+          formatter: (params) => String((params as { data?: { label?: string } }).data?.label ?? ''),
+        },
         data: [...names].map((n) => ({ name: n, symbolSize: 40 })),
-        links: data.value.debtGraph
-          .filter((d) => d.欠方 && d.债主)
-          .map((d) => ({ source: d.欠方, target: d.债主 })),
-        lineStyle: { color: '#fca5a5', width: 2, curveness: 0.2 },
+        links: [...debtLinks, ...relLinks],
+        lineStyle: { width: 2, curveness: 0.2 },
         itemStyle: { color: '#3b82f6' },
       },
     ],
@@ -259,6 +279,7 @@ watch(
               <input v-model="charForm.身份" class="char-input" placeholder="身份" />
               <input v-model="charForm.目标" class="char-input" placeholder="目标" />
               <input v-model="charForm.境界" class="char-input" placeholder="境界" />
+              <input v-model="charForm.关系" class="char-input" placeholder="关系(如 林远(师徒);赵衡(仇敌))" />
               <textarea v-model="charForm.正文" class="char-textarea" placeholder="性格/外貌/履历…(正文,自由描述)" rows="5"></textarea>
               <div class="char-edit-btns">
                 <button class="btn-save-char" :disabled="charSaving" @click="saveCharacter(c, i)">
@@ -285,8 +306,8 @@ watch(
       </article>
 
       <!-- 关系图(P2 角色 + 关系债网络) -->
-      <article v-if="data.debtGraph.length" class="card">
-        <h3 class="block-title">关系图 <span class="title-hint">· 角色 + 关系债网络(可拖拽/缩放)</span></h3>
+      <article v-if="data.debtGraph.length || data.characterRelations.length" class="card">
+        <h3 class="block-title">关系图 <span class="title-hint">· 角色关系(绿) + 关系债(红),可拖拽/缩放</span></h3>
         <EChart v-if="graphOption" :option="graphOption" />
         <ul class="debt-list">
           <li v-for="d in data.debtGraph" :key="d.编号">
