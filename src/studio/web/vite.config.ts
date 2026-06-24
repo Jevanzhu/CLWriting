@@ -14,10 +14,23 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        // vendor 拆包(P2 前端首包优化):echarts/codemirror 大库单独 chunk,主包减负
+        // vendor 拆包(P2 前端首包优化):图表/编辑器按内部边界拆,避免单个懒加载块过大。
         manualChunks(id) {
-          if (id.includes('node_modules/echarts')) return 'echarts'
-          if (id.includes('node_modules/@codemirror') || id.includes('node_modules/codemirror')) return 'codemirror'
+          if (id.includes('node_modules/zrender')) return 'zrender'
+          if (id.includes('node_modules/echarts/lib/chart')) return 'echarts-charts'
+          if (id.includes('node_modules/echarts/lib/component') || id.includes('node_modules/echarts/lib/coord')) {
+            return 'echarts-components'
+          }
+          if (id.includes('node_modules/echarts')) return 'echarts-core'
+          if (id.includes('node_modules/@codemirror/view')) return 'cm-view'
+          if (id.includes('node_modules/@codemirror/state')) return 'cm-state'
+          if (id.includes('node_modules/@codemirror/lang-markdown')) return 'cm-markdown'
+          if (id.includes('node_modules/@codemirror/language') || id.includes('node_modules/@lezer')) return 'cm-language'
+          if (id.includes('node_modules/@codemirror/autocomplete')) return 'cm-autocomplete'
+          if (id.includes('node_modules/@codemirror/commands')) return 'cm-commands'
+          if (id.includes('node_modules/@codemirror/search')) return 'cm-search'
+          if (id.includes('node_modules/@codemirror/lint')) return 'cm-lint'
+          if (id.includes('node_modules/@codemirror') || id.includes('node_modules/codemirror')) return 'cm-addons'
           return undefined
         },
       },

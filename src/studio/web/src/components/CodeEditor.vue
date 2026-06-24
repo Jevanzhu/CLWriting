@@ -1,19 +1,60 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { basicSetup, EditorView } from 'codemirror'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  syntaxHighlighting,
+} from '@codemirror/language'
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import { EditorState, type Extension } from '@codemirror/state'
+import {
+  crosshairCursor,
+  drawSelection,
+  dropCursor,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  keymap,
+  lineNumbers,
+  rectangularSelection,
+} from '@codemirror/view'
 
 const props = defineProps<{ modelValue: string; mode: 'text' | 'md' }>()
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
 
+const editorSetup: Extension[] = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap]),
+]
+
 onMounted(() => {
   if (!el.value) return
   view = new EditorView({
     doc: props.modelValue,
     extensions: [
-      basicSetup,
+      editorSetup,
       EditorView.lineWrapping,
       // 正文模式纯文本（不高亮）；设定模式 MD 语法高亮
       ...(props.mode === 'md' ? [markdown()] : []),

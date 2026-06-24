@@ -29,8 +29,10 @@ interface Channel {
   terminated?: boolean
 }
 const channels = new Map<string, Channel>()
+const sessions = new Map<string, Session>()
 /** session → claude 子进程(dispose 时 kill 防僵尸,Opus P1) */
 const sessionChild = new Map<string, ChildProcess>()
+let sessionSeq = 0
 
 function channel(id: string): Channel {
   let ch = channels.get(id)
@@ -174,9 +176,10 @@ function runClaude(
 
 export const ccDriver: StudioDriver = {
   async startSession(cwd: string, _opts?: SessionOptions): Promise<Session> {
-    const id = `cc-${Date.now()}`
+    const id = `cc-${Date.now()}-${++sessionSeq}`
     const session: Session = { id, cwd, closed: false }
     channel(id)
+    sessions.set(id, session)
     return session
   },
 
@@ -207,7 +210,11 @@ export const ccDriver: StudioDriver = {
   },
 
   async resume(sessionId: string): Promise<Session> {
-    return { id: sessionId, cwd: '', closed: false }
+    const session = sessions.get(sessionId)
+    if (!session || session.closed || !channels.has(sessionId)) {
+      throw new Error(`无法恢复未知或已关闭的 CC session:${sessionId}`)
+    }
+    return session
   },
 
   dispose(session: Session): void {
@@ -222,6 +229,7 @@ export const ccDriver: StudioDriver = {
       ch.waiters = []
     }
     channels.delete(session.id)
+    sessions.delete(session.id)
   },
 
   interrupt(session: Session): void {

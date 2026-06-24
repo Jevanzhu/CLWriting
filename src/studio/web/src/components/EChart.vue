@@ -1,14 +1,40 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import * as echarts from 'echarts'
+import { init, use, type EChartsType } from 'echarts/core'
+import { BarChart, GraphChart, HeatmapChart, LineChart } from 'echarts/charts'
+import {
+  CalendarComponent,
+  GridComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  TitleComponent,
+  TooltipComponent,
+  VisualMapComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
+
+use([
+  BarChart,
+  LineChart,
+  GraphChart,
+  HeatmapChart,
+  CalendarComponent,
+  GridComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  TitleComponent,
+  TooltipComponent,
+  VisualMapComponent,
+  CanvasRenderer,
+])
 
 const props = defineProps<{ option: EChartsOption | null }>()
 const el = ref<HTMLElement>()
-let chart: echarts.ECharts | null = null
+let chart: EChartsType | null = null
 
 onMounted(() => {
-  if (el.value) chart = echarts.init(el.value)
+  if (el.value) chart = init(el.value)
   if (chart && props.option) chart.setOption(props.option)
 })
 
