@@ -25,6 +25,12 @@ Dev/
 .agents/
 .vscode/
 
+# Playwright（e2e 产物 / 缓存，本地生成）
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # 项目级私有备忘
 CLAUDE.md
 AGENTS.md
