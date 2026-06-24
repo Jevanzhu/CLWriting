@@ -23,6 +23,7 @@ type Rhythm = RhythmLong | RhythmShort
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
+const enc = computed(() => encodeURIComponent(name.value))
 const data = ref<Rhythm | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -143,11 +144,13 @@ const emotionOption = computed<EChartsOption | null>(() => {
 
       <!-- 核心反转(短篇) -->
       <article v-if="data.kind === 'short' && data.reversals.length" class="card">
-        <h3 class="block-title">核心反转</h3>
+        <h3 class="block-title">核心反转<span class="block-tip">（点篇名进篇详情）</span></h3>
         <ul class="rev-list">
           <li v-for="r in data.reversals" :key="r.篇号">
-            <span class="rev-no">第 {{ r.篇号 }} 篇 · {{ r.标题 }}</span>
-            <span class="rev-text">{{ r.核心反转 }}</span>
+            <RouterLink class="rev-link" :to="`/books/${enc}/piece/${r.篇号}`">
+              <span class="rev-no">第 {{ r.篇号 }} 篇 · {{ r.标题 }} →</span>
+              <span class="rev-text">{{ r.核心反转 }}</span>
+            </RouterLink>
           </li>
         </ul>
       </article>
@@ -219,5 +222,19 @@ const emotionOption = computed<EChartsOption | null>(() => {
 .rev-text {
   font-size: 14px;
   color: #111827;
+}
+.block-tip {
+  font-weight: normal;
+  color: #9ca3af;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.rev-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.rev-link:hover .rev-no {
+  color: #3b82f6;
 }
 </style>

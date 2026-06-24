@@ -14,6 +14,7 @@ const router = createRouter({
     { path: '/books/:name/health', component: () => import('./pages/Health.vue') },
     { path: '/books/:name/edit', component: () => import('./pages/Editor.vue') },
     { path: '/books/:name/rhythm', component: () => import('./pages/Rhythm.vue') },
+    { path: '/books/:name/piece/:no', component: () => import('./pages/PieceDetail.vue') },
     { path: '/books/:name/leads', component: () => import('./pages/Leads.vue') },
     { path: '/books/:name/settings', component: () => import('./pages/Settings.vue') },
     { path: '/books/:name/workbench', component: () => import('./pages/Workbench.vue') },
