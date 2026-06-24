@@ -26,6 +26,8 @@ import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
 import { registerPiecesRoutes } from './api/pieces.js'
 import { registerStateRoutes } from './api/state.js'
+import { registerIoRoutes } from './api/io.js'
+import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { createStaticHandler } from './static.js'
 
 let routesRegistered = false
@@ -50,6 +52,8 @@ function ensureRoutes(workDir: string | null, token: string): void {
   registerConfigRoutes({ workDir })
   registerPiecesRoutes({ workDir })
   registerStateRoutes({ workDir })
+  registerIoRoutes({ workDir, token })
+  registerKnowledgeRoutes({ workDir, token })
   routesRegistered = true
 }
 
