@@ -53,10 +53,12 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
 
   it('节奏：字数曲线 2 章 + 钩子/情绪分布', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/rhythm`)
-    const d = (await r.json()) as { kind: string; wordCurve: unknown[]; hookTypeDist: Record<string, number> }
+    const d = (await r.json()) as { kind: string; wordCurve: unknown[]; hookTypeDist: Record<string, number>; sceneDist: Record<string, number> }
     expect(d.kind).toBe('long')
     expect(d.wordCurve).toHaveLength(2)
     expect(d.hookTypeDist['悬念钩']).toBe(1)
+    expect(d.sceneDist['对话']).toBe(1)
+    expect(d.sceneDist['战斗']).toBe(1)
   })
 
   it('账本：七类概览（伏笔 1 条进行中）', async () => {
@@ -74,10 +76,12 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
       kind: string
       characters: { 姓名: string; 境界: string }[]
       realm: { 体系: { 名称: string; 序列: string[] }[] } | null
+      characterRelations: { from: string; to: string; type: string }[]
     }
     expect(d.kind).toBe('long')
     expect(d.characters.some((c) => c.姓名 === '林远' && c.境界 === '练气')).toBe(true)
     expect(d.realm?.体系[0]?.序列).toContain('金丹')
+    expect(d.characterRelations.some((rel) => rel.from === '林远' && rel.to === '赵长老' && rel.type === '师徒')).toBe(true)
   })
 
   it('配置：book.yaml 读回', async () => {
