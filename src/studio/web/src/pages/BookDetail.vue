@@ -2,6 +2,8 @@
 import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BookTabs from '../components/BookTabs.vue'
+import EChart from '../components/EChart.vue'
+import type { EChartsOption } from 'echarts'
 
 interface Overview {
   identity: {
@@ -16,6 +18,7 @@ interface Overview {
   progress: { chapters: number; words: number; targetWords?: number; percent?: number }
   state: { state: number; name: string; detail: unknown }
   volumes: { name: string; path: string }[]
+  timeline: { date: string; count: number }[]
 }
 
 const route = useRoute()
@@ -110,6 +113,37 @@ function canWrite(s: Overview['state']): boolean {
 function onWrite(): void {
   router.push(`/books/${encodeURIComponent(name.value)}/edit`)
 }
+
+/** 写作热力(7.2)：定稿时间线日历热力图(GitHub 贡献图风格) */
+const heatOption = computed<EChartsOption | null>(() => {
+  const tl = data.value?.timeline ?? []
+  if (tl.length === 0) return null
+  const year = new Date().getFullYear()
+  const max = Math.max(...tl.map((t) => t.count), 1)
+  const unit = data.value?.identity.kind === 'short' ? '篇' : '章'
+  return {
+    tooltip: {
+      formatter: (params) => {
+        const d = (params as { data?: [string, number] }).data
+        return d ? `${d[0]}：${d[1]} ${unit}` : ''
+      },
+    },
+    visualMap: { show: false, min: 0, max, inRange: { color: ['#e5e7eb', '#bfdbfe', '#3b82f6'] } },
+    calendar: {
+      range: String(year),
+      cellSize: ['auto', 13],
+      left: 30,
+      right: 20,
+      itemStyle: { borderWidth: 2, borderColor: '#fff' },
+      yearLabel: { show: false },
+      dayLabel: { firstDay: 1, nameMap: 'ZH' },
+      monthLabel: { nameMap: 'ZH' },
+    },
+    series: [
+      { type: 'heatmap', coordinateSystem: 'calendar', data: tl.map((t) => [t.date, t.count] as [string, number]) },
+    ],
+  }
+})
 </script>
 
 <template>
@@ -173,6 +207,12 @@ function onWrite(): void {
           <li v-for="v in data.volumes" :key="v.path">{{ v.name }}</li>
         </ul>
         <p v-else class="hint">暂无卷纲(在「编辑」中维护 大纲/卷纲/*.md)</p>
+      </article>
+
+      <!-- 写作热力(7.2) -->
+      <article v-if="heatOption" class="card heat-card">
+        <h3 class="card-title">写作热力 · {{ new Date().getFullYear() }} 年定稿</h3>
+        <EChart :option="heatOption" />
       </article>
     </template>
   </section>
@@ -317,6 +357,9 @@ function onWrite(): void {
   background: #f9fafb;
   border-radius: 6px;
   font-size: 14px;
+}
+.heat-card :deep(.echart) {
+  height: 160px;
 }
 
 .hint {
