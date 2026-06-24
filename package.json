@@ -24,9 +24,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "npm run build:web && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/test-utils": "^2.4.11",

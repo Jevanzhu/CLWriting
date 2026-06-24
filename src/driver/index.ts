@@ -18,8 +18,9 @@ export type {
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()
 
-/** 取 driver:host='mock' → mock(开发/debug);其余 → cc(真 claude CLI) */
+/** 取 driver:env CLWRITING_DRIVER=mock → mock(e2e);host='mock' → mock(开发/debug);其余 → cc(真 claude CLI) */
 export function getDriver(host: string): StudioDriver {
+  if (process.env.CLWRITING_DRIVER === 'mock') return mockDriver
   return host === 'mock' ? mockDriver : ccDriver
 }
 
