@@ -30,7 +30,7 @@ const savedMsg = ref('')
 const phase = ref<'form' | 'onboard'>('form')
 const createdName = ref('')
 const onboardSteps = ref<OnboardStep[]>([])
-/** 按 kind 构建段 2 步骤集（长篇 9 步 / 短篇专属待 5.2 短篇补全） */
+/** 按 kind 构建段 2 步骤集（长篇 9 步 / 短篇 5 步） */
 function buildOnboardSteps(k: 'long' | 'short'): OnboardStep[] {
   if (k === 'short') {
     return [
