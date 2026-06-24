@@ -180,11 +180,15 @@ async function bootstrap(): Promise<void> {
       contextIsolation: true, // 渲染进程隔离（安全）
       sandbox: true, // 沙箱（安全）
       nodeIntegration: false, // 渲染进程不直连 Node（安全）
-      preload: join(here, 'preload.js'), // 书库管理 IPC（批2）
+      preload: join(here, 'preload.cjs'), // 书库管理 IPC（CJS:sandbox preload 不支持 ESM）
     },
   })
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+  // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
+  mainWindow.webContents.on('preload-error', (_e, p, err) => {
+    console.error('PRELOAD-ERROR', p, err.message)
   })
   await mainWindow.loadURL(`http://127.0.0.1:${port}`)
   console.log(`✓ CLWriting 桌面版已启动 → http://127.0.0.1:${port}`)
@@ -256,6 +260,20 @@ function buildMenu(): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+      ],
+    },
+    {
+      label: '视图',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
       ],
     },
   ]
