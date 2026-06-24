@@ -63,4 +63,14 @@ describe('mock driver 契约', () => {
     mockDriver.dispose(session)
     expect(session.closed).toBe(true)
   })
+
+  it('resume 只恢复活跃 session 且保留 cwd', async () => {
+    const session = (await mockDriver.startSession('/tmp/clwriting-mock-resume')) as S
+    const resumed = await mockDriver.resume(session.id)
+    expect(resumed).toBe(session)
+    expect(resumed.cwd).toBe('/tmp/clwriting-mock-resume')
+
+    mockDriver.dispose(session)
+    await expect(mockDriver.resume(session.id)).rejects.toThrow('无法恢复未知或已关闭的 mock session')
+  })
 })

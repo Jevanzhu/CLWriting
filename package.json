@@ -25,7 +25,8 @@
     "test": "vitest run",
     "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
     "test:watch": "vitest",
-    "test:e2e": "npm run build:web && playwright test"
+    "test:e2e": "npm run build:web && playwright test",
+    "test:e2e:true-host": "npm run build:web && playwright test --config playwright.true-host.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

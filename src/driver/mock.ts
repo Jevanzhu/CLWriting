@@ -19,6 +19,8 @@ interface MockChannel {
 }
 
 const channels = new Map<string, MockChannel>()
+const sessions = new Map<string, Session>()
+let sessionSeq = 0
 
 function channel(id: string): MockChannel {
   let ch = channels.get(id)
@@ -40,9 +42,10 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 export const mockDriver: StudioDriver = {
   async startSession(cwd: string, _opts?: SessionOptions): Promise<Session> {
-    const id = `mock-${Date.now()}`
+    const id = `mock-${Date.now()}-${++sessionSeq}`
     const session: Session = { id, cwd, closed: false }
     channel(id)
+    sessions.set(id, session)
     push(id, {
       type: 'init',
       sessionId: id,
@@ -76,7 +79,11 @@ export const mockDriver: StudioDriver = {
   },
 
   async resume(sessionId: string): Promise<Session> {
-    return { id: sessionId, cwd: '', closed: false }
+    const session = sessions.get(sessionId)
+    if (!session || session.closed || !channels.has(sessionId)) {
+      throw new Error(`无法恢复未知或已关闭的 mock session:${sessionId}`)
+    }
+    return session
   },
 
   dispose(session: Session): void {
@@ -87,6 +94,7 @@ export const mockDriver: StudioDriver = {
       ch.waiters = []
     }
     channels.delete(session.id)
+    sessions.delete(session.id)
   },
 }
 
