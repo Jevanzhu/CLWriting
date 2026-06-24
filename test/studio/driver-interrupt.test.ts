@@ -8,7 +8,6 @@
  * stream 消费验证。interrupt 无子进程时不崩、推 interrupted。
  */
 import { test, expect } from 'vitest'
-import type { AsyncGenerator } from 'vitest'
 import { ccDriver } from '../../src/driver/cc.js'
 import type { DriverEvent } from '../../src/driver/types.js'
 

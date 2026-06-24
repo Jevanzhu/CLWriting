@@ -8,11 +8,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { readdirSync, existsSync } from 'node:fs'
+import { readdirSync, existsSync, statSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import { readPieceDir } from '../../../format/pieces.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 
 interface OverviewCtx {
@@ -56,6 +57,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       progress: withTarget(computeProgress(bookRoot, kind), config.book.target_words),
       state,
       volumes: kind === 'short' ? [] : listVolumes(bookRoot),
+      timeline: computeTimeline(bookRoot, kind),
     })
   })
 }
@@ -101,6 +103,35 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
     // 无卷纲目录
   }
   return out
+}
+
+/**
+ * 写作热力（#7.2）：定稿文件 mtime 按日聚合（长篇 定稿正文，短篇 篇正文）。
+ * 返日期-计数列表供总览页日历热力图。mtime 反映定稿落盘时间（够用，git commit 时间更准但贵）。
+ */
+function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: string; count: number }[] {
+  const files: string[] = []
+  if (kind === 'short') {
+    const { pieces } = readPieceDir(join(bookRoot, '篇'))
+    for (const p of pieces) if (p._path) files.push(p._path)
+  } else {
+    const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+    for (const c of chapters) if (c._path) files.push(c._path)
+  }
+  const byDay = new Map<string, number>()
+  for (const fp of files) {
+    let mtime: Date
+    try {
+      mtime = statSync(fp).mtime
+    } catch {
+      continue
+    }
+    const day = mtime.toISOString().slice(0, 10) // YYYY-MM-DD
+    byDay.set(day, (byDay.get(day) ?? 0) + 1)
+  }
+  return [...byDay.entries()]
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 function reply(res: ServerResponse, status: number, body: unknown): void {
