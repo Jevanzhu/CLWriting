@@ -53,3 +53,26 @@ jobs:
 
       - name: 运行时零第三方依赖断言
         run: node -e "const d=require('./package.json').dependencies||{}; if(Object.keys(d).length){console.error('运行时依赖非空:',d);process.exit(1)}"
+
+  e2e:
+    name: e2e (Playwright · chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 装前端依赖（web node_modules）
+        run: npm --prefix src/studio/web ci
+
+      - name: 装 Playwright chromium（含系统依赖）
+        run: npx playwright install --with-deps chromium
+
+      - name: e2e（build:web + mock driver 关键路径）
+        run: npm run test:e2e
