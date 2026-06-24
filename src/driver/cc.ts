@@ -223,4 +223,18 @@ export const ccDriver: StudioDriver = {
     }
     channels.delete(session.id)
   },
+
+  interrupt(session: Session): void {
+    // kill 当前子进程 + 推 interrupted;标 terminated 防 close 再补 done。session 保留可再 spawn
+    const child = sessionChild.get(session.id)
+    if (child && !child.killed) child.kill('SIGTERM')
+    const ch = channel(session.id)
+    ch.terminated = true
+    push(session.id, { type: 'interrupted', reason: 'user_cancel' })
+  },
+
+  emit(session: Session, ev: DriverEvent): void {
+    // 编排层回推自定义事件(如 review 逐角进度)到 session 事件流,经主 SSE 转发前端
+    push(session.id, ev)
+  },
 }

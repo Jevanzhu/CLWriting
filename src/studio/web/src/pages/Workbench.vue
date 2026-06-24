@@ -38,6 +38,12 @@ const outlineSaved = ref<{ path: string; words: number } | null>(null)
 const checkReport = ref('') // 机检报告(check stdout)
 const reviewReport = ref('') // 审稿单(review report 全文)
 const verdictApproved = ref(false)
+// 6.8① enter 自动定位:顶部状态卡(当前态 + 人话)
+const stateInfo = ref<{ stateName: string; humanMsg: string } | null>(null)
+// 6.8② 自动推进开关(默认开;确定性步→确定性步自动,AI/人工步前停)
+const autoAdvance = ref(true)
+// 6.8③ draft 中断:中断后保留已生成,可弃稿/改指令重写
+const interrupted = ref(false)
 let es: EventSource | null = null
 
 function ts(): string {
@@ -73,6 +79,21 @@ function handleEvent(ev: DriverEvent): void {
     case 'usage':
       log.value.push({ t, type: 'usage', text: `成本 $${ev.cost} · ${ev.tokens} tokens` })
       break
+    case 'review-progress':
+      // 6.8④ 三审逐角进度回流
+      log.value.push({
+        t,
+        type: 'spawn',
+        text: `${ev.phase === 'start' ? '🔍' : '✓'} ${String(ev.label ?? '')}审${ev.phase === 'start' ? '中…' : '完'}`,
+      })
+      break
+    case 'interrupted':
+      // 6.8③ draft 中断:保留已生成,等作者弃稿/重写
+      running.value = false
+      draftMode.value = false
+      interrupted.value = true
+      log.value.push({ t, type: 'error', text: `⏹ 已中断(${String(ev.reason ?? '')})——正文已保留,可弃稿或改指令重写` })
+      break
     case 'done':
       running.value = false
       log.value.push({ t, type: 'done', text: `完成(${ev.reason})` })
@@ -86,12 +107,14 @@ function handleEvent(ev: DriverEvent): void {
   }
 }
 
-/** CLI 确定性步:confirm/prepare/check/finalize。check 存机检报告,余入事件流 */
-async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): Promise<void> {
-  if (cliRunning.value || running.value || outlineRunning.value || reviewRunning.value || !name.value) return
+/** CLI 确定性步:confirm/prepare/check/finalize。返回是否成功(供自动推进判断) */
+async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): Promise<boolean> {
+  if (cliRunning.value || running.value || outlineRunning.value || reviewRunning.value || !name.value) return false
   cliRunning.value = true
   activeStage.value = step
+  interrupted.value = false
   log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}…` })
+  let stepOk = false
   try {
     const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/cli`, {
       method: 'POST',
@@ -102,6 +125,7 @@ async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): P
     const out = String(d.stdout ?? '').trim()
     const err = String(d.stderr || d.stdout || '').trim()
     if (d.ok) {
+      stepOk = true
       if (step === 'check') {
         checkReport.value = out
         log.value.push({ t: ts(), type: 'saved', text: `机检 ✓(见机检报告)` })
@@ -118,6 +142,12 @@ async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): P
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
   }
   cliRunning.value = false
+  // 6.8② 自动推进:confirm done → prepare(确定性→确定性);prepare/check 后是 AI 步停;finalize 末步停
+  if (stepOk && autoAdvance.value && step === 'confirm') {
+    log.value.push({ t: ts(), type: 'spawn', text: `→ 自动备料` })
+    void runCliStep('prepare')
+  }
+  return stepOk
 }
 
 /** outline 生成:POST /outline(后端组 prompt + spawnRole('outline')禁工具 + 落盘 细纲) */
@@ -150,6 +180,7 @@ async function outlineGen(): Promise<void> {
 async function draftWrite(): Promise<void> {
   if (running.value || !name.value) return
   draftMode.value = true
+  interrupted.value = false
   saved.value = null
   textOut.value = ''
   running.value = true
@@ -192,6 +223,27 @@ async function draftWrite(): Promise<void> {
   }
 }
 
+/** 6.8③ 中断当前写稿:POST /interrupt → driver kill 子进程 + 推 interrupted */
+async function interruptWrite(): Promise<void> {
+  if (!name.value) return
+  try {
+    await fetch(`/api/books/${encodeURIComponent(name.value)}/interrupt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch {
+    /* interrupted 事件会经 SSE 到达,前端自行收尾 */
+  }
+}
+
+/** 6.8③ 弃稿:清空已生成正文 */
+function discardDraft(): void {
+  textOut.value = ''
+  interrupted.value = false
+  saved.value = null
+  log.value.push({ t: ts(), type: 'error', text: '已弃稿(清空正文)' })
+}
+
 /** 三审:POST /review(run→spawnRole×3 reader/editor/continuity→collect)→ 审稿单 */
 async function reviewRun(): Promise<void> {
   if (reviewRunning.value || running.value || cliRunning.value || outlineRunning.value || !name.value) return
@@ -232,6 +284,11 @@ async function verdictApprove(): Promise<void> {
     if (r.ok && d.ok) {
       verdictApproved.value = true
       log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
+      // 6.8② 自动推进:裁决通过 → 定稿(人工 done → 确定性步)
+      if (autoAdvance.value) {
+        log.value.push({ t: ts(), type: 'spawn', text: `→ 自动定稿` })
+        void runCliStep('finalize')
+      }
     } else {
       log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
     }
@@ -257,6 +314,11 @@ async function saveDraft(): Promise<void> {
     if (r.ok && d.ok) {
       saved.value = { path: d.path ?? '', words: d.words ?? 0 }
       log.value.push({ t: ts(), type: 'saved', text: `已保存 ${d.path}(${d.words} 字)` })
+      // 6.8② 自动推进:draft 落盘 → 机检(AI done → 确定性步)
+      if (autoAdvance.value) {
+        log.value.push({ t: ts(), type: 'spawn', text: `→ 自动机检` })
+        void runCliStep('check')
+      }
     } else {
       log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
     }
@@ -277,14 +339,33 @@ async function loadKind(): Promise<void> {
   }
 }
 
+/** 6.8① enter 自动定位:拉 /state → 顶部状态卡 + 自动填章号 */
+async function loadState(): Promise<void> {
+  if (!name.value) return
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/state`)
+    const d = (await r.json()) as { nextChapter?: number; stateName?: string; humanMsg?: string; error?: string }
+    if (r.ok && !d.error) {
+      stateInfo.value = { stateName: d.stateName ?? '', humanMsg: d.humanMsg ?? '' }
+      if (typeof d.nextChapter === 'number' && d.nextChapter > 0) chapter.value = d.nextChapter
+    }
+  } catch {
+    /* 状态卡可选,失败不阻塞 */
+  }
+}
+
 onMounted(() => {
   if (name.value) {
     connect(name.value)
     void loadKind()
+    void loadState()
   }
 })
 watch(name, (n) => {
-  if (n) connect(n)
+  if (n) {
+    connect(n)
+    void loadState()
+  }
 })
 onUnmounted(() => es?.close())
 </script>
@@ -292,6 +373,12 @@ onUnmounted(() => es?.close())
 <template>
   <section class="wb-page">
     <BookTabs :name="name" active="workbench" />
+
+    <!-- 6.8① 当前状态卡(enter 自动定位) -->
+    <div v-if="stateInfo" class="state-card">
+      <span class="state-tag">【{{ stateInfo.stateName }}】</span>
+      <span class="state-msg">{{ stateInfo.humanMsg }}</span>
+    </div>
 
     <div class="cc-banner">
       ⚡ 八阶段全接(细纲→确认→备料→写稿→机检→三审→定稿)。AI 步(细纲/写稿/三审)经 claude
@@ -308,7 +395,7 @@ onUnmounted(() => es?.close())
       >{{ s.label }}</span>
     </nav>
 
-    <!-- 控制区:七按钮(进入隐含在选章)-->
+    <!-- 控制区:七按钮(进入隐含在选章)+ 自动推进开关 -->
     <article class="card ctrl">
       <div class="ctrl-row">
         <label>{{ kind === 'short' ? '篇号' : '章号' }}
@@ -322,11 +409,23 @@ onUnmounted(() => es?.close())
         <button class="btn-fire" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
           {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
         </button>
+        <!-- 6.8③ 写稿中可中断 -->
+        <button v-if="running" class="btn-stop" @click="interruptWrite">⏹ 中断</button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
         <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
           {{ reviewRunning ? '三审中…' : '📝 三审' }}
         </button>
         <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
+        <!-- 6.8② 自动推进开关 -->
+        <label class="auto-toggle" title="确定性步 done 后自动推进下一步(AI/人工步前停)">
+          <input type="checkbox" v-model="autoAdvance" /> 自动推进
+        </label>
+      </div>
+      <!-- 6.8③ 中断后:弃稿 / 改指令重写 -->
+      <div v-if="interrupted" class="interrupt-bar">
+        <span class="interrupt-tip">写稿已中断,正文已保留({{ textOut.length }} 字)。</span>
+        <button class="btn-cli" @click="discardDraft">🗑 弃稿</button>
+        <button class="btn-fire" @click="draftWrite">🔄 改指令重写</button>
       </div>
       <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成:<span class="mono">{{ outlineSaved.path }}</span>({{ outlineSaved.words }} 字)</p>
       <p v-if="saved" class="saved-tip">✅ 草稿已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
@@ -373,6 +472,21 @@ onUnmounted(() => es?.close())
 .wb-page {
   max-width: 960px;
   margin: 0 auto;
+}
+/* 6.8① 当前状态卡 */
+.state-card {
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #065f46;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.state-tag {
+  font-weight: 700;
+  margin-right: 6px;
 }
 .cc-banner {
   padding: 8px 12px;
@@ -485,6 +599,18 @@ input[type='number'] {
   background: #d1d5db;
   cursor: not-allowed;
 }
+.btn-stop {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-stop:hover {
+  background: #dc2626;
+}
 .btn-review {
   padding: 8px 14px;
   border: 1px solid #7c3aed;
@@ -509,6 +635,19 @@ input[type='number'] {
   font-size: 12px;
   cursor: pointer;
 }
+.auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.auto-toggle input {
+  cursor: pointer;
+}
 .saved-tip {
   margin: 12px 0 0;
   padding: 8px 12px;
@@ -516,6 +655,21 @@ input[type='number'] {
   color: #065f46;
   border-radius: 6px;
   font-size: 13px;
+}
+/* 6.8③ 中断条 */
+.interrupt-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+.interrupt-tip {
+  font-size: 13px;
+  color: #991b1b;
 }
 .mono {
   font-family: ui-monospace, monospace;
