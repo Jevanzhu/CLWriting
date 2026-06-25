@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
@@ -138,25 +139,4 @@ function readSafe(fp: string): string {
   } catch {
     return ''
   }
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

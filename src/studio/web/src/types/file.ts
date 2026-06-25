@@ -8,3 +8,15 @@ export interface FileEntry {
   path: string
   mode: FileMode
 }
+
+export interface DiffLine {
+  type: 'same' | 'add' | 'del'
+  text: string
+}
+
+export interface RewriteResult {
+  mode: 'local' | 'whole'
+  original: string
+  rewritten: string
+  diff: DiffLine[]
+}

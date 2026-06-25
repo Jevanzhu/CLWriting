@@ -16,6 +16,24 @@ export default defineConfig({
       output: {
         // vendor 拆包(P2 前端首包优化):图表/编辑器按内部边界拆,避免单个懒加载块过大。
         manualChunks(id) {
+          if (
+            id.includes('node_modules/vue') ||
+            id.includes('node_modules/@vue') ||
+            id.includes('node_modules/pinia') ||
+            id.includes('node_modules/vue-router')
+          ) {
+            return 'vue-vendor'
+          }
+          if (
+            id.includes('node_modules/naive-ui') ||
+            id.includes('node_modules/@css-render') ||
+            id.includes('node_modules/css-render') ||
+            id.includes('node_modules/vdirs') ||
+            id.includes('node_modules/vooks') ||
+            id.includes('node_modules/treemate')
+          ) {
+            return 'naive-ui'
+          }
           if (id.includes('node_modules/zrender')) return 'zrender'
           if (id.includes('node_modules/echarts/lib/chart')) return 'echarts-charts'
           if (id.includes('node_modules/echarts/lib/component') || id.includes('node_modules/echarts/lib/coord')) {

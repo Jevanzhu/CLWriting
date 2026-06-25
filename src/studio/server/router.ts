@@ -9,6 +9,7 @@
  * GUI 后端同构；端点不多，手写分发器比引框架干净。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { HttpError } from './http.js'
 
 type Handler = (
   req: IncomingMessage,
@@ -23,7 +24,26 @@ interface Route {
   handler: Handler
 }
 
-const routes: Route[] = []
+export type RouteTable = Route[]
+
+const defaultRoutes: RouteTable = []
+let activeRoutes: RouteTable = defaultRoutes
+
+/** 创建独立路由表，供每个 startServer 实例隔离 workDir/token 闭包。 */
+export function createRouteTable(): RouteTable {
+  return []
+}
+
+/** 在指定路由表内执行注册；注册函数仍可直接调用 route()。 */
+export function withRouteTable<T>(routes: RouteTable, fn: () => T): T {
+  const prev = activeRoutes
+  activeRoutes = routes
+  try {
+    return fn()
+  } finally {
+    activeRoutes = prev
+  }
+}
 
 /** 注册路由：path 如 '/api/books/:id/state'，:xxx 作为参数捕获 */
 export function route(method: string, path: string, handler: Handler): void {
@@ -39,11 +59,15 @@ export function route(method: string, path: string, handler: Handler): void {
       return seg.replace(/[.*+?^${}|[\]\\]/g, '\\$&')
     })
     .join('/')
-  routes.push({ method, regex: new RegExp(`^${pattern}$`), keys, handler })
+  activeRoutes.push({ method, regex: new RegExp(`^${pattern}$`), keys, handler })
 }
 
 /** 分发：按注册顺序匹配 method+path，命中调 handler 并返回 true */
-export async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function dispatch(
+  req: IncomingMessage,
+  res: ServerResponse,
+  routes: RouteTable = defaultRoutes,
+): Promise<boolean> {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost')
   for (const r of routes) {
     if (r.method !== req.method) continue
@@ -58,7 +82,8 @@ export async function dispatch(req: IncomingMessage, res: ServerResponse): Promi
       await r.handler(req, res, params)
     } catch (e) {
       if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+        const status = e instanceof HttpError ? e.status : 500
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
       }
     }

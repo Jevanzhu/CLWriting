@@ -3,27 +3,13 @@ import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption } from 'echarts'
-
-interface Overview {
-  identity: {
-    name: string
-    kind: 'long' | 'short'
-    path: string
-    created_at?: string
-    title: string
-    genre: string
-    host: string
-  }
-  progress: { chapters: number; words: number; targetWords?: number; percent?: number }
-  state: { state: number; name: string; detail: unknown }
-  volumes: { name: string; path: string }[]
-  timeline: { date: string; count: number }[]
-}
+import type { BookOverview } from '../types'
+import { getOverview } from '../api/books'
 
 const route = useRoute()
 const router = useRouter()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<Overview | null>(null)
+const data = ref<BookOverview | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -32,12 +18,7 @@ async function load(n: string): Promise<void> {
   error.value = ''
   data.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/overview`)
-    if (!r.ok) {
-      const e = (await r.json().catch(() => ({}))) as { error?: string }
-      throw new Error(e.error ?? `HTTP ${r.status}`)
-    }
-    data.value = (await r.json()) as Overview
+    data.value = await getOverview(n)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -71,7 +52,7 @@ function fmtWords(n: number): string {
 }
 
 /** 状态机细节 → 人话提示（按态取关键字段） */
-function stateHint(s: Overview['state']): string {
+function stateHint(s: BookOverview['state']): string {
   const d = (s.detail ?? {}) as Record<string, unknown>
   switch (s.state) {
     case 7: {
@@ -104,7 +85,7 @@ function stateHint(s: Overview['state']): string {
 }
 
 /** 是否可继续写作(态 7 起草;态 5/8 也算可推进) */
-function canWrite(s: Overview['state']): boolean {
+function canWrite(s: BookOverview['state']): boolean {
   return s.state === 7 || s.state === 5 || s.state === 8
 }
 

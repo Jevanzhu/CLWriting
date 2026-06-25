@@ -3,21 +3,16 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
 import DiffView from '../components/DiffView.vue'
-
-interface FileEntry {
-  path: string
-  mode: 'text' | 'md'
-}
-interface DiffLine {
-  type: 'same' | 'add' | 'del'
-  text: string
-}
-interface RewriteResult {
-  mode: 'local' | 'whole'
-  original: string
-  rewritten: string
-  diff: DiffLine[]
-}
+import type { FileEntry, RewriteResult } from '../types'
+import {
+  applyRewrite,
+  getConfig,
+  listFiles,
+  readFile,
+  revertBook,
+  rewriteDraft,
+  writeFile,
+} from '../api/books'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,9 +42,8 @@ const draftChapter = computed<number | null>(() => {
 const kind = ref<'long' | 'short'>('long')
 async function loadKind(): Promise<void> {
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`)
-    const d = (await r.json()) as { config?: { kind?: string } }
-    kind.value = (d.config?.kind ?? 'long') === 'short' ? 'short' : 'long'
+    const config = await getConfig(name.value)
+    kind.value = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
   } catch {
     /* ignore */
   }
@@ -64,10 +58,7 @@ const dirty = computed(() => content.value !== original.value)
 async function loadFiles(): Promise<void> {
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/files`)
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const data = (await r.json()) as { files: FileEntry[] }
-    files.value = data.files ?? []
+    files.value = await listFiles(name.value)
     // 文件导航归左栏 FileTree：无 query 时设默认 file，让 FileTree 高亮与 selected 一致
     if (files.value.length > 0 && !route.query.file) {
       void router.replace({ query: { file: files.value[0]!.path } })
@@ -83,13 +74,9 @@ async function loadFile(): Promise<void> {
   error.value = ''
   rewriteResult.value = null
   try {
-    const r = await fetch(
-      `/api/books/${encodeURIComponent(name.value)}/file?file=${encodeURIComponent(selected.value)}`,
-    )
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const data = (await r.json()) as { content: string }
-    content.value = data.content
-    original.value = data.content
+    const data = await readFile(name.value, selected.value)
+    content.value = data
+    original.value = data
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -102,15 +89,7 @@ async function save(): Promise<void> {
   saving.value = true
   error.value = ''
   try {
-    const r = await fetch(
-      `/api/books/${encodeURIComponent(name.value)}/file?file=${encodeURIComponent(selected.value)}`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content: content.value }),
-      },
-    )
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    await writeFile(name.value, selected.value, content.value)
     original.value = content.value
     savedMsg.value = '已保存'
     setTimeout(() => (savedMsg.value = ''), 1500)
@@ -133,13 +112,7 @@ async function revert(): Promise<void> {
   reverting.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/revert`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chapter }),
-    })
-    const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string }
-    if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
+    const data = await revertBook(name.value, chapter)
     savedMsg.value = data.message ?? '已回滚'
     setTimeout(() => (savedMsg.value = ''), 3000)
     await loadFiles()
@@ -171,35 +144,13 @@ async function rewriteRun(mode: 'local' | 'whole'): Promise<void> {
   error.value = ''
   rewriteResult.value = null
   try {
-    const body: Record<string, unknown> = {
+    const body: { chapter: number; mode: 'local' | 'whole'; instruction: string; selection?: string } = {
       chapter: draftChapter.value,
       mode,
       instruction: rewriteInstruction.value.trim(),
     }
     if (mode === 'local') body.selection = selection
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/rewrite`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const d = (await r.json().catch(() => ({}))) as {
-      ok?: boolean
-      mode?: 'local' | 'whole'
-      original?: string
-      rewritten?: string
-      diff?: DiffLine[]
-      error?: string
-    }
-    if (r.ok && d.ok) {
-      rewriteResult.value = {
-        mode: d.mode ?? mode,
-        original: d.original ?? '',
-        rewritten: d.rewritten ?? '',
-        diff: d.diff ?? [],
-      }
-    } else {
-      error.value = d.error ?? `HTTP ${r.status}`
-    }
+    rewriteResult.value = await rewriteDraft(name.value, body)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -212,23 +163,18 @@ async function rewriteApply(accept: boolean): Promise<void> {
   rewriteApplying.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/rewrite-apply`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chapter: draftChapter.value, content: rewriteResult.value.rewritten, accept }),
+    const d = await applyRewrite(name.value, {
+      chapter: draftChapter.value,
+      content: rewriteResult.value.rewritten,
+      accept,
     })
-    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; applied?: boolean; error?: string }
-    if (r.ok && d.ok) {
-      if (accept && d.applied) {
-        content.value = rewriteResult.value.rewritten
-        original.value = rewriteResult.value.rewritten
-        savedMsg.value = '改写已落盘(原稿备份 草稿-' + draftChapter.value + '.bak.md)'
-        setTimeout(() => (savedMsg.value = ''), 3000)
-      }
-      rewriteResult.value = null
-    } else {
-      error.value = d.error ?? `HTTP ${r.status}`
+    if (accept && d.applied) {
+      content.value = rewriteResult.value.rewritten
+      original.value = rewriteResult.value.rewritten
+      savedMsg.value = '改写已落盘(原稿备份 草稿-' + draftChapter.value + '.bak.md)'
+      setTimeout(() => (savedMsg.value = ''), 3000)
     }
+    rewriteResult.value = null
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }

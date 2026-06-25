@@ -7,9 +7,9 @@
  * 复用内核聚合函数，直接返结构化对象（不走人话 format）。后端零新增逻辑。
  * 空书（count=0）照常返对象，前端渲染空态。
  */
-import type { ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
+import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readMetrics } from '../../../metrics/ledger.js'
@@ -55,9 +55,4 @@ function resolveBook(
 function resolveKind(bookRoot: string): 'long' | 'short' {
   const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
   return config.kind === 'short' ? 'short' : 'long'
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

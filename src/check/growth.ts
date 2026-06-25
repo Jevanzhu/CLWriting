@@ -68,6 +68,16 @@ export function checkGrowth(
       }
     }
 
+    if (!currentRealm && realmDoc && realmDoc.体系.length > 0) {
+      items.push({
+        checkId: 'growth-current-realm-missing',
+        level: 'red',
+        message: `${id} 缺少当前境界，无法确定应使用哪套境界序列，成长线跃迁检测未完整生效。`,
+        leadId: id,
+      })
+      continue
+    }
+
     // #1 命中：当前境界在序列内
     if (currentRealm && realmDoc && realmDoc.体系.length > 0 && !sequence) {
       items.push({

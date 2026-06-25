@@ -9,6 +9,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { route } from '../router.js'
+import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -131,9 +132,4 @@ function stripInternal(l: Lead): Record<string, unknown> {
     if (!k.startsWith('_')) out[k] = v
   }
   return out
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

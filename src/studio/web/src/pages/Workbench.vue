@@ -2,6 +2,18 @@
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useWorkbenchLog } from '../composables/useWorkbenchLog'
+import {
+  approveReview,
+  generateOutline,
+  getConfig,
+  getDraftPrompt,
+  getState,
+  interruptBook,
+  runCli,
+  runReview,
+  saveDraft as saveDraftApi,
+  spawnRole,
+} from '../api/books'
 
 /** driver 事件(松类型,按 type 分支取字段) */
 interface DriverEvent {
@@ -117,12 +129,7 @@ async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): P
   log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}…` })
   let stepOk = false
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/cli`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ step, chapter: chapter.value }),
-    })
-    const d = (await r.json()) as { ok?: boolean; stdout?: string; stderr?: string }
+    const d = await runCli(name.value, { step, chapter: chapter.value })
     const out = String(d.stdout ?? '').trim()
     const err = String(d.stderr || d.stdout || '').trim()
     if (d.ok) {
@@ -159,18 +166,9 @@ async function outlineGen(): Promise<void> {
   activeStage.value = 'outline'
   log.value.push({ t: ts(), type: 'spawn', text: `生成第 ${chapter.value} ${kind.value === 'short' ? '篇篇纲' : '章细纲'}…` })
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/outline`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chapter: chapter.value }),
-    })
-    const d = (await r.json()) as { ok?: boolean; path?: string; words?: number; error?: string }
-    if (r.ok && d.ok) {
-      outlineSaved.value = { path: d.path ?? '', words: d.words ?? 0 }
-      log.value.push({ t: ts(), type: 'saved', text: `${kind.value === 'short' ? '篇纲' : '细纲'}已生成 ${d.path}(${d.words} 字)` })
-    } else {
-      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
-    }
+    const d = await generateOutline(name.value, chapter.value)
+    outlineSaved.value = d
+    log.value.push({ t: ts(), type: 'saved', text: `${kind.value === 'short' ? '篇纲' : '细纲'}已生成 ${d.path}(${d.words} 字)` })
   } catch (e) {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
   }
@@ -189,9 +187,7 @@ async function draftWrite(): Promise<void> {
   // 拉后端组的 draft prompt(细纲+备料,方案 6.6)
   let prompt = ''
   try {
-    const pr = await fetch(`/api/books/${encodeURIComponent(name.value)}/draft-prompt?chapter=${chapter.value}`)
-    const pd = (await pr.json()) as { prompt?: string; error?: string }
-    prompt = pd.prompt ?? ''
+    prompt = await getDraftPrompt(name.value, chapter.value)
   } catch (e) {
     running.value = false
     draftMode.value = false
@@ -206,17 +202,7 @@ async function draftWrite(): Promise<void> {
   }
   log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} ${kind.value === 'short' ? '篇(含篇纲)' : '章(含细纲+备料)'}` })
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/spawn`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'writer', prompt, mode: 'spawnRole' }),
-    })
-    if (!r.ok) {
-      running.value = false
-      draftMode.value = false
-      const e = (await r.json().catch(() => ({}))) as { error?: string }
-      log.value.push({ t: ts(), type: 'error', text: e.error ?? `HTTP ${r.status}` })
-    }
+    await spawnRole(name.value, { role: 'writer', prompt, mode: 'spawnRole' })
   } catch (e) {
     running.value = false
     draftMode.value = false
@@ -228,10 +214,7 @@ async function draftWrite(): Promise<void> {
 async function interruptWrite(): Promise<void> {
   if (!name.value) return
   try {
-    await fetch(`/api/books/${encodeURIComponent(name.value)}/interrupt`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-    })
+    await interruptBook(name.value)
   } catch {
     /* interrupted 事件会经 SSE 到达,前端自行收尾 */
   }
@@ -254,18 +237,9 @@ async function reviewRun(): Promise<void> {
   activeStage.value = 'review'
   log.value.push({ t: ts(), type: 'spawn', text: `三审第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}(run→镜头审→collect)…` })
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/review`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chapter: chapter.value }),
-    })
-    const d = (await r.json()) as { ok?: boolean; lenses?: string[]; report?: string; error?: string }
-    if (r.ok && d.ok) {
-      reviewReport.value = d.report ?? ''
-      log.value.push({ t: ts(), type: 'saved', text: `三审 ✓ 视角:${(d.lenses ?? []).join('/')}(见审稿单)` })
-    } else {
-      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
-    }
+    const d = await runReview(name.value, chapter.value)
+    reviewReport.value = d.report ?? ''
+    log.value.push({ t: ts(), type: 'saved', text: `三审 ✓ 视角:${(d.lenses ?? []).join('/')}(见审稿单)` })
   } catch (e) {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
   }
@@ -276,22 +250,13 @@ async function reviewRun(): Promise<void> {
 async function verdictApprove(): Promise<void> {
   if (!name.value || !reviewReport.value) return
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/review-verdict`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ approved: true }),
-    })
-    const d = (await r.json()) as { ok?: boolean; approved?: boolean; error?: string }
-    if (r.ok && d.ok) {
-      verdictApproved.value = true
-      log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
-      // 6.8② 自动推进:裁决通过 → 定稿(人工 done → 确定性步)
-      if (autoAdvance.value) {
-        log.value.push({ t: ts(), type: 'spawn', text: `→ 自动定稿` })
-        void runCliStep('finalize')
-      }
-    } else {
-      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    await approveReview(name.value)
+    verdictApproved.value = true
+    log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
+    // 6.8② 自动推进:裁决通过 → 定稿(人工 done → 确定性步)
+    if (autoAdvance.value) {
+      log.value.push({ t: ts(), type: 'spawn', text: `→ 自动定稿` })
+      void runCliStep('finalize')
     }
   } catch (e) {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
@@ -306,22 +271,13 @@ async function saveDraft(): Promise<void> {
     return
   }
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/draft-save`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chapter: chapter.value, content }),
-    })
-    const d = (await r.json()) as { ok?: boolean; path?: string; words?: number; error?: string }
-    if (r.ok && d.ok) {
-      saved.value = { path: d.path ?? '', words: d.words ?? 0 }
-      log.value.push({ t: ts(), type: 'saved', text: `已保存 ${d.path}(${d.words} 字)` })
-      // 6.8② 自动推进:draft 落盘 → 机检(AI done → 确定性步)
-      if (autoAdvance.value) {
-        log.value.push({ t: ts(), type: 'spawn', text: `→ 自动机检` })
-        void runCliStep('check')
-      }
-    } else {
-      log.value.push({ t: ts(), type: 'error', text: d.error ?? `HTTP ${r.status}` })
+    const d = await saveDraftApi(name.value, { chapter: chapter.value, content })
+    saved.value = d
+    log.value.push({ t: ts(), type: 'saved', text: `已保存 ${d.path}(${d.words} 字)` })
+    // 6.8② 自动推进:draft 落盘 → 机检(AI done → 确定性步)
+    if (autoAdvance.value) {
+      log.value.push({ t: ts(), type: 'spawn', text: `→ 自动机检` })
+      void runCliStep('check')
     }
   } catch (e) {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
@@ -332,9 +288,8 @@ async function saveDraft(): Promise<void> {
 const kind = ref<'long' | 'short'>('long')
 async function loadKind(): Promise<void> {
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`)
-    const d = (await r.json()) as { config?: { kind?: string } }
-    kind.value = (d.config?.kind ?? 'long') === 'short' ? 'short' : 'long'
+    const config = await getConfig(name.value)
+    kind.value = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
   } catch {
     /* ignore */
   }
@@ -344,12 +299,9 @@ async function loadKind(): Promise<void> {
 async function loadState(): Promise<void> {
   if (!name.value) return
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/state`)
-    const d = (await r.json()) as { nextChapter?: number; stateName?: string; humanMsg?: string; error?: string }
-    if (r.ok && !d.error) {
-      stateInfo.value = { stateName: d.stateName ?? '', humanMsg: d.humanMsg ?? '' }
-      if (typeof d.nextChapter === 'number' && d.nextChapter > 0) chapter.value = d.nextChapter
-    }
+    const d = await getState(name.value)
+    stateInfo.value = { stateName: d.stateName ?? '', humanMsg: d.humanMsg ?? '' }
+    if (typeof d.nextChapter === 'number' && d.nextChapter > 0) chapter.value = d.nextChapter
   } catch {
     /* 状态卡可选,失败不阻塞 */
   }

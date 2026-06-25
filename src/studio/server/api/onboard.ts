@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
@@ -157,25 +158,4 @@ function buildOnboardPrompt(step: OnboardStep, title: string, genre: string, kin
     case 'first-outline':
       return `## 任务\n为这部${genre}短篇集《${title}》生成首篇细纲。\n\n${ctx}\n\n## 要求\n产出首篇细纲(单篇结构),含:目标情绪、核心反转、五段结构(开场/发展/转折/高潮/余韵,每段一句话)、伏笔回收设计、字数预估(8000-20000)。${common}`
   }
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

@@ -8,7 +8,7 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { dispatch } from './router.js'
+import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
@@ -31,32 +31,32 @@ import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { createStaticHandler } from './static.js'
 
-let routesRegistered = false
-
-/** 注册 REST 路由（幂等，避免多入口重复注册） */
-function ensureRoutes(workDir: string | null, token: string): void {
-  if (routesRegistered) return
-  registerBookRoutes({ workDir, token })
-  registerHealthRoutes({ workDir })
-  registerFileRoutes({ workDir })
-  registerOverviewRoutes({ workDir })
-  registerRhythmRoutes({ workDir })
-  registerLeadsRoutes({ workDir })
-  registerSettingsRoutes({ workDir })
-  registerStreamRoutes({ workDir })
-  registerDraftRoutes({ workDir })
-  registerOutlineRoutes({ workDir })
-  registerCliRoutes({ workDir })
-  registerReviewRoutes({ workDir })
-  registerOnboardRoutes({ workDir })
-  registerRewriteRoutes({ workDir })
-  registerConfigRoutes({ workDir })
-  registerPiecesRoutes({ workDir })
-  registerStateRoutes({ workDir })
-  registerIoRoutes({ workDir, token })
-  registerKnowledgeRoutes({ workDir, token })
-  registerHeartbeatRoutes({ workDir })
-  routesRegistered = true
+/** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
+function buildRoutes(workDir: string | null, token: string): RouteTable {
+  const routes = createRouteTable()
+  withRouteTable(routes, () => {
+    registerBookRoutes({ workDir, token })
+    registerHealthRoutes({ workDir })
+    registerFileRoutes({ workDir })
+    registerOverviewRoutes({ workDir })
+    registerRhythmRoutes({ workDir })
+    registerLeadsRoutes({ workDir })
+    registerSettingsRoutes({ workDir })
+    registerStreamRoutes({ workDir })
+    registerDraftRoutes({ workDir })
+    registerOutlineRoutes({ workDir })
+    registerCliRoutes({ workDir })
+    registerReviewRoutes({ workDir })
+    registerOnboardRoutes({ workDir })
+    registerRewriteRoutes({ workDir })
+    registerConfigRoutes({ workDir })
+    registerPiecesRoutes({ workDir })
+    registerStateRoutes({ workDir })
+    registerIoRoutes({ workDir, token })
+    registerKnowledgeRoutes({ workDir, token })
+    registerHeartbeatRoutes({ workDir })
+  })
+  return routes
 }
 
 export interface StudioServerOptions {
@@ -71,7 +71,7 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
-  ensureRoutes(opts.workDir ?? null, studioToken)
+  const routes = buildRoutes(opts.workDir ?? null, studioToken)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 
@@ -119,7 +119,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
 
     // API 优先
     if (req.url?.startsWith('/api/')) {
-      const matched = await dispatch(req, res)
+      const matched = await dispatch(req, res, routes)
       if (matched || res.headersSent) return
       res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'not found' }))

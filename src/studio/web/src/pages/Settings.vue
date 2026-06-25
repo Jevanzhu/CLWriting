@@ -3,44 +3,8 @@ import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import EChart from '../components/EChart.vue'
-
-interface RealmSystem {
-  名称: string
-  序列: string[]
-}
-interface FreeCard {
-  标题: string
-  摘要: string
-}
-interface CharacterCard {
-  file: string
-  姓名: string
-  身份: string
-  目标: string
-  境界: string
-  关系: string
-  正文: string
-}
-interface CharacterRelation {
-  from: string
-  to: string
-  type: string
-}
-interface DebtEdge {
-  编号: string
-  标题: string
-  状态: string
-  欠方: string
-  债主: string
-}
-interface SettingsData {
-  kind: 'long'
-  realm: { 体系: RealmSystem[]; 正文?: string } | null
-  characters: CharacterCard[]
-  timeline: FreeCard[]
-  debtGraph: DebtEdge[]
-  characterRelations: CharacterRelation[]
-}
+import type { CharacterCard, RealmSystem, SettingsData } from '../types'
+import { getSettings, updateCharacter, updateRealm } from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
@@ -53,12 +17,7 @@ async function load(n: string): Promise<void> {
   error.value = ''
   data.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/settings`)
-    if (!r.ok) {
-      const e = (await r.json().catch(() => ({}))) as { error?: string }
-      throw new Error(e.error ?? `HTTP ${r.status}`)
-    }
-    data.value = (await r.json()) as SettingsData
+    data.value = await getSettings(n)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -84,20 +43,11 @@ async function saveCharacter(c: CharacterCard, i: number): Promise<void> {
   }
   charSaving.value = true
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/settings/character`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(charForm.value),
-    })
-    const d = (await r.json()) as { ok?: boolean; error?: string }
-    if (r.ok && d.ok) {
-      if (data.value && data.value.characters[i]) {
-        data.value.characters[i] = { ...charForm.value, file: c.file }
-      }
-      editingChar.value = null
-    } else {
-      alert(d.error ?? `HTTP ${r.status}`)
+    await updateCharacter(name.value, charForm.value)
+    if (data.value && data.value.characters[i]) {
+      data.value.characters[i] = { ...charForm.value, file: c.file }
     }
+    editingChar.value = null
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
   }
@@ -141,20 +91,12 @@ async function saveRealm(): Promise<void> {
     }))
   const 正文 = realmForm.value.正文.trim()
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/settings/realm`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ 体系, ...(正文 ? { 正文 } : {}) }),
-    })
-    const d = (await r.json()) as { ok?: boolean; error?: string }
-    if (r.ok && d.ok) {
-      if (data.value) {
-        data.value.realm = { 体系, ...(正文 ? { 正文 } : {}) }
-      }
-      editingRealm.value = false
-    } else {
-      alert(d.error ?? `HTTP ${r.status}`)
+    const payload: { 体系: RealmSystem[]; 正文?: string } = { 体系, ...(正文 ? { 正文 } : {}) }
+    await updateRealm(name.value, payload)
+    if (data.value) {
+      data.value.realm = payload
     }
+    editingRealm.value = false
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
   }

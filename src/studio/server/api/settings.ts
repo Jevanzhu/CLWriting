@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative } from 'node:path'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readRealmDoc, writeRealmDoc } from '../../../format/realms.js'
@@ -258,25 +259,4 @@ function readFreeMd(filePath: string): { 标题: string; 摘要: string } {
   const body = text.replace(/^#[^\n]*\n?/m, '').trim()
   const 摘要 = body.slice(0, 120).trim()
   return { 标题, 摘要 }
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

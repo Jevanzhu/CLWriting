@@ -8,12 +8,14 @@
  * check/finalize 长篇传 工作区/草稿-<章号>.md,短篇不传(默认 草稿-1.md 候选);enter 无参。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { spawn } from 'node:child_process'
-import { join, dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { resolveSpawnTarget, runClwritingCli } from '../cli-runner.js'
+
+export { resolveSpawnTarget }
 
 interface CliCtx {
   workDir: string | null
@@ -21,10 +23,6 @@ interface CliCtx {
 
 /** 允许的确定性 CLI 步(白名单防注入) */
 const ALLOWED_STEPS = new Set(['prepare', 'confirm', 'check', 'finalize', 'enter'])
-
-/** Electron 运行时?Electron 下 spawn clwriting CLI 需 ELECTRON_RUN_AS_NODE + 定位 dist/cli.js */
-const isElectron = !!process.versions.electron
-const here = dirname(fileURLToPath(import.meta.url))
 
 export function registerCliRoutes(ctx: CliCtx): void {
   route('POST', '/api/books/:name/cli', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -46,7 +44,7 @@ export function registerCliRoutes(ctx: CliCtx): void {
       args.push(`工作区/草稿-${chapter}.md`)
     }
 
-    const result = await runClwriting(args, bookRoot)
+    const result = await runClwritingCli(args, bookRoot)
     reply(res, result.ok ? 200 : 500, { ...result, step })
   })
 }
@@ -56,62 +54,4 @@ function readKind(bookRoot: string): 'long' | 'short' {
   const r = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!r.ok) return 'long'
   return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
-}
-
-/** 定位 clwriting CLI spawn 目标（双模式,#electron）。
- *  studio 模式:node + process.argv[1](=dist/cli.js)。
- *  Electron 模式:electron + ELECTRON_RUN_AS_NODE + here/../cli.js(否则 electron 会起 GUI)。 */
-export function resolveSpawnTarget(
-  isElectron: boolean,
-  here: string,
-  argv1: string,
-): { cliJs: string; useRunAsNode: boolean } {
-  return isElectron
-    ? { cliJs: resolve(here, '..', 'cli.js'), useRunAsNode: true }
-    : { cliJs: argv1, useRunAsNode: false }
-}
-
-/** spawn clwriting CLI 跑确定性步(cwd=bookRoot)。
- *  studio 模式:node dist/cli.js(process.argv[1])。
- *  Electron 模式:electron + ELECTRON_RUN_AS_NODE=1 跑 dist/cli.js(here/../cli.js),否则 electron 会起 GUI。 */
-function runClwriting(
-  args: string[],
-  cwd: string,
-): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
-  const { cliJs, useRunAsNode } = resolveSpawnTarget(isElectron, here, process.argv[1] as string)
-  const env = useRunAsNode ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env
-  return new Promise((done) => {
-    const child = spawn(process.execPath, [cliJs, ...args], { cwd, env })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => {
-      stdout += c.toString()
-    })
-    child.stderr.on('data', (c) => {
-      stderr += c.toString()
-    })
-    child.on('error', (e) => done({ ok: false, code: -1, stdout, stderr: e.message }))
-    child.on('close', (code) => done({ ok: code === 0, code: code ?? 0, stdout, stderr }))
-  })
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

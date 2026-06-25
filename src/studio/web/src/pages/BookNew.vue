@@ -1,19 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-
-interface OnboardResult {
-  path: string
-  words: number
-  content: string
-}
-interface OnboardStep {
-  key: 'synopsis' | 'characters' | 'world' | 'realm' | 'volume' | 'leads-seed' | 'style-sample' | 'style-rules' | 'style-quotes' | 'collection-pitch' | 'first-outline'
-  label: string
-  running: boolean
-  result: OnboardResult | null
-  skipped?: boolean
-}
+import type { OnboardStep } from '../types'
+import { createBook, runOnboardStep, saveOnboardStep } from '../api/books'
 
 const router = useRouter()
 const name = ref('')
@@ -66,26 +55,21 @@ async function submit(): Promise<void> {
   submitting.value = true
   error.value = ''
   try {
-    const body: Record<string, unknown> = {
+    const body = {
       name: name.value.trim(),
       genre: genre.value.trim(),
       kind: kind.value,
       host: 'cc',
     }
     // 长篇且用户勾选了扩展类才传；留空 → doInit 按题材自动推荐
-    if (kind.value === 'long' && leads.value.length > 0) body.leads = leads.value
+    const request = { ...body } as Parameters<typeof createBook>[0]
+    if (kind.value === 'long' && leads.value.length > 0) request.leads = leads.value
     // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
     const tw = Number(targetWords.value)
-    if (Number.isFinite(tw) && tw > 0) body.targetWords = tw
+    if (Number.isFinite(tw) && tw > 0) request.targetWords = tw
     // 简介（可选，落 简介.md）
-    if (brief.value.trim()) body.brief = brief.value.trim()
-    const r = await fetch('/api/books', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = (await r.json().catch(() => ({}))) as { name?: string; error?: string }
-    if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
+    if (brief.value.trim()) request.brief = brief.value.trim()
+    const data = await createBook(request)
     createdName.value = data.name ?? name.value.trim()
     phase.value = 'onboard' // 建书成功 → 进段 2(不直接跳单书)
     onboardSteps.value = buildOnboardSteps(kind.value)
@@ -104,17 +88,7 @@ async function onboardRun(step: OnboardStep['key']): Promise<void> {
   s.result = null
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(createdName.value)}/onboard-ai`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ step }),
-    })
-    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; path?: string; words?: number; content?: string; error?: string }
-    if (r.ok && d.ok) {
-      s.result = { path: d.path ?? '', words: d.words ?? 0, content: d.content ?? '' }
-    } else {
-      error.value = d.error ?? `HTTP ${r.status}`
-    }
+    s.result = await runOnboardStep(createdName.value, step)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -125,19 +99,10 @@ async function onboardRun(step: OnboardStep['key']): Promise<void> {
 async function onboardSave(s: OnboardStep): Promise<void> {
   if (!s.result || !createdName.value) return
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(createdName.value)}/onboard-save`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ step: s.key, content: s.result.content }),
-    })
-    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; words?: number; error?: string }
-    if (r.ok && d.ok) {
-      s.result.words = d.words ?? s.result.content.length
-      savedMsg.value = `✓ ${s.label} 已保存`
-      error.value = ''
-    } else {
-      error.value = d.error ?? `HTTP ${r.status}`
-    }
+    const d = await saveOnboardStep(createdName.value, s.key, s.result.content)
+    s.result.words = d.words ?? s.result.content.length
+    savedMsg.value = `✓ ${s.label} 已保存`
+    error.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
