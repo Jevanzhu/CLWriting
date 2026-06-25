@@ -67,6 +67,23 @@ describe('Bookshelf 书架', () => {
     expect(w.find('.book-name').text()).toBe('书A')
   })
 
+  it('书库 → 长篇/短篇 → 具体书：按三级层级渲染', async () => {
+    setDesktop(null)
+    mockBooks([
+      { name: '长篇A', kind: 'long' },
+      { name: '短篇B', kind: 'short' },
+    ])
+    const w = mount(Bookshelf)
+    await flushPromises()
+    const groups = w.findAll('.book-group')
+    expect(w.find('.panel-title').text()).toBe('书库')
+    expect(groups).toHaveLength(2)
+    expect(groups[0]!.find('h2').text()).toBe('长篇')
+    expect(groups[0]!.find('.book-name').text()).toBe('长篇A')
+    expect(groups[1]!.find('h2').text()).toBe('短篇')
+    expect(groups[1]!.find('.book-name').text()).toBe('短篇B')
+  })
+
   it('桌面版（有 desktop）→ 渲染「打开书库」+ 最近下拉 + 当前书库名', async () => {
     setDesktop({
       getRecentLibraries: vi.fn().mockResolvedValue([{ path: '/lib2', label: 'lib2' }]),

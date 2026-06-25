@@ -96,7 +96,9 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   const books = readBooks(wd)
   expect(books).toHaveLength(1)
   expect(books[0]!.name).toBe('北境往事')
+  expect(books[0]!.path).toBe('长篇/北境往事')
   expect(books[0]!.kind).toBe('long')
+  expect(existsSync(join(wd, '长篇', '北境往事'))).toBe(true)
   expect(readActive(wd)).toBe('北境往事')
 
   rmSync(wd, { recursive: true, force: true })

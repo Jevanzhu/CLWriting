@@ -20,12 +20,12 @@ export function makeDualTrackWorkdir(): string {
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
     [
-      JSON.stringify({ name: LONG_BOOK, path: LONG_BOOK, kind: 'long' }),
-      JSON.stringify({ name: SHORT_BOOK, path: SHORT_BOOK, kind: 'short' }),
+      JSON.stringify({ name: LONG_BOOK, path: `长篇/${LONG_BOOK}`, kind: 'long' }),
+      JSON.stringify({ name: SHORT_BOOK, path: `短篇/${SHORT_BOOK}`, kind: 'short' }),
     ].join('\n') + '\n',
   )
-  makeLongBook(join(workDir, LONG_BOOK))
-  makeShortBook(join(workDir, SHORT_BOOK))
+  makeLongBook(join(workDir, '长篇', LONG_BOOK))
+  makeShortBook(join(workDir, '短篇', SHORT_BOOK))
   return workDir
 }
 

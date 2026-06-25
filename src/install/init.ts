@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { generateRoleShells, type ShellPlatform } from '../roles/shells.js'
 import { matchGenreLeads } from './data.js'
-import { appendBook, writeActive, readBooks } from './books.js'
+import { appendBook, writeActive, readBooks, bookStoragePath } from './books.js'
 import { scaffoldBookRepo, findGitAncestor, type BookScaffoldOpts } from './scaffold.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { LeadType } from '../format/types.js'
@@ -40,7 +40,7 @@ export interface InitOptions {
 }
 
 export type InitResult =
-  | { ok: true; workDir: string; bookRoot: string; bookName: string }
+  | { ok: true; workDir: string; bookRoot: string; bookName: string; bookPath: string }
   | { ok: false; reason: string }
 
 const CLWRITING_DIR = '.clwriting'
@@ -57,7 +57,8 @@ export function doInit(opts: InitOptions): InitResult {
   if (!bookName) return { ok: false, reason: '书名不能为空' }
 
   const kind = opts.kind ?? 'long'
-  const bookRoot = join(workDir, bookName)
+  const bookPath = bookStoragePath(bookName, kind)
+  const bookRoot = join(workDir, bookPath)
 
   const gitAncestor = findGitAncestor(workDir)
   if (gitAncestor) {
@@ -102,14 +103,14 @@ export function doInit(opts: InitOptions): InitResult {
   // 步骤 8：登记 books.jsonl + 设活动书
   const appendRes = appendBook(workDir, {
     name: bookName,
-    path: bookName,
+    path: bookPath,
     kind,
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
   writeActive(workDir, bookName)
 
-  return { ok: true, workDir, bookRoot, bookName }
+  return { ok: true, workDir, bookRoot, bookName, bookPath }
 }
 
 /** 步骤 5：工作目录骨架（非 git，幂等——已存在则复用）。 */

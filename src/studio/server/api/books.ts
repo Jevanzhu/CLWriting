@@ -84,7 +84,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 400, { error: result.reason })
       return
     }
-    reply(res, 200, { name: result.bookName, kind, path: result.bookName })
+    reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
   })
 
   // 单书身份

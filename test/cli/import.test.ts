@@ -91,6 +91,7 @@ describe('importV02Book', () => {
     const books = readBooks(workDir)
     expect(books).toHaveLength(1)
     expect(books[0]!.name).toBe('导入书')
+    expect(books[0]!.path).toBe('长篇/导入书')
     expect(readActive(workDir)).toBe('导入书')
   })
 
@@ -114,6 +115,7 @@ describe('importV02Book', () => {
     // book.yaml kind: short
     const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
     expect(cfg.kind).toBe('short')
+    expect(readBooks(workDir)[0]!.path).toBe('短篇/夜语集')
   })
 
   it('显式 --kind short 强制短篇（即使章节数≥5）', () => {

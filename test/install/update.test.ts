@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { doInit } from '../../src/install/init.js'
 import { doUpdate } from '../../src/install/update.js'
+import { readBooks } from '../../src/install/books.js'
 import { checkRoleShellDrift } from '../../src/roles/shells.js'
 
 const ORIG_CWD = process.cwd()
@@ -20,6 +21,12 @@ function makeWorkDir(): string {
   const wd = mkdtempSync(join(tmpdir(), 'upd-'))
   doInit({ workDir: wd, name: '升级测试书', genre: '玄幻' })
   return wd
+}
+
+function testBookRoot(workDir: string): string {
+  const book = readBooks(workDir).find((b) => b.name === '升级测试书')
+  if (!book) throw new Error('missing test book')
+  return join(workDir, book.path)
 }
 
 test('update: 幂等——重跑无副作用', () => {
@@ -65,7 +72,7 @@ test('update: 当前包有 dist 时同步到工作目录 .clwriting/dist', () =>
 
 test('update: 不碰书仓库内容（book.yaml 不被改）', () => {
   const wd = makeWorkDir()
-  const bookYaml = join(wd, '升级测试书', 'book.yaml')
+  const bookYaml = join(testBookRoot(wd), 'book.yaml')
   const before = readFileSync(bookYaml, 'utf-8')
   doUpdate({ workDir: wd, detail: 'brief' })
   const after = readFileSync(bookYaml, 'utf-8')
@@ -75,7 +82,7 @@ test('update: 不碰书仓库内容（book.yaml 不被改）', () => {
 
 test('update: 给已有书仓库补装推送保护 hook', () => {
   const wd = makeWorkDir()
-  const hookPath = join(wd, '升级测试书', '.git', 'hooks', 'pre-push')
+  const hookPath = join(testBookRoot(wd), '.git', 'hooks', 'pre-push')
   writeFileSync(hookPath, '#!/bin/sh\nexit 0\n', 'utf-8')
 
   const r = doUpdate({ workDir: wd, detail: 'brief' })
