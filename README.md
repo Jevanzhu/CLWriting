@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-713%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-762%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/runtime%20deps-0-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -210,7 +210,7 @@ auto 连写一批
 | M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入、题材阈值推荐和样本回灌报告。 |
 | Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
 
-- **89 个测试文件 / 713 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；Studio 前端构建已消除 >500KB chunk warning；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
+- **97 个测试文件 / 762 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；Studio 前端构建已消除 >500KB chunk warning；growth 当前境界缺失会明确红项阻断；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
 - Studio GUI 真宿主 smoke 已补独立入口：`npm run test:e2e:true-host` 会用本机 Claude Code 驱动工作台生成细纲；默认 `test:e2e` 仍使用 mock driver，保证 CI 稳定。

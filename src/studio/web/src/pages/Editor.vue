@@ -144,7 +144,7 @@ async function rewriteRun(mode: 'local' | 'whole'): Promise<void> {
   error.value = ''
   rewriteResult.value = null
   try {
-    const body: Record<string, unknown> = {
+    const body: { chapter: number; mode: 'local' | 'whole'; instruction: string; selection?: string } = {
       chapter: draftChapter.value,
       mode,
       instruction: rewriteInstruction.value.trim(),

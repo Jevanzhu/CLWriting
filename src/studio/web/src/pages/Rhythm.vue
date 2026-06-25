@@ -8,6 +8,7 @@ import { getRhythm } from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
+const enc = computed(() => encodeURIComponent(name.value))
 const data = ref<Rhythm | null>(null)
 const loading = ref(true)
 const error = ref('')
