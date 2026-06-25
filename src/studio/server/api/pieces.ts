@@ -12,6 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { route } from '../router.js'
+import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readPieceDir } from '../../../format/pieces.js'
@@ -83,9 +84,4 @@ export function registerPiecesRoutes(ctx: PiecesCtx): void {
 
     reply(res, 200, { meta: toSummary(piece), body, list: cleanList })
   })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

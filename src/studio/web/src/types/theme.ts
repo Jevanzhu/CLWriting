@@ -10,7 +10,7 @@ export interface ThemeDef {
   accent: string
 }
 
-/** 7 套主题（ink/night/plain/slate 已落地 token；cloud/space/moran 待补） */
+/** 7 套主题均已落地 token。 */
 export const THEMES: ThemeDef[] = [
   { id: 'ink', name: '墨韵', desc: '宣纸暖 · 中式中浅', accent: '#1f5f5b' },
   { id: 'night', name: '墨夜', desc: '宣纸暖 · 深色', accent: '#5fa39d' },

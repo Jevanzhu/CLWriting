@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, resolve, relative, isAbsolute, basename } from 'node:path'
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { rollbackToChapter } from '../../../git/rollback.js'
@@ -171,25 +172,4 @@ function resolveBook(
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404 }
   return { bookRoot: join(workDir, entry.path) }
-}
-
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolveP) => {
-    let data = ''
-    req.on('data', (c: Buffer) => {
-      data += c.toString('utf-8')
-    })
-    req.on('end', () => {
-      try {
-        resolveP(data.trim() === '' ? {} : JSON.parse(data))
-      } catch {
-        resolveP({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

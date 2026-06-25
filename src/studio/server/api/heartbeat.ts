@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
+import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { writeGuiActive, clearGuiActive, isGuiActive } from '../../../process/gui-active.js'
 
@@ -43,9 +44,4 @@ export function registerHeartbeatRoutes(ctx: HeartbeatCtx): void {
     const r = isGuiActive(join(ctx.workDir, entry.path))
     reply(res, 200, { active: r.active, ageMs: r.ageMs ?? -1 })
   })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

@@ -12,6 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
+import { checkToken, readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { runClwritingCli } from '../cli-runner.js'
 
@@ -70,30 +71,4 @@ export function registerIoRoutes(ctx: IoCtx): void {
     const result = await runClwritingCli(args, join(ctx.workDir, entry.path))
     reply(res, result.ok ? 200 : 500, result)
   })
-}
-
-/** session token 校验（写端点 defense-in-depth） */
-function checkToken(req: IncomingMessage, token: string): boolean {
-  return req.headers['x-studio-token'] === token
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

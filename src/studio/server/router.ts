@@ -9,6 +9,7 @@
  * GUI 后端同构；端点不多，手写分发器比引框架干净。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { HttpError } from './http.js'
 
 type Handler = (
   req: IncomingMessage,
@@ -81,7 +82,8 @@ export async function dispatch(
       await r.handler(req, res, params)
     } catch (e) {
       if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+        const status = e instanceof HttpError ? e.status : 500
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
       }
     }
