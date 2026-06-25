@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import BookTabs from '../components/BookTabs.vue'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from 'echarts'
 
@@ -66,7 +65,7 @@ const wordOption = computed<EChartsOption | null>(() => {
       type: 'line',
       smooth: true,
       data: d.wordCurve.map((p) => p.字数),
-      itemStyle: { color: '#3b82f6' },
+      itemStyle: { color: 'var(--ink-cyan)' },
       areaStyle: { opacity: 0.1 },
       markLine: d.kind === 'long' ? { silent: true, data: [{ type: 'average', name: '均字' }] } : undefined,
     },
@@ -87,12 +86,12 @@ function barOption(dist: Record<string, number>, title: string): EChartsOption {
     {
       type: 'bar',
       data: keys.map((k) => dist[k] ?? 0),
-      itemStyle: { color: '#6366f1', borderRadius: [4, 4, 0, 0] },
+      itemStyle: { color: 'var(--ink-cyan)', borderRadius: [4, 4, 0, 0] },
       label: { show: true, position: 'top' },
     },
   ]
   return {
-    title: { text: title, left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' } },
+    title: { text: title, left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: 'var(--ink)' } },
     tooltip: { trigger: 'axis' },
     grid: { left: 40, right: 20, top: 44, bottom: 32 },
     xAxis: { type: 'category', data: keys },
@@ -136,7 +135,7 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
     })
   })
   return {
-    title: { text: '场景 × 情绪', left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' } },
+    title: { text: '场景 × 情绪', left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: 'var(--ink)' } },
     tooltip: { position: 'top' },
     grid: { left: 84, right: 24, top: 44, bottom: 64 },
     xAxis: { type: 'category', data: emotions, splitArea: { show: true } },
@@ -144,7 +143,7 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
     visualMap: {
       min: 0, max: Math.max(1, max), calculable: true, orient: 'horizontal',
       left: 'center', bottom: 4,
-      inRange: { color: ['#e5e7eb', '#bfdbfe', '#3b82f6'] },
+      inRange: { color: ['var(--border)', 'var(--active-bg)', 'var(--ink-cyan)'] },
     },
     series: [{ type: 'heatmap', data: heat, label: { show: true } }],
   }
@@ -153,123 +152,86 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="rhythm-page">
-    <BookTabs :name="name" active="rhythm" />
+    <div class="panel-pad">
+      <div class="panel-title">节奏</div>
+      <div class="panel-sub">{{ data?.kind === 'long' ? '章长 · 钩子 · 场景情绪' : '篇长 · 情绪 · 反转' }}</div>
 
-    <p v-if="loading" class="hint">加载中…</p>
-    <p v-else-if="error" class="hint error">加载失败:{{ error }}</p>
-    <template v-else-if="data">
-      <!-- 字数曲线 -->
-      <article class="card">
-        <h3 class="block-title">{{ data.kind === 'long' ? '章长曲线' : '篇长曲线' }}</h3>
-        <EChart v-if="wordOption" :option="wordOption" />
-        <p v-if="data.kind === 'long'" class="avg-line">虚线为均字 {{ data.avgWords }}</p>
-      </article>
+      <p v-if="loading" class="hint">加载中…</p>
+      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <template v-else-if="data">
+        <!-- 字数曲线 -->
+        <div class="card">
+          <div class="card-title">{{ data.kind === 'long' ? '章长曲线' : '篇长曲线' }}</div>
+          <EChart v-if="wordOption" :option="wordOption" />
+          <p v-if="data.kind === 'long'" class="avg-line">虚线为均字 {{ data.avgWords }}</p>
+        </div>
 
-      <!-- 钩子类型 × 强弱(长篇) -->
-      <div v-if="data.kind === 'long'" class="grid-2">
-        <article class="card"><EChart v-if="hookTypeOption" :option="hookTypeOption" /></article>
-        <article class="card"><EChart v-if="hookLevelOption" :option="hookLevelOption" /></article>
-      </div>
+        <!-- 钩子类型 × 强弱（长篇）-->
+        <div v-if="data.kind === 'long'" class="grid-2">
+          <div class="card"><EChart v-if="hookTypeOption" :option="hookTypeOption" /></div>
+          <div class="card"><EChart v-if="hookLevelOption" :option="hookLevelOption" /></div>
+        </div>
 
-      <!-- 情绪分布 -->
-      <article class="card"><EChart v-if="emotionOption" :option="emotionOption" /></article>
+        <!-- 情绪分布 -->
+        <div class="card"><EChart v-if="emotionOption" :option="emotionOption" /></div>
 
-      <!-- 场景分布 + 场景×情绪（长篇，#7.4） -->
-      <div v-if="data.kind === 'long'" class="grid-2">
-        <article class="card"><EChart v-if="sceneOption" :option="sceneOption" /></article>
-        <article class="card"><EChart v-if="sceneEmotionOption" :option="sceneEmotionOption" /></article>
-      </div>
+        <!-- 场景分布 + 场景×情绪（长篇）-->
+        <div v-if="data.kind === 'long'" class="grid-2">
+          <div class="card"><EChart v-if="sceneOption" :option="sceneOption" /></div>
+          <div class="card"><EChart v-if="sceneEmotionOption" :option="sceneEmotionOption" /></div>
+        </div>
 
-      <!-- 核心反转(短篇) -->
-      <article v-if="data.kind === 'short' && data.reversals.length" class="card">
-        <h3 class="block-title">核心反转<span class="block-tip">（点篇名进篇详情）</span></h3>
-        <ul class="rev-list">
-          <li v-for="r in data.reversals" :key="r.篇号">
-            <RouterLink class="rev-link" :to="`/books/${enc}/piece/${r.篇号}`">
-              <span class="rev-no">第 {{ r.篇号 }} 篇 · {{ r.标题 }} →</span>
-              <span class="rev-text">{{ r.核心反转 }}</span>
-            </RouterLink>
-          </li>
-        </ul>
-      </article>
-    </template>
+        <!-- 核心反转（短篇）-->
+        <div v-if="data.kind === 'short' && data.reversals.length" class="card">
+          <div class="card-title">核心反转<span style="color:var(--text-3);font-weight:normal"> · 点篇名进篇详情</span></div>
+          <RouterLink
+            v-for="r in data.reversals"
+            :key="r.篇号"
+            class="list-row rev-link"
+            :to="`/books/${enc}/piece/${r.篇号}`"
+          >
+            <div style="flex:1">
+              <div class="t">第 {{ r.篇号 }} 篇 · {{ r.标题 }}</div>
+              <div class="m">{{ r.核心反转 }}</div>
+            </div>
+          </RouterLink>
+        </div>
+      </template>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .rhythm-page {
-  max-width: 960px;
   margin: 0 auto;
-}
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px 20px;
-}
-.card + .card,
-.card + .grid-2,
-.grid-2 + .card {
-  margin-top: 16px;
 }
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.block-title {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .avg-line {
   margin: 8px 0 0;
   text-align: center;
   font-size: 12px;
-  color: #9ca3af;
-}
-.hint {
-  color: #6b7280;
-}
-.hint.error {
-  color: #dc2626;
-}
-.rev-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 10px;
-}
-.rev-list li {
-  padding: 10px 12px;
-  background: #f9fafb;
-  border-radius: 6px;
-  display: grid;
-  gap: 4px;
-}
-.rev-no {
-  font-size: 13px;
-  color: #6b7280;
-}
-.rev-text {
-  font-size: 14px;
-  color: #111827;
-}
-.block-tip {
-  font-weight: normal;
-  color: #9ca3af;
-  font-size: 12px;
-  margin-left: 6px;
+  color: var(--text-3);
 }
 .rev-link {
-  display: block;
   text-decoration: none;
   color: inherit;
 }
-.rev-link:hover .rev-no {
-  color: #3b82f6;
+.rev-link:hover .t {
+  color: var(--ink-cyan);
+}
+.rhythm-page :deep(.echart) {
+  height: 220px;
+}
+.rhythm-page .hint {
+  color: var(--text-2);
+  padding-top: 24px;
+}
+.rhythm-page .hint.error {
+  color: var(--cinnabar);
 }
 </style>

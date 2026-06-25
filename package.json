@@ -28,7 +28,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:true-host": "npm run build:web && playwright test --config playwright.true-host.config.ts",
-    "dev:electron": "npm run build:web && tsup && electron .",
+    "dev:electron": "npm run build:all && electron .",
     "build:desktop": "npm run build:all && electron-builder",
     "build:desktop:dir": "npm run build:all && electron-builder --dir"
   },

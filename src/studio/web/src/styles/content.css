@@ -1,0 +1,115 @@
+/* CLWriting v3 内容设计系统 —— 中栏/右栏内容通用类
+ * 落地自 Dev/墨韵交互版.html，全页面共享。token 见 tokens.css。
+ * 类清单：布局 panel-pad/title/sub · 卡片 card-row/stat-card/card/card-title
+ *        数据 kv/list-row/tag · 进度 progress/ring · 图表 bar-chart · 时间线 tl
+ *        按钮 btn · 正文 prose/chapter · 账本 ledger-item · 表单 sfield/ol-act */
+
+/* ── 布局 ── */
+.panel-pad{padding:24px 32px;max-width:940px;margin:0 auto;width:100%}
+.panel-title{font-size:18px;font-weight:600;margin-bottom:4px}
+.panel-sub{color:var(--text-3);font-size:12px;margin-bottom:20px}
+
+/* ── 卡片 ── */
+.card-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat-card{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:14px}
+.stat-card .n{font-size:22px;font-weight:700;color:var(--ink-cyan)}
+.stat-card .l{font-size:11px;color:var(--text-2);margin-top:4px}
+.card{background:var(--paper);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:12px}
+[data-theme="plain"] .card,[data-theme="slate"] .card,.clw-content .card{background:var(--panel)}
+.card-title{font-size:11px;color:var(--text-3);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+
+/* ── 键值 / 行 / 标签 ── */
+.kv{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;gap:8px}
+.kv .k{color:var(--text-2)}
+.kv .v{color:var(--ink);font-weight:500;text-align:right}
+.kv .v.cyan{color:var(--ink-cyan)}
+.kv .v.red{color:var(--cinnabar)}
+.kv .v.ochre{color:var(--ochre)}
+.kv.click{cursor:pointer;border-radius:5px;padding:5px 6px;margin:0 -6px}
+.kv.click:hover{background:var(--hover)}
+.list-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--panel);margin-bottom:8px}
+.list-row .t{font-weight:500}
+.list-row .m{color:var(--text-2);font-size:12px;margin-top:2px}
+.tag{font-size:11px;padding:2px 9px;border-radius:10px;background:var(--active-bg);color:var(--ink-cyan);white-space:nowrap}
+.tag.red{background:rgba(184,65,58,.13);color:var(--cinnabar)}
+.tag.yellow{background:rgba(168,106,45,.16);color:var(--ochre)}
+.tag.gray{background:var(--hover);color:var(--text-2)}
+.tag.green{background:rgba(31,95,91,.13);color:var(--ink-cyan)}
+[data-theme="plain"] .tag.red{background:rgba(239,68,68,.12)}
+[data-theme="plain"] .tag.yellow{background:rgba(245,158,11,.14)}
+[data-theme="plain"] .tag.green{background:rgba(22,163,74,.12)}
+[data-theme="slate"] .tag.red{background:rgba(177,69,59,.12)}
+[data-theme="slate"] .tag.yellow{background:rgba(184,138,62,.14)}
+[data-theme="slate"] .tag.green{background:rgba(47,107,107,.12)}
+
+/* ── 进度 / 环形 ── */
+.progress{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin:8px 0 4px}
+.progress > div{height:100%;background:var(--ink-cyan);transition:width .3s}
+.ring{width:90px;height:90px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
+.ring::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:66px;height:66px;border-radius:50%;background:var(--paper);z-index:0}
+.ring.on-panel::after{background:var(--panel)}
+.ring .ring-txt{position:relative;z-index:1;font-size:15px;font-weight:700;color:var(--ink)}
+
+/* ── 图表 ── */
+.bar-chart{display:flex;align-items:flex-end;gap:10px;height:160px;padding:16px;background:var(--panel);border:1px solid var(--border);border-radius:9px}
+.bar-chart .bar{flex:1;background:var(--ink-cyan);border-radius:4px 4px 0 0;position:relative;opacity:.85;min-height:4px}
+.bar-chart .bar.hot{background:var(--cinnabar)}
+.bar-chart .bar.warn{background:var(--ochre)}
+.bar-chart .bar .v{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-2);margin-bottom:3px;white-space:nowrap}
+
+/* ── 时间线 ── */
+.tl{position:relative;padding-left:22px;margin-bottom:16px}
+.tl::before{content:'';position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.tl-item{position:relative;padding-bottom:20px}
+.tl-item::before{content:'';position:absolute;left:-22px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--ink-cyan);border:2px solid var(--paper);z-index:1}
+.tl-item.red::before{background:var(--cinnabar)}
+.tl-item.yellow::before{background:var(--ochre)}
+.tl-item.gray::before{background:var(--border-2)}
+.tl-t{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:1px}
+.tl-h{font-weight:500;margin:2px 0}
+.tl-q{font-family:'STKaiti','KaiTi','楷体',serif;font-size:13px;color:var(--text-2);background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px 10px;margin-top:5px;line-height:1.7}
+
+/* ── 按钮 ── */
+.btn{padding:6px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--ink);user-select:none;display:inline-block}
+.btn:hover{border-color:var(--ink-cyan);color:var(--ink-cyan)}
+.btn.primary{background:var(--ink-cyan);color:#fff;border-color:var(--ink-cyan)}
+.btn.primary:hover{opacity:.88;color:#fff}
+.btn.danger{color:var(--cinnabar);border-color:var(--cinnabar)}
+.btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+
+/* ── 正文 / 章节 ── */
+.chapter-title{font-family:'STKaiti','KaiTi','楷体','Songti SC',serif;font-size:26px;font-weight:600;margin-bottom:6px;letter-spacing:1px}
+.chapter-meta-line{color:var(--text-3);font-size:12px;margin-bottom:26px;padding-bottom:14px;border-bottom:1px dashed var(--border-2)}
+.prose{font-family:'STKaiti','KaiTi','楷体','Songti SC',serif;font-size:16.5px;line-height:2.0;letter-spacing:.3px}
+.prose p{margin-bottom:16px;text-indent:2em}
+.prose p:first-child{text-indent:0}
+.prose .quote{text-indent:0;text-align:center;color:var(--cinnabar);font-size:22px;margin:8px 0;letter-spacing:2px}
+
+/* ── 账本条目 ── */
+.ledger-item{display:flex;align-items:flex-start;gap:8px;padding:7px 0;font-size:12px;border-bottom:1px dashed var(--border)}
+.ledger-item:last-child{border-bottom:none}
+.ledger-item.click{cursor:pointer}
+.ledger-item.click:hover{color:var(--ink-cyan)}
+.ledger-item .desc{color:var(--text-2);font-size:11px;margin-top:2px}
+.ledger-item b{color:var(--ink);font-weight:500}
+
+/* ── 设定 / 大纲表单 ── */
+.sfield{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px dashed var(--border)}
+.sfield label{width:64px;color:var(--text-2);font-size:12px;flex-shrink:0;padding-top:7px}
+.sfield input,.sfield textarea{flex:1;background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--ink);font-family:inherit;outline:none;resize:vertical}
+.sfield input:focus,.sfield textarea:focus{border-color:var(--ink-cyan);background:var(--panel)}
+.sfield textarea{min-height:60px;line-height:1.7}
+.ol-act{margin-bottom:22px}
+.ol-act h3{font-family:'STKaiti','KaiTi','楷体',serif;font-size:17px;margin-bottom:2px}
+.ol-act .ol-sub{color:var(--text-3);font-size:11px;margin-bottom:8px}
+.ol-act .ol-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:text;font-size:13.5px;color:var(--ink)}
+.ol-act .ol-item:hover{background:var(--hover)}
+.ol-act .ol-item .n{color:var(--ink-cyan);font-size:11px;width:18px}
+
+/* 按钮禁用态（控制台 / 编辑器大量 :disabled 按钮）*/
+.btn:disabled,
+.btn.primary:disabled,
+.btn.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

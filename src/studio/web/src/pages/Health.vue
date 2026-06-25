@@ -3,7 +3,6 @@ import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
 import EChart from '../components/EChart.vue'
-import BookTabs from '../components/BookTabs.vue'
 
 interface MetricsReport {
   count: number
@@ -85,7 +84,7 @@ const costBar = computed<EChartsOption | null>(() => {
       {
         type: 'bar',
         data: [m.cost.avgByStep.outline, m.cost.avgByStep.draft, m.cost.avgByStep.review],
-        itemStyle: { color: '#3b82f6' },
+        itemStyle: { color: 'var(--ink-cyan)' },
       },
     ],
   }
@@ -102,7 +101,7 @@ const reviewBar = computed<EChartsOption | null>(() => {
       {
         type: 'bar',
         data: m.review.topDowngradeReasons.map((r) => r.n),
-        itemStyle: { color: '#f59e0b' },
+        itemStyle: { color: 'var(--ochre)' },
       },
     ],
   }
@@ -110,14 +109,14 @@ const reviewBar = computed<EChartsOption | null>(() => {
 
 function lineOption(title: string, data: number[], baselineVal?: number): EChartsOption {
   const series: LineSeriesOption[] = [
-    { type: 'line', data, smooth: true, symbol: 'circle', symbolSize: 5, itemStyle: { color: '#10b981' } },
+    { type: 'line', data, smooth: true, symbol: 'circle', symbolSize: 5, itemStyle: { color: 'var(--ink-cyan)' } },
   ]
   if (baselineVal !== undefined) {
     series.push({
       type: 'line',
       data: nums.value.map(() => baselineVal),
       name: '基线',
-      lineStyle: { type: 'dashed', color: '#9ca3af' },
+      lineStyle: { type: 'dashed', color: 'var(--text-3)' },
       symbol: 'none',
     })
   }
@@ -154,141 +153,85 @@ function pct(x: number): string {
 
 <template>
   <section class="health">
-    <BookTabs :name="name" active="health" />
-    <h2>体检</h2>
+    <div class="panel-pad">
+      <div class="panel-title">体检</div>
+      <div class="panel-sub">成本 · 审查 · 文风漂移</div>
 
-    <p v-if="loading" class="hint">加载中…</p>
-    <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
-    <template v-else>
-      <section v-if="metrics && metrics.count > 0" class="block">
-        <h3>成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</h3>
-        <div class="cards">
-          <div class="card"><div class="k">平均调用</div><div class="v">{{ metrics.cost.avgCalls.toFixed(1) }}</div></div>
-          <div class="card"><div class="k">超上限</div><div class="v">{{ metrics.cost.overLimitChapters }}</div></div>
-          <div class="card"><div class="k">满审率</div><div class="v">{{ pct(metrics.review.fullRate) }}</div></div>
-          <div class="card"><div class="k">降级率</div><div class="v">{{ pct(metrics.review.downgradeRate) }}</div></div>
-          <div class="card"><div class="k">平均阻断</div><div class="v">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
-        </div>
-        <EChart v-if="costBar" :option="costBar" />
-        <p class="note">预算：{{ metrics.cost.calibration.budgetNote }}</p>
-        <p v-if="metrics.cost.calibration.accountingNote" class="note warn">
-          记账：{{ metrics.cost.calibration.accountingNote }}
-        </p>
-        <div v-if="reviewBar" class="sub">
-          <h4>降级原因 Top</h4>
-          <EChart :option="reviewBar" />
-        </div>
-      </section>
-      <p v-else class="hint">尚无定稿指标。写完一章/篇定稿后可见成本与审查。</p>
+      <p v-if="loading" class="hint">加载中…</p>
+      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <template v-else>
+        <!-- 成本 / 审查 -->
+        <template v-if="metrics && metrics.count > 0">
+          <div class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>
+          <div class="card-row" style="grid-template-columns:repeat(5,1fr)">
+            <div class="stat-card"><div class="n">{{ metrics.cost.avgCalls.toFixed(1) }}</div><div class="l">平均调用</div></div>
+            <div class="stat-card"><div class="n">{{ metrics.cost.overLimitChapters }}</div><div class="l">超上限</div></div>
+            <div class="stat-card"><div class="n">{{ pct(metrics.review.fullRate) }}</div><div class="l">满审率</div></div>
+            <div class="stat-card"><div class="n">{{ pct(metrics.review.downgradeRate) }}</div><div class="l">降级率</div></div>
+            <div class="stat-card"><div class="n">{{ metrics.review.avgBlockers.toFixed(1) }}</div><div class="l">平均阻断</div></div>
+          </div>
+          <div v-if="costBar" class="card"><div class="card-title">各阶段平均调用</div><EChart :option="costBar" /></div>
+          <div class="card">
+            <div class="card-title">预算 / 记账</div>
+            <div class="kv"><span class="k">预算</span><span class="v">{{ metrics.cost.calibration.budgetNote }}</span></div>
+            <div v-if="metrics.cost.calibration.accountingNote" class="kv">
+              <span class="k">记账</span><span class="v ochre">{{ metrics.cost.calibration.accountingNote }}</span>
+            </div>
+            <div class="kv"><span class="k">tokens</span><span class="v">{{ metrics.cost.tokensNote }}</span></div>
+          </div>
+          <div v-if="reviewBar" class="card">
+            <div class="card-title">降级原因 Top</div>
+            <EChart :option="reviewBar" />
+          </div>
+        </template>
+        <p v-else class="hint">尚无定稿指标。写完一章/篇定稿后可见成本与审查。</p>
 
-      <section v-if="style && style.count > 0" class="block">
-        <h3>文风（{{ style.count }} {{ style.kind === 'short' ? '篇' : '章' }}）</h3>
-        <div class="style-charts">
-          <EChart v-if="tagLine" :option="tagLine" />
-          <EChart v-if="varLine" :option="varLine" />
-          <EChart v-if="repeatLine" :option="repeatLine" />
-        </div>
-        <div class="risk">
-          <span>单句超限：{{ style.overlongChapters.join('、') || '无' }}</span>
-          <span>形容词堆叠：{{ style.adjStackChapters.join('、') || '无' }}</span>
-          <span>结尾总结体：{{ style.summaryEndingChapters.join('、') || '无' }}</span>
-        </div>
-        <div v-if="style.drifts.length > 0" class="drifts">
-          <h4>⚠ 漂移信号（建议复核，非判决）</h4>
-          <p v-for="d in style.drifts" :key="d.metric" class="warn">· {{ d.message }}</p>
-        </div>
-      </section>
-      <p v-else class="hint">尚无已定稿正文可重扫文风。</p>
-    </template>
+        <!-- 文风 -->
+        <template v-if="style && style.count > 0">
+          <div class="blk-label">文风（{{ style.count }} {{ style.kind === 'short' ? '篇' : '章' }}）</div>
+          <div v-if="tagLine" class="card"><EChart :option="tagLine" /></div>
+          <div v-if="varLine" class="card"><EChart :option="varLine" /></div>
+          <div v-if="repeatLine" class="card"><EChart :option="repeatLine" /></div>
+          <div class="card">
+            <div class="card-title">风险章节</div>
+            <div class="kv"><span class="k">单句超限</span><span class="v">{{ style.overlongChapters.join('、') || '无' }}</span></div>
+            <div class="kv"><span class="k">形容词堆叠</span><span class="v">{{ style.adjStackChapters.join('、') || '无' }}</span></div>
+            <div class="kv"><span class="k">结尾总结体</span><span class="v">{{ style.summaryEndingChapters.join('、') || '无' }}</span></div>
+          </div>
+          <div v-if="style.drifts.length > 0" class="card">
+            <div class="card-title">⚠ 漂移信号<span style="color:var(--text-3);font-weight:normal"> · 建议复核，非判决</span></div>
+            <div v-for="d in style.drifts" :key="d.metric" class="list-row" style="margin-bottom:6px;align-items:flex-start">
+              <span class="clw-dot yellow" style="margin-top:6px"></span>
+              <div style="flex:1"><div class="m">{{ d.message }}</div></div>
+            </div>
+          </div>
+        </template>
+      </template>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .health {
-  max-width: 960px;
   margin: 0 auto;
 }
-.health h2 {
-  margin: 12px 0;
-  font-size: 16px;
-}
-.block {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 16px;
-}
-.block h3 {
-  margin: 0 0 16px;
-  font-size: 15px;
-}
-.cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.card {
-  background: #f9fafb;
-  border-radius: 6px;
-  padding: 10px 16px;
-  min-width: 92px;
-}
-.card .k {
-  color: #6b7280;
-  font-size: 12px;
-}
-.card .v {
-  font-size: 20px;
+.blk-label {
+  font-size: 13px;
   font-weight: 600;
-  margin-top: 2px;
+  color: var(--ink);
+  margin: 24px 0 12px;
 }
-.note {
-  color: #6b7280;
-  font-size: 13px;
-  margin: 8px 0 0;
+.blk-label:first-of-type {
+  margin-top: 0;
 }
-.note.warn {
-  color: #d97706;
+.health :deep(.echart) {
+  height: 200px;
 }
-.sub {
-  margin-top: 16px;
+.health .hint {
+  color: var(--text-2);
+  padding-top: 24px;
 }
-.sub h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: #374151;
-}
-.style-charts {
-  display: grid;
-  gap: 12px;
-}
-.risk {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: #4b5563;
-}
-.drifts {
-  margin-top: 12px;
-}
-.drifts h4 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: #d97706;
-}
-.warn {
-  color: #d97706;
-  font-size: 13px;
-  margin: 2px 0;
-}
-.hint {
-  color: #6b7280;
-}
-.hint.error {
-  color: #dc2626;
+.health .hint.error {
+  color: var(--cinnabar);
 }
 </style>

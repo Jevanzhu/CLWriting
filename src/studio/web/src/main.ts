@@ -1,6 +1,9 @@
 import { createApp } from 'vue'
+import naive from 'naive-ui'
 import App from './App.vue'
 import router from './router'
+import './styles/tokens.css'
+import './styles/content.css'
 
 // P0 session token(GPT-5 defense-in-depth):写端点校验,防跨站伪造。
 // 启动 fetch /api/boot 拿 token,所有 /api/ 写请求自动带 X-Studio-Token header。
@@ -37,4 +40,4 @@ void originalFetch('/api/boot')
   .catch(() => {})
   .finally(bootResolve)
 
-createApp(App).use(router).mount('#app')
+createApp(App).use(router).use(naive).mount('#app')

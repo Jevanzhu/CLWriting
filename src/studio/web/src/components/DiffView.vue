@@ -30,7 +30,7 @@ const emit = defineEmits<{ accept: []; reject: [] }>()
 
 <style scoped>
 .diff-view {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   margin-top: 12px;
@@ -40,18 +40,18 @@ const emit = defineEmits<{ accept: []; reject: [] }>()
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--paper);
+  border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
 .diff-title {
-  color: #6b7280;
+  color: var(--text-2);
 }
 .diff-title .add {
-  color: #059669;
+  color: var(--ink-cyan);
 }
 .diff-title .del {
-  color: #dc2626;
+  color: var(--cinnabar);
 }
 .diff-actions {
   display: flex;
@@ -61,8 +61,8 @@ const emit = defineEmits<{ accept: []; reject: [] }>()
   padding: 4px 12px;
   border: none;
   border-radius: 5px;
-  background: #059669;
-  color: #fff;
+  background: var(--ink-cyan);
+  color: var(--panel);
   font-size: 12px;
   cursor: pointer;
 }
@@ -72,10 +72,10 @@ const emit = defineEmits<{ accept: []; reject: [] }>()
 }
 .btn-reject {
   padding: 4px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 5px;
-  background: #fff;
-  color: #6b7280;
+  background: var(--panel);
+  color: var(--text-2);
   font-size: 12px;
   cursor: pointer;
 }
@@ -98,27 +98,27 @@ const emit = defineEmits<{ accept: []; reject: [] }>()
   word-break: break-word;
 }
 .dl-mark {
-  color: #9ca3af;
+  color: var(--text-3);
   user-select: none;
 }
 .dl-same {
-  background: #fff;
+  background: var(--panel);
 }
 .dl-same .dl-text {
-  color: #4b5563;
+  color: var(--text-2);
 }
 .dl-add {
-  background: #ecfdf5;
+  background: var(--ok-bg);
 }
 .dl-add .dl-mark,
 .dl-add .dl-text {
-  color: #065f46;
+  color: var(--ink-cyan);
 }
 .dl-del {
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 .dl-del .dl-mark,
 .dl-del .dl-text {
-  color: #991b1b;
+  color: var(--cinnabar);
 }
 </style>

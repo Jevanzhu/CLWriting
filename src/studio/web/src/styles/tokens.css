@@ -1,0 +1,147 @@
+/* CLWriting 设计系统 token —— 4 套主题 + 状态色 + 阴影/圆角
+ * data-theme 挂 <html>：ink(默认)/night/plain/slate
+ * 落地自 Dev/墨韵交互版.html v3，详见 Dev/Plans/桌面端与界面计划.md 第四节 */
+
+:root,
+[data-theme='ink'] {
+  /* 墨韵：暖·宣纸·中式中浅（默认） */
+  --canvas: #e6ddc7;
+  --paper: #f4efe2;
+  --panel: #fffdf6;
+  --ink: #2b2620;
+  --text-2: #7a7368;
+  --text-3: #a89e8c;
+  --ink-cyan: #1f5f5b;
+  --cinnabar: #b8413a;
+  --ochre: #a86a2d;
+  --border: #e0d9c8;
+  --border-2: #d8cfb8;
+  --hover: rgba(31, 95, 91, 0.06);
+  --active-bg: rgba(31, 95, 91, 0.1);
+  --ok-bg: rgba(31, 95, 91, 0.12);
+  --warn-bg: rgba(168, 106, 45, 0.14);
+  --danger-bg: rgba(184, 65, 58, 0.12);
+  --shadow: 0 1px 3px rgba(70, 55, 30, 0.1), 0 1px 2px rgba(70, 55, 30, 0.05);
+  --brand: #b8413a;
+}
+
+[data-theme='night'] {
+  /* 墨夜：暖·深 */
+  --canvas: #0f0e0c;
+  --paper: #1c1a17;
+  --panel: #252320;
+  --ink: #e8e2d4;
+  --text-2: #9a9183;
+  --text-3: #6f6759;
+  --ink-cyan: #5fa39d;
+  --cinnabar: #d5635a;
+  --ochre: #c89556;
+  --border: #3a362f;
+  --border-2: #4a443a;
+  --hover: rgba(95, 163, 157, 0.08);
+  --active-bg: rgba(95, 163, 157, 0.14);
+  --ok-bg: rgba(95, 163, 157, 0.16);
+  --warn-bg: rgba(200, 149, 86, 0.18);
+  --danger-bg: rgba(213, 99, 90, 0.16);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --brand: #d5635a;
+}
+
+[data-theme='plain'] {
+  /* 素简：冷·米白·企业风（参考 rudder） */
+  --canvas: #e8e7e1;
+  --paper: #ffffff;
+  --panel: #f8f7f2;
+  --ink: #1f2937;
+  --text-2: #6b7280;
+  --text-3: #9ca3af;
+  --ink-cyan: #16a34a;
+  --cinnabar: #ef4444;
+  --ochre: #f59e0b;
+  --border: #e5e7eb;
+  --border-2: #d1d5db;
+  --hover: rgba(22, 163, 74, 0.06);
+  --active-bg: rgba(22, 163, 74, 0.1);
+  --ok-bg: rgba(22, 163, 74, 0.12);
+  --warn-bg: rgba(245, 158, 11, 0.14);
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --shadow: 0 1px 3px rgba(17, 24, 39, 0.07), 0 1px 2px rgba(17, 24, 39, 0.04);
+  --brand: #16a34a;
+}
+
+[data-theme='slate'] {
+  /* 青砚：冷·灰·石青专业 */
+  --canvas: #d8dee6;
+  --paper: #f5f7f9;
+  --panel: #ffffff;
+  --ink: #1e2a32;
+  --text-2: #5a6b78;
+  --text-3: #94a3b0;
+  --ink-cyan: #2f6b6b;
+  --cinnabar: #b1453b;
+  --ochre: #b88a3e;
+  --border: #dde3ea;
+  --border-2: #c8d1da;
+  --hover: rgba(47, 107, 107, 0.06);
+  --active-bg: rgba(47, 107, 107, 0.1);
+  --ok-bg: rgba(47, 107, 107, 0.12);
+  --warn-bg: rgba(184, 138, 62, 0.14);
+  --danger-bg: rgba(177, 69, 59, 0.12);
+  --shadow: 0 1px 3px rgba(30, 50, 70, 0.09), 0 1px 2px rgba(30, 50, 70, 0.05);
+  --brand: #2f6b6b;
+}
+
+/* 全局基底 */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s, color 0.3s;
+}
+#app {
+  height: 100vh;
+}
+
+/* 通用面板（三栏独立成页） */
+.clw-panel {
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+/* 状态色点（全局工具类） */
+.clw-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-2);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.clw-dot.red {
+  background: var(--cinnabar);
+}
+.clw-dot.yellow {
+  background: var(--ochre);
+}
+.clw-dot.green {
+  background: var(--ink-cyan);
+}
+.clw-dot.gray {
+  background: var(--text-3);
+}
+.clw-dot.cyan {
+  background: var(--ink-cyan);
+}

@@ -11,7 +11,6 @@
  */
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import BookTabs from '../components/BookTabs.vue'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
 
@@ -139,11 +138,11 @@ const emotionOption = computed<EChartsOption | null>(() => {
         name: p.情绪,
         段落: p.段落,
         说明: p.说明,
-        itemStyle: { color: p.强度 === peak ? '#ef4444' : '#3b82f6' },
+        itemStyle: { color: p.强度 === peak ? 'var(--cinnabar)' : 'var(--ink-cyan)' },
         symbolSize: p.强度 === peak ? 14 : 8,
       })),
-      label: { show: true, formatter: (p) => (p.data as { name: string }).name, fontSize: 11, color: '#374151' },
-      lineStyle: { color: '#3b82f6', width: 2 },
+      label: { show: true, formatter: (p) => (p.data as { name: string }).name, fontSize: 11, color: 'var(--ink)' },
+      lineStyle: { color: 'var(--ink-cyan)', width: 2 },
       areaStyle: { opacity: 0.08 },
       markPoint: curve.length > 1 ? { data: [{ type: 'max', name: '峰值' }], symbolSize: 0 } : undefined,
     },
@@ -167,88 +166,94 @@ const emotionOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="piece-page">
-    <BookTabs :name="name" active="piece" />
-
-    <!-- 顶部：返回 + 篇导航 + 元数据 -->
-    <div class="piece-head">
+    <div class="panel-pad">
+      <!-- 顶部：返回 + 篇导航 -->
       <div class="head-row">
-        <button class="btn-back" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
+        <button class="btn" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
         <div class="pager">
-          <button class="btn-small" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
+          <button class="btn" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
           <span class="pager-no">第 {{ no }} 篇</span>
-          <button class="btn-small" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
+          <button class="btn" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
         </div>
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
 
-      <article v-if="data" class="meta-card">
+      <!-- 元数据 -->
+      <article v-if="data" class="card meta-card">
         <div class="meta-title">
           <span class="meta-no">第 {{ data.meta.篇号 }} 篇</span>
           <span class="meta-name">{{ data.meta.标题 }}</span>
-        </div>
-        <div class="meta-fields">
-          <span v-if="data.meta.目标情绪" class="chip">🎯 目标情绪：{{ data.meta.目标情绪 }}</span>
-          <span class="chip">📏 {{ data.meta.字数 }} 字</span>
-          <RouterLink class="edit-link" :to="`/books/${encodeURIComponent(name)}/edit`">编辑此篇 ✏️</RouterLink>
+          <div class="meta-fields">
+            <span v-if="data.meta.目标情绪" class="tag">🎯 {{ data.meta.目标情绪 }}</span>
+            <span class="tag gray">📏 {{ data.meta.字数 }} 字</span>
+            <RouterLink class="edit-link" :to="`/books/${encodeURIComponent(name)}/edit`">编辑此篇 ✏️</RouterLink>
+          </div>
         </div>
         <p v-if="data.meta.核心反转" class="meta-reversal">
-          <span class="reversal-label">核心反转</span>{{ data.meta.核心反转 }}
+          <span class="tag yellow">核心反转</span>
+          <span>{{ data.meta.核心反转 }}</span>
         </p>
       </article>
-    </div>
 
-    <!-- 主体：左正文 + 右清单 -->
-    <div v-if="data" class="main-grid">
-      <!-- 左：正文只读 -->
-      <article class="card prose-card">
-        <h3 class="block-title">正文（只读对照）</h3>
-        <div class="prose-body">
-          <div v-for="(s, i) in proseSections" :key="i" class="prose-sec">
-            <h4 v-if="s.title" class="prose-h">{{ s.title }}</h4>
-            <p v-for="(para, j) in s.text.split(/\n+/).filter(Boolean)" :key="j" class="prose-p">{{ para }}</p>
+      <!-- 主体：左正文 + 右清单 -->
+      <div v-if="data" class="main-grid">
+        <article class="card prose-card">
+          <div class="card-title">正文（只读对照）</div>
+          <div class="prose">
+            <div v-for="(s, i) in proseSections" :key="i">
+              <h4 v-if="s.title" class="prose-sub">{{ s.title }}</h4>
+              <p v-for="(para, j) in s.text.split(/\n+/).filter(Boolean)" :key="j">{{ para }}</p>
+            </div>
+            <p v-if="proseSections.length === 0" class="hint">（无正文）</p>
           </div>
-          <p v-if="proseSections.length === 0" class="hint">（无正文）</p>
+        </article>
+
+        <div class="list-col">
+          <!-- 情绪曲线 -->
+          <article class="card">
+            <div class="card-title">情绪曲线</div>
+            <EChart v-if="emotionOption" :option="emotionOption" />
+            <p v-else class="hint">（清单无情绪曲线）</p>
+          </article>
+
+          <!-- 反转线索表 -->
+          <article class="card">
+            <div class="card-title">反转线索表</div>
+            <div class="reversal-core">
+              <span class="tag yellow">核心反转</span>
+              <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
+            </div>
+            <div v-if="data.list.反转线索表.铺垫点.length">
+              <div v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i" class="ledger-item">
+                <span class="setup-pos">{{ p.位置 }}</span>
+                <div>{{ p.内容 }}</div>
+              </div>
+            </div>
+            <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
+          </article>
+
+          <!-- 伏笔回收 -->
+          <article class="card">
+            <div class="card-title">伏笔回收</div>
+            <div v-if="data.list.伏笔回收.length">
+              <div
+                v-for="(e, i) in data.list.伏笔回收"
+                :key="i"
+                class="ledger-item"
+                :class="{ unresolved: e.未回收 }"
+              >
+                <span class="clw-dot" :class="e.未回收 ? 'red' : 'green'"></span>
+                <div>
+                  <b>{{ e.伏笔 }}</b>
+                  <div class="desc">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</div>
+                </div>
+              </div>
+            </div>
+            <p v-else class="hint">（无伏笔）</p>
+          </article>
         </div>
-      </article>
-
-      <!-- 右：清单三段 -->
-      <div class="list-col">
-        <!-- ① 情绪曲线（P0 主图） -->
-        <article class="card">
-          <h3 class="block-title">情绪曲线</h3>
-          <EChart v-if="emotionOption" :option="emotionOption" />
-          <p v-else class="hint">（清单无情绪曲线）</p>
-        </article>
-
-        <!-- ② 反转线索表 -->
-        <article class="card">
-          <h3 class="block-title">反转线索表</h3>
-          <div class="reversal-core">
-            <span class="reversal-label">核心反转</span>
-            <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
-          </div>
-          <ul v-if="data.list.反转线索表.铺垫点.length" class="setup-list">
-            <li v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i">
-              <span class="setup-pos">[{{ p.位置 }}]</span>{{ p.内容 }}
-            </li>
-          </ul>
-          <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
-        </article>
-
-        <!-- ③ 伏笔回收 -->
-        <article class="card">
-          <h3 class="block-title">伏笔回收</h3>
-          <ul v-if="data.list.伏笔回收.length" class="payoff-list">
-            <li v-for="(e, i) in data.list.伏笔回收" :key="i" :class="{ unresolved: e.未回收 }">
-              <span class="payoff-name">{{ e.伏笔 }}</span>
-              <span v-if="e.未回收" class="tag-red">未回收</span>
-              <span v-else class="payoff-at">→ 回收于 {{ e.回收位置 }}</span>
-            </li>
-          </ul>
-          <p v-else class="hint">（无伏笔）</p>
-        </article>
       </div>
     </div>
   </section>
@@ -256,132 +261,75 @@ const emotionOption = computed<EChartsOption | null>(() => {
 
 <style scoped>
 .piece-page {
-  max-width: 1080px;
   margin: 0 auto;
-}
-.piece-head {
-  margin-bottom: 16px;
 }
 .head-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-}
-.btn-back {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-back:hover {
-  border-color: #3b82f6;
+  margin-bottom: 14px;
 }
 .pager {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.btn-small {
-  padding: 4px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-small:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 .pager-no {
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
-}
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px 20px;
-}
-.block-title {
-  margin: 0 0 10px;
   font-size: 13px;
   font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
+  color: var(--ink);
 }
 .meta-card {
-  background: #f0f7ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  padding: 14px 18px;
+  background: var(--active-bg);
+  border-color: var(--active-bg);
 }
 .meta-title {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 .meta-no {
-  font-size: 13px;
-  color: #3b82f6;
+  font-size: 12px;
+  color: var(--ink-cyan);
   font-weight: 600;
 }
 .meta-name {
   font-size: 18px;
   font-weight: 700;
-  color: #111827;
+  color: var(--ink);
 }
 .meta-fields {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-}
-.chip {
-  display: inline-block;
-  padding: 3px 10px;
-  background: #fff;
-  border: 1px solid #dbeafe;
-  border-radius: 12px;
-  font-size: 12px;
-  color: #1e40af;
+  margin-left: auto;
 }
 .edit-link {
-  margin-left: auto;
-  font-size: 13px;
-  color: #3b82f6;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--ink-cyan);
   text-decoration: none;
 }
 .edit-link:hover {
   text-decoration: underline;
 }
 .meta-reversal {
-  margin: 10px 0 0;
-  font-size: 14px;
-  color: #1e3a8a;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink);
   line-height: 1.6;
-}
-.reversal-label {
-  display: inline-block;
-  padding: 2px 8px;
-  margin-right: 8px;
-  background: #fbbf24;
-  color: #78350f;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  vertical-align: middle;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
 .main-grid {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
-  gap: 16px;
+  gap: 12px;
   align-items: start;
+  margin-top: 12px;
 }
 .prose-card {
   position: sticky;
@@ -389,102 +337,56 @@ const emotionOption = computed<EChartsOption | null>(() => {
   max-height: calc(100vh - 140px);
   overflow-y: auto;
 }
-.prose-body {
-  font-size: 15px;
-  line-height: 1.85;
-  color: #1f2937;
-}
-.prose-sec + .prose-sec {
-  margin-top: 12px;
-}
-.prose-h {
-  margin: 0 0 6px;
-  font-size: 13px;
+.prose-sub {
+  margin: 14px 0 6px;
+  font-size: 12px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--text-3);
   letter-spacing: 0.05em;
+  text-indent: 0;
 }
-.prose-p {
-  margin: 0 0 10px;
+.prose p {
+  margin: 0 0 12px;
 }
 .list-col {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 .reversal-core {
   display: flex;
   gap: 8px;
   align-items: flex-start;
   padding: 10px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #1f2937;
-  line-height: 1.6;
-  margin-bottom: 10px;
-}
-.setup-list,
-.payoff-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-}
-.setup-list li {
-  padding: 8px 10px;
-  background: #f9fafb;
-  border-radius: 6px;
+  background: var(--warn-bg);
+  border-radius: 7px;
   font-size: 13px;
-  color: #374151;
-  line-height: 1.5;
+  color: var(--ink);
+  line-height: 1.6;
+  margin-bottom: 8px;
 }
 .setup-pos {
   display: inline-block;
-  margin-right: 6px;
+  margin-right: 4px;
   padding: 1px 6px;
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--active-bg);
+  color: var(--ochre);
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
+  flex-shrink: 0;
 }
-.payoff-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: #f9fafb;
-  border-radius: 6px;
-  font-size: 13px;
+.ledger-item.unresolved b {
+  color: var(--cinnabar);
 }
-.payoff-list li.unresolved {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+.piece-page :deep(.echart) {
+  height: 200px;
 }
-.payoff-name {
-  color: #111827;
-}
-.payoff-at {
-  color: #6b7280;
-}
-.tag-red {
-  margin-left: auto;
-  padding: 1px 8px;
-  background: #dc2626;
-  color: #fff;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-}
-.hint {
-  color: #9ca3af;
+.piece-page .hint {
+  color: var(--text-3);
   font-size: 13px;
   margin: 4px 0;
 }
-.hint.error {
-  color: #dc2626;
+.piece-page .hint.error {
+  color: var(--cinnabar);
 }
 </style>

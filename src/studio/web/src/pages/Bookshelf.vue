@@ -97,136 +97,95 @@ onMounted(() => {
 
 <template>
   <section class="bookshelf">
-    <div class="bookshelf-head">
-      <div class="head-left">
-        <h2>书架</h2>
-        <span v-if="currentLibLabel" class="current-lib" :title="currentLib ?? ''">{{
-          currentLibLabel
-        }}</span>
-      </div>
-      <div class="head-right">
-        <button v-if="isDesktop" class="btn-ghost" @click="openLibrary">📁 打开书库</button>
-        <details v-if="isDesktop && recentLibs.length" class="recent-dropdown">
-          <summary>最近 ▾</summary>
-          <ul>
-            <li
-              v-for="r in recentLibs"
-              :key="r.path"
-              :title="r.path"
-              tabindex="0"
-              @click="switchTo(r.path)"
-              @keydown.enter="switchTo(r.path)"
-            >
-              {{ r.label }}
-            </li>
-          </ul>
-        </details>
-        <button class="btn-new" @click="newBook">+ 新建</button>
-      </div>
-    </div>
-
-    <p v-if="loading" class="hint">加载中…</p>
-    <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
-    <div v-else-if="!workDir" class="empty">
-      <p class="hint">未定位到工作目录</p>
-      <p v-if="isDesktop" class="sub">
-        <button class="btn-new" @click="openLibrary">📁 选择书库目录</button>
-      </p>
-      <p v-else class="sub">{{ hint || '请在 CLWriting 工作目录（含 .clwriting/）下启动 studio。' }}</p>
-    </div>
-    <div v-else-if="books.length === 0" class="empty">
-      <p class="hint">暂无书籍</p>
-      <p class="sub">点右上「+ 新建」建第一本书</p>
-    </div>
-    <ul v-else class="book-list">
-      <li
-        v-for="b in books"
-        :key="b.name"
-        class="book-card"
-        tabindex="0"
-        @click="open(b.name)"
-        @keydown.enter="open(b.name)"
-      >
-        <div class="book-name">{{ b.name }}</div>
-        <div class="book-meta">
-          {{ b.kind === 'short' ? '短篇集' : '长篇' }} · 创建于 {{ fmtDate(b.created_at) }}
+    <div class="panel-pad">
+      <div class="bookshelf-head">
+        <div class="head-left">
+          <div class="panel-title">书架</div>
+          <div v-if="currentLibLabel" class="panel-sub" style="margin-bottom:0">{{ currentLibLabel }}</div>
         </div>
-      </li>
-    </ul>
+        <div class="head-right">
+          <button v-if="isDesktop" class="btn" @click="openLibrary">📁 打开书库</button>
+          <details v-if="isDesktop && recentLibs.length" class="recent-dropdown">
+            <summary>最近 ▾</summary>
+            <ul>
+              <li
+                v-for="r in recentLibs"
+                :key="r.path"
+                :title="r.path"
+                tabindex="0"
+                @click="switchTo(r.path)"
+                @keydown.enter="switchTo(r.path)"
+              >{{ r.label }}</li>
+            </ul>
+          </details>
+          <button class="btn primary" @click="newBook">+ 新建</button>
+        </div>
+      </div>
+
+      <p v-if="loading" class="hint">加载中…</p>
+      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <div v-else-if="!workDir" class="empty">
+        <p class="hint">未定位到工作目录</p>
+        <p v-if="isDesktop" class="sub"><button class="btn primary" @click="openLibrary">📁 选择书库目录</button></p>
+        <p v-else class="sub">{{ hint || '请在 CLWriting 工作目录（含 .clwriting/）下启动 studio。' }}</p>
+      </div>
+      <div v-else-if="books.length === 0" class="empty">
+        <p class="hint">暂无书籍</p>
+        <p class="sub">点右上「+ 新建」建第一本书</p>
+      </div>
+      <div v-else class="book-grid">
+        <div
+          v-for="b in books"
+          :key="b.name"
+          class="book-card"
+          tabindex="0"
+          @click="open(b.name)"
+          @keydown.enter="open(b.name)"
+        >
+          <div class="book-name">{{ b.name }}</div>
+          <div class="book-meta">{{ b.kind === 'short' ? '短篇集' : '长篇' }} · 创建于 {{ fmtDate(b.created_at) }}</div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .bookshelf {
-  max-width: 960px;
   margin: 0 auto;
 }
 .bookshelf-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 12px;
 }
 .head-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   min-width: 0;
-}
-.bookshelf-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.current-lib {
-  color: #9ca3af;
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .head-right {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.btn-new {
-  padding: 6px 14px;
-  border: none;
-  border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
-  cursor: pointer;
-}
-.btn-new:hover {
-  background: #2563eb;
-}
-.btn-ghost {
-  padding: 6px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-ghost:hover {
-  border-color: #3b82f6;
-  color: #3b82f6;
+  flex-shrink: 0;
 }
 .recent-dropdown {
   position: relative;
 }
 .recent-dropdown summary {
   cursor: pointer;
-  font-size: 13px;
-  color: #6b7280;
-  padding: 6px 8px;
-  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
   list-style: none;
+  background: var(--panel);
 }
 .recent-dropdown summary:hover {
-  background: #f3f4f6;
+  border-color: var(--ink-cyan);
+  color: var(--ink-cyan);
 }
 .recent-dropdown ul {
   position: absolute;
@@ -235,17 +194,17 @@ onMounted(() => {
   margin: 4px 0 0;
   padding: 4px 0;
   list-style: none;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  min-width: 160px;
+  box-shadow: var(--shadow);
+  min-width: 180px;
   z-index: 10;
 }
 .recent-dropdown li {
   padding: 6px 12px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -253,52 +212,51 @@ onMounted(() => {
 }
 .recent-dropdown li:hover,
 .recent-dropdown li:focus-visible {
-  background: #eff6ff;
-  color: #3b82f6;
+  background: var(--active-bg);
+  color: var(--ink-cyan);
   outline: none;
 }
-.hint {
-  color: #6b7280;
-}
-.hint.error {
-  color: #dc2626;
-}
-.empty {
-  text-align: center;
-  padding: 48px 0;
-}
-.empty .sub {
-  color: #9ca3af;
-  font-size: 13px;
-  margin-top: 8px;
-}
-.book-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.book-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 .book-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 16px 18px;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .book-card:hover,
 .book-card:focus-visible {
-  border-color: #3b82f6;
-  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.15);
+  border-color: var(--ink-cyan);
+  box-shadow: var(--shadow);
   outline: none;
 }
 .book-name {
   font-weight: 600;
+  font-size: 14px;
 }
 .book-meta {
-  color: #6b7280;
+  color: var(--text-2);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.hint {
+  color: var(--text-2);
+}
+.hint.error {
+  color: var(--cinnabar);
+}
+.empty {
+  text-align: center;
+  padding: 60px 0;
+}
+.empty .sub {
+  color: var(--text-3);
   font-size: 13px;
-  margin-top: 4px;
+  margin-top: 10px;
 }
 </style>

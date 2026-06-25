@@ -158,258 +158,190 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
 
 <template>
   <section class="book-new">
-    <div class="head">
-      <button class="btn-back" @click="router.push('/')">← 返回书架</button>
-    </div>
+    <div class="panel-pad" style="max-width:680px">
+      <button class="btn" style="margin-bottom:18px" @click="router.push('/')">← 返回书架</button>
 
-    <!-- 段 1:init 表单 -->
-    <template v-if="phase === 'form'">
-      <h2>新建书籍</h2>
+      <!-- 段 1：init 表单 -->
+      <template v-if="phase === 'form'">
+        <div class="panel-title">新建书籍</div>
+        <div class="panel-sub">建书后可让 AI 据题材自动填设定（段 2）</div>
 
-      <form class="form" @submit.prevent="submit">
-        <div class="field">
-          <label>书名 <span class="req">*</span></label>
-          <input v-model="name" placeholder="如：我的世界" />
-        </div>
-
-        <div class="field">
-          <label>题材</label>
-          <input v-model="genre" placeholder="如：玄幻 / 悬疑 / 言情（驱动账本推荐）" />
-        </div>
-
-        <div class="field">
-          <label>类型</label>
-          <div class="seg">
-            <button type="button" :class="{ active: kind === 'long' }" @click="kind = 'long'">长篇</button>
-            <button type="button" :class="{ active: kind === 'short' }" @click="kind = 'short'">短篇集</button>
+        <form class="card book-new-form" @submit.prevent="submit">
+          <div class="sfield">
+            <label>书名 <span style="color:var(--cinnabar)">*</span></label>
+            <input v-model="name" placeholder="如：我的世界" />
           </div>
-        </div>
-
-        <div class="field">
-          <label>目标字数 <span class="tip">可选，填了总览页显示完成度</span></label>
-          <input type="number" v-model="targetWords" placeholder="如：300000（30 万字）" />
-        </div>
-
-        <div class="field">
-          <label>简介 <span class="tip">可选，落 简介.md（长篇简介 / 短篇集定位）</span></label>
-          <textarea v-model="brief" rows="3" placeholder="一两句话讲清这本书讲什么、主角是谁、核心看点"></textarea>
-        </div>
-
-        <div class="field">
-          <label>目录结构（{{ kind === 'short' ? '短篇集' : '长篇' }}）</label>
-          <pre class="dir-preview">{{ dirPreview.join('\n') }}</pre>
-        </div>
-
-        <div v-if="kind === 'long'" class="field">
-          <label>扩展账本类 <span class="tip">留空则按题材自动推荐</span></label>
-          <div class="leads">
-            <label v-for="l in EXTENDED_LEADS" :key="l" class="lead">
-              <input type="checkbox" :checked="leads.includes(l)" @change="toggleLead(l)" /> {{ l }}
-            </label>
+          <div class="sfield">
+            <label>题材</label>
+            <input v-model="genre" placeholder="如：玄幻 / 悬疑 / 言情（驱动账本推荐）" />
           </div>
-        </div>
-
-        <div class="field">
-          <label>AI 宿主</label>
-          <div class="host">
-            <span class="host-active">Claude Code (cc)</span>
-            <span class="host-disabled" title="首版暂不支持（决策 22）">Codex（暂未支持）</span>
+          <div class="sfield">
+            <label>类型</label>
+            <div class="seg">
+              <button type="button" :class="{ active: kind === 'long' }" @click="kind = 'long'">长篇</button>
+              <button type="button" :class="{ active: kind === 'short' }" @click="kind = 'short'">短篇集</button>
+            </div>
           </div>
-        </div>
+          <div class="sfield">
+            <label>目标字数</label>
+            <input type="number" v-model="targetWords" placeholder="如：300000（可选，算完成度）" />
+          </div>
+          <div class="sfield">
+            <label>简介</label>
+            <textarea v-model="brief" rows="3" placeholder="一两句话讲清这本书讲什么、主角是谁、核心看点"></textarea>
+          </div>
+          <div class="sfield">
+            <label>目录</label>
+            <pre class="dir-preview">{{ dirPreview.join('\n') }}</pre>
+          </div>
+          <div v-if="kind === 'long'" class="sfield">
+            <label>扩展账本</label>
+            <div class="leads">
+              <label v-for="l in EXTENDED_LEADS" :key="l" class="lead">
+                <input type="checkbox" :checked="leads.includes(l)" @change="toggleLead(l)" /> {{ l }}
+              </label>
+            </div>
+          </div>
+          <div class="sfield">
+            <label>AI 宿主</label>
+            <div class="host">
+              <span class="host-active">Claude Code (cc)</span>
+              <span class="host-disabled" title="首版暂不支持（决策 22）">Codex（暂未支持）</span>
+            </div>
+          </div>
+        </form>
 
         <p v-if="error" class="error">{{ error }}</p>
-
-        <div class="actions">
-          <button type="submit" class="btn-primary" :disabled="!canSubmit">
+        <div class="btn-row" style="justify-content:flex-end">
+          <button class="btn primary" :disabled="!canSubmit" @click="submit">
             {{ submitting ? '创建中…' : '创建' }}
           </button>
         </div>
-      </form>
-    </template>
+      </template>
 
-    <!-- 段 2:AI 填设定 -->
-    <template v-else>
-      <h2>段 2 · AI 填设定</h2>
-      <p class="onboard-tip">《{{ createdName }}》已创建。让 AI 据题材填设定(每步可生成/编辑/重生成/跳过)。</p>
+      <!-- 段 2：AI 填设定 -->
+      <template v-else>
+        <div class="panel-title">段 2 · AI 填设定</div>
+        <div class="panel-sub">《{{ createdName }}》已创建 · 让 AI 据题材填设定（每步可生成 / 编辑 / 重生成 / 跳过）</div>
 
-      <div
-        v-for="s in onboardSteps"
-        :key="s.key"
-        class="onboard-step"
-        :class="{ done: !!s.result, skipped: s.skipped }"
-      >
-        <div class="step-head">
-          <span class="step-label">{{ s.label }}</span>
-          <span class="step-status">{{ s.skipped ? '⏭ 已跳过' : s.result ? '✓ 已生成' : '待处理' }}</span>
-          <div class="step-ops">
-            <button class="btn-small" :disabled="s.running" @click="onboardRun(s.key)">
-              {{ s.running ? '生成中…' : s.result ? '🔄 重生成' : '⚡ 生成' }}
-            </button>
-            <button v-if="!s.result && !s.skipped" class="btn-small" @click="s.skipped = true">⏭ 跳过</button>
-            <button v-else-if="s.skipped" class="btn-small" @click="s.skipped = false">恢复</button>
+        <div v-for="s in onboardSteps" :key="s.key" class="card" :class="{ skipped: s.skipped }">
+          <div class="step-head">
+            <span class="step-label">{{ s.label }}</span>
+            <span class="tag" :class="s.result ? 'green' : s.skipped ? 'gray' : ''">
+              {{ s.skipped ? '已跳过' : s.result ? '已生成' : '待处理' }}
+            </span>
+            <div class="step-ops">
+              <button class="btn" :disabled="s.running" @click="onboardRun(s.key)">
+                {{ s.running ? '生成中…' : s.result ? '🔄 重生成' : '⚡ 生成' }}
+              </button>
+              <button v-if="!s.result && !s.skipped" class="btn" @click="s.skipped = true">⏭ 跳过</button>
+              <button v-else-if="s.skipped" class="btn" @click="s.skipped = false">恢复</button>
+            </div>
           </div>
+          <template v-if="s.result">
+            <textarea v-model="s.result.content" class="result-edit" rows="8"></textarea>
+            <div class="step-foot">
+              <span class="result-path"><span class="mono">{{ s.result.path }}</span> · {{ s.result.words }} 字</span>
+              <button class="btn primary" @click="onboardSave(s)">💾 保存编辑</button>
+            </div>
+          </template>
         </div>
-        <template v-if="s.result">
-          <textarea v-model="s.result.content" class="result-edit" rows="8"></textarea>
-          <div class="step-foot">
-            <span class="result-path"><span class="mono">{{ s.result.path }}</span> · {{ s.result.words }} 字</span>
-            <button class="btn-small" @click="onboardSave(s)">💾 保存编辑</button>
-          </div>
-        </template>
-      </div>
 
-      <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="savedMsg" class="saved-msg">{{ savedMsg }}</p>
-
-      <div class="actions">
-        <button class="btn-primary" @click="finishOnboard">完成 → 进单书</button>
-      </div>
-    </template>
+        <p v-if="error" class="error">{{ error }}</p>
+        <p v-if="savedMsg" class="saved-msg">{{ savedMsg }}</p>
+        <div class="btn-row" style="justify-content:flex-end">
+          <button class="btn primary" @click="finishOnboard">完成 → 进单书</button>
+        </div>
+      </template>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .book-new {
-  max-width: 640px;
   margin: 0 auto;
 }
-.head {
-  margin-bottom: 16px;
+.book-new-form {
+  padding: 4px 16px;
+  display: block;
 }
-.btn-back {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 14px;
-}
-.btn-back:hover {
-  border-color: #3b82f6;
-}
-h2 {
-  margin: 12px 0 20px;
-  font-size: 16px;
-}
-.form {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 24px;
-  display: grid;
-  gap: 18px;
-}
-.field {
-  display: grid;
-  gap: 6px;
-}
-.field > label {
-  font-size: 13px;
-  color: #374151;
-}
-.req {
-  color: #dc2626;
-}
-.tip {
-  color: #9ca3af;
-  font-weight: normal;
-}
-.field input:not([type='checkbox']) {
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 14px;
-}
-.field input:focus {
-  outline: none;
-  border-color: #3b82f6;
+.book-new .sfield input,
+.book-new .sfield textarea {
+  width: 100%;
 }
 .seg {
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
 }
 .seg button {
   padding: 6px 16px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
 }
 .seg button.active {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  color: #3b82f6;
+  border-color: var(--ink-cyan);
+  background: var(--active-bg);
+  color: var(--ink-cyan);
   font-weight: 600;
+}
+.dir-preview {
+  flex: 1;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 .leads {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  flex: 1;
 }
 .lead {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
+  color: var(--ink);
+}
+.lead input {
+  accent-color: var(--ink-cyan);
 }
 .host {
   display: flex;
   gap: 16px;
-  font-size: 14px;
+  font-size: 13px;
+  flex: 1;
+  align-items: center;
 }
 .host-active {
-  color: #3b82f6;
+  color: var(--ink-cyan);
   font-weight: 600;
 }
 .host-disabled {
-  color: #d1d5db;
+  color: var(--text-3);
 }
 .error {
-  color: #dc2626;
+  color: var(--cinnabar);
   font-size: 13px;
-  margin: 0;
+  margin: 12px 0;
 }
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-.btn-primary {
-  padding: 8px 24px;
-  border: none;
-  border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
-  cursor: pointer;
-  font-size: 14px;
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* 段 2 onboard */
-.onboard-tip {
-  background: #eff6ff;
-  color: #1e40af;
-  padding: 8px 12px;
-  border-radius: 6px;
+.saved-msg {
+  color: var(--ink-cyan);
   font-size: 13px;
-  margin-bottom: 16px;
-}
-.onboard-step {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-}
-.onboard-step.done {
-  border-color: #a7f3d0;
-}
-.onboard-step.skipped {
-  opacity: 0.6;
+  margin: 8px 0;
 }
 .step-head {
   display: flex;
@@ -419,57 +351,41 @@ h2 {
 }
 .step-label {
   font-weight: 600;
-  font-size: 14px;
-  color: #111827;
-}
-.step-status {
-  font-size: 12px;
-  color: #6b7280;
-  flex: 1;
+  font-size: 13px;
+  color: var(--ink);
 }
 .step-ops {
   display: flex;
   gap: 6px;
-}
-.btn-small {
-  padding: 4px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-small:disabled {
-  opacity: 0.6;
-  cursor: progress;
+  margin-left: auto;
 }
 .result-edit {
   width: 100%;
   box-sizing: border-box;
   padding: 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
   line-height: 1.6;
   font-family: inherit;
   resize: vertical;
+  background: var(--paper);
+  color: var(--ink);
 }
 .step-foot {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .result-path {
-  font-size: 12px;
-  color: #6b7280;
+  font-size: 11px;
+  color: var(--text-3);
 }
 .mono {
   font-family: ui-monospace, monospace;
 }
-.saved-msg {
-  color: #059669;
-  font-size: 13px;
-  margin: 8px 0;
+.card.skipped {
+  opacity: 0.55;
 }
 </style>

@@ -42,28 +42,28 @@ onUnmounted(() => {
 .book-tabs {
   display: flex;
   gap: 4px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
   margin-bottom: 20px;
 }
 .book-tabs a {
   padding: 8px 16px;
-  color: #6b7280;
+  color: var(--text-2);
   text-decoration: none;
   font-size: 14px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
 .book-tabs a:hover {
-  color: #3b82f6;
+  color: var(--ink-cyan);
 }
 .book-tabs a.active {
-  color: #3b82f6;
-  border-bottom-color: #3b82f6;
+  color: var(--ink-cyan);
+  border-bottom-color: var(--ink-cyan);
   font-weight: 600;
 }
 .book-tabs .placeholder {
   padding: 8px 16px;
-  color: #d1d5db;
+  color: var(--border);
   font-size: 14px;
   cursor: not-allowed;
 }

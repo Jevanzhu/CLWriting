@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
 import DiffView from '../components/DiffView.vue'
-import BookTabs from '../components/BookTabs.vue'
 
 interface FileEntry {
   path: string
@@ -21,6 +20,7 @@ interface RewriteResult {
 }
 
 const route = useRoute()
+const router = useRouter()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const files = ref<FileEntry[]>([])
 const selected = ref('')
@@ -68,8 +68,9 @@ async function loadFiles(): Promise<void> {
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     const data = (await r.json()) as { files: FileEntry[] }
     files.value = data.files ?? []
-    if (files.value.length > 0 && !files.value.some((f) => f.path === selected.value)) {
-      selected.value = files.value[0]!.path
+    // 文件导航归左栏 FileTree：无 query 时设默认 file，让 FileTree 高亮与 selected 一致
+    if (files.value.length > 0 && !route.query.file) {
+      void router.replace({ query: { file: files.value[0]!.path } })
     }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -247,76 +248,63 @@ watch(
 watch(selected, () => {
   void loadFile()
 })
+
+// 左栏 FileTree 选文件 → 跳 /edit?file=xxx → 同步 selected 打开（第二刀联动）
+watch(
+  () => route.query.file,
+  (f) => {
+    if (typeof f === 'string' && f && f !== selected.value) {
+      selected.value = f
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <section class="editor">
-    <BookTabs :name="name" active="edit" />
-    <div class="layout">
-      <aside class="file-list">
-        <div class="file-list-head">
-          <h3>文件</h3>
-          <button class="btn-revert" :disabled="reverting" @click="revert">
-            {{ reverting ? '回滚中…' : '⏪ 回滚' }}
-          </button>
-        </div>
-        <ul>
-          <li
-            v-for="f in files"
-            :key="f.path"
-            :class="{ active: f.path === selected }"
-            @click="selected = f.path"
-          >
-            <span class="path">{{ f.path }}</span>
-            <span class="mode">{{ f.mode === 'text' ? '正文' : '设定' }}</span>
-          </li>
-        </ul>
-      </aside>
-      <div class="edit-area">
-        <div class="toolbar">
-          <span class="cur">{{ selected || '（选一个文件）' }}</span>
-          <span v-if="dirty" class="dirty">● 未保存</span>
-          <span v-else-if="savedMsg" class="saved">{{ savedMsg }}</span>
-          <button class="btn-save" :disabled="!dirty || saving" @click="save">
-            {{ saving ? '保存中…' : '保存' }}
-          </button>
-        </div>
-        <p v-if="error" class="error">{{ error }}</p>
-        <CodeEditor
-          v-else-if="selected && !loading"
-          ref="codeRef"
-          :key="selected"
-          :model-value="content"
-          :mode="selectedMode"
-          @update:model-value="content = $event"
-        />
-        <p v-else-if="loading" class="hint">加载中…</p>
-        <p v-else class="hint">从左侧选一个文件开始编辑。</p>
+    <div class="edit-area">
+      <div class="toolbar">
+        <span class="cur">{{ selected || '（从左侧选一个文件）' }}</span>
+        <span v-if="dirty" class="dirty">● 未保存</span>
+        <span v-else-if="savedMsg" class="saved">{{ savedMsg }}</span>
+        <button class="btn danger" :disabled="reverting" @click="revert">{{ reverting ? '回滚中…' : '⏪ 回滚' }}</button>
+        <button class="btn primary" :disabled="!dirty || saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+      </div>
 
-        <!-- 改写入口(仅草稿 工作区/草稿-N.md)-->
-        <div v-if="draftChapter && selected && !loading" class="rewrite-panel">
-          <h4>✍ 改写 · 第 {{ draftChapter }} {{ kind === 'short' ? '篇' : '章' }}草稿</h4>
-          <textarea
-            v-model="rewriteInstruction"
-            class="rewrite-instr"
-            :placeholder="`改写指令,如「更紧张」「压到 300 字」;整${kind === 'short' ? '篇' : '章'}返修可粘贴审稿意见`"
-          ></textarea>
-          <div class="rewrite-btns">
-            <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('local')">
-              局部改写选段
-            </button>
-            <button class="btn-rw" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('whole')">
-              {{ rewriteRunning ? '生成中…' : '整' + (kind === 'short' ? '篇' : '章') + '返修' }}
-            </button>
-          </div>
-          <DiffView
-            v-if="rewriteResult"
-            :diff="rewriteResult.diff"
-            :applying="rewriteApplying"
-            @accept="rewriteApply(true)"
-            @reject="rewriteApply(false)"
-          />
+      <p v-if="error" class="error">{{ error }}</p>
+      <CodeEditor
+        v-else-if="selected && !loading"
+        ref="codeRef"
+        :key="selected"
+        :model-value="content"
+        :mode="selectedMode"
+        @update:model-value="content = $event"
+      />
+      <p v-else-if="loading" class="hint">加载中…</p>
+      <p v-else class="hint">从左侧选一个文件开始编辑。</p>
+
+      <!-- 改写入口（仅草稿 工作区/草稿-N.md）-->
+      <div v-if="draftChapter && selected && !loading" class="rewrite-panel">
+        <h4>✍ 改写 · 第 {{ draftChapter }} {{ kind === 'short' ? '篇' : '章' }}草稿</h4>
+        <textarea
+          v-model="rewriteInstruction"
+          class="rewrite-instr"
+          :placeholder="`改写指令，如「更紧张」「压到 300 字」；整${kind === 'short' ? '篇' : '章'}返修可粘贴审稿意见`"
+        ></textarea>
+        <div class="rewrite-btns">
+          <button class="btn" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('local')">局部改写选段</button>
+          <button class="btn" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('whole')">
+            {{ rewriteRunning ? '生成中…' : `整${kind === 'short' ? '篇' : '章'}返修` }}
+          </button>
         </div>
+        <DiffView
+          v-if="rewriteResult"
+          :diff="rewriteResult.diff"
+          :applying="rewriteApplying"
+          @accept="rewriteApply(true)"
+          @reject="rewriteApply(false)"
+        />
       </div>
     </div>
   </section>
@@ -324,171 +312,79 @@ watch(selected, () => {
 
 <style scoped>
 .editor {
-  max-width: 1100px;
   margin: 0 auto;
   text-align: left;
 }
-.layout {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 16px;
-}
-.file-list {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  height: fit-content;
-}
-.file-list-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.file-list h3 {
-  margin: 0;
-  font-size: 13px;
-  color: #6b7280;
-}
-.btn-revert {
-  padding: 3px 10px;
-  border: 1px solid #fca5a5;
-  border-radius: 4px;
-  background: #fff;
-  color: #dc2626;
-  cursor: pointer;
-  font-size: 12px;
-}
-.btn-revert:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-revert:hover:not(:disabled) {
-  background: #fef2f2;
-}
-.file-list ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 2px;
-}
-.file-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.file-list li:hover {
-  background: #f3f4f6;
-}
-.file-list li.active {
-  background: #eff6ff;
-  color: #3b82f6;
-}
-.file-list .path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.file-list .mode {
-  color: #9ca3af;
-  font-size: 11px;
-  flex-shrink: 0;
-  margin-left: 8px;
-}
 .edit-area {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
 }
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 10px;
   font-size: 13px;
 }
 .toolbar .cur {
-  color: #374151;
+  color: var(--ink);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .toolbar .dirty {
-  color: #d97706;
+  color: var(--ochre);
 }
 .toolbar .saved {
-  color: #059669;
+  color: var(--ink-cyan);
 }
-.btn-save {
-  padding: 5px 16px;
-  border: none;
-  border-radius: 5px;
-  background: #3b82f6;
-  color: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.toolbar .btn {
+  font-size: 12px;
+  padding: 4px 12px;
 }
 .error {
-  color: #dc2626;
+  color: var(--cinnabar);
   font-size: 13px;
 }
 .hint {
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 13px;
   padding: 24px 0;
   text-align: center;
 }
-
-/* 改写面板 */
 .rewrite-panel {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--border);
 }
 .rewrite-panel h4 {
   margin: 0 0 8px;
   font-size: 13px;
-  color: #374151;
+  color: var(--ink);
 }
 .rewrite-instr {
   width: 100%;
   min-height: 56px;
   padding: 8px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
   font-family: inherit;
   resize: vertical;
   box-sizing: border-box;
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
+}
+.rewrite-instr:focus {
+  border-color: var(--ink-cyan);
 }
 .rewrite-btns {
   display: flex;
   gap: 8px;
   margin-top: 8px;
-}
-.btn-rw {
-  padding: 6px 14px;
-  border: 1px solid #7c3aed;
-  border-radius: 6px;
-  background: #fff;
-  color: #7c3aed;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-rw:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

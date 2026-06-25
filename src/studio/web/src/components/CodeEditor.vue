@@ -95,7 +95,7 @@ onUnmounted(() => view?.destroy())
 
 <style scoped>
 .code-editor {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
   height: 62vh;
   overflow: auto;

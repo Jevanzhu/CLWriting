@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import BookTabs from '../components/BookTabs.vue'
+import { useWorkbenchLog } from '../composables/useWorkbenchLog'
 
 /** driver 事件(松类型,按 type 分支取字段) */
 interface DriverEvent {
@@ -32,7 +32,8 @@ const draftMode = ref(false)
 const cliRunning = ref(false)
 const reviewRunning = ref(false)
 const textOut = ref('')
-const log = ref<{ t: string; type: string; text: string }[]>([])
+// 事件流走共享状态（useWorkbenchLog），右栏 EventStream 实时联动
+const { log } = useWorkbenchLog()
 const saved = ref<{ path: string; words: number } | null>(null)
 const outlineSaved = ref<{ path: string; words: number } | null>(null)
 const checkReport = ref('') // 机检报告(check stdout)
@@ -372,115 +373,113 @@ onUnmounted(() => es?.close())
 
 <template>
   <section class="wb-page">
-    <BookTabs :name="name" active="workbench" />
+    <div class="panel-pad">
+      <div class="panel-title">工作台</div>
+      <div class="panel-sub">八阶段 · 细纲 → 确认 → 备料 → 写稿 → 机检 → 三审 → 定稿</div>
 
-    <!-- 6.8① 当前状态卡(enter 自动定位) -->
-    <div v-if="stateInfo" class="state-card">
-      <span class="state-tag">【{{ stateInfo.stateName }}】</span>
-      <span class="state-msg">{{ stateInfo.humanMsg }}</span>
-    </div>
-
-    <div class="cc-banner">
-      ⚡ 八阶段全接(细纲→确认→备料→写稿→机检→三审→定稿)。AI 步(细纲/写稿/三审)经 claude
-      CLI,确定性步(确认/备料/机检/定稿)经 clwriting CLI。
-    </div>
-
-    <!-- 八阶段骨架 -->
-    <nav class="stages">
-      <span
-        v-for="s in stages"
-        :key="s.id"
-        class="stage"
-        :class="{ active: s.id === activeStage }"
-      >{{ s.label }}</span>
-    </nav>
-
-    <!-- 控制区:七按钮(进入隐含在选章)+ 自动推进开关 -->
-    <article class="card ctrl">
-      <div class="ctrl-row">
-        <label>{{ kind === 'short' ? '篇号' : '章号' }}
-          <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
-        </label>
-        <button class="btn-outline" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
-          {{ outlineRunning ? (kind === 'short' ? '篇纲中…' : '细纲中…') : (kind === 'short' ? '📋 篇纲' : '📋 细纲') }}
-        </button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
-        <button class="btn-fire" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
-          {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
-        </button>
-        <!-- 6.8③ 写稿中可中断 -->
-        <button v-if="running" class="btn-stop" @click="interruptWrite">⏹ 中断</button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
-        <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
-          {{ reviewRunning ? '三审中…' : '📝 三审' }}
-        </button>
-        <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
-        <!-- 6.8② 自动推进开关 -->
-        <label class="auto-toggle" title="确定性步 done 后自动推进下一步(AI/人工步前停)">
-          <input type="checkbox" v-model="autoAdvance" /> 自动推进
-        </label>
+      <!-- 当前状态卡（enter 自动定位） -->
+      <div v-if="stateInfo" class="state-card">
+        <span class="state-tag">【{{ stateInfo.stateName }}】</span>
+        <span class="state-msg">{{ stateInfo.humanMsg }}</span>
       </div>
-      <!-- 6.8③ 中断后:弃稿 / 改指令重写 -->
-      <div v-if="interrupted" class="interrupt-bar">
-        <span class="interrupt-tip">写稿已中断,正文已保留({{ textOut.length }} 字)。</span>
-        <button class="btn-cli" @click="discardDraft">🗑 弃稿</button>
-        <button class="btn-fire" @click="draftWrite">🔄 改指令重写</button>
+
+      <div class="cc-banner">
+        ⚡ AI 步（细纲 / 写稿 / 三审）经 claude CLI，确定性步（确认 / 备料 / 机检 / 定稿）经 clwriting CLI
       </div>
-      <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成:<span class="mono">{{ outlineSaved.path }}</span>({{ outlineSaved.words }} 字)</p>
-      <p v-if="saved" class="saved-tip">✅ 草稿已保存:<span class="mono">{{ saved.path }}</span>({{ saved.words }} 字)</p>
-      <p v-if="verdictApproved" class="saved-tip">✓ 裁决通过,可定稿</p>
-    </article>
 
-    <!-- 正文输出 -->
-    <article class="card">
-      <h3 class="block-title">正文输出</h3>
-      <pre class="text-out">{{ textOut || '(尚未生成)' }}</pre>
-    </article>
+      <!-- 八阶段骨架 -->
+      <nav class="stages">
+        <span
+          v-for="s in stages"
+          :key="s.id"
+          class="stage"
+          :class="{ active: s.id === activeStage }"
+        >{{ s.label }}</span>
+      </nav>
 
-    <!-- 机检报告 -->
-    <article v-if="checkReport" class="card">
-      <h3 class="block-title">机检报告</h3>
-      <pre class="report-out">{{ checkReport }}</pre>
-    </article>
+      <!-- 控制区 -->
+      <article class="card ctrl">
+        <div class="ctrl-row">
+          <label>{{ kind === 'short' ? '篇号' : '章号' }}
+            <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
+          </label>
+          <button class="btn primary" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
+            {{ outlineRunning ? (kind === 'short' ? '篇纲中…' : '细纲中…') : (kind === 'short' ? '📋 篇纲' : '📋 细纲') }}
+          </button>
+          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
+          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
+          <button class="btn primary" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
+            {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
+          </button>
+          <button v-if="running" class="btn danger" @click="interruptWrite">⏹ 中断</button>
+          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
+          <button class="btn primary" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
+            {{ reviewRunning ? '三审中…' : '📝 三审' }}
+          </button>
+          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
+          <label class="auto-toggle" title="确定性步 done 后自动推进下一步（AI / 人工步前停）">
+            <input type="checkbox" v-model="autoAdvance" /> 自动推进
+          </label>
+        </div>
+        <!-- 中断后：弃稿 / 改指令重写 -->
+        <div v-if="interrupted" class="interrupt-bar">
+          <span class="interrupt-tip">写稿已中断，正文已保留（{{ textOut.length }} 字）。</span>
+          <button class="btn" @click="discardDraft">🗑 弃稿</button>
+          <button class="btn primary" @click="draftWrite">🔄 改指令重写</button>
+        </div>
+        <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成：<span class="mono">{{ outlineSaved.path }}</span>（{{ outlineSaved.words }} 字）</p>
+        <p v-if="saved" class="saved-tip">✅ 草稿已保存：<span class="mono">{{ saved.path }}</span>（{{ saved.words }} 字）</p>
+        <p v-if="verdictApproved" class="saved-tip">✓ 裁决通过，可定稿</p>
+      </article>
 
-    <!-- 审稿单 -->
-    <article v-if="reviewReport" class="card">
-      <h3 class="block-title">
-        审稿单
-        <button v-if="!verdictApproved" class="btn-approve" @click="verdictApprove">裁决通过 →</button>
-      </h3>
-      <pre class="report-out">{{ reviewReport }}</pre>
-    </article>
+      <!-- 正文输出 -->
+      <article class="card">
+        <div class="card-title">正文输出</div>
+        <pre class="text-out">{{ textOut || '（尚未生成）' }}</pre>
+      </article>
 
-    <!-- 事件流 -->
-    <article class="card">
-      <h3 class="block-title">事件流</h3>
-      <ul class="log">
-        <li v-for="(l, i) in log" :key="i" :class="`ev-${l.type}`">
-          <span class="ev-time">{{ l.t }}</span>
-          <span class="ev-type">{{ l.type }}</span>
-          <span class="ev-text">{{ l.text }}</span>
-        </li>
-        <li v-if="!log.length" class="empty">等待事件…</li>
-      </ul>
-    </article>
+      <!-- 机检报告 -->
+      <article v-if="checkReport" class="card">
+        <div class="card-title">机检报告</div>
+        <pre class="report-out">{{ checkReport }}</pre>
+      </article>
+
+      <!-- 审稿单 -->
+      <article v-if="reviewReport" class="card">
+        <div class="card-title">
+          <span>审稿单</span>
+          <button v-if="!verdictApproved" class="btn primary" style="font-size:11px;padding:3px 10px" @click="verdictApprove">裁决通过 →</button>
+        </div>
+        <pre class="report-out">{{ reviewReport }}</pre>
+      </article>
+
+      <!-- 事件流 -->
+      <article class="card">
+        <div class="card-title">事件流</div>
+        <ul class="log">
+          <li v-for="(l, i) in log" :key="i" :class="`ev-${l.type}`">
+            <span class="ev-time">{{ l.t }}</span>
+            <span class="ev-type">{{ l.type }}</span>
+            <span class="ev-text">{{ l.text }}</span>
+          </li>
+          <li v-if="!log.length" class="empty">等待事件…</li>
+        </ul>
+      </article>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .wb-page {
-  max-width: 960px;
   margin: 0 auto;
 }
-/* 6.8① 当前状态卡 */
 .state-card {
   padding: 10px 14px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: 6px;
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-bg);
+  border-radius: 7px;
   font-size: 13px;
-  color: #065f46;
+  color: var(--ink-cyan);
   line-height: 1.6;
   margin-bottom: 12px;
 }
@@ -490,207 +489,111 @@ onUnmounted(() => es?.close())
 }
 .cc-banner {
   padding: 8px 12px;
-  background: #dbeafe;
-  color: #1e40af;
-  border-radius: 6px;
-  font-size: 13px;
-  margin-bottom: 16px;
+  background: var(--active-bg);
+  color: var(--ink-cyan);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 14px;
 }
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px 20px;
-}
-.card + .card {
-  margin-top: 16px;
-}
-.block-title {
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* 八阶段骨架 */
 .stages {
   display: flex;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 .stage {
-  padding: 5px 12px;
-  border: 1px solid #e5e7eb;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
   border-radius: 14px;
-  font-size: 13px;
-  color: #9ca3af;
-  background: #fff;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--panel);
 }
 .stage.active {
-  background: #3b82f6;
-  color: #fff;
-  border-color: #3b82f6;
+  background: var(--ink-cyan);
+  color: var(--panel);
+  border-color: var(--ink-cyan);
   font-weight: 600;
 }
-
-/* 控制区 */
 .ctrl-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
   flex-wrap: wrap;
 }
 .ctrl-row label {
   display: grid;
   gap: 4px;
-  font-size: 13px;
-  color: #6b7280;
-}
-input[type='number'] {
-  width: 80px;
-  padding: 6px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 14px;
-}
-.btn-outline {
-  padding: 8px 14px;
-  border: 1px solid #3b82f6;
-  border-radius: 6px;
-  background: #fff;
-  color: #3b82f6;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-outline:disabled {
-  border-color: #d1d5db;
-  color: #9ca3af;
-  cursor: not-allowed;
-}
-.btn-cli {
-  padding: 8px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-cli:disabled {
-  border-color: #e5e7eb;
-  color: #9ca3af;
-  cursor: not-allowed;
-}
-.btn-fire {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-fire:disabled {
-  background: #d1d5db;
-  cursor: not-allowed;
-}
-.btn-stop {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 6px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-stop:hover {
-  background: #dc2626;
-}
-.btn-review {
-  padding: 8px 14px;
-  border: 1px solid #7c3aed;
-  border-radius: 6px;
-  background: #fff;
-  color: #7c3aed;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-review:disabled {
-  border-color: #d1d5db;
-  color: #9ca3af;
-  cursor: not-allowed;
-}
-.btn-approve {
-  margin-left: auto;
-  padding: 4px 12px;
-  border: none;
-  border-radius: 6px;
-  background: #059669;
-  color: #fff;
   font-size: 12px;
-  cursor: pointer;
+  color: var(--text-2);
+}
+.ctrl-row input[type='number'] {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
 }
 .auto-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  font-size: 13px;
-  color: #6b7280;
+  font-size: 12px;
+  color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
 }
 .auto-toggle input {
   cursor: pointer;
+  accent-color: var(--ink-cyan);
 }
 .saved-tip {
   margin: 12px 0 0;
   padding: 8px 12px;
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--ok-bg);
+  color: var(--ink-cyan);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
 }
-/* 6.8③ 中断条 */
 .interrupt-bar {
   display: flex;
   gap: 10px;
   align-items: center;
   margin-top: 12px;
   padding: 8px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--danger-bg);
+  border: 1px solid var(--cinnabar);
   border-radius: 6px;
+  flex-wrap: wrap;
 }
 .interrupt-tip {
   font-size: 13px;
-  color: #991b1b;
+  color: var(--cinnabar);
 }
 .mono {
   font-family: ui-monospace, monospace;
 }
-
-/* 输出 + 报告 + 事件流 */
 .text-out,
 .report-out {
   margin: 0;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--paper);
   border-radius: 6px;
   font-size: 13px;
-  line-height: 1.6;
-  color: #111827;
+  line-height: 1.7;
+  color: var(--ink);
   white-space: pre-wrap;
   max-height: 360px;
   overflow-y: auto;
 }
 .text-out {
   min-height: 48px;
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
 }
 .log {
   margin: 0;
@@ -703,41 +606,39 @@ input[type='number'] {
 }
 .log li {
   display: grid;
-  grid-template-columns: 72px 64px 1fr;
+  grid-template-columns: 64px 56px 1fr;
   gap: 8px;
   align-items: baseline;
-  font-size: 13px;
+  font-size: 12px;
   padding: 3px 0;
 }
 .log li.empty {
-  color: #9ca3af;
+  color: var(--text-3);
   display: block;
 }
 .ev-time {
-  color: #9ca3af;
+  color: var(--text-3);
   font-family: ui-monospace, monospace;
-  font-size: 12px;
 }
 .ev-type {
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--text-2);
 }
 .ev-init .ev-type,
 .ev-done .ev-type {
-  color: #059669;
+  color: var(--ink-cyan);
 }
 .ev-saved .ev-type,
 .ev-saved .ev-text {
-  color: #065f46;
+  color: var(--ink-cyan);
 }
 .ev-spawn .ev-type {
-  color: #7c3aed;
+  color: var(--ochre);
 }
 .ev-error .ev-type,
 .ev-error .ev-text {
-  color: #dc2626;
+  color: var(--cinnabar);
 }
 .ev-text {
-  color: #4b5563;
+  color: var(--text-2);
 }
 </style>

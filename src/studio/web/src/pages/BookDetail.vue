@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import BookTabs from '../components/BookTabs.vue'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption } from 'echarts'
 
@@ -128,13 +127,13 @@ const heatOption = computed<EChartsOption | null>(() => {
         return d ? `${d[0]}：${d[1]} ${unit}` : ''
       },
     },
-    visualMap: { show: false, min: 0, max, inRange: { color: ['#e5e7eb', '#bfdbfe', '#3b82f6'] } },
+    visualMap: { show: false, min: 0, max, inRange: { color: ['var(--border)', 'var(--active-bg)', 'var(--ink-cyan)'] } },
     calendar: {
       range: String(year),
       cellSize: ['auto', 13],
       left: 30,
       right: 20,
-      itemStyle: { borderWidth: 2, borderColor: '#fff' },
+      itemStyle: { borderWidth: 2, borderColor: 'var(--panel)' },
       yearLabel: { show: false },
       dayLabel: { firstDay: 1, nameMap: 'ZH' },
       monthLabel: { nameMap: 'ZH' },
@@ -148,224 +147,113 @@ const heatOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="book-detail">
-    <BookTabs :name="name" active="overview" />
-    <div class="detail-head">
-      <button class="btn-back" @click="router.push('/')">← 返回书架</button>
-    </div>
-
-    <p v-if="loading" class="hint">加载中…</p>
-    <p v-else-if="error" class="hint error">加载失败:{{ error }}</p>
+    <p v-if="loading" class="panel-pad hint">加载中…</p>
+    <p v-else-if="error" class="panel-pad hint error">加载失败：{{ error }}</p>
     <template v-else-if="data">
-      <!-- 身份卡 -->
-      <article class="card identity-card">
-        <h2 class="title">{{ data.identity.title }}</h2>
-        <dl class="meta">
-          <div><dt>题材</dt><dd>{{ data.identity.genre || '—' }}</dd></div>
-          <div><dt>类型</dt><dd>{{ data.identity.kind === 'short' ? '短篇集' : '长篇' }}</dd></div>
-          <div><dt>宿主</dt><dd>{{ hostLabel(data.identity.host) }}</dd></div>
-          <div><dt>创建于</dt><dd>{{ fmtDate(data.identity.created_at) }}</dd></div>
-          <div><dt>目录</dt><dd class="mono">{{ data.identity.path }}</dd></div>
-        </dl>
-      </article>
+      <div class="panel-pad">
+        <button class="btn" style="margin-bottom:18px" @click="router.push('/')">← 返回书架</button>
 
-      <!-- 进度 + 状态机双栏 -->
-      <div class="row">
-        <!-- 进度卡 -->
-        <article class="card progress-card">
-          <h3 class="card-title">进度</h3>
-          <div class="progress-figure">
-            <span class="num">{{ data.progress.chapters }}</span>
-            <span class="unit">{{ data.identity.kind === 'short' ? '篇' : '章' }}</span>
-          </div>
-          <p class="progress-words">已写 {{ fmtWords(data.progress.words) }} 字</p>
-          <p v-if="data.progress.percent !== undefined" class="progress-target">
-            目标 {{ fmtWords(data.progress.targetWords ?? 0) }} 字 · 完成 <strong>{{ data.progress.percent }}%</strong>
-          </p>
-        </article>
+        <div class="panel-title">{{ data.identity.title }}</div>
+        <div class="panel-sub">
+          {{ data.identity.genre || '未分类' }} · {{ data.identity.kind === 'short' ? '短篇集' : '长篇' }}
+          · 宿主 {{ hostLabel(data.identity.host) }} · 创建 {{ fmtDate(data.identity.created_at) }}
+        </div>
 
-        <!-- 状态机卡 -->
-        <article class="card state-card">
-          <h3 class="card-title">写作位置</h3>
-          <div class="state-name" :class="`s${data.state.state}`">{{ data.state.name }}</div>
-          <p class="state-hint">{{ stateHint(data.state) || '状态就绪' }}</p>
-          <div class="write-entry">
-            <button
-              :class="['btn-write', { 'is-disabled': !canWrite(data.state) }]"
-              :disabled="!canWrite(data.state)"
-              @click="onWrite"
-            >
-              {{ canWrite(data.state) ? '继续写作 →' : '工作台 Step 2 上线' }}
-            </button>
+        <!-- 关键指标 -->
+        <div class="card-row">
+          <div class="stat-card">
+            <div class="n">{{ fmtWords(data.progress.words) }}</div>
+            <div class="l">总字数</div>
           </div>
-        </article>
+          <div class="stat-card">
+            <div class="n">{{ data.progress.chapters }}</div>
+            <div class="l">{{ data.identity.kind === 'short' ? '篇数' : '章数' }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="n">{{ data.progress.percent ?? '—' }}<span v-if="data.progress.percent !== undefined">%</span></div>
+            <div class="l">完成度</div>
+          </div>
+          <div class="stat-card">
+            <div class="n" style="font-size:15px;line-height:1.3">{{ data.state.name }}</div>
+            <div class="l">写作位置</div>
+          </div>
+        </div>
+
+        <!-- 写作位置 + 完成度（协作/进度核心）-->
+        <div class="list-row" style="background:var(--panel);align-items:center">
+          <div
+            class="ring on-panel"
+            :style="`background:conic-gradient(var(--ink-cyan) 0 ${(data.progress.percent ?? 0)}%,var(--border) ${(data.progress.percent ?? 0)}% 100%)`"
+          >
+            <span class="ring-txt">{{ data.progress.percent ?? '—' }}<span v-if="data.progress.percent !== undefined">%</span></span>
+          </div>
+          <div style="flex:1;margin-left:14px;min-width:0">
+            <div style="font-weight:600;margin-bottom:6px">写作位置 · {{ data.state.name }}</div>
+            <div style="color:var(--text-2);font-size:12px;line-height:1.7">{{ stateHint(data.state) || '状态就绪' }}</div>
+            <div v-if="data.progress.percent !== undefined" class="progress" style="margin-top:10px">
+              <div :style="{ width: `${data.progress.percent}%` }"></div>
+            </div>
+            <div style="color:var(--text-3);font-size:11px;margin-top:6px">
+              目标 {{ fmtWords(data.progress.targetWords ?? 0) }} 字
+            </div>
+            <div class="btn-row">
+              <button class="btn primary" :disabled="!canWrite(data.state)" @click="onWrite">
+                {{ canWrite(data.state) ? '继续写作 →' : '工作台 Step 2 上线' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 目录 -->
+        <div class="card">
+          <div class="card-title">目录路径</div>
+          <div class="kv"><span class="k">书库目录</span><span class="v" style="font-family:ui-monospace,monospace;font-size:11px">{{ data.identity.path }}</span></div>
+        </div>
+
+        <!-- 卷结构（长篇）-->
+        <div v-if="data.identity.kind === 'long'" class="card">
+          <div class="card-title">卷结构</div>
+          <ul v-if="data.volumes.length" class="vol-list">
+            <li v-for="v in data.volumes" :key="v.path">{{ v.name }}</li>
+          </ul>
+          <p v-else class="hint">暂无卷纲（在「编辑」中维护 大纲/卷纲/*.md）</p>
+        </div>
+
+        <!-- 写作热力 -->
+        <div v-if="heatOption" class="card">
+          <div class="card-title">写作热力 · {{ new Date().getFullYear() }} 年定稿</div>
+          <EChart :option="heatOption" />
+        </div>
       </div>
-
-      <!-- 卷结构(长篇) -->
-      <article v-if="data.identity.kind === 'long'" class="card volumes-card">
-        <h3 class="card-title">卷结构</h3>
-        <ul v-if="data.volumes.length" class="vol-list">
-          <li v-for="v in data.volumes" :key="v.path">{{ v.name }}</li>
-        </ul>
-        <p v-else class="hint">暂无卷纲(在「编辑」中维护 大纲/卷纲/*.md)</p>
-      </article>
-
-      <!-- 写作热力(7.2) -->
-      <article v-if="heatOption" class="card heat-card">
-        <h3 class="card-title">写作热力 · {{ new Date().getFullYear() }} 年定稿</h3>
-        <EChart :option="heatOption" />
-      </article>
     </template>
   </section>
 </template>
 
 <style scoped>
 .book-detail {
-  max-width: 960px;
   margin: 0 auto;
 }
-.detail-head {
-  margin-bottom: 16px;
-}
-.btn-back {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 14px;
-}
-.btn-back:hover {
-  border-color: #3b82f6;
-}
-
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px 24px;
-}
-.card + .card,
-.card + .row,
-.row + .card {
-  margin-top: 16px;
-}
-
-.identity-card .title {
-  margin: 0 0 18px;
-  font-size: 20px;
-}
-.meta {
-  margin: 0;
-  display: grid;
-  gap: 10px;
-}
-.meta > div {
-  display: grid;
-  grid-template-columns: 80px 1fr;
-  align-items: baseline;
-}
-.meta dt {
-  color: #6b7280;
-  font-size: 13px;
-}
-.meta dd {
-  margin: 0;
-}
-.meta .mono {
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  color: #4b5563;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 16px;
-}
-
-.card-title {
-  margin: 0 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
-}
-
-.progress-figure {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.progress-figure .num {
-  font-size: 40px;
-  font-weight: 700;
-  line-height: 1;
-  color: #111827;
-}
-.progress-figure .unit {
-  font-size: 16px;
-  color: #6b7280;
-}
-.progress-words {
-  margin: 10px 0 0;
-  color: #4b5563;
-  font-size: 14px;
-}
-
-.state-name {
-  font-size: 22px;
-  font-weight: 700;
-  color: #111827;
-}
-.state-name.s0 {
-  color: #dc2626;
-}
-.state-hint {
-  margin: 8px 0 16px;
-  color: #4b5563;
-  font-size: 14px;
-  min-height: 20px;
-}
-.write-entry {
-  margin-top: auto;
-}
-.btn-write {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn-write:disabled,
-.btn-write.is-disabled {
-  background: #d1d5db;
-  color: #9ca3af;
-  cursor: not-allowed;
-}
-
-.vol-list {
+.book-detail .vol-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
   gap: 8px;
 }
-.vol-list li {
+.book-detail .vol-list li {
   padding: 8px 12px;
-  background: #f9fafb;
+  background: var(--paper);
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
 }
-.heat-card :deep(.echart) {
+.book-detail :deep(.echart) {
   height: 160px;
 }
-
-.hint {
-  color: #6b7280;
+.book-detail .hint {
+  color: var(--text-2);
+  padding-top: 24px;
 }
-.hint.error {
-  color: #dc2626;
+.book-detail .hint.error {
+  color: var(--cinnabar);
 }
 </style>

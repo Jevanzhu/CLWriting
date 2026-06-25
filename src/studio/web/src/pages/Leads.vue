@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import BookTabs from '../components/BookTabs.vue'
 
 interface LeadEntry {
   章号: number
@@ -113,9 +112,6 @@ function cellTitle(ch: number, id: string): string {
   return c ? `${c.动词}：${c.证据}` : ''
 }
 
-function statusClass(s: string): string {
-  return s === '进行中' ? 'st-doing' : s === '已收尾' ? 'st-done' : 'st-drop'
-}
 
 /** 特化字段(成长线境界/局线父线/关系债欠方债主) */
 function specialties(l: Lead): string[] {
@@ -129,281 +125,226 @@ function specialties(l: Lead): string[] {
 
 <template>
   <section class="leads-page">
-    <BookTabs :name="name" active="leads" />
+    <div class="panel-pad">
+      <div class="panel-title">账本</div>
+      <div class="panel-sub">{{ data?.kind === 'long' ? '七类线索 · 推进矩阵 · 停滞预警' : '集子总览 · 各篇反转 / 回收' }}</div>
 
-    <p v-if="loading" class="hint">加载中…</p>
-    <p v-else-if="error" class="hint error">加载失败:{{ error }}</p>
-    <template v-else-if="data && data.kind === 'long'">
-      <!-- 七类概览 -->
-      <article class="card">
-        <h3 class="block-title">七类概览</h3>
-        <table class="overview">
-          <thead>
-            <tr><th>类型</th><th>总数</th><th>进行中</th><th>已收尾</th><th>已放弃</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="o in data.overview" :key="o.类型" :class="{ empty: o.total === 0 }">
-              <td>{{ o.类型 }}</td>
-              <td>{{ o.total }}</td>
-              <td>{{ o.进行中 }}</td>
-              <td>{{ o.已收尾 }}</td>
-              <td>{{ o.已放弃 }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </article>
+      <p v-if="loading" class="hint">加载中…</p>
+      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
 
-      <!-- 停滞预警 -->
-      <article v-if="data.stale.length" class="card stale-card">
-        <h3 class="block-title">⚠ 停滞预警(进行中 + 距今 ≥3 章)</h3>
-        <ul class="stale-list">
-          <li v-for="s in data.stale" :key="s.编号">
-            <span class="lead-id">{{ s.编号 }}</span>
-            <span class="lead-title">{{ s.标题 }}</span>
-            <span class="stale-gap">最后推进第 {{ s.最后履历章 }} 章,距今 {{ s.距今 }} 章</span>
-          </li>
-        </ul>
-      </article>
-
-      <!-- 账本推进矩阵 -->
-      <article class="card">
-        <h3 class="block-title">账本推进矩阵(章 × 线)</h3>
-        <div class="matrix-scroll">
-          <table class="matrix">
+      <!-- 长篇 -->
+      <template v-else-if="data && data.kind === 'long'">
+        <!-- 七类概览 -->
+        <div class="card">
+          <div class="card-title">七类概览</div>
+          <table class="overview">
             <thead>
-              <tr>
-                <th>章</th>
-                <th v-for="l in data.leads" :key="l.编号" :title="`${l.编号} ${l.标题}(${l.类型})`">{{ l.编号 }}</th>
-              </tr>
+              <tr><th>类型</th><th>总数</th><th>进行中</th><th>已收尾</th><th>已放弃</th></tr>
             </thead>
             <tbody>
-              <tr v-for="ch in data.currentChapter" :key="ch">
-                <td class="ch-no">{{ ch }}</td>
-                <td
-                  v-for="l in data.leads"
-                  :key="l.编号"
-                  :class="{ filled: cellVerb(ch, l.编号) }"
-                  :title="cellTitle(ch, l.编号)"
-                >{{ cellVerb(ch, l.编号) }}</td>
+              <tr v-for="o in data.overview" :key="o.类型" :class="{ empty: o.total === 0 }">
+                <td>{{ o.类型 }}</td>
+                <td>{{ o.total }}</td>
+                <td>{{ o.进行中 }}</td>
+                <td>{{ o.已收尾 }}</td>
+                <td>{{ o.已放弃 }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </article>
 
-      <!-- 线履历 -->
-      <article class="card">
-        <h3 class="block-title">线履历</h3>
-        <div class="lead-grid">
-          <div v-for="l in data.leads" :key="l.编号" class="lead-item">
-            <div class="lead-head">
-              <span class="lead-id">{{ l.编号 }}</span>
-              <span class="lead-title">{{ l.标题 }}</span>
-              <span class="status" :class="statusClass(l.状态)">{{ l.状态 }}</span>
+        <!-- 停滞预警 -->
+        <div v-if="data.stale.length" class="card stale-card">
+          <div class="card-title">⚠ 停滞预警<span style="color:var(--text-3);font-weight:normal"> · 进行中 + 距今 ≥3 章</span></div>
+          <div v-for="s in data.stale" :key="s.编号" class="ledger-item">
+            <span class="clw-dot yellow"></span>
+            <div>
+              <b>{{ s.编号 }} · {{ s.标题 }}</b>
+              <div class="desc">最后推进第 {{ s.最后履历章 }} 章，距今 {{ s.距今 }} 章</div>
             </div>
-            <div v-if="specialties(l).length" class="specialty">
-              <span v-for="(s, i) in specialties(l)" :key="i">{{ s }}</span>
-            </div>
-            <ol class="history">
-              <li v-for="(e, i) in l.履历" :key="i">
-                <span class="hist-ch">第{{ e.章号 }}章</span>
-                <span class="hist-verb">{{ e.动词 }}</span>
-                <span class="hist-evid">{{ e.证据 }}</span>
-              </li>
-            </ol>
           </div>
         </div>
-      </article>
-    </template>
-    <template v-else-if="data && data.kind === 'short'">
-      <article class="card short-card">
-        <h3 class="block-title">集子总览</h3>
-        <div class="col-stat">
-          <span><b>{{ data.summary.总篇数 }}</b> 篇</span>
-          <span><b>{{ data.summary.总字数 }}</b> 字</span>
-          <span>平均 <b>{{ data.summary.平均篇长 }}</b> 字/篇</span>
+
+        <!-- 账本推进矩阵 -->
+        <div class="card">
+          <div class="card-title">账本推进矩阵（章 × 线）</div>
+          <div class="matrix-scroll">
+            <table class="matrix">
+              <thead>
+                <tr>
+                  <th>章</th>
+                  <th v-for="l in data.leads" :key="l.编号" :title="`${l.编号} ${l.标题}（${l.类型}）`">{{ l.编号 }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="ch in data.currentChapter" :key="ch">
+                  <td class="ch-no">{{ ch }}</td>
+                  <td
+                    v-for="l in data.leads"
+                    :key="l.编号"
+                    :class="{ filled: cellVerb(ch, l.编号) }"
+                    :title="cellTitle(ch, l.编号)"
+                  >{{ cellVerb(ch, l.编号) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <p class="short-hint">短篇无跨篇账本。各篇清单（核心反转 / 情绪峰值 / 伏笔回收）一览，点「详情」进单篇。</p>
-      </article>
-      <article v-if="data.pieces.length" class="card">
-        <table class="col-table">
-          <thead>
-            <tr><th>篇</th><th>标题</th><th>目标情绪</th><th>情绪峰值</th><th>回收率</th><th>核心反转</th><th></th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in data.pieces" :key="p.篇号">
-              <td>{{ p.篇号 }}</td>
-              <td class="col-title">{{ p.标题 }}<span class="col-words">（{{ p.字数 }} 字）</span></td>
-              <td>{{ p.目标情绪 ?? '—' }}</td>
-              <td>
-                <span v-if="p.情绪峰值 !== undefined" :class="{ peak: p.情绪峰值 >= 8 }">{{ p.情绪峰值 }}/10 {{ p.情绪类型 }}</span>
-                <span v-else>—</span>
-              </td>
-              <td>
-                <span v-if="p.回收率" :class="{ unresolved: p.未回收数 }">{{ p.回收率 }}<template v-if="p.未回收数">（{{ p.未回收数 }} 弃）</template></span>
-                <span v-else>—</span>
-              </td>
-              <td class="col-rev">{{ p.核心反转 ?? '—' }}</td>
-              <td><RouterLink class="col-go" :to="`/books/${encodeURIComponent(name)}/piece/${p.篇号}`">详情 →</RouterLink></td>
-            </tr>
-          </tbody>
-        </table>
-      </article>
-      <p v-else class="hint">（暂无定稿篇，先在工作台写一篇）</p>
-    </template>
+
+        <!-- 线履历 -->
+        <div class="card">
+          <div class="card-title">线履历</div>
+          <div class="lead-grid">
+            <div v-for="l in data.leads" :key="l.编号" class="lead-item">
+              <div class="lead-head">
+                <span class="lead-id">{{ l.编号 }}</span>
+                <span class="lead-title">{{ l.标题 }}</span>
+                <span class="tag" :class="l.状态 === '已收尾' ? 'green' : l.状态 === '已放弃' ? 'gray' : ''">{{ l.状态 }}</span>
+              </div>
+              <div v-if="specialties(l).length" class="specialty">
+                <span v-for="(s, i) in specialties(l)" :key="i">{{ s }}</span>
+              </div>
+              <ol class="history">
+                <li v-for="(e, i) in l.履历" :key="i">
+                  <span class="hist-ch">第{{ e.章号 }}章</span>
+                  <span class="hist-verb">{{ e.动词 }}</span>
+                  <span class="hist-evid">{{ e.证据 }}</span>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- 短篇集子 -->
+      <template v-else-if="data && data.kind === 'short'">
+        <div class="card short-card">
+          <div class="card-title">集子总览</div>
+          <div class="card-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+            <div class="stat-card"><div class="n">{{ data.summary.总篇数 }}</div><div class="l">篇数</div></div>
+            <div class="stat-card"><div class="n">{{ data.summary.总字数 }}</div><div class="l">总字数</div></div>
+            <div class="stat-card"><div class="n">{{ data.summary.平均篇长 }}</div><div class="l">字 / 篇</div></div>
+          </div>
+          <p class="short-hint">短篇无跨篇账本。各篇清单（核心反转 / 情绪峰值 / 伏笔回收）一览，点「详情」进单篇。</p>
+        </div>
+        <div v-if="data.pieces.length" class="card">
+          <div class="card-title">各篇清单</div>
+          <table class="col-table">
+            <thead>
+              <tr><th>篇</th><th>标题</th><th>目标情绪</th><th>情绪峰值</th><th>回收率</th><th>核心反转</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in data.pieces" :key="p.篇号">
+                <td>{{ p.篇号 }}</td>
+                <td class="col-title">{{ p.标题 }}<span class="col-words">（{{ p.字数 }} 字）</span></td>
+                <td>{{ p.目标情绪 ?? '—' }}</td>
+                <td>
+                  <span v-if="p.情绪峰值 !== undefined" :class="{ peak: p.情绪峰值 >= 8 }">{{ p.情绪峰值 }}/10 {{ p.情绪类型 }}</span>
+                  <span v-else>—</span>
+                </td>
+                <td>
+                  <span v-if="p.回收率" :class="{ unresolved: p.未回收数 }">{{ p.回收率 }}<template v-if="p.未回收数">（{{ p.未回收数 }} 弃）</template></span>
+                  <span v-else>—</span>
+                </td>
+                <td class="col-rev">{{ p.核心反转 ?? '—' }}</td>
+                <td><RouterLink class="col-go" :to="`/books/${encodeURIComponent(name)}/piece/${p.篇号}`">详情 →</RouterLink></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="hint">（暂无定稿篇，先在工作台写一篇）</p>
+      </template>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .leads-page {
-  max-width: 1040px;
   margin: 0 auto;
 }
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px 20px;
+.stale-card {
+  border-color: var(--ochre);
 }
-.card + .card {
-  margin-top: 16px;
-}
-.block-title {
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.04em;
-}
-.hint {
-  color: #6b7280;
-}
-.hint.error {
-  color: #dc2626;
-}
-
-/* 概览表 */
 .overview {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 13px;
 }
 .overview th,
 .overview td {
   padding: 7px 10px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border);
   text-align: center;
 }
 .overview th {
-  color: #6b7280;
+  color: var(--text-2);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
 }
 .overview td:first-child {
   text-align: left;
 }
 .overview tr.empty {
-  color: #d1d5db;
+  color: var(--border-2);
 }
-
-/* 停滞 */
-.stale-card {
-  border-color: #fcd34d;
-  background: #fffbeb;
-}
-.stale-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-}
-.stale-list li {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  font-size: 14px;
-}
-.stale-gap {
-  color: #b45309;
-  font-size: 13px;
-}
-
-/* 矩阵 */
 .matrix-scroll {
   overflow-x: auto;
 }
 .matrix {
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 .matrix th,
 .matrix td {
-  padding: 6px 10px;
-  border: 1px solid #f3f4f6;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
   text-align: center;
   white-space: nowrap;
 }
 .matrix th {
-  color: #6b7280;
+  color: var(--text-2);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
 }
 .matrix .ch-no {
   font-weight: 600;
-  color: #374151;
-  background: #f9fafb;
+  color: var(--ink);
+  background: var(--paper);
 }
 .matrix td.filled {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--active-bg);
+  color: var(--ink-cyan);
   font-weight: 600;
 }
-
-/* 线履历 */
 .lead-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
 }
 .lead-item {
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border-radius: 8px;
 }
 .lead-head {
   display: flex;
   gap: 8px;
   align-items: baseline;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 .lead-id {
   font-family: ui-monospace, monospace;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: 11px;
+  color: var(--text-3);
 }
 .lead-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--ink);
 }
-.status {
+.lead-head .tag {
   margin-left: auto;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-}
-.status.st-doing {
-  background: #dbeafe;
-  color: #1e40af;
-}
-.status.st-done {
-  background: #d1fae5;
-  color: #065f46;
-}
-.status.st-drop {
-  background: #f3f4f6;
-  color: #6b7280;
 }
 .specialty {
   display: flex;
@@ -413,13 +354,13 @@ function specialties(l: Lead): string[] {
 }
 .specialty span {
   padding: 1px 8px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warn-bg);
+  color: var(--ochre);
   border-radius: 10px;
-  font-size: 12px;
+  font-size: 11px;
 }
 .history {
-  margin: 0;
+  margin: 6px 0 0;
   padding-left: 0;
   list-style: none;
   display: grid;
@@ -429,83 +370,79 @@ function specialties(l: Lead): string[] {
   display: grid;
   grid-template-columns: 56px 44px 1fr;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
   align-items: baseline;
 }
 .hist-ch {
-  color: #6b7280;
+  color: var(--text-3);
 }
 .hist-verb {
-  color: #3b82f6;
+  color: var(--ink-cyan);
   font-weight: 600;
 }
 .hist-evid {
-  color: #4b5563;
+  color: var(--text-2);
 }
-
-/* 集子总览（#7.3） */
 .short-card {
-  background: #f0f7ff;
-  border-color: #bfdbfe;
+  background: var(--active-bg);
+  border-color: var(--active-bg);
 }
 .short-hint {
   margin: 8px 0 0;
-  font-size: 13px;
-  color: #1e40af;
+  font-size: 12px;
+  color: var(--ink-cyan);
   line-height: 1.6;
-}
-.col-stat {
-  display: flex;
-  gap: 20px;
-  font-size: 14px;
-  color: #1e40af;
-}
-.col-stat b {
-  font-size: 18px;
 }
 .col-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 .col-table th,
 .col-table td {
   padding: 7px 10px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
 }
 .col-table th {
-  color: #6b7280;
+  color: var(--text-2);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
 }
 .col-title {
   font-weight: 600;
-  color: #111827;
+  color: var(--ink);
 }
 .col-words {
-  color: #9ca3af;
+  color: var(--text-3);
   font-weight: normal;
-  font-size: 12px;
+  font-size: 11px;
 }
 .col-rev {
-  color: #4b5563;
+  color: var(--text-2);
   max-width: 220px;
 }
 .peak {
-  color: #dc2626;
+  color: var(--cinnabar);
   font-weight: 600;
 }
 .unresolved {
-  color: #dc2626;
+  color: var(--cinnabar);
 }
 .col-go {
-  color: #3b82f6;
+  color: var(--ink-cyan);
   text-decoration: none;
   white-space: nowrap;
 }
 .col-go:hover {
   text-decoration: underline;
+}
+.hint {
+  color: var(--text-2);
+  padding-top: 24px;
+}
+.hint.error {
+  color: var(--cinnabar);
 }
 </style>
