@@ -10,10 +10,10 @@
  * 写端点带 session token 校验（defense-in-depth，与 settings 一致）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
+import { runClwritingCli } from '../cli-runner.js'
 
 interface IoCtx {
   workDir: string | null
@@ -34,7 +34,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     const format = EXPORT_FORMATS.has(String(body['format'])) ? String(body['format']) : 'both'
     const args = ['export', '--format', format]
     if (PLATFORMS.has(String(body['platform']))) args.push('--platform', String(body['platform']))
-    const result = await runClwriting(args, join(ctx.workDir, entry.path))
+    const result = await runClwritingCli(args, join(ctx.workDir, entry.path))
     reply(res, result.ok ? 200 : 500, result)
   })
 
@@ -49,7 +49,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     if (typeof body['name'] === 'string' && body['name'].trim()) args.push('--name', body['name'].trim())
     if (body['kind'] === 'long' || body['kind'] === 'short') args.push('--kind', body['kind'])
     if (typeof body['genre'] === 'string' && body['genre'].trim()) args.push('--genre', body['genre'].trim())
-    const result = await runClwriting(args, ctx.workDir)
+    const result = await runClwritingCli(args, ctx.workDir)
     reply(res, result.ok ? 200 : 500, result)
   })
 
@@ -67,7 +67,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     const useEnv = body['useEnv'] === true
     if (!useEnv && typeof body['key'] === 'string' && body['key']) args.push('--key', body['key'])
     if (useEnv) args.push('--use-env')
-    const result = await runClwriting(args, join(ctx.workDir, entry.path))
+    const result = await runClwritingCli(args, join(ctx.workDir, entry.path))
     reply(res, result.ok ? 200 : 500, result)
   })
 }
@@ -75,26 +75,6 @@ export function registerIoRoutes(ctx: IoCtx): void {
 /** session token 校验（写端点 defense-in-depth） */
 function checkToken(req: IncomingMessage, token: string): boolean {
   return req.headers['x-studio-token'] === token
-}
-
-/** spawn `node <cli.js> <args>`（cwd；cli.js = studio 自身入口 process.argv[1]） */
-function runClwriting(
-  args: string[],
-  cwd: string,
-): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [process.argv[1] as string, ...args], { cwd })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => {
-      stdout += c.toString()
-    })
-    child.stderr.on('data', (c) => {
-      stderr += c.toString()
-    })
-    child.on('error', (e) => resolve({ ok: false, code: -1, stdout, stderr: e.message }))
-    child.on('close', (code) => resolve({ ok: code === 0, code: code ?? 0, stdout, stderr }))
-  })
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

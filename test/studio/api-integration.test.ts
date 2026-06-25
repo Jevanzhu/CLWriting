@@ -155,4 +155,30 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(d.config.kind).toBe('long')
     expect(d.config.book.title).toBe('测试书')
   })
+
+  it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
+    expect(ok.ok).toBe(true)
+    const okD = (await ok.json()) as { content: string }
+    expect(okD.content).toContain('# 总纲')
+
+    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`)
+    expect(blocked.status).toBe(400)
+  })
+
+  it('PUT /file 只允许写可编辑 Markdown，拒绝 book.yaml', async () => {
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\n已更新' }),
+    })
+    expect(ok.ok).toBe(true)
+
+    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: 'broken: true\n' }),
+    })
+    expect(blocked.status).toBe(400)
+  })
 })

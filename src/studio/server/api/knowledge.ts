@@ -10,13 +10,13 @@
  * knowledge/learn-commit 调内核函数（不 spawn CLI，非交互）；knowledge-check spawn CLI（确定性）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes } from '../../../learn/commit.js'
 import type { SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
+import { runClwritingCli } from '../cli-runner.js'
 
 interface KnowledgeCtx {
   workDir: string | null
@@ -30,7 +30,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     if (!checkToken(req, ctx.token)) return reply(res, 403, { error: 'token 校验失败' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
-    const result = await runClwriting(['knowledge', 'check'], join(ctx.workDir, entry.path))
+    const result = await runClwritingCli(['knowledge', 'check'], join(ctx.workDir, entry.path))
     reply(res, result.ok ? 200 : 500, result)
   })
 
@@ -63,25 +63,6 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
 
 function checkToken(req: IncomingMessage, token: string): boolean {
   return req.headers['x-studio-token'] === token
-}
-
-function runClwriting(
-  args: string[],
-  cwd: string,
-): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [process.argv[1] as string, ...args], { cwd })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => {
-      stdout += c.toString()
-    })
-    child.stderr.on('data', (c) => {
-      stderr += c.toString()
-    })
-    child.on('error', (e) => resolve({ ok: false, code: -1, stdout, stderr: e.message }))
-    child.on('close', (code) => resolve({ ok: code === 0, code: code ?? 0, stdout, stderr }))
-  })
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {

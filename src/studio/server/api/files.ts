@@ -10,7 +10,7 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, resolve, relative, isAbsolute } from 'node:path'
+import { join, resolve, relative, isAbsolute, basename } from 'node:path'
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { route } from '../router.js'
 import { readBooks } from '../../../install/books.js'
@@ -53,7 +53,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return reply(res, r.status, { error: r.error })
     const file = queryParams(req).get('file') ?? ''
-    const safe = safePath(r.bookRoot, file)
+    const safe = editablePath(r.bookRoot, file)
     if (!safe) return reply(res, 400, { error: '非法路径' })
     if (!existsSync(safe)) return reply(res, 404, { error: '文件不存在' })
     reply(res, 200, { content: readFileSync(safe, 'utf-8') })
@@ -67,7 +67,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const file = queryParams(req).get('file') ?? ''
-      const safe = safePath(r.bookRoot, file)
+      const safe = editablePath(r.bookRoot, file)
       if (!safe) return reply(res, 400, { error: '非法路径' })
       if (!existsSync(safe)) return reply(res, 404, { error: '文件不存在' })
       const body = (await readJson(req)) as { content?: unknown }
@@ -144,6 +144,16 @@ function safePath(bookRoot: string, file: string): string | null {
   const rel = relative(root, abs)
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
   return abs
+}
+
+/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件。 */
+function editablePath(bookRoot: string, file: string): string | null {
+  if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
+  const abs = safePath(bookRoot, file)
+  if (!abs) return null
+  const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
+  const allowed = EDIT_DIRS.some(({ dir }) => rel === dir || rel.startsWith(`${dir}/`))
+  return allowed ? abs : null
 }
 
 /** 读 book.yaml kind（缺省 long） */
