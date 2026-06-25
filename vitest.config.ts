@@ -2,19 +2,36 @@ import { defineConfig } from 'vitest/config'
 import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 
-// pinia 只装在 web 子包（src/studio/web/node_modules），根 node_modules 没有。
-// alias 过去让测试文件能解析 'pinia'，并保证测试与页面组件共享同一 Pinia 实例。
-const webPinia = fileURLToPath(
-  new URL('./src/studio/web/node_modules/pinia', import.meta.url),
+const webVueRouter = fileURLToPath(
+  new URL('./src/studio/web/node_modules/vue-router', import.meta.url),
 )
+const rootPinia = fileURLToPath(new URL('./node_modules/pinia', import.meta.url))
+const rootVue = fileURLToPath(new URL('./node_modules/vue', import.meta.url))
+const rootVueReactivity = fileURLToPath(
+  new URL('./node_modules/@vue/reactivity', import.meta.url),
+)
+const rootVueRuntimeCore = fileURLToPath(
+  new URL('./node_modules/@vue/runtime-core', import.meta.url),
+)
+const rootVueRuntimeDom = fileURLToPath(
+  new URL('./node_modules/@vue/runtime-dom', import.meta.url),
+)
+const rootVueShared = fileURLToPath(new URL('./node_modules/@vue/shared', import.meta.url))
 
 export default defineConfig({
   // vitest 需显式挂 plugin-vue 才能处理 .vue 文件。
   plugins: [vue()],
   resolve: {
     alias: {
-      pinia: webPinia,
+      pinia: rootPinia,
+      'vue-router': webVueRouter,
+      vue: rootVue,
+      '@vue/reactivity': rootVueReactivity,
+      '@vue/runtime-core': rootVueRuntimeCore,
+      '@vue/runtime-dom': rootVueRuntimeDom,
+      '@vue/shared': rootVueShared,
     },
+    dedupe: ['vue', '@vue/reactivity', '@vue/runtime-core', '@vue/runtime-dom', '@vue/shared'],
   },
   test: {
     include: ['test/**/*.test.ts'],
