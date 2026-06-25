@@ -1,20 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useShelfStore } from '../stores/shelf'
 
-interface BookEntry {
-  name: string
-  path: string
-  kind: 'long' | 'short'
-  created_at?: string
-}
-
+// 书架数据态走 store（books/workDir/hint/loading/error + loadBooks）
 const router = useRouter()
-const books = ref<BookEntry[]>([])
-const workDir = ref(true)
-const hint = ref('')
-const loading = ref(true)
-const error = ref('')
+const shelf = useShelfStore()
+const { books, workDir, hint, loading, error } = storeToRefs(shelf)
 
 // 桌面版书库管理（preload 注入；浏览器版不存在 → isDesktop=false，隐藏桌面入口）
 const desktop = window.clwritingDesktop ?? null
@@ -30,42 +23,9 @@ const libraryLabel = computed(() => currentLibLabel.value || '当前工作目录
 const longBooks = computed(() => books.value.filter((b) => b.kind !== 'short'))
 const shortBooks = computed(() => books.value.filter((b) => b.kind === 'short'))
 const bookGroups = computed(() => [
-  {
-    key: 'long',
-    title: '长篇',
-    desc: '连续章节创作',
-    empty: '暂无长篇',
-    books: longBooks.value,
-  },
-  {
-    key: 'short',
-    title: '短篇',
-    desc: '短篇集与单篇创作',
-    empty: '暂无短篇',
-    books: shortBooks.value,
-  },
+  { key: 'long', title: '长篇', desc: '连续章节创作', empty: '暂无长篇', books: longBooks.value },
+  { key: 'short', title: '短篇', desc: '短篇集与单篇创作', empty: '暂无短篇', books: shortBooks.value },
 ])
-
-async function loadBooks(): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await fetch('/api/books')
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const data = (await r.json()) as {
-      books: BookEntry[]
-      workDir: boolean
-      hint?: string
-    }
-    books.value = data.books ?? []
-    workDir.value = data.workDir
-    hint.value = data.hint ?? ''
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
 
 /** 拉桌面版当前书库 + 最近列表（浏览器版空操作）。 */
 async function loadDesktop(): Promise<void> {
@@ -109,7 +69,7 @@ function fmtDate(iso?: string): string {
 }
 
 onMounted(() => {
-  loadBooks()
+  shelf.loadBooks()
   loadDesktop()
 })
 </script>

@@ -7,6 +7,7 @@
  * mock vue-router（根 vitest 不 resolve 前端 vue-router 包）+ fetch + window.clwritingDesktop。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 
 const pushMock = vi.fn()
@@ -53,13 +54,14 @@ describe('Bookshelf 书架', () => {
   beforeEach(() => {
     pushMock.mockReset()
     fetchMock.mockReset()
+    setActivePinia(createPinia())
     setDesktop(null)
   })
 
   it('浏览器版（无 desktop）→ 不渲染桌面入口，显示书列表', async () => {
     setDesktop(null)
     mockBooks([{ name: '书A', kind: 'long' }])
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).not.toContain('打开书库')
     expect(w.find('.recent-dropdown').exists()).toBe(false) // 无最近下拉
@@ -73,7 +75,7 @@ describe('Bookshelf 书架', () => {
       { name: '长篇A', kind: 'long' },
       { name: '短篇B', kind: 'short' },
     ])
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     const groups = w.findAll('.book-group')
     expect(w.find('.panel-title').text()).toBe('书库')
@@ -90,7 +92,7 @@ describe('Bookshelf 书架', () => {
       getCurrentLibrary: vi.fn().mockResolvedValue('/path/我的书库'),
     })
     mockBooks([])
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).toContain('打开书库')
     expect(w.find('.recent-dropdown').exists()).toBe(true) // 最近下拉
@@ -102,7 +104,7 @@ describe('Bookshelf 书架', () => {
     const openLib = vi.fn().mockResolvedValue({ ok: true })
     setDesktop({ openLibrary: openLib })
     mockBooks([])
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     const openButton = w.findAll('button').find((b) => b.text().includes('打开书库'))
     expect(openButton).toBeTruthy()
@@ -117,7 +119,7 @@ describe('Bookshelf 书架', () => {
       getRecentLibraries: vi.fn().mockResolvedValue([{ path: '/libB', label: 'libB' }]),
     })
     mockBooks([])
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     await w.find('.recent-dropdown li').trigger('click')
     expect(switchLib).toHaveBeenCalledWith('/libB')
@@ -126,7 +128,7 @@ describe('Bookshelf 书架', () => {
   it('浏览器版空态 workDir:false → 显示「工作目录启动」提示（非选择按钮）', async () => {
     setDesktop(null)
     mockBooks([], false)
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).not.toContain('选择书库目录')
     expect(w.text()).toContain('工作目录')
@@ -136,7 +138,7 @@ describe('Bookshelf 书架', () => {
     const openLib = vi.fn().mockResolvedValue({ ok: true })
     setDesktop({ openLibrary: openLib })
     mockBooks([], false)
-    const w = mount(Bookshelf)
+    const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).toContain('选择书库目录')
     const chooseButton = w.findAll('.empty button').find((b) => b.text().includes('选择书库目录'))

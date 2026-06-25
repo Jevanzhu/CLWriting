@@ -6,6 +6,7 @@ export type BookKind = 'long' | 'short'
 /** 书架单行（GET /api/books → books[]） */
 export interface BookMeta {
   name: string
+  /** 书仓库目录，相对工作目录。82b92aa 起长篇/短篇分层后：长篇存 `长篇/<名>`、短篇存 `短篇/<名>`；旧平铺 `<名>` 仍兼容读取 */
   path: string
   kind: BookKind
   created_at?: string
