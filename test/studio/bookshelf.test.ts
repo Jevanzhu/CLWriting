@@ -29,15 +29,19 @@ interface DesktopApi {
 
 function setDesktop(api: Partial<DesktopApi> | null): void {
   const g = globalThis as unknown as { clwritingDesktop?: DesktopApi }
+  const w = (globalThis as unknown as { window?: { clwritingDesktop?: DesktopApi } }).window
   if (api) {
-    g.clwritingDesktop = {
+    const desktopApi = {
       openLibrary: api.openLibrary ?? vi.fn().mockResolvedValue({ ok: true }),
       switchLibrary: api.switchLibrary ?? vi.fn().mockResolvedValue({ ok: true }),
       getRecentLibraries: api.getRecentLibraries ?? vi.fn().mockResolvedValue([]),
       getCurrentLibrary: api.getCurrentLibrary ?? vi.fn().mockResolvedValue(null),
     }
+    g.clwritingDesktop = desktopApi
+    if (w) w.clwritingDesktop = desktopApi
   } else {
     delete g.clwritingDesktop
+    if (w) delete w.clwritingDesktop
   }
 }
 
@@ -57,7 +61,7 @@ describe('Bookshelf 书架', () => {
     mockBooks([{ name: '书A', kind: 'long' }])
     const w = mount(Bookshelf)
     await flushPromises()
-    expect(w.find('.btn-ghost').exists()).toBe(false) // 无「打开书库」
+    expect(w.text()).not.toContain('打开书库')
     expect(w.find('.recent-dropdown').exists()).toBe(false) // 无最近下拉
     expect(w.findAll('.book-card')).toHaveLength(1)
     expect(w.find('.book-name').text()).toBe('书A')
@@ -71,9 +75,9 @@ describe('Bookshelf 书架', () => {
     mockBooks([])
     const w = mount(Bookshelf)
     await flushPromises()
-    expect(w.find('.btn-ghost').exists()).toBe(true) // 「打开书库」
+    expect(w.text()).toContain('打开书库')
     expect(w.find('.recent-dropdown').exists()).toBe(true) // 最近下拉
-    expect(w.find('.current-lib').text()).toBe('我的书库') // 当前书库名（basename）
+    expect(w.find('.panel-sub').text()).toBe('我的书库') // 当前书库名（basename）
     expect(w.findAll('.recent-dropdown li')).toHaveLength(1)
   })
 
@@ -83,7 +87,9 @@ describe('Bookshelf 书架', () => {
     mockBooks([])
     const w = mount(Bookshelf)
     await flushPromises()
-    await w.find('.btn-ghost').trigger('click')
+    const openButton = w.findAll('button').find((b) => b.text().includes('打开书库'))
+    expect(openButton).toBeTruthy()
+    await openButton!.trigger('click')
     expect(openLib).toHaveBeenCalledTimes(1)
   })
 
@@ -105,7 +111,7 @@ describe('Bookshelf 书架', () => {
     mockBooks([], false)
     const w = mount(Bookshelf)
     await flushPromises()
-    expect(w.find('.btn-ghost').exists()).toBe(false)
+    expect(w.text()).not.toContain('选择书库目录')
     expect(w.text()).toContain('工作目录')
   })
 
@@ -116,7 +122,9 @@ describe('Bookshelf 书架', () => {
     const w = mount(Bookshelf)
     await flushPromises()
     expect(w.text()).toContain('选择书库目录')
-    await w.find('.empty .btn-new').trigger('click')
+    const chooseButton = w.findAll('.empty button').find((b) => b.text().includes('选择书库目录'))
+    expect(chooseButton).toBeTruthy()
+    await chooseButton!.trigger('click')
     expect(openLib).toHaveBeenCalled()
   })
 })
