@@ -154,12 +154,12 @@ const MSGS=[
  {role:'agent',name:'editor-agent',time:'14:06',text:'已调整：玉佩只"温"不"烫"，反应后置。现等待你确认是否并入正文。',pending:true}
 ];
 const EVENTS=[
- {dot:'cyan',name:'driver · SSE',desc:'claude CLI 流式输出 386 字',time:'14:06'},
+ {dot:'cyan',name:'driver · SSE',desc:'Claude CLI 流式输出 386 字',time:'14:06'},
  {dot:'green',name:'账本更新',desc:'悬念·禁典内容 已新增',time:'14:06'},
  {dot:'yellow',name:'等待确认',desc:'续写结果待入正文',time:'14:06'},
  {dot:'gray',name:'预算',desc:'本次消耗 $0.012 / 剩余 $4.88',time:'14:06'}
 ];
-const THEMES=[['ink','墨韵','宣纸暖·中式中浅','#1f5f5b'],['night','墨夜','宣纸暖·深色','#5fa39d'],['bauhaus-light','素白','包豪斯·中性·白天','#3a3a3a'],['bauhaus-blue','钴蓝','包豪斯·冷·白天','#0057b7'],['bauhaus-blue-dark','钴蓝夜','包豪斯·冷·夜','#4a90e2'],['bauhaus-red','朱红','包豪斯·暖·白天','#e1051c'],['bauhaus-red-dark','朱红夜','包豪斯·暖·夜','#ff5a4d'],['bauhaus-dark','铁夜','包豪斯·工业黑·夜','#3b82f6'],['teal','湖青','矿物青·2026年度色','#2d7878'],['amber','琥珀','焦糖暖·2026大地色','#b8762d'],['ice','冰蓝','清凉冷·2026冰蓝','#5a8fb5'],['plum','李子','宝石紫·2026珠宝色','#7a5f8a'],['sage','鼠尾草','灰绿·自然柔和','#7a8a6a'],['rose','灰玫瑰','陶土粉·暖柔','#b07a82'],['mocha','摩卡','可可棕·大地暖','#8a6240'],['lavender','薰衣草','淡灰紫·柔','#8a82a8'],['olive','橄榄','军绿·复古沉稳','#7a7a3a'],['sand','沙色','沙漠米·中性暖','#a89060'],['forest','森林夜','墨绿·自然深·夜','#6a9a78'],['wine','酒红夜','深酒红·2026美洛·夜','#b5637a'],['bauhaus-yellow','镉黄','包豪斯·原色黄·白天','#c8951a'],['bauhaus-orange','焦橙','包豪斯·间色橙·白天','#d2691e'],['bauhaus-green','翠绿','包豪斯·间色绿·白天','#2d7a3e'],['bauhaus-violet','堇紫','包豪斯·间色紫·白天','#6a3d8a'],['bauhaus-cream','奶白','包豪斯·暖纸白·白天','#5a4f42'],['bauhaus-yellow-dark','镉黄夜','包豪斯·原色黄·夜','#c8951a'],['bauhaus-violet-dark','堇紫夜','包豪斯·间色紫·夜','#8a6db5'],['bauhaus-charcoal','炭灰夜','包豪斯·暖炭灰·夜','#4a7a8c']];
+const THEMES=[['mono','极简','黑白灰','#1a1a1a']];
 // ===== 书库（vault）=====
 const LIBRARIES=[
  {id:'lib_guanwei',name:'观微',path:'~/CLWriting/观微',dot:'green',lastOpen:'今天'}

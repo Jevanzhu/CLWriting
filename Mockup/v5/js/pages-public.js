@@ -124,8 +124,8 @@ el('revRestore').onclick=()=>{const vs=getVersions(state.file),v=vs[revSel];if(!
 
 // ===== 事件 =====
 document.querySelectorAll('.mode-tab').forEach(t=>t.onclick=()=>{state.mode=t.dataset.mode;render();});
-document.querySelector('[data-act=theme]').onclick=()=>{const order=THEMES.map(x=>x[0]);const i=order.indexOf(state.theme);state.theme=order[(i+1)%order.length];applyTheme();renderStatus();showHint('已切换：'+(THEMES.find(x=>x[0]===state.theme)||[])[1]);};
-document.querySelector('[data-act=settings]').onclick=openConfig;
+const _themeBtn=document.querySelector('[data-act=theme]');if(_themeBtn)_themeBtn.onclick=()=>{const order=THEMES.map(x=>x[0]);const i=order.indexOf(state.theme);state.theme=order[(i+1)%order.length];applyTheme();renderStatus();showHint('已切换：'+(THEMES.find(x=>x[0]===state.theme)||[])[1]);};
+const _settingsBtn=document.querySelector('[data-act=settings]');if(_settingsBtn)_settingsBtn.onclick=openConfig;
 el('cfgclose').onclick=closeConfig;
 el('cfgmask').onclick=e=>{if(e.target===el('cfgmask'))closeConfig();};
 document.querySelector('[data-act=focus]').onclick=()=>{state.focus=!state.focus;if(state.focus)state.mode='edit';render();showHint(state.focus?'专注模式 · 编辑框独占（再按 ⌘⇧F 退出）':'已退出专注');};

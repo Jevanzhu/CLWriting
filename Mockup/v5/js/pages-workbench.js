@@ -15,12 +15,12 @@ function renderWbMid(){
   const outBody=state.wbTextOut?`<div class="wb-out">${state.wbTextOut}</div>`:'<div class="wb-out empty">（尚未生成 · 点「写稿」流式生成正文）</div>';
   const checkBody=state.wbCheck?`<div class="card"><div class="block-title">🔍 机检报告</div><pre class="report">${state.wbCheck}</pre></div>`:'';
   const reviewBody=state.wbReview?`<div class="card"><div class="block-title">📝 审稿单 ${state.wbVerdict?'<span class="tag green" style="margin-left:auto">已裁决通过</span>':'<span class="btn primary" id="wbVerdict" style="margin-left:auto">裁决通过 →</span>'}</div><pre class="report">${state.wbReview}</pre></div>`:'';
-  const mainBody=state.cliOnline?`<div class="card"><div class="block-title">正文输出 ${state.wbRunning?'<span class="wb-live">● 流式</span>':''}</div>${outBody}</div>${checkBody}${reviewBody}`:`<div class="card"><div class="block-title">正文输出</div><div class="state-error"><div class="err-icon">🔌</div><div class="err-title">claude CLI 连接中断</div><div class="err-desc">AI 步（细纲 / 写稿 / 三审）依赖 claude CLI 子进程，当前无法连接；确定性步（确认 / 备料 / 机检 / 定稿）仍可用。请检查 CLI 运行状态后重试。</div><div class="err-meta">退出码 1 · 连接超时（mockup 演示）</div><span class="btn primary" id="wbRetry">↻ 重试连接</span></div></div>`;
-  c.innerHTML=`<div class="content-scroll"><div class="bento-wrap" style="max-width:920px"><div class="bento-head"><h1 class="bento-title">工作台 · 第 ${state.wbChapter} ${unit}</h1><div class="bento-sub">${state.currentBookName} · 八阶段全接 · AI 步经 claude CLI · 确定性步经 clwriting CLI</div></div><div class="state-card"><span class="state-tag">【写稿中】</span><span class="state-msg">第 ${state.wbChapter} ${unit} · 细纲已确认、备料就绪，spawnRole(writer) 流式输出中</span></div><div class="cc-banner">⚡ 八阶段全接 · AI 步（细纲/写稿/三审）经 claude CLI，确定性步（确认/备料/机检/定稿）经 clwriting CLI</div><nav class="stages">${stageBar}</nav><div class="card ctrl"><div class="ctrl-row"><label>${unit}号 <input type="number" id="wbCh" value="${state.wbChapter}" min="1"></label><span class="btn-cli" data-cli="outline">${state.book==='short'?'📋 篇纲':'📋 细纲'}</span><span class="btn-cli" data-cli="confirm">✓ 确认</span><span class="btn-cli" data-cli="prepare">📦 备料</span><span class="btn-fire" id="wbDraft">${state.wbRunning?'写稿中…':'✍ 写第 '+state.wbChapter+' '+unit}</span>${state.wbRunning?'<span class="btn-stop" id="wbStop">⏹ 中断</span>':''}<span class="btn-cli" data-cli="check">🔍 机检</span><span class="btn-review" data-cli="review">📝 三审</span><span class="btn-cli ${state.wbVerdict?'':'disabled'}" data-cli="finalize">✅ 定稿</span><span class="btn" id="diffBtn">↔ 改写对比</span><label class="auto-toggle"><input type="checkbox" id="wbAuto" ${state.wbAuto?'checked':''}> 自动推进</label></div></div><div class="wb-main-2col">${renderWbTalk()}${mainBody}</div></div></div>`;
+  const mainBody=state.cliOnline?`<div class="card"><div class="block-title">正文输出 ${state.wbRunning?'<span class="wb-live">● 流式</span>':''}</div>${outBody}</div>${checkBody}${reviewBody}`:`<div class="card"><div class="block-title">正文输出</div><div class="state-error"><div class="err-icon">🔌</div><div class="err-title">Claude CLI 连接中断</div><div class="err-desc">AI 步（细纲 / 写稿 / 三审）依赖 Claude CLI 子进程，当前无法连接；确定性步（确认 / 备料 / 机检 / 定稿）仍可用。请检查 CLI 运行状态后重试。</div><div class="err-meta">退出码 1 · 连接超时（mockup 演示）</div><span class="btn primary" id="wbRetry">↻ 重试连接</span></div></div>`;
+  c.innerHTML=`<div class="content-scroll"><div class="bento-wrap" style="max-width:920px"><div class="bento-head"><h1 class="bento-title">工作台 · 第 ${state.wbChapter} ${unit}</h1><div class="bento-sub">${state.currentBookName} · 八阶段全接 · AI 步经 Claude CLI · 确定性步经 clwriting CLI</div></div><div class="state-card"><span class="state-tag">【写稿中】</span><span class="state-msg">第 ${state.wbChapter} ${unit} · 细纲已确认、备料就绪，spawnRole(writer) 流式输出中</span></div><div class="cc-banner">⚡ 八阶段全接 · AI 步（细纲/写稿/三审）经 Claude CLI，确定性步（确认/备料/机检/定稿）经 clwriting CLI</div><nav class="stages">${stageBar}</nav><div class="card ctrl"><div class="ctrl-row"><label>${unit}号 <input type="number" id="wbCh" value="${state.wbChapter}" min="1"></label><span class="btn-cli" data-cli="outline">${state.book==='short'?'📋 篇纲':'📋 细纲'}</span><span class="btn-cli" data-cli="confirm">✓ 确认</span><span class="btn-cli" data-cli="prepare">📦 备料</span><span class="btn-fire" id="wbDraft">${state.wbRunning?'写稿中…':'✍ 写第 '+state.wbChapter+' '+unit}</span>${state.wbRunning?'<span class="btn-stop" id="wbStop">⏹ 中断</span>':''}<span class="btn-cli" data-cli="check">🔍 机检</span><span class="btn-review" data-cli="review">📝 三审</span><span class="btn-cli ${state.wbVerdict?'':'disabled'}" data-cli="finalize">✅ 定稿</span><span class="btn" id="diffBtn">↔ 改写对比</span><label class="auto-toggle"><input type="checkbox" id="wbAuto" ${state.wbAuto?'checked':''}> 自动推进</label></div></div><div class="wb-main-2col">${renderWbTalk()}${mainBody}</div></div></div>`;
 }
 function renderWbCtx(){
   const sn=({outline:'细纲',confirm:'确认',prepare:'备料',draft:'写稿',check:'机检',review:'审稿',finalize:'定稿',enter:'进入'})[state.wbStage];
-  el('wbctx').innerHTML=`<div class="card"><div class="card-title">任务详情</div><div class="kv"><span class="k">当前阶段</span><span class="v cyan">${sn}</span></div><div class="kv"><span class="k">${state.book==='short'?'篇':'章'}号</span><span class="v">${state.wbChapter}</span></div><div class="kv"><span class="k">驱动</span><span class="v">claude CLI</span></div><div class="kv"><span class="k">预算</span><span class="v">$0.012 / $5</span></div><div class="kv"><span class="k">耗时</span><span class="v">38s</span></div></div><div class="card"><div class="card-title">事件流 <span style="color:var(--text-3);text-transform:none;font-weight:400">driver SSE</span></div>${state.wbEvents.length?state.wbEvents.map(e=>`<div class="ev ev-${e.cls}"><span class="ev-t">${e.t}</span><span class="ev-type">${e.type}</span><span class="ev-text">${e.text}</span></div>`).join(''):'<div class="hint">等待事件…</div>'}</div>`;
+  el('wbctx').innerHTML=`<div class="card"><div class="card-title">任务详情</div><div class="kv"><span class="k">当前阶段</span><span class="v cyan">${sn}</span></div><div class="kv"><span class="k">${state.book==='short'?'篇':'章'}号</span><span class="v">${state.wbChapter}</span></div><div class="kv"><span class="k">驱动</span><span class="v">Claude CLI</span></div><div class="kv"><span class="k">预算</span><span class="v">$0.012 / $5</span></div><div class="kv"><span class="k">耗时</span><span class="v">38s</span></div></div><div class="card"><div class="card-title">事件流 <span style="color:var(--text-3);text-transform:none;font-weight:400">driver SSE</span></div>${state.wbEvents.length?state.wbEvents.map(e=>`<div class="ev ev-${e.cls}"><span class="ev-t">${e.t}</span><span class="ev-type">${e.type}</span><span class="ev-text">${e.text}</span></div>`).join(''):'<div class="hint">等待事件…</div>'}</div>`;
 }
 function wbPush(cls,type,text){state.wbEvents.push({t:new Date().toLocaleTimeString('zh-CN').slice(0,8),cls,type,text});if(state.wbEvents.length>40)state.wbEvents.shift();}
 function wbCli(step){
@@ -37,7 +37,7 @@ function wbCli(step){
 }
 function wbDraft(){
   if(state.wbRunning)return;
-  if(!state.cliOnline){showHint('claude CLI 未连接 · 点状态栏或「重试」恢复');return;}
+  if(!state.cliOnline){showHint('Claude CLI 未连接 · 点状态栏或「重试」恢复');return;}
   state.wbRunning=true;state.wbTextOut='';state.wbStage='draft';state.wbCheck='';state.wbReview='';state.wbVerdict=false;
   wbPush('spawn','spawnRole(writer) · 第 '+state.wbChapter+' '+(state.book==='short'?'篇（含篇纲）':'章（含细纲+备料）'));
   renderWbMid();renderWbCtx();
@@ -65,7 +65,7 @@ function renderWbMsgs(){
 function sendCmd(){
   const inp=el('wbCmd'),v=(inp&&inp.value||'').trim();
   if(!v)return;
-  if(!state.cliOnline){showHint('claude CLI 未连接 · 点状态栏或重试恢复');return;}
+  if(!state.cliOnline){showHint('Claude CLI 未连接 · 点状态栏或重试恢复');return;}
   state.wbMsgs.push({role:'user',name:'你',time:nowStr(),text:v});
   inp.value='';
   state.wbStage='draft';
@@ -88,7 +88,7 @@ function bindWb(){
   const dbtn=el('diffBtn');if(dbtn)dbtn.onclick=openDiff;
   const st=el('wbStop');if(st)st.onclick=()=>{state.wbRunning=false;wbPush('error','⏹ 已中断——正文已保留，可弃稿或改指令重写');renderWbMid();renderWbCtx();};
   const v=el('wbVerdict');if(v)v.onclick=()=>{state.wbVerdict=true;wbPush('saved','裁决：通过（可定稿）');renderWbMid();renderWbCtx();showHint('裁决通过 · 可定稿');};
-  const rt=el('wbRetry');if(rt)rt.onclick=()=>{state.cliOnline=true;renderWbMid();renderWbCtx();renderStatus();bindWb();showHint('claude CLI 已重连');};
+  const rt=el('wbRetry');if(rt)rt.onclick=()=>{state.cliOnline=true;renderWbMid();renderWbCtx();renderStatus();bindWb();showHint('Claude CLI 已重连');};
   const a=el('wbAuto');if(a)a.onchange=()=>{state.wbAuto=a.checked;showHint('自动推进'+(a.checked?'已开':'已关'));};
   const send=el('wbSend');if(send)send.onclick=sendCmd;
   const cmd=el('wbCmd');if(cmd)cmd.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sendCmd();}};
@@ -96,13 +96,10 @@ function bindWb(){
   const ch=el('wbCh');if(ch)ch.oninput=()=>{state.wbChapter=+ch.value||1;};
 }
 
-function toggleCli(){state.cliOnline=!state.cliOnline;renderStatus();if(state.mode==='workbench'){renderWbMid();bindWb();}showHint(state.cliOnline?'claude CLI 已重连':'连接中断 · AI 步暂不可用（mockup 演示）');}
+function toggleCli(){state.cliOnline=!state.cliOnline;renderStatus();if(state.mode==='workbench'){renderWbMid();bindWb();}showHint(state.cliOnline?'Claude CLI 已重连':'连接中断 · AI 步暂不可用（mockup 演示）');}
 function renderStatus(){
-  const tn=(THEMES.find(x=>x[0]===state.theme)||[])[1]||'';
   const cli=el('topbarCli');
-  if(cli){cli.innerHTML='<span class="cli-dot">●</span> '+(state.cliOnline?'claude CLI':'未连接');cli.classList.toggle('off',!state.cliOnline);cli.onclick=toggleCli;}
-  const tbtn=el('themeBtn');
-  if(tbtn){tbtn.innerHTML='☾ '+tn;tbtn.title='切换主题（当前：'+tn+'）';}
+  if(cli){cli.innerHTML='<span class="cli-dot"></span> '+(state.cliOnline?'Claude CLI':'未连接');cli.classList.toggle('off',!state.cliOnline);cli.onclick=toggleCli;}
 }
 
 // ===== 配置 modal =====
@@ -117,7 +114,7 @@ function applyCfg(){
   document.querySelectorAll('.prose p').forEach(p=>p.style.marginBottom=state.cfgGap+'px');
 }
 function renderConfig(){
-  const SW={ink:['#f4efe2','#1f5f5b'],night:['#1c1a17','#5fa39d'],'bauhaus-light':['#ffffff','#3a3a3a'],'bauhaus-blue':['#f4f4f2','#0057b7'],'bauhaus-blue-dark':['#1b2a3d','#4a90e2'],'bauhaus-red':['#f5f5f3','#e1051c'],'bauhaus-red-dark':['#261c1c','#ff5a4d'],'bauhaus-dark':['#161616','#3b82f6'],teal:['#f1f6f6','#2d7878'],amber:['#f7f0e2','#b8762d'],ice:['#f2f8fc','#5a8fb5'],plum:['#f5f0f8','#7a5f8a'],sage:['#f1f5ee','#7a8a6a'],rose:['#f7eef0','#b07a82'],mocha:['#f4ede2','#8a6240'],lavender:['#f3f0f8','#8a82a8'],olive:['#f2f1e6','#7a7a3a'],sand:['#f6f0e0','#a89060'],forest:['#16201a','#6a9a78'],wine:['#221620','#b5637a'],'bauhaus-yellow':['#f5f5f3','#c8951a'],'bauhaus-orange':['#f5f5f3','#d2691e'],'bauhaus-green':['#f5f5f3','#2d7a3e'],'bauhaus-violet':['#f5f5f3','#6a3d8a'],'bauhaus-cream':['#f5f0e4','#5a4f42'],'bauhaus-yellow-dark':['#2a2418','#c8951a'],'bauhaus-violet-dark':['#221c30','#8a6db5'],'bauhaus-charcoal':['#201d1a','#4a7a8c']};
+  const SW={mono:['#f5f5f5','#1a1a1a']}
   el('cfgbody').innerHTML=`
     <div class="mb-section"><h3>主题</h3><div class="theme-grid">
       ${THEMES.map(t=>{const sw=SW[t[0]]||['#fff','#888'];return `<label class="swatch-row" data-th="${t[0]}"><input type="radio" name="th" value="${t[0]}" ${state.theme===t[0]?'checked':''} style="accent-color:var(--ink-cyan)"><div class="swatch" style="background:linear-gradient(135deg,${sw[0]},${sw[1]})"></div><div><div class="nm">${t[1]}</div><div class="ds">${t[2]}</div></div></label>`}).join('')}
@@ -131,7 +128,7 @@ function renderConfig(){
       </div>
     </div>
     <div class="mb-section"><h3>书库</h3><div class="kv"><span class="k">当前</span><span class="v">${currentLibLabel()}</span></div></div>
-    <div class="mb-section"><h3>模型与驱动</h3><div class="kv"><span class="k">驱动</span><span class="v">claude CLI 子进程</span></div><div class="kv"><span class="k">原则</span><span class="v">不直连大模型 · key 不入库</span></div></div>
+    <div class="mb-section"><h3>模型与驱动</h3><div class="kv"><span class="k">驱动</span><span class="v">Claude CLI 子进程</span></div><div class="kv"><span class="k">原则</span><span class="v">不直连大模型 · key 不入库</span></div></div>
     <div class="mb-section"><h3>快捷键</h3><div class="kv"><span class="k">⌘P</span><span class="v">命令面板</span></div><div class="kv"><span class="k">⌘B</span><span class="v">折叠侧栏</span></div><div class="kv"><span class="k">⌘⇧F</span><span class="v">专注模式</span></div></div>`;
   el('cfgbody').querySelectorAll('input[name=th]').forEach(r=>r.onchange=()=>{state.theme=r.value;applyTheme();showHint('已切换：'+(THEMES.find(x=>x[0]===r.value)||[])[1]);});
   el('cfgbody').querySelectorAll('input[name=ft]').forEach(r=>r.onchange=()=>{state.cfgFont=r.value;applyCfg();showHint('字体已切换');});

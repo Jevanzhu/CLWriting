@@ -1,10 +1,9 @@
 function renderTree(){
   const F=state.book==='short'?S_FILES:FILES;
-  const folderTag=id=>id.endsWith('body')?(state.book==='short'?'pieces':'chapters'):id.endsWith('ol')?'outline':id.endsWith('set')?'设定':'草稿';
   const label=state.book==='short'?'篇':'章';
   let h=`<div class="tree-head"><span class="tree-head-label">目录</span><span class="head-count">${F.filter(x=>x.parent).length}</span></div>`;
   F.filter(f=>f.folder).forEach(fd=>{
-    h+=`<div class="folder"><span class="caret">${fd.open?'▾':'▸'}</span>${fd.name}<span class="tag">${folderTag(fd.id)}</span></div>`;
+    h+=`<div class="folder"><span class="caret">${fd.open?'▾':'▸'}</span>${fd.name}</div>`;
     if(fd.open){
       F.filter(c=>c.parent===fd.id).forEach(c=>{h+=`<div class="file indent ${state.file===c.id?'active':''}" data-id="${c.id}" data-piece="${c.no||''}">${c.dot?`<span class="dot ${c.dot}"></span>`:''}${c.name}</div>`;});
     }

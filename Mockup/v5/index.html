@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="bauhaus-red">
+<html lang="zh-CN" data-theme="mono">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,11 +14,15 @@
     <div class="window-chrome">
       <span class="wc-dot red"></span><span class="wc-dot yellow"></span><span class="wc-dot green"></span>
       <span class="wc-title" id="wcTitle">CLWriting Studio</span>
+      <!-- Windows 版窗口控件（右侧 ─ 最小化 / □ 最大化 / ✕ 关闭）：
+           当前模拟 macOS（左侧信号灯），此处暂注释；切 Windows 版时恢复此段
       <div class="wc-actions">
         <span class="wc-btn">─</span>
         <span class="wc-btn">□</span>
         <span class="wc-btn">✕</span>
       </div>
+      -->
+      <div class="topbar-cli" id="topbarCli" title="Claude CLI 连接状态（点击切换）"></div>
     </div>
     <div class="app">
       <aside class="sider-slot" id="siderSlot"></aside>
@@ -31,12 +35,9 @@
       <header class="topbar">
         <div class="topbar-main">
           <div class="topbar-actions">
-            <div class="topbar-cli" id="topbarCli" title="claude CLI 连接状态（点击切换）"></div>
             <div class="icon-btn" data-act="cmd" title="命令面板 (⌘P)">⌘</div>
             <div class="icon-btn" data-act="focus" title="专注模式 (⌘⇧F)">⤢</div>
             <div class="icon-btn" data-act="panel" title="详情面板">◧</div>
-            <div class="icon-btn" id="themeBtn" data-act="theme" title="切换主题">☾</div>
-            <div class="icon-btn" data-act="settings" title="设置">⚙</div>
           </div>
         </div>
       </header>
