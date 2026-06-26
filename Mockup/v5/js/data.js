@@ -92,6 +92,34 @@ const SETTINGS_DOCS=[
   ['动机','寻找禁典真相，为三年前的旧案讨回公道'],
   ['出场','第 1（提及）、4、5 章，预计第7-9章大量出场']]}
 ];
+// ===== 角色关系图 =====
+const RELATIONS={
+ nodes:[
+  {id:'linyuan',name:'林远',role:'主角',dot:'green',
+   info:'外门弟子 · 玉佩传人 · 练气三层',x:.35,y:.32},
+  {id:'zhaoheng',name:'赵衡',role:'师兄 · 暗线',dot:'yellow',
+   info:'内门弟子 · 筑基初期 · 三年前旧案当事人',x:.62,y:.28},
+  {id:'father',name:'林远父',role:'已故',dot:'gray',
+   info:'玉佩持有者 · 临终交代"解开玉佩就回来"',x:.2,y:.15},
+  {id:'zhanglao',name:'张长老',role:'长老',dot:'cyan',
+   info:'清虚山长老 · 入门仪式提及禁地 · 提赵衡时面色有异',x:.72,y:.55},
+  {id:'qianshou',name:'钱师兄',role:'外门',dot:'gray',
+   info:'入门时提及赵衡旧事 · 讳莫如深',x:.45,y:.7},
+  {id:'jindian',name:'金弟子',role:'外门',dot:'gray',
+   info:'考核场同期弟子 · 旁观玉佩异变',x:.15,y:.52}
+ ],
+ edges:[
+  {from:'linyuan',to:'father',label:'父子',type:'family',active:true},
+  {from:'linyuan',to:'zhaoheng',label:'怀疑/试探',type:'tension',active:true},
+  {from:'linyuan',to:'zhanglao',label:'师徒（表面）',type:'formal'},
+  {from:'linyuan',to:'qianshou',label:'同门',type:'peer'},
+  {from:'linyuan',to:'jindian',label:'同门',type:'peer'},
+  {from:'zhaoheng',to:'father',label:'旧案关联',type:'past',active:true},
+  {from:'zhaoheng',to:'zhanglao',label:'隐瞒',type:'tension',active:true},
+  {from:'zhaoheng',to:'qianshou',label:'旧案知情',type:'past'},
+  {from:'father',to:'zhanglao',label:'旧识',type:'past'}
+ ]
+};
 // 文件树（编辑态）
 const FILES=[
  {id:'g_body',name:'正文',folder:true,open:true},
@@ -111,7 +139,7 @@ const FILES=[
 // 总览导航
 const OV_NAV=[
  {group:'概览',items:[{id:'o1',name:'作品概要',ico:'◉'},{id:'o2',name:'字数统计',ico:'▤'},{id:'o3',name:'完成度',ico:'◐'},{id:'o4',name:'写作日历',ico:'▦'},{id:'o5',name:'近期动态',ico:'⊹'}]},
- {group:'分析',items:[{id:'a_health',name:'体检',ico:'✚'},{id:'a_rhythm',name:'节奏',ico:'♪'},{id:'a_ledger',name:'账本',ico:'§'}]}
+ {group:'分析',items:[{id:'a_health',name:'体检',ico:'✚'},{id:'a_rhythm',name:'节奏',ico:'♪'},{id:'a_ledger',name:'账本',ico:'§'},{id:'a_relations',name:'角色关系',ico:'⬡'}]}
 ];
 const TASKS=[
  {id:'t1',name:'续写第3章结尾',state:'等待确认',dot:'yellow',time:'12 分钟前'},

@@ -2,10 +2,77 @@
    themes.css — 主题配色总表
    ------------------------------------------------------------
    改配色 / 加主题只动这个文件；components.css 只引用 var()。
-   · 每套主题 = 基色 + 交互态(hover/active) + 语义派生色(sel/tag/diff)
-   · 派生色用 color-mix 基于本主题基色计算，改基色即全自动联动
+   · 每套主题 = 基色 + 透明度层级（--panel-xx / --paper-xx）+ 交互态 + 语义派生色
+   · 透明度层级统一了 color-mix，components.css 不再 scattered overrides
    · 交互态/派生色的 alpha 按主题单独调（深色主题偏浓），勿一刀切
    ============================================================ */
+
+/* ===== 透明度层级（每个主题继承，仅 alpha 不同）===== */
+:root{
+  --panel-40:color-mix(in srgb,var(--panel) 40%,transparent);
+  --panel-42:color-mix(in srgb,var(--panel) 42%,transparent);
+  --panel-45:color-mix(in srgb,var(--panel) 45%,transparent);
+  --panel-50:color-mix(in srgb,var(--panel) 50%,transparent);
+  --panel-55:color-mix(in srgb,var(--panel) 55%,transparent);
+  --panel-60:color-mix(in srgb,var(--panel) 60%,transparent);
+  --panel-62:color-mix(in srgb,var(--panel) 62%,transparent);
+  --panel-65:color-mix(in srgb,var(--panel) 65%,transparent);
+  --panel-68:color-mix(in srgb,var(--panel) 68%,transparent);
+  --panel-72:color-mix(in srgb,var(--panel) 72%,transparent);
+  --panel-74:color-mix(in srgb,var(--panel) 74%,transparent);
+  --panel-80:color-mix(in srgb,var(--panel) 80%,transparent);
+  --panel-88:color-mix(in srgb,var(--panel) 88%,transparent);
+  --panel-90:color-mix(in srgb,var(--panel) 90%,transparent);
+  --panel-92:color-mix(in srgb,var(--panel) 92%,transparent);
+  --paper-40:color-mix(in srgb,var(--paper) 40%,transparent);
+  --paper-50:color-mix(in srgb,var(--paper) 50%,transparent);
+  --paper-55:color-mix(in srgb,var(--paper) 55%,transparent);
+  --paper-60:color-mix(in srgb,var(--paper) 60%,transparent);
+  --paper-62:color-mix(in srgb,var(--paper) 62%,transparent);
+  --paper-74:color-mix(in srgb,var(--paper) 74%,transparent);
+  --white-14:color-mix(in srgb,#fff 14%,transparent);
+  --white-12:color-mix(in srgb,#fff 12%,transparent);
+  --white-16:color-mix(in srgb,#fff 16%,transparent);
+  --white-18:color-mix(in srgb,#fff 18%,transparent);
+  --white-20:color-mix(in srgb,#fff 20%,transparent);
+  --white-22:color-mix(in srgb,#fff 22%,transparent);
+  --white-24:color-mix(in srgb,#fff 24%,transparent);
+  --white-28:color-mix(in srgb,#fff 28%,transparent);
+  --white-30:color-mix(in srgb,#fff 30%,transparent);
+  --white-34:color-mix(in srgb,#fff 34%,transparent);
+  --white-36:color-mix(in srgb,#fff 36%,transparent);
+  --white-40:color-mix(in srgb,#fff 40%,transparent);
+  --white-45:color-mix(in srgb,#fff 45%,transparent);
+  --white-48:color-mix(in srgb,#fff 48%,transparent);
+  --white-55:color-mix(in srgb,#fff 55%,transparent);
+  --cyan-5:color-mix(in srgb,var(--ink-cyan) 5%,transparent);
+  --cyan-8:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --cyan-10:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --cyan-14:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --cyan-20:color-mix(in srgb,var(--ink-cyan) 20%,transparent);
+  --cyan-22:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --cyan-24:color-mix(in srgb,var(--ink-cyan) 24%,transparent);
+  --cyan-28:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --cyan-32:color-mix(in srgb,var(--ink-cyan) 32%,transparent);
+  --cyan-35:color-mix(in srgb,var(--ink-cyan) 35%,transparent);
+  --cyan-40:color-mix(in srgb,var(--ink-cyan) 40%,transparent);
+  --cyan-42:color-mix(in srgb,var(--ink-cyan) 42%,transparent);
+  --cyan-50:color-mix(in srgb,var(--ink-cyan) 50%,transparent);
+  --cyan-72:color-mix(in srgb,var(--ink-cyan) 72%,transparent);
+  --border-40:color-mix(in srgb,var(--border) 40%,transparent);
+  --border-45:color-mix(in srgb,var(--border) 45%,transparent);
+  --border-50:color-mix(in srgb,var(--border) 50%,transparent);
+  --border-55:color-mix(in srgb,var(--border) 55%,transparent);
+  --cinnabar-7:color-mix(in srgb,var(--cinnabar) 7%,transparent);
+  --cinnabar-14:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --cinnabar-30:color-mix(in srgb,var(--cinnabar) 30%,transparent);
+  --cinnabar-35:color-mix(in srgb,var(--cinnabar) 35%,transparent);
+  --cinnabar-50:color-mix(in srgb,var(--cinnabar) 50%,transparent);
+  --ochre-10:color-mix(in srgb,var(--ochre) 10%,transparent);
+  --ochre-14:color-mix(in srgb,var(--ochre) 14%,transparent);
+  --ochre-16:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --ochre-45:color-mix(in srgb,var(--ochre) 45%,transparent);
+}
 
 /* ===== 默认 / 墨韵 ink ===== */
 :root,[data-theme="ink"]{

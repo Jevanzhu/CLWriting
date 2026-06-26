@@ -172,4 +172,77 @@ function bindVaultForm(){
 }
 var shelfB=el('shelfBtn');if(shelfB)shelfB.onclick=function(){state.view='shelf';render();};
 
+// ===== 角色关系图 =====
+let relSel=null;
+function relNodeColor(dot){
+  return dot==='green'?'var(--ink-cyan)':dot==='yellow'?'var(--ochre)':dot==='red'?'var(--cinnabar)':'var(--text-3)';
+}
+function relEdgeColor(type){
+  return type==='tension'?'var(--cinnabar)':type==='active'?'var(--ink-cyan)':type==='past'?'var(--ochre)':'var(--text-3)';
+}
+function renderRelations(){
+  const c=el('content'),ns=RELATIONS.nodes,es=RELATIONS.edges;
+  const W=760,H=460;
+  // 简易力导向：初始数据已有 x/y，做几步松弛
+  function step(){
+    const k=0.08;
+    for(let i=0;i<ns.length;i++){for(let j=i+1;j<ns.length;j++){
+      const dx=ns[j].x-ns[i].x,dy=ns[j].y-ns[i].y;
+      const d2=dx*dx+dy*dy+0.001;const f=k/d2;
+      const d=Math.sqrt(d2);const fx=dx/d*f,fy=dy/d*f;
+      ns[i].x-=fx;ns[i].y-=fy;ns[j].x+=fx;ns[j].y+=fy;
+    }}
+    for(const e of es){
+      const a=ns.find(n=>n.id===e.from),b=ns.find(n=>n.id===e.to);
+      if(!a||!b)continue;
+      const f=k*(a.x-b.x),g=k*(a.y-b.y);
+      a.x+=f;a.y+=g;b.x-=f;b.y-=g;
+    }
+    for(const n of ns){n.x=Math.max(0.06,Math.min(0.94,n.x));n.y=Math.max(0.06,Math.min(0.94,n.y));}
+  }
+  for(let i=0;i<60;i++)step();
+  const toS=(v)=>`${Math.round(v*W)}`;const toSy=(v)=>`${Math.round(v*H)}`;
+  const edgeSvg=es.map(e=>{
+    const a=ns.find(n=>n.id===e.from),b=ns.find(n=>n.id===e.to);if(!a||!b)return'';
+    const x1=parseInt(toS(a.x)),y1=parseInt(toSy(a.y)),x2=parseInt(toS(b.x)),y2=parseInt(toSy(b.y));
+    const mx=(x1+x2)/2,my=(y1+y2)/2-16;
+    const col=relEdgeColor(e.type);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${e.active?2.5:1.5}" stroke-opacity="${e.active?.45:.22}" stroke-dasharray="${e.type==='past'?'5 3':'none'}"/>`
+      +`<text x="${mx}" y="${my}" text-anchor="middle" font-size="10" fill="${col}" fill-opacity=".7" font-family="system-ui,sans-serif">${e.label}</text>`;
+  }).join('');
+  const nodeSvg=ns.map(n=>{
+    const cx=toS(n.x),cy=toSy(n.y),col=relNodeColor(n.dot),r=n.id===relSel?22:18;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity=".18" stroke="${col}" stroke-width="2.5" class="rel-node" data-id="${n.id}" style="cursor:pointer"/>`
+      +`<circle cx="${cx}" cy="${cy}" r="${r-8}" fill="${col}" fill-opacity=".9"/>`
+      +`<text x="${cx}" y="${cy+1}" text-anchor="middle" dominant-baseline="middle" font-size="9.5" fill="#fff" font-weight="600" font-family="system-ui,sans-serif">${n.name}</text>`
+      +`<text x="${cx}" y="${+cy+r+14}" text-anchor="middle" font-size="10" fill="var(--text-2)" font-family="system-ui,sans-serif">${n.role}</text>`;
+  }).join('');
+  c.innerHTML=`<div class="content-scroll"><div class="bento-wrap"><div class="bento-head"><h1 class="bento-title">角色关系</h1><div class="bento-sub">观微 · ${ns.length} 人 · ${es.length} 条关联 · 节点可点选</div></div>`
+    +`<div class="rel-graph"><svg viewBox="0 0 ${W} ${H}" class="rel-svg" preserveAspectRatio="xMidYMid meet">${edgeSvg}${nodeSvg}</svg></div>`
+    +`<div class="rel-legend" style="display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;justify-content:center">`
+      +`<span style="font-size:11px;color:var(--text-2)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--ink-cyan);margin-right:4px"></span>活跃线</span>`
+      +`<span style="font-size:11px;color:var(--text-2)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--cinnabar);margin-right:4px"></span>张力线</span>`
+      +`<span style="font-size:11px;color:var(--text-2)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--ochre);margin-right:4px"></span>历史线</span>`
+      +`<span style="font-size:11px;color:var(--text-2)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--text-3);margin-right:4px"></span>普通</span>`
+    +`</div></div></div>`;
+  c.querySelectorAll('.rel-node').forEach(n=>n.onclick=()=>{relSel=relSel===n.dataset.id?null:n.dataset.id;renderRelations();renderRelRight();});
+}
+function renderRelRight(){
+  const r=el('rightctx');
+  if(!relSel){r.innerHTML='<div class="card"><div class="card-title">节点</div><div style="font-size:12px;color:var(--text-2);line-height:1.7">点击图中角色查看详情与关联</div></div>';return;}
+  const n=RELATIONS.nodes.find(x=>x.id===relSel);if(!n)return;
+  const links=RELATIONS.edges.filter(e=>e.from===relSel||e.to===relSel);
+  const col=relNodeColor(n.dot);
+  const cards=links.map(e=>{
+    const otherId=e.from===relSel?e.to:e.from;
+    const other=RELATIONS.nodes.find(x=>x.id===otherId);
+    if(!other)return'';
+    const oc=relNodeColor(other.dot);
+    return `<div class="kv click" data-rid="${other.id}"><span class="k"><span class="dot" style="display:inline-block;margin-right:6px;background:${oc}"></span>${other.name}</span><span class="v" style="color:${relEdgeColor(e.type)}">${e.label}</span></div>`;
+  }).join('');
+  r.innerHTML=`<div class="card"><div class="card-title">角色 <span style="color:${col}">● ${n.name}</span></div><div class="kv"><span class="k">身份</span><span class="v">${n.role}</span></div><div class="kv"><span class="k">状态</span><span class="v cyan">${n.info}</span></div></div>`
+    +`<div class="card"><div class="card-title">关联 · ${links.length}</span></div>${cards||'<div style="font-size:12px;color:var(--text-2)">无关联</div>'}</div>`;
+  r.querySelectorAll('.kv.click[data-rid]').forEach(x=>x.onclick=()=>{relSel=x.dataset.rid;renderRelations();renderRelRight();});
+}
+
 // ===== 初始化 =====

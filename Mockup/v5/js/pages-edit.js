@@ -1,7 +1,8 @@
 function renderTree(){
   const F=state.book==='short'?S_FILES:FILES;
   const folderTag=id=>id.endsWith('body')?(state.book==='short'?'pieces':'chapters'):id.endsWith('ol')?'outline':id.endsWith('set')?'设定':'草稿';
-  let h='';
+  const label=state.book==='short'?'篇':'章';
+  let h=`<div class="tree-head"><span class="tree-head-icon">📄</span><span class="tree-head-label">${label}列表</span></div>`;
   F.filter(f=>f.folder).forEach(fd=>{
     h+=`<div class="folder"><span class="caret">${fd.open?'▾':'▸'}</span>${fd.name}<span class="tag">${folderTag(fd.id)}</span></div>`;
     if(fd.open){
@@ -140,6 +141,7 @@ function renderOvMid(){
   const id=state.ov,c=el('content');
   if(state.ov==='a_piece')return renderPieceDetail();
   if(state.ov==='a_ledger'&&state.ledgerDetail)return renderLedgerTrace(state.ledgerDetail);
+  if(state.ov==='a_relations')return renderRelations();
   const hd=(t,s)=>'<div class="bento-head"><h1 class="bento-title">'+t+'</h1><div class="bento-sub">'+s+'</div></div>';
   const mu='<div class="bc-menu">⋮</div>';
   if(state.book==='short'){
@@ -359,8 +361,13 @@ function renderOvRight(){
     r.innerHTML=`<div class="card"><div class="card-title">各章数据</div>${CHAPTERS.map(c=>`<div class="kv"><span class="k"><span class="dot ${c.dot}" style="display:inline-block;margin-right:7px"></span>${c.name.split(' · ')[0]}</span><span class="v">${c.words} · ${c.scene}</span></div>`).join('')}</div>`;
   }else if(id==='a_ledger'){
     const LG=state.book==='short'?S_LEDGER:LEDGER;
-    r.innerHTML=`<div class="card"><div class="card-title">账本条目 · 全部 <span style="color:var(--text-3)">${LG.length}</span></div>${LG.map(l=>`<div class="ledger-item click" data-lid="${l.id}"><span class="dot ${l.dot}"></span><div><b>${l.type}·${l.name}</b><div class="desc">${l.ch} · ${l.st}</div></div></div>`).join('')}</div>`;
+    const items=LG.map(l=>`<div class="ledger-item click" data-lid="${l.id}"><span class="dot ${l.dot}"></span><div><b>${l.type}·${l.name}</b><div class="desc">${l.ch} · ${l.st}</div></div></div>`).join('');
+    r.innerHTML='<div class="card"><div class="card-title">账本条目 · 全部 <span style="color:var(--text-3)">'+LG.length+'</span></div>'+items+'</div>';
     r.querySelectorAll('.ledger-item.click').forEach(x=>x.onclick=()=>{state.ledgerDetail=x.dataset.lid;renderOvMid();renderOvRight();});
+  }else if(id==='a_relations'){
+    var nList=RELATIONS.nodes.map(function(n){var col=relNodeColor(n.dot);return'<div class="kv click" data-rid="'+n.id+'"><span class="k"><span class="dot" style="display:inline-block;margin-right:6px;background:'+col+'"></span>'+n.name+'</span><span class="v cyan">'+n.role+'</span></div>';}).join('');
+    r.innerHTML='<div class="card"><div class="card-title">节点</div><div style="font-size:12px;color:var(--text-2);line-height:1.7">点击图中角色查看详情与关联</div></div><div class="card"><div class="card-title">全角色</div>'+nList+'</div>';
+    r.querySelectorAll('.kv.click[data-rid]').forEach(function(x){x.onclick=function(){relSel=x.dataset.rid;renderRelations();renderRelRight();};});
   }
 }
 
