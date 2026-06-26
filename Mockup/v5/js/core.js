@@ -107,6 +107,7 @@ function bindNewbook(){
   }
 }
 function render(){
+  if(state.ov!=='a_relations')relSel=null;
   const ws=el('workspace');
   const tb=document.querySelector('.topbar');
   el('wcTitle').textContent='CLWriting Studio';

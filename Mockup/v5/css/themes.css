@@ -18,9 +18,11 @@
   --panel-62:color-mix(in srgb,var(--panel) 62%,transparent);
   --panel-65:color-mix(in srgb,var(--panel) 65%,transparent);
   --panel-68:color-mix(in srgb,var(--panel) 68%,transparent);
+  --panel-70:color-mix(in srgb,var(--panel) 70%,transparent);
   --panel-72:color-mix(in srgb,var(--panel) 72%,transparent);
   --panel-74:color-mix(in srgb,var(--panel) 74%,transparent);
   --panel-80:color-mix(in srgb,var(--panel) 80%,transparent);
+  --panel-82:color-mix(in srgb,var(--panel) 82%,transparent);
   --panel-88:color-mix(in srgb,var(--panel) 88%,transparent);
   --panel-90:color-mix(in srgb,var(--panel) 90%,transparent);
   --panel-92:color-mix(in srgb,var(--panel) 92%,transparent);

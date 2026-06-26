@@ -338,7 +338,7 @@ function renderOvRight(){
     r.querySelectorAll('.ledger-item.click').forEach(x=>x.onclick=()=>{state.piece=Number(x.dataset.no);renderPieceDetail();renderOvRight();renderStatus();});
     return;
   }
-  if(state.book==='short'&&!['o1','a_piece','a_ledger'].includes(id)){
+  if(state.book==='short'&&!['o1','a_piece','a_ledger','a_relations'].includes(id)){
     const labels={o2:'各篇字数',o3:'各篇完成度',o4:'近14日',o5:'分类',a_health:'四维明细',a_rhythm:'各篇峰值'};
     r.innerHTML=`<div class="card"><div class="card-title">${labels[id]||'各篇'}</div>${S_PIECES.map(p=>{const pk=Math.max(...p.emo.map(e=>e[2]));const recv=Math.round(p.payoffs.filter(e=>!e.unresolved).length/p.payoffs.length*100);const pct=Math.min(Math.round(p.words/S_META.target*100),100);const v=id==='a_rhythm'?'峰值 '+pk:id==='a_health'?'回收 '+recv+'%':id==='o5'?'情绪 '+p.emo[p.emo.length-1][1]:pct+'%';return `<div class="kv click" data-no="${p.no}"><span class="k"><span class="dot ${p.dot}" style="display:inline-block;margin-right:7px"></span>第${p.no}篇 · ${p.title}</span><span class="v">${v}</span></div>`}).join('')}</div>`;
     r.querySelectorAll('.kv.click').forEach(x=>x.onclick=()=>{state.piece=Number(x.dataset.no);state.ov='a_piece';renderOvNav();renderOvMid();renderOvRight();renderStatus();});
