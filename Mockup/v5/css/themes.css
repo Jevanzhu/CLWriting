@@ -1,0 +1,494 @@
+/* ============================================================
+   themes.css — 主题配色总表
+   ------------------------------------------------------------
+   改配色 / 加主题只动这个文件；components.css 只引用 var()。
+   · 每套主题 = 基色 + 交互态(hover/active) + 语义派生色(sel/tag/diff)
+   · 派生色用 color-mix 基于本主题基色计算，改基色即全自动联动
+   · 交互态/派生色的 alpha 按主题单独调（深色主题偏浓），勿一刀切
+   ============================================================ */
+
+/* ===== 默认 / 墨韵 ink ===== */
+:root,[data-theme="ink"]{
+  --canvas:#e6ddc7;--paper:#f4efe2;--panel:#fffdf6;
+  --ink:#2b2620;--text-2:#7a7368;--text-3:#a89e8c;
+  --ink-cyan:#1f5f5b;--cinnabar:#b8413a;--ochre:#a86a2d;
+  --border:#e0d9c8;--border-2:#d8cfb8;
+  --brand:#b8413a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+  --prose-font:'STKaiti','KaiTi','楷体','Songti SC',serif;
+  --prose-size:17.5px;--prose-lh:2.0;--prose-gap:16px;
+}
+/* ===== 夜行 night ===== */
+[data-theme="night"]{
+  --canvas:#0f0e0c;--paper:#1c1a17;--panel:#252320;
+  --ink:#e8e2d4;--text-2:#9a9183;--text-3:#6f6759;
+  --ink-cyan:#5fa39d;--cinnabar:#d5635a;--ochre:#c89556;
+  --border:#3a362f;--border-2:#4a443a;
+  --brand:#d5635a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 16%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 16%,transparent);
+  --shadow:none;
+}
+/* 素白 bauhaus-light（中性·极简·白天）*/
+[data-theme="bauhaus-light"]{
+  --canvas:#ededeb;--paper:#ffffff;--panel:#f6f6f4;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#3a3a3a;--cinnabar:#c0392b;--ochre:#b8860d;
+  --border:#e0e0de;--border-2:#c8c8c6;
+  --brand:#3a3a3a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* ===== 包豪斯系列：三原色 + 黑白灰，原色仅作交互/状态色 ===== */
+/* 钴蓝 bauhaus-blue（冷·白天）*/
+[data-theme="bauhaus-blue"]{
+  --canvas:#e8e8e6;--paper:#ffffff;--panel:#f4f4f2;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#0057b7;--cinnabar:#e1051c;--ochre:#c8860d;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#0057b7;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 钴蓝夜 bauhaus-blue-dark（冷·夜）*/
+[data-theme="bauhaus-blue-dark"]{
+  --canvas:#0d1b2a;--paper:#1b2a3d;--panel:#243447;
+  --ink:#e2e8f0;--text-2:#8aa0b8;--text-3:#5a6b7d;
+  --ink-cyan:#4a90e2;--cinnabar:#ff5a5a;--ochre:#f0b942;
+  --border:#2c3e50;--border-2:#3d5266;
+  --brand:#4a90e2;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* 朱红 bauhaus-red（暖·白天）*/
+[data-theme="bauhaus-red"]{
+  --canvas:#ececea;--paper:#ffffff;--panel:#f5f5f3;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#e1051c;--cinnabar:#b8413a;--ochre:#c8860d;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#e1051c;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 朱红夜 bauhaus-red-dark（暖·夜）*/
+[data-theme="bauhaus-red-dark"]{
+  --canvas:#1a1414;--paper:#261c1c;--panel:#302424;
+  --ink:#f0e8e8;--text-2:#b09a9a;--text-3:#7a6868;
+  --ink-cyan:#ff5a4d;--cinnabar:#e0584d;--ochre:#f0b942;
+  --border:#3a2e2e;--border-2:#4a3a3a;
+  --brand:#ff5a4d;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* 铁夜 bauhaus-dark（中性·工业纯黑·夜）*/
+[data-theme="bauhaus-dark"]{
+  --canvas:#0a0a0a;--paper:#161616;--panel:#1f1f1f;
+  --ink:#f0f0ee;--text-2:#9a9a9a;--text-3:#6b6b6b;
+  --ink-cyan:#3b82f6;--cinnabar:#ff3b47;--ochre:#f0b942;
+  --border:#2b2b2b;--border-2:#3a3a3a;
+  --brand:#3b82f6;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* ===== 2026 趋势系列：低饱和现代，源自 2026 年度色 / 大地暖 / 冰蓝 / 宝石紫 ===== */
+/* 湖青 teal（矿物青·冷·白天）· 2026 Transformative Teal 年度色 */
+[data-theme="teal"]{
+  --canvas:#e2eaea;--paper:#ffffff;--panel:#f1f6f6;
+  --ink:#1e2b2b;--text-2:#586b6b;--text-3:#889a9a;
+  --ink-cyan:#2d7878;--cinnabar:#b8413a;--ochre:#b8860d;
+  --border:#d2dede;--border-2:#bac8c8;
+  --brand:#2d7878;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 琥珀 amber（焦糖暖·白天）· 2026 Burnt Caramel / Amber 大地色 */
+[data-theme="amber"]{
+  --canvas:#ebe2d2;--paper:#fffdf7;--panel:#f7f0e2;
+  --ink:#2c2316;--text-2:#6b5c46;--text-3:#9a8a6e;
+  --ink-cyan:#b8762d;--cinnabar:#a8442d;--ochre:#c8945a;
+  --border:#e0d4be;--border-2:#c8ba9e;
+  --brand:#b8762d;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 冰蓝 ice（清凉冷·白天）· 2026 Ice Blue */
+[data-theme="ice"]{
+  --canvas:#e6eef4;--paper:#ffffff;--panel:#f2f8fc;
+  --ink:#192630;--text-2:#586b78;--text-3:#889aa6;
+  --ink-cyan:#5a8fb5;--cinnabar:#b8413a;--ochre:#c8945a;
+  --border:#d2deea;--border-2:#bac8d6;
+  --brand:#5a8fb5;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 李子 plum（宝石紫·中性·白天）· 2026 Plum jewel tone */
+[data-theme="plum"]{
+  --canvas:#eae6f0;--paper:#ffffff;--panel:#f5f0f8;
+  --ink:#241e2d;--text-2:#585068;--text-3:#887e98;
+  --ink-cyan:#7a5f8a;--cinnabar:#a8446a;--ochre:#b8945a;
+  --border:#ddd6e4;--border-2:#c6bccf;
+  --brand:#7a5f8a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* ===== 自然 · 大地系列：低饱和自然色，白天为主 ===== */
+/* 鼠尾草 sage（灰绿·自然柔和·白天）*/
+[data-theme="sage"]{
+  --canvas:#e4e8e0;--paper:#ffffff;--panel:#f1f5ee;
+  --ink:#26301f;--text-2:#5e6852;--text-3:#8e9a82;
+  --ink-cyan:#7a8a6a;--cinnabar:#b8413a;--ochre:#b8860d;
+  --border:#d4dece;--border-2:#bccab2;
+  --brand:#7a8a6a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 灰玫瑰 rose（陶土粉·暖柔·白天）*/
+[data-theme="rose"]{
+  --canvas:#ece2e4;--paper:#fffdfc;--panel:#f7eef0;
+  --ink:#2d2024;--text-2:#6b5258;--text-3:#9a828a;
+  --ink-cyan:#b07a82;--cinnabar:#a8446a;--ochre:#b8860d;
+  --border:#e0d2d6;--border-2:#c8b8be;
+  --brand:#b07a82;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 摩卡 mocha（可可棕·大地暖·白天）*/
+[data-theme="mocha"]{
+  --canvas:#e8e0d6;--paper:#fffdf8;--panel:#f4ede2;
+  --ink:#2a2018;--text-2:#6b5a48;--text-3:#9a8870;
+  --ink-cyan:#8a6240;--cinnabar:#a8442d;--ochre:#b88a3e;
+  --border:#ddd2c2;--border-2:#c5b8a4;
+  --brand:#8a6240;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 薰衣草 lavender（淡灰紫·柔·白天）*/
+[data-theme="lavender"]{
+  --canvas:#e8e6f0;--paper:#ffffff;--panel:#f3f0f8;
+  --ink:#24202d;--text-2:#585266;--text-3:#887e9a;
+  --ink-cyan:#8a82a8;--cinnabar:#a8446a;--ochre:#b8945a;
+  --border:#dad6e4;--border-2:#c2bccf;
+  --brand:#8a82a8;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 橄榄 olive（军绿·复古沉稳·白天）*/
+[data-theme="olive"]{
+  --canvas:#e6e6dc;--paper:#fffdf6;--panel:#f2f1e6;
+  --ink:#262616;--text-2:#5e5e42;--text-3:#8e8e6e;
+  --ink-cyan:#7a7a3a;--cinnabar:#b8413a;--ochre:#b88a3e;
+  --border:#d6d6c6;--border-2:#bebca6;
+  --brand:#7a7a3a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 沙色 sand（沙漠米·中性暖·白天）*/
+[data-theme="sand"]{
+  --canvas:#ece4d2;--paper:#fffdf5;--panel:#f6f0e0;
+  --ink:#2d2418;--text-2:#6b5c42;--text-3:#9a8a6a;
+  --ink-cyan:#a89060;--cinnabar:#b8413a;--ochre:#b88a3e;
+  --border:#e0d4be;--border-2:#c8baa0;
+  --brand:#a89060;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* ===== 夜色补充：森林 / 酒红 ===== */
+/* 森林夜 forest（墨绿·自然深·夜）*/
+[data-theme="forest"]{
+  --canvas:#0d1410;--paper:#16201a;--panel:#1e2a22;
+  --ink:#e2e8e0;--text-2:#8aa098;--text-3:#5a6b62;
+  --ink-cyan:#6a9a78;--cinnabar:#d5635a;--ochre:#c89556;
+  --border:#26322a;--border-2:#36443a;
+  --brand:#6a9a78;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* 酒红夜 wine（深酒红·夜）· 2026 merlot / oxblood */
+[data-theme="wine"]{
+  --canvas:#140d10;--paper:#221620;--panel:#2c1e28;
+  --ink:#f0e2e6;--text-2:#b09aa0;--text-3:#7a686e;
+  --ink-cyan:#b5637a;--cinnabar:#e0584d;--ochre:#f0b942;
+  --border:#3a2630;--border-2:#4a3440;
+  --brand:#b5637a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* ===== 包豪斯色轮补全：三原色(黄) + 三间色(橙/绿/紫) + 暖白/暖炭 =====
+   原色/间色仅作交互·状态色，底色保持包豪斯中性灰白（不缤纷）。
+   黄在白底不可读，故白天镉黄主色用深金；夜底则亮黄可读。        ===== */
+/* 镉黄 bauhaus-yellow（包豪斯·三原色黄·白天）*/
+[data-theme="bauhaus-yellow"]{
+  --canvas:#ececea;--paper:#ffffff;--panel:#f5f5f3;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#c8951a;--cinnabar:#e1051c;--ochre:#e8b800;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#c8951a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 焦橙 bauhaus-orange（包豪斯·间色橙·白天）*/
+[data-theme="bauhaus-orange"]{
+  --canvas:#ececea;--paper:#ffffff;--panel:#f5f5f3;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#d2691e;--cinnabar:#e1051c;--ochre:#c8860d;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#d2691e;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 翠绿 bauhaus-green（包豪斯·间色绿·白天）*/
+[data-theme="bauhaus-green"]{
+  --canvas:#ececea;--paper:#ffffff;--panel:#f5f5f3;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#2d7a3e;--cinnabar:#e1051c;--ochre:#c8860d;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#2d7a3e;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 堇紫 bauhaus-violet（包豪斯·间色紫·白天）*/
+[data-theme="bauhaus-violet"]{
+  --canvas:#ececea;--paper:#ffffff;--panel:#f5f5f3;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#9a9a9a;
+  --ink-cyan:#6a3d8a;--cinnabar:#e1051c;--ochre:#c8860d;
+  --border:#d6d6d4;--border-2:#bdbdbd;
+  --brand:#6a3d8a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 奶白 bauhaus-cream（包豪斯·暖纸白·白天）*/
+[data-theme="bauhaus-cream"]{
+  --canvas:#ece8dc;--paper:#fffdf6;--panel:#f5f0e4;
+  --ink:#2a2218;--text-2:#6b604c;--text-3:#9a8e76;
+  --ink-cyan:#5a4f42;--cinnabar:#e1051c;--ochre:#c8860d;
+  --border:#e0d8c6;--border-2:#c8bea8;
+  --brand:#5a4f42;
+  --hover:color-mix(in srgb,var(--ink-cyan) 6%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 13%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 13%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 12%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 12%,transparent);
+  --shadow:none;
+}
+/* 镉黄夜 bauhaus-yellow-dark（包豪斯·三原色黄·夜）*/
+[data-theme="bauhaus-yellow-dark"]{
+  --canvas:#1a1610;--paper:#2a2418;--panel:#36301e;
+  --ink:#f0e8cc;--text-2:#b0a878;--text-3:#6a6448;
+  --ink-cyan:#c8951a;--cinnabar:#ff5a5a;--ochre:#f0c850;
+  --border:#3a3422;--border-2:#4a4430;
+  --brand:#c8951a;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* 堇紫夜 bauhaus-violet-dark（包豪斯·间色紫·夜）*/
+[data-theme="bauhaus-violet-dark"]{
+  --canvas:#15111e;--paper:#221c30;--panel:#2c2440;
+  --ink:#ece6f4;--text-2:#a89cc0;--text-3:#6a6088;
+  --ink-cyan:#8a6db5;--cinnabar:#e0584d;--ochre:#f0b942;
+  --border:#322a48;--border-2:#42385a;
+  --brand:#8a6db5;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
+/* 炭灰夜 bauhaus-charcoal（包豪斯·暖炭灰·夜）*/
+[data-theme="bauhaus-charcoal"]{
+  --canvas:#141210;--paper:#201d1a;--panel:#2a2622;
+  --ink:#f0ede8;--text-2:#9a958c;--text-3:#6b6660;
+  --ink-cyan:#4a7a8c;--cinnabar:#d5635a;--ochre:#c89556;
+  --border:#36312c;--border-2:#46403a;
+  --brand:#4a7a8c;
+  --hover:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --shadow:none;
+}
