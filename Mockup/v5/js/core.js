@@ -110,28 +110,32 @@ function render(){
   if(state.ov!=='a_relations')relSel=null;
   const ws=el('workspace');
   const tb=document.querySelector('.topbar');
+  const ss=el('siderSlot');
   el('wcTitle').textContent='CLWriting Studio';
-  if(state.view==='landing'){tb.style.display='none';ws.className='workspace full';ws.innerHTML=renderLanding();bindLanding();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>启动页 · '+currentLibLabel()+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
-  if(state.view==='libraries'){tb.style.display='none';ws.className='workspace full';ws.innerHTML=renderLibraries();bindLibraries();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>书库 · '+LIBRARIES.length+' 个</span><div class="right"><span>'+themeName()+'</span></div>';return;}
-  if(state.view==='shelf'){tb.style.display='none';ws.className='workspace full';ws.innerHTML=renderShelf();bindShelf();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>书架 · 共 '+SHELF_BOOKS.length+' 本 · '+currentLibLabel()+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
-  if(state.view==='newbook'){tb.style.display='none';ws.className='workspace full';ws.innerHTML=renderNewbook();bindNewbook();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>建书 · '+(state.nbPhase==='form'?'段 1 表单':'段 2 AI 填设定')+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
+  if(state.view==='landing'){tb.style.display='none';ss.style.display='none';ss.innerHTML='';ws.className='workspace full';ws.innerHTML=renderLanding();bindLanding();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>启动页 · '+currentLibLabel()+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
+  if(state.view==='libraries'){tb.style.display='none';ss.style.display='none';ss.innerHTML='';ws.className='workspace full';ws.innerHTML=renderLibraries();bindLibraries();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>书库 · '+LIBRARIES.length+' 个</span><div class="right"><span>'+themeName()+'</span></div>';return;}
+  if(state.view==='shelf'){tb.style.display='none';ss.style.display='none';ss.innerHTML='';ws.className='workspace full';ws.innerHTML=renderShelf();bindShelf();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>书架 · 共 '+SHELF_BOOKS.length+' 本 · '+currentLibLabel()+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
+  if(state.view==='newbook'){tb.style.display='none';ss.style.display='none';ss.innerHTML='';ws.className='workspace full';ws.innerHTML=renderNewbook();bindNewbook();el('statusbar').innerHTML='<span class="host">● claude CLI 已连接</span><span>建书 · '+(state.nbPhase==='form'?'段 1 表单':'段 2 AI 填设定')+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
   if(state.view!=='book')return;
   tb.style.display='';
+  ss.style.display='';
   el('wcTitle').textContent=state.currentBookName;
-  ws.className='workspace'+(state.focus&&state.mode==='edit'?' focus':'')+(state.foldL?' fold-l':'')+(state.panelOpen?'':' panel-closed');
+  ws.className='workspace'+(state.focus&&state.mode==='edit'?' focus':'')+(state.panelOpen?'':' panel-closed');
+  tb.className='topbar';
+  ss.className='sider-slot'+(state.focus&&state.mode==='edit'?' focus':'')+(state.foldL?' fold-l':'');
   if(state.mode==='edit'){
-    ws.innerHTML=P('sider-left','<div class="sider-scroll"><div class="tree" id="tree"></div><div class="binder" id="binder"></div></div>')+
-      '<div class="main-area"><main class="content" id="content"></main>'+
+    ss.innerHTML=P('sider-left','<div class="book-anchor">'+bookAnchorInner()+'</div><div class="sider-scroll"><div class="tree" id="tree"></div><div class="binder" id="binder"></div></div><div class="sider-foot"><div class="foot-back" id="shelfBtn" title="返回书架">← 书架</div><div class="kind-seg" id="kindSeg"></div></div>');
+    ws.innerHTML='<div class="main-area"><main class="content" id="content"></main>'+
       P('sider-right','<div class="sider-right-head"><div class="sr-head-left"><span class="sr-eyebrow">详情</span><span class="sr-title">'+state.currentBookName+'</span></div><span class="sr-close" id="panelClose" title="收起">✕</span></div><div class="sider-right-inner" id="rightctx"></div>')+'</div>';
     renderBinder();renderTree();renderFileMid();applyCfg();renderEditRight();renderStatus();
   }else if(state.mode==='overview'){
-    ws.innerHTML=P('sider-left','<div class="sider-scroll"><div class="tree" id="ovnav"></div><div class="binder" id="binder"></div></div>')+
-      '<div class="main-area"><main class="content" id="content"></main>'+
+    ss.innerHTML=P('sider-left','<div class="book-anchor">'+bookAnchorInner()+'</div><div class="sider-scroll"><div class="tree" id="ovnav"></div><div class="binder" id="binder"></div></div><div class="sider-foot"><div class="foot-back" id="shelfBtn" title="返回书架">← 书架</div><div class="kind-seg" id="kindSeg"></div></div>');
+    ws.innerHTML='<div class="main-area"><main class="content" id="content"></main>'+
       P('sider-right','<div class="sider-right-head"><div class="sr-head-left"><span class="sr-eyebrow">详情</span><span class="sr-title">'+state.currentBookName+'</span></div><span class="sr-close" id="panelClose" title="收起">✕</span></div><div class="sider-right-inner" id="rightctx"></div>')+'</div>';
     renderBinder();renderOvNav();renderOvMid();applyCfg();renderOvRight();renderStatus();
   }else{
-    ws.innerHTML=P('wb-list','<div class="wb-head"><span style="font-weight:700;font-size:15px;color:var(--ink);letter-spacing:.3px">'+(state.book==='short'?'篇':'章')+' · 任务</span></div><div class="sider-scroll"><div class="wb-tasks" id="wbtasks"></div><div class="binder" id="binder"></div></div>')+
-      '<div class="main-area"><main class="content" id="content"></main>'+
+    ss.innerHTML=P('wb-list','<div class="book-anchor">'+bookAnchorInner()+'</div><div class="sider-scroll"><div class="tree-head"><span class="tree-head-label">任务</span><span class="head-count">'+(state.book==='short'?S_PIECES.length:CHAPTERS.length)+'</span></div><div class="wb-tasks" id="wbtasks"></div><div class="binder" id="binder"></div></div><div class="sider-foot"><div class="foot-back" id="shelfBtn" title="返回书架">← 书架</div><div class="kind-seg" id="kindSeg"></div></div>');
+    ws.innerHTML='<div class="main-area"><main class="content" id="content"></main>'+
       P('sider-right','<div class="sider-right-head"><div class="sr-head-left"><span class="sr-eyebrow">详情</span><span class="sr-title">'+state.currentBookName+'</span></div><span class="sr-close" id="panelClose" title="收起">✕</span></div><div class="sider-right-inner" id="wbctx"></div>')+'</div>';
     renderBinder();renderWbTasks();renderWbMid();renderWbCtx();renderStatus();
     bindWb();
@@ -139,13 +143,22 @@ function render(){
   renderKindSeg();
   document.querySelectorAll('.mode-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===state.mode));
   const pc=el('panelClose');if(pc)pc.onclick=()=>{state.panelOpen=false;render();};
+  const sb=el('shelfBtn');if(sb)sb.onclick=()=>{state.view='shelf';render();};
 }
 
+// ===== 左栏顶部：书名锚点 =====
+function bookAnchorInner(){
+  const b=SHELF_BOOKS.find(s=>s.name===state.currentBookName)||{};
+  const w=b.words||0,t=b.wordTarget||(state.book==='short'?25000:80000);
+  const pct=Math.min(Math.round(w/t*100),100);
+  const wn=w>=10000?(w/10000).toFixed(1)+'万':w;
+  return `<div class="ba-name">${state.currentBookName}</div><div class="ba-meta">${b.genre||'未分类'} · ${wn}字 · ${pct}%</div><div class="ba-bar"><div style="width:${pct}%"></div></div>`;
+}
 // ===== 左栏 binder：书列表（只列当前类型）=====
 function renderBinder(){
   const list=SHELF_BOOKS.filter(b=>b.kind===state.book);
   const kindLabel=state.book==='short'?'短篇集':'长篇';
-  let html='<div class="binder-head"><span>📚 '+kindLabel+' · 书籍</span></div>';
+  let html='<div class="binder-head"><span>书籍</span><span class="head-count">'+list.length+'</span></div>';
   if(!list.length)html+='<div class="binder-empty">暂无'+kindLabel+'书籍</div>';
   else html+='<div class="binder-items">'+list.map(b=>`<div class="binder-item ${b.name===state.currentBookName?'active':''} ${b.demo?'demo':''}" data-book="${b.name}"><span class="dot ${b.dot}"></span><span class="bi-name">${b.name}</span>${b.demo?'<span class="tag mini">示例</span>':''}</div>`).join('')+'</div>';
   el('binder').innerHTML=html;
@@ -154,6 +167,12 @@ function renderBinder(){
 // 类型切换 segmented（长篇 / 短篇集）：切到该类型第一本可开书
 function renderKindSeg(){
   const cur=state.book;
-  el('kindSeg').innerHTML=[['long','📖','长篇'],['short','📝','短篇集']].map(([k,ico,label])=>`<button class="ks-btn ${k===cur?'active':''}" data-kind="${k}"><span>${ico}</span><span>${label}</span></button>`).join('');
-  el('kindSeg').querySelectorAll('.ks-btn').forEach(b=>b.onclick=()=>{const k=b.dataset.kind;const book=SHELF_BOOKS.find(s=>s.kind===k&&!s.demo);if(book)openBookByName(book.name);else showHint(k==='short'?'暂无可开的短篇集':'暂无可开的长篇');});
+  const opts=[['long','长篇'],['short','短篇集']];
+  const curOpt=opts.find(o=>o[0]===cur)||opts[0];
+  const kg=el('kindSeg');
+  if(!kg)return;
+  kg.innerHTML=`<div class="kind-drop"><span>${curOpt[1]}</span><span class="caret">▾</span></div><div class="kind-menu">${opts.map(([k,label])=>`<div class="kind-item ${k===cur?'active':''}" data-kind="${k}"><span>${label}</span>${k===cur?'<span class="km-check">✓</span>':''}</div>`).join('')}</div>`;
+  kg.querySelector('.kind-drop').onclick=(e)=>{e.stopPropagation();kg.classList.toggle('open');};
+  kg.querySelectorAll('.kind-item').forEach(it=>it.onclick=(e)=>{e.stopPropagation();kg.classList.remove('open');const k=it.dataset.kind;const book=SHELF_BOOKS.find(s=>s.kind===k&&!s.demo);if(book)openBookByName(book.name);else showHint(k==='short'?'暂无可开的短篇集':'暂无可开的长篇');});
+  if(!renderKindSeg._bound){document.addEventListener('click',()=>document.querySelectorAll('.kind-seg.open').forEach(x=>x.classList.remove('open')));renderKindSeg._bound=true;}
 }

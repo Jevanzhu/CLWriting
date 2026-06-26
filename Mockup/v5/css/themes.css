@@ -74,6 +74,8 @@
   --ochre-14:color-mix(in srgb,var(--ochre) 14%,transparent);
   --ochre-16:color-mix(in srgb,var(--ochre) 16%,transparent);
   --ochre-45:color-mix(in srgb,var(--ochre) 45%,transparent);
+  --flat-hover:color-mix(in srgb,var(--ink) 5%,transparent);
+  --flat-active:color-mix(in srgb,var(--ink) 9%,transparent);
 }
 
 /* ===== 默认 / 墨韵 ink ===== */

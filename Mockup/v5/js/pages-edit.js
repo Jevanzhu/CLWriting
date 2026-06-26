@@ -2,7 +2,7 @@ function renderTree(){
   const F=state.book==='short'?S_FILES:FILES;
   const folderTag=id=>id.endsWith('body')?(state.book==='short'?'pieces':'chapters'):id.endsWith('ol')?'outline':id.endsWith('set')?'设定':'草稿';
   const label=state.book==='short'?'篇':'章';
-  let h=`<div class="tree-head"><span class="tree-head-icon">📄</span><span class="tree-head-label">${label}列表</span></div>`;
+  let h=`<div class="tree-head"><span class="tree-head-label">目录</span><span class="head-count">${F.filter(x=>x.parent).length}</span></div>`;
   F.filter(f=>f.folder).forEach(fd=>{
     h+=`<div class="folder"><span class="caret">${fd.open?'▾':'▸'}</span>${fd.name}<span class="tag">${folderTag(fd.id)}</span></div>`;
     if(fd.open){

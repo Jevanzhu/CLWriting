@@ -170,12 +170,10 @@ function bindVaultForm(){
   el('vaultClose').onclick=closeNewVault;
   el('vaultMask').onclick=function(e){if(e.target===el('vaultMask'))closeNewVault();};
 }
-var shelfB=el('shelfBtn');if(shelfB)shelfB.onclick=function(){state.view='shelf';render();};
-
 // ===== 角色关系图 =====
 let relSel=null;
 function relNodeColor(dot){
-  return dot==='green'?'var(--ink-cyan)':dot==='cyan'?'var(--ink-cyan)':dot==='yellow'?'var(--ochre)':dot==='red'?'var(--cinnabar)':'var(--text-3)';
+  return dot==='green'?'var(--ink-cyan)':dot==='cyan'?'var(--ink-cyan)':dot==='yellow'?'var(--cyan-50)':dot==='red'?'var(--cinnabar)':'var(--text-3)';
 }
 function relEdgeColor(type){
   return type==='tension'?'var(--cinnabar)':type==='active'?'var(--ink-cyan)':type==='past'?'var(--ochre)':'var(--text-3)';
