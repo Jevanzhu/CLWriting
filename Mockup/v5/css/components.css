@@ -141,11 +141,11 @@
 .ba-meta{font-size:11px;color:var(--text-3);margin-top:4px}
 .ba-bar{height:3px;background:var(--white-14);border-radius:2px;margin-top:8px;overflow:hidden}
 .ba-bar>div{height:100%;background:var(--ink-cyan);border-radius:2px;transition:width .3s}
-.sider-foot{flex-shrink:0;padding:8px 8px 10px;border-top:1px solid var(--white-14);display:flex;flex-direction:row;gap:8px;align-items:center;justify-content:space-between}
+.sider-foot{flex-shrink:0;padding:8px 0 0;border-top:1px solid var(--white-14);display:flex;flex-direction:row;gap:4px;align-items:center;justify-content:center}
 .foot-back{display:flex;align-items:center;justify-content:flex-start;gap:16px;padding:7px 12px;font-size:13px;font-weight:500;color:var(--text-2);cursor:pointer;border-radius:5px;flex-shrink:0;min-width:78px;transition:background .12s,color .12s}
 .foot-back:hover{background:var(--flat-hover);color:var(--ink)}
 .foot-back .foot-arrow{color:var(--text-3);font-size:12px}
-.sider-foot .foot-back,.sider-foot .kind-drop{height:32px}
+.sider-foot .foot-back,.sider-foot .kind-drop{height:32px;min-width:78px}
 .sider-foot .icon-btn{height:32px;min-width:32px;padding:6px 10px;font-size:20px;line-height:1;border-radius:5px}
 .tree{padding:2px 4px 6px;flex-shrink:0}
 .tree-head{display:flex;align-items:center;gap:6px;padding:7px 10px 4px;font-size:13px;font-weight:500;color:var(--text-2)}
