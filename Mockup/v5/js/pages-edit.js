@@ -190,7 +190,7 @@ function renderOvMid(){
         <div class="bento-card bento-lg">${mu}<div class="bc-label">近 14 日热力</div><div class="bc-heat">${heat.map(h=>`<div style="opacity:${0.12+h*0.78}">${h?'·':''}</div>`).join('')}</div></div>
         <div class="bento-card">${mu}<div class="bc-label">定稿天数</div><div class="bc-stat">${days}<span>/14</span></div></div>
         <div class="bento-card">${mu}<div class="bc-label">定稿篇数</div><div class="bc-stat">${heat.reduce((s,h)=>s+h,0)}</div></div>
-        <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12px;color:var(--text-2);line-height:1.7;margin-top:8px">色深表示当日定稿篇数 · 短篇集以「篇」为定稿单位 · 空白为未动笔日。保持节奏，避免长断档。</div></div>
+
       </div></div></div>`;
       return;
     }
@@ -237,7 +237,7 @@ function renderOvMid(){
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">章节进度</div><div class="bc-stat">5<span>/40</span></div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">账本条目</div><div class="bc-stat">6</div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">体检均分</div><div class="bc-stat">78</div></div>
-        <div class="bento-card bento-md"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">近 7 日字数</div><div class="bc-bars">${[820,1600,0,2240,1850,1980,1280].map(v=>`<div class="bc-bar" style="height:${Math.max(v/2240*100,4)}%" title="${v} 字"></div>`).join('')}</div></div>
+        <div class="bento-card bento-lg">${mu}<div class="bc-label">近 7 日字数</div><div class="bc-bars" style="height:120px">${[820,1600,0,2240,1850,1980,1280].map(v=>`<div class="bc-bar" style="height:${Math.max(v/2240*100,4)}%" title="${v} 字"></div>`).join('')}</div><div class="bc-sub" style="margin-top:auto">色深表示当日字数强度</div></div>
         <div class="bento-card bento-action"><div class="bc-label">快速操作</div><div class="bc-btns"><button class="neo-btn">✍ 继续写作</button><button class="neo-btn">🩺 体检</button><button class="neo-btn">📋 大纲</button></div></div>
       </div></div></div>`;
   }else if(id==='o2'){
@@ -270,7 +270,7 @@ function renderOvMid(){
       <div class="bento-card bento-lg">${mu}<div class="bc-label">近 14 日字数热力</div><div class="bc-heat">${heat.map(h=>`<div style="opacity:${0.12+h/100*0.88}">${h?'·':''}</div>`).join('')}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">动笔天数</div><div class="bc-stat">${days}<span>/14</span></div></div>
       <div class="bento-card">${mu}<div class="bc-label">14日总字数</div><div class="bc-stat">${(total*10).toLocaleString()}</div></div>
-      <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12px;color:var(--text-2);line-height:1.7;margin-top:8px">色深表示当日字数强度 · 保持每日动笔 · 避免长断档导致节奏流失。</div></div>
+
     </div></div></div>`;
   }else if(id==='o5'){
     const ev=[{d:'14:06',t:'账本更新',m:'悬念·禁典内容 已新增',cc:'cyan'},{d:'昨天',t:'章节保存',m:'第5章·师兄异动 1,600 字',cc:'green'},{d:'昨天',t:'体检完成',m:'全段体检，发现 2 处节奏失衡',cc:'yellow'},{d:'2天前',t:'大纲扩展',m:'总纲扩展至第三幕',cc:'green'}];
@@ -308,7 +308,7 @@ function renderOvMid(){
       <div class="bento-card">${mu}<div class="bc-label">待揭示</div><div class="bc-stat" style="color:var(--ochre)">${yellow}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">已呼应</div><div class="bc-stat" style="color:var(--ink-cyan)">${green}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">总条目</div><div class="bc-stat">${LG.length}</div></div>
-      <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12.5px;color:var(--text-2);line-height:1.8;margin-top:8px">右栏为全部账本条目，点击任一条目可在此查看埋点 → 呼应 → 回收的完整追踪。</div></div>
+      <div class="bento-card bento-action bento-c2" style="padding:10px 14px"><div class="bc-label">说明</div><div style="font-size:11px;color:var(--text-3);line-height:1.6;margin-top:4px">右栏为全部账本条目，点击任一条目可在此查看埋点 → 呼应 → 回收的完整追踪。</div></div>
     </div></div></div>`;
   }
 }
