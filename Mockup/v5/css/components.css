@@ -73,7 +73,7 @@
 .shelf-new-card:hover{border-color:var(--ink-cyan);color:var(--ink-cyan)}
 .shelf-new-card .plus{font-size:26px;line-height:1}
 /* 启动页 */
-.landing{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px;text-align:center}
+.landing{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;padding:40px;text-align:center}
 .landing-logo{width:56px;height:56px;background:var(--brand);color:#fff;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:'STKaiti','KaiTi','楷体',serif;font-size:30px;font-weight:700;margin-bottom:16px}
 .landing-title{font-size:22px;font-weight:700;color:var(--ink);margin-bottom:4px;letter-spacing:.5px}
 .landing-sub{font-size:12px;color:var(--text-3);margin-bottom:36px;letter-spacing:.3px}
