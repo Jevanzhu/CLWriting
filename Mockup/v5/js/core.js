@@ -160,7 +160,18 @@ function render(){
     if(card&&sr&&ws) sr.style.top=Math.max(0,card.getBoundingClientRect().top-ws.getBoundingClientRect().top)+'px';
   };
   alignRight();
-  if(!render._arBound){window.addEventListener('resize',alignRight);render._arBound=true;}
+  // editor 居中【左右栏间隙中心】（两侧栏宽度可能不等）+ 抵消滚动条占右侧 sw；
+  // 字体异步加载会改变 editor 高度 → 滚动条出现/消失，故 fonts.ready 后重跑一次
+  const fixScroll=()=>{
+    const cs=document.querySelector('.content-scroll');if(!cs)return;
+    const sw=cs.offsetWidth-cs.clientWidth,pr=40;
+    const sl=document.querySelector('.sider-slot'),sr=document.querySelector('.sider-right');
+    let pl=pr+sw;
+    if(sl&&sr){const shift=((sl.getBoundingClientRect().right+sr.getBoundingClientRect().left)/2)-(cs.getBoundingClientRect().left+cs.offsetWidth/2);pl=pr+sw+Math.round(2*shift);}
+    cs.style.paddingLeft=pl+'px';cs.style.paddingRight=pr+'px';
+  };
+  fixScroll();
+  if(!render._arBound){window.addEventListener('resize',()=>{alignRight();fixScroll();});render._arBound=true;}
 }
 
 // ===== 左栏顶部：书名锚点 =====
