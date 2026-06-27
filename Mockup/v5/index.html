@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="mono">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLWriting Studio · v5</title>
+<link rel="stylesheet" href="css/themes.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+<div class="desktop">
+  <div class="window">
+    <div class="window-chrome">
+      <span class="wc-dot red"></span><span class="wc-dot yellow"></span><span class="wc-dot green"></span>
+      <span class="wc-title" id="wcTitle">CLWriting Studio</span>
+      <!-- Windows 版窗口控件（右侧 ─ 最小化 / □ 最大化 / ✕ 关闭）：
+           当前模拟 macOS（左侧信号灯），此处暂注释；切 Windows 版时恢复此段
+      <div class="wc-actions">
+        <span class="wc-btn">─</span>
+        <span class="wc-btn">□</span>
+        <span class="wc-btn">✕</span>
+      </div>
+      -->
+      <div class="topbar-cli" id="topbarCli" title="Claude CLI 连接状态（点击切换）"></div>
+    </div>
+    <div class="app">
+      <aside class="sider-slot" id="siderSlot"></aside>
+      <nav class="mode-tabs">
+        <div class="mode-tab" data-mode="overview">总览</div>
+        <div class="mode-tab active" data-mode="edit">编辑</div>
+        <div class="mode-tab" data-mode="workbench">工作台</div>
+      </nav>
+      <div class="app-main">
+      <header class="topbar">
+        <div class="topbar-main">
+          <div class="topbar-actions">
+            <div class="icon-btn" data-act="cmd" title="命令面板 (⌘P)">⌘</div>
+            <div class="icon-btn" data-act="focus" title="专注模式 (⌘⇧F)">⤢</div>
+            <div class="icon-btn" data-act="panel" title="详情面板">◧</div>
+          </div>
+        </div>
+      </header>
+      <div class="workspace" id="workspace"></div>
+      <footer class="statusbar" id="statusbar"></footer>
+      </div>
+    </div>
+    <div class="hint-tip" id="hint"></div>
+  </div>
+</div>
+
+<div class="modal-mask" id="cfgmask">
+  <div class="modal">
+    <div class="modal-head"><h2>设置</h2><div class="modal-close" id="cfgclose">✕</div></div>
+    <div class="modal-body" id="cfgbody"></div>
+  </div>
+</div>
+<div class="cmd-mask" id="cmdMask">
+  <div class="cmd-box">
+    <div class="cmd-input-wrap"><span class="cmd-icon">⌘</span><input id="cmdInput" placeholder="输入命令或搜索…" autocomplete="off" autofocus></div>
+    <div class="cmd-list" id="cmdList"></div>
+  </div>
+</div>
+<div class="modal-mask" id="diffMask">
+  <div class="modal" style="width:860px">
+    <div class="modal-head"><h2>改写对比</h2><div class="modal-close" id="diffClose">✕</div></div>
+    <div class="diff-body" id="diffBody"></div>
+    <div class="diff-foot"><span class="btn" id="diffKeep">保留旧版</span><span class="btn primary" id="diffAccept">采纳改写</span><span class="btn" id="diffCancel">取消</span></div>
+  </div>
+</div>
+<div class="modal-mask" id="vaultMask">
+  <div class="modal" style="width:520px">
+    <div class="modal-head"><h2 id="vaultModalTitle">新建书库</h2><div class="modal-close" id="vaultClose">✕</div></div>
+    <div class="modal-body">
+      <div class="vault-form" id="vaultForm">
+        <div class="vf-row"><label>名称</label><input id="vfName" placeholder="如：我的第一本小说"></div>
+        <div class="vf-row"><label>路径</label><input id="vfPath" placeholder="~/CLWriting/新书名" readonly></div>
+        <div id="vfPathPreview" style="padding-left:76px"><div class="vf-path" id="vfPathPreviewText"></div></div>
+      </div>
+    </div>
+    <div class="diff-foot"><span class="btn" id="vaultCancel">取消</span><span class="btn primary" id="vaultSubmit">创建书库</span></div>
+  </div>
+</div>
+<div class="modal-mask" id="revMask">
+  <div class="modal" style="width:900px">
+    <div class="modal-head"><h2 id="revTitle">历史版本</h2><div class="modal-close" id="revClose">✕</div></div>
+    <div class="rev-body" id="revBody"></div>
+    <div class="diff-foot"><span class="btn" id="revCancel">关闭</span><span class="btn primary" id="revRestore" style="opacity:.4;pointer-events:none">恢复此版</span></div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/pages-edit.js"></script>
+<script src="js/pages-workbench.js"></script>
+<script src="js/pages-public.js"></script>
+<script src="js/init.js"></script>
+</body>
+</html>
