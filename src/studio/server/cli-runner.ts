@@ -1,6 +1,6 @@
 /** Studio 后端调用 clwriting CLI 的共享入口。 */
 import { spawn } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -11,9 +11,13 @@ export function resolveSpawnTarget(
   here: string,
   argv1: string,
 ): { cliJs: string; useRunAsNode: boolean } {
-  return isElectron
-    ? { cliJs: resolve(here, '..', 'cli.js'), useRunAsNode: true }
-    : { cliJs: argv1, useRunAsNode: false }
+  if (!isElectron) return { cliJs: argv1, useRunAsNode: false }
+
+  const cliJs = basename(here) === 'dist'
+    ? resolve(here, 'cli.js')
+    : resolve(here, '..', 'cli.js')
+
+  return { cliJs, useRunAsNode: true }
 }
 
 /** spawn clwriting CLI 跑确定性命令。Electron 下必须打开 ELECTRON_RUN_AS_NODE。 */
