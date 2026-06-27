@@ -1,5 +1,5 @@
 :root{
-  --sider-left-w:220px;
+  --sider-left-w:280px;
   --sider-right-w:260px;
   --sider-right-min:220px;
   --content-max:clamp(720px,52cqw,960px);
@@ -140,7 +140,7 @@
 .result-path{font-size:11px;color:var(--text-3);font-family:ui-monospace,monospace}
 .mode-tabs{display:flex;gap:3px;position:absolute;left:50%;top:24px;transform:translate(-50%,-50%);align-items:center;background:var(--hover);border-radius:9px;padding:3px;z-index:30}
 /* 左栏 binder：书列表 */
-.sider-left{width:100%;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--white-14);background:var(--panel-70);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.sider-left{width:100%;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--white-14);background:var(--panel)}
 .sider-scroll{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:14px;padding:10px 8px}
 .book-anchor{padding:12px 12px 10px;border-bottom:1px solid var(--white-14);flex-shrink:0}
 .ba-name{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.5px;line-height:1.2}
@@ -499,7 +499,7 @@ body{background:#2d2d2d}
 .app{flex:1;min-height:0;height:auto;flex-direction:row;position:relative;container-type:inline-size}
 .app-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 /* 左栏 overlay 浮层：贯穿全高（top:0 顶到标题栏下方），与 topbar 并排；topbar 按钮靠右、左侧无内容不被遮挡 */
-.sider-slot{position:absolute;left:20px;top:0;bottom:0;width:var(--sider-left-w);z-index:20;display:flex;overflow:hidden;transition:transform .25s ease,opacity .2s ease}
+.sider-slot{position:absolute;left:0;top:0;bottom:0;width:var(--sider-left-w);z-index:20;display:flex;overflow:hidden;transition:transform .25s ease,opacity .2s ease}
 
 /* ===== 回滚 · 历史版本面板 ===== */
 .rev-body{display:flex;min-height:360px;max-height:62vh}
