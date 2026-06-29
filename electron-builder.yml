@@ -13,9 +13,10 @@ mac:
   category: public.app-category.productivity
   target:
     - dmg
-win:
-  target:
-    - nsis
-linux:
-  target:
-    - AppImage
+# win/linux 暂缓（2026-06-30 仅 mac 决策）；恢复时取消注释
+# win:
+#   target:
+#     - nsis
+# linux:
+#   target:
+#     - AppImage
