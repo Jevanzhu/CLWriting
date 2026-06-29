@@ -50,41 +50,11 @@ watch(file, () => load(), { immediate: true })
 </template>
 
 <style scoped>
-.ctx-card {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-}
-.ctx-title {
-  font-size: 11px;
-  color: var(--text-3);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-.ctx-file {
-  font-size: 13px;
-  color: var(--ink-cyan);
-  font-weight: 500;
-  margin-bottom: 8px;
-  word-break: break-all;
-}
-.ctx-kv {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 0;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.ctx-kv b {
-  color: var(--ink);
-  font-weight: 500;
-}
-.ctx-hint {
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.7;
-}
+.ctx-card{background:var(--panel-74);border:1px solid var(--white-20);border-radius:12px;padding:14px 16px;margin-bottom:12px;transition:transform .2s}
+.ctx-card:hover{transform:translateY(-2px)}
+.ctx-title{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin-bottom:12px}
+.ctx-file{font-size:13px;color:var(--ink-cyan);font-weight:500;margin-bottom:10px;word-break:break-all}
+.ctx-kv{display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;color:var(--text-3)}
+.ctx-kv b{color:var(--ink);font-weight:500}
+.ctx-hint{font-size:12px;color:var(--text-2);line-height:1.7}
 </style>

@@ -76,38 +76,11 @@ function go(to: string): void {
 </template>
 
 <style scoped>
-.ov-nav {
-  padding: 4px 0;
-}
-.ov-group {
-  margin-bottom: 12px;
-}
-.ov-group-title {
-  color: var(--text-3);
-  font-size: 10px;
-  letter-spacing: 1px;
-  padding: 8px 8px 4px;
-  text-transform: uppercase;
-}
-.ov-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
-  margin: 1px 4px;
-  color: var(--text-2);
-  cursor: pointer;
-  border-radius: 5px;
-  font-size: 13px;
-  user-select: none;
-}
-.ov-item:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.ov-item.active {
-  color: var(--ink-cyan);
-  background: var(--active-bg);
-  font-weight: 500;
-}
+.ov-nav{padding:2px 4px 6px}
+.ov-group{margin-bottom:8px}
+.ov-group-title{color:var(--text-3);font-size:10px;font-weight:600;letter-spacing:.6px;padding:10px 10px 4px;text-transform:uppercase}
+.ov-item{display:flex;align-items:center;gap:7px;padding:6px 10px;margin:1px 4px;color:var(--text-2);cursor:pointer;border-radius:5px;font-size:13px;font-weight:500;user-select:none;transition:background .12s,color .12s;position:relative}
+.ov-item:hover{background:var(--flat-hover);color:var(--ink)}
+.ov-item.active{color:var(--ink);background:var(--flat-active);font-weight:600}
+.ov-item.active::before{content:'';position:absolute;left:0;top:5px;bottom:5px;width:2px;background:var(--ink-cyan);border-radius:1px}
 </style>

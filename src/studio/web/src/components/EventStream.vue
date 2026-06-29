@@ -21,62 +21,15 @@ const { log } = useWorkbenchLog()
 </template>
 
 <style scoped>
-.es-card {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-.es-title {
-  font-size: 11px;
-  color: var(--text-3);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-.es-log {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-.es-log li {
-  display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 8px;
-  font-size: 12px;
-  padding: 4px 0;
-  border-bottom: 1px dashed var(--border);
-}
-.es-log li:last-child {
-  border-bottom: none;
-}
-.es-t {
-  color: var(--text-3);
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-}
-.es-text {
-  color: var(--text-2);
-  line-height: 1.5;
-}
-.es-empty {
-  color: var(--text-3);
-  display: block !important;
-  padding: 12px 0;
-  text-align: center;
-}
-.ev-error .es-text {
-  color: var(--cinnabar);
-}
-.ev-saved .es-text,
-.ev-done .es-text {
-  color: var(--ink-cyan);
-}
-.ev-spawn .es-text {
-  color: var(--ochre);
-}
+.es-card{background:var(--panel-74);border:1px solid var(--white-20);border-radius:12px;padding:14px 16px}
+.es-title{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin-bottom:12px}
+.es-log{margin:0;padding:0;list-style:none;display:grid;gap:6px;max-height:60vh;overflow-y:auto}
+.es-log li{display:grid;grid-template-columns:56px 1fr;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--border-45)}
+.es-log li:last-child{border-bottom:none}
+.es-t{color:var(--text-3);font-family:ui-monospace,monospace;font-size:11px}
+.es-text{color:var(--text-2);line-height:1.5}
+.es-empty{color:var(--text-3);display:block !important;padding:12px 0;text-align:center}
+.ev-error .es-text{color:var(--cinnabar)}
+.ev-saved .es-text,.ev-done .es-text{color:var(--ink-cyan)}
+.ev-spawn .es-text{color:var(--ochre)}
 </style>

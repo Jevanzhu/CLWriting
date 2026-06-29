@@ -63,46 +63,13 @@ watch(() => props.bookName, () => load(), { immediate: true })
 </template>
 
 <style scoped>
-.ft {
-  padding: 4px 0;
-}
-.ft-hint,
-.ft-err {
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--text-3);
-}
-.ft-err {
-  color: var(--cinnabar);
-}
-.ft-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  margin: 1px 4px;
-  cursor: pointer;
-  border-radius: 5px;
-  font-size: 13px;
-  color: var(--text-2);
-}
-.ft-item:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.ft-item.active {
-  color: var(--ink-cyan);
-  background: var(--active-bg);
-}
-.ft-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-.ft-mode {
-  color: var(--text-3);
-  font-size: 10px;
-  flex-shrink: 0;
-}
+.ft{padding:2px 4px 6px}
+.ft-hint,.ft-err{padding:8px 12px;font-size:12px;color:var(--text-3)}
+.ft-err{color:var(--cinnabar)}
+.ft-item{display:flex;align-items:center;gap:7px;padding:6px 10px;margin:1px 4px;cursor:pointer;border-radius:5px;font-size:13px;color:var(--text-2);transition:background .12s,color .12s;position:relative}
+.ft-item:hover{background:var(--flat-hover);color:var(--ink)}
+.ft-item.active{color:var(--ink);background:var(--flat-active);font-weight:600}
+.ft-item.active::before{content:'';position:absolute;left:0;top:5px;bottom:5px;width:2px;background:var(--ink-cyan);border-radius:1px}
+.ft-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.ft-mode{color:var(--text-3);font-size:10px;flex-shrink:0;background:var(--hover);padding:1px 6px;border-radius:8px}
 </style>

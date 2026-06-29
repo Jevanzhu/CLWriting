@@ -209,13 +209,16 @@ watch(
 
 <template>
   <section class="editor">
-    <div class="edit-area">
-      <div class="toolbar">
-        <span class="cur">{{ selected || '（从左侧选一个文件）' }}</span>
-        <span v-if="dirty" class="dirty">● 未保存</span>
-        <span v-else-if="savedMsg" class="saved">{{ savedMsg }}</span>
-        <button class="btn danger" :disabled="reverting" @click="revert">{{ reverting ? '回滚中…' : '⏪ 回滚' }}</button>
-        <button class="btn primary" :disabled="!dirty || saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+    <div class="editor-inner">
+      <div class="edit-info">
+        <span class="ei-crumbs">{{ selected || '（从左侧选一个文件）' }}</span>
+        <span v-if="dirty" class="et-dirty">● 未保存</span>
+        <span v-else-if="savedMsg" class="et-dirty saved">{{ savedMsg }}</span>
+        <span class="ei-gap"></span>
+        <span class="et-actions">
+          <button class="et-btn revert" :disabled="reverting" @click="revert">{{ reverting ? '回滚中…' : '⏪ 回滚' }}</button>
+          <button class="et-btn save" :disabled="!dirty || saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+        </span>
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
@@ -257,80 +260,25 @@ watch(
 </template>
 
 <style scoped>
-.editor {
-  margin: 0 auto;
-  text-align: left;
-}
-.edit-area {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 13px;
-}
-.toolbar .cur {
-  color: var(--ink);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.toolbar .dirty {
-  color: var(--ochre);
-}
-.toolbar .saved {
-  color: var(--ink-cyan);
-}
-.toolbar .btn {
-  font-size: 12px;
-  padding: 4px 12px;
-}
-.error {
-  color: var(--cinnabar);
-  font-size: 13px;
-}
-.hint {
-  color: var(--text-2);
-  font-size: 13px;
-  padding: 24px 0;
-  text-align: center;
-}
-.rewrite-panel {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border);
-}
-.rewrite-panel h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--ink);
-}
-.rewrite-instr {
-  width: 100%;
-  min-height: 56px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
-  box-sizing: border-box;
-  background: var(--paper);
-  color: var(--ink);
-  outline: none;
-}
-.rewrite-instr:focus {
-  border-color: var(--ink-cyan);
-}
-.rewrite-btns {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
+.editor{flex:1;display:flex;flex-direction:column;min-width:0}
+.editor-inner{max-width:var(--content-max,860px);width:100%;margin:24px auto 32px;background:var(--panel-62);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);border:1px solid var(--white-22);border-radius:14px;padding:24px 32px 32px}
+.edit-info{display:flex;align-items:center;gap:12px;padding:0 4px 12px;margin:0 0 16px;border-bottom:1px solid var(--border-55);flex-wrap:wrap}
+.edit-info .ei-crumbs{font-size:12px;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.et-dirty{font-size:11px;color:var(--ochre);white-space:nowrap}
+.et-dirty.saved{color:var(--ink-cyan)}
+.edit-info .ei-gap{flex:1;min-width:0}
+.edit-info .et-actions{display:flex;gap:8px}
+.et-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s,transform .12s}
+.et-btn.revert{background:var(--cinnabar-7);border-color:var(--cinnabar-30);color:var(--cinnabar)}
+.et-btn.revert:hover{background:var(--cinnabar);color:#fff;border-color:var(--cinnabar)}
+.et-btn.save{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff}
+.et-btn.save:hover{filter:brightness(1.06)}
+.et-btn:disabled{opacity:.4;cursor:default}
+.error{color:var(--cinnabar);font-size:13px}
+.hint{color:var(--text-2);font-size:13px;padding:24px 0;text-align:center}
+.rewrite-panel{margin-top:18px;padding-top:16px;border-top:1px dashed var(--border)}
+.rewrite-panel h4{margin:0 0 10px;font-size:13px;color:var(--ink)}
+.rewrite-instr{width:100%;min-height:56px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;background:var(--paper);color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s}
+.rewrite-instr:focus{border-color:var(--ink-cyan);box-shadow:0 0 0 3px var(--cyan-10)}
+.rewrite-btns{display:flex;gap:8px;margin-top:10px}
 </style>

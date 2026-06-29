@@ -47,22 +47,8 @@ const hint = computed(() => HINT[pageName.value] ?? '数据明细。')
 </template>
 
 <style scoped>
-.dd-card {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-}
-.dd-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  margin-bottom: 6px;
-}
-.dd-hint {
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.7;
-}
+.dd-card{background:var(--panel-74);border:1px solid var(--white-20);border-radius:12px;padding:14px 16px;margin-bottom:12px;transition:transform .2s}
+.dd-card:hover{transform:translateY(-2px)}
+.dd-title{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.dd-hint{font-size:12px;color:var(--text-2);line-height:1.7}
 </style>
