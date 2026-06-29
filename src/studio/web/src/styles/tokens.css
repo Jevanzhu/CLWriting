@@ -1,213 +1,129 @@
-/* CLWriting 设计系统 token —— 4 套主题 + 状态色 + 阴影/圆角
- * data-theme 挂 <html>：ink(默认)/night/plain/slate
- * 落地自 Dev/墨韵交互版.html v3，详见 Dev/Plans/桌面端与界面计划.md 第四节 */
+/* CLWriting 设计系统 token —— 单主题 mono（黑白灰）
+ * 视觉以 Mockup/v5 为准（2026-06-29 决策：废弃 7 套主题，只留 mono）。
+ * 透明度层级统一 color-mix；组件只引用 var()。配色见本文件，正文/布局见 content.css。 */
 
-:root,
-[data-theme='ink'] {
-  /* 墨韵：暖·宣纸·中式中浅（默认） */
-  --canvas: #e6ddc7;
-  --paper: #f4efe2;
-  --panel: #fffdf6;
-  --ink: #2b2620;
-  --text-2: #7a7368;
-  --text-3: #a89e8c;
-  --ink-cyan: #1f5f5b;
-  --cinnabar: #b8413a;
-  --ochre: #a86a2d;
-  --border: #e0d9c8;
-  --border-2: #d8cfb8;
-  --hover: rgba(31, 95, 91, 0.06);
-  --active-bg: rgba(31, 95, 91, 0.1);
-  --ok-bg: rgba(31, 95, 91, 0.12);
-  --warn-bg: rgba(168, 106, 45, 0.14);
-  --danger-bg: rgba(184, 65, 58, 0.12);
-  --shadow: 0 1px 3px rgba(70, 55, 30, 0.1), 0 1px 2px rgba(70, 55, 30, 0.05);
-  --brand: #b8413a;
-}
-
-[data-theme='night'] {
-  /* 墨夜：暖·深 */
-  --canvas: #0f0e0c;
-  --paper: #1c1a17;
-  --panel: #252320;
-  --ink: #e8e2d4;
-  --text-2: #9a9183;
-  --text-3: #6f6759;
-  --ink-cyan: #5fa39d;
-  --cinnabar: #d5635a;
-  --ochre: #c89556;
-  --border: #3a362f;
-  --border-2: #4a443a;
-  --hover: rgba(95, 163, 157, 0.08);
-  --active-bg: rgba(95, 163, 157, 0.14);
-  --ok-bg: rgba(95, 163, 157, 0.16);
-  --warn-bg: rgba(200, 149, 86, 0.18);
-  --danger-bg: rgba(213, 99, 90, 0.16);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-  --brand: #d5635a;
-}
-
-[data-theme='plain'] {
-  /* 素简：冷·米白·企业风（参考 rudder） */
-  --canvas: #e8e7e1;
-  --paper: #ffffff;
-  --panel: #f8f7f2;
-  --ink: #1f2937;
-  --text-2: #6b7280;
-  --text-3: #9ca3af;
-  --ink-cyan: #16a34a;
-  --cinnabar: #ef4444;
-  --ochre: #f59e0b;
-  --border: #e5e7eb;
-  --border-2: #d1d5db;
-  --hover: rgba(22, 163, 74, 0.06);
-  --active-bg: rgba(22, 163, 74, 0.1);
-  --ok-bg: rgba(22, 163, 74, 0.12);
-  --warn-bg: rgba(245, 158, 11, 0.14);
-  --danger-bg: rgba(239, 68, 68, 0.12);
-  --shadow: 0 1px 3px rgba(17, 24, 39, 0.07), 0 1px 2px rgba(17, 24, 39, 0.04);
-  --brand: #16a34a;
-}
-
-[data-theme='slate'] {
-  /* 青砚：冷·灰·石青专业 */
-  --canvas: #d8dee6;
-  --paper: #f5f7f9;
-  --panel: #ffffff;
-  --ink: #1e2a32;
-  --text-2: #5a6b78;
-  --text-3: #94a3b0;
-  --ink-cyan: #2f6b6b;
-  --cinnabar: #b1453b;
-  --ochre: #b88a3e;
-  --border: #dde3ea;
-  --border-2: #c8d1da;
-  --hover: rgba(47, 107, 107, 0.06);
-  --active-bg: rgba(47, 107, 107, 0.1);
-  --ok-bg: rgba(47, 107, 107, 0.12);
-  --warn-bg: rgba(184, 138, 62, 0.14);
-  --danger-bg: rgba(177, 69, 59, 0.12);
-  --shadow: 0 1px 3px rgba(30, 50, 70, 0.09), 0 1px 2px rgba(30, 50, 70, 0.05);
-  --brand: #2f6b6b;
+/* ===== 透明度层级（基于基色自动派生，玻璃风前置）===== */
+:root{
+  --panel-40:color-mix(in srgb,var(--panel) 40%,transparent);
+  --panel-42:color-mix(in srgb,var(--panel) 42%,transparent);
+  --panel-45:color-mix(in srgb,var(--panel) 45%,transparent);
+  --panel-50:color-mix(in srgb,var(--panel) 50%,transparent);
+  --panel-55:color-mix(in srgb,var(--panel) 55%,transparent);
+  --panel-60:color-mix(in srgb,var(--panel) 60%,transparent);
+  --panel-62:color-mix(in srgb,var(--panel) 62%,transparent);
+  --panel-65:color-mix(in srgb,var(--panel) 65%,transparent);
+  --panel-68:color-mix(in srgb,var(--panel) 68%,transparent);
+  --panel-70:color-mix(in srgb,var(--panel) 70%,transparent);
+  --panel-72:color-mix(in srgb,var(--panel) 72%,transparent);
+  --panel-74:color-mix(in srgb,var(--panel) 74%,transparent);
+  --panel-80:color-mix(in srgb,var(--panel) 80%,transparent);
+  --panel-82:color-mix(in srgb,var(--panel) 82%,transparent);
+  --panel-88:color-mix(in srgb,var(--panel) 88%,transparent);
+  --panel-90:color-mix(in srgb,var(--panel) 90%,transparent);
+  --panel-92:color-mix(in srgb,var(--panel) 92%,transparent);
+  --paper-40:color-mix(in srgb,var(--paper) 40%,transparent);
+  --paper-50:color-mix(in srgb,var(--paper) 50%,transparent);
+  --paper-55:color-mix(in srgb,var(--paper) 55%,transparent);
+  --paper-60:color-mix(in srgb,var(--paper) 60%,transparent);
+  --paper-62:color-mix(in srgb,var(--paper) 62%,transparent);
+  --paper-74:color-mix(in srgb,var(--paper) 74%,transparent);
+  --white-12:color-mix(in srgb,#fff 12%,transparent);
+  --white-14:color-mix(in srgb,#fff 14%,transparent);
+  --white-16:color-mix(in srgb,#fff 16%,transparent);
+  --white-18:color-mix(in srgb,#fff 18%,transparent);
+  --white-20:color-mix(in srgb,#fff 20%,transparent);
+  --white-22:color-mix(in srgb,#fff 22%,transparent);
+  --white-24:color-mix(in srgb,#fff 24%,transparent);
+  --white-28:color-mix(in srgb,#fff 28%,transparent);
+  --white-30:color-mix(in srgb,#fff 30%,transparent);
+  --white-34:color-mix(in srgb,#fff 34%,transparent);
+  --white-36:color-mix(in srgb,#fff 36%,transparent);
+  --white-40:color-mix(in srgb,#fff 40%,transparent);
+  --white-45:color-mix(in srgb,#fff 45%,transparent);
+  --white-48:color-mix(in srgb,#fff 48%,transparent);
+  --white-55:color-mix(in srgb,#fff 55%,transparent);
+  --cyan-5:color-mix(in srgb,var(--ink-cyan) 5%,transparent);
+  --cyan-8:color-mix(in srgb,var(--ink-cyan) 8%,transparent);
+  --cyan-10:color-mix(in srgb,var(--ink-cyan) 10%,transparent);
+  --cyan-14:color-mix(in srgb,var(--ink-cyan) 14%,transparent);
+  --cyan-20:color-mix(in srgb,var(--ink-cyan) 20%,transparent);
+  --cyan-22:color-mix(in srgb,var(--ink-cyan) 22%,transparent);
+  --cyan-24:color-mix(in srgb,var(--ink-cyan) 24%,transparent);
+  --cyan-28:color-mix(in srgb,var(--ink-cyan) 28%,transparent);
+  --cyan-32:color-mix(in srgb,var(--ink-cyan) 32%,transparent);
+  --cyan-35:color-mix(in srgb,var(--ink-cyan) 35%,transparent);
+  --cyan-40:color-mix(in srgb,var(--ink-cyan) 40%,transparent);
+  --cyan-42:color-mix(in srgb,var(--ink-cyan) 42%,transparent);
+  --cyan-50:color-mix(in srgb,var(--ink-cyan) 50%,transparent);
+  --cyan-72:color-mix(in srgb,var(--ink-cyan) 72%,transparent);
+  --border-40:color-mix(in srgb,var(--border) 40%,transparent);
+  --border-45:color-mix(in srgb,var(--border) 45%,transparent);
+  --border-50:color-mix(in srgb,var(--border) 50%,transparent);
+  --border-55:color-mix(in srgb,var(--border) 55%,transparent);
+  --cinnabar-7:color-mix(in srgb,var(--cinnabar) 7%,transparent);
+  --cinnabar-14:color-mix(in srgb,var(--cinnabar) 14%,transparent);
+  --cinnabar-30:color-mix(in srgb,var(--cinnabar) 30%,transparent);
+  --cinnabar-35:color-mix(in srgb,var(--cinnabar) 35%,transparent);
+  --cinnabar-50:color-mix(in srgb,var(--cinnabar) 50%,transparent);
+  --cinnabar-10:color-mix(in srgb,var(--cinnabar) 10%,transparent);
+  --ochre-10:color-mix(in srgb,var(--ochre) 10%,transparent);
+  --ochre-14:color-mix(in srgb,var(--ochre) 14%,transparent);
+  --ochre-16:color-mix(in srgb,var(--ochre) 16%,transparent);
+  --ochre-45:color-mix(in srgb,var(--ochre) 45%,transparent);
+  --flat-hover:color-mix(in srgb,var(--ink) 5%,transparent);
+  --flat-active:color-mix(in srgb,var(--ink) 9%,transparent);
 }
 
-/* 全局基底 */
-* {
-  box-sizing: border-box;
-}
-html,
-body {
-  height: 100%;
-  margin: 0;
-}
-body {
-  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: var(--ink);
-  background: var(--canvas);
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  transition: background 0.3s, color 0.3s;
-}
-#app {
-  height: 100vh;
+/* ===== 极简黑白灰（单主题 mono）===== */
+:root{
+  --canvas:#e8e8e8;--paper:#f5f5f5;--panel:#ffffff;
+  --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#a8a8a8;
+  --ink-cyan:#1a1a1a;--cinnabar:#1a1a1a;--ochre:#8a8a8a;
+  --border:#e2e2e2;--border-2:#cccccc;
+  --brand:#1a1a1a;
+  --hover:color-mix(in srgb,var(--ink) 5%,transparent);
+  --active-bg:color-mix(in srgb,var(--ink) 9%,transparent);
+  --sel-bg:color-mix(in srgb,var(--ink) 16%,transparent);
+  /* 兼容 v3 状态色 bg 引用（DiffView/Settings/PieceDetail/Leads/Workbench） */
+  --ok-bg:color-mix(in srgb,var(--ink) 9%,transparent);
+  --warn-bg:color-mix(in srgb,var(--ink) 7%,transparent);
+  --danger-bg:color-mix(in srgb,var(--ink) 9%,transparent);
+  --tag-red-bg:color-mix(in srgb,var(--ink) 9%,transparent);
+  --tag-yellow-bg:color-mix(in srgb,var(--ink) 7%,transparent);
+  --tag-green-bg:color-mix(in srgb,var(--ink) 9%,transparent);
+  --diff-add-bg:color-mix(in srgb,var(--ink) 8%,transparent);
+  --diff-del-bg:color-mix(in srgb,var(--ink) 8%,transparent);
+  --shadow:none;
+  --prose-font:'STKaiti','KaiTi','楷体','Songti SC',serif;
+  --prose-size:17.5px;--prose-lh:2.0;--prose-gap:16px;
 }
 
-/* 通用面板（三栏独立成页） */
-.clw-panel {
-  background: var(--panel);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  transition: background 0.3s, box-shadow 0.3s;
+/* ===== 全局基底 ===== */
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  color:var(--ink);
+  background:var(--canvas);
+  font-size:13px;
+  -webkit-font-smoothing:antialiased;
+  transition:background .3s,color .3s;
+}
+#app{height:100vh}
+
+/* 通用面板（三栏独立成页；mono 下无阴影，扁平） */
+.clw-panel{
+  background:var(--panel);
+  border-radius:10px;
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  transition:background .3s,box-shadow .3s;
 }
 
 /* 状态色点（全局工具类） */
-.clw-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--border-2);
-  flex-shrink: 0;
-  display: inline-block;
-}
-.clw-dot.red {
-  background: var(--cinnabar);
-}
-.clw-dot.yellow {
-  background: var(--ochre);
-}
-.clw-dot.green {
-  background: var(--ink-cyan);
-}
-.clw-dot.gray {
-  background: var(--text-3);
-}
-.clw-dot.cyan {
-  background: var(--ink-cyan);
-}
-
-/* 云白（cloud）：极简浅 · Linear 风 */
-[data-theme='cloud'] {
-  --canvas: #eef1f6;
-  --paper: #ffffff;
-  --panel: #ffffff;
-  --ink: #1e2330;
-  --text-2: #6b7280;
-  --text-3: #9aa3af;
-  --ink-cyan: #2563eb;
-  --cinnabar: #ef4444;
-  --ochre: #f59e0b;
-  --border: #e5e8ee;
-  --border-2: #d4d9e3;
-  --hover: rgba(37, 99, 235, 0.06);
-  --active-bg: rgba(37, 99, 235, 0.1);
-  --ok-bg: rgba(37, 99, 235, 0.12);
-  --warn-bg: rgba(245, 158, 11, 0.14);
-  --danger-bg: rgba(239, 68, 68, 0.12);
-  --shadow: none;
-  --brand: #2563eb;
-}
-
-/* 深空（space）：科技深 · GitHub 风 */
-[data-theme='space'] {
-  --canvas: #0d1117;
-  --paper: #161b22;
-  --panel: #1c2128;
-  --ink: #e6edf3;
-  --text-2: #8b949e;
-  --text-3: #6e7681;
-  --ink-cyan: #58a6ff;
-  --cinnabar: #ff7b72;
-  --ochre: #d29922;
-  --border: #2d333b;
-  --border-2: #3d444d;
-  --hover: rgba(88, 166, 255, 0.08);
-  --active-bg: rgba(88, 166, 255, 0.14);
-  --ok-bg: rgba(88, 166, 255, 0.16);
-  --warn-bg: rgba(210, 153, 34, 0.18);
-  --danger-bg: rgba(255, 123, 114, 0.16);
-  --shadow: none;
-  --brand: #58a6ff;
-}
-
-/* 莫兰迪（moran）：低饱和 · 雾感现代 */
-[data-theme='moran'] {
-  --canvas: #e0ddd6;
-  --paper: #f3f1ec;
-  --panel: #fbfaf7;
-  --ink: #3d3a35;
-  --text-2: #8a857c;
-  --text-3: #b0aaa0;
-  --ink-cyan: #7a8ca6;
-  --cinnabar: #c08a82;
-  --ochre: #bda06a;
-  --border: #ddd9d0;
-  --border-2: #cec9bd;
-  --hover: rgba(122, 140, 166, 0.07);
-  --active-bg: rgba(122, 140, 166, 0.12);
-  --ok-bg: rgba(122, 140, 166, 0.12);
-  --warn-bg: rgba(189, 160, 106, 0.14);
-  --danger-bg: rgba(192, 138, 130, 0.12);
-  --shadow: none;
-  --brand: #7a8ca6;
-}
+.clw-dot{width:7px;height:7px;border-radius:50%;background:var(--border-2);flex-shrink:0;display:inline-block}
+.clw-dot.red{background:var(--cinnabar)}
+.clw-dot.yellow{background:var(--ochre)}
+.clw-dot.green{background:var(--ink-cyan)}
+.clw-dot.gray{background:var(--text-3)}
+.clw-dot.cyan{background:var(--ink-cyan)}
