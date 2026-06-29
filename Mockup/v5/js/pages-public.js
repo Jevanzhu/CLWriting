@@ -63,18 +63,35 @@ el('cmdMask').onclick=e=>{if(e.target===el('cmdMask'))closeCmd();};
 document.querySelector('[data-act=cmd]').onclick=openCmd;
 
 // ===== 改写 + diff 视图 =====
+// 当前段 mock 改写：仅 ch3 / 第1篇 建模完整改写，其余 fallback 用 ch3 演示
+let pendingRewrite=null;
+function mockRewrite(doc){
+  if(doc&&doc.id==='ch3')return '　　石壁的裂口不大，光却极韧。\n　　林远往前半步，玉佩的热度突然收敛了——不是凉，是沉，像被什么东西按了一下，沉进胸口。他低头看，那枚跟了三年的玉，表面浮着一层极淡的纹路，像水痕，又像什么他看不懂的字。\n　　裂口里传出极轻的摩擦声。';
+  if(doc&&doc.no===1)return '　　凌晨一点的站台空得能听见自己的呼吸，风从隧道深处灌上来，带着铁锈味。\n　　她照例走向最后一节车厢。三年了，每个深夜，这是她唯一确定的事。\n　　邻座递来一张车票，日期印着十年前的今天。\n　　报站声响：「青石站」——她浑身一震。';
+  return null;
+}
 function openDiff(){
-  const oldText='　　夜色如墨。清虚山后山的禁地深处，一道极淡的微光从石壁裂缝中渗出，像是什么东西在里面缓慢地呼吸。三年了，林远第一次在这处历代弟子讳莫如深的石壁前，看见光。\n　　他屏住气，指尖不自觉抚上胸前那块温润的玉佩——父亲留下的唯一遗物。它从未有过异样，此刻却隔着衣衫隐隐发烫。\n　　「咔。」石壁应声缓缓移开。';
-  const newText='　　石壁的裂口不大，光却极韧。\n　　林远往前半步，玉佩的热度突然收敛了——不是凉，是沉，像被什么东西按了一下，沉进胸口。他低头看，那枚跟了三年的玉，表面浮着一层极淡的纹路，像水痕，又像什么他看不懂的字。\n　　裂口里传出极轻的摩擦声。';
+  let doc=currentDoc();
+  if(!doc||!doc.prose||!doc.prose[0]||!mockRewrite(doc))doc=CHAPTERS.find(c=>c.id==='ch3');
+  const oldText=doc.prose[0],newText=mockRewrite(doc);
+  pendingRewrite=newText;
   const oldLines=oldText.split('\n'),newLines=newText.split('\n');
   const diffHtml=(lines,sign)=>lines.map(l=>'<div class="diff-line '+sign+'">'+(l||' ')+'</div>').join('');
   el('diffBody').innerHTML='<div class="diff-pane"><h4>原始文本 <span class="tag red">旧</span></h4>'+diffHtml(oldLines,'del')+'</div><div class="diff-pane"><h4>AI 改写 <span class="tag green">新</span></h4>'+diffHtml(newLines,'add')+'</div>';
+  const ci=el('diffCmdInput');if(ci)ci.value='';
   el('diffMask').classList.add('show');
 }
 function closeDiff(){el('diffMask').classList.remove('show');}
 el('diffClose').onclick=closeDiff;
+const _drg=el('diffRegen');if(_drg)_drg.onclick=()=>{const v=(el('diffCmdInput').value||'').trim();showHint(v?('按「'+v+'」重新改写（mockup 演示）'):'输入指令后重新改写（如：更克制）');};
 el('diffMask').onclick=e=>{if(e.target===el('diffMask'))closeDiff();};
-el('diffAccept').onclick=()=>{showHint('已采纳改写 · 正文已更新');closeDiff();};
+el('diffAccept').onclick=()=>{
+  const doc=currentDoc();
+  if(doc&&pendingRewrite){doc.prose[0]=pendingRewrite;doc.words=doc.prose.join('').replace(/\s/g,'').length;}
+  closeDiff();renderFileMid();renderEditRight();
+  const d=el('etDirty');if(d){d.textContent='● 未保存';d.classList.remove('saved');}
+  showHint('已采纳改写 · 正文已更新（未保存）');
+};
 el('diffKeep').onclick=()=>{showHint('保留旧版');closeDiff();};
 el('diffCancel').onclick=closeDiff;
 

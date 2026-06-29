@@ -239,6 +239,8 @@
 .edit-info .et-btn.revert:hover{background:var(--cinnabar);color:#fff;border-color:var(--cinnabar)}
 .edit-info .et-btn.save{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff}
 .edit-info .et-btn.save:hover{filter:brightness(1.06)}
+.edit-info .et-btn.rewrite{background:transparent;border-color:var(--border-2);color:var(--text-2)}
+.edit-info .et-btn.rewrite:hover{border-color:var(--ink-cyan);color:var(--ink-cyan);background:var(--cyan-10)}
 .prose{font-family:var(--prose-font);font-size:var(--prose-size);line-height:var(--prose-lh);letter-spacing:.3px;outline:none;border-radius:12px;padding:18px 22px;margin:16px 0 0;background:var(--panel-42);border:1px solid var(--white-14);transition:box-shadow .2s,border-color .2s,background .15s;caret-color:var(--ink-cyan);min-height:200px}
 .prose:focus{border-color:var(--cyan-32);box-shadow:0 0 0 3px var(--cyan-10)}
 .prose:empty::before{content:'在此续写…';color:var(--text-3)}
@@ -475,6 +477,10 @@
 .diff-line.add{background:var(--diff-add-bg);color:var(--ink-cyan)}
 .diff-line.del{background:var(--diff-del-bg);color:var(--cinnabar);text-decoration:line-through}
 .diff-foot{display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--border);justify-content:flex-end}
+.diff-cmd{display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--paper)}
+.diff-cmd .dc-icon{font-size:14px;color:var(--ink-cyan);flex-shrink:0}
+.diff-cmd input{flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;background:var(--panel);color:var(--ink);outline:none;font-family:inherit}
+.diff-cmd input:focus{border-color:var(--ink-cyan);box-shadow:0 0 0 3px var(--cyan-10)}
 
 /* ===== 桌面容器 ===== */
 body{background:#2d2d2d}
