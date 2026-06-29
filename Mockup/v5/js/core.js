@@ -1,7 +1,7 @@
 
 // ===== 核心逻辑 =====
 // 数据在 data.js 中加载（全局作用域）
-const state={view:'landing',mode:'edit',theme:'mono',book:'long',currentBookName:'观微',currentLibId:'lib_guanwei',file:'ch3',piece:1,ov:'o1',ledgerDetail:null,task:'t1',nbPhase:'form',nbName:'',nbGenre:'',nbKind:'long',nbTarget:'',nbBrief:'',nbLeads:[],nbSteps:[],nbLibId:'',wbStage:'draft',wbChapter:3,wbRunning:false,wbTextOut:'',wbCheck:'',wbReview:'',wbVerdict:false,wbAuto:true,wbEvents:[],foldL:false,focus:false,cfgFont:'STKaiti, 楷体, serif',cfgSize:17.5,cfgLh:2.0,cfgGap:16,loading:false,cliOnline:true,wbMsgs:MSGS.slice(),wbCmd:'',wbHistOpen:true,binderOpen:false,panelOpen:true};
+const state={view:'landing',mode:'edit',theme:'mono',book:'long',currentBookName:'观微',currentLibId:'lib_guanwei',file:'ch3',piece:1,ov:'o1',ledgerDetail:null,task:'t1',nbPhase:'form',nbName:'',nbGenre:'',nbKind:'long',nbTarget:'',nbBrief:'',nbLeads:[],nbSteps:[],nbLibId:'',wbStage:'draft',wbChapter:3,wbRunning:false,wbTextOut:'',wbCheck:'',wbReview:'',wbVerdict:false,wbAuto:true,wbEvents:[],foldL:false,focus:false,cfgFont:'STKaiti, 楷体, serif',cfgSize:17.5,cfgLh:2.0,cfgGap:16,loading:false,cliOnline:true,binderOpen:false,panelOpen:true};
 
 const el=id=>document.getElementById(id);
 function showHint(t){const h=el('hint');h.textContent=t;h.classList.add('show');clearTimeout(h._t);h._t=setTimeout(()=>h.classList.remove('show'),1700);}

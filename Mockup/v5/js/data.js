@@ -147,12 +147,6 @@ const TASKS=[
  {id:'t3',name:'第2章润色',state:'已完成',dot:'green',time:'昨天'},
  {id:'t4',name:'大纲 · 第6-10章',state:'待确认',dot:'yellow',time:'2 天前'}
 ];
-const MSGS=[
- {role:'agent',name:'editor-agent',time:'14:02',text:'第3章结尾我续了两个方向，请你过目：方向A（玉佩共鸣，揭禁典一角）、方向B（师兄撞破，悬念升级）。'},
- {role:'agent',name:'editor-agent',time:'14:02',card:{summary:'方向A · +386 字',draft:'　　玉佩的烫意缓缓褪去，林远低头，残典上那行小字也跟着隐没，只余最后一个"禁"字，像烙进纸里。\n　　他攥紧残典，回头望向禁地入口——月光下，一截衣角正消失在石壁之后。'}},
- {role:'user',name:'你',time:'14:05',text:'用方向A，但玉佩的反应再克制一点，别写得太玄。'},
- {role:'agent',name:'editor-agent',time:'14:06',text:'已调整：玉佩只"温"不"烫"，反应后置。现等待你确认是否并入正文。',pending:true}
-];
 const EVENTS=[
  {dot:'cyan',name:'driver · SSE',desc:'Claude CLI 流式输出 386 字',time:'14:06'},
  {dot:'green',name:'账本更新',desc:'悬念·禁典内容 已新增',time:'14:06'},

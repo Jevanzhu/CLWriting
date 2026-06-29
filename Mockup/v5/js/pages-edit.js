@@ -135,7 +135,7 @@ function renderOvMid(){
   if(state.ov==='a_piece')return renderPieceDetail();
   if(state.ov==='a_ledger'&&state.ledgerDetail)return renderLedgerTrace(state.ledgerDetail);
   if(state.ov==='a_relations')return renderRelations();
-  const hd=(t,s)=>'<div class="bento-head"><h1 class="bento-title">'+t+'</h1><div class="bento-sub">'+s+'</div></div>';
+  const hd=(t,s)=>{const chips=String(s).split(' · ').map(c=>'<span class="meta-chip">'+c+'</span>').join('');return '<div class="bento-head"><h1 class="bento-title">'+t+'</h1><div class="bento-sub">'+chips+'</div></div>';};
   const mu='<div class="bc-menu">⋮</div>';
   if(state.book==='short'){
     if(id==='o1'){
@@ -224,7 +224,7 @@ function renderOvMid(){
   }
   if(id==='o1'){
     const cur=SHELF_BOOKS.find(b=>b.name===state.currentBookName)||SHELF_BOOKS.find(b=>b.kind==='long')||SHELF_BOOKS[0];
-    c.innerHTML=`<div class="content-scroll"><div class="bento-wrap"><div class="bento-head"><h1 class="bento-title">${cur.name} · 作品概要</h1><div class="bento-sub">${cur.genre||'长篇'} · 草稿阶段 · 共 ${cur.chapters||5} 章 · 单主视角</div></div>
+    c.innerHTML=`<div class="content-scroll"><div class="bento-wrap">${hd(cur.name+' · 作品概要',(cur.genre||'长篇')+' · 草稿阶段 · 共 '+(cur.chapters||5)+' 章 · 单主视角')}
       <div class="bento-grid">
         <div class="bento-card bento-lg"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">总体完成度</div><div class="bc-ring"><span>61%</span></div><div class="bc-foot">正文 5/40 章 · 大纲至第 30 章 · 设定 3 项 · 体检均分 78</div><div class="bc-progress"><div style="width:61%"></div></div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">总字数</div><div class="bc-stat">9,770</div></div>
