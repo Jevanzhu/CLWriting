@@ -17,7 +17,7 @@ function renderFileMid(){
   const f=F.find(x=>x.id===state.file)||(state.book==='short'?S_FILES.find(x=>x.type==='piece'):CHAPTERS[0]);
   const c=el('content');
   if(state.loading){
-    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="sk-toolbar"><div class="sk-line"></div><div class="sk-spacer"></div><div class="sk-btn"></div></div><div class="sk-fm"><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line"></div></div><div class="sk-title"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line" style="width:82%"></div><div class="sk-line"></div><div class="sk-line" style="width:64%"></div></div></div>`;
+    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="sk-toolbar"><div class="sk-line"></div><div class="sk-spacer"></div><div class="sk-btn"></div></div><div class="sk-title"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line" style="width:82%"></div><div class="sk-line"></div><div class="sk-line" style="width:64%"></div></div></div>`;
     clearTimeout(renderFileMid._t);
     renderFileMid._t=setTimeout(()=>{state.loading=false;renderFileMid();},380);
     return;
@@ -26,8 +26,7 @@ function renderFileMid(){
     const p=S_PIECES.find(x=>x.no===f.no)||S_PIECES[0];
     const target=S_META.target,pct0=Math.min(Math.round(p.words/target*100),999);
     const pr=p.prose.map(s=>`<p>${s}</p>`).join('');
-    const emoStr=p.emo.map(e=>e[1]).join(' → ');
-    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="edit-toolbar"><span class="et-file">${p.title}</span><span class="et-dirty saved" id="etDirty">✓ 已保存</span><span class="et-wc"><b id="etWc">${p.words.toLocaleString()}</b> / ${target} 字<span class="et-bar"><div id="etBar" style="width:${Math.min(pct0,100)}%"></div></span><span id="etPct">${pct0}%</span></span><span class="et-spacer"></span><span class="et-meta">第 12 行 第 5 列</span><span class="et-meta">UTF-8</span><span class="et-meta">短篇 · 正文</span><select id="etEmo" title="目标情绪">${['孤独→释然','疲惫→战栗','好奇→惊惧','平静→震撼','欢愉→怅惘'].map(e=>`<option ${e===p.targetEmo?'selected':''}>${e}</option>`).join('')}</select><span class="btn" id="etRevert">⏪ 回滚</span><span class="btn primary" id="etSave">💾 保存</span></div><div class="fm-bar"><span class="fm cyan">类型 · <b>短篇</b></span><span class="fm">第 ${p.no} 篇 · <b>${p.title}</b></span><span class="fm ochre">情绪 · <b>${p.targetEmo}</b></span><span class="fm">字数 · <b>${p.words.toLocaleString()} / ${target}</b></span><span class="fm cyan">实际情绪 · <b>${emoStr}</b></span></div><h1 class="chapter-title">${p.title}</h1><div class="chapter-meta-line">${S_META.genre} · 第 ${p.no} 篇 · 核心反转：<b style="color:var(--cinnabar)">${p.reversal}</b> · <b style="color:var(--ink-cyan)">正文模式 · 可编辑</b></div><div class="prose" id="prose" contenteditable="true" spellcheck="false">${pr}</div></div></div>`;
+    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="edit-info"><span class="ei-crumbs">短篇 › <b>第 ${p.no} 篇 · ${p.title}</b></span><span class="et-dirty saved" id="etDirty">✓ 已保存</span><span class="doc-status ${p.words>=S_META.target?'done':'draft'}">${p.words>=S_META.target?'已定稿':'草稿'}</span><span class="ei-gap"></span><span class="et-wc"><b id="etWc">${p.words.toLocaleString()}</b> / ${target} 字<span class="et-bar"><div id="etBar" style="width:${Math.min(pct0,100)}%"></div></span><span id="etPct">${pct0}%</span></span><span class="ei-gap"></span><span class="et-actions"><span class="btn et-btn revert" id="etRevert"><svg class="ico" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>回滚</span><span class="btn et-btn save" id="etSave"><svg class="ico" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>保存</span></span></div><h1 class="chapter-title">${p.title}</h1><div class="chapter-meta-line">核心反转：<b style="color:var(--cinnabar)">${p.reversal}</b></div><div class="prose" id="prose" contenteditable="true" spellcheck="false">${pr}</div></div></div>`;
     bindEditor(p,target);
   }else if(!f.type||f.type==='chapter'){
     const ch=CHAPTERS.find(x=>x.id===state.file)||CHAPTERS[0];
@@ -37,11 +36,10 @@ function renderFileMid(){
       const gw=el('goWb');if(gw)gw.onclick=()=>{state.mode='workbench';state.wbChapter=Number((state.file||'ch3').replace('ch',''))||3;render();};
       return;
     }
-    const fm=ch.fm.map(x=>`<span class="fm ${x[2]||''}">${x[0]} · <b>${x[1]}</b></span>`).join('');
     const pr=ch.prose.map(p=>{const t=p.trim();return /^「.+」。?$/.test(t)?`<p class="quote">${t}</p>`:`<p>${p}</p>`}).join('');
     const target=2500,pct0=Math.min(Math.round(ch.words/target*100),999);
-    const sc=['起','承','探索','转','悬念','合'],pv=['林远','赵衡','上帝视角'];
-    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="edit-toolbar"><span class="et-file">${ch.name.split(' · ')[1]||ch.name}</span><span class="et-dirty saved" id="etDirty">✓ 已保存</span><span class="et-wc"><b id="etWc">${ch.words.toLocaleString()}</b> / ${target} 字<span class="et-bar"><div id="etBar" style="width:${Math.min(pct0,100)}%"></div></span><span id="etPct">${pct0}%</span></span><span class="et-spacer"></span><span class="et-meta">第 12 行 第 5 列</span><span class="et-meta">UTF-8</span><span class="et-meta">长篇 · 正文</span><select id="etScene" title="场景">${sc.map(s=>`<option ${s===ch.scene?'selected':''}>${s}</option>`).join('')}</select><select id="etPov" title="视角">${pv.map(p=>`<option ${p===ch.pov?'selected':''}>${p}</option>`).join('')}</select><span class="btn" id="etRevert">⏪ 回滚</span><span class="btn primary" id="etSave">💾 保存</span></div><div class="fm-bar">${fm}</div><h1 class="chapter-title">${ch.name}</h1><div class="chapter-meta-line">长篇玄幻 · ${ch.fm[5]?ch.fm[5][1]:'草稿'} · 场景「${ch.scene}」 · ${ch.pov}视角 · <b style="color:var(--ink-cyan)">正文模式 · 可编辑</b></div><div class="prose" id="prose" contenteditable="true" spellcheck="false">${pr}</div></div></div>`;
+    const q=ch.fm[5]?ch.fm[5][1]:'草稿',qCls=q.includes('已改')?'done':q.includes('占位')?'idle':'draft';
+    c.innerHTML=`<div class="content-scroll"><div class="editor-inner"><div class="edit-info"><span class="ei-crumbs">长篇 › <b>${ch.name}</b></span><span class="et-dirty saved" id="etDirty">✓ 已保存</span><span class="doc-status ${qCls}">${q}</span><span class="ei-gap"></span><span class="et-wc"><b id="etWc">${ch.words.toLocaleString()}</b> / ${target} 字<span class="et-bar"><div id="etBar" style="width:${Math.min(pct0,100)}%"></div></span><span id="etPct">${pct0}%</span></span><span class="ei-gap"></span><span class="et-actions"><span class="btn et-btn revert" id="etRevert"><svg class="ico" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>回滚</span><span class="btn et-btn save" id="etSave"><svg class="ico" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>保存</span></span></div><h1 class="chapter-title">${ch.name}</h1><div class="chapter-meta-line">钩子 <b style="color:var(--ink)">${ch.hook}</b> · 情绪 <b style="color:var(--ink-cyan)">${ch.fm[4]?ch.fm[4][1]:'—'}</b></div><div class="prose" id="prose" contenteditable="true" spellcheck="false">${pr}</div></div></div>`;
     bindEditor(ch,target);
   }else if(f.type==='setting'){
     const s=SETTINGS_DOCS.find(x=>x.id===f.id)||{name:f.name,fields:[]};
@@ -60,10 +58,6 @@ function bindEditor(ch,target){
   prose.addEventListener('input',()=>{dirty.textContent='● 未保存';dirty.classList.remove('saved');upd();});
   el('etSave').onclick=()=>{ch.prose=Array.from(prose.querySelectorAll('p')).map(p=>p.textContent);ch.words=cnt();dirty.textContent='✓ 已保存';dirty.classList.add('saved');upd();showHint('已保存（mockup 演示）');};
   el('etRevert').onclick=openRevert;
-  const sceneEl=el('etScene'),povEl=el('etPov'),emoEl=el('etEmo');
-  if(sceneEl)sceneEl.onchange=()=>{ch.scene=sceneEl.value;showHint('场景 → '+ch.scene);};
-  if(povEl)povEl.onchange=()=>{ch.pov=povEl.value;showHint('视角 → '+ch.pov);};
-  if(emoEl)emoEl.onchange=()=>{ch.targetEmo=emoEl.value;showHint('目标情绪 → '+ch.targetEmo);};
 }
 function renderEditRight(){
   const F=state.book==='short'?S_FILES:FILES;
@@ -141,7 +135,7 @@ function renderOvMid(){
   if(state.ov==='a_piece')return renderPieceDetail();
   if(state.ov==='a_ledger'&&state.ledgerDetail)return renderLedgerTrace(state.ledgerDetail);
   if(state.ov==='a_relations')return renderRelations();
-  const hd=(t,s)=>'<div class="bento-head"><h1 class="bento-title">'+t+'</h1><div class="bento-sub">'+s+'</div></div>';
+  const hd=(t,s)=>{const chips=String(s).split(' · ').map(c=>'<span class="meta-chip">'+c+'</span>').join('');return '<div class="bento-head"><h1 class="bento-title">'+t+'</h1><div class="bento-sub">'+chips+'</div></div>';};
   const mu='<div class="bc-menu">⋮</div>';
   if(state.book==='short'){
     if(id==='o1'){
@@ -190,7 +184,7 @@ function renderOvMid(){
         <div class="bento-card bento-lg">${mu}<div class="bc-label">近 14 日热力</div><div class="bc-heat">${heat.map(h=>`<div style="opacity:${0.12+h*0.78}">${h?'·':''}</div>`).join('')}</div></div>
         <div class="bento-card">${mu}<div class="bc-label">定稿天数</div><div class="bc-stat">${days}<span>/14</span></div></div>
         <div class="bento-card">${mu}<div class="bc-label">定稿篇数</div><div class="bc-stat">${heat.reduce((s,h)=>s+h,0)}</div></div>
-        <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12px;color:var(--text-2);line-height:1.7;margin-top:8px">色深表示当日定稿篇数 · 短篇集以「篇」为定稿单位 · 空白为未动笔日。保持节奏，避免长断档。</div></div>
+
       </div></div></div>`;
       return;
     }
@@ -230,14 +224,14 @@ function renderOvMid(){
   }
   if(id==='o1'){
     const cur=SHELF_BOOKS.find(b=>b.name===state.currentBookName)||SHELF_BOOKS.find(b=>b.kind==='long')||SHELF_BOOKS[0];
-    c.innerHTML=`<div class="content-scroll"><div class="bento-wrap"><div class="bento-head"><h1 class="bento-title">${cur.name} · 作品概要</h1><div class="bento-sub">${cur.genre||'长篇'} · 草稿阶段 · 共 ${cur.chapters||5} 章 · 单主视角</div></div>
+    c.innerHTML=`<div class="content-scroll"><div class="bento-wrap">${hd(cur.name+' · 作品概要',(cur.genre||'长篇')+' · 草稿阶段 · 共 '+(cur.chapters||5)+' 章 · 单主视角')}
       <div class="bento-grid">
         <div class="bento-card bento-lg"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">总体完成度</div><div class="bc-ring"><span>61%</span></div><div class="bc-foot">正文 5/40 章 · 大纲至第 30 章 · 设定 3 项 · 体检均分 78</div><div class="bc-progress"><div style="width:61%"></div></div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">总字数</div><div class="bc-stat">9,770</div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">章节进度</div><div class="bc-stat">5<span>/40</span></div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">账本条目</div><div class="bc-stat">6</div></div>
         <div class="bento-card"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">体检均分</div><div class="bc-stat">78</div></div>
-        <div class="bento-card bento-md"><div class="bc-menu" title="操作">⋮</div><div class="bc-label">近 7 日字数</div><div class="bc-bars">${[820,1600,0,2240,1850,1980,1280].map(v=>`<div class="bc-bar" style="height:${Math.max(v/2240*100,4)}%" title="${v} 字"></div>`).join('')}</div></div>
+        <div class="bento-card bento-lg">${mu}<div class="bc-label">近 7 日字数</div><div class="bc-bars" style="height:120px">${[820,1600,0,2240,1850,1980,1280].map(v=>`<div class="bc-bar" style="height:${Math.max(v/2240*100,4)}%" title="${v} 字"></div>`).join('')}</div><div class="bc-sub" style="margin-top:auto">色深表示当日字数强度</div></div>
         <div class="bento-card bento-action"><div class="bc-label">快速操作</div><div class="bc-btns"><button class="neo-btn">✍ 继续写作</button><button class="neo-btn">🩺 体检</button><button class="neo-btn">📋 大纲</button></div></div>
       </div></div></div>`;
   }else if(id==='o2'){
@@ -270,7 +264,7 @@ function renderOvMid(){
       <div class="bento-card bento-lg">${mu}<div class="bc-label">近 14 日字数热力</div><div class="bc-heat">${heat.map(h=>`<div style="opacity:${0.12+h/100*0.88}">${h?'·':''}</div>`).join('')}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">动笔天数</div><div class="bc-stat">${days}<span>/14</span></div></div>
       <div class="bento-card">${mu}<div class="bc-label">14日总字数</div><div class="bc-stat">${(total*10).toLocaleString()}</div></div>
-      <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12px;color:var(--text-2);line-height:1.7;margin-top:8px">色深表示当日字数强度 · 保持每日动笔 · 避免长断档导致节奏流失。</div></div>
+
     </div></div></div>`;
   }else if(id==='o5'){
     const ev=[{d:'14:06',t:'账本更新',m:'悬念·禁典内容 已新增',cc:'cyan'},{d:'昨天',t:'章节保存',m:'第5章·师兄异动 1,600 字',cc:'green'},{d:'昨天',t:'体检完成',m:'全段体检，发现 2 处节奏失衡',cc:'yellow'},{d:'2天前',t:'大纲扩展',m:'总纲扩展至第三幕',cc:'green'}];
@@ -308,7 +302,7 @@ function renderOvMid(){
       <div class="bento-card">${mu}<div class="bc-label">待揭示</div><div class="bc-stat" style="color:var(--ochre)">${yellow}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">已呼应</div><div class="bc-stat" style="color:var(--ink-cyan)">${green}</div></div>
       <div class="bento-card">${mu}<div class="bc-label">总条目</div><div class="bc-stat">${LG.length}</div></div>
-      <div class="bento-card bento-action"><div class="bc-label">说明</div><div style="font-size:12.5px;color:var(--text-2);line-height:1.8;margin-top:8px">右栏为全部账本条目，点击任一条目可在此查看埋点 → 呼应 → 回收的完整追踪。</div></div>
+      <div class="bento-card bento-action bento-c2" style="padding:10px 14px"><div class="bc-label">说明</div><div style="font-size:11px;color:var(--text-3);line-height:1.6;margin-top:4px">右栏为全部账本条目，点击任一条目可在此查看埋点 → 呼应 → 回收的完整追踪。</div></div>
     </div></div></div>`;
   }
 }

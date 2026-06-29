@@ -1,7 +1,7 @@
 
 // ===== 核心逻辑 =====
 // 数据在 data.js 中加载（全局作用域）
-const state={view:'landing',mode:'edit',theme:'mono',book:'long',currentBookName:'观微',currentLibId:'lib_guanwei',file:'ch3',piece:1,ov:'o1',ledgerDetail:null,task:'t1',nbPhase:'form',nbName:'',nbGenre:'',nbKind:'long',nbTarget:'',nbBrief:'',nbLeads:[],nbSteps:[],nbLibId:'',wbStage:'draft',wbChapter:3,wbRunning:false,wbTextOut:'',wbCheck:'',wbReview:'',wbVerdict:false,wbAuto:true,wbEvents:[],foldL:false,focus:false,cfgFont:'STKaiti, 楷体, serif',cfgSize:17.5,cfgLh:2.0,cfgGap:16,loading:false,cliOnline:true,wbMsgs:MSGS.slice(),wbCmd:'',wbHistOpen:true,binderOpen:false,panelOpen:true};
+const state={view:'landing',mode:'edit',theme:'mono',book:'long',currentBookName:'观微',currentLibId:'lib_guanwei',file:'ch3',piece:1,ov:'o1',ledgerDetail:null,task:'t1',nbPhase:'form',nbName:'',nbGenre:'',nbKind:'long',nbTarget:'',nbBrief:'',nbLeads:[],nbSteps:[],nbLibId:'',wbStage:'draft',wbChapter:3,wbRunning:false,wbTextOut:'',wbCheck:'',wbReview:'',wbVerdict:false,wbAuto:true,wbEvents:[],wbInterrupted:false,foldL:false,focus:false,cfgFont:'STKaiti, 楷体, serif',cfgSize:17.5,cfgLh:2.0,cfgGap:16,loading:false,cliOnline:true,binderOpen:false,panelOpen:true};
 
 const el=id=>document.getElementById(id);
 function showHint(t){const h=el('hint');h.textContent=t;h.classList.add('show');clearTimeout(h._t);h._t=setTimeout(()=>h.classList.remove('show'),1700);}
@@ -111,10 +111,8 @@ function render(){
   const ws=el('workspace');
   const tb=document.querySelector('.topbar');
   const ss=el('siderSlot');
-  // 切换视图时清除上次居中残留（非 book 视图回退 CSS left:50%）
-  const _wt0=el('wcTitle'),_mt0=document.querySelector('.mode-tabs');
-  if(_wt0)_wt0.style.left='';
-  if(_mt0){_mt0.style.left='';_mt0.style.display=state.view==='book'?'flex':'none';}
+  const _mt0=document.querySelector('.mode-tabs');
+  if(_mt0)_mt0.style.display=state.view==='book'?'flex':'none';
   el('wcTitle').textContent='CLWriting Studio';
   renderStatus(); // topbarCli 已移至 window-chrome（常驻），每次渲染刷新徽章
   if(state.view==='landing'){tb.style.display='none';ss.style.display='none';ss.innerHTML='';ws.className='workspace full';ws.innerHTML=renderLanding();bindLanding();el('statusbar').innerHTML='<span class="host">● Claude CLI 已连接</span><span>启动页 · '+currentLibLabel()+'</span><div class="right"><span>'+themeName()+'</span></div>';return;}
@@ -151,14 +149,29 @@ function render(){
   document.querySelectorAll('.mode-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===state.mode));
   const pc=el('panelClose');if(pc)pc.onclick=()=>{state.panelOpen=false;render();};
   const sb=el('shelfBtn');if(sb)sb.onclick=()=>{state.view='shelf';render();};
-  // mode-tabs + wcTitle 居中于编辑区(content)，resize 跟随
-  const centerMT=()=>{const ct=el('content');const mt=document.querySelector('.mode-tabs');const wt=el('wcTitle');const wc=document.querySelector('.window-chrome');if(ct&&wc){const cR=ct.getBoundingClientRect();const wcR=wc.getBoundingClientRect();const aR=document.querySelector('.app').getBoundingClientRect();const center=cR.left+cR.width/2;if(mt)mt.style.left=(center-aR.left)+'px';if(wt)wt.style.left=(center-wcR.left)+'px';}};
-  centerMT();
-  if(!render._mtBound){window.addEventListener('resize',centerMT);render._mtBound=true;}
   // 右栏跟随中栏(content-scroll)滚动
   const _cs=document.querySelector('.content-scroll'),_ri=document.querySelector('.sider-right-inner');
   if(_cs&&_ri)_cs.onscroll=()=>{_ri.scrollTop=_cs.scrollTop;};
   const _fs=el('footSettings');if(_fs)_fs.onclick=openConfig;
+  // 右栏顶部对齐中栏第一张卡片（编辑器/便当盒卡片）——跨层级垂直对齐，CSS 做不到
+  const alignRight=()=>{
+    const card=document.querySelector('.content-scroll .bento-card, .content-scroll .editor-inner');
+    const sr=document.querySelector('.sider-right'),ws=document.querySelector('.workspace');
+    if(card&&sr&&ws) sr.style.top=Math.max(0,card.getBoundingClientRect().top-ws.getBoundingClientRect().top)+'px';
+  };
+  alignRight();
+  // editor 居中【左右栏间隙中心】（两侧栏宽度可能不等）+ 抵消滚动条占右侧 sw；
+  // 字体异步加载会改变 editor 高度 → 滚动条出现/消失，故 fonts.ready 后重跑一次
+  const fixScroll=()=>{
+    const cs=document.querySelector('.content-scroll');if(!cs)return;
+    const sw=cs.offsetWidth-cs.clientWidth,pr=40;
+    const sl=document.querySelector('.sider-slot'),sr=document.querySelector('.sider-right');
+    let pl=pr+sw;
+    if(sl&&sr){const shift=((sl.getBoundingClientRect().right+sr.getBoundingClientRect().left)/2)-(cs.getBoundingClientRect().left+cs.offsetWidth/2);pl=pr+sw+Math.round(2*shift);}
+    cs.style.paddingLeft=pl+'px';cs.style.paddingRight=pr+'px';
+  };
+  fixScroll();
+  if(!render._arBound){window.addEventListener('resize',()=>{alignRight();fixScroll();});render._arBound=true;}
 }
 
 // ===== 左栏顶部：书名锚点 =====
