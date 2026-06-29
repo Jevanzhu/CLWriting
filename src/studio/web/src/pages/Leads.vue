@@ -1,70 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
-
-interface LeadEntry {
-  章号: number
-  动词: string
-  证据: string
-  回填?: boolean
-}
-interface Lead {
-  编号: string
-  标题: string
-  类型: string
-  状态: string
-  开启章: number
-  履历: LeadEntry[]
-  境界体系?: string
-  当前境界?: string
-  父局线?: string
-  欠方?: string
-  债主?: string
-}
-interface Overview {
-  类型: string
-  total: number
-  进行中: number
-  已收尾: number
-  已放弃: number
-}
-interface Stale {
-  编号: string
-  类型: string
-  标题: string
-  开启章: number
-  最后履历章: number
-  距今: number
-}
-interface LeadsData {
-  kind: 'long'
-  overview: Overview[]
-  leads: Lead[]
-  matrix: { 章号: number; 编号: string; 类型: string; 标题: string; 动词: string; 证据: string }[]
-  currentChapter: number
-  stale: Stale[]
-}
-/** 短篇集子总览行（#7.3，跨篇聚合：核心反转/情绪峰值/回收率） */
-interface CollectionRow {
-  篇号: number
-  标题: string
-  字数: number
-  目标情绪?: string
-  核心反转?: string
-  情绪峰值?: number
-  情绪类型?: string
-  回收率?: string
-  未回收数?: number
-}
-interface ShortData {
-  kind: 'short'
-  pieces: CollectionRow[]
-  summary: { 总篇数: number; 总字数: number; 平均篇长: number }
-}
+import type { Lead, LeadsData } from '../types'
+import { getLeads } from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<LeadsData | ShortData | null>(null)
+const data = ref<LeadsData | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -73,12 +15,7 @@ async function load(n: string): Promise<void> {
   error.value = ''
   data.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/leads`)
-    if (!r.ok) {
-      const e = (await r.json().catch(() => ({}))) as { error?: string }
-      throw new Error(e.error ?? `HTTP ${r.status}`)
-    }
-    data.value = (await r.json()) as LeadsData | ShortData
+    data.value = await getLeads(n)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {

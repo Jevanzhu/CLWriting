@@ -50,6 +50,28 @@ test('repairBooks: books.jsonl 缺失 → 扫描重建登记', () => {
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('repairBooks: books.jsonl 缺失 → 扫描长篇/短篇分组目录重建登记', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'rep-kind-dirs-'))
+  mkdirSync(join(wd, '.clwriting'), { recursive: true })
+  const longBook = join(wd, '长篇', '长书')
+  const shortBook = join(wd, '短篇', '短集')
+  mkdirSync(longBook, { recursive: true })
+  mkdirSync(shortBook, { recursive: true })
+  gitInitBook(longBook, '长书')
+  gitInitBook(shortBook, '短集')
+  writeFileSync(join(shortBook, 'book.yaml'), 'kind: short\nbook:\n  title: 短集\n', 'utf-8')
+  execSync('git add book.yaml && git commit -m kind', { cwd: shortBook, stdio: 'pipe' })
+
+  const result = repairBooks(wd)
+  expect(result.changed).toBe(true)
+  expect(readBooks(wd)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: '长书', path: '长篇/长书', kind: 'long' }),
+    expect.objectContaining({ name: '短集', path: '短篇/短集', kind: 'short' }),
+  ]))
+
+  rmSync(wd, { recursive: true, force: true })
+})
+
 test('repairBooks: 已有有效登记无变动 → changed=false', () => {
   const wd = mkdtempSync(join(tmpdir(), 'rep2-'))
   doInit({ workDir: wd, name: '已有书', genre: '玄幻' })

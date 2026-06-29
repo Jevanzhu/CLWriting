@@ -2,19 +2,20 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
-
-interface BookConfigLoose {
-  spec_version: number
-  kind?: 'long' | 'short'
-  host?: 'cc' | 'codex'
-  book: { title: string; genre: string; volume_size?: number; target_words?: number }
-  leads: { enabled: string[]; thresholds?: Record<string, number> }
-  budget: { calls_per_chapter: number; input_per_chapter?: number; summary_chapter_max?: number; summary_volume_max?: number }
-  style: { injection: 'light' | 'heavy' }
-  auto: { confirm_outline: boolean; batch_size: number }
-  growth: { realm_span_max?: number }
-  [k: string]: unknown
-}
+import type { BookConfigLoose } from '../types'
+import {
+  commitLearnedStyle,
+  enableRag,
+  exportBook,
+  getConfig,
+  importBook,
+  knowledgeCheck,
+  learnStyle,
+  putConfig,
+  readFile,
+  writeFile,
+  type LearnCandidates,
+} from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
@@ -35,17 +36,13 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`)
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const d = (await r.json()) as { config: BookConfigLoose }
-    config.value = d.config
-    const r2 = await fetch(`/api/books/${encodeURIComponent(name.value)}/file?file=${encodeURIComponent('文风/文风铁律.md')}`)
-    if (r2.ok) {
-      const d2 = (await r2.json()) as { content: string }
-      styleContent.value = d2.content
-      styleOriginal.value = d2.content
+    config.value = await getConfig(name.value)
+    try {
+      const content = await readFile(name.value, '文风/文风铁律.md')
+      styleContent.value = content
+      styleOriginal.value = content
       styleMissing.value = false
-    } else {
+    } catch {
       styleMissing.value = true
       styleContent.value = ''
     }
@@ -69,13 +66,7 @@ async function saveConfig(): Promise<void> {
   saving.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/config`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ config: config.value }),
-    })
-    const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }
-    if (!r.ok || !d.ok) throw new Error(d.error ?? `HTTP ${r.status}`)
+    await putConfig(name.value, config.value)
     savedMsg.value = '配置已保存'
     setTimeout(() => (savedMsg.value = ''), 2000)
   } catch (e) {
@@ -90,12 +81,7 @@ async function saveStyle(): Promise<void> {
   styleSaving.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/file?file=${encodeURIComponent('文风/文风铁律.md')}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content: styleContent.value }),
-    })
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    await writeFile(name.value, '文风/文风铁律.md', styleContent.value)
     styleOriginal.value = styleContent.value
     savedMsg.value = '文风铁律已保存'
     setTimeout(() => (savedMsg.value = ''), 2000)
@@ -133,13 +119,8 @@ async function doExport(): Promise<void> {
   exportRunning.value = true
   exportResult.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/export`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ format: exportFormat.value, platform: exportPlatform.value }),
-    })
-    const d = (await r.json()) as { stdout?: string; stderr?: string; error?: string }
-    exportResult.value = r.ok ? (d.stdout || '').trim() : `✗ ${d.error ?? d.stderr ?? ''}`
+    const d = await exportBook(name.value, { format: exportFormat.value, platform: exportPlatform.value })
+    exportResult.value = (d.stdout || '').trim()
   } catch (e) {
     exportResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }
@@ -155,13 +136,8 @@ async function doImport(): Promise<void> {
     if (importName.value.trim()) body['name'] = importName.value.trim()
     if (importKind.value) body['kind'] = importKind.value
     if (importGenre.value.trim()) body['genre'] = importGenre.value.trim()
-    const r = await fetch('/api/import', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const d = (await r.json()) as { stdout?: string; stderr?: string; error?: string }
-    importResult.value = r.ok ? (d.stdout || '').trim() : `✗ ${d.error ?? d.stderr ?? ''}`
+    const d = await importBook(body)
+    importResult.value = (d.stdout || '').trim()
   } catch (e) {
     importResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }
@@ -176,14 +152,9 @@ async function doEnableRag(): Promise<void> {
     const body: Record<string, unknown> = { endpoint: ragEndpoint.value.trim(), model: ragModel.value.trim() }
     if (ragUseEnv.value) body['useEnv'] = true
     else if (ragKey.value) body['key'] = ragKey.value
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/enable-rag`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const d = (await r.json()) as { stdout?: string; stderr?: string; error?: string }
-    ragResult.value = r.ok ? (d.stdout || '').trim() : `✗ ${d.error ?? d.stderr ?? ''}`
-    if (r.ok) ragKey.value = '' // 已落盘 rag.secret，清空输入
+    const d = await enableRag(name.value, body)
+    ragResult.value = (d.stdout || '').trim()
+    ragKey.value = '' // 已落盘 rag.secret，清空输入
   } catch (e) {
     ragResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }
@@ -191,24 +162,10 @@ async function doEnableRag(): Promise<void> {
 }
 
 // 8.3 知识层校验 + learn 文风收割
-interface SampleCand {
-  场景: string
-  正文: string
-  出处: string
-  章号: number
-  打分: number
-  技法指令?: string
-}
-interface QuoteCand {
-  场景: string
-  正文: string
-  出处: string
-  章号: number
-}
 const knowledgeRunning = ref(false)
 const knowledgeResult = ref('')
 const learnRunning = ref(false)
-const learnCandidates = ref<{ samples: SampleCand[]; quotes: QuoteCand[] } | null>(null)
+const learnCandidates = ref<LearnCandidates | null>(null)
 const pickedSamples = ref<boolean[]>([])
 const pickedQuotes = ref<boolean[]>([])
 const learnCommitRunning = ref(false)
@@ -220,12 +177,8 @@ async function doKnowledgeCheck(): Promise<void> {
   knowledgeRunning.value = true
   knowledgeResult.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/knowledge-check`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-    })
-    const d = (await r.json()) as { stdout?: string; stderr?: string; error?: string }
-    knowledgeResult.value = r.ok ? (d.stdout || '').trim() : `✗ ${d.error ?? d.stderr ?? ''}`
+    const d = await knowledgeCheck(name.value)
+    knowledgeResult.value = (d.stdout || '').trim()
   } catch (e) {
     knowledgeResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }
@@ -238,19 +191,11 @@ async function doLearn(): Promise<void> {
   learnCandidates.value = null
   learnResult.value = ''
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/learn`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-    })
-    const d = (await r.json()) as { samples?: SampleCand[]; quotes?: QuoteCand[]; error?: string }
-    if (r.ok && !d.error) {
-      learnCandidates.value = { samples: d.samples ?? [], quotes: d.quotes ?? [] }
-      // 默认全选（机检已过滤≥60），作者可取消不想要的
-      pickedSamples.value = new Array((d.samples ?? []).length).fill(true)
-      pickedQuotes.value = new Array((d.quotes ?? []).length).fill(true)
-    } else {
-      learnResult.value = `✗ ${d.error ?? ''}`
-    }
+    const d = await learnStyle(name.value)
+    learnCandidates.value = d
+    // 默认全选（机检已过滤≥60），作者可取消不想要的
+    pickedSamples.value = new Array(d.samples.length).fill(true)
+    pickedQuotes.value = new Array(d.quotes.length).fill(true)
   } catch (e) {
     learnResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }
@@ -264,18 +209,9 @@ async function doLearnCommit(): Promise<void> {
   const samples = learnCandidates.value.samples.filter((_, i) => pickedSamples.value[i])
   const quotes = learnCandidates.value.quotes.filter((_, i) => pickedQuotes.value[i])
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(name.value)}/learn-commit`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ samples, quotes }),
-    })
-    const d = (await r.json()) as { ok?: boolean; sampleFiles?: string[]; quoteFiles?: string[]; error?: string }
-    if (r.ok && d.ok) {
-      learnResult.value = `✓ 入库 ${(d.sampleFiles ?? []).length} 样章 + ${(d.quoteFiles ?? []).length} 金句`
-      learnCandidates.value = null
-    } else {
-      learnResult.value = `✗ ${d.error ?? ''}`
-    }
+    const d = await commitLearnedStyle(name.value, { samples, quotes })
+    learnResult.value = `✓ 入库 ${(d.sampleFiles ?? []).length} 样章 + ${(d.quoteFiles ?? []).length} 金句`
+    learnCandidates.value = null
   } catch (e) {
     learnResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
   }

@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
@@ -84,7 +85,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 400, { error: result.reason })
       return
     }
-    reply(res, 200, { name: result.bookName, kind, path: result.bookName })
+    reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
   })
 
   // 单书身份
@@ -123,26 +124,4 @@ export function registerBookRoutes(ctx: BookCtx): void {
 
 export function setInitialBook(name: string | undefined): void {
   initialBook = name
-}
-
-/** 读 request body JSON（容错：空/坏 → {}） */
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve) => {
-    let data = ''
-    req.on('data', (c: Buffer) => {
-      data += c.toString('utf-8')
-    })
-    req.on('end', () => {
-      try {
-        resolve(data.trim() === '' ? {} : JSON.parse(data))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

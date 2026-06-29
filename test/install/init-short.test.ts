@@ -121,6 +121,8 @@ test('init short: books.jsonl 登记 kind=short', () => {
     expect(books).toHaveLength(1)
     expect(books[0]!.kind).toBe('short')
     expect(books[0]!.name).toBe('夜语集')
+    expect(books[0]!.path).toBe('短篇/夜语集')
+    expect(existsSync(join(wd, '短篇', '夜语集'))).toBe(true)
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }

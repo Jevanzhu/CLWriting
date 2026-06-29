@@ -1,20 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useShelfStore } from '../stores/shelf'
 
-interface BookEntry {
-  name: string
-  path: string
-  kind: 'long' | 'short'
-  created_at?: string
-}
-
+// 书架数据态走 store（books/workDir/hint/loading/error + loadBooks）
 const router = useRouter()
-const books = ref<BookEntry[]>([])
-const workDir = ref(true)
-const hint = ref('')
-const loading = ref(true)
-const error = ref('')
+const shelf = useShelfStore()
+const { books, workDir, hint, loading, error } = storeToRefs(shelf)
 
 // 桌面版书库管理（preload 注入；浏览器版不存在 → isDesktop=false，隐藏桌面入口）
 const desktop = window.clwritingDesktop ?? null
@@ -26,27 +19,13 @@ const currentLibLabel = computed(() => {
   const seg = currentLib.value.split(/[/\\]/).filter(Boolean)
   return seg[seg.length - 1] ?? currentLib.value
 })
-
-async function loadBooks(): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await fetch('/api/books')
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const data = (await r.json()) as {
-      books: BookEntry[]
-      workDir: boolean
-      hint?: string
-    }
-    books.value = data.books ?? []
-    workDir.value = data.workDir
-    hint.value = data.hint ?? ''
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+const libraryLabel = computed(() => currentLibLabel.value || '当前工作目录')
+const longBooks = computed(() => books.value.filter((b) => b.kind !== 'short'))
+const shortBooks = computed(() => books.value.filter((b) => b.kind === 'short'))
+const bookGroups = computed(() => [
+  { key: 'long', title: '长篇', desc: '连续章节创作', empty: '暂无长篇', books: longBooks.value },
+  { key: 'short', title: '短篇', desc: '短篇集与单篇创作', empty: '暂无短篇', books: shortBooks.value },
+])
 
 /** 拉桌面版当前书库 + 最近列表（浏览器版空操作）。 */
 async function loadDesktop(): Promise<void> {
@@ -90,7 +69,7 @@ function fmtDate(iso?: string): string {
 }
 
 onMounted(() => {
-  loadBooks()
+  shelf.loadBooks()
   loadDesktop()
 })
 </script>
@@ -100,8 +79,8 @@ onMounted(() => {
     <div class="panel-pad">
       <div class="bookshelf-head">
         <div class="head-left">
-          <div class="panel-title">书架</div>
-          <div v-if="currentLibLabel" class="panel-sub" style="margin-bottom:0">{{ currentLibLabel }}</div>
+          <div class="panel-title">书库</div>
+          <div class="panel-sub" style="margin-bottom:0">{{ libraryLabel }}</div>
         </div>
         <div class="head-right">
           <button v-if="isDesktop" class="btn" @click="openLibrary">📁 打开书库</button>
@@ -133,18 +112,35 @@ onMounted(() => {
         <p class="hint">暂无书籍</p>
         <p class="sub">点右上「+ 新建」建第一本书</p>
       </div>
-      <div v-else class="book-grid">
-        <div
-          v-for="b in books"
-          :key="b.name"
-          class="book-card"
-          tabindex="0"
-          @click="open(b.name)"
-          @keydown.enter="open(b.name)"
+      <div v-else class="library-tree">
+        <section
+          v-for="group in bookGroups"
+          :key="group.key"
+          class="book-group"
+          :aria-labelledby="`group-${group.key}`"
         >
-          <div class="book-name">{{ b.name }}</div>
-          <div class="book-meta">{{ b.kind === 'short' ? '短篇集' : '长篇' }} · 创建于 {{ fmtDate(b.created_at) }}</div>
-        </div>
+          <div class="group-head">
+            <div>
+              <h2 :id="`group-${group.key}`">{{ group.title }}</h2>
+              <p>{{ group.desc }}</p>
+            </div>
+            <span class="group-count">{{ group.books.length }}</span>
+          </div>
+          <div v-if="group.books.length" class="book-grid">
+            <div
+              v-for="b in group.books"
+              :key="b.name"
+              class="book-card"
+              tabindex="0"
+              @click="open(b.name)"
+              @keydown.enter="open(b.name)"
+            >
+              <div class="book-name">{{ b.name }}</div>
+              <div class="book-meta">创建于 {{ fmtDate(b.created_at) }}</div>
+            </div>
+          </div>
+          <p v-else class="group-empty">{{ group.empty }}</p>
+        </section>
       </div>
     </div>
   </section>
@@ -216,6 +212,43 @@ onMounted(() => {
   color: var(--ink-cyan);
   outline: none;
 }
+.library-tree {
+  display: grid;
+  gap: 22px;
+}
+.book-group {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.group-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.group-head p {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.group-count {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  background: var(--panel);
+}
 .book-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -243,6 +276,11 @@ onMounted(() => {
   color: var(--text-2);
   font-size: 12px;
   margin-top: 5px;
+}
+.group-empty {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
 }
 .hint {
   color: var(--text-2);

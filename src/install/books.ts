@@ -14,7 +14,7 @@
 
 import process from 'node:process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-import { resolve, join, dirname } from 'node:path'
+import { resolve, join, dirname, basename } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { git } from '../git/exec.js'
@@ -35,6 +35,20 @@ export interface BookEntry {
 const BOOKS_FILE = '.clwriting/books.jsonl'
 const ACTIVE_FILE = '.clwriting/active'
 const CLWRITING_DIR = '.clwriting'
+const KIND_DIRS = {
+  long: '长篇',
+  short: '短篇',
+} as const
+
+/** 书库二级目录名：一级书库 / 二级长短篇 / 三级具体书。 */
+export function bookKindDir(kind: 'long' | 'short'): string {
+  return KIND_DIRS[kind]
+}
+
+/** 新建书默认登记路径（相对工作目录）。旧 books.jsonl 平铺 path 仍兼容读取。 */
+export function bookStoragePath(bookName: string, kind: 'long' | 'short'): string {
+  return `${bookKindDir(kind)}/${bookName}`
+}
 
 /** 读 books.jsonl（容错：缺文件返回空；坏行跳过不崩）。 */
 export function readBooks(workDir: string): BookEntry[] {
@@ -224,7 +238,7 @@ export interface RepairResult {
 
 /**
  * 自愈 books.jsonl（#32 第 6 节）。
- * - 缺失/损坏 → 扫描工作目录直接子目录（有 book.yaml + .git）→ 重建登记
+ * - 缺失/损坏 → 扫描工作目录直接子目录 + 长篇/短篇 子目录（有 book.yaml + .git）→ 重建登记
  * - 已有登记：检查 path 是否在磁盘存在，不存在的标 missing（提示重关联）
  *
  * 真源是磁盘上的书仓库本身；books.jsonl 是「可从扫描重建的派生登记」（类比 .cache）。
@@ -235,26 +249,18 @@ export function repairBooks(workDir: string): RepairResult {
   const relinked: { name: string; from: string; to: string }[] = []
   let updated = false
 
-  // 扫描工作目录直接子目录（不递归深扫，避免误纳嵌套/无关目录）
+  // 扫描旧平铺书仓库 + 新分组书仓库（只到二级，避免误纳书内子目录）
   const scanned: BookEntry[] = []
-  let entries: string[] = []
-  try {
-    entries = readdirSync(workDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
-      .map((e) => e.name)
-  } catch {
-    entries = []
-  }
+  const entries = scanBookCandidates(workDir)
 
-  for (const name of entries) {
-    const dir = join(workDir, name)
+  for (const relPath of entries) {
+    const dir = join(workDir, relPath)
     if (!isBookRepo(dir)) continue
-    const bookName = detectBookName(dir, name)
+    const bookName = detectBookName(dir, basename(relPath))
     const kind = detectBookKind(dir)
     const createdAt = detectBookCreatedAt(dir)
 
-    const existingPathIndex = rebuilt.findIndex((b) => b.path === name)
+    const existingPathIndex = rebuilt.findIndex((b) => b.path === relPath)
     if (existingPathIndex >= 0) {
       const entry = rebuilt[existingPathIndex]!
       const nextEntry = {
@@ -274,21 +280,21 @@ export function repairBooks(workDir: string): RepairResult {
     if (existingIndex >= 0) {
       const entry = rebuilt[existingIndex]!
       const oldPath = entry.path
-      if (oldPath !== name && !existsSync(join(workDir, oldPath))) {
+      if (oldPath !== relPath && !existsSync(join(workDir, oldPath))) {
         rebuilt[existingIndex] = {
           ...entry,
-          path: name,
+          path: relPath,
           kind,
           ...(entry.created_at || !createdAt ? {} : { created_at: createdAt }),
         }
-        relinked.push({ name: bookName, from: oldPath, to: name })
+        relinked.push({ name: bookName, from: oldPath, to: relPath })
       }
       continue
     }
 
     scanned.push({
       name: bookName,
-      path: name,
+      path: relPath,
       kind,
       ...(createdAt ? { created_at: createdAt } : {}),
     })
@@ -305,6 +311,34 @@ export function repairBooks(workDir: string): RepairResult {
   }
 
   return { rebuilt, missing, relinked, changed }
+}
+
+function scanBookCandidates(workDir: string): string[] {
+  let topEntries: string[] = []
+  try {
+    topEntries = readdirSync(workDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
+      .map((e) => e.name)
+  } catch {
+    return []
+  }
+
+  const candidates: string[] = []
+  for (const name of topEntries) {
+    candidates.push(name)
+    if (name !== KIND_DIRS.long && name !== KIND_DIRS.short) continue
+    try {
+      const nested = readdirSync(join(workDir, name), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
+        .map((e) => `${name}/${e.name}`)
+      candidates.push(...nested)
+    } catch {
+      // 分组目录读失败时跳过，不影响旧平铺扫描
+    }
+  }
+  return candidates
 }
 
 /** 从 book.yaml 读书名；无书名时回落目录名。 */

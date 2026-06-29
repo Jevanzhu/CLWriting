@@ -13,39 +13,8 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
-
-interface PieceSummary {
-  篇号: number
-  标题: string
-  字数: number
-  目标情绪?: string
-  核心反转?: string
-}
-interface EmotionPoint {
-  段落: string
-  情绪: string
-  强度: number
-  说明?: string
-}
-interface SetupPoint {
-  位置: string
-  内容: string
-}
-interface PayoffEntry {
-  伏笔: string
-  回收位置: string
-  未回收?: boolean
-}
-interface PieceListData {
-  反转线索表: { 核心反转: string; 铺垫点: SetupPoint[] }
-  情绪曲线?: EmotionPoint[]
-  伏笔回收: PayoffEntry[]
-}
-interface PieceDetailData {
-  meta: PieceSummary
-  body: string
-  list: PieceListData
-}
+import type { PieceDetailData, PieceSummary } from '../types'
+import { getPiece, listPieces } from '../api/books'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,10 +31,7 @@ async function loadDetail(n: string, pieceNo: number): Promise<void> {
   error.value = ''
   data.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/piece/${pieceNo}`)
-    const d = (await r.json().catch(() => ({}))) as PieceDetailData & { error?: string }
-    if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`)
-    data.value = d
+    data.value = await getPiece(n, pieceNo)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -75,9 +41,7 @@ async function loadDetail(n: string, pieceNo: number): Promise<void> {
 
 async function loadPieces(n: string): Promise<void> {
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/pieces`)
-    const d = (await r.json().catch(() => ({}))) as { pieces?: PieceSummary[]; error?: string }
-    if (r.ok && d.pieces) pieces.value = d.pieces
+    pieces.value = await listPieces(n)
   } catch {
     /* 翻页器可选，失败不阻塞 */
   }

@@ -3,24 +3,8 @@ import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from 'echarts'
-
-interface RhythmLong {
-  kind: 'long'
-  wordCurve: { 章号: number; 标题: string; 字数: number }[]
-  avgWords: number
-  hookTypeDist: Record<string, number>
-  hookLevelDist: Record<string, number>
-  emotionDist: Record<string, number>
-  sceneDist: Record<string, number>
-  sceneEmotion: Record<string, Record<string, number>>
-}
-interface RhythmShort {
-  kind: 'short'
-  wordCurve: { 篇号: number; 标题: string; 字数: number }[]
-  emotionDist: Record<string, number>
-  reversals: { 篇号: number; 标题: string; 核心反转: string }[]
-}
-type Rhythm = RhythmLong | RhythmShort
+import type { Rhythm } from '../types'
+import { getRhythm } from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
@@ -34,12 +18,7 @@ async function load(n: string): Promise<void> {
   error.value = ''
   data.value = null
   try {
-    const r = await fetch(`/api/books/${encodeURIComponent(n)}/rhythm`)
-    if (!r.ok) {
-      const e = (await r.json().catch(() => ({}))) as { error?: string }
-      throw new Error(e.error ?? `HTTP ${r.status}`)
-    }
-    data.value = (await r.json()) as Rhythm
+    data.value = await getRhythm(n)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {

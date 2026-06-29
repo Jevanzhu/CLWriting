@@ -145,3 +145,69 @@ body {
 .clw-dot.cyan {
   background: var(--ink-cyan);
 }
+
+/* 云白（cloud）：极简浅 · Linear 风 */
+[data-theme='cloud'] {
+  --canvas: #eef1f6;
+  --paper: #ffffff;
+  --panel: #ffffff;
+  --ink: #1e2330;
+  --text-2: #6b7280;
+  --text-3: #9aa3af;
+  --ink-cyan: #2563eb;
+  --cinnabar: #ef4444;
+  --ochre: #f59e0b;
+  --border: #e5e8ee;
+  --border-2: #d4d9e3;
+  --hover: rgba(37, 99, 235, 0.06);
+  --active-bg: rgba(37, 99, 235, 0.1);
+  --ok-bg: rgba(37, 99, 235, 0.12);
+  --warn-bg: rgba(245, 158, 11, 0.14);
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --shadow: none;
+  --brand: #2563eb;
+}
+
+/* 深空（space）：科技深 · GitHub 风 */
+[data-theme='space'] {
+  --canvas: #0d1117;
+  --paper: #161b22;
+  --panel: #1c2128;
+  --ink: #e6edf3;
+  --text-2: #8b949e;
+  --text-3: #6e7681;
+  --ink-cyan: #58a6ff;
+  --cinnabar: #ff7b72;
+  --ochre: #d29922;
+  --border: #2d333b;
+  --border-2: #3d444d;
+  --hover: rgba(88, 166, 255, 0.08);
+  --active-bg: rgba(88, 166, 255, 0.14);
+  --ok-bg: rgba(88, 166, 255, 0.16);
+  --warn-bg: rgba(210, 153, 34, 0.18);
+  --danger-bg: rgba(255, 123, 114, 0.16);
+  --shadow: none;
+  --brand: #58a6ff;
+}
+
+/* 莫兰迪（moran）：低饱和 · 雾感现代 */
+[data-theme='moran'] {
+  --canvas: #e0ddd6;
+  --paper: #f3f1ec;
+  --panel: #fbfaf7;
+  --ink: #3d3a35;
+  --text-2: #8a857c;
+  --text-3: #b0aaa0;
+  --ink-cyan: #7a8ca6;
+  --cinnabar: #c08a82;
+  --ochre: #bda06a;
+  --border: #ddd9d0;
+  --border-2: #cec9bd;
+  --hover: rgba(122, 140, 166, 0.07);
+  --active-bg: rgba(122, 140, 166, 0.12);
+  --ok-bg: rgba(122, 140, 166, 0.12);
+  --warn-bg: rgba(189, 160, 106, 0.14);
+  --danger-bg: rgba(192, 138, 130, 0.12);
+  --shadow: none;
+  --brand: #7a8ca6;
+}

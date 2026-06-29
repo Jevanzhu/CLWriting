@@ -16,7 +16,12 @@ let baseUrl = ''
 let server: http.Server | undefined
 let token = ''
 
-function rawRequest(method: string, path: string, headers: Record<string, string> = {}): Promise<{ status: number }> {
+function rawRequest(
+  method: string,
+  path: string,
+  headers: Record<string, string> = {},
+  body = '',
+): Promise<{ status: number }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
@@ -24,6 +29,7 @@ function rawRequest(method: string, path: string, headers: Record<string, string
       res.on('end', () => resolve({ status: res.statusCode ?? 0 }))
     })
     req.on('error', () => resolve({ status: 0 }))
+    if (body) req.write(body)
     req.end()
   })
 }
@@ -74,5 +80,21 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   it('GET 无 token → 200(token 只校验写端点)', async () => {
     const r = await rawRequest('GET', '/api/books', {})
     expect(r.status).toBe(200)
+  })
+
+  it('POST 超过 JSON body 上限 → 413', async () => {
+    const body = JSON.stringify({ sourcePath: 'x'.repeat(1024 * 1024 + 1) })
+    const r = await rawRequest(
+      'POST',
+      '/api/import',
+      {
+        origin: baseUrl,
+        'content-type': 'application/json',
+        'content-length': String(Buffer.byteLength(body)),
+        'x-studio-token': token,
+      },
+      body,
+    )
+    expect(r.status).toBe(413)
   })
 })

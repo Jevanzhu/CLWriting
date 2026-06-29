@@ -7,11 +7,12 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { readBooks } from '../../src/install/books.js'
 
 const BOOK = '测试书'
 let workDir = ''
@@ -61,6 +62,21 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(r.ok).toBe(true)
     const d = (await r.json()) as { books: { name: string }[] }
     expect(d.books.some((b) => b.name === BOOK)).toBe(true)
+  })
+
+  it('POST /api/books 新建短篇落到短篇/二级目录', async () => {
+    const r = await fetch(`${baseUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ name: 'API短篇', genre: '悬疑', kind: 'short' }),
+    })
+    expect(r.ok).toBe(true)
+    const d = (await r.json()) as { name: string; kind: string; path: string }
+    expect(d).toMatchObject({ name: 'API短篇', kind: 'short', path: '短篇/API短篇' })
+    expect(existsSync(join(workDir, '短篇', 'API短篇', 'book.yaml'))).toBe(true)
+    expect(readBooks(workDir)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'API短篇', kind: 'short', path: '短篇/API短篇' }),
+    ]))
   })
 
   it('GET /api/books/:name/settings 设定台读角色 + 境界', async () => {
@@ -138,5 +154,31 @@ describe('GUI API 集成链(设定台 P2)', () => {
     const d = (await r.json()) as { config: { kind: string; book: { title: string } } }
     expect(d.config.kind).toBe('long')
     expect(d.config.book.title).toBe('测试书')
+  })
+
+  it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
+    expect(ok.ok).toBe(true)
+    const okD = (await ok.json()) as { content: string }
+    expect(okD.content).toContain('# 总纲')
+
+    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`)
+    expect(blocked.status).toBe(400)
+  })
+
+  it('PUT /file 只允许写可编辑 Markdown，拒绝 book.yaml', async () => {
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\n已更新' }),
+    })
+    expect(ok.ok).toBe(true)
+
+    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: 'broken: true\n' }),
+    })
+    expect(blocked.status).toBe(400)
   })
 })

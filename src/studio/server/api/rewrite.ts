@@ -15,6 +15,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
@@ -215,25 +216,4 @@ export function lineDiff(a: string, b: string): DiffLine[] {
     j++
   }
   return out
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

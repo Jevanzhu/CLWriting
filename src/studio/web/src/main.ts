@@ -1,7 +1,8 @@
 import { createApp } from 'vue'
-import naive from 'naive-ui'
 import App from './App.vue'
 import router from './router'
+import { createPinia } from 'pinia'
+import { useAppStore } from './stores/app'
 import './styles/tokens.css'
 import './styles/content.css'
 
@@ -40,4 +41,7 @@ void originalFetch('/api/boot')
   .catch(() => {})
   .finally(bootResolve)
 
-createApp(App).use(router).use(naive).mount('#app')
+const __app = createApp(App)
+__app.use(router).use(createPinia())
+useAppStore().applyTheme()  // 启动应用 localStorage 主题（避免闪）
+__app.mount('#app')

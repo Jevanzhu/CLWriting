@@ -13,15 +13,16 @@
  * B 编排:run/collect 是 CLI 确定性打包/回收,spawnRole×3 是真审稿(AI);串行避 GLM 并发。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
+import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readFile } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
+import { runClwritingCli } from '../cli-runner.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -66,7 +67,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const workDir = join(bookRoot, '工作区')
 
     // ① review run(CLI 打包,产 工作区/三审/packet.json)
-    const runResult = await runClwriting(['review', 'run', '--chapter=' + String(chapter)], bookRoot)
+    const runResult = await runClwritingCli(['review', 'run', '--chapter=' + String(chapter)], bookRoot)
     if (!runResult.ok) {
       return reply(res, 500, { error: `review run 失败:${(runResult.stderr || runResult.stdout).trim().slice(0, 200)}` })
     }
@@ -129,7 +130,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     }
 
     // ③ review collect(CLI 回收产审稿.md)
-    const collectResult = await runClwriting(['review', 'collect', '--chapter=' + String(chapter)], bookRoot)
+    const collectResult = await runClwritingCli(['review', 'collect', '--chapter=' + String(chapter)], bookRoot)
     if (!collectResult.ok) {
       return reply(res, 500, { error: `review collect 失败:${(collectResult.stderr || collectResult.stdout).trim().slice(0, 200)}` })
     }
@@ -202,45 +203,4 @@ function extractJson(text: string): string {
 
 function escapeRegexp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-/** spawn `node <cli.js> <args>`(cwd=bookRoot;cli.js = studio 入口 process.argv[1]) */
-function runClwriting(
-  args: string[],
-  cwd: string,
-): Promise<{ ok: boolean; code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [process.argv[1] as string, ...args], { cwd })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => {
-      stdout += c.toString()
-    })
-    child.stderr.on('data', (c) => {
-      stderr += c.toString()
-    })
-    child.on('error', (e) => resolve({ ok: false, code: -1, stdout, stderr: e.message }))
-    child.on('close', (code) => resolve({ ok: code === 0, code: code ?? 0, stdout, stderr }))
-  })
-}
-
-function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let buf = ''
-    req.on('data', (c) => {
-      buf += c
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(buf || '{}'))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
 }

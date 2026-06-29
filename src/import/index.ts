@@ -18,7 +18,7 @@ import { writeChapter } from '../format/chapters.js'
 import { writePiece } from '../format/pieces.js'
 import { writePieceList, emptyPieceList } from '../format/manifest.js'
 import { scaffoldBookRepo } from '../install/scaffold.js'
-import { appendBook, writeActive, readBooks } from '../install/books.js'
+import { appendBook, writeActive, readBooks, bookStoragePath } from '../install/books.js'
 import { addCommit } from '../git/exec.js'
 import type { ChapterMeta, PieceMeta } from '../format/types.js'
 
@@ -169,7 +169,8 @@ export function importV02Book(options: ImportOptions): ImportResult {
   }
 
   // 6. 复用 scaffoldBookRepo 建书（按 kind 建长篇 6.2 目录 / 短篇集 篇/ 布局 + git + 文风铁律 + AGENTS.md + init commit）
-  const bookRoot = join(workDir, bookName)
+  const bookPath = bookStoragePath(bookName, kind)
+  const bookRoot = join(workDir, bookPath)
   if (existsSync(bookRoot)) {
     return { ok: false, error: `目录「${bookName}」已存在` }
   }
@@ -218,7 +219,7 @@ export function importV02Book(options: ImportOptions): ImportResult {
   if (!commit.ok) return { ok: false, error: commit.humanMsg }
 
   // 9. 登记 + 设活动书（复用 M5 范式）
-  const appendRes = appendBook(workDir, { name: bookName, path: bookName, kind, created_at: new Date().toISOString() })
+  const appendRes = appendBook(workDir, { name: bookName, path: bookPath, kind, created_at: new Date().toISOString() })
   if (!appendRes.ok) return { ok: false, error: appendRes.reason }
   writeActive(workDir, bookName)
 
