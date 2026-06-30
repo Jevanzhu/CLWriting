@@ -36,6 +36,7 @@ const stages = [
   { id: 'finalize', label: '定稿' },
 ]
 const activeStage = ref('draft')
+const stageIndex = computed(() => stages.findIndex((s) => s.id === activeStage.value))
 
 const chapter = ref(1)
 const running = ref(false)
@@ -325,9 +326,15 @@ onUnmounted(() => es?.close())
 
 <template>
   <section class="wb-page">
-    <div class="panel-pad">
-      <div class="panel-title">工作台</div>
-      <div class="panel-sub">八阶段 · 细纲 → 确认 → 备料 → 写稿 → 机检 → 三审 → 定稿</div>
+    <div class="bento-wrap">
+      <div class="bento-head">
+        <h1 class="bento-title">工作台 · 第 {{ chapter }} {{ kind === 'short' ? '篇' : '章' }}</h1>
+        <div class="bento-sub">
+          <span class="meta-chip">八阶段</span>
+          <span class="meta-chip">AI 经 Claude CLI</span>
+          <span class="meta-chip">确定性经 clwriting CLI</span>
+        </div>
+      </div>
 
       <!-- 当前状态卡（enter 自动定位） -->
       <div v-if="stateInfo" class="state-card">
@@ -341,12 +348,15 @@ onUnmounted(() => es?.close())
 
       <!-- 八阶段骨架 -->
       <nav class="stages">
-        <span
-          v-for="s in stages"
+        <div
+          v-for="(s, i) in stages"
           :key="s.id"
           class="stage"
-          :class="{ active: s.id === activeStage }"
-        >{{ s.label }}</span>
+          :class="{ done: stageIndex > i, active: s.id === activeStage }"
+        >
+          <div class="s-node">{{ stageIndex > i ? '✓' : s.label.charAt(0) }}</div>
+          <div class="s-label">{{ s.label }}</div>
+        </div>
       </nav>
 
       <!-- 控制区 -->
@@ -426,9 +436,15 @@ onUnmounted(() => es?.close())
 .state-card{padding:11px 15px;background:var(--cyan-10);border:1px solid var(--cyan-22);border-radius:12px;font-size:13px;color:var(--ink-cyan);line-height:1.6;margin-bottom:12px}
 .state-tag{font-weight:700;margin-right:6px}
 .cc-banner{padding:8px 14px;background:color-mix(in srgb,var(--ink) 4.5%,transparent);color:var(--text-2);border:1px solid var(--white-22);border-radius:999px;font-size:11.5px;line-height:1.6;margin-bottom:16px;text-align:center}
-.stages{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
-.stage{padding:5px 14px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--text-3);background:var(--panel-82);transition:background .2s,color .2s,border-color .2s}
-.stage.active{background:var(--ink-cyan);color:#fff;border-color:var(--ink-cyan);font-weight:600}
+.stages{display:flex;gap:0;margin-bottom:20px}
+.stage{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:70px;position:relative;padding:0 4px}
+.stage .s-node{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--panel-82);border:1px solid var(--border);color:var(--text-3);z-index:1;transition:background .2s,border-color .2s,color .2s}
+.stage .s-label{font-size:11px;color:var(--text-3)}
+.stage:not(:last-child)::after{content:'';position:absolute;top:14px;left:calc(50% + 18px);right:calc(-50% + 18px);height:2px;background:var(--border);z-index:0}
+.stage.done:not(:last-child)::after{background:var(--ink-cyan)}
+.stage.done .s-node{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff}
+.stage.active .s-node{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff;box-shadow:0 0 0 4px var(--cyan-14)}
+.stage.active .s-label{color:var(--ink);font-weight:600}
 .ctrl-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
 .ctrl-row label{display:grid;gap:4px;font-size:12px;color:var(--text-2)}
 .ctrl-row input[type='number']{width:72px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--panel);color:var(--ink);outline:none}
