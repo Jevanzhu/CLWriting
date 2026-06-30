@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 体检（总览 a_health）：Bento 便当盒网格，对齐 mockup v5。
+// 数据 GET /health/metrics + /health/style（真实 MetricsReport + StyleTrend）。
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
@@ -117,85 +119,73 @@ function pct(x: number): string {
 
 <template>
   <section class="health">
-    <div class="panel-pad">
-      <div class="panel-title">体检</div>
-      <div class="panel-sub">成本 · 审查 · 文风漂移</div>
+    <div class="bento-wrap">
+      <div class="bento-head">
+        <h1 class="bento-title">体检</h1>
+        <div class="bento-sub">
+          <span class="meta-chip">成本</span>
+          <span class="meta-chip">审查</span>
+          <span class="meta-chip">文风漂移</span>
+        </div>
+      </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
       <template v-else>
         <!-- 成本 / 审查 -->
-        <template v-if="metrics && metrics.count > 0">
-          <div class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>
-          <div class="card-row" style="grid-template-columns:repeat(5,1fr)">
-            <div class="stat-card"><div class="n">{{ metrics.cost.avgCalls.toFixed(1) }}</div><div class="l">平均调用</div></div>
-            <div class="stat-card"><div class="n">{{ metrics.cost.overLimitChapters }}</div><div class="l">超上限</div></div>
-            <div class="stat-card"><div class="n">{{ pct(metrics.review.fullRate) }}</div><div class="l">满审率</div></div>
-            <div class="stat-card"><div class="n">{{ pct(metrics.review.downgradeRate) }}</div><div class="l">降级率</div></div>
-            <div class="stat-card"><div class="n">{{ metrics.review.avgBlockers.toFixed(1) }}</div><div class="l">平均阻断</div></div>
-          </div>
-          <div v-if="costBar" class="card"><div class="card-title">各阶段平均调用</div><EChart :option="costBar" /></div>
-          <div class="card">
-            <div class="card-title">预算 / 记账</div>
+        <div v-if="metrics && metrics.count > 0" class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>
+        <div v-if="metrics && metrics.count > 0" class="bento-grid">
+          <div class="bento-card"><div class="bc-label">平均调用</div><div class="bc-stat">{{ metrics.cost.avgCalls.toFixed(1) }}</div></div>
+          <div class="bento-card"><div class="bc-label">超上限</div><div class="bc-stat">{{ metrics.cost.overLimitChapters }}</div></div>
+          <div class="bento-card"><div class="bc-label">满审率</div><div class="bc-stat">{{ pct(metrics.review.fullRate) }}</div></div>
+          <div class="bento-card"><div class="bc-label">降级率</div><div class="bc-stat">{{ pct(metrics.review.downgradeRate) }}</div></div>
+          <div class="bento-card"><div class="bc-label">平均阻断</div><div class="bc-stat">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
+          <div v-if="costBar" class="bento-card bento-c2"><div class="bc-label">各阶段平均调用</div><EChart :option="costBar" /></div>
+          <div class="bento-card">
+            <div class="bc-label">预算 / 记账</div>
             <div class="kv"><span class="k">预算</span><span class="v">{{ metrics.cost.calibration.budgetNote }}</span></div>
-            <div v-if="metrics.cost.calibration.accountingNote" class="kv">
-              <span class="k">记账</span><span class="v ochre">{{ metrics.cost.calibration.accountingNote }}</span>
-            </div>
+            <div v-if="metrics.cost.calibration.accountingNote" class="kv"><span class="k">记账</span><span class="v ochre">{{ metrics.cost.calibration.accountingNote }}</span></div>
             <div class="kv"><span class="k">tokens</span><span class="v">{{ metrics.cost.tokensNote }}</span></div>
           </div>
-          <div v-if="reviewBar" class="card">
-            <div class="card-title">降级原因 Top</div>
-            <EChart :option="reviewBar" />
-          </div>
-        </template>
+          <div v-if="reviewBar" class="bento-card bento-c2"><div class="bc-label">降级原因 Top</div><EChart :option="reviewBar" /></div>
+        </div>
         <p v-else class="hint">尚无定稿指标。写完一章/篇定稿后可见成本与审查。</p>
 
         <!-- 文风 -->
-        <template v-if="style && style.count > 0">
-          <div class="blk-label">文风（{{ style.count }} {{ style.kind === 'short' ? '篇' : '章' }}）</div>
-          <div v-if="tagLine" class="card"><EChart :option="tagLine" /></div>
-          <div v-if="varLine" class="card"><EChart :option="varLine" /></div>
-          <div v-if="repeatLine" class="card"><EChart :option="repeatLine" /></div>
-          <div class="card">
-            <div class="card-title">风险章节</div>
+        <div v-if="style && style.count > 0" class="blk-label">文风（{{ style.count }} {{ style.kind === 'short' ? '篇' : '章' }}）</div>
+        <div v-if="style && style.count > 0" class="bento-grid">
+          <div v-if="tagLine" class="bento-card bento-c2"><EChart :option="tagLine" /></div>
+          <div v-if="varLine" class="bento-card bento-c2"><EChart :option="varLine" /></div>
+          <div v-if="repeatLine" class="bento-card bento-full"><EChart :option="repeatLine" /></div>
+          <div class="bento-card">
+            <div class="bc-label">风险章节</div>
             <div class="kv"><span class="k">单句超限</span><span class="v">{{ style.overlongChapters.join('、') || '无' }}</span></div>
             <div class="kv"><span class="k">形容词堆叠</span><span class="v">{{ style.adjStackChapters.join('、') || '无' }}</span></div>
             <div class="kv"><span class="k">结尾总结体</span><span class="v">{{ style.summaryEndingChapters.join('、') || '无' }}</span></div>
           </div>
-          <div v-if="style.drifts.length > 0" class="card">
-            <div class="card-title">⚠ 漂移信号<span style="color:var(--text-3);font-weight:normal"> · 建议复核，非判决</span></div>
-            <div v-for="d in style.drifts" :key="d.metric" class="list-row" style="margin-bottom:6px;align-items:flex-start">
-              <span class="clw-dot yellow" style="margin-top:6px"></span>
-              <div style="flex:1"><div class="m">{{ d.message }}</div></div>
+          <div v-if="style.drifts.length > 0" class="bento-card bento-c2">
+            <div class="bc-label">⚠ 漂移信号<span style="color:var(--text-3);font-weight:normal;text-transform:none;letter-spacing:0"> · 建议复核，非判决</span></div>
+            <div v-for="d in style.drifts" :key="d.metric" class="drift-row">
+              <span class="clw-dot yellow"></span><span>{{ d.message }}</span>
             </div>
           </div>
-        </template>
+        </div>
       </template>
     </div>
   </section>
 </template>
 
 <style scoped>
-.health {
-  margin: 0 auto;
-}
-.blk-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 24px 0 12px;
-}
-.blk-label:first-of-type {
-  margin-top: 0;
-}
-.health :deep(.echart) {
-  height: 200px;
-}
-.health .hint {
-  color: var(--text-2);
-  padding-top: 24px;
-}
-.health .hint.error {
-  color: var(--cinnabar);
-}
+.health{margin:0 auto}
+/* 图表页 bento 行高自适应（图表高度不一），最小 116px 保持卡感 */
+.health .bento-grid{grid-auto-rows:auto}
+.health .bento-card{min-height:116px}
+.health .bento-card .kv{margin-top:2px}
+.health :deep(.echart){height:180px}
+.health .blk-label{font-size:13px;font-weight:600;color:var(--ink);margin:24px 0 12px}
+.health .blk-label:first-of-type{margin-top:0}
+.health .drift-row{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:12px;color:var(--text-2);line-height:1.6}
+.health .drift-row .clw-dot{margin-top:6px;flex-shrink:0}
+.health .hint{color:var(--text-2);padding-top:24px}
+.health .hint.error{color:var(--cinnabar)}
 </style>
