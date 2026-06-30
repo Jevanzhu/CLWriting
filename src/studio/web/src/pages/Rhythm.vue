@@ -131,86 +131,60 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="rhythm-page">
-    <div class="panel-pad">
-      <div class="panel-title">节奏</div>
-      <div class="panel-sub">{{ data?.kind === 'long' ? '章长 · 钩子 · 场景情绪' : '篇长 · 情绪 · 反转' }}</div>
+    <div class="bento-wrap">
+      <div class="bento-head">
+        <h1 class="bento-title">节奏</h1>
+        <div class="bento-sub">
+          <span class="meta-chip">{{ data?.kind === 'long' ? '章长' : '篇长' }}</span>
+          <span class="meta-chip">{{ data?.kind === 'long' ? '钩子' : '情绪' }}</span>
+          <span class="meta-chip">{{ data?.kind === 'long' ? '场景情绪' : '反转' }}</span>
+        </div>
+      </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
-      <template v-else-if="data">
+      <div v-else-if="data" class="bento-grid">
         <!-- 字数曲线 -->
-        <div class="card">
-          <div class="card-title">{{ data.kind === 'long' ? '章长曲线' : '篇长曲线' }}</div>
-          <EChart v-if="wordOption" :option="wordOption" />
+        <div v-if="wordOption" class="bento-card bento-full">
+          <div class="bc-label">{{ data.kind === 'long' ? '章长曲线' : '篇长曲线' }}</div>
+          <EChart :option="wordOption" />
           <p v-if="data.kind === 'long'" class="avg-line">虚线为均字 {{ data.avgWords }}</p>
         </div>
-
         <!-- 钩子类型 × 强弱（长篇）-->
-        <div v-if="data.kind === 'long'" class="grid-2">
-          <div class="card"><EChart v-if="hookTypeOption" :option="hookTypeOption" /></div>
-          <div class="card"><EChart v-if="hookLevelOption" :option="hookLevelOption" /></div>
-        </div>
-
+        <template v-if="data.kind === 'long'">
+          <div v-if="hookTypeOption" class="bento-card bento-c2"><EChart :option="hookTypeOption" /></div>
+          <div v-if="hookLevelOption" class="bento-card bento-c2"><EChart :option="hookLevelOption" /></div>
+          <div v-if="sceneOption" class="bento-card bento-c2"><EChart :option="sceneOption" /></div>
+          <div v-if="sceneEmotionOption" class="bento-card bento-c2"><EChart :option="sceneEmotionOption" /></div>
+        </template>
         <!-- 情绪分布 -->
-        <div class="card"><EChart v-if="emotionOption" :option="emotionOption" /></div>
-
-        <!-- 场景分布 + 场景×情绪（长篇）-->
-        <div v-if="data.kind === 'long'" class="grid-2">
-          <div class="card"><EChart v-if="sceneOption" :option="sceneOption" /></div>
-          <div class="card"><EChart v-if="sceneEmotionOption" :option="sceneEmotionOption" /></div>
-        </div>
-
+        <div v-if="emotionOption" class="bento-card bento-c2"><EChart :option="emotionOption" /></div>
         <!-- 核心反转（短篇）-->
-        <div v-if="data.kind === 'short' && data.reversals.length" class="card">
-          <div class="card-title">核心反转<span style="color:var(--text-3);font-weight:normal"> · 点篇名进篇详情</span></div>
+        <div v-if="data.kind === 'short' && data.reversals.length" class="bento-card bento-full">
+          <div class="bc-label">核心反转<span style="color:var(--text-3);font-weight:normal;text-transform:none;letter-spacing:0"> · 点篇名进篇详情</span></div>
           <RouterLink
             v-for="r in data.reversals"
             :key="r.篇号"
-            class="list-row rev-link"
+            class="bc-list-row rev-link"
             :to="`/books/${enc}/piece/${r.篇号}`"
           >
-            <div style="flex:1">
-              <div class="t">第 {{ r.篇号 }} 篇 · {{ r.标题 }}</div>
-              <div class="m">{{ r.核心反转 }}</div>
-            </div>
+            <span>第 {{ r.篇号 }} 篇 · {{ r.标题 }}</span>
+            <span class="lr-sub">{{ r.核心反转 }}</span>
           </RouterLink>
         </div>
-      </template>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.rhythm-page {
-  margin: 0 auto;
-}
-.grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.avg-line {
-  margin: 8px 0 0;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-3);
-}
-.rev-link {
-  text-decoration: none;
-  color: inherit;
-}
-.rev-link:hover .t {
-  color: var(--ink-cyan);
-}
-.rhythm-page :deep(.echart) {
-  height: 220px;
-}
-.rhythm-page .hint {
-  color: var(--text-2);
-  padding-top: 24px;
-}
-.rhythm-page .hint.error {
-  color: var(--cinnabar);
-}
+.rhythm-page{margin:0 auto}
+.rhythm-page .bento-grid{grid-auto-rows:auto}
+.rhythm-page .bento-card{min-height:116px}
+.rhythm-page :deep(.echart){height:200px}
+.rhythm-page .avg-line{margin:8px 0 0;text-align:center;font-size:12px;color:var(--text-3)}
+.rhythm-page .rev-link{text-decoration:none;color:inherit}
+.rhythm-page .rev-link:hover{color:var(--ink-cyan)}
+.rhythm-page .hint{color:var(--text-2);padding-top:24px}
+.rhythm-page .hint.error{color:var(--cinnabar)}
 </style>

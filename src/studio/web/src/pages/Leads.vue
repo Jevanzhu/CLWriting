@@ -62,92 +62,76 @@ function specialties(l: Lead): string[] {
 
 <template>
   <section class="leads-page">
-    <div class="panel-pad">
-      <div class="panel-title">账本</div>
-      <div class="panel-sub">{{ data?.kind === 'long' ? '七类线索 · 推进矩阵 · 停滞预警' : '集子总览 · 各篇反转 / 回收' }}</div>
+    <div class="bento-wrap">
+      <div class="bento-head">
+        <h1 class="bento-title">账本</h1>
+        <div class="bento-sub">
+          <span class="meta-chip">{{ data?.kind === 'long' ? '七类线索' : '集子总览' }}</span>
+          <span class="meta-chip">{{ data?.kind === 'long' ? '推进矩阵' : '各篇反转' }}</span>
+          <span class="meta-chip">{{ data?.kind === 'long' ? '停滞预警' : '回收' }}</span>
+        </div>
+      </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
 
       <!-- 长篇 -->
       <template v-else-if="data && data.kind === 'long'">
-        <!-- 七类概览 -->
-        <div class="card">
-          <div class="card-title">七类概览</div>
-          <table class="overview">
-            <thead>
-              <tr><th>类型</th><th>总数</th><th>进行中</th><th>已收尾</th><th>已放弃</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="o in data.overview" :key="o.类型" :class="{ empty: o.total === 0 }">
-                <td>{{ o.类型 }}</td>
-                <td>{{ o.total }}</td>
-                <td>{{ o.进行中 }}</td>
-                <td>{{ o.已收尾 }}</td>
-                <td>{{ o.已放弃 }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- 停滞预警 -->
-        <div v-if="data.stale.length" class="card stale-card">
-          <div class="card-title">⚠ 停滞预警<span style="color:var(--text-3);font-weight:normal"> · 进行中 + 距今 ≥3 章</span></div>
-          <div v-for="s in data.stale" :key="s.编号" class="ledger-item">
-            <span class="clw-dot yellow"></span>
-            <div>
-              <b>{{ s.编号 }} · {{ s.标题 }}</b>
-              <div class="desc">最后推进第 {{ s.最后履历章 }} 章，距今 {{ s.距今 }} 章</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 账本推进矩阵 -->
-        <div class="card">
-          <div class="card-title">账本推进矩阵（章 × 线）</div>
-          <div class="matrix-scroll">
-            <table class="matrix">
-              <thead>
-                <tr>
-                  <th>章</th>
-                  <th v-for="l in data.leads" :key="l.编号" :title="`${l.编号} ${l.标题}（${l.类型}）`">{{ l.编号 }}</th>
-                </tr>
-              </thead>
+        <div class="bento-grid">
+          <div class="bento-card bento-full">
+            <div class="bc-label">七类概览</div>
+            <table class="overview">
+              <thead><tr><th>类型</th><th>总数</th><th>进行中</th><th>已收尾</th><th>已放弃</th></tr></thead>
               <tbody>
-                <tr v-for="ch in data.currentChapter" :key="ch">
-                  <td class="ch-no">{{ ch }}</td>
-                  <td
-                    v-for="l in data.leads"
-                    :key="l.编号"
-                    :class="{ filled: cellVerb(ch, l.编号) }"
-                    :title="cellTitle(ch, l.编号)"
-                  >{{ cellVerb(ch, l.编号) }}</td>
+                <tr v-for="o in data.overview" :key="o.类型" :class="{ empty: o.total === 0 }">
+                  <td>{{ o.类型 }}</td><td>{{ o.total }}</td><td>{{ o.进行中 }}</td><td>{{ o.已收尾 }}</td><td>{{ o.已放弃 }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </div>
-
-        <!-- 线履历 -->
-        <div class="card">
-          <div class="card-title">线履历</div>
-          <div class="lead-grid">
-            <div v-for="l in data.leads" :key="l.编号" class="lead-item">
-              <div class="lead-head">
-                <span class="lead-id">{{ l.编号 }}</span>
-                <span class="lead-title">{{ l.标题 }}</span>
-                <span class="tag" :class="l.状态 === '已收尾' ? 'green' : l.状态 === '已放弃' ? 'gray' : ''">{{ l.状态 }}</span>
+          <div v-if="data.stale.length" class="bento-card bento-full stale-card">
+            <div class="bc-label">⚠ 停滞预警<span style="color:var(--text-3);font-weight:normal;text-transform:none;letter-spacing:0"> · 进行中 + 距今 ≥3 章</span></div>
+            <div v-for="s in data.stale" :key="s.编号" class="ledger-item">
+              <span class="clw-dot yellow"></span>
+              <div><b>{{ s.编号 }} · {{ s.标题 }}</b><div class="desc">最后推进第 {{ s.最后履历章 }} 章，距今 {{ s.距今 }} 章</div></div>
+            </div>
+          </div>
+          <div class="bento-card bento-full">
+            <div class="bc-label">账本推进矩阵（章 × 线）</div>
+            <div class="matrix-scroll">
+              <table class="matrix">
+                <thead>
+                  <tr><th>章</th><th v-for="l in data.leads" :key="l.编号" :title="`${l.编号} ${l.标题}（${l.类型}）`">{{ l.编号 }}</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="ch in data.currentChapter" :key="ch">
+                    <td class="ch-no">{{ ch }}</td>
+                    <td v-for="l in data.leads" :key="l.编号" :class="{ filled: cellVerb(ch, l.编号) }" :title="cellTitle(ch, l.编号)">{{ cellVerb(ch, l.编号) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="bento-card bento-full">
+            <div class="bc-label">线履历</div>
+            <div class="lead-grid">
+              <div v-for="l in data.leads" :key="l.编号" class="lead-item">
+                <div class="lead-head">
+                  <span class="lead-id">{{ l.编号 }}</span>
+                  <span class="lead-title">{{ l.标题 }}</span>
+                  <span class="tag" :class="l.状态 === '已收尾' ? 'green' : l.状态 === '已放弃' ? 'gray' : ''">{{ l.状态 }}</span>
+                </div>
+                <div v-if="specialties(l).length" class="specialty">
+                  <span v-for="(s, i) in specialties(l)" :key="i">{{ s }}</span>
+                </div>
+                <ol class="history">
+                  <li v-for="(e, i) in l.履历" :key="i">
+                    <span class="hist-ch">第{{ e.章号 }}章</span>
+                    <span class="hist-verb">{{ e.动词 }}</span>
+                    <span class="hist-evid">{{ e.证据 }}</span>
+                  </li>
+                </ol>
               </div>
-              <div v-if="specialties(l).length" class="specialty">
-                <span v-for="(s, i) in specialties(l)" :key="i">{{ s }}</span>
-              </div>
-              <ol class="history">
-                <li v-for="(e, i) in l.履历" :key="i">
-                  <span class="hist-ch">第{{ e.章号 }}章</span>
-                  <span class="hist-verb">{{ e.动词 }}</span>
-                  <span class="hist-evid">{{ e.证据 }}</span>
-                </li>
-              </ol>
             </div>
           </div>
         </div>
@@ -155,41 +139,35 @@ function specialties(l: Lead): string[] {
 
       <!-- 短篇集子 -->
       <template v-else-if="data && data.kind === 'short'">
-        <div class="card short-card">
-          <div class="card-title">集子总览</div>
-          <div class="card-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
-            <div class="stat-card"><div class="n">{{ data.summary.总篇数 }}</div><div class="l">篇数</div></div>
-            <div class="stat-card"><div class="n">{{ data.summary.总字数 }}</div><div class="l">总字数</div></div>
-            <div class="stat-card"><div class="n">{{ data.summary.平均篇长 }}</div><div class="l">字 / 篇</div></div>
+        <div class="bento-grid">
+          <div class="bento-card bento-full short-card">
+            <div class="bc-label">集子总览</div>
+            <div class="card-row" style="grid-template-columns:repeat(3,1fr)">
+              <div class="stat-card"><div class="n">{{ data.summary.总篇数 }}</div><div class="l">篇数</div></div>
+              <div class="stat-card"><div class="n">{{ data.summary.总字数 }}</div><div class="l">总字数</div></div>
+              <div class="stat-card"><div class="n">{{ data.summary.平均篇长 }}</div><div class="l">字 / 篇</div></div>
+            </div>
+            <p class="short-hint">短篇无跨篇账本。各篇清单（核心反转 / 情绪峰值 / 伏笔回收）一览，点「详情」进单篇。</p>
           </div>
-          <p class="short-hint">短篇无跨篇账本。各篇清单（核心反转 / 情绪峰值 / 伏笔回收）一览，点「详情」进单篇。</p>
+          <div v-if="data.pieces.length" class="bento-card bento-full">
+            <div class="bc-label">各篇清单</div>
+            <table class="col-table">
+              <thead><tr><th>篇</th><th>标题</th><th>目标情绪</th><th>情绪峰值</th><th>回收率</th><th>核心反转</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="p in data.pieces" :key="p.篇号">
+                  <td>{{ p.篇号 }}</td>
+                  <td class="col-title">{{ p.标题 }}<span class="col-words">（{{ p.字数 }} 字）</span></td>
+                  <td>{{ p.目标情绪 ?? '—' }}</td>
+                  <td><span v-if="p.情绪峰值 !== undefined" :class="{ peak: p.情绪峰值 >= 8 }">{{ p.情绪峰值 }}/10 {{ p.情绪类型 }}</span><span v-else>—</span></td>
+                  <td><span v-if="p.回收率" :class="{ unresolved: p.未回收数 }">{{ p.回收率 }}<template v-if="p.未回收数">（{{ p.未回收数 }} 弃）</template></span><span v-else>—</span></td>
+                  <td class="col-rev">{{ p.核心反转 ?? '—' }}</td>
+                  <td><RouterLink class="col-go" :to="`/books/${encodeURIComponent(name)}/piece/${p.篇号}`">详情 →</RouterLink></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="hint">（暂无定稿篇，先在工作台写一篇）</p>
         </div>
-        <div v-if="data.pieces.length" class="card">
-          <div class="card-title">各篇清单</div>
-          <table class="col-table">
-            <thead>
-              <tr><th>篇</th><th>标题</th><th>目标情绪</th><th>情绪峰值</th><th>回收率</th><th>核心反转</th><th></th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in data.pieces" :key="p.篇号">
-                <td>{{ p.篇号 }}</td>
-                <td class="col-title">{{ p.标题 }}<span class="col-words">（{{ p.字数 }} 字）</span></td>
-                <td>{{ p.目标情绪 ?? '—' }}</td>
-                <td>
-                  <span v-if="p.情绪峰值 !== undefined" :class="{ peak: p.情绪峰值 >= 8 }">{{ p.情绪峰值 }}/10 {{ p.情绪类型 }}</span>
-                  <span v-else>—</span>
-                </td>
-                <td>
-                  <span v-if="p.回收率" :class="{ unresolved: p.未回收数 }">{{ p.回收率 }}<template v-if="p.未回收数">（{{ p.未回收数 }} 弃）</template></span>
-                  <span v-else>—</span>
-                </td>
-                <td class="col-rev">{{ p.核心反转 ?? '—' }}</td>
-                <td><RouterLink class="col-go" :to="`/books/${encodeURIComponent(name)}/piece/${p.篇号}`">详情 →</RouterLink></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-else class="hint">（暂无定稿篇，先在工作台写一篇）</p>
       </template>
     </div>
   </section>
@@ -199,6 +177,9 @@ function specialties(l: Lead): string[] {
 .leads-page {
   margin: 0 auto;
 }
+.leads-page .bento-grid{grid-auto-rows:auto}
+.leads-page .bento-card{min-height:116px}
+.leads-page .bento-card .card-row{margin:8px 0 12px}
 .stale-card {
   border-color: var(--ochre);
 }
