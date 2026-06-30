@@ -130,7 +130,7 @@ const emotionOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="piece-page">
-    <div class="panel-pad">
+    <div class="bento-wrap">
       <!-- 顶部：返回 + 篇导航 -->
       <div class="head-row">
         <button class="btn" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
@@ -144,81 +144,66 @@ const emotionOption = computed<EChartsOption | null>(() => {
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
 
-      <!-- 元数据 -->
-      <article v-if="data" class="card meta-card">
-        <div class="meta-title">
-          <span class="meta-no">第 {{ data.meta.篇号 }} 篇</span>
-          <span class="meta-name">{{ data.meta.标题 }}</span>
-          <div class="meta-fields">
-            <span v-if="data.meta.目标情绪" class="tag">🎯 {{ data.meta.目标情绪 }}</span>
-            <span class="tag gray">📏 {{ data.meta.字数 }} 字</span>
+      <template v-if="data">
+        <div class="bento-head">
+          <h1 class="bento-title">第 {{ data.meta.篇号 }} 篇 · {{ data.meta.标题 }}</h1>
+          <div class="bento-sub">
+            <span v-if="data.meta.目标情绪" class="meta-chip">🎯 {{ data.meta.目标情绪 }}</span>
+            <span class="meta-chip">📏 {{ data.meta.字数 }} 字</span>
             <RouterLink class="edit-link" :to="`/books/${encodeURIComponent(name)}/edit`">编辑此篇 ✏️</RouterLink>
           </div>
         </div>
-        <p v-if="data.meta.核心反转" class="meta-reversal">
+        <div v-if="data.meta.核心反转" class="meta-reversal">
           <span class="tag yellow">核心反转</span>
           <span>{{ data.meta.核心反转 }}</span>
-        </p>
-      </article>
+        </div>
 
-      <!-- 主体：左正文 + 右清单 -->
-      <div v-if="data" class="main-grid">
-        <article class="card prose-card">
-          <div class="card-title">正文（只读对照）</div>
-          <div class="prose">
-            <div v-for="(s, i) in proseSections" :key="i">
-              <h4 v-if="s.title" class="prose-sub">{{ s.title }}</h4>
-              <p v-for="(para, j) in s.text.split(/\n+/).filter(Boolean)" :key="j">{{ para }}</p>
-            </div>
-            <p v-if="proseSections.length === 0" class="hint">（无正文）</p>
-          </div>
-        </article>
-
-        <div class="list-col">
-          <!-- 情绪曲线 -->
-          <article class="card">
-            <div class="card-title">情绪曲线</div>
-            <EChart v-if="emotionOption" :option="emotionOption" />
-            <p v-else class="hint">（清单无情绪曲线）</p>
-          </article>
-
-          <!-- 反转线索表 -->
-          <article class="card">
-            <div class="card-title">反转线索表</div>
-            <div class="reversal-core">
-              <span class="tag yellow">核心反转</span>
-              <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
-            </div>
-            <div v-if="data.list.反转线索表.铺垫点.length">
-              <div v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i" class="ledger-item">
-                <span class="setup-pos">{{ p.位置 }}</span>
-                <div>{{ p.内容 }}</div>
+        <!-- 主体：左正文 + 右清单 -->
+        <div class="main-grid">
+          <article class="bento-card prose-card">
+            <div class="bc-label">正文（只读对照）</div>
+            <div class="prose">
+              <div v-for="(s, i) in proseSections" :key="i">
+                <h4 v-if="s.title" class="prose-sub">{{ s.title }}</h4>
+                <p v-for="(para, j) in s.text.split(/\n+/).filter(Boolean)" :key="j">{{ para }}</p>
               </div>
+              <p v-if="proseSections.length === 0" class="hint">（无正文）</p>
             </div>
-            <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
           </article>
 
-          <!-- 伏笔回收 -->
-          <article class="card">
-            <div class="card-title">伏笔回收</div>
-            <div v-if="data.list.伏笔回收.length">
-              <div
-                v-for="(e, i) in data.list.伏笔回收"
-                :key="i"
-                class="ledger-item"
-                :class="{ unresolved: e.未回收 }"
-              >
-                <span class="clw-dot" :class="e.未回收 ? 'red' : 'green'"></span>
-                <div>
-                  <b>{{ e.伏笔 }}</b>
-                  <div class="desc">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</div>
+          <div class="list-col">
+            <article class="bento-card">
+              <div class="bc-label">情绪曲线</div>
+              <EChart v-if="emotionOption" :option="emotionOption" />
+              <p v-else class="hint">（清单无情绪曲线）</p>
+            </article>
+            <article class="bento-card">
+              <div class="bc-label">反转线索表</div>
+              <div class="reversal-core">
+                <span class="tag yellow">核心反转</span>
+                <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
+              </div>
+              <div v-if="data.list.反转线索表.铺垫点.length">
+                <div v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i" class="ledger-item">
+                  <span class="setup-pos">{{ p.位置 }}</span>
+                  <div>{{ p.内容 }}</div>
                 </div>
               </div>
-            </div>
-            <p v-else class="hint">（无伏笔）</p>
-          </article>
+              <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
+            </article>
+            <article class="bento-card">
+              <div class="bc-label">伏笔回收</div>
+              <div v-if="data.list.伏笔回收.length">
+                <div v-for="(e, i) in data.list.伏笔回收" :key="i" class="ledger-item" :class="{ unresolved: e.未回收 }">
+                  <span class="clw-dot" :class="e.未回收 ? 'red' : 'green'"></span>
+                  <div><b>{{ e.伏笔 }}</b><div class="desc">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</div></div>
+                </div>
+              </div>
+              <p v-else class="hint">（无伏笔）</p>
+            </article>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
   </section>
 </template>
@@ -227,6 +212,7 @@ const emotionOption = computed<EChartsOption | null>(() => {
 .piece-page {
   margin: 0 auto;
 }
+.piece-page .bento-card{min-height:auto;padding:14px 16px}
 .head-row {
   display: flex;
   justify-content: space-between;

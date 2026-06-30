@@ -158,105 +158,111 @@ watch(
 
 <template>
   <section class="settings-page">
-    <div class="panel-pad">
-      <div class="panel-title">设定</div>
-      <div class="panel-sub">境界 · 角色 · 时间线 · 关系</div>
+    <div class="bento-wrap">
+      <div class="bento-head">
+        <h1 class="bento-title">设定</h1>
+        <div class="bento-sub">
+          <span class="meta-chip">境界</span><span class="meta-chip">角色</span><span class="meta-chip">时间线</span><span class="meta-chip">关系</span>
+        </div>
+      </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
       <template v-else-if="data && data.kind === 'long'">
-        <!-- 境界体系（P2 可编辑） -->
-        <article class="card">
-          <div class="card-title">境界体系<span class="title-hint">· 点击编辑</span></div>
-          <template v-if="data.realm">
-            <template v-if="!editingRealm">
-              <div v-if="data.realm.体系.length">
-                <div v-for="sys in data.realm.体系" :key="sys.名称" class="realm-system">
-                  <div class="realm-name">{{ sys.名称 }}</div>
-                  <div class="realm-chain">
-                    <template v-for="(r, i) in sys.序列" :key="r + i">
-                      <span class="realm-chip">{{ r }}</span>
-                      <span v-if="i < sys.序列.length - 1" class="realm-arrow">→</span>
-                    </template>
+        <div class="bento-grid">
+          <!-- 境界体系（P2 可编辑） -->
+          <article class="bento-card bento-full">
+            <div class="bc-label">境界体系<span class="title-hint">· 点击编辑</span></div>
+            <template v-if="data.realm">
+              <template v-if="!editingRealm">
+                <div v-if="data.realm.体系.length">
+                  <div v-for="sys in data.realm.体系" :key="sys.名称" class="realm-system">
+                    <div class="realm-name">{{ sys.名称 }}</div>
+                    <div class="realm-chain">
+                      <template v-for="(r, i) in sys.序列" :key="r + i">
+                        <span class="realm-chip">{{ r }}</span>
+                        <span v-if="i < sys.序列.length - 1" class="realm-arrow">→</span>
+                      </template>
+                    </div>
+                  </div>
+                  <p v-if="data.realm.正文" class="realm-note">{{ data.realm.正文 }}</p>
+                </div>
+                <p v-else class="hint">暂无体系（点编辑添加一个）</p>
+                <div class="btn-row"><button class="btn" @click="startEditRealm">✍ 编辑</button></div>
+              </template>
+              <div v-else class="realm-edit">
+                <div v-for="(sys, si) in realmForm.体系" :key="si" class="realm-sys-edit">
+                  <input v-model="sys.名称" class="char-input" placeholder="体系名（如 修真境界）" />
+                  <input v-model="sys._seqText" class="char-input" placeholder="序列（逗号分隔：炼气, 筑基, 金丹）" />
+                  <button class="btn danger" @click="removeRealmSys(si)">删除体系</button>
+                </div>
+                <button class="btn" @click="addRealmSys">+ 添加体系</button>
+                <textarea v-model="realmForm.正文" class="char-textarea" placeholder="境界说明（正文，人话描述，不参与机检）" rows="3"></textarea>
+                <div class="char-edit-btns">
+                  <button class="btn primary" :disabled="realmSaving" @click="saveRealm">{{ realmSaving ? '保存中…' : '💾 保存' }}</button>
+                  <button class="btn" :disabled="realmSaving" @click="editingRealm = false">取消</button>
+                </div>
+              </div>
+            </template>
+            <p v-else class="hint">暂无境界体系（定稿/设定/境界体系.md）</p>
+          </article>
+
+          <!-- 角色卡片（P2 结构化可编辑） -->
+          <article class="bento-card bento-full">
+            <div class="bc-label">角色<span class="title-hint">· 点击编辑</span></div>
+            <div v-if="data.characters.length" class="card-grid">
+              <div v-for="(c, i) in data.characters" :key="c.file" class="char-card">
+                <template v-if="editingChar !== c.file">
+                  <div class="free-title">{{ c.姓名 }}</div>
+                  <p v-if="c.身份" class="char-meta"><span>身份</span>{{ c.身份 }}</p>
+                  <p v-if="c.目标" class="char-meta"><span>目标</span>{{ c.目标 }}</p>
+                  <p v-if="c.境界" class="char-meta"><span>境界</span>{{ c.境界 }}</p>
+                  <p class="free-summary">{{ c.正文.slice(0, 100) }}{{ c.正文.length > 100 ? '…' : '' }}</p>
+                  <button class="btn" @click="startEditChar(c)">✍ 编辑</button>
+                </template>
+                <div v-else class="char-edit">
+                  <input v-model="charForm.姓名" class="char-input" placeholder="姓名（必填）" />
+                  <input v-model="charForm.身份" class="char-input" placeholder="身份" />
+                  <input v-model="charForm.目标" class="char-input" placeholder="目标" />
+                  <input v-model="charForm.境界" class="char-input" placeholder="境界" />
+                  <input v-model="charForm.关系" class="char-input" placeholder="关系（如 林远(师徒);赵衡(仇敌)）" />
+                  <textarea v-model="charForm.正文" class="char-textarea" placeholder="性格 / 外貌 / 履历…（正文，自由描述）" rows="5"></textarea>
+                  <div class="char-edit-btns">
+                    <button class="btn primary" :disabled="charSaving" @click="saveCharacter(c, i)">{{ charSaving ? '保存中…' : '💾 保存' }}</button>
+                    <button class="btn" :disabled="charSaving" @click="editingChar = null">取消</button>
                   </div>
                 </div>
-                <p v-if="data.realm.正文" class="realm-note">{{ data.realm.正文 }}</p>
-              </div>
-              <p v-else class="hint">暂无体系（点编辑添加一个）</p>
-              <div class="btn-row"><button class="btn" @click="startEditRealm">✍ 编辑</button></div>
-            </template>
-            <div v-else class="realm-edit">
-              <div v-for="(sys, si) in realmForm.体系" :key="si" class="realm-sys-edit">
-                <input v-model="sys.名称" class="char-input" placeholder="体系名（如 修真境界）" />
-                <input v-model="sys._seqText" class="char-input" placeholder="序列（逗号分隔：炼气, 筑基, 金丹）" />
-                <button class="btn danger" @click="removeRealmSys(si)">删除体系</button>
-              </div>
-              <button class="btn" @click="addRealmSys">+ 添加体系</button>
-              <textarea v-model="realmForm.正文" class="char-textarea" placeholder="境界说明（正文，人话描述，不参与机检）" rows="3"></textarea>
-              <div class="char-edit-btns">
-                <button class="btn primary" :disabled="realmSaving" @click="saveRealm">{{ realmSaving ? '保存中…' : '💾 保存' }}</button>
-                <button class="btn" :disabled="realmSaving" @click="editingRealm = false">取消</button>
               </div>
             </div>
-          </template>
-          <p v-else class="hint">暂无境界体系（定稿/设定/境界体系.md）</p>
-        </article>
+            <p v-else class="hint">暂无角色（定稿/设定/角色/*.md）</p>
+          </article>
 
-        <!-- 角色卡片（P2 结构化可编辑） -->
-        <article class="card">
-          <div class="card-title">角色<span class="title-hint">· 点击编辑</span></div>
-          <div v-if="data.characters.length" class="card-grid">
-            <div v-for="(c, i) in data.characters" :key="c.file" class="char-card">
-              <template v-if="editingChar !== c.file">
-                <div class="free-title">{{ c.姓名 }}</div>
-                <p v-if="c.身份" class="char-meta"><span>身份</span>{{ c.身份 }}</p>
-                <p v-if="c.目标" class="char-meta"><span>目标</span>{{ c.目标 }}</p>
-                <p v-if="c.境界" class="char-meta"><span>境界</span>{{ c.境界 }}</p>
-                <p class="free-summary">{{ c.正文.slice(0, 100) }}{{ c.正文.length > 100 ? '…' : '' }}</p>
-                <button class="btn" @click="startEditChar(c)">✍ 编辑</button>
-              </template>
-              <div v-else class="char-edit">
-                <input v-model="charForm.姓名" class="char-input" placeholder="姓名（必填）" />
-                <input v-model="charForm.身份" class="char-input" placeholder="身份" />
-                <input v-model="charForm.目标" class="char-input" placeholder="目标" />
-                <input v-model="charForm.境界" class="char-input" placeholder="境界" />
-                <input v-model="charForm.关系" class="char-input" placeholder="关系（如 林远(师徒);赵衡(仇敌)）" />
-                <textarea v-model="charForm.正文" class="char-textarea" placeholder="性格 / 外貌 / 履历…（正文，自由描述）" rows="5"></textarea>
-                <div class="char-edit-btns">
-                  <button class="btn primary" :disabled="charSaving" @click="saveCharacter(c, i)">{{ charSaving ? '保存中…' : '💾 保存' }}</button>
-                  <button class="btn" :disabled="charSaving" @click="editingChar = null">取消</button>
-                </div>
+          <!-- 时间线 -->
+          <article class="bento-card bento-full">
+            <div class="bc-label">时间线</div>
+            <div v-if="data.timeline.length" class="card-grid">
+              <div v-for="(t, i) in data.timeline" :key="i" class="free-card">
+                <div class="free-title">{{ t.标题 }}</div>
+                <pre class="free-summary pre">{{ t.摘要 }}</pre>
               </div>
             </div>
-          </div>
-          <p v-else class="hint">暂无角色（定稿/设定/角色/*.md）</p>
-        </article>
+            <p v-else class="hint">暂无时间线（定稿/设定/时间线/*.md）</p>
+          </article>
 
-        <!-- 时间线 -->
-        <article class="card">
-          <div class="card-title">时间线</div>
-          <div v-if="data.timeline.length" class="card-grid">
-            <div v-for="(t, i) in data.timeline" :key="i" class="free-card">
-              <div class="free-title">{{ t.标题 }}</div>
-              <pre class="free-summary pre">{{ t.摘要 }}</pre>
-            </div>
-          </div>
-          <p v-else class="hint">暂无时间线（定稿/设定/时间线/*.md）</p>
-        </article>
-
-        <!-- 关系图（P2 角色 + 关系债网络） -->
-        <article v-if="data.debtGraph.length || data.characterRelations.length" class="card">
-          <div class="card-title">关系图<span class="title-hint">· 角色关系（绿）+ 关系债（红），可拖拽 / 缩放</span></div>
-          <EChart v-if="graphOption" :option="graphOption" />
-          <ul class="debt-list">
-            <li v-for="d in data.debtGraph" :key="d.编号">
-              <span class="debt-party">{{ d.欠方 || '—' }}</span>
-              <span class="debt-arrow">欠</span>
-              <span class="debt-party">{{ d.债主 || '—' }}</span>
-              <span class="debt-meta">{{ d.编号 }} · {{ d.标题 }} · {{ d.状态 }}</span>
-            </li>
-          </ul>
-        </article>
+          <!-- 关系图（P2 角色 + 关系债网络） -->
+          <article v-if="data.debtGraph.length || data.characterRelations.length" class="bento-card bento-full">
+            <div class="bc-label">关系图<span class="title-hint">· 角色关系（绿）+ 关系债（红），可拖拽 / 缩放</span></div>
+            <EChart v-if="graphOption" :option="graphOption" />
+            <ul class="debt-list">
+              <li v-for="d in data.debtGraph" :key="d.编号">
+                <span class="debt-party">{{ d.欠方 || '—' }}</span>
+                <span class="debt-arrow">欠</span>
+                <span class="debt-party">{{ d.债主 || '—' }}</span>
+                <span class="debt-meta">{{ d.编号 }} · {{ d.标题 }} · {{ d.状态 }}</span>
+              </li>
+            </ul>
+          </article>
+        </div>
       </template>
     </div>
   </section>
@@ -266,6 +272,8 @@ watch(
 .settings-page {
   margin: 0 auto;
 }
+.settings-page .bento-grid{grid-auto-rows:auto}
+.settings-page .bento-card{min-height:auto}
 .title-hint {
   font-weight: 400;
   color: var(--text-3);
