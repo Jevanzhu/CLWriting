@@ -165,9 +165,18 @@ async function bootstrap(): Promise<void> {
     console.warn('⚠ 未定位到工作目录，书架将为空（请在书架页点「打开书库」选择）。')
   }
 
-  const staticDir = resolveStaticDir()
-  const server = startServer({ port: 0, staticDir, workDir })
-  const port = await listenPort(server)
+  // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
+  // 不起内嵌 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
+  const devUi = !!process.env.CLW_DEV_UI
+  let url: string
+  if (devUi) {
+    url = 'http://localhost:5173'
+  } else {
+    const staticDir = resolveStaticDir()
+    const server = startServer({ port: 0, staticDir, workDir })
+    const port = await listenPort(server)
+    url = `http://127.0.0.1:${port}`
+  }
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -190,8 +199,8 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     console.error('PRELOAD-ERROR', p, err.message)
   })
-  await mainWindow.loadURL(`http://127.0.0.1:${port}`)
-  console.log(`✓ CLWriting 桌面版已启动 → http://127.0.0.1:${port}`)
+  await mainWindow.loadURL(url)
+  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${url}`)
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────

@@ -2,6 +2,7 @@
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useWorkbenchLog } from '../composables/useWorkbenchLog'
+import { useHint } from '../composables/useHint'
 import {
   approveReview,
   generateOutline,
@@ -47,6 +48,7 @@ const reviewRunning = ref(false)
 const textOut = ref('')
 // 事件流走共享状态（useWorkbenchLog），右栏 EventStream 实时联动
 const { log } = useWorkbenchLog()
+const { hint } = useHint()
 const saved = ref<{ path: string; words: number } | null>(null)
 const outlineSaved = ref<{ path: string; words: number } | null>(null)
 const checkReport = ref('') // 机检报告(check stdout)
@@ -254,6 +256,7 @@ async function verdictApprove(): Promise<void> {
     await approveReview(name.value)
     verdictApproved.value = true
     log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
+    hint('裁决通过 · 可定稿')
     // 6.8② 自动推进:裁决通过 → 定稿(人工 done → 确定性步)
     if (autoAdvance.value) {
       log.value.push({ t: ts(), type: 'spawn', text: `→ 自动定稿` })
@@ -284,6 +287,11 @@ async function saveDraft(): Promise<void> {
     log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
   }
   draftMode.value = false
+}
+
+/** 自动推进开关切换：即时反馈（对齐 mockup showHint） */
+function onAutoToggle(): void {
+  hint('自动推进 ' + (autoAdvance.value ? '已开' : '已关'))
 }
 
 const kind = ref<'long' | 'short'>('long')
@@ -393,7 +401,7 @@ onUnmounted(() => es?.close())
             @click="runCliStep('finalize')"
           >✅ 定稿</button>
           <label class="auto-toggle" title="确定性步 done 后自动推进下一步（AI / 人工步前停）">
-            <input type="checkbox" v-model="autoAdvance" /> 自动推进
+            <input type="checkbox" v-model="autoAdvance" @change="onAutoToggle" /> 自动推进
           </label>
         </div>
         <!-- 中断后：弃稿 / 改指令重写 -->

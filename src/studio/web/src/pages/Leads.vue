@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { Lead, LeadsData } from '../types'
 import { getLeads } from '../api/books'
+import ErrorState from '../components/ErrorState.vue'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
@@ -81,7 +82,7 @@ function specialties(l: Lead): string[] {
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
-      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <ErrorState v-else-if="error" :msg="error" @retry="load(name)" />
 
       <!-- 长篇 -->
       <template v-else-if="data && data.kind === 'long'">

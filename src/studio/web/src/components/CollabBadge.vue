@@ -30,7 +30,8 @@ async function poll(): Promise<void> {
 const pos = computed(() => {
   if (props.mode === 'edit') {
     const f = route.query.file
-    return typeof f === 'string' ? f : ''
+    if (typeof f !== 'string' || !f) return ''
+    return f.split(/[\\/]/).pop() ?? f // 只取文件名，避免长路径撑宽顶栏
   }
   return props.mode === 'workbench' ? '工作台' : ''
 })

@@ -21,6 +21,8 @@
     "build:all": "tsup && npm --prefix src/studio/web run build",
     "prepack": "npm run build:all",
     "dev": "tsup --watch",
+    "dev:api": "npx tsx scripts/dev-api.ts",
+    "dev:app": "CLW_DEV_UI=1 electron .",
     "dev:web": "npm --prefix src/studio/web run dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -42,6 +44,7 @@
     "happy-dom": "^20.10.6",
     "pinia": "^3.0.4",
     "tsup": "^8.0.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0",
     "zod": "^3.23.0"

@@ -48,6 +48,9 @@ async function openLibrary(): Promise<void> {
 function goShelf(): void {
   router.push('/shelf')
 }
+function newBook(): void {
+  router.push('/books/new')
+}
 
 onMounted(load)
 </script>
@@ -76,7 +79,8 @@ onMounted(load)
             </div>
           </div>
           <div class="lib-actions">
-            <button class="btn" @click="goShelf">打开书架</button>
+            <button class="btn primary" @click="goShelf">打开书架</button>
+            <button class="btn" @click="newBook">+ 新建书</button>
             <button class="btn" @click="openLibrary">切换书库</button>
           </div>
         </div>

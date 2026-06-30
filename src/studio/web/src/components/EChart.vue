@@ -35,14 +35,26 @@ const props = defineProps<{ option: EChartsOption | null }>()
 const el = ref<HTMLElement>()
 let chart: EChartsType | null = null
 
-/** 递归把 option 里的 'var(--xxx)' 解析为 :root token 实色（echarts canvas 不认 CSS var）。 */
+/** probe 元素：让浏览器把任意颜色表达式（color-mix/var/rgba/hex）解析为 canvas 认的 rgba。
+ *  直接 getPropertyValue(:root) 拿到的是原始 token 值（color-mix 不被解析）→ canvas 不认 → fallback 黑色。
+ *  probe.style.color 赋值后 getComputedStyle 能解析 color-mix 等 CSS 函数为 rgba。 */
+const probe = document.createElement('div')
+const colorCache = new Map<string, string>()
+function toRGBA(expr: string): string {
+  const cached = colorCache.get(expr)
+  if (cached) return cached
+  probe.style.color = ''
+  probe.style.color = expr
+  if (!probe.parentElement) document.body.appendChild(probe)
+  const resolved = getComputedStyle(probe).color || expr
+  colorCache.set(expr, resolved)
+  return resolved
+}
+
+/** 递归把 option 里的颜色 var(--xxx) 解析为实色 rgba（echarts canvas 不认 CSS var/color-mix）。 */
 function resolveVar<T>(v: T): T {
   if (typeof v === 'string') {
-    const m = v.match(/^var\(\s*(--[\w-]+)\s*\)$/)
-    if (m) {
-      const val = getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()
-      if (val) return val as unknown as T
-    }
+    if (/var\(\s*--[\w-]+\s*\)/.test(v)) return toRGBA(v) as unknown as T
     return v
   }
   if (Array.isArray(v)) return v.map(resolveVar) as unknown as T

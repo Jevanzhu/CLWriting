@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import EChart from '../components/EChart.vue'
+import ErrorState from '../components/ErrorState.vue'
 import type { CharacterCard, RealmSystem, SettingsData } from '../types'
 import { getSettings, updateCharacter, updateRealm } from '../api/books'
 
@@ -103,6 +104,14 @@ async function saveRealm(): Promise<void> {
   realmSaving.value = false
 }
 
+/** 关系边颜色：按关系名关键词映射（对齐 mockup relEdgeColor：tension→朱砂/active→青/past→赭） */
+function edgeColorByType(type: string): string {
+  const t = type || ''
+  if (/敌|仇|对|恨|杀|反/.test(t)) return 'var(--cinnabar)'
+  if (/前|曾|旧|过往|已故|逝/.test(t)) return 'var(--ochre)'
+  return 'var(--ink-cyan)'
+}
+
 /** 关系图:角色 + 角色关系 + 关系债网络(力导向布局,#7.5) */
 const graphOption = computed<EChartsOption | null>(() => {
   if (!data.value) return null
@@ -123,7 +132,15 @@ const graphOption = computed<EChartsOption | null>(() => {
     .map((d) => ({ source: d.欠方, target: d.债主, label: { show: true, formatter: '欠' }, lineStyle: { color: 'var(--cinnabar)' } }))
   const relLinks = data.value.characterRelations
     .filter((r) => r.from && r.to)
-    .map((r) => ({ source: r.from, target: r.to, label: { show: true, formatter: r.type }, lineStyle: { color: 'var(--ink-cyan)' } }))
+    .map((r) => ({ source: r.from, target: r.to, label: { show: true, formatter: r.type }, lineStyle: { color: edgeColorByType(r.type) } }))
+  const links = [...debtLinks, ...relLinks]
+  // 节点连接数 → 主角（连接最多）朱砂高亮，其余青（对齐 mockup relNodeColor 状态色语义）
+  const linkCount = new Map<string, number>()
+  links.forEach((l) => {
+    linkCount.set(l.source, (linkCount.get(l.source) ?? 0) + 1)
+    linkCount.set(l.target, (linkCount.get(l.target) ?? 0) + 1)
+  })
+  const maxLinks = Math.max(0, ...linkCount.values())
   return {
     tooltip: {},
     series: [
@@ -138,10 +155,13 @@ const graphOption = computed<EChartsOption | null>(() => {
           fontSize: 11,
           formatter: (params) => String((params as { data?: { label?: string } }).data?.label ?? ''),
         },
-        data: [...names].map((n) => ({ name: n, symbolSize: 40 })),
-        links: [...debtLinks, ...relLinks],
+        data: [...names].map((n) => ({
+          name: n,
+          symbolSize: 40,
+          itemStyle: { color: linkCount.get(n) === maxLinks && maxLinks > 0 ? 'var(--cinnabar)' : 'var(--ink-cyan)' },
+        })),
+        links,
         lineStyle: { width: 2, curveness: 0.2 },
-        itemStyle: { color: 'var(--ink-cyan)' },
       },
     ],
   }
@@ -167,7 +187,7 @@ watch(
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
-      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <ErrorState v-else-if="error" :msg="error" @retry="load(name)" />
       <template v-else-if="data && data.kind === 'long'">
         <div class="bento-grid">
           <!-- 境界体系（P2 可编辑） -->

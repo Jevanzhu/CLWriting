@@ -2,8 +2,10 @@
 // 设置弹层（mockup .modal-mask/.modal/.mb-section/.swatch-row/.kv）。
 // 字体/排版实时改 :root CSS var（--prose-font/size/lh/gap），CodeMirror 即刻生效。主题已收敛单 mono。
 import { ref, onMounted } from 'vue'
+import { useHint } from '../composables/useHint'
 
 const show = defineModel<boolean>('show', { default: false })
+const { hint } = useHint()
 
 const fonts = [
   { id: 'kai', label: '楷体（系统，默认）', css: "'STKaiti','KaiTi','楷体',serif" },
@@ -34,6 +36,13 @@ function applyCfg(): void {
   r.setProperty('--prose-lh', String(cfgLh.value))
   r.setProperty('--prose-gap', cfgGap.value + 'px')
 }
+
+/** 选字体：应用 + 即时反馈（对齐 mockup showHint） */
+function selectFont(f: { id: string; label: string; css: string }): void {
+  cfgFont.value = f.css
+  applyCfg()
+  hint('字体已切换 · ' + f.label)
+}
 </script>
 
 <template>
@@ -46,7 +55,7 @@ function applyCfg(): void {
       <div class="modal-body">
         <div class="mb-section">
           <h3>正文字体</h3>
-          <label v-for="f in fonts" :key="f.id" class="swatch-row" @click="cfgFont = f.css; applyCfg()">
+          <label v-for="f in fonts" :key="f.id" class="swatch-row" @click="selectFont(f)">
             <input type="radio" name="clw-font" :checked="cfgFont === f.css" />
             <div class="nm" :style="{ fontFamily: f.css }">{{ f.label }}</div>
           </label>

@@ -423,6 +423,9 @@
 .ev-saved .ev-type,.ev-saved .ev-text{color:var(--ink-cyan)}
 .ev-done .ev-type{color:var(--ink-cyan)}
 .ev-error .ev-type,.ev-error .ev-text{color:var(--cinnabar)}
+.ev-init .ev-type{color:var(--text-3)}
+.ev-tool .ev-type{color:var(--ochre)}
+.ev-usage .ev-type,.ev-usage .ev-text{color:var(--ink-cyan)}
 .ev-text{color:var(--text-2)}
 
 .statusbar{display:none}

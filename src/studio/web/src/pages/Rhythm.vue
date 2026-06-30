@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import EChart from '../components/EChart.vue'
+import ErrorState from '../components/ErrorState.vue'
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from 'echarts'
 import type { Rhythm } from '../types'
 import { getRhythm } from '../api/books'
@@ -151,7 +152,7 @@ const wordStats = computed(() => {
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
-      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <ErrorState v-else-if="error" :msg="error" @retry="load(name)" />
       <div v-else-if="data" class="bento-grid">
         <!-- 字数曲线 -->
         <div v-if="wordOption" class="bento-card bento-full">

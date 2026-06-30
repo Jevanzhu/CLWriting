@@ -43,8 +43,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 <template>
   <div class="sider-foot">
-    <div class="foot-back" @click="emit('back')"><span class="foot-arrow">←</span><span>书架</span></div>
-    <div class="icon-btn" title="设置" @click="emit('settings')">⋯</div>
+    <div class="foot-back" title="返回书架" @click="emit('back')"><span class="foot-arrow">←</span><span>书架</span></div>
+    <div class="icon-btn" data-act="settings" title="设置" @click="emit('settings')">⋯</div>
     <div class="kind-seg" :class="{ open }" @click.stop="open = !open">
       <div class="kind-drop">
         <span class="caret"><i class="up"></i><i class="dn"></i></span>

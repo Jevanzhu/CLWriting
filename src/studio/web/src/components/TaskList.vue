@@ -57,6 +57,10 @@ watch(
 </script>
 
 <template>
+  <div class="tree-head">
+    <span class="tree-head-label">任务</span>
+    <span class="head-count">{{ tasks.length }}</span>
+  </div>
   <div class="wb-tasks">
     <div
       v-for="t in tasks"

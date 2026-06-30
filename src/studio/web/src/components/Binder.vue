@@ -12,6 +12,7 @@ const books = ref<BookMeta[]>([])
 const cur = computed(() => books.value.find((b) => b.name === props.bookName))
 // 只列与当前书同类型的书（长篇 ↔ 长篇 / 短篇集 ↔ 短篇集）
 const list = computed(() => (cur.value ? books.value.filter((b) => b.kind === cur.value!.kind) : []))
+const kindLabel = computed(() => (cur.value?.kind === 'short' ? '短篇集' : '长篇'))
 
 async function load(): Promise<void> {
   try {
@@ -29,16 +30,20 @@ function open(name: string): void {
 </script>
 
 <template>
-  <div v-if="list.length" class="binder">
+  <div class="binder">
     <div class="binder-head"><span>书籍</span><span class="head-count">{{ list.length }}</span></div>
-    <div
-      v-for="b in list"
-      :key="b.name"
-      class="binder-item"
-      :class="{ active: b.name === bookName }"
-      @click="open(b.name)"
-    >
-      <span class="bi-name">{{ b.name }}</span>
+    <div v-if="list.length" class="binder-items">
+      <div
+        v-for="b in list"
+        :key="b.name"
+        class="binder-item"
+        :class="{ active: b.name === bookName }"
+        @click="open(b.name)"
+      >
+        <span class="dot" :class="b.name === bookName ? 'green' : 'gray'"></span>
+        <span class="bi-name">{{ b.name }}</span>
+      </div>
     </div>
+    <div v-else class="binder-empty">暂无{{ kindLabel }}书籍</div>
   </div>
 </template>

@@ -12,6 +12,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
+import ErrorState from '../components/ErrorState.vue'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
 import type { PieceDetailData, PieceSummary } from '../types'
 import { getPiece, listPieces } from '../api/books'
@@ -148,13 +149,13 @@ const stats = computed(() => {
         <button class="btn" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
         <div class="pd-pager">
           <button class="btn" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
-          <span>第 {{ no }} 篇</span>
+          <span class="pd-no">第 {{ no }} 篇<span v-if="pieces.length" style="color: var(--text-3)"> / 共 {{ pieces.length }} 篇</span></span>
           <button class="btn" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
         </div>
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
-      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <ErrorState v-else-if="error" :msg="error" @retry="loadDetail(name, no)" />
 
       <template v-if="data">
         <div class="bento-head">
@@ -166,21 +167,22 @@ const stats = computed(() => {
           </div>
         </div>
         <div v-if="data.meta.核心反转" class="pd-reversal">
-          <span class="tag yellow">核心反转</span>
+          <span class="reversal-label">核心反转</span>
           <span>{{ data.meta.核心反转 }}</span>
         </div>
 
         <!-- stat 摘要组（对齐 mockup pd stat 卡：伏笔回收/峰值/铺垫/字数） -->
         <div v-if="stats" class="pd-stats">
-          <div class="bento-card"><div class="bc-label">伏笔回收</div><div class="bc-stat">{{ stats.recv }}<span>/{{ stats.payoffTotal }}</span></div></div>
-          <div class="bento-card"><div class="bc-label">情绪峰值</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.peak }}</div></div>
-          <div class="bento-card"><div class="bc-label">反转铺垫</div><div class="bc-stat">{{ stats.setupCount }}<span> 处</span></div></div>
-          <div class="bento-card"><div class="bc-label">本篇字数</div><div class="bc-stat">{{ stats.words }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">伏笔回收</div><div class="bc-stat">{{ stats.recv }}<span>/{{ stats.payoffTotal }}</span></div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">情绪峰值</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.peak }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">反转铺垫</div><div class="bc-stat">{{ stats.setupCount }}<span> 处</span></div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">本篇字数</div><div class="bc-stat">{{ stats.words }}</div></div>
         </div>
 
         <!-- 主体：左正文 + 右清单 -->
         <div class="main-grid">
           <article class="bento-card prose-card">
+            <div class="bc-menu">⋮</div>
             <div class="bc-label">正文（只读对照）</div>
             <div class="prose">
               <div v-for="(s, i) in proseSections" :key="i">
@@ -193,14 +195,16 @@ const stats = computed(() => {
 
           <div class="list-col">
             <article class="bento-card">
+              <div class="bc-menu">⋮</div>
               <div class="bc-label">情绪曲线</div>
               <EChart v-if="emotionOption" :option="emotionOption" />
               <p v-else class="hint">（清单无情绪曲线）</p>
             </article>
             <article class="bento-card">
+              <div class="bc-menu">⋮</div>
               <div class="bc-label">反转线索表</div>
               <div class="pd-core">
-                <span class="tag yellow">核心反转</span>
+                <span class="reversal-label">核心反转</span>
                 <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
               </div>
               <ul v-if="data.list.反转线索表.铺垫点.length" class="pd-setups">
@@ -209,11 +213,13 @@ const stats = computed(() => {
               <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
             </article>
             <article class="bento-card">
+              <div class="bc-menu">⋮</div>
               <div class="bc-label">伏笔回收</div>
               <ul v-if="data.list.伏笔回收.length" class="pd-payoffs">
                 <li v-for="(e, i) in data.list.伏笔回收" :key="i" :class="{ unresolved: e.未回收 }">
                   <span class="payoff-name">{{ e.伏笔 }}</span>
-                  <span class="payoff-at">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</span>
+                  <span v-if="e.未回收" class="tag red">未回收</span>
+                  <span v-else class="payoff-at">→ {{ e.回收位置 }}</span>
                 </li>
               </ul>
               <p v-else class="hint">（无伏笔）</p>

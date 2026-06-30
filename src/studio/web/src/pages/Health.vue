@@ -5,6 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
 import EChart from '../components/EChart.vue'
+import ErrorState from '../components/ErrorState.vue'
 import type { MetricsReport, StyleTrend } from '../types'
 import { getHealth } from '../api/books'
 
@@ -155,7 +156,7 @@ const dimRings = computed(() => {
       </div>
 
       <p v-if="loading" class="hint">加载中…</p>
-      <p v-else-if="error" class="hint error">加载失败：{{ error }}</p>
+      <ErrorState v-else-if="error" :msg="error" @retry="load(name)" />
       <template v-else>
         <!-- 成本 / 审查 -->
         <div v-if="metrics && metrics.count > 0" class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>

@@ -5,6 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
 import DiffView from '../components/DiffView.vue'
+import { useHint } from '../composables/useHint'
 import type { FileEntry, RewriteResult } from '../types'
 import {
   applyRewrite,
@@ -18,6 +19,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { hint } = useHint()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const files = ref<FileEntry[]>([])
 const selected = ref('')
@@ -199,6 +201,7 @@ async function rewriteApply(accept: boolean): Promise<void> {
       setTimeout(() => (savedMsg.value = ''), 3000)
     }
     rewriteResult.value = null
+    if (!accept) hint('已丢弃改写')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -235,9 +238,10 @@ watch(
   <section class="editor">
     <div class="editor-inner">
       <div class="edit-info">
-        <span class="ei-crumbs">{{ selected || '（从左侧选一个文件）' }}</span>
+        <span v-if="selected" class="ei-crumbs">{{ kind === 'short' ? '短篇' : '长篇' }} › <b>{{ fileTitle }}</b></span>
+        <span v-else class="ei-crumbs">（从左侧选一个文件）</span>
         <span v-if="dirty" class="et-dirty">● 未保存</span>
-        <span v-else-if="savedMsg" class="et-dirty saved">{{ savedMsg }}</span>
+        <span v-else-if="savedMsg" class="et-dirty saved">✓ {{ savedMsg }}</span>
         <span v-if="selected" class="doc-status" :class="dirty ? 'draft' : 'done'">{{ dirty ? '未保存' : '已保存' }}</span>
         <span class="ei-gap"></span>
         <span v-if="selected" class="et-wc">
@@ -266,6 +270,25 @@ watch(
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
+      <template v-else-if="selected && !loading && !content">
+        <!-- 空文件：对齐 mockup renderFileMid（words===0 分支）的 fm-bar + state-empty -->
+        <div class="fm-bar">
+          <span class="fm cyan">{{ kind === 'short' ? '篇' : '章' }} · <b>{{ fileTitle }}</b></span>
+          <span class="fm">字数 · <b>0</b></span>
+          <span class="fm">场景 · <b style="color: var(--text-3)">—</b></span>
+          <span class="fm">视角 · <b style="color: var(--text-3)">—</b></span>
+          <span class="fm">钩子 · <b style="color: var(--text-3)">—</b></span>
+          <span class="fm">情绪 · <b style="color: var(--text-3)">—</b></span>
+        </div>
+        <h1 class="chapter-title">{{ fileTitle }}</h1>
+        <div class="chapter-meta-line">{{ kind === 'short' ? '短篇' : '长篇' }} · <b style="color: var(--ochre)">待开写</b></div>
+        <div class="state-empty">
+          <div class="se-icon">✍️</div>
+          <div class="se-text">本{{ kind === 'short' ? '篇' : '章' }}尚未开写</div>
+          <div class="se-sub">细纲就绪后去工作台让 AI 生成首版，或直接在此续写</div>
+          <RouterLink class="btn primary" :to="`/books/${name}/workbench`">去工作台生成 →</RouterLink>
+        </div>
+      </template>
       <template v-else-if="selected && !loading">
         <h1 class="chapter-title">{{ fileTitle }}</h1>
         <div class="chapter-meta-line">钩子 <b style="color: var(--text-3)">—</b> · 情绪 <b style="color: var(--text-3)">—</b><span style="color: var(--text-3); font-size: 11px; margin-left: 8px">（章元数据待 core）</span></div>

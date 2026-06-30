@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 书架（shelf）：统计 bento + 长篇/短篇分区 book-card。对齐 mockup v5 renderShelf。
 // 数据维度：BookMeta 仅 name/kind/created_at（无字数/章数/进度/状态点）→
-// 省略 mockup 的字数柱状(bc-bars)/进度条(progress)/状态点(dot)/"进行中"卡（不造假数据）。
+// bc-bars 用类型数量占比（非字数）；省略进度条/状态点/"进行中"卡（不造假数据）。
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -23,6 +23,11 @@ const libName = computed(() => {
 const libraryLabel = computed(() => currentLib.value || '')
 const longBooks = computed(() => books.value.filter((b) => b.kind !== 'short'))
 const shortBooks = computed(() => books.value.filter((b) => b.kind === 'short'))
+/** 类型分布柱高（按数量占比；对齐 mockup bc-bars 视觉，维度是类型数量非字数，不造假） */
+function barHeight(n: number): string {
+  const max = Math.max(longBooks.value.length, shortBooks.value.length, 1)
+  return Math.max((n / max) * 100, 10) + '%'
+}
 
 async function loadDesktop(): Promise<void> {
   if (!desktop) return
@@ -88,7 +93,11 @@ onMounted(() => {
             <div class="bc-menu">⋮</div>
             <div class="bc-label">书籍总览</div>
             <div class="bc-stat">{{ books.length }}<span> 本</span></div>
-            <div class="bc-foot">{{ longBooks.length }} 长篇 · {{ shortBooks.length }} 短篇集</div>
+            <div class="bc-bars">
+              <div class="bc-bar" :style="{ height: barHeight(longBooks.length) }" title="长篇 {{ longBooks.length }} 本"></div>
+              <div class="bc-bar" :style="{ height: barHeight(shortBooks.length) }" title="短篇集 {{ shortBooks.length }} 本"></div>
+            </div>
+            <div class="bc-foot">{{ longBooks.length }} 长篇 · {{ shortBooks.length }} 短篇集 · 柱高=类型占比</div>
           </div>
           <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">总书数</div><div class="bc-stat">{{ books.length }}</div></div>
           <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">长篇</div><div class="bc-stat">{{ longBooks.length }}</div></div>
@@ -107,8 +116,20 @@ onMounted(() => {
                 @click="open(b.name)"
                 @keydown.enter="open(b.name)"
               >
-                <div class="bc-top"><span class="bc-name">{{ b.name }}</span></div>
+                <div class="bc-top">
+                  <!-- 状态点：BookMeta 无状态字段 → 占位 gray（待 core 提供 dot/状态） -->
+                  <span class="dot gray"></span>
+                  <span class="bc-name">{{ b.name }}</span>
+                </div>
                 <div class="bc-meta">长篇 · 创建于 {{ fmtDate(b.created_at) }}</div>
+                <!-- meta 说明行：无 genre/章数/字数 → 占位「待 core」（对齐 mockup 小字行） -->
+                <div style="font-size:11px;color:var(--text-3);margin:4px 0 6px">—</div>
+                <!-- 进度条：无 wordTarget/words → 占位 width:0（待 core 提供字数进度） -->
+                <div class="progress" style="margin:6px 0 8px"><div style="width:0%"></div></div>
+                <div class="bc-foot">
+                  <span>完成 —</span>
+                  <span>—</span>
+                </div>
               </div>
               <div class="shelf-new-card" tabindex="0" @click="newBook" @keydown.enter="newBook">
                 <span class="plus">＋</span><span>新建长篇</span>
@@ -127,8 +148,20 @@ onMounted(() => {
                 @click="open(b.name)"
                 @keydown.enter="open(b.name)"
               >
-                <div class="bc-top"><span class="bc-name">{{ b.name }}</span></div>
+                <div class="bc-top">
+                  <!-- 状态点：BookMeta 无状态字段 → 占位 gray（待 core 提供 dot/状态） -->
+                  <span class="dot gray"></span>
+                  <span class="bc-name">{{ b.name }}</span>
+                </div>
                 <div class="bc-meta">短篇集 · 创建于 {{ fmtDate(b.created_at) }}</div>
+                <!-- meta 说明行：无 genre/篇数/字数 → 占位「—」（待 core） -->
+                <div style="font-size:11px;color:var(--text-3);margin:4px 0 6px">—</div>
+                <!-- 进度条：无 wordTarget/words → 占位 width:0（待 core 提供字数进度） -->
+                <div class="progress" style="margin:6px 0 8px"><div style="width:0%"></div></div>
+                <div class="bc-foot">
+                  <span>完成 —</span>
+                  <span>—</span>
+                </div>
               </div>
               <div class="shelf-new-card" tabindex="0" @click="newBook" @keydown.enter="newBook">
                 <span class="plus">＋</span><span>新建短篇集</span>

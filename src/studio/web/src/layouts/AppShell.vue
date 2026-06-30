@@ -6,7 +6,8 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NTooltip } from 'naive-ui'
 import { useTheme } from '../composables/useTheme'
-import { useHeartbeat } from '../composables/useHeartbeat'
+import { useHeartbeat, serverOnline } from '../composables/useHeartbeat'
+import { useHint } from '../composables/useHint'
 import OverviewNav from '../components/OverviewNav.vue'
 import FileTree from '../components/FileTree.vue'
 import TaskList from '../components/TaskList.vue'
@@ -30,6 +31,7 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 const { themeName } = useTheme()
+const { state: hintState, hint } = useHint()
 
 const enc = computed(() => (props.bookName ? encodeURIComponent(props.bookName) : ''))
 
@@ -68,6 +70,25 @@ function switchMode(m: Mode): void {
 function goShelf(): void {
   router.push('/shelf')
 }
+
+/** ⤢ 专注模式：折叠左右栏（仅编辑态）；对齐 mockup showHint 反馈 */
+function toggleFocus(): void {
+  focus.value = !focus.value
+  if (!focus.value) {
+    hint('已退出专注')
+  } else if (props.mode === 'edit') {
+    hint('专注模式 · 编辑框独占（再按 ⤢ 或 ⌘⇧F 退出）')
+  } else {
+    focus.value = false
+    hint('专注模式仅编辑态可用')
+  }
+}
+
+/** ◧ 详情面板：右栏开关；对齐 mockup showHint 反馈 */
+function togglePanel(): void {
+  panelOpen.value = !panelOpen.value
+  hint(panelOpen.value ? '已展开详情面板' : '已收起详情面板')
+}
 const modeLabel = computed(
   () => ({ overview: '总览', edit: '编辑', workbench: '工作台' }[props.mode]),
 )
@@ -84,7 +105,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
   <div class="app">
     <!-- 左栏 overlay（透明浮层，内部 sider-left 白底） -->
     <aside class="sider-slot" :class="{ focus: isFocus }">
-      <div class="sider-left">
+      <div :class="mode === 'workbench' ? 'wb-list' : 'sider-left'">
         <BookAnchor :book-name="bookName" />
         <div class="sider-scroll">
           <OverviewNav v-if="mode === 'overview'" :book-name="bookName" />
@@ -121,13 +142,13 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
           </NTooltip>
           <NTooltip trigger="hover">
             <template #trigger>
-              <span class="icon-btn" :class="{ on: focus }" @click="focus = !focus">⤢</span>
+              <span class="icon-btn" :class="{ on: focus }" @click="toggleFocus">⤢</span>
             </template>
             专注模式（折叠左右栏）
           </NTooltip>
           <NTooltip trigger="hover">
             <template #trigger>
-              <span class="icon-btn" :class="{ on: panelOpen }" @click="panelOpen = !panelOpen">◧</span>
+              <span class="icon-btn" :class="{ on: panelOpen }" @click="togglePanel">◧</span>
             </template>
             详情面板
           </NTooltip>
@@ -135,29 +156,41 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
       </header>
 
       <div class="workspace" :class="{ focus: isFocus, 'panel-closed': !panelOpen }">
-        <main class="content">
-          <div class="content-scroll">
-            <slot />
-          </div>
-        </main>
-        <aside class="sider-right">
-          <div class="sider-right-inner">
-            <DataDetail v-if="mode === 'overview'" />
-            <ContextPanel v-else-if="mode === 'edit'" />
-            <EventStream v-else />
-          </div>
-        </aside>
+        <div class="main-area">
+          <main class="content">
+            <div class="content-scroll">
+              <slot />
+            </div>
+          </main>
+          <aside class="sider-right">
+            <div class="sider-right-head">
+              <div class="sr-head-left">
+                <span class="sr-eyebrow">详情</span>
+                <span class="sr-title">{{ bookName }}</span>
+              </div>
+              <span class="sr-close" title="收起详情" @click="panelOpen = false">✕</span>
+            </div>
+            <div class="sider-right-inner">
+              <DataDetail v-if="mode === 'overview'" />
+              <ContextPanel v-else-if="mode === 'edit'" />
+              <EventStream v-else />
+            </div>
+          </aside>
+        </div>
       </div>
 
       <footer class="statusbar">
-        <span class="host">● claude CLI 已连接</span>
+        <span class="host" :class="{ off: !serverOnline }">● {{ serverOnline ? 'Claude CLI 已连接' : 'CLI 连接中断' }}</span>
         <span>{{ modeLabel }} · {{ routeLabel }}</span>
-        <div class="status-right"><span>{{ themeName() }}</span></div>
+        <div class="right"><span>{{ themeName() }}</span></div>
       </footer>
     </div>
 
     <SettingsModal v-model:show="showSettings" />
     <CommandPalette v-model:show="showPalette" />
+
+    <!-- 全局操作反馈浮层（对齐 mockup .hint-tip，components.css:431） -->
+    <div class="hint-tip" :class="{ show: hintState.visible }">{{ hintState.text }}</div>
   </div>
 </template>
 
@@ -171,7 +204,8 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
   background: var(--cyan-10);
 }
 
-.status-right {
-  margin-left: auto;
+/* statusbar host 离线态（serverOnline=false 时） */
+.host.off {
+  color: var(--cinnabar);
 }
 </style>
