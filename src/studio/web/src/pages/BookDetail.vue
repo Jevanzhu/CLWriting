@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 作品概要（总览态中栏 o1）：Bento 便当盒网格，对齐 mockup v5 renderOvMid。
+// 数据 GET /overview（identity/progress/state/volumes/timeline 全真实）。
 import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
@@ -89,12 +91,18 @@ function canWrite(s: BookOverview['state']): boolean {
   return s.state === 7 || s.state === 5 || s.state === 8
 }
 
-/** 继续写作 → 临时跳编辑 tab(工作台 AI 起草在 Step 2 上线) */
+/** 继续写作 → 编辑态 */
 function onWrite(): void {
   router.push(`/books/${encodeURIComponent(name.value)}/edit`)
 }
 
-/** 写作热力(7.2)：定稿时间线日历热力图(GitHub 贡献图风格) */
+/** 完成度环 conic-gradient（bento-lg 卡内，动态 pct） */
+const ringStyle = computed(() => {
+  const pct = data.value?.progress.percent ?? 0
+  return `background:conic-gradient(var(--ink-cyan) 0 ${pct}%,var(--border-55) ${pct}% 100%)`
+})
+
+/** 写作热力（7.2）：定稿时间线日历热力图（GitHub 贡献图风格） */
 const heatOption = computed<EChartsOption | null>(() => {
   const tl = data.value?.timeline ?? []
   if (tl.length === 0) return null
@@ -128,82 +136,74 @@ const heatOption = computed<EChartsOption | null>(() => {
 
 <template>
   <section class="book-detail">
-    <p v-if="loading" class="panel-pad hint">加载中…</p>
-    <p v-else-if="error" class="panel-pad hint error">加载失败：{{ error }}</p>
+    <p v-if="loading" class="bento-wrap hint">加载中…</p>
+    <p v-else-if="error" class="bento-wrap hint error">加载失败：{{ error }}</p>
     <template v-else-if="data">
-      <div class="panel-pad">
-        <button class="btn" style="margin-bottom:18px" @click="router.push('/')">← 返回书架</button>
-
-        <div class="panel-title">{{ data.identity.title }}</div>
-        <div class="panel-sub">
-          {{ data.identity.genre || '未分类' }} · {{ data.identity.kind === 'short' ? '短篇集' : '长篇' }}
-          · 宿主 {{ hostLabel(data.identity.host) }} · 创建 {{ fmtDate(data.identity.created_at) }}
-        </div>
-
-        <!-- 关键指标 -->
-        <div class="card-row">
-          <div class="stat-card">
-            <div class="n">{{ fmtWords(data.progress.words) }}</div>
-            <div class="l">总字数</div>
-          </div>
-          <div class="stat-card">
-            <div class="n">{{ data.progress.chapters }}</div>
-            <div class="l">{{ data.identity.kind === 'short' ? '篇数' : '章数' }}</div>
-          </div>
-          <div class="stat-card">
-            <div class="n">{{ data.progress.percent ?? '—' }}<span v-if="data.progress.percent !== undefined">%</span></div>
-            <div class="l">完成度</div>
-          </div>
-          <div class="stat-card">
-            <div class="n" style="font-size:15px;line-height:1.3">{{ data.state.name }}</div>
-            <div class="l">写作位置</div>
+      <div class="bento-wrap">
+        <div class="bento-head">
+          <h1 class="bento-title">{{ data.identity.title }}</h1>
+          <div class="bento-sub">
+            <span class="meta-chip">{{ data.identity.genre || '未分类' }}</span>
+            <span class="meta-chip">{{ data.identity.kind === 'short' ? '短篇集' : '长篇' }}</span>
+            <span class="meta-chip">{{ hostLabel(data.identity.host) }}</span>
+            <span class="meta-chip">创建 {{ fmtDate(data.identity.created_at) }}</span>
           </div>
         </div>
 
-        <!-- 写作位置 + 完成度（协作/进度核心）-->
-        <div class="list-row" style="background:var(--panel);align-items:center">
-          <div
-            class="ring on-panel"
-            :style="`background:conic-gradient(var(--ink-cyan) 0 ${(data.progress.percent ?? 0)}%,var(--border) ${(data.progress.percent ?? 0)}% 100%)`"
-          >
-            <span class="ring-txt">{{ data.progress.percent ?? '—' }}<span v-if="data.progress.percent !== undefined">%</span></span>
+        <div class="bento-grid">
+          <!-- 完成度（大卡 · 环形）-->
+          <div class="bento-card bento-lg">
+            <div class="bc-label">完成度</div>
+            <div class="bc-ring" :style="ringStyle">
+              <span>{{ data.progress.percent ?? '—' }}<span v-if="data.progress.percent !== undefined">%</span></span>
+            </div>
+            <div class="bc-foot">{{ fmtWords(data.progress.words) }} 字 · 目标 {{ fmtWords(data.progress.targetWords ?? 0) }} 字</div>
+            <div class="bc-progress"><div :style="{ width: `${data.progress.percent ?? 0}%` }"></div></div>
           </div>
-          <div style="flex:1;margin-left:14px;min-width:0">
-            <div style="font-weight:600;margin-bottom:6px">写作位置 · {{ data.state.name }}</div>
-            <div style="color:var(--text-2);font-size:12px;line-height:1.7">{{ stateHint(data.state) || '状态就绪' }}</div>
-            <div v-if="data.progress.percent !== undefined" class="progress" style="margin-top:10px">
-              <div :style="{ width: `${data.progress.percent}%` }"></div>
-            </div>
-            <div style="color:var(--text-3);font-size:11px;margin-top:6px">
-              目标 {{ fmtWords(data.progress.targetWords ?? 0) }} 字
-            </div>
-            <div class="btn-row">
-              <button class="btn primary" :disabled="!canWrite(data.state)" @click="onWrite">
+
+          <!-- 总字数 -->
+          <div class="bento-card">
+            <div class="bc-label">总字数</div>
+            <div class="bc-stat">{{ fmtWords(data.progress.words) }}</div>
+          </div>
+
+          <!-- 章数 / 篇数 -->
+          <div class="bento-card">
+            <div class="bc-label">{{ data.identity.kind === 'short' ? '篇数' : '章数' }}</div>
+            <div class="bc-stat">{{ data.progress.chapters }}</div>
+          </div>
+
+          <!-- 写作位置 -->
+          <div class="bento-card">
+            <div class="bc-label">写作位置</div>
+            <div class="bc-stat" style="font-size:15px;line-height:1.3">{{ data.state.name }}</div>
+            <div class="bc-sub">{{ stateHint(data.state) || '状态就绪' }}</div>
+          </div>
+
+          <!-- 继续写作（action 卡）-->
+          <div class="bento-card bento-action">
+            <div class="bc-label">继续写作</div>
+            <div class="bc-btns">
+              <button class="neo-btn" :disabled="!canWrite(data.state)" @click="onWrite">
                 {{ canWrite(data.state) ? '继续写作 →' : '工作台 Step 2 上线' }}
               </button>
             </div>
           </div>
-        </div>
 
-        <!-- 目录 -->
-        <div class="card">
-          <div class="card-title">目录路径</div>
-          <div class="kv"><span class="k">书库目录</span><span class="v" style="font-family:ui-monospace,monospace;font-size:11px">{{ data.identity.path }}</span></div>
-        </div>
+          <!-- 卷结构（长篇）-->
+          <div v-if="data.identity.kind === 'long'" class="bento-card bento-c2">
+            <div class="bc-label">卷结构</div>
+            <div class="bc-list">
+              <div v-for="v in data.volumes" :key="v.path" class="bc-list-row"><span>{{ v.name }}</span></div>
+              <div v-if="!data.volumes.length" class="bc-sub">暂无卷纲（在「编辑」维护 大纲/卷纲）</div>
+            </div>
+          </div>
 
-        <!-- 卷结构（长篇）-->
-        <div v-if="data.identity.kind === 'long'" class="card">
-          <div class="card-title">卷结构</div>
-          <ul v-if="data.volumes.length" class="vol-list">
-            <li v-for="v in data.volumes" :key="v.path">{{ v.name }}</li>
-          </ul>
-          <p v-else class="hint">暂无卷纲（在「编辑」中维护 大纲/卷纲/*.md）</p>
-        </div>
-
-        <!-- 写作热力 -->
-        <div v-if="heatOption" class="card">
-          <div class="card-title">写作热力 · {{ new Date().getFullYear() }} 年定稿</div>
-          <EChart :option="heatOption" />
+          <!-- 写作热力 -->
+          <div v-if="heatOption" class="bento-card bento-full">
+            <div class="bc-label">写作热力 · {{ new Date().getFullYear() }} 年定稿</div>
+            <EChart :option="heatOption" />
+          </div>
         </div>
       </div>
     </template>
@@ -211,30 +211,8 @@ const heatOption = computed<EChartsOption | null>(() => {
 </template>
 
 <style scoped>
-.book-detail {
-  margin: 0 auto;
-}
-.book-detail .vol-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-}
-.book-detail .vol-list li {
-  padding: 8px 12px;
-  background: var(--paper);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.book-detail :deep(.echart) {
-  height: 160px;
-}
-.book-detail .hint {
-  color: var(--text-2);
-  padding-top: 24px;
-}
-.book-detail .hint.error {
-  color: var(--cinnabar);
-}
+.book-detail{margin:0 auto}
+.book-detail :deep(.echart){height:150px}
+.book-detail .hint{color:var(--text-2);padding-top:40px}
+.book-detail .hint.error{color:var(--cinnabar)}
 </style>
