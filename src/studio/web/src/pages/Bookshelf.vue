@@ -113,6 +113,17 @@ onMounted(() => {
         <p class="sub">点右上「+ 新建」建第一本书</p>
       </div>
       <div v-else class="library-tree">
+        <!-- 统计概览（对齐 mockup shelf bento-grid；BookMeta 无字数，只统计册数） -->
+        <div class="bento-grid shelf-stats">
+          <div class="bento-card bento-md">
+            <div class="bc-label">总书数</div>
+            <div class="bc-stat">{{ books.length }}<span> 本</span></div>
+            <div class="bc-foot">长篇 {{ longBooks.length }} · 短篇 {{ shortBooks.length }}</div>
+          </div>
+          <div class="bento-card"><div class="bc-label">长篇</div><div class="bc-stat">{{ longBooks.length }}</div></div>
+          <div class="bento-card"><div class="bc-label">短篇集</div><div class="bc-stat">{{ shortBooks.length }}</div></div>
+        </div>
+
         <section
           v-for="group in bookGroups"
           :key="group.key"
@@ -135,8 +146,8 @@ onMounted(() => {
               @click="open(b.name)"
               @keydown.enter="open(b.name)"
             >
-              <div class="book-name">{{ b.name }}</div>
-              <div class="book-meta">创建于 {{ fmtDate(b.created_at) }}</div>
+              <div class="book-name">{{ b.name }}<span class="book-kind">{{ b.kind === 'short' ? '短' : '长' }}</span></div>
+              <div class="book-meta">{{ b.kind === 'short' ? '短篇集' : '长篇' }} · 创建于 {{ fmtDate(b.created_at) }}</div>
             </div>
           </div>
           <p v-else class="group-empty">{{ group.empty }}</p>
@@ -273,6 +284,30 @@ onMounted(() => {
 .book-name {
   font-weight: 600;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.book-kind {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--cyan-14);
+  color: var(--ink-cyan);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.shelf-stats {
+  margin: 0 0 22px;
+  grid-auto-rows: auto;
+}
+.shelf-stats .bento-card {
+  min-height: auto;
+  padding: 14px 16px;
+}
+.shelf-stats .bc-stat {
+  font-size: 26px;
 }
 .book-meta {
   color: var(--text-2);
