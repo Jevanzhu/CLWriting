@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// AppShell（v5）：window-chrome + 顶栏(mode-tabs 居中浮 / actions) + 三栏(左 overlay 贯穿 / 中居中 / 右浮层玻璃) + 容器查询响应式。
+// AppShell（v5）：无窗口外框——Electron 原生窗口提供交通灯/标题栏，Vue 仅应用内容。
+// 顶栏(CollabBadge + mode-tabs 居中浮 + actions) + 三栏(左 overlay 贯穿 / 中居中 / 右浮层玻璃) + 容器查询响应式。
 // 左栏 OverviewNav/FileTree/TaskList；右栏 DataDetail/ContextPanel/EventStream。⌘P 命令面板；⤢ 专注；◧ 面板。
 // 详见 Dev/UI/Plans/桌面端与界面计划.md 第四节。
 import { computed, ref, onMounted, onUnmounted } from 'vue'
@@ -82,16 +83,7 @@ const appClass = computed(() => ({
 
 <template>
   <div class="clw-desktop">
-    <div class="clw-window">
-      <!-- window-chrome：信号灯 + 书名 + CLI 徽章 -->
-      <div class="clw-wc">
-        <span class="wc-dot red"></span><span class="wc-dot yellow"></span><span class="wc-dot green"></span>
-        <span class="wc-title">{{ bookName || 'CLWriting Studio' }}</span>
-        <CollabBadge :book-name="bookName" :mode="mode" />
-        <div class="wc-cli"><span class="cli-dot"></span> Claude CLI</div>
-      </div>
-
-      <div class="clw-app" :class="appClass">
+    <div class="clw-app" :class="appClass">
         <!-- 左栏 overlay 贯穿全高（贴左缘，覆盖到 topbar 上方） -->
         <aside class="clw-sider-slot">
           <div class="clw-sider-head">{{ siderTitle }}</div>
@@ -114,8 +106,11 @@ const appClass = computed(() => ({
         </nav>
 
         <div class="clw-app-main">
-          <!-- 顶栏：actions 靠右（mode-tabs 绝对居中，左栏 overlay 不挡右侧按钮） -->
+          <!-- 顶栏：左 CollabBadge / 右 actions（mode-tabs 绝对居中浮于上方） -->
           <header class="clw-topbar">
+            <div class="clw-tb-left">
+              <CollabBadge :book-name="bookName" :mode="mode" />
+            </div>
             <div class="clw-actions">
               <NTooltip trigger="hover">
                 <template #trigger>
@@ -170,20 +165,11 @@ const appClass = computed(() => ({
       <SettingsModal v-model:show="showSettings" />
       <CommandPalette v-model:show="showPalette" />
     </div>
-  </div>
 </template>
 
 <style scoped>
-/* ===== v5 外壳：desktop / window / window-chrome ===== */
-.clw-desktop{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:18px;background:#2d2d2d}
-.clw-window{background:var(--panel);border-radius:11px;border:1px solid var(--border);width:100%;height:calc(100vh - 36px);display:flex;flex-direction:column;overflow:hidden}
-
-.clw-wc{height:38px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0}
-.wc-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
-.wc-dot.red{background:#ff5f57}.wc-dot.yellow{background:#ffbd2e}.wc-dot.green{background:#28c840}
-.wc-title{font-size:14px;color:var(--text-2);font-weight:600;margin-left:4px}
-.wc-cli{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2);padding:5px 11px;border-radius:8px;border:1px solid var(--white-16);background:var(--panel-55)}
-.wc-cli .cli-dot{width:8px;height:8px;border-radius:50%;background:#22c55e}
+/* ===== v5 外壳：无窗口外框（Electron 原生窗口提供交通灯/标题栏/边框）===== */
+.clw-desktop{width:100%;height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--canvas)}
 
 /* ===== app：容器查询基准 ===== */
 .clw-app{flex:1;display:flex;position:relative;container-type:inline-size;min-height:0}
@@ -200,8 +186,9 @@ const appClass = computed(() => ({
 /* app-main：让出左栏宽度（sider overlay 占位） */
 .clw-app-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;padding-left:var(--sider-left-w,280px);transition:padding-left .25s ease}
 
-/* 顶栏：actions 靠右 */
+/* 顶栏：左 CollabBadge / 右 actions */
 .clw-topbar{height:48px;display:flex;align-items:stretch;background:var(--panel-70);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);flex-shrink:0}
+.clw-tb-left{display:flex;align-items:center;padding:0 16px}
 .clw-actions{display:flex;align-items:center;gap:6px;margin-left:auto;padding:0 16px}
 .clw-icon-btn{height:28px;min-width:28px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;color:var(--text-2);cursor:pointer;font-size:14px;border:1px solid transparent;transition:background .12s,color .12s}
 .clw-icon-btn:hover{background:var(--hover);color:var(--ink)}
