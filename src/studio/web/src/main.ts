@@ -3,8 +3,10 @@ import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
 import { useAppStore } from './stores/app'
+import './styles/v5-base.css'
 import './styles/tokens.css'
 import './styles/content.css'
+import './styles/v5-components.css'
 
 // P0 session token(GPT-5 defense-in-depth):写端点校验,防跨站伪造。
 // 启动 fetch /api/boot 拿 token,所有 /api/ 写请求自动带 X-Studio-Token header。

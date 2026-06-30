@@ -1,0 +1,19 @@
+/* ============================================================
+   base.css — 全局基础（reset / 滚动条 / 光标 / body 骨架）
+   几乎不需要改动；配色不在这里
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+.app,.topbar,.workspace,.statusbar,.modal-mask,.shelf-inner,.landing,.lib-page,.modal{-webkit-user-select:none;user-select:none}
+.prose{-webkit-user-select:text;user-select:text}
+/* 原生滚动条 */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+/* 全局光标 */
+body{cursor:default}
+button,input,select,textarea{cursor:default}
+button[onclick],input[type=range],input[type=radio]{cursor:pointer}
+html{height:100%}
+body{font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:var(--ink);background:var(--paper);font-size:14px;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
+.app{display:flex;flex-direction:column;height:100vh}
