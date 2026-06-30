@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 总览态右栏：当前总览页说明（route 推断）。明细数据与中栏联动留后续刀（共享数据状态）。
+// 总览态右栏：当前页说明 + 联动占位。对齐 mockup 右栏 .card 样式。
+// 明细联动留后续（共享数据状态）；此处不重复拉中栏数据、不造假。
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -34,21 +35,17 @@ const hint = computed(() => HINT[pageName.value] ?? '数据明细。')
 </script>
 
 <template>
-  <div class="dd">
-    <div class="dd-card">
-      <div class="dd-title">{{ pageName }}</div>
-      <div class="dd-hint">{{ hint }}</div>
-    </div>
-    <div class="dd-card">
-      <div class="dd-title">明细联动</div>
-      <div class="dd-hint">右栏将与中栏选中项联动（如账本条目明细、体检问题清单），后续刀接共享数据状态。</div>
-    </div>
+  <div class="card">
+    <div class="card-title">{{ pageName }}</div>
+    <div class="dd-hint">{{ hint }}</div>
+  </div>
+  <div class="card">
+    <div class="card-title">明细联动</div>
+    <div class="dd-hint">右栏将与中栏选中项联动（账本条目、体检问题等），后续接共享数据状态。</div>
   </div>
 </template>
 
 <style scoped>
-.dd-card{background:var(--panel-74);border:1px solid var(--white-20);border-radius:12px;padding:14px 16px;margin-bottom:12px;transition:transform .2s}
-.dd-card:hover{transform:translateY(-2px)}
-.dd-title{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:8px}
+/* mockup 右栏 .card 已覆盖容器；此处仅补 .dd-hint（说明文本，mockup 无此语义类）。 */
 .dd-hint{font-size:12px;color:var(--text-2);line-height:1.7}
 </style>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 编辑态中栏：文件编辑器（CodeMirror）。B 策略保留 script（读/写/回滚/改写/应用 全真实 API）。
+// template 对齐 mockup renderFileMid（.editor-inner/.edit-info/.et-btn/.et-wc/.doc-status + SVG 图标）。
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
@@ -54,6 +56,8 @@ const selectedMode = computed<'text' | 'md'>(() => {
   return f?.mode ?? 'md'
 })
 const dirty = computed(() => content.value !== original.value)
+/** 实时字数（去空白）——对齐 mockup et-wc */
+const words = computed(() => content.value.replace(/\s/g, '').length)
 
 async function loadFiles(): Promise<void> {
   error.value = ''
@@ -214,10 +218,18 @@ watch(
         <span class="ei-crumbs">{{ selected || '（从左侧选一个文件）' }}</span>
         <span v-if="dirty" class="et-dirty">● 未保存</span>
         <span v-else-if="savedMsg" class="et-dirty saved">{{ savedMsg }}</span>
+        <span v-if="selected" class="doc-status" :class="dirty ? 'draft' : 'done'">{{ dirty ? '未保存' : '已保存' }}</span>
         <span class="ei-gap"></span>
+        <span v-if="selected" class="et-wc"><b>{{ words.toLocaleString() }}</b> 字</span>
         <span class="et-actions">
-          <button class="et-btn revert" :disabled="reverting" @click="revert">{{ reverting ? '回滚中…' : '⏪ 回滚' }}</button>
-          <button class="et-btn save" :disabled="!dirty || saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+          <button class="et-btn revert" :disabled="reverting" @click="revert">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+            {{ reverting ? '回滚中…' : '回滚' }}
+          </button>
+          <button class="et-btn save" :disabled="!dirty || saving" @click="save">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+            {{ saving ? '保存中…' : '保存' }}
+          </button>
         </span>
       </div>
 
@@ -260,20 +272,7 @@ watch(
 </template>
 
 <style scoped>
-.editor{flex:1;display:flex;flex-direction:column;min-width:0}
-.editor-inner{max-width:var(--content-max,860px);width:100%;margin:24px auto 32px;background:var(--panel-62);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);border:1px solid var(--white-22);border-radius:14px;padding:24px 32px 32px}
-.edit-info{display:flex;align-items:center;gap:12px;padding:0 4px 12px;margin:0 0 16px;border-bottom:1px solid var(--border-55);flex-wrap:wrap}
-.edit-info .ei-crumbs{font-size:12px;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.et-dirty{font-size:11px;color:var(--ochre);white-space:nowrap}
-.et-dirty.saved{color:var(--ink-cyan)}
-.edit-info .ei-gap{flex:1;min-width:0}
-.edit-info .et-actions{display:flex;gap:8px}
-.et-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s,transform .12s}
-.et-btn.revert{background:var(--cinnabar-7);border-color:var(--cinnabar-30);color:var(--cinnabar)}
-.et-btn.revert:hover{background:var(--cinnabar);color:#fff;border-color:var(--cinnabar)}
-.et-btn.save{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff}
-.et-btn.save:hover{filter:brightness(1.06)}
-.et-btn:disabled{opacity:.4;cursor:default}
+/* mockup 覆盖 .editor-inner/.edit-info/.et-btn/.et-wc/.doc-status；此处仅补 mockup 无的改写面板与提示。 */
 .error{color:var(--cinnabar);font-size:13px}
 .hint{color:var(--text-2);font-size:13px;padding:24px 0;text-align:center}
 .rewrite-panel{margin-top:18px;padding-top:16px;border-top:1px dashed var(--border)}

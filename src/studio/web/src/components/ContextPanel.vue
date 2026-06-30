@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 编辑态右栏：当前文件上下文（字数实时）。当前文件 = route.query.file（与 FileTree/Editor 同源）。
+// 编辑态右栏：当前文件上下文（字数实时）。对齐 mockup 右栏 .card/.kv。
+// 当前文件 = route.query.file（与 FileTree/Editor 同源）。
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -35,26 +36,19 @@ watch(file, () => load(), { immediate: true })
 </script>
 
 <template>
-  <div class="ctx">
-    <div class="ctx-card">
-      <div class="ctx-title">当前文件</div>
-      <div class="ctx-file" :title="file">{{ file || '（未选）' }}</div>
-      <div class="ctx-kv"><span>类型</span><b>{{ isText ? '正文' : '设定/大纲' }}</b></div>
-      <div class="ctx-kv"><span>字数</span><b>{{ loading ? '…' : words.toLocaleString() }}</b></div>
-    </div>
-    <div class="ctx-card">
-      <div class="ctx-title">上下文</div>
-      <div class="ctx-hint">正文/设定在编辑器写；账本提醒、角色卡等数据查看请切顶栏「总览」。</div>
-    </div>
+  <div class="card">
+    <div class="card-title">当前文件</div>
+    <div class="kv"><span class="k">文件</span><span class="v cyan" style="word-break:break-all">{{ file || '（未选）' }}</span></div>
+    <div class="kv"><span class="k">类型</span><span class="v">{{ isText ? '正文' : '设定/大纲' }}</span></div>
+    <div class="kv"><span class="k">字数</span><span class="v">{{ loading ? '…' : words.toLocaleString() }}</span></div>
+  </div>
+  <div class="card">
+    <div class="card-title">上下文</div>
+    <div class="dd-hint">正文/设定在编辑器写；账本提醒、角色卡等数据查看请切顶栏「总览」。</div>
   </div>
 </template>
 
 <style scoped>
-.ctx-card{background:var(--panel-74);border:1px solid var(--white-20);border-radius:12px;padding:14px 16px;margin-bottom:12px;transition:transform .2s}
-.ctx-card:hover{transform:translateY(-2px)}
-.ctx-title{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin-bottom:12px}
-.ctx-file{font-size:13px;color:var(--ink-cyan);font-weight:500;margin-bottom:10px;word-break:break-all}
-.ctx-kv{display:flex;justify-content:space-between;padding:5px 0;font-size:12.5px;color:var(--text-3)}
-.ctx-kv b{color:var(--ink);font-weight:500}
-.ctx-hint{font-size:12px;color:var(--text-2);line-height:1.7}
+/* mockup 右栏 .card/.kv 已覆盖；仅补说明文本（mockup 无此语义类）。 */
+.dd-hint{font-size:12px;color:var(--text-2);line-height:1.7}
 </style>

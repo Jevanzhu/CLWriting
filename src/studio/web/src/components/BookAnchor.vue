@@ -39,11 +39,3 @@ watch(() => props.bookName, () => load(), { immediate: true })
     <div class="ba-bar"><div :style="{ width: pct + '%' }"></div></div>
   </div>
 </template>
-
-<style scoped>
-.book-anchor{padding:12px 12px 10px;border-bottom:1px solid var(--white-14);flex-shrink:0}
-.ba-name{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.5px;line-height:1.2}
-.ba-meta{font-size:11px;color:var(--text-3);margin-top:4px}
-.ba-bar{height:3px;background:var(--white-14);border-radius:2px;margin-top:8px;overflow:hidden}
-.ba-bar>div{height:100%;background:var(--ink-cyan);border-radius:2px;transition:width .3s}
-</style>

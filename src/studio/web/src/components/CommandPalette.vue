@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// 命令面板（⌘P）：模糊搜索 + 键盘选择。跳转 / 打开设置。
+// 命令面板（⌘P）：模糊搜索 + 键盘选择（mockup .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item）。
+// B 策略保留 script 键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NModal, NInput } from 'naive-ui'
 
 const show = defineModel<boolean>('show', { default: false })
 const route = useRoute()
 const router = useRouter()
 
 const query = ref('')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const inputRef = ref<any>(null)
+const inputRef = ref<HTMLInputElement | null>(null)
 const activeIdx = ref(0)
 
 const enc = computed(() => (route.params.name ? encodeURIComponent(route.params.name as string) : ''))
@@ -63,7 +62,7 @@ watch(show, (s) => {
   if (s) {
     query.value = ''
     activeIdx.value = 0
-    void nextTick(() => inputRef.value?.focus?.())
+    void nextTick(() => inputRef.value?.focus())
   }
 })
 function onKey(e: KeyboardEvent): void {
@@ -85,72 +84,50 @@ function onKey(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <NModal v-model:show="show" :bordered="false" style="width: 520px; max-width: 92vw">
-    <div class="cp">
-      <NInput
-        ref="inputRef"
-        v-model:value="query"
-        placeholder="输入命令…（↑↓ 选择 · Enter 执行 · Esc 关闭）"
-        @keydown="onKey"
-      />
-      <div class="cp-list">
+  <div class="cmd-mask" :class="{ show }" @click.self="close">
+    <div class="cmd-box">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">⌘</span>
+        <input
+          ref="inputRef"
+          v-model="query"
+          placeholder="输入命令或搜索…（↑↓ 选择 · Enter 执行 · Esc 关闭）"
+          autocomplete="off"
+          @keydown="onKey"
+        />
+      </div>
+      <div class="cmd-list">
         <div
           v-for="(c, i) in filtered"
           :key="c.id"
-          class="cp-item"
-          :class="{ active: i === activeIdx }"
+          class="cmd-item"
+          :class="{ sel: i === activeIdx }"
           @click="exec(c)"
           @mouseenter="activeIdx = i"
         >
-          <span class="cp-label">{{ c.label }}</span>
-          <span class="cp-hint">{{ c.hint }}</span>
+          <span class="cmd-name">{{ c.label }}</span>
+          <span v-if="c.hint" class="cmd-shortcut">{{ c.hint }}</span>
         </div>
-        <div v-if="!filtered.length" class="cp-empty">无匹配命令</div>
+        <div v-if="!filtered.length" class="cmd-empty">无匹配命令</div>
       </div>
     </div>
-  </NModal>
+  </div>
 </template>
 
 <style scoped>
-.cp {
-  background: var(--panel);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
+/* mockup 覆盖 .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item；.cmd-box 是内层卡片容器（components.css 未定义），此处补。 */
+.cmd-box {
+  width: 520px;
+  max-width: 92vw;
+  max-height: 60vh;
+  background: var(--panel-80);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid var(--white-28);
+  border-radius: 16px;
   overflow: hidden;
-}
-.cp-list {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 6px;
-}
-.cp-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.cp-item:hover,
-.cp-item.active {
-  background: var(--active-bg);
-}
-.cp-item.active .cp-label {
-  color: var(--ink-cyan);
-  font-weight: 500;
-}
-.cp-label {
-  color: var(--ink);
-}
-.cp-hint {
-  color: var(--text-3);
-  font-size: 11px;
-}
-.cp-empty {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-3);
-  font-size: 13px;
+  flex-direction: column;
+  box-shadow: var(--shadow);
 }
 </style>

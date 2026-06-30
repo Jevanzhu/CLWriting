@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 编辑态左栏：文件树。GET /files 列可编辑文件，点选 → 跳 /edit?file=xxx 驱动中栏 Editor。
-// Editor.vue watch route.query.file 同步 selected（见 Editor.vue 第二刀联动）。
+// 对齐 mockup renderTree（.tree-head + .file）；真实 listFiles 为扁平列表（无 folder 折叠结构，不造假）。
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -45,31 +45,28 @@ watch(() => props.bookName, () => load(), { immediate: true })
 </script>
 
 <template>
-  <div class="ft">
-    <div v-if="loading" class="ft-hint">加载中…</div>
-    <div v-else-if="error" class="ft-err">{{ error }}</div>
-    <div v-else-if="!files.length" class="ft-hint">（无可编辑文件）</div>
-    <div
-      v-for="f in files"
-      :key="f.path"
-      class="ft-item"
-      :class="{ active: f.path === current }"
-      @click="select(f.path)"
-    >
-      <span class="ft-path">{{ f.path }}</span>
-      <span class="ft-mode">{{ f.mode === 'text' ? '正文' : '设定' }}</span>
-    </div>
+  <div class="tree-head">
+    <span class="tree-head-label">目录</span>
+    <span class="head-count">{{ files.length }}</span>
+  </div>
+  <div v-if="loading" class="ft-hint">加载中…</div>
+  <div v-else-if="error" class="ft-hint" style="color:var(--cinnabar)">{{ error }}</div>
+  <div v-else-if="!files.length" class="ft-hint">（无可编辑文件）</div>
+  <div
+    v-for="f in files"
+    :key="f.path"
+    class="file"
+    :class="{ active: f.path === current }"
+    @click="select(f.path)"
+  >
+    <span class="ft-path">{{ f.path }}</span>
+    <span class="ft-mode">{{ f.mode === 'text' ? '正文' : '设定' }}</span>
   </div>
 </template>
 
 <style scoped>
-.ft{padding:2px 4px 6px}
-.ft-hint,.ft-err{padding:8px 12px;font-size:12px;color:var(--text-3)}
-.ft-err{color:var(--cinnabar)}
-.ft-item{display:flex;align-items:center;gap:7px;padding:6px 10px;margin:1px 4px;cursor:pointer;border-radius:5px;font-size:13px;color:var(--text-2);transition:background .12s,color .12s;position:relative}
-.ft-item:hover{background:var(--flat-hover);color:var(--ink)}
-.ft-item.active{color:var(--ink);background:var(--flat-active);font-weight:600}
-.ft-item.active::before{content:'';position:absolute;left:0;top:5px;bottom:5px;width:2px;background:var(--ink-cyan);border-radius:1px}
+/* mockup 覆盖 .tree-head/.file；此处仅补提示文本与文件行尾部标签（mockup 无对应语义类）。 */
+.ft-hint{padding:8px 12px;font-size:12px;color:var(--text-3)}
 .ft-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.ft-mode{color:var(--text-3);font-size:10px;flex-shrink:0;background:var(--hover);padding:1px 6px;border-radius:8px}
+.ft-mode{color:var(--text-3);font-size:10px;flex-shrink:0;background:var(--hover);padding:1px 6px;border-radius:8px;margin-left:auto}
 </style>

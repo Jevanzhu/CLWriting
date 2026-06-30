@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 总览态左栏：数据页导航（取代 BookTabs 的数据页部分；编辑/工作台在顶栏 mode-tab）
+// 总览态左栏：数据页导航。对齐 mockup renderOvNav（.nav-group + .file + ico）。
+// 导航项对应真实路由：mockup OV_NAV 的 o2字数/o3完成度/o4日历/o5动态/a_relations 无对应路由 → 省略（不造假入口）。
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -9,48 +10,23 @@ const router = useRouter()
 
 const enc = computed(() => (props.bookName ? encodeURIComponent(props.bookName) : ''))
 
-interface NavItem {
-  id: string
-  label: string
-  to: string
-  match: (p: string) => boolean
-}
+interface NavItem { label: string; ico: string; to: string; match: (p: string) => boolean }
 const groups = computed<{ title: string; items: NavItem[] }[]>(() => [
   {
     title: '概览',
     items: [
-      {
-        id: 'overview',
-        label: '作品概要',
-        to: `/books/${enc.value}`,
-        match: (p) => p === `/books/${enc.value}` || p.endsWith('/overview'),
-      },
+      { label: '作品概要', ico: '◉', to: `/books/${enc.value}`, match: (p) => p === `/books/${enc.value}` },
     ],
   },
   {
     title: '分析',
     items: [
-      { id: 'health', label: '体检', to: `/books/${enc.value}/health`, match: (p) => p.endsWith('/health') },
-      { id: 'rhythm', label: '节奏', to: `/books/${enc.value}/rhythm`, match: (p) => p.endsWith('/rhythm') },
-      { id: 'leads', label: '账本', to: `/books/${enc.value}/leads`, match: (p) => p.endsWith('/leads') },
-      {
-        id: 'piece',
-        label: '篇详情',
-        to: `/books/${enc.value}/piece/1`,
-        match: (p) => p.includes('/piece/'),
-      },
-      {
-        id: 'settings',
-        label: '设定',
-        to: `/books/${enc.value}/settings`,
-        match: (p) => p.endsWith('/settings'),
-      },
-      {
-        id: 'config',
-        label: '配置',
-        to: `/books/${enc.value}/config`,
-        match: (p) => p.endsWith('/config'),
-      },
+      { label: '体检', ico: '✚', to: `/books/${enc.value}/health`, match: (p) => p.endsWith('/health') },
+      { label: '节奏', ico: '♪', to: `/books/${enc.value}/rhythm`, match: (p) => p.endsWith('/rhythm') },
+      { label: '账本', ico: '§', to: `/books/${enc.value}/leads`, match: (p) => p.endsWith('/leads') },
+      { label: '篇详情', ico: '❡', to: `/books/${enc.value}/piece/1`, match: (p) => p.includes('/piece/') },
+      { label: '设定', ico: '⬡', to: `/books/${enc.value}/settings`, match: (p) => p.endsWith('/settings') },
+      { label: '配置', ico: '⋎', to: `/books/${enc.value}/config`, match: (p) => p.endsWith('/config') },
     ],
   },
 ])
@@ -61,26 +37,20 @@ function go(to: string): void {
 </script>
 
 <template>
-  <div class="ov-nav">
-    <div v-for="g in groups" :key="g.title" class="ov-group">
-      <div class="ov-group-title">{{ g.title }}</div>
-      <div
-        v-for="it in g.items"
-        :key="it.id"
-        class="ov-item"
-        :class="{ active: it.match(route.path) }"
-        @click="go(it.to)"
-      >{{ it.label }}</div>
-    </div>
+  <div v-for="g in groups" :key="g.title" class="tree-section">
+    <div class="nav-group">{{ g.title }}</div>
+    <div
+      v-for="it in g.items"
+      :key="it.to"
+      class="file"
+      :class="{ active: it.match(route.path) }"
+      @click="go(it.to)"
+    ><span class="nav-ico">{{ it.ico }}</span>{{ it.label }}</div>
   </div>
 </template>
 
 <style scoped>
-.ov-nav{padding:2px 4px 6px}
-.ov-group{margin-bottom:8px}
-.ov-group-title{color:var(--text-3);font-size:10px;font-weight:600;letter-spacing:.6px;padding:10px 10px 4px;text-transform:uppercase}
-.ov-item{display:flex;align-items:center;gap:7px;padding:6px 10px;margin:1px 4px;color:var(--text-2);cursor:pointer;border-radius:5px;font-size:13px;font-weight:500;user-select:none;transition:background .12s,color .12s;position:relative}
-.ov-item:hover{background:var(--flat-hover);color:var(--ink)}
-.ov-item.active{color:var(--ink);background:var(--flat-active);font-weight:600}
-.ov-item.active::before{content:'';position:absolute;left:0;top:5px;bottom:5px;width:2px;background:var(--ink-cyan);border-radius:1px}
+/* mockup 未定义 .tree-section（语义容器）与 .nav-ico（图标列宽），此处补全；其余走 v5-components。 */
+.tree-section{margin-bottom:4px}
+.nav-ico{width:16px;text-align:center;color:var(--text-3);flex-shrink:0}
 </style>

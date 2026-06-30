@@ -1,10 +1,12 @@
 <script setup lang="ts">
+// CodeMirror 6 包装：mono 语法高亮（替换彩色 defaultHighlightStyle）+ 外观对齐 mockup .prose。
+// CM6 是 DOM 渲染（非 canvas），CSS var 可直接用于高亮/主题。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import {
+  HighlightStyle,
   bracketMatching,
-  defaultHighlightStyle,
   foldGutter,
   foldKeymap,
   indentOnInput,
@@ -24,11 +26,37 @@ import {
   lineNumbers,
   rectangularSelection,
 } from '@codemirror/view'
+import { tags as t } from '@lezer/highlight'
 
 const props = defineProps<{ modelValue: string; mode: 'text' | 'md' }>()
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
+
+// mono 语法高亮：墨色为主，cyan 标强调，ochre 标代码。替换彩色 defaultHighlightStyle。
+const monoHighlight = HighlightStyle.define([
+  { tag: t.heading, color: 'var(--ink)', fontWeight: '700' },
+  { tag: t.strong, color: 'var(--ink)', fontWeight: '600' },
+  { tag: t.emphasis, color: 'var(--ink)', fontStyle: 'italic' },
+  { tag: [t.link, t.url], color: 'var(--ink-cyan)' },
+  { tag: t.list, color: 'var(--ink-cyan)' },
+  { tag: t.quote, color: 'var(--text-3)' },
+  { tag: t.meta, color: 'var(--text-3)' },
+  { tag: t.monospace, color: 'var(--ochre)' },
+  { tag: [t.keyword, t.atom, t.bool], color: 'var(--ink-cyan)' },
+])
+
+// CM6 外观：对齐 mockup .prose（楷体/行高/字色）+ mono 选区/活动行
+const editorTheme = EditorView.theme({
+  '&': { backgroundColor: 'transparent', height: '62vh', fontSize: 'var(--prose-size)', color: 'var(--ink)' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': { fontFamily: 'var(--prose-font)', lineHeight: 'var(--prose-lh)' },
+  '.cm-content': { caretColor: 'var(--ink-cyan)', padding: '4px 0' },
+  '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--text-3)' },
+  '.cm-activeLine': { backgroundColor: 'var(--flat-hover)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--ink)' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--sel-bg)' },
+})
 
 const editorSetup: Extension[] = [
   lineNumbers(),
@@ -40,7 +68,7 @@ const editorSetup: Extension[] = [
   dropCursor(),
   EditorState.allowMultipleSelections.of(true),
   indentOnInput(),
-  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  syntaxHighlighting(monoHighlight),
   bracketMatching(),
   rectangularSelection(),
   crosshairCursor(),
@@ -55,6 +83,7 @@ onMounted(() => {
     doc: props.modelValue,
     extensions: [
       editorSetup,
+      editorTheme,
       EditorView.lineWrapping,
       // 正文模式纯文本（不高亮）；设定模式 MD 语法高亮
       ...(props.mode === 'md' ? [markdown()] : []),
@@ -92,20 +121,3 @@ onUnmounted(() => view?.destroy())
 <template>
   <div ref="el" class="code-editor"></div>
 </template>
-
-<style scoped>
-.code-editor {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  height: 62vh;
-  overflow: auto;
-  font-size: 14px;
-  text-align: left;
-}
-.code-editor :deep(.cm-content) {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-}
-.code-editor :deep(.cm-focused) {
-  outline: none;
-}
-</style>

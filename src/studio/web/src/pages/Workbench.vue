@@ -321,6 +321,16 @@ watch(name, (n) => {
     void loadState()
   }
 })
+// 左栏 TaskList 点章 → route.query.chapter 同步中栏章号
+watch(
+  () => route.query.chapter,
+  (c) => {
+    if (typeof c === 'string') {
+      const n = Number(c)
+      if (Number.isFinite(n) && n > 0 && n !== chapter.value) chapter.value = n
+    }
+  },
+)
 onUnmounted(() => es?.close())
 </script>
 
@@ -330,9 +340,10 @@ onUnmounted(() => es?.close())
       <div class="bento-head">
         <h1 class="bento-title">工作台 · 第 {{ chapter }} {{ kind === 'short' ? '篇' : '章' }}</h1>
         <div class="bento-sub">
-          <span class="meta-chip">八阶段</span>
-          <span class="meta-chip">AI 经 Claude CLI</span>
-          <span class="meta-chip">确定性经 clwriting CLI</span>
+          <span class="meta-chip">{{ name || '（未选书）' }}</span>
+          <span class="meta-chip">八阶段全接</span>
+          <span class="meta-chip">AI 步经 Claude CLI</span>
+          <span class="meta-chip">确定性步经 clwriting CLI</span>
         </div>
       </div>
 
@@ -340,10 +351,6 @@ onUnmounted(() => es?.close())
       <div v-if="stateInfo" class="state-card">
         <span class="state-tag">【{{ stateInfo.stateName }}】</span>
         <span class="state-msg">{{ stateInfo.humanMsg }}</span>
-      </div>
-
-      <div class="cc-banner">
-        ⚡ AI 步（细纲 / 写稿 / 三审）经 claude CLI，确定性步（确认 / 备料 / 机检 / 定稿）经 clwriting CLI
       </div>
 
       <!-- 八阶段骨架 -->
@@ -355,6 +362,7 @@ onUnmounted(() => es?.close())
           :class="{ done: stageIndex > i, active: s.id === activeStage }"
         >
           <div class="s-node">{{ stageIndex > i ? '✓' : s.label.charAt(0) }}</div>
+          <div class="s-line"></div>
           <div class="s-label">{{ s.label }}</div>
         </div>
       </nav>
@@ -365,20 +373,25 @@ onUnmounted(() => es?.close())
           <label>{{ kind === 'short' ? '篇号' : '章号' }}
             <input v-model.number="chapter" type="number" min="1" :disabled="running || outlineRunning || reviewRunning" />
           </label>
-          <button class="btn primary" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
+          <button class="btn-cli" :disabled="outlineRunning || running || cliRunning || reviewRunning" @click="outlineGen">
             {{ outlineRunning ? (kind === 'short' ? '篇纲中…' : '细纲中…') : (kind === 'short' ? '📋 篇纲' : '📋 细纲') }}
           </button>
-          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
-          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
-          <button class="btn primary" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
+          <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('confirm')">✓ 确认</button>
+          <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('prepare')">📦 备料</button>
+          <button class="btn-fire" :disabled="running || outlineRunning || cliRunning || reviewRunning" @click="draftWrite">
             {{ running ? '写稿中…' : `✍ 写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
           </button>
-          <button v-if="running" class="btn danger" @click="interruptWrite">⏹ 中断</button>
-          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
-          <button class="btn primary" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
+          <button v-if="running" class="btn-stop" @click="interruptWrite">⏹ 中断</button>
+          <button class="btn-cli" :disabled="cliRunning || running || outlineRunning || reviewRunning" @click="runCliStep('check')">🔍 机检</button>
+          <button class="btn-review" :disabled="reviewRunning || running || cliRunning || outlineRunning" @click="reviewRun">
             {{ reviewRunning ? '三审中…' : '📝 三审' }}
           </button>
-          <button class="btn" :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved" @click="runCliStep('finalize')">✅ 定稿</button>
+          <button
+            class="btn-cli"
+            :class="{ disabled: !verdictApproved }"
+            :disabled="cliRunning || running || outlineRunning || reviewRunning || !verdictApproved"
+            @click="runCliStep('finalize')"
+          >✅ 定稿</button>
           <label class="auto-toggle" title="确定性步 done 后自动推进下一步（AI / 人工步前停）">
             <input type="checkbox" v-model="autoAdvance" /> 自动推进
           </label>
@@ -389,81 +402,29 @@ onUnmounted(() => es?.close())
           <button class="btn" @click="discardDraft">🗑 弃稿</button>
           <button class="btn primary" @click="draftWrite">🔄 改指令重写</button>
         </div>
-        <p v-if="outlineSaved" class="saved-tip">📋 细纲已生成：<span class="mono">{{ outlineSaved.path }}</span>（{{ outlineSaved.words }} 字）</p>
-        <p v-if="saved" class="saved-tip">✅ 草稿已保存：<span class="mono">{{ saved.path }}</span>（{{ saved.words }} 字）</p>
-        <p v-if="verdictApproved" class="saved-tip">✓ 裁决通过，可定稿</p>
       </article>
 
       <!-- 正文输出 -->
       <article class="card">
-        <div class="card-title">正文输出</div>
-        <pre class="text-out">{{ textOut || '（尚未生成）' }}</pre>
+        <div class="card-title">正文输出 <span v-if="running" class="wb-live">● 流式</span></div>
+        <pre class="wb-out" :class="{ empty: !textOut }">{{ textOut || '（尚未生成 · 点「写稿」流式生成正文）' }}</pre>
       </article>
 
       <!-- 机检报告 -->
       <article v-if="checkReport" class="card">
-        <div class="card-title">机检报告</div>
-        <pre class="report-out">{{ checkReport }}</pre>
+        <div class="card-title">🔍 机检报告</div>
+        <pre class="report">{{ checkReport }}</pre>
       </article>
 
       <!-- 审稿单 -->
       <article v-if="reviewReport" class="card">
         <div class="card-title">
-          <span>审稿单</span>
-          <button v-if="!verdictApproved" class="btn primary" style="font-size:11px;padding:3px 10px" @click="verdictApprove">裁决通过 →</button>
+          📝 审稿单
+          <span v-if="verdictApproved" class="tag green">已裁决通过</span>
+          <button v-else class="btn primary" style="font-size: 11px; padding: 3px 10px" @click="verdictApprove">裁决通过 →</button>
         </div>
-        <pre class="report-out">{{ reviewReport }}</pre>
-      </article>
-
-      <!-- 事件流 -->
-      <article class="card">
-        <div class="card-title">事件流</div>
-        <ul class="log">
-          <li v-for="(l, i) in log" :key="i" :class="`ev-${l.type}`">
-            <span class="ev-time">{{ l.t }}</span>
-            <span class="ev-type">{{ l.type }}</span>
-            <span class="ev-text">{{ l.text }}</span>
-          </li>
-          <li v-if="!log.length" class="empty">等待事件…</li>
-        </ul>
+        <pre class="report">{{ reviewReport }}</pre>
       </article>
     </div>
   </section>
 </template>
-
-<style scoped>
-.wb-page{margin:0 auto}
-.state-card{padding:11px 15px;background:var(--cyan-10);border:1px solid var(--cyan-22);border-radius:12px;font-size:13px;color:var(--ink-cyan);line-height:1.6;margin-bottom:12px}
-.state-tag{font-weight:700;margin-right:6px}
-.cc-banner{padding:8px 14px;background:color-mix(in srgb,var(--ink) 4.5%,transparent);color:var(--text-2);border:1px solid var(--white-22);border-radius:999px;font-size:11.5px;line-height:1.6;margin-bottom:16px;text-align:center}
-.stages{display:flex;gap:0;margin-bottom:20px}
-.stage{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:70px;position:relative;padding:0 4px}
-.stage .s-node{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--panel-82);border:1px solid var(--border);color:var(--text-3);z-index:1;transition:background .2s,border-color .2s,color .2s}
-.stage .s-label{font-size:11px;color:var(--text-3)}
-.stage:not(:last-child)::after{content:'';position:absolute;top:14px;left:calc(50% + 18px);right:calc(-50% + 18px);height:2px;background:var(--border);z-index:0}
-.stage.done:not(:last-child)::after{background:var(--ink-cyan)}
-.stage.done .s-node{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff}
-.stage.active .s-node{background:var(--ink-cyan);border-color:var(--ink-cyan);color:#fff;box-shadow:0 0 0 4px var(--cyan-14)}
-.stage.active .s-label{color:var(--ink);font-weight:600}
-.ctrl-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.ctrl-row label{display:grid;gap:4px;font-size:12px;color:var(--text-2)}
-.ctrl-row input[type='number']{width:72px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--panel);color:var(--ink);outline:none}
-.auto-toggle{display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-size:12px;color:var(--text-2);cursor:pointer;white-space:nowrap}
-.auto-toggle input{cursor:pointer;accent-color:var(--ink-cyan)}
-.saved-tip{margin:12px 0 0;padding:8px 12px;background:var(--ok-bg);color:var(--ink-cyan);border-radius:8px;font-size:12px}
-.interrupt-bar{display:flex;gap:10px;align-items:center;margin-top:12px;padding:8px 12px;background:color-mix(in srgb,var(--cinnabar) 10%,transparent);border:1px solid var(--cinnabar);border-radius:8px;flex-wrap:wrap}
-.interrupt-tip{font-size:13px;color:var(--cinnabar)}
-.mono{font-family:ui-monospace,monospace}
-.text-out,.report-out{margin:0;padding:14px 16px;background:var(--paper-62);border:1px solid var(--white-18);border-radius:12px;font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap;max-height:360px;overflow-y:auto}
-.text-out{min-height:48px;font-family:'STKaiti','KaiTi','楷体',serif;font-size:14px;line-height:1.9}
-.log{margin:0;padding:0;list-style:none;display:grid;gap:4px;max-height:220px;overflow-y:auto}
-.log li{display:grid;grid-template-columns:64px 56px 1fr;gap:8px;align-items:baseline;font-size:12px;padding:3px 0}
-.log li.empty{color:var(--text-3);display:block}
-.ev-time{color:var(--text-3);font-family:ui-monospace,monospace}
-.ev-type{color:var(--text-2)}
-.ev-init .ev-type,.ev-done .ev-type{color:var(--ink-cyan)}
-.ev-saved .ev-type,.ev-saved .ev-text{color:var(--ink-cyan)}
-.ev-spawn .ev-type{color:var(--ochre)}
-.ev-error .ev-type,.ev-error .ev-text{color:var(--cinnabar)}
-.ev-text{color:var(--text-2)}
-</style>

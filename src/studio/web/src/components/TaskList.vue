@@ -1,58 +1,73 @@
 <script setup lang="ts">
-// 工作台态左栏：当前任务 + 八阶段进度（占位，后续刀与 Workbench 内部状态联动）。
-import { ref } from 'vue'
+// 工作台左栏：章节/篇任务列表（mockup .wb-tasks/.wb-task）。点击切章 → router query.chapter。
+// 数据源 listFiles 解析正文章节；状态：有正文=已定稿（green）。无专门状态 API，不造假中间态。
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getConfig, listFiles } from '../api/books'
 
-const stages = ref([
-  { id: 'outline', label: '细纲', done: false, active: false },
-  { id: 'confirm', label: '确认', done: false, active: false },
-  { id: 'prepare', label: '备料', done: false, active: false },
-  { id: 'draft', label: '写稿', done: false, active: true },
-  { id: 'check', label: '机检', done: false, active: false },
-  { id: 'review', label: '三审', done: false, active: false },
-  { id: 'finalize', label: '定稿', done: false, active: false },
-])
+const props = defineProps<{ bookName?: string }>()
+const route = useRoute()
+const router = useRouter()
+
+interface Task {
+  no: number
+  name: string
+  st: string
+}
+const tasks = ref<Task[]>([])
+const kind = ref<'long' | 'short'>('long')
+const unit = computed(() => (kind.value === 'short' ? '篇' : '章'))
+const current = computed(() => {
+  const q = route.query.chapter
+  const n = typeof q === 'string' ? Number(q) : NaN
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+
+async function load(): Promise<void> {
+  if (!props.bookName) {
+    tasks.value = []
+    return
+  }
+  try {
+    const [cfg, files] = await Promise.all([getConfig(props.bookName), listFiles(props.bookName)])
+    kind.value = (cfg.kind ?? 'long') === 'short' ? 'short' : 'long'
+    const pat = kind.value === 'short' ? /pieces\/sp(\d+)\.md$/i : /chapters\/ch(\d+)\.md$/i
+    const nos = new Set<number>()
+    for (const f of files) {
+      const m = f.path.match(pat)
+      if (m) nos.add(Number(m[1]))
+    }
+    tasks.value = [...nos]
+      .sort((a, b) => a - b)
+      .map((no) => ({ no, name: `第 ${no} ${unit.value}`, st: '已定稿' }))
+  } catch {
+    tasks.value = []
+  }
+}
+
+function pick(no: number): void {
+  router.push({ path: route.path, query: { ...route.query, chapter: String(no) } })
+}
+
+watch(
+  () => props.bookName,
+  () => load(),
+  { immediate: true },
+)
 </script>
 
 <template>
-  <div class="tl">
-    <div class="tl-section">
-      <div class="tl-group-title">当前任务</div>
-      <div class="tl-task">
-        <span class="clw-dot yellow"></span>
-        <div>
-          <div class="tl-tt">第 1 章 · 写稿中</div>
-          <div class="tl-ts">八阶段工作流</div>
-        </div>
-      </div>
+  <div class="wb-tasks">
+    <div
+      v-for="t in tasks"
+      :key="t.no"
+      class="wb-task"
+      :class="{ active: t.no === current }"
+      @click="pick(t.no)"
+    >
+      <div class="tt"><span class="dot green"></span>{{ t.name }}</div>
+      <div class="ts">{{ t.st }}</div>
     </div>
-    <div class="tl-section">
-      <div class="tl-group-title">阶段进度</div>
-      <div
-        v-for="s in stages"
-        :key="s.id"
-        class="tl-stage"
-        :class="{ active: s.active, done: s.done }"
-      >
-        <span class="tl-stage-dot">{{ s.done ? '✓' : s.active ? '●' : '○' }}</span>
-        <span>{{ s.label }}</span>
-      </div>
-      <div class="tl-hint">进度与 Workbench 实时联动 · 后续刀接入</div>
-    </div>
+    <div v-if="!tasks.length" class="hint">暂无已定稿{{ unit }}（在工作台生成）</div>
   </div>
 </template>
-
-<style scoped>
-.tl{padding:2px 4px 6px}
-.tl-section{margin-bottom:14px}
-.tl-group-title{color:var(--text-3);font-size:10px;font-weight:600;letter-spacing:.6px;padding:10px 10px 6px;text-transform:uppercase}
-.tl-task{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;margin:0 4px;background:var(--flat-active);border-radius:8px}
-.tl-tt{font-size:13px;font-weight:500;color:var(--ink)}
-.tl-ts{font-size:11px;color:var(--text-3);margin-top:2px}
-.tl-stage{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:1px 4px;font-size:13px;color:var(--text-2);border-radius:5px;position:relative;transition:background .12s,color .12s}
-.tl-stage-dot{width:16px;text-align:center;font-size:11px;color:var(--text-3)}
-.tl-stage.active{color:var(--ink);background:var(--flat-active);font-weight:600}
-.tl-stage.active .tl-stage-dot{color:var(--ochre)}
-.tl-stage.done{color:var(--ink-cyan)}
-.tl-stage.done .tl-stage-dot{color:var(--ink-cyan)}
-.tl-hint{margin:8px 12px 0;font-size:11px;color:var(--text-3);line-height:1.6;border-top:1px dashed var(--border);padding-top:8px}
-</style>

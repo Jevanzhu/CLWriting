@@ -89,7 +89,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
         <div class="sider-scroll">
           <OverviewNav v-if="mode === 'overview'" :book-name="bookName" />
           <FileTree v-else-if="mode === 'edit'" :book-name="bookName" />
-          <TaskList v-else />
+          <TaskList v-else :book-name="bookName" />
           <Binder :book-name="bookName" />
         </div>
         <SiderFoot :book-name="bookName" @back="goShelf" @settings="showSettings = true" />

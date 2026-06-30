@@ -42,14 +42,3 @@ function open(name: string): void {
     </div>
   </div>
 </template>
-
-<style scoped>
-.binder{padding:2px 4px 4px;flex-shrink:0}
-.binder-head{font-size:13px;color:var(--text-2);font-weight:500;padding:7px 10px 4px;display:flex;align-items:center;gap:6px}
-.head-count{margin-left:auto;font-size:11px;color:var(--text-3);opacity:.65;font-weight:500}
-.binder-item{display:flex;align-items:center;gap:7px;padding:6px 10px;font-size:13px;font-weight:500;color:var(--text-2);cursor:pointer;border-radius:5px;transition:background .12s,color .12s;margin:1px 4px;position:relative}
-.binder-item:hover{background:var(--flat-hover);color:var(--ink)}
-.binder-item.active{color:var(--ink);font-weight:600;background:var(--flat-active)}
-.binder-item.active::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:2px;background:var(--ink-cyan);border-radius:1px}
-.bi-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-</style>

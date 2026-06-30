@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 协作锁徽章（#1.5 单写者协作）：轮询 GET /collab 显示 GUI 活跃锁 + 当前写作位置。
+// 顶栏徽章（mockup .topbar-cli/.cli-dot）。mockup 此位是 CLI 连接状态；真实无 CLI 在线探针，
+// 借壳显示协作锁真实状态（/collab active）——不造假连接态。位置：编辑=文件，工作台=工作台。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -44,23 +45,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <span class="clw-collab" :title="active ? '协作锁活跃：CLI 写入会被告知' : '当前空闲'">
-    <span class="clw-dot" :class="active ? 'green' : 'gray'"></span>
-    {{ active ? '单人编辑' : '空闲' }}<span v-if="pos"> · {{ pos }}</span>
+  <span
+    class="topbar-cli"
+    :class="{ off: !active }"
+    :title="active ? '协作锁活跃：CLI 写入会被告知' : '当前空闲'"
+  >
+    <span class="cli-dot"></span>{{ active ? '单人编辑' : '空闲' }}<span v-if="pos"> · {{ pos }}</span>
   </span>
 </template>
-
-<style scoped>
-.clw-collab {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-2);
-  padding-left: 12px;
-  border-left: 1px solid var(--border);
-}
-.clw-dot.green {
-  background: var(--ink-cyan);
-}
-</style>

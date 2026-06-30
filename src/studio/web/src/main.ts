@@ -4,7 +4,6 @@ import router from './router'
 import { createPinia } from 'pinia'
 import './styles/v5-base.css'
 import './styles/tokens.css'
-import './styles/content.css'
 import './styles/v5-components.css'
 
 // P0 session token(GPT-5 defense-in-depth):写端点校验,防跨站伪造。
