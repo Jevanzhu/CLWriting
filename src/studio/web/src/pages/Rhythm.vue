@@ -127,6 +127,15 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
     series: [{ type: 'heatmap', data: heat, label: { show: true } }],
   }
 })
+
+/** 字数极值：最低 / 平均 / 最高（从 wordCurve 算，对齐 mockup 最低章·平均章 stat） */
+const wordStats = computed(() => {
+  const d = data.value
+  if (!d || d.wordCurve.length === 0) return null
+  const arr = d.wordCurve.map((p) => p.字数)
+  const sum = arr.reduce((s, x) => s + x, 0)
+  return { avg: Math.round(sum / arr.length), min: Math.min(...arr), max: Math.max(...arr) }
+})
 </script>
 
 <template>
@@ -150,6 +159,10 @@ const sceneEmotionOption = computed<EChartsOption | null>(() => {
           <EChart :option="wordOption" />
           <p v-if="data.kind === 'long'" class="avg-line">虚线为均字 {{ data.avgWords }}</p>
         </div>
+        <!-- 字数极值（对齐 mockup 最低章·平均章 stat） -->
+        <div v-if="wordStats" class="bento-card"><div class="bc-label">最低{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--cinnabar)">{{ wordStats.min }}</div></div>
+        <div v-if="wordStats" class="bento-card"><div class="bc-label">平均/{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat">{{ wordStats.avg }}</div></div>
+        <div v-if="wordStats" class="bento-card"><div class="bc-label">最高{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ wordStats.max }}</div></div>
         <!-- 钩子类型 × 强弱（长篇）-->
         <template v-if="data.kind === 'long'">
           <div v-if="hookTypeOption" class="bento-card bento-c2"><EChart :option="hookTypeOption" /></div>

@@ -115,6 +115,18 @@ const repeatLine = computed<EChartsOption | null>(() => {
 function pct(x: number): string {
   return (x * 100).toFixed(0) + '%'
 }
+
+/** 综合健康分（满审率映射 0-100，三色编码：≥80 cyan / ≥60 ochre / 否则 cinnabar） */
+const healthScore = computed(() => {
+  const m = metrics.value
+  if (!m || m.count === 0) return 0
+  return Math.round(m.review.fullRate * 100)
+})
+const healthRingStyle = computed(() => {
+  const s = healthScore.value
+  const col = s >= 80 ? 'var(--ink-cyan)' : s >= 60 ? 'var(--ochre)' : 'var(--cinnabar)'
+  return `background:conic-gradient(${col} 0 ${s}%,var(--border-55) ${s}% 100%)`
+})
 </script>
 
 <template>
@@ -135,10 +147,15 @@ function pct(x: number): string {
         <!-- 成本 / 审查 -->
         <div v-if="metrics && metrics.count > 0" class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>
         <div v-if="metrics && metrics.count > 0" class="bento-grid">
+          <div class="bento-card bento-lg">
+            <div class="bc-label">总体健康</div>
+            <div class="bc-ring" :style="healthRingStyle"><span>{{ healthScore }}<span>%</span></span></div>
+            <div class="bc-foot">{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }} · 满审 {{ pct(metrics.review.fullRate) }} · {{ style?.drifts.length ?? 0 }} 项漂移</div>
+          </div>
           <div class="bento-card"><div class="bc-label">平均调用</div><div class="bc-stat">{{ metrics.cost.avgCalls.toFixed(1) }}</div></div>
-          <div class="bento-card"><div class="bc-label">超上限</div><div class="bc-stat">{{ metrics.cost.overLimitChapters }}</div></div>
-          <div class="bento-card"><div class="bc-label">满审率</div><div class="bc-stat">{{ pct(metrics.review.fullRate) }}</div></div>
-          <div class="bento-card"><div class="bc-label">降级率</div><div class="bc-stat">{{ pct(metrics.review.downgradeRate) }}</div></div>
+          <div class="bento-card"><div class="bc-label">超上限</div><div class="bc-stat" style="color:var(--cinnabar)">{{ metrics.cost.overLimitChapters }}</div></div>
+          <div class="bento-card"><div class="bc-label">满审率</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ pct(metrics.review.fullRate) }}</div></div>
+          <div class="bento-card"><div class="bc-label">降级率</div><div class="bc-stat" style="color:var(--ochre)">{{ pct(metrics.review.downgradeRate) }}</div></div>
           <div class="bento-card"><div class="bc-label">平均阻断</div><div class="bc-stat">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
           <div v-if="costBar" class="bento-card bento-c2"><div class="bc-label">各阶段平均调用</div><EChart :option="costBar" /></div>
           <div class="bento-card">

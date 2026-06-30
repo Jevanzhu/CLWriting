@@ -126,6 +126,18 @@ const emotionOption = computed<EChartsOption | null>(() => {
     series,
   }
 })
+
+/** stat 摘要组：伏笔回收/情绪峰值/反转铺垫/字数（对齐 mockup pd stat 卡） */
+const stats = computed(() => {
+  const d = data.value
+  if (!d) return null
+  const payoffs = d.list.伏笔回收 ?? []
+  const recv = payoffs.filter((e) => !e.未回收).length
+  const curve = d.list.情绪曲线 ?? []
+  const peak = curve.length ? Math.max(...curve.map((p) => p.强度)) : 0
+  const setups = d.list.反转线索表.铺垫点 ?? []
+  return { recv, payoffTotal: payoffs.length, peak, setupCount: setups.length, words: d.meta.字数 }
+})
 </script>
 
 <template>
@@ -156,6 +168,14 @@ const emotionOption = computed<EChartsOption | null>(() => {
         <div v-if="data.meta.核心反转" class="meta-reversal">
           <span class="tag yellow">核心反转</span>
           <span>{{ data.meta.核心反转 }}</span>
+        </div>
+
+        <!-- stat 摘要组（对齐 mockup pd stat 卡：伏笔回收/峰值/铺垫/字数） -->
+        <div v-if="stats" class="pd-stats">
+          <div class="bento-card"><div class="bc-label">伏笔回收</div><div class="bc-stat">{{ stats.recv }}<span>/{{ stats.payoffTotal }}</span></div></div>
+          <div class="bento-card"><div class="bc-label">情绪峰值</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.peak }}</div></div>
+          <div class="bento-card"><div class="bc-label">反转铺垫</div><div class="bc-stat">{{ stats.setupCount }}<span> 处</span></div></div>
+          <div class="bento-card"><div class="bc-label">本篇字数</div><div class="bc-stat">{{ stats.words }}</div></div>
         </div>
 
         <!-- 主体：左正文 + 右清单 -->
@@ -213,6 +233,9 @@ const emotionOption = computed<EChartsOption | null>(() => {
   margin: 0 auto;
 }
 .piece-page .bento-card{min-height:auto;padding:14px 16px}
+.pd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0 0}
+.pd-stats .bento-card{padding:12px 14px}
+.pd-stats .bc-stat{font-size:24px}
 .head-row {
   display: flex;
   justify-content: space-between;

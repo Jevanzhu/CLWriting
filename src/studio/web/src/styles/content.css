@@ -119,6 +119,8 @@
 .bento-grid{position:relative;z-index:1;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:116px;gap:16px;grid-auto-flow:dense}
 .bento-card{position:relative;background:var(--panel-74);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);border:1px solid var(--white-22);border-radius:18px;padding:16px 18px;transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s,border-color .2s;display:flex;flex-direction:column;overflow:hidden}
 .bento-card:hover{transform:translateY(-3px);border-color:var(--white-36)}
+.bento-card::after{content:'⋮';position:absolute;top:9px;right:13px;color:var(--text-3);font-size:15px;line-height:1;opacity:0;transition:opacity .2s;pointer-events:none;z-index:2}
+.bento-card:hover::after{opacity:.6}
 .bento-lg{grid-column:span 2;grid-row:span 2}
 .bento-md{grid-column:span 2}
 .bento-action{grid-column:span 2}
@@ -136,6 +138,11 @@
 .bento-lg .bc-foot{font-size:12px;color:var(--text-2);line-height:1.6;margin-top:auto}
 .bento-lg .bc-progress{height:4px;border-radius:2px;background:var(--border-50);margin-top:8px;overflow:hidden}
 .bento-lg .bc-progress>div{height:100%;background:var(--ink-cyan);border-radius:3px}
+.bc-bars{display:flex;align-items:flex-end;gap:6px;flex:1;margin-top:8px;min-height:38px}
+.bc-bar{flex:1;background:var(--cyan-72);border-radius:4px 4px 0 0;min-height:3px;transition:background .2s}
+.bc-bar:hover{background:var(--ink-cyan)}
+.bc-bars-labels{display:flex;gap:8px;margin-top:6px;font-size:10px;color:var(--text-3)}
+.bc-bars-labels>span{flex:1;text-align:center}
 .bc-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;align-content:flex-end}
 .neo-btn{background:var(--panel-80);border:1px solid var(--white-22);border-radius:9px;padding:7px 14px;font-size:12px;font-weight:500;color:var(--ink);cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:box-shadow .15s,transform .12s,border-color .15s;font-family:inherit}
 .neo-btn:hover{border-color:var(--ink-cyan);color:var(--ink-cyan)}
