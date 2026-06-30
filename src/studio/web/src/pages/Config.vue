@@ -223,9 +223,11 @@ onMounted(load)
 
 <template>
   <section class="cfg-page">
-    <div class="panel-pad" style="max-width:840px">
-      <div class="panel-title">配置</div>
-      <div class="panel-sub">book.yaml · 文风 · 导入导出 · RAG · 知识层 · 文风收割</div>
+    <div class="bento-wrap" style="max-width:840px">
+      <div class="bento-head">
+        <h1 class="bento-title">配置</h1>
+        <div class="bento-sub"><span class="meta-chip">book.yaml</span><span class="meta-chip">文风</span><span class="meta-chip">导入导出</span><span class="meta-chip">RAG</span><span class="meta-chip">知识层</span><span class="meta-chip">文风收割</span></div>
+      </div>
 
       <p v-if="loading" class="hint">加载中…</p>
       <p v-else-if="error && !config" class="error">{{ error }}</p>

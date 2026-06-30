@@ -76,11 +76,11 @@ onMounted(() => {
 
 <template>
   <section class="bookshelf">
-    <div class="panel-pad">
+    <div class="bento-wrap">
       <div class="bookshelf-head">
         <div class="head-left">
-          <div class="panel-title">书库</div>
-          <div class="panel-sub" style="margin-bottom:0">{{ libraryLabel }}</div>
+          <h1 class="bento-title">书库</h1>
+          <div class="bento-sub" style="margin-top:10px"><span class="meta-chip">{{ libraryLabel }}</span></div>
         </div>
         <div class="head-right">
           <button v-if="isDesktop" class="btn" @click="openLibrary">📁 打开书库</button>
@@ -255,17 +255,19 @@ onMounted(() => {
   gap: 12px;
 }
 .book-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  background: var(--panel-74);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--white-20);
+  border-radius: 14px;
   padding: 16px 18px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), border-color .2s;
 }
 .book-card:hover,
 .book-card:focus-visible {
-  border-color: var(--ink-cyan);
-  box-shadow: var(--shadow);
+  transform: translateY(-3px);
+  border-color: var(--white-36);
   outline: none;
 }
 .book-name {
