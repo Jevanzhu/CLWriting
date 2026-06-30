@@ -2,7 +2,6 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
-import { useAppStore } from './stores/app'
 import './styles/v5-base.css'
 import './styles/tokens.css'
 import './styles/content.css'
@@ -45,5 +44,4 @@ void originalFetch('/api/boot')
 
 const __app = createApp(App)
 __app.use(router).use(createPinia())
-useAppStore().applyTheme()  // 启动应用 localStorage 主题（避免闪）
 __app.mount('#app')

@@ -1,14 +1,12 @@
 <script setup lang="ts">
-// 命令面板（⌘P）：模糊搜索 + 键盘选择。跳转 / 切主题 / 打开设置。
+// 命令面板（⌘P）：模糊搜索 + 键盘选择。跳转 / 打开设置。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NModal, NInput } from 'naive-ui'
-import { useTheme, type ThemeId } from '../composables/useTheme'
 
 const show = defineModel<boolean>('show', { default: false })
 const route = useRoute()
 const router = useRouter()
-const { setTheme } = useTheme()
 
 const query = ref('')
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,13 +38,6 @@ const commands = computed<Cmd[]>(() => {
       { id: 'go-config', label: '配置', hint: '总览·分析', run: go(`${base.value}/config`) },
     )
   }
-  const th = (id: ThemeId) => () => setTheme(id)
-  list.push(
-    { id: 'th-ink', label: '主题：墨韵', hint: '宣纸暖', run: th('ink') },
-    { id: 'th-night', label: '主题：墨夜', hint: '深色', run: th('night') },
-    { id: 'th-plain', label: '主题：素简', hint: '米白冷', run: th('plain') },
-    { id: 'th-slate', label: '主题：青砚', hint: '灰青冷', run: th('slate') },
-  )
   return list
 })
 

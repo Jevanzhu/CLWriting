@@ -84,7 +84,7 @@
   --hover:color-mix(in srgb,var(--ink) 5%,transparent);
   --active-bg:color-mix(in srgb,var(--ink) 9%,transparent);
   --sel-bg:color-mix(in srgb,var(--ink) 16%,transparent);
-  /* 兼容 v3 状态色 bg 引用（DiffView/Settings/PieceDetail/Leads/Workbench） */
+  /* 状态色 bg 引用（DiffView/Settings/PieceDetail/Leads/Workbench） */
   --ok-bg:color-mix(in srgb,var(--ink) 9%,transparent);
   --warn-bg:color-mix(in srgb,var(--ink) 7%,transparent);
   --danger-bg:color-mix(in srgb,var(--ink) 9%,transparent);
