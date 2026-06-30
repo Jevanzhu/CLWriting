@@ -2,13 +2,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 /**
  * 前端路由(懒加载拆包,P2 前端首包优化):页面按需加载,主包只含书架。
- * / 书架,/books/new 建书,/books/:name 单书,/books/:name/health 体检,/books/:name/edit 编辑。
+ * / 启动页,/shelf 书架,/books/new 建书,/books/:name 单书,/books/:name/health 体检,/books/:name/edit 编辑。
  * /books/new 静态路径排在 /books/:name 前(避免 new 被当 :name)。
  */
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: () => import('./pages/Bookshelf.vue') },
+    { path: '/', component: () => import('./pages/Landing.vue') },
+    { path: '/shelf', component: () => import('./pages/Bookshelf.vue') },
     { path: '/books/new', component: () => import('./pages/BookNew.vue') },
     { path: '/books/:name', component: () => import('./pages/BookDetail.vue') },
     { path: '/books/:name/health', component: () => import('./pages/Health.vue') },

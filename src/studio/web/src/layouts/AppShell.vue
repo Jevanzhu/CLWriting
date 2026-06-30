@@ -65,9 +65,9 @@ function switchMode(m: Mode): void {
   router.push(path)
 }
 
-/** ←书架：返回书架页（路由 /） */
+/** ←书架：返回书架页（路由 /shelf） */
 function goShelf(): void {
-  router.push('/')
+  router.push('/shelf')
 }
 const modeLabel = computed(
   () => ({ overview: '总览', edit: '编辑', workbench: '工作台' }[props.mode]),

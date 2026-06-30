@@ -124,7 +124,7 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
 <template>
   <section class="book-new">
     <div class="bento-wrap" style="max-width:680px">
-      <button class="btn" style="margin-bottom:18px" @click="router.push('/')">← 返回书架</button>
+      <button class="btn" style="margin-bottom:18px" @click="router.push('/shelf')">← 返回书架</button>
 
       <!-- 段 1：init 表单 -->
       <template v-if="phase === 'form'">
