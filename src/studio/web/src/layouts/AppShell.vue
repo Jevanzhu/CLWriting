@@ -69,9 +69,6 @@ function switchMode(m: Mode): void {
 function goShelf(): void {
   router.push('/')
 }
-const asideTitle = computed(
-  () => ({ overview: '数据明细', edit: '上下文', workbench: '事件流' }[props.mode]),
-)
 const modeLabel = computed(
   () => ({ overview: '总览', edit: '编辑', workbench: '工作台' }[props.mode]),
 )
@@ -151,7 +148,6 @@ const appClass = computed(() => ({
               <slot />
             </main>
             <aside class="clw-aside">
-              <div class="clw-sider-head">{{ asideTitle }}</div>
               <div class="clw-sider-body">
                 <DataDetail v-if="mode === 'overview'" />
                 <ContextPanel v-else-if="mode === 'edit'" />
@@ -209,7 +205,6 @@ const appClass = computed(() => ({
 .clw-workspace.panel-closed .clw-aside{transform:translateX(120%);opacity:0;pointer-events:none}
 .clw-workspace.panel-closed .clw-content{padding-right:36px}
 
-.clw-sider-head{height:36px;display:flex;align-items:center;padding:0 16px;color:var(--text-3);font-size:11px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--white-14);flex-shrink:0}
 .clw-sider-body{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:14px}
 
 .clw-statusbar{height:28px;background:var(--panel);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 16px;font-size:11px;color:var(--text-2);gap:16px;flex-shrink:0}
