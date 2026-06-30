@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 命令面板（⌘P）：模糊搜索 + 键盘选择（mockup .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item）。
-// B 策略保留 script 键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构。
+// 命令面板（⌘P）：分组模糊搜索 + 键盘选择（mockup .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item/.cmd-group-label）。
+// B 策略保留键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构；命令按 mockup 分组（导航/视图）。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -21,32 +21,47 @@ interface Cmd {
   hint: string
   run: () => void
 }
+interface CmdGroup {
+  group: string
+  items: Cmd[]
+}
 
-const commands = computed<Cmd[]>(() => {
-  const list: Cmd[] = []
-  if (enc.value) {
-    const go = (p: string) => () => router.push(p)
-    list.push(
-      { id: 'go-overview', label: '总览：作品概要', hint: '跳转', run: go(base.value) },
-      { id: 'go-edit', label: '编辑：文件', hint: '跳转', run: go(`${base.value}/edit`) },
-      { id: 'go-workbench', label: '工作台', hint: '跳转', run: go(`${base.value}/workbench`) },
-      { id: 'go-health', label: '体检', hint: '总览·分析', run: go(`${base.value}/health`) },
-      { id: 'go-rhythm', label: '节奏', hint: '总览·分析', run: go(`${base.value}/rhythm`) },
-      { id: 'go-leads', label: '账本', hint: '总览·分析', run: go(`${base.value}/leads`) },
-      { id: 'go-settings', label: '设定', hint: '总览·分析', run: go(`${base.value}/settings`) },
-      { id: 'go-config', label: '配置', hint: '总览·分析', run: go(`${base.value}/config`) },
-    )
-  }
-  return list
+const groups = computed<CmdGroup[]>(() => {
+  if (!enc.value) return []
+  const go = (p: string) => () => router.push(p)
+  return [
+    {
+      group: '导航',
+      items: [
+        { id: 'go-overview', label: '总览：作品概要', hint: '', run: go(base.value) },
+        { id: 'go-edit', label: '编辑：文件', hint: '', run: go(`${base.value}/edit`) },
+        { id: 'go-workbench', label: '工作台', hint: '', run: go(`${base.value}/workbench`) },
+      ],
+    },
+    {
+      group: '视图',
+      items: [
+        { id: 'go-health', label: '体检', hint: '', run: go(`${base.value}/health`) },
+        { id: 'go-rhythm', label: '节奏', hint: '', run: go(`${base.value}/rhythm`) },
+        { id: 'go-leads', label: '账本', hint: '', run: go(`${base.value}/leads`) },
+        { id: 'go-settings', label: '设定', hint: '', run: go(`${base.value}/settings`) },
+        { id: 'go-config', label: '配置', hint: '', run: go(`${base.value}/config`) },
+      ],
+    },
+  ]
 })
 
-const filtered = computed(() => {
+/** 跨组过滤；flat 是当前可见命令的扁平序列（activeIdx 索引它） */
+const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q) return commands.value
-  return commands.value.filter((c) => c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q))
+  if (!q) return groups.value
+  return groups.value
+    .map((g) => ({ group: g.group, items: g.items.filter((c) => c.label.toLowerCase().includes(q)) }))
+    .filter((g) => g.items.length > 0)
 })
+const flat = computed(() => filteredGroups.value.flatMap((g) => g.items))
 
-watch(filtered, () => {
+watch(flat, () => {
   activeIdx.value = 0
 })
 
@@ -68,13 +83,13 @@ watch(show, (s) => {
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    activeIdx.value = Math.min(activeIdx.value + 1, filtered.value.length - 1)
+    activeIdx.value = Math.min(activeIdx.value + 1, flat.value.length - 1)
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     activeIdx.value = Math.max(activeIdx.value - 1, 0)
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    const c = filtered.value[activeIdx.value]
+    const c = flat.value[activeIdx.value]
     if (c) exec(c)
   } else if (e.key === 'Escape') {
     e.preventDefault()
@@ -97,25 +112,28 @@ function onKey(e: KeyboardEvent): void {
         />
       </div>
       <div class="cmd-list">
-        <div
-          v-for="(c, i) in filtered"
-          :key="c.id"
-          class="cmd-item"
-          :class="{ sel: i === activeIdx }"
-          @click="exec(c)"
-          @mouseenter="activeIdx = i"
-        >
-          <span class="cmd-name">{{ c.label }}</span>
-          <span v-if="c.hint" class="cmd-shortcut">{{ c.hint }}</span>
-        </div>
-        <div v-if="!filtered.length" class="cmd-empty">无匹配命令</div>
+        <template v-for="g in filteredGroups" :key="g.group">
+          <div class="cmd-group-label">{{ g.group }}</div>
+          <div
+            v-for="c in g.items"
+            :key="c.id"
+            class="cmd-item"
+            :class="{ sel: flat[activeIdx]?.id === c.id }"
+            @click="exec(c)"
+            @mouseenter="activeIdx = flat.findIndex((x) => x.id === c.id)"
+          >
+            <span class="cmd-name">{{ c.label }}</span>
+            <span v-if="c.hint" class="cmd-shortcut">{{ c.hint }}</span>
+          </div>
+        </template>
+        <div v-if="!flat.length" class="cmd-empty">无匹配命令</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* mockup 覆盖 .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item；.cmd-box 是内层卡片容器（components.css 未定义），此处补。 */
+/* mockup 覆盖 .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item/.cmd-group-label；.cmd-box 是内层卡片容器（components.css 未定义），此处补。 */
 .cmd-box {
   width: 520px;
   max-width: 92vw;

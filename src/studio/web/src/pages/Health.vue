@@ -127,6 +127,19 @@ const healthRingStyle = computed(() => {
   const col = s >= 80 ? 'var(--ink-cyan)' : s >= 60 ? 'var(--ochre)' : 'var(--cinnabar)'
   return `background:conic-gradient(${col} 0 ${s}%,var(--border-55) ${s}% 100%)`
 })
+
+/** 各维度评分 ring 矩阵（对齐 mockup a_health bento-full；从 metrics 派生 % 维度） */
+const dimRings = computed(() => {
+  const m = metrics.value
+  if (!m || m.count === 0) return []
+  const overRate = m.cost.overLimitChapters / m.count
+  return [
+    { name: '满审', val: Math.round(m.review.fullRate * 100), tip: `${Math.round(m.review.fullRate * 100)}%` },
+    { name: '通过', val: Math.round((1 - m.review.downgradeRate) * 100), tip: `${Math.round((1 - m.review.downgradeRate) * 100)}%` },
+    { name: '成本合规', val: Math.round((1 - overRate) * 100), tip: `${m.cost.overLimitChapters} 章超限` },
+    { name: '阻断控制', val: Math.max(0, 100 - Math.round(m.review.avgBlockers * 20)), tip: `均 ${m.review.avgBlockers.toFixed(1)} 阻断` },
+  ]
+})
 </script>
 
 <template>
@@ -148,6 +161,7 @@ const healthRingStyle = computed(() => {
         <div v-if="metrics && metrics.count > 0" class="blk-label">成本 / 审查（{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }}）</div>
         <div v-if="metrics && metrics.count > 0" class="bento-grid">
           <div class="bento-card bento-lg">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">总体健康</div>
             <div class="bc-ring" :style="healthRingStyle"><span>{{ healthScore }}<span>%</span></span></div>
             <div class="bc-foot">{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }} · 满审 {{ pct(metrics.review.fullRate) }} · {{ style?.drifts.length ?? 0 }} 项漂移</div>
@@ -157,6 +171,16 @@ const healthRingStyle = computed(() => {
           <div class="bento-card"><div class="bc-label">满审率</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ pct(metrics.review.fullRate) }}</div></div>
           <div class="bento-card"><div class="bc-label">降级率</div><div class="bc-stat" style="color:var(--ochre)">{{ pct(metrics.review.downgradeRate) }}</div></div>
           <div class="bento-card"><div class="bc-label">平均阻断</div><div class="bc-stat">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
+          <div v-if="dimRings.length" class="bento-card bento-full">
+            <div class="bc-label">各维度评分</div>
+            <div class="dim-grid">
+              <div v-for="d in dimRings" :key="d.name" class="dim-cell">
+                <div class="ring on-panel" :style="{ background: `conic-gradient(${d.val >= 80 ? 'var(--ink-cyan)' : d.val >= 60 ? 'var(--ochre)' : 'var(--cinnabar)'} 0 ${d.val}%, var(--border) ${d.val}% 100%)` }"><span class="ring-txt">{{ d.val }}</span></div>
+                <div class="dim-name">{{ d.name }}</div>
+                <div class="dim-count">{{ d.tip }}</div>
+              </div>
+            </div>
+          </div>
           <div v-if="costBar" class="bento-card bento-c2"><div class="bc-label">各阶段平均调用</div><EChart :option="costBar" /></div>
           <div class="bento-card">
             <div class="bc-label">预算 / 记账</div>
@@ -201,6 +225,12 @@ const healthRingStyle = computed(() => {
 .health :deep(.echart){height:180px}
 .health .blk-label{font-size:13px;font-weight:600;color:var(--ink);margin:24px 0 12px}
 .health .blk-label:first-of-type{margin-top:0}
+.health .dim-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px}
+.health .dim-cell{display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 8px;border-radius:12px;background:color-mix(in srgb,var(--panel) 38%,transparent)}
+.health .dim-cell .ring{width:58px;height:58px}
+.health .dim-cell .ring-txt{font-size:13px}
+.health .dim-name{font-size:12px;color:var(--ink);font-weight:500}
+.health .dim-count{font-size:10px;color:var(--text-3)}
 .health .drift-row{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:12px;color:var(--text-2);line-height:1.6}
 .health .drift-row .clw-dot{margin-top:6px;flex-shrink:0}
 .health .hint{color:var(--text-2);padding-top:24px}

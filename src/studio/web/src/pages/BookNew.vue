@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 新建书（newbook）：段 1 表单 + 段 2 AI 填设定。对齐 mockup v5 renderNbForm / renderNbOnboard。
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { OnboardStep } from '../types'
 import { createBook, runOnboardStep, saveOnboardStep } from '../api/books'
@@ -15,6 +15,17 @@ const brief = ref('')
 const submitting = ref(false)
 const error = ref('')
 const savedMsg = ref('')
+
+// 当前书库（段 1 副标题显示所属书库；desktop getCurrentLibrary 取，浏览器版 fallback）
+const currentLib = ref('当前书库')
+onMounted(async () => {
+  try {
+    const p = await window.clwritingDesktop?.getCurrentLibrary()
+    if (p) currentLib.value = p
+  } catch {
+    /* 浏览器版无 desktop IPC */
+  }
+})
 
 // 段 2:onboard(AI 填设定)
 const phase = ref<'form' | 'onboard'>('form')
@@ -128,7 +139,7 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
     <div v-if="phase === 'form'" class="shelf-inner" style="max-width:720px">
       <button class="btn" style="margin-bottom:18px" @click="router.push('/shelf')">← 返回书架</button>
       <div class="shelf-title">新建书籍</div>
-      <div class="panel-sub" style="margin:6px 0 22px">建书后可让 AI 据题材自动填设定（段 2）</div>
+      <div class="panel-sub" style="margin:6px 0 22px">所属书库：{{ currentLib }}</div>
 
       <form class="card" style="padding:18px 20px" @submit.prevent="submit">
         <div class="sfield">

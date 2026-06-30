@@ -131,16 +131,10 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
             </template>
             详情面板
           </NTooltip>
-          <NTooltip trigger="hover">
-            <template #trigger>
-              <span class="icon-btn" @click="showSettings = true">⚙</span>
-            </template>
-            设置
-          </NTooltip>
         </div>
       </header>
 
-      <div class="workspace" :class="{ focus: isFocus, 'panel-open': panelOpen }">
+      <div class="workspace" :class="{ focus: isFocus, 'panel-closed': !panelOpen }">
         <main class="content">
           <div class="content-scroll">
             <slot />
@@ -169,13 +163,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
 
 <style scoped>
 /* AppShell v5：外壳结构/数值全走 v5-components.css，此处仅 v5-components 未覆盖的自有状态。 */
-
-/* ◧ 详情面板开关（mockup 无此 toggle，AppShell 自有）：关时右栏滑出 */
-.workspace:not(.panel-open) .sider-right {
-  transform: translateX(100%);
-  opacity: 0;
-  pointer-events: none;
-}
+/* ◧ 详情面板收起走全局 .workspace.panel-closed .sider-right（components.css:328），无需 scoped。 */
 
 /* icon-btn 激活态（focus / panel 高亮） */
 .icon-btn.on {

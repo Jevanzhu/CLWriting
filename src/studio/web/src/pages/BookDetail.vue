@@ -148,6 +148,7 @@ const heatOption = computed<EChartsOption | null>(() => {
         <div class="bento-grid">
           <!-- 总体完成度（大卡 · 环）-->
           <div class="bento-card bento-lg">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">总体完成度</div>
             <div class="bc-ring" :style="ringStyle">
               <span>{{ pct }}<span>%</span></span>
@@ -177,6 +178,7 @@ const heatOption = computed<EChartsOption | null>(() => {
 
           <!-- 近 N 日字数（大卡 · 柱状）-->
           <div v-if="weekBars.length" class="bento-card bento-lg">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">近 {{ weekBars.length }} 日字数</div>
             <div class="bc-bars" style="height:120px">
               <div
@@ -194,6 +196,7 @@ const heatOption = computed<EChartsOption | null>(() => {
 
           <!-- 快速操作 -->
           <div class="bento-card bento-action">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">快速操作</div>
             <div class="bc-btns">
               <button class="neo-btn" :disabled="!canWrite(data.state)" @click="onWrite">✍ 继续写作</button>

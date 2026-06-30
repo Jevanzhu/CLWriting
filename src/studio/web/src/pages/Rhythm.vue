@@ -163,6 +163,11 @@ const wordStats = computed(() => {
         <div v-if="wordStats" class="bento-card"><div class="bc-label">最低{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--cinnabar)">{{ wordStats.min }}</div></div>
         <div v-if="wordStats" class="bento-card"><div class="bc-label">平均/{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat">{{ wordStats.avg }}</div></div>
         <div v-if="wordStats" class="bento-card"><div class="bc-label">最高{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ wordStats.max }}</div></div>
+        <!-- 诊断（AI 节奏建议，对齐 mockup bento-action；待 core 补数据） -->
+        <div class="bento-card bento-action">
+          <div class="bc-label">诊断</div>
+          <div class="rhythm-diag">AI 节奏诊断待 core 补充（字数异常章 · 钩子强弱 · 情绪连续性建议）。</div>
+        </div>
         <!-- 钩子类型 × 强弱（长篇）-->
         <template v-if="data.kind === 'long'">
           <div v-if="hookTypeOption" class="bento-card bento-c2"><EChart :option="hookTypeOption" /></div>
@@ -196,6 +201,7 @@ const wordStats = computed(() => {
 .rhythm-page .bento-card{min-height:116px}
 .rhythm-page :deep(.echart){height:200px}
 .rhythm-page .avg-line{margin:8px 0 0;text-align:center;font-size:12px;color:var(--text-3)}
+.rhythm-page .rhythm-diag{font-size:12.5px;color:var(--text-2);line-height:1.8;margin-top:8px}
 .rhythm-page .rev-link{text-decoration:none;color:inherit}
 .rhythm-page .rev-link:hover{color:var(--ink-cyan)}
 .rhythm-page .hint{color:var(--text-2);padding-top:24px}

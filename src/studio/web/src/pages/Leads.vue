@@ -50,6 +50,14 @@ function cellTitle(ch: number, id: string): string {
 }
 
 
+/** 顶部 4 stat 概要（对齐 mockup a_ledger stat：从 overview 聚合） */
+const stats = computed(() => {
+  const d = data.value
+  if (!d || d.kind !== 'long') return null
+  const sum = (k: 'total' | '进行中' | '已收尾' | '已放弃') => d.overview.reduce((s, o) => s + o[k], 0)
+  return { total: sum('total'), ongoing: sum('进行中'), done: sum('已收尾'), dropped: sum('已放弃') }
+})
+
 /** 特化字段(成长线境界/局线父线/关系债欠方债主) */
 function specialties(l: Lead): string[] {
   const out: string[] = []
@@ -78,6 +86,10 @@ function specialties(l: Lead): string[] {
       <!-- 长篇 -->
       <template v-else-if="data && data.kind === 'long'">
         <div class="bento-grid">
+          <div v-if="stats" class="bento-card"><div class="bc-label">进行中</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.ongoing }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-label">已收尾</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ stats.done }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-label">已放弃</div><div class="bc-stat" style="color:var(--text-3)">{{ stats.dropped }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-label">总条目</div><div class="bc-stat">{{ stats.total }}</div></div>
           <div class="bento-card bento-full">
             <div class="bc-label">七类概览</div>
             <table class="overview">

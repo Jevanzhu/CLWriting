@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 设置弹层（mockup .modal-mask/.modal/.mb-section/.swatch-row/.kv）。
 // 字体/排版实时改 :root CSS var（--prose-font/size/lh/gap），CodeMirror 即刻生效。主题已收敛单 mono。
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const show = defineModel<boolean>('show', { default: false })
 
@@ -15,6 +15,16 @@ const cfgFont = ref(fonts[0]!.css)
 const cfgSize = ref(16.5)
 const cfgLh = ref(2.0)
 const cfgGap = ref(16)
+const currentLib = ref('当前书库')
+
+onMounted(async () => {
+  try {
+    const p = await window.clwritingDesktop?.getCurrentLibrary()
+    if (p) currentLib.value = p
+  } catch {
+    /* 浏览器版无 desktop IPC */
+  }
+})
 
 /** 字体/排版 → :root CSS var（CodeMirror editorTheme 读这些 var，实时生效） */
 function applyCfg(): void {
@@ -38,8 +48,7 @@ function applyCfg(): void {
           <h3>正文字体</h3>
           <label v-for="f in fonts" :key="f.id" class="swatch-row" @click="cfgFont = f.css; applyCfg()">
             <input type="radio" name="clw-font" :checked="cfgFont === f.css" />
-            <div class="swatch" :style="{ fontFamily: f.css }">永</div>
-            <div><div class="nm" :style="{ fontFamily: f.css }">{{ f.label }}</div></div>
+            <div class="nm" :style="{ fontFamily: f.css }">{{ f.label }}</div>
           </label>
         </div>
 
@@ -71,6 +80,11 @@ function applyCfg(): void {
         </div>
 
         <div class="mb-section">
+          <h3>书库</h3>
+          <div class="kv"><span class="k">当前</span><span class="v">{{ currentLib }}</span></div>
+        </div>
+
+        <div class="mb-section">
           <h3>模型与驱动</h3>
           <div class="kv"><span class="k">驱动</span><span class="v">Claude CLI 子进程</span></div>
           <div class="kv"><span class="k">原则</span><span class="v">不直连大模型 · key 不入库</span></div>
@@ -88,7 +102,7 @@ function applyCfg(): void {
 </template>
 
 <style scoped>
-/* mockup 覆盖 .modal-mask/.modal/.modal-head/.modal-close/.modal-body/.mb-section/.swatch-row/.swatch/.nm/.kv；
+/* mockup 覆盖 .modal-mask/.modal/.modal-head/.modal-close/.modal-body/.mb-section/.swatch-row/.nm/.kv；
    仅补滑块容器（mockup 用内联样式，Vue 抽类更清晰）。 */
 .cfg-sliders {
   display: flex;

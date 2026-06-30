@@ -146,9 +146,9 @@ const stats = computed(() => {
       <!-- 顶部：返回 + 篇导航 -->
       <div class="head-row">
         <button class="btn" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
-        <div class="pager">
+        <div class="pd-pager">
           <button class="btn" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
-          <span class="pager-no">第 {{ no }} 篇</span>
+          <span>第 {{ no }} 篇</span>
           <button class="btn" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
         </div>
       </div>
@@ -165,7 +165,7 @@ const stats = computed(() => {
             <RouterLink class="edit-link" :to="`/books/${encodeURIComponent(name)}/edit`">编辑此篇 ✏️</RouterLink>
           </div>
         </div>
-        <div v-if="data.meta.核心反转" class="meta-reversal">
+        <div v-if="data.meta.核心反转" class="pd-reversal">
           <span class="tag yellow">核心反转</span>
           <span>{{ data.meta.核心反转 }}</span>
         </div>
@@ -199,26 +199,23 @@ const stats = computed(() => {
             </article>
             <article class="bento-card">
               <div class="bc-label">反转线索表</div>
-              <div class="reversal-core">
+              <div class="pd-core">
                 <span class="tag yellow">核心反转</span>
                 <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
               </div>
-              <div v-if="data.list.反转线索表.铺垫点.length">
-                <div v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i" class="ledger-item">
-                  <span class="setup-pos">{{ p.位置 }}</span>
-                  <div>{{ p.内容 }}</div>
-                </div>
-              </div>
+              <ul v-if="data.list.反转线索表.铺垫点.length" class="pd-setups">
+                <li v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i"><span class="setup-pos">{{ p.位置 }}</span>{{ p.内容 }}</li>
+              </ul>
               <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
             </article>
             <article class="bento-card">
               <div class="bc-label">伏笔回收</div>
-              <div v-if="data.list.伏笔回收.length">
-                <div v-for="(e, i) in data.list.伏笔回收" :key="i" class="ledger-item" :class="{ unresolved: e.未回收 }">
-                  <span class="clw-dot" :class="e.未回收 ? 'red' : 'green'"></span>
-                  <div><b>{{ e.伏笔 }}</b><div class="desc">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</div></div>
-                </div>
-              </div>
+              <ul v-if="data.list.伏笔回收.length" class="pd-payoffs">
+                <li v-for="(e, i) in data.list.伏笔回收" :key="i" :class="{ unresolved: e.未回收 }">
+                  <span class="payoff-name">{{ e.伏笔 }}</span>
+                  <span class="payoff-at">{{ e.未回收 ? '未回收' : `回收于 ${e.回收位置}` }}</span>
+                </li>
+              </ul>
               <p v-else class="hint">（无伏笔）</p>
             </article>
           </div>
@@ -229,6 +226,8 @@ const stats = computed(() => {
 </template>
 
 <style scoped>
+/* mockup 全局类接管：pd-pager/pd-reversal/pd-core/pd-setups/pd-payoffs/setup-pos/payoff-name/payoff-at（components.css:312-323）。
+   此处仅保留布局特化（双栏 main-grid / 正文 sticky / 紧凑 stat 网格）。 */
 .piece-page {
   margin: 0 auto;
 }
@@ -236,130 +235,15 @@ const stats = computed(() => {
 .pd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0 0}
 .pd-stats .bento-card{padding:12px 14px}
 .pd-stats .bc-stat{font-size:24px}
-.head-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.pager-no {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-}
-.meta-card {
-  background: var(--active-bg);
-  border-color: var(--active-bg);
-}
-.meta-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.meta-no {
-  font-size: 12px;
-  color: var(--ink-cyan);
-  font-weight: 600;
-}
-.meta-name {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.meta-fields {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-left: auto;
-}
-.edit-link {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--ink-cyan);
-  text-decoration: none;
-}
-.edit-link:hover {
-  text-decoration: underline;
-}
-.meta-reversal {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.6;
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-.main-grid {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 12px;
-  align-items: start;
-  margin-top: 12px;
-}
-.prose-card {
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 140px);
-  overflow-y: auto;
-}
-.prose-sub {
-  margin: 14px 0 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-3);
-  letter-spacing: 0.05em;
-  text-indent: 0;
-}
-.prose p {
-  margin: 0 0 12px;
-}
-.list-col {
-  display: grid;
-  gap: 12px;
-}
-.reversal-core {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 10px 12px;
-  background: var(--warn-bg);
-  border-radius: 7px;
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.6;
-  margin-bottom: 8px;
-}
-.setup-pos {
-  display: inline-block;
-  margin-right: 4px;
-  padding: 1px 6px;
-  background: var(--active-bg);
-  color: var(--ochre);
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.ledger-item.unresolved b {
-  color: var(--cinnabar);
-}
-.piece-page :deep(.echart) {
-  height: 200px;
-}
-.piece-page .hint {
-  color: var(--text-3);
-  font-size: 13px;
-  margin: 4px 0;
-}
-.piece-page .hint.error {
-  color: var(--cinnabar);
-}
+.head-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.main-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:12px;align-items:start;margin-top:12px}
+.prose-card{position:sticky;top:12px;max-height:calc(100vh - 140px);overflow-y:auto}
+.prose-sub{margin:14px 0 6px;font-size:12px;font-weight:600;color:var(--text-3);letter-spacing:.05em;text-indent:0}
+.prose p{margin:0 0 12px}
+.list-col{display:grid;gap:12px}
+.edit-link{margin-left:8px;font-size:12px;color:var(--ink-cyan);text-decoration:none}
+.edit-link:hover{text-decoration:underline}
+.piece-page :deep(.echart){height:200px}
+.piece-page .hint{color:var(--text-3);font-size:13px;margin:4px 0}
+.piece-page .hint.error{color:var(--cinnabar)}
 </style>

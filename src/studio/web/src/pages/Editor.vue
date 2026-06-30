@@ -42,10 +42,12 @@ const draftChapter = computed<number | null>(() => {
 })
 
 const kind = ref<'long' | 'short'>('long')
+const targetWords = ref(0)
 async function loadKind(): Promise<void> {
   try {
     const config = await getConfig(name.value)
     kind.value = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
+    targetWords.value = Number(config.book?.target_words) || 0
   } catch {
     /* ignore */
   }
@@ -58,6 +60,24 @@ const selectedMode = computed<'text' | 'md'>(() => {
 const dirty = computed(() => content.value !== original.value)
 /** 实时字数（去空白）——对齐 mockup et-wc */
 const words = computed(() => content.value.replace(/\s/g, '').length)
+/** 字数进度（vs 全书 target_words；章级目标 core 后补） */
+const pct = computed(() => (targetWords.value > 0 ? Math.min(Math.round((words.value / targetWords.value) * 100), 100) : 0))
+
+/** 当前文件标题（章号/篇号/文件名）——对齐 mockup chapter-title */
+const fileTitle = computed(() => {
+  const p = selected.value
+  if (!p) return ''
+  const chM = p.match(/ch(\d+)/i)
+  if (chM) return `第 ${Number(chM[1])} 章`
+  const pM = p.match(/sp(\d+)/i) ?? p.match(/篇[\\/](\d+)/)
+  if (pM) return `第 ${Number(pM[1])} 篇`
+  return (p.split(/[\\/]/).pop() ?? p).replace(/\.md$/i, '')
+})
+
+/** 工具栏「改写」：聚焦下方改写指令框（仅草稿可用，联动 rewrite-panel） */
+function focusRewrite(): void {
+  document.querySelector<HTMLTextAreaElement>('.rewrite-instr')?.focus()
+}
 
 async function loadFiles(): Promise<void> {
   error.value = ''
@@ -220,13 +240,25 @@ watch(
         <span v-else-if="savedMsg" class="et-dirty saved">{{ savedMsg }}</span>
         <span v-if="selected" class="doc-status" :class="dirty ? 'draft' : 'done'">{{ dirty ? '未保存' : '已保存' }}</span>
         <span class="ei-gap"></span>
-        <span v-if="selected" class="et-wc"><b>{{ words.toLocaleString() }}</b> 字</span>
+        <span v-if="selected" class="et-wc">
+          <b>{{ words.toLocaleString() }}</b> / {{ targetWords ? targetWords.toLocaleString() : '—' }} 字<span class="et-bar"><div :style="{ width: pct + '%' }"></div></span>{{ pct }}%
+        </span>
+        <span class="ei-gap"></span>
         <span class="et-actions">
-          <button class="et-btn revert" :disabled="reverting" @click="revert">
+          <button class="btn et-btn revert" :disabled="reverting" @click="revert">
             <svg class="ico" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
             {{ reverting ? '回滚中…' : '回滚' }}
           </button>
-          <button class="et-btn save" :disabled="!dirty || saving" @click="save">
+          <button
+            class="btn et-btn rewrite"
+            :disabled="!draftChapter"
+            :title="draftChapter ? `改写第 ${draftChapter} ${kind === 'short' ? '篇' : '章'}草稿` : '仅草稿可改写'"
+            @click="focusRewrite"
+          >
+            <svg class="ico" viewBox="0 0 24 24"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></svg>
+            改写
+          </button>
+          <button class="btn et-btn save" :disabled="!dirty || saving" @click="save">
             <svg class="ico" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
             {{ saving ? '保存中…' : '保存' }}
           </button>
@@ -234,14 +266,17 @@ watch(
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <CodeEditor
-        v-else-if="selected && !loading"
-        ref="codeRef"
-        :key="selected"
-        :model-value="content"
-        :mode="selectedMode"
-        @update:model-value="content = $event"
-      />
+      <template v-else-if="selected && !loading">
+        <h1 class="chapter-title">{{ fileTitle }}</h1>
+        <div class="chapter-meta-line">钩子 <b style="color: var(--text-3)">—</b> · 情绪 <b style="color: var(--text-3)">—</b><span style="color: var(--text-3); font-size: 11px; margin-left: 8px">（章元数据待 core）</span></div>
+        <CodeEditor
+          ref="codeRef"
+          :key="selected"
+          :model-value="content"
+          :mode="selectedMode"
+          @update:model-value="content = $event"
+        />
+      </template>
       <p v-else-if="loading" class="hint">加载中…</p>
       <p v-else class="hint">从左侧选一个文件开始编辑。</p>
 

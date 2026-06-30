@@ -41,6 +41,13 @@ function select(path: string): void {
   router.push({ path: `/books/${enc.value}/edit`, query: { file: path } })
 }
 
+/** 文件状态点（对齐 mockup .dot）：正文已定稿 green / 工作区草稿 yellow / 设定大纲 gray */
+function dotClass(path: string): string {
+  if (/工作区[\\/]?草稿/i.test(path)) return 'yellow'
+  if (/(chapters|pieces|篇)[\\/]/i.test(path)) return 'green'
+  return 'gray'
+}
+
 watch(() => props.bookName, () => load(), { immediate: true })
 </script>
 
@@ -59,6 +66,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
     :class="{ active: f.path === current }"
     @click="select(f.path)"
   >
+    <span class="dot" :class="dotClass(f.path)"></span>
     <span class="ft-path">{{ f.path }}</span>
     <span class="ft-mode">{{ f.mode === 'text' ? '正文' : '设定' }}</span>
   </div>
