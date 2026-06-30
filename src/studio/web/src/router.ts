@@ -10,6 +10,7 @@ const router = createRouter({
   routes: [
     { path: '/', component: () => import('./pages/Landing.vue') },
     { path: '/shelf', component: () => import('./pages/Bookshelf.vue') },
+    { path: '/libraries', component: () => import('./pages/Libraries.vue') },
     { path: '/books/new', component: () => import('./pages/BookNew.vue') },
     { path: '/books/:name', component: () => import('./pages/BookDetail.vue') },
     { path: '/books/:name/health', component: () => import('./pages/Health.vue') },
