@@ -205,9 +205,10 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
   color: var(--cinnabar);
 }
 
-/* 中栏对称：content-scroll 右侧常驻滚动条占 5px，内容 margin:auto 居中会偏左 ~2.5px。
-   mockup 用 core.js 测 sw 补 paddingLeft，Vue 无 JS 直接 CSS 补（::-webkit-scrollbar 恒 5px）。 */
+/* 中栏对称：右侧常驻滚动条占空间，内容 margin:auto 居中会偏左。
+   scrollbar-gutter:stable both-edges 让左右双侧预留等量 gutter，自动对称
+  （比手写 padding-left 精确，不受滚动条渲染 sub-pixel 影响；替代 mockup core.js 测 sw 补偿）。 */
 .content-scroll {
-  padding-left: 45px;
+  scrollbar-gutter: stable both-edges;
 }
 </style>
