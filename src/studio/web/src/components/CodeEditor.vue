@@ -105,7 +105,34 @@ watch(
   },
 )
 
-// 暴露选区供局部改写取用
+/** 选区两侧包裹（粗体 ** / 斜体 * / 代码 `）；无选区时只插前缀，光标停中间 */
+function wrapSel(before: string, after: string = before): void {
+  if (!view) return
+  const sel = view.state.selection.main
+  const text = view.state.sliceDoc(sel.from, sel.to)
+  const insert = before + text + after
+  const anchor = sel.from + before.length
+  const head = sel.from + before.length + text.length
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor, head },
+  })
+  view.focus()
+}
+
+/** 行首加前缀（标题 # / 列表 - / 引用 >） */
+function linePrefix(prefix: string): void {
+  if (!view) return
+  const sel = view.state.selection.main
+  const line = view.state.doc.lineAt(sel.from)
+  view.dispatch({
+    changes: { from: line.from, to: line.from, insert: prefix },
+    selection: { anchor: sel.from + prefix.length, head: sel.to + prefix.length },
+  })
+  view.focus()
+}
+
+// 暴露选区（局部改写取用）+ markdown 格式化（工具栏按钮）
 defineExpose({
   getSelection: (): { text: string; from: number; to: number } | null => {
     if (!view) return null
@@ -113,6 +140,8 @@ defineExpose({
     if (sel.from === sel.to) return null
     return { text: view.state.sliceDoc(sel.from, sel.to), from: sel.from, to: sel.to }
   },
+  wrapSel,
+  linePrefix,
 })
 
 onUnmounted(() => view?.destroy())

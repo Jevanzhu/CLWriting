@@ -1,9 +1,15 @@
 <script setup lang="ts">
 // 命令面板（⌘P）：分组模糊搜索 + 键盘选择（mockup .cmd-mask/.cmd-input-wrap/.cmd-list/.cmd-item/.cmd-group-label）。
-// B 策略保留键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构；命令按 mockup 分组（导航/视图）。
+// B 策略保留键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构。
+// 命令分组：书籍/导航/操作/文件/视图；操作组含动作命令（保存/新建书/专注/折叠/面板/设置/主题/字体）。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listFiles, listBooks } from '../api/books'
+import { useEditorState } from '../composables/useEditorState'
+import { useUiState, type ShellMode } from '../composables/useUiState'
+import { useTheme } from '../composables/useTheme'
+import { useFont } from '../composables/useFont'
+import { useHint } from '../composables/useHint'
 import type { FileEntry, BookMeta } from '../types'
 
 const show = defineModel<boolean>('show', { default: false })
@@ -26,6 +32,34 @@ interface Cmd {
 interface CmdGroup {
   group: string
   items: Cmd[]
+}
+
+// 动作命令共享态
+const { triggerSave } = useEditorState()
+const { toggleFocus, toggleFoldL, togglePanel, openSettings } = useUiState()
+const { theme, themes, setTheme, themeName } = useTheme()
+const { appFontId, setAppFont, appFonts } = useFont()
+const { hint } = useHint()
+
+/** 当前态（从路由推断，专注命令需判断是否编辑态） */
+const mode = computed<ShellMode>(() => {
+  const p = route.path
+  if (p.endsWith('/edit')) return 'edit'
+  if (p.endsWith('/workbench')) return 'workbench'
+  return 'overview'
+})
+
+/** 主题循环下一档 */
+function nextTheme(): void {
+  const i = themes.findIndex((t) => t.id === theme.value)
+  const next = themes[(i + 1) % themes.length] ?? themes[0]!
+  setTheme(next.id)
+}
+/** 界面字体循环下一档 */
+function nextAppFont(): void {
+  const i = appFonts.findIndex((f) => f.id === appFontId.value)
+  const next = appFonts[(i + 1) % appFonts.length] ?? appFonts[0]!
+  setAppFont(next.id)
 }
 
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
@@ -85,8 +119,21 @@ const bookItems = computed<Cmd[]>(() =>
 )
 
 const groups = computed<CmdGroup[]>(() => {
-  if (!enc.value) return []
   const go = (p: string) => () => router.push(p)
+
+  // 全局操作（入口态/进书态都可用）
+  const globalActions: Cmd[] = [
+    { id: 'act-newbook', label: '新建书', hint: '⌘N', run: go('/books/new') },
+    { id: 'act-settings', label: '设置', hint: '⌘,', run: () => openSettings() },
+    { id: 'act-theme', label: `切换主题（当前 ${themeName()}）`, hint: '', run: nextTheme },
+    { id: 'act-font', label: '切换界面字体', hint: '', run: nextAppFont },
+  ]
+
+  // 入口态（无 enc）：仅全局操作
+  if (!enc.value) {
+    return [{ group: '操作', items: globalActions }]
+  }
+
   const nav: CmdGroup = {
     group: '导航',
     items: [
@@ -95,6 +142,23 @@ const groups = computed<CmdGroup[]>(() => {
       { id: 'go-workbench', label: '工作台', hint: '⌘W', run: go(`${base.value}/workbench`) },
     ],
   }
+  // 编辑态动作（保存/专注/折叠/面板）
+  const editActions: Cmd[] = [
+    {
+      id: 'act-save',
+      label: '保存（编辑器）',
+      hint: '⌘S',
+      run: () => {
+        triggerSave()
+        hint('已触发保存')
+      },
+    },
+    { id: 'act-focus', label: '专注模式', hint: '⌘⇧F', run: () => toggleFocus(mode.value) },
+    { id: 'act-fold', label: '折叠侧栏', hint: '⌘B', run: () => toggleFoldL() },
+    { id: 'act-panel', label: '详情面板', hint: '', run: () => togglePanel() },
+  ]
+  const action: CmdGroup = { group: '操作', items: [...editActions, ...globalActions] }
+
   const view: CmdGroup = {
     group: '视图',
     items: [
@@ -105,9 +169,11 @@ const groups = computed<CmdGroup[]>(() => {
       { id: 'go-config', label: '配置', hint: '', run: go(`${base.value}/config`) },
     ],
   }
+
   const result: CmdGroup[] = []
   if (bookItems.value.length) result.push({ group: '书籍', items: bookItems.value })
   result.push(nav)
+  result.push(action)
   if (fileItems.value.length) result.push({ group: '文件', items: fileItems.value })
   result.push(view)
   return result

@@ -9,6 +9,7 @@ import { useTheme } from '../composables/useTheme'
 import { useHeartbeat, serverOnline } from '../composables/useHeartbeat'
 import { useHint } from '../composables/useHint'
 import { useEditorState } from '../composables/useEditorState'
+import { useUiState } from '../composables/useUiState'
 import OverviewNav from '../components/OverviewNav.vue'
 import FileTree from '../components/FileTree.vue'
 import TaskList from '../components/TaskList.vue'
@@ -31,19 +32,17 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 const { themeName } = useTheme()
-const { state: hintState, hint } = useHint()
+const { state: hintState } = useHint()
 const { triggerSave } = useEditorState()
+// 全局 UI 态（专注/折叠/详情面板/设置）：AppShell 与 CommandPalette 共享（useUiState 模块单例）
+const { focus, foldL, panelOpen, settingsOpen, toggleFocus, toggleFoldL, togglePanel, openSettings } = useUiState()
 
 const enc = computed(() => (props.bookName ? encodeURIComponent(props.bookName) : ''))
 
 // 1.5 单写者协作心跳（常驻 shell）
 useHeartbeat(() => enc.value)
 
-const showSettings = ref(false)
 const showPalette = ref(false)
-const focus = ref(false)     // ⤢ 专注：折叠左右栏（仅编辑态）
-const foldL = ref(false)     // ⌘B 折叠左栏（对齐 mockup state.foldL）
-const panelOpen = ref(true)  // ◧ 详情面板：右栏开关
 // 右栏跟随中栏滚动（对齐 mockup core.js:152-154 syncScroll）
 const contentScroll = ref<HTMLElement>()
 const siderRightInner = ref<HTMLElement>()
@@ -66,11 +65,10 @@ function onGlobalKey(e: KeyboardEvent): void {
     triggerSave()
   } else if (k === 'b') {
     e.preventDefault()
-    foldL.value = !foldL.value
-    hint(foldL.value ? '已折叠侧栏' : '已展开侧栏')
+    toggleFoldL()
   } else if (k === 'f' && e.shiftKey) {
     e.preventDefault()
-    toggleFocus()
+    toggleFocus(props.mode)
   } else if (k === 'e' && props.bookName) {
     e.preventDefault()
     switchMode('edit')
@@ -80,6 +78,14 @@ function onGlobalKey(e: KeyboardEvent): void {
   } else if (k === 'w' && props.bookName) {
     e.preventDefault()
     switchMode('workbench')
+  } else if (k === ',') {
+    e.preventDefault()
+    showPalette.value = false
+    openSettings()
+  } else if (k === 'n') {
+    e.preventDefault()
+    showPalette.value = false
+    router.push('/books/new')
   }
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
@@ -103,24 +109,7 @@ function goShelf(): void {
   router.push('/shelf')
 }
 
-/** ⤢ 专注模式：折叠左右栏（仅编辑态）；对齐 mockup showHint 反馈 */
-function toggleFocus(): void {
-  focus.value = !focus.value
-  if (!focus.value) {
-    hint('已退出专注')
-  } else if (props.mode === 'edit') {
-    hint('专注模式 · 编辑框独占（再按 ⤢ 或 ⌘⇧F 退出）')
-  } else {
-    focus.value = false
-    hint('专注模式仅编辑态可用')
-  }
-}
-
-/** ◧ 详情面板：右栏开关；对齐 mockup showHint 反馈 */
-function togglePanel(): void {
-  panelOpen.value = !panelOpen.value
-  hint(panelOpen.value ? '已展开详情面板' : '已收起详情面板')
-}
+// toggleFocus / toggleFoldL / togglePanel / openSettings 由 useUiState 提供（共享给 CommandPalette）
 const modeLabel = computed(
   () => ({ overview: '总览', edit: '编辑', workbench: '工作台' }[props.mode]),
 )
@@ -145,7 +134,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
           <TaskList v-else :book-name="bookName" />
           <Binder :book-name="bookName" />
         </div>
-        <SiderFoot :book-name="bookName" @back="goShelf" @settings="showSettings = true" />
+        <SiderFoot :book-name="bookName" @back="goShelf" @settings="openSettings" />
       </div>
     </aside>
 
@@ -171,7 +160,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
           </NTooltip>
           <NTooltip trigger="hover">
             <template #trigger>
-              <span class="icon-btn" :class="{ on: focus }" @click="toggleFocus">⤢</span>
+              <span class="icon-btn" :class="{ on: focus }" @click="toggleFocus(mode)">⤢</span>
             </template>
             专注模式（折叠左右栏）
           </NTooltip>
@@ -215,7 +204,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
       </footer>
     </div>
 
-    <SettingsModal v-model:show="showSettings" />
+    <SettingsModal v-model:show="settingsOpen" />
     <CommandPalette v-model:show="showPalette" />
 
     <!-- 全局操作反馈浮层（对齐 mockup .hint-tip，components.css:431） -->

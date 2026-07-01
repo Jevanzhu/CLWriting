@@ -34,7 +34,11 @@ const reverting = ref(false)
 const error = ref('')
 const savedMsg = ref('')
 
-const codeRef = ref<{ getSelection: () => { text: string; from: number; to: number } | null } | null>(null)
+const codeRef = ref<{
+  getSelection: () => { text: string; from: number; to: number } | null
+  wrapSel: (before: string, after?: string) => void
+  linePrefix: (prefix: string) => void
+} | null>(null)
 
 // 操作下拉菜单（保存主按钮 + ⋮ 展开 改写/回滚）
 const menuOpen = ref(false)
@@ -346,6 +350,15 @@ watch(
         <div v-if="isSettingFile || isOutlineFile" class="sform-hint">
           {{ isSettingFile ? '设定' : '大纲' }}结构化表单待 core · 当前编辑原始 markdown
         </div>
+        <!-- markdown 工具栏（设定/大纲 md 模式；正文纯文本不显示）-->
+        <div v-if="selectedMode === 'md'" class="md-toolbar">
+          <button class="md-btn" title="粗体 **" @click="codeRef?.wrapSel('**')"><b>B</b></button>
+          <button class="md-btn" title="斜体 *" @click="codeRef?.wrapSel('*')"><i>I</i></button>
+          <button class="md-btn" title="标题 ###" @click="codeRef?.linePrefix('### ')">H</button>
+          <button class="md-btn" title="列表 -" @click="codeRef?.linePrefix('- ')">•</button>
+          <button class="md-btn" title="引用 >" @click="codeRef?.linePrefix('> ')">❝</button>
+          <button class="md-btn" title="代码 `" @click="codeRef?.wrapSel('`')">&lt;/&gt;</button>
+        </div>
         <CodeEditor
           ref="codeRef"
           :key="selected"
@@ -427,4 +440,10 @@ watch(
 .et-menu-item .ico{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .et-menu-item:hover:not(:disabled){background:var(--hover)}
 .et-menu-item:disabled{opacity:.4;cursor:default}
+
+/* markdown 工具栏（设定/大纲 md 模式）：格式按钮 */
+.md-toolbar{display:flex;gap:4px;padding:6px 4px;margin-bottom:8px;border-bottom:1px solid var(--border)}
+.md-btn{min-width:30px;height:28px;padding:0 8px;border:1px solid var(--border);background:var(--paper);border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s;font-family:inherit}
+.md-btn:hover{background:var(--hover);border-color:var(--ink-cyan)}
+.md-btn:active{transform:scale(.96)}
 </style>
