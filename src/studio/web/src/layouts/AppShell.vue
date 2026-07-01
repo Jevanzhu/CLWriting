@@ -204,4 +204,10 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
 .host.off {
   color: var(--cinnabar);
 }
+
+/* 中栏对称：content-scroll 右侧常驻滚动条占 5px，内容 margin:auto 居中会偏左 ~2.5px。
+   mockup 用 core.js 测 sw 补 paddingLeft，Vue 无 JS 直接 CSS 补（::-webkit-scrollbar 恒 5px）。 */
+.content-scroll {
+  padding-left: 45px;
+}
 </style>

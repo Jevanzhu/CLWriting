@@ -101,6 +101,7 @@ onMounted(loadLib)
    此处仅补：拖拽区（整栏可拖拽移动窗口）+ CLI 徽章 no-drag 可点击。 */
 .window-chrome {
   -webkit-app-region: drag;
+  padding-right: 10px; /* CLI 徽章再往右靠（距右 16→10）*/
 }
 .wc-cli {
   -webkit-app-region: no-drag;
