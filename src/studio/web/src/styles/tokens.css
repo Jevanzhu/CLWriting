@@ -113,8 +113,10 @@ body{
   transition:background .3s,color .3s;
 }
 /* Vue 用 #app 一层挂载（mockup 是 .desktop>.window>.app 三层撑满）；
-   入口页套 .workspace.full 靠 flex:1 撑满 + overflow:auto 滚动，故 #app 需为 flex column。 */
-#app{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+   入口页套 .workspace.full 靠 flex:1 撑满 + overflow:auto 滚动，故 #app 需为 flex column。
+   #app 承担 mockup .window 容器角色：垫纯白 --panel 底，让 topbar(--panel-70 半透明)
+   透出纯白，与左栏 sider-left(--panel)视觉一致（mockup 即靠 .window 纯白底实现）。 */
+#app{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--panel)}
 
 /* 通用面板（三栏独立成页；mono 下无阴影，扁平） */
 .clw-panel{
