@@ -2,12 +2,14 @@
 // AppShell（v5 照搬）：Electron 原生窗口提供交通灯/标题栏，Vue 仅 .app 应用内容。
 // 结构/数值全走 v5-components.css（.app/.sider-slot/.sider-left/.topbar/.workspace/.content/.sider-right/.mode-tabs/.statusbar）。
 // 三栏纯 overlay：左 sider-slot 浮左空白 / 中 content 居中(max-width) / 右 sider-right 浮右空白；窄窗容器查询折叠。
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NTooltip } from 'naive-ui'
 import { useTheme } from '../composables/useTheme'
 import { useHeartbeat, serverOnline } from '../composables/useHeartbeat'
 import { useHint } from '../composables/useHint'
+import { getOverview } from '../api/books'
+import type { BookOverview } from '../types'
 import OverviewNav from '../components/OverviewNav.vue'
 import FileTree from '../components/FileTree.vue'
 import TaskList from '../components/TaskList.vue'
@@ -19,7 +21,6 @@ import Binder from '../components/Binder.vue'
 import SiderFoot from '../components/SiderFoot.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import CommandPalette from '../components/CommandPalette.vue'
-import CollabBadge from '../components/CollabBadge.vue'
 
 type Mode = 'overview' | 'edit' | 'workbench'
 
@@ -99,6 +100,31 @@ const routeLabel = computed(() => {
 
 // 专注态：sider-slot / workspace 同时带 focus 类 → v5-components 折叠左右栏
 const isFocus = computed(() => focus.value && props.mode === 'edit')
+
+/** 顶栏书信息（mockup wc-title：书名·类型·字数）。GET /overview 取 kind/words。
+ *  mockup 此信息在 .window-chrome（Electron 原生标题栏不渲染自定义内容），Vue 搬进 topbar-main。 */
+const ov = ref<BookOverview | null>(null)
+async function loadOverview(): Promise<void> {
+  if (!props.bookName) {
+    ov.value = null
+    return
+  }
+  try {
+    ov.value = await getOverview(props.bookName)
+  } catch {
+    ov.value = null
+  }
+}
+watch(() => props.bookName, () => loadOverview(), { immediate: true })
+
+/** 字数万化（≥1万显示 x.x万）——与 BookAnchor 一致 */
+function wn(w: number): string {
+  return w >= 10000 ? (w / 10000).toFixed(1) + '万' : String(w)
+}
+const bookKindLabel = computed(() =>
+  (ov.value?.identity.kind ?? 'long') === 'short' ? '短篇集' : '长篇',
+)
+const bookWordsLabel = computed(() => (ov.value ? wn(ov.value.progress.words) : '—'))
 </script>
 
 <template>
@@ -131,9 +157,24 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
     <div class="app-main">
       <header class="topbar">
         <div class="topbar-main">
-          <CollabBadge :book-name="bookName" :mode="mode" />
+          <!-- 书信息（mockup wc-title：书名·类型·字数）-->
+          <div v-if="bookName" class="wc-title">
+            <span class="wt-name">{{ bookName }}</span>
+            <span class="wt-sep">·</span>
+            <span class="wt-meta">{{ bookKindLabel }}</span>
+            <span class="wt-sep">·</span>
+            <span class="wt-meta">{{ bookWordsLabel }}字</span>
+          </div>
         </div>
         <div class="topbar-actions">
+          <!-- CLI 连接徽章（mockup topbar-cli，serverOnline 心跳驱动；原 window-chrome 右上角）-->
+          <span
+            class="topbar-cli"
+            :class="{ off: !serverOnline }"
+            :title="serverOnline ? 'Claude CLI 已连接' : 'CLI 连接中断 · AI 步暂不可用'"
+          >
+            <span class="cli-dot"></span>{{ serverOnline ? 'Claude CLI' : '未连接' }}
+          </span>
           <NTooltip trigger="hover">
             <template #trigger>
               <span class="icon-btn" @click="showPalette = true">⌘</span>
@@ -207,5 +248,25 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
 /* statusbar host 离线态（serverOnline=false 时） */
 .host.off {
   color: var(--cinnabar);
+}
+
+/* 顶栏书信息（mockup wc-title 原在 .window-chrome 居中；Vue 无该栏，放 topbar-main 左侧静态流） */
+.wc-title {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 360px;
+}
+.wc-title .wt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* CLI 徽章放进 topbar-actions（已靠右），覆盖全局 .topbar-cli 的 margin-left:auto */
+.topbar-actions .topbar-cli {
+  margin-left: 0;
 }
 </style>
