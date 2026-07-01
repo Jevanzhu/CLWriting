@@ -111,7 +111,7 @@ onMounted(() => {
       <div class="landing-actions">
         <button class="btn primary" @click="goShelf">📚 书架</button>
         <button class="btn" @click="newBook">+ 新建</button>
-        <button v-if="isDesktop" class="btn" @click="goLibraries">🗂 书库管理</button>
+        <button v-if="isDesktop" class="btn" @click="goLibraries">📚 书库管理</button>
         <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开书库</button>
       </div>
     </section>

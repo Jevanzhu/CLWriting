@@ -406,7 +406,7 @@ onUnmounted(() => es?.close())
         </div>
         <!-- 中断后：弃稿 / 改指令重写 -->
         <div v-if="interrupted" class="interrupt-bar">
-          <span class="interrupt-tip">写稿已中断，正文已保留（{{ textOut.length }} 字）。</span>
+          <span class="interrupt-tip">写稿已中断，正文已保留（{{ textOut.length }} 字）</span>
           <button class="btn" @click="discardDraft">🗑 弃稿</button>
           <button class="btn primary" @click="draftWrite">🔄 改指令重写</button>
         </div>
@@ -436,3 +436,11 @@ onUnmounted(() => es?.close())
     </div>
   </section>
 </template>
+
+<style scoped>
+/* 对齐 mockup：mockup 的 .wb-out 是 <div>（无默认 margin），
+   Vue 用 <pre> 承载正文，UA 默认 margin-block:1em 会多出上下间距，这里归零。 */
+.wb-out {
+  margin: 0;
+}
+</style>

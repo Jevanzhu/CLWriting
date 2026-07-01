@@ -73,7 +73,7 @@ function specialties(l: Lead): string[] {
   <section class="leads-page">
     <div class="bento-wrap">
       <div class="bento-head">
-        <h1 class="bento-title">账本</h1>
+        <h1 class="bento-title">账本 · 总览</h1>
         <div class="bento-sub">
           <span class="meta-chip">{{ data?.kind === 'long' ? '七类线索' : '集子总览' }}</span>
           <span class="meta-chip">{{ data?.kind === 'long' ? '推进矩阵' : '各篇反转' }}</span>
@@ -87,10 +87,10 @@ function specialties(l: Lead): string[] {
       <!-- 长篇 -->
       <template v-else-if="data && data.kind === 'long'">
         <div class="bento-grid">
-          <div v-if="stats" class="bento-card"><div class="bc-label">进行中</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.ongoing }}</div></div>
-          <div v-if="stats" class="bento-card"><div class="bc-label">已收尾</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ stats.done }}</div></div>
-          <div v-if="stats" class="bento-card"><div class="bc-label">已放弃</div><div class="bc-stat" style="color:var(--text-3)">{{ stats.dropped }}</div></div>
-          <div v-if="stats" class="bento-card"><div class="bc-label">总条目</div><div class="bc-stat">{{ stats.total }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">进行中</div><div class="bc-stat" style="color:var(--cinnabar)">{{ stats.ongoing }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">已收尾</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ stats.done }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">已放弃</div><div class="bc-stat" style="color:var(--text-3)">{{ stats.dropped }}</div></div>
+          <div v-if="stats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">总条目</div><div class="bc-stat">{{ stats.total }}</div></div>
           <div class="bento-card bento-full">
             <div class="bc-label">七类概览</div>
             <table class="overview">

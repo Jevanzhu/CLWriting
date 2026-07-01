@@ -285,7 +285,7 @@ watch(
         <div class="state-empty">
           <div class="se-icon">✍️</div>
           <div class="se-text">本{{ kind === 'short' ? '篇' : '章' }}尚未开写</div>
-          <div class="se-sub">细纲就绪后去工作台让 AI 生成首版，或直接在此续写</div>
+          <div class="se-sub">细纲已就绪 · 去工作台让 AI 生成首版，或直接在此续写</div>
           <RouterLink class="btn primary" :to="`/books/${name}/workbench`">去工作台生成 →</RouterLink>
         </div>
       </template>
@@ -338,4 +338,8 @@ watch(
 .rewrite-instr{width:100%;min-height:56px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;background:var(--paper);color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s}
 .rewrite-instr:focus{border-color:var(--ink-cyan);box-shadow:0 0 0 3px var(--cyan-10)}
 .rewrite-btns{display:flex;gap:8px;margin-top:10px}
+/* mockup 用 .btn.disabled（opacity:.4）表达禁用；Vue 用原生 button :disabled，
+   补禁用视觉（opacity + cursor）让禁用态与 mockup 一致。 */
+.edit-info .et-btn:disabled{opacity:.4;cursor:default;pointer-events:none}
+.rewrite-btns .btn:disabled{opacity:.4;cursor:default}
 </style>

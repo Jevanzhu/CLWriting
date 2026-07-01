@@ -159,18 +159,21 @@ const heatOption = computed<EChartsOption | null>(() => {
 
           <!-- 总字数 -->
           <div class="bento-card">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">总字数</div>
             <div class="bc-stat">{{ fmtWords(data.progress.words) }}</div>
           </div>
 
           <!-- 章节进度 -->
           <div class="bento-card">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">{{ data.identity.kind === 'short' ? '篇数' : '章节进度' }}</div>
             <div class="bc-stat">{{ data.progress.chapters }}</div>
           </div>
 
           <!-- 写作位置 -->
           <div class="bento-card">
+            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">写作位置</div>
             <div class="bc-stat" style="font-size:15px;line-height:1.3">{{ data.state.name }}</div>
             <div class="bc-sub">{{ stateHint(data.state) || '状态就绪' }}</div>
@@ -196,7 +199,6 @@ const heatOption = computed<EChartsOption | null>(() => {
 
           <!-- 快速操作 -->
           <div class="bento-card bento-action">
-            <div class="bc-menu" title="操作">⋮</div>
             <div class="bc-label">快速操作</div>
             <div class="bc-btns">
               <button class="neo-btn" :disabled="!canWrite(data.state)" @click="onWrite">✍ 继续写作</button>

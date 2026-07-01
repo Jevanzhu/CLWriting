@@ -137,7 +137,7 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
   <div class="workspace full">
     <!-- 段 1：init 表单 -->
     <div v-if="phase === 'form'" class="shelf-inner" style="max-width:720px">
-      <button class="btn" style="margin-bottom:18px" @click="router.push('/shelf')">← 返回书架</button>
+      <button class="btn" style="margin-bottom:18px" @click="router.push('/shelf')">← 返回</button>
       <div class="shelf-title">新建书籍</div>
       <div class="panel-sub" style="margin:6px 0 22px">所属书库：{{ currentLib }}</div>
 
@@ -217,7 +217,7 @@ const canSubmit = computed(() => name.value.trim().length > 0 && !submitting.val
           </div>
         </div>
         <template v-if="s.result">
-          <textarea v-model="s.result.content" class="result-edit" rows="8"></textarea>
+          <textarea v-model="s.result.content" class="result-edit" rows="6"></textarea>
           <div class="step-foot">
             <span class="result-path">{{ s.result.path }} · {{ s.result.words }} 字</span>
             <button class="btn primary" @click="onboardSave(s)">💾 保存编辑</button>

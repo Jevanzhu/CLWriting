@@ -143,7 +143,7 @@ const wordStats = computed(() => {
   <section class="rhythm-page">
     <div class="bento-wrap">
       <div class="bento-head">
-        <h1 class="bento-title">节奏</h1>
+        <h1 class="bento-title">{{ data?.kind === 'long' ? '节奏 · 字数曲线' : '节奏 · 情绪起伏' }}</h1>
         <div class="bento-sub">
           <span class="meta-chip">{{ data?.kind === 'long' ? '章长' : '篇长' }}</span>
           <span class="meta-chip">{{ data?.kind === 'long' ? '钩子' : '情绪' }}</span>
@@ -161,9 +161,9 @@ const wordStats = computed(() => {
           <p v-if="data.kind === 'long'" class="avg-line">虚线为均字 {{ data.avgWords }}</p>
         </div>
         <!-- 字数极值（对齐 mockup 最低章·平均章 stat） -->
-        <div v-if="wordStats" class="bento-card"><div class="bc-label">最低{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--cinnabar)">{{ wordStats.min }}</div></div>
-        <div v-if="wordStats" class="bento-card"><div class="bc-label">平均/{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat">{{ wordStats.avg }}</div></div>
-        <div v-if="wordStats" class="bento-card"><div class="bc-label">最高{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ wordStats.max }}</div></div>
+        <div v-if="wordStats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">最低{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--cinnabar)">{{ wordStats.min }}</div></div>
+        <div v-if="wordStats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">平均/{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat">{{ wordStats.avg }}</div></div>
+        <div v-if="wordStats" class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">最高{{ data.kind === 'long' ? '章' : '篇' }}</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ wordStats.max }}</div></div>
         <!-- 诊断（AI 节奏建议，对齐 mockup bento-action；待 core 补数据） -->
         <div class="bento-card bento-action">
           <div class="bc-label">诊断</div>

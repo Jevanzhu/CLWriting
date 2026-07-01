@@ -148,9 +148,9 @@ const stats = computed(() => {
       <div class="head-row">
         <button class="btn" @click="router.push(`/books/${encodeURIComponent(name)}/rhythm`)">← 返回节奏页</button>
         <div class="pd-pager">
-          <button class="btn" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
+          <button class="btn" :class="{ disabled: noIndex <= 0 }" :disabled="noIndex <= 0" @click="go(-1)">← 上一篇</button>
           <span class="pd-no">第 {{ no }} 篇<span v-if="pieces.length" style="color: var(--text-3)"> / 共 {{ pieces.length }} 篇</span></span>
-          <button class="btn" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
+          <button class="btn" :class="{ disabled: noIndex < 0 || noIndex >= pieces.length - 1 }" :disabled="noIndex < 0 || noIndex >= pieces.length - 1" @click="go(1)">下一篇 →</button>
         </div>
       </div>
 
@@ -208,7 +208,7 @@ const stats = computed(() => {
                 <span>{{ data.list.反转线索表.核心反转 || '（待补）' }}</span>
               </div>
               <ul v-if="data.list.反转线索表.铺垫点.length" class="pd-setups">
-                <li v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i"><span class="setup-pos">{{ p.位置 }}</span>{{ p.内容 }}</li>
+                <li v-for="(p, i) in data.list.反转线索表.铺垫点" :key="i"><span class="setup-pos">[{{ p.位置 }}]</span>{{ p.内容 }}</li>
               </ul>
               <p v-else class="hint">（无铺垫点，建议 ≥3）</p>
             </article>

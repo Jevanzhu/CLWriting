@@ -141,7 +141,7 @@ watch(
   <template v-if="fileType === 'piece' && piece">
     <div class="card">
       <div class="card-title">
-        本篇 <span style="color: var(--ink-cyan)">● {{ piece.meta.字数 > 0 ? '草稿' : '待写' }}</span>
+        本篇 <span style="color: var(--ink-cyan)">● {{ targetWords && piece.meta.字数 >= targetWords ? '达标' : '草稿' }}</span>
       </div>
       <div class="kv"><span class="k">字数</span><span class="v">{{ piece.meta.字数.toLocaleString() }}</span></div>
       <div class="progress"><div :style="{ width: piecePct + '%' }"></div></div>
@@ -289,4 +289,6 @@ watch(
 .emo-labels{display:flex;gap:6px;font-size:10px;color:var(--text-3)}
 .emo-labels > span{flex:1;text-align:center}
 .reversal-text{font-size:12px;color:var(--ink);line-height:1.7}
+/* mockup 右栏反转线索卡的 btn-row 用 margin-top:8px（比全局 14px 更紧凑）。 */
+.btn-row{margin-top:8px}
 </style>

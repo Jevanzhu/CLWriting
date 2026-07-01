@@ -67,10 +67,10 @@ onMounted(() => {
         <div class="logo">墨</div>
         <div>
           <div class="shelf-title">书架</div>
-          <div v-if="libName" style="color:var(--text-3);font-size:11px;letter-spacing:.5px;margin-top:2px">· {{ libName }}</div>
+          <div v-if="libName" style="color:var(--text-3);font-size:11px;letter-spacing:.5px">· {{ libName }}</div>
         </div>
         <div class="shelf-sub" :title="libraryLabel">{{ libraryLabel || 'CLWriting 工作目录' }}</div>
-        <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开书库</button>
+        <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开已有书库</button>
         <button class="btn primary" @click="newBook">+ 新建书</button>
       </div>
 

@@ -147,7 +147,7 @@ const dimRings = computed(() => {
   <section class="health">
     <div class="bento-wrap">
       <div class="bento-head">
-        <h1 class="bento-title">体检</h1>
+        <h1 class="bento-title">体检 · 总览</h1>
         <div class="bento-sub">
           <span class="meta-chip">成本</span>
           <span class="meta-chip">审查</span>
@@ -167,11 +167,11 @@ const dimRings = computed(() => {
             <div class="bc-ring" :style="healthRingStyle"><span>{{ healthScore }}<span>%</span></span></div>
             <div class="bc-foot">{{ metrics.count }} {{ metrics.kind === 'short' ? '篇' : '章' }} · 满审 {{ pct(metrics.review.fullRate) }} · {{ style?.drifts.length ?? 0 }} 项漂移</div>
           </div>
-          <div class="bento-card"><div class="bc-label">平均调用</div><div class="bc-stat">{{ metrics.cost.avgCalls.toFixed(1) }}</div></div>
-          <div class="bento-card"><div class="bc-label">超上限</div><div class="bc-stat" style="color:var(--cinnabar)">{{ metrics.cost.overLimitChapters }}</div></div>
-          <div class="bento-card"><div class="bc-label">满审率</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ pct(metrics.review.fullRate) }}</div></div>
-          <div class="bento-card"><div class="bc-label">降级率</div><div class="bc-stat" style="color:var(--ochre)">{{ pct(metrics.review.downgradeRate) }}</div></div>
-          <div class="bento-card"><div class="bc-label">平均阻断</div><div class="bc-stat">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">平均调用</div><div class="bc-stat">{{ metrics.cost.avgCalls.toFixed(1) }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">超上限</div><div class="bc-stat" style="color:var(--cinnabar)">{{ metrics.cost.overLimitChapters }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">满审率</div><div class="bc-stat" style="color:var(--ink-cyan)">{{ pct(metrics.review.fullRate) }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">降级率</div><div class="bc-stat" style="color:var(--ochre)">{{ pct(metrics.review.downgradeRate) }}</div></div>
+          <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">平均阻断</div><div class="bc-stat">{{ metrics.review.avgBlockers.toFixed(1) }}</div></div>
           <div v-if="dimRings.length" class="bento-card bento-full">
             <div class="bc-label">各维度评分</div>
             <div class="dim-grid">

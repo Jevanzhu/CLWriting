@@ -113,6 +113,9 @@ function selectFont(f: { id: string; label: string; css: string }): void {
 <style scoped>
 /* mockup 覆盖 .modal-mask/.modal/.modal-head/.modal-close/.modal-body/.mb-section/.swatch-row/.nm/.kv；
    仅补滑块容器（mockup 用内联样式，Vue 抽类更清晰）。 */
+/* mockup 字体行带 margin-bottom:6px；components.css 的 .swatch-row 无默认 margin，补行间距。 */
+.swatch-row{margin-bottom:6px}
+.swatch-row:last-child{margin-bottom:0}
 .cfg-sliders {
   display: flex;
   flex-direction: column;
