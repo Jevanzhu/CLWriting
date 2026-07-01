@@ -2,6 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from './layouts/AppShell.vue'
+import TitleBar from './components/TitleBar.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -36,12 +37,26 @@ const bookName = computed(() => (route.params.name as string) || '')
 </script>
 
 <template>
+  <TitleBar />
   <AppShell v-if="inBook" :mode="mode" :book-name="bookName">
     <router-view />
   </AppShell>
-  <router-view v-else />
+  <div v-else class="full-host">
+    <router-view />
+  </div>
 </template>
 
-<style>
-/* 全局样式交给 styles/tokens.css；App.vue 仅保留挂载结构 */
+<style scoped>
+/* 全局样式交给 styles/tokens.css；App.vue 仅保留挂载结构。
+   入口页容器：TitleBar 占顶 38px，剩余空间撑满给 .workspace.full 滚动。 */
+.full-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.full-host :deep(.workspace.full) {
+  flex: 1;
+  min-height: 0;
+}
 </style>

@@ -184,6 +184,8 @@ async function bootstrap(): Promise<void> {
     minWidth: 960,
     minHeight: 640,
     title: 'CLWriting',
+    // macOS 自定义标题栏：隐藏原生标题文字+按钮，保留交通灯（inset 缩进）；Vue 画 .window-chrome（书信息+CLI 徽章）
+    titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f5', // v5 paper（对齐 mockup body 底色；topbar --panel-70 透出 paper 与左栏 --panel 视觉一致）
     webPreferences: {
       contextIsolation: true, // 渲染进程隔离（安全）
