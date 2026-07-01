@@ -184,7 +184,7 @@ async function bootstrap(): Promise<void> {
     minWidth: 960,
     minHeight: 640,
     title: 'CLWriting',
-    backgroundColor: '#e8e8e8', // v5 canvas（与 AppShell .clw-desktop 底色一致；无窗口外框后窗口底色直接可见）
+    backgroundColor: '#f5f5f5', // v5 paper（对齐 mockup body 底色；topbar --panel-70 透出 paper 与左栏 --panel 视觉一致）
     webPreferences: {
       contextIsolation: true, // 渲染进程隔离（安全）
       sandbox: true, // 沙箱（安全）

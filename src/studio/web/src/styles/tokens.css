@@ -104,7 +104,10 @@ html,body{height:100%;margin:0}
 body{
   font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
   color:var(--ink);
-  background:var(--canvas);
+  /* 对齐 mockup base.css：body 底色用 paper（非 canvas）。
+     canvas 是 mockup .desktop 桌面壁纸层色，Electron 无此层；用 canvas 会让
+     topbar(--panel-70 半透明)透出偏灰底，与左栏 sider-left(--panel 纯白)产生色差。 */
+  background:var(--paper);
   font-size:13px;
   -webkit-font-smoothing:antialiased;
   transition:background .3s,color .3s;
