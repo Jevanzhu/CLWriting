@@ -245,7 +245,7 @@ watch(
         <span v-if="selected" class="doc-status" :class="dirty ? 'draft' : 'done'">{{ dirty ? '未保存' : '已保存' }}</span>
         <span class="ei-gap"></span>
         <span v-if="selected" class="et-wc">
-          <b>{{ words.toLocaleString() }}</b> / {{ targetWords ? targetWords.toLocaleString() : '—' }} 字<span class="et-bar"><div :style="{ width: pct + '%' }"></div></span>{{ pct }}%
+          <b>{{ words.toLocaleString() }}</b> / {{ targetWords ? targetWords.toLocaleString() : '—' }} 字<span class="et-bar"><div :style="{ width: pct + '%' }"></div></span><span class="et-pct">{{ pct }}%</span>
         </span>
         <span class="ei-gap"></span>
         <span class="et-actions">
