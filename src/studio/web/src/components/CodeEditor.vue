@@ -35,26 +35,26 @@ let view: EditorView | null = null
 
 // mono 语法高亮：墨色为主，cyan 标强调，ochre 标代码。替换彩色 defaultHighlightStyle。
 const monoHighlight = HighlightStyle.define([
-  { tag: t.heading, color: 'var(--ink)', fontWeight: '700' },
-  { tag: t.strong, color: 'var(--ink)', fontWeight: '600' },
-  { tag: t.emphasis, color: 'var(--ink)', fontStyle: 'italic' },
-  { tag: [t.link, t.url], color: 'var(--ink-cyan)' },
-  { tag: t.list, color: 'var(--ink-cyan)' },
-  { tag: t.quote, color: 'var(--text-3)' },
-  { tag: t.meta, color: 'var(--text-3)' },
-  { tag: t.monospace, color: 'var(--ochre)' },
-  { tag: [t.keyword, t.atom, t.bool], color: 'var(--ink-cyan)' },
+  { tag: t.heading, color: 'var(--reader-ink)', fontWeight: '700' },
+  { tag: t.strong, color: 'var(--reader-ink)', fontWeight: '600' },
+  { tag: t.emphasis, color: 'var(--reader-ink)', fontStyle: 'italic' },
+  { tag: [t.link, t.url], color: 'var(--reader-accent)' },
+  { tag: t.list, color: 'var(--reader-accent)' },
+  { tag: t.quote, color: 'var(--reader-ink-2)' },
+  { tag: t.meta, color: 'var(--reader-ink-2)' },
+  { tag: t.monospace, color: 'var(--reader-ink-2)' },
+  { tag: [t.keyword, t.atom, t.bool], color: 'var(--reader-accent)' },
 ])
 
-// CM6 外观：对齐 mockup .prose（楷体/行高/字色）+ mono 选区/活动行
+// CM6 外观：对齐 mockup .prose（卡片式：panel-42 底 + white-14 边 + 12px 圆角 + focus cyan 光晕）
 const editorTheme = EditorView.theme({
-  '&': { backgroundColor: 'transparent', height: '62vh', fontSize: 'var(--prose-size)', color: 'var(--ink)' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--prose-font)', lineHeight: 'var(--prose-lh)' },
-  '.cm-content': { caretColor: 'var(--ink-cyan)', padding: '4px 0' },
-  '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--text-3)' },
-  '.cm-activeLine': { backgroundColor: 'var(--flat-hover)' },
-  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--ink)' },
+  '&': { backgroundColor: 'var(--reader-bg)', border: '1px solid var(--reader-border)', borderRadius: '12px', height: '73vh', fontSize: 'var(--prose-size)', color: 'var(--reader-ink)', letterSpacing: '.3px', transition: 'box-shadow .2s,border-color .2s,background .15s' },
+  '&.cm-focused': { outline: 'none', borderColor: 'var(--reader-accent)', boxShadow: '0 0 0 3px var(--reader-accent-soft)' },
+  '.cm-scroller': { fontFamily: 'var(--prose-font)', lineHeight: 'var(--prose-lh)', borderRadius: '12px' },
+  '.cm-content': { caretColor: 'var(--reader-accent)', padding: '18px 22px' },
+  '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--reader-ink-2)' },
+  '.cm-activeLine': { backgroundColor: 'var(--reader-accent-soft)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--reader-ink)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--sel-bg)' },
 })
 

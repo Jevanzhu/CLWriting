@@ -102,6 +102,8 @@ onMounted(() => {
           <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">总书数</div><div class="bc-stat">{{ books.length }}</div></div>
           <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">长篇</div><div class="bc-stat">{{ longBooks.length }}</div></div>
           <div class="bento-card"><div class="bc-menu">⋮</div><div class="bc-label">短篇集</div><div class="bc-stat">{{ shortBooks.length }}</div></div>
+          <!-- 进行中：BookMeta 无状态字段 → 占位 —（待 core dot/状态；对齐 mockup cyan 高亮） -->
+          <div class="bento-card" style="border-color:var(--cyan-32)"><div class="bc-menu">⋮</div><div class="bc-label">进行中</div><div class="bc-stat" style="color:var(--ink-cyan)">—</div></div>
         </div>
 
         <div class="shelf-sections">
@@ -122,8 +124,10 @@ onMounted(() => {
                   <span class="bc-name">{{ b.name }}</span>
                 </div>
                 <div class="bc-meta">长篇 · 创建于 {{ fmtDate(b.created_at) }}</div>
-                <!-- meta 说明行：无 genre/章数/字数 → 占位「待 core」（对齐 mockup 小字行） -->
-                <div style="font-size:11px;color:var(--text-3);margin:4px 0 6px">—</div>
+                <!-- meta 说明行：genre/章数/字数 待 BookMeta 补字段 → 占位 — -->
+                <div style="font-size:11px;color:var(--text-3);margin:4px 0 6px;display:flex;gap:10px">
+                  <span>类型 —</span><span>{{ b.kind === 'short' ? '篇' : '章' }}数 —</span><span>字数 —</span>
+                </div>
                 <!-- 进度条：无 wordTarget/words → 占位 width:0（待 core 提供字数进度） -->
                 <div class="progress" style="margin:6px 0 8px"><div style="width:0%"></div></div>
                 <div class="bc-foot">

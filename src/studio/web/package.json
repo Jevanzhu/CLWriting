@@ -24,6 +24,8 @@
     "vue-tsc": "^2.1.0"
   },
   "dependencies": {
+    "@fontsource/noto-serif-sc": "^5.2.9",
+    "lxgw-wenkai-webfont": "^1.7.0",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4"
   }

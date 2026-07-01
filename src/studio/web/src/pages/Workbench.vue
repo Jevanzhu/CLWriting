@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useWorkbenchLog } from '../composables/useWorkbenchLog'
 import { useHint } from '../composables/useHint'
+import { serverOnline } from '../composables/useHeartbeat'
 import {
   approveReview,
   generateOutline,
@@ -360,6 +361,11 @@ onUnmounted(() => es?.close())
         <span class="state-tag">【{{ stateInfo.stateName }}】</span>
         <span class="state-msg">{{ stateInfo.humanMsg }}</span>
       </div>
+      <!-- CLI 断连错误卡（对齐 mockup state-error：🔌 + 重试提示） -->
+      <div v-if="!serverOnline" class="state-card" style="border-color:var(--cinnabar);background:var(--cinnabar-7)">
+        <span class="state-tag" style="color:var(--cinnabar)">🔌【CLI 断连】</span>
+        <span class="state-msg">Claude CLI 连接中断，工作台流程暂停</span>
+      </div>
 
       <!-- 八阶段骨架 -->
       <nav class="stages">
@@ -368,6 +374,7 @@ onUnmounted(() => es?.close())
           :key="s.id"
           class="stage"
           :class="{ done: stageIndex > i, active: s.id === activeStage }"
+          @click="activeStage = s.id"
         >
           <div class="s-node">{{ stageIndex > i ? '✓' : s.label.charAt(0) }}</div>
           <div class="s-line"></div>

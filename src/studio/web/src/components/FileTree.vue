@@ -61,10 +61,14 @@ function select(path: string): void {
   router.push({ path: `/books/${enc.value}/edit`, query: { file: path } })
 }
 
-/** 文件状态点（对齐 mockup .dot）：正文已定稿 green / 工作区草稿 yellow / 设定大纲 gray */
+/** 待 core：命中体检/伏笔问题的文件集合（路径），用于 dot 标红（对齐 mockup 问题章，如 ch5） */
+const problemFiles = ref<Set<string>>(new Set())
+/** 文件状态点（对齐 mockup .dot）：问题 red / 草稿 yellow / 定稿正文 green / 设定大纲 gray。
+ *  cyan 为角色色（右栏人物），左栏文件用不到；red 待 core 填充 problemFiles 后生效。 */
 function dotClass(path: string): string {
-  if (/工作区[\\/]?草稿/i.test(path)) return 'yellow'
-  if (/(chapters|pieces|篇)[\\/]/i.test(path)) return 'green'
+  if (problemFiles.value.has(path)) return 'red'
+  if (/工作区[\\/]/.test(path)) return 'yellow'
+  if (/定稿[\/\\]正文[\/\\]/.test(path)) return 'green'
   return 'gray'
 }
 
@@ -72,46 +76,41 @@ watch(() => props.bookName, () => load(), { immediate: true })
 </script>
 
 <template>
-  <div class="tree-head">
-    <span class="tree-head-label">目录</span>
-    <span class="head-count">{{ files.length }}</span>
-  </div>
-  <div v-if="loading" class="ft-hint">加载中…</div>
-  <div v-else-if="error" class="ft-hint" style="color: var(--cinnabar)">{{ error }}</div>
-  <div v-else-if="!files.length" class="ft-hint">（无可编辑文件）</div>
-  <template v-else>
-    <template v-for="fd in folders" :key="fd.key">
-      <div class="folder" @click="fd.open = !fd.open">
-        <span class="caret">{{ fd.open ? '▾' : '▸' }}</span>{{ fd.label }}
-      </div>
-      <template v-if="fd.open">
-        <div
-          v-for="f in filesIn(fd.prefix)"
-          :key="f.path"
-          class="file indent"
-          :class="{ active: f.path === current }"
-          @click="select(f.path)"
-        >
-          <span class="dot" :class="dotClass(f.path)"></span>
-          <span class="ft-path">{{ shortName(f.path) }}</span>
-          <span class="ft-mode">{{ f.mode === 'text' ? '正文' : '设定' }}</span>
+  <div class="tree">
+    <div class="tree-head">
+      <span class="tree-head-label">目录</span>
+      <span class="head-count">{{ files.length }}</span>
+    </div>
+    <div v-if="loading" class="ft-hint">加载中…</div>
+    <div v-else-if="error" class="ft-hint" style="color: var(--cinnabar)">{{ error }}</div>
+    <div v-else-if="!files.length" class="ft-hint">（无可编辑文件）</div>
+    <template v-else>
+      <template v-for="fd in folders" :key="fd.key">
+        <div class="folder" @click="fd.open = !fd.open">
+          <span class="caret">{{ fd.open ? '▾' : '▸' }}</span>{{ fd.label }}
         </div>
-        <div v-if="!filesIn(fd.prefix).length" class="file indent ft-empty">
-          <b style="color: var(--text-3)">—</b> <span class="ft-sub">待 core</span>
+        <div v-if="fd.open" class="folder-body folder-body-scroll">
+          <div
+            v-for="f in filesIn(fd.prefix)"
+            :key="f.path"
+            class="file indent"
+            :class="{ active: f.path === current }"
+            @click="select(f.path)"
+          >
+            <span class="dot" :class="dotClass(f.path)"></span>{{ shortName(f.path) }}
+          </div>
         </div>
       </template>
     </template>
-  </template>
+  </div>
 </template>
 
 <style scoped>
-/* mockup 覆盖 .tree-head/.folder/.file(.indent)；此处补 Vue 独有：提示文本、行尾标签、空 folder 占位行、折叠手型。 */
-.folder{cursor:pointer;user-select:none}
+/* 左栏走 mockup 全局样式（.tree/.tree-head/.folder/.file/.dot）；此处仅补 Vue 独有的加载/错误/空态提示。 */
 .ft-hint{padding:8px 12px;font-size:12px;color:var(--text-3)}
-.ft-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.ft-mode{color:var(--text-3);font-size:10px;flex-shrink:0;background:var(--hover);padding:1px 6px;border-radius:8px;margin-left:auto}
-/* 空 folder 占位行：mockup folder 若无子项，画「— 待 core」占位保持视觉层级 */
-.ft-empty{color:var(--text-3);font-size:12px;font-weight:400;cursor:default}
-.ft-empty:hover{background:transparent}
-.ft-sub{font-size:10px;opacity:.7}
+/* 每个分栏内部独立滚动：固定 ≈10 章高度（290px / 每章 ~29px）后内部滚，
+   避免 4 栏全展开时 sider 总长失控；偏离 mockup，治真实多文件场景 */
+.folder-body-scroll{max-height:290px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--ink) 14%,transparent) transparent}
+.folder-body-scroll::-webkit-scrollbar{width:5px}
+.folder-body-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--ink) 12%,transparent);border-radius:3px}
 </style>

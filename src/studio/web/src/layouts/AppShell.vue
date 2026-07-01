@@ -8,6 +8,7 @@ import { NTooltip } from 'naive-ui'
 import { useTheme } from '../composables/useTheme'
 import { useHeartbeat, serverOnline } from '../composables/useHeartbeat'
 import { useHint } from '../composables/useHint'
+import { useEditorState } from '../composables/useEditorState'
 import OverviewNav from '../components/OverviewNav.vue'
 import FileTree from '../components/FileTree.vue'
 import TaskList from '../components/TaskList.vue'
@@ -31,6 +32,7 @@ const route = useRoute()
 const router = useRouter()
 const { themeName } = useTheme()
 const { state: hintState, hint } = useHint()
+const { triggerSave } = useEditorState()
 
 const enc = computed(() => (props.bookName ? encodeURIComponent(props.bookName) : ''))
 
@@ -40,13 +42,44 @@ useHeartbeat(() => enc.value)
 const showSettings = ref(false)
 const showPalette = ref(false)
 const focus = ref(false)     // ⤢ 专注：折叠左右栏（仅编辑态）
+const foldL = ref(false)     // ⌘B 折叠左栏（对齐 mockup state.foldL）
 const panelOpen = ref(true)  // ◧ 详情面板：右栏开关
+// 右栏跟随中栏滚动（对齐 mockup core.js:152-154 syncScroll）
+const contentScroll = ref<HTMLElement>()
+const siderRightInner = ref<HTMLElement>()
+function syncScroll(): void {
+  if (contentScroll.value && siderRightInner.value) {
+    siderRightInner.value.scrollTop = contentScroll.value.scrollTop
+  }
+}
 
-// ⌘P 唤起命令面板（全局键盘监听）
+// ⌘P 命令面板 / ⌘S 保存（编辑态）/ ⌘B 折叠左栏 / ⌘⇧F 专注 / ⌘E⌘O⌘W 切模式
 function onGlobalKey(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+  const cmd = e.metaKey || e.ctrlKey
+  if (!cmd) return
+  const k = e.key.toLowerCase()
+  if (k === 'p') {
     e.preventDefault()
     showPalette.value = true
+  } else if (k === 's' && props.mode === 'edit') {
+    e.preventDefault()
+    triggerSave()
+  } else if (k === 'b') {
+    e.preventDefault()
+    foldL.value = !foldL.value
+    hint(foldL.value ? '已折叠侧栏' : '已展开侧栏')
+  } else if (k === 'f' && e.shiftKey) {
+    e.preventDefault()
+    toggleFocus()
+  } else if (k === 'e' && props.bookName) {
+    e.preventDefault()
+    switchMode('edit')
+  } else if (k === 'o' && props.bookName) {
+    e.preventDefault()
+    switchMode('overview')
+  } else if (k === 'w' && props.bookName) {
+    e.preventDefault()
+    switchMode('workbench')
   }
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKey))
@@ -103,7 +136,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
 <template>
   <div class="app">
     <!-- 左栏 overlay（透明浮层，内部 sider-left 白底） -->
-    <aside class="sider-slot" :class="{ focus: isFocus }">
+    <aside class="sider-slot" :class="{ focus: isFocus, 'fold-l': foldL }">
       <div :class="mode === 'workbench' ? 'wb-list' : 'sider-left'">
         <BookAnchor :book-name="bookName" />
         <div class="sider-scroll">
@@ -154,7 +187,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
       <div class="workspace" :class="{ focus: isFocus, 'panel-closed': !panelOpen }">
         <div class="main-area">
           <main class="content">
-            <div class="content-scroll">
+            <div ref="contentScroll" class="content-scroll" @scroll="syncScroll">
               <slot />
             </div>
           </main>
@@ -166,7 +199,7 @@ const isFocus = computed(() => focus.value && props.mode === 'edit')
               </div>
               <span class="sr-close" title="收起详情" @click="panelOpen = false">✕</span>
             </div>
-            <div class="sider-right-inner">
+            <div ref="siderRightInner" class="sider-right-inner">
               <DataDetail v-if="mode === 'overview'" />
               <ContextPanel v-else-if="mode === 'edit'" />
               <EventStream v-else />

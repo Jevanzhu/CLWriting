@@ -5,8 +5,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listBooks } from '../api/books'
 import type { BookMeta } from '../types'
+import VaultMask from '../components/VaultMask.vue'
+import { useHint } from '../composables/useHint'
 
 const router = useRouter()
+const { hint } = useHint()
 const desktop = window.clwritingDesktop ?? null
 const isDesktop = computed(() => desktop !== null)
 const recentBooks = ref<BookMeta[]>([])
@@ -46,6 +49,10 @@ function goLibraries(): void {
 function newBook(): void {
   router.push('/books/new')
 }
+const vaultShow = ref(false)
+function newLibrary(): void {
+  vaultShow.value = true
+}
 async function openLibrary(): Promise<void> {
   if (desktop) await desktop.openLibrary()
 }
@@ -56,6 +63,7 @@ async function switchLib(path: string): Promise<void> {
 onMounted(() => {
   loadRecent()
   loadDesktop()
+  hint('选择书库开始写作 · ⌘P 命令面板 · ⌘⇧F 专注模式')
 })
 </script>
 
@@ -111,9 +119,11 @@ onMounted(() => {
       <div class="landing-actions">
         <button class="btn primary" @click="goShelf">📚 书架</button>
         <button class="btn" @click="newBook">+ 新建</button>
+        <button v-if="isDesktop" class="btn" @click="newLibrary">＋ 新建书库</button>
         <button v-if="isDesktop" class="btn" @click="goLibraries">📚 书库管理</button>
         <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开书库</button>
       </div>
     </section>
+    <VaultMask v-model:show="vaultShow" />
   </div>
 </template>

@@ -6,6 +6,9 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getOverview, listPieces, getLeads, getRhythm, getHealth } from '../api/books'
 import type { BookOverview, PieceSummary, LeadsData, Rhythm, MetricsReport } from '../types'
+import { useRelationNode } from '../composables/useRelationNode'
+
+const { selectedNode } = useRelationNode()
 
 const route = useRoute()
 const router = useRouter()
@@ -140,16 +143,17 @@ watch(
     </div>
   </div>
 
-  <!-- a_rhythm：各章字数（真实 wordCurve） -->
+  <!-- a_rhythm：各章数据（对齐 mockup renderOvRight a_rhythm 分支：kv(dot + 章名 → 字数·场景)） -->
+  <!-- mockup：.card>.card-title"各章数据" + kv(span.dot + 章名 → 字数 · 场景)；场景无 API 占位 — -->
   <div v-else-if="page === 'rhythm' && rhythm && rhythm.wordCurve.length" class="card">
-    <div class="card-title">各{{ rhythm.kind === 'short' ? '篇' : '章' }}字数</div>
+    <div class="card-title">各{{ rhythm.kind === 'short' ? '篇' : '章' }}数据</div>
     <div
       v-for="w in rhythm.wordCurve.slice(0, 14)"
       :key="('章号' in w ? w.章号 : w.篇号)"
       class="kv"
     >
-      <span class="k">第{{ '章号' in w ? w.章号 : w.篇号 }}{{ rhythm.kind === 'short' ? '篇' : '章' }}</span>
-      <span class="v">{{ w.字数.toLocaleString() }}</span>
+      <span class="k"><span class="dot gray" style="display:inline-block;margin-right:7px"></span>第{{ '章号' in w ? w.章号 : w.篇号 }}{{ rhythm.kind === 'short' ? '篇' : '章' }}</span>
+      <span class="v">{{ w.字数.toLocaleString() }} · <b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">场景待 core</span></span>
     </div>
   </div>
 
@@ -182,8 +186,12 @@ watch(
   <div v-else class="ov-right-group">
     <div class="card">
       <div class="card-title">节点</div>
-      <div style="font-size:12px;color:var(--text-2);line-height:1.7">点击图中角色查看详情与关联</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:6px">关系图数据待 core</div>
+      <template v-if="selectedNode">
+        <div class="kv"><span class="k">名字</span><span class="v cyan">{{ selectedNode.name }}</span></div>
+        <div class="kv"><span class="k">角色</span><span class="v">待 core</span></div>
+        <div class="kv"><span class="k">关联</span><span class="v">待 core</span></div>
+      </template>
+      <div v-else style="font-size:12px;color:var(--text-2);line-height:1.7">点击图中角色查看详情与关联</div>
     </div>
     <div class="card">
       <div class="card-title">全角色</div>

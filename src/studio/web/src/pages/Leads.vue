@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { Lead, LeadsData } from '../types'
 import { getLeads } from '../api/books'
 import ErrorState from '../components/ErrorState.vue'
 
 const route = useRoute()
+const router = useRouter()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const data = ref<LeadsData | null>(null)
 const loading = ref(true)
@@ -66,6 +67,11 @@ function specialties(l: Lead): string[] {
   if (l.父局线) out.push(`父局线:${l.父局线}`)
   if (l.欠方 || l.债主) out.push(`${l.欠方 ?? '—'} 欠 ${l.债主 ?? '—'}`)
   return out
+}
+
+/** 单条追踪操作（对齐 mockup ledgerTrace）：在编辑器打开 / 标记已回收（后者待 core 写入） */
+function openInEditor(_l: Lead): void {
+  void router.push(`/books/${encodeURIComponent(name.value)}/edit`)
 }
 </script>
 
@@ -144,6 +150,10 @@ function specialties(l: Lead): string[] {
                     <span class="hist-evid">{{ e.证据 }}</span>
                   </li>
                 </ol>
+                <div class="trace-actions">
+                  <button class="trace-btn" @click="openInEditor(l)">在编辑器打开 →</button>
+                  <button class="trace-btn" disabled title="待 core 写入">标记已回收</button>
+                </div>
               </div>
             </div>
           </div>
@@ -314,6 +324,10 @@ function specialties(l: Lead): string[] {
 .hist-evid {
   color: var(--text-2);
 }
+.trace-actions{display:flex;gap:8px;margin-top:8px}
+.trace-btn{padding:4px 10px;font-size:11.5px;border:1px solid var(--border-2);border-radius:6px;background:transparent;color:var(--text-2);cursor:pointer;transition:all .15s;font-family:inherit}
+.trace-btn:hover:not(:disabled){border-color:var(--ink-cyan);color:var(--ink-cyan)}
+.trace-btn:disabled{opacity:.5;cursor:default}
 .short-card {
   background: var(--active-bg);
   border-color: var(--active-bg);

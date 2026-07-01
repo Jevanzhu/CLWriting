@@ -32,6 +32,7 @@ use([
 ])
 
 const props = defineProps<{ option: EChartsOption | null }>()
+const emit = defineEmits<{ click: [params: { data?: unknown; dataType?: string; name?: string }] }>()
 const el = ref<HTMLElement>()
 let chart: EChartsType | null = null
 
@@ -68,7 +69,10 @@ function resolveVar<T>(v: T): T {
 
 onMounted(() => {
   if (el.value) chart = init(el.value)
-  if (chart && props.option) chart.setOption(resolveVar(props.option))
+  if (chart) {
+    chart.on('click', (params) => emit('click', params as { data?: unknown; dataType?: string; name?: string }))
+    if (props.option) chart.setOption(resolveVar(props.option))
+  }
 })
 
 watch(

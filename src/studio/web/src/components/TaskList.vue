@@ -45,6 +45,12 @@ async function load(): Promise<void> {
   }
 }
 
+/** 待 core：任务状态标记（no → 'yellow'|'red'|'gray'），现全 green 占位（对齐 mockup wb-tasks 多色 dot） */
+const taskFlags = ref<Map<number, string>>(new Map())
+function dotClass(no: number): string {
+  return taskFlags.value.get(no) ?? 'green'
+}
+
 function pick(no: number): void {
   router.push({ path: route.path, query: { ...route.query, chapter: String(no) } })
 }
@@ -69,7 +75,7 @@ watch(
       :class="{ active: t.no === current }"
       @click="pick(t.no)"
     >
-      <div class="tt"><span class="dot green"></span>{{ t.name }}</div>
+      <div class="tt"><span class="dot" :class="dotClass(t.no)"></span>{{ t.name }}</div>
       <div class="ts">{{ t.st }}</div>
     </div>
     <div v-if="!tasks.length" class="hint">暂无已定稿{{ unit }}（在工作台生成）</div>

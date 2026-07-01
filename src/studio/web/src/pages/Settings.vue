@@ -3,6 +3,14 @@ import { ref, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import EChart from '../components/EChart.vue'
+import { useRelationNode } from '../composables/useRelationNode'
+
+const { selectNode } = useRelationNode()
+/** 关系图点节点 → 右栏联动（对齐 mockup renderRelRight） */
+function onChartClick(params: { data?: unknown }): void {
+  const d = params.data as { id?: string; name?: string } | undefined
+  if (d && d.id) selectNode({ id: d.id, name: d.name ?? '' })
+}
 import ErrorState from '../components/ErrorState.vue'
 import type { CharacterCard, RealmSystem, SettingsData } from '../types'
 import { getSettings, updateCharacter, updateRealm } from '../api/books'
@@ -272,7 +280,7 @@ watch(
           <!-- 关系图（P2 角色 + 关系债网络） -->
           <article v-if="data.debtGraph.length || data.characterRelations.length" class="bento-card bento-full">
             <div class="bc-label">关系图<span class="title-hint">· 角色关系（绿）+ 关系债（红），可拖拽 / 缩放</span></div>
-            <EChart v-if="graphOption" :option="graphOption" />
+            <EChart v-if="graphOption" :option="graphOption" @click="onChartClick" />
             <ul class="debt-list">
               <li v-for="d in data.debtGraph" :key="d.编号">
                 <span class="debt-party">{{ d.欠方 || '—' }}</span>

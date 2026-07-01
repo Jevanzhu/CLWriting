@@ -3,8 +3,8 @@
 // B 策略保留键盘逻辑；NModal/NInput → 原生 .cmd-mask 结构；命令按 mockup 分组（导航/视图）。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listFiles } from '../api/books'
-import type { FileEntry } from '../types'
+import { listFiles, listBooks } from '../api/books'
+import type { FileEntry, BookMeta } from '../types'
 
 const show = defineModel<boolean>('show', { default: false })
 const route = useRoute()
@@ -62,15 +62,37 @@ const fileItems = computed<Cmd[]>(() =>
     }),
 )
 
+/** 书籍组：快速跳转到其他书（对齐 mockup cmdGroups「书籍」分组） */
+const books = ref<BookMeta[]>([])
+async function loadBooks(): Promise<void> {
+  try {
+    books.value = (await listBooks()).books ?? []
+  } catch {
+    books.value = []
+  }
+}
+watch(name, () => void loadBooks(), { immediate: true })
+const bookItems = computed<Cmd[]>(() =>
+  books.value
+    .filter((b) => b.name !== name.value)
+    .slice(0, 12)
+    .map((b) => ({
+      id: 'book-' + b.name,
+      label: `跳到《${b.name}》`,
+      hint: '',
+      run: () => router.push(`/books/${encodeURIComponent(b.name)}`),
+    })),
+)
+
 const groups = computed<CmdGroup[]>(() => {
   if (!enc.value) return []
   const go = (p: string) => () => router.push(p)
   const nav: CmdGroup = {
     group: '导航',
     items: [
-      { id: 'go-overview', label: '总览：作品概要', hint: '', run: go(base.value) },
-      { id: 'go-edit', label: '编辑：文件', hint: '', run: go(`${base.value}/edit`) },
-      { id: 'go-workbench', label: '工作台', hint: '', run: go(`${base.value}/workbench`) },
+      { id: 'go-overview', label: '总览：作品概要', hint: '⌘O', run: go(base.value) },
+      { id: 'go-edit', label: '编辑：文件', hint: '⌘E', run: go(`${base.value}/edit`) },
+      { id: 'go-workbench', label: '工作台', hint: '⌘W', run: go(`${base.value}/workbench`) },
     ],
   }
   const view: CmdGroup = {
@@ -83,7 +105,9 @@ const groups = computed<CmdGroup[]>(() => {
       { id: 'go-config', label: '配置', hint: '', run: go(`${base.value}/config`) },
     ],
   }
-  const result: CmdGroup[] = [nav]
+  const result: CmdGroup[] = []
+  if (bookItems.value.length) result.push({ group: '书籍', items: bookItems.value })
+  result.push(nav)
   if (fileItems.value.length) result.push({ group: '文件', items: fileItems.value })
   result.push(view)
   return result

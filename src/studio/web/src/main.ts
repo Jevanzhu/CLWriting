@@ -5,6 +5,17 @@ import { createPinia } from 'pinia'
 import './styles/v5-base.css'
 import './styles/tokens.css'
 import './styles/v5-components.css'
+// 字体资源（@font-face 注册）：思源宋体 + 霞鹜文楷打包，按字重 import 减体积（400 正文 / 600 标题粗）
+import '@fontsource/noto-serif-sc/400.css'
+import '@fontsource/noto-serif-sc/600.css'
+import 'lxgw-wenkai-webfont/lxgwwenkai-regular.css'
+import 'lxgw-wenkai-webfont/lxgwwenkai-bold.css'
+// 字体切换（双维度）：import 即应用持久化的 --app-font / --prose-font 到 :root
+import './composables/useFont'
+// 主题（标准/暖纸/柔光/墨绿/冷灰/麻布/烟雨/雾蓝）：import 即应用持久化的 [data-theme] 切换全套色 token
+import './composables/useTheme'
+// 编辑器排版（字号/行高/段间距）：import 即应用持久化的 --prose-size/lh/gap
+import './composables/useTypography'
 
 // P0 session token(GPT-5 defense-in-depth):写端点校验,防跨站伪造。
 // 启动 fetch /api/boot 拿 token,所有 /api/ 写请求自动带 X-Studio-Token header。

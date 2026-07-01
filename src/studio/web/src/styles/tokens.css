@@ -76,7 +76,7 @@
 
 /* ===== 极简黑白灰（单主题 mono）===== */
 :root{
-  --canvas:#e8e8e8;--paper:#f5f5f5;--panel:#ffffff;
+  --canvas:#e8e8e8;--paper:#f5f5f5;--panel:#fbfbfb;
   --ink:#1a1a1a;--text-2:#6b6b6b;--text-3:#a8a8a8;
   --ink-cyan:#1a1a1a;--cinnabar:#1a1a1a;--ochre:#8a8a8a;
   --border:#e2e2e2;--border-2:#cccccc;
@@ -95,14 +95,14 @@
   --diff-del-bg:color-mix(in srgb,var(--ink) 8%,transparent);
   --shadow:none;
   --prose-font:'STKaiti','KaiTi','楷体','Songti SC',serif;
-  --prose-size:17.5px;--prose-lh:2.0;--prose-gap:16px;
+  --prose-size:18px;--prose-lh:2.0;--prose-gap:16px;
 }
 
 /* ===== 全局基底 ===== */
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{
-  font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  font-family:var(--app-font,system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif);
   color:var(--ink);
   /* 对齐 mockup base.css：body 底色用 paper（非 canvas）。
      canvas 是 mockup .desktop 桌面壁纸层色，Electron 无此层；用 canvas 会让
@@ -134,3 +134,78 @@ body{
 .clw-dot.green{background:var(--ink-cyan)}
 .clw-dot.gray{background:var(--text-3)}
 .clw-dot.cyan{background:var(--ink-cyan)}
+
+/* ===== 主题色温（3 档；[data-theme] 切换；覆盖全套色 token）=====
+ * 标准 mono（:root 默认）= 黑白墨色明亮；暖纸 paper = 米白纸+墨褐（阅读舒适）；
+ * 柔光 soft = 降对比深灰（屏幕柔和）。useTheme 切 [data-theme] 属性。
+ * reader-* 为编辑器阅读区专属变量，随主题同步；语义色（cinnabar/ochre/ink-cyan/brand）每档全覆盖，无黑白灰残留。 */
+:root{
+  --reader-bg:var(--panel-42);
+  --reader-card:var(--panel-62);
+  --reader-ink:var(--ink);
+  --reader-ink-2:var(--text-2);
+  --reader-border:var(--white-14);
+  --reader-accent:var(--ink);
+  --reader-accent-soft:var(--cyan-10);
+}
+[data-theme='paper']{
+  --canvas:#e8e0cc;--paper:#f2ecdc;--panel:#faf5e8;
+  --ink:#3d352a;--text-2:#8a7d6b;--text-3:#b8ad99;
+  --ink-cyan:#7a5a2e;--cinnabar:#9a4a2e;--ochre:#8a6d3b;--brand:#3d352a;
+  --border:#e0d6c0;--border-2:#cec0a4;
+  --reader-bg:#f7f3ea;
+  --reader-card:#faf7f0;
+  --reader-ink:#3d352a;
+  --reader-ink-2:#8a7d6b;
+  --reader-border:#e8ddc8;
+  --reader-accent:#7a5a2e;
+  --reader-accent-soft:#f0e6d0;
+}
+[data-theme='soft']{
+  --canvas:#ececec;--paper:#efefef;--panel:#f3f3f3;
+  --ink:#3a3a3a;--text-2:#6a6a6a;--text-3:#9a9a9a;
+  --ink-cyan:#3a3a3a;--cinnabar:#6a6a6a;--ochre:#7a7a7a;--brand:#3a3a3a;
+  --border:#dcdcdc;--border-2:#c4c4c4;
+  --reader-bg:#f0f0f0;
+  --reader-card:#f3f3f3;
+  --reader-ink:#3a3a3a;
+  --reader-ink-2:#6a6a6a;
+  --reader-border:#dcdcdc;
+  --reader-accent:#3a3a3a;
+  --reader-accent-soft:#e8e8e8;
+}
+[data-theme='linen']{
+  --canvas:#ddd6c4;--paper:#e4decc;--panel:#ebe6da;
+  --ink:#3a322a;--text-2:#6b605a;--text-3:#9a8e85;
+  --ink-cyan:#7a5a3e;--cinnabar:#8a4a2e;--ochre:#7a653a;--brand:#3a322a;
+  --border:#d4c9b0;--border-2:#c2b496;
+  --reader-bg:#ebe6da;--reader-card:#efebe0;--reader-ink:#3a322a;--reader-ink-2:#6b605a;--reader-border:#d4c9b0;--reader-accent:#7a5a3e;--reader-accent-soft:#e0d8c6;
+}
+[data-theme='mist']{
+  --canvas:#d4dad8;--paper:#dde2e0;--panel:#e4e8e8;
+  --ink:#2f363a;--text-2:#5a6064;--text-3:#8a9092;
+  --ink-cyan:#3a5a5e;--cinnabar:#6a3a3e;--ochre:#5a5a3e;--brand:#2f363a;
+  --border:#ccd4d2;--border-2:#b8c2c0;
+  --reader-bg:#e4e8e8;--reader-card:#e9eded;--reader-ink:#2f363a;--reader-ink-2:#5a6064;--reader-border:#ccd4d2;--reader-accent:#3a5a5e;--reader-accent-soft:#dbe0e0;
+}
+[data-theme='haze']{
+  --canvas:#d2d8e0;--paper:#dbe0e8;--panel:#e2e7ec;
+  --ink:#2e3645;--text-2:#585f6c;--text-3:#888f9a;
+  --ink-cyan:#3a4e6b;--cinnabar:#5a3a4e;--ochre:#4a4a3a;--brand:#2e3645;
+  --border:#c8ced8;--border-2:#b4bcc8;
+  --reader-bg:#e2e7ec;--reader-card:#e8ecf0;--reader-ink:#2e3645;--reader-ink-2:#585f6c;--reader-border:#c8ced8;--reader-accent:#3a4e6b;--reader-accent-soft:#dae0e8;
+}
+[data-theme='moss']{
+  --canvas:#c8d8c2;--paper:#d6e2d0;--panel:#e3ecde;
+  --ink:#2f3a2e;--text-2:#5a6b58;--text-3:#8a9a88;
+  --ink-cyan:#4a6b4a;--cinnabar:#8a4a3a;--ochre:#6a6b3a;--brand:#2f3a2e;
+  --border:#bcd0b6;--border-2:#a8c0a2;
+  --reader-bg:#e3ecde;--reader-card:#eaf1e6;--reader-ink:#2f3a2e;--reader-ink-2:#5a6b58;--reader-border:#bcd0b6;--reader-accent:#4a6b4a;--reader-accent-soft:#d0e0ca;
+}
+[data-theme='cool']{
+  --canvas:#e6e8ec;--paper:#edeef1;--panel:#f4f5f7;
+  --ink:#2f3338;--text-2:#5a6068;--text-3:#8a9098;
+  --ink-cyan:#3a5a6b;--cinnabar:#6a3a4a;--ochre:#5a5a3a;--brand:#2f3338;
+  --border:#d8dce2;--border-2:#c4c8ce;
+  --reader-bg:#f4f5f7;--reader-card:#f7f8fa;--reader-ink:#2f3338;--reader-ink-2:#5a6068;--reader-border:#d8dce2;--reader-accent:#3a5a6b;--reader-accent-soft:#e6e9ee;
+}

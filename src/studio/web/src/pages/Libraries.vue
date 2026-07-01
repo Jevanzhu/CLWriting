@@ -51,6 +51,15 @@ function goShelf(): void {
 function newBook(): void {
   router.push('/books/new')
 }
+/** 重命名/删除书库：单 workDir 架构，后端暂不支持 → 占位入口（对齐 mockup 操作） */
+function renameLibrary(): void {
+  window.alert('重命名书库待后端支持（单 workDir 架构）')
+}
+function deleteLibrary(): void {
+  if (window.confirm('确认删除该书库？后端暂不支持，仅预留入口。')) {
+    /* TODO(后端): 书库删除 API */
+  }
+}
 
 onMounted(load)
 </script>
@@ -82,6 +91,8 @@ onMounted(load)
             <button class="btn primary" @click="goShelf">打开书架</button>
             <button class="btn" @click="newBook">+ 新建书</button>
             <button class="btn" @click="openLibrary">切换书库</button>
+            <button class="btn" @click="renameLibrary">✏ 重命名</button>
+            <button class="btn" @click="deleteLibrary">🗑 删除</button>
           </div>
         </div>
 

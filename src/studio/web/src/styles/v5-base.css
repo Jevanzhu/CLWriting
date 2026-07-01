@@ -15,5 +15,5 @@ body{cursor:default}
 button,input,select,textarea{cursor:default}
 button[onclick],input[type=range],input[type=radio]{cursor:pointer}
 html{height:100%}
-body{font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:var(--ink);background:var(--paper);font-size:14px;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
+body{font-family:var(--app-font,system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif);color:var(--ink);background:var(--paper);font-size:14px;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
 .app{display:flex;flex-direction:column;height:100vh}

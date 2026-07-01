@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 总览态左栏：数据页导航。对齐 mockup renderOvNav（.nav-group + .file + ico）。
-// 导航项对应真实路由：mockup OV_NAV 的 o2字数/o3完成度/o4日历/o5动态/a_relations 无对应路由 → 省略（不造假入口）。
+// 概览组 o1-o5 + 分析组（体检/节奏/账本/篇详情/设定/配置）。
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -16,6 +16,10 @@ const groups = computed<{ title: string; items: NavItem[] }[]>(() => [
     title: '概览',
     items: [
       { label: '作品概要', ico: '◉', to: `/books/${enc.value}`, match: (p) => p === `/books/${enc.value}` },
+      { label: '字数统计', ico: '☰', to: `/books/${enc.value}/o2`, match: (p) => p.endsWith('/o2') },
+      { label: '完成度', ico: '◯', to: `/books/${enc.value}/o3`, match: (p) => p.endsWith('/o3') },
+      { label: '写作日历', ico: '▦', to: `/books/${enc.value}/o4`, match: (p) => p.endsWith('/o4') },
+      { label: '近期动态', ico: '∿', to: `/books/${enc.value}/o5`, match: (p) => p.endsWith('/o5') },
     ],
   },
   {

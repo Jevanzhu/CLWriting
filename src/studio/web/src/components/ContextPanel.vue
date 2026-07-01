@@ -13,12 +13,13 @@ const file = computed(() => (typeof route.query.file === 'string' ? route.query.
 const bookName = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const enc = computed(() => (bookName.value ? encodeURIComponent(bookName.value) : ''))
 
-/** 文件类型（决定渲染哪套右栏结构） */
+/** 文件类型（决定渲染哪套右栏结构）。按真实 EDIT_DIRS 路径前缀判断：
+ *  定稿/正文/ → chapter（长篇）或 piece（短篇 spN/篇N）；定稿/设定/ → setting；大纲/ → outline */
 const fileType = computed<'piece' | 'chapter' | 'doc'>(() => {
   const p = file.value
   if (!p) return 'doc'
   if (/sp\d/i.test(p) || /篇[\\/]\d/.test(p)) return 'piece'
-  if (/ch\d/i.test(p) || /chapters[\\/]/i.test(p)) return 'chapter'
+  if (/定稿[\/\\]正文[\/\\]/.test(p)) return 'chapter'
   return 'doc'
 })
 
@@ -32,6 +33,15 @@ const words = ref(0)
 const targetWords = ref(0)
 const loading = ref(false)
 const leads = ref<LeadsData | null>(null)
+
+// 章元数据 + 出场角色：core 补 chapterMeta API 后填充（暂空，模板用 || '—' 降级）
+const chapterMeta = ref<{ 场景?: string; 视角?: string; 钩子?: string; 情绪?: string }>({})
+const chapterRoles = ref<{ 名字: string; 角色: string; cls?: 'cyan' | 'ochre' | '' }[]>([])
+// 设定元数据 + 人物关系：core 补 settingMeta API 后填充
+const settingMeta = ref<{ 出场章节?: number; 账本引用?: number }>({})
+const settingRelations = ref<{ 名字: string; 关系: string; cls?: 'cyan' | '' }[]>([])
+// 大纲统计：core 补 outlineMeta API 后填充
+const outlineMeta = ref<{ 结构?: string; 预计章节?: number; 已写?: number; 总章节?: number; 进度?: number }>({})
 
 async function loadPiece(): Promise<void> {
   if (!bookName.value || !pieceNo.value) {
@@ -196,11 +206,11 @@ watch(
       <div class="kv"><span class="k">字数</span><span class="v">{{ loading ? '…' : words.toLocaleString() }}</span></div>
       <div class="progress"><div :style="{ width: chapterPct + '%' }"></div></div>
       <div class="kv"><span class="k">目标</span><span class="v">{{ targetWords ? targetWords.toLocaleString() + ' · ' + chapterPct + '%' : '—' }}</span></div>
-      <!-- 场景 / 视角 / 钩子 / 情绪：core 暂无字段，按 mockup 占位「—」（后期 core 补 chapterMeta） -->
-      <div class="kv"><span class="k">场景</span><span class="v cyan"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">视角</span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">钩子</span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">情绪</span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
+      <!-- 场景 / 视角 / 钩子 / 情绪：core 补 chapterMeta 后填真实值，暂降级 — -->
+      <div class="kv"><span class="k">场景</span><span class="v cyan">{{ chapterMeta.场景 || '—' }}</span></div>
+      <div class="kv"><span class="k">视角</span><span class="v">{{ chapterMeta.视角 || '—' }}</span></div>
+      <div class="kv"><span class="k">钩子</span><span class="v">{{ chapterMeta.钩子 || '—' }}</span></div>
+      <div class="kv"><span class="k">情绪</span><span class="v">{{ chapterMeta.情绪 || '—' }}</span></div>
     </div>
 
     <!-- 账本提醒：mockup 固定渲染（card-title 标题 + 计数 + 看全部链接），无条目时空列表占位 -->
@@ -218,39 +228,36 @@ watch(
           </div>
         </div>
       </template>
-      <div v-else style="font-size: 12px; color: var(--text-2)">
-        <b style="color: var(--text-3)">—</b> 当前章暂无关联账本 <span style="color: var(--text-3); font-size: 10px">待 core</span>
-      </div>
+      <div v-else style="font-size: 12px; color: var(--text-3)">—</div>
     </div>
 
-    <!-- 出场角色：mockup 固定渲染（card-title + 主视角 kv + 占位 ledger-item），core 暂无字段，结构占位 -->
+    <!-- 出场角色：对齐 mockup renderEditRight 章分支（kv：角色名 → 主视角/在场/双视角） -->
+    <!-- core 补 chapterRoles API 后填真实角色；暂空则显示 — -->
     <div class="card">
       <div class="card-title">出场角色</div>
-      <!-- 主视角 kv：core 暂无「本章出场角色」字段，按 mockup 形态占位「— 待 core」 -->
-      <div class="kv"><span class="k">主视角</span><span class="v cyan"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <!-- 占位 ledger-item：mockup 的「在场 / 双视角」等角色，core 补字段后替换 -->
-      <div class="ledger-item">
-        <span class="dot gray"></span>
-        <div>
-          <b>— <span style="color: var(--text-3); font-weight: 400">出场角色待 core</span></b>
-          <div class="desc">本章在场人物 · 待 core 补全</div>
-        </div>
+      <div v-for="(r, i) in chapterRoles" :key="i" class="kv">
+        <span class="k">{{ r.名字 }}</span>
+        <span class="v" :class="r.cls">{{ r.角色 }}</span>
       </div>
+      <div v-if="!chapterRoles.length" class="kv"><span class="k" style="color:var(--text-3)">—</span><span class="v" style="color:var(--text-3)">—</span></div>
     </div>
   </template>
 
-  <!-- 设定文件：关联 / 人物关系 / 提示（对齐 mockup renderEditRight setting 分支，数据待 core 占位） -->
-  <template v-else-if="fileType === 'doc' && /setting|角色|世界|设定/i.test(file)">
+  <!-- 设定文件：关联 / 人物关系 / 提示（定稿/设定/ 下的文档） -->
+  <template v-else-if="fileType === 'doc' && /定稿[\/\\]设定[\/\\]/.test(file)">
     <div class="card">
       <div class="card-title">关联</div>
-      <div class="kv"><span class="k">出场章节</span><span class="v cyan"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">账本引用</span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
+      <div class="kv"><span class="k">出场章节</span><span class="v cyan">{{ settingMeta.出场章节 ?? '—' }}</span></div>
+      <div class="kv"><span class="k">账本引用</span><span class="v">{{ settingMeta.账本引用 ?? '—' }}</span></div>
     </div>
     <div class="card">
       <div class="card-title">人物关系</div>
-      <!-- mockup 固定列两个角色 kv（林远/赵衡），core 补全后替换为真实关联角色 -->
-      <div class="kv"><span class="k">— <span style="color: var(--text-3); font-weight: 400">角色1</span></span><span class="v cyan"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">— <span style="color: var(--text-3); font-weight: 400">角色2</span></span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
+      <!-- core 补 settingRelations API 后填真实关联角色；暂空则显示 — -->
+      <div v-for="(r, i) in settingRelations" :key="i" class="kv">
+        <span class="k">{{ r.名字 }}</span>
+        <span class="v" :class="r.cls">{{ r.关系 }}</span>
+      </div>
+      <div v-if="!settingRelations.length" class="kv"><span class="k" style="color:var(--text-3)">—</span><span class="v" style="color:var(--text-3)">—</span></div>
     </div>
     <div class="card">
       <div class="card-title">提示</div>
@@ -258,14 +265,14 @@ watch(
     </div>
   </template>
 
-  <!-- 大纲文件：大纲统计 / 提示（对齐 mockup renderEditRight outline 分支，数据待 core 占位） -->
-  <template v-else-if="fileType === 'doc' && /outline|总纲|大纲|纲/i.test(file)">
+  <!-- 大纲文件：大纲统计 / 提示（大纲/ 下的文档） -->
+  <template v-else-if="fileType === 'doc' && /^大纲[\/\\]/.test(file)">
     <div class="card">
       <div class="card-title">大纲统计</div>
-      <div class="kv"><span class="k">结构</span><span class="v">三幕</span></div>
-      <div class="kv"><span class="k">预计章节</span><span class="v cyan"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="kv"><span class="k">已写</span><span class="v"><b style="color: var(--text-3)">—</b> <span style="color: var(--text-3); font-size: 10px">待 core</span></span></div>
-      <div class="progress"><div style="width: 0%"></div></div>
+      <div class="kv"><span class="k">结构</span><span class="v">{{ outlineMeta.结构 || '—' }}</span></div>
+      <div class="kv"><span class="k">预计章节</span><span class="v cyan">{{ outlineMeta.预计章节 ?? '—' }}</span></div>
+      <div class="kv"><span class="k">已写</span><span class="v">{{ outlineMeta.已写 != null ? outlineMeta.已写 + (outlineMeta.总章节 ? ' / ' + outlineMeta.总章节 : '') : '—' }}</span></div>
+      <div class="progress"><div :style="{ width: (outlineMeta.进度 ?? 0) + '%' }"></div></div>
     </div>
     <div class="card">
       <div class="card-title">提示</div>
