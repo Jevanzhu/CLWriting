@@ -1,35 +1,25 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import type { EChartsOption } from 'echarts'
 import type { BookOverview } from '../types'
-import { getOverview } from '../api/books'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
 const router = useRouter()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<BookOverview | null>(null)
-const loading = ref(true)
-const error = ref('')
 
-async function load(n: string): Promise<void> {
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await getOverview(n)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// 总览数据走 store
+const data = computed(() => book.data.overview.value)
+const loading = computed(() => book.data.overview.loading)
+const error = computed(() => book.data.overview.error)
 
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') load(n)
+    if (typeof n === 'string') book.loadOverview(n)
   },
   { immediate: true },
 )

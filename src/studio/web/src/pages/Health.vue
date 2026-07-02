@@ -1,36 +1,24 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
 import EChart from '../components/EChart.vue'
-import type { MetricsReport, StyleTrend } from '../types'
-import { getHealth } from '../api/books'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const metrics = ref<MetricsReport | null>(null)
-const style = ref<StyleTrend | null>(null)
-const loading = ref(true)
-const error = ref('')
 
-async function load(n: string): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await getHealth(n)
-    metrics.value = r.metrics
-    style.value = r.style
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// 健康数据走 store（metrics/style 适配 health slot）
+const metrics = computed(() => book.data.health.value?.metrics ?? null)
+const style = computed(() => book.data.health.value?.style ?? null)
+const loading = computed(() => book.data.health.loading)
+const error = computed(() => book.data.health.error)
 
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') load(n)
+    if (typeof n === 'string') book.loadHealth(n)
   },
   { immediate: true },
 )

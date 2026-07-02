@@ -3,101 +3,61 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
 import DiffView from '../components/DiffView.vue'
-import type { FileEntry, RewriteResult } from '../types'
-import {
-  applyRewrite,
-  getConfig,
-  listFiles,
-  readFile,
-  revertBook,
-  rewriteDraft,
-  writeFile,
-} from '../api/books'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
 const router = useRouter()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const files = ref<FileEntry[]>([])
-const selected = ref('')
-const content = ref('')
-const original = ref('')
-const loading = ref(false)
-const saving = ref(false)
-const reverting = ref(false)
-const error = ref('')
-const savedMsg = ref('')
 
-const codeRef = ref<{ getSelection: () => { text: string; from: number; to: number } | null } | null>(null)
+// 编辑器态走 store（files/selected/loading/saving/reverting/error/savedMsg 适配 slot）
+const files = computed(() => book.data.editor.files)
+const selected = computed(() => book.data.editor.selected)
+const loading = computed(() => book.data.editor.loading)
+const saving = computed(() => book.data.editor.saving)
+const reverting = computed(() => book.data.editor.reverting)
+const error = computed(() => book.data.editor.error)
+const savedMsg = computed(() => book.data.editor.savedMsg)
+// content 双向绑 store（CodeEditor @update:model-value）
+const content = computed({
+  get: () => book.data.editor.content,
+  set: (v: string) => {
+    book.data.editor.content = v
+  },
+})
+const original = computed(() => book.data.editor.original)
+const dirty = computed(() => content.value !== original.value)
+const selectedMode = computed<'text' | 'md'>(() => {
+  const f = book.data.editor.files.find((x) => x.path === book.data.editor.selected)
+  return f?.mode ?? 'md'
+})
 
-// 改写(2.5):仅草稿 工作区/草稿-N.md 可用
-const rewriteInstruction = ref('')
-const rewriteResult = ref<RewriteResult | null>(null)
-const rewriteRunning = ref(false)
-const rewriteApplying = ref(false)
+// kind 走 config（loadConfig 拿）
+const kind = computed<'long' | 'short'>(() =>
+  (book.data.config.value?.kind ?? 'long') === 'short' ? 'short' : 'long',
+)
+
+// 改写（仅草稿 工作区/草稿-N.md）：指令双向绑 store，结果/运行态读 slot
+const rewriteInstruction = computed({
+  get: () => book.data.editor.rewriteInstruction,
+  set: (v: string) => {
+    book.data.editor.rewriteInstruction = v
+  },
+})
+const rewriteResult = computed(() => book.data.editor.rewriteResult)
+const rewriteRunning = computed(() => book.data.editor.rewriteRunning)
+const rewriteApplying = computed(() => book.data.editor.rewriteApplying)
 const draftChapter = computed<number | null>(() => {
   const m = selected.value.match(/工作区[\/\\]草稿-(\d+)\.md$/)
   return m ? Number(m[1]) : null
 })
 
-const kind = ref<'long' | 'short'>('long')
-async function loadKind(): Promise<void> {
-  try {
-    const config = await getConfig(name.value)
-    kind.value = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
-  } catch {
-    /* ignore */
-  }
-}
-
-const selectedMode = computed<'text' | 'md'>(() => {
-  const f = files.value.find((x) => x.path === selected.value)
-  return f?.mode ?? 'md'
-})
-const dirty = computed(() => content.value !== original.value)
-
-async function loadFiles(): Promise<void> {
-  error.value = ''
-  try {
-    files.value = await listFiles(name.value)
-    // 文件导航归左栏 FileTree：无 query 时设默认 file，让 FileTree 高亮与 selected 一致
-    if (files.value.length > 0 && !route.query.file) {
-      void router.replace({ query: { file: files.value[0]!.path } })
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-async function loadFile(): Promise<void> {
-  if (!selected.value) return
-  loading.value = true
-  error.value = ''
-  rewriteResult.value = null
-  try {
-    const data = await readFile(name.value, selected.value)
-    content.value = data
-    original.value = data
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// CodeEditor 组件实例 ref（getSelection 用于局部改写，非数据态）
+const codeRef = ref<{ getSelection: () => { text: string; from: number; to: number } | null } | null>(null)
 
 async function save(): Promise<void> {
   if (!selected.value || !dirty.value) return
-  saving.value = true
-  error.value = ''
-  try {
-    await writeFile(name.value, selected.value, content.value)
-    original.value = content.value
-    savedMsg.value = '已保存'
-    setTimeout(() => (savedMsg.value = ''), 1500)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    saving.value = false
-  }
+  await book.save(name.value)
 }
 
 async function revert(): Promise<void> {
@@ -105,102 +65,61 @@ async function revert(): Promise<void> {
   if (input === null) return
   const chapter = Number(input)
   if (!Number.isFinite(chapter) || chapter < 1) {
-    error.value = '章号/篇号得是正整数'
+    book.data.editor.error = '章号/篇号得是正整数'
     return
   }
   if (!window.confirm(`确认回滚到第 ${chapter} 章/篇？之后的内容将被丢弃。`)) return
-  reverting.value = true
-  error.value = ''
-  try {
-    const data = await revertBook(name.value, chapter)
-    savedMsg.value = data.message ?? '已回滚'
-    setTimeout(() => (savedMsg.value = ''), 3000)
-    await loadFiles()
-    if (selected.value) await loadFile()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    reverting.value = false
-  }
+  await book.revert(name.value, chapter)
 }
 
 /** 改写:local(选段)/ whole(整章)→ POST /rewrite → DiffView */
 async function rewriteRun(mode: 'local' | 'whole'): Promise<void> {
   if (!draftChapter.value || !name.value || rewriteRunning.value) return
   if (!rewriteInstruction.value.trim()) {
-    error.value = '请填改写指令'
+    book.data.editor.error = '请填改写指令'
     return
   }
-  let selection = ''
+  let selection: string | undefined
   if (mode === 'local') {
     const sel = codeRef.value?.getSelection()
     if (!sel || !sel.text.trim()) {
-      error.value = '局部改写需先在编辑器选中段落'
+      book.data.editor.error = '局部改写需先在编辑器选中段落'
       return
     }
     selection = sel.text
   }
-  rewriteRunning.value = true
-  error.value = ''
-  rewriteResult.value = null
-  try {
-    const body: { chapter: number; mode: 'local' | 'whole'; instruction: string; selection?: string } = {
-      chapter: draftChapter.value,
-      mode,
-      instruction: rewriteInstruction.value.trim(),
-    }
-    if (mode === 'local') body.selection = selection
-    rewriteResult.value = await rewriteDraft(name.value, body)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-  rewriteRunning.value = false
+  await book.rewriteRun(name.value, draftChapter.value, mode, rewriteInstruction.value.trim(), selection)
 }
 
 /** 应用改写:accept 落盘(更新编辑器),false 丢弃 */
 async function rewriteApply(accept: boolean): Promise<void> {
   if (!draftChapter.value || !name.value || !rewriteResult.value) return
-  rewriteApplying.value = true
-  error.value = ''
-  try {
-    const d = await applyRewrite(name.value, {
-      chapter: draftChapter.value,
-      content: rewriteResult.value.rewritten,
-      accept,
-    })
-    if (accept && d.applied) {
-      content.value = rewriteResult.value.rewritten
-      original.value = rewriteResult.value.rewritten
-      savedMsg.value = '改写已落盘(原稿备份 草稿-' + draftChapter.value + '.bak.md)'
-      setTimeout(() => (savedMsg.value = ''), 3000)
-    }
-    rewriteResult.value = null
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-  rewriteApplying.value = false
+  await book.rewriteApply(name.value, draftChapter.value, accept)
 }
 
 watch(
   () => route.params.name,
-  (n) => {
-    if (typeof n === 'string') {
-      loadFiles()
-      void loadKind()
+  async (n) => {
+    if (typeof n !== 'string') return
+    // 文件导航归左栏 FileTree：无 query 时设默认 file，让 FileTree 高亮与 selected 一致
+    await book.loadFiles(n)
+    void book.loadConfig(n)
+    if (book.data.editor.files.length > 0 && !route.query.file) {
+      void router.replace({ query: { file: book.data.editor.files[0]!.path } })
     }
   },
   { immediate: true },
 )
 watch(selected, () => {
-  void loadFile()
+  void book.loadFile(name.value)
 })
 
 // 左栏 FileTree 选文件 → 跳 /edit?file=xxx → 同步 selected 打开（第二刀联动）
 watch(
   () => route.query.file,
   (f) => {
-    if (typeof f === 'string' && f && f !== selected.value) {
-      selected.value = f
+    if (typeof f === 'string' && f && f !== book.data.editor.selected) {
+      book.data.editor.selected = f
     }
   },
   { immediate: true },

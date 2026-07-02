@@ -1,113 +1,33 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import type { OnboardStep } from '../types'
-import { createBook, runOnboardStep, saveOnboardStep } from '../api/books'
+import { storeToRefs } from 'pinia'
+import { useNewbookStore } from '../stores/newbook'
 
 const router = useRouter()
-const name = ref('')
-const genre = ref('')
-const kind = ref<'long' | 'short'>('long')
-const leads = ref<string[]>([])
-const targetWords = ref('')
-const brief = ref('')
-const submitting = ref(false)
-const error = ref('')
-const savedMsg = ref('')
+const newbook = useNewbookStore()
+// 建书表单 + 段 2 态走 store（storeToRefs 双向绑到 store state）
+const {
+  name,
+  kind,
+  genre,
+  brief,
+  leads,
+  target: targetWords,
+  steps: onboardSteps,
+  phase,
+  createdName,
+  submitting,
+  error,
+  savedMsg,
+} = storeToRefs(newbook)
 
-// 段 2:onboard(AI 填设定)
-const phase = ref<'form' | 'onboard'>('form')
-const createdName = ref('')
-const onboardSteps = ref<OnboardStep[]>([])
-/** 按 kind 构建段 2 步骤集（长篇 9 步 / 短篇 5 步） */
-function buildOnboardSteps(k: 'long' | 'short'): OnboardStep[] {
-  if (k === 'short') {
-    return [
-      { key: 'collection-pitch', label: '📋 集子定位', running: false, result: null },
-      { key: 'first-outline', label: '📝 首篇细纲', running: false, result: null },
-      { key: 'style-sample', label: '✍️ 文风样章', running: false, result: null },
-      { key: 'style-rules', label: '📜 文风铁律', running: false, result: null },
-      { key: 'style-quotes', label: '💎 金句库', running: false, result: null },
-    ]
-  }
-  return [
-    { key: 'synopsis', label: '📋 总纲', running: false, result: null },
-    { key: 'characters', label: '👥 角色', running: false, result: null },
-    { key: 'world', label: '🌍 世界观', running: false, result: null },
-    { key: 'realm', label: '⚡ 境界体系', running: false, result: null },
-    { key: 'volume', label: '📚 卷纲', running: false, result: null },
-    { key: 'leads-seed', label: '🎯 账本种子', running: false, result: null },
-    { key: 'style-sample', label: '✍️ 文风样章', running: false, result: null },
-    { key: 'style-rules', label: '📜 文风铁律', running: false, result: null },
-    { key: 'style-quotes', label: '💎 金句库', running: false, result: null },
-  ]
-}
+// actions 直接从 store 取（Pinia 已绑 this）
+const { submit, onboardRun, onboardSave, toggleLead } = newbook
 
 const EXTENDED_LEADS = ['局线', '设定线', '成长线', '关系债']
 
-function toggleLead(l: string): void {
-  const i = leads.value.indexOf(l)
-  if (i >= 0) leads.value.splice(i, 1)
-  else leads.value.push(l)
-}
-
-async function submit(): Promise<void> {
-  submitting.value = true
-  error.value = ''
-  try {
-    const body = {
-      name: name.value.trim(),
-      genre: genre.value.trim(),
-      kind: kind.value,
-      host: 'cc',
-    }
-    // 长篇且用户勾选了扩展类才传；留空 → doInit 按题材自动推荐
-    const request = { ...body } as Parameters<typeof createBook>[0]
-    if (kind.value === 'long' && leads.value.length > 0) request.leads = leads.value
-    // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
-    const tw = Number(targetWords.value)
-    if (Number.isFinite(tw) && tw > 0) request.targetWords = tw
-    // 简介（可选，落 简介.md）
-    if (brief.value.trim()) request.brief = brief.value.trim()
-    const data = await createBook(request)
-    createdName.value = data.name ?? name.value.trim()
-    phase.value = 'onboard' // 建书成功 → 进段 2(不直接跳单书)
-    onboardSteps.value = buildOnboardSteps(kind.value)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    submitting.value = false
-  }
-}
-
-/** 段 2 各步:POST /onboard-ai → spawnRole 产设定 → 落盘 + 展示 */
-async function onboardRun(step: OnboardStep['key']): Promise<void> {
-  const s = onboardSteps.value.find((x) => x.key === step)
-  if (!s || s.running || !createdName.value) return
-  s.running = true
-  s.result = null
-  error.value = ''
-  try {
-    s.result = await runOnboardStep(createdName.value, step)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-  s.running = false
-}
-
-/** 保存段 2 某步的编辑（作者预览后改内容再落盘，5.2 交互） */
-async function onboardSave(s: OnboardStep): Promise<void> {
-  if (!s.result || !createdName.value) return
-  try {
-    const d = await saveOnboardStep(createdName.value, s.key, s.result.content)
-    s.result.words = d.words ?? s.result.content.length
-    savedMsg.value = `✓ ${s.label} 已保存`
-    error.value = ''
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
+/** 完成 → 进单书（路由跳转留 page，状态不进 store） */
 function finishOnboard(): void {
   router.push(`/books/${encodeURIComponent(createdName.value)}`)
 }
