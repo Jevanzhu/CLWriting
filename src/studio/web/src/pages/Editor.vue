@@ -48,7 +48,10 @@ function closeMenu(e: MouseEvent): void {
   if (menuRef.value && !menuRef.value.contains(e.target as Node)) menuOpen.value = false
 }
 onMounted(() => document.addEventListener('click', closeMenu))
-onUnmounted(() => document.removeEventListener('click', closeMenu))
+onUnmounted(() => {
+  document.removeEventListener('click', closeMenu)
+  clearAutoSave()
+})
 
 // 改写(2.5):仅草稿 工作区/草稿-N.md 可用
 const rewriteInstruction = ref('')
@@ -174,9 +177,36 @@ async function save(): Promise<void> {
 }
 
 // 同步编辑态到共享状态（顶栏保存按钮读取）+ 监听顶栏触发保存
-watch(dirty, (v) => (sharedDirty.value = v), { immediate: true })
 watch(saving, (v) => (sharedSaving.value = v))
 watch(saveTick, (t) => { if (t > 0) void save() })
+
+// 自动保存倒计时：dirty 后 30s 自动落盘；手动保存/切文件/保存完成时清零
+const AUTO_SAVE_SEC = 30
+const autoSaveLeft = ref(0)
+let autoSaveTimer: ReturnType<typeof setInterval> | null = null
+function clearAutoSave(): void {
+  autoSaveLeft.value = 0
+  if (autoSaveTimer) {
+    clearInterval(autoSaveTimer)
+    autoSaveTimer = null
+  }
+}
+function startAutoSave(): void {
+  clearAutoSave()
+  autoSaveLeft.value = AUTO_SAVE_SEC
+  autoSaveTimer = setInterval(() => {
+    autoSaveLeft.value--
+    if (autoSaveLeft.value <= 0) {
+      clearAutoSave()
+      void save()
+    }
+  }, 1000)
+}
+watch(dirty, (v) => {
+  sharedDirty.value = v
+  if (v) startAutoSave()
+  else clearAutoSave()
+}, { immediate: true })
 
 const revertShow = ref(false)
 function revert(): void {
@@ -290,24 +320,23 @@ watch(
 <template>
   <section class="editor">
     <div class="editor-inner">
-      <!-- edit-info：单行流式 [面包屑+状态] —gap— [字数]，底部实线（保存▾移至标题右下） -->
-      <div v-if="selected && !loading && content" class="edit-info">
-        <span class="ei-crumbs">{{ kind === 'short' ? '短篇' : '长篇' }} › <b>{{ fileTitle }}</b></span>
-        <span v-if="dirty" class="et-dirty">● 未保存</span>
-        <span v-else-if="savedMsg" class="et-dirty saved">✓ {{ savedMsg }}</span>
-        <span class="doc-status" :class="docStatus.cls">{{ docStatus.label }}</span>
-        <span class="ei-gap"></span>
-        <span class="et-wc">
-          <b>{{ words.toLocaleString() }}</b> / {{ targetWords ? targetWords.toLocaleString() : '—' }} 字<span class="et-bar"><div :style="{ width: pct + '%', background: barColor }"></div></span><span>{{ pct }}%</span>
-        </span>
-      </div>
       <!-- 章节标题（楷体居中）/ 未选提示 -->
       <h1 v-if="selected" class="chapter-title">{{ fileTitle }}</h1>
       <div v-else class="ei-crumbs" style="text-align:center;padding:32px 0">（从左侧选一个文件）</div>
-      <!-- chapter-meta-line：钩子·情绪(左) + 保存▾(右) 同排；底部虚线分隔编辑区 -->
+      <!-- chapter-meta-line：状态+面包屑(左) + 字数(居中) + 保存▾(右)；底部虚线分隔编辑区 -->
       <div v-if="selected && !loading && content" class="chapter-meta-line">
-        <span class="meta-text">{{ metaLine }}</span>
+        <div class="cm-left">
+          <span v-if="dirty" class="et-dirty">● 未保存</span>
+          <span v-else-if="savedMsg" class="et-dirty saved">✓ {{ savedMsg }}</span>
+          <span class="doc-status" :class="docStatus.cls">{{ docStatus.label }}</span>
+          <span class="ei-crumbs">{{ kind === 'short' ? '短篇' : '长篇' }} › <b>{{ fileTitle }}</b></span>
+          <span class="score-tag" title="本章体验分（待 core 接口）">体验 —</span>
+        </div>
+        <span class="et-wc">
+          <b>{{ words.toLocaleString() }}</b> / {{ targetWords ? targetWords.toLocaleString() : '—' }} 字<span class="et-bar"><div :style="{ width: pct + '%', background: barColor }"></div></span><span>{{ pct }}%</span>
+        </span>
         <span class="et-split" ref="menuRef">
+          <span v-if="autoSaveLeft > 0" class="auto-save-tip">{{ autoSaveLeft }}s 自动保存</span>
           <button class="et-btn save" :disabled="!dirty || saving" @click="save">
             <svg class="ico" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
             {{ saving ? '保存中…' : '保存' }}
@@ -416,16 +445,21 @@ watch(
 .rewrite-btns{display:flex;gap:8px;margin-top:10px}
 /* mockup 用 .btn.disabled（opacity:.4）表达禁用；Vue 用原生 button :disabled，
    补禁用视觉（opacity + cursor）让禁用态与 mockup 一致。 */
-.edit-info .et-btn:disabled{opacity:.4;cursor:default;pointer-events:none}
 .rewrite-btns .btn:disabled{opacity:.4;cursor:default}
 
 /* edit-info / chapter-title(楷体) / chapter-meta-line / et-btn 走 v5-components.css 全局；
    此处仅补 split button（保存▾合体，替代 mockup 三个独立 et-btn）与禁用态。 */
 /* 标题区：文章名加大 + 整体收紧间距（edit-info 16→8 / meta-line 24·14→14·8） */
-.editor-inner{padding-top:16px}
-.edit-info{margin-bottom:8px}
-.chapter-title{font-size:32px;line-height:1.05;margin-bottom:2px}
-.chapter-meta-line{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding-bottom:8px}
+.editor-inner{padding-top:14px}
+.chapter-title{font-size:28px;line-height:1.1;margin:0 0 14px}
+/* meta-line 三栏：状态+面包屑(左) / 字数(居中) / 保存▾(右) */
+.chapter-meta-line{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-bottom:18px;padding-bottom:12px}
+.cm-left{display:flex;align-items:center;gap:8px;justify-self:start;min-width:0;flex-wrap:wrap}
+.chapter-meta-line .et-wc{justify-self:center;white-space:nowrap;transform:translateY(1px)}
+.chapter-meta-line .et-split{justify-self:end}
+/* 体验分占位（待 core） + 自动保存倒计时 */
+.score-tag{font-size:11.5px;color:var(--text-3);padding:2px 7px;border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+.auto-save-tip{font-size:11px;color:var(--text-3);align-self:center;padding:0 6px;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* split button：保存 + ▾ 合为一体（Cyan 底无缝贴合，替代 mockup 三个独立 .et-btn） */
 .et-split{display:flex;align-items:stretch;flex-shrink:0;position:relative}
 .et-split .et-btn.save{background:var(--ink-cyan);border:1px solid var(--ink-cyan);color:#fff;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px 0 0 8px;margin-right:-1px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;user-select:none;transition:filter .15s}
