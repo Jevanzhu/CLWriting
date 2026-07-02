@@ -2,60 +2,38 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
-import type { BookConfigLoose } from '../types'
-import {
-  commitLearnedStyle,
-  enableRag,
-  exportBook,
-  getConfig,
-  importBook,
-  knowledgeCheck,
-  learnStyle,
-  putConfig,
-  readFile,
-  writeFile,
-  type LearnCandidates,
-} from '../api/books'
+import { useBookStore } from '../stores/book'
+import { useCliStore } from '../stores/cli'
+import { commitLearnedStyle, enableRag, exportBook, importBook, knowledgeCheck, learnStyle } from '../api/books'
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const config = ref<BookConfigLoose | null>(null)
-const loading = ref(true)
-const saving = ref(false)
-const savedMsg = ref('')
-const error = ref('')
+const book = useBookStore()
+const cli = useCliStore()
 
-const styleContent = ref('')
-const styleOriginal = ref('')
-const styleMissing = ref(false)
-const styleSaving = ref(false)
+// 配置数据走 store（config/loading/saving/error/savedMsg 适配 slot）
+const config = computed(() => book.data.config.value)
+const loading = computed(() => book.data.config.loading)
+const saving = computed(() => book.data.config.saving)
+const error = computed(() => book.data.config.error || book.data.styleRules.error)
+const savedMsg = computed(() => book.data.config.savedMsg || book.data.styleRules.savedMsg)
+
+// 文风铁律走 store（styleContent 双向绑 store，styleDirty 比对 content/original）
+const styleContent = computed({
+  get: () => book.data.styleRules.content,
+  set: (v: string) => {
+    book.data.styleRules.content = v
+  },
+})
+const styleMissing = computed(() => book.data.styleRules.missing)
+const styleSaving = computed(() => book.data.styleRules.saving)
+const styleDirty = computed(() => book.data.styleRules.content !== book.data.styleRules.original)
 
 const EXTENDED_LEADS = ['局线', '设定线', '成长线', '关系债']
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    config.value = await getConfig(name.value)
-    try {
-      const content = await readFile(name.value, '文风/文风铁律.md')
-      styleContent.value = content
-      styleOriginal.value = content
-      styleMissing.value = false
-    } catch {
-      styleMissing.value = true
-      styleContent.value = ''
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
-
 function toggleLead(l: string): void {
-  if (!config.value) return
-  const arr = config.value.leads.enabled
+  const arr = book.data.config.value?.leads.enabled
+  if (!arr) return
   const i = arr.indexOf(l)
   if (i >= 0) arr.splice(i, 1)
   else arr.push(l)
@@ -63,162 +41,111 @@ function toggleLead(l: string): void {
 
 async function saveConfig(): Promise<void> {
   if (!config.value || saving.value) return
-  saving.value = true
-  error.value = ''
-  try {
-    await putConfig(name.value, config.value)
-    savedMsg.value = '配置已保存'
-    setTimeout(() => (savedMsg.value = ''), 2000)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    saving.value = false
-  }
+  await book.putConfig(name.value, config.value)
 }
 
 async function saveStyle(): Promise<void> {
   if (styleSaving.value || styleMissing.value) return
-  styleSaving.value = true
-  error.value = ''
-  try {
-    await writeFile(name.value, '文风/文风铁律.md', styleContent.value)
-    styleOriginal.value = styleContent.value
-    savedMsg.value = '文风铁律已保存'
-    setTimeout(() => (savedMsg.value = ''), 2000)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    styleSaving.value = false
-  }
+  await book.saveStyleRules(name.value)
 }
 
-const styleDirty = computed(() => styleContent.value !== styleOriginal.value)
-
-// 8.4 导入 / 导出 / RAG
+// 8.4 导入 / 导出 / RAG —— 命令输入参数（表单态，类比 Settings 编辑表单保留局部）
 const EXPORT_FORMATS = ['merged', 'split', 'both'] as const
 const PLATFORMS = ['generic', 'wechat', 'zhihu-salt', 'fanqie', 'xiaohongshu'] as const
 const exportFormat = ref<'merged' | 'split' | 'both'>('both')
 const exportPlatform = ref<string>('generic')
-const exportRunning = ref(false)
-const exportResult = ref('')
 const importPath = ref('')
 const importName = ref('')
 const importKind = ref<'long' | 'short' | ''>('')
 const importGenre = ref('')
-const importRunning = ref(false)
-const importResult = ref('')
 const ragEndpoint = ref('')
 const ragModel = ref('')
 const ragKey = ref('')
 const ragUseEnv = ref(false)
-const ragRunning = ref(false)
-const ragResult = ref('')
+
+// 命令执行态走 cli store（每组成对 computed：running/result 适配 slot，template 零改）
+const cliResult = (key: string) => {
+  const r = cli.runs[key]
+  return r ? (r.error ? `✗ ${r.error}` : r.stdout) : ''
+}
+const exportRunning = computed(() => !!cli.runs.export?.running)
+const exportResult = computed(() => cliResult('export'))
+const importRunning = computed(() => !!cli.runs.import?.running)
+const importResult = computed(() => cliResult('import'))
+const ragRunning = computed(() => !!cli.runs.rag?.running)
+const ragResult = computed(() => cliResult('rag'))
+const knowledgeRunning = computed(() => !!cli.runs['knowledge-check']?.running)
+const knowledgeResult = computed(() => cliResult('knowledge-check'))
 
 async function doExport(): Promise<void> {
   if (exportRunning.value || !name.value) return
-  exportRunning.value = true
-  exportResult.value = ''
-  try {
-    const d = await exportBook(name.value, { format: exportFormat.value, platform: exportPlatform.value })
-    exportResult.value = (d.stdout || '').trim()
-  } catch (e) {
-    exportResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
-  }
-  exportRunning.value = false
+  await cli.run('export', () => exportBook(name.value, { format: exportFormat.value, platform: exportPlatform.value }))
 }
 
 async function doImport(): Promise<void> {
   if (importRunning.value || !importPath.value.trim()) return
-  importRunning.value = true
-  importResult.value = ''
-  try {
-    const body: Record<string, unknown> = { sourcePath: importPath.value.trim() }
-    if (importName.value.trim()) body['name'] = importName.value.trim()
-    if (importKind.value) body['kind'] = importKind.value
-    if (importGenre.value.trim()) body['genre'] = importGenre.value.trim()
-    const d = await importBook(body)
-    importResult.value = (d.stdout || '').trim()
-  } catch (e) {
-    importResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
-  }
-  importRunning.value = false
+  const body: Record<string, unknown> = { sourcePath: importPath.value.trim() }
+  if (importName.value.trim()) body['name'] = importName.value.trim()
+  if (importKind.value) body['kind'] = importKind.value
+  if (importGenre.value.trim()) body['genre'] = importGenre.value.trim()
+  await cli.run('import', () => importBook(body))
 }
 
 async function doEnableRag(): Promise<void> {
   if (ragRunning.value || !ragEndpoint.value.trim() || !ragModel.value.trim() || !name.value) return
-  ragRunning.value = true
-  ragResult.value = ''
-  try {
-    const body: Record<string, unknown> = { endpoint: ragEndpoint.value.trim(), model: ragModel.value.trim() }
-    if (ragUseEnv.value) body['useEnv'] = true
-    else if (ragKey.value) body['key'] = ragKey.value
-    const d = await enableRag(name.value, body)
-    ragResult.value = (d.stdout || '').trim()
-    ragKey.value = '' // 已落盘 rag.secret，清空输入
-  } catch (e) {
-    ragResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
-  }
-  ragRunning.value = false
+  const body: Record<string, unknown> = { endpoint: ragEndpoint.value.trim(), model: ragModel.value.trim() }
+  if (ragUseEnv.value) body['useEnv'] = true
+  else if (ragKey.value) body['key'] = ragKey.value
+  await cli.run('rag', () => enableRag(name.value, body))
+  ragKey.value = '' // 已落盘 rag.secret，清空输入
 }
 
-// 8.3 知识层校验 + learn 文风收割
-const knowledgeRunning = ref(false)
-const knowledgeResult = ref('')
-const learnRunning = ref(false)
-const learnCandidates = ref<LearnCandidates | null>(null)
-const pickedSamples = ref<boolean[]>([])
-const pickedQuotes = ref<boolean[]>([])
-const learnCommitRunning = ref(false)
-const learnResult = ref('')
-const anyPicked = computed(() => pickedSamples.value.some(Boolean) || pickedQuotes.value.some(Boolean))
-
+// 8.3 知识层校验
 async function doKnowledgeCheck(): Promise<void> {
   if (knowledgeRunning.value || !name.value) return
-  knowledgeRunning.value = true
-  knowledgeResult.value = ''
-  try {
-    const d = await knowledgeCheck(name.value)
-    knowledgeResult.value = (d.stdout || '').trim()
-  } catch (e) {
-    knowledgeResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
-  }
-  knowledgeRunning.value = false
+  await cli.run('knowledge-check', () => knowledgeCheck(name.value))
 }
+
+// 8.3 learn 文风收割 —— 运行态走 cli、候选数据走 book.data（决策 6 分流）
+const learnRunning = computed(() => !!cli.runs.learn?.running)
+const learnCommitRunning = computed(() => !!cli.runs['learn-commit']?.running)
+const learnCandidates = computed(() => {
+  const d = book.data.learnCandidates
+  return d.samples.length || d.quotes.length ? { samples: d.samples, quotes: d.quotes } : null
+})
+const pickedSamples = computed(() => book.data.learnCandidates.pickedSamples)
+const pickedQuotes = computed(() => book.data.learnCandidates.pickedQuotes)
+const anyPicked = computed(() => pickedSamples.value.some(Boolean) || pickedQuotes.value.some(Boolean))
+const learnResult = computed(() => {
+  const lc = cli.runs['learn-commit']
+  if (lc?.error) return `✗ ${lc.error}`
+  if (lc?.stdout) return lc.stdout
+  const l = cli.runs.learn
+  return l?.error ? `✗ ${l.error}` : ''
+})
 
 async function doLearn(): Promise<void> {
   if (learnRunning.value || !name.value) return
-  learnRunning.value = true
-  learnCandidates.value = null
-  learnResult.value = ''
-  try {
-    const d = await learnStyle(name.value)
-    learnCandidates.value = d
-    // 默认全选（机检已过滤≥60），作者可取消不想要的
-    pickedSamples.value = new Array(d.samples.length).fill(true)
-    pickedQuotes.value = new Array(d.quotes.length).fill(true)
-  } catch (e) {
-    learnResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
-  }
-  learnRunning.value = false
+  const d = await cli.run('learn', () => learnStyle(name.value))
+  if (d) book.setLearnCandidates(d)
 }
 
 async function doLearnCommit(): Promise<void> {
   if (learnCommitRunning.value || !learnCandidates.value || !name.value) return
-  learnCommitRunning.value = true
-  learnResult.value = ''
-  const samples = learnCandidates.value.samples.filter((_, i) => pickedSamples.value[i])
-  const quotes = learnCandidates.value.quotes.filter((_, i) => pickedQuotes.value[i])
-  try {
-    const d = await commitLearnedStyle(name.value, { samples, quotes })
-    learnResult.value = `✓ 入库 ${(d.sampleFiles ?? []).length} 样章 + ${(d.quoteFiles ?? []).length} 金句`
-    learnCandidates.value = null
-  } catch (e) {
-    learnResult.value = `✗ ${e instanceof Error ? e.message : String(e)}`
+  const lc = book.data.learnCandidates
+  const samples = lc.samples.filter((_, i) => lc.pickedSamples[i])
+  const quotes = lc.quotes.filter((_, i) => lc.pickedQuotes[i])
+  const d = await cli.run('learn-commit', () => commitLearnedStyle(name.value, { samples, quotes }))
+  if (d) {
+    cli.setMsg('learn-commit', `✓ 入库 ${(d.sampleFiles ?? []).length} 样章 + ${(d.quoteFiles ?? []).length} 金句`)
+    book.clearLearn()
   }
-  learnCommitRunning.value = false
 }
 
-onMounted(load)
+onMounted(() => {
+  book.loadConfig(name.value)
+  book.loadStyleRules(name.value)
+})
 </script>
 
 <template>

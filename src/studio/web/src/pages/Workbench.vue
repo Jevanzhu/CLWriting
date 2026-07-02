@@ -1,23 +1,13 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { watch, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useWorkbenchStore } from '../stores/workbench'
 import { useWorkbenchLog } from '../composables/useWorkbenchLog'
 import { useHint } from '../composables/useHint'
 import { serverOnline } from '../composables/useHeartbeat'
-import {
-  approveReview,
-  generateOutline,
-  getConfig,
-  getDraftPrompt,
-  getState,
-  interruptBook,
-  runCli,
-  runReview,
-  saveDraft as saveDraftApi,
-  spawnRole,
-} from '../api/books'
 
-/** driver 事件(松类型,按 type 分支取字段) */
+/** driver 事件（松类型，按 type 分支取字段） */
 interface DriverEvent {
   type: string
   [k: string]: unknown
@@ -25,8 +15,31 @@ interface DriverEvent {
 
 const route = useRoute()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
+const wb = useWorkbenchStore()
+// 八阶段态走 store（storeToRefs 双向绑，chapter/autoAdvance 可 v-model）
+const {
+  activeStage,
+  chapter,
+  running,
+  outlineRunning,
+  cliRunning,
+  reviewRunning,
+  textOut,
+  saved,
+  outlineSaved,
+  checkReport,
+  reviewReport,
+  verdictApproved,
+  stateInfo,
+  autoAdvance,
+  interrupted,
+  kind,
+} = storeToRefs(wb)
 
-// 八阶段骨架(C.3 全接:细纲/确认/备料/写稿/机检/三审/定稿)
+// 事件流走共享状态（useWorkbenchLog），右栏 EventStream 实时联动
+const { log } = useWorkbenchLog()
+
+// 八阶段骨架（C.3 全接：细纲/确认/备料/写稿/机检/三审/定稿）
 const stages = [
   { id: 'enter', label: '进入' },
   { id: 'outline', label: '细纲' },
@@ -37,36 +50,11 @@ const stages = [
   { id: 'review', label: '审稿' },
   { id: 'finalize', label: '定稿' },
 ]
-const activeStage = ref('draft')
 const stageIndex = computed(() => stages.findIndex((s) => s.id === activeStage.value))
-
-const chapter = ref(1)
-const running = ref(false)
-const outlineRunning = ref(false)
-const draftMode = ref(false)
-const cliRunning = ref(false)
-const reviewRunning = ref(false)
-const textOut = ref('')
-// 事件流走共享状态（useWorkbenchLog），右栏 EventStream 实时联动
-const { log } = useWorkbenchLog()
 const { hint } = useHint()
-const saved = ref<{ path: string; words: number } | null>(null)
-const outlineSaved = ref<{ path: string; words: number } | null>(null)
-const checkReport = ref('') // 机检报告(check stdout)
-const reviewReport = ref('') // 审稿单(review report 全文)
-const verdictApproved = ref(false)
-// 6.8① enter 自动定位:顶部状态卡(当前态 + 人话)
-const stateInfo = ref<{ stateName: string; humanMsg: string } | null>(null)
-// 6.8② 自动推进开关(默认开;确定性步→确定性步自动,AI/人工步前停)
-const autoAdvance = ref(true)
-// 6.8③ draft 中断:中断后保留已生成,可弃稿/改指令重写
-const interrupted = ref(false)
+
+// SSE EventSource（运行态通道，page 持有生命周期；onmessage 推 store.handleEvent）
 let es: EventSource | null = null
-
-function ts(): string {
-  return new Date().toLocaleTimeString('zh-CN')
-}
-
 function connect(n: string): void {
   es?.close()
   es = new EventSource(`/api/books/${encodeURIComponent(n)}/stream`)
@@ -77,217 +65,17 @@ function connect(n: string): void {
     } catch {
       return
     }
-    handleEvent(ev)
+    wb.handleEvent(ev)
   }
 }
 
-function handleEvent(ev: DriverEvent): void {
-  const t = ts()
-  switch (ev.type) {
-    case 'init':
-      log.value.push({ t, type: 'init', text: `会话就绪 · 角色 ${((ev.agents as string[]) ?? []).join('/')}` })
-      break
-    case 'text':
-      textOut.value += String(ev.text ?? '')
-      break
-    case 'tool_use':
-      log.value.push({ t, type: 'tool', text: `🔧 ${ev.tool}` })
-      break
-    case 'usage':
-      log.value.push({ t, type: 'usage', text: `成本 $${ev.cost} · ${ev.tokens} tokens` })
-      break
-    case 'review-progress':
-      // 6.8④ 三审逐角进度回流
-      log.value.push({
-        t,
-        type: 'spawn',
-        text: `${ev.phase === 'start' ? '🔍' : '✓'} ${String(ev.label ?? '')}审${ev.phase === 'start' ? '中…' : '完'}`,
-      })
-      break
-    case 'interrupted':
-      // 6.8③ draft 中断:保留已生成,等作者弃稿/重写
-      running.value = false
-      draftMode.value = false
-      interrupted.value = true
-      log.value.push({ t, type: 'error', text: `⏹ 已中断(${String(ev.reason ?? '')})——正文已保留,可弃稿或改指令重写` })
-      break
-    case 'done':
-      running.value = false
-      log.value.push({ t, type: 'done', text: `完成(${ev.reason})` })
-      if (draftMode.value) void saveDraft()
-      break
-    case 'error':
-      running.value = false
-      draftMode.value = false
-      log.value.push({ t, type: 'error', text: `错误:${ev.message}` })
-      break
-  }
-}
+// 流程 actions（Pinia 已绑 this）；handleEvent/runCliStep/outlineGen/draftWrite/interruptWrite/discardDraft/reviewRun/saveDraft/loadKind/loadState 已内聚进 store
+const { runCliStep, outlineGen, draftWrite, interruptWrite, discardDraft, reviewRun } = wb
 
-/** CLI 确定性步:confirm/prepare/check/finalize。返回是否成功(供自动推进判断) */
-async function runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): Promise<boolean> {
-  if (cliRunning.value || running.value || outlineRunning.value || reviewRunning.value || !name.value) return false
-  cliRunning.value = true
-  activeStage.value = step
-  interrupted.value = false
-  log.value.push({ t: ts(), type: 'spawn', text: `${step} 第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}…` })
-  let stepOk = false
-  try {
-    const d = await runCli(name.value, { step, chapter: chapter.value })
-    const out = String(d.stdout ?? '').trim()
-    const err = String(d.stderr || d.stdout || '').trim()
-    if (d.ok) {
-      stepOk = true
-      if (step === 'check') {
-        checkReport.value = out
-        log.value.push({ t: ts(), type: 'saved', text: `机检 ✓(见机检报告)` })
-      } else if (step === 'finalize') {
-        log.value.push({ t: ts(), type: 'saved', text: `定稿 ✓ ${out.slice(0, 80)}` })
-      } else {
-        log.value.push({ t: ts(), type: 'saved', text: `${step} ✓ ${out.slice(0, 80)}` })
-      }
-    } else {
-      if (step === 'check') checkReport.value = err
-      log.value.push({ t: ts(), type: 'error', text: `${step} 失败:${err.slice(0, 120)}` })
-    }
-  } catch (e) {
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-  cliRunning.value = false
-  // 6.8② 自动推进:confirm done → prepare(确定性→确定性);prepare/check 后是 AI 步停;finalize 末步停
-  if (stepOk && autoAdvance.value && step === 'confirm') {
-    log.value.push({ t: ts(), type: 'spawn', text: `→ 自动备料` })
-    void runCliStep('prepare')
-  }
-  return stepOk
-}
-
-/** outline 生成:POST /outline(后端组 prompt + spawnRole('outline')禁工具 + 落盘 细纲) */
-async function outlineGen(): Promise<void> {
-  if (outlineRunning.value || running.value || !name.value) return
-  outlineRunning.value = true
-  outlineSaved.value = null
-  activeStage.value = 'outline'
-  log.value.push({ t: ts(), type: 'spawn', text: `生成第 ${chapter.value} ${kind.value === 'short' ? '篇篇纲' : '章细纲'}…` })
-  try {
-    const d = await generateOutline(name.value, chapter.value)
-    outlineSaved.value = d
-    log.value.push({ t: ts(), type: 'saved', text: `${kind.value === 'short' ? '篇纲' : '细纲'}已生成 ${d.path}(${d.words} 字)` })
-  } catch (e) {
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-  outlineRunning.value = false
-}
-
-/** draft 写稿:组 prompt → spawnRole(writer)→ 事件流收 text → done 后 saveDraft 落盘 */
-async function draftWrite(): Promise<void> {
-  if (running.value || !name.value) return
-  draftMode.value = true
-  interrupted.value = false
-  saved.value = null
-  textOut.value = ''
-  running.value = true
-  activeStage.value = 'draft'
-  // 拉后端组的 draft prompt(细纲+备料,方案 6.6)
-  let prompt = ''
-  try {
-    prompt = await getDraftPrompt(name.value, chapter.value)
-  } catch (e) {
-    running.value = false
-    draftMode.value = false
-    log.value.push({ t: ts(), type: 'error', text: `拉 draft-prompt 失败:${e instanceof Error ? e.message : String(e)}` })
-    return
-  }
-  if (!prompt.includes('本章细纲')) {
-    running.value = false
-    draftMode.value = false
-    log.value.push({ t: ts(), type: 'error', text: 'draft 缺细纲——请先「生成细纲→确认→备料」再写稿' })
-    return
-  }
-  log.value.push({ t: ts(), type: 'spawn', text: `spawnRole(writer)·第 ${chapter.value} ${kind.value === 'short' ? '篇(含篇纲)' : '章(含细纲+备料)'}` })
-  try {
-    await spawnRole(name.value, { role: 'writer', prompt, mode: 'spawnRole' })
-  } catch (e) {
-    running.value = false
-    draftMode.value = false
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-}
-
-/** 6.8③ 中断当前写稿:POST /interrupt → driver kill 子进程 + 推 interrupted */
-async function interruptWrite(): Promise<void> {
-  if (!name.value) return
-  try {
-    await interruptBook(name.value)
-  } catch {
-    /* interrupted 事件会经 SSE 到达,前端自行收尾 */
-  }
-}
-
-/** 6.8③ 弃稿:清空已生成正文 */
-function discardDraft(): void {
-  textOut.value = ''
-  interrupted.value = false
-  saved.value = null
-  log.value.push({ t: ts(), type: 'error', text: '已弃稿(清空正文)' })
-}
-
-/** 三审:POST /review(run→spawnRole×3 reader/editor/continuity→collect)→ 审稿单 */
-async function reviewRun(): Promise<void> {
-  if (reviewRunning.value || running.value || cliRunning.value || outlineRunning.value || !name.value) return
-  reviewRunning.value = true
-  reviewReport.value = ''
-  verdictApproved.value = false
-  activeStage.value = 'review'
-  log.value.push({ t: ts(), type: 'spawn', text: `三审第 ${chapter.value} ${kind.value === 'short' ? '篇' : '章'}(run→镜头审→collect)…` })
-  try {
-    const d = await runReview(name.value, chapter.value)
-    reviewReport.value = d.report ?? ''
-    log.value.push({ t: ts(), type: 'saved', text: `三审 ✓ 视角:${(d.lenses ?? []).join('/')}(见审稿单)` })
-  } catch (e) {
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-  reviewRunning.value = false
-}
-
-/** 裁决通过:POST /review-verdict {approved:true} → finalize 可放行 */
+/** 裁决通过 → 定稿（store action + hint 反馈） */
 async function verdictApprove(): Promise<void> {
-  if (!name.value || !reviewReport.value) return
-  try {
-    await approveReview(name.value)
-    verdictApproved.value = true
-    log.value.push({ t: ts(), type: 'saved', text: `裁决:通过(可定稿)` })
-    hint('裁决通过 · 可定稿')
-    // 6.8② 自动推进:裁决通过 → 定稿(人工 done → 确定性步)
-    if (autoAdvance.value) {
-      log.value.push({ t: ts(), type: 'spawn', text: `→ 自动定稿` })
-      void runCliStep('finalize')
-    }
-  } catch (e) {
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-}
-
-/** done 后落盘:driver text → 工作区/草稿-1.md */
-async function saveDraft(): Promise<void> {
-  const content = textOut.value.trim()
-  if (!content) {
-    draftMode.value = false
-    return
-  }
-  try {
-    const d = await saveDraftApi(name.value, { chapter: chapter.value, content })
-    saved.value = d
-    log.value.push({ t: ts(), type: 'saved', text: `已保存 ${d.path}(${d.words} 字)` })
-    // 6.8② 自动推进:draft 落盘 → 机检(AI done → 确定性步)
-    if (autoAdvance.value) {
-      log.value.push({ t: ts(), type: 'spawn', text: `→ 自动机检` })
-      void runCliStep('check')
-    }
-  } catch (e) {
-    log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
-  }
-  draftMode.value = false
+  await wb.verdictApprove()
+  if (verdictApproved.value) hint('裁决通过 · 可定稿')
 }
 
 /** 自动推进开关切换：即时反馈（对齐 mockup showHint） */
@@ -295,39 +83,17 @@ function onAutoToggle(): void {
   hint('自动推进 ' + (autoAdvance.value ? '已开' : '已关'))
 }
 
-const kind = ref<'long' | 'short'>('long')
-async function loadKind(): Promise<void> {
-  try {
-    const config = await getConfig(name.value)
-    kind.value = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
-  } catch {
-    /* ignore */
-  }
-}
-
-/** 6.8① enter 自动定位:拉 /state → 顶部状态卡 + 自动填章号 */
-async function loadState(): Promise<void> {
-  if (!name.value) return
-  try {
-    const d = await getState(name.value)
-    stateInfo.value = { stateName: d.stateName ?? '', humanMsg: d.humanMsg ?? '' }
-    if (typeof d.nextChapter === 'number' && d.nextChapter > 0) chapter.value = d.nextChapter
-  } catch {
-    /* 状态卡可选,失败不阻塞 */
-  }
-}
-
 onMounted(() => {
   if (name.value) {
+    void wb.enter(name.value) // 设 name + loadState
+    void wb.loadKind()
     connect(name.value)
-    void loadKind()
-    void loadState()
   }
 })
 watch(name, (n) => {
   if (n) {
+    void wb.enter(n)
     connect(n)
-    void loadState()
   }
 })
 // 左栏 TaskList 点章 → route.query.chapter 同步中栏章号

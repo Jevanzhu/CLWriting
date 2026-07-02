@@ -1,39 +1,33 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import ErrorState from '../components/ErrorState.vue'
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from 'echarts'
-import type { Rhythm } from '../types'
-import { getRhythm } from '../api/books'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const enc = computed(() => encodeURIComponent(name.value))
-const data = ref<Rhythm | null>(null)
-const loading = ref(true)
-const error = ref('')
 
-async function load(n: string): Promise<void> {
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await getRhythm(n)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// 节奏数据走 store（data/loading/error 适配 slot，形状不变）
+const data = computed(() => book.data.rhythm.value)
+const loading = computed(() => book.data.rhythm.loading)
+const error = computed(() => book.data.rhythm.error)
 
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') load(n)
+    if (typeof n === 'string') book.loadRhythm(n)
   },
   { immediate: true },
 )
+
+/** ErrorState 重试 → 重新拉取 */
+function load(n: string): void {
+  book.loadRhythm(n)
+}
 
 /** 字数曲线(长篇配均字参考线) */
 const wordOption = computed<EChartsOption | null>(() => {

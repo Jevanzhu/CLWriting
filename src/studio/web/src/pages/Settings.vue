@@ -4,6 +4,9 @@ import { useRoute } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import EChart from '../components/EChart.vue'
 import { useRelationNode } from '../composables/useRelationNode'
+import ErrorState from '../components/ErrorState.vue'
+import type { CharacterCard, RealmSystem } from '../types'
+import { useBookStore } from '../stores/book'
 
 const { selectNode } = useRelationNode()
 /** 关系图点节点 → 右栏联动（对齐 mockup renderRelRight） */
@@ -11,28 +14,15 @@ function onChartClick(params: { data?: unknown }): void {
   const d = params.data as { id?: string; name?: string } | undefined
   if (d && d.id) selectNode({ id: d.id, name: d.name ?? '' })
 }
-import ErrorState from '../components/ErrorState.vue'
-import type { CharacterCard, RealmSystem, SettingsData } from '../types'
-import { getSettings, updateCharacter, updateRealm } from '../api/books'
 
 const route = useRoute()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<SettingsData | null>(null)
-const loading = ref(true)
-const error = ref('')
 
-async function load(n: string): Promise<void> {
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await getSettings(n)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// 设定数据走 store（data/loading/error 适配 slot）
+const data = computed(() => book.data.settings.value)
+const loading = computed(() => book.data.settings.loading)
+const error = computed(() => book.data.settings.error)
 
 // P2 角色卡编辑
 const editingChar = ref<string | null>(null)
@@ -52,10 +42,8 @@ async function saveCharacter(c: CharacterCard, i: number): Promise<void> {
   }
   charSaving.value = true
   try {
-    await updateCharacter(name.value, charForm.value)
-    if (data.value && data.value.characters[i]) {
-      data.value.characters[i] = { ...charForm.value, file: c.file }
-    }
+    // action 内含 api 调用 + 按 file 本地同步 characters
+    await book.updateCharacter(name.value, charForm.value)
     editingChar.value = null
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
@@ -101,10 +89,8 @@ async function saveRealm(): Promise<void> {
   const 正文 = realmForm.value.正文.trim()
   try {
     const payload: { 体系: RealmSystem[]; 正文?: string } = { 体系, ...(正文 ? { 正文 } : {}) }
-    await updateRealm(name.value, payload)
-    if (data.value) {
-      data.value.realm = payload
-    }
+    // action 内含 api 调用 + 本地同步 realm
+    await book.updateRealm(name.value, payload)
     editingRealm.value = false
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
@@ -178,10 +164,15 @@ const graphOption = computed<EChartsOption | null>(() => {
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') load(n)
+    if (typeof n === 'string') book.loadSettings(n)
   },
   { immediate: true },
 )
+
+/** ErrorState 重试 → 重新拉取 */
+function load(n: string): void {
+  book.loadSettings(n)
+}
 </script>
 
 <template>

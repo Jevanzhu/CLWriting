@@ -1,37 +1,32 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { Lead, LeadsData } from '../types'
-import { getLeads } from '../api/books'
+import type { Lead } from '../types'
 import ErrorState from '../components/ErrorState.vue'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
 const router = useRouter()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
-const data = ref<LeadsData | null>(null)
-const loading = ref(true)
-const error = ref('')
 
-async function load(n: string): Promise<void> {
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await getLeads(n)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
+// 账本数据走 store
+const data = computed(() => book.data.leads.value)
+const loading = computed(() => book.data.leads.loading)
+const error = computed(() => book.data.leads.error)
 
 watch(
   () => route.params.name,
   (n) => {
-    if (typeof n === 'string') load(n)
+    if (typeof n === 'string') book.loadLeads(n)
   },
   { immediate: true },
 )
+
+/** ErrorState 重试 → 重新拉取 */
+function load(n: string): void {
+  book.loadLeads(n)
+}
 
 /** 矩阵 cell 查询:章号-编号 → {动词, 证据} */
 const cellMap = computed(() => {

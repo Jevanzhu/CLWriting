@@ -9,55 +9,41 @@
  *
  * 正文只读对照（编辑跳 /edit，已能编辑 正文.md/清单.md，避免重复造编辑器）。
  */
-import { ref, computed, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import EChart from '../components/EChart.vue'
 import ErrorState from '../components/ErrorState.vue'
 import type { EChartsOption, LineSeriesOption } from 'echarts'
-import type { PieceDetailData, PieceSummary } from '../types'
-import { getPiece, listPieces } from '../api/books'
+import { useBookStore } from '../stores/book'
 
 const route = useRoute()
 const router = useRouter()
+const book = useBookStore()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 const no = computed(() => Number(route.params.no))
 
-const data = ref<PieceDetailData | null>(null)
-const pieces = ref<PieceSummary[]>([])
-const loading = ref(true)
-const error = ref('')
-
-async function loadDetail(n: string, pieceNo: number): Promise<void> {
-  loading.value = true
-  error.value = ''
-  data.value = null
-  try {
-    data.value = await getPiece(n, pieceNo)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadPieces(n: string): Promise<void> {
-  try {
-    pieces.value = await listPieces(n)
-  } catch {
-    /* 翻页器可选，失败不阻塞 */
-  }
-}
+// 篇详情数据走 store（data/pieces 适配 slot；pieces 永为数组供翻页器 findIndex）
+const data = computed(() => book.data.piece.value)
+const pieces = computed(() => book.data.pieces.value ?? [])
+const loading = computed(() => book.data.piece.loading)
+const error = computed(() => book.data.piece.error)
 
 watch(
   () => [route.params.name, route.params.no] as const,
   ([n, pno]) => {
     if (typeof n === 'string' && typeof pno === 'string') {
-      loadDetail(n, Number(pno))
-      if (pieces.value.length === 0) loadPieces(n)
+      book.loadPiece(n, Number(pno))
+      if ((book.data.pieces.value?.length ?? 0) === 0) book.loadPieces(n)
     }
   },
   { immediate: true },
 )
+
+/** ErrorState 重试 → 重新拉取篇详情 */
+function loadDetail(n: string, pno: number): void {
+  book.loadPiece(n, pno)
+  if ((book.data.pieces.value?.length ?? 0) === 0) book.loadPieces(n)
+}
 
 /** 翻页：篇列表里相邻篇号 */
 const noIndex = computed(() => pieces.value.findIndex((p) => p.篇号 === no.value))
