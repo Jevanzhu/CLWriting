@@ -83,8 +83,8 @@ const hintMap: Record<string, string> = {
 }
 
 watch(
-  page,
-  (pg) => {
+  [page, name],
+  ([pg]) => {
     if (pg === 'overview') void loadOverview()
     else if (pg === 'piece') void loadPieces()
     else if (pg === 'leads') void loadLeads()
