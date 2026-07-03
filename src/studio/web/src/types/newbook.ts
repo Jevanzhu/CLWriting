@@ -26,3 +26,10 @@ export interface OnboardStep {
   result: OnboardResult | null
   skipped?: boolean
 }
+
+/** 对话消息（设定对话：作者 ↔ AI） */
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+  ts: string
+}

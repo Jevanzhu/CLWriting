@@ -116,13 +116,14 @@ export async function createBook(body: CreateBookRequest): Promise<{ name?: stri
 export async function runOnboardStep(
   name: string,
   step: OnboardStepKey,
+  discussionContext?: string,
 ): Promise<{ path: string; words: number; content: string }> {
   const r = await apiJson<{ ok?: boolean; path?: string; words?: number; content?: string }>(
     bookPath(name, '/onboard-ai'),
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ step }),
+      body: JSON.stringify(discussionContext ? { step, discussionContext } : { step }),
     },
   )
   requireOk(r)

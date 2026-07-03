@@ -59,6 +59,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const reqBody = await readJson(req)
     const step = String(reqBody['step'] ?? '') as OnboardStep
+    /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
+    const discussionContext =
+      typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
     if (!(step in STEP_PATH)) {
       return reply(res, 400, { error: `step 不支持:${step}` })
     }
@@ -77,7 +80,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       return reply(res, 400, { error: 'realm 步仅成长线书(book.yaml leads 未启用成长线)' })
     }
 
-    const prompt = buildOnboardPrompt(step, title, genre, kind)
+    const prompt = buildOnboardPrompt(step, title, genre, kind, discussionContext)
 
     const driver = getDriver('cc')
     const session = await driver.startSession(ctx.workDir)
@@ -131,9 +134,20 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 }
 
 /** 组 onboard prompt(各步任务 + 设定规范防臆造)*/
-function buildOnboardPrompt(step: OnboardStep, title: string, genre: string, kind: string): string {
+function buildOnboardPrompt(
+  step: OnboardStep,
+  title: string,
+  genre: string,
+  kind: string,
+  discussionContext = '',
+): string {
   const ctx = `题材:${genre}  书名:《${title}》  篇幅:${kind === 'short' ? '短篇集' : '长篇'}`
-  const common = `\n\n## 设定规范(防臆造)\n- 据「${genre}」题材内生推导,不臆造与题材冲突的设定\n- 留余地(后续卷/章可展开),不过度填死\n\n## 输出\n直接输出 markdown 全文,不要读文件、不要用任何工具。`
+  const discuss = discussionContext
+    ? `\n\n## 既有讨论(作者已和 AI 讨论的设定,据其整理,勿臆造讨论外的细节)\n${discussionContext}`
+    : ''
+  const common = `${discuss}\n\n## 设定规范(防臆造)\n- 据「${genre}」题材内生推导,不臆造与题材冲突的设定\n- 留余地(后续卷/章可展开),不过度填死${
+    discussionContext ? '\n- 优先据「既有讨论」整理,讨论未覆盖处再据题材推导' : ''
+  }\n\n## 输出\n直接输出 markdown 全文,不要读文件、不要用任何工具。`
   switch (step) {
     case 'synopsis':
       return `## 任务\n为这部${genre}小说《${title}》生成总纲。\n\n${ctx}\n\n## 要求\n产出总纲,含:核心(一句话主线)、主角(姓名/身份/驱动/初始处境)、世界观(力量体系/核心势力/规则)、主线(明线成长 + 暗线探秘)、反转靶心(全书最大反转)、卷目(第一卷定位)。${common}`
