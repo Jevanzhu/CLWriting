@@ -3,13 +3,14 @@
 // Electron titleBarStyle:'hiddenInset' 隐藏原生标题文字，macOS 交通灯由系统提供（左侧 inset），Vue 不画 wc-dot。
 // 居中 wc-title：进书态「书名·类型·字数」/ 入口态「当前书库名」。右 topbar-cli：CLI 连接徽章（可点击）。
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { serverOnline } from '../composables/useHeartbeat'
 import { useHint } from '../composables/useHint'
 import { getOverview } from '../api/books'
 import type { BookOverview } from '../types'
 
 const route = useRoute()
+const router = useRouter()
 const { hint } = useHint()
 const desktop = window.clwritingDesktop ?? null
 
@@ -65,6 +66,11 @@ function onCliClick(): void {
   )
 }
 
+/** 入口态：点书库名 → 书库管理页 */
+function goLibraries(): void {
+  router.push('/libraries')
+}
+
 onMounted(loadLib)
 </script>
 
@@ -81,7 +87,7 @@ onMounted(loadLib)
           <span class="wt-meta">{{ bookWordsLabel }}字</span>
         </template>
       </template>
-      <span v-else-if="libName" class="wt-name">{{ libName }}</span>
+      <span v-else-if="libName" class="wt-name wt-link" title="书库管理" @click="goLibraries">{{ libName }}</span>
       <span v-else class="wt-name">CLWriting Studio</span>
     </span>
     <!-- 右：CLI 连接徽章（mockup topbar-cli；serverOnline 心跳驱动）-->
@@ -106,5 +112,13 @@ onMounted(loadLib)
 .wc-cli {
   -webkit-app-region: no-drag;
   cursor: pointer;
+}
+/* 入口态书库名可点击（整栏 drag 区，需 no-drag 才能点） */
+.wt-link {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
+.wt-link:hover {
+  color: var(--text-2);
 }
 </style>

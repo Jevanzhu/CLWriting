@@ -299,12 +299,16 @@
 .tl-h{font-weight:500;margin:2px 0}
 .tl-q{font-family:var(--prose-font);font-size:13px;color:var(--text-2);background:var(--panel-55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid var(--white-18);border-radius:10px;padding:10px 12px;margin-top:5px;line-height:1.7;}
 
-.btn{padding:7px 15px;border-radius:9px;font-size:12px;cursor:pointer;border:1px solid var(--white-18);background:var(--panel-92);color:var(--ink);user-select:none;display:inline-block;transition:box-shadow .12s ease,transform .12s ease,color .12s}
-.btn:hover{color:var(--ink-cyan);}
-.btn:active{;transform:scale(.96)}
-.btn.primary{background:var(--ink-cyan);color:#fff;border-color:var(--ink-cyan)}
-.btn.primary:hover{opacity:.88;color:#fff}
+/* 按钮配色 · 方案A（全黑 + 优化，当前）：ink 黑底白字；hover 微抬+阴影（明显反馈）；primary 加粗（主操作引导）；尺寸 6×13（稍小）。
+   备选方案C（浅灰+hover黑反转）：var(--canvas) 浅灰底深字，hover 黑底白字；切 C 替换此区块。 */
+.btn{padding:6px 13px;border-radius:9px;font-size:12px;cursor:pointer;border:1px solid var(--ink);background:var(--ink);color:#fff;user-select:none;display:inline-block;transition:transform .12s ease,box-shadow .12s ease}
+.btn:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.btn:active{transform:scale(.96)}
+.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:600}
+.btn.primary:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,.18)}
 .btn.danger{color:var(--cinnabar);border-color:var(--cinnabar)}
+.btn.ghost{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn.ghost:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,.18)}
 .btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .btn.disabled{opacity:.4;pointer-events:none;cursor:default}
 /* 短篇篇详情 */

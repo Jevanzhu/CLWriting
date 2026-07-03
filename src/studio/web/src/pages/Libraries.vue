@@ -90,9 +90,9 @@ onMounted(load)
           <div class="lib-actions">
             <button class="btn primary" @click="goShelf">打开书架</button>
             <button class="btn" @click="newBook">+ 新建书</button>
-            <button class="btn" @click="openLibrary">切换书库</button>
-            <button class="btn" @click="renameLibrary">✏ 重命名</button>
-            <button class="btn" @click="deleteLibrary">🗑 删除</button>
+            <button class="btn ghost" @click="openLibrary">切换书库</button>
+            <button class="btn ghost" @click="renameLibrary">✏ 重命名</button>
+            <button class="btn ghost" @click="deleteLibrary">🗑 删除</button>
           </div>
         </div>
 
@@ -111,12 +111,8 @@ onMounted(load)
             <div class="lib-path">{{ r.path }}</div>
           </div>
           <div class="lib-actions">
-            <span class="btn">切换 →</span>
+            <span class="btn ghost">切换 →</span>
           </div>
-        </div>
-
-        <div style="margin-top:18px">
-          <button class="btn primary" @click="openLibrary">+ 新建 / 打开其他书库</button>
         </div>
       </template>
     </div>

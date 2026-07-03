@@ -47,6 +47,12 @@ function open(name: string): void {
 function newBook(): void {
   router.push('/books/new')
 }
+function goLibraries(): void {
+  router.push('/libraries')
+}
+function goHome(): void {
+  router.push('/')
+}
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—'
@@ -70,8 +76,10 @@ onMounted(() => {
           <div v-if="libName" style="color:var(--text-3);font-size:11px;letter-spacing:.5px">· {{ libName }}</div>
         </div>
         <div class="shelf-sub" :title="libraryLabel">{{ libraryLabel || 'CLWriting 工作目录' }}</div>
-        <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开已有书库</button>
-        <button class="btn primary" @click="newBook">+ 新建书</button>
+        <button class="btn ghost" @click="goHome">← 起始页</button>
+        <button class="btn" @click="newBook">＋ 新建书</button>
+        <button v-if="isDesktop" class="btn ghost" @click="openLibrary">📂 打开书库</button>
+        <button v-if="isDesktop" class="btn ghost" @click="goLibraries">📚 书库管理</button>
       </div>
 
       <p v-if="loading" class="bc-foot" style="margin:24px 0">加载中…</p>

@@ -117,11 +117,11 @@ onMounted(() => {
       </div>
 
       <div class="landing-actions">
-        <button class="btn primary" @click="goShelf">📚 书架</button>
-        <button class="btn" @click="newBook">+ 新建</button>
-        <button v-if="isDesktop" class="btn" @click="newLibrary">＋ 新建书库</button>
-        <button v-if="isDesktop" class="btn" @click="goLibraries">📚 书库管理</button>
-        <button v-if="isDesktop" class="btn" @click="openLibrary">📂 打开书库</button>
+        <button class="btn" @click="newBook">＋ 新建书</button>
+        <button v-if="isDesktop" class="btn ghost" @click="newLibrary">＋ 新建书库</button>
+        <button v-if="isDesktop" class="btn ghost" @click="openLibrary">📂 打开书库</button>
+        <button class="btn primary" @click="goShelf">📖 书架</button>
+        <button v-if="isDesktop" class="btn ghost" @click="goLibraries">📚 书库管理</button>
       </div>
     </section>
     <VaultMask v-model:show="vaultShow" />

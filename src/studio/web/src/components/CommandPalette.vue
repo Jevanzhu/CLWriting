@@ -124,6 +124,17 @@ const groups = computed<CmdGroup[]>(() => {
   // 全局操作（入口态/进书态都可用）
   const globalActions: Cmd[] = [
     { id: 'act-newbook', label: '新建书', hint: '⌘N', run: go('/books/new') },
+    { id: 'act-libraries', label: '书库管理', hint: '', run: go('/libraries') },
+    { id: 'act-shelf', label: '返回书架', hint: '', run: go('/shelf') },
+    {
+      id: 'act-openlibrary',
+      label: '打开书库目录…',
+      hint: '',
+      run: () => {
+        if (window.clwritingDesktop) void window.clwritingDesktop.openLibrary()
+        else hint('书库目录选择为桌面端功能')
+      },
+    },
     { id: 'act-settings', label: '设置', hint: '⌘,', run: () => openSettings() },
     { id: 'act-theme', label: `切换主题（当前 ${themeName()}）`, hint: '', run: nextTheme },
     { id: 'act-font', label: '切换界面字体', hint: '', run: nextAppFont },
