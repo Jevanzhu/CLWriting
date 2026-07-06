@@ -90,10 +90,14 @@ function switchMode(m: 'setup' | 'write'): void {
 }
 
 // SSE EventSource（page 持有生命周期；onmessage 按 mode 分发）
+// dev 不走 vite proxy 也不走系统代理:前者对 SSE 流式不稳,后者(clash/surge 类)会 buffer
+// SSE 长连接致 events 断流/EventSource 反复重连;故 dev 直连后端 7878 + main.ts dev 模式
+// setProxy('direct://') 绕开系统代理。生产同源走相对路径。
+const SSE_BASE = import.meta.env.DEV ? 'http://127.0.0.1:7878' : ''
 let es: EventSource | null = null
 function connect(n: string): void {
   es?.close()
-  es = new EventSource(`/api/books/${encodeURIComponent(n)}/stream`)
+  es = new EventSource(`${SSE_BASE}/api/books/${encodeURIComponent(n)}/stream`)
   es.onmessage = (e) => {
     let ev: DriverEvent
     try {
@@ -120,10 +124,16 @@ watch(name, (n) => {
     connect(n)
   }
 })
-// kind 加载后初始化设定 steps（长篇 9 / 短篇 5）
-watch(kind, (k) => {
-  if (name.value) ob.enter(name.value, k)
-})
+// kind 加载后初始化设定 steps（长篇 9 / 短篇 5）。
+// immediate:必跑一次——长篇书 kind 默认 'long' 与初始值相同,loadKind 后 watch 不会触发,
+// 不加 immediate 则 ob.name 永远空 → sendChat 早退 → 对话发不出。
+watch(
+  kind,
+  (k) => {
+    if (name.value) ob.enter(name.value, k)
+  },
+  { immediate: true },
+)
 // ?setup=1 变化时同步 mode
 watch(
   () => route.query.setup,

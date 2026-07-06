@@ -201,6 +201,11 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     console.error('PRELOAD-ERROR', p, err.message)
   })
+  // dev 模式:本地 dev:web(5173)+dev:api(7878) 不经系统代理
+  // 防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流 / EventSource 反复重连
+  if (devUi) {
+    await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+  }
   await mainWindow.loadURL(url)
   console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${url}`)
 }
