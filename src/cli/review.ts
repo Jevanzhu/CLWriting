@@ -18,8 +18,6 @@ import { DatabaseSync } from 'node:sqlite'
 import { getAiCallBudgetState, recordAiCall, type AiCallStep } from '../ai/calls.js'
 import { hashFile } from '../gate/confirm.js'
 import { readBookConfig } from '../format/yaml.js'
-import { readFile, parseFlat } from '../format/frontmatter.js'
-import { readPiece } from '../format/pieces.js'
 import { runAllChecks } from '../check/runner.js'
 import { rebuild } from '../cache/rebuild.js'
 import { buildReviewTasks, selectReviewTier, type ReviewHostCapabilities } from '../review/contract.js'
@@ -31,7 +29,7 @@ import {
   writeReviewPacket,
   writeReviewVerdict,
 } from '../review/run.js'
-import type { ChapterMeta, BookConfig } from '../format/types.js'
+import type { BookConfig } from '../format/types.js'
 import { resolveBookRoot } from '../install/books.js'
 import { readOutlineLeads } from '../process/materials.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
@@ -41,6 +39,7 @@ import {
   rejectPendingChapter,
   rollbackPendingBatch,
 } from '../auto/review-batch.js'
+import { readDraft, finalChapterFileName } from '../format/draft.js'
 
 export function reviewCommand(args: string[]): void {
   if (args.includes('--help') || args.includes('-h')) {
@@ -125,7 +124,7 @@ function runCommand(args: string[]): void {
   }
 
   // 读草稿正文 + 跑机检（长篇取 byproducts.leadChanges；短篇无账本，机检走短篇分支）
-  const draft = readDraftForReview(bookRoot, parsed.draftPath, isShort)
+  const draft = readDraft(parsed.draftPath, isShort)
   if (!draft.ok) {
     console.error(`✗ ${draft.reason}`)
     process.exit(1)
@@ -141,9 +140,7 @@ function runCommand(args: string[]): void {
   const db = new DatabaseSync(cachePath)
   try {
     const leadUpdates = isShort ? [] : aggregateLeadUpdates(readChapterLeadUpdates(workDir), draft.body, draft.chapter.章号)
-    const fileName = isShort
-      ? `${String(draft.chapter.章号).padStart(3, '0')}-${draft.chapter.标题}/正文.md`
-      : `${draft.chapter.章号}-${draft.chapter.标题}.md`
+    const fileName = finalChapterFileName(draft.chapter, isShort)
     checkReport = runAllChecks({
       db: isShort ? undefined : db,
       bookRoot, config,
@@ -488,48 +485,6 @@ function readRemainingFromBudget(
     process.exit(1)
   }
   return { remaining: state.remaining, used: state.used, limit: state.limit }
-}
-
-function readDraftForReview(
-  bookRoot: string,
-  draftPath: string,
-  isShort: boolean,
-): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
-  if (!existsSync(draftPath)) return { ok: false, reason: `草稿不存在：${draftPath}` }
-  const file = readFile(draftPath)
-  if (!file.ok) return { ok: false, reason: file.error.message }
-  if (isShort) {
-    const piece = readPiece(draftPath)
-    if (!piece.ok) return { ok: false, reason: piece.error.message }
-    const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
-    if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
-    if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
-    return {
-      ok: true,
-      chapter: {
-        章号: piece.piece.篇号,
-        标题: piece.piece.标题,
-        钩子类型: '悬念钩',
-        钩子强弱: '中',
-        情绪定位: '铺垫',
-        ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
-        _path: piece.piece._path,
-      },
-      body: file.body,
-    }
-  }
-  const fm = parseFlat(file.fmRaw)
-  const chapterNum = Number(fm.get('章号'))
-  const title = String(fm.get('标题') ?? '')
-  const meta: ChapterMeta = {
-    章号: chapterNum,
-    标题: title,
-    钩子类型: '悬念钩',
-    钩子强弱: '强',
-    情绪定位: '铺垫',
-  }
-  void bookRoot
-  return { ok: true, chapter: meta, body: file.body }
 }
 
 function tierLabel(tier: 'full' | 'sequential' | 'combined'): string {

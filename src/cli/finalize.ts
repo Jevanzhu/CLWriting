@@ -6,11 +6,8 @@
 
 import process from 'node:process'
 import { resolve, join, dirname } from 'node:path'
-import { existsSync, rmSync, readdirSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { readFile } from '../format/frontmatter.js'
-import { readChapter } from '../format/chapters.js'
-import { readPiece } from '../format/pieces.js'
 import { readBookConfig } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
@@ -19,7 +16,7 @@ import { resolveBookRoot } from '../install/books.js'
 import { warnIfGuiActive } from '../process/gui-active.js'
 import { pendingRoot, readBatchProgress, writeBatchProgress } from '../auto/batch.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
-import type { ChapterMeta } from '../format/types.js'
+import { readDraft, finalChapterFileName } from '../format/draft.js'
 
 /** `clwriting finalize [draftPath] [bookRoot]` 命令处理器 */
 export function finalizeCommand(args: string[]): void {
@@ -134,79 +131,6 @@ function resolveDraftAndBook(positional: string[]): { draftPath: string; bookRoo
     process.exit(1)
   }
   return { draftPath: join(resolved.bookRoot, '工作区', '草稿-1.md'), bookRoot: resolved.bookRoot }
-}
-
-function readDraft(
-  draftPath: string,
-  isShort: boolean,
-): { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string } {
-  if (!existsSync(draftPath)) {
-    return { ok: false, reason: missingDraftReason(draftPath) }
-  }
-  if (isShort) {
-    // 短篇草稿用 篇号（readPiece），映射成 ChapterMeta（章号字段承载篇号）
-    const piece = readPiece(draftPath)
-    if (!piece.ok) return { ok: false, reason: draftParseReason(piece.error.message, true) }
-    const file = readFile(draftPath)
-    if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message, true) }
-    // 目标情绪/核心反转是 PieceMeta 直属字段，带进 _raw 供 doFinalize 映射回 PieceMeta 保留
-    const raw: Record<string, string> = { ...(piece.piece._raw ?? {}) }
-    if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
-    if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
-    const chapter: ChapterMeta = {
-      章号: piece.piece.篇号,
-      标题: piece.piece.标题,
-      钩子类型: '悬念钩',
-      钩子强弱: '中',
-      情绪定位: '铺垫',
-      ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
-      _path: piece.piece._path,
-    }
-    return { ok: true, chapter, body: file.body }
-  }
-
-  const chapter = readChapter(draftPath)
-  if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message, false) }
-
-  const file = readFile(draftPath)
-  if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message, false) }
-
-  return { ok: true, chapter: chapter.chapter, body: file.body }
-}
-
-function draftParseReason(message: string, isShort: boolean): string {
-  if (message.includes('front matter')) {
-    if (isShort) {
-      return `${message}。草稿必须以短篇 front matter 开头，至少包含：篇号、标题、目标情绪、核心反转。`
-    }
-    return `${message}。草稿必须以章节 front matter 开头，至少包含：章号、标题、钩子类型、钩子强弱、情绪定位。`
-  }
-  return message
-}
-
-function missingDraftReason(draftPath: string): string {
-  const dir = dirname(draftPath)
-  let candidates: string[] = []
-  try {
-    candidates = readdirSync(dir).filter((f) => /^草稿-\d+\.md$/.test(f))
-  } catch {
-    // ignore
-  }
-  if (draftPath.endsWith('草稿-1.md') && candidates.length > 0) {
-    return `找不到默认草稿-1.md。草稿-N 的 N 是候选序号，不是章号；请把当前候选写为 草稿-1.md，或显式传入草稿路径。当前有：${candidates.join('、')}`
-  }
-  return `找不到草稿文件：${draftPath}`
-}
-
-/** 定稿文件名规则（kind 分支）：
- *  - long：定稿/正文/<章号>-<标题>.md（扁平）
- *  - short：篇/<篇号3位>-<标题>/正文.md（子路径，doFinalize 短篇分支 join(bookRoot,'篇',fileName)）
- */
-function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
-  if (isShort) {
-    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
-  }
-  return `${chapter.章号}-${chapter.标题}.md`
 }
 
 function cleanupPendingSource(bookRoot: string, workDir: string, chapter: number): void {
