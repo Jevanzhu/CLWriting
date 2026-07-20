@@ -64,12 +64,11 @@ describe('Bookshelf 书架', () => {
     const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).not.toContain('打开书库')
-    expect(w.find('.recent-dropdown').exists()).toBe(false) // 无最近下拉
     expect(w.findAll('.book-card')).toHaveLength(1)
-    expect(w.find('.book-name').text()).toBe('书A')
+    expect(w.find('.bc-name').text()).toBe('书A')
   })
 
-  it('书库 → 长篇/短篇 → 具体书：按三级层级渲染', async () => {
+  it('书架 → 长篇/短篇分区：按 .shelf-section 层级渲染', async () => {
     setDesktop(null)
     mockBooks([
       { name: '长篇A', kind: 'long' },
@@ -77,16 +76,16 @@ describe('Bookshelf 书架', () => {
     ])
     const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
-    const groups = w.findAll('.book-group')
-    expect(w.find('.panel-title').text()).toBe('书库')
+    const groups = w.findAll('.shelf-section')
+    expect(w.find('.shelf-title').text()).toBe('书架')
     expect(groups).toHaveLength(2)
-    expect(groups[0]!.find('h2').text()).toBe('长篇')
-    expect(groups[0]!.find('.book-name').text()).toBe('长篇A')
-    expect(groups[1]!.find('h2').text()).toBe('短篇')
-    expect(groups[1]!.find('.book-name').text()).toBe('短篇B')
+    expect(groups[0]!.find('.shelf-section-title').text()).toContain('长篇')
+    expect(groups[0]!.find('.bc-name').text()).toBe('长篇A')
+    expect(groups[1]!.find('.shelf-section-title').text()).toContain('短篇')
+    expect(groups[1]!.find('.bc-name').text()).toBe('短篇B')
   })
 
-  it('桌面版（有 desktop）→ 渲染「打开书库」+ 最近下拉 + 当前书库名', async () => {
+  it('桌面版（有 desktop）→ 渲染「打开书库」+ 当前书库名', async () => {
     setDesktop({
       getRecentLibraries: vi.fn().mockResolvedValue([{ path: '/lib2', label: 'lib2' }]),
       getCurrentLibrary: vi.fn().mockResolvedValue('/path/我的书库'),
@@ -95,9 +94,7 @@ describe('Bookshelf 书架', () => {
     const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).toContain('打开书库')
-    expect(w.find('.recent-dropdown').exists()).toBe(true) // 最近下拉
-    expect(w.find('.panel-sub').text()).toBe('我的书库') // 当前书库名（basename）
-    expect(w.findAll('.recent-dropdown li')).toHaveLength(1)
+    expect(w.text()).toContain('我的书库') // 当前书库名 basename（· {{ libName }}）
   })
 
   it('点击「打开书库」→ 调 desktop.openLibrary', async () => {
@@ -112,17 +109,15 @@ describe('Bookshelf 书架', () => {
     expect(openLib).toHaveBeenCalledTimes(1)
   })
 
-  it('点击最近列表项 → 调 desktop.switchLibrary(对应路径)', async () => {
-    const switchLib = vi.fn().mockResolvedValue({ ok: true })
-    setDesktop({
-      switchLibrary: switchLib,
-      getRecentLibraries: vi.fn().mockResolvedValue([{ path: '/libB', label: 'libB' }]),
-    })
+  it('点击「书库管理」→ router.push /libraries（switchLibrary 移到书库管理页）', async () => {
+    setDesktop({})
     mockBooks([])
     const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
-    await w.find('.recent-dropdown li').trigger('click')
-    expect(switchLib).toHaveBeenCalledWith('/libB')
+    const btn = w.findAll('button').find((b) => b.text().includes('书库管理'))
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/libraries')
   })
 
   it('浏览器版空态 workDir:false → 显示「工作目录启动」提示（非选择按钮）', async () => {
@@ -141,7 +136,7 @@ describe('Bookshelf 书架', () => {
     const w = mount(Bookshelf, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(w.text()).toContain('选择书库目录')
-    const chooseButton = w.findAll('.empty button').find((b) => b.text().includes('选择书库目录'))
+    const chooseButton = w.findAll('button').find((b) => b.text().includes('选择书库目录'))
     expect(chooseButton).toBeTruthy()
     await chooseButton!.trigger('click')
     expect(openLib).toHaveBeenCalled()
