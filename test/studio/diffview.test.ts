@@ -24,33 +24,33 @@ describe('DiffView 组件', () => {
         ] satisfies DiffLine[],
       },
     })
-    expect(wrapper.findAll('.dl')).toHaveLength(3)
-    expect(wrapper.findAll('.dl-same')).toHaveLength(1)
-    expect(wrapper.findAll('.dl-add')).toHaveLength(1)
-    expect(wrapper.findAll('.dl-del')).toHaveLength(1)
+    expect(wrapper.findAll('.diff-line')).toHaveLength(3)
+    expect(wrapper.findAll('.diff-line.same')).toHaveLength(1)
+    expect(wrapper.findAll('.diff-line.add')).toHaveLength(1)
+    expect(wrapper.findAll('.diff-line.del')).toHaveLength(1)
   })
 
   it('点击接受按钮 → emit accept', async () => {
     const wrapper = mount(DiffView, { props: { diff: [] } })
-    await wrapper.find('.btn-accept').trigger('click')
+    await wrapper.find('.btn.primary').trigger('click')
     expect(wrapper.emitted('accept')).toHaveLength(1)
   })
 
   it('点击拒绝按钮 → emit reject', async () => {
     const wrapper = mount(DiffView, { props: { diff: [] } })
-    await wrapper.find('.btn-reject').trigger('click')
+    await wrapper.find('.btn:not(.primary)').trigger('click')
     expect(wrapper.emitted('reject')).toHaveLength(1)
   })
 
   it('applying=true → 接受按钮禁用 + 文案变「应用中」', () => {
     const wrapper = mount(DiffView, { props: { diff: [], applying: true } })
-    const btn = wrapper.find('.btn-accept')
+    const btn = wrapper.find('.btn.primary')
     expect(btn.attributes('disabled')).toBeDefined()
     expect(btn.text()).toContain('应用中')
   })
 
   it('空 diff → 渲染空 body(无行)', () => {
     const wrapper = mount(DiffView, { props: { diff: [] } })
-    expect(wrapper.findAll('.dl')).toHaveLength(0)
+    expect(wrapper.findAll('.diff-line')).toHaveLength(0)
   })
 })
