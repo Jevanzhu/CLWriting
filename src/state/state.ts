@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gitHealthCheck, statusPorcelain, lastCommitMsg, findChapterCommit } from '../git/exec.js'
 import { rebuild } from '../cache/rebuild.js'
-import { readBookConfig } from '../format/yaml.js'
+import { readBookConfig, getWorkflow } from '../format/yaml.js'
 import { hashFile } from '../gate/confirm.js'
 import { assembleStatus } from '../process/assemble.js'
 import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
@@ -81,7 +81,8 @@ export type RouterActionKind =
   | 'resume' // 态 4 → #13 中断恢复续跑
   | 'volume-review' // 态 5 → 卷复盘（M3 概要）
   | 'health-check-periodic' // 态 6 → 体检（M3 概要）
-  | 'write-new-chapter' // 态 7 → M2 写章流程
+  | 'write-new-chapter' // 态 7 → M2 AI 写章流程
+  | 'write-new-chapter-hand' // 态 7 → W2B 手写起草（自由模式默认）
   | 'pending-batch-review' // 态 8 → M6 #35 批量审稿
   | 'pending-ai' // AI 介入点（M3 桩，M4 真执行）
 
@@ -277,7 +278,7 @@ function existsDraft(workDir: string): boolean {
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
  * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，M3 出人话不真执行。
  */
-export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long'): RouterAction {
+export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long', config?: BookConfig): RouterAction {
   switch (detected.state) {
     case 1: {
       const list = detected.issues.map((i) => `· ${i.humanMsg}（${i.fix}）`).join('\n')
@@ -338,11 +339,13 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       }
     case 7: {
       const unit = kind === 'short' ? '篇' : '章'
+      // W2B §3.1：自由模式态 7 默认手写起草（AI 线冻结，作者主导）；严格模式走 M2 AI 流程
+      const isFree = config ? getWorkflow(config) === 'free' : false
       return {
         state: 7,
         humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
-        action: 'write-new-chapter',
-        needsAI: false, // M2 流程接，AI 写稿由 M4 壳调
+        action: isFree ? 'write-new-chapter-hand' : 'write-new-chapter',
+        needsAI: false, // M2 AI 写稿由 M4 壳调；手写跳预算闸（W2B §3.1）
       }
     }
     case 8: {
@@ -516,7 +519,7 @@ export function enter(bookRoot: string): EnterResult {
   const cfgPath = join(bookRoot, 'book.yaml')
   const { config } = readBookConfig(cfgPath)
   const detected = detectState(bookRoot, config)
-  const route = routeState(detected, config.kind ?? 'long')
+  const route = routeState(detected, config.kind ?? 'long', config)
   const recap = buildRecap(bookRoot, config, detected)
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }

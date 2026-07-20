@@ -246,6 +246,25 @@ test('routeState: 各态路由动作 + needsAI 标记', () => {
   rmSync(root7, { recursive: true, force: true })
 })
 
+test('routeState: 态 7 workflow 分叉（W2B §3.1 手写 vs AI）', () => {
+  // 自由模式（新书默认）→ 手写起草（AI 线冻结，作者主导）
+  const rootFree = makeGitBook()
+  const freeCfg = { ...DEFAULT_CONFIG, workflow: 'free' as const }
+  expect(routeState(detectState(rootFree, freeCfg), 'long', freeCfg).action).toBe('write-new-chapter-hand')
+  rmSync(rootFree, { recursive: true, force: true })
+
+  // 严格模式（旧书缺省）→ M2 AI 流程不变
+  const rootStrict = makeGitBook()
+  const strictCfg = { ...DEFAULT_CONFIG, workflow: 'strict' as const }
+  expect(routeState(detectState(rootStrict, strictCfg), 'long', strictCfg).action).toBe('write-new-chapter')
+  rmSync(rootStrict, { recursive: true, force: true })
+
+  // 无 config（旧调用兼容）→ AI 流程
+  const root7 = makeGitBook()
+  expect(routeState(detectState(root7, DEFAULT_CONFIG), 'long').action).toBe('write-new-chapter')
+  rmSync(root7, { recursive: true, force: true })
+})
+
 // ── enter 单入口 + 近况复述 ─────────────────────────
 
 test('enter: 干净书 → 近况复述 + 路由建议（零机器味）', () => {
