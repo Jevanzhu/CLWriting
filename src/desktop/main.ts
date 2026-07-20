@@ -15,6 +15,7 @@
 import {
   app,
   BrowserWindow,
+  screen,
   ipcMain,
   dialog,
   Menu,
@@ -178,11 +179,16 @@ async function bootstrap(): Promise<void> {
     url = `http://127.0.0.1:${port}`
   }
 
+  // 默认尺寸按主屏工作区 70%×80%（5K 屏 → ~1800×1130；笔记本 → 1280×820 兜底），
+  // 换屏自适应、不用每次拉大；min 1200×760 保三栏 + 八阶段流程不挤。
+  const wa = screen.getPrimaryDisplay().workAreaSize
+  const winW = Math.max(Math.round(wa.width * 0.7), 1280)
+  const winH = Math.max(Math.round(wa.height * 0.8), 820)
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 960,
-    minHeight: 640,
+    width: winW,
+    height: winH,
+    minWidth: 1200,
+    minHeight: 760,
     title: 'CLWriting',
     // macOS 自定义标题栏：隐藏原生标题文字+按钮，保留交通灯（inset 缩进）；Vue 画 .window-chrome（书信息+CLI 徽章）
     titleBarStyle: 'hiddenInset',
