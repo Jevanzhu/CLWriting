@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 文件树递归节点（W2A §10.1）。
-// 目录：caret 折叠头，点击 toggle；叶子：.dot 八态圆点 + 名称，点击 select。
-// 缩进 depth × 18px；published 叶子名后缀「·已发」（§5.1，不新增色 token）。
-import { computed } from 'vue'
+// 文件树递归节点（W2A §10.1）+ 拖拽移动（T8 §10.2，仅 inside 落点）。
+// 叶子文档 draggable；目录接收 drop（inside = moveDocument toDir）；跨 role/区禁（canDrop）。
+// 排序落点（before/after）不做——CLighting 章号定序 + 无 order 字段，拖排无后端。
+import { computed, ref } from 'vue'
 
 /** 树节点（镜像后端 TreeNode，src/document/tree.ts）。 */
 interface TreeNode {
@@ -23,19 +23,26 @@ const props = defineProps<{
   expanded: Set<string>
   /** 当前选中文件 path（route.query.file）。 */
   current: string
+  /** 当前拖拽源 path（null = 未拖）。 */
+  draggedPath: string | null
 }>()
 
 const emit = defineEmits<{
   toggle: [path: string]
   select: [path: string]
+  dragstart: [path: string]
+  dragend: []
+  drop: [sourcePath: string, targetPath: string]
 }>()
 
 defineOptions({ name: 'FileTreeNode' })
 
 const isOpen = computed(() => props.expanded.has(props.node.path))
 const padLeft = computed(() => `${props.depth * 18 + 10}px`)
+/** 目录接收 dragover 时的视觉态（高亮 inside 落点）。 */
+const isDragOver = ref(false)
 
-/** 八态 → 圆点色（§5.1）：published 合并 green；目录无圆点（不挂 status）。 */
+/** 八态 → 圆点色（§5.1）：published 合并 green；目录无圆点。 */
 function dotClass(status?: string): string {
   switch (status) {
     case 'final':
@@ -55,9 +62,60 @@ function displayName(node: TreeNode): string {
   return node.status === 'published' ? `${node.name} ·已发` : node.name
 }
 
+/** 文档所属区（同区可移动，跨区/跨 role 禁）：正文 / 大纲 / 设定 / 工作区。 */
+function zoneOf(p: string): string | null {
+  if (p === '定稿/正文' || p.startsWith('定稿/正文/')) return 'body'
+  if (p === '大纲' || p.startsWith('大纲/')) return 'outline'
+  if (p === '定稿/设定' || p.startsWith('定稿/设定/')) return 'setting'
+  if (p.startsWith('工作区/')) return 'workdir'
+  return null
+}
+
+/** canDrop：叶子拖进目录 + 同区 + 非自身子树（T8 §10.2，仅 inside 落点）。 */
+function canDropHere(): boolean {
+  if (!props.draggedPath || !props.node.isDirectory) return false
+  if (props.draggedPath === props.node.path) return false
+  // 源是目标祖先 → 禁（防循环；叶子无子，保险）
+  if (props.node.path.startsWith(props.draggedPath + '/')) return false
+  const sz = zoneOf(props.draggedPath)
+  return sz !== null && sz === zoneOf(props.node.path)
+}
+
 function onClick(): void {
   if (props.node.isDirectory) emit('toggle', props.node.path)
   else emit('select', props.node.path)
+}
+
+function onDragStart(e: DragEvent): void {
+  if (props.node.isDirectory) return
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', props.node.path) // Firefox 需 setData 才触发 drag
+  }
+  emit('dragstart', props.node.path)
+}
+
+function onDragEnd(): void {
+  emit('dragend')
+}
+
+function onDragOver(e: DragEvent): void {
+  if (!canDropHere()) return // 不 preventDefault → 禁止 drop（光标显示禁止）
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  isDragOver.value = true
+}
+
+function onDragLeave(): void {
+  isDragOver.value = false
+}
+
+function onDrop(e: DragEvent): void {
+  e.preventDefault()
+  isDragOver.value = false
+  if (canDropHere() && props.draggedPath) {
+    emit('drop', props.draggedPath, props.node.path)
+  }
 }
 </script>
 
@@ -65,9 +123,18 @@ function onClick(): void {
   <div>
     <div
       class="tnode"
-      :class="[node.isDirectory ? 'dir' : 'leaf', { active: !node.isDirectory && node.path === current }]"
+      :class="[
+        node.isDirectory ? 'dir' : 'leaf',
+        { active: !node.isDirectory && node.path === current, 'drag-over': isDragOver },
+      ]"
       :style="{ paddingLeft: padLeft }"
+      :draggable="!node.isDirectory"
       @click="onClick"
+      @dragstart="onDragStart"
+      @dragend="onDragEnd"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
     >
       <span v-if="node.isDirectory" class="caret">{{ isOpen ? '▾' : '▸' }}</span>
       <span v-else class="dot-slot"><span class="dot" :class="dotClass(node.status)"></span></span>
@@ -81,8 +148,12 @@ function onClick(): void {
         :depth="depth + 1"
         :expanded="expanded"
         :current="current"
+        :dragged-path="draggedPath"
         @toggle="(p) => emit('toggle', p)"
         @select="(p) => emit('select', p)"
+        @dragstart="(p) => emit('dragstart', p)"
+        @dragend="emit('dragend')"
+        @drop="(s, t) => emit('drop', s, t)"
       />
     </template>
   </div>
@@ -129,6 +200,12 @@ function onClick(): void {
   width: 2px;
   background: var(--ink-cyan);
   border-radius: 1px;
+}
+/* T8 拖拽 inside 落点高亮（目录接收 drop 时） */
+.tnode.drag-over {
+  background: var(--cyan-10);
+  outline: 1px dashed var(--ink-cyan);
+  outline-offset: -1px;
 }
 .caret {
   width: 10px;

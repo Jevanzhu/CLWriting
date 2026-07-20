@@ -114,6 +114,51 @@ function select(path: string): void {
   router.push({ path: `/books/${enc.value}/edit`, query: { file: path } })
 }
 
+/** 当前拖拽源 path（null = 未拖）。 */
+const draggedPath = ref<string | null>(null)
+
+function onDragStart(path: string): void {
+  draggedPath.value = path
+}
+
+function onDragEnd(): void {
+  draggedPath.value = null
+}
+
+/** drop 提交：sourcePath → docId → PATCH move → refetch /tree（token 由 main.ts wrapper 自动注入）。 */
+async function onDrop(sourcePath: string, targetPath: string): Promise<void> {
+  draggedPath.value = null
+  const docId = findDocIdByPath(nodes.value, sourcePath)
+  if (!docId) return
+  try {
+    const r = await fetch(`/api/books/${enc.value}/documents/${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ op: 'move', toDir: targetPath }),
+    })
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { reason?: string; code?: string }
+      error.value = `移动失败：${j.reason ?? j.code ?? r.status}`
+    } else {
+      await load()
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** 递归找 path → docId（drop 提交用）。 */
+function findDocIdByPath(ns: TreeNode[], path: string): string | undefined {
+  for (const n of ns) {
+    if (n.path === path) return n.docId
+    if (n.children.length) {
+      const f = findDocIdByPath(n.children, path)
+      if (f) return f
+    }
+  }
+  return undefined
+}
+
 /** 递归计叶子数（head-count 展示总文件数）。 */
 function countLeaves(ns: TreeNode[]): number {
   let c = 0
@@ -165,8 +210,12 @@ watch(() => props.bookName, () => load(), { immediate: true })
         :depth="0"
         :expanded="expanded"
         :current="current"
+        :dragged-path="draggedPath"
         @toggle="toggle"
         @select="select"
+        @dragstart="onDragStart"
+        @dragend="onDragEnd"
+        @drop="onDrop"
       />
     </div>
   </div>
