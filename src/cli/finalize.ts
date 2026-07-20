@@ -8,7 +8,7 @@ import process from 'node:process'
 import { resolve, join, dirname } from 'node:path'
 import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { readBookConfig } from '../format/yaml.js'
+import { readBookConfig, getWorkflow } from '../format/yaml.js'
 import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
 import { readReviewVerdict } from '../review/run.js'
@@ -17,6 +17,7 @@ import { warnIfGuiActive } from '../process/gui-active.js'
 import { pendingRoot, readBatchProgress, writeBatchProgress } from '../auto/batch.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import { readDraft, finalChapterFileName } from '../format/draft.js'
+import { doConfirm, readConfirm } from '../gate/confirm.js'
 
 /** `clwriting finalize [draftPath] [bookRoot]` 命令处理器 */
 export function finalizeCommand(args: string[]): void {
@@ -50,14 +51,26 @@ export function finalizeCommand(args: string[]): void {
     workDir = join(bookRoot, '工作区')
   }
 
-  const outlinePath = join(workDir, '细纲.md')
   warnIfGuiActive(bookRoot) // #1.5 GUI 活跃轻提示
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const isShort = (config.kind ?? 'long') === 'short'
+  const isFree = getWorkflow(config) === 'free'
   const draft = readDraft(draftPath, isShort)
   if (!draft.ok) {
     console.error(`✗ ${draft.reason}`)
     process.exit(1)
+  }
+  // 手写无细纲：用草稿作确认源 + 补 mode=hand 确认（W2B §3.1 自由模式）
+  let outlinePath = join(workDir, '细纲.md')
+  if (isFree && !existsSync(outlinePath)) {
+    outlinePath = draftPath
+    if (!readConfirm(workDir)) {
+      const cr = doConfirm(workDir, draft.chapter.章号, draftPath, 'hand', config)
+      if (!cr.ok) {
+        console.error(`✗ 手写确认失败：${cr.reason}`)
+        process.exit(1)
+      }
+    }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   const rebuilt = rebuild(bookRoot, cachePath)
@@ -85,8 +98,9 @@ export function finalizeCommand(args: string[]): void {
       chapter: draft.chapter,
       body: draft.body,
       fileName: finalChapterFileName(draft.chapter, isShort),
-      hasReviewVerdict: readReviewVerdict(workDir).approved,
+      hasReviewVerdict: isFree ? true : readReviewVerdict(workDir).approved,
       kind: isShort ? 'short' : 'long',
+      workflow: isFree ? 'free' : getWorkflow(config),
       leadUpdates,
     })
 

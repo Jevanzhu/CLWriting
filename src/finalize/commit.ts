@@ -100,6 +100,8 @@ export interface FinalizeInput {
   hasReviewVerdict: boolean
   /** 双轨标识（M8 #26）：long（缺省）→ ch: 前缀 + 定稿/正文/ + 账本摘要；short → pc: 前缀 + 篇/ + 跳账本摘要 */
   kind?: 'long' | 'short'
+  /** 写作模式（W2B §3.1）：free 跳机检红牌（手写作者自洽）；缺省 strict */
+  workflow?: 'free' | 'assist' | 'strict'
   /** 本章需更新的账本履历（leadId → 新增的履历行）；短篇无账本，不传 */
   leadUpdates?: { leadId: string; entries: { 章号: number; 动词: string; 证据: string }[] }[]
   /** 章摘要文本；短篇无分层摘要，不传 */
@@ -262,6 +264,8 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
 }
 
 function checkFinalizeFullReport(input: FinalizeInput & { kind: 'long' | 'short' }): FinalizeGateResult {
+  // W2B §3.1：自由模式手写跳机检红牌（作者自洽，机检不阻断定稿）
+  if (input.workflow === 'free') return { ok: true }
   const isShort = input.kind === 'short'
   const report = runAllChecks({
     db: isShort ? undefined : input.db,

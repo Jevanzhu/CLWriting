@@ -19,7 +19,7 @@ export interface ConfirmRecord {
   chapter: number
   outline_hash: string // sha256: 前缀
   confirmed_at: string // ISO 8601
-  mode: 'manual' | 'auto'
+  mode: 'manual' | 'auto' | 'hand' // hand=W2B 手写定稿确认（草稿作哈希源）
 }
 
 /** 确认记录文件名（工作区、机器域、. 前缀） */
@@ -78,12 +78,13 @@ export type ConfirmResult =
  * 执行确认（阶段 2）。
  * - mode=manual：作者手动确认
  * - mode=auto：连写自动确认，前置校验 book.yaml 的 auto.confirm_outline（#11 第 6 节）
+ * - mode=hand：W2B 手写定稿确认（自由模式，草稿作 outlinePath 哈希源；不受 auto.confirm_outline 约束）
  */
 export function doConfirm(
   workDir: string,
   chapter: number,
   outlinePath: string,
-  mode: 'manual' | 'auto',
+  mode: 'manual' | 'auto' | 'hand',
   config: BookConfig,
 ): ConfirmResult {
   // #11 第 6 节：auto 模式需 book.yaml 开了 auto.confirm_outline
