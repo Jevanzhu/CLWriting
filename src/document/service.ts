@@ -1,7 +1,7 @@
 /**
- * DocumentService —— 文档保存协议编排（W0-1 §5）。
+ * DocumentService —— 文档保存协议编排（W0-1 §5）+ 结构性操作（W2A §7）。
  *
- * 统一文档写入入口：UI / AI / CLI 一律经此保存，保证并发安全 + 崩溃可恢复。
+ * 统一文档写入入口：UI / AI / CLI 一律经此，保证并发安全 + 崩溃可恢复。
  *
  * save 编排（§5.2，每文档串行队列内执行）：
  *   预校验路径（拒 symlink/`..` 越出）+ 能力（只读文档拒写）
@@ -9,21 +9,30 @@
  *     revision 校验 → journal pending → 按策略 snapshot → atomic write+fsync
  *     → 算新 revision → 条件性更新清单 → journal settled
  *
- * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted、返回 {ok:false,code}。
+ * 结构性操作（W2A §7：create/move/rename）：
+ *   同步实现（renameSync/mkdirSync + 同步清单写），靠 Node 单线程微任务不交错保证
+ *   清单原子性；不走 queue（与同 docId 的 save 并发时，最坏 save 撞 REVISION_CONFLICT
+ *   返回，不损坏数据）。事务顺序：预检查 → snapshot 留底 → fs 操作 → 清单同步 →
+ *   invalidateTreeIndex。结构性操作触发旧书建清单（W0-1 §4.2）。
+ *
+ * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
  * freeze(docId) 暂停该文档保存队列（定稿流程用，防 autosave 改文件使 confirm hash 失效）。
  * recover() 启动扫 journal，报 pending 无 settled/aborted（崩溃未结算）提示作者恢复。
  *
- * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径——W1 不做 docId→path 反查（W2A）。
+ * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf } from './layout.js'
 import { appendAborted, appendPending, appendSettled, findUnsettled, type JournalPending } from './journal.js'
 import { writeSnapshot } from './snapshot.js'
-import { readManifest, writeManifest } from './manifest.js'
+import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
+import { generateDocId } from './stable-id.js'
+import { invalidateTreeIndex } from './tree.js'
+import { appendTrashEntry } from './trash.js'
 
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
@@ -52,6 +61,47 @@ export interface UnsettledReport {
   docId: string
   pending: JournalPending[]
 }
+
+/** 新建文档输入（W2A §7）。 */
+export interface CreateDocumentInput {
+  /** 目标相对路径（含 .md 后缀）。 */
+  relPath: string
+  /** 初始内容；缺省生成最小 frontmatter。 */
+  content?: string
+}
+
+/** 新建结果。 */
+export type CreateResult =
+  | { ok: true; docId: string; path: string; revision: `sha256:${string}` }
+  | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
+
+/** 移动文档输入（章号不变，文件名保持——§11）。 */
+export interface MoveDocumentInput {
+  docId: string
+  /** 目标目录（相对 bookRoot，无尾斜杠）。 */
+  toDir: string
+}
+
+/** 重命名文档输入。 */
+export interface RenameDocumentInput {
+  docId: string
+  /** 新文件名（含 .md 后缀）。 */
+  newName: string
+}
+
+/** 移动/重命名结果。 */
+export type MoveResult =
+  | { ok: true; docId: string; path: string }
+  | {
+      ok: false
+      code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'WRITE_ERROR'
+      reason: string
+    }
+
+/** 软删结果。 */
+export type TrashResult =
+  | { ok: true; docId: string; trashedPath: string }
+  | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'WRITE_ERROR'; reason: string }
 
 export interface DocumentServiceOptions {
   bookRoot: string
@@ -230,4 +280,177 @@ export class DocumentService {
     }
     return abs
   }
+
+  // ── 结构性操作（W2A §7，同步实现）──────────────────
+
+  /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。 */
+  createDocument(input: CreateDocumentInput): Promise<CreateResult> {
+    return Promise.resolve(this.doCreate(input))
+  }
+
+  private doCreate(input: CreateDocumentInput): CreateResult {
+    const safe = this.resolveSafePath(input.relPath)
+    if (!safe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    if (existsSync(safe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '文件已存在' }
+    if (!layoutOf(input.relPath).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该位置只读，不可新建' }
+    }
+    const docId = generateDocId()
+    const content = input.content ?? this.defaultContent()
+    try {
+      mkdirSync(dirname(safe), { recursive: true })
+      atomicWriteFile(safe, content, { fsync: true })
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `新建失败：${errMsg(e)}` }
+    }
+    // 结构性操作触发建清单（W0-1 §4.2）：无清单则建，加 entry
+    this.upsertManifestEntry(docId, input.relPath)
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId, path: input.relPath, revision: computeRevision(safe) }
+  }
+
+  /** 移动文档到新目录（章号/文件名不变，只改卷归属）。 */
+  moveDocument(input: MoveDocumentInput): Promise<MoveResult> {
+    return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'move', toDir: input.toDir }))
+  }
+
+  /** 重命名文档（改文件名，目录不变）。 */
+  renameDocument(input: RenameDocumentInput): Promise<MoveResult> {
+    return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName }))
+  }
+
+  /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */
+  private doMoveOrRename(
+    docId: string,
+    op: { kind: 'move'; toDir: string } | { kind: 'rename'; newName: string },
+  ): MoveResult {
+    const oldPath = this.lookupPathByDocId(docId)
+    if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
+
+    const newPath =
+      op.kind === 'move'
+        ? `${op.toDir.replace(/\/$/, '')}/${basename(oldPath)}`
+        : `${dirname(oldPath)}/${op.newName}`
+    if (newPath === oldPath) return { ok: true, docId, path: newPath } // 无变化，幂等
+
+    // 能力校验：source rename+move，target write（§7.2）
+    const srcCaps = layoutOf(oldPath).capabilities
+    if (!srcCaps.rename || !srcCaps.move) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可移动/重命名' }
+    }
+    if (!layoutOf(newPath).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
+    }
+
+    const oldSafe = this.resolveSafePath(oldPath)
+    const newSafe = this.resolveSafePath(newPath)
+    if (!oldSafe || !newSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+    if (existsSync(newSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+
+    // snapshot 留底（移动/重命名前，W0-1 §7）
+    try {
+      const baseRev = computeRevision(oldSafe)
+      const oldContent = readFileSync(oldSafe, 'utf-8')
+      writeSnapshot(this.snapshotsDir, docId, oldContent, {
+        origin: 'manual',
+        reason: op.kind === 'move' ? '移动前留底' : '重命名前留底',
+        baseRevision: baseRev,
+      })
+      mkdirSync(dirname(newSafe), { recursive: true })
+      renameSync(oldSafe, newSafe)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名失败：${errMsg(e)}` }
+    }
+
+    // 清单 path 更新（docId 不变，只改 path）
+    this.updateManifestPath(docId, newPath)
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId, path: newPath }
+  }
+
+  /** 查清单 docId → path；无清单或未登记 → null（旧书需先建清单）。 */
+  private lookupPathByDocId(docId: string): string | null {
+    if (!existsSync(this.manifestPath)) return null
+    return readManifest(this.manifestPath).entries.get(docId)?.path ?? null
+  }
+
+  /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。 */
+  private upsertManifestEntry(docId: string, relPath: string): void {
+    const m = existsSync(this.manifestPath) ? readManifest(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
+    upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
+    mkdirSync(dirname(this.manifestPath), { recursive: true })
+    writeManifest(this.manifestPath, m)
+  }
+
+  /** 清单 path 更新（move/rename 用，docId 不变）。 */
+  private updateManifestPath(docId: string, newPath: string): void {
+    if (!existsSync(this.manifestPath)) return
+    const m = readManifest(this.manifestPath)
+    const entry = m.entries.get(docId)
+    if (!entry) return
+    entry.path = newPath
+    writeManifest(this.manifestPath, m)
+  }
+
+  /** 新建文档的默认内容（最小 frontmatter；具体字段由作者编辑或 batch 流程填）。 */
+  private defaultContent(): string {
+    return '---\n---\n\n'
+  }
+
+  /** 软删文档（移 .trash + 清单 removeEntry + trash manifest 记录 + snapshot + invalidate）。 */
+  trashDocument(input: { docId: string }): Promise<TrashResult> {
+    return Promise.resolve(this.doTrash(input.docId))
+  }
+
+  private doTrash(docId: string): TrashResult {
+    const oldPath = this.lookupPathByDocId(docId)
+    if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
+    if (!layoutOf(oldPath).capabilities.trash) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' }
+    }
+    const oldSafe = this.resolveSafePath(oldPath)
+    if (!oldSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+
+    const trashedRel = `工作区/.trash/${docId}-${basename(oldPath)}`
+    try {
+      // snapshot 留底（删除前，W0-1 §7）
+      const baseRev = computeRevision(oldSafe)
+      const content = readFileSync(oldSafe, 'utf-8')
+      writeSnapshot(this.snapshotsDir, docId, content, {
+        origin: 'manual',
+        reason: '删除前留底',
+        baseRevision: baseRev,
+      })
+      // 移到 工作区/.trash/<docId>-<basename>
+      const trashAbs = this.resolveSafePath(trashedRel)
+      if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
+      mkdirSync(dirname(trashAbs), { recursive: true })
+      renameSync(oldSafe, trashAbs)
+      // trash manifest 记录
+      appendTrashEntry(this.bookRoot, {
+        id: docId,
+        originalPath: oldPath,
+        trashedPath: trashedRel,
+        trashedAt: new Date().toISOString(),
+        role: layoutOf(oldPath).role,
+      })
+      // 清单 removeEntry
+      if (existsSync(this.manifestPath)) {
+        const m = readManifest(this.manifestPath)
+        m.entries.delete(docId)
+        writeManifest(this.manifestPath, m)
+      }
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
+    }
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId, trashedPath: trashedRel }
+  }
+}
+
+/** 错误信息提取（避免重复 try/catch 样板）。 */
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }

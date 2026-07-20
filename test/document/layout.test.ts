@@ -8,6 +8,18 @@ describe('layout / roleOf 按路径判 role', () => {
     expect(roleOf('定稿/摘要/0001.md')).toBe('note')
   })
 
+  it('卷级分层：定稿/正文/<卷>/<章> 任意深度 → chapter（W2A §6.2）', () => {
+    // 卷一层（网文常见：几百章按卷分目录，前缀匹配 定稿/正文/ 已覆盖）
+    expect(roleOf('定稿/正文/第一卷/0001-开篇.md')).toBe('chapter')
+    expect(roleOf('定稿/正文/第二卷/0051-惊蛰.md')).toBe('chapter')
+    // 番外卷（卷名不限于「第N卷」）
+    expect(roleOf('定稿/正文/番外/茶馆往事.md')).toBe('chapter')
+    // 卷名带分隔符（验证不被路径段数干扰）
+    expect(roleOf('定稿/正文/第一卷·初/0001-开篇.md')).toBe('chapter')
+    // 平铺兼容（旧书无卷，章直接挂正文目录）
+    expect(roleOf('定稿/正文/0001-开篇.md')).toBe('chapter')
+  })
+
   it('大纲区：卷纲 / 账本 / 普通大纲', () => {
     expect(roleOf('大纲/卷纲/第一卷.md')).toBe('volume-outline')
     expect(roleOf('大纲/伏笔/001-玉佩.md')).toBe('ledger')
