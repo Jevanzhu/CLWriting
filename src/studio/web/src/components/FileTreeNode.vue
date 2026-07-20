@@ -62,6 +62,36 @@ function displayName(node: TreeNode): string {
   return node.status === 'published' ? `${node.name} ·已发` : node.name
 }
 
+/** 递归计叶子数（目录次要信息用）。 */
+function countLeaves(ns: TreeNode[]): number {
+  let c = 0
+  for (const n of ns) c += n.isDirectory ? countLeaves(n.children) : 1
+  return c
+}
+
+/** 定稿/正文/<卷> → <卷>（卷目录名，直接子级）。 */
+function matchVolumeName(path: string): string | null {
+  const prefix = '定稿/正文/'
+  if (!path.startsWith(prefix)) return null
+  const rest = path.slice(prefix.length)
+  return rest && !rest.includes('/') ? rest : null
+}
+
+/** 目录次要信息（T9a §17 决策②，纯扫描计数）：卷「✓卷纲·N章」/ 大纲子目录「N 条」。
+ *  无匹配 → null（不显示）。 */
+function dirMeta(node: TreeNode): string | null {
+  if (!node.isDirectory) return null
+  if (matchVolumeName(node.path)) {
+    return `${node.volumeOutlinePath ? '✓卷纲 · ' : ''}${countLeaves(node.children)}章`
+  }
+  // 大纲子目录（大纲/X，直接子级）→ 「N 条」
+  if (node.path.startsWith('大纲/')) {
+    const rest = node.path.slice('大纲/'.length)
+    if (rest && !rest.includes('/')) return `${countLeaves(node.children)} 条`
+  }
+  return null
+}
+
 /** 文档所属区（同区可移动，跨区/跨 role 禁）：正文 / 大纲 / 设定 / 工作区。 */
 function zoneOf(p: string): string | null {
   if (p === '定稿/正文' || p.startsWith('定稿/正文/')) return 'body'
@@ -139,6 +169,7 @@ function onDrop(e: DragEvent): void {
       <span v-if="node.isDirectory" class="caret">{{ isOpen ? '▾' : '▸' }}</span>
       <span v-else class="dot-slot"><span class="dot" :class="dotClass(node.status)"></span></span>
       <span class="name">{{ node.isDirectory ? node.name : displayName(node) }}</span>
+      <span v-if="dirMeta(node)" class="tn-tag">{{ dirMeta(node) }}</span>
     </div>
     <template v-if="node.isDirectory && isOpen">
       <FileTreeNode
@@ -222,8 +253,18 @@ function onDrop(e: DragEvent): void {
   justify-content: center;
 }
 .name {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* T9a 目录次要信息（右侧小灰字） */
+.tn-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-3);
+  font-weight: 400;
+  flex-shrink: 0;
 }
 </style>
