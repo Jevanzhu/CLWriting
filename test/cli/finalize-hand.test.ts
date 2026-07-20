@@ -8,13 +8,14 @@
 
 import { test, expect, vi } from 'vitest'
 import { execSync } from 'node:child_process'
-import { existsSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeGitBook } from '../helpers/book.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { handCommand } from '../../src/cli/hand.js'
 import { finalizeCommand } from '../../src/cli/finalize.js'
+import { guiActivePath } from '../../src/process/gui-active.js'
 
 /** 造一本自由模式（workflow=free）长篇干净书（改 book.yaml 后 commit 保 git 干净） */
 function makeGitBookFree(): string {
@@ -76,6 +77,9 @@ test('B3 e2e: hand → 手写正文 → finalize 自由模式（跳审稿/机检
 
     // 工作区草稿已清空
     expect(existsSync(draftPath)).toBe(false)
+    // 手写编辑锁已释放（W2B B4 互斥闭环）
+    const gui = JSON.parse(readFileSync(guiActivePath(root), 'utf-8'))
+    expect(gui.editing_workdir).not.toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

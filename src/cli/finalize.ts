@@ -13,7 +13,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { doFinalize } from '../finalize/commit.js'
 import { readReviewVerdict } from '../review/run.js'
 import { resolveBookRoot } from '../install/books.js'
-import { warnIfGuiActive } from '../process/gui-active.js'
+import { warnIfGuiActive, releaseEditingWorkdir } from '../process/gui-active.js'
 import { pendingRoot, readBatchProgress, writeBatchProgress } from '../auto/batch.js'
 import { aggregateLeadUpdates, readChapterLeadUpdates } from '../process/lead-updates.js'
 import { readDraft, finalChapterFileName } from '../format/draft.js'
@@ -110,6 +110,8 @@ export function finalizeCommand(args: string[]): void {
       const unit = isShort ? '篇' : '章'
       console.log(`✓ 第 ${draft.chapter.章号} ${unit}已定稿（commit ${result.commitHash}）`)
       if (fromArg) cleanupPendingSource(bookRoot, workDir, draft.chapter.章号)
+      // 手写定稿完成释放编辑锁（W2B B4 互斥闭环；AI 定稿无 editing_workdir，幂等无害）
+      releaseEditingWorkdir(bookRoot)
     }
   } finally {
     db.close()
