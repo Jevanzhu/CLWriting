@@ -30,6 +30,7 @@ import { registerIoRoutes } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
+import { registerSearchRoutes } from './api/search.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
@@ -57,6 +58,7 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerKnowledgeRoutes({ workDir, token })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir })
+    registerSearchRoutes({ workDir })
   })
   return routes
 }

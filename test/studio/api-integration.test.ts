@@ -181,4 +181,20 @@ describe('GUI API 集成链(设定台 P2)', () => {
     })
     expect(blocked.status).toBe(400)
   })
+
+  it('GET /api/books/:name/search?q= 全书扫描 + 行级匹配（W2A 收尾）', async () => {
+    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
+    const d = (await r.json()) as { results: { path: string; matches: { line: number; text: string }[] }[] }
+    expect(d.results.length).toBeGreaterThan(0)
+    expect(
+      d.results.some((it) => it.path.includes('林远') || it.matches.some((m) => m.text.includes('林远'))),
+    ).toBe(true)
+  })
+
+  it('GET /search?scope=设定 限定范围（只搜定稿/设定/）', async () => {
+    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}&scope=${encodeURIComponent('设定')}`)
+    const d = (await r.json()) as { results: { path: string }[] }
+    expect(d.results.length).toBeGreaterThan(0)
+    expect(d.results.every((it) => it.path.startsWith('定稿/设定/'))).toBe(true)
+  })
 })
