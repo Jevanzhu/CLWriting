@@ -28,7 +28,14 @@ export interface JournalSettled {
   newRevision: `sha256:${string}`
 }
 
-export type JournalEntry = JournalPending | JournalSettled
+export interface JournalAborted {
+  opId: string
+  ts: string
+  status: 'aborted'
+  reason: string
+}
+
+export type JournalEntry = JournalPending | JournalSettled | JournalAborted
 
 type RawLine = { [k: string]: unknown }
 
@@ -66,7 +73,18 @@ export function appendSettled(
   appendLine(journalPath, JSON.stringify(entry))
 }
 
-/** 扫 journal，找 pending 但无 settled 的条目（崩溃恢复用）。非法行跳过。 */
+/** 追加 aborted 行，标记某 opId 保存失败（不落盘）。 */
+export function appendAborted(journalPath: string, opId: string, reason: string): void {
+  const entry: JournalAborted = {
+    opId,
+    ts: new Date().toISOString(),
+    status: 'aborted',
+    reason,
+  }
+  appendLine(journalPath, JSON.stringify(entry))
+}
+
+/** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。 */
 export function findUnsettled(journalPath: string): JournalPending[] {
   if (!existsSync(journalPath)) return []
   let text: string
@@ -87,7 +105,7 @@ export function findUnsettled(journalPath: string): JournalPending[] {
     }
     if (obj.status === 'pending' && typeof obj.opId === 'string') {
       pending.set(obj.opId, obj as unknown as JournalPending)
-    } else if (obj.status === 'settled' && typeof obj.opId === 'string') {
+    } else if ((obj.status === 'settled' || obj.status === 'aborted') && typeof obj.opId === 'string') {
       pending.delete(obj.opId)
     }
   }

@@ -15,6 +15,7 @@ import {
   writeBatchProgress,
   type ChapterProduction,
 } from '../../src/auto/batch.js'
+import { acquireEditingWorkdir } from '../../src/process/gui-active.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
@@ -81,6 +82,21 @@ test('连写: 批次进度正确（章号自管，不重复）', async () => {
   expect(r.progress.next_chapter).toBe(4) // 游标推到第4章
   expect(r.progress.start_chapter).toBe(1)
 
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('连写: editing_workdir 活跃时暂停（reason=human，不跳章）', async () => {
+  const root = makeBookWithVolumeOutline()
+  acquireEditingWorkdir(root) // 置工作区编辑锁（W0-2 §5 第一层）
+  const r = await doAutoBatch({ bookRoot: root, targetCount: 3, produce: makeProduceStub() })
+  expect(r.ok).toBe(true)
+  if (!r.ok) {
+    rmSync(root, { recursive: true, force: true })
+    return
+  }
+  expect(r.produced).toEqual([]) // 未产出任何章
+  expect(r.progress.paused?.reason).toBe('human')
+  expect(r.progress.paused?.at_chapter).toBe(1)
   rmSync(root, { recursive: true, force: true })
 })
 

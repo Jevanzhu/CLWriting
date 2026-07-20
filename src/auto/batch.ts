@@ -19,6 +19,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { prepareMaterials } from '../process/materials.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { git } from '../git/exec.js'
+import { isEditingWorkdirActive } from '../process/gui-active.js'
 
 // ── 待定稿路径常量 ─────────────────────────────────
 
@@ -59,6 +60,8 @@ export interface BatchProgress {
   isolated: IsolatedChapter[]
   paused: BatchPause | null
   started_at: string
+  /** 启动 batch 的宿主进程 pid（W0-2 §5.2 活跃性探活；旧批次文件缺此字段）。 */
+  host_pid?: number
 }
 
 /** 读批次进度（容错：缺失/损坏返回 null，不静默重置）。 */
@@ -83,6 +86,7 @@ export function readBatchProgress(bookRoot: string): BatchProgress | null {
       isolated: Array.isArray(obj.isolated) ? obj.isolated : [],
       paused: obj.paused ?? null,
       started_at: obj.started_at ?? new Date().toISOString(),
+      host_pid: typeof obj.host_pid === 'number' ? obj.host_pid : undefined,
     }
   } catch {
     return null
@@ -319,6 +323,7 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
       isolated: [],
       paused: null,
       started_at: new Date().toISOString(),
+      host_pid: process.pid,
     }
     writeBatchProgress(bookRoot, progress)
   }
@@ -328,6 +333,18 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
   const endChapter = progress.start_chapter + progress.target_count
   while (progress.next_chapter < endChapter && !progress.paused) {
     const chapterNum = progress.next_chapter
+
+    // 工作区编辑锁（W0-2 §5 第一层）：编辑器正在编辑工作区草稿/细纲 → 暂停连写（不跳章）
+    if (isEditingWorkdirActive(bookRoot)) {
+      progress.paused = {
+        at_chapter: chapterNum,
+        reason: 'human',
+        detail: 'GUI 正在编辑工作区文档，连写暂停（auto --resume 续跑）',
+        paused_at: new Date().toISOString(),
+      }
+      writeBatchProgress(bookRoot, progress)
+      break
+    }
 
     // ④ 系统：每章前 git 健康检查（#16，搬运前校验，污染不出批次）
     if (!checkGitHealthy(bookRoot)) {
