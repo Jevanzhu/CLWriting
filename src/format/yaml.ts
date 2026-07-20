@@ -30,6 +30,16 @@ export const DEFAULT_CONFIG: BookConfig = {
   growth: { realm_span_max: 2 },
 }
 
+/** workflow 英文 key → book.yaml 中文值（W0 §2）。 */
+function workflowToYaml(w: 'free' | 'assist' | 'strict'): string {
+  return w === 'free' ? '自由' : w === 'assist' ? '辅助' : '严格'
+}
+
+/** 读 workflow（W0 §2）：缺省/未知 → strict（旧书兼容，最保守门禁）。 */
+export function getWorkflow(cfg: BookConfig): 'free' | 'assist' | 'strict' {
+  return cfg.workflow ?? 'strict'
+}
+
 // ── 解析：段 + 缩进子字段 ────────────────────────
 
 interface RawSection {
@@ -94,6 +104,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (hostNode) {
     const h = String(parseValue(hostNode.value))
     if (h === 'cc' || h === 'codex') cfg.host = h
+  }
+
+  // workflow（W0 §2）：书级门禁模式，中文值「自由|辅助|严格」（兼容英文 key）；未知值不赋值 → getWorkflow 回落 strict
+  const workflowNode = find('workflow')
+  if (workflowNode) {
+    const w = String(parseValue(workflowNode.value))
+    if (w === '自由' || w === 'free') cfg.workflow = 'free'
+    else if (w === '辅助' || w === 'assist') cfg.workflow = 'assist'
+    else if (w === '严格' || w === 'strict') cfg.workflow = 'strict'
   }
 
   const book = find('book')
@@ -266,6 +285,8 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，M8 #25）
     ...(isShort ? ['kind: short', ''] : ['']),
     `host: ${cfg.host ?? 'cc'}`,
+    // workflow（W0 §2）：非 strict 才输出（旧书无字段 = strict，零改动红线；新书 free）
+    ...(cfg.workflow && cfg.workflow !== 'strict' ? [`workflow: ${workflowToYaml(cfg.workflow)}`] : []),
     'book:',
     `  title: ${stringifyValue(cfg.book.title)}`,
     `  genre: ${stringifyValue(cfg.book.genre)}`,

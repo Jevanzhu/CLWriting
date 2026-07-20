@@ -85,6 +85,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   // book.yaml 内容正确
   const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
   expect(cfg.book.title).toBe('北境往事')
+  expect(cfg.workflow).toBe('free') // W0 §2 决策 1：新书默认自由模式
   expect(cfg.book.genre).toBe('玄幻')
   expect(cfg.leads.enabled).toEqual(['成长线', '设定线'])
 

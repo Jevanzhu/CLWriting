@@ -196,6 +196,9 @@ export interface BookConfig {
   kind?: 'long' | 'short'
   /** AI 宿主（决策 12/22）：cc（缺省，Claude Code）/ codex。首版只 cc */
   host?: 'cc' | 'codex'
+  /** 书级工作流模式（W0 §2）：free 自由（新书默认）/ assist 辅助（后期）/ strict 严格（旧书缺省）。
+   *  门禁强度归此字段；起草方式不改门禁。yaml 中文值「自由|辅助|严格」。 */
+  workflow?: 'free' | 'assist' | 'strict'
   book: {
     title: string
     genre: string

@@ -52,12 +52,14 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
+        workflow: 'free', // W0 §2 决策 1：新书默认自由模式
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
         short: recommendShortChecks(opts.genre),
       }
     : {
         ...DEFAULT_CONFIG,
         host: opts.host ?? 'cc',
+        workflow: 'free', // W0 §2 决策 1：新书默认自由模式
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
         leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
       }
