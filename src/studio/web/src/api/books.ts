@@ -310,7 +310,7 @@ export async function applyRewrite(
 
 export async function runCli(
   name: string,
-  body: { step: 'confirm' | 'prepare' | 'check' | 'finalize'; chapter: number },
+  body: { step: 'confirm' | 'prepare' | 'check' | 'finalize' | 'hand'; chapter: number },
 ): Promise<{ ok?: boolean; stdout?: string; stderr?: string }> {
   return apiJson<{ ok?: boolean; stdout?: string; stderr?: string }>(bookPath(name, '/cli'), {
     method: 'POST',

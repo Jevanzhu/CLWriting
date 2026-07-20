@@ -55,6 +55,8 @@ interface WorkbenchState {
   /** draft 中断（保留已生成，可弃稿/重写） */
   interrupted: boolean
   kind: 'long' | 'short'
+  /** 写作模式（W2B §3.1）：决定写章 tab 走手写还是 AI 八阶段 */
+  workflow: 'free' | 'assist' | 'strict'
 }
 
 /** 共享事件日志（模块级单例，右栏 EventStream 联动） */
@@ -84,6 +86,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     autoAdvance: true,
     interrupted: false,
     kind: 'long',
+    workflow: 'strict',
   }),
   actions: {
     /** SSE 事件处理：按 type 更新态 + 推 log */
@@ -140,6 +143,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       try {
         const config = await getConfig(this.name)
         this.kind = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
+        this.workflow = config.workflow ?? 'strict'
       } catch {
         /* ignore */
       }
@@ -156,7 +160,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       }
     },
     /** CLI 确定性步：confirm/prepare/check/finalize。返回是否成功（供自动推进判断） */
-    async runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize'): Promise<boolean> {
+    async runCliStep(step: 'confirm' | 'prepare' | 'check' | 'finalize' | 'hand'): Promise<boolean> {
       const log = wbLog.log
       if (this.cliRunning || this.running || this.outlineRunning || this.reviewRunning || !this.name) return false
       this.cliRunning = true
@@ -175,6 +179,8 @@ export const useWorkbenchStore = defineStore('workbench', {
             log.value.push({ t: ts(), type: 'saved', text: `机检 ✓(见机检报告)` })
           } else if (step === 'finalize') {
             log.value.push({ t: ts(), type: 'saved', text: `定稿 ✓ ${out.slice(0, 80)}` })
+          } else if (step === 'hand') {
+            log.value.push({ t: ts(), type: 'saved', text: `手写草稿已建 ✓ ${out.slice(0, 60)}（左侧文件树编辑正文）` })
           } else {
             log.value.push({ t: ts(), type: 'saved', text: `${step} ✓ ${out.slice(0, 80)}` })
           }

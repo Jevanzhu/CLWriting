@@ -15,6 +15,8 @@ export interface BookConfigLoose {
   spec_version: number
   kind?: 'long' | 'short'
   host?: 'cc' | 'codex'
+  /** 写作模式（W2B §3.1）：free=手写主导 / assist=辅助 / strict=AI 全流程（缺省） */
+  workflow?: 'free' | 'assist' | 'strict'
   book: { title: string; genre: string; volume_size?: number; target_words?: number }
   leads: { enabled: string[]; thresholds?: Record<string, number> }
   budget: {

@@ -43,6 +43,7 @@ const {
   autoAdvance,
   interrupted,
   kind,
+  workflow,
 } = storeToRefs(wb)
 // 设定态（分步 + 对话）
 const {
@@ -249,6 +250,28 @@ onUnmounted(() => es?.close())
           <span class="state-msg">{{ stateInfo.humanMsg }}</span>
         </div>
 
+        <!-- 手写模式（自由，W2B §3.1）：建草稿 → 编辑器写 → 定稿 -->
+        <template v-if="workflow === 'free'">
+          <article class="card ctrl">
+            <div class="ctrl-row">
+              <label
+                >{{ kind === 'short' ? '篇号' : '章号' }}
+                <input v-model.number="chapter" type="number" min="1" :disabled="cliRunning"
+              /></label>
+              <button class="btn-fire" :disabled="cliRunning" @click="runCliStep('hand')">
+                {{ cliRunning ? '创建中…' : `✍ 我来写第 ${chapter} ${kind === 'short' ? '篇' : '章'}` }}
+              </button>
+            </div>
+            <p class="hand-tip">
+              点「我来写」在工作区建草稿模板 → 左侧文件树打开
+              <code>工作区/草稿-{{ chapter }}.md</code> 手写正文 → 写完命令行
+              <code>clwriting finalize 草稿-{{ chapter }}.md</code> 定稿。
+            </p>
+          </article>
+        </template>
+
+        <!-- AI 八阶段（严格/辅助）-->
+        <template v-else>
         <!-- 八阶段骨架 -->
         <nav class="stages">
           <div
@@ -368,6 +391,7 @@ onUnmounted(() => es?.close())
           </div>
           <pre class="report">{{ reviewReport }}</pre>
         </article>
+        </template>
       </template>
     </div>
   </section>
@@ -377,6 +401,18 @@ onUnmounted(() => es?.close())
 /* 对齐 mockup：wb-out 用 <pre>，UA 默认 margin 归零 */
 .wb-out {
   margin: 0;
+}
+.hand-tip {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-soft, #888);
+}
+.hand-tip code {
+  background: var(--panel-2, #f5f5f5);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
 }
 .wb-mode-tabs {
   display: inline-flex;
