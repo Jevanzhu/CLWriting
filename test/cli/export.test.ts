@@ -96,6 +96,29 @@ describe('exportBook', () => {
     expect(result.files).toHaveLength(4) // 1 合并 + 3 分章
   })
 
+  it('净化：过滤 #% 开头的作者批注行（W2B B6）', () => {
+    // 覆盖第一章正文，含 #% 批注行
+    const bodyDir = join(bookRoot, '定稿', '正文')
+    const meta: ChapterMeta = {
+      章号: 1,
+      标题: '第一章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 0,
+    }
+    writeChapter(join(bodyDir, '1-第一章.md'), meta, '正文行一\n#% 这是一条作者批注\n正文行二')
+
+    const result = exportBook({ bookRoot, format: 'merged' })
+    expect(result.ok).toBe(true)
+    const content = readFileSync(join(bookRoot, result.files[0]!), 'utf-8')
+    expect(content).toContain('正文行一')
+    expect(content).toContain('正文行二')
+    expect(content).not.toContain('#%')
+    expect(content).not.toContain('批注')
+  })
+
   it('CLI: --format 在书目录前也能正确解析书仓库', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     try {

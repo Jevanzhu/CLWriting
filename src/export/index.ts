@@ -56,6 +56,16 @@ interface ExportUnit {
 /**
  * 导出定稿正文（多形态 + 净化）。
  */
+
+/** 净化正文：去首尾空白 + 过滤 #% 开头的作者批注行（W0 §6 过渡期，导出不泄漏定稿批注） */
+function purifyBody(body: string): string {
+  return body
+    .split('\n')
+    .filter((line) => !line.startsWith('#%'))
+    .join('\n')
+    .trim()
+}
+
 export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, format = 'both', platform = 'generic' } = options
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
@@ -88,7 +98,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     if (!r.ok) {
       return { ok: false, files: [], chapterCount: 0, unit: unitLabel, error: `读取 ${unit.path} 失败：${r.error.message}` }
     }
-    purified.push({ num: unit.num, title: unit.title, body: r.body.trim() })
+    purified.push({ num: unit.num, title: unit.title, body: purifyBody(r.body) })
   }
 
   // 4. 准备导出目录（母本 6.2 工作区/导出/）
