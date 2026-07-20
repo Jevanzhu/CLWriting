@@ -62,7 +62,7 @@ function ensureShortDraftTemplates(
   kind: 'long' | 'short',
   route: { state: number; action: string; nextChapter?: unknown },
 ): string[] {
-  if (kind !== 'short' || route.state !== 7 || route.action !== 'write-new-chapter') return []
+  if (kind !== 'short' || route.state !== 7 || !isDraftNewPieceAction(route.action)) return []
   const workDir = join(bookRoot, '工作区')
   mkdirSync(workDir, { recursive: true })
 
@@ -98,7 +98,7 @@ function renderShortGuidance(
   kind: 'long' | 'short',
   route: { state: number; action: string; nextChapter?: unknown },
 ): string {
-  if (kind !== 'short' || route.state !== 7 || route.action !== 'write-new-chapter') return ''
+  if (kind !== 'short' || route.state !== 7 || !isDraftNewPieceAction(route.action)) return ''
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const guidance = analyzeShortDraftGuidance(
     scanShortCollection(bookRoot),
@@ -115,6 +115,11 @@ function shouldWriteGuidance(path: string): boolean {
   } catch {
     return false
   }
+}
+
+/** 态 7 起草新篇动作（AI 写 / W2B §3.1 手写分叉，两者都需短篇骨架） */
+function isDraftNewPieceAction(action: string): boolean {
+  return action === 'write-new-chapter' || action === 'write-new-chapter-hand'
 }
 
 function nextPieceNumber(route: { nextChapter?: unknown }): number {

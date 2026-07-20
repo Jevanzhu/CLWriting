@@ -76,6 +76,10 @@ function main(): void {
       import('./cli/finalize.js').then(({ finalizeCommand }) => finalizeCommand(rest))
       return
     }
+    case 'hand': {
+      import('./cli/hand.js').then(({ handCommand }) => handCommand(rest))
+      return
+    }
     case 'rebook': {
       import('./cli/rebook.js').then(({ rebookCommand }) => rebookCommand(rest))
       return
@@ -170,6 +174,7 @@ function printHelp(): void {
   console.log('  prepare [书目录] [--lead A,B] [--scene 场景]  生成工作区/本章写作材料.md')
   console.log('  check [草稿文件] [书目录] [--full] [--strict-short]  运行机检（红项退出码 1）')
   console.log('  finalize [草稿文件] [书目录]  定稿并提交（需工作区/审稿.md）')
+  console.log('  hand [章号|篇号] [书目录]  手写起草（自由模式：建草稿模板，自己编辑器写）')
   console.log('  rebook [书目录] [--yes]  报告/补登定稿区与大纲区手改')
   console.log('  roles <generate|check> [工作目录|书目录]  生成角色壳 / 检查壳漂移')
   console.log('  knowledge check [书目录]  校验知识层 manifest 与素材哈希')
