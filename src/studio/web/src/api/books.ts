@@ -310,7 +310,7 @@ export async function applyRewrite(
 
 export async function runCli(
   name: string,
-  body: { step: 'confirm' | 'prepare' | 'check' | 'finalize' | 'hand'; chapter: number },
+  body: { step: 'confirm' | 'prepare' | 'check' | 'finalize' | 'hand' | 'rebook'; chapter?: number; yes?: boolean },
 ): Promise<{ ok?: boolean; stdout?: string; stderr?: string }> {
   return apiJson<{ ok?: boolean; stdout?: string; stderr?: string }>(bookPath(name, '/cli'), {
     method: 'POST',
@@ -396,11 +396,13 @@ export async function saveDraft(
 }
 
 export async function getState(name: string): Promise<{
+  state?: number
+  action?: string
   nextChapter?: number
   stateName?: string
   humanMsg?: string
 }> {
-  return apiJson<{ nextChapter?: number; stateName?: string; humanMsg?: string }>(
+  return apiJson<{ state?: number; action?: string; nextChapter?: number; stateName?: string; humanMsg?: string }>(
     bookPath(name, '/state'),
   )
 }

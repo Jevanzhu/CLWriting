@@ -47,9 +47,11 @@ interface WorkbenchState {
   checkReport: string
   /** 审稿单（review report 全文） */
   reviewReport: string
+  /** rebook 对账报告（态 3 未入账手改补登） */
+  rebookReport: string
   verdictApproved: boolean
   /** enter 自动定位：状态卡（当前态 + 人话） */
-  stateInfo: { stateName: string; humanMsg: string } | null
+  stateInfo: { state: number; stateName: string; humanMsg: string; action: string } | null
   /** 自动推进（确定性步→确定性步自动，AI/人工步前停） */
   autoAdvance: boolean
   /** draft 中断（保留已生成，可弃稿/重写） */
@@ -81,6 +83,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     outlineSaved: null,
     checkReport: '',
     reviewReport: '',
+    rebookReport: '',
     verdictApproved: false,
     stateInfo: null,
     autoAdvance: true,
@@ -153,7 +156,12 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!this.name) return
       try {
         const d = await getState(this.name)
-        this.stateInfo = { stateName: d.stateName ?? '', humanMsg: d.humanMsg ?? '' }
+        this.stateInfo = {
+          state: d.state ?? 0,
+          stateName: d.stateName ?? '',
+          humanMsg: d.humanMsg ?? '',
+          action: d.action ?? '',
+        }
         if (typeof d.nextChapter === 'number' && d.nextChapter > 0) this.chapter = d.nextChapter
       } catch {
         /* 状态卡可选,失败不阻塞 */
@@ -301,6 +309,28 @@ export const useWorkbenchStore = defineStore('workbench', {
       } catch (e) {
         log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
       }
+    },
+    /** 态 3 rebook：查看对账（yes=false）/ 确认补登（yes=true）；补登后重载态 */
+    async rebookRun(yes: boolean): Promise<void> {
+      const log = wbLog.log
+      if (this.cliRunning || !this.name) return
+      this.cliRunning = true
+      this.activeStage = 'rebook'
+      log.value.push({ t: ts(), type: 'spawn', text: yes ? 'rebook 补登中…' : 'rebook 对账报告中…' })
+      try {
+        const d = await runCli(this.name, { step: 'rebook', yes })
+        const out = String(d.stdout ?? '').trim()
+        if (d.ok) {
+          this.rebookReport = out
+          log.value.push({ t: ts(), type: 'saved', text: yes ? `补登 ✓ ${out.slice(0, 60)}` : '对账报告 ✓（见下）' })
+          if (yes) await this.loadState()
+        } else {
+          log.value.push({ t: ts(), type: 'error', text: `rebook 失败:${out.slice(0, 120)}` })
+        }
+      } catch (e) {
+        log.value.push({ t: ts(), type: 'error', text: e instanceof Error ? e.message : String(e) })
+      }
+      this.cliRunning = false
     },
     /** done 后落盘：driver text → 工作区/草稿-N.md */
     async saveDraft() {

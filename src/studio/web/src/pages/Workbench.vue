@@ -38,6 +38,7 @@ const {
   outlineSaved,
   checkReport,
   reviewReport,
+  rebookReport,
   verdictApproved,
   stateInfo,
   autoAdvance,
@@ -71,7 +72,7 @@ const stages = [
 const stageIndex = computed(() => stages.findIndex((s) => s.id === activeStage.value))
 
 // 写章 actions
-const { runCliStep, outlineGen, draftWrite, interruptWrite, discardDraft, reviewRun } = wb
+const { runCliStep, outlineGen, draftWrite, interruptWrite, discardDraft, reviewRun, rebookRun } = wb
 // 设定 actions
 const { onboardRun, onboardSave, sendChat, interruptChat, convergeToStep } = ob
 
@@ -249,6 +250,20 @@ onUnmounted(() => es?.close())
           <span class="state-tag">【{{ stateInfo.stateName }}】</span>
           <span class="state-msg">{{ stateInfo.humanMsg }}</span>
         </div>
+
+        <!-- 态 3 rebook 入口（未入账手改，W2B B5）-->
+        <template v-if="stateInfo?.action === 'rebook'">
+          <article class="card ctrl">
+            <div class="ctrl-row">
+              <button class="btn-cli" :disabled="cliRunning" @click="rebookRun(false)">📋 查看对账</button>
+              <button class="btn-fire" :disabled="cliRunning" @click="rebookRun(true)">✅ 确认补登</button>
+            </div>
+          </article>
+          <article v-if="rebookReport" class="card">
+            <div class="card-title">📋 补登对账报告</div>
+            <pre class="report">{{ rebookReport }}</pre>
+          </article>
+        </template>
 
         <!-- 手写模式（自由，W2B §3.1）：建草稿 → 编辑器写 → 定稿 -->
         <template v-if="workflow === 'free'">

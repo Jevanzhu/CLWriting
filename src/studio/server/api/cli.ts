@@ -21,8 +21,8 @@ interface CliCtx {
   workDir: string | null
 }
 
-/** 允许的确定性 CLI 步(白名单防注入；hand=W2B 手写起草) */
-const ALLOWED_STEPS = new Set(['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand'])
+/** 允许的确定性 CLI 步(白名单防注入；hand=W2B 手写起草；rebook=W2B 态 3 补登) */
+const ALLOWED_STEPS = new Set(['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', 'rebook'])
 
 export function registerCliRoutes(ctx: CliCtx): void {
   route('POST', '/api/books/:name/cli', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -34,11 +34,14 @@ export function registerCliRoutes(ctx: CliCtx): void {
     const step = String(body['step'] ?? '')
     if (!ALLOWED_STEPS.has(step)) return reply(res, 400, { error: `step 不支持:${step}` })
     const chapter = Number(body['chapter'])
+    const yes = body['yes'] === true
     const bookRoot = join(ctx.workDir, entry.path)
     const kind = readKind(bookRoot)
     const args = [step]
-    // prepare/confirm/hand 传章号;check/finalize 长篇传草稿路径,短篇默认草稿-1.md(不传);enter 无参
-    if ((step === 'prepare' || step === 'confirm' || step === 'hand') && Number.isInteger(chapter) && chapter > 0) {
+    // rebook 传 --yes（补登）；prepare/confirm/hand 传章号；check/finalize 长篇传草稿路径；enter 无参
+    if (step === 'rebook') {
+      if (yes) args.push('--yes')
+    } else if ((step === 'prepare' || step === 'confirm' || step === 'hand') && Number.isInteger(chapter) && chapter > 0) {
       args.push(String(chapter))
     } else if ((step === 'check' || step === 'finalize') && kind === 'long' && Number.isInteger(chapter) && chapter > 0) {
       args.push(`工作区/草稿-${chapter}.md`)
