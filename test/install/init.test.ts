@@ -72,6 +72,9 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(bookRoot, '文风', '文风铁律.md'))).toBe(true)
   // 定稿区
   expect(existsSync(join(bookRoot, '定稿', '正文'))).toBe(true)
+  // §17 决策①：长篇预置第一卷空目录 + 第一卷卷纲范例（开箱引导卷结构）
+  expect(existsSync(join(bookRoot, '定稿', '正文', '第一卷'))).toBe(true)
+  expect(existsSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'))).toBe(true)
   const realms = readRealmDoc(join(bookRoot, '定稿', '设定', '境界体系.md'))
   expect(realms.ok).toBe(true)
   if (realms.ok) {

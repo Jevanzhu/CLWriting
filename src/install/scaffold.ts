@@ -138,6 +138,8 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   for (const d of ['定稿/正文', '定稿/摘要/章摘要', '定稿/摘要/卷摘要', '定稿/设定/角色', '定稿/设定/时间线']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
+  // §17 决策①：长篇预置第一卷空目录（开箱引导卷结构；空目录 git 不跟踪，tree.ts fs 扫描本地可见）
+  mkdirSync(join(bookRoot, '定稿', '正文', '第一卷'), { recursive: true })
   writeFileSync(join(bookRoot, '定稿', '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
   writeFileSync(join(bookRoot, '定稿', '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
   writeFileSync(join(bookRoot, '定稿', '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
@@ -147,6 +149,8 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲', '感情线'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
+  // §17 决策①：第一卷卷纲范例（与 定稿/正文/第一卷/ 同名关联，树行显「✓卷纲」）
+  writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), renderVolumeOutlineExample(), 'utf-8')
   writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n', 'utf-8')
   for (const lead of opts.leadsEnabled) {
     mkdirSync(join(bookRoot, '大纲', lead), { recursive: true })
@@ -182,6 +186,37 @@ function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   }
   mkdirSync(join(bookRoot, '文风', '金句库'), { recursive: true })
   writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre), 'utf-8')
+}
+
+/** 第一卷卷纲范例（§17 决策①，与 定稿/正文/第一卷/ 同名关联，开箱引导卷结构）。 */
+export function renderVolumeOutlineExample(): string {
+  return [
+    '# 第一卷 卷纲',
+    '',
+    '> 本卷主线规划。与 `定稿/正文/第一卷/` 卷目录同名关联（树行显「✓卷纲」）。',
+    '> 可手改（文件即真相）；AI 生成卷纲时会覆盖此处占位。',
+    '',
+    '## 本卷主线阶段',
+    '',
+    '（待补）',
+    '',
+    '## 核心冲突',
+    '',
+    '（待补）',
+    '',
+    '## 关键角色登场顺序',
+    '',
+    '（待补）',
+    '',
+    '## 章数预估',
+    '',
+    '30-50 章',
+    '',
+    '## 卷末钩子',
+    '',
+    '（待补：勾向第二卷）',
+    '',
+  ].join('\n')
 }
 
 /** 文风铁律模板（冷启动占位，作者后续按本书调性补）。 */
