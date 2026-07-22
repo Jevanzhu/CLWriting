@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isPidAlive, isBatchActive, createWorkdirMutex } from '../../src/document/mutex.js'
+import { isPidAlive, isBatchActive, writeBatchProgress } from '../../src/auto/batch.js'
 import {
   acquireEditingWorkdir,
   releaseEditingWorkdir,
@@ -11,9 +11,8 @@ import {
   readGuiActive,
   guiActivePath,
 } from '../../src/process/gui-active.js'
-import { writeBatchProgress } from '../../src/auto/batch.js'
 
-describe('mutex / 工作区编辑锁', () => {
+describe('工作区编辑锁', () => {
   let bookRoot: string
   beforeEach(() => {
     bookRoot = mkdtempSync(join(tmpdir(), 'mutex-'))
@@ -72,7 +71,7 @@ describe('mutex / 工作区编辑锁', () => {
   })
 })
 
-describe('mutex / batch 活跃性', () => {
+describe('batch 活跃性', () => {
   let bookRoot: string
   beforeEach(() => {
     bookRoot = mkdtempSync(join(tmpdir(), 'batch-'))
@@ -114,11 +113,5 @@ describe('mutex / batch 活跃性', () => {
       isolated: [], paused: null, started_at: new Date().toISOString(),
     })
     expect(isBatchActive(bookRoot)).toBe(true)
-  })
-
-  it('createWorkdirMutex 组合 acquireEditing + isBatchActive', () => {
-    const m = createWorkdirMutex(bookRoot)
-    expect(m.acquireEditing()).toBe(true)
-    expect(m.isBatchActive()).toBe(false)
   })
 })

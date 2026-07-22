@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { hashFile } from '../fs/hash.js'
 import type { BookConfig } from '../format/types.js'
 
 /** 确认记录（#11 第 2 节） */
@@ -27,11 +28,7 @@ const CONFIRM_FILE = '.confirm.json'
 
 // ── 哈希（#11 第 4 节）────────────────────────────
 
-/** 算文件原始字节的 SHA-256 哈希（#11 第 4 节：所见即所签） */
-export function hashFile(filePath: string): string {
-  const buf = readFileSync(filePath)
-  return 'sha256:' + createHash('sha256').update(buf).digest('hex')
-}
+// hashFile 已下沉至 fs/hash.ts（M10 G1，上方 import）；hashContent 仍在此（仅 confirm 内部用）。
 
 /** 算字符串内容的 SHA-256 哈希 */
 export function hashContent(content: string): string {

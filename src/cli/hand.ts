@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolveBookRoot } from '../install/books.js'
 import { readBookConfig } from '../format/yaml.js'
 import { detectState } from '../state/state.js'
-import { isBatchActive } from '../document/mutex.js'
+import { isBatchActive } from '../auto/batch.js'
 import { acquireEditingWorkdir } from '../process/gui-active.js'
 
 /** `clwriting hand [N] [书目录]` 命令处理器 */

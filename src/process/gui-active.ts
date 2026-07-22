@@ -3,7 +3,7 @@
  *
  * .gui-active = { pid, ts, editing_workdir? }：
  * - pid/ts：GUI 后端心跳（heartbeat 端点续期），CLI 写命令据此轻提示（#1.5，不阻塞）。
- * - editing_workdir：编辑器打开工作区草稿/细纲时置位（mutex 第一层）——
+ * - editing_workdir：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）——
  *   batch 每章前检查，新鲜时连写暂停（不跳章），过期/清除时双方进入。
  *
  * 沿用 STALE_MS=30s：editing_workdir 新鲜 = 标记在 + ts 未过期。
@@ -18,7 +18,7 @@ export const STALE_MS = 30_000
 export interface GuiActiveRecord {
   pid: number
   ts: number
-  /** 工作区编辑锁：编辑器打开工作区草稿/细纲时置位（mutex 第一层）。 */
+  /** 工作区编辑锁：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）。 */
   editing_workdir?: boolean
 }
 
@@ -80,7 +80,7 @@ export function warnIfGuiActive(bookRoot: string): void {
   }
 }
 
-// ── 工作区编辑锁（W0-2 §5 第一层，mutex 调用）──────────
+// ── 工作区编辑锁（W0-2 §5 互斥第一层）──────────
 
 /** 置工作区编辑锁：editing_workdir=true + 续 ts。编辑器打开工作区草稿/细纲时调。 */
 export function acquireEditingWorkdir(bookRoot: string): boolean {
