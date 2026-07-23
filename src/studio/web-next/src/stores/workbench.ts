@@ -20,29 +20,34 @@ function ts(): string {
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
   const log = ref<SseEvent[]>([])
+  /** 生成正文聚合（text 事件拼接，草稿保存源）。init/role_spawn 清空（新生成）。 */
+  const textOut = ref('')
   /** 生成中（init/role_spawn→true，done/interrupted/error→false）。 */
   const running = ref(false)
   /** SSE 连接态。 */
   const connected = ref(false)
 
-  /** 分派一条 SSE 事件：追加日志 + 维护 running。JSON.parse 已由 useSse 完成。 */
+  /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
     if (typeof ev !== 'object' || ev === null) return
     const e = { ...(ev as Record<string, unknown>), _ts: ts() } as SseEvent
     log.value.push(e)
     if (e.type === 'init' || e.type === 'role_spawn') {
       running.value = true
+      textOut.value = '' // 新生成清空旧正文
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
     }
+    if (e.type === 'text' && typeof e.text === 'string') textOut.value += e.text
   }
 
   function clear(): void {
     log.value = []
+    textOut.value = ''
   }
   function setConnected(v: boolean): void {
     connected.value = v
   }
 
-  return { log, running, connected, dispatch, clear, setConnected }
+  return { log, textOut, running, connected, dispatch, clear, setConnected }
 })

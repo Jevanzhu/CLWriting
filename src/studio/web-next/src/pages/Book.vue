@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import WorkspaceShell from '../components/shell/WorkspaceShell.vue'
 import EditorView from '../views/EditorView.vue'
 import WorkbenchView from '../views/WorkbenchView.vue'
+import OnboardView from '../views/OnboardView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
 import { useSse } from '../composables/useSse'
 import { useDocStore } from '../stores/doc'
@@ -35,6 +36,7 @@ watch(
 <template>
   <WorkspaceShell :book-name="bookName">
     <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
-    <WorkbenchView v-else :book-name="bookName" />
+    <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
+    <OnboardView v-else :book-name="bookName" />
   </WorkspaceShell>
 </template>

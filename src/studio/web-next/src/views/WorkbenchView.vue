@@ -3,7 +3,15 @@
 // rebook/hand/cli 任务列表/草稿保存留后续（T3.2 扩展 / T3.3）。
 import { ref, watch, computed } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench'
-import { getState, spawnRole, interrupt, type BookState } from '../api/stream'
+import {
+  getState,
+  spawnRole,
+  interrupt,
+  runCli,
+  saveDraft,
+  type BookState,
+  type CliResult,
+} from '../api/stream'
 import { useUiStore } from '../stores/ui'
 
 const props = defineProps<{ bookName: string }>()
@@ -13,6 +21,15 @@ const ui = useUiStore()
 const state = ref<BookState | null>(null)
 const prompt = ref('')
 const err = ref<string | null>(null)
+
+// cli 八阶段（细案 §2.1 step 枚举）：确定性 CLI 步骤，POST /cli {step}
+const CLI_STEPS = ['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', 'rebook'] as const
+const cliRunning = ref<string | null>(null)
+const cliReport = ref('')
+const draftSaved = ref<{ path?: string; words: number } | null>(null)
+
+const chapter = computed(() => state.value?.nextChapter ?? 1)
+const draftWords = computed(() => wb.textOut.length)
 
 async function refreshState(): Promise<void> {
   try {
@@ -50,6 +67,40 @@ async function onInterrupt(): Promise<void> {
     ui.toast('已中断', 'info')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// CLI 八阶段步骤：prepare/confirm/check/finalize/enter/hand/rebook
+async function onCli(step: string): Promise<void> {
+  cliRunning.value = step
+  cliReport.value = ''
+  err.value = null
+  try {
+    const r: CliResult = await runCli(props.bookName, { step, chapter: chapter.value, yes: true })
+    cliReport.value = r.stdout || r.stderr || `(exit ${r.code})`
+    ui.toast(`${step} 完成`, r.ok ? 'success' : 'error')
+    void refreshState()
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : String(e)
+    ui.toast(err.value, 'error')
+  } finally {
+    cliRunning.value = null
+  }
+}
+
+// 草稿保存：done 后把生成正文 textOut 存为当前章草稿
+async function onSaveDraft(): Promise<void> {
+  if (!wb.textOut.trim()) {
+    ui.toast('无正文可存', 'error')
+    return
+  }
+  try {
+    await saveDraft(props.bookName, chapter.value, wb.textOut)
+    draftSaved.value = { words: wb.textOut.length }
+    ui.toast(`第 ${chapter.value} 章草稿已存`, 'success')
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : String(e)
+    ui.toast(err.value, 'error')
   }
 }
 
@@ -133,6 +184,36 @@ const recent = computed(() => wb.log.slice(-200))
           <span class="ev-text">{{ evLabel(ev) }}</span>
         </div>
       </div>
+    </section>
+
+    <!-- CLI 八阶段任务 -->
+    <section class="card">
+      <div class="card-head"><span>八阶段任务（第 {{ chapter }} 章）</span></div>
+      <div class="cli-grid">
+        <button
+          v-for="step in CLI_STEPS"
+          :key="step"
+          class="cli-btn"
+          :disabled="!!cliRunning"
+          @click="onCli(step)"
+        >
+          {{ cliRunning === step ? `${step}…` : step }}
+        </button>
+      </div>
+      <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
+    </section>
+
+    <!-- 草稿保存 -->
+    <section class="card">
+      <div class="card-head">
+        <span>生成正文</span>
+        <span class="muted">{{ draftWords }} 字</span>
+      </div>
+      <pre class="draft-preview">{{ wb.textOut || '（无正文）' }}</pre>
+      <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
+        存为第 {{ chapter }} 章草稿
+      </button>
+      <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
     </section>
 
     <div v-if="err" class="err-msg">{{ err }}</div>
@@ -272,5 +353,54 @@ const recent = computed(() => wb.log.slice(-200))
 .err-msg {
   font-size: 12px;
   color: var(--text-error);
+}
+.cli-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+.cli-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cli-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.cli-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cli-report {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  border-radius: var(--radius-s);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow: auto;
+}
+.draft-preview {
+  margin: var(--size-4-2) 0;
+  padding: var(--size-4-3);
+  font-family: var(--prose-font);
+  font-size: var(--prose-size);
+  line-height: var(--prose-lh);
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border-radius: var(--radius-s);
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow: auto;
 }
 </style>

@@ -5,6 +5,7 @@ import {
   Search,
   LayoutGrid,
   Wrench,
+  Compass,
   Library,
   Settings,
   Sun,
@@ -52,6 +53,14 @@ const ui = useUiStore()
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
+      </button>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'onboard' }"
+        title="开书对话（分步生成设定）"
+        @click="ws.setActiveView('onboard')"
+      >
+        <Compass :size="20" />
       </button>
     </div>
 
