@@ -1,5 +1,16 @@
 <script setup lang="ts">
-// 根组件：路由出口。工作区外壳（AppShell）在 Book.vue 内拼装，书架为独立全屏视图。
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { getLastInitialBook } from './api/client'
+
+// 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
+const router = useRouter()
+onMounted(() => {
+  const ib = getLastInitialBook()
+  if (ib && location.pathname === '/') {
+    router.replace(`/book/${encodeURIComponent(ib)}`)
+  }
+})
 </script>
 
 <template>

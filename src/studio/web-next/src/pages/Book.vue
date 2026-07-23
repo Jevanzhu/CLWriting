@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import WorkspaceShell from '../components/shell/WorkspaceShell.vue'
+import { useHeartbeat } from '../composables/useHeartbeat'
 
-// 工作区视图（/book/:name）：套 Obsidian 外壳；正文区占位，P1 落编辑视图（inline title + CodeMirror）。
+// 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳；正文区占位，P1 落编辑视图。
+// bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName 与心跳跟随更新。
 const route = useRoute()
-const bookName = String(route.params.name)
+const bookName = computed(() => String(route.params.name))
+useHeartbeat(() => bookName.value)
 </script>
 
 <template>

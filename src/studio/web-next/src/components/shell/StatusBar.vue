@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// T0.3 连接态占位 + 主题名；T0.4 接 useHeartbeat(serverOnline) + 字数/保存态。
+// 状态栏：左 CLI 连接态（useHeartbeat serverOnline）；右 主题名。T0.4 接心跳；字数/保存态随 P2 加。
 import { useTheme } from '../../composables/useTheme'
+import { serverOnline } from '../../composables/useHeartbeat'
 defineProps<{ bookName: string }>()
 const { themeName } = useTheme()
 </script>
@@ -8,8 +9,8 @@ const { themeName } = useTheme()
 <template>
   <div class="statusbar">
     <div class="status-left">
-      <span class="status-dot" />
-      <span>Claude CLI（T0.4 接心跳）</span>
+      <span class="status-dot" :class="{ off: !serverOnline }" />
+      <span>{{ serverOnline ? 'Claude CLI 已连接' : 'CLI 连接中断' }}</span>
     </div>
     <div class="status-right">
       <span>{{ themeName() }}</span>
@@ -40,5 +41,8 @@ const { themeName } = useTheme()
   height: 7px;
   border-radius: 50%;
   background: var(--text-success);
+}
+.status-dot.off {
+  background: var(--text-error);
 }
 </style>
