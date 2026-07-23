@@ -13,8 +13,7 @@ const router = createRouter({
     },
     {
       path: '/book/:name',
-      component: () => import('./pages/_Placeholder.vue'),
-      props: (r) => ({ title: `工作区 · ${String(r.params.name)}（T0.5 实现）` }),
+      component: () => import('./pages/Book.vue'),
     },
   ],
 })
