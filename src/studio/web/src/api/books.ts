@@ -413,6 +413,24 @@ export async function renameDocument(
   return { path: r.path ?? '' }
 }
 
+/** 移动文档到目录：PATCH /documents/:docId（op=move；章号不变只改卷归属）。 */
+export async function moveDocument(
+  name: string,
+  docId: string,
+  toDir: string,
+): Promise<void> {
+  requireDocOk(
+    await apiJson<{ ok: boolean; path?: string; reason?: string; error?: string; code?: string }>(
+      bookPath(name, `/documents/${encodeURIComponent(docId)}`),
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op: 'move', toDir }),
+      },
+    ),
+  )
+}
+
 /** 软删文档（→ 回收站）：DELETE /documents/:docId。 */
 export async function trashDocument(name: string, docId: string): Promise<void> {
   requireDocOk(

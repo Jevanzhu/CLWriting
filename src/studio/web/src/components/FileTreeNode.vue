@@ -258,7 +258,7 @@ function onDrop(e: DragEvent): void {
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
-      @contextmenu="onContextMenu"
+      @contextmenu.stop="onContextMenu"
     >
       <span v-if="node.isDirectory" class="caret">{{ isOpen ? '▾' : '▸' }}</span>
       <span v-else class="dot-slot"><span class="dot" :class="dotClass(node.status)"></span></span>
@@ -281,6 +281,7 @@ function onDrop(e: DragEvent): void {
         v-if="isCreating"
         class="tn-create"
         :style="{ paddingLeft: `${(depth + 1) * 18 + 10}px` }"
+        @contextmenu.stop
       >
         <span class="tn-create-hint">{{ createHint }}</span>
         <input

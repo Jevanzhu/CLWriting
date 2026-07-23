@@ -15,5 +15,7 @@ interface Window {
     getRecentLibraries: () => Promise<{ path: string; label: string }[]>
     /** 读当前书库目录（null = 未选）。 */
     getCurrentLibrary: () => Promise<string | null>
+    /** 在系统文件管理器中显示文档（仅桌面版；浏览器版无此函数，前端据此隐藏入口）。 */
+    showInFolder: (bookName: string, relPath: string) => Promise<void>
   }
 }

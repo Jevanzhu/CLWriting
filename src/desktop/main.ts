@@ -19,15 +19,16 @@ import {
   ipcMain,
   dialog,
   Menu,
+  shell,
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
   type MessageBoxOptions,
 } from 'electron'
-import { join, dirname, resolve, basename } from 'node:path'
+import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { startServer } from '../studio/server/index.js'
-import { findWorkDir } from '../install/books.js'
+import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import {
   parseStore,
@@ -238,6 +239,20 @@ function registerIpc(): void {
   })
   ipcMain.handle('desktop:get-recent', () => readStore().recent)
   ipcMain.handle('desktop:get-current', () => readStore().current)
+  // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
+  ipcMain.handle('desktop:show-in-folder', (_e, bookName: unknown, relPath: unknown) => {
+    if (typeof bookName !== 'string' || typeof relPath !== 'string') return
+    const workDir = readStore().current
+    if (!workDir) return
+    const entry = readBooks(workDir).find((b) => b.name === bookName)
+    if (!entry) return
+    // 防路径穿越：relPath 必须落在 bookRoot 内（复刻 DocumentService.resolveSafePath 内含校验）
+    const bookRoot = resolve(workDir, entry.path)
+    const absPath = resolve(bookRoot, relPath)
+    const rel = relative(bookRoot, absPath)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return
+    if (existsSync(absPath)) shell.showItemInFolder(absPath)
+  })
 }
 
 // ── 原生菜单 ──────────────────────────────────────────

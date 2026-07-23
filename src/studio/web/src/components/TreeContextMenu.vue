@@ -145,6 +145,7 @@ function onSelect(key: string): void {
 /* 子菜单父项：label + ▸ 两端对齐；relative 承载子浮层。 */
 .cm-sub-wrap {
   position: relative;
+  padding-right: 4px; /* 透明桥接子菜单 gap，避免慢速 hover 移到子菜单时抖动 */
 }
 .cm-has-sub {
   display: flex;

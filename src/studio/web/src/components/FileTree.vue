@@ -12,6 +12,7 @@ import TreeContextMenu, { type MenuItem } from './TreeContextMenu.vue'
 import {
   createDocument,
   renameDocument,
+  moveDocument,
   trashDocument,
   listTrashEntries,
   restoreTrashEntry,
@@ -136,6 +137,29 @@ const renamePath = ref<string | null>(null)
 /** 回收站条目 + 展开态（块1，左栏底部组）。 */
 const trashEntries = ref<TrashEntry[]>([])
 const trashExpanded = ref(false)
+/** 「复制路径」后的闪现提示 + 定时器（连续复制先清旧 timer，防 toast 提前消失）。 */
+const copiedMsg = ref('')
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 校验文件名段：禁含路径分隔符 / .. / 控制字符（防嵌套与逃逸，前端前置拦截）。 */
+function sanitizeName(value: string): string | null {
+  const v = value.trim()
+  if (!v || /[\/\\]/.test(v) || v.startsWith('.') || /[\x00-\x1f]/.test(v)) return null
+  return v
+}
+
+/** 收集从根到 target 的渲染祖先目录 path 链（虚拟组如「写作」也算；不含 target）。
+ *  就地新建需把祖先一并展开，否则目标节点不渲染、输入框无处显示。 */
+function collectAncestors(ns: TreeNode[], target: string, acc: string[] = []): string[] | null {
+  for (const n of ns) {
+    if (n.path === target) return acc
+    if (n.isDirectory && n.children.length) {
+      const r = collectAncestors(n.children, target, [...acc, n.path])
+      if (r) return r
+    }
+  }
+  return null
+}
 
 /** 新建输入态（块1 Obsidian 化）：renderDir=输入框渲染节点 path；fsDir=落盘目录；seed=输入初始值。 */
 type Creating = {
@@ -194,14 +218,14 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
   menuVisible.value = true
 }
 
-/** 按节点类型生成菜单项（Obsidian 式：新建折叠 ▸ 子菜单；卷改名/删后端不支持→后置）。 */
+/** 按节点类型生成菜单项（Obsidian 式：新建▸子菜单 + 分组；卷改名/删后端不支持→后置）。 */
 function buildMenuItems(node: TreeNode): MenuItem[] {
   const p = node.path
-  // 卷目录：新建 ▸ 章节（卷本身不可改名/删，后端只管叶子）
+  // 卷目录：新建▸章节（卷本身不可改名/删，后端只管叶子）
   if (node.isDirectory && isVolumeDir(p)) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter', label: '章节' }] }]
   }
-  // 正文根 / 写作组：新建 ▸ [卷, 章节]
+  // 正文区：新建▸[卷, 章节]（'写作' 虚拟组；'定稿/正文' 防御兜底，groupTree 后通常不进树）
   if (p === '定稿/正文' || p === '写作') {
     return [
       {
@@ -214,60 +238,150 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
       },
     ]
   }
-  // 章节叶子：重命名 / 删除
-  if (!node.isDirectory && p.startsWith('定稿/正文/')) {
-    return [
-      { key: 'rename', label: '重命名' },
-      { key: 'delete', label: '删除', danger: true },
-    ]
-  }
-  // 大纲 / 设定目录：新建 ▸ 文档
+  // 大纲 / 设定目录：新建▸文档
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('定稿/设定/'))) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
   }
+  // 叶子文档：重命名 [+章节移动到▸] / 分隔 / 复制路径 [+Finder] / 分隔 / 删除
+  if (!node.isDirectory) return buildLeafMenu(node)
   return []
 }
 
-/** 菜单动作分发（子菜单子项 key 与普通项一致；rename → 节点内 inline）。 */
+/** 叶子文档通用菜单：重命名 [+章节移动到▸] / ─ / 复制路径 [+Finder] / ─ / 删除。 */
+function buildLeafMenu(node: TreeNode): MenuItem[] {
+  const items: MenuItem[] = [{ key: 'rename', label: '重命名' }]
+  // 正文章节可跨卷移动（章号不变，只改卷归属）
+  if (node.path.startsWith('定稿/正文/')) {
+    const targets = moveToTargets(node)
+    if (targets.length) {
+      items.push({
+        key: 'move',
+        label: '移动到…',
+        submenu: targets.map((t) => ({ key: `move:${t.dir}`, label: t.label })),
+      })
+    }
+  }
+  items.push({ key: 'sep-a', label: '', separator: true })
+  items.push({ key: 'copy-path', label: '复制路径' })
+  if (canShowInFinder()) items.push({ key: 'show-in-folder', label: '在 Finder 中显示' })
+  items.push({ key: 'sep-b', label: '', separator: true })
+  items.push({ key: 'delete', label: '删除', danger: true })
+  return items
+}
+
+/** 章节可移动目标：正文根 + 各卷，排除当前所在目录（已在的无需移）。 */
+function moveToTargets(node: TreeNode): { label: string; dir: string }[] {
+  const parent = node.path.slice(0, node.path.lastIndexOf('/'))
+  const targets: { label: string; dir: string }[] = [{ label: '正文根', dir: '定稿/正文' }]
+  const writeGroup = nodes.value.find((n) => n.path === '写作')
+  for (const v of (writeGroup?.children ?? []).filter(
+    (n) => n.isDirectory && isVolumeDir(n.path),
+  )) {
+    targets.push({ label: v.name, dir: v.path })
+  }
+  return targets.filter((t) => t.dir !== parent)
+}
+
+/** electron 暴露了 showInFolder 才显示「在 Finder 中显示」（浏览器版隐藏）。 */
+function canShowInFinder(): boolean {
+  return !!window.clwritingDesktop?.showInFolder
+}
+
+/** 菜单动作分发（new-volume/new-chapter-root 不需 menuNode，空白右键可触发；move: 读 menuNode.docId）。 */
 function onMenuSelect(key: string): void {
+  // 写作区新建：落点由 lastVolumePath / 写作组决定，不需 menuNode（空白右键 menuNode=null）
+  if (key === 'new-volume') return startCreate('volume', '写作', '定稿/正文')
+  if (key === 'new-chapter-root') {
+    const vol = lastVolumePath()
+    return startCreate('chapter', vol ?? '写作', vol ?? '定稿/正文')
+  }
+  if (key.startsWith('move:')) {
+    const node = menuNode.value
+    if (node?.docId) void doMoveDocument(node.docId, key.slice('move:'.length))
+    return
+  }
   const node = menuNode.value
   if (!node) return
   if (key === 'new-chapter') startCreate('chapter', node.path, node.path)
-  else if (key === 'new-chapter-root') {
-    // 有卷落末卷，无卷（扁平结构）渲染在「写作」组首位、落盘 定稿/正文/
-    const vol = lastVolumePath()
-    startCreate('chapter', vol ?? '写作', vol ?? '定稿/正文')
-  } else if (key === 'new-volume') startCreate('volume', '写作', '定稿/正文')
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
+  else if (key === 'copy-path') void onCopyPath(node)
+  else if (key === 'show-in-folder') onShowInFolder(node)
   else if (key === 'delete') void doDelete(node)
 }
 
-/** 启动新建（Obsidian 式就地）：算渲染落点 + 落盘目录 + 预填值，并展开目标目录（子级首位出输入框）。 */
+/** 空白处右键：弹根级新建菜单（落写作区）。 */
+function onBlankContextMenu(e: MouseEvent): void {
+  e.preventDefault()
+  menuNode.value = null
+  menuItems.value = [
+    {
+      key: 'new',
+      label: '新建',
+      submenu: [
+        { key: 'new-volume', label: '卷' },
+        { key: 'new-chapter-root', label: '章节' },
+      ],
+    },
+  ]
+  menuX.value = e.clientX
+  menuY.value = e.clientY
+  menuVisible.value = true
+}
+
+/** 复制文档相对路径到剪贴板（书仓库内，便于跨机/文档引用）+ 闪现提示（失败也给反馈）。 */
+async function onCopyPath(node: TreeNode): Promise<void> {
+  if (copiedTimer) clearTimeout(copiedTimer)
+  try {
+    await navigator.clipboard.writeText(node.path)
+    copiedMsg.value = '路径已复制'
+  } catch {
+    copiedMsg.value = '复制失败（浏览器限制）'
+  }
+  copiedTimer = setTimeout(() => (copiedMsg.value = ''), 1500)
+}
+
+/** 在系统文件管理器中显示（electron shell.showItemInFolder，浏览器版无此项）。 */
+function onShowInFolder(node: TreeNode): void {
+  void window.clwritingDesktop?.showInFolder?.(props.bookName!, node.path)
+}
+
+/** 启动新建（Obsidian 式就地）：算渲染落点 + 落盘目录 + 预填值，并展开目标目录及其渲染祖先
+ *  （如卷节点需「写作」组也展开才渲染），否则输入框无处显示。 */
 function startCreate(
   kind: 'chapter' | 'volume' | 'doc',
   renderDir: string,
   fsDir: string,
 ): void {
+  // 渲染落点必须在当前树内（含祖先），否则输入框永不显示 → 拒绝并提示
+  const ancestors = collectAncestors(nodes.value, renderDir)
+  if (!ancestors && !nodes.value.some((n) => n.path === renderDir)) {
+    error.value = '当前书库无该区域，无法在此新建'
+    return
+  }
   const seed = kind === 'chapter' ? `${nextChapterNo()}-未命名` : ''
   creating.value = { kind, renderDir, fsDir, seed }
-  if (!expanded.value.has(renderDir)) {
-    const next = new Set(expanded.value)
-    next.add(renderDir)
-    expanded.value = next
-    saveExpanded(next)
-  }
+  const next = new Set(expanded.value)
+  next.add(renderDir)
+  if (ancestors) for (const a of ancestors) next.add(a)
+  expanded.value = next
+  saveExpanded(next)
 }
 
-/** 就地新建提交（FileTreeNode emit 输入值）：算 relPath → POST → 刷新 + 跳编辑器。 */
+/** 就地新建提交（FileTreeNode emit 输入值）：校验名 → POST → 刷新 + 跳编辑器。 */
 async function onCreateCommit(value: string): Promise<void> {
   const c = creating.value
+  if (!c) return
+  const name = sanitizeName(value)
+  if (!name) {
+    error.value = '名称不能为空，或含 / \\ 或以 . 开头'
+    return // 保留 creating，让用户改
+  }
   creating.value = null
-  if (!c || !value) return
   const relPath =
     c.kind === 'volume'
-      ? `${c.fsDir}/${value}/${nextChapterNo()}-未命名.md`
-      : `${c.fsDir}/${value}.md`
+      ? `${c.fsDir}/${name}/${nextChapterNo()}-未命名.md`
+      : `${c.fsDir}/${name}.md`
   try {
     const r = await createDocument(props.bookName!, { relPath })
     await load()
@@ -294,14 +408,18 @@ async function doDelete(node: TreeNode): Promise<void> {
   }
 }
 
-/** inline 重命名提交：path → docId → PATCH rename（补 .md）→ 刷新。 */
+/** inline 重命名提交：校验名 → path → docId → PATCH rename（补 .md）→ 刷新。 */
 async function onRenameCommit(path: string, value: string): Promise<void> {
+  const name = sanitizeName(value)
+  if (!name) {
+    error.value = '名称不能为空，或含 / \\ 或以 . 开头'
+    return // 保留 renamePath，让用户改
+  }
   renamePath.value = null
-  if (!value) return
   const docId = findDocIdByPath(nodes.value, path)
   if (!docId) return
   try {
-    await renameDocument(props.bookName!, docId, `${value}.md`)
+    await renameDocument(props.bookName!, docId, `${name}.md`)
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -364,26 +482,22 @@ function onDragEnd(): void {
   draggedPath.value = null
 }
 
-/** drop 提交：sourcePath → docId → PATCH move → refetch /tree（token 由 main.ts wrapper 自动注入）。 */
+/** 跨卷移动：PATCH move（章号不变，只改卷归属）→ 刷新树。onDrop 与菜单「移动到」共用。 */
+async function doMoveDocument(docId: string, toDir: string): Promise<void> {
+  try {
+    await moveDocument(props.bookName!, docId, toDir)
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** drop 提交：sourcePath → docId → PATCH move（token 由 main.ts wrapper 自动注入）。 */
 async function onDrop(sourcePath: string, targetPath: string): Promise<void> {
   draggedPath.value = null
   const docId = findDocIdByPath(nodes.value, sourcePath)
   if (!docId) return
-  try {
-    const r = await fetch(`/api/books/${enc.value}/documents/${encodeURIComponent(docId)}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ op: 'move', toDir: targetPath }),
-    })
-    if (!r.ok) {
-      const j = (await r.json().catch(() => ({}))) as { reason?: string; code?: string }
-      error.value = `移动失败：${j.reason ?? j.code ?? r.status}`
-    } else {
-      await load()
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
+  await doMoveDocument(docId, targetPath)
 }
 
 /** 递归找 path → docId（drop 提交用）。 */
@@ -439,10 +553,11 @@ watch(() => props.bookName, () => load(), { immediate: true })
       <span class="tree-head-label">目录</span>
       <span class="head-count">{{ fileCount }}</span>
     </div>
+    <div v-if="copiedMsg" class="ft-toast">{{ copiedMsg }}</div>
     <div v-if="loading" class="ft-hint">加载中…</div>
     <div v-else-if="error" class="ft-hint" style="color: var(--cinnabar)">{{ error }}</div>
     <div v-else-if="!nodes.length" class="ft-hint">（无可编辑文件）</div>
-    <div v-else class="tree-body">
+    <div v-else class="tree-body" @contextmenu="onBlankContextMenu">
       <FileTreeNode
         v-for="n in nodes"
         :key="n.path"
@@ -497,7 +612,23 @@ watch(() => props.bookName, () => load(), { immediate: true })
 /* 左栏走全局 .tree/.tree-head/.head-count（v5-components.css）；此处仅补加载/错误/空态提示。 */
 /* 目录往上贴近书名栏（收 .tree / .tree-head 顶部 padding，不动全局 BookAnchor） */
 .tree {
+  position: relative;
   padding-top: 0;
+}
+/* 「复制路径」闪现提示（toast，顶部居中，不可点） */
+.ft-toast {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: var(--ink-cyan);
+  color: #fff;
+  font-size: 12px;
+  border-radius: 6px;
+  z-index: 20;
+  pointer-events: none;
+  white-space: nowrap;
 }
 .tree-head {
   padding-top: 1px;
