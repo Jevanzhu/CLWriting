@@ -18,6 +18,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const focusMode = ref(false)
   /** 左栏活动面板（细案 §5 leftPanel）。 */
   const leftPanel = ref<'tree' | 'search' | 'trash'>('tree')
+  /** 主区活动视图：编辑器 / 工作台（ribbon 工作台钮切换；点章节回编辑器）。 */
+  const activeView = ref<'editor' | 'workbench'>('editor')
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
   const pendingCloseTabId = ref<string | null>(null)
@@ -73,6 +75,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function openTab(docId: string): void {
+    activeView.value = 'editor' // 点章节回编辑器视图
     const existing = tabs.value.find((t) => t.docId === docId)
     if (existing) {
       activeTabId.value = existing.id
@@ -140,12 +143,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setLeftPanel(p: 'tree' | 'search' | 'trash'): void {
     leftPanel.value = p
   }
+  function setActiveView(v: 'editor' | 'workbench'): void {
+    activeView.value = v
+  }
 
   return {
     leftOpen,
     rightOpen,
     focusMode,
     leftPanel,
+    activeView,
     tabs,
     activeTabId,
     activeDocId,
@@ -164,5 +171,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toggleRight,
     toggleFocus,
     setLeftPanel,
+    setActiveView,
   }
 })

@@ -45,7 +45,12 @@ const ui = useUiStore()
       <button class="rbtn" title="总览视图（待 P4）" disabled>
         <LayoutGrid :size="20" />
       </button>
-      <button class="rbtn" title="工作台视图（待 P3）" disabled>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'workbench' }"
+        title="工作台（AI 写作）"
+        @click="ws.setActiveView('workbench')"
+      >
         <Wrench :size="20" />
       </button>
     </div>

@@ -3,7 +3,9 @@ import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import WorkspaceShell from '../components/shell/WorkspaceShell.vue'
 import EditorView from '../views/EditorView.vue'
+import WorkbenchView from '../views/WorkbenchView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
+import { useSse } from '../composables/useSse'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -13,6 +15,7 @@ import { useTreeStore } from '../stores/tree'
 const route = useRoute()
 const bookName = computed(() => String(route.params.name))
 useHeartbeat(() => bookName.value)
+useSse(() => bookName.value)
 
 const doc = useDocStore()
 const ws = useWorkspaceStore()
@@ -31,6 +34,7 @@ watch(
 
 <template>
   <WorkspaceShell :book-name="bookName">
-    <EditorView :doc-id="ws.activeDocId" />
+    <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
+    <WorkbenchView v-else :book-name="bookName" />
   </WorkspaceShell>
 </template>
