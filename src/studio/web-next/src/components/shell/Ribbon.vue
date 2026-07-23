@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   Wrench,
   Compass,
+  Download,
   Library,
   Settings,
   Sun,
@@ -43,7 +44,12 @@ const ui = useUiStore()
         <Search :size="20" />
       </button>
       <div class="ribbon-sep" />
-      <button class="rbtn" title="总览视图（待 P4）" disabled>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'overview' }"
+        title="总览（书况 / 进度 / 卷纲 / 热力）"
+        @click="ws.setActiveView('overview')"
+      >
         <LayoutGrid :size="20" />
       </button>
       <button
@@ -65,6 +71,9 @@ const ui = useUiStore()
     </div>
 
     <div class="ribbon-group">
+      <button class="rbtn" title="导出定稿" @click="ui.openExport()">
+        <Download :size="20" />
+      </button>
       <button class="rbtn" title="返回书架" @click="router.push('/shelf')">
         <Library :size="20" />
       </button>

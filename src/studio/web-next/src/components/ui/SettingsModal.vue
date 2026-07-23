@@ -1,13 +1,25 @@
 <script setup lang="ts">
-// 设置弹窗（细案 T2.4）：主题（亮/暗）+ 正文排版滑块（字号/行距/段距）。
+// 设置弹窗（细案 T2.4 + T4.2）：主题（亮/暗）+ 正文排版滑块 + 桌面动作。
 // 沿用旧偏好键 clw-*（prefs store 持久化 + apply :root）。
+// 桌面动作（打开书库目录）仅桌面版显示——window.clwritingDesktop 判空降级。
+import { computed } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
+import { useWorkspaceStore } from '../../stores/workspace'
 
 const ui = useUiStore()
 const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
+const ws = useWorkspaceStore()
+
+// 桌面版注入 window.clwritingDesktop；浏览器版无 → 隐藏桌面动作区
+const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
+
+async function openBookDir(): Promise<void> {
+  if (!ws.bookName) return
+  await window.clwritingDesktop?.openBookDir(ws.bookName)
+}
 </script>
 
 <template>
@@ -56,6 +68,10 @@ const { theme, setTheme } = useTheme()
             :value="prefs.proseGap"
             @input="prefs.setGap(Number(($event.target as HTMLInputElement).value))"
           />
+        </div>
+        <div v-if="hasDesktop" class="setting-row">
+          <label>书库</label>
+          <button class="link-btn" @click="openBookDir">在文件管理器中打开书库目录</button>
         </div>
       </div>
     </div>
@@ -133,5 +149,17 @@ const { theme, setTheme } = useTheme()
 .seg button.on {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+}
+.link-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.link-btn:hover {
+  background: var(--background-modifier-hover);
 }
 </style>
