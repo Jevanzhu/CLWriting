@@ -1,0 +1,24 @@
+{
+  "name": "clwriting-web-next",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/noto-serif-sc": "^5.2.9",
+    "lxgw-wenkai-webfont": "^1.7.0",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.0",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "typescript": "^5.6.0",
+    "vite": "^8.0.16",
+    "vue-tsc": "^2.1.0"
+  }
+}
