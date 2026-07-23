@@ -2,7 +2,7 @@
 // 文件树递归节点（W2A §10.1）+ 拖拽移动（T8 §10.2，仅 inside 落点）。
 // 叶子文档 draggable；目录接收 drop（inside = moveDocument toDir）；跨 role/区禁（canDrop）。
 // 排序落点（before/after）不做——CLighting 章号定序 + 无 order 字段，拖排无后端。
-import { computed, ref } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 
 /** 树节点（镜像后端 TreeNode，src/document/tree.ts）。 */
 interface TreeNode {
@@ -25,6 +25,14 @@ const props = defineProps<{
   current: string
   /** 当前拖拽源 path（null = 未拖）。 */
   draggedPath: string | null
+  /** 正在重命名的节点 path（null = 无；块1 inline 重命名）。 */
+  renamePath: string | null
+  /** 就地新建输入框所在目录 path（null = 无；块1 Obsidian 化）。 */
+  creatingDirPath: string | null
+  /** 新建类型（placeholder / 左侧提示用）。 */
+  creatingKind: 'chapter' | 'volume' | 'doc' | null
+  /** 新建输入初始值（章号预填 max+1-未命名）。 */
+  creatingSeed: string
 }>()
 
 const emit = defineEmits<{
@@ -33,6 +41,16 @@ const emit = defineEmits<{
   dragstart: [path: string]
   dragend: []
   drop: [sourcePath: string, targetPath: string]
+  /** 右键上下文菜单（块1）：上报节点 + 鼠标坐标。 */
+  contextmenu: [node: TreeNode, x: number, y: number]
+  /** inline 重命名提交（path + 新名，去 .md）。 */
+  'rename-commit': [path: string, value: string]
+  /** inline 重命名取消（Esc / 失焦）。 */
+  'rename-cancel': []
+  /** 就地新建提交（输入值；kind / 落点由 FileTree 持 creating 状态）。 */
+  'create-commit': [value: string]
+  /** 就地新建取消（Esc / 失焦）。 */
+  'create-cancel': []
 }>()
 
 defineOptions({ name: 'FileTreeNode' })
@@ -41,6 +59,75 @@ const isOpen = computed(() => props.expanded.has(props.node.path))
 const padLeft = computed(() => `${props.depth * 18 + 10}px`)
 /** 目录接收 dragover 时的视觉态（高亮 inside 落点）。 */
 const isDragOver = ref(false)
+
+/** 块1 inline 重命名：本节点是否正处于重命名态。 */
+const isRenaming = computed(() => props.renamePath === props.node.path)
+const renameInput = ref('')
+const renameInputEl = ref<HTMLInputElement | null>(null)
+/** 进入重命名态：用原名（node.name 已去 .md）初始化 + 聚焦全选。 */
+watch(
+  () => props.renamePath === props.node.path,
+  (active) => {
+    if (active) {
+      renameInput.value = props.node.name
+      nextTick(() => {
+        renameInputEl.value?.focus()
+        renameInputEl.value?.select()
+      })
+    }
+  },
+)
+function commitRename(): void {
+  emit('rename-commit', props.node.path, renameInput.value.trim())
+}
+function cancelRename(): void {
+  emit('rename-cancel')
+}
+
+/** 块1 就地新建：本节点是否为新建落点目录（Obsidian 式，子级首位输入框）。 */
+const isCreating = computed(() => props.creatingDirPath === props.node.path)
+const createInput = ref('')
+const createInputEl = ref<HTMLInputElement | null>(null)
+const createHint = computed(() => {
+  switch (props.creatingKind) {
+    case 'chapter':
+      return '新章节'
+    case 'volume':
+      return '新卷'
+    case 'doc':
+      return '新文档'
+    default:
+      return ''
+  }
+})
+const createPlaceholder = computed(() => {
+  switch (props.creatingKind) {
+    case 'chapter':
+      return '章号-标题（如 6-转折）'
+    case 'volume':
+      return '卷名（如 第二卷）'
+    case 'doc':
+      return '文档名'
+    default:
+      return ''
+  }
+})
+/** 进入新建态：用 seed（章号预填）初始化 + 聚焦（不 select，保留章号可续改标题）。 */
+watch(
+  () => props.creatingDirPath === props.node.path,
+  (active) => {
+    if (active) {
+      createInput.value = props.creatingSeed
+      nextTick(() => createInputEl.value?.focus())
+    }
+  },
+)
+function commitCreate(): void {
+  emit('create-commit', createInput.value.trim())
+}
+function cancelCreate(): void {
+  emit('create-cancel')
+}
 
 /** 八态 → 圆点色（§5.1）：published 合并 green；目录无圆点。 */
 function dotClass(status?: string): string {
@@ -116,6 +203,12 @@ function onClick(): void {
   else emit('select', props.node.path)
 }
 
+/** 右键：阻止浏览器默认菜单，上报节点 + 坐标给 FileTree 弹上下文菜单（块1）。 */
+function onContextMenu(e: MouseEvent): void {
+  e.preventDefault()
+  emit('contextmenu', props.node, e.clientX, e.clientY)
+}
+
 function onDragStart(e: DragEvent): void {
   if (props.node.isDirectory) return
   if (e.dataTransfer) {
@@ -165,13 +258,42 @@ function onDrop(e: DragEvent): void {
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
+      @contextmenu="onContextMenu"
     >
       <span v-if="node.isDirectory" class="caret">{{ isOpen ? '▾' : '▸' }}</span>
       <span v-else class="dot-slot"><span class="dot" :class="dotClass(node.status)"></span></span>
-      <span class="name">{{ node.isDirectory ? node.name : displayName(node) }}</span>
+      <input
+        v-if="isRenaming"
+        ref="renameInputEl"
+        v-model="renameInput"
+        class="tn-rename-input"
+        @click.stop
+        @keydown.enter.stop="commitRename"
+        @keydown.esc.stop="cancelRename"
+        @blur="cancelRename"
+      />
+      <span v-else class="name">{{ node.isDirectory ? node.name : displayName(node) }}</span>
       <span v-if="dirMeta(node)" class="tn-tag">{{ dirMeta(node) }}</span>
     </div>
     <template v-if="node.isDirectory && isOpen">
+      <!-- 就地新建输入框（块1 Obsidian 化）：目标目录子级首位，cyan 浅底 + 类型提示 -->
+      <div
+        v-if="isCreating"
+        class="tn-create"
+        :style="{ paddingLeft: `${(depth + 1) * 18 + 10}px` }"
+      >
+        <span class="tn-create-hint">{{ createHint }}</span>
+        <input
+          ref="createInputEl"
+          v-model="createInput"
+          class="tn-create-input"
+          :placeholder="createPlaceholder"
+          @click.stop
+          @keydown.enter.stop="commitCreate"
+          @keydown.esc.stop="cancelCreate"
+          @blur="cancelCreate"
+        />
+      </div>
       <FileTreeNode
         v-for="child in node.children"
         :key="child.path"
@@ -185,6 +307,15 @@ function onDrop(e: DragEvent): void {
         @dragstart="(p) => emit('dragstart', p)"
         @dragend="emit('dragend')"
         @drop="(s, t) => emit('drop', s, t)"
+        @contextmenu="(n, x, y) => emit('contextmenu', n, x, y)"
+        :rename-path="renamePath"
+        @rename-commit="(p, v) => emit('rename-commit', p, v)"
+        @rename-cancel="emit('rename-cancel')"
+        :creating-dir-path="creatingDirPath"
+        :creating-kind="creatingKind"
+        :creating-seed="creatingSeed"
+        @create-commit="(v) => emit('create-commit', v)"
+        @create-cancel="emit('create-cancel')"
       />
     </template>
   </div>
@@ -266,5 +397,44 @@ function onDrop(e: DragEvent): void {
   color: var(--text-3);
   font-weight: 400;
   flex-shrink: 0;
+}
+/* 块1 inline 重命名输入框（替代 name span） */
+.tn-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 1px solid var(--ink-cyan);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  outline: none;
+}
+/* 块1 就地新建输入条（Obsidian 式）：cyan 浅底 + 类型提示 + 输入框，缩进到目标目录子级 */
+.tn-create {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  margin: 1px 4px;
+  border-radius: 5px;
+  background: var(--cyan-10);
+}
+.tn-create-hint {
+  font-size: 11px;
+  color: var(--ink-cyan);
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.tn-create-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 2px 6px;
+  border: 1px solid var(--ink-cyan);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  outline: none;
 }
 </style>

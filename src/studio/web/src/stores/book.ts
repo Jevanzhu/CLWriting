@@ -14,7 +14,6 @@ import type {
   RealmSystem,
   BookConfigLoose,
   FileEntry,
-  RewriteResult,
 } from '../types'
 import {
   getOverview,
@@ -32,8 +31,6 @@ import {
   writeFile as apiWriteFile,
   listFiles,
   revertBook as apiRevertBook,
-  rewriteDraft as apiRewriteDraft,
-  applyRewrite as apiApplyRewrite,
   type LearnCandidates,
   type LearnSampleCandidate,
   type LearnQuoteCandidate,
@@ -79,7 +76,7 @@ interface LearnState {
   pickedQuotes: boolean[]
 }
 
-/** 编辑器槽（文件编辑态 + 改写域；content 走 store 高频写无碍） */
+/** 编辑器槽（文件编辑态；content 走 store 高频写无碍） */
 interface EditorSlot {
   files: FileEntry[]
   selected: string
@@ -90,11 +87,6 @@ interface EditorSlot {
   reverting: boolean
   savedMsg: string
   error: string
-  /** 改写指令（仅草稿 工作区/草稿-N.md 可用） */
-  rewriteInstruction: string
-  rewriteResult: RewriteResult | null
-  rewriteRunning: boolean
-  rewriteApplying: boolean
 }
 
 /** 通用加载：清空 → 请求 → 填值/记错（loading/error 自管） */
@@ -172,10 +164,6 @@ export const useBookStore = defineStore('book', {
         reverting: false,
         savedMsg: '',
         error: '',
-        rewriteInstruction: '',
-        rewriteResult: null,
-        rewriteRunning: false,
-        rewriteApplying: false,
       },
     },
   }),
@@ -311,7 +299,7 @@ export const useBookStore = defineStore('book', {
       this.data.learnCandidates.pickedQuotes = []
     },
 
-    // —— 编辑器（editor）文件态 + 改写 ——
+    // —— 编辑器（editor）文件态 ——
     /** 拉文件列表（默认 file 跳由由 page 处理，store 不碰 router） */
     async loadFiles(name: string) {
       const e = this.data.editor
@@ -328,7 +316,6 @@ export const useBookStore = defineStore('book', {
       if (!e.selected) return
       e.loading = true
       e.error = ''
-      e.rewriteResult = null
       try {
         const data = await apiReadFile(name, e.selected)
         e.content = data
@@ -373,46 +360,6 @@ export const useBookStore = defineStore('book', {
         e.reverting = false
       }
     },
-    /** 改写：local(选段)/whole(整章) → POST /rewrite → DiffView */
-    async rewriteRun(name: string, chapter: number, mode: 'local' | 'whole', instruction: string, selection?: string) {
-      const e = this.data.editor
-      e.rewriteRunning = true
-      e.error = ''
-      e.rewriteResult = null
-      try {
-        const body: { chapter: number; mode: 'local' | 'whole'; instruction: string; selection?: string } = {
-          chapter,
-          mode,
-          instruction,
-        }
-        if (mode === 'local' && selection) body.selection = selection
-        e.rewriteResult = await apiRewriteDraft(name, body)
-      } catch (err) {
-        e.error = err instanceof Error ? err.message : String(err)
-      }
-      e.rewriteRunning = false
-    },
-    /** 应用改写：accept 落盘（更新 content/original），false 丢弃 */
-    async rewriteApply(name: string, chapter: number, accept: boolean) {
-      const e = this.data.editor
-      if (!e.rewriteResult) return
-      e.rewriteApplying = true
-      e.error = ''
-      try {
-        const d = await apiApplyRewrite(name, { chapter, content: e.rewriteResult.rewritten, accept })
-        if (accept && d.applied) {
-          e.content = e.rewriteResult.rewritten
-          e.original = e.rewriteResult.rewritten
-          e.savedMsg = '改写已落盘(原稿备份 草稿-' + chapter + '.bak.md)'
-          setTimeout(() => (e.savedMsg = ''), 3000)
-        }
-        e.rewriteResult = null
-      } catch (err) {
-        e.error = err instanceof Error ? err.message : String(err)
-      }
-      e.rewriteApplying = false
-    },
-
     /** 切书：清空所有数据缓存 */
     resetData() {
       const d = this.data
@@ -445,10 +392,6 @@ export const useBookStore = defineStore('book', {
       e.reverting = false
       e.savedMsg = ''
       e.error = ''
-      e.rewriteInstruction = ''
-      e.rewriteResult = null
-      e.rewriteRunning = false
-      e.rewriteApplying = false
     },
   },
 })

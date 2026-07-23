@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// 编辑态中栏：文件编辑器（CodeMirror）。B 策略保留 script（读/写/回滚/改写/应用 全真实 API）。
+// 编辑态中栏：文件编辑器（CodeMirror）。保留 script（读/写/回滚 全真实 API）；改写/生成走工作台（块2.3 剥离编辑器 AI 入口）。
 // template 对齐 mockup renderFileMid（.editor-inner/.edit-info/.et-btn/.et-wc/.doc-status + SVG 图标）。
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CodeEditor from '../components/CodeEditor.vue'
-import DiffView from '../components/DiffView.vue'
 import RevertMask from '../components/RevertMask.vue'
 import { useHint } from '../composables/useHint'
 import { useEditorState } from '../composables/useEditorState'
@@ -17,9 +16,8 @@ const { hint } = useHint()
 const { dirty: sharedDirty, saving: sharedSaving, saveTick } = useEditorState()
 const name = computed(() => (typeof route.params.name === 'string' ? route.params.name : ''))
 
-// CodeEditor 组件实例 ref（getSelection 用于局部改写；wrapSel/linePrefix 给 md 工具栏）
+// CodeEditor 组件实例 ref（wrapSel/linePrefix 给 md 工具栏）
 const codeRef = ref<{
-  getSelection: () => { text: string; from: number; to: number } | null
   wrapSel: (before: string, after?: string) => void
   linePrefix: (prefix: string) => void
 } | null>(null)
@@ -63,21 +61,6 @@ const selectedMode = computed<'text' | 'md'>(() => {
 const kind = computed<'long' | 'short'>(() =>
   (book.data.config.value?.kind ?? 'long') === 'short' ? 'short' : 'long',
 )
-
-// 改写（仅草稿 工作区/草稿-N.md）：指令双向绑 store，结果/运行态读 slot
-const rewriteInstruction = computed({
-  get: () => book.data.editor.rewriteInstruction,
-  set: (v: string) => {
-    book.data.editor.rewriteInstruction = v
-  },
-})
-const rewriteResult = computed(() => book.data.editor.rewriteResult)
-const rewriteRunning = computed(() => book.data.editor.rewriteRunning)
-const rewriteApplying = computed(() => book.data.editor.rewriteApplying)
-const draftChapter = computed<number | null>(() => {
-  const m = selected.value.match(/工作区[\/\\]草稿-(\d+)\.md$/)
-  return m ? Number(m[1]) : null
-})
 
 /** 目标字数（全书 target_words；章级目标 core 后补） */
 const targetWords = computed(() => Number(book.data.config.value?.book?.target_words) || 0)
@@ -123,11 +106,6 @@ const metaLine = computed(() => {
   if (/^大纲[\/\\]/.test(p)) return '大纲文档 · 大纲模式 · 可编辑'
   return '文档 · 可编辑'
 })
-/** 工具栏「改写」：聚焦下方改写指令框（仅草稿可用，联动 rewrite-panel） */
-function focusRewrite(): void {
-  document.querySelector<HTMLTextAreaElement>('.rewrite-instr')?.focus()
-}
-
 async function save(): Promise<void> {
   if (!selected.value || !dirty.value) return
   await book.save(name.value)
@@ -177,32 +155,6 @@ async function revertConfirm(chapter: number): Promise<void> {
   }
   if (!window.confirm(`确认回滚到第 ${chapter} 章/篇？之后的内容将被丢弃。`)) return
   await book.revert(name.value, chapter)
-}
-
-/** 改写:local(选段)/ whole(整章)→ POST /rewrite → DiffView */
-async function rewriteRun(mode: 'local' | 'whole'): Promise<void> {
-  if (!draftChapter.value || !name.value || rewriteRunning.value) return
-  if (!rewriteInstruction.value.trim()) {
-    book.data.editor.error = '请填改写指令'
-    return
-  }
-  let selection: string | undefined
-  if (mode === 'local') {
-    const sel = codeRef.value?.getSelection()
-    if (!sel || !sel.text.trim()) {
-      book.data.editor.error = '局部改写需先在编辑器选中段落'
-      return
-    }
-    selection = sel.text
-  }
-  await book.rewriteRun(name.value, draftChapter.value, mode, rewriteInstruction.value.trim(), selection)
-}
-
-/** 应用改写:accept 落盘(更新编辑器),false 丢弃 */
-async function rewriteApply(accept: boolean): Promise<void> {
-  if (!draftChapter.value || !name.value || !rewriteResult.value) return
-  await book.rewriteApply(name.value, draftChapter.value, accept)
-  if (!accept) hint('已丢弃改写')
 }
 
 watch(
@@ -262,10 +214,6 @@ watch(
             <svg class="ico" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div v-if="menuOpen" class="et-menu">
-            <button class="et-menu-item" :disabled="!draftChapter" @click="menuOpen = false; focusRewrite()">
-              <svg class="ico" viewBox="0 0 24 24"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></svg>
-              改写{{ draftChapter ? `第 ${draftChapter} ${kind === 'short' ? '篇' : '章'}` : '（仅草稿）' }}
-            </button>
             <button class="et-menu-item" :disabled="reverting" @click="menuOpen = false; revert()">
               <svg class="ico" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
               {{ reverting ? '回滚中…' : '回滚' }}
@@ -288,8 +236,7 @@ watch(
         <div class="state-empty">
           <div class="se-icon">✍️</div>
           <div class="se-text">本{{ kind === 'short' ? '篇' : '章' }}尚未开写</div>
-          <div class="se-sub">细纲已就绪 · 去工作台让 AI 生成首版，或直接在此续写</div>
-          <RouterLink class="btn primary" :to="`/books/${name}/workbench`">去工作台生成 →</RouterLink>
+          <div class="se-sub">在此开始写作，输入的正文将自动保存</div>
         </div>
       </template>
       <template v-else-if="selected && !loading">
@@ -323,46 +270,16 @@ watch(
       </div>
       <p v-else class="hint">从左侧选一个文件开始编辑。</p>
 
-      <!-- 改写入口（仅草稿 工作区/草稿-N.md）-->
-      <div v-if="draftChapter && selected && !loading" class="rewrite-panel">
-        <h4>✍ 改写 · 第 {{ draftChapter }} {{ kind === 'short' ? '篇' : '章' }}草稿</h4>
-        <textarea
-          v-model="rewriteInstruction"
-          class="rewrite-instr"
-          :placeholder="`改写指令，如「更紧张」「压到 300 字」；整${kind === 'short' ? '篇' : '章'}返修可粘贴审稿意见`"
-        ></textarea>
-        <div class="rewrite-btns">
-          <button class="btn" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('local')">局部改写选段</button>
-          <button class="btn" :disabled="rewriteRunning || !rewriteInstruction.trim()" @click="rewriteRun('whole')">
-            {{ rewriteRunning ? '生成中…' : `整${kind === 'short' ? '篇' : '章'}返修` }}
-          </button>
-        </div>
-        <DiffView
-          v-if="rewriteResult"
-          :diff="rewriteResult.diff"
-          :applying="rewriteApplying"
-          @accept="rewriteApply(true)"
-          @reject="rewriteApply(false)"
-        />
-      </div>
     </div>
     <RevertMask v-model:show="revertShow" @confirm="revertConfirm" />
   </section>
 </template>
 
 <style scoped>
-/* mockup 覆盖 .editor-inner/.edit-info/.et-btn/.et-wc/.doc-status；此处仅补 mockup 无的改写面板与提示。 */
+/* mockup 覆盖 .editor-inner/.edit-info/.et-btn/.et-wc/.doc-status；此处仅补 mockup 无的提示与工具栏。 */
 .error{color:var(--cinnabar);font-size:13px}
 .sform-hint{font-size:12.5px;color:var(--ink-cyan);padding:10px 14px;background:var(--cyan-10);border-radius:8px;margin-bottom:12px;line-height:1.6}
 .hint{color:var(--text-2);font-size:13px;padding:24px 0;text-align:center}
-.rewrite-panel{margin-top:18px;padding-top:16px;border-top:1px dashed var(--border)}
-.rewrite-panel h4{margin:0 0 10px;font-size:13px;color:var(--ink)}
-.rewrite-instr{width:100%;min-height:56px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;background:var(--paper);color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s}
-.rewrite-instr:focus{border-color:var(--ink-cyan);box-shadow:0 0 0 3px var(--cyan-10)}
-.rewrite-btns{display:flex;gap:8px;margin-top:10px}
-/* mockup 用 .btn.disabled（opacity:.4）表达禁用；Vue 用原生 button :disabled，
-   补禁用视觉（opacity + cursor）让禁用态与 mockup 一致。 */
-.rewrite-btns .btn:disabled{opacity:.4;cursor:default}
 
 /* edit-info / chapter-title(楷体) / chapter-meta-line / et-btn 走 v5-components.css 全局；
    此处仅补 split button（保存▾合体，替代 mockup 三个独立 et-btn）与禁用态。 */

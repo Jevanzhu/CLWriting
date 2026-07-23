@@ -4,7 +4,6 @@ import type {
   BookOverview,
   CharacterCard,
   BookConfigLoose,
-  DiffLine,
   FileEntry,
   LeadsData,
   MetricsReport,
@@ -12,7 +11,6 @@ import type {
   PieceDetailData,
   PieceSummary,
   Rhythm,
-  RewriteResult,
   SettingsData,
   StyleTrend,
   RealmSystem,
@@ -273,41 +271,6 @@ export async function revertBook(name: string, chapter: number): Promise<{ messa
   }))
 }
 
-export async function rewriteDraft(
-  name: string,
-  body: { chapter: number; mode: 'local' | 'whole'; instruction: string; selection?: string },
-): Promise<RewriteResult> {
-  const r = await apiJson<{
-    ok?: boolean
-    mode?: 'local' | 'whole'
-    original?: string
-    rewritten?: string
-    diff?: DiffLine[]
-  }>(bookPath(name, '/rewrite'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  requireOk(r)
-  return {
-    mode: r.mode ?? body.mode,
-    original: r.original ?? '',
-    rewritten: r.rewritten ?? '',
-    diff: r.diff ?? [],
-  }
-}
-
-export async function applyRewrite(
-  name: string,
-  body: { chapter: number; content: string; accept: boolean },
-): Promise<{ applied?: boolean }> {
-  return requireOk(await apiJson<{ ok?: boolean; applied?: boolean; error?: string }>(bookPath(name, '/rewrite-apply'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  }))
-}
-
 export async function runCli(
   name: string,
   body: { step: 'confirm' | 'prepare' | 'check' | 'finalize' | 'hand' | 'rebook'; chapter?: number; yes?: boolean },
@@ -404,5 +367,93 @@ export async function getState(name: string): Promise<{
 }> {
   return apiJson<{ state?: number; action?: string; nextChapter?: number; stateName?: string; humanMsg?: string }>(
     bookPath(name, '/state'),
+  )
+}
+
+// ── 文档 CRUD + 回收站（块1，对接 /documents 与 /trash）──
+
+/** 文档操作错误提取：兼容 reason（DocumentService）与 error（API 层校验）。 */
+function requireDocOk<T extends { ok?: boolean; reason?: string; error?: string; code?: string }>(r: T): T {
+  if (r.ok === false) throw new Error(r.reason ?? r.error ?? r.code ?? '操作失败')
+  return r
+}
+
+/** 新建文档：POST /documents（relPath 含 .md 后缀，如 定稿/正文/第一卷/第3章.md）。 */
+export async function createDocument(
+  name: string,
+  body: { relPath: string; content?: string },
+): Promise<{ docId: string; path: string; revision: string }> {
+  const r = await apiJson<{
+    ok: boolean; docId?: string; path?: string; revision?: string
+    reason?: string; error?: string; code?: string
+  }>(bookPath(name, '/documents'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  requireDocOk(r)
+  return { docId: r.docId ?? '', path: r.path ?? '', revision: r.revision ?? '' }
+}
+
+/** 重命名文档：PATCH /documents/:docId（op=rename，newName 含 .md）。 */
+export async function renameDocument(
+  name: string,
+  docId: string,
+  newName: string,
+): Promise<{ path: string }> {
+  const r = await apiJson<{ ok: boolean; path?: string; reason?: string; error?: string; code?: string }>(
+    bookPath(name, `/documents/${encodeURIComponent(docId)}`),
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ op: 'rename', newName }),
+    },
+  )
+  requireDocOk(r)
+  return { path: r.path ?? '' }
+}
+
+/** 软删文档（→ 回收站）：DELETE /documents/:docId。 */
+export async function trashDocument(name: string, docId: string): Promise<void> {
+  requireDocOk(
+    await apiJson<{ ok: boolean; reason?: string; error?: string; code?: string }>(
+      bookPath(name, `/documents/${encodeURIComponent(docId)}`),
+      { method: 'DELETE' },
+    ),
+  )
+}
+
+/** 回收站条目（镜像后端 TrashEntry）。 */
+export interface TrashEntry {
+  id: string
+  originalPath: string
+  trashedPath: string
+  trashedAt: string
+  role: string
+}
+
+/** 回收站列表：GET /trash。 */
+export async function listTrashEntries(name: string): Promise<TrashEntry[]> {
+  const r = await apiJson<{ ok: boolean; entries?: TrashEntry[] }>(bookPath(name, '/trash'))
+  return r.entries ?? []
+}
+
+/** 恢复：POST /trash/:id/restore，返回恢复后的路径。 */
+export async function restoreTrashEntry(name: string, id: string): Promise<{ path: string }> {
+  const r = await apiJson<{ ok: boolean; path?: string; reason?: string; error?: string; code?: string }>(
+    bookPath(name, `/trash/${encodeURIComponent(id)}/restore`),
+    { method: 'POST' },
+  )
+  requireDocOk(r)
+  return { path: r.path ?? '' }
+}
+
+/** 永久删除：DELETE /trash/:id（不可逆）。 */
+export async function purgeTrashEntry(name: string, id: string): Promise<void> {
+  requireDocOk(
+    await apiJson<{ ok: boolean; reason?: string; error?: string; code?: string }>(
+      bookPath(name, `/trash/${encodeURIComponent(id)}`),
+      { method: 'DELETE' },
+    ),
   )
 }
