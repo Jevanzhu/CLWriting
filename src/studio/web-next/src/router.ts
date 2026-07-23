@@ -8,8 +8,7 @@ const router = createRouter({
     { path: '/', redirect: '/shelf' },
     {
       path: '/shelf',
-      component: () => import('./pages/_Placeholder.vue'),
-      props: { title: '书架（T0.5 实现）' },
+      component: () => import('./pages/Shelf.vue'),
     },
     {
       path: '/book/:name',
