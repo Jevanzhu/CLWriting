@@ -6,6 +6,10 @@ import SidebarRight from './SidebarRight.vue'
 import TabBar from './TabBar.vue'
 import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
+import CommandPalette from '../ui/CommandPalette.vue'
+import SettingsModal from '../ui/SettingsModal.vue'
+import Toast from '../ui/Toast.vue'
 import { useHotkeys } from '../../composables/useHotkeys'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -26,7 +30,7 @@ const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
     <div class="ws-body">
       <Ribbon />
       <div class="ws-side ws-left" :class="{ collapsed: !leftVisible }">
-        <SidebarLeft />
+        <SidebarLeft :book-name="bookName" />
       </div>
       <main class="ws-main">
         <TabBar :book-name="bookName" />
@@ -36,10 +40,14 @@ const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
         </div>
       </main>
       <div class="ws-side ws-right" :class="{ collapsed: !rightVisible }">
-        <SidebarRight />
+        <SidebarRight :book-name="bookName" />
       </div>
     </div>
     <StatusBar :book-name="bookName" />
+    <ConfirmDialog />
+    <CommandPalette />
+    <SettingsModal />
+    <Toast />
   </div>
 </template>
 

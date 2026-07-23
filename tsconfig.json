@@ -15,5 +15,5 @@
     "noEmit": true
   },
   "include": ["src", "test", "*.config.ts"],
-  "exclude": ["src/studio/web"]
+  "exclude": ["src/studio/web", "src/studio/web-next"]
 }

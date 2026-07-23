@@ -6,8 +6,9 @@
  */
 
 import { readdirSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
+import { countWords } from './words.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
 
 /** #7 第 3 节枚举值校验集 */
@@ -17,12 +18,6 @@ const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
 const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点'])
-
-/** 计算正文字数（中文按字符计，#7 第 2 节） */
-export function countWords(body: string): number {
-  // 去掉 markdown 标记后按字符计（粗估，零 token）
-  return body.replace(/[#>*_`~\-\[\]()!\s]/g, '').length
-}
 
 /** 读取章节 md → ChapterMeta（容错） */
 export function readChapter(
@@ -93,14 +88,6 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
-/** 从文件名提取章号（定稿/正文/152-北境的雪.md → 152） */
-export function parseChapterFileName(fileName: string): { 章号: number; 标题: string } | null {
-  const base = basename(fileName, '.md')
-  const m = base.match(/^(\d+)-(.+)$/)
-  if (!m) return null
-  return { 章号: Number(m[1]!), 标题: m[2]! }
-}
-
 /** 扫描定稿/正文/ 目录，读所有章节（容错） */
 export function readChapterDir(
   dirPath: string,
@@ -122,3 +109,6 @@ export function readChapterDir(
   }
   return { chapters, errors }
 }
+
+// re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）
+export { countWords, parseChapterFileName } from './words.js'

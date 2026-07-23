@@ -12,12 +12,14 @@ import {
 } from 'lucide-vue-next'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useUiStore } from '../../stores/ui'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台；底部 书架/设置/亮暗。
-// 未实现的入口（搜索/总览/工作台/设置）置灰，标题标注待办阶段。
+// 总览（P4）/工作台（P3）待落仍置灰。
 const router = useRouter()
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
+const ui = useUiStore()
 </script>
 
 <template>
@@ -31,7 +33,12 @@ const ws = useWorkspaceStore()
       >
         <FolderTree :size="20" />
       </button>
-      <button class="rbtn" title="搜索（待 P1）" disabled>
+      <button
+        class="rbtn"
+        :class="{ on: ws.leftPanel === 'search' }"
+        title="搜索"
+        @click="ws.setLeftPanel('search')"
+      >
         <Search :size="20" />
       </button>
       <div class="ribbon-sep" />
@@ -47,7 +54,7 @@ const ws = useWorkspaceStore()
       <button class="rbtn" title="返回书架" @click="router.push('/shelf')">
         <Library :size="20" />
       </button>
-      <button class="rbtn" title="设置（待 T2.4）" disabled>
+      <button class="rbtn" title="设置（⌘,）" @click="ui.openSettings()">
         <Settings :size="20" />
       </button>
       <button
