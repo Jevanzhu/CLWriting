@@ -1,0 +1,58 @@
+/* 全局基础：reset + 字体 + 滚动条 + 聚焦环。token 见 tokens.css。*/
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 滚动条（Obsidian 风：细、半透明轨道）*/
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--background-modifier-border-hover);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 键盘聚焦环（无障碍；鼠标点击不显）*/
+:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
+  border-radius: var(--radius-s);
+}
+
+a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: inherit;
+}

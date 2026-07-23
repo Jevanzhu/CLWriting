@@ -1,0 +1,71 @@
+/* web-next 设计 token —— Obsidian 语义变量（M10 重写）。
+ * [data-theme='light'|'dark'] 两档，默认 light（无 data-theme 时 :root = light）。
+ * 色值为起步值，P0 验收时与 Jevan 视觉定稿。
+ * 组件只引 var()；禁止再造透明度派生矩阵（hover 用 modifier 变量或 color-mix 就地表达）。 */
+
+:root,
+[data-theme='light'] {
+  /* 背景 */
+  --background-primary: #ffffff;            /* 编辑区/内容底 */
+  --background-secondary: #f6f6f6;          /* 侧栏/ribbon 底 */
+  --background-secondary-alt: #ececec;      /* 激活侧栏项底 */
+  --background-modifier-border: #e0e0e0;
+  --background-modifier-border-hover: #c8c8c8;
+  --background-modifier-border-active: #b0b0b0;
+  --background-modifier-hover: color-mix(in srgb, var(--text-normal) 8%, transparent);
+  --background-modifier-active-hover: color-mix(in srgb, var(--text-normal) 12%, transparent);
+  /* 文本 */
+  --text-normal: #222222;
+  --text-muted: #666666;
+  --text-faint: #999999;
+  --text-accent: #705dcf;
+  --text-on-accent: #ffffff;
+  /* 交互 */
+  --interactive-normal: #f0f0f0;
+  --interactive-hover: #e6e6e6;
+  --interactive-accent: #705dcf;
+  --interactive-accent-hover: #5f4db8;
+  /* 状态色 */
+  --text-success: #4a8a4a;
+  --text-warning: #b8860b;
+  --text-error: #c44848;
+  /* 字体 */
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* 圆角 */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  /* 外壳尺度 */
+  --size-ribbon: 44px;
+  --size-tabbar: 36px;
+  --size-statusbar: 24px;
+  /* 正文排版偏好（与 UI 皮肤解耦，写作偏好；SettingsModal 滑块直写 :root） */
+  --prose-font: 'LXGW WenKai', 'Noto Serif SC', serif;
+  --prose-size: 17px;
+  --prose-lh: 1.85;
+  --prose-gap: 1em;
+}
+
+[data-theme='dark'] {
+  --background-primary: #1e1e1e;
+  --background-secondary: #262626;
+  --background-secondary-alt: #1a1a1a;
+  --background-modifier-border: #3f3f3f;
+  --background-modifier-border-hover: #555555;
+  --background-modifier-border-active: #707070;
+  --background-modifier-hover: color-mix(in srgb, #ffffff 8%, transparent);
+  --background-modifier-active-hover: color-mix(in srgb, #ffffff 12%, transparent);
+  --text-normal: #dadada;
+  --text-muted: #999999;
+  --text-faint: #666666;
+  --text-accent: #9d8cff;
+  --text-on-accent: #1e1e1e;
+  --interactive-normal: #303030;
+  --interactive-hover: #3a3a3a;
+  --interactive-accent: #9d8cff;
+  --interactive-accent-hover: #ad9bff;
+  --text-success: #6abf6a;
+  --text-warning: #d4a13a;
+  --text-error: #e06c6c;
+}

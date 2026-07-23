@@ -2,7 +2,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import './styles/tokens.css'
+import './styles/base.css'
+import './composables/useTheme' // 模块加载即 apply 持久化主题（副作用 import，渲染前 CSS 变量就位）
 
 // web-next 入口（M10 Obsidian 重写）。createApp + pinia + router。
-// 主题 apply（T0.2 useTheme）与 tokens 将在此 import 触发。
 createApp(App).use(createPinia()).use(router).mount('#app')
