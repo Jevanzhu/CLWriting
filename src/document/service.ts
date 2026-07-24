@@ -32,7 +32,7 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId } from './stable-id.js'
 import { invalidateTreeIndex } from './tree.js'
-import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat } from '../format/frontmatter.js'
+import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 
 /** 保存输入（W0-1 §5.1）。 */
@@ -346,6 +346,35 @@ export class DocumentService {
     if (basename(path) !== newName) {
       return this.doMoveOrRename(docId, { kind: 'rename', newName })
     }
+    return { ok: true, docId, path }
+  }
+
+  /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
+   *  与 updateChapterMeta 的区别：不改文件名（卷纲/总纲文件名不按 章号-标题）。 */
+  updateDocMeta(docId: string, meta: Record<string, unknown>): MoveResult {
+    const path = this.lookupPathByDocId(docId)
+    if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
+    const abs = this.resolveSafePath(path)
+    if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    let raw: string
+    try {
+      raw = readFileSync(abs, 'utf-8')
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
+    }
+    // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
+    const split = splitFrontMatter(raw)
+    const map = parseFlat(split ? split.fmRaw : '')
+    const body = split ? split.body : raw
+    for (const [k, v] of Object.entries(meta)) {
+      if (v !== undefined) map.set(k, v)
+    }
+    try {
+      writeDoc(abs, stringifyFlat(map), body)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+    }
+    invalidateTreeIndex(this.bookRoot)
     return { ok: true, docId, path }
   }
 

@@ -163,5 +163,19 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote }
+  /** 静默刷新文档内容（外部改了 fm 等，重新拉对齐磁盘；不 toast、不重置 conflict）。 */
+  async function refresh(docId: string): Promise<void> {
+    const e = docs.value.get(docId)
+    if (!e) return
+    try {
+      const content = await getContent(bookName.value!, e.path)
+      e.content = content
+      e.baselineRevision = e.legacy ? null : await sha256Revision(content)
+      e.dirty = false
+    } catch {
+      /* 静默失败（best-effort 对齐磁盘） */
+    }
+  }
+
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh }
 })

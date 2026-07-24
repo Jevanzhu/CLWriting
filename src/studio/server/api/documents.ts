@@ -177,8 +177,15 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           ...(标题 !== undefined ? { 标题 } : {}),
           ...(Number.isFinite(章号) ? { 章号 } : {}),
         })
+      } else if (body.op === 'fm') {
+        const meta = body.meta
+        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'fm 需要 meta 对象' })
+          return
+        }
+        result = svc.updateDocMeta(docId, meta as Record<string, unknown>)
       } else {
-        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '未知 op（rename/move/meta）' })
+        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '未知 op（rename/move/meta/fm）' })
         return
       }
       reply(res, result.ok ? 200 : structStatus(result.code), result)

@@ -1,16 +1,32 @@
 <script setup lang="ts">
-// 右侧栏：顶部空带（对齐 tabbar 高度，桌面版可拖窗）+ 写作信息（T2.2）+ 上下文速查（T2.3）。
+// 右侧栏：顶部空带（对齐 tabbar 高度，桌面版可拖窗）+ 按当前文档切换上半面板
+// （大纲文档→MetaFormPanel 结构化表单 / 其他→WritingInfoPanel 字数）+ 上下文速查（T2.3）。
+import { computed } from 'vue'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
+import MetaFormPanel from '../panels/MetaFormPanel.vue'
+import { useWorkspaceStore } from '../../stores/workspace'
+import { useTreeStore } from '../../stores/tree'
+import { outlineFormKind } from '../../shared/words'
+
 defineProps<{ bookName: string }>()
+const ws = useWorkspaceStore()
+const tree = useTreeStore()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+
+const showOutlineForm = computed(() => {
+  if (!ws.activeDocId) return false
+  const node = tree.byDocId.get(ws.activeDocId)
+  return node ? outlineFormKind(node.path) !== null : false
+})
 </script>
 
 <template>
   <div class="sidebar-right">
     <div class="right-topbar" :class="{ 'is-drag': hasDesktop }" />
     <div class="right-body">
-      <WritingInfoPanel :book-name="bookName" />
+      <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
+      <WritingInfoPanel v-else :book-name="bookName" />
       <ContextQuickPanel :book-name="bookName" />
     </div>
   </div>

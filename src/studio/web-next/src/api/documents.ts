@@ -115,6 +115,22 @@ export async function updateChapterMetaDoc(
   )
 }
 
+// PATCH /documents/:docId op=fm（块3.1：通用 fm 字段更新，卷纲/总纲用；不联动文件名）。
+export async function updateDocMeta(
+  name: string,
+  docId: string,
+  meta: Record<string, unknown>,
+): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: 'fm', meta }),
+    },
+  )
+}
+
 // DELETE /documents/:docId（软删 → 回收站）。
 export async function deleteDoc(name: string, docId: string): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
