@@ -12,7 +12,7 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language'
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
-import { EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
   crosshairCursor,
@@ -25,7 +25,7 @@ import {
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 
-const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean }>()
+const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
@@ -76,6 +76,18 @@ const editorSetup: Extension[] = [
   keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap]),
 ]
 
+// 打字机模式（专注时启用）：输入时当前行 scrollIntoView 居中（仅 docChanged，不干扰主动滚动查看）
+function typewriterExt(on: boolean): Extension {
+  if (!on) return []
+  return EditorView.updateListener.of((u) => {
+    if (!u.docChanged) return
+    const head = u.state.selection.main.head
+    const line = u.state.doc.lineAt(head)
+    u.view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
+  })
+}
+const typewriterConf = new Compartment()
+
 onMounted(() => {
   if (!el.value) return
   view = new EditorView({
@@ -89,6 +101,7 @@ onMounted(() => {
       EditorView.updateListener.of((u) => {
         if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
       }),
+      typewriterConf.of(typewriterExt(props.typewriter ?? false)),
     ],
     parent: el.value,
   })
@@ -100,6 +113,20 @@ watch(
   (v) => {
     if (view && v !== view.state.doc.toString()) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })
+    }
+  },
+)
+
+// 打字机开关（专注模式切换）：动态重配；进入时立即把当前行居中
+watch(
+  () => props.typewriter,
+  (v) => {
+    if (!view) return
+    view.dispatch({ effects: typewriterConf.reconfigure(typewriterExt(v ?? false)) })
+    if (v) {
+      const head = view.state.selection.main.head
+      const line = view.state.doc.lineAt(head)
+      view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
     }
   },
 )

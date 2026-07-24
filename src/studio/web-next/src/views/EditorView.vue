@@ -159,6 +159,7 @@ onUnmounted(() => {
         ref="cmHost"
         :model-value="body"
         :mode="entry.mode"
+        :typewriter="ws.focusMode"
         @update:model-value="onBodyChange"
       />
     </div>
