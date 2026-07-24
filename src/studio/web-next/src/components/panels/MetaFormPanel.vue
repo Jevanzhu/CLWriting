@@ -5,7 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
-import { parseFmFields, outlineFormKind } from '../../shared/words'
+import { parseFmFields, formKindOf } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 
 type FieldDef = {
@@ -20,6 +20,7 @@ const TITLE: Record<string, string> = {
   'chapter-outline': '章纲',
   'volume-outline': '卷纲',
   synopsis: '总纲',
+  character: '角色',
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
@@ -45,6 +46,17 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '基调', label: '基调', type: 'text' },
     { key: '核心冲突', label: '核心冲突', type: 'textarea' },
   ],
+  character: [
+    { key: '姓名', label: '姓名', type: 'text' },
+    { key: '别称', label: '别称', type: 'text' },
+    { key: '身份', label: '身份', type: 'text' },
+    { key: '外貌', label: '外貌', type: 'textarea' },
+    { key: '性格', label: '性格', type: 'textarea' },
+    { key: '能力', label: '能力', type: 'textarea' },
+    { key: '背景', label: '背景', type: 'textarea' },
+    { key: '出场', label: '出场', type: 'text' },
+    { key: '关系', label: '关系', type: 'textarea' },
+  ],
 }
 
 const props = defineProps<{ bookName: string }>()
@@ -53,7 +65,7 @@ const ws = useWorkspaceStore()
 const ui = useUiStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
-const kind = computed(() => (entry.value ? outlineFormKind(entry.value.path) : null))
+const kind = computed(() => (entry.value ? formKindOf(entry.value.path) : null))
 const defs = computed<FieldDef[]>(() => (kind.value ? FIELD_DEFS[kind.value] : []))
 
 const fields = ref<Record<string, string>>({})
@@ -81,7 +93,9 @@ async function onSave(): Promise<void> {
     for (const f of FIELD_DEFS[kind.value]) {
       const v = fields.value[f.key] ?? ''
       if (v === '') continue
-      meta[f.key] = f.type === 'number' ? Number(v) : v
+      // fm 平铺格式不支持多行值：textarea 换行转空格（详述放 body）
+      const val = f.type === 'textarea' ? v.replace(/\n/g, ' ') : v
+      meta[f.key] = f.type === 'number' ? Number(val) : val
     }
     await updateDocMeta(props.bookName, ws.activeDocId, meta)
     await doc.refresh(ws.activeDocId)

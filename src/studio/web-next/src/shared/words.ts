@@ -43,12 +43,13 @@ export function parseFmFields(content: string): Record<string, string> {
   return out
 }
 
-/** 大纲文档路径 → 表单类型（块3.1 右栏按此切表单）。非大纲文档 → null。 */
-export function outlineFormKind(
+/** 文档路径 → 结构化表单类型（右栏按此切表单）。非表单文档 → null。 */
+export function formKindOf(
   path: string,
-): 'chapter-outline' | 'volume-outline' | 'synopsis' | null {
+): 'chapter-outline' | 'volume-outline' | 'synopsis' | 'character' | null {
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
   if (path === '大纲/总纲.md') return 'synopsis'
+  if (path.startsWith('定稿/设定/角色/')) return 'character'
   return null
 }

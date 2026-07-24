@@ -43,7 +43,7 @@ const menuNode = ref<TreeNode | null>(null)
 
 // --- inline 新建/重命名 ---
 type Creating = {
-  kind: 'chapter' | 'chapter-outline' | 'volume' | 'doc'
+  kind: 'chapter' | 'chapter-outline' | 'character' | 'volume' | 'doc'
   renderDir: string
   fsDir: string
   seed: string
@@ -171,6 +171,9 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
   if (node.isDirectory && p === '大纲/章纲') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter-outline', label: '章纲' }] }]
   }
+  if (node.isDirectory && p === '定稿/设定/角色') {
+    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-character', label: '角色' }] }]
+  }
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('定稿/设定/'))) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
   }
@@ -240,6 +243,7 @@ function onMenuSelect(key: string): void {
   if (!node) return
   if (key === 'new-chapter') startCreate('chapter', node.path, node.path)
   else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path)
+  else if (key === 'new-character') startCreate('character', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
   else if (key === 'meta') {
@@ -282,7 +286,7 @@ async function onSaveMeta(meta: { 标题: string; 章号: number }): Promise<voi
 
 // --- 新建 ---
 function startCreate(
-  kind: 'chapter' | 'chapter-outline' | 'volume' | 'doc',
+  kind: 'chapter' | 'chapter-outline' | 'character' | 'volume' | 'doc',
   renderDir: string,
   fsDir: string,
 ): void {

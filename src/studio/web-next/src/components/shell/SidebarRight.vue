@@ -7,7 +7,7 @@ import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { outlineFormKind } from '../../shared/words'
+import { formKindOf } from '../../shared/words'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -17,7 +17,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 const showOutlineForm = computed(() => {
   if (!ws.activeDocId) return false
   const node = tree.byDocId.get(ws.activeDocId)
-  return node ? outlineFormKind(node.path) !== null : false
+  return node ? formKindOf(node.path) !== null : false
 })
 </script>
 
