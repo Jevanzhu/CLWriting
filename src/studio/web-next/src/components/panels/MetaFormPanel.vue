@@ -5,7 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
-import { parseFmFields, formKindOf } from '../../shared/words'
+import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 
 type FieldDef = {
@@ -17,6 +17,7 @@ type FieldDef = {
 }
 
 const TITLE: Record<string, string> = {
+  chapter: '章节',
   'chapter-outline': '章纲',
   'volume-outline': '卷纲',
   synopsis: '总纲',
@@ -26,6 +27,15 @@ const TITLE: Record<string, string> = {
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
+  // 章节（定稿/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
+  chapter: [
+    { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
+    { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
+    { key: '情绪定位', label: '情绪定位', type: 'select', options: ['', '压抑', '铺垫', '小爽', '大爽', '转折'] },
+    { key: '场景', label: '场景', type: 'select', options: ['', '战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
+    { key: '时间锚点', label: '时间锚点', type: 'text' },
+    { key: '字数目标', label: '字数目标', type: 'number' },
+  ],
   'chapter-outline': [
     { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
     { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
@@ -114,8 +124,14 @@ async function onSave(): Promise<void> {
       // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
       meta[f.key] = f.type === 'number' ? Number(v) : v
     }
+    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（不覆盖正文改动）
+    const localBody = stripFrontmatter(entry.value.content)
     await updateDocMeta(props.bookName, ws.activeDocId, meta)
     await doc.refresh(ws.activeDocId)
+    const refreshed = doc.get(ws.activeDocId)
+    if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
+      doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
+    }
     ui.toast('已保存', 'success')
   } catch (err) {
     ui.toast(err instanceof Error ? err.message : String(err), 'error')
