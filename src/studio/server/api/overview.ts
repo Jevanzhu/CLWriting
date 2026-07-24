@@ -21,6 +21,13 @@ interface OverviewCtx {
   workDir: string | null
 }
 
+// G3：state 判定结果短时缓存。detectState 内部全量 rebuild index.db（clearAllTables 清空重建），
+// overview 每次请求都触发会慢（大书几百 ms~秒级）。概览页 stale 5s 可接受；精确态走 /state 或 enter。
+type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
+interface StateEntry { bookRoot: string; result: StateOutput; ts: number }
+let stateCache: StateEntry | null = null
+const STATE_CACHE_TTL = 5000
+
 export function registerOverviewRoutes(ctx: OverviewCtx): void {
   route('GET', '/api/books/:name/overview', (_req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
@@ -32,17 +39,23 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
     const kind = config.kind === 'short' ? 'short' : 'long'
 
-    // 状态机（自包含；失败降级 state:0）
-    let state: { state: number; name: string; detail: DetectedState | { error: string } }
-    try {
-      const detected = detectState(bookRoot, config)
-      state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
-    } catch (e) {
-      state = {
-        state: 0,
-        name: '状态机判定失败',
-        detail: { error: e instanceof Error ? e.message : String(e) },
+    // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild
+    const now = Date.now()
+    let state: StateOutput
+    if (stateCache && stateCache.bookRoot === bookRoot && now - stateCache.ts < STATE_CACHE_TTL) {
+      state = stateCache.result
+    } else {
+      try {
+        const detected = detectState(bookRoot, config)
+        state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
+      } catch (e) {
+        state = {
+          state: 0,
+          name: '状态机判定失败',
+          detail: { error: e instanceof Error ? e.message : String(e) },
+        }
       }
+      stateCache = { bookRoot, result: state, ts: now }
     }
 
     reply(res, 200, {
