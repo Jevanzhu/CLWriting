@@ -11,7 +11,7 @@ const props = defineProps<{
   activePath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
-  creatingKind: 'chapter' | 'chapter-outline' | 'character' | 'volume' | 'doc' | null
+  creatingKind: 'chapter' | 'chapter-outline' | 'character' | 'item' | 'volume' | 'doc' | null
   creatingSeed: string
   /** inline 重命名输入框：path 命中则替代 label。 */
   renamePath: string | null

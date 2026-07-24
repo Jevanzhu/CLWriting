@@ -21,6 +21,8 @@ const TITLE: Record<string, string> = {
   'volume-outline': '卷纲',
   synopsis: '总纲',
   character: '角色',
+  worldview: '世界观',
+  item: '物品',
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
@@ -56,6 +58,22 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '背景', label: '背景', type: 'textarea' },
     { key: '出场', label: '出场', type: 'text' },
     { key: '关系', label: '关系', type: 'textarea' },
+  ],
+  worldview: [
+    { key: '世界名称', label: '世界名称', type: 'text' },
+    { key: '时代', label: '时代', type: 'text' },
+    { key: '地理', label: '地理', type: 'textarea' },
+    { key: '力量体系', label: '力量体系', type: 'textarea' },
+    { key: '核心规则', label: '核心规则', type: 'textarea' },
+  ],
+  item: [
+    { key: '名称', label: '名称', type: 'text' },
+    { key: '品级', label: '品级', type: 'text' },
+    { key: '类型', label: '类型', type: 'text' },
+    { key: '效果', label: '效果', type: 'textarea' },
+    { key: '来源', label: '来源', type: 'text' },
+    { key: '持有者', label: '持有者', type: 'text' },
+    { key: '备注', label: '备注', type: 'textarea' },
   ],
 }
 

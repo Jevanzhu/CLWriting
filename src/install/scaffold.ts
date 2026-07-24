@@ -137,7 +137,7 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
     return
   }
   // 定稿区
-  for (const d of ['定稿/正文', '定稿/摘要/章摘要', '定稿/摘要/卷摘要', '定稿/设定/角色', '定稿/设定/时间线']) {
+  for (const d of ['定稿/正文', '定稿/摘要/章摘要', '定稿/摘要/卷摘要', '定稿/设定/角色', '定稿/设定/物品', '定稿/设定/时间线']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
   // §17 决策①：长篇预置第一卷空目录（开箱引导卷结构；空目录 git 不跟踪，tree.ts fs 扫描本地可见）
