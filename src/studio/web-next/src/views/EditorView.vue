@@ -66,6 +66,13 @@ onUnmounted(() => {
                   : ''
         }}
       </span>
+      <!-- 乐观锁冲突出路：重载（丢本地）/ 覆盖（丢远端），二选一解除冲突态 -->
+      <template v-if="entry.conflict">
+        <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
+        <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">
+          覆盖远端
+        </button>
+      </template>
     </header>
     <div class="doc-body">
       <CmHost
@@ -121,6 +128,23 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 .save-state.err {
+  color: var(--text-error);
+}
+.conflict-btn {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 1px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.conflict-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.conflict-btn.danger:hover {
   color: var(--text-error);
 }
 .doc-body {

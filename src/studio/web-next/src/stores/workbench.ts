@@ -30,7 +30,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
     if (typeof ev !== 'object' || ev === null) return
-    const e = { ...(ev as Record<string, unknown>), _ts: ts() } as SseEvent
+    const raw = ev as Record<string, unknown>
+    // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
+    if (raw['type'] === 'sync') {
+      running.value = raw['running'] === true
+      return
+    }
+    const e = { ...raw, _ts: ts() } as SseEvent
     log.value.push(e)
     if (e.type === 'init' || e.type === 'role_spawn') {
       running.value = true

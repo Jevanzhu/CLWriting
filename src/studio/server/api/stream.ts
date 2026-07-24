@@ -42,6 +42,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // ACAO 由全局 CORS 白名单统一设置(index.ts);不再覆写为 *,防跨站订阅 driver 流(创作内容泄露)
     })
 
+    // 连接建立即补发运行态快照:刷新/新标签会错过 init 事件(channel 消费即弃),
+    // 无快照则前端 running 假空闲 → 生成中误显「可生成」可再触发 spawn
+    res.write(
+      `data: ${JSON.stringify({ type: 'sync', running: driver.isRunning?.(session) ?? false })}\n\n`,
+    )
+
     // driver.stream 实现为 async generator(mock async * / 批2 cc 解析 stream-json)
     const iter = driver.stream(session) as AsyncGenerator<DriverEvent>
     // 前端断开 → 中止迭代(释放 mock waiter)

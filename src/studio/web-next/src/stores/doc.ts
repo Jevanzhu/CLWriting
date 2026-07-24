@@ -30,6 +30,8 @@ export interface DocEntry {
   saving: boolean
   savedAt: number | null
   error: string | null
+  /** 乐观锁冲突未决：外部已修改，等用户选「重载/覆盖」；期间 autosave 跳过（必再冲突）。 */
+  conflict: boolean
   /** legacy 未登记文档：保存降级 PUT /file 盲写（无乐观锁），细案 §2.1 兜底。 */
   legacy: boolean
 }
@@ -68,6 +70,7 @@ export const useDocStore = defineStore('doc', () => {
       saving: false,
       savedAt: null,
       error: null,
+      conflict: false,
       legacy,
     })
   }
@@ -85,37 +88,76 @@ export const useDocStore = defineStore('doc', () => {
   async function save(docId: string, origin: 'manual' | 'autosave' = 'manual'): Promise<boolean> {
     const e = docs.value.get(docId)
     if (!e || e.saving || !e.dirty) return false
+    // 冲突未决时 autosave 必再冲突，跳过重试（也避免每 30s 一条错误提示），等用户选重载/覆盖
+    if (e.conflict && origin === 'autosave') return false
     e.saving = true
     e.error = null
+    // 快照本次落盘内容：await 期间的新输入不属于本次保存，成功后不得误清其 dirty
+    const snapshot = e.content
     try {
       if (e.legacy) {
         // legacy 未登记：盲写兜底（无锁，细案 §2.1）
-        await putFileBlind(bookName.value!, e.path, e.content)
+        await putFileBlind(bookName.value!, e.path, snapshot)
       } else {
         const r = await saveContent(bookName.value!, docId, {
-          content: e.content,
+          content: snapshot,
           expectedRevision: e.baselineRevision,
           operationId: newOperationId(),
           origin,
         })
         e.baselineRevision = r.revision
       }
-      e.dirty = false
+      e.conflict = false
+      if (e.content === snapshot) e.dirty = false
       e.savedAt = Date.now()
       if (origin === 'manual') useUiStore().toast('已保存', 'success')
       return true
     } catch (err) {
       if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {
-        e.error = '文件已被外部修改，请重载或覆盖'
+        e.conflict = true
+        e.error = '文件已被外部修改'
       } else {
         e.error = err instanceof Error ? err.message : String(err)
       }
-      useUiStore().toast(e.error, 'error')
+      // autosave 失败不弹 toast（编辑器状态条已展示 error，避免周期性刷屏）
+      if (origin === 'manual') useUiStore().toast(e.error, 'error')
       return false
     } finally {
       e.saving = false
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save }
+  /** 冲突出路①重载：丢弃本地修改，取远端最新内容为准。 */
+  async function reloadFromRemote(docId: string): Promise<void> {
+    const e = docs.value.get(docId)
+    if (!e || e.saving) return
+    try {
+      const content = await getContent(bookName.value!, e.path)
+      e.content = content
+      e.baselineRevision = e.legacy ? null : await sha256Revision(content)
+      e.dirty = false
+      e.conflict = false
+      e.error = null
+      useUiStore().toast('已重载远端内容', 'success')
+    } catch (err) {
+      useUiStore().toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  /** 冲突出路②覆盖：以远端当前内容算基线 revision，再把本地内容写上去（覆盖外部修改）。 */
+  async function overwriteRemote(docId: string): Promise<void> {
+    const e = docs.value.get(docId)
+    if (!e || e.saving || e.legacy) return
+    try {
+      const remote = await getContent(bookName.value!, e.path)
+      e.baselineRevision = await sha256Revision(remote)
+      e.conflict = false
+      e.error = null
+      await save(docId, 'manual')
+    } catch (err) {
+      useUiStore().toast(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote }
 })
