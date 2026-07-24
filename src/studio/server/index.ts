@@ -31,12 +31,17 @@ import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
 import { registerSearchRoutes } from './api/search.js'
+import { registerAiStatusRoutes } from './api/ai-status.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
 function buildRoutes(workDir: string | null, token: string): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
+    // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
+    registerAiStatusRoutes()
+
+    // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir })
@@ -44,13 +49,8 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerRhythmRoutes({ workDir })
     registerLeadsRoutes({ workDir })
     registerSettingsRoutes({ workDir })
-    registerStreamRoutes({ workDir })
     registerDraftRoutes({ workDir })
-    registerOutlineRoutes({ workDir })
     registerCliRoutes({ workDir })
-    registerReviewRoutes({ workDir })
-    registerOnboardRoutes({ workDir })
-    registerRewriteRoutes({ workDir })
     registerConfigRoutes({ workDir })
     registerPiecesRoutes({ workDir })
     registerStateRoutes({ workDir })
@@ -59,6 +59,13 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir })
     registerSearchRoutes({ workDir })
+
+    // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
+    registerStreamRoutes({ workDir })
+    registerOutlineRoutes({ workDir })
+    registerReviewRoutes({ workDir })
+    registerOnboardRoutes({ workDir })
+    registerRewriteRoutes({ workDir })
   })
   return routes
 }

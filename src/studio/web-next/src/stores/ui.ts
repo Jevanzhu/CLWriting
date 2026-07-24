@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { getAiStatus } from '../api/ai-status'
 
-// UI 全局状态：命令面板 / 设置 / 导出弹窗可见性 + Toast 队列（细案 T2.4 + T4.2）。
+// UI 全局状态：命令面板 / 设置 / 导出弹窗可见性 + Toast 队列 + AI 可达性（G4 降级）。
 export interface ToastItem {
   id: number
   msg: string
@@ -14,6 +15,8 @@ export const useUiStore = defineStore('ui', () => {
   const settingsOpen = ref(false)
   const exportOpen = ref(false)
   const toasts = ref<ToastItem[]>([])
+  // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
+  const aiAvailable = ref<boolean | null>(null)
 
   function openPalette(): void {
     paletteOpen.value = true
@@ -41,12 +44,22 @@ export const useUiStore = defineStore('ui', () => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
     }, 1800)
   }
+  /** G4：探测 AI 可达性（启动调一次；失败容错 false） */
+  async function probeAiStatus(): Promise<void> {
+    try {
+      aiAvailable.value = (await getAiStatus()).available
+    } catch {
+      aiAvailable.value = false
+    }
+  }
 
   return {
     paletteOpen,
     settingsOpen,
     exportOpen,
     toasts,
+    aiAvailable,
+    probeAiStatus,
     openPalette,
     closePalette,
     openSettings,
