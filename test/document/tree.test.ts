@@ -74,6 +74,16 @@ test('buildTree: 叶子挂 docId（无清单→legacy:）+ status（git 干净�
   rmSync(root, { recursive: true, force: true })
 })
 
+test('buildTree: 叶子 wordCount（正文 chapter 剥 fm 算字数；非正文 role 无）', () => {
+  const root = makeBook()
+  const nodes = buildTree(root)
+  const chapter = findNode(nodes, '定稿/正文/第一卷/0001-开篇.md')
+  expect(chapter!.wordCount).toBe(2) // fm 后正文「正文」2 字
+  const outline = findNode(nodes, '大纲/卷纲/第一卷.md')
+  expect(outline!.wordCount).toBeUndefined() // 卷纲非正文 role，不算字数
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('buildTree: 卷目录关联卷纲（同名 stem）', () => {
   const root = makeBook()
   const vol = findNode(buildTree(root), '定稿/正文/第一卷')

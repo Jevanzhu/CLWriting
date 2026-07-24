@@ -16,6 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
+import { readBaseline, appendBaseline, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
 interface DocumentCtx {
@@ -92,6 +93,35 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     },
   )
 
+  // ── 字数日记（§5.4 今日基线）──────────────────────
+  route(
+    'GET',
+    '/api/books/:name/words-diary',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const date = todayDate()
+      reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date) })
+    },
+  )
+
+  route(
+    'POST',
+    '/api/books/:name/words-diary',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const body = await readJson(req)
+      const baseline = Number(body?.baseline)
+      if (!Number.isFinite(baseline) || baseline < 0) {
+        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'baseline 需非负数' })
+        return
+      }
+      appendBaseline(r.bookRoot, todayDate(), baseline)
+      reply(res, 200, { ok: true })
+    },
+  )
+
   // ── W2A：新建文档 ──────────────────────────────
   route(
     'POST',
@@ -130,12 +160,33 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           return
         }
         result = await svc.renameDocument({ docId, newName: body.newName })
-      } else {
+      } else if (body.op === 'move') {
         if (typeof body.toDir !== 'string') {
           reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'move 需要 toDir' })
           return
         }
         result = await svc.moveDocument({ docId, toDir: body.toDir })
+      } else if (body.op === 'meta') {
+        const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
+        const 章号 = Number(body.章号)
+        if (标题 === undefined && !Number.isFinite(章号)) {
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
+          return
+        }
+        result = svc.updateChapterMeta(docId, {
+          ...(标题 !== undefined ? { 标题 } : {}),
+          ...(Number.isFinite(章号) ? { 章号 } : {}),
+        })
+      } else if (body.op === 'fm') {
+        const meta = body.meta
+        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'fm 需要 meta 对象' })
+          return
+        }
+        result = svc.updateDocMeta(docId, meta as Record<string, unknown>)
+      } else {
+        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '未知 op（rename/move/meta/fm）' })
+        return
       }
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },

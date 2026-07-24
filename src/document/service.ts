@@ -32,6 +32,7 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId } from './stable-id.js'
 import { invalidateTreeIndex } from './tree.js'
+import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 
 /** 保存输入（W0-1 §5.1）。 */
@@ -317,6 +318,64 @@ export class DocumentService {
   /** 重命名文档（改文件名，目录不变）。 */
   renameDocument(input: RenameDocumentInput): Promise<MoveResult> {
     return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName }))
+  }
+
+  /** 更新章节元数据（标题/章号）：写 fm + 文件名同步 rename（章号-标题.md，docId 不变）。 */
+  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): MoveResult {
+    const path = this.lookupPathByDocId(docId)
+    if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
+    const abs = this.resolveSafePath(path)
+    if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    const r = readDoc(abs)
+    if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
+    const map = parseFlat(r.fmRaw)
+    if (meta.标题 !== undefined) map.set('标题', meta.标题)
+    if (meta.章号 !== undefined) map.set('章号', meta.章号)
+    try {
+      writeDoc(abs, stringifyFlat(map), r.body)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+    }
+    // 文件名同步（章号-标题.md）；无变化则只 invalidate（标题改了 tree 要刷新）
+    const 章号 = map.get('章号')
+    const 标题 = String(map.get('标题') ?? '')
+    // 章号补零 4 位，对齐项目章节命名约定（如 0001-开篇.md）
+    const newName =
+      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题}.md` : basename(path)
+    invalidateTreeIndex(this.bookRoot)
+    if (basename(path) !== newName) {
+      return this.doMoveOrRename(docId, { kind: 'rename', newName })
+    }
+    return { ok: true, docId, path }
+  }
+
+  /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
+   *  与 updateChapterMeta 的区别：不改文件名（卷纲/总纲文件名不按 章号-标题）。 */
+  updateDocMeta(docId: string, meta: Record<string, unknown>): MoveResult {
+    const path = this.lookupPathByDocId(docId)
+    if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
+    const abs = this.resolveSafePath(path)
+    if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    let raw: string
+    try {
+      raw = readFileSync(abs, 'utf-8')
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
+    }
+    // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
+    const split = splitFrontMatter(raw)
+    const map = parseFlat(split ? split.fmRaw : '')
+    const body = split ? split.body : raw
+    for (const [k, v] of Object.entries(meta)) {
+      if (v !== undefined) map.set(k, v)
+    }
+    try {
+      writeDoc(abs, stringifyFlat(map), body)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+    }
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId, path }
   }
 
   /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */

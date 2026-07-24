@@ -153,6 +153,26 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
   // §17 决策①：第一卷卷纲范例（与 定稿/正文/第一卷/ 同名关联，树行显「✓卷纲」）
   writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), renderVolumeOutlineExample(), 'utf-8')
+  // 块3.1：章纲目录 + 第一章范例（结构化 fm，引导 ChapterMeta 字段录入）
+  mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, '大纲', '章纲', '0001-开篇.md'),
+    [
+      '---',
+      '章号: 1',
+      '标题: 开篇',
+      '钩子类型: 悬念钩',
+      '钩子强弱: 中',
+      '情绪定位: 铺垫',
+      '场景: 叙事铺陈',
+      '字数目标: 3000',
+      '---',
+      '',
+      '本章情节要点（章纲正文，供作者规划或 AI 生成依据）。',
+      '',
+    ].join('\n'),
+    'utf-8',
+  )
   writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n', 'utf-8')
   for (const lead of opts.leadsEnabled) {
     mkdirSync(join(bookRoot, '大纲', lead), { recursive: true })

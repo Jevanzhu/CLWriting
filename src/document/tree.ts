@@ -8,12 +8,14 @@
  * BookTreeIndex 进程内缓存：跨请求共享，结构性 mutation 后 invalidateTreeIndex 失效。
  * watcher 不做（0 依赖红线）——外部编辑器改动靠前端手动刷新触发 rescan。
  */
-import { readdirSync, type Dirent } from 'node:fs'
+import { readdirSync, readFileSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
 import { collectDirtyFiles, deriveStatusFull, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
+import { splitFrontMatter } from '../format/frontmatter.js'
+import { countWords } from '../format/words.js'
 
 /** 树节点（扫描派生）。 */
 export interface TreeNode {
@@ -29,6 +31,8 @@ export interface TreeNode {
   docId?: string
   /** 叶子文档：八态派生（status.ts）。目录无。 */
   status?: DocumentStatus
+  /** 叶子文档：正文字数（countWords 剥 fm 后码点数；仅 chapter/piece-body/draft）。目录无。 */
+  wordCount?: number
   /** 卷目录专属：关联卷纲 path（大纲/卷纲/<卷>.md）；无关联 undefined。 */
   volumeOutlinePath?: string
 }
@@ -140,6 +144,9 @@ function annotate(
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
       n.status = deriveStatusFull(bookRoot, n.path, dirty)
+      if (isCountedRole(n.role)) {
+        n.wordCount = countWordsOf(bookRoot, n.path)
+      }
     } else {
       const volName = matchVolumeName(n.path)
       if (volName && volumeStems.has(volName)) {
@@ -149,6 +156,22 @@ function annotate(
     if (n.children.length > 0) {
       annotate(n.children, bookRoot, entryByPath, dirty, volumeStems)
     }
+  }
+}
+
+/** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body / 工作区草稿 draft。 */
+function isCountedRole(role: DocumentRole): boolean {
+  return role === 'chapter' || role === 'piece-body' || role === 'draft'
+}
+
+/** 读文档剥 frontmatter 后 countWords（读失败 → 0 容错）。 */
+function countWordsOf(bookRoot: string, rel: string): number {
+  try {
+    const raw = readFileSync(join(bookRoot, rel), 'utf-8')
+    const split = splitFrontMatter(raw)
+    return countWords(split ? split.body : raw)
+  } catch {
+    return 0
   }
 }
 

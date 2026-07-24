@@ -8,4 +8,6 @@ export interface TreeNode {
   docId?: string
   status?: string
   volumeOutlinePath?: string
+  /** 叶子正文字数（服务端 buildTree 算；仅 chapter/piece-body/draft）。 */
+  wordCount?: number
 }

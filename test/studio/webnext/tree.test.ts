@@ -141,3 +141,49 @@ describe('tree · 索引', () => {
     expect(tree.byDocId.get('doc7')?.path).toBe('工作区/草稿-1.md')
   })
 })
+
+describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', () => {
+  function wleaf(path: string, role: string, wordCount: number): TreeNode {
+    return { path, name: path.split('/').pop()!.replace(/\.md$/, ''), isDirectory: false, role, wordCount, children: [] } as TreeNode
+  }
+  function rawWords(): TreeNode[] {
+    return [
+      dir('定稿', [
+        dir('定稿/正文', [
+          dir('定稿/正文/第一卷', [
+            wleaf('定稿/正文/第一卷/第1章-x.md', 'chapter', 1000),
+            wleaf('定稿/正文/第一卷/第2章-x.md', 'chapter', 2000),
+          ]),
+        ]),
+        // 设定非正文，不算字数
+        dir('定稿/设定', [wleaf('定稿/设定/人物.md', 'setting', 500)]),
+      ]),
+      dir('工作区', [wleaf('工作区/草稿-1.md', 'draft', 300)]),
+    ]
+  }
+
+  it('totalWords: chapter+draft 求和（含草稿；非正文 role 排除）', async () => {
+    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    // 1000 + 2000（chapter）+ 300（draft）= 3300；setting 500 不算
+    expect(tree.totalWords).toBe(3300)
+  })
+
+  it('finalizedWords: chapter 求和（不含草稿 draft）', async () => {
+    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    // 1000 + 2000 = 3000；draft 300 不算
+    expect(tree.finalizedWords).toBe(3000)
+  })
+
+  it('updateWordCount: 局部更新某叶子字数（聚合随之变）', async () => {
+    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    expect(tree.totalWords).toBe(3300)
+    tree.updateWordCount('定稿/正文/第一卷/第1章-x.md', 1500) // 1000 → 1500
+    expect(tree.totalWords).toBe(3800)
+  })
+})
