@@ -32,7 +32,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
     const result = await runClwritingCli(['knowledge', 'check'], join(ctx.workDir, entry.path))
-    reply(res, result.ok ? 200 : 500, result)
+    reply(res, 200, result) // 业务失败编码在 body.ok/stderr,不用 500(前端 apiJson 会当异常抛,吞诊断信息)
   })
 
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）

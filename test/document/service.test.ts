@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { appendPending } from '../../src/document/journal.js'
-import { hashFile } from '../../src/gate/confirm.js'
+import { hashFile } from '../../src/fs/hash.js'
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))

@@ -245,4 +245,10 @@ export const ccDriver: StudioDriver = {
     // 编排层回推自定义事件(如 review 逐角进度)到 session 事件流,经主 SSE 转发前端
     push(session.id, ev)
   },
+
+  isRunning(session: Session): boolean {
+    // 生成中 = 子进程存活(未 kill 且未退出);SSE 新连接据此补发运行态快照
+    const child = sessionChild.get(session.id)
+    return !!child && !child.killed && child.exitCode === null
+  },
 }

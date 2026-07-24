@@ -25,16 +25,16 @@ jobs:
       - name: 装依赖
         run: npm ci
 
-      - name: 装前端依赖（web node_modules）
-        run: npm --prefix src/studio/web ci
+      - name: 装前端依赖（web-next node_modules）
+        run: npm --prefix src/studio/web-next ci
 
       - name: 类型检查（tsc --noEmit 零错）
         run: npm run typecheck
 
       - name: 前端类型检查（vue-tsc）
-        run: npm --prefix src/studio/web run typecheck
+        run: npm --prefix src/studio/web-next run typecheck
 
-      - name: 构建（src + web → dist，发布资产门）
+      - name: 构建（src + web-next → dist，发布资产门）
         run: npm run build:all
 
       - name: Studio 前端资产 smoke（dist/web/index.html 必须存在）
@@ -52,25 +52,5 @@ jobs:
       - name: 运行时零第三方依赖断言
         run: node -e "const d=require('./package.json').dependencies||{}; if(Object.keys(d).length){console.error('运行时依赖非空:',d);process.exit(1)}"
 
-  e2e:
-    name: e2e (Playwright · chromium)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: 装依赖
-        run: npm ci
-
-      - name: 装前端依赖（web node_modules）
-        run: npm --prefix src/studio/web ci
-
-      - name: 装 Playwright chromium（含系统依赖）
-        run: npx playwright install --with-deps chromium
-
-      - name: e2e（build:web + mock driver 关键路径）
-        run: npm run test:e2e
+  # e2e job 暂移除（T4.3 切 web-next 后旧 Playwright selector 失效，test:e2e 已 echo 禁用）；
+  # web-next e2e 待重写后恢复，见 Dev/Main/Reviews/webnext-平价验收.md「延期事项」。

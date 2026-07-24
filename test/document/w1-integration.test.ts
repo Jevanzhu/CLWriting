@@ -18,7 +18,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
-import { hashFile } from '../../src/gate/confirm.js'
+import { hashFile } from '../../src/fs/hash.js'
 
 describe('W1 / 原子性与路径安全', () => {
   let bookRoot: string

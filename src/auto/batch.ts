@@ -99,6 +99,29 @@ export function writeBatchProgress(bookRoot: string, progress: BatchProgress): v
   atomicWriteFile(batchFilePath(bookRoot), JSON.stringify(progress, null, 2))
 }
 
+// ── 批次活跃性（W0-2 §5.2，从 document/mutex 归位至此，M10 G2）──
+
+/** batch 是否活跃：.auto-batch.json 未完 + host_pid 进程存活；旧文件无 host_pid 保守视为活跃。 */
+export function isBatchActive(bookRoot: string): boolean {
+  const p = readBatchProgress(bookRoot)
+  if (!p) return false
+  if (p.completed.length >= p.target_count) return false // 已完成
+  if (typeof p.host_pid === 'number') return isPidAlive(p.host_pid)
+  // 旧批次文件无 host_pid → 保守视为活跃（安全方向，W0-2 §7）
+  return true
+}
+
+/** 进程探活：signal 0 不发信号只检验存在。EPERM（存在但无权限）算 alive，ESRCH（不存在）算死。 */
+export function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 // ── 搬运：工作区根产出 → 待定稿/<章>/（#33 第 4 节）──
 
 type UnitKind = 'long' | 'short'

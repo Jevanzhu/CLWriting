@@ -48,7 +48,9 @@ export function registerCliRoutes(ctx: CliCtx): void {
     }
 
     const result = await runClwritingCli(args, bookRoot)
-    reply(res, result.ok ? 200 : 500, { ...result, step })
+    // CLI 业务失败也返 200（失败编码在 body.ok/stderr）：返 500 会被前端 apiJson 当异常抛出，
+    // 吞掉 stdout/stderr 诊断信息（body 无 error 字段时 toast 只剩退出码数字）
+    reply(res, 200, { ...result, step })
   })
 }
 

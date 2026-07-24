@@ -36,7 +36,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     const args = ['export', '--format', format]
     if (PLATFORMS.has(String(body['platform']))) args.push('--platform', String(body['platform']))
     const result = await runClwritingCli(args, join(ctx.workDir, entry.path))
-    reply(res, result.ok ? 200 : 500, result)
+    reply(res, 200, result) // 业务失败编码在 body.ok/stderr,不用 500(前端 apiJson 会当异常抛,吞诊断信息)
   })
 
   // 导入 v0.2 正文（作用于工作目录，建新书；length-routing 自动分流长短篇）
@@ -51,7 +51,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     if (body['kind'] === 'long' || body['kind'] === 'short') args.push('--kind', body['kind'])
     if (typeof body['genre'] === 'string' && body['genre'].trim()) args.push('--genre', body['genre'].trim())
     const result = await runClwritingCli(args, ctx.workDir)
-    reply(res, result.ok ? 200 : 500, result)
+    reply(res, 200, result)
   })
 
   // 启用 RAG 插件（key 落本地 rag.secret，不进 git）
@@ -69,6 +69,6 @@ export function registerIoRoutes(ctx: IoCtx): void {
     if (!useEnv && typeof body['key'] === 'string' && body['key']) args.push('--key', body['key'])
     if (useEnv) args.push('--use-env')
     const result = await runClwritingCli(args, join(ctx.workDir, entry.path))
-    reply(res, result.ok ? 200 : 500, result)
+    reply(res, 200, result)
   })
 }

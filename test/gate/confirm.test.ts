@@ -7,10 +7,10 @@ import {
   checkConfirmGate,
   readConfirm,
   clearConfirm,
-  hashFile,
   hashContent,
   confirmPath,
 } from '../../src/gate/confirm.js'
+import { hashFile } from '../../src/fs/hash.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
 
