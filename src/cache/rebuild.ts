@@ -86,21 +86,39 @@ export function rebuild(
       errors.push(...errs)
     }
 
-    // #2 扫描章节（定稿/正文/）
+    // #2 扫描章节（定稿/正文/，递归含 <卷>/ 子目录）
     const textDir = join(bookRoot, '定稿', '正文')
     if (existsSync(textDir)) {
-      const files = readdirSync(textDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
-      for (const f of files) {
-        const fp = join(textDir, f)
-        if (!statSync(fp).isFile()) continue
-        const r = readChapter(fp)
-        if (r.ok) {
-          syncChapter(db, r.chapter)
-          chapterCount++
-        } else {
-          errors.push(r.error)
+      const walkChapters = (dir: string): void => {
+        let entries: string[]
+        try {
+          entries = readdirSync(dir)
+        } catch {
+          return
+        }
+        for (const name of entries) {
+          if (name.startsWith('._')) continue
+          const fp = join(dir, name)
+          let st: ReturnType<typeof statSync>
+          try {
+            st = statSync(fp)
+          } catch {
+            continue
+          }
+          if (st.isDirectory()) {
+            walkChapters(fp) // 递归子目录（卷）
+          } else if (name.endsWith('.md')) {
+            const r = readChapter(fp)
+            if (r.ok) {
+              syncChapter(db, r.chapter)
+              chapterCount++
+            } else {
+              errors.push(r.error)
+            }
+          }
         }
       }
+      walkChapters(textDir)
     }
 
     // #3 扫描摘要（定稿/摘要/章摘要/ + 卷摘要/）
