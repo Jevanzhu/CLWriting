@@ -63,7 +63,7 @@ export function parseArgs(argv: string[]): StudioArgs {
  * 定位前端构建产物目录。
  * 打包后：dist/cli.js + dist/web/（here=dist/ → dist/web）
  * chunk 分割时：here 可能在 dist/chunks/（→ ../web）
- * 开发从源码跑：here=src/studio/server/ → src/studio/web/dist
+ * 开发从源码跑：前端走 vite 5173（dev:web-next），不依赖此探测
  * 逐个探测 index.html，命中即用；都不到返回 undefined（server 仅 API）。
  */
 async function resolveStaticDir(): Promise<string | undefined> {
@@ -157,7 +157,7 @@ export async function studioCommand(argv: string[]): Promise<void> {
     }
     if (!staticDir) {
       console.log('  ⚠ 前端尚未构建，书架页将显示构建提示。')
-      console.log('    构建：npm --prefix src/studio/web run build')
+      console.log('    构建：npm --prefix src/studio/web-next run build')
     }
     openBrowser(url)
   })

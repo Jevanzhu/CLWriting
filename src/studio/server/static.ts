@@ -62,7 +62,7 @@ export function createStaticHandler(rootDir: string) {
         res.end(data)
       } catch {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-        res.end('前端尚未构建。请先运行：npm --prefix src/studio/web run build')
+        res.end('前端尚未构建。请先运行：npm --prefix src/studio/web-next run build')
       }
     }
   }
