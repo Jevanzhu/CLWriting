@@ -18,10 +18,20 @@ export interface RelationEdge {
   type: string
 }
 
+/** 债务子图边（块5 D2）：欠方 → 债主（来自 大纲/关系债） */
+export interface DebtEdge {
+  编号: string
+  标题: string
+  状态: string
+  欠方: string
+  债主: string
+}
+
 export interface SettingsResult {
   kind: 'long' | 'short'
   characters: CharacterCard[]
   characterRelations: RelationEdge[]
+  debtGraph: DebtEdge[]
 }
 
 export async function getSettings(name: string): Promise<SettingsResult> {
