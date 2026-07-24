@@ -1,6 +1,10 @@
 <script setup lang="ts">
-// Obsidian view-header：面包屑（书名 › 视图）+ 右侧操作位（T0.3 留空，P1+ 放 inline 操作）。
+// Obsidian view-header：面包屑（书名 › 视图）+ 右侧操作位（专注模式入口）。
+import { Focus } from 'lucide-vue-next'
+import { useWorkspaceStore } from '../../stores/workspace'
+
 defineProps<{ bookName: string }>()
+const ws = useWorkspaceStore()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 </script>
 
@@ -11,7 +15,16 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <span class="crumb-sep">›</span>
       <span class="crumb-current">编辑</span>
     </div>
-    <div class="view-actions" />
+    <div class="view-actions">
+      <button
+        class="action-btn"
+        :class="{ active: ws.focusMode }"
+        :title="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
+        @click="ws.toggleFocus()"
+      >
+        <Focus :size="16" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -42,5 +55,26 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 }
 .crumb-sep {
   margin: 0 6px;
+}
+.action-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.action-btn.active {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-accent);
 }
 </style>
