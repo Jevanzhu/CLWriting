@@ -88,28 +88,66 @@ export function splitFrontMatter(
   return { fmRaw, body }
 }
 
-/** 平铺 front matter → 有序 Map（保留插入顺序，回写不重排） */
+/** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
 export function parseFlat(
   fmRaw: string,
 ): Map<string, unknown> {
   const result = new Map<string, unknown>()
-  for (const line of fmRaw.split('\n')) {
+  const lines = fmRaw.split('\n')
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]!
     const trimmed = line.trim()
-    if (trimmed === '' || trimmed.startsWith('#')) continue
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      i++
+      continue
+    }
     const colonIdx = line.indexOf(':')
-    if (colonIdx === -1) continue
+    if (colonIdx === -1) {
+      i++
+      continue
+    }
     const key = line.slice(0, colonIdx).trim()
-    const valRaw = line.slice(colonIdx + 1)
+    const valRaw = line.slice(colonIdx + 1).trim()
+    // 块标量：key: |（literal，保留换行）或 key: >（folded，换行转空格）
+    if (valRaw === '|' || valRaw === '>') {
+      const folded = valRaw === '>'
+      const block: string[] = []
+      i++
+      while (i < lines.length) {
+        const bl = lines[i]!
+        if (bl.trim() === '') {
+          block.push('')
+          i++
+          continue
+        }
+        const indent = bl.length - bl.trimStart().length
+        if (indent === 0) break // 回到平铺层（新 key）
+        block.push(bl.slice(indent))
+        i++
+      }
+      const value = folded
+        ? block.join(' ').replace(/  +/g, ' ').replace(/ +$/,'')
+        : block.join('\n').replace(/\n+$/, '')
+      result.set(key, value)
+      continue
+    }
     result.set(key, parseValue(valRaw))
+    i++
   }
   return result
 }
 
-/** 有序 Map → 平铺 front matter 文本（保留顺序） */
+/** 有序 Map → 平铺 front matter 文本（多行字符串值用块标量 `key: |`） */
 export function stringifyFlat(map: Map<string, unknown>): string {
   const lines: string[] = []
   for (const [key, val] of map) {
-    lines.push(`${key}: ${stringifyValue(val)}`)
+    if (typeof val === 'string' && val.includes('\n')) {
+      lines.push(`${key}: |`)
+      for (const bl of val.split('\n')) lines.push(bl === '' ? '' : '  ' + bl)
+    } else {
+      lines.push(`${key}: ${stringifyValue(val)}`)
+    }
   }
   return lines.join('\n')
 }

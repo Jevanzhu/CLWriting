@@ -33,12 +33,45 @@ export function parseFmFields(content: string): Record<string, string> {
   }
   if (end === -1) return {}
   const out: Record<string, string> = {}
-  for (const line of lines.slice(1, end)) {
+  let i = 1
+  while (i < end) {
+    const line = lines[i]!
     const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
+    if (!trimmed || trimmed.startsWith('#')) {
+      i++
+      continue
+    }
     const idx = line.indexOf(':')
-    if (idx === -1) continue
-    out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+    if (idx === -1) {
+      i++
+      continue
+    }
+    const key = line.slice(0, idx).trim()
+    const valRaw = line.slice(idx + 1).trim()
+    // 块标量 key: |（literal）或 key: >（folded）—— 多行值
+    if (valRaw === '|' || valRaw === '>') {
+      const folded = valRaw === '>'
+      const block: string[] = []
+      i++
+      while (i < end) {
+        const bl = lines[i]!
+        if (bl.trim() === '') {
+          block.push('')
+          i++
+          continue
+        }
+        const indent = bl.length - bl.trimStart().length
+        if (indent === 0) break
+        block.push(bl.slice(indent))
+        i++
+      }
+      out[key] = folded
+        ? block.join(' ').replace(/  +/g, ' ').replace(/ +$/, '')
+        : block.join('\n').replace(/\n+$/, '')
+      continue
+    }
+    out[key] = valRaw
+    i++
   }
   return out
 }
