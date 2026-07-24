@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useWordsStore } from '../../stores/words'
 import type { TreeNode } from '../../types/tree'
 import {
   createDoc,
@@ -19,6 +20,7 @@ import ChapterTreeItem from './ChapterTreeItem.vue'
 
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
+const words = useWordsStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 
@@ -347,6 +349,8 @@ watch(
     if (!name) return
     await tree.load(name)
     expanded.value = loadExpanded()
+    // 今日基线：tree.load 后 totalWords 已就绪（§5.4），不阻塞树渲染
+    void words.ensureBaseline(name)
   },
   { immediate: true },
 )

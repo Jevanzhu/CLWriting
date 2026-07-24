@@ -2,8 +2,12 @@
 // 状态栏：左 CLI 连接态（useHeartbeat serverOnline）；右 主题名。T0.4 接心跳；字数/保存态随 P2 加。
 import { useTheme } from '../../composables/useTheme'
 import { serverOnline } from '../../composables/useHeartbeat'
+import { useTreeStore } from '../../stores/tree'
+import { useWordsStore } from '../../stores/words'
 defineProps<{ bookName: string }>()
 const { themeName } = useTheme()
+const tree = useTreeStore()
+const words = useWordsStore()
 </script>
 
 <template>
@@ -13,6 +17,9 @@ const { themeName } = useTheme()
       <span>{{ serverOnline ? 'Claude CLI 已连接' : 'CLI 连接中断' }}</span>
     </div>
     <div class="status-right">
+      <span v-if="tree.totalWords" class="status-words">
+        全书 {{ tree.totalWords.toLocaleString() }}<span class="sep">·</span>今日 +{{ words.todayWords.toLocaleString() }}
+      </span>
       <span>{{ themeName() }}</span>
     </div>
   </div>
@@ -44,5 +51,12 @@ const { themeName } = useTheme()
 }
 .status-dot.off {
   background: var(--text-error);
+}
+.status-words {
+  font-variant-numeric: tabular-nums;
+}
+.sep {
+  margin: 0 6px;
+  color: var(--text-faint);
 }
 </style>

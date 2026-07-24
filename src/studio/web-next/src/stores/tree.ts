@@ -40,6 +40,42 @@ export const useTreeStore = defineStore('tree', () => {
     return m
   })
 
+  /** 字数聚合：遍历 raw 叶子，按 role 过滤求和 wordCount。 */
+  function sumWords(nodes: TreeNode[], roles: Set<string>): number {
+    let sum = 0
+    const walk = (ns: TreeNode[]) => {
+      for (const n of ns) {
+        if (!n.isDirectory && roles.has(n.role)) sum += n.wordCount ?? 0
+        if (n.children.length) walk(n.children)
+      }
+    }
+    walk(nodes)
+    return sum
+  }
+
+  const WORD_ALL = new Set(['chapter', 'piece-body', 'draft'])
+  const WORD_FINAL = new Set(['chapter', 'piece-body'])
+
+  /** 全书已写字数（chapter+piece-body+draft，含草稿）。 */
+  const totalWords = computed(() => sumWords(raw.value, WORD_ALL))
+  /** 全书已定稿字数（chapter+piece-body，不含草稿）。 */
+  const finalizedWords = computed(() => sumWords(raw.value, WORD_FINAL))
+
+  /** save 后局部更新某叶子字数（避免重拉整树）。 */
+  function updateWordCount(path: string, count: number): void {
+    const walk = (ns: TreeNode[]): boolean => {
+      for (const n of ns) {
+        if (n.path === path) {
+          n.wordCount = count
+          return true
+        }
+        if (n.children.length && walk(n.children)) return true
+      }
+      return false
+    }
+    walk(raw.value)
+  }
+
   async function load(name: string): Promise<void> {
     loading.value = true
     error.value = null
@@ -54,7 +90,7 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  return { raw, grouped, byPath, byDocId, revision, loading, error, load }
+  return { raw, grouped, byPath, byDocId, totalWords, finalizedWords, updateWordCount, revision, loading, error, load }
 })
 
 /** 虚拟分组 transform：真实磁盘节点 → 写作功能分组（移植旧 FileTree.groupTree）。

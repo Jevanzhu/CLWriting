@@ -16,6 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
+import { readBaseline, appendBaseline, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
 interface DocumentCtx {
@@ -89,6 +90,35 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         revision: index.revision,
         validatedAt: index.validatedAt,
       })
+    },
+  )
+
+  // ── 字数日记（§5.4 今日基线）──────────────────────
+  route(
+    'GET',
+    '/api/books/:name/words-diary',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const date = todayDate()
+      reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date) })
+    },
+  )
+
+  route(
+    'POST',
+    '/api/books/:name/words-diary',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const body = await readJson(req)
+      const baseline = Number(body?.baseline)
+      if (!Number.isFinite(baseline) || baseline < 0) {
+        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'baseline 需非负数' })
+        return
+      }
+      appendBaseline(r.bookRoot, todayDate(), baseline)
+      reply(res, 200, { ok: true })
     },
   )
 

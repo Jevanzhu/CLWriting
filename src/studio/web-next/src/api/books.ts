@@ -32,3 +32,19 @@ export async function revert(name: string, chapter: number): Promise<void> {
     },
   )
 }
+
+// GET /words-diary → {date, baseline}（§5.4 今日基线；baseline=null 表示今日未记）。
+export async function getWordsDiary(
+  name: string,
+): Promise<{ date: string; baseline: number | null }> {
+  return apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`)
+}
+
+// POST /words-diary {baseline} → 记今日基线（首次打开记当前已写）。
+export async function postBaseline(name: string, baseline: number): Promise<void> {
+  await apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseline }),
+  })
+}

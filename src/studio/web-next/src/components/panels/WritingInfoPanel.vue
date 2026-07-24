@@ -5,7 +5,8 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { getConfig, revert, type BookConfig } from '../../api/books'
-import { countWords } from '../../shared/words'
+import { countWords, stripFrontmatter } from '../../shared/words'
+import type { TreeNode } from '../../types/tree'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -30,12 +31,24 @@ watch(
   { immediate: true },
 )
 
-// 剥 frontmatter（--- ... ---）取正文 body，再计字数（与导出口径同函数）
-function stripFm(c: string): string {
-  const m = c.match(/^---\n[\s\S]*?\n---\n?/)
-  return m ? c.slice(m[0].length) : c
-}
-const words = computed(() => (entry.value ? countWords(stripFm(entry.value.content)) : 0))
+// 章级实时字数（剥 fm 后正文）
+const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
+// 当前章所在卷字数（同卷 chapter 叶子 wordCount sum；非正文卷 → 0）
+const volumeWords = computed(() => {
+  if (!node.value) return 0
+  const m = node.value.path.match(/^定稿\/正文\/([^/]+)\//)
+  if (!m) return 0
+  const volPrefix = `定稿/正文/${m[1]}/`
+  let sum = 0
+  const walk = (ns: TreeNode[]) => {
+    for (const n of ns) {
+      if (!n.isDirectory && n.role === 'chapter' && n.path.startsWith(volPrefix)) sum += n.wordCount ?? 0
+      if (n.children.length) walk(n.children)
+    }
+  }
+  walk(tree.raw)
+  return sum
+})
 const target = computed(() => config.value.book?.target_words ?? 0)
 const progress = computed(() =>
   target.value ? Math.min(100, Math.round((words.value / target.value) * 100)) : 0,
@@ -71,8 +84,19 @@ async function onRevert(): Promise<void> {
     <div v-if="!entry" class="side-hint">未打开文档</div>
     <template v-else>
       <div class="row">
-        <span class="label">字数</span>
+        <span class="label">本章</span>
         <span class="value">{{ words.toLocaleString() }}</span>
+      </div>
+      <div v-if="volumeWords" class="row">
+        <span class="label">本卷</span>
+        <span class="value">{{ volumeWords.toLocaleString() }}</span>
+      </div>
+      <div class="row">
+        <span class="label">全书</span>
+        <span class="value">
+          {{ tree.totalWords.toLocaleString() }}
+          <span class="muted">（定稿 {{ tree.finalizedWords.toLocaleString() }}）</span>
+        </span>
       </div>
       <div v-if="target" class="progress-wrap">
         <div class="progress-bar">
