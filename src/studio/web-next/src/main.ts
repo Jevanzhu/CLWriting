@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import { boot } from './api/client'
 import { usePrefsStore } from './stores/prefs'
+import { useUiStore } from './stores/ui'
 import './styles/tokens.css'
 import './styles/base.css'
 import './composables/useTheme' // 模块加载即 apply 持久化主题（副作用 import，渲染前 CSS 变量就位）
@@ -17,5 +18,6 @@ await boot()
 const pinia = createPinia()
 setActivePinia(pinia)
 usePrefsStore().apply()
+useUiStore().probeAiStatus() // G4：后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
 createApp(App).use(pinia).use(router).mount('#app')

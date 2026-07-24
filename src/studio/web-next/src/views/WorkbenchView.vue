@@ -142,6 +142,10 @@ const recent = computed(() => wb.log.slice(-200))
 
 <template>
   <div class="workbench">
+    <!-- G4：AI 不可达置灰提示 -->
+    <div v-if="ui.aiAvailable === false" class="ai-warn">
+      AI 驱动不可用（claude CLI 未就绪），写作功能暂不可用。请确认 claude CLI 已安装并在 PATH。
+    </div>
     <!-- 状态卡 -->
     <section class="card">
       <div class="card-head">
@@ -164,7 +168,7 @@ const recent = computed(() => wb.log.slice(-200))
           :disabled="wb.running"
           @keyup.enter="!wb.running && onSpawn()"
         />
-        <button v-if="!wb.running" class="btn primary" @click="onSpawn">生成</button>
+        <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
         <button v-else class="btn danger" @click="onInterrupt">中断</button>
       </div>
     </section>
@@ -402,5 +406,13 @@ const recent = computed(() => wb.log.slice(-200))
   white-space: pre-wrap;
   max-height: 300px;
   overflow: auto;
+}
+.ai-warn {
+  padding: 8px 12px;
+  margin-bottom: var(--size-4-3);
+  font-size: 12px;
+  color: var(--text-warning);
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
 }
 </style>

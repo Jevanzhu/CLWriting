@@ -48,6 +48,10 @@ async function save(): Promise<void> {
 
 <template>
   <div class="onboard">
+    <!-- G4：AI 不可达置灰提示 -->
+    <div v-if="ui.aiAvailable === false" class="ai-warn">
+      AI 驱动不可用（claude CLI 未就绪），开书对话暂不可用。请确认 claude CLI 已安装并在 PATH。
+    </div>
     <section class="card">
       <div class="card-head">开书对话 · 分步生成设定</div>
       <p class="warn">⚠ 各步会覆盖对应设定文件（总纲 / 名册 / 世界观…），已开的书慎用。</p>
@@ -57,7 +61,7 @@ async function save(): Promise<void> {
           :key="s"
           class="step-btn"
           :class="{ on: active === s }"
-          :disabled="loading"
+          :disabled="loading || ui.aiAvailable === false"
           @click="gen(s)"
         >
           {{ STEP_LABEL[s] }}
@@ -191,5 +195,13 @@ async function save(): Promise<void> {
 .err-msg {
   font-size: 12px;
   color: var(--text-error);
+}
+.ai-warn {
+  padding: 8px 12px;
+  margin-bottom: var(--size-4-3);
+  font-size: 12px;
+  color: var(--text-warning);
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
 }
 </style>
