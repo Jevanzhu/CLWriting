@@ -5,6 +5,7 @@ import {
   Search,
   LayoutGrid,
   BarChart3,
+  Share2,
   Wrench,
   Compass,
   Download,
@@ -61,6 +62,14 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
         @click="ws.setActiveView('rhythm')"
       >
         <BarChart3 :size="20" />
+      </button>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'relations' }"
+        title="角色关系图"
+        @click="ws.setActiveView('relations')"
+      >
+        <Share2 :size="20" />
       </button>
       <button
         class="rbtn"

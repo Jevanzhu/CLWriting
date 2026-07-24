@@ -7,6 +7,7 @@ import WorkbenchView from '../views/WorkbenchView.vue'
 import OnboardView from '../views/OnboardView.vue'
 import OverviewView from '../views/OverviewView.vue'
 import RhythmView from '../views/RhythmView.vue'
+import RelationsView from '../views/RelationsView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
 import { useSse } from '../composables/useSse'
 import { useDocStore } from '../stores/doc'
@@ -41,6 +42,7 @@ watch(
     <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
     <OverviewView v-else-if="ws.activeView === 'overview'" :book-name="bookName" />
     <RhythmView v-else-if="ws.activeView === 'rhythm'" :book-name="bookName" />
+    <RelationsView v-else-if="ws.activeView === 'relations'" :book-name="bookName" />
     <OnboardView v-else :book-name="bookName" />
   </WorkspaceShell>
 </template>
