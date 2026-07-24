@@ -111,9 +111,8 @@ async function onSave(): Promise<void> {
     for (const f of FIELD_DEFS[kind.value]) {
       const v = fields.value[f.key] ?? ''
       if (v === '') continue
-      // fm 平铺格式不支持多行值：textarea 换行转空格（详述放 body）
-      const val = f.type === 'textarea' ? v.replace(/\n/g, ' ') : v
-      meta[f.key] = f.type === 'number' ? Number(val) : val
+      // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
+      meta[f.key] = f.type === 'number' ? Number(v) : v
     }
     await updateDocMeta(props.bookName, ws.activeDocId, meta)
     await doc.refresh(ws.activeDocId)

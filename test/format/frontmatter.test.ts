@@ -148,3 +148,43 @@ test('joinFrontMatter: 包裹完整 markdown', () => {
   expect(joinFrontMatter('编号: X', '正文')).toBe('---\n编号: X\n---\n正文')
   expect(joinFrontMatter('', '正文')).toBe('正文')
 })
+
+// ── 块标量多行值（fm 多行根治）────────────────────
+
+test('parseFlat: 块标量 literal（key: |）保留换行', () => {
+  const fmRaw = '标题: 短\n背景: |\n  第一行\n  第二行\n状态: 进行中'
+  const map = parseFlat(fmRaw)
+  expect(map.get('标题')).toBe('短')
+  expect(map.get('背景')).toBe('第一行\n第二行')
+  expect(map.get('状态')).toBe('进行中')
+})
+
+test('parseFlat: 块标量 folded（key: >）换行转空格', () => {
+  const fmRaw = '摘要: >\n  一句话\n  接着说'
+  const map = parseFlat(fmRaw)
+  expect(map.get('摘要')).toBe('一句话 接着说')
+})
+
+test('stringifyFlat: 多行值用块标量', () => {
+  const map = new Map<string, unknown>()
+  map.set('标题', '短')
+  map.set('背景', '第一行\n第二行')
+  expect(stringifyFlat(map)).toBe('标题: 短\n背景: |\n  第一行\n  第二行')
+})
+
+test('块标量往返（parse → stringify → parse 一致）', () => {
+  const map = new Map<string, unknown>()
+  map.set('背景', '行1\n行2\n行3')
+  const text = stringifyFlat(map)
+  const reparsed = parseFlat(text)
+  expect(reparsed.get('背景')).toBe('行1\n行2\n行3')
+})
+
+test('旧平铺 fm（无块标量）parseFlat 不受影响', () => {
+  const fmRaw = '编号: 伏笔-031\n状态: 进行中\n开启章: 12'
+  const map = parseFlat(fmRaw)
+  expect(map.get('编号')).toBe('伏笔-031')
+  expect(map.get('状态')).toBe('进行中')
+  expect(map.get('开启章')).toBe(12)
+  expect(stringifyFlat(map)).toBe(fmRaw)
+})
