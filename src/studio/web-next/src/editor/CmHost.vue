@@ -104,6 +104,19 @@ watch(
   },
 )
 
+/** 在光标处插入文本（右栏速查「插入」经 EditorView 调用；替换选区 + 滚动 + 回焦）。 */
+function insertText(text: string): void {
+  if (!view) return
+  const sel = view.state.selection.main
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: text },
+    selection: { anchor: sel.from + text.length },
+    scrollIntoView: true,
+  })
+  view.focus()
+}
+defineExpose({ insertText })
+
 onUnmounted(() => view?.destroy())
 </script>
 

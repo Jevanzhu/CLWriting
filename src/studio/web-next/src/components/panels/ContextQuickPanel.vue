@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 上下文速查面板（细案 T2.3）：设定区文件速查（点开开 tab）+ AI 辅助位预留置灰。
 import { computed } from 'vue'
+import { CornerDownLeft } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -35,6 +36,12 @@ async function open(node: TreeNode): Promise<void> {
     /* 打开失败静默 */
   }
 }
+
+/** 插入文档名到正文光标（命令管道 → EditorView → CmHost）；无活动文档时跳过。 */
+function onInsert(text: string): void {
+  if (!ws.activeDocId) return
+  ws.requestInsert(text)
+}
 </script>
 
 <template>
@@ -48,7 +55,14 @@ async function open(node: TreeNode): Promise<void> {
         class="setting-item"
         @click="open(s)"
       >
-        {{ s.name }}
+        <span class="setting-name">{{ s.name }}</span>
+        <button
+          class="insert-btn"
+          title="插入到正文光标处"
+          @click.stop="onInsert(s.name)"
+        >
+          <CornerDownLeft :size="13" />
+        </button>
       </div>
     </div>
     <div class="ai-slot" :class="{ disabled: !serverOnline }">
@@ -86,9 +100,28 @@ async function open(node: TreeNode): Promise<void> {
   padding: 5px var(--size-4-2);
   border-radius: var(--radius-s);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.setting-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.insert-btn {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.insert-btn:hover {
+  color: var(--text-accent);
 }
 .setting-item:hover {
   background: var(--background-modifier-hover);

@@ -23,6 +23,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
   const pendingCloseTabId = ref<string | null>(null)
+  /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。 */
+  const pendingInsert = ref<string | null>(null)
   const bookName = ref<string | null>(null)
 
   /** 活动 tab 的 docId（EditorView / 树高亮消费）。 */
@@ -131,6 +133,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pendingCloseTabId.value = null
   }
 
+  /** 请求插入文本到编辑器光标（右栏速查「插入」用）。 */
+  function requestInsert(text: string): void {
+    pendingInsert.value = text
+  }
+  /** 消费待插入文本（EditorView 执行后清空信号）。 */
+  function consumeInsert(): string | null {
+    const t = pendingInsert.value
+    pendingInsert.value = null
+    return t
+  }
+
   function toggleLeft(): void {
     leftOpen.value = !leftOpen.value
   }
@@ -172,5 +185,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     toggleFocus,
     setLeftPanel,
     setActiveView,
+    pendingInsert,
+    requestInsert,
+    consumeInsert,
   }
 })
