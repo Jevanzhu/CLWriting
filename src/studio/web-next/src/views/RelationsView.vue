@@ -3,9 +3,15 @@
 // 力导向布局（斥力+引力+中心引力+阻尼）→ SVG 渲染 → 悬停高亮邻边 + 拖拽节点。
 // 纯 SVG 无图表库；数据源 #7.5 settings 端点（parseRelations 派生自角色卡「关系」字段）。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { getSettings, type CharacterCard, type RelationEdge } from '../api/settings'
+import { getSettings, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
+import { useDocStore } from '../stores/doc'
+import { useWorkspaceStore } from '../stores/workspace'
+import { useTreeStore } from '../stores/tree'
 
 const props = defineProps<{ bookName: string }>()
+const doc = useDocStore()
+const ws = useWorkspaceStore()
+const tree = useTreeStore()
 
 interface SimNode {
   id: string
@@ -18,7 +24,7 @@ interface SimNode {
   file?: string
   fixed: boolean
 }
-interface SimEdge { from: string; to: string; type: string }
+interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt' }
 
 // 画布 + 物理参数（经验初值，手感调）
 const W = 820
@@ -37,11 +43,14 @@ const loading = ref(true)
 const err = ref<string | null>(null)
 const isShort = ref(false)
 const hoverId = ref<string | null>(null)
+/** viewBox（D2 缩放/平移）：{x,y,w,h} */
+const view = ref({ x: 0, y: 0, w: W, h: H })
+const viewBoxStr = computed(() => `${view.value.x} ${view.value.y} ${view.value.w} ${view.value.h}`)
 
 let rafId = 0
 let running = false
 
-function buildGraph(characters: CharacterCard[], rels: RelationEdge[]): void {
+function buildGraph(characters: CharacterCard[], rels: RelationEdge[], debts: DebtEdge[]): void {
   const byId = new Map<string, SimNode>()
   const ensure = (id: string, hasCard: boolean, file?: string): SimNode => {
     let n = byId.get(id)
@@ -57,9 +66,16 @@ function buildGraph(characters: CharacterCard[], rels: RelationEdge[]): void {
   const valid: SimEdge[] = []
   for (const r of rels) {
     if (!r.from || !r.to || r.from === r.to) continue
-    valid.push({ from: r.from, to: r.to, type: r.type })
+    valid.push({ from: r.from, to: r.to, type: r.type, kind: 'relation' })
     ensure(r.from, byId.has(r.from) ? byId.get(r.from)!.hasCard : false)
     ensure(r.to, byId.has(r.to) ? byId.get(r.to)!.hasCard : false)
+  }
+  // 债务子图（D2）：欠方→债主，虚线边；端点可能无角色卡 → 灰节点
+  for (const d of debts) {
+    if (!d.欠方 || !d.债主 || d.欠方 === d.债主) continue
+    valid.push({ from: d.欠方, to: d.债主, type: d.标题 || '债', kind: 'debt' })
+    ensure(d.欠方, byId.has(d.欠方) ? byId.get(d.欠方)!.hasCard : false)
+    ensure(d.债主, byId.has(d.债主) ? byId.get(d.债主)!.hasCard : false)
   }
   for (const e of valid) {
     byId.get(e.from)!.degree++
@@ -175,7 +191,7 @@ async function load(): Promise<void> {
       return
     }
     isShort.value = false
-    buildGraph(r.characters, r.characterRelations)
+    buildGraph(r.characters, r.characterRelations, r.debtGraph ?? [])
     loading.value = false
     if (nodes.value.length) start()
   } catch (e) {
@@ -216,13 +232,16 @@ function edgeDim(e: SimEdge): boolean {
   return hoverId.value !== null && e.from !== hoverId.value && e.to !== hoverId.value
 }
 
-// --- 拖拽 ---
+// --- 拖拽 + 点击跳卡（D2）---
 const svgRef = ref<SVGSVGElement | null>(null)
 let dragNode: SimNode | null = null
 let dragOffX = 0
 let dragOffY = 0
+let dragMoved = false
+let downX = 0
+let downY = 0
 
-function svgPoint(evt: MouseEvent): { x: number; y: number } {
+function svgPoint(evt: { clientX: number; clientY: number }): { x: number; y: number } {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
   const pt = svg.createSVGPoint()
@@ -235,7 +254,11 @@ function svgPoint(evt: MouseEvent): { x: number; y: number } {
 }
 function onNodeDown(node: SimNode, evt: MouseEvent): void {
   evt.preventDefault()
+  evt.stopPropagation() // 阻止冒泡到背景 pan
   dragNode = node
+  dragMoved = false
+  downX = evt.clientX
+  downY = evt.clientY
   node.fixed = true
   const p = svgPoint(evt)
   dragOffX = p.x - node.x
@@ -245,6 +268,12 @@ function onNodeDown(node: SimNode, evt: MouseEvent): void {
 }
 function onNodeMove(evt: MouseEvent): void {
   if (!dragNode) return
+  if (!dragMoved) {
+    const dx = evt.clientX - downX
+    const dy = evt.clientY - downY
+    if (dx * dx + dy * dy < 16) return // <4px 视为点击（容忍手抖）
+    dragMoved = true
+  }
   const p = svgPoint(evt)
   dragNode.x = p.x - dragOffX
   dragNode.y = p.y - dragOffY
@@ -253,15 +282,84 @@ function onNodeMove(evt: MouseEvent): void {
   start()
 }
 function onNodeUp(): void {
-  if (dragNode) dragNode.fixed = false
+  const n = dragNode
+  if (n && !dragMoved) void openCharacter(n) // 未拖动 → 点击跳卡
+  if (n) n.fixed = false
   dragNode = null
   window.removeEventListener('mousemove', onNodeMove)
   window.removeEventListener('mouseup', onNodeUp)
   kick()
 }
 
+/** 点击角色节点 → 打开角色卡 tab（D2）。无 file / 不在树中 → 忽略。 */
+async function openCharacter(n: SimNode): Promise<void> {
+  if (!n.hasCard || !n.file) return
+  const node = tree.byPath.get(n.file)
+  if (!node || !node.docId) return
+  try {
+    await doc.open(node)
+    ws.openTab(node.docId)
+  } catch {
+    /* 打开失败忽略（best-effort） */
+  }
+}
+
+// --- 缩放 + 平移（D2）---
+function onWheel(evt: WheelEvent): void {
+  const p = svgPoint(evt)
+  const scale = evt.deltaY > 0 ? 1.15 : 1 / 1.15
+  const nw = Math.max(W * 0.2, Math.min(W * 4, view.value.w * scale))
+  if (nw === view.value.w) return
+  const sx = nw / view.value.w
+  // 以鼠标为中心缩放
+  view.value.x = p.x - (p.x - view.value.x) * sx
+  view.value.y = p.y - (p.y - view.value.y) * sx
+  view.value.w = nw
+  view.value.h = nw / (W / H)
+}
+let panning = false
+let panStart = { x: 0, y: 0, vx: 0, vy: 0 }
+function onBgDown(evt: MouseEvent): void {
+  // 仅背景触发平移；节点 mousedown 已 stopPropagation
+  panning = true
+  panStart = { x: evt.clientX, y: evt.clientY, vx: view.value.x, vy: view.value.y }
+  window.addEventListener('mousemove', onPanMove)
+  window.addEventListener('mouseup', onPanUp)
+}
+function onPanMove(evt: MouseEvent): void {
+  if (!panning) return
+  const svg = svgRef.value
+  if (!svg) return
+  const rect = svg.getBoundingClientRect()
+  const sx = view.value.w / rect.width
+  const sy = view.value.h / rect.height
+  view.value.x = panStart.vx - (evt.clientX - panStart.x) * sx
+  view.value.y = panStart.vy - (evt.clientY - panStart.y) * sy
+}
+function onPanUp(): void {
+  panning = false
+  window.removeEventListener('mousemove', onPanMove)
+  window.removeEventListener('mouseup', onPanUp)
+}
+function resetView(): void {
+  view.value = { x: 0, y: 0, w: W, h: H }
+}
+
+// --- 边着色（D2：按关系语义关键词分类）---
+function edgeColor(e: SimEdge): string {
+  if (e.kind === 'debt') return '#c0392b' // 债务 = 暗红虚线
+  const t = e.type
+  if (/敌|仇|恨/.test(t)) return '#e05260' // 敌对红
+  if (/师|徒|长|父|母|养/.test(t)) return '#52a8e0' // 长辈/师徒蓝
+  if (/情|爱|恋|妻|夫|婚/.test(t)) return '#e072a8' // 亲密粉
+  if (/兄|弟|姐|妹|友|同/.test(t)) return '#7ac52b' // 同辈绿
+  if (/主|仆|属|下|臣/.test(t)) return '#e0a838' // 从属橙
+  return '#8a8a8a' // 其他灰
+}
+
 const nodeCount = computed(() => nodes.value.length)
 const edgeCount = computed(() => edges.value.length)
+const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').length)
 </script>
 
 <template>
@@ -277,18 +375,31 @@ const edgeCount = computed(() => edges.value.length)
     </div>
     <div v-else class="rel">
       <div class="rel-bar">
-        <span class="count">{{ nodeCount }} 角色 · {{ edgeCount }} 关系</span>
-        <span class="hint">拖拽节点重排 · 悬停高亮邻接</span>
+        <span class="count">{{ nodeCount }} 角色 · {{ edgeCount }} 关系<span v-if="debtCount">（含 {{ debtCount }} 债务）</span></span>
+        <div class="rel-tools">
+          <span class="hint">拖拽重排 · 滚轮缩放 · 点节点跳卡</span>
+          <button class="tool-btn" title="重置视图" @click="resetView">复位</button>
+        </div>
       </div>
-      <svg ref="svgRef" class="graph" :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid meet">
-        <!-- 边 -->
+      <svg
+        ref="svgRef"
+        class="graph"
+        :viewBox="viewBoxStr"
+        preserveAspectRatio="xMidYMid meet"
+        @wheel.prevent="onWheel"
+        @mousedown="onBgDown"
+      >
+        <!-- 边（关系实线按语义着色 / 债务虚线暗红） -->
         <g class="edges">
           <g v-for="(e, i) in edges" :key="i" :class="{ dim: edgeDim(e) }">
-            <line :x1="nodeX(e.from)" :y1="nodeY(e.from)" :x2="nodeX(e.to)" :y2="nodeY(e.to)" class="edge" />
+            <line
+              :x1="nodeX(e.from)" :y1="nodeY(e.from)" :x2="nodeX(e.to)" :y2="nodeY(e.to)"
+              class="edge" :class="{ debt: e.kind === 'debt' }" :stroke="edgeColor(e)"
+            />
             <text
               :x="(nodeX(e.from) + nodeX(e.to)) / 2"
               :y="(nodeY(e.from) + nodeY(e.to)) / 2"
-              class="edge-label"
+              class="edge-label" :fill="edgeColor(e)"
               text-anchor="middle"
             >{{ e.type }}</text>
           </g>
@@ -298,7 +409,7 @@ const edgeCount = computed(() => edges.value.length)
           <g
             v-for="n in nodes"
             :key="n.id"
-            :class="{ dim: isDim(n.id), hover: hoverId === n.id }"
+            :class="{ dim: isDim(n.id), hover: hoverId === n.id, clickable: n.hasCard && !!n.file }"
             @mousedown="onNodeDown(n, $event)"
             @mouseenter="hoverId = n.id"
             @mouseleave="hoverId = null"
@@ -372,6 +483,31 @@ const edgeCount = computed(() => edges.value.length)
 .node.no-card {
   fill: var(--text-faint);
   opacity: 0.5;
+}
+.edge.debt {
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
+}
+g.clickable {
+  cursor: pointer;
+}
+.rel-tools {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-3);
+}
+.tool-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tool-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .node-label {
   fill: var(--text-normal);
