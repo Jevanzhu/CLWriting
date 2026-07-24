@@ -11,7 +11,7 @@ const props = defineProps<{
   activePath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
-  creatingKind: 'chapter' | 'chapter-outline' | 'volume' | 'doc' | null
+  creatingKind: 'chapter' | 'chapter-outline' | 'character' | 'volume' | 'doc' | null
   creatingSeed: string
   /** inline 重命名输入框：path 命中则替代 label。 */
   renamePath: string | null
@@ -133,7 +133,7 @@ watch(
           ref="inp"
           v-model="inputVal"
           class="inline-input"
-          :placeholder="creatingKind === 'volume' ? '卷名' : '名称'"
+          :placeholder="creatingKind === 'volume' ? '卷名' : creatingKind === 'character' ? '姓名' : '名称'"
           @click.stop
           @keyup.enter="emit('create-commit', inputVal)"
           @keyup.esc="emit('create-cancel')"
