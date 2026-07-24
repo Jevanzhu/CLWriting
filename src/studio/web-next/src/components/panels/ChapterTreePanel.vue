@@ -10,9 +10,12 @@ import {
   renameDoc,
   moveDoc,
   deleteDoc,
+  updateChapterMetaDoc,
 } from '../../api/documents'
+import { parseChapterFileName } from '../../shared/words'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
 import ChapterTreeItem from './ChapterTreeItem.vue'
+import ChapterMetaDialog from './ChapterMetaDialog.vue'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
 //   + 右键菜单（五类）+ inline 新建/重命名 + 删除/移动 + 拖拽移动。
@@ -47,6 +50,8 @@ type Creating = {
 } | null
 const creating = ref<Creating>(null)
 const renamePath = ref<string | null>(null)
+// 块2.2 章节信息弹窗：编辑 章号/标题（落 fm + 文件名同步 rename）
+const metaEditing = ref<{ docId: string; 章号: number | null; 标题: string } | null>(null)
 
 // --- 拖拽 ---
 const draggedPath = ref<string | null>(null)
@@ -172,6 +177,7 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
 function buildLeafMenu(node: TreeNode): MenuItem[] {
   const items: MenuItem[] = [{ key: 'rename', label: '重命名' }]
   if (node.path.startsWith('定稿/正文/')) {
+    items.push({ key: 'meta', label: '章节信息…' })
     const targets = moveToTargets(node)
     if (targets.length) {
       items.push({
@@ -232,7 +238,14 @@ function onMenuSelect(key: string): void {
   if (key === 'new-chapter') startCreate('chapter', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
-  else if (key === 'copy-path') void onCopyPath(node)
+  else if (key === 'meta') {
+    const m = parseChapterFileName(node.path)
+    metaEditing.value = {
+      docId: node.docId ?? '',
+      章号: m?.章号 ?? null,
+      标题: m?.标题 ?? node.name,
+    }
+  } else if (key === 'copy-path') void onCopyPath(node)
   else if (key === 'delete') void doDelete(node)
 }
 
@@ -241,6 +254,25 @@ async function onCopyPath(node: TreeNode): Promise<void> {
     await navigator.clipboard.writeText(node.path)
   } catch {
     /* 浏览器限制静默 */
+  }
+}
+
+// --- 章节信息（块2.2）---
+async function onSaveMeta(meta: { 标题: string; 章号: number }): Promise<void> {
+  const e = metaEditing.value
+  if (!e) return
+  metaEditing.value = null
+  try {
+    await updateChapterMetaDoc(props.bookName, e.docId, meta)
+    await tree.load(props.bookName)
+    // 文件名可能变（rename）→ 同步 doc entry.path
+    const entry = doc.get(e.docId)
+    if (entry) {
+      const fresh = tree.byDocId.get(e.docId)
+      if (fresh) entry.path = fresh.path
+    }
+  } catch (err) {
+    openError.value = err instanceof Error ? err.message : String(err)
   }
 }
 
@@ -395,6 +427,13 @@ watch(
       :items="menuItems"
       @select="onMenuSelect"
       @close="menuVisible = false"
+    />
+    <ChapterMetaDialog
+      :model-value="!!metaEditing"
+      :章号="metaEditing?.章号 ?? null"
+      :标题="metaEditing?.标题 ?? ''"
+      @update:model-value="(v: boolean) => { if (!v) metaEditing = null }"
+      @save="onSaveMeta"
     />
   </div>
 </template>

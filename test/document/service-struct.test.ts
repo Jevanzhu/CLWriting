@@ -129,6 +129,40 @@ test('renameDocument: 改文件名，目录不变', async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('updateChapterMeta: 改标题 → fm 标题 + 文件名同步（章号-标题.md）', () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = svc.updateChapterMeta('doc_ch01', { 标题: '序章' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('定稿/正文/第一卷/0001-序章.md')
+  const fm = readFileSync(join(root, '定稿', '正文', '第一卷', '0001-序章.md'), 'utf-8')
+  expect(fm).toContain('标题: 序章')
+  expect(fm).toContain('章号: 1') // 章号不变
+  expect(fm).toContain('正文') // body 保留
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('updateChapterMeta: 改章号 → fm 章号 + 文件名同步', () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = svc.updateChapterMeta('doc_ch01', { 章号: 5 })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('定稿/正文/第一卷/0005-开篇.md')
+  const fm = readFileSync(join(root, '定稿', '正文', '第一卷', '0005-开篇.md'), 'utf-8')
+  expect(fm).toContain('章号: 5')
+  expect(fm).toContain('标题: 开篇') // 标题不变
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('updateChapterMeta: 未知 docId → NOT_FOUND', () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = svc.updateChapterMeta('doc_unknown', { 标题: 'x' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('NOT_FOUND')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('结构性操作触发旧书建清单（W0 §4.2）', async () => {
   const root = mkdtempSync(join(tmpdir(), 'w2a-nomanifest-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })

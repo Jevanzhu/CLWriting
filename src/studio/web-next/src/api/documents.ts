@@ -99,6 +99,22 @@ export async function moveDoc(
   )
 }
 
+// PATCH /documents/:docId op=meta（块2.2：更新章节元数据 标题/章号；写 fm + 文件名同步 rename）。
+export async function updateChapterMetaDoc(
+  name: string,
+  docId: string,
+  meta: { 标题?: string; 章号?: number },
+): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: 'meta', ...meta }),
+    },
+  )
+}
+
 // DELETE /documents/:docId（软删 → 回收站）。
 export async function deleteDoc(name: string, docId: string): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
