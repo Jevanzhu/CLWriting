@@ -90,25 +90,38 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
-/** 扫描定稿/正文/ 目录，读所有章节（容错） */
+/** 扫描目录读所有章节（容错，递归子目录——支持 定稿/正文/<卷>/ 结构） */
 export function readChapterDir(
   dirPath: string,
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
-  let files: string[]
-  try {
-    files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
-  } catch {
-    return { chapters, errors }
+  const walk = (dir: string): void => {
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      if (name.startsWith('._')) continue
+      const fp = join(dir, name)
+      let st: ReturnType<typeof statSync>
+      try {
+        st = statSync(fp)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        walk(fp) // 递归子目录（卷）
+      } else if (name.endsWith('.md')) {
+        const r = readChapter(fp)
+        if (r.ok) chapters.push(r.chapter)
+        else errors.push(r.error)
+      }
+    }
   }
-  for (const f of files) {
-    const fp = join(dirPath, f)
-    if (!statSync(fp).isFile()) continue
-    const r = readChapter(fp)
-    if (r.ok) chapters.push(r.chapter)
-    else errors.push(r.error)
-  }
+  walk(dirPath)
   return { chapters, errors }
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { readChapter, writeChapter, validateEnums } from '../../src/format/chapters.js'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { readChapter, writeChapter, validateEnums, readChapterDir } from '../../src/format/chapters.js'
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -66,5 +66,18 @@ describe('ChapterMeta 场景字段（#7.4）', () => {
     const r = readChapter(fp)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.chapter.字数目标).toBeUndefined()
+  })
+
+  // ── readChapterDir 递归（卷子目录支持，修单层 bug）──
+  it('readChapterDir 递归读卷子目录下的章 + 根目录章', () => {
+    const bodyDir = join(dir, '正文')
+    const volDir = join(bodyDir, '第一卷')
+    mkdirSync(volDir, { recursive: true })
+    writeFileSync(join(volDir, '0001-卷内.md'), '---\n章号: 1\n标题: 卷内\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文', 'utf8')
+    writeFileSync(join(bodyDir, '0002-根.md'), '---\n章号: 2\n标题: 根\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 大爽\n---\n\n正文', 'utf8')
+    const { chapters } = readChapterDir(bodyDir)
+    expect(chapters).toHaveLength(2)
+    expect(chapters.some((c) => c.标题 === '卷内')).toBe(true)
+    expect(chapters.some((c) => c.标题 === '根')).toBe(true)
   })
 })
