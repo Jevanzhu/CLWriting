@@ -149,6 +149,7 @@ export interface ChapterMeta {
   情绪定位: Emotion
   场景?: SceneType // 可选（#7.4 节奏页场景分布）
   时间锚点?: string // 可选（#7 第 2 节）
+  字数目标?: number // 可选（块4：规划字数，章纲录入；定稿章可保留规划值）
   _raw?: Record<string, string>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）

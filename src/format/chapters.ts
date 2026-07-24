@@ -17,7 +17,7 @@ const HOOK_LEVELS: HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点'])
+const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标'])
 
 /** 读取章节 md → ChapterMeta（容错） */
 export function readChapter(
@@ -51,6 +51,7 @@ export function readChapter(
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
   if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
+  if (map.has('字数目标')) chapter.字数目标 = Number(map.get('字数目标'))
 
   return { ok: true, chapter }
 }
@@ -65,6 +66,7 @@ function chapterToMap(ch: ChapterMeta): Map<string, unknown> {
   map.set('情绪定位', ch.情绪定位)
   if (ch.时间锚点) map.set('时间锚点', ch.时间锚点)
   if (ch.场景) map.set('场景', ch.场景)
+  if (ch.字数目标 !== undefined) map.set('字数目标', ch.字数目标)
   if (ch._raw) {
     for (const [k, v] of Object.entries(ch._raw)) {
       if (!map.has(k)) map.set(k, v)

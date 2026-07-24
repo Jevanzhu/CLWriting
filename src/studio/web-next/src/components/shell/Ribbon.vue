@@ -4,6 +4,7 @@ import {
   FolderTree,
   Search,
   LayoutGrid,
+  BarChart3,
   Wrench,
   Compass,
   Download,
@@ -52,6 +53,14 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
         @click="ws.setActiveView('overview')"
       >
         <LayoutGrid :size="20" />
+      </button>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'rhythm' }"
+        title="节奏（规划 vs 已写）"
+        @click="ws.setActiveView('rhythm')"
+      >
+        <BarChart3 :size="20" />
       </button>
       <button
         class="rbtn"

@@ -42,4 +42,29 @@ describe('ChapterMeta 场景字段（#7.4）', () => {
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.chapter.场景).toBeUndefined()
   })
+
+  // ── 字数目标（块4：节奏预测规划值）──
+  it('readChapter 解析字数目标字段', () => {
+    const fp = join(dir, '4-目标.md')
+    writeFileSync(fp, '---\n章号: 4\n标题: 目标\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 战斗\n字数目标: 3000\n---\n\n正文', 'utf8')
+    const r = readChapter(fp)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.chapter.字数目标).toBe(3000)
+  })
+
+  it('writeChapter 写回字数目标 + 往返一致', () => {
+    const fp = join(dir, '5-往返.md')
+    writeChapter(fp, { 章号: 5, 标题: '往返', 钩子类型: '危机钩', 钩子强弱: '强', 情绪定位: '大爽', 场景: '对话', 字数目标: 2500 }, '正文')
+    const r = readChapter(fp)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.chapter.字数目标).toBe(2500)
+  })
+
+  it('字数目标缺省时为 undefined（旧正文兼容）', () => {
+    const fp = join(dir, '6-无目标.md')
+    writeFileSync(fp, '---\n章号: 6\n标题: 无目标\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文', 'utf8')
+    const r = readChapter(fp)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.chapter.字数目标).toBeUndefined()
+  })
 })

@@ -53,12 +53,12 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
 
   it('节奏：字数曲线 2 章 + 钩子/情绪分布', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/rhythm`)
-    const d = (await r.json()) as { kind: string; wordCurve: unknown[]; hookTypeDist: Record<string, number>; sceneDist: Record<string, number> }
+    const d = (await r.json()) as { kind: string; wordCurve: unknown[]; written: { hookTypeDist: Record<string, number>; sceneDist: Record<string, number> } }
     expect(d.kind).toBe('long')
     expect(d.wordCurve).toHaveLength(2)
-    expect(d.hookTypeDist['悬念钩']).toBe(1)
-    expect(d.sceneDist['对话']).toBe(1)
-    expect(d.sceneDist['战斗']).toBe(1)
+    expect(d.written.hookTypeDist['悬念钩']).toBe(1)
+    expect(d.written.sceneDist['对话']).toBe(1)
+    expect(d.written.sceneDist['战斗']).toBe(1)
   })
 
   it('账本：七类概览（伏笔 1 条进行中）', async () => {

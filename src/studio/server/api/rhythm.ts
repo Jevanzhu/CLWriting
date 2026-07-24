@@ -1,10 +1,10 @@
 /**
- * 章节节奏 REST 端点（#7.4，双轨）。
+ * 章节节奏 REST 端点（#7.4 双轨：规划 vs 已写，块4 节奏预测）。
  *
- * GET /api/books/:name/rhythm → 长篇(字数曲线+钩子/情绪分布) / 短篇(篇长+目标情绪)
+ * GET /api/books/:name/rhythm → 长篇(wordCurve + written/planned 双轨分布) / 短篇(篇长+目标情绪)
  *
- * 数据源现成：readChapterDir 的 ChapterMeta 已含 钩子类型/钩子强弱/情绪定位/_wordCount。
- * 场景分布跳过（正文 ChapterMeta 无场景字段；细纲数据定稿书缺失，见 1.4.2 笔记）。
+ * 双轨数据源：readChapterDir 读 定稿/正文（已写实际）+ 大纲/章纲（块3.1 录入规划）。
+ * planned.targetWords 求和自 ChapterMeta.字数目标。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -39,8 +39,9 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
 }
 
 function rhythmLong(bookRoot: string): unknown {
-  const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
-  const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
+  const { chapters: written } = readChapterDir(join(bookRoot, '定稿', '正文'))
+  const { chapters: planned } = readChapterDir(join(bookRoot, '大纲', '章纲'))
+  const sorted = written.slice().sort((a, b) => a.章号 - b.章号)
   const wordCurve = sorted.map((c) => ({ 章号: c.章号, 标题: c.标题, 字数: c._wordCount ?? 0 }))
   const totalWords = wordCurve.reduce((s, p) => s + p.字数, 0)
   const avgWords = wordCurve.length ? Math.round(totalWords / wordCurve.length) : 0
@@ -48,12 +49,25 @@ function rhythmLong(bookRoot: string): unknown {
     kind: 'long' as const,
     wordCurve,
     avgWords,
-    hookTypeDist: countDist(chapters.map((c) => c.钩子类型), HOOK_TYPES),
-    hookLevelDist: countDist(chapters.map((c) => c.钩子强弱), HOOK_LEVELS),
-    emotionDist: countDist(chapters.map((c) => c.情绪定位), EMOTIONS),
-    sceneDist: countDist(chapters.map((c) => c.场景), SCENE_TYPES),
-    // 场景 × 情绪增强矩阵（#7.4 增强区）
-    sceneEmotion: crossCount(chapters, SCENE_TYPES, EMOTIONS, (c) => c.场景, (c) => c.情绪定位),
+    // 已写节奏（定稿/正文）
+    written: {
+      count: written.length,
+      hookTypeDist: countDist(written.map((c) => c.钩子类型), HOOK_TYPES),
+      hookLevelDist: countDist(written.map((c) => c.钩子强弱), HOOK_LEVELS),
+      emotionDist: countDist(written.map((c) => c.情绪定位), EMOTIONS),
+      sceneDist: countDist(written.map((c) => c.场景), SCENE_TYPES),
+      // 场景 × 情绪增强矩阵（#7.4 增强区）
+      sceneEmotion: crossCount(written, SCENE_TYPES, EMOTIONS, (c) => c.场景, (c) => c.情绪定位),
+    },
+    // 规划节奏（大纲/章纲，块4 节奏预测）
+    planned: {
+      count: planned.length,
+      targetWords: planned.reduce((s, c) => s + (c.字数目标 ?? 0), 0),
+      hookTypeDist: countDist(planned.map((c) => c.钩子类型), HOOK_TYPES),
+      hookLevelDist: countDist(planned.map((c) => c.钩子强弱), HOOK_LEVELS),
+      emotionDist: countDist(planned.map((c) => c.情绪定位), EMOTIONS),
+      sceneDist: countDist(planned.map((c) => c.场景), SCENE_TYPES),
+    },
   }
 }
 

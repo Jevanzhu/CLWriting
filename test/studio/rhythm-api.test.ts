@@ -1,0 +1,140 @@
+/**
+ * GET /rhythm 双轨端点集成测（块4 节奏预测）：
+ * 启动 studio server + 临时长篇书（定稿/正文 2 章 + 大纲/章纲 3 章含字数目标），
+ * 验证 written 读定稿、planned 读章纲、targetWords 求和、分布含未写章。
+ */
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { startServer } from '../../src/studio/server/index.js'
+
+const BOOK = '节奏测试书'
+let workDir = ''
+let server: http.Server | undefined
+let baseUrl = ''
+let token = ''
+
+function get(path: string): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(baseUrl)
+    const req = http.request(
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('end', () => {
+          let json: unknown = null
+          try {
+            json = JSON.parse(data)
+          } catch {
+            /* 非 JSON 响应留 null */
+          }
+          resolve({ status: res.statusCode ?? 0, json })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), 'clwriting-rhythm-'))
+  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+  )
+  const bookRoot = join(workDir, BOOK)
+  mkdirSync(bookRoot, { recursive: true })
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 节奏测试书\n  genre: 玄幻\nhost: cc\n',
+  )
+  // 定稿/正文（已写 2 章）
+  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, '定稿', '正文', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n\n正文一二三\n',
+    'utf8',
+  )
+  writeFileSync(
+    join(bookRoot, '定稿', '正文', '0002-转折.md'),
+    '---\n章号: 2\n标题: 转折\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 大爽\n场景: 战斗\n---\n\n正文四五六七八\n',
+    'utf8',
+  )
+  // 大纲/章纲（规划 3 章含字数目标；第 3 章未写 → 测待写场景）
+  mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, '大纲', '章纲', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n字数目标: 3000\n---\n\n章纲正文\n',
+    'utf8',
+  )
+  writeFileSync(
+    join(bookRoot, '大纲', '章纲', '0002-转折.md'),
+    '---\n章号: 2\n标题: 转折\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 大爽\n场景: 战斗\n字数目标: 3500\n---\n\n章纲正文\n',
+    'utf8',
+  )
+  writeFileSync(
+    join(bookRoot, '大纲', '章纲', '0003-未写.md'),
+    '---\n章号: 3\n标题: 未写\n钩子类型: 渴望钩\n钩子强弱: 中\n情绪定位: 小爽\n场景: 对话\n字数目标: 2800\n---\n\n章纲正文\n',
+    'utf8',
+  )
+  server = startServer({ port: 0, workDir })
+  await new Promise<void>((r) => server!.once('listening', r))
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const r = await fetch(`${baseUrl}/api/boot`)
+  token = ((await r.json()) as { token: string }).token
+})
+
+afterAll(async () => {
+  if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
+})
+
+describe('GET /rhythm 双轨（块4 节奏预测）', () => {
+  it('长篇双轨：written 读定稿、planned 读章纲', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    expect(r.status).toBe(200)
+    const j = r.json as {
+      kind: string
+      written: { count: number }
+      planned: { count: number }
+    }
+    expect(j.kind).toBe('long')
+    expect(j.written.count).toBe(2)
+    expect(j.planned.count).toBe(3)
+  })
+
+  it('planned.targetWords 求和自章纲字数目标', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    const j = r.json as { planned: { targetWords: number } }
+    expect(j.planned.targetWords).toBe(3000 + 3500 + 2800)
+  })
+
+  it('written 分布按定稿章统计', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    const j = r.json as { written: { hookTypeDist: Record<string, number>; sceneDist: Record<string, number> } }
+    expect(j.written.hookTypeDist['悬念钩']).toBe(1)
+    expect(j.written.hookTypeDist['危机钩']).toBe(1)
+    expect(j.written.sceneDist['战斗']).toBe(1)
+  })
+
+  it('planned 分布含未写章（章纲录了就算）', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    const j = r.json as { planned: { hookTypeDist: Record<string, number>; emotionDist: Record<string, number> } }
+    expect(j.planned.hookTypeDist['渴望钩']).toBe(1) // 第 3 章未写但章纲录了
+    expect(j.planned.emotionDist['小爽']).toBe(1)
+  })
+
+  it('wordCurve 仅含已写章（按章号排序）', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    const j = r.json as { wordCurve: { 章号: number; 标题: string; 字数: number }[] }
+    expect(j.wordCurve).toHaveLength(2)
+    expect(j.wordCurve[0]!.章号).toBe(1)
+    expect(j.wordCurve[1]!.章号).toBe(2)
+  })
+})
