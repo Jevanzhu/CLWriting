@@ -21,10 +21,25 @@ export interface RhythmWordPoint {
   字数: number
 }
 
+/** 逐章偏差行（D3）：状态 待写/即兴/对比；对比时字段 "规→实"，跑偏 *偏差=true。 */
+export interface ChapterDiffRow {
+  章号: number
+  标题: string
+  状态: '待写' | '即兴' | '对比'
+  钩子类型?: string
+  钩子类型偏差?: boolean
+  情绪定位?: string
+  情绪定位偏差?: boolean
+  场景?: string
+  场景偏差?: boolean
+  字数?: string
+}
+
 export interface RhythmLong {
   kind: 'long'
   wordCurve: RhythmWordPoint[]
   avgWords: number
+  chapterDiff: ChapterDiffRow[]
   written: RhythmTrack & { sceneEmotion: Record<string, Record<string, number>> }
   planned: RhythmTrack & { targetWords: number }
 }

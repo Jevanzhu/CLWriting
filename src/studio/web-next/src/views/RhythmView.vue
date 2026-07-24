@@ -190,6 +190,43 @@ function distMax(g: DistGroup): number {
           <span class="ach-pct">{{ wordAchievement }}%</span>
         </div>
       </section>
+
+      <!-- 区4：逐章偏差（D3：章纲↔定稿 join，跑偏标红） -->
+      <section class="card">
+        <div class="card-head">逐章偏差<span class="legend">规→实 · 红字为跑偏</span></div>
+        <div v-if="!data.chapterDiff.length" class="empty">无章纲或定稿数据</div>
+        <div v-else class="diff-wrap">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th class="num">章</th>
+                <th>标题</th>
+                <th>状态</th>
+                <th>钩子</th>
+                <th>情绪</th>
+                <th>场景</th>
+                <th class="num">字数 目/实</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in data.chapterDiff" :key="r.章号">
+                <td class="num">{{ r.章号 }}</td>
+                <td class="title">{{ r.标题 }}</td>
+                <td>
+                  <span
+                    class="tag"
+                    :class="{ 'tag-pending': r.状态 === '待写', 'tag-impromptu': r.状态 === '即兴' }"
+                  >{{ r.状态 }}</span>
+                </td>
+                <td :class="{ diff: r.钩子类型偏差 }">{{ r.钩子类型 ?? '—' }}</td>
+                <td :class="{ diff: r.情绪定位偏差 }">{{ r.情绪定位 ?? '—' }}</td>
+                <td :class="{ diff: r.场景偏差 }">{{ r.场景 ?? '—' }}</td>
+                <td class="num">{{ r.字数 ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -368,6 +405,68 @@ function distMax(g: DistGroup): number {
   font-weight: 600;
   color: var(--text-normal);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── 逐章偏差表 ── */
+.diff-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.diff-table th {
+  position: sticky;
+  top: 0;
+  background: var(--background-secondary);
+  color: var(--text-faint);
+  font-weight: 500;
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  white-space: nowrap;
+}
+.diff-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+.diff-table tr:last-child td {
+  border-bottom: none;
+}
+.diff-table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.diff-table .title {
+  color: var(--text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-table .diff {
+  color: var(--text-error);
+  font-weight: 600;
+}
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-s);
+  font-size: 10px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+.tag-pending {
+  color: var(--text-faint);
+}
+.tag-impromptu {
+  color: var(--text-warning);
+  border-color: var(--text-warning);
 }
 
 .placeholder {
