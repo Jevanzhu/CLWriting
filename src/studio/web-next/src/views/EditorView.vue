@@ -4,12 +4,16 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useUiStore } from '../stores/ui'
+import { updateChapterMetaDoc } from '../api/documents'
+import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 
 const props = defineProps<{ docId: string | null }>()
 const doc = useDocStore()
 const tree = useTreeStore()
 const ws = useWorkspaceStore()
+const ui = useUiStore()
 const cmHost = ref<{ insertText: (t: string) => void } | null>(null)
 
 // 右栏速查「插入」命令管道：pendingInsert 变 → 插入光标 + 清空（无编辑器也清空，避免残留）
@@ -23,6 +27,61 @@ watch(
 )
 
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
+
+// 编辑区只显 body（剥离 fm）：仅对有右栏表单的文档剥离（fm 走表单管理）；
+// 六类账本/草稿等无表单文档显全文（剥离了 fm 也无处编辑，反而锁死）。
+const hasForm = computed(() => (entry.value ? formKindOf(entry.value.path) !== null : false))
+const body = computed(() => {
+  const c = entry.value?.content ?? ''
+  return hasForm.value ? stripFrontmatter(c).replace(/^\n+/, '') : c
+})
+function onBodyChange(next: string): void {
+  const e = entry.value
+  if (!e) return
+  // 有表单：fm 不在编辑区 → mergeFm 拼回（保留 fm 头，只换 body）；无表单：原样 patch 全文
+  doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
+}
+
+// 顶部标题：仅 chapter 可编辑，绑 fm 标题 → 失焦/回车写 fm 标题 + 联动 rename 文件名。
+const isChapter = computed(() => entry.value?.path.startsWith('定稿/正文/') ?? false)
+const titleModel = ref('')
+watch(
+  () => entry.value?.content,
+  (c) => {
+    const e = entry.value
+    titleModel.value = e ? (parseFmFields(c ?? '').标题 ?? e.name) : ''
+  },
+  { immediate: true },
+)
+const titleSaving = ref(false)
+async function onTitleCommit(): Promise<void> {
+  const e = entry.value
+  if (!e || !ws.activeDocId || titleSaving.value) return
+  const newTitle = titleModel.value.trim() || '未命名'
+  const current = parseFmFields(e.content).标题 ?? e.name
+  if (newTitle === current) return
+  titleSaving.value = true
+  try {
+    // 标题联动 rename（文件名 + fm 标题）；保护本地未存 body：记 body → 写后 refresh 拼回
+    const localBody = stripFrontmatter(e.content)
+    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, { 标题: newTitle })
+    await tree.load(doc.bookName!)
+    const fresh = tree.byDocId.get(ws.activeDocId)
+    if (fresh) {
+      e.path = fresh.path
+      e.name = fresh.name
+    }
+    await doc.refresh(ws.activeDocId)
+    const refreshed = doc.get(ws.activeDocId)
+    if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
+      doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
+    }
+  } catch (err) {
+    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+  } finally {
+    titleSaving.value = false
+  }
+}
 
 // 持久化恢复缺口：刷新后 tabs 恢复但 doc Map 空 → 活动 tab 无 entry → 自动 open。
 // 正常切 tab 不触发（entry 已在 Map，dirty 驻留不丢，决策 R6）。
@@ -62,7 +121,15 @@ onUnmounted(() => {
   <div v-if="!entry" class="editor-empty">选择左侧章节开始写作</div>
   <div v-else class="editor-view">
     <header class="doc-head">
-      <input class="inline-title" :value="entry.name" readonly placeholder="未命名" />
+      <input
+        v-if="isChapter"
+        v-model="titleModel"
+        class="inline-title editable"
+        placeholder="未命名"
+        @blur="onTitleCommit"
+        @keydown.enter.prevent="onTitleCommit"
+      />
+      <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
       <span
         class="save-state"
         :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error }"
@@ -90,9 +157,9 @@ onUnmounted(() => {
     <div class="doc-body">
       <CmHost
         ref="cmHost"
-        :model-value="entry.content"
+        :model-value="body"
         :mode="entry.mode"
-        @update:model-value="doc.patch(entry.docId, $event)"
+        @update:model-value="onBodyChange"
       />
     </div>
   </div>
@@ -129,6 +196,17 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--text-normal);
   font-family: var(--font-ui);
+}
+/* chapter 可编辑标题：hover 有底色提示可点；内边距补偿保持视觉对齐 */
+.inline-title.editable {
+  cursor: text;
+  border-radius: var(--radius-s);
+  padding: 2px 6px;
+  margin: -2px -6px;
+  transition: background 0.12s;
+}
+.inline-title.editable:hover {
+  background: var(--background-modifier-hover);
 }
 .save-state {
   flex-shrink: 0;

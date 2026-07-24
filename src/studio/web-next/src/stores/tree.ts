@@ -121,10 +121,10 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   if (writeChildren.length) {
     groups.push({ path: '写作', name: '写作', isDirectory: true, role: 'note', children: writeChildren })
   }
-  // 2. 大纲（总纲置顶 + 摘要次之）
+  // 2. 大纲（总纲置顶 + 摘要次之）；关系债为派生数据（角色卡关系派生），不进编辑树
   if (dagang) {
     const zonggang = dagang.children.find((c) => !c.isDirectory && c.name === '总纲')
-    const rest = dagang.children.filter((c) => c !== zonggang)
+    const rest = dagang.children.filter((c) => c !== zonggang && c.name !== '关系债')
     groups.push({ ...dagang, children: [zonggang, zhaiyao, ...rest].filter(Boolean) as TreeNode[] })
   }
   // 3. 设定（提升根级）

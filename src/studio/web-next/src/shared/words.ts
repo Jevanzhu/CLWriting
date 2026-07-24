@@ -17,6 +17,26 @@ export function stripFrontmatter(content: string): string {
 }
 
 /**
+ * 合并 fm 头与新 body（stripFrontmatter 的逆）：保留 full 原有 fm，拼接 body。
+ * 编辑区剥离 fm 后，用户改 body → patch 时用它拼回全文（fm 不动）。
+ * 无 fm 或 fm 未闭合 → 返回 body；body 去前导空行（fm/body 分隔空行），本体原样保留（含末尾换行，往返一致）。
+ */
+export function mergeFm(full: string, body: string): string {
+  if (!full.startsWith('---')) return body
+  const lines = full.split('\n')
+  let end = -1
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]!.trim() === '---') {
+      end = i
+      break
+    }
+  }
+  if (end === -1) return body
+  const fmPart = lines.slice(0, end + 1).join('\n')
+  return `${fmPart}\n\n${body.replace(/^\n+/, '')}`
+}
+
+/**
  * 解析 frontmatter 字段为 key→value（纯字符串；浏览器安全）。
  * 与服务端 format/frontmatter.parseFlat 同逻辑但不做值类型推断（前端表单用 string 足够）。
  * 无 frontmatter → 空对象。
@@ -80,8 +100,9 @@ export function parseFmFields(content: string): Record<string, string> {
 export function formKindOf(
   path: string,
 ):
-  | 'chapter-outline' | 'volume-outline' | 'synopsis'
+  | 'chapter' | 'chapter-outline' | 'volume-outline' | 'synopsis'
   | 'character' | 'worldview' | 'item' | null {
+  if (path.startsWith('定稿/正文/')) return 'chapter'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
   if (path === '大纲/总纲.md') return 'synopsis'
