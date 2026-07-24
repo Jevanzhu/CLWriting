@@ -1,13 +1,26 @@
 <script setup lang="ts">
 // 文档编辑视图（细案 T1.2）：inline 标题（章名，只读）+ CM6 正文 + 保存态指示 + 30s 自动保存。
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
+import { useWorkspaceStore } from '../stores/workspace'
 import CmHost from '../editor/CmHost.vue'
 
 const props = defineProps<{ docId: string | null }>()
 const doc = useDocStore()
 const tree = useTreeStore()
+const ws = useWorkspaceStore()
+const cmHost = ref<{ insertText: (t: string) => void } | null>(null)
+
+// 右栏速查「插入」命令管道：pendingInsert 变 → 插入光标 + 清空（无编辑器也清空，避免残留）
+watch(
+  () => ws.pendingInsert,
+  (text) => {
+    if (!text) return
+    if (cmHost.value) cmHost.value.insertText(text)
+    ws.consumeInsert()
+  },
+)
 
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
@@ -76,6 +89,7 @@ onUnmounted(() => {
     </header>
     <div class="doc-body">
       <CmHost
+        ref="cmHost"
         :model-value="entry.content"
         :mode="entry.mode"
         @update:model-value="doc.patch(entry.docId, $event)"
