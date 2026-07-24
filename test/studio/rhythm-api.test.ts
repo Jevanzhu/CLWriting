@@ -63,7 +63,7 @@ beforeAll(async () => {
   )
   writeFileSync(
     join(bookRoot, '定稿', '正文', '0002-转折.md'),
-    '---\n章号: 2\n标题: 转折\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 大爽\n场景: 战斗\n---\n\n正文四五六七八\n',
+    '---\n章号: 2\n标题: 转折\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 小爽\n场景: 战斗\n---\n\n正文四五六七八\n',
     'utf8',
   )
   // 大纲/章纲（规划 3 章含字数目标；第 3 章未写 → 测待写场景）
@@ -136,5 +136,43 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
     expect(j.wordCurve).toHaveLength(2)
     expect(j.wordCurve[0]!.章号).toBe(1)
     expect(j.wordCurve[1]!.章号).toBe(2)
+  })
+
+  it('chapterDiff 逐章 join：对比/偏差/待写（D3）', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
+    const j = r.json as {
+      chapterDiff: {
+        章号: number
+        状态: string
+        钩子类型?: string
+        钩子类型偏差?: boolean
+        情绪定位?: string
+        情绪定位偏差?: boolean
+        场景偏差?: boolean
+        字数?: string
+      }[]
+    }
+    const d = j.chapterDiff
+    expect(d).toHaveLength(3)
+    expect(d.map((x) => x.章号)).toEqual([1, 2, 3])
+    // 章 1 两边一致 → 对比、字段单值、无偏差
+    const ch1 = d[0]!
+    expect(ch1.状态).toBe('对比')
+    expect(ch1.情绪定位).toBe('铺垫') // 一致 → 单值（非「铺垫→铺垫」）
+    expect(ch1.情绪定位偏差).toBe(false)
+    expect(ch1.钩子类型偏差).toBe(false)
+    // 章 2 定稿情绪(小爽) ≠ 章纲(大爽) → 偏差；钩子/场景一致
+    const ch2 = d[1]!
+    expect(ch2.状态).toBe('对比')
+    expect(ch2.情绪定位).toBe('大爽→小爽')
+    expect(ch2.情绪定位偏差).toBe(true)
+    expect(ch2.钩子类型偏差).toBe(false)
+    expect(ch2.场景偏差).toBe(false)
+    expect(ch2.字数).toBe('3500/7') // 目标 3500 / 实际「正文四五六七八」7 字
+    // 章 3 只章纲 → 待写，带规划值
+    const ch3 = d[2]!
+    expect(ch3.状态).toBe('待写')
+    expect(ch3.钩子类型).toBe('渴望钩')
+    expect(ch3.字数).toBe('2800')
   })
 })

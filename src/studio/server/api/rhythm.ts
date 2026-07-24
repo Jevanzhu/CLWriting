@@ -14,7 +14,7 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
-import type { HookType, HookLevel, Emotion, SceneType } from '../../../format/types.js'
+import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta } from '../../../format/types.js'
 
 interface RhythmCtx {
   workDir: string | null
@@ -68,6 +68,8 @@ function rhythmLong(bookRoot: string): unknown {
       emotionDist: countDist(planned.map((c) => c.情绪定位), EMOTIONS),
       sceneDist: countDist(planned.map((c) => c.场景), SCENE_TYPES),
     },
+    // 逐章偏差（D3：章纲↔定稿按章号 join，钩子/情绪/场景跑偏标红）
+    chapterDiff: buildChapterDiff(written, planned),
   }
 }
 
@@ -123,4 +125,89 @@ function crossCount<T, R extends string, C extends string>(
     if (r && c && out[r]) out[r]![c]! += 1
   }
   return out
+}
+
+// ── 逐章偏差（D3：章纲规划 ↔ 定稿实际 按章号 join）──────────
+
+/** 逐章偏差行：状态 待写(只规划)/即兴(只实际)/对比(两边有)；对比时字段 "规→实"，跑偏标偏差。 */
+export interface ChapterDiffRow {
+  章号: number
+  标题: string
+  状态: '待写' | '即兴' | '对比'
+  /** 对比时 "规划→实际"；待写/即兴为单值 */
+  钩子类型?: string
+  钩子类型偏差?: boolean
+  情绪定位?: string
+  情绪定位偏差?: boolean
+  场景?: string
+  场景偏差?: boolean
+  /** "目标/实际"（目标←章纲字数目标，实际←定稿正文字数） */
+  字数?: string
+}
+
+/** 章纲规划 ↔ 定稿实际 按章号 join → 逐章偏差行（章号升序）。 */
+function buildChapterDiff(written: ChapterMeta[], planned: ChapterMeta[]): ChapterDiffRow[] {
+  const m = new Map<number, { w?: ChapterMeta; p?: ChapterMeta }>()
+  for (const w of written) {
+    const e = m.get(w.章号) ?? {}
+    e.w = w
+    m.set(w.章号, e)
+  }
+  for (const p of planned) {
+    const e = m.get(p.章号) ?? {}
+    e.p = p
+    m.set(p.章号, e)
+  }
+  const rows: ChapterDiffRow[] = []
+  for (const 章号 of [...m.keys()].sort((a, b) => a - b)) {
+    const { w, p } = m.get(章号)!
+    if (w && p) {
+      rows.push({
+        章号,
+        标题: p.标题 || w.标题 || `第${章号}章`,
+        状态: '对比',
+        钩子类型: diffText(p.钩子类型, w.钩子类型),
+        钩子类型偏差: isDiff(p.钩子类型, w.钩子类型),
+        情绪定位: diffText(p.情绪定位, w.情绪定位),
+        情绪定位偏差: isDiff(p.情绪定位, w.情绪定位),
+        场景: diffText(p.场景, w.场景),
+        场景偏差: isDiff(p.场景, w.场景),
+        字数:
+          p.字数目标 != null || w._wordCount != null
+            ? `${p.字数目标 ?? '—'}/${w._wordCount ?? '—'}`
+            : undefined,
+      })
+    } else if (p) {
+      rows.push({
+        章号,
+        标题: p.标题 || `第${章号}章`,
+        状态: '待写',
+        钩子类型: p.钩子类型,
+        情绪定位: p.情绪定位,
+        场景: p.场景,
+        字数: p.字数目标 != null ? String(p.字数目标) : undefined,
+      })
+    } else if (w) {
+      rows.push({
+        章号,
+        标题: w.标题 || `第${章号}章`,
+        状态: '即兴',
+        钩子类型: w.钩子类型,
+        情绪定位: w.情绪定位,
+        场景: w.场景,
+        字数: w._wordCount != null ? String(w._wordCount) : undefined,
+      })
+    }
+  }
+  return rows
+}
+
+/** 两边都填且不同 → 偏差（一边缺数据不报警） */
+function isDiff(a: string | undefined, b: string | undefined): boolean {
+  return !!a && !!b && a !== b
+}
+/** 对比文本：两边都填且不同 "规→实"；一致或单边 → 该值；都空 → undefined */
+function diffText(a: string | undefined, b: string | undefined): string | undefined {
+  if (a && b) return a === b ? a : `${a}→${b}`
+  return a ?? b
 }
