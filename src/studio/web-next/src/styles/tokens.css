@@ -36,9 +36,20 @@
   --radius-s: 4px;
   --radius-m: 8px;
   --radius-l: 12px;
+  /* Tab —— 变量名对齐 Obsidian 官方公开 CSS 变量（开发者文档），值为本项目设定；
+   * 默认像素值锁在闭源 app.css，不抄；dark 模式无需重复（引用型变量动态解析）。 */
+  --tab-radius: 6px;                       /* 非活跃 tab 顶部圆角 */
+  --tab-radius-active: 8px;                /* 活跃 tab 顶部圆角（略大，突出层级） */
+  --tab-container-background: var(--background-secondary);
+  --tab-background-active: var(--background-primary);
+  --tab-text-color: var(--text-muted);
+  --tab-text-color-active: var(--text-normal);
+  --tab-outline-color: var(--background-modifier-border);
+  --tab-outline-width: 1px;
+  --tab-font-size: 13px;
   /* 外壳尺度 */
   --size-ribbon: 44px;
-  --size-tabbar: 36px;
+  --size-tabbar: 40px;
   --size-statusbar: 24px;
   /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-6=24，跨主题不变） */
   --size-4-1: 4px;

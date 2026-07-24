@@ -6,13 +6,15 @@ import SearchPanel from '../panels/SearchPanel.vue'
 import TrashPanel from '../panels/TrashPanel.vue'
 
 // 左侧栏：顶部面板切换（树/搜索/回收站）+ 活动面板。
+// 桌面版：顶部横排按钮与交通灯同一排（在交通灯右侧），右移让出交通灯宽度，不下移。
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
+const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 </script>
 
 <template>
-  <div class="sidebar-left">
-    <div class="left-tabs">
+  <div class="sidebar-left" :class="{ 'has-traffic': hasDesktop }">
+    <div class="left-tabs" :class="{ 'is-drag': hasDesktop }">
       <button
         class="left-tab"
         :class="{ active: ws.leftPanel === 'tree' }"
@@ -54,9 +56,20 @@ const ws = useWorkspaceStore()
 }
 .left-tabs {
   flex-shrink: 0;
+  height: var(--size-tabbar);
   display: flex;
+  align-items: center;
   gap: 2px;
-  padding: var(--size-4-2) var(--size-4-2) 0;
+  padding: 0 var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+/* 桌面版：横排按钮与交通灯同排，右移让出交通灯宽度（交通灯约占窗口左上 x:13-65） */
+.sidebar-left.has-traffic .left-tabs {
+  padding-left: 52px;
+}
+/* 桌面版：顶部横排按钮间的空白（含交通灯避让区）可拖动整窗 */
+.left-tabs.is-drag {
+  -webkit-app-region: drag;
 }
 .left-tab {
   width: 28px;
@@ -69,6 +82,7 @@ const ws = useWorkspaceStore()
   color: var(--text-faint);
   border-radius: var(--radius-s);
   cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 .left-tab:hover {
   background: var(--background-modifier-hover);

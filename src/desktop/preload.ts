@@ -25,4 +25,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 在系统文件管理器中显示文档（仅桌面版；浏览器版此函数不存在，前端据此隐藏入口）。 */
   showInFolder: (bookName: string, relPath: string): Promise<void> =>
     ipcRenderer.invoke('desktop:show-in-folder', bookName, relPath),
+  /** 在系统文件管理器中打开书库根目录（仅桌面版）。 */
+  openBookDir: (bookName: string): Promise<void> =>
+    ipcRenderer.invoke('desktop:open-book-dir', bookName),
 })

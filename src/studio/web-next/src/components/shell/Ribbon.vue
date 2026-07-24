@@ -16,16 +16,17 @@ import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 
-// Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台；底部 书架/设置/亮暗。
-// 总览（P4）/工作台（P3）待落仍置灰。
+// Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
+// macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
 const router = useRouter()
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
+const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 </script>
 
 <template>
-  <div class="ribbon">
+  <div class="ribbon" :class="{ 'has-traffic': hasDesktop }">
     <div class="ribbon-group">
       <button
         class="rbtn"
@@ -96,6 +97,7 @@ const ui = useUiStore()
 .ribbon {
   width: var(--size-ribbon);
   flex-shrink: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -103,6 +105,31 @@ const ui = useUiStore()
   padding: var(--size-4-2) 0;
   background: var(--background-secondary);
   border-right: 1px solid var(--background-modifier-border);
+}
+/* 桌面版：顶部留白避交通灯（= 顶部带高度）+ 可拖动窗口；避让区底横线与左栏/主区/右栏顶部带对齐成一条 */
+.ribbon.has-traffic {
+  padding-top: var(--size-tabbar);
+  border-right: none;
+}
+.ribbon.has-traffic::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--size-tabbar);
+  -webkit-app-region: drag;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+/* 右侧分界线：从顶部带横线下方开始到底，交通灯区无竖线（ribbon/sidebar 同色融合） */
+.ribbon.has-traffic::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: var(--size-tabbar);
+  bottom: 0;
+  width: 1px;
+  background: var(--background-modifier-border);
 }
 .ribbon-group {
   display: flex;

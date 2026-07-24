@@ -253,6 +253,15 @@ function registerIpc(): void {
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return
     if (existsSync(absPath)) shell.showItemInFolder(absPath)
   })
+  // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
+  ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
+    if (typeof bookName !== 'string') return
+    const workDir = readStore().current
+    if (!workDir) return
+    const entry = readBooks(workDir).find((b) => b.name === bookName)
+    if (!entry) return
+    void shell.openPath(resolve(workDir, entry.path))
+  })
 }
 
 // ── 原生菜单 ──────────────────────────────────────────
