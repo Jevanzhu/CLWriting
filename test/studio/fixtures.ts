@@ -62,6 +62,16 @@ function makeLongBook(root: string): void {
   )
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n- 正文纯文本\n- 对话标签占比 < 30%\n')
+  // 项目清单：登记章节正式 docId（e2e T1.3 冲突测需走乐观锁协议，非 legacy 盲写）
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      JSON.stringify({ version: 1, type: 'header' }),
+      JSON.stringify({ id: 'chap-e2e-0001', nodeType: 'document', path: '定稿/正文/0001-初入宗门.md', parentId: null }),
+      JSON.stringify({ id: 'chap-e2e-0002', nodeType: 'document', path: '定稿/正文/0002-玉佩之秘.md', parentId: null }),
+    ].join('\n') + '\n',
+  )
 }
 
 function makeShortBook(root: string): void {

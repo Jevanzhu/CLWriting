@@ -31,8 +31,7 @@
     "test": "vitest run",
     "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
     "test:watch": "vitest",
-    "test:e2e": "echo '[T4.3] e2e 暂禁用：旧 web 已删，web-next UI 的 e2e 待重写'",
-    "test:e2e:true-host": "echo '[T4.3] e2e 暂禁用'",
+    "test:e2e": "npm run build:web && playwright test",
     "dev:electron": "npm run build:all && electron .",
     "build:desktop": "npm run build:all && electron-builder",
     "build:desktop:dir": "npm run build:all && electron-builder --dir"

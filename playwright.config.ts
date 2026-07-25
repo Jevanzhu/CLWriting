@@ -9,6 +9,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './test/e2e',
   globalSetup: './test/e2e/global-setup.ts',
+  // e2e 共享 globalSetup 的单一 workDir/server，必须串行跑避免 test 间磁盘并行污染
+  workers: 1,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
