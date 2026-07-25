@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
+import { useWordsStore } from './words'
 import { countWords, stripFrontmatter } from '../shared/words'
 import type { TreeNode } from '../types/tree'
 
@@ -114,6 +115,8 @@ export const useDocStore = defineStore('doc', () => {
       e.savedAt = Date.now()
       // 局部更新 tree 字数（避免重拉整树）
       useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
+      // E4：刷新今日字数增量（fire-and-forget 重 GET delta）
+      void useWordsStore().ensureBaseline(bookName.value!)
       if (origin === 'manual') useUiStore().toast('已保存', 'success')
       return true
     } catch (err) {

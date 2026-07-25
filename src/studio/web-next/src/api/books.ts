@@ -33,10 +33,10 @@ export async function revert(name: string, chapter: number): Promise<void> {
   )
 }
 
-// GET /words-diary → {date, baseline}（§5.4 今日基线；baseline=null 表示今日未记）。
+// GET /words-diary → {date, baseline, delta}（§5.4 基线 + E4 精确增量；delta=null 表示当日无 settled 记录，回退 baseline）。
 export async function getWordsDiary(
   name: string,
-): Promise<{ date: string; baseline: number | null }> {
+): Promise<{ date: string; baseline: number | null; delta: number | null }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`)
 }
 

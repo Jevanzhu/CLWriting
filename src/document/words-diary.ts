@@ -53,3 +53,54 @@ export function todayDate(): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+// ── E4：今日字数精确增量（每次 save settled 记 delta，当日累加）───
+
+/** 单次保存的字数增量条目（与 baseline 条目共存于同一 jsonl，靠 delta 字段区分）。 */
+interface WordsDeltaEntry {
+  date: string
+  delta: number
+  ts: string
+  docId?: string
+}
+
+/**
+ * 记一次保存的字数增量（save settled 时调）。
+ * delta 可正可负（删减内容）；append 一行到 `项目/字数日记.jsonl`。
+ */
+export function appendWordsDelta(
+  bookRoot: string,
+  date: string,
+  delta: number,
+  docId?: string,
+): void {
+  mkdirSync(join(bookRoot, '项目'), { recursive: true })
+  const entry: WordsDeltaEntry = { date, delta, ts: new Date().toISOString() }
+  if (docId) entry.docId = docId
+  appendFileSync(wordsDiaryPath(bookRoot), JSON.stringify(entry) + '\n', 'utf-8')
+}
+
+/**
+ * 读今日累计字数增量（sum 当日所有 delta 条目）。
+ * 无 delta 条目（旧书未走过新链路 / 当日无保存）→ null，调用方回退 baseline 方案。
+ * 跨零点按 settle 时刻（条目 ts 当日 date）归日，天然正确。
+ */
+export function readTodayDelta(bookRoot: string, date: string): number | null {
+  const fp = wordsDiaryPath(bookRoot)
+  if (!existsSync(fp)) return null
+  let sum = 0
+  let found = false
+  for (const line of readFileSync(fp, 'utf-8').split('\n')) {
+    if (!line) continue
+    try {
+      const rec = JSON.parse(line) as { date?: unknown; delta?: unknown }
+      if (rec.date === date && typeof rec.delta === 'number') {
+        sum += rec.delta
+        found = true
+      }
+    } catch {
+      // 跳过坏行（baseline 条目无 delta 字段，parse 成功但 delta undefined → 跳过）
+    }
+  }
+  return found ? sum : null
+}
