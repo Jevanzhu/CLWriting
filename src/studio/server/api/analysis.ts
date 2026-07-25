@@ -20,6 +20,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import type { ChapterMeta } from '../../../format/types.js'
+import { readIronRules, computeFullStats } from '../../../metrics/style.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 import { readAnalysis, writeAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
@@ -112,7 +113,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
-      const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long')
+      const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long', bookRoot)
       const driver = getDriver('cc')
       const session = await driver.startSession(ctx.workDir)
       driver.spawnRole(session, 'analyst', prompt)
@@ -152,19 +153,30 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
   )
 }
 
-/** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约）。 */
-function buildAnalystPrompt(kind: AnalysisKind, body: string, chapter: ChapterMeta, bookKind: 'long' | 'short'): string {
+/** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约 + 章纲/stats 为底）。 */
+function buildAnalystPrompt(
+  kind: AnalysisKind,
+  body: string,
+  chapter: ChapterMeta,
+  bookKind: 'long' | 'short',
+  bookRoot: string,
+): string {
   const unit = bookKind === 'short' ? '篇' : '章'
   const parts: string[] = [
     `[kind:${kind}]`,
     '',
     `## 任务\n对第 ${chapter.章号} ${unit}正文做${ANALYSIS_LABEL[kind]}分析，只读不改稿。`,
   ]
-  // 各 kind 附「规则版为底」（章纲 fm 声明），AI 据此补识别/评价
+  // 各 kind 附「规则版为底」（章纲 fm 声明 / 本地 stats），AI 据此补识别/评价
   if (kind === 'emotion') {
     parts.push('', `## 章纲声明目标情绪\n${chapter.情绪定位}`)
   } else if (kind === 'hooks') {
     parts.push('', `## 章纲声明钩子\n类型：${chapter.钩子类型}；强弱：${chapter.钩子强弱}`)
+  } else if (kind === 'style') {
+    // 附本地文风 stats（句长/重复率/口癖命中）+ IronRules（作者基线铁律）为底
+    const rules = readIronRules(bookRoot)
+    const stats = computeFullStats(body, rules)
+    parts.push('', `## 本地文风 stats\n${JSON.stringify(stats)}`, '', `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`)
   }
   parts.push(
     '',
