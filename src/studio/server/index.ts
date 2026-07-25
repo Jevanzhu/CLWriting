@@ -32,6 +32,7 @@ import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
 import { registerSearchRoutes } from './api/search.js'
 import { registerCheckRoutes } from './api/check.js'
+import { registerAnalysisRoutes } from './api/analysis.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { createStaticHandler } from './static.js'
 
@@ -61,6 +62,7 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerDocumentRoutes({ workDir })
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir })
+    registerAnalysisRoutes({ workDir })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir })

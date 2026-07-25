@@ -7,6 +7,7 @@ import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
 import CheckPanel from '../panels/CheckPanel.vue'
+import ReviewPanel from '../panels/ReviewPanel.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf } from '../../shared/words'
@@ -55,11 +56,8 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
         <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
         <WritingInfoPanel v-else :book-name="bookName" />
       </template>
-      <!-- 审阅 tab：块1 三审面板 + 块2 改写（占位，后续填充） -->
-      <section v-else-if="tab === 'review'" class="side-section">
-        <div class="side-title">审阅</div>
-        <div class="side-hint">三审意见 / 改写提案（M12 块1 / 块2）</div>
-      </section>
+      <!-- 审阅 tab：块1 三审面板（块2 改写待挂） -->
+      <ReviewPanel v-else-if="tab === 'review'" :book-name="bookName" />
       <!-- 机检 tab：块3 本地规则检查（无 AI，断网可用） -->
       <CheckPanel v-else-if="tab === 'check'" :book-name="bookName" />
       <!-- 分析 tab：块4（占位） -->
