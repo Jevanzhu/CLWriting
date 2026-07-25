@@ -1,15 +1,16 @@
 <script setup lang="ts">
-// 分析面板（M12 块4 B4.0 骨架 + B4.1 体验分 + B4.2 情绪曲线 + B4.3 钩子密度）：
+// 分析面板（M12 块4 四载荷：体验分/情绪曲线/钩子密度/文风总结 + 情绪卡节奏上下文）：
 // 按 kind 读信封存量 → 各卡渲染（过期标）+ 逐 kind 重新分析（aiOff 置灰）。
-// 文风总结（B4.4）占位。生成与展示解耦：AI 不可达时存量照常展示。
-import { computed, watch } from 'vue'
-import { Sparkles, Activity, Anchor, Feather, RefreshCw, AlertCircle, Clock } from 'lucide-vue-next'
+// 生成与展示解耦：AI 不可达时存量照常展示。
+import { computed, ref, watch } from 'vue'
+import { Sparkles, Activity, Anchor, Feather, RefreshCw, AlertCircle, Clock, Gauge } from 'lucide-vue-next'
 import { useAnalysisStore, type KindSlot } from '../../stores/analysis'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf } from '../../shared/words'
 import type { AnalysisKindFE } from '../../api/analysis'
+import { getRhythm, type RhythmResult } from '../../api/rhythm'
 
 const props = defineProps<{ bookName: string }>()
 const analysis = useAnalysisStore()
@@ -41,13 +42,34 @@ interface HooksPayload {
   hooks: { pos: string; type: string; strength: number; note: string }[]
   density: string
 }
+interface StylePayload {
+  drift: string
+  口癖: string[]
+  重复度评价: string
+  建议: string[]
+}
 
 const scoreSlot = computed<KindSlot>(() => analysis.byKind.score)
 const emotionSlot = computed<KindSlot>(() => analysis.byKind.emotion)
 const hooksSlot = computed<KindSlot>(() => analysis.byKind.hooks)
+const styleSlot = computed<KindSlot>(() => analysis.byKind.style)
 const scorePayload = computed(() => scoreSlot.value.envelope?.payload as ScorePayload | undefined)
 const emotionPayload = computed(() => emotionSlot.value.envelope?.payload as EmotionPoint[] | undefined)
 const hooksPayload = computed(() => hooksSlot.value.envelope?.payload as HooksPayload | undefined)
+const stylePayload = computed(() => styleSlot.value.envelope?.payload as StylePayload | undefined)
+
+// 节奏上下文（情绪卡叠加：读 rhythm 全书 → 取当前章 chapterDiff 行）
+const rhythm = ref<RhythmResult | null>(null)
+const showRhythm = ref(true)
+const currentChapter = computed(() => {
+  const m = node.value?.path.match(/(\d+)-/)
+  return m ? parseInt(m[1] ?? '', 10) : null
+})
+const rhythmRow = computed(() => {
+  const r = rhythm.value
+  if (!r || r.kind !== 'long' || currentChapter.value == null) return null
+  return r.chapterDiff.find((row) => row.章号 === currentChapter.value) ?? null
+})
 
 function slotEnvelopeMeta(slot: KindSlot): string {
   const t = slot.envelope?.generatedAt
@@ -57,16 +79,25 @@ function slotEnvelopeMeta(slot: KindSlot): string {
 
 async function loadAll(): Promise<void> {
   if (!docId.value || !isReviewable.value) return
-  // 三 kind 并发读存量（AI 不可达时也只读盘，不触发生成）
   await Promise.all([
     analysis.load(props.bookName, docId.value, 'score'),
     analysis.load(props.bookName, docId.value, 'emotion'),
     analysis.load(props.bookName, docId.value, 'hooks'),
+    analysis.load(props.bookName, docId.value, 'style'),
   ])
+}
+async function loadRhythm(): Promise<void> {
+  try {
+    rhythm.value = await getRhythm(props.bookName)
+  } catch {
+    rhythm.value = null
+  }
 }
 watch(docId, () => {
   analysis.clear()
+  rhythm.value = null
   void loadAll()
+  void loadRhythm()
 }, { immediate: true })
 
 async function runKind(kind: AnalysisKindFE): Promise<void> {
@@ -99,16 +130,13 @@ function dimWidth(label: string, v: number): string {
   const pct = label === '拖沓' ? (10 - v) * 10 : v * 10
   return `${Math.max(0, Math.min(100, pct))}%`
 }
-function strengthDots(n: number): number[] {
-  return Array.from({ length: 5 }, (_, i) => i + 1)
-}
 </script>
 
 <template>
   <section v-if="!isReviewable" class="ap-hint">分析仅适用于正文 / 草稿文档。</section>
 
   <section v-else class="analysis-panel">
-    <!-- 过期条（正文变更 → 存量标过期；任一 kind stale 即提示） -->
+    <!-- 过期条（正文变更 → 存量标过期） -->
     <div v-if="scoreSlot.envelope && scoreSlot.stale" class="ap-stale">
       <AlertCircle :size="13" />
       <span>正文已变更，以下为旧版存量（可重新分析）。</span>
@@ -124,9 +152,6 @@ function strengthDots(n: number): number[] {
         </button>
       </div>
       <div v-if="aiOff && !scoreSlot.envelope" class="ap-empty">AI 不可达，暂无体验分。</div>
-      <div v-else-if="analysis.error && analysis.loading === null && !scorePayload" class="ap-error">
-        <AlertCircle :size="13" /><span>{{ analysis.error }}</span>
-      </div>
       <div v-else-if="!scoreSlot.envelope" class="ap-empty">暂无体验分{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
       <div v-else-if="scorePayload" class="ap-score-body">
         <div class="ap-score-row">
@@ -152,14 +177,20 @@ function strengthDots(n: number): number[] {
       </div>
     </div>
 
-    <!-- 情绪曲线卡（B4.2） -->
+    <!-- 情绪曲线卡（B4.2 + 节奏上下文叠加） -->
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><Activity :size="14" /><span>情绪曲线</span></div>
-        <button class="ap-run" :disabled="aiOff || analysis.loading === 'emotion'" @click="runKind('emotion')">
-          <RefreshCw :size="12" :class="{ spin: analysis.loading === 'emotion' }" />
-          <span>{{ analysis.loading === 'emotion' ? '分析中…' : '重新分析' }}</span>
-        </button>
+        <div class="ap-head-right">
+          <label v-if="rhythmRow" class="ap-toggle" title="叠加节奏上下文">
+            <input v-model="showRhythm" type="checkbox" />
+            <Gauge :size="12" />
+          </label>
+          <button class="ap-run" :disabled="aiOff || analysis.loading === 'emotion'" @click="runKind('emotion')">
+            <RefreshCw :size="12" :class="{ spin: analysis.loading === 'emotion' }" />
+            <span>{{ analysis.loading === 'emotion' ? '分析中…' : '重新分析' }}</span>
+          </button>
+        </div>
       </div>
       <div v-if="aiOff && !emotionSlot.envelope" class="ap-empty">AI 不可达，暂无情绪曲线。</div>
       <div v-else-if="!emotionSlot.envelope" class="ap-empty">暂无情绪曲线{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
@@ -184,6 +215,14 @@ function strengthDots(n: number): number[] {
         </div>
       </div>
       <div v-else class="ap-empty">情绪曲线样本不足。</div>
+      <!-- 节奏上下文（读 rhythm chapterDiff 当前章：字数目标/实际 + 钩子/情绪偏差） -->
+      <div v-if="showRhythm && rhythmRow" class="ap-emotion-rhythm">
+        <Gauge :size="12" />
+        <span class="ap-rhythm-label">节奏</span>
+        <span>字数 {{ rhythmRow.字数 ?? '—' }}</span>
+        <span v-if="rhythmRow.钩子类型偏差" class="ap-rhythm-warn">钩子偏差</span>
+        <span v-if="rhythmRow.情绪定位偏差" class="ap-rhythm-warn">情绪偏差</span>
+      </div>
     </div>
 
     <!-- 钩子密度卡（B4.3） -->
@@ -206,7 +245,7 @@ function strengthDots(n: number): number[] {
             <span class="ap-hook-pos">{{ h.pos }}</span>
             <span class="ap-hook-type">{{ h.type }}</span>
             <span class="ap-hook-strength">
-              <i v-for="d in strengthDots(h.strength)" :key="d" class="ap-strength-dot" :class="{ on: d <= h.strength }" />
+              <i v-for="d in 5" :key="d" class="ap-strength-dot" :class="{ on: d <= h.strength }" />
             </span>
           </div>
           <div v-if="h.note" class="ap-hook-note">{{ h.note }}</div>
@@ -215,10 +254,29 @@ function strengthDots(n: number): number[] {
       <div v-else class="ap-empty">未识别到明显钩子。</div>
     </div>
 
-    <!-- 文风总结卡（B4.4 占位） -->
-    <div class="ap-card ap-card--placeholder">
-      <div class="ap-card-title"><Feather :size="14" /><span>文风总结</span></div>
-      <div class="ap-placeholder">本地 stats + AI 漂移建议（M12 块4 B4.4）</div>
+    <!-- 文风总结卡（B4.4） -->
+    <div class="ap-card">
+      <div class="ap-card-head">
+        <div class="ap-card-title"><Feather :size="14" /><span>文风总结</span></div>
+        <button class="ap-run" :disabled="aiOff || analysis.loading === 'style'" @click="runKind('style')">
+          <RefreshCw :size="12" :class="{ spin: analysis.loading === 'style' }" />
+          <span>{{ analysis.loading === 'style' ? '分析中…' : '重新分析' }}</span>
+        </button>
+      </div>
+      <div v-if="aiOff && !styleSlot.envelope" class="ap-empty">AI 不可达，暂无文风总结。</div>
+      <div v-else-if="!styleSlot.envelope" class="ap-empty">暂无文风总结{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
+      <div v-else-if="stylePayload" class="ap-style-body">
+        <div class="ap-style-drift">{{ stylePayload.drift }}</div>
+        <div v-if="stylePayload.口癖 && stylePayload.口癖.length" class="ap-style-tags">
+          <span v-for="(t, i) in stylePayload.口癖" :key="i" class="ap-style-tag">{{ t }}</span>
+        </div>
+        <div v-if="stylePayload.重复度评价" class="ap-style-line">
+          <span class="ap-style-line-label">重复度</span>{{ stylePayload.重复度评价 }}
+        </div>
+        <div v-if="stylePayload.建议 && stylePayload.建议.length" class="ap-style-suggestions">
+          <div v-for="(s, i) in stylePayload.建议" :key="i" class="ap-style-suggestion">{{ s }}</div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -250,9 +308,6 @@ function strengthDots(n: number): number[] {
   background: var(--background-primary);
   padding: var(--size-4-3);
 }
-.ap-card--placeholder {
-  opacity: 0.6;
-}
 .ap-card-head {
   display: flex;
   align-items: center;
@@ -271,6 +326,16 @@ function strengthDots(n: number): number[] {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-normal);
+}
+.ap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--text-faint);
+}
+.ap-toggle input {
+  margin: 0;
 }
 .ap-run {
   display: inline-flex;
@@ -300,16 +365,10 @@ function strengthDots(n: number): number[] {
   }
 }
 .ap-empty,
-.ap-error,
 .ap-placeholder {
   font-size: 12px;
   color: var(--text-faint);
   line-height: 1.6;
-}
-.ap-error {
-  display: flex;
-  gap: 6px;
-  color: var(--text-error, #e05d5d);
 }
 /* 体验分 */
 .ap-score-row {
@@ -413,6 +472,25 @@ function strengthDots(n: number): number[] {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+.ap-emotion-rhythm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--size-4-2);
+  padding: 5px 8px;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ap-rhythm-label {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+.ap-rhythm-warn {
+  color: var(--text-error, #e05d5d);
+}
 /* 钩子密度 */
 .ap-density {
   font-size: 11px;
@@ -479,6 +557,49 @@ function strengthDots(n: number): number[] {
   margin-top: 3px;
   font-size: 11px;
   color: var(--text-muted);
+  line-height: 1.5;
+}
+/* 文风总结 */
+.ap-style-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+.ap-style-drift {
+  font-size: 13px;
+  color: var(--text-normal);
+  line-height: 1.5;
+}
+.ap-style-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ap-style-tag {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--color-orange, #d97706);
+}
+.ap-style-line {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ap-style-line-label {
+  color: var(--text-faint);
+  margin-right: 4px;
+}
+.ap-style-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--background-modifier-border);
+}
+.ap-style-suggestion {
+  font-size: 12px;
+  color: var(--text-normal);
   line-height: 1.5;
 }
 </style>

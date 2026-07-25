@@ -171,6 +171,17 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     expect(['疏', '中', '密']).toContain(j.envelope.payload.density)
   })
 
+  it('style 分析 → 200 + payload（drift + 建议，附本地 stats/IronRules 为底）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
+      kind: 'style',
+    })
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; envelope: { payload: { drift: string; 建议: string[] } } }
+    expect(j.ok).toBe(true)
+    expect(typeof j.envelope.payload.drift).toBe('string')
+    expect(Array.isArray(j.envelope.payload.建议)).toBe(true)
+  })
+
   it('kind=review → 400（review 走独立三审端点）', async () => {
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
       kind: 'review',

@@ -33,6 +33,11 @@ test('分析：选章 → 重新分析 → 体验分 → 改正文 → 存量 + 
   await page.locator('.analysis-panel .ap-card', { hasText: '钩子密度' }).locator('.ap-run').click()
   await expect(page.locator('.analysis-panel .ap-hook').first()).toBeVisible({ timeout: 15_000 })
 
+  // 文风总结（B4.4）：重新分析 → drift + 建议
+  await page.locator('.analysis-panel .ap-card', { hasText: '文风总结' }).locator('.ap-run').click()
+  await expect(page.locator('.analysis-panel .ap-style-drift')).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.analysis-panel .ap-style-suggestion').first()).toContainText('mock')
+
   // 改正文 + ⌘S 落盘（正文 hash 变 → 信封将过期）
   const cm = page.locator('.cm-content')
   await cm.click()
