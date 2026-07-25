@@ -76,6 +76,19 @@ export type CreateResult =
   | { ok: true; docId: string; path: string; revision: `sha256:${string}` }
   | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
 
+/** 复制文档输入（E3.3）。relPath 由前端算好章号 +「副本」标题；后端复制源内容到该 path。 */
+export interface CopyDocumentInput {
+  /** 源文档 docId（须在清单登记）。 */
+  docId: string
+  /** 目标相对路径（含 .md 后缀）。 */
+  relPath: string
+}
+
+/** 复制结果（结构同 CreateResult，错误码多 NOT_FOUND：源未登记或文件缺失）。 */
+export type CopyResult =
+  | { ok: true; docId: string; path: string; revision: `sha256:${string}` }
+  | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
+
 /** 移动文档输入（章号不变，文件名保持——§11）。 */
 export interface MoveDocumentInput {
   docId: string
@@ -455,6 +468,41 @@ export class DocumentService {
   /** 新建文档的默认内容（最小 frontmatter；具体字段由作者编辑或 batch 流程填）。 */
   private defaultContent(): string {
     return '---\n---\n\n'
+  }
+
+  /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。 */
+  copyDocument(input: CopyDocumentInput): Promise<CopyResult> {
+    return Promise.resolve(this.doCopy(input))
+  }
+
+  private doCopy(input: CopyDocumentInput): CopyResult {
+    const srcPath = this.lookupPathByDocId(input.docId)
+    if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
+    // 能力：源 copy + 目标 write（与 create 同步实现，靠单线程微任务不交错）
+    if (!layoutOf(srcPath).capabilities.copy) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可复制' }
+    }
+    if (!layoutOf(input.relPath).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
+    }
+    const srcSafe = this.resolveSafePath(srcPath)
+    const dstSafe = this.resolveSafePath(input.relPath)
+    if (!srcSafe || !dstSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    if (!existsSync(srcSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+    if (existsSync(dstSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+
+    try {
+      const content = readFileSync(srcSafe, 'utf-8')
+      mkdirSync(dirname(dstSafe), { recursive: true })
+      atomicWriteFile(dstSafe, content, { fsync: true })
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
+    }
+    // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
+    const newDocId = generateDocId()
+    this.upsertManifestEntry(newDocId, input.relPath)
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
   }
 
   /** 软删文档（移 .trash + 清单 removeEntry + trash manifest 记录 + snapshot + invalidate）。 */

@@ -9,6 +9,7 @@ import {
   createDoc,
   renameDoc,
   moveDoc,
+  copyDoc,
   deleteDoc,
   updateChapterMetaDoc,
 } from '../../api/documents'
@@ -195,6 +196,7 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
         submenu: targets.map((t) => ({ key: `move:${t.dir}`, label: t.label })),
       })
     }
+    items.push({ key: 'copy', label: '创建副本' })
   }
   items.push({ key: 'sep-a', label: '', separator: true })
   items.push({ key: 'copy-path', label: '复制路径' })
@@ -259,7 +261,8 @@ function onMenuSelect(key: string): void {
       章号: m?.章号 ?? null,
       标题: m?.标题 ?? node.name,
     }
-  } else if (key === 'copy-path') void onCopyPath(node)
+  } else if (key === 'copy') void doCopy(node)
+  else if (key === 'copy-path') void onCopyPath(node)
   else if (key === 'delete') void doDelete(node)
 }
 
@@ -387,6 +390,26 @@ async function onDrop(targetPath: string): Promise<void> {
   const node = tree.byPath.get(src)
   if (!node?.docId) return
   await doMove(node.docId, targetPath)
+}
+
+// --- 复制（E3.3：新章号 + 「副本」标题；后端复制内容到新 path）---
+async function doCopy(node: TreeNode): Promise<void> {
+  if (!node.docId) return
+  const parsed = parseChapterFileName(node.path)
+  const title = parsed?.标题 ?? node.name
+  const no = String(nextChapterNo()).padStart(4, '0')
+  const relPath = `定稿/正文/${no}-${title} 副本.md`
+  try {
+    const r = await copyDoc(props.bookName, node.docId, relPath)
+    await tree.load(props.bookName)
+    const fresh = tree.byPath.get(r.path)
+    if (fresh?.docId) {
+      await doc.open(fresh)
+      ws.openTab(fresh.docId)
+    }
+  } catch (e) {
+    openError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 watch(

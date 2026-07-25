@@ -94,3 +94,16 @@ test('建卷 → 移动章到卷', async ({ page }) => {
   await page.locator('.tree-item').filter({ hasText: 'e2e测试卷' }).first().click()
   await expect(page.locator('.tree-list')).toContainText('初入宗门')
 })
+
+test('复制章 → 副本入树 + 内容同源', async ({ page }) => {
+  await gotoBook(page)
+  // 用「玉佩之秘」：test2 还原后稳定在正文根、test3 未移动（避免 fixture 状态耦合）
+  await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
+  await ctxOn(page, '玉佩之秘')
+  await page.locator('.cm-menu').getByRole('button', { name: '创建副本' }).click()
+  // 副本入树（源标题 +「副本」后缀，章号前端算）
+  await expect(page.locator('.tree-list')).toContainText('玉佩之秘 副本')
+  // 点开副本 → 编辑区内容同源（源正文特征词「林远」，证明是复制非空文件）
+  await page.locator('.tree-item').filter({ hasText: '玉佩之秘 副本' }).first().click()
+  await expect(page.locator('.cm-content')).toContainText('林远')
+})
