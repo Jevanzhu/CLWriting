@@ -34,7 +34,9 @@ const diffStats = computed(() => {
 
 async function runRewrite(): Promise<void> {
   if (!docId.value || !instruction.value.trim()) return
-  await rewrite.run(props.bookName, docId.value, instruction.value.trim(), '')
+  // 读编辑器选区：非空→local 选段改写；空→whole 整章（后端按 selection 判模式）
+  const sel = ws.editorGetSelection?.() ?? ''
+  await rewrite.run(props.bookName, docId.value, instruction.value.trim(), sel)
 }
 
 function accept(): void {
@@ -67,8 +69,9 @@ function accept(): void {
         @click="runRewrite"
       >
         <RefreshCw :size="13" :class="{ spin: rewrite.loading }" />
-        <span>{{ rewrite.loading ? '改写中…' : '改写整章' }}</span>
+        <span>{{ rewrite.loading ? '改写中…' : '改写' }}</span>
       </button>
+      <div class="rw-hint rw-hint--mode">选中段落 → 改写选段；无选区 → 整章改写。</div>
 
       <div v-if="aiOff" class="rw-hint">AI 不可达，改写置灰。</div>
 

@@ -25,6 +25,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const pendingCloseTabId = ref<string | null>(null)
   /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。 */
   const pendingInsert = ref<string | null>(null)
+  /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
+  const editorGetSelection = ref<(() => string) | null>(null)
   const bookName = ref<string | null>(null)
 
   /** 活动 tab 的 docId（EditorView / 树高亮消费）。 */
@@ -159,6 +161,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations'): void {
     activeView.value = v
   }
+  /** 注册/注销编辑器选区读取器（EditorView mount/unmount；选段改写用）。 */
+  function setEditorGetSelection(fn: (() => string) | null): void {
+    editorGetSelection.value = fn
+  }
 
   return {
     leftOpen,
@@ -188,5 +194,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pendingInsert,
     requestInsert,
     consumeInsert,
+    editorGetSelection,
+    setEditorGetSelection,
   }
 })
