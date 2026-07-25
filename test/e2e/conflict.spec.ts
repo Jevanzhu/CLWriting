@@ -12,9 +12,12 @@ import { test, expect } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const WORKDIR = process.env['CLWRITING_E2E_WORKDIR']!
-const CHAPTER_1 = join(WORKDIR, '长篇', '长篇测试书', '定稿', '正文', '0001-初入宗门.md')
-const CHAPTER_2 = join(WORKDIR, '长篇', '长篇测试书', '定稿', '正文', '0002-玉佩之秘.md')
+// workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
+function chapterPath(file: string): string {
+  return join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '定稿', '正文', file)
+}
+const CHAPTER_1 = (): string => chapterPath('0001-初入宗门.md')
+const CHAPTER_2 = (): string => chapterPath('0002-玉佩之秘.md')
 
 async function openChapter(page: import('@playwright/test').Page, name: string): Promise<void> {
   await page.goto('/')
@@ -37,7 +40,7 @@ async function provokeConflict(page: import('@playwright/test').Page, chapter: s
 
 test('冲突 → 重载远端（丢本地取远端）', async ({ page }) => {
   await openChapter(page, '初入宗门')
-  await provokeConflict(page, CHAPTER_1, '林远踏入宗门')
+  await provokeConflict(page, CHAPTER_1(), '林远踏入宗门')
 
   await page.getByRole('button', { name: '重载远端' }).click()
 
@@ -49,14 +52,14 @@ test('冲突 → 重载远端（丢本地取远端）', async ({ page }) => {
 
 test('冲突 → 覆盖远端（丢远端写本地）', async ({ page }) => {
   await openChapter(page, '玉佩之秘')
-  await provokeConflict(page, CHAPTER_2, '玉佩突然爆发灵光')
+  await provokeConflict(page, CHAPTER_2(), '玉佩突然爆发灵光')
 
   await page.getByRole('button', { name: '覆盖远端' }).click()
 
   // 保存回正常态
   await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
   // 磁盘变本地内容（含本地改动，不含【外部改写】）
-  const disk = readFileSync(CHAPTER_2, 'utf-8')
+  const disk = readFileSync(CHAPTER_2(), 'utf-8')
   expect(disk).toContain('本地改动')
   expect(disk).not.toContain('【外部改写】')
 })
