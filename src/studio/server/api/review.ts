@@ -27,6 +27,7 @@ import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
 import { writeAnalysis, sourceHashOf } from '../../../document/analysis.js'
+import { extractJson } from '../../../format/json-extract.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -301,17 +302,6 @@ function buildLensPrompt(
     `## 输出契约\n直接输出 JSON 数组(不要多余文字、不要读文件、不要用任何工具),无问题回 []。每个 issue 必须是:\n{"category": "<枚举>", "severity": "<S1|S2|S3|S4>", "evidence": "正文原句", "issue": "问题说明", "fix": "改稿建议"}\n- category 从枚举选:high_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
-}
-
-/** 从模型 text 提取 JSON(容忍前后叙述) */
-function extractJson(text: string): string {
-  const trimmed = text.trim()
-  if (trimmed.startsWith('[') || trimmed.startsWith('{')) return trimmed
-  const arr = trimmed.match(/\[[\s\S]*\]/)
-  if (arr) return arr[0]
-  const obj = trimmed.match(/\{[\s\S]*\}/)
-  if (obj) return obj[0]
-  return trimmed
 }
 
 function escapeRegexp(s: string): string {

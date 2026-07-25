@@ -9,6 +9,7 @@ import MetaFormPanel from '../panels/MetaFormPanel.vue'
 import CheckPanel from '../panels/CheckPanel.vue'
 import ReviewPanel from '../panels/ReviewPanel.vue'
 import RewritePanel from '../panels/RewritePanel.vue'
+import AnalysisPanel from '../panels/AnalysisPanel.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf } from '../../shared/words'
@@ -64,11 +65,8 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
       </div>
       <!-- 机检 tab：块3 本地规则检查（无 AI，断网可用） -->
       <CheckPanel v-else-if="tab === 'check'" :book-name="bookName" />
-      <!-- 分析 tab：块4（占位） -->
-      <section v-else-if="tab === 'analysis'" class="side-section">
-        <div class="side-title">分析</div>
-        <div class="side-hint">体验分 / 情绪曲线 / 钩子 / 文风（M12 块4）</div>
-      </section>
+      <!-- 分析 tab：块4 AI 分析（体验分 B4.1 先行；情绪/钩子/文风 B4.2-B4.4） -->
+      <AnalysisPanel v-else-if="tab === 'analysis'" :book-name="bookName" />
       <ContextQuickPanel :book-name="bookName" />
     </div>
   </div>
