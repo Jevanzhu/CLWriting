@@ -142,7 +142,14 @@ function insertText(text: string): void {
   })
   view.focus()
 }
-defineExpose({ insertText })
+
+/** 取当前选区文本（空选区 → 空串；选段改写经 EditorView 调用）。 */
+function getSelection(): string {
+  if (!view) return ''
+  const sel = view.state.selection.main
+  return sel.from === sel.to ? '' : view.state.sliceDoc(sel.from, sel.to)
+}
+defineExpose({ insertText, getSelection })
 
 onUnmounted(() => view?.destroy())
 </script>

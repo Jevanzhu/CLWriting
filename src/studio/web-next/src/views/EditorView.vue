@@ -14,7 +14,7 @@ const doc = useDocStore()
 const tree = useTreeStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
-const cmHost = ref<{ insertText: (t: string) => void } | null>(null)
+const cmHost = ref<{ insertText: (t: string) => void; getSelection: () => string } | null>(null)
 
 // 右栏速查「插入」命令管道：pendingInsert 变 → 插入光标 + 清空（无编辑器也清空，避免残留）
 watch(
@@ -111,9 +111,12 @@ function tick(): void {
 }
 onMounted(() => {
   timer = setInterval(tick, 30_000)
+  // 注册选区读取器（选段改写经 ws 读 cmHost.getSelection）
+  ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  ws.setEditorGetSelection(null)
 })
 </script>
 
