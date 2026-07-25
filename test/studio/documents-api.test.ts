@@ -128,6 +128,39 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
     expect(r.status).toBe(400)
   })
 
+  it('hand 占用该文档 → 409 HAND_LOCKED；清锁后放行', async () => {
+    const guiPath = join(workDir!, BOOK, '工作区', '.gui-active')
+    mkdirSync(join(workDir!, BOOK, '工作区'), { recursive: true })
+    writeFileSync(
+      guiPath,
+      JSON.stringify({ pid: 99999, ts: Date.now(), source: 'hand', draftRelPath: '定稿/正文/0001-开篇.md' }),
+    )
+    const r = await put('doc_1', {
+      content: 'hand 占用', expectedRevision: null, operationId: 'op_hand', origin: 'manual',
+    })
+    expect(r.status).toBe(409)
+    expect((r.json as { code: string }).code).toBe('HAND_LOCKED')
+    // 清锁 → 不再被 hand 锁拦截（revision 是另一层，line 103 已专测；本测只钉锁逻辑）
+    rmSync(guiPath, { force: true })
+    const r2 = await put('doc_1', {
+      content: '锁已解', expectedRevision: null, operationId: 'op_hand2', origin: 'manual',
+    })
+    expect((r2.json as { code?: string }).code).not.toBe('HAND_LOCKED')
+  })
+
+  it('hand 占用其它文档（draftRelPath 不命中）→ 不影响本档保存', async () => {
+    mkdirSync(join(workDir!, BOOK, '工作区'), { recursive: true })
+    writeFileSync(
+      join(workDir!, BOOK, '工作区', '.gui-active'),
+      JSON.stringify({ pid: 99999, ts: Date.now(), source: 'hand', draftRelPath: '工作区/草稿-9.md' }),
+    )
+    const r = await put('doc_1', {
+      content: '非目标档', expectedRevision: null, operationId: 'op_hand3', origin: 'manual',
+    })
+    expect((r.json as { code?: string }).code).not.toBe('HAND_LOCKED')
+    rmSync(join(workDir!, BOOK, '工作区', '.gui-active'), { force: true })
+  })
+
   it('无 token → 403（写端点 defense-in-depth）', async () => {
     const r = await request(
       'PUT',

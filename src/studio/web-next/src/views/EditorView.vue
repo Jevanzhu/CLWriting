@@ -135,18 +135,20 @@ onUnmounted(() => {
       <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
       <span
         class="save-state"
-        :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error }"
+        :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error && !entry.handLocked, handlocked: entry.handLocked }"
       >
         {{
           entry.saving
             ? '保存中…'
-            : entry.error
-              ? entry.error
-              : entry.dirty
-                ? '未保存（⌘S）'
-                : entry.savedAt
-                  ? '已保存'
-                  : ''
+            : entry.handLocked
+              ? '正在手写中（保存暂停）'
+              : entry.error
+                ? entry.error
+                : entry.dirty
+                  ? '未保存（⌘S）'
+                  : entry.savedAt
+                    ? '已保存'
+                    : ''
         }}
       </span>
       <!-- 乐观锁冲突出路：重载（丢本地）/ 覆盖（丢远端），二选一解除冲突态 -->
@@ -225,6 +227,9 @@ onUnmounted(() => {
 }
 .save-state.err {
   color: var(--text-error);
+}
+.save-state.handlocked {
+  color: var(--text-warning);
 }
 .conflict-btn {
   flex-shrink: 0;
