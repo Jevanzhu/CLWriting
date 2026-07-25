@@ -69,6 +69,23 @@ export async function createDoc(
   })
 }
 
+// POST /documents/:docId/copy（E3.3：复制源内容到新 relPath；章号前端算，标题加「副本」）。
+// 返回同 createDoc（新 docId + path + revision）；源未登记 legacy → 404，前端提示。
+export async function copyDoc(
+  name: string,
+  docId: string,
+  relPath: string,
+): Promise<CreateOk> {
+  return apiJson<CreateOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/copy`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relPath }),
+    },
+  )
+}
+
 // PATCH /documents/:docId（rename / move；legacy:docId 会 404，前端提示）。
 export async function renameDoc(
   name: string,

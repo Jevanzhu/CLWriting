@@ -207,6 +207,54 @@ test('updateDocMeta: 裸 md 无 fm → 自动包裹 fm 写字段', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('copyDocument: 复制内容 + 新 docId + 清单登记 + 源不变', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = await svc.copyDocument({ docId: 'doc_ch01', relPath: '定稿/正文/第一卷/0002-开篇 副本.md' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.docId).toMatch(/^doc_/)
+  expect(r.docId).not.toBe('doc_ch01')
+  expect(r.path).toBe('定稿/正文/第一卷/0002-开篇 副本.md')
+  // 副本内容同源（fm + body 原样复制）
+  const copy = readFileSync(join(root, '定稿', '正文', '第一卷', '0002-开篇 副本.md'), 'utf-8')
+  expect(copy).toContain('章号: 1')
+  expect(copy).toContain('正文')
+  // 源文件不变
+  expect(existsSync(join(root, '定稿', '正文', '第一卷', '0001-开篇.md'))).toBe(true)
+  // 清单登记新 docId + 副本 path
+  const m = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(m).toContain(r.docId)
+  expect(m).toContain('0002-开篇 副本.md')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('copyDocument: 源 docId 未登记 → NOT_FOUND', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = await svc.copyDocument({ docId: 'doc_unknown', relPath: '定稿/正文/第一卷/0002-x.md' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('NOT_FOUND')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('copyDocument: 目标已存在 → ALREADY_EXISTS', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = await svc.copyDocument({ docId: 'doc_ch01', relPath: '定稿/正文/第一卷/0001-开篇.md' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('ALREADY_EXISTS')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('copyDocument: 路径越出 → PATH_ESCAPE', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = await svc.copyDocument({ docId: 'doc_ch01', relPath: '../etc/passwd' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('PATH_ESCAPE')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('结构性操作触发旧书建清单（W0 §4.2）', async () => {
   const root = mkdtempSync(join(tmpdir(), 'w2a-nomanifest-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })

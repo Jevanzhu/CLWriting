@@ -192,6 +192,25 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     },
   )
 
+  // ── E3.3：复制文档（源 docId + 目标 relPath → 新 docId）──────────
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/copy',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const docId = params['docId'] ?? ''
+      const body = await readJson(req)
+      if (typeof body.relPath !== 'string' || !body.relPath) {
+        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'relPath 缺失' })
+        return
+      }
+      const svc = getOrCreateService(r.bookRoot)
+      const result = await svc.copyDocument({ docId, relPath: body.relPath })
+      reply(res, result.ok ? 201 : structStatus(result.code), result)
+    },
+  )
+
   // ── W2A：软删（→ 回收站）────────────────────────
   route(
     'DELETE',
