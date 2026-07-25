@@ -143,6 +143,34 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     expect(j.stale).toBe(true)
   })
 
+  it('emotion 分析 → 200 + payload 数组（emotion -2..2）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
+      kind: 'emotion',
+    })
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; envelope: { payload: { emotion: number; label: string }[] } }
+    expect(j.ok).toBe(true)
+    expect(Array.isArray(j.envelope.payload)).toBe(true)
+    expect(j.envelope.payload.length).toBeGreaterThan(0)
+    const e = j.envelope.payload[0]!.emotion
+    expect(e).toBeGreaterThanOrEqual(-2)
+    expect(e).toBeLessThanOrEqual(2)
+  })
+
+  it('hooks 分析 → 200 + payload.hooks 数组 + density', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
+      kind: 'hooks',
+    })
+    expect(r.status).toBe(200)
+    const j = r.json as {
+      ok: boolean
+      envelope: { payload: { hooks: { pos: string; strength: number }[]; density: string } }
+    }
+    expect(j.ok).toBe(true)
+    expect(Array.isArray(j.envelope.payload.hooks)).toBe(true)
+    expect(['疏', '中', '密']).toContain(j.envelope.payload.density)
+  })
+
   it('kind=review → 400（review 走独立三审端点）', async () => {
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
       kind: 'review',

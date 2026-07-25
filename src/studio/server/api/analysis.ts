@@ -19,6 +19,7 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
+import type { ChapterMeta } from '../../../format/types.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 import { readAnalysis, writeAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
@@ -111,7 +112,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
-      const prompt = buildAnalystPrompt(kind, body, chapter.章号, isShort ? 'short' : 'long')
+      const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long')
       const driver = getDriver('cc')
       const session = await driver.startSession(ctx.workDir)
       driver.spawnRole(session, 'analyst', prompt)
@@ -152,18 +153,27 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 }
 
 /** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约）。 */
-function buildAnalystPrompt(kind: AnalysisKind, body: string, chapterNum: number, bookKind: 'long' | 'short'): string {
+function buildAnalystPrompt(kind: AnalysisKind, body: string, chapter: ChapterMeta, bookKind: 'long' | 'short'): string {
   const unit = bookKind === 'short' ? '篇' : '章'
-  return [
+  const parts: string[] = [
     `[kind:${kind}]`,
     '',
-    `## 任务\n对第 ${chapterNum} ${unit}正文做${ANALYSIS_LABEL[kind]}分析，只读不改稿。`,
+    `## 任务\n对第 ${chapter.章号} ${unit}正文做${ANALYSIS_LABEL[kind]}分析，只读不改稿。`,
+  ]
+  // 各 kind 附「规则版为底」（章纲 fm 声明），AI 据此补识别/评价
+  if (kind === 'emotion') {
+    parts.push('', `## 章纲声明目标情绪\n${chapter.情绪定位}`)
+  } else if (kind === 'hooks') {
+    parts.push('', `## 章纲声明钩子\n类型：${chapter.钩子类型}；强弱：${chapter.钩子强弱}`)
+  }
+  parts.push(
     '',
     `## 正文\n${body}`,
     '',
     '## 输出契约\n直接输出 JSON，不要多余文字、不要 markdown 代码块、不要读文件、不要用任何工具。',
     ANALYSIS_CONTRACTS[kind],
-  ].join('\n')
+  )
+  return parts.join('\n')
 }
 
 /** 信封过期判定（sourceHash 与当前正文不符）。内联别名，避免循环依赖 document/analysis 全量引入。 */
