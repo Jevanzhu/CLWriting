@@ -52,5 +52,34 @@ jobs:
       - name: 运行时零第三方依赖断言
         run: node -e "const d=require('./package.json').dependencies||{}; if(Object.keys(d).length){console.error('运行时依赖非空:',d);process.exit(1)}"
 
-  # e2e job 暂移除（T4.3 切 web-next 后旧 Playwright selector 失效，test:e2e 已 echo 禁用）；
-  # web-next e2e 待重写后恢复，见 Dev/Main/Reviews/webnext-平价验收.md「延期事项」。
+  # e2e job（M11 E1 恢复）：playwright 跑 web-next 7 条动线，独立 job 不阻塞 build-test。
+  e2e:
+    name: e2e · playwright
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 装依赖
+        run: npm ci
+
+      - name: 装前端依赖（web-next node_modules）
+        run: npm --prefix src/studio/web-next ci
+
+      - name: 装 playwright chromium
+        run: npx playwright install chromium
+
+      - name: 跑 e2e（build:web + playwright test）
+        run: npm run test:e2e
+
+      - name: 上传 trace（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: test-results/
+          retention-days: 7

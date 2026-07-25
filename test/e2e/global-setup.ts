@@ -18,6 +18,8 @@ let server: http.Server | undefined
 export default async function globalSetup(): Promise<() => Promise<void>> {
   process.env['CLWRITING_DRIVER'] = 'mock'
   const workDir = makeDualTrackWorkdir()
+  // 暴露给 spec：T1.3 冲突测需外部直接改磁盘文件触发 REVISION_CONFLICT
+  process.env['CLWRITING_E2E_WORKDIR'] = workDir
   server = startServer({
     port: 18999,
     workDir,

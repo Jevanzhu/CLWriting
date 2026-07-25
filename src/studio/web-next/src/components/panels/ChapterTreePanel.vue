@@ -213,6 +213,8 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
   menuVisible.value = true
 }
 function onBlankContextMenu(e: MouseEvent): void {
+  // 节点项 contextmenu 冒泡到此：节点 handler 已设对应菜单，跳过避免被空白菜单覆盖
+  if ((e.target as HTMLElement).closest('.tree-item')) return
   e.preventDefault()
   menuNode.value = null
   menuItems.value = [
