@@ -8,6 +8,7 @@ import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
 import CheckPanel from '../panels/CheckPanel.vue'
 import ReviewPanel from '../panels/ReviewPanel.vue'
+import RewritePanel from '../panels/RewritePanel.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf } from '../../shared/words'
@@ -56,8 +57,11 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
         <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
         <WritingInfoPanel v-else :book-name="bookName" />
       </template>
-      <!-- 审阅 tab：块1 三审面板（块2 改写待挂） -->
-      <ReviewPanel v-else-if="tab === 'review'" :book-name="bookName" />
+      <!-- 审阅 tab：块1 三审 + 块2 改写 -->
+      <div v-else-if="tab === 'review'" class="review-stack">
+        <ReviewPanel :book-name="bookName" />
+        <RewritePanel :book-name="bookName" />
+      </div>
       <!-- 机检 tab：块3 本地规则检查（无 AI，断网可用） -->
       <CheckPanel v-else-if="tab === 'check'" :book-name="bookName" />
       <!-- 分析 tab：块4（占位） -->
@@ -125,6 +129,11 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   flex: 1;
   overflow: auto;
   padding: var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+}
+.review-stack {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-4);
