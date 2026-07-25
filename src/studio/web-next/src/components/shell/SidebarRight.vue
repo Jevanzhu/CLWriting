@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// 右侧栏：顶部空带（对齐 tabbar 高度，桌面版可拖窗）+ 按当前文档切换上半面板
-// （大纲文档→MetaFormPanel 结构化表单 / 其他→WritingInfoPanel 字数）+ 上下文速查（T2.3）。
-import { computed } from 'vue'
+// 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
+// （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
+import { ref, computed } from 'vue'
+import { Info, FileSearch, CheckSquare, BarChart3 } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
@@ -19,14 +20,55 @@ const showOutlineForm = computed(() => {
   const node = tree.byDocId.get(ws.activeDocId)
   return node ? formKindOf(node.path) !== null : false
 })
+
+// M12 B0.5：右栏 tab（信息=字数/表单 / 审阅=三审+改写 / 机检 / 分析）；审阅·机检·分析由块1/2/3/4 逐个填充
+type RightTab = 'info' | 'review' | 'check' | 'analysis'
+const tab = ref<RightTab>('info')
+const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
+  { key: 'info', label: '信息', icon: Info },
+  { key: 'review', label: '审阅', icon: FileSearch },
+  { key: 'check', label: '机检', icon: CheckSquare },
+  { key: 'analysis', label: '分析', icon: BarChart3 },
+]
 </script>
 
 <template>
   <div class="sidebar-right">
-    <div class="right-topbar" :class="{ 'is-drag': hasDesktop }" />
+    <div class="right-topbar" :class="{ 'is-drag': hasDesktop }">
+      <div class="right-tabs">
+        <button
+          v-for="t in tabs"
+          :key="t.key"
+          class="right-tab"
+          :class="{ active: tab === t.key }"
+          :title="t.label"
+          @click="tab = t.key"
+        >
+          <component :is="t.icon" :size="16" />
+        </button>
+      </div>
+    </div>
     <div class="right-body">
-      <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
-      <WritingInfoPanel v-else :book-name="bookName" />
+      <!-- 信息 tab：字数 / 大纲结构化表单 -->
+      <template v-if="tab === 'info'">
+        <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
+        <WritingInfoPanel v-else :book-name="bookName" />
+      </template>
+      <!-- 审阅 tab：块1 三审面板 + 块2 改写（占位，后续填充） -->
+      <section v-else-if="tab === 'review'" class="side-section">
+        <div class="side-title">审阅</div>
+        <div class="side-hint">三审意见 / 改写提案（M12 块1 / 块2）</div>
+      </section>
+      <!-- 机检 tab：块3（占位） -->
+      <section v-else-if="tab === 'check'" class="side-section">
+        <div class="side-title">机检</div>
+        <div class="side-hint">本地规则检查（M12 块3）</div>
+      </section>
+      <!-- 分析 tab：块4（占位） -->
+      <section v-else-if="tab === 'analysis'" class="side-section">
+        <div class="side-title">分析</div>
+        <div class="side-hint">体验分 / 情绪曲线 / 钩子 / 文风（M12 块4）</div>
+      </section>
       <ContextQuickPanel :book-name="bookName" />
     </div>
   </div>
@@ -40,15 +82,48 @@ const showOutlineForm = computed(() => {
   overflow: hidden;
   background: var(--background-secondary);
 }
-/* 顶部空带：高度对齐 tabbar（--size-tabbar），底部横线与左栏/主区顶部带对齐；桌面版可拖窗 */
+/* 顶部 tab 条：高度对齐 tabbar，桌面版可拖窗；tab 图标居中 */
 .right-topbar {
   flex-shrink: 0;
   height: var(--size-tabbar);
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 var(--size-4-2);
+  gap: var(--size-4-1);
 }
 .right-topbar.is-drag {
   -webkit-app-region: drag;
+}
+.right-tabs {
+  display: flex;
+  gap: var(--size-4-1);
+}
+.right-tabs button {
+  -webkit-app-region: no-drag;
+}
+.right-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.right-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.right-tab.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 .right-body {
   flex: 1;

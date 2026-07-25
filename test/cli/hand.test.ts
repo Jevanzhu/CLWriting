@@ -115,3 +115,18 @@ test('hand: 工作区有未完成章（态 4）→ 拒绝 exit 1', () => {
   expect(stdout).toContain('态 4')
   rmSync(root, { recursive: true, force: true })
 })
+
+test('hand: 草稿登记清单 + 锁标 hand 占用（B0.3/B0.4）', () => {
+  const root = makeGitBook()
+  const { exitCode } = captureCli(() => handCommand([root]))
+  expect(exitCode).toBeNull()
+  // B0.3：草稿进清单（稳定 doc_ docId，非 legacy）
+  const manifest = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(manifest).toContain('工作区/草稿-1.md')
+  expect(manifest).toMatch(/"id":"doc_[0-9A-Z]/)
+  // B0.4：锁标 source=hand + draftRelPath
+  const gui = JSON.parse(readFileSync(guiActivePath(root), 'utf-8'))
+  expect(gui.source).toBe('hand')
+  expect(gui.draftRelPath).toBe('工作区/草稿-1.md')
+  rmSync(root, { recursive: true, force: true })
+})

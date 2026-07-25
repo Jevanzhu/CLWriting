@@ -1,10 +1,11 @@
 /**
  * GUI 活跃标记 + 工作区编辑锁（W0-2 §5 第一层）。
  *
- * .gui-active = { pid, ts, editing_workdir? }：
+ * .gui-active = { pid, ts, editing_workdir?, source?, draftRelPath? }：
  * - pid/ts：GUI 后端心跳（heartbeat 端点续期），CLI 写命令据此轻提示（#1.5，不阻塞）。
  * - editing_workdir：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）——
  *   batch 每章前检查，新鲜时连写暂停（不跳章），过期/清除时双方进入。
+ * - source/draftRelPath（M12 B0.4）：hand 建草稿时置位，Studio 保存同文档据此拒绝。
  *
  * 沿用 STALE_MS=30s：editing_workdir 新鲜 = 标记在 + ts 未过期。
  */
@@ -20,6 +21,10 @@ export interface GuiActiveRecord {
   ts: number
   /** 工作区编辑锁：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）。 */
   editing_workdir?: boolean
+  /** M12 B0.4：占用源=hand（CLI 手写起草）；Studio 据此拒绝保存同文档。 */
+  source?: 'hand'
+  /** M12 B0.4：hand 占用的草稿相对路径（工作区/草稿-N.md）；source=hand 时配对。 */
+  draftRelPath?: string
 }
 
 /** .gui-active 文件路径：<bookRoot>/工作区/.gui-active */
@@ -27,13 +32,18 @@ export function guiActivePath(bookRoot: string): string {
   return join(bookRoot, '工作区', '.gui-active')
 }
 
-/** GUI 心跳写 / 续期（合并写：保留同进程设的 editing_workdir，心跳不清锁）。 */
+/** GUI 心跳写 / 续期（合并写：保留同进程设的 editing_workdir + hand 占用标记）。 */
 export function writeGuiActive(bookRoot: string): void {
   const existing = readGuiActive(bookRoot)
   const rec: GuiActiveRecord = { pid: process.pid, ts: Date.now() }
   // 心跳续期不应清掉本进程的工作区编辑锁
   if (existing?.editing_workdir === true && existing.pid === process.pid) {
     rec.editing_workdir = true
+  }
+  // M12 B0.4：保留 hand 占用标记（不同 pid 也保留——Studio 心跳不应清 hand 锁）
+  if (existing?.source === 'hand' && typeof existing.draftRelPath === 'string') {
+    rec.source = 'hand'
+    rec.draftRelPath = existing.draftRelPath
   }
   try {
     writeFileSync(guiActivePath(bookRoot), JSON.stringify(rec), 'utf8')
@@ -58,6 +68,8 @@ export function readGuiActive(bookRoot: string): GuiActiveRecord | null {
     if (typeof rec.pid !== 'number' || typeof rec.ts !== 'number') return null
     const out: GuiActiveRecord = { pid: rec.pid, ts: rec.ts }
     if (rec.editing_workdir === true) out.editing_workdir = true
+    if (rec.source === 'hand') out.source = 'hand'
+    if (typeof rec.draftRelPath === 'string') out.draftRelPath = rec.draftRelPath
     return out
   } catch {
     return null
@@ -82,9 +94,16 @@ export function warnIfGuiActive(bookRoot: string): void {
 
 // ── 工作区编辑锁（W0-2 §5 互斥第一层）──────────
 
-/** 置工作区编辑锁：editing_workdir=true + 续 ts。编辑器打开工作区草稿/细纲时调。 */
-export function acquireEditingWorkdir(bookRoot: string): boolean {
+/**
+ * 置工作区编辑锁：editing_workdir=true + 续 ts。
+ * draftRelPath（M12 B0.4）：hand 建草稿时传，标记占用路径，Studio 据此拒绝保存同文档。
+ */
+export function acquireEditingWorkdir(bookRoot: string, draftRelPath?: string): boolean {
   const rec: GuiActiveRecord = { pid: process.pid, ts: Date.now(), editing_workdir: true }
+  if (draftRelPath) {
+    rec.source = 'hand'
+    rec.draftRelPath = draftRelPath
+  }
   try {
     writeFileSync(guiActivePath(bookRoot), JSON.stringify(rec), 'utf8')
     return true
@@ -93,7 +112,7 @@ export function acquireEditingWorkdir(bookRoot: string): boolean {
   }
 }
 
-/** 清工作区编辑锁：editing_workdir 移除，保留 pid/ts（GUI 仍活跃，只是不在编辑工作区）。 */
+/** 清工作区编辑锁：editing_workdir/hand 标记移除，保留 pid/ts（GUI 仍活跃，只是不在编辑工作区）。 */
 export function releaseEditingWorkdir(bookRoot: string): void {
   const existing = readGuiActive(bookRoot)
   if (!existing) return
@@ -109,4 +128,16 @@ export function isEditingWorkdirActive(bookRoot: string): boolean {
   const rec = readGuiActive(bookRoot)
   if (!rec || rec.editing_workdir !== true) return false
   return Date.now() - rec.ts <= STALE_MS
+}
+
+/**
+ * hand 草稿锁是否占用某文档（M12 B0.4）。
+ * source=hand + draftRelPath 命中 → true（Studio 保存应拒绝）。
+ * 不检查 ts：hand 锁持续到 finalize release（手写起草可能跨数小时，
+ * 不应被 STALE_MS 误判过期；异常残留靠作者 finalize 或手动清 .gui-active）。
+ */
+export function isHandDraftLocked(bookRoot: string, relPath: string): boolean {
+  const rec = readGuiActive(bookRoot)
+  if (!rec || rec.source !== 'hand' || typeof rec.draftRelPath !== 'string') return false
+  return rec.draftRelPath === relPath
 }
