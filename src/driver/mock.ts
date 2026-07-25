@@ -98,6 +98,18 @@ export const mockDriver: StudioDriver = {
   },
 }
 
+/** 三审 lens role 的 mock issues（供三审 e2e 断言意见；evidence 非空过硬闸）。 */
+const MOCK_REVIEW_ISSUES = JSON.stringify([
+  {
+    category: 'pacing',
+    severity: 'S3',
+    location: '开头',
+    evidence: ['主角登场'],
+    issue: 'mock 三审：开篇节奏偏快，可加环境铺垫',
+    fix: '补充场景描写',
+  },
+])
+
 /** 模拟一次单步生成:send 显 role_spawn + 分块 text + usage + done(spawnRole 干净,无 role_spawn) */
 async function runMockGenerate(
   session: Session,
@@ -110,7 +122,10 @@ async function runMockGenerate(
     push(session.id, { type: 'role_spawn', role, parentToolUseId: `tu-${Date.now()}` })
   }
   const preview = prompt.length > 30 ? `${prompt.slice(0, 30)}…` : prompt
-  const sample = `【mock · ${role}】收到「${preview}」,这是 mock driver 的模拟产出。真 driver(批2)将经 claude CLI 生成。\n`
+  const isReviewRole = role.endsWith('-review')
+  const sample = isReviewRole
+    ? MOCK_REVIEW_ISSUES
+    : `【mock · ${role}】收到「${preview}」,这是 mock driver 的模拟产出。真 driver(批2)将经 claude CLI 生成。\n`
   for (const chunk of chunkText(sample, 12)) {
     if (session.closed) return
     await sleep(60)
