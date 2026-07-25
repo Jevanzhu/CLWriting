@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
-import { generateRoleShells, type ShellPlatform } from '../roles/shells.js'
+import { generateRoleShells, type ShellPlatform } from './shells.js'
 import { matchGenreLeads } from './data.js'
 import { appendBook, writeActive, readBooks, bookStoragePath } from './books.js'
 import { scaffoldBookRepo, findGitAncestor, type BookScaffoldOpts } from './scaffold.js'

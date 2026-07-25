@@ -9,7 +9,7 @@
  * words 不在 doFinalize 入参，函数内 countWords(ctx.body) 现算。
  */
 
-import { readAiCallBudget, type AiCallStep } from '../ai/calls.js'
+import { readAiCallBudget, type AiCallStep } from '../format/ai-calls.js'
 import { readReviewPacket, collectReviewIssues } from '../review/run.js'
 import { countWords } from '../format/chapters.js'
 import type { BookConfig } from '../format/types.js'

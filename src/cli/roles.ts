@@ -11,7 +11,7 @@ import {
   formatDriftReport,
   generateRoleShells,
   type ShellPlatform,
-} from '../roles/shells.js'
+} from '../install/shells.js'
 import { findWorkDir } from '../install/books.js'
 
 /** `clwriting roles <generate|check> [工作目录|书目录] [--platform=claude,codex,generic]` */

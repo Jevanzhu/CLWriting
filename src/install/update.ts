@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, cpSync, rmSync } from
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
-import { generateRoleShells, checkRoleShellDrift, formatDriftReport, type ShellPlatform } from '../roles/shells.js'
+import { generateRoleShells, checkRoleShellDrift, formatDriftReport, type ShellPlatform } from './shells.js'
 import { findWorkDir, readBooks } from './books.js'
 import { installBookPushGuard } from './scaffold.js'
 import { atomicWriteFile } from '../fs/atomic.js'
