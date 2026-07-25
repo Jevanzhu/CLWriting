@@ -70,6 +70,8 @@ const verdictBadgeLabel = computed(() => {
 async function setVerdict(approved: boolean): Promise<void> {
   if (!docId.value) return
   await review.setVerdict(props.bookName, docId.value, approved)
+  // T9b：verdict 变化（驳回/通过）→ 刷新树红点
+  void tree.loadIssues(props.bookName)
 }
 
 function severityClass(s: string): string {

@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import type { TreeNode } from '../../types/tree'
+import { useTreeStore } from '../../stores/tree'
 
 defineOptions({ name: 'ChapterTreeItem' })
+
+// T9b：读全局 issue 红点集合（冒泡后含叶子自身 + 子树命中的目录），行尾渲染。
+const tree = useTreeStore()
 
 const props = defineProps<{
   node: TreeNode
@@ -124,6 +128,11 @@ watch(
       </span>
       <span class="label">{{ node.name }}</span>
       <span v-if="node.status === 'published'" class="badge">·已发</span>
+      <span
+        v-if="tree.issuePaths.has(node.path)"
+        class="issue-dot"
+        title="有机检红项或审稿驳回"
+      ></span>
     </div>
 
     <!-- 子节点 + 新建输入框 -->
@@ -231,6 +240,24 @@ watch(
   font-size: 10px;
   color: var(--text-faint);
   flex-shrink: 0;
+}
+/* T9b：树红点（行尾，独立于行首六态 dot；有机检 red 或 verdict 驳回时亮）。 */
+.issue-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-error, #e05d5d);
+  flex-shrink: 0;
+  animation: issue-pulse 1.6s ease-in-out infinite;
+}
+@keyframes issue-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .inline-input {
   flex: 1;

@@ -11,21 +11,23 @@
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, dirname } from 'node:path'
+import { join, dirname, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
+import { readAnalysis } from '../../../document/analysis.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readDraft, finalChapterFileName } from '../../../format/draft.js'
 import { rebuild } from '../../../cache/rebuild.js'
 import { runAllChecks, hasRed } from '../../../check/runner.js'
 import { readOutlineLeads } from '../../../process/materials.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../../process/lead-updates.js'
+import { readChapterDir } from '../../../format/chapters.js'
 import type { CheckReport } from '../../../check/types.js'
-import type { ChapterMeta } from '../../../format/types.js'
+import type { ChapterMeta, BookConfig } from '../../../format/types.js'
 
 interface CheckCtx {
   workDir: string | null
@@ -44,9 +46,6 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const isShort = (config.kind ?? 'long') === 'short'
 
-  const draft = readDraft(absPath, isShort)
-  if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
-
   const cachePath = join(bookRoot, '.cache', 'index.db')
   if (!isShort) {
     const rebuilt = rebuild(bookRoot, cachePath)
@@ -61,6 +60,29 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
   }
 
   const db = isShort ? null : new DatabaseSync(cachePath)
+  try {
+    return checkWithDb(bookRoot, absPath, db, config, isShort)
+  } finally {
+    if (db) db.close()
+  }
+}
+
+/**
+ * 对单文档跑机检（复用外部 db；长篇 db 必填、短篇传 null）。
+ *
+ * T9b 树红点聚合 rebuild 一次后循环调此（避免每章 rebuild 的 O(N²)）；
+ * 机检端点经 runCheckForDocument（rebuild + 调此）间接复用。
+ * readDraft / leads 组装与原 runCheckForDocument 逐字一致，机检/三审端点零感知。
+ */
+export function checkWithDb(
+  bookRoot: string,
+  absPath: string,
+  db: DatabaseSync | null,
+  config: BookConfig,
+  isShort: boolean,
+): CheckOutcome {
+  const draft = readDraft(absPath, isShort)
+  if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
     const workDir = dirname(absPath)
     const declaredLeadIds = isShort ? undefined : readOutlineLeads(workDir)
@@ -82,8 +104,6 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
     return { ok: false, code: 'CHECK_ERROR', error: e instanceof Error ? e.message : String(e) }
-  } finally {
-    if (db) db.close()
   }
 }
 
@@ -120,6 +140,68 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         })
       }
       reply(res, 200, { ok: true, report: outcome.report, hasRed: outcome.hasRed })
+    },
+  )
+
+  // GET /tree-issues（T9b 树红点冒泡）：扫定稿正文聚合机检 red + verdict 驳回，
+  // 返 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId，余省略）。
+  // rebuild 一次复用 db 循环 checkWithDb（避免每章 rebuild 的 O(N²)）；rebuild 失败降级空 issues（不阻塞树）。
+  route(
+    'GET',
+    '/api/books/:name/tree-issues',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+      const isShort = (config.kind ?? 'long') === 'short'
+      const cachePath = join(bookRoot, '.cache', 'index.db')
+      let db: DatabaseSync | null = null
+      let rebuildFailed = false
+      if (!isShort) {
+        const rebuilt = rebuild(bookRoot, cachePath)
+        if (rebuilt.errors.length > 0) {
+          // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
+          // （verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
+          rebuildFailed = true
+        } else {
+          db = new DatabaseSync(cachePath)
+        }
+      }
+      try {
+        const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
+        const pathToDocId = new Map<string, string>()
+        for (const [docId, m] of manifest) pathToDocId.set(m.path, docId)
+        const issues: Record<string, { hasRed: boolean; verdictRejected: boolean }> = {}
+        const bodyDir = join(bookRoot, '定稿', '正文')
+        if (existsSync(bodyDir)) {
+          const { chapters } = readChapterDir(bodyDir)
+          for (const ch of chapters) {
+            if (!ch._path) continue
+            const relPath = relative(bookRoot, ch._path)
+            const docId = pathToDocId.get(relPath)
+            if (!docId) continue
+            let hasRed = false
+            if (!rebuildFailed) {
+              const outcome = checkWithDb(bookRoot, ch._path, db, config, isShort)
+              hasRed = outcome.ok ? outcome.hasRed : false
+            }
+            const reviewEnv = readAnalysis(bookRoot, docId, 'review')
+            const verdict = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
+            const verdictRejected = !!verdict && !verdict.approved
+            if (hasRed || verdictRejected) issues[docId] = { hasRed, verdictRejected }
+          }
+        }
+        reply(res, 200, {
+          ok: true,
+          issues,
+          ...(rebuildFailed ? { warning: '机检索引构建失败，仅显示审稿驳回红点' } : {}),
+        })
+      } finally {
+        if (db) db.close()
+      }
     },
   )
 }

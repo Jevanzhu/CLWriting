@@ -40,7 +40,7 @@ function makeLongBook(root: string): void {
   mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
   writeFileSync(
     join(root, '大纲', '伏笔', '伏笔-001-玉佩.md'),
-    '---\n编号: 伏笔-001\n标题: 玉佩\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：主角发现玉佩发光\n',
+    '---\n编号: 伏笔-001\n标题: 玉佩\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
   )
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   writeFileSync(
