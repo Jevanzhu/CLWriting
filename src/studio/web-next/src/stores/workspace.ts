@@ -19,7 +19,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 左栏活动面板（细案 §5 leftPanel）。 */
   const leftPanel = ref<'tree' | 'search' | 'trash'>('tree')
   /** 主区活动视图：编辑器 / 工作台 / 开书对话 / 总览（ribbon 切换；点章节回编辑器）。 */
-  const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations'>('editor')
+  const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'>('editor')
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
   const pendingCloseTabId = ref<string | null>(null)
@@ -158,7 +158,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setLeftPanel(p: 'tree' | 'search' | 'trash'): void {
     leftPanel.value = p
   }
-  function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations'): void {
+  function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'): void {
     activeView.value = v
   }
   /** 注册/注销编辑器选区读取器（EditorView mount/unmount；选段改写用）。 */

@@ -8,6 +8,7 @@ import {
   Share2,
   Wrench,
   Compass,
+  GraduationCap,
   Download,
   Library,
   Settings,
@@ -78,6 +79,14 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
+      </button>
+      <button
+        class="rbtn"
+        :class="{ on: ws.activeView === 'learn' }"
+        title="文风收割（样章/金句候选入库）"
+        @click="ws.setActiveView('learn')"
+      >
+        <GraduationCap :size="20" />
       </button>
       <button
         class="rbtn"
