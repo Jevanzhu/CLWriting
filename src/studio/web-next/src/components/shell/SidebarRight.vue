@@ -6,6 +6,7 @@ import { Info, FileSearch, CheckSquare, BarChart3 } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
+import CheckPanel from '../panels/CheckPanel.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf } from '../../shared/words'
@@ -59,11 +60,8 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
         <div class="side-title">审阅</div>
         <div class="side-hint">三审意见 / 改写提案（M12 块1 / 块2）</div>
       </section>
-      <!-- 机检 tab：块3（占位） -->
-      <section v-else-if="tab === 'check'" class="side-section">
-        <div class="side-title">机检</div>
-        <div class="side-hint">本地规则检查（M12 块3）</div>
-      </section>
+      <!-- 机检 tab：块3 本地规则检查（无 AI，断网可用） -->
+      <CheckPanel v-else-if="tab === 'check'" :book-name="bookName" />
       <!-- 分析 tab：块4（占位） -->
       <section v-else-if="tab === 'analysis'" class="side-section">
         <div class="side-title">分析</div>
