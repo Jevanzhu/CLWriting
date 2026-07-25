@@ -7,13 +7,15 @@
  */
 
 import process from 'node:process'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolveBookRoot } from '../install/books.js'
 import { readBookConfig } from '../format/yaml.js'
 import { detectState } from '../state/state.js'
 import { isBatchActive } from '../auto/batch.js'
 import { acquireEditingWorkdir } from '../process/gui-active.js'
+import { generateDocId } from '../document/stable-id.js'
+import { readManifest, writeManifest, upsertEntry } from '../document/manifest.js'
 
 /** `clwriting hand [N] [书目录]` 命令处理器 */
 export function handCommand(args: string[]): void {
@@ -66,8 +68,12 @@ export function handCommand(args: string[]): void {
   mkdirSync(workDir, { recursive: true })
   writeFileSync(draftPath, renderDraftTemplate(num, isShort), 'utf-8')
 
-  // 占住工作区编辑锁（与 AI 批写互斥）；失败回滚草稿避免无锁半成品
-  if (!acquireEditingWorkdir(bookRoot)) {
+  // E3.1（M12 B0.3）：草稿进清单（docId 稳定，Studio 编辑树/保存协议用）
+  const draftRel = `工作区/${draftName}`
+  registerDraftManifest(bookRoot, draftRel)
+
+  // 占工作区编辑锁（与 AI 批写互斥）+ 标记 hand 占用（B0.4：Studio 据此拒绝保存同草稿）
+  if (!acquireEditingWorkdir(bookRoot, draftRel)) {
     rmSync(draftPath, { force: true })
     console.error('✗ 无法占住工作区编辑锁（写 .gui-active.json 失败）。检查目录权限后重试。')
     process.exit(1)
@@ -77,6 +83,15 @@ export function handCommand(args: string[]): void {
   console.log(`✓ 已创建 ${draftName}（第 ${num} ${unit}）。开始手写。`)
   console.log(`  草稿：${draftPath}`)
   console.log(`  定稿：clwriting finalize ${draftName}${dirHint}`)
+}
+
+/** E3.1（M12 B0.3）：草稿登记清单（分配稳定 docId；无清单则建——结构性操作触发，W0-1 §4.2）。 */
+function registerDraftManifest(bookRoot: string, draftRel: string): void {
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const m = readManifest(manifestPath)
+  upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: draftRel, parentId: null })
+  mkdirSync(dirname(manifestPath), { recursive: true })
+  writeManifest(manifestPath, m)
 }
 
 /** 渲染草稿 front matter 模板（最小集：编号 + 标题；钩子/情绪留默认）。 */

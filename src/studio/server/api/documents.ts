@@ -14,6 +14,7 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
+import { isHandDraftLocked } from '../../../process/gui-active.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -53,6 +54,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const entry = readManifest(join(r.bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!entry) {
         reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
+        return
+      }
+      // M12 B0.4：hand 占用该草稿时拒绝保存（避免 Studio autosave 覆盖外部手写）
+      if (isHandDraftLocked(r.bookRoot, entry.path)) {
+        reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在手写中（CLI hand 占用）' })
         return
       }
 
