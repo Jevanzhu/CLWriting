@@ -56,6 +56,22 @@ async function runReview(): Promise<void> {
   await review.run(props.bookName, docId.value)
 }
 
+// 作者裁决（B1.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；aiOff 不置灰（作者决策非 AI）
+const verdictBadgeClass = computed(() => {
+  const v = review.verdict
+  if (!v) return 'verdict-pending'
+  return v.approved ? 'verdict-pass' : 'verdict-reject'
+})
+const verdictBadgeLabel = computed(() => {
+  const v = review.verdict
+  if (!v) return '待审'
+  return v.approved ? '通过' : '驳回'
+})
+async function setVerdict(approved: boolean): Promise<void> {
+  if (!docId.value) return
+  await review.setVerdict(props.bookName, docId.value, approved)
+}
+
 function severityClass(s: string): string {
   if (s === 'S1' || s === 'S2') return 'sev-high'
   return 'sev-low'
@@ -78,6 +94,23 @@ function severityClass(s: string): string {
         <RefreshCw :size="13" :class="{ spin: review.loading }" />
         <span>{{ review.loading ? '三审中…' : '三审' }}</span>
       </button>
+    </div>
+
+    <!-- 作者裁决（B1.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；不改文档状态 -->
+    <div v-if="isReviewable" class="rev-verdict">
+      <span class="rev-verdict-badge" :class="verdictBadgeClass">{{ verdictBadgeLabel }}</span>
+      <div class="rev-verdict-actions">
+        <button
+          class="rev-verdict-btn"
+          :class="{ active: review.verdict?.approved === true }"
+          @click="setVerdict(true)"
+        >通过</button>
+        <button
+          class="rev-verdict-btn reject"
+          :class="{ active: review.verdict?.approved === false }"
+          @click="setVerdict(false)"
+        >驳回</button>
+      </div>
     </div>
 
     <div v-if="aiOff" class="rev-ai-off">
@@ -217,6 +250,59 @@ function severityClass(s: string): string {
 }
 .rev-stale {
   color: var(--text-warning, #c9a23a);
+}
+.rev-verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+.rev-verdict-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+.verdict-pending {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+.verdict-pass {
+  background: rgba(78, 157, 104, 0.15);
+  color: var(--color-green, #4e9d68);
+}
+.verdict-reject {
+  background: rgba(224, 93, 93, 0.15);
+  color: var(--text-error, #e05d5d);
+}
+.rev-verdict-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.rev-verdict-btn {
+  padding: 2px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.rev-verdict-btn:hover {
+  color: var(--text-normal);
+}
+.rev-verdict-btn.active {
+  background: var(--color-green, #4e9d68);
+  color: var(--text-on-accent, #fff);
+  border-color: var(--color-green, #4e9d68);
+}
+.rev-verdict-btn.reject.active {
+  background: var(--text-error, #e05d5d);
+  border-color: var(--text-error, #e05d5d);
 }
 .rev-clean {
   display: flex;
