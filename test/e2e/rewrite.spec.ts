@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+// （主项目 tsc 的 lib 不含 dom；本 spec evaluate 回调裸用 document，按文件加载 dom lib，不收窄 e2e 13 spec 的类型覆盖）
 /**
  * 改写 e2e（M12 块2）：选章 → 审阅 tab → 改写 → diff → 接受进 buffer → ⌘S 持久。
  *

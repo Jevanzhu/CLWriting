@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getTree } from '../api/books'
+import { getTreeIssues, type TreeIssue } from '../api/tree-issues'
 import type { TreeNode } from '../types/tree'
 
 // 章节树 store：原始磁盘 nodes + groupTree 虚拟分组（写作/大纲/设定/文风）+ byPath 索引。
@@ -76,6 +77,46 @@ export const useTreeStore = defineStore('tree', () => {
     walk(raw.value)
   }
 
+  // T9b 树红点：docId → { hasRed, verdictRejected }（仅含有 issue 的 docId）。
+  // 触发刷新：load 后拉一次；CheckPanel 跑完机检 / ReviewPanel verdict 后各拉一次。
+  const issues = ref<Record<string, TreeIssue>>({})
+  /** rebuild 失败等降级提示（非阻塞，仅展示用）；null = 正常。 */
+  const issuesWarning = ref<string | null>(null)
+
+  /**
+   * 冒泡后的「有 issue」path 集合（叶子自身命中 + 目录子树命中均纳入）。
+   * 后序 DFS：任一子树命中 → 父 path 入集合，供 ChapterTreeItem 行尾红点渲染。
+   */
+  const issuePaths = computed<Set<string>>(() => {
+    const map = issues.value
+    const set = new Set<string>()
+    const walk = (ns: TreeNode[]): boolean => {
+      let sub = false
+      for (const n of ns) {
+        const selfHas = !n.isDirectory && !!n.docId && !!map[n.docId]
+        const childHas = n.children.length ? walk(n.children) : false
+        if (selfHas || childHas) {
+          set.add(n.path)
+          sub = true
+        }
+      }
+      return sub
+    }
+    walk(grouped.value)
+    return set
+  })
+
+  /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。 */
+  async function loadIssues(name: string): Promise<void> {
+    try {
+      const r = await getTreeIssues(name)
+      issues.value = r.issues ?? {}
+      issuesWarning.value = r.warning ?? null
+    } catch {
+      /* 网络抖动等：保留旧值，不惊扰作者 */
+    }
+  }
+
   async function load(name: string): Promise<void> {
     loading.value = true
     error.value = null
@@ -83,6 +124,8 @@ export const useTreeStore = defineStore('tree', () => {
       const r = await getTree(name)
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
+      // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
+      void loadIssues(name)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -90,7 +133,23 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  return { raw, grouped, byPath, byDocId, totalWords, finalizedWords, updateWordCount, revision, loading, error, load }
+  return {
+    raw,
+    grouped,
+    byPath,
+    byDocId,
+    totalWords,
+    finalizedWords,
+    updateWordCount,
+    revision,
+    loading,
+    error,
+    load,
+    issues,
+    issuesWarning,
+    issuePaths,
+    loadIssues,
+  }
 })
 
 /** 虚拟分组 transform：真实磁盘节点 → 写作功能分组（移植旧 FileTree.groupTree）。

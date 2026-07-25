@@ -26,6 +26,8 @@ const isCheckable = computed(() => {
 async function runCheck(): Promise<void> {
   if (!docId.value) return
   await check.run(props.bookName, docId.value)
+  // T9b：机检结果变化 → 刷新树红点（正文 red 增减要冒泡到树）
+  if (!check.error) void tree.loadIssues(props.bookName)
 }
 </script>
 
