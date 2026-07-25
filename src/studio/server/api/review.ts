@@ -21,8 +21,12 @@ import { readBooks } from '../../../install/books.js'
 import { readFile } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
-import type { DriverEvent } from '../../../driver/types.js'
+import type { StudioDriver, DriverEvent } from '../../../driver/types.js'
 import { runClwritingCli } from '../cli-runner.js'
+import { readManifest } from '../../../document/manifest.js'
+import { runCheckForDocument, checkOutcomeStatus } from './check.js'
+import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
+import { writeAnalysis, sourceHashOf } from '../../../document/analysis.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -95,39 +99,24 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const draftFile = readFile(draftPath)
     const draftBody = draftFile.ok ? (draftFile as { body: string }).body : readFileSync(draftPath, 'utf8')
 
-    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流(6.8④)
+    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流(6.8④)——共享函数 runLensSpawnLoop
     const driver = getDriver('cc')
-    const lenses: string[] = []
-    mkdirSync(join(workDir, '三审'), { recursive: true })
     const mainSession = await ensureSession(params['name']!, ctx.workDir!)
     const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
       if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
     }
-    for (const sub of packet.packets) {
-      const lens = sub.lens
-      lenses.push(lens)
-      emitProgress(lens, 'start')
-      const prompt = buildLensPrompt(lens, sub, draftBody, chapter, kind)
-      const session = await driver.startSession(ctx.workDir!)
-      driver.spawnRole(session, lensToRole(lens), prompt)
-      let text = ''
-      try {
-        for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-          if (ev.type === 'text') text += String(ev.text ?? '')
-          else if (ev.type === 'done') break
-          else if (ev.type === 'error') {
-            driver.dispose(session)
-            return reply(res, 500, { error: `${lens}-review driver:${ev.message}` })
-          }
-        }
-      } catch (e) {
-        driver.dispose(session)
-        return reply(res, 500, { error: `${lens}-review stream:${e instanceof Error ? e.message : String(e)}` })
-      }
-      driver.dispose(session)
-      writeFileSync(join(workDir, '三审', `issues-${lens}.json`), extractJson(text), 'utf8')
-      emitProgress(lens, 'done')
-    }
+    const loopResult = await runLensSpawnLoop({
+      driver,
+      cwd: ctx.workDir!,
+      packets: packet.packets,
+      body: draftBody,
+      chapter,
+      kind,
+      outDir: join(workDir, '三审'),
+      onProgress: emitProgress,
+    })
+    if (!loopResult.ok) return reply(res, 500, { error: loopResult.error })
+    const lenses = loopResult.lenses
 
     // ③ review collect(CLI 回收产审稿.md)
     const collectResult = await runClwritingCli(['review', 'collect', '--chapter=' + String(chapter)], bookRoot)
@@ -139,6 +128,80 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const report = existsSync(verdictPath) ? readFileSync(verdictPath, 'utf8') : '(未生成审稿单)'
     reply(res, 200, { ok: true, lenses, report, collectLog: collectResult.stdout.trim().slice(0, 200) })
   })
+
+  // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → spawnRole×3 → 落信封
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/review',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const bookRoot = join(ctx.workDir, entry.path)
+      const docId = params['docId'] ?? ''
+      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      const absPath = join(bookRoot, m.path)
+      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+
+      // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
+      const outcome = runCheckForDocument(bookRoot, absPath)
+      if (!outcome.ok) {
+        return reply(res, checkOutcomeStatus(outcome.code), {
+          ok: false,
+          code: outcome.code,
+          error: outcome.error,
+          ...(outcome.details ? { details: outcome.details } : {}),
+        })
+      }
+      const { report, chapter, body } = outcome
+
+      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+      const kind: 'long' | 'short' = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
+
+      // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
+      const built = buildReviewPacket({
+        checkReport: report,
+        body,
+        chapter: chapter.章号,
+        workDir: join(bookRoot, '.cache', `review-${docId}`),
+        capabilities: { parallel_subagents: false, multiple_calls: true },
+        remaining_calls: config.budget.calls_per_chapter,
+        high_risk: false,
+        kind,
+      })
+      if (!built.ok) return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
+
+      // spawnRole×3（共享循环；逐角进度经主 session SSE 回流）
+      const driver = getDriver('cc')
+      const mainSession = await ensureSession(params['name']!, ctx.workDir!)
+      const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
+        if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+      }
+      const loopResult = await runLensSpawnLoop({
+        driver,
+        cwd: ctx.workDir!,
+        packets: built.packet.packets,
+        body,
+        chapter: chapter.章号,
+        kind,
+        outDir: built.packet.out_dir,
+        onProgress: emitProgress,
+      })
+      if (!loopResult.ok) return reply(res, 500, { ok: false, code: 'LENS_FAIL', error: loopResult.error })
+
+      // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
+      const collected = collectReviewIssues({ packet: built.packet })
+      writeAnalysis(bookRoot, docId, 'review', {
+        generatedAt: new Date().toISOString(),
+        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc',
+        sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
+        payload: { collected, lenses: loopResult.lenses },
+      })
+
+      reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+    },
+  )
 
   // 裁决:改 审稿.md verdict 行
   route('POST', '/api/books/:name/review-verdict', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -162,6 +225,56 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     writeFileSync(verdictPath, md, 'utf8')
     reply(res, 200, { ok: true, approved })
   })
+}
+
+/**
+ * 三审 spawnRole×3 共享循环（M12 B0.2 提取）：草稿线 + docId 直读线共用。
+ * 逐 lens：startSession → spawnRole → stream 收 text → 写 issues-<lens>.json → 进度回流。
+ * 串行避 GLM 并发；出错返 {ok:false,error}（调用方决定 reply）。
+ */
+async function runLensSpawnLoop(opts: {
+  driver: StudioDriver
+  cwd: string
+  packets: Array<{
+    lens: string
+    title?: string
+    focus?: string[]
+    ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }>
+  }>
+  body: string
+  chapter: number
+  kind: 'long' | 'short'
+  outDir: string
+  onProgress?: (lens: string, phase: 'start' | 'done') => void
+}): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
+  const lenses: string[] = []
+  mkdirSync(opts.outDir, { recursive: true })
+  for (const sub of opts.packets) {
+    const lens = sub.lens
+    lenses.push(lens)
+    opts.onProgress?.(lens, 'start')
+    const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
+    const session = await opts.driver.startSession(opts.cwd)
+    opts.driver.spawnRole(session, lensToRole(lens), prompt)
+    let text = ''
+    try {
+      for await (const ev of opts.driver.stream(session) as AsyncGenerator<DriverEvent>) {
+        if (ev.type === 'text') text += String(ev.text ?? '')
+        else if (ev.type === 'done') break
+        else if (ev.type === 'error') {
+          opts.driver.dispose(session)
+          return { ok: false, error: `${lens}-review driver:${ev.message}` }
+        }
+      }
+    } catch (e) {
+      opts.driver.dispose(session)
+      return { ok: false, error: `${lens}-review stream:${e instanceof Error ? e.message : String(e)}` }
+    }
+    opts.driver.dispose(session)
+    writeFileSync(join(opts.outDir, `issues-${lens}.json`), extractJson(text), 'utf8')
+    opts.onProgress?.(lens, 'done')
+  }
+  return { ok: true, lenses }
 }
 
 /** 组单视角审稿 prompt:焦点 + 账本核对(continuity)+ 正文 + 输出契约 */
