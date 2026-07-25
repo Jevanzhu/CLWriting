@@ -1,0 +1,47 @@
+/**
+ * 改写 e2e（M12 块2 B2.4）：选章 → 审阅 tab → 改写整章 → diff → 接受进 buffer → ⌘S 持久。
+ *
+ * mock driver writer role 返 `【mock · writer】…模拟产出…`，whole 模式下 rewritten 即该文本。
+ * 接受 = patch(docId, rewritten) 写编辑器 buffer（dirty）；⌘S 走标准保存落盘。
+ * 验证最纯提案模型：AI 永不直接落盘，作者一键接受 + 保存才生效。
+ */
+import { test, expect } from '@playwright/test'
+
+test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → ⌘S 持久', async ({ page }) => {
+  await page.goto('/')
+  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.getByText('初入宗门').first().click()
+  const cm = page.locator('.cm-content')
+  await expect(cm).toBeVisible()
+
+  // 改写前正文不含 mock 标志
+  await expect(cm).not.toContainText('模拟产出')
+
+  // 切右栏「审阅」tab（第2个 .right-tab：信息/审阅/机检/分析）
+  await page.locator('.right-tab').nth(1).click()
+
+  // 输指令 + 触发改写整章
+  await page.locator('.rewrite-panel .rw-input').fill('让开头更紧张')
+  await page.locator('.rewrite-panel .rw-run-btn').click()
+
+  // mock writer 产出 → diff 渲染（有 add 行）
+  await expect(page.locator('.rewrite-panel .rw-diff')).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.rewrite-panel .diff-add').first()).toBeVisible()
+
+  // 接受 → rewritten 进编辑器 buffer
+  await page.locator('.rewrite-panel .rw-accept').click()
+  // diff 清空（result=null）
+  await expect(page.locator('.rewrite-panel .rw-diff')).toHaveCount(0)
+  // 编辑器 buffer 已更新为 mock 产出
+  await expect(cm).toContainText('模拟产出')
+
+  // ⌘S 保存 → 落盘
+  await page.keyboard.press('Meta+s')
+  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+
+  // 重载验证持久（patch→⌘S 已落盘，重选章正文仍是 mock 产出）
+  await page.reload()
+  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.getByText('初入宗门').first().click()
+  await expect(page.locator('.cm-content')).toContainText('模拟产出')
+})

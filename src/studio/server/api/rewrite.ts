@@ -20,6 +20,8 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
+import { readManifest } from '../../../document/manifest.js'
+import { readDraft } from '../../../format/draft.js'
 
 interface RewriteCtx {
   workDir: string | null
@@ -84,6 +86,65 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       return reply(res, 500, { error: 'selection 在原稿未找到(无法定位选段);整章返修用 mode:whole' })
     }
 
+    reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
+  })
+
+  // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ spawnRole('writer') → lineDiff
+  // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
+  route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    const reqBody = await readJson(req)
+    const instruction = String(reqBody['instruction'] ?? '').trim()
+    if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
+    const selectionRaw = String(reqBody['selection'] ?? '').trim()
+
+    const bookRoot = join(ctx.workDir, entry.path)
+    const docId = params['docId'] ?? ''
+    const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+    if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+    const absPath = join(bookRoot, m.path)
+    if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+
+    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+    const isShort = (config.kind ?? 'long') === 'short'
+    const draft = readDraft(absPath, isShort)
+    if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+    const original = draft.body
+    // 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。统一走 local prompt（body 语境，不涉 fm）
+    const selection = selectionRaw || original
+    const mode: 'local' | 'whole' = selectionRaw ? 'local' : 'whole'
+    if (mode === 'local' && !original.includes(selection)) {
+      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+    }
+
+    const prompt = buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
+    const driver = getDriver('cc')
+    const session = await driver.startSession(ctx.workDir)
+    driver.spawnRole(session, 'writer', prompt)
+    let text = ''
+    try {
+      for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
+        if (ev.type === 'text') text += String(ev.text ?? '')
+        else if (ev.type === 'done') break
+        else if (ev.type === 'error') {
+          driver.dispose(session)
+          return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
+        }
+      }
+    } catch (e) {
+      driver.dispose(session)
+      return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
+    }
+    driver.dispose(session)
+
+    const produced = text.trim()
+    if (!produced) return reply(res, 500, { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' })
+    const rewritten = mode === 'local' ? original.replace(selection, produced) : produced
+    if (rewritten === original) {
+      return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
+    }
     reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
   })
 
