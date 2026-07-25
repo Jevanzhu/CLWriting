@@ -17,12 +17,21 @@ test('分析：选章 → 重新分析 → 体验分 → 改正文 → 存量 + 
   await page.locator('.right-tab').nth(3).click()
 
   // 暂无体验分 → 点「重新分析」
-  await expect(page.locator('.analysis-panel .ap-empty')).toBeVisible()
-  await page.locator('.analysis-panel .ap-run').click()
+  await expect(page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.ap-empty')).toBeVisible()
+  await page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.ap-run').click()
 
   // mock analyst 产 score → 体验分渲染（大数字 = 8）
   await expect(page.locator('.analysis-panel .ap-score-num')).toHaveText('8', { timeout: 15_000 })
   await expect(page.locator('.analysis-panel .ap-verdict')).toContainText('mock 体验')
+
+  // 情绪曲线（B4.2）：重新分析 → SVG 折线 + 分段标签
+  await page.locator('.analysis-panel .ap-card', { hasText: '情绪曲线' }).locator('.ap-run').click()
+  await expect(page.locator('.analysis-panel .ap-emotion-svg')).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.analysis-panel .ap-emotion-label').first()).toContainText('mock')
+
+  // 钩子密度（B4.3）：重新分析 → 钩子列表
+  await page.locator('.analysis-panel .ap-card', { hasText: '钩子密度' }).locator('.ap-run').click()
+  await expect(page.locator('.analysis-panel .ap-hook').first()).toBeVisible({ timeout: 15_000 })
 
   // 改正文 + ⌘S 落盘（正文 hash 变 → 信封将过期）
   const cm = page.locator('.cm-content')
