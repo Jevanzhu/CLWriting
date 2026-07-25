@@ -17,18 +17,15 @@ const EDITOR_BASE = [
 /** AI 生成层模块（被禁目标）。 */
 const AI_LAYER = [
   'ai', 'auto', 'driver', 'finalize', 'gate', 'knowledge', 'learn',
-  'process', 'rag', 'reconcile', 'roles', 'session', 'state',
+  'process', 'rag', 'reconcile', 'session', 'state',
 ]
 
 /**
  * 已知例外（待治理）：编辑器/底座 → AI 的现存业务依赖。
  * 从白名单移除即视为已治理（第二个用例会校验 import 是否真消失）。
  */
-const KNOWN = new Set([
-  'src/metrics/collect.ts:ai',   // readAiCallBudget 读 AI 调用预算
-  'src/install/init.ts:roles',   // generateRoleShells 建书生成角色壳
-  'src/install/update.ts:roles', // generateRoleShells 更新生成角色壳
-])
+// E2 白名单已清零：readAiCallBudget 下沉 format/ai-calls（E2.1）+ shells 搬 install（E2.2，roles 屠除名）
+const KNOWN = new Set<string>()
 
 const AI_RE = new RegExp(`from\\s+['"](?:\\.\\./)+(${AI_LAYER.join('|')})/`)
 

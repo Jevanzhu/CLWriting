@@ -7,7 +7,7 @@ import {
   checkRoleShellDrift,
   generateRoleShells,
   loadRoleDefinitions,
-} from '../../src/roles/shells.js'
+} from '../../src/install/shells.js'
 
 function makeProject(): string {
   const root = mkdtempSync(join(tmpdir(), 'clwriting-roles-'))

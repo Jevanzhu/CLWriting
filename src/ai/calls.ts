@@ -3,42 +3,31 @@
  *
  * 管「单章/篇调用几次」，与 #12 输入预算闸（每次多大）正交。
  * 计数存在工作区机器域，续跑继承；损坏时保守阻断，避免静默归零绕过预算。
+ *
+ * 读侧（路径/读/归一化）已下沉 format/ai-calls.ts（纯文件读，G5 E2.1 治理，
+ * 消除编辑器 metrics → AI 反向依赖）；本模块留写侧（记账/清账/锁）+ 预算判定，
+ * 并 re-export 读侧保持外部调用零感知。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BookConfig } from '../format/types.js'
+import {
+  CALL_BUDGET_FILE,
+  aiCallBudgetPath,
+  readAiCallBudget,
+  type AiCallBudgetRecord,
+  type AiCallEntry,
+  type AiCallStep,
+} from '../format/ai-calls.js'
 
-const CALL_BUDGET_FILE = '.ai-calls.json'
+// 读侧 re-export（外部模块从 ai/calls 引用，下沉后零感知）
+export { aiCallBudgetPath, readAiCallBudget } from '../format/ai-calls.js'
+export type { AiCallStep, AiCallEntry, AiCallBudgetRecord, AiCallBudgetRead } from '../format/ai-calls.js'
+
 const CALL_BUDGET_LOCK_DIR = '.ai-calls.lock'
 const CALL_BUDGET_LOCK_TIMEOUT_MS = 2000
 const CALL_BUDGET_LOCK_STALE_MS = 30000
-
-/** 写章流程内会计入预算的 AI 步骤 */
-export type AiCallStep = 'outline' | 'draft' | 'review' | 'review-combined'
-
-/** 单次计数留痕 */
-export interface AiCallEntry {
-  step: AiCallStep
-  calls: number
-  at: string
-  note?: string
-  /** 可选：本次调用的 token 消耗（宿主拿得到 usage 就填，否则省略） */
-  tokens?: number
-}
-
-/** 每章/篇调用计数记录（工作区机器域）；字段名沿用 chapter 以保持兼容。 */
-export interface AiCallBudgetRecord {
-  chapter: number
-  used: number
-  limit_override?: number
-  entries: AiCallEntry[]
-  updated_at: string
-}
-
-export type AiCallBudgetRead =
-  | { ok: true; record: AiCallBudgetRecord | null }
-  | { ok: false; reason: string }
 
 export type AiCallBudgetState =
   | {
@@ -81,11 +70,6 @@ export type AiCallRecordResult =
   | { ok: true; record: AiCallBudgetRecord }
   | { ok: false; reason: string }
 
-/** 调用计数文件路径（工作区/.ai-calls.json） */
-export function aiCallBudgetPath(workDir: string): string {
-  return join(workDir, CALL_BUDGET_FILE)
-}
-
 function aiCallBudgetLockPath(workDir: string): string {
   return join(workDir, CALL_BUDGET_LOCK_DIR)
 }
@@ -93,19 +77,6 @@ function aiCallBudgetLockPath(workDir: string): string {
 /** 预算展示单位：短篇集按篇解释 calls_per_chapter，长篇按章解释。 */
 export function aiCallUnit(config: BookConfig): '章' | '篇' {
   return (config.kind ?? 'long') === 'short' ? '篇' : '章'
-}
-
-/** 读调用预算记录；不存在表示本章还未调用。 */
-export function readAiCallBudget(workDir: string): AiCallBudgetRead {
-  const fp = aiCallBudgetPath(workDir)
-  if (!existsSync(fp)) return { ok: true, record: null }
-
-  try {
-    const raw = JSON.parse(readFileSync(fp, 'utf-8')) as unknown
-    return { ok: true, record: normalizeRecord(raw) }
-  } catch {
-    return { ok: false, reason: '调用计数文件损坏，不能确认本章已用次数' }
-  }
 }
 
 /** 当前章调用预算状态。 */
@@ -286,7 +257,7 @@ export function setAiCallTokens(input: {
     const next: AiCallBudgetRecord = {
       chapter: input.chapter,
       used: state.record.used,
-      ...(state.record.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
+      ...(state.record?.limit_override !== undefined ? { limit_override: state.record.limit_override } : {}),
       entries,
       updated_at: now,
     }
@@ -390,53 +361,4 @@ function sleepSync(ms: number): void {
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error
-}
-
-function normalizeRecord(raw: unknown): AiCallBudgetRecord {
-  if (typeof raw !== 'object' || raw === null) throw new Error('bad record')
-  const obj = raw as Record<string, unknown>
-  const chapter = Number(obj['chapter'])
-  const used = Number(obj['used'])
-  if (!Number.isSafeInteger(chapter) || chapter < 1) throw new Error('bad chapter')
-  if (!Number.isSafeInteger(used) || used < 0) throw new Error('bad used')
-
-  const entriesRaw = Array.isArray(obj['entries']) ? obj['entries'] : []
-  const entries: AiCallEntry[] = entriesRaw.map((entry) => normalizeEntry(entry))
-  const updatedAt = typeof obj['updated_at'] === 'string' ? obj['updated_at'] : ''
-  const limitOverride = obj['limit_override'] === undefined ? undefined : Number(obj['limit_override'])
-
-  const record: AiCallBudgetRecord = {
-    chapter,
-    used,
-    entries,
-    updated_at: updatedAt,
-  }
-  if (limitOverride !== undefined && Number.isSafeInteger(limitOverride) && limitOverride > 0) {
-    record.limit_override = limitOverride
-  }
-  return record
-}
-
-function normalizeEntry(raw: unknown): AiCallEntry {
-  if (typeof raw !== 'object' || raw === null) throw new Error('bad entry')
-  const obj = raw as Record<string, unknown>
-  const step = String(obj['step'] ?? '')
-  const calls = Number(obj['calls'])
-  const at = String(obj['at'] ?? '')
-  if (!isAiCallStep(step) || !Number.isSafeInteger(calls) || calls < 1 || at === '') {
-    throw new Error('bad entry')
-  }
-  const tokensRaw = obj['tokens']
-  const tokens = typeof tokensRaw === 'number' && Number.isFinite(tokensRaw) && tokensRaw >= 0 ? tokensRaw : undefined
-  return {
-    step,
-    calls,
-    at,
-    ...(typeof obj['note'] === 'string' ? { note: obj['note'] } : {}),
-    ...(tokens !== undefined ? { tokens } : {}),
-  }
-}
-
-function isAiCallStep(step: string): step is AiCallStep {
-  return step === 'outline' || step === 'draft' || step === 'review' || step === 'review-combined'
 }

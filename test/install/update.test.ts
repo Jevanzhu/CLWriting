@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { doInit } from '../../src/install/init.js'
 import { doUpdate } from '../../src/install/update.js'
 import { readBooks } from '../../src/install/books.js'
-import { checkRoleShellDrift } from '../../src/roles/shells.js'
+import { checkRoleShellDrift } from '../../src/install/shells.js'
 
 const ORIG_CWD = process.cwd()
 
