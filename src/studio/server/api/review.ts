@@ -26,7 +26,7 @@ import { runClwritingCli } from '../cli-runner.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
-import { writeAnalysis, sourceHashOf } from '../../../document/analysis.js'
+import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { extractJson } from '../../../format/json-extract.js'
 
 interface ReviewCtx {
@@ -226,6 +226,38 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     writeFileSync(verdictPath, md, 'utf8')
     reply(res, 200, { ok: true, approved })
   })
+
+  // 裁决直读（M12 B1.3，docId 线，方案 A）：落 review 信封 payload.verdict（不改 fm / deriveStatus）。
+  // 手写线不走 finalize；verdict 是作者基于三审意见的裁决，纯展示标记 + 信封存档。
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/review-verdict',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const reqBody = await readJson(req)
+      const approved = reqBody['approved'] === true
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const docId = params['docId'] ?? ''
+      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+
+      // 合并写：保留 collected/lenses（若已三审），覆盖 verdict
+      const existing = readAnalysis(bookRoot, docId, 'review')
+      const payload = (existing?.payload as { collected?: unknown; lenses?: string[]; verdict?: unknown } | undefined) ?? {}
+      payload.verdict = { approved, at: new Date().toISOString() }
+      const absPath = join(bookRoot, m.path)
+      writeAnalysis(bookRoot, docId, 'review', {
+        generatedAt: existing?.generatedAt ?? new Date().toISOString(),
+        model: 'author',
+        sourceHash: existing?.sourceHash ?? sourceHashOf(readFileSync(absPath, 'utf-8')),
+        payload,
+      })
+      reply(res, 200, { ok: true, verdict: payload.verdict })
+    },
+  )
 }
 
 /**

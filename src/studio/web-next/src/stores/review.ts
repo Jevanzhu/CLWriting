@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   runReview,
   getReviewEnvelope,
+  runVerdictDoc,
   type CollectedReviewFE,
   type ReviewEnvelope,
+  type ReviewVerdict,
 } from '../api/review'
 
 /**
@@ -57,5 +59,13 @@ export const useReviewStore = defineStore('review', () => {
     lastDocId.value = null
   }
 
-  return { collected, envelope, stale, loading, error, lastDocId, run, loadEnvelope, clear }
+  /** 作者裁决（B1.3 方案 A）：从 review 信封 payload.verdict 读；通过/驳回 落信封。 */
+  const verdict = computed<ReviewVerdict | null>(() => envelope.value?.payload.verdict ?? null)
+
+  async function setVerdict(name: string, docId: string, approved: boolean): Promise<void> {
+    await runVerdictDoc(name, docId, approved)
+    await loadEnvelope(name, docId)
+  }
+
+  return { collected, envelope, stale, loading, error, lastDocId, verdict, run, loadEnvelope, setVerdict, clear }
 })

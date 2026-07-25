@@ -31,11 +31,15 @@ export interface ReviewResult {
   lenses: string[]
   collected: CollectedReviewFE
 }
+export interface ReviewVerdict {
+  approved: boolean
+  at: string
+}
 export interface ReviewEnvelope {
   generatedAt: string
   model: string
   sourceHash: string
-  payload: { collected: CollectedReviewFE; lenses: string[] }
+  payload: { collected: CollectedReviewFE; lenses: string[]; verdict?: ReviewVerdict }
 }
 interface EnvelopeGet {
   ok: true
@@ -48,6 +52,14 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
   return apiJson<ReviewResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+  )
+}
+
+// POST /documents/:docId/review-verdict —— 作者裁决（落 review 信封 payload.verdict，M12 B1.3 方案 A）
+export async function runVerdictDoc(name: string, docId: string, approved: boolean): Promise<void> {
+  await apiJson<{ ok: true }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review-verdict`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved }) },
   )
 }
 

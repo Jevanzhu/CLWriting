@@ -20,4 +20,9 @@ test('三审：选章 → 审阅 tab → 三审 → 出 mock 意见', async ({ p
   await expect(page.locator('.review-panel .rev-item--yellow').first()).toContainText('mock 三审', {
     timeout: 15_000,
   })
+
+  // verdict（B1.3 方案 A）：点「通过」→ 徽章显「通过」（落 review 信封，aiOff 不置灰）
+  await expect(page.locator('.review-panel .rev-verdict-badge')).toHaveText('待审')
+  await page.locator('.review-panel .rev-verdict-btn').first().click()
+  await expect(page.locator('.review-panel .rev-verdict-badge')).toHaveText('通过')
 })
