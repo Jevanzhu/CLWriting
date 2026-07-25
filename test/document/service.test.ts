@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { appendPending } from '../../src/document/journal.js'
+import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 
 function delay(ms: number): Promise<void> {
@@ -82,6 +83,21 @@ describe('DocumentService / 保存协议主路径', () => {
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('CAPABILITY_DENIED')
+  })
+
+  it('save settled 记今日字数 delta（E4：新建 + 修改累加，strip fm 口径）', async () => {
+    // 新建 save（expectedRevision null）→ delta = 新内容正文字数（fm 已剥）
+    const r0 = await svc.save('doc_w', '定稿/正文/0001-初稿.md', {
+      content: '---\n标题: x\n---\n你好世界', expectedRevision: null, operationId: 'op-d1', origin: 'manual',
+    })
+    if (!r0.ok) throw new Error('prereq r0')
+    expect(readTodayDelta(bookRoot, todayDate())).toBe(4) // 「你好世界」4 字
+    // 修改 save → delta = 新旧差（新增「再见」2 字）
+    const r1 = await svc.save('doc_w', '定稿/正文/0001-初稿.md', {
+      content: '---\n标题: x\n---\n你好世界再见', expectedRevision: r0.revision, operationId: 'op-d2', origin: 'manual',
+    })
+    expect(r1.ok).toBe(true)
+    expect(readTodayDelta(bookRoot, todayDate())).toBe(6) // 累计 4 + 2
   })
 })
 

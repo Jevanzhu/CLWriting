@@ -34,6 +34,8 @@ import { generateDocId } from './stable-id.js'
 import { invalidateTreeIndex } from './tree.js'
 import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
+import { appendWordsDelta, todayDate } from './words-diary.js'
+import { countWords } from '../format/words.js'
 
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
@@ -205,6 +207,11 @@ export class DocumentService {
     // 步骤 4：journal pending（含全文快照，防丢字）
     const opId = appendPending(journalPath, docId, currentRev, input.content)
 
+    // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
+    const wordDelta =
+      countWords(bodyOf(input.content)) -
+      countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+
     try {
       // 步骤 5：按策略建 snapshot（修改前版本留底）
       this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
@@ -216,6 +223,8 @@ export class DocumentService {
       this.maybeUpdateManifest(docId, relPath)
       // 步骤 10：journal settled
       appendSettled(journalPath, opId, newRev)
+      // 步骤 10.5：记今日字数增量（E4，仅 settled 成功才记；aborted 不记）
+      appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
       // 步骤 11
       return Promise.resolve({ ok: true, revision: newRev })
     } catch (e) {
@@ -560,4 +569,10 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** 剥 frontmatter 取正文（countWords 口径要求纯正文；裸 md 无 fm 原样返回）。 */
+function bodyOf(raw: string): string {
+  const s = splitFrontMatter(raw)
+  return s ? s.body : raw
 }

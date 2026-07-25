@@ -16,7 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
-import { readBaseline, appendBaseline, todayDate } from '../../../document/words-diary.js'
+import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
 interface DocumentCtx {
@@ -101,7 +101,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const date = todayDate()
-      reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date) })
+      reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date), delta: readTodayDelta(r.bookRoot, date) })
     },
   )
 
