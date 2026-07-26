@@ -28,4 +28,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 在系统文件管理器中打开书库根目录（仅桌面版）。 */
   openBookDir: (bookName: string): Promise<void> =>
     ipcRenderer.invoke('desktop:open-book-dir', bookName),
+  /** 枚举系统已装字体名（设置弹窗字体下拉；失败返回空数组）。 */
+  getSystemFonts: (): Promise<string[]> =>
+    ipcRenderer.invoke('desktop:get-system-fonts'),
 })

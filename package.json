@@ -53,5 +53,8 @@
   },
   "overrides": {
     "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "font-list": "^2.1.0"
   }
 }

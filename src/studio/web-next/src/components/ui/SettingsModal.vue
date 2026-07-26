@@ -2,7 +2,7 @@
 // 设置弹窗（细案 T2.4 + T4.2）：主题（亮/暗）+ 正文排版滑块 + 桌面动作。
 // 沿用旧偏好键 clw-*（prefs store 持久化 + apply :root）。
 // 桌面动作（打开书库目录）仅桌面版显示——window.clwritingDesktop 判空降级。
-import { computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
@@ -16,6 +16,60 @@ const ws = useWorkspaceStore()
 
 // 桌面版注入 window.clwritingDesktop；浏览器版无 → 隐藏桌面动作区
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
+
+// 系统字体列表（桌面版 IPC 加载；浏览器版空 → 字体下拉仅"默认"项）
+const systemFonts = ref<string[]>([])
+onMounted(async () => {
+  if (!window.clwritingDesktop) return
+  try {
+    systemFonts.value = await window.clwritingDesktop.getSystemFonts()
+  } catch (e) {
+    console.error('加载系统字体失败：', e)
+  }
+})
+// 字体按语言筛选 + 中文显示名：font-list 只返回英文 Family 名，本地内置常见中文字体映射。
+// CN_KW 锁中文特定关键字（SC/TC/HK/GB/Hans + 中文族名），排除日韩（Gothic/Mincho/Nanum/Toppan 等）。
+const CJK_RE = /[一-鿿㐀-䶿぀-ヿ가-힯]/
+const CN_KW =
+  /\b(SC|TC|HK|GB|Hans|Hant|Hei|Kai|Heiti|Songti|Kaiti|Yuanti|Libian|Xingkai|Weibei|Baoli|Wawati|Yuppy|Hannotate|HanziPen|Lantinghei|LingWai|FangSong|STHeiti|STSong|STKaiti|STFangsong|STXihei|STXingkai|STXinwei|STHupo|STCaiyun|STZhongsong|Hiragino Sans GB|Source Han Sans|Source Han Serif|Noto Sans SC|Noto Serif SC|Noto Sans CJK|Noto Serif CJK|LXGW WenKai)\b/i
+// 英文 Family 名 → 中文显示名（font-list 不提供本地化名，故内置；缺失则显英文原名）
+const FONT_CN_LABEL: Record<string, string> = {
+  'PingFang SC': '苹方', 'PingFang TC': '苹方', 'PingFang HK': '苹方',
+  'Heiti SC': '黑体', 'Heiti TC': '黑体', Hei: '黑体',
+  'Songti SC': '宋体', 'Songti TC': '宋体',
+  'Kaiti SC': '楷体', 'Kaiti TC': '楷体', Kai: '楷体',
+  'Yuanti SC': '圆体', 'Yuanti TC': '圆体',
+  'Xingkai SC': '行楷', 'Xingkai TC': '行楷',
+  'Weibei SC': '魏碑', 'Weibei TC': '魏碑',
+  'Libian SC': '隶变', 'Libian TC': '隶变',
+  'Baoli SC': '报隶', 'Baoli TC': '报隶',
+  'Yuppy SC': '雅痞', 'Yuppy TC': '雅痞',
+  'Wawati SC': '娃娃体', 'Wawati TC': '娃娃体',
+  'Hannotate SC': '手札体', 'Hannotate TC': '手札体',
+  'HanziPen SC': '汉字笔', 'HanziPen TC': '汉字笔',
+  'Lantinghei SC': '兰亭黑', 'Lantinghei TC': '兰亭黑',
+  'LingWai SC': '翎外', 'LingWai TC': '翎外',
+  'Hiragino Sans GB': '冬青黑体',
+  STHeiti: '华文黑体', STSong: '华文宋体', STKaiti: '华文楷体',
+  STFangsong: '华文仿宋', STXihei: '华文细黑', STXingkai: '华文行楷',
+  STXinwei: '华文新魏', STHupo: '华文琥珀', STCaiyun: '华文彩云',
+  STZhongsong: '华文中宋',
+  'Source Han Sans SC': '思源黑体', 'Source Han Serif SC': '思源宋体',
+  'Noto Sans SC': '思源黑体', 'Noto Serif SC': '思源宋体',
+  'Noto Sans CJK SC': '思源黑体', 'Noto Serif CJK SC': '思源宋体',
+  'LXGW WenKai': '霞鹜文楷',
+}
+function isChineseFont(name: string): boolean {
+  return CJK_RE.test(name) || CN_KW.test(name) || name in FONT_CN_LABEL
+}
+function fontDisplayName(name: string): string {
+  return FONT_CN_LABEL[name] ?? name
+}
+const chineseFonts = computed(() => systemFonts.value.filter(isChineseFont))
+const englishFonts = computed(() => systemFonts.value.filter((f) => !isChineseFont(f)))
+function selValue(e: Event): string {
+  return (e.target as HTMLSelectElement).value
+}
 
 async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
@@ -43,6 +97,48 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <div class="seg">
             <button :class="{ on: theme === 'light' }" @click="setTheme('light')">亮</button>
             <button :class="{ on: theme === 'dark' }" @click="setTheme('dark')">暗</button>
+          </div>
+        </div>
+        <div v-if="hasDesktop" class="setting-row">
+          <label>界面字体</label>
+          <div class="font-pair">
+            <select
+              class="font-select"
+              :value="prefs.uiFontCn"
+              @change="prefs.setUiFontCn(selValue($event))"
+            >
+              <option value="">中文 · 默认</option>
+              <option v-for="f in chineseFonts" :key="'cn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
+            </select>
+            <select
+              class="font-select"
+              :value="prefs.uiFontEn"
+              @change="prefs.setUiFontEn(selValue($event))"
+            >
+              <option value="">英文 · 默认</option>
+              <option v-for="f in englishFonts" :key="'en-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
+            </select>
+          </div>
+        </div>
+        <div v-if="hasDesktop" class="setting-row">
+          <label>编辑器字体</label>
+          <div class="font-pair">
+            <select
+              class="font-select"
+              :value="prefs.proseFontCn"
+              @change="prefs.setProseFontCn(selValue($event))"
+            >
+              <option value="">中文 · 默认</option>
+              <option v-for="f in chineseFonts" :key="'pcn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
+            </select>
+            <select
+              class="font-select"
+              :value="prefs.proseFontEn"
+              @change="prefs.setProseFontEn(selValue($event))"
+            >
+              <option value="">英文 · 默认</option>
+              <option v-for="f in englishFonts" :key="'pen-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
+            </select>
           </div>
         </div>
         <div class="setting-row">
@@ -178,5 +274,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .link-btn:hover {
   background: var(--background-modifier-hover);
+}
+.font-pair {
+  display: flex;
+  gap: var(--size-4-2);
+}
+.font-select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.font-select:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
 }
 </style>

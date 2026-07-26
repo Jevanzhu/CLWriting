@@ -11,6 +11,7 @@ declare global {
       getCurrentLibrary: () => Promise<string | null>
       showInFolder: (bookName: string, relPath: string) => Promise<void>
       openBookDir: (bookName: string) => Promise<void>
+      getSystemFonts: () => Promise<string[]>
     }
   }
 }
