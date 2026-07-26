@@ -1,13 +1,24 @@
 <script setup lang="ts">
 // 开书对话（细案 T3.3）：分步 AI 生成设定 → 预览编辑 → 落盘。
 // realm 仅成长线书；各步覆盖对应设定文件，已开的书慎用。
-import { ref } from 'vue'
-import { TriangleAlert } from 'lucide-vue-next'
-import { onboardAi, onboardSave, STEP_LABEL, type OnboardStep } from '../api/onboard'
+import { ref, onMounted } from 'vue'
+import { TriangleAlert, Check } from 'lucide-vue-next'
+import { onboardAi, onboardSave, STEP_LABEL, STEP_PATH, type OnboardStep } from '../api/onboard'
 import { useUiStore } from '../stores/ui'
+import { useTreeStore } from '../stores/tree'
 
 const props = defineProps<{ bookName: string }>()
 const ui = useUiStore()
+const tree = useTreeStore()
+
+// 已生成判定：对应设定文件是否已在树中（工作区文件不进树 → first-outline 步判不到，边缘场景可接受）
+function isGenerated(step: OnboardStep): boolean {
+  return tree.byPath.has(STEP_PATH[step])
+}
+
+onMounted(() => {
+  void tree.load(props.bookName)
+})
 
 const STEPS = Object.keys(STEP_LABEL) as OnboardStep[]
 const active = ref<OnboardStep | null>(null)
@@ -38,6 +49,7 @@ async function save(): Promise<void> {
   try {
     await onboardSave(props.bookName, { step: active.value, content: content.value })
     ui.toast('已落盘', 'success')
+    void tree.load(props.bookName) // 刷新「已生成」打勾
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
     ui.toast(err.value, 'error')
@@ -58,14 +70,16 @@ async function save(): Promise<void> {
       <p class="warn"><TriangleAlert :size="14" /> 各步会覆盖对应设定文件（总纲 / 名册 / 世界观…），已开的书慎用。</p>
       <div class="step-grid">
         <button
-          v-for="s in STEPS"
+          v-for="(s, i) in STEPS"
           :key="s"
           class="step-btn"
-          :class="{ on: active === s }"
+          :class="{ on: active === s, done: isGenerated(s) }"
           :disabled="loading || ui.aiAvailable === false"
           @click="gen(s)"
         >
-          {{ STEP_LABEL[s] }}
+          <span class="step-no">{{ i + 1 }}</span>
+          <span class="step-label">{{ STEP_LABEL[s] }}</span>
+          <Check v-if="isGenerated(s)" :size="13" class="step-done" />
         </button>
       </div>
     </section>
@@ -132,7 +146,10 @@ async function save(): Promise<void> {
   gap: var(--size-4-2);
 }
 .step-btn {
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
   font-size: 12px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -148,9 +165,25 @@ async function save(): Promise<void> {
   border-color: var(--interactive-accent);
   color: var(--interactive-accent);
 }
+.step-btn.done {
+  border-color: var(--color-green, #4e9d68);
+}
 .step-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.step-no {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.step-label {
+  flex: 1;
+}
+.step-done {
+  color: var(--color-green, #4e9d68);
+  flex-shrink: 0;
 }
 .muted {
   font-size: 11px;
