@@ -49,8 +49,8 @@ function openVolume(path: string): void {
     </div>
 
     <div v-else-if="data" class="overview">
-      <!-- 身份 -->
-      <section class="card">
+      <!-- 身份（跨列突出） -->
+      <section class="card card-identity">
         <h1 class="book-title">{{ data.identity.title || data.identity.name }}</h1>
         <div class="meta-grid">
           <div><label>书名</label><span>{{ data.identity.name }}</span></div>
@@ -105,9 +105,11 @@ function openVolume(path: string): void {
       </section>
 
       <!-- 写作热力 -->
-      <section v-if="data.timeline.length" class="card">
-        <div class="card-head">写作热力（{{ data.timeline.length }} 日有产出）</div>
-        <div class="heat-strip">
+      <section class="card">
+        <div class="card-head">
+          写作热力<span v-if="data.timeline.length" class="legend">{{ data.timeline.length }} 日有产出</span>
+        </div>
+        <div v-if="data.timeline.length" class="heat-strip">
           <span
             v-for="t in data.timeline"
             :key="t.date"
@@ -116,6 +118,7 @@ function openVolume(path: string): void {
             :title="`${t.date} · ${t.count} 章`"
           ></span>
         </div>
+        <div v-else class="heat-empty">还没有写作记录——写一章定稿后这里会亮起来。</div>
       </section>
     </div>
   </div>
@@ -128,11 +131,15 @@ function openVolume(path: string): void {
   padding: var(--size-4-4) var(--size-4-6);
 }
 .overview {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: var(--size-4-3);
-  max-width: 720px;
+  max-width: 1000px;
   margin: 0 auto;
+}
+/* 身份卡跨列：书名 + meta 主信息，宽屏下占满一行突出 */
+.card-identity {
+  grid-column: 1 / -1;
 }
 .card {
   background: var(--background-secondary);
@@ -271,6 +278,18 @@ function openVolume(path: string): void {
   height: 12px;
   border-radius: 2px;
   background: var(--interactive-accent);
+}
+.legend {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-left: var(--size-4-2);
+}
+.heat-empty {
+  padding: var(--size-4-4) 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
 }
 .placeholder {
   padding: var(--size-4-6);
