@@ -102,7 +102,7 @@ watch(
     <div
       v-else
       class="tree-item"
-      :class="{ active: activePath === node.path, dragging: draggedPath === node.path }"
+      :class="{ active: activePath === node.path, dragging: draggedPath === node.path, 'group-head': depth === 0 }"
       :style="{ paddingLeft: `${depth * 14 + 8}px` }"
       @click="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @contextmenu.prevent="emit('contextmenu', node, $event.clientX, $event.clientY)"
@@ -197,6 +197,16 @@ watch(
 }
 .tree-item.dragging {
   opacity: 0.4;
+}
+/* P2-7：顶级分组（写作/大纲/设定）作为分区标题，与章节行拉开层级 */
+.tree-item.group-head {
+  margin-top: var(--size-4-3);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  height: 28px;
 }
 .caret {
   width: 12px;
