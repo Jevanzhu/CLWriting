@@ -39,12 +39,26 @@ watch(
 
 <template>
   <WorkspaceShell :book-name="bookName">
-    <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
-    <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
-    <OverviewView v-else-if="ws.activeView === 'overview'" :book-name="bookName" />
-    <RhythmView v-else-if="ws.activeView === 'rhythm'" :book-name="bookName" />
-    <RelationsView v-else-if="ws.activeView === 'relations'" :book-name="bookName" />
-    <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
-    <OnboardView v-else :book-name="bookName" />
+    <Transition name="clw-view" mode="out-in">
+      <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
+      <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
+      <OverviewView v-else-if="ws.activeView === 'overview'" :book-name="bookName" />
+      <RhythmView v-else-if="ws.activeView === 'rhythm'" :book-name="bookName" />
+      <RelationsView v-else-if="ws.activeView === 'relations'" :book-name="bookName" />
+      <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
+      <OnboardView v-else :book-name="bookName" />
+    </Transition>
   </WorkspaceShell>
 </template>
+
+<style scoped>
+/* P3 面板切换：view 间淡入淡出（out-in：旧出完再入新，无重叠布局抖动） */
+.clw-view-enter-active,
+.clw-view-leave-active {
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.clw-view-enter-from,
+.clw-view-leave-to {
+  opacity: 0;
+}
+</style>

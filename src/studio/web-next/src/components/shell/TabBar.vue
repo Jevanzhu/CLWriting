@@ -111,7 +111,7 @@ function onAux(e: MouseEvent, id: string): void {
   border: none;
   background: transparent;
   color: var(--text-faint);
-  font-size: 16px;
+  font-size: var(--font-size-l);
   line-height: 1;
   cursor: pointer;
   padding: 0 2px;

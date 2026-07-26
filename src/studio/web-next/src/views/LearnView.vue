@@ -157,7 +157,7 @@ async function onCommit(): Promise<void> {
 }
 .learn-title {
   margin: 0;
-  font-size: 22px;
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   font-family: var(--font-ui);
 }
@@ -251,7 +251,7 @@ async function onCommit(): Promise<void> {
   align-items: center;
   gap: var(--size-4-2);
   margin: 0 0 var(--size-4-1);
-  font-size: 14px;
+  font-size: var(--font-size-m);
   font-weight: 600;
   color: var(--text-normal);
   font-family: var(--font-ui);
@@ -331,7 +331,7 @@ async function onCommit(): Promise<void> {
 }
 .cand-body {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-m);
   line-height: 1.85;
   color: var(--text-normal);
   font-family: var(--prose-font);
@@ -369,7 +369,7 @@ async function onCommit(): Promise<void> {
   gap: 2px;
 }
 .quote-text {
-  font-size: 14px;
+  font-size: var(--font-size-m);
   line-height: 1.7;
   color: var(--text-normal);
   font-family: var(--prose-font);
