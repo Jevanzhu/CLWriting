@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（spawn CLI，数秒）。
 // 成功 toast + 关弹窗；失败展示 stderr/stdout。
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { X } from 'lucide-vue-next'
 import { exportBook, type ExportFormat, type ExportPlatform } from '../../api/io'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -46,6 +47,13 @@ async function run(): Promise<void> {
     loading.value = false
   }
 }
+
+// Esc 关闭（mask 点击已支持；键盘可达性补全）
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && ui.exportOpen) ui.closeExport()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -54,7 +62,7 @@ async function run(): Promise<void> {
       <div class="export-modal">
         <div class="modal-head">
           <span>导出定稿</span>
-          <button class="close-btn" @click="ui.closeExport">×</button>
+          <button class="close-btn" title="关闭（Esc）" @click="ui.closeExport"><X :size="18" /></button>
         </div>
         <div class="form-row">
           <label>格式</label>
@@ -124,14 +132,20 @@ async function run(): Promise<void> {
   margin-bottom: var(--size-4-4);
 }
 .close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
-  font-size: 20px;
   color: var(--text-faint);
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 .close-btn:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 .form-row {
   margin-bottom: var(--size-4-4);

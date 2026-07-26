@@ -2,6 +2,7 @@
 // 开书对话（细案 T3.3）：分步 AI 生成设定 → 预览编辑 → 落盘。
 // realm 仅成长线书；各步覆盖对应设定文件，已开的书慎用。
 import { ref } from 'vue'
+import { TriangleAlert } from 'lucide-vue-next'
 import { onboardAi, onboardSave, STEP_LABEL, type OnboardStep } from '../api/onboard'
 import { useUiStore } from '../stores/ui'
 
@@ -54,7 +55,7 @@ async function save(): Promise<void> {
     </div>
     <section class="card">
       <div class="card-head">开书对话 · 分步生成设定</div>
-      <p class="warn">⚠ 各步会覆盖对应设定文件（总纲 / 名册 / 世界观…），已开的书慎用。</p>
+      <p class="warn"><TriangleAlert :size="14" /> 各步会覆盖对应设定文件（总纲 / 名册 / 世界观…），已开的书慎用。</p>
       <div class="step-grid">
         <button
           v-for="s in STEPS"
@@ -117,6 +118,9 @@ async function save(): Promise<void> {
   justify-content: space-between;
 }
 .warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   font-size: 12px;
   color: var(--text-warning);
   margin-bottom: var(--size-4-3);

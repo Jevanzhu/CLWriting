@@ -56,3 +56,10 @@ a:hover {
 button {
   font-family: inherit;
 }
+
+/* 统一禁用态：降透明度 + 禁止光标，全应用一致传达「不可用」。
+   组件级 :disabled 规则可叠加（如进一步降透明度），但不应弱于此基线。 */
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

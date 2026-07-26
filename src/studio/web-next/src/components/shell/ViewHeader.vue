@@ -1,11 +1,24 @@
 <script setup lang="ts">
 // Obsidian view-header：面包屑（书名 › 视图）+ 右侧操作位（专注模式入口）。
+import { computed } from 'vue'
 import { Focus } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+
+// 面包屑当前视图名：按 activeView 映射中文，切视图跟随（ribbon 点哪 Crumb 显哪）。
+const VIEW_LABELS: Record<string, string> = {
+  editor: '编辑',
+  workbench: '工作台',
+  onboard: '开书',
+  overview: '总览',
+  rhythm: '节奏',
+  relations: '关系图',
+  learn: '文风收割',
+}
+const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
 </script>
 
 <template>
@@ -13,7 +26,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
     <div class="crumbs">
       <span class="crumb">{{ bookName }}</span>
       <span class="crumb-sep">›</span>
-      <span class="crumb-current">编辑</span>
+      <span class="crumb-current">{{ viewLabel }}</span>
     </div>
     <div class="view-actions">
       <button

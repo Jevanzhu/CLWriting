@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 文风收割视图（M12 后置）：扫定稿正文产样章/金句候选 → 作者勾选 → 入库 文风/样章库。
-// learn 规则打分（借 #10 机检）**不涉大模型**——始终可用，无 AI 可达性置灰
+// learn 规则打分（借机检规则）**不涉大模型**——始终可用，无 AI 可达性置灰
 //（区别于三审/改写/分析三兄弟）。候选制红线：勾选才入库，品味归人。
 import { computed } from 'vue'
 import { GraduationCap, Sparkles, PackageCheck, AlertCircle } from 'lucide-vue-next'
@@ -38,7 +38,7 @@ async function onCommit(): Promise<void> {
         <h1 class="learn-title">文风收割</h1>
       </div>
       <p class="learn-lede">
-        扫描定稿正文，按 #10 机检打分 + 场景预归类，产出样章/金句候选。
+        扫描定稿正文，按机检规则打分 + 场景预归类，产出样章/金句候选。
         作者勾选后才入库到 <code>文风/样章库</code>——品味归人，不自动入库。
       </p>
       <div class="learn-actions">
@@ -82,7 +82,7 @@ async function onCommit(): Promise<void> {
         <h2 class="cand-section-title">
           样章候选<span class="cand-count">{{ learn.samples.length }}</span>
         </h2>
-        <p class="cand-section-hint">段落分块（50-500 字）+ #10 打分 ≥60，每场景取 top 5。</p>
+        <p class="cand-section-hint">段落分块（50-500 字）+ 机检打分 ≥60，每场景取 top 5。</p>
         <div class="cand-list">
           <div
             v-for="(s, i) in learn.samples"

@@ -43,6 +43,13 @@ async function createBook(): Promise<void> {
 function openBook(name: string): void {
   router.push(`/book/${encodeURIComponent(name)}`)
 }
+
+// kind 原文（long/short）映射中文，避免对作者暴露内部术语。
+function kindLabel(kind?: string): string {
+  if (kind === 'long') return '长篇'
+  if (kind === 'short') return '短篇'
+  return '·'
+}
 </script>
 
 <template>
@@ -75,7 +82,9 @@ function openBook(name: string): void {
     <div v-else class="book-grid">
       <button v-for="b in shelf.books" :key="b.name" class="book-card" @click="openBook(b.name)">
         <div class="book-title">{{ b.title ?? b.name }}</div>
-        <div class="book-name">{{ b.kind ?? '·' }}　{{ b.name }}</div>
+        <div class="book-name">
+          {{ kindLabel(b.kind) }}<span v-if="b.title && b.title !== b.name">　{{ b.name }}</span>
+        </div>
       </button>
     </div>
 

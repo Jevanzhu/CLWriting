@@ -24,12 +24,41 @@ const err = ref<string | null>(null)
 
 // cli 八阶段（细案 §2.1 step 枚举）：确定性 CLI 步骤，POST /cli {step}
 const CLI_STEPS = ['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', 'rebook'] as const
+// 八阶段英文值 → 中文标签（值传 API 不变；英文值作 title 保留可调试性）
+const STEP_LABELS: Record<string, string> = {
+  prepare: '备料',
+  confirm: '确认',
+  check: '机检',
+  finalize: '定稿',
+  enter: '入书',
+  hand: '手写',
+  rebook: '重开',
+}
+// 态机 action（机器侧命令标识）→ 中文动作标签，避免对作者暴露 write-new-chapter 等英文。
+// 新增 action 需同步补映射；未命中 fallback 原值兜底。
+const ACTION_LABELS: Record<string, string> = {
+  'git-health': '修复 git 问题',
+  repair: '修复源文件',
+  rebook: '补登手改',
+  resume: '续写断点',
+  'volume-review': '卷复盘',
+  'health-check-periodic': '定期体检',
+  'write-new-chapter': '开写新章',
+  'write-new-chapter-hand': '手写起草',
+  'pending-batch-review': '批量审稿',
+  'pending-ai': 'AI 介入',
+}
 const cliRunning = ref<string | null>(null)
 const cliReport = ref('')
 const draftSaved = ref<{ path?: string; words: number } | null>(null)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 const draftWords = computed(() => wb.textOut.length)
+// 建议动作中文标签（映射 action 枚举；未命中兜底原值）
+const actionLabel = computed(() => {
+  const a = state.value?.action
+  return a ? (ACTION_LABELS[a] ?? a) : ''
+})
 
 async function refreshState(): Promise<void> {
   try {
@@ -78,7 +107,7 @@ async function onCli(step: string): Promise<void> {
   try {
     const r: CliResult = await runCli(props.bookName, { step, chapter: chapter.value, yes: true })
     cliReport.value = r.stdout || r.stderr || `(exit ${r.code})`
-    ui.toast(`${step} 完成`, r.ok ? 'success' : 'error')
+    ui.toast(`${STEP_LABELS[step] ?? step} 完成`, r.ok ? 'success' : 'error')
     void refreshState()
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
@@ -149,13 +178,16 @@ const recent = computed(() => wb.log.slice(-200))
     <!-- 状态卡 -->
     <section class="card">
       <div class="card-head">
-        <span class="state-tag">态 {{ state?.state ?? '—' }} · {{ state?.stateName ?? '未知' }}</span>
+        <span class="state-tag">
+          <span v-if="state?.state" class="state-num">态 {{ state.state }}</span>
+          {{ state?.stateName ?? '未知' }}
+        </span>
         <span class="conn" :class="{ on: wb.connected }">
-          {{ wb.connected ? 'SSE 已连' : 'SSE 连接中' }}
+          {{ wb.connected ? '已连接' : '连接中' }}
         </span>
       </div>
       <p class="human-msg">{{ state?.humanMsg ?? '读取状态中…' }}</p>
-      <p v-if="state?.action" class="action">建议：{{ state.action }}</p>
+      <p v-if="actionLabel" class="action">建议：{{ actionLabel }}</p>
     </section>
 
     <!-- 触发生成 -->
@@ -198,10 +230,11 @@ const recent = computed(() => wb.log.slice(-200))
           v-for="step in CLI_STEPS"
           :key="step"
           class="cli-btn"
+          :title="step"
           :disabled="!!cliRunning"
           @click="onCli(step)"
         >
-          {{ cliRunning === step ? `${step}…` : step }}
+          {{ cliRunning === step ? `${STEP_LABELS[step] ?? step}…` : STEP_LABELS[step] ?? step }}
         </button>
       </div>
       <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
@@ -252,6 +285,12 @@ const recent = computed(() => wb.log.slice(-200))
 }
 .state-tag {
   color: var(--text-accent);
+}
+.state-num {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
 }
 .conn {
   font-size: 11px;

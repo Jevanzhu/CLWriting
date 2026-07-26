@@ -2,7 +2,8 @@
 // 设置弹窗（细案 T2.4 + T4.2）：主题（亮/暗）+ 正文排版滑块 + 桌面动作。
 // 沿用旧偏好键 clw-*（prefs store 持久化 + apply :root）。
 // 桌面动作（打开书库目录）仅桌面版显示——window.clwritingDesktop 判空降级。
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
+import { X } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
@@ -20,6 +21,13 @@ async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
   await window.clwritingDesktop?.openBookDir(ws.bookName)
 }
+
+// Esc 关闭（mask 点击已支持；键盘可达性补全）
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && ui.settingsOpen) ui.closeSettings()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -28,7 +36,7 @@ async function openBookDir(): Promise<void> {
       <div class="settings-modal">
         <div class="modal-head">
           <span>设置</span>
-          <button class="close-btn" @click="ui.closeSettings">×</button>
+          <button class="close-btn" title="关闭（Esc）" @click="ui.closeSettings"><X :size="18" /></button>
         </div>
         <div class="setting-row">
           <label>主题</label>
@@ -107,14 +115,20 @@ async function openBookDir(): Promise<void> {
   margin-bottom: var(--size-4-4);
 }
 .close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
-  font-size: 20px;
   color: var(--text-faint);
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 .close-btn:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 .setting-row {
   margin-bottom: var(--size-4-4);
@@ -131,6 +145,7 @@ async function openBookDir(): Promise<void> {
 }
 .setting-row input[type='range'] {
   width: 100%;
+  accent-color: var(--interactive-accent);
 }
 .seg {
   display: inline-flex;
