@@ -196,7 +196,7 @@ onUnmounted(() => {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 22px;
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--text-normal);
   font-family: var(--font-ui);

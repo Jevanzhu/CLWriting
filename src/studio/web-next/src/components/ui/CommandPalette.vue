@@ -178,7 +178,7 @@ function run(c: Cmd): void {
   border: none;
   border-bottom: 1px solid var(--background-modifier-border);
   padding: var(--size-4-3);
-  font-size: 14px;
+  font-size: var(--font-size-m);
   background: transparent;
   color: var(--text-normal);
   outline: none;

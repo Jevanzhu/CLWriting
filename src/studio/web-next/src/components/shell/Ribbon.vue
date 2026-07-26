@@ -34,7 +34,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.leftOpen }"
-        title="章节树（⌘B）"
+        data-tip="章节树（⌘B）"
         @click="ws.toggleLeft()"
       >
         <FolderTree :size="20" />
@@ -42,7 +42,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.leftPanel === 'search' }"
-        title="搜索"
+        data-tip="搜索"
         @click="ws.setLeftPanel('search')"
       >
         <Search :size="20" />
@@ -51,7 +51,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'overview' }"
-        title="总览（书况 / 进度 / 卷纲 / 热力）"
+        data-tip="总览（书况 / 进度 / 卷纲 / 热力）"
         @click="ws.setActiveView('overview')"
       >
         <LayoutGrid :size="20" />
@@ -59,7 +59,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'rhythm' }"
-        title="节奏（规划 vs 已写）"
+        data-tip="节奏（规划 vs 已写）"
         @click="ws.setActiveView('rhythm')"
       >
         <BarChart3 :size="20" />
@@ -67,15 +67,16 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'relations' }"
-        title="角色关系图"
+        data-tip="角色关系图"
         @click="ws.setActiveView('relations')"
       >
         <Share2 :size="20" />
       </button>
+      <div class="ribbon-sep" />
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'workbench' }"
-        title="工作台（AI 写作）"
+        data-tip="工作台（AI 写作）"
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
@@ -83,7 +84,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'learn' }"
-        title="文风收割（样章/金句候选入库）"
+        data-tip="文风收割（样章/金句候选入库）"
         @click="ws.setActiveView('learn')"
       >
         <GraduationCap :size="20" />
@@ -91,7 +92,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :class="{ on: ws.activeView === 'onboard' }"
-        title="开书对话（分步生成设定）"
+        data-tip="开书对话（分步生成设定）"
         @click="ws.setActiveView('onboard')"
       >
         <Compass :size="20" />
@@ -99,18 +100,19 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
     </div>
 
     <div class="ribbon-group">
-      <button class="rbtn" title="导出定稿" @click="ui.openExport()">
+      <button class="rbtn" data-tip="导出定稿" @click="ui.openExport()">
         <Download :size="20" />
       </button>
-      <button class="rbtn" title="返回书架" @click="router.push('/shelf')">
+      <button class="rbtn" data-tip="返回书架" @click="router.push('/shelf')">
         <Library :size="20" />
       </button>
-      <button class="rbtn" title="设置（⌘,）" @click="ui.openSettings()">
+      <div class="ribbon-sep" />
+      <button class="rbtn" data-tip="设置（⌘,）" @click="ui.openSettings()">
         <Settings :size="20" />
       </button>
       <button
         class="rbtn"
-        :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
+        :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
         @click="toggle()"
       >
         <Moon v-if="theme === 'light'" :size="20" />
@@ -190,7 +192,8 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 .ribbon-sep {
   width: 22px;
   height: 1px;
-  background: var(--background-modifier-border);
-  margin: 4px 0;
+  background: var(--text-faint);
+  opacity: 0.55;
+  margin: 6px 0;
 }
 </style>

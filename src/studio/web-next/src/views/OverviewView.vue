@@ -159,7 +159,7 @@ function openVolume(path: string): void {
 }
 .book-title {
   margin: 0 0 var(--size-4-3);
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-normal);
   line-height: 1.3;
@@ -241,7 +241,7 @@ function openVolume(path: string): void {
   border-radius: var(--radius-s);
 }
 .state-name {
-  font-size: 14px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
 }
 .err-inline {

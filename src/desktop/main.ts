@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { startServer } from '../studio/server/index.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { getFonts as getSystemFontList } from 'font-list'
 import {
   parseStore,
   setCurrent,
@@ -261,6 +262,15 @@ function registerIpc(): void {
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
     void shell.openPath(resolve(workDir, entry.path))
+  })
+  // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
+  ipcMain.handle('desktop:get-system-fonts', async () => {
+    try {
+      return await getSystemFontList({ disableQuoting: true })
+    } catch (e) {
+      console.error('get-system-fonts 失败：', e instanceof Error ? e.message : String(e))
+      return []
+    }
   })
 }
 

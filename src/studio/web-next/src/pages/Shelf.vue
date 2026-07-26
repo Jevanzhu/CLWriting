@@ -161,7 +161,7 @@ function formatRelative(iso?: string | null): string {
 }
 .shelf-head h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
 }
 .shelf-actions {
@@ -288,7 +288,7 @@ function formatRelative(iso?: string | null): string {
 }
 .modal h2 {
   margin: 0 0 var(--size-4-3);
-  font-size: 16px;
+  font-size: var(--font-size-l);
 }
 .input {
   width: 100%;
@@ -297,7 +297,7 @@ function formatRelative(iso?: string | null): string {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   color: var(--text-normal);
-  font-size: 14px;
+  font-size: var(--font-size-m);
   box-sizing: border-box;
 }
 .input:focus {

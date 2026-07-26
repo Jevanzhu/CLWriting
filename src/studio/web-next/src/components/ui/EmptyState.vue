@@ -60,7 +60,7 @@ const iconSize = computed(() =>
   gap: var(--size-4-2);
 }
 .es-full .es-title {
-  font-size: 16px;
+  font-size: var(--font-size-l);
 }
 .es-full .es-text {
   font-size: 13px;

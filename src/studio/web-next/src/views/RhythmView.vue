@@ -372,7 +372,7 @@ function distMax(g: DistGroup): number {
   color: var(--text-faint);
 }
 .cov-num {
-  font-size: 22px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text-accent);
   line-height: 1;
