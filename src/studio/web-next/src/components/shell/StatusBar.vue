@@ -14,12 +14,13 @@ const words = useWordsStore()
   <div class="statusbar">
     <div class="status-left">
       <span class="status-dot" :class="{ off: !serverOnline }" />
-      <span>{{ serverOnline ? 'Claude CLI 已连接' : 'CLI 连接中断' }}</span>
+      <span>{{ serverOnline ? '服务已连接' : '服务连接中断' }}</span>
     </div>
     <div class="status-right">
       <span v-if="tree.totalWords" class="status-words">
         全书 {{ tree.totalWords.toLocaleString() }}<span class="sep">·</span>今日 +{{ words.todayWords.toLocaleString() }}
       </span>
+      <span v-if="tree.totalWords" class="sep">·</span>
       <span>{{ themeName() }}</span>
     </div>
   </div>
@@ -39,6 +40,11 @@ const words = useWordsStore()
   color: var(--text-muted);
 }
 .status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-right {
   display: flex;
   align-items: center;
   gap: 6px;

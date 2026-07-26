@@ -18,7 +18,15 @@ const truncated = ref(false)
 const loading = ref(false)
 const err = ref<string | null>(null)
 
-const SCOPES = ['all', '定稿', '正文', '设定', '大纲', '工作区']
+// scope 值传 API 不变（all/定稿/正文…）；label 全中文，避免作者看到英文「all」。
+const SCOPES = [
+  { v: 'all', label: '全部' },
+  { v: '定稿', label: '定稿' },
+  { v: '正文', label: '正文' },
+  { v: '设定', label: '设定' },
+  { v: '大纲', label: '大纲' },
+  { v: '工作区', label: '工作区' },
+]
 
 async function run(): Promise<void> {
   if (!q.value.trim()) {
@@ -61,7 +69,7 @@ async function open(path: string): Promise<void> {
         @keyup.enter="run"
       />
       <select v-model="scope" @change="run">
-        <option v-for="s in SCOPES" :key="s" :value="s">{{ s }}</option>
+        <option v-for="s in SCOPES" :key="s.v" :value="s.v">{{ s.label }}</option>
       </select>
     </div>
     <div v-if="loading" class="hint">搜索中…</div>
