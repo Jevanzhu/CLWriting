@@ -249,9 +249,10 @@ function distMax(g: DistGroup): number {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   padding: var(--size-4-3) var(--size-4-4);
+  box-shadow: var(--shadow-s);
 }
 .card-head {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: var(--size-4-3);

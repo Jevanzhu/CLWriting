@@ -228,13 +228,13 @@ function formatRelative(iso?: string | null): string {
   color: var(--text-normal);
   cursor: pointer;
   min-height: 110px;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .book-card:hover {
   background: var(--background-modifier-hover);
   border-color: var(--background-modifier-border-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-m);
 }
 .book-title {
   font-size: 15px;
@@ -284,7 +284,7 @@ function formatRelative(iso?: string | null): string {
   border-radius: var(--radius-l);
   padding: var(--size-4-4);
   width: 360px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
 }
 .modal h2 {
   margin: 0 0 var(--size-4-3);

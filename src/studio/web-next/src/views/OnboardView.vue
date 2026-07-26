@@ -122,9 +122,10 @@ async function save(): Promise<void> {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   padding: var(--size-4-3);
+  box-shadow: var(--shadow-s);
 }
 .card-head {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   font-weight: 600;
   color: var(--text-normal);
   margin-bottom: var(--size-4-2);

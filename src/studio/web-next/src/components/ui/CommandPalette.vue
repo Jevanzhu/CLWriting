@@ -161,6 +161,7 @@ function run(c: Cmd): void {
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
+  animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .palette {
   width: 480px;
@@ -168,8 +169,9 @@ function run(c: Cmd): void {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
   overflow: hidden;
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .palette-input {
   width: 100%;
