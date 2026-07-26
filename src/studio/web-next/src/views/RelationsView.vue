@@ -31,9 +31,10 @@ const W = 820
 const H = 560
 const CX = W / 2
 const CY = H / 2
-const REPULSION = 6000
+// 斥力 / 连线长度随节点数自适应（buildGraph 末尾 tune），防密集塌缩 / 稀疏过散
+let REPULSION = 6000
 const ATTRACTION = 0.03
-const IDEAL_LEN = 130
+let IDEAL_LEN = 130
 const CENTER_GRAVITY = 0.015
 const DAMPING = 0.82
 
@@ -89,6 +90,10 @@ function buildGraph(characters: CharacterCard[], rels: RelationEdge[], debts: De
     n.x = CX + R * Math.cos(a) + (Math.random() - 0.5) * 24
     n.y = CY + R * Math.sin(a) + (Math.random() - 0.5) * 24
   })
+  // 力导向参数自适应节点数：密集（N 大）→ 增斥力 + 缩连线距防塌缩；稀疏（N 小）→ 反之
+  const N = ns.length
+  REPULSION = 6000 * Math.max(0.6, Math.min(2.5, N / 12))
+  IDEAL_LEN = 130 * Math.max(0.55, Math.min(1.1, 12 / Math.max(1, N)))
   nodes.value = ns
   edges.value = valid
 }
@@ -381,6 +386,12 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
           <button class="tool-btn" title="重置视图" @click="resetView">复位</button>
         </div>
       </div>
+      <div class="legend-row">
+        <span class="lg"><span class="lg-node lg-big"></span><span class="lg-node lg-small"></span>大小=出场度</span>
+        <span class="lg"><span class="lg-node lg-gray"></span>无资料卡</span>
+        <span class="lg"><span class="lg-line"></span>关系</span>
+        <span class="lg"><span class="lg-line lg-debt"></span>债务</span>
+      </div>
       <svg
         ref="svgRef"
         class="graph"
@@ -439,6 +450,37 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   align-items: baseline;
   margin-bottom: var(--size-4-2);
 }
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-3);
+  margin-bottom: var(--size-4-2);
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lg-node {
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+}
+.lg-big { width: 12px; height: 12px; }
+.lg-small { width: 7px; height: 7px; }
+.lg-gray { width: 10px; height: 10px; background: var(--text-faint); opacity: 0.5; }
+.lg-line {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 1.5px solid var(--interactive-accent);
+}
+.lg-line.lg-debt {
+  border-top: 1.5px dashed #c0392b;
+}
 .count {
   font-size: 13px;
   font-weight: 600;
@@ -472,6 +514,8 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   stroke: var(--background-secondary);
   stroke-width: 3;
   pointer-events: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 .node {
   fill: var(--interactive-accent);

@@ -79,6 +79,7 @@ function onSave(): void {
   flex-direction: column;
   gap: 12px;
   box-shadow: var(--shadow-l);
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .side-title {
   font-size: 12px;

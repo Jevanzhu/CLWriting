@@ -110,8 +110,9 @@ function onSelect(key: string): void {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-m);
   user-select: none;
+  animation: clw-appear var(--dur-fast) var(--ease-out);
 }
 .cm-item {
   display: block;
@@ -161,6 +162,6 @@ function onSelect(key: string): void {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-m);
 }
 </style>

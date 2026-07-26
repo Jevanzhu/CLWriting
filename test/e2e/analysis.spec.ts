@@ -17,7 +17,7 @@ test('分析：选章 → 重新分析 → 体验分 → 改正文 → 存量 + 
   await page.locator('.right-tab').nth(3).click()
 
   // 暂无体验分 → 点「重新分析」
-  await expect(page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.ap-empty')).toBeVisible()
+  await expect(page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.empty-state')).toBeVisible()
   await page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.ap-run').click()
 
   // mock analyst 产 score → 体验分渲染（大数字 = 8）

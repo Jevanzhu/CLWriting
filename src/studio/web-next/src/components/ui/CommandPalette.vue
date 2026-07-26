@@ -2,6 +2,7 @@
 // 命令面板（细案 T2.4）：⌘P 弹出。跳章（当前树叶子）+ 动作（主题/栏/专注/设置/书架）。
 // 模糊搜索 + ↑↓ 选 / 回车执行 / Esc 关。
 import { ref, computed, watch, nextTick } from 'vue'
+import { CornerDownLeft } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../../stores/ui'
 import { useTreeStore } from '../../stores/tree'
@@ -20,23 +21,31 @@ const { toggle: toggleTheme } = useTheme()
 interface Cmd {
   id: string
   label: string
-  hint?: string
+  no?: string
+  group: 'chapter' | 'action'
   run: () => void
 }
 const cmds = computed<Cmd[]>(() => {
   const list: Cmd[] = []
   for (const [, node] of tree.byDocId) {
     if (!node.isDirectory) {
-      const n = node
-      list.push({ id: 'doc:' + n.docId, label: n.name, hint: '跳转', run: () => openDoc(n) })
+      // 章节 name 形如「0001-北境之雪」→ 拆编号（弱化）+ 标题（为主）
+      const m = node.name.match(/^(\d+)-(.+)/)
+      list.push({
+        id: 'doc:' + node.docId,
+        no: m ? m[1] : undefined,
+        label: m ? m[2] : node.name,
+        group: 'chapter',
+        run: () => openDoc(node),
+      })
     }
   }
-  list.push({ id: 'act:theme', label: '切换亮/暗主题', run: () => toggleTheme() })
-  list.push({ id: 'act:left', label: '切换左栏', run: () => ws.toggleLeft() })
-  list.push({ id: 'act:right', label: '切换右栏', run: () => ws.toggleRight() })
-  list.push({ id: 'act:focus', label: '切换专注模式', run: () => ws.toggleFocus() })
-  list.push({ id: 'act:settings', label: '打开设置', run: () => ui.openSettings() })
-  list.push({ id: 'act:shelf', label: '返回书架', run: () => router.push('/shelf') })
+  list.push({ id: 'act:theme', label: '切换亮/暗主题', group: 'action', run: () => toggleTheme() })
+  list.push({ id: 'act:left', label: '切换左栏', group: 'action', run: () => ws.toggleLeft() })
+  list.push({ id: 'act:right', label: '切换右栏', group: 'action', run: () => ws.toggleRight() })
+  list.push({ id: 'act:focus', label: '切换专注模式', group: 'action', run: () => ws.toggleFocus() })
+  list.push({ id: 'act:settings', label: '打开设置', group: 'action', run: () => ui.openSettings() })
+  list.push({ id: 'act:shelf', label: '返回书架', group: 'action', run: () => router.push('/shelf') })
   return list
 })
 
@@ -45,6 +54,14 @@ const sel = ref(0)
 const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
   return k ? cmds.value.filter((c) => c.label.toLowerCase().includes(k)) : cmds.value
+})
+// 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
+const sections = computed(() => {
+  const indexed = filtered.value.map((c, i) => ({ c, i }))
+  return [
+    { title: '章节', items: indexed.filter((x) => x.c.group === 'chapter') },
+    { title: '动作', items: indexed.filter((x) => x.c.group === 'action') },
+  ].filter((s) => s.items.length)
 })
 watch(filtered, () => {
   sel.value = 0
@@ -110,16 +127,22 @@ function run(c: Cmd): void {
           @keydown="onKey"
         />
         <div class="palette-list">
-          <div
-            v-for="(c, i) in filtered"
-            :key="c.id"
-            class="palette-item"
-            :class="{ sel: i === sel }"
-            @mouseenter="sel = i"
-            @click="run(c)"
-          >
-            <span class="pi-label">{{ c.label }}</span>
-            <span v-if="c.hint" class="pi-hint">{{ c.hint }}</span>
+          <div v-for="sec in sections" :key="sec.title" class="palette-group">
+            <div class="pg-title">{{ sec.title }}</div>
+            <div
+              v-for="{ c, i } in sec.items"
+              :key="c.id"
+              class="palette-item"
+              :class="{ sel: i === sel }"
+              @mouseenter="sel = i"
+              @click="run(c)"
+            >
+              <span class="pi-label">
+                <span v-if="c.no" class="pi-no">{{ c.no }}</span>
+                <span class="pi-label-text">{{ c.label }}</span>
+              </span>
+              <CornerDownLeft v-if="i === sel" :size="13" class="pi-enter" />
+            </div>
           </div>
           <div v-if="!filtered.length" class="palette-empty">无匹配</div>
         </div>
@@ -138,6 +161,7 @@ function run(c: Cmd): void {
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
+  animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .palette {
   width: 480px;
@@ -145,8 +169,9 @@ function run(c: Cmd): void {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
   overflow: hidden;
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .palette-input {
   width: 100%;
@@ -177,9 +202,44 @@ function run(c: Cmd): void {
 .palette-item.sel {
   background: var(--background-modifier-hover);
 }
-.pi-hint {
+.palette-group {
+  padding: var(--size-4-1) 0;
+}
+.palette-group + .palette-group {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-1);
+}
+.pg-title {
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pi-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.pi-no {
   font-size: 11px;
   color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.pi-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-enter {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.palette-item.sel .pi-enter {
+  color: var(--interactive-accent);
 }
 .palette-empty {
   padding: var(--size-4-3);

@@ -27,12 +27,13 @@ const ui = useUiStore()
 }
 .toast {
   padding: 8px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary-alt);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-m);
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .toast.success {
   color: var(--text-success);

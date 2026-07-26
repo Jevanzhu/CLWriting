@@ -41,6 +41,7 @@ const docName = computed(() => {
   align-items: center;
   justify-content: center;
   z-index: 100;
+  animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .modal {
   width: 360px;
@@ -48,7 +49,8 @@ const docName = computed(() => {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: var(--size-4-4);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .modal-title {
   font-size: 15px;

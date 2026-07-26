@@ -63,6 +63,21 @@
   --prose-size: 17px;
   --prose-lh: 1.85;
   --prose-gap: 1em;
+  /* P3 质感与动效 —— shadow 跨主题（暗块覆盖深一档）；字号 / 缓动跨主题一致 */
+  --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --font-size-xs: 11px;
+  --font-size-s: 12px;
+  --font-size-m: 13px;
+  --font-size-l: 15px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 24px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-norm: 200ms;
+  --dur-slow: 320ms;
 }
 
 [data-theme='dark'] {
@@ -86,4 +101,8 @@
   --text-success: #6abf6a;
   --text-warning: #d4a13a;
   --text-error: #e06c6c;
+  /* P3 阴影：暗底更深（覆盖 :root） */
+  --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.6);
 }

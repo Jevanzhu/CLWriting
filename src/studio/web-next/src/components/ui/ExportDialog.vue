@@ -112,6 +112,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .export-modal {
   width: 420px;
@@ -119,8 +120,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-l);
   padding: var(--size-4-4);
+  animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .modal-head {
   display: flex;

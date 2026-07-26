@@ -6,6 +6,7 @@ import { computed } from 'vue'
 import { GraduationCap, Sparkles, PackageCheck, AlertCircle } from 'lucide-vue-next'
 import { useLearnStore } from '../stores/learn'
 import { useTreeStore } from '../stores/tree'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 const props = defineProps<{ bookName: string }>()
 const learn = useLearnStore()
@@ -67,14 +68,12 @@ async function onCommit(): Promise<void> {
 
     <div v-if="learn.commitMessage" class="learn-msg">{{ learn.commitMessage }}</div>
 
-    <div
+    <EmptyState
       v-if="!learn.hasResult && !learn.loading && !learn.error"
-      class="learn-placeholder"
-    >
-      <GraduationCap :size="40" />
-      <p v-if="chapterCount > 0">点击「收割候选」扫描 {{ chapterCount }} 章定稿正文。</p>
-      <p v-else>当前没有定稿正文可收割——先写正文并定稿。</p>
-    </div>
+      :icon="GraduationCap"
+      :text="chapterCount > 0 ? `点击「收割候选」扫描 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
+      class="learn-empty"
+    />
 
     <div v-if="learn.hasResult" class="learn-content">
       <!-- 样章候选 -->
@@ -131,12 +130,11 @@ async function onCommit(): Promise<void> {
         </div>
       </section>
 
-      <div
+      <EmptyState
         v-if="!learn.samples.length && !learn.quotes.length"
-        class="learn-placeholder"
-      >
-        <p>本轮无合格候选——定稿正文打分普遍偏低或无特征短句。</p>
-      </div>
+        :icon="PackageCheck"
+        text="本轮无合格候选——定稿正文打分普遍偏低或无特征短句。"
+      />
     </div>
   </div>
 </template>
@@ -237,15 +235,9 @@ async function onCommit(): Promise<void> {
   background: rgba(78, 157, 104, 0.08);
   color: var(--color-green, #4e9d68);
 }
-.learn-placeholder {
+.learn-empty {
   max-width: 880px;
   margin: var(--size-4-8) auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--size-4-3);
-  color: var(--text-faint);
-  font-size: 13px;
 }
 .learn-content {
   max-width: 880px;

@@ -48,6 +48,7 @@ body {
 a {
   color: var(--text-accent);
   text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 a:hover {
   text-decoration: underline;
@@ -55,6 +56,11 @@ a:hover {
 
 button {
   font-family: inherit;
+  /* P3 动效基线：按钮交互态平滑过渡（组件级可叠加/覆盖） */
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
 }
 
 /* 统一禁用态：降透明度 + 禁止光标，全应用一致传达「不可用」。
@@ -62,4 +68,25 @@ button {
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* P3 动效：弹窗 / 浮层 appear（挂载自动播；@keyframes 全局，组件 scoped 可引用）。
+   克制——位移 6px / scale 0.985，刚好「落下」感，不浮夸。 */
+@keyframes clw-appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes clw-overlay {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

@@ -11,6 +11,7 @@ import { useUiStore } from '../../stores/ui'
 import { formKindOf } from '../../shared/words'
 import type { AnalysisKindFE } from '../../api/analysis'
 import { getRhythm, type RhythmResult } from '../../api/rhythm'
+import EmptyState from '../ui/EmptyState.vue'
 
 const props = defineProps<{ bookName: string }>()
 const analysis = useAnalysisStore()
@@ -151,8 +152,8 @@ function dimWidth(label: string, v: number): string {
           <span>{{ analysis.loading === 'score' ? '分析中…' : '重新分析' }}</span>
         </button>
       </div>
-      <div v-if="aiOff && !scoreSlot.envelope" class="ap-empty">AI 不可达，暂无体验分。</div>
-      <div v-else-if="!scoreSlot.envelope" class="ap-empty">暂无体验分{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
+      <EmptyState v-if="aiOff && !scoreSlot.envelope" :icon="Sparkles" size="compact" text="AI 不可达，暂无体验分。" />
+      <EmptyState v-else-if="!scoreSlot.envelope" :icon="Sparkles" size="compact" :text="`暂无体验分${aiOff ? '' : '，点「重新分析」生成'}。`" />
       <div v-else-if="scorePayload" class="ap-score-body">
         <div class="ap-score-row">
           <div class="ap-score-num">{{ scorePayload.score }}</div>
@@ -192,8 +193,8 @@ function dimWidth(label: string, v: number): string {
           </button>
         </div>
       </div>
-      <div v-if="aiOff && !emotionSlot.envelope" class="ap-empty">AI 不可达，暂无情绪曲线。</div>
-      <div v-else-if="!emotionSlot.envelope" class="ap-empty">暂无情绪曲线{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
+      <EmptyState v-if="aiOff && !emotionSlot.envelope" :icon="Activity" size="compact" text="AI 不可达，暂无情绪曲线。" />
+      <EmptyState v-else-if="!emotionSlot.envelope" :icon="Activity" size="compact" :text="`暂无情绪曲线${aiOff ? '' : '，点「重新分析」生成'}。`" />
       <div v-else-if="emotionPayload && emotionPayload.length" class="ap-emotion-body">
         <svg :viewBox="`0 0 ${EMOTION_W} ${EMOTION_H}`" class="ap-emotion-svg" preserveAspectRatio="none">
           <line :x1="EMOTION_PAD" :y1="emotionY(0)" :x2="EMOTION_W - EMOTION_PAD" :y2="emotionY(0)" class="ap-emotion-zero" />
@@ -214,7 +215,7 @@ function dimWidth(label: string, v: number): string {
           </span>
         </div>
       </div>
-      <div v-else class="ap-empty">情绪曲线样本不足。</div>
+      <EmptyState v-else :icon="Activity" size="compact" text="情绪曲线样本不足。" />
       <!-- 节奏上下文（读 rhythm chapterDiff 当前章：字数目标/实际 + 钩子/情绪偏差） -->
       <div v-if="showRhythm && rhythmRow" class="ap-emotion-rhythm">
         <Gauge :size="12" />
@@ -237,8 +238,8 @@ function dimWidth(label: string, v: number): string {
           </button>
         </div>
       </div>
-      <div v-if="aiOff && !hooksSlot.envelope" class="ap-empty">AI 不可达，暂无钩子分析。</div>
-      <div v-else-if="!hooksSlot.envelope" class="ap-empty">暂无钩子分析{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
+      <EmptyState v-if="aiOff && !hooksSlot.envelope" :icon="Anchor" size="compact" text="AI 不可达，暂无钩子分析。" />
+      <EmptyState v-else-if="!hooksSlot.envelope" :icon="Anchor" size="compact" :text="`暂无钩子分析${aiOff ? '' : '，点「重新分析」生成'}。`" />
       <div v-else-if="hooksPayload && hooksPayload.hooks.length" class="ap-hooks-list">
         <div v-for="(h, i) in hooksPayload.hooks" :key="i" class="ap-hook">
           <div class="ap-hook-head">
@@ -251,7 +252,7 @@ function dimWidth(label: string, v: number): string {
           <div v-if="h.note" class="ap-hook-note">{{ h.note }}</div>
         </div>
       </div>
-      <div v-else class="ap-empty">未识别到明显钩子。</div>
+      <EmptyState v-else :icon="Anchor" size="compact" text="未识别到明显钩子。" />
     </div>
 
     <!-- 文风总结卡（B4.4） -->
@@ -263,8 +264,8 @@ function dimWidth(label: string, v: number): string {
           <span>{{ analysis.loading === 'style' ? '分析中…' : '重新分析' }}</span>
         </button>
       </div>
-      <div v-if="aiOff && !styleSlot.envelope" class="ap-empty">AI 不可达，暂无文风总结。</div>
-      <div v-else-if="!styleSlot.envelope" class="ap-empty">暂无文风总结{{ aiOff ? '' : '，点「重新分析」生成' }}。</div>
+      <EmptyState v-if="aiOff && !styleSlot.envelope" :icon="Feather" size="compact" text="AI 不可达，暂无文风总结。" />
+      <EmptyState v-else-if="!styleSlot.envelope" :icon="Feather" size="compact" :text="`暂无文风总结${aiOff ? '' : '，点「重新分析」生成'}。`" />
       <div v-else-if="stylePayload" class="ap-style-body">
         <div class="ap-style-drift">{{ stylePayload.drift }}</div>
         <div v-if="stylePayload.口癖 && stylePayload.口癖.length" class="ap-style-tags">
@@ -363,12 +364,6 @@ function dimWidth(label: string, v: number): string {
   to {
     transform: rotate(360deg);
   }
-}
-.ap-empty,
-.ap-placeholder {
-  font-size: 12px;
-  color: var(--text-faint);
-  line-height: 1.6;
 }
 /* 体验分 */
 .ap-score-row {

@@ -16,6 +16,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
+import { computeProgress } from './progress.js'
 
 interface OverviewCtx {
   workDir: string | null
@@ -83,24 +84,6 @@ function withTarget(
 ): { chapters: number; words: number; targetWords?: number; percent?: number } {
   if (!targetWords || targetWords <= 0 || p.words <= 0) return p
   return { ...p, targetWords, percent: Math.min(100, Math.round((p.words / targetWords) * 1000) / 10) }
-}
-
-/** 进度：长篇=定稿正文章数+字数；短篇=篇/ 目录数 */
-function computeProgress(bookRoot: string, kind: 'long' | 'short'): { chapters: number; words: number } {
-  if (kind === 'short') {
-    const piecesDir = join(bookRoot, '篇')
-    if (!existsSync(piecesDir)) return { chapters: 0, words: 0 }
-    let n = 0
-    try {
-      n = readdirSync(piecesDir).filter((x) => !x.startsWith('.')).length
-    } catch {
-      // 无篇目录
-    }
-    return { chapters: n, words: 0 }
-  }
-  const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
-  const words = chapters.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
-  return { chapters: chapters.length, words }
 }
 
 /** 卷结构：大纲/卷纲/*.md（长篇） */
