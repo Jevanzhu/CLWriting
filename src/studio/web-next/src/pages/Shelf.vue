@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen } from 'lucide-vue-next'
 import { useShelfStore } from '../stores/shelf'
 import { useTheme } from '../composables/useTheme'
 import { apiJson } from '../api/client'
@@ -50,6 +50,30 @@ function kindLabel(kind?: string): string {
   if (kind === 'short') return '短篇'
   return '·'
 }
+
+// 字数千分位 + 万字简写（书卡紧凑展示）
+function formatWords(n?: number): string {
+  if (!n) return '0 字'
+  if (n < 10000) return `${n.toLocaleString()} 字`
+  return `${(n / 10000).toFixed(1)} 万字`
+}
+
+// 最近编辑相对时间（书卡「N 天前」）
+function formatRelative(iso?: string | null): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const min = Math.floor((Date.now() - then) / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} 小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day} 天前`
+  const month = Math.floor(day / 30)
+  if (month < 12) return `${month} 个月前`
+  return `${Math.floor(month / 12)} 年前`
+}
 </script>
 
 <template>
@@ -75,15 +99,25 @@ function kindLabel(kind?: string): string {
       <p>未打开书库。</p>
       <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
     </div>
-    <div v-else-if="!shelf.books.length" class="shelf-status">
-      <p>书库为空。</p>
-      <p class="sub">点「新建书」开始第一本。</p>
+    <div v-else-if="!shelf.books.length" class="shelf-empty">
+      <BookOpen :size="48" />
+      <p class="empty-title">书库还是空的</p>
+      <p class="empty-sub">建第一本书，开始你的长篇之旅</p>
+      <button class="btn primary" @click="showCreate = true">+ 新建书</button>
     </div>
     <div v-else class="book-grid">
       <button v-for="b in shelf.books" :key="b.name" class="book-card" @click="openBook(b.name)">
         <div class="book-title">{{ b.title ?? b.name }}</div>
-        <div class="book-name">
-          {{ kindLabel(b.kind) }}<span v-if="b.title && b.title !== b.name">　{{ b.name }}</span>
+        <div class="book-meta">
+          <span class="book-kind">{{ kindLabel(b.kind) }}</span>
+          <span v-if="b.title && b.title !== b.name" class="book-name">{{ b.name }}</span>
+        </div>
+        <div class="book-stats">
+          <span v-if="b.kind === 'short'" class="stat">{{ b.chapters ?? 0 }} 篇</span>
+          <span v-else class="stat">
+            {{ b.chapters ?? 0 }} 章<span class="stat-sep">·</span>{{ formatWords(b.words) }}
+          </span>
+          <span v-if="b.lastEdited" class="stat-time">{{ formatRelative(b.lastEdited) }}</span>
         </div>
       </button>
     </div>
@@ -180,6 +214,8 @@ function kindLabel(kind?: string): string {
   gap: var(--size-4-3);
 }
 .book-card {
+  display: flex;
+  flex-direction: column;
   text-align: left;
   padding: var(--size-4-3);
   border: 1px solid var(--background-modifier-border);
@@ -187,11 +223,14 @@ function kindLabel(kind?: string): string {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  min-height: 90px;
+  min-height: 110px;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
 }
 .book-card:hover {
   background: var(--background-modifier-hover);
   border-color: var(--background-modifier-border-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 .book-title {
   font-size: 15px;
@@ -200,6 +239,49 @@ function kindLabel(kind?: string): string {
 }
 .book-name {
   font-size: 12px;
+  color: var(--text-faint);
+}
+.book-meta {
+  font-size: 12px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.book-stats {
+  margin-top: auto;
+  padding-top: var(--size-4-2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.stat-sep {
+  margin: 0 4px;
+  color: var(--text-faint);
+}
+.stat-time {
+  color: var(--text-faint);
+}
+.shelf-empty {
+  padding: var(--size-4-8) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-2);
+  color: var(--text-faint);
+}
+.empty-title {
+  margin: var(--size-4-2) 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.empty-sub {
+  margin: 0 0 var(--size-4-2);
+  font-size: 13px;
   color: var(--text-faint);
 }
 .modal-overlay {

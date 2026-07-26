@@ -15,6 +15,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
+import { computeProgress, computeLastEdited } from './progress.js'
 
 interface BookCtx {
   workDir: string | null
@@ -35,7 +36,26 @@ export function registerBookRoutes(ctx: BookCtx): void {
       })
       return
     }
-    reply(res, 200, { books: readBooks(ctx.workDir), workDir: true })
+    // 书架卡补摘要：title / 进度(N 章/字数) / 最近编辑。单本损坏不崩整列（摘要降级缺省）。
+    const books = readBooks(ctx.workDir).map((b) => {
+      const bookRoot = join(ctx.workDir!, b.path)
+      try {
+        const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
+        const kind = config.kind === 'short' ? 'short' : 'long'
+        const prog = computeProgress(bookRoot, kind)
+        return {
+          ...b,
+          title: config.book.title,
+          chapters: prog.chapters,
+          words: prog.words,
+          lastEdited: computeLastEdited(bookRoot, kind),
+        }
+      } catch {
+        // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）
+        return b
+      }
+    })
+    reply(res, 200, { books, workDir: true })
   })
 
   // 建书（1.5 段 1 表单 → doInit）
