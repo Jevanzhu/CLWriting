@@ -2,6 +2,7 @@
 // 工作台写作模式（细案 T3.2）：状态卡（/state）+ spawn/interrupt + 事件流（workbench.log）。
 // rebook/hand/cli 任务列表/草稿保存留后续（T3.2 扩展 / T3.3）。
 import { ref, watch, computed } from 'vue'
+import { Activity } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
 import {
   getState,
@@ -13,6 +14,7 @@ import {
   type CliResult,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -209,7 +211,7 @@ const recent = computed(() => wb.log.slice(-200))
     <section class="card stream-card">
       <div class="card-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
       <div class="stream">
-        <div v-if="!recent.length" class="empty">（无事件，点「生成」触发）</div>
+        <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」触发" size="compact" />
         <div
           v-for="(ev, i) in recent"
           :key="i"
@@ -366,10 +368,6 @@ const recent = computed(() => wb.log.slice(-200))
   overflow: auto;
   font-family: var(--font-monospace);
   font-size: 12px;
-}
-.empty {
-  color: var(--text-faint);
-  padding: var(--size-4-3);
 }
 .ev {
   padding: 2px 0;

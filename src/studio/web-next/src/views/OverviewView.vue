@@ -2,10 +2,12 @@
 // 总览视图（细案 T4.1）：GET /overview 渲染 身份/进度/状态机/卷纲/写作热力。
 // 长短篇按 kind 分流；卷纲点击 → 章节树寻 docId 开 tab（与编辑 tab 并存）。
 import { ref, computed, onMounted } from 'vue'
+import { Flame } from 'lucide-vue-next'
 import { getOverview, type OverviewResult } from '../api/overview'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 const props = defineProps<{ bookName: string }>()
 const ui = useUiStore()
@@ -118,7 +120,7 @@ function openVolume(path: string): void {
             :title="`${t.date} · ${t.count} 章`"
           ></span>
         </div>
-        <div v-else class="heat-empty">还没有写作记录——写一章定稿后这里会亮起来。</div>
+        <EmptyState v-else :icon="Flame" text="还没有写作记录——写一章定稿后这里会亮起来。" size="compact" />
       </section>
     </div>
   </div>
@@ -284,12 +286,6 @@ function openVolume(path: string): void {
   font-weight: 400;
   color: var(--text-faint);
   margin-left: var(--size-4-2);
-}
-.heat-empty {
-  padding: var(--size-4-4) 0;
-  font-size: 12px;
-  color: var(--text-faint);
-  text-align: center;
 }
 .placeholder {
   padding: var(--size-4-6);

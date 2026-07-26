@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 文档编辑视图（细案 T1.2）：inline 标题（章名，只读）+ CM6 正文 + 保存态指示 + 30s 自动保存。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { PenLine } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -8,6 +9,7 @@ import { useUiStore } from '../stores/ui'
 import { updateChapterMetaDoc } from '../api/documents'
 import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 const props = defineProps<{ docId: string | null }>()
 const doc = useDocStore()
@@ -121,7 +123,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="!entry" class="editor-empty">选择左侧章节开始写作</div>
+  <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view">
     <header class="doc-head">
       <input
@@ -174,11 +176,7 @@ onUnmounted(() => {
 <style scoped>
 .editor-empty {
   height: 100%;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  color: var(--text-faint);
-  font-size: 14px;
 }
 .editor-view {
   height: 100%;

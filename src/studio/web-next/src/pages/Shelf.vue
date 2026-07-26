@@ -5,6 +5,7 @@ import { Sun, Moon, BookOpen } from 'lucide-vue-next'
 import { useShelfStore } from '../stores/shelf'
 import { useTheme } from '../composables/useTheme'
 import { apiJson } from '../api/client'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 // 书架视图：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
 // 书架为全屏页（无外壳），自带主题切换（工作区则走 ribbon）。
@@ -99,12 +100,15 @@ function formatRelative(iso?: string | null): string {
       <p>未打开书库。</p>
       <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
     </div>
-    <div v-else-if="!shelf.books.length" class="shelf-empty">
-      <BookOpen :size="48" />
-      <p class="empty-title">书库还是空的</p>
-      <p class="empty-sub">建第一本书，开始你的长篇之旅</p>
+    <EmptyState
+      v-else-if="!shelf.books.length"
+      :icon="BookOpen"
+      title="书库还是空的"
+      text="建第一本书，开始你的长篇之旅"
+      size="full"
+    >
       <button class="btn primary" @click="showCreate = true">+ 新建书</button>
-    </div>
+    </EmptyState>
     <div v-else class="book-grid">
       <button v-for="b in shelf.books" :key="b.name" class="book-card" @click="openBook(b.name)">
         <div class="book-title">{{ b.title ?? b.name }}</div>
@@ -263,25 +267,6 @@ function formatRelative(iso?: string | null): string {
   color: var(--text-faint);
 }
 .stat-time {
-  color: var(--text-faint);
-}
-.shelf-empty {
-  padding: var(--size-4-8) 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--size-4-2);
-  color: var(--text-faint);
-}
-.empty-title {
-  margin: var(--size-4-2) 0 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.empty-sub {
-  margin: 0 0 var(--size-4-2);
-  font-size: 13px;
   color: var(--text-faint);
 }
 .modal-overlay {
