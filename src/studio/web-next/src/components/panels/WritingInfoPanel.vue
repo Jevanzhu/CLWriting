@@ -81,8 +81,30 @@ async function onRevert(): Promise<void> {
 <template>
   <div class="info-panel">
     <div class="side-title">写作信息</div>
-    <div v-if="!entry" class="side-hint">未打开文档</div>
-    <template v-else>
+    <!-- 全书级（常显：任何视图都有意义） -->
+    <div class="row">
+      <span class="label">全书</span>
+      <span class="value">
+        {{ tree.totalWords.toLocaleString() }}
+        <span class="muted">（定稿 {{ tree.finalizedWords.toLocaleString() }}）</span>
+      </span>
+    </div>
+    <div v-if="target" class="progress-wrap">
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: progress + '%' }"></div>
+      </div>
+      <span class="progress-text">{{ progress }}% / {{ target.toLocaleString() }}</span>
+    </div>
+    <div v-else class="row">
+      <span class="label">目标</span>
+      <span class="muted">未设</span>
+    </div>
+    <div class="row">
+      <span class="label">状态</span>
+      <span class="value">{{ STATUS_LABEL[node?.status ?? ''] ?? '—' }}</span>
+    </div>
+    <!-- 章级编辑态：仅编辑视图 + 已开文档（否则本章信息与回滚均无意义） -->
+    <template v-if="ws.activeView === 'editor' && entry">
       <div class="row">
         <span class="label">本章</span>
         <span class="value">{{ words.toLocaleString() }}</span>
@@ -92,32 +114,8 @@ async function onRevert(): Promise<void> {
         <span class="value">{{ volumeWords.toLocaleString() }}</span>
       </div>
       <div class="row">
-        <span class="label">全书</span>
-        <span class="value">
-          {{ tree.totalWords.toLocaleString() }}
-          <span class="muted">（定稿 {{ tree.finalizedWords.toLocaleString() }}）</span>
-        </span>
-      </div>
-      <div v-if="target" class="progress-wrap">
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: progress + '%' }"></div>
-        </div>
-        <span class="progress-text">{{ progress }}% / {{ target.toLocaleString() }}</span>
-      </div>
-      <div v-else class="row">
-        <span class="label">目标</span>
-        <span class="muted">未设</span>
-      </div>
-      <div class="row">
-        <span class="label">状态</span>
-        <span class="value">{{ STATUS_LABEL[node?.status ?? ''] ?? '—' }}</span>
-      </div>
-      <div class="row">
         <span class="label">保存</span>
-        <span
-          class="value"
-          :class="{ dirty: entry.dirty, err: !!entry.error }"
-        >
+        <span class="value" :class="{ dirty: entry.dirty, err: !!entry.error }">
           {{
             entry.saving
               ? '保存中…'
@@ -131,8 +129,11 @@ async function onRevert(): Promise<void> {
           }}
         </span>
       </div>
+      <button class="revert-btn" @click="onRevert">回滚到第 N 章…</button>
     </template>
-    <button class="revert-btn" @click="onRevert">回滚到第 N 章…</button>
+    <div v-else class="side-hint">
+      {{ entry ? '切到编辑视图查看本章信息' : '未打开文档——左侧选章开始写作' }}
+    </div>
     <div v-if="err" class="side-hint err">{{ err }}</div>
   </div>
 </template>
