@@ -31,4 +31,17 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 枚举系统已装字体名（设置弹窗字体下拉；失败返回空数组）。 */
   getSystemFonts: (): Promise<string[]> =>
     ipcRenderer.invoke('desktop:get-system-fonts'),
+  /** 打开独立书架窗口（桌面版；工作区时管理/切换/建书，单例聚焦）。 */
+  openShelf: (): Promise<void> => ipcRenderer.invoke('desktop:open-shelf'),
+  /** 打开独立书库管理窗口（切换/最近/新建书库，单例聚焦）。 */
+  openLibraryWindow: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-window'),
+  /** 在系统文件管理器中打开当前书库根目录。 */
+  openLibraryDir: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-dir'),
+  /** 书架窗口选书 → 通知主窗口打开该工作区并聚焦，关闭书架窗口。 */
+  openBook: (name: string): Promise<void> =>
+    ipcRenderer.invoke('desktop:open-book', name),
+  /** 订阅主窗口导航事件（书架窗口选书时主进程转发到此，主窗口 router.push）。 */
+  onNavigate: (cb: (path: string) => void): void => {
+    ipcRenderer.on('desktop:navigate', (_e, path: string) => cb(path))
+  },
 })

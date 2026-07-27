@@ -15,7 +15,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
-import { computeProgress, computeLastEdited } from './progress.js'
+import { computeProgress, computeLastEdited, computeLatestChapter } from './progress.js'
 
 interface BookCtx {
   workDir: string | null
@@ -49,6 +49,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
           chapters: prog.chapters,
           words: prog.words,
           lastEdited: computeLastEdited(bookRoot, kind),
+          targetWords: config.book.target_words,
+          latestChapter: computeLatestChapter(bookRoot, kind),
         }
       } catch {
         // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）

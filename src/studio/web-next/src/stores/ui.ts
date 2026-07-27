@@ -14,9 +14,11 @@ export const useUiStore = defineStore('ui', () => {
   const paletteOpen = ref(false)
   const settingsOpen = ref(false)
   const exportOpen = ref(false)
+  const shelfOpen = ref(false)
   const toasts = ref<ToastItem[]>([])
   // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
+  const aiDriver = ref('')
 
   function openPalette(): void {
     paletteOpen.value = true
@@ -36,6 +38,12 @@ export const useUiStore = defineStore('ui', () => {
   function closeExport(): void {
     exportOpen.value = false
   }
+  function openShelf(): void {
+    shelfOpen.value = true
+  }
+  function closeShelf(): void {
+    shelfOpen.value = false
+  }
   /** 弹 toast（1.8s 自动消失）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
     const id = ++seq
@@ -47,9 +55,12 @@ export const useUiStore = defineStore('ui', () => {
   /** G4：探测 AI 可达性（启动调一次；失败容错 false） */
   async function probeAiStatus(): Promise<void> {
     try {
-      aiAvailable.value = (await getAiStatus()).available
+      const s = await getAiStatus()
+      aiAvailable.value = s.available
+      aiDriver.value = s.driver
     } catch {
       aiAvailable.value = false
+      aiDriver.value = ''
     }
   }
 
@@ -57,8 +68,10 @@ export const useUiStore = defineStore('ui', () => {
     paletteOpen,
     settingsOpen,
     exportOpen,
+    shelfOpen,
     toasts,
     aiAvailable,
+    aiDriver,
     probeAiStatus,
     openPalette,
     closePalette,
@@ -66,6 +79,8 @@ export const useUiStore = defineStore('ui', () => {
     closeSettings,
     openExport,
     closeExport,
+    openShelf,
+    closeShelf,
     toast,
   }
 })

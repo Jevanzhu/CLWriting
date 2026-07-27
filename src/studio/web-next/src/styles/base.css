@@ -91,6 +91,27 @@ button:disabled {
   }
 }
 
+/* Awwwards 冲击面：空态图标浮动呼吸（EmptyState full 档用）。克制——5px 位移。*/
+@keyframes clw-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Awwwards 冲击面：书架卡片错开进场（Shelf book-card staggered fade-in）。opacity only，避免和 hover transform 冲突。*/
+@keyframes clw-card-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* P3 tooltip：[data-tip] hover 即时显示说明（替代原生 title 的长延迟 + 朴素系统样式）。
    向右展开（适合左栏 ribbon 图标列）；hover 250ms 后显现，dur-fast 淡入。 */
 [data-tip] {
@@ -118,4 +139,25 @@ button:disabled {
 [data-tip]:hover::after {
   opacity: 1;
   transition-delay: 250ms;
+}
+
+/* Awwwards 冲击面：主题切换圆形扩散（View Transitions API）。
+   useTheme.withThemeTransition 用 element.animate 驱动 ::view-transition-new(root)
+   的 clip-path 圆形扩散；此处禁默认 cross-fade，old 在下、new 在上覆盖扩散。*/
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
 }

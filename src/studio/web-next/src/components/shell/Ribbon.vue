@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 import {
   FolderTree,
   Search,
@@ -10,6 +9,7 @@ import {
   Compass,
   GraduationCap,
   Download,
+  BookOpen,
   Library,
   Settings,
   Sun,
@@ -21,11 +21,21 @@ import { useUiStore } from '../../stores/ui'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
 // macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
-const router = useRouter()
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+
+// 书架：主窗口内浮层（与设置统一；不再弹独立窗口）
+function openShelf(): void {
+  ui.openShelf()
+}
+// 书库：独立管理窗口（切换/最近/新建书库，进程级操作需单独窗口）
+function openLibraryManager(): void {
+  if (window.clwritingDesktop) {
+    void window.clwritingDesktop.openLibraryWindow()
+  }
+}
 </script>
 
 <template>
@@ -103,7 +113,10 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button class="rbtn" data-tip="导出定稿" @click="ui.openExport()">
         <Download :size="20" />
       </button>
-      <button class="rbtn" data-tip="返回书架" @click="router.push('/shelf')">
+      <button class="rbtn" data-tip="打开书架" @click="openShelf">
+        <BookOpen :size="20" />
+      </button>
+      <button class="rbtn" data-tip="书库管理" @click="openLibraryManager">
         <Library :size="20" />
       </button>
       <div class="ribbon-sep" />
@@ -113,7 +126,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="rbtn"
         :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
-        @click="toggle()"
+        @click="toggle($event)"
       >
         <Moon v-if="theme === 'light'" :size="20" />
         <Sun v-else :size="20" />

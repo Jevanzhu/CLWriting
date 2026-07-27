@@ -10,6 +10,10 @@ export interface BookEntry {
   words?: number
   /** 最近编辑 ISO（定稿文件最新 mtime） */
   lastEdited?: string | null
+  /** 目标字数（book.yaml target_words，hero 卡进度条用） */
+  targetWords?: number
+  /** 最近章节/篇标题（hero 卡"继续写作"用） */
+  latestChapter?: string
 }
 
 // GET /api/books → {books[], workDir, hint?}（workDir=false 时书架显示「打开书库」引导）

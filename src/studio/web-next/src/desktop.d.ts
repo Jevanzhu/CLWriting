@@ -12,6 +12,11 @@ declare global {
       showInFolder: (bookName: string, relPath: string) => Promise<void>
       openBookDir: (bookName: string) => Promise<void>
       getSystemFonts: () => Promise<string[]>
+      openShelf: () => Promise<void>
+      openLibraryWindow: () => Promise<void>
+      openLibraryDir: () => Promise<void>
+      openBook: (name: string) => Promise<void>
+      onNavigate: (cb: (path: string) => void) => void
     }
   }
 }
