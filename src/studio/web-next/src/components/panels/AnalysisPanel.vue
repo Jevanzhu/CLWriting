@@ -183,7 +183,7 @@ function dimWidth(label: string, v: number): string {
       <div class="ap-card-head">
         <div class="ap-card-title"><Activity :size="14" /><span>情绪曲线</span></div>
         <div class="ap-head-right">
-          <label v-if="rhythmRow" class="ap-toggle" title="叠加节奏上下文">
+          <label v-if="rhythmRow" class="ap-toggle" data-tip="叠加节奏上下文">
             <input v-model="showRhythm" type="checkbox" />
             <Gauge :size="12" />
           </label>

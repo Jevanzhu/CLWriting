@@ -90,7 +90,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div class="settings-modal">
         <div class="modal-head">
           <span>设置</span>
-          <button class="close-btn" title="关闭（Esc）" @click="ui.closeSettings"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" data-tip-dir="bottom" @click="ui.closeSettings"><X :size="18" /></button>
         </div>
         <div class="setting-row">
           <label>主题</label>

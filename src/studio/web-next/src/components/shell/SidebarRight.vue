@@ -45,7 +45,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
           :key="t.key"
           class="right-tab"
           :class="{ active: tab === t.key }"
-          :title="t.label"
+          :data-tip="t.label" data-tip-dir="bottom"
           @click="tab = t.key"
         >
           <component :is="t.icon" :size="16" />

@@ -62,7 +62,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div class="export-modal">
         <div class="modal-head">
           <span>导出定稿</span>
-          <button class="close-btn" title="关闭（Esc）" @click="ui.closeExport"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" data-tip-dir="bottom" @click="ui.closeExport"><X :size="18" /></button>
         </div>
         <div class="form-row">
           <label>格式</label>

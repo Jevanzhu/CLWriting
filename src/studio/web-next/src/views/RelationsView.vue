@@ -383,7 +383,7 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
         <span class="count">{{ nodeCount }} 角色 · {{ edgeCount }} 关系<span v-if="debtCount">（含 {{ debtCount }} 债务）</span></span>
         <div class="rel-tools">
           <span class="hint">拖拽重排 · 滚轮缩放 · 点节点跳卡</span>
-          <button class="tool-btn" title="重置视图" @click="resetView">复位</button>
+          <button class="tool-btn" data-tip="重置视图" @click="resetView">复位</button>
         </div>
       </div>
       <div class="legend-row">

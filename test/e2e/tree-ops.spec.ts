@@ -67,11 +67,11 @@ test('软删 → 回收站还原', async ({ page }) => {
   await page.locator('.cp-modal').getByRole('button', { name: '删除' }).click()
   await expect(page.locator('.tree-list')).not.toContainText('玉佩之秘')
   // 回收站还原
-  await page.locator('.left-tab[title="回收站"]').click()
+  await page.locator('.left-tab[data-tip="回收站"]').click()
   await expect(page.locator('.trash-panel')).toContainText('玉佩之秘')
   await page.getByRole('button', { name: '恢复' }).click()
   // 切回树，章回来
-  await page.locator('.left-tab[title="章节树"]').click()
+  await page.locator('.left-tab[data-tip="章节树"]').click()
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
 })
 

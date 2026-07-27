@@ -90,7 +90,7 @@ function severityClass(s: string): string {
       <button
         class="rev-run-btn"
         :disabled="!isReviewable || aiOff || review.loading"
-        :title="aiOff ? 'AI 不可达（断网），仅可查看存量' : ''"
+        :data-tip="aiOff ? 'AI 不可达（断网），仅可查看存量' : ''"
         @click="runReview"
       >
         <RefreshCw :size="13" :class="{ spin: review.loading }" />

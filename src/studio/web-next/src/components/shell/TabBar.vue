@@ -41,7 +41,7 @@ function onAux(e: MouseEvent, id: string): void {
     >
       <span class="dot" :class="{ dirty: dirty(t.docId) }"></span>
       <span class="title">{{ title(t.docId) }}</span>
-      <button class="close" title="关闭" @click.stop="ws.requestClose(t.id)"><X :size="14" /></button>
+      <button class="close" data-tip="关闭" data-tip-dir="bottom" @click.stop="ws.requestClose(t.id)"><X :size="14" /></button>
     </div>
   </div>
 </template>

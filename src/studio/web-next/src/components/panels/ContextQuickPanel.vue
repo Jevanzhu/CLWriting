@@ -58,7 +58,7 @@ function onInsert(text: string): void {
         <span class="setting-name">{{ s.name }}</span>
         <button
           class="insert-btn"
-          title="插入到正文光标处"
+          data-tip="插入到正文光标处"
           @click.stop="onInsert(s.name)"
         >
           <CornerDownLeft :size="13" />

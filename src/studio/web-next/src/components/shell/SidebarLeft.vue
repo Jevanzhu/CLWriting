@@ -18,7 +18,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="left-tab"
         :class="{ active: ws.leftPanel === 'tree' }"
-        title="章节树"
+        data-tip="章节树" data-tip-dir="bottom"
         @click="ws.setLeftPanel('tree')"
       >
         <FolderTree :size="16" />
@@ -26,7 +26,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="left-tab"
         :class="{ active: ws.leftPanel === 'search' }"
-        title="搜索"
+        data-tip="搜索" data-tip-dir="bottom"
         @click="ws.setLeftPanel('search')"
       >
         <Search :size="16" />
@@ -34,7 +34,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
       <button
         class="left-tab"
         :class="{ active: ws.leftPanel === 'trash' }"
-        title="回收站"
+        data-tip="回收站" data-tip-dir="bottom"
         @click="ws.setLeftPanel('trash')"
       >
         <Trash2 :size="16" />

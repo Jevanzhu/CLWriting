@@ -32,7 +32,8 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
       <button
         class="action-btn"
         :class="{ active: ws.focusMode }"
-        :title="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
+        :data-tip="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
+        data-tip-dir="bottom"
         @click="ws.toggleFocus()"
       >
         <Focus :size="16" />

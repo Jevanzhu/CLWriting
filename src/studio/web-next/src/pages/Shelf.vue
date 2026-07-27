@@ -167,7 +167,7 @@ function onCardMove(e: MouseEvent): void {
           </div>
           <button
             class="btn icon"
-            :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
+            :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
             @click="toggle($event)"
           >
             <Moon v-if="theme === 'light'" :size="16" />

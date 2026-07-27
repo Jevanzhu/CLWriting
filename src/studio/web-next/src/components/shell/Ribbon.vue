@@ -42,7 +42,7 @@ function openLibraryManager(): void {
   <div class="ribbon" :class="{ 'has-traffic': hasDesktop }">
     <div class="ribbon-group">
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.leftOpen }"
         data-tip="章节树（⌘B）"
         @click="ws.toggleLeft()"
@@ -50,7 +50,7 @@ function openLibraryManager(): void {
         <FolderTree :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.leftPanel === 'search' }"
         data-tip="搜索"
         @click="ws.setLeftPanel('search')"
@@ -59,7 +59,7 @@ function openLibraryManager(): void {
       </button>
       <div class="ribbon-sep" />
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'overview' }"
         data-tip="总览（书况 / 进度 / 卷纲 / 热力）"
         @click="ws.setActiveView('overview')"
@@ -67,7 +67,7 @@ function openLibraryManager(): void {
         <LayoutGrid :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'rhythm' }"
         data-tip="节奏（规划 vs 已写）"
         @click="ws.setActiveView('rhythm')"
@@ -75,7 +75,7 @@ function openLibraryManager(): void {
         <BarChart3 :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'relations' }"
         data-tip="角色关系图"
         @click="ws.setActiveView('relations')"
@@ -84,7 +84,7 @@ function openLibraryManager(): void {
       </button>
       <div class="ribbon-sep" />
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'workbench' }"
         data-tip="工作台（AI 写作）"
         @click="ws.setActiveView('workbench')"
@@ -92,7 +92,7 @@ function openLibraryManager(): void {
         <Wrench :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'learn' }"
         data-tip="文风收割（样章/金句候选入库）"
         @click="ws.setActiveView('learn')"
@@ -100,7 +100,7 @@ function openLibraryManager(): void {
         <GraduationCap :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'onboard' }"
         data-tip="开书对话（分步生成设定）"
         @click="ws.setActiveView('onboard')"
@@ -110,21 +110,21 @@ function openLibraryManager(): void {
     </div>
 
     <div class="ribbon-group">
-      <button class="rbtn" data-tip="导出定稿" @click="ui.openExport()">
+      <button class="rbtn" data-tip-dir="right" data-tip="导出定稿" @click="ui.openExport()">
         <Download :size="20" />
       </button>
-      <button class="rbtn" data-tip="打开书架" @click="openShelf">
+      <button class="rbtn" data-tip-dir="right" data-tip="打开书架" @click="openShelf">
         <BookOpen :size="20" />
       </button>
-      <button class="rbtn" data-tip="书库管理" @click="openLibraryManager">
+      <button class="rbtn" data-tip-dir="right" data-tip="书库管理" @click="openLibraryManager">
         <Library :size="20" />
       </button>
       <div class="ribbon-sep" />
-      <button class="rbtn" data-tip="设置（⌘,）" @click="ui.openSettings()">
+      <button class="rbtn" data-tip-dir="right" data-tip="设置（⌘,）" @click="ui.openSettings()">
         <Settings :size="20" />
       </button>
       <button
-        class="rbtn"
+        class="rbtn" data-tip-dir="right"
         :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
         @click="toggle($event)"
       >

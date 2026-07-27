@@ -67,7 +67,7 @@ function openDir(): void {
             <span class="cur-label">当前书库</span>
             <p class="cur-path" :title="current">{{ current }}</p>
           </div>
-          <button class="btn icon" title="在文件管理器中打开" @click="openDir">
+          <button class="btn icon" data-tip="在文件管理器中打开" @click="openDir">
             <ExternalLink :size="16" />
           </button>
         </section>

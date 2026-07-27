@@ -148,7 +148,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <button
                 class="toggle-btn"
                 :class="{ active: viewMode === 'grid' }"
-                data-tip="网格视图"
+                data-tip="网格视图" data-tip-dir="bottom"
                 @click="setView('grid')"
               >
                 <LayoutGrid :size="15" />
@@ -156,7 +156,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <button
                 class="toggle-btn"
                 :class="{ active: viewMode === 'list' }"
-                data-tip="列表视图"
+                data-tip="列表视图" data-tip-dir="bottom"
                 @click="setView('list')"
               >
                 <List :size="15" />
@@ -164,14 +164,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </div>
             <button
               class="btn icon"
-              :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
+              :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'" data-tip-dir="bottom"
               @click="toggle($event)"
             >
               <Moon v-if="theme === 'light'" :size="16" />
               <Sun v-else :size="16" />
             </button>
             <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
-            <button class="close-btn" title="关闭（Esc）" @click="ui.closeShelf">
+            <button class="close-btn" data-tip="关闭（Esc）" data-tip-dir="bottom" @click="ui.closeShelf">
               <X :size="18" />
             </button>
           </div>
