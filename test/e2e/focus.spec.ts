@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
 
 test('专注模式：侧栏隐藏 + 退出还原', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 初始侧栏展开
   await expect(page.locator('.ws-left')).not.toHaveClass(/collapsed/)
   // 点 Focus（ViewHeader 唯一 action-btn）

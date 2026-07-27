@@ -128,7 +128,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 15px;
+  font-size: var(--font-size-l);
   font-weight: 600;
   color: var(--text-normal);
   margin-bottom: var(--size-4-4);
@@ -154,7 +154,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .form-row > label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
   margin-bottom: var(--size-4-2);
 }
@@ -178,11 +178,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-color: var(--interactive-accent);
 }
 .opt-label {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
 }
 .opt-hint {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .seg-list {
@@ -192,7 +192,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .seg-btn {
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -210,7 +210,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .btn {
   padding: 6px 18px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

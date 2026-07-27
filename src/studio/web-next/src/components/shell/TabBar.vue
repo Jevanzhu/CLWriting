@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 多标签栏（细案 T1.3）：章名 + dirty 圆点 + 关闭钮；点击切换、中键关闭。
 import { computed } from 'vue'
+import { X } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useDocStore } from '../../stores/doc'
 import { useTreeStore } from '../../stores/tree'
@@ -40,7 +41,7 @@ function onAux(e: MouseEvent, id: string): void {
     >
       <span class="dot" :class="{ dirty: dirty(t.docId) }"></span>
       <span class="title">{{ title(t.docId) }}</span>
-      <button class="close" title="关闭" @click.stop="ws.requestClose(t.id)">×</button>
+      <button class="close" title="关闭" @click.stop="ws.requestClose(t.id)"><X :size="14" /></button>
     </div>
   </div>
 </template>
@@ -108,16 +109,17 @@ function onAux(e: MouseEvent, id: string): void {
 }
 /* 关闭钮：仅 hover/活跃时显现（Obsidian 惯例） */
 .close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-faint);
-  font-size: var(--font-size-l);
-  line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 2px;
   border-radius: var(--radius-s);
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .tab:hover .close,
 .tab.active .close {

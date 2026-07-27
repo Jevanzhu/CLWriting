@@ -83,7 +83,7 @@ const iconSize = computed(() =>
   font-size: var(--font-size-l);
 }
 .es-full .es-text {
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 @media (prefers-reduced-motion: reduce) {
   .es-full .es-icon {
@@ -97,7 +97,7 @@ const iconSize = computed(() =>
   gap: var(--size-4-3);
 }
 .es-block .es-text {
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 
 /* compact：卡片内（图标 + 单行文案水平排） */
@@ -107,6 +107,6 @@ const iconSize = computed(() =>
   padding: 2px 0;
 }
 .es-compact .es-text {
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 </style>

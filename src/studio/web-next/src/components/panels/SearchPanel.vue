@@ -102,7 +102,7 @@ async function open(path: string): Promise<void> {
   flex-direction: column;
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -118,7 +118,7 @@ async function open(path: string): Promise<void> {
   flex: 1;
   min-width: 0;
   height: 26px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   padding: 0 var(--size-4-2);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -131,7 +131,7 @@ async function open(path: string): Promise<void> {
 }
 .search-input select {
   height: 26px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -139,7 +139,7 @@ async function open(path: string): Promise<void> {
 }
 .hint {
   padding: 8px var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .hint.err {
@@ -159,7 +159,7 @@ async function open(path: string): Promise<void> {
   background: var(--background-modifier-hover);
 }
 .result-path {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-normal);
   margin-bottom: 2px;
   overflow: hidden;
@@ -167,7 +167,7 @@ async function open(path: string): Promise<void> {
   white-space: nowrap;
 }
 .result-line {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   display: flex;
   gap: var(--size-4-1);

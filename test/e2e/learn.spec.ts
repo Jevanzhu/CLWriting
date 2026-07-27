@@ -9,10 +9,10 @@ import { test, expect } from '@playwright/test'
 
 test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // ribbon「文风收割」→ LearnView 渲染
-  await page.locator('button[title^="文风收割"]').click()
+  await page.locator('button[data-tip^="文风收割"]').click()
   await expect(page.locator('.learn-title')).toHaveText('文风收割')
 
   // 入库按钮初始置灰（pickedCount=0，disabled）

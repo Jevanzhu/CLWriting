@@ -16,7 +16,7 @@ function parseTotalWords(s: string | null): number {
 
 test('选章编辑 → ⌘S 保存 → 字数增加', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
 
   // 选章：左栏章节树渲染后点「初入宗门」（substring 命中 node.name）

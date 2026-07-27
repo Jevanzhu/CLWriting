@@ -179,14 +179,14 @@ async function onSave(): Promise<void> {
   gap: var(--size-4-2);
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .side-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .field {
@@ -195,12 +195,12 @@ async function onSave(): Promise<void> {
   gap: 3px;
 }
 .field-label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .field-input {
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -213,7 +213,7 @@ async function onSave(): Promise<void> {
 .save-btn {
   margin-top: var(--size-4-2);
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--interactive-accent);

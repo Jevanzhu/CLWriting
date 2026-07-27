@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus } from 'lucide-vue-next'
 import { useShelfStore } from '../stores/shelf'
 import { useTheme } from '../composables/useTheme'
 import { apiJson } from '../api/client'
@@ -173,7 +173,7 @@ function onCardMove(e: MouseEvent): void {
             <Moon v-if="theme === 'light'" :size="16" />
             <Sun v-else :size="16" />
           </button>
-          <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+          <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
         </div>
       </header>
       <div v-if="shelf.loading" class="shelf-status">加载中…</div>
@@ -189,7 +189,7 @@ function onCardMove(e: MouseEvent): void {
         text="建第一本书，开始你的长篇之旅"
         size="full"
       >
-        <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+        <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
       </EmptyState>
       <template v-else>
         <section

@@ -119,7 +119,7 @@ function onSelect(key: string): void {
   width: 100%;
   text-align: left;
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -149,7 +149,7 @@ function onSelect(key: string): void {
   gap: 16px;
 }
 .cm-caret {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
 }
 .cm-submenu {

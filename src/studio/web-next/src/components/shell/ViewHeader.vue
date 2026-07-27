@@ -60,7 +60,7 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
   -webkit-app-region: no-drag;
 }
 .crumbs {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-faint);
 }
 .crumb-current {

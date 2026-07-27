@@ -175,11 +175,11 @@ function openVolume(path: string): void {
   gap: 2px;
 }
 .meta-grid label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .meta-grid span {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
 }
 .progress-row {
@@ -194,11 +194,11 @@ function openVolume(path: string): void {
   line-height: 1;
 }
 .unit {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-muted);
 }
 .words {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-muted);
   margin-left: var(--size-4-2);
 }
@@ -215,12 +215,12 @@ function openVolume(path: string): void {
   height: 100%;
   background: var(--interactive-accent);
   border-radius: var(--radius-s);
-  transition: width 0.3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 .bar-label {
   display: block;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .state-row {
@@ -234,7 +234,7 @@ function openVolume(path: string): void {
   justify-content: center;
   width: 24px;
   height: 24px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-on-accent);
   background: var(--interactive-accent);
@@ -246,7 +246,7 @@ function openVolume(path: string): void {
 }
 .err-inline {
   margin-top: var(--size-4-2);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-error);
 }
 .vol-list {
@@ -261,7 +261,7 @@ function openVolume(path: string): void {
   width: 100%;
   text-align: left;
   padding: 6px var(--size-4-2);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: none;
   background: transparent;
   color: var(--text-normal);
@@ -283,7 +283,7 @@ function openVolume(path: string): void {
   background: var(--interactive-accent);
 }
 .legend {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
   margin-left: var(--size-4-2);
@@ -292,18 +292,18 @@ function openVolume(path: string): void {
   padding: var(--size-4-6);
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .err-block {
   padding: var(--size-4-4);
   text-align: center;
   color: var(--text-error);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .btn {
   margin-left: var(--size-4-2);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

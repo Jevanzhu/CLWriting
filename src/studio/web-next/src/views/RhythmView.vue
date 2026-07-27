@@ -262,12 +262,12 @@ function distMax(g: DistGroup): number {
   align-items: baseline;
 }
 .legend {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
 }
 .empty {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   padding: var(--size-4-2) 0;
 }
@@ -288,7 +288,7 @@ function distMax(g: DistGroup): number {
 }
 .avg-text {
   fill: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
 }
 .bar-label {
   fill: var(--text-faint);
@@ -307,7 +307,7 @@ function distMax(g: DistGroup): number {
   gap: 5px;
 }
 .dist-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-normal);
   margin-bottom: 2px;
@@ -319,7 +319,7 @@ function distMax(g: DistGroup): number {
   gap: var(--size-4-2);
 }
 .dist-key {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .dist-bars {
@@ -336,7 +336,7 @@ function distMax(g: DistGroup): number {
 .bar {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 .bar.written {
   background: var(--interactive-accent);
@@ -346,7 +346,7 @@ function distMax(g: DistGroup): number {
   opacity: 0.3;
 }
 .dist-val {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -368,7 +368,7 @@ function distMax(g: DistGroup): number {
   gap: 2px;
 }
 .cov label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .cov-num {
@@ -385,7 +385,7 @@ function distMax(g: DistGroup): number {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
 }
 .ach-track {
@@ -399,10 +399,10 @@ function distMax(g: DistGroup): number {
   height: 100%;
   background: var(--interactive-accent);
   border-radius: var(--radius-s);
-  transition: width 0.3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 .ach-pct {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-normal);
   font-variant-numeric: tabular-nums;
@@ -418,7 +418,7 @@ function distMax(g: DistGroup): number {
 .diff-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .diff-table th {
   position: sticky;
@@ -458,7 +458,7 @@ function distMax(g: DistGroup): number {
   display: inline-block;
   padding: 1px 6px;
   border-radius: var(--radius-s);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   border: 1px solid var(--background-modifier-border);
   color: var(--text-muted);
 }
@@ -474,18 +474,18 @@ function distMax(g: DistGroup): number {
   padding: var(--size-4-6);
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .err-block {
   padding: var(--size-4-4);
   text-align: center;
   color: var(--text-error);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .btn {
   margin-left: var(--size-4-2);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

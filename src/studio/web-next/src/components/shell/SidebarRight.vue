@@ -113,7 +113,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .right-tab:hover {
   background: var(--background-modifier-hover);
@@ -141,7 +141,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   flex-direction: column;
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -149,7 +149,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   margin-bottom: var(--size-4-2);
 }
 .side-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   line-height: 1.6;
 }

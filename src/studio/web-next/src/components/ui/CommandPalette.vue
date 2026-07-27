@@ -194,7 +194,7 @@ function run(c: Cmd): void {
   justify-content: space-between;
   align-items: center;
   padding: 7px var(--size-4-3);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   border-radius: var(--radius-s);
   cursor: pointer;
@@ -211,7 +211,7 @@ function run(c: Cmd): void {
 }
 .pg-title {
   padding: var(--size-4-1) var(--size-4-3);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -224,7 +224,7 @@ function run(c: Cmd): void {
   min-width: 0;
 }
 .pi-no {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -243,7 +243,7 @@ function run(c: Cmd): void {
 }
 .palette-empty {
   padding: var(--size-4-3);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-faint);
   text-align: center;
 }

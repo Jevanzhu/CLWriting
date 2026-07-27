@@ -136,7 +136,7 @@ async function save(): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-warning);
   margin-bottom: var(--size-4-3);
   line-height: 1.6;
@@ -151,7 +151,7 @@ async function save(): Promise<void> {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -174,7 +174,7 @@ async function save(): Promise<void> {
   cursor: default;
 }
 .step-no {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -187,7 +187,7 @@ async function save(): Promise<void> {
   flex-shrink: 0;
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
 }
@@ -214,7 +214,7 @@ async function save(): Promise<void> {
 }
 .btn {
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -231,13 +231,13 @@ async function save(): Promise<void> {
   cursor: default;
 }
 .err-msg {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-error);
 }
 .ai-warn {
   padding: 8px 12px;
   margin-bottom: var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-warning);
   background: var(--background-modifier-border);
   border-radius: var(--radius-s);

@@ -21,7 +21,7 @@ const CHAPTER_2 = (): string => chapterPath('0002-玉佩之秘.md')
 
 async function openChapter(page: import('@playwright/test').Page, name: string): Promise<void> {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText(name).first().click()
   await expect(page.locator('.cm-content')).toBeVisible()
 }

@@ -157,7 +157,7 @@ function openDir(): void {
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
   color: var(--text-normal);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   cursor: pointer;
 }
 .btn.icon {

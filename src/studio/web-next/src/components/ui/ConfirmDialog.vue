@@ -53,13 +53,13 @@ const docName = computed(() => {
   animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .modal-title {
-  font-size: 15px;
+  font-size: var(--font-size-l);
   font-weight: 600;
   color: var(--text-normal);
   margin-bottom: var(--size-4-2);
 }
 .modal-body {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-muted);
   line-height: 1.6;
   margin-bottom: var(--size-4-4);
@@ -71,7 +71,7 @@ const docName = computed(() => {
 }
 .btn {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

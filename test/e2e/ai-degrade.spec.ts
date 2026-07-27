@@ -34,7 +34,7 @@ test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   expect(await r.json()).toMatchObject({ available: false })
 
   await page.goto(`${BASE}/`)
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // ② 编辑器不依赖 AI：选章编辑 + ⌘S 保存成功
   await page.getByText('初入宗门').first().click()
@@ -46,6 +46,6 @@ test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
 
   // ③ 切工作台 → AI 降级警告条（生成按钮 v-if=!running，running 态不渲染，故以警告条为降级标志）
-  await page.locator('.rbtn[title="工作台（AI 写作）"]').click()
+  await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
   await expect(page.locator('.ai-warn')).toContainText('不可用')
 })

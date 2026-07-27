@@ -7,6 +7,7 @@ import TabBar from './TabBar.vue'
 import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
+import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
 import SettingsModal from '../ui/SettingsModal.vue'
 import ShelfModal from '../ui/ShelfModal.vue'
@@ -48,6 +49,7 @@ const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
     </div>
     <StatusBar :book-name="bookName" />
     <ConfirmDialog />
+    <ConfirmPrompt />
     <CommandPalette />
     <SettingsModal />
     <ShelfModal />
@@ -70,7 +72,7 @@ const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
 .ws-side {
   flex-shrink: 0;
   overflow: hidden;
-  transition: width 0.18s ease;
+  transition: width var(--dur-norm) var(--ease-out);
 }
 .ws-left {
   width: 240px;

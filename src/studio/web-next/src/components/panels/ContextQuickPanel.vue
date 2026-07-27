@@ -79,14 +79,14 @@ function onInsert(text: string): void {
   gap: var(--size-4-2);
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .side-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .setting-list {
@@ -95,7 +95,7 @@ function onInsert(text: string): void {
   gap: 1px;
 }
 .setting-item {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
   padding: 5px var(--size-4-2);
   border-radius: var(--radius-s);

@@ -156,6 +156,16 @@ button:disabled {
   z-index: 9999;
 }
 @media (prefers-reduced-motion: reduce) {
+  /* 全局兜底：所有 CSS 过渡/动画即时完成（0.01ms 保留 transitionend 事件不破坏逻辑）。
+     JS 驱动的动画（如 RelationsView 物理仿真）需各自检测 mediaQuery——CSS 管不到。*/
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation: none !important;

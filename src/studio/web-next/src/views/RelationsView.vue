@@ -456,7 +456,7 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   gap: var(--size-4-3);
   margin-bottom: var(--size-4-2);
   padding: 0 2px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .lg {
@@ -482,12 +482,12 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   border-top: 1.5px dashed #c0392b;
 }
 .count {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   font-weight: 600;
   color: var(--text-normal);
 }
 .hint {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .graph {
@@ -505,24 +505,24 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
 .edge {
   stroke: var(--background-modifier-border);
   stroke-width: 1.2;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .edge-label {
   fill: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   paint-order: stroke;
   stroke: var(--background-secondary);
   stroke-width: 3;
   pointer-events: none;
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .node {
   fill: var(--interactive-accent);
   stroke: var(--background-secondary);
   stroke-width: 2;
   cursor: grab;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .node.no-card {
   fill: var(--text-faint);
@@ -542,7 +542,7 @@ g.clickable {
 }
 .tool-btn {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -555,9 +555,9 @@ g.clickable {
 }
 .node-label {
   fill: var(--text-normal);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   pointer-events: none;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .dim {
   opacity: 0.12;
@@ -570,24 +570,24 @@ g.hover .node {
   padding: var(--size-4-6);
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .placeholder code {
   background: var(--background-modifier-border);
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 .err-block {
   padding: var(--size-4-4);
   text-align: center;
   color: var(--text-error);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .btn {
   margin-left: var(--size-4-2);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

@@ -289,14 +289,14 @@ function dimWidth(label: string, v: number): string {
   gap: var(--size-4-3);
 }
 .ap-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .ap-stale {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-orange, #d97706);
   background: rgba(217, 119, 6, 0.08);
   border: 1px solid rgba(217, 119, 6, 0.2);
@@ -324,7 +324,7 @@ function dimWidth(label: string, v: number): string {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-normal);
 }
@@ -347,7 +347,7 @@ function dimWidth(label: string, v: number): string {
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 .ap-run:disabled {
@@ -382,7 +382,7 @@ function dimWidth(label: string, v: number): string {
   flex: 1;
 }
 .ap-verdict {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   line-height: 1.5;
 }
@@ -391,7 +391,7 @@ function dimWidth(label: string, v: number): string {
   align-items: center;
   gap: 4px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .ap-dims {
@@ -402,7 +402,7 @@ function dimWidth(label: string, v: number): string {
 .ap-dim-head {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   margin-bottom: 3px;
 }
@@ -423,7 +423,7 @@ function dimWidth(label: string, v: number): string {
 .ap-dim-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 /* 情绪曲线 */
 .ap-emotion-body {
@@ -457,7 +457,7 @@ function dimWidth(label: string, v: number): string {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .ap-emotion-label {
@@ -476,7 +476,7 @@ function dimWidth(label: string, v: number): string {
   padding: 5px 8px;
   background: var(--background-secondary);
   border-radius: var(--radius-s);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .ap-rhythm-label {
@@ -488,7 +488,7 @@ function dimWidth(label: string, v: number): string {
 }
 /* 钩子密度 */
 .ap-density {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 10px;
   background: var(--background-modifier-border);
@@ -520,7 +520,7 @@ function dimWidth(label: string, v: number): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .ap-hook-pos {
   font-weight: 600;
@@ -531,7 +531,7 @@ function dimWidth(label: string, v: number): string {
   border-radius: 8px;
   background: var(--background-modifier-border);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
 }
 .ap-hook-strength {
   display: inline-flex;
@@ -550,7 +550,7 @@ function dimWidth(label: string, v: number): string {
 }
 .ap-hook-note {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   line-height: 1.5;
 }
@@ -561,7 +561,7 @@ function dimWidth(label: string, v: number): string {
   gap: var(--size-4-2);
 }
 .ap-style-drift {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   line-height: 1.5;
 }
@@ -571,14 +571,14 @@ function dimWidth(label: string, v: number): string {
   gap: 4px;
 }
 .ap-style-tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 8px;
   background: rgba(217, 119, 6, 0.12);
   color: var(--color-orange, #d97706);
 }
 .ap-style-line {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
 }
 .ap-style-line-label {
@@ -593,7 +593,7 @@ function dimWidth(label: string, v: number): string {
   border-left: 2px solid var(--background-modifier-border);
 }
 .ap-style-suggestion {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-normal);
   line-height: 1.5;
 }
