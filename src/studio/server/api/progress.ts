@@ -61,3 +61,22 @@ export function computeLastEdited(bookRoot: string, kind: 'long' | 'short'): str
   }
   return latest > 0 ? new Date(latest).toISOString() : null
 }
+
+/** 最近章节/篇标题：按定稿文件 mtime 最新取其标题（hero 卡"继续写作"用）；无定稿返回 null */
+export function computeLatestChapter(bookRoot: string, kind: 'long' | 'short'): string | null {
+  const items =
+    kind === 'short'
+      ? readPieceDir(join(bookRoot, '篇')).pieces
+      : readChapterDir(join(bookRoot, '定稿', '正文')).chapters
+  let latest: { title: string; mtime: number } | null = null
+  for (const it of items) {
+    if (!it._path) continue
+    try {
+      const m = statSync(it._path).mtimeMs
+      if (!latest || m > latest.mtime) latest = { title: it.标题, mtime: m }
+    } catch {
+      // 文件消失忽略
+    }
+  }
+  return latest?.title ?? null
+}

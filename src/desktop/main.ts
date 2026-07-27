@@ -50,6 +50,9 @@ function resolveStaticDir(): string {
 }
 
 let mainWindow: BrowserWindow | null = null
+let shelfWindow: BrowserWindow | null = null
+let libraryWindow: BrowserWindow | null = null
+let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
 
 // ── 工作目录持久化（userData/workdir.json）──────────────
 
@@ -146,6 +149,80 @@ function listenPort(server: ReturnType<typeof startServer>): Promise<number> {
   })
 }
 
+/** 打开独立书架窗口（工作区时管理/切换/建书；单例，重复调用聚焦已存在窗口）。*/
+function openShelfWindow(): void {
+  if (shelfWindow && !shelfWindow.isDestroyed()) {
+    shelfWindow.focus()
+    return
+  }
+  const wa = screen.getPrimaryDisplay().workAreaSize
+  shelfWindow = new BrowserWindow({
+    width: Math.min(920, wa.width - 80),
+    height: Math.min(640, wa.height - 80),
+    minWidth: 760,
+    minHeight: 500,
+    title: '书架',
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#f5f5f5',
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: join(here, 'preload.cjs'),
+    },
+  })
+  shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`)
+  shelfWindow.on('closed', () => {
+    shelfWindow = null
+  })
+  if (process.env.CLW_DEV_UI) {
+    void shelfWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+  }
+}
+
+/** 打开独立书库管理窗口（切换/最近/新建书库；单例聚焦）。*/
+function openLibraryWindow(): void {
+  if (libraryWindow && !libraryWindow.isDestroyed()) {
+    libraryWindow.focus()
+    return
+  }
+  const wa = screen.getPrimaryDisplay().workAreaSize
+  const libW = Math.min(720, wa.width - 80)
+  const libH = Math.min(560, wa.height - 80)
+  // 初始位置：居中于主窗口（主窗口 bounds 中心 − 书库半宽/半高）
+  let x: number | undefined
+  let y: number | undefined
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const b = mainWindow.getBounds()
+    x = Math.round(b.x + (b.width - libW) / 2)
+    y = Math.round(b.y + (b.height - libH) / 2)
+  }
+  libraryWindow = new BrowserWindow({
+    width: libW,
+    height: libH,
+    x,
+    y,
+    minWidth: 560,
+    minHeight: 440,
+    title: '书库',
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#f5f5f5',
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: join(here, 'preload.cjs'),
+    },
+  })
+  libraryWindow.loadURL(`${appUrl}/library?win=library`)
+  libraryWindow.on('closed', () => {
+    libraryWindow = null
+  })
+  if (process.env.CLW_DEV_UI) {
+    void libraryWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+  }
+}
+
 async function bootstrap(): Promise<void> {
   // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd) > 弹选择器
   const store = readStore()
@@ -171,21 +248,20 @@ async function bootstrap(): Promise<void> {
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起内嵌 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
   const devUi = !!process.env.CLW_DEV_UI
-  let url: string
   if (devUi) {
-    url = 'http://localhost:5173'
+    appUrl = 'http://localhost:5173'
   } else {
     const staticDir = resolveStaticDir()
     const server = startServer({ port: 0, staticDir, workDir })
     const port = await listenPort(server)
-    url = `http://127.0.0.1:${port}`
+    appUrl = `http://127.0.0.1:${port}`
   }
 
-  // 默认尺寸按主屏工作区 70%×80%（5K 屏 → ~1800×1130；笔记本 → 1280×820 兜底），
-  // 换屏自适应、不用每次拉大；min 1200×760 保三栏 + 八阶段流程不挤。
+  // 主窗口起始 1532×1237（Jevan 手动调整后的舒适尺寸：三栏 + 编辑区留白充足），
+  // 小屏按工作区 -80px 兜底不超出；min 1200×760 保三栏不挤。
   const wa = screen.getPrimaryDisplay().workAreaSize
-  const winW = Math.max(Math.round(wa.width * 0.7), 1280)
-  const winH = Math.max(Math.round(wa.height * 0.8), 820)
+  const winW = Math.min(1532, wa.width - 80)
+  const winH = Math.min(1237, wa.height - 80)
   mainWindow = new BrowserWindow({
     width: winW,
     height: winH,
@@ -214,8 +290,8 @@ async function bootstrap(): Promise<void> {
   if (devUi) {
     await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
-  await mainWindow.loadURL(url)
-  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${url}`)
+  await mainWindow.loadURL(appUrl)
+  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}`)
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────
@@ -271,6 +347,30 @@ function registerIpc(): void {
       console.error('get-system-fonts 失败：', e instanceof Error ? e.message : String(e))
       return []
     }
+  })
+  // 打开独立书架窗口（ribbon 书架按钮调用）
+  ipcMain.handle('desktop:open-shelf', () => {
+    openShelfWindow()
+  })
+  // 书架窗口选书 → 主窗口加载该书并聚焦，关闭书架窗口
+  ipcMain.handle('desktop:open-book', (_e, name: unknown) => {
+    if (typeof name !== 'string') return
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
+      mainWindow.focus()
+    }
+    if (shelfWindow && !shelfWindow.isDestroyed()) {
+      shelfWindow.close()
+    }
+  })
+  // 打开独立书库管理窗口（ribbon 书库按钮调用）
+  ipcMain.handle('desktop:open-library-window', () => {
+    openLibraryWindow()
+  })
+  // 在系统文件管理器中打开当前书库根目录
+  ipcMain.handle('desktop:open-library-dir', () => {
+    const workDir = readStore().current
+    if (workDir) void shell.openPath(workDir)
   })
 }
 

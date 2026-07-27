@@ -54,16 +54,41 @@ const iconSize = computed(() =>
   line-height: 1.6;
 }
 
-/* full：门面/全屏 */
+/* full：门面/全屏 —— Awwwards 冲击面：图标浮动 + 背景柔光（accent 色微晕）。
+   isolation 建立 stacking context，让 ::before z-index:-1 在内容下、父级背景上可见。*/
 .es-full {
+  position: relative;
+  isolation: isolate;
   padding: var(--size-4-8) var(--size-4-4);
   gap: var(--size-4-2);
+}
+.es-full::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 300px;
+  height: 300px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--text-accent) 0%, transparent 65%);
+  opacity: 0.07;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+}
+.es-full .es-icon {
+  animation: clw-float 3.5s var(--ease-std) infinite;
 }
 .es-full .es-title {
   font-size: var(--font-size-l);
 }
 .es-full .es-text {
   font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .es-full .es-icon {
+    animation: none;
+  }
 }
 
 /* block：区域级 */

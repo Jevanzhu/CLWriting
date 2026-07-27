@@ -51,13 +51,20 @@
   --size-ribbon: 44px;
   --size-tabbar: 40px;
   --size-statusbar: 24px;
-  /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-6=24，跨主题不变） */
+  /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
   --size-4-2: 8px;
   --size-4-3: 12px;
   --size-4-4: 16px;
   --size-4-5: 20px;
   --size-4-6: 24px;
+  --size-4-7: 28px;
+  --size-4-8: 32px;
+  --size-4-9: 36px;
+  --size-4-10: 40px;
+  --size-4-12: 48px;
+  --size-4-14: 56px;
+  --size-4-16: 64px;
   /* 正文排版偏好（与 UI 皮肤解耦，写作偏好；SettingsModal 滑块直写 :root） */
   --prose-font: 'LXGW WenKai', 'Noto Serif SC', serif;
   --prose-size: 17px;

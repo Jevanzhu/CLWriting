@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List } from 'lucide-vue-next'
 import { useShelfStore } from '../stores/shelf'
 import { useTheme } from '../composables/useTheme'
 import { apiJson } from '../api/client'
@@ -12,7 +12,44 @@ import EmptyState from '../components/ui/EmptyState.vue'
 const router = useRouter()
 const shelf = useShelfStore()
 const { theme, toggle } = useTheme()
+const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+// Awwwards 冲击面：hero 数据条展示创作概况
+const totalWords = computed(() => shelf.books.reduce((s, b) => s + (b.words ?? 0), 0))
+const lastEdited = computed(() => {
+  const ts = shelf.books
+    .map((b) => (b.lastEdited ? new Date(b.lastEdited).getTime() : 0))
+    .filter(Boolean)
+  return ts.length ? new Date(Math.max(...ts)).toISOString() : null
+})
+// 书架按 kind 分组（长篇/短篇），各自一栏；空组不渲染
+const groups = computed(() => {
+  const longBks = shelf.books.filter((b) => b.kind !== 'short')
+  const shortBks = shelf.books.filter((b) => b.kind === 'short')
+  return [
+    { title: '长篇', books: longBks },
+    { title: '短篇', books: shortBks },
+  ].filter((g) => g.books.length)
+})
+// 最近编辑的书（hero 卡"继续写作"用）
+const latestBook = computed(() => {
+  const sorted = shelf.books
+    .filter((b) => b.lastEdited)
+    .sort((a, b) => new Date(b.lastEdited!).getTime() - new Date(a.lastEdited!).getTime())
+  return sorted[0] ?? null
+})
 onMounted(() => shelf.load())
+
+// 视图模式（网格/列表），localStorage 持久化用户偏好
+const storedView = typeof localStorage !== 'undefined' ? localStorage.getItem('clw-shelf-view') : null
+const viewMode = ref<'grid' | 'list'>(storedView === 'list' ? 'list' : 'grid')
+function setView(mode: 'grid' | 'list'): void {
+  viewMode.value = mode
+  try {
+    localStorage.setItem('clw-shelf-view', mode)
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+}
 
 const showCreate = ref(false)
 const newName = ref('')
@@ -42,14 +79,19 @@ async function createBook(): Promise<void> {
 }
 
 function openBook(name: string): void {
-  router.push(`/book/${encodeURIComponent(name)}`)
-}
-
-// kind 原文（long/short）映射中文，避免对作者暴露内部术语。
-function kindLabel(kind?: string): string {
-  if (kind === 'long') return '长篇'
-  if (kind === 'short') return '短篇'
-  return '·'
+  // 记住最近打开的书（主窗口启动直进工作区用）
+  try {
+    localStorage.setItem('clw-last-book', name)
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+  // 书架独立窗口（win=shelf）：IPC 通知主窗口打开 + 关闭书架窗口；主窗口内：路由跳转
+  const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
+  if (isShelfWin && window.clwritingDesktop) {
+    void window.clwritingDesktop.openBook(name)
+  } else {
+    router.push(`/book/${encodeURIComponent(name)}`)
+  }
 }
 
 // 字数千分位 + 万字简写（书卡紧凑展示）
@@ -75,56 +117,179 @@ function formatRelative(iso?: string | null): string {
   if (month < 12) return `${month} 个月前`
   return `${Math.floor(month / 12)} 年前`
 }
+
+// 目标字数完成百分比（hero 卡进度条）
+function progressPercent(b: { words?: number; targetWords?: number }): number {
+  if (!b.targetWords || !b.words) return 0
+  return Math.min(100, Math.round((b.words / b.targetWords) * 100))
+}
+
+// Linear 风光晕：鼠标移动时把光标相对卡片的位置写入 --mx/--my，
+// 驱动卡片 ::before 的 radial-gradient 圆心，呈现 Linear 招牌的鼠标跟随柔光。
+function onCardMove(e: MouseEvent): void {
+  const el = e.currentTarget as HTMLElement
+  const r = el.getBoundingClientRect()
+  el.style.setProperty('--mx', `${e.clientX - r.left}px`)
+  el.style.setProperty('--my', `${e.clientY - r.top}px`)
+}
 </script>
 
 <template>
-  <div class="shelf">
-    <header class="shelf-head">
-      <h1>书架</h1>
-      <div class="shelf-actions">
-        <button
-          class="btn icon"
-          :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
-          @click="toggle()"
-        >
-          <Moon v-if="theme === 'light'" :size="16" />
-          <Sun v-else :size="16" />
-        </button>
-        <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+  <div class="shelf" :class="{ 'has-traffic': hasDesktop }">
+    <header class="shelf-titlebar" />
+    <main class="shelf-main">
+      <header class="shelf-head">
+        <div class="head-left">
+          <h1 class="head-title">书架</h1>
+          <p v-if="shelf.books.length" class="head-sub">
+            <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span><span class="sub-num">{{ formatWords(totalWords) }}</span><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
+          </p>
+          <p v-else class="head-sub">开启你的长篇之旅</p>
+        </div>
+        <div class="shelf-actions">
+          <div class="view-toggle">
+            <button
+              class="toggle-btn"
+              :class="{ active: viewMode === 'grid' }"
+              data-tip="网格视图"
+              @click="setView('grid')"
+            >
+              <LayoutGrid :size="15" />
+            </button>
+            <button
+              class="toggle-btn"
+              :class="{ active: viewMode === 'list' }"
+              data-tip="列表视图"
+              @click="setView('list')"
+            >
+              <List :size="15" />
+            </button>
+          </div>
+          <button
+            class="btn icon"
+            :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
+            @click="toggle($event)"
+          >
+            <Moon v-if="theme === 'light'" :size="16" />
+            <Sun v-else :size="16" />
+          </button>
+          <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+        </div>
+      </header>
+      <div v-if="shelf.loading" class="shelf-status">加载中…</div>
+      <div v-else-if="shelf.error" class="shelf-status err">{{ shelf.error }}</div>
+      <div v-else-if="shelf.workDirMissing" class="shelf-status">
+        <p>未打开书库。</p>
+        <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
       </div>
-    </header>
-
-    <div v-if="shelf.loading" class="shelf-status">加载中…</div>
-    <div v-else-if="shelf.error" class="shelf-status err">{{ shelf.error }}</div>
-    <div v-else-if="shelf.workDirMissing" class="shelf-status">
-      <p>未打开书库。</p>
-      <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
-    </div>
-    <EmptyState
-      v-else-if="!shelf.books.length"
-      :icon="BookOpen"
-      title="书库还是空的"
-      text="建第一本书，开始你的长篇之旅"
-      size="full"
-    >
-      <button class="btn primary" @click="showCreate = true">+ 新建书</button>
-    </EmptyState>
-    <div v-else class="book-grid">
-      <button v-for="b in shelf.books" :key="b.name" class="book-card" @click="openBook(b.name)">
-        <div class="book-title">{{ b.title ?? b.name }}</div>
-        <div class="book-meta">
-          <span class="book-kind">{{ kindLabel(b.kind) }}</span>
-          <span v-if="b.title && b.title !== b.name" class="book-name">{{ b.name }}</span>
-        </div>
-        <div class="book-stats">
-          <span v-if="b.kind === 'short'" class="stat">{{ b.chapters ?? 0 }} 篇</span>
-          <span v-else class="stat">
-            {{ b.chapters ?? 0 }} 章<span class="stat-sep">·</span>{{ formatWords(b.words) }}
+      <EmptyState
+        v-else-if="!shelf.books.length"
+        :icon="BookOpen"
+        title="书库还是空的"
+        text="建第一本书，开始你的长篇之旅"
+        size="full"
+      >
+        <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+      </EmptyState>
+      <template v-else>
+        <section
+          v-if="latestBook && viewMode === 'grid'"
+          class="hero-card"
+          @mousemove="onCardMove"
+          @click="openBook(latestBook.name)"
+        >
+          <div class="hero-top">
+            <span class="hero-label">继续写作</span>
+            <ArrowRight :size="18" class="hero-arrow" />
+          </div>
+          <h2 class="hero-title">{{ latestBook.title ?? latestBook.name }}</h2>
+          <p v-if="latestBook.latestChapter" class="hero-recent">
+            最近 · {{ latestBook.latestChapter }}
+          </p>
+          <div v-if="latestBook.targetWords" class="hero-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: progressPercent(latestBook) + '%' }" />
+            </div>
+            <span class="progress-text">
+              {{ formatWords(latestBook.words) }} / {{ formatWords(latestBook.targetWords) }}
+            </span>
+          </div>
+          <div class="hero-foot">
+            <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+            <span v-if="latestBook.lastEdited" class="hero-time"
+              ><span class="dot">·</span>{{ formatRelative(latestBook.lastEdited) }}</span
+            >
+          </div>
+        </section>
+        <section
+          v-else-if="latestBook"
+          class="hero-list"
+          @mousemove="onCardMove"
+          @click="openBook(latestBook.name)"
+        >
+          <span class="hero-list-label">继续写作</span>
+          <span class="hero-list-name">{{ latestBook.title ?? latestBook.name }}</span>
+          <span v-if="latestBook.latestChapter" class="hero-list-recent">最近 · {{ latestBook.latestChapter }}</span>
+          <span class="hero-list-meta">
+            <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+            <span v-if="latestBook.lastEdited">{{ formatRelative(latestBook.lastEdited) }}</span>
           </span>
-          <span v-if="b.lastEdited" class="stat-time">{{ formatRelative(b.lastEdited) }}</span>
+          <ArrowRight :size="15" class="hero-list-arrow" />
+        </section>
+        <div class="shelf-list">
+        <section v-for="grp in groups" :key="grp.title" class="book-section">
+          <header class="section-head">
+            <h2 class="section-title">{{ grp.title }}</h2>
+            <span class="section-count">{{ grp.books.length }} 部</span>
+          </header>
+          <div v-if="viewMode === 'grid'" class="book-grid">
+            <button
+              v-for="(b, i) in grp.books"
+              :key="b.name"
+              class="book-card"
+              :style="{ animationDelay: (i * 40) + 'ms' }"
+              @mousemove="onCardMove"
+              @click="openBook(b.name)"
+            >
+              <h3 class="book-title">{{ b.title ?? b.name }}</h3>
+              <ArrowRight :size="15" class="card-arrow" />
+              <div class="card-foot">
+                <div class="card-stats">
+                  <span>{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
+                  <span v-if="b.kind !== 'short'">{{ formatWords(b.words) }}</span>
+                </div>
+                <span v-if="b.lastEdited" class="book-time">{{ formatRelative(b.lastEdited) }}</span>
+              </div>
+            </button>
+          </div>
+          <div v-else class="book-list">
+            <div class="list-head">
+              <span class="col-name">名称</span>
+              <span class="col-num">章节</span>
+              <span class="col-num">字数</span>
+              <span class="col-edited">最近编辑</span>
+            </div>
+            <button
+              v-for="b in grp.books"
+              :key="b.name"
+              class="list-row"
+              @mousemove="onCardMove"
+              @click="openBook(b.name)"
+            >
+              <div class="col-name">
+                <span class="list-name">{{ b.title ?? b.name }}</span>
+                <span v-if="b.latestChapter" class="list-recent">{{ b.latestChapter }}</span>
+              </div>
+              <span class="col-num">{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
+              <span class="col-num">{{ b.kind === 'short' ? '—' : formatWords(b.words) }}</span>
+              <span class="col-edited">{{ b.lastEdited ? formatRelative(b.lastEdited) : '—' }}</span>
+              <ArrowRight :size="15" class="list-arrow" />
+            </button>
+          </div>
+        </section>
         </div>
-      </button>
-    </div>
+      </template>
+    </main>
 
     <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
       <div class="modal">
@@ -149,25 +314,119 @@ function formatRelative(iso?: string | null): string {
 
 <style scoped>
 .shelf {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: var(--size-4-6) var(--size-4-4);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
+     子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改 */
+  --font-size-2xl: 20px;
+  --font-size-xl: 15px;
+  --font-size-l: 13px;
+  --font-size-m: 12px;
+  --font-size-s: 11px;
+  --font-size-xs: 10px;
+  --size-4-1: 3px;
+  --size-4-2: 7px;
+  --size-4-3: 10px;
+  --size-4-4: 14px;
+  --size-4-5: 17px;
+  --size-4-6: 20px;
+  --size-4-7: 24px;
+  --size-4-8: 27px;
+  --size-4-10: 34px;
+  --size-4-12: 41px;
+  --size-4-14: 48px;
+  --size-4-16: 54px;
 }
+/* 顶部 titlebar：纯窗口拖动区（桌面版可拖动整窗），不放内容。*/
+.shelf-titlebar {
+  height: var(--size-tabbar);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+.shelf.has-traffic .shelf-titlebar {
+  -webkit-app-region: drag;
+}
+/* 主体 header：标题（上）+ 数据副标题（下）两行编辑式排版；操作底对齐 */
 .shelf-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: var(--size-4-4);
+  gap: var(--size-4-4);
+  margin-bottom: var(--size-4-7);
 }
-.shelf-head h1 {
+.head-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.head-title {
   margin: 0;
-  font-size: var(--font-size-xl);
-  font-weight: 600;
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--text-normal);
+}
+.head-sub {
+  margin: 0;
+  font-size: var(--font-size-m);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+/* 数据副标题里的数字 / 字数整体提亮，比 label 更有视觉重量 */
+.head-sub .sub-num {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+.head-sub .dot {
+  margin: 0 var(--size-4-2);
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+.shelf-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--size-4-12) var(--size-4-8) var(--size-4-16);
 }
 .shelf-actions {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
+}
+/* 视图切换（网格/列表）segmented control */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: calc(var(--radius-s) - 1px);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.toggle-btn:hover {
+  color: var(--text-normal);
+}
+.toggle-btn.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-s);
 }
 .btn {
   padding: 6px 14px;
@@ -212,62 +471,422 @@ function formatRelative(iso?: string | null): string {
   font-size: 12px;
   color: var(--text-faint);
 }
-.book-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--size-4-3);
-}
-.book-card {
+/* 继续写作 hero 卡：横跨整宽，最近编辑书的快捷入口 + 字数进度可视化 */
+.hero-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  text-align: left;
-  padding: var(--size-4-3);
+  gap: var(--size-4-2);
+  padding: var(--size-4-6);
+  margin-bottom: var(--size-4-10);
+  border-radius: var(--radius-l);
+  background: linear-gradient(135deg, var(--background-secondary-alt), var(--background-secondary));
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  min-height: 110px;
-  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-}
-.book-card:hover {
-  background: var(--background-modifier-hover);
-  border-color: var(--background-modifier-border-hover);
-  transform: translateY(-2px);
   box-shadow: var(--shadow-m);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
 }
-.book-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: var(--size-4-2);
+.hero-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(600px circle at var(--mx, 30%) var(--my, 30%), color-mix(in srgb, var(--text-accent) 10%, transparent), transparent 50%);
+  opacity: 0;
+  transition: opacity var(--dur-norm) var(--ease-out);
+  pointer-events: none;
 }
-.book-name {
-  font-size: 12px;
-  color: var(--text-faint);
+.hero-card:hover::before {
+  opacity: 1;
 }
-.book-meta {
-  font-size: 12px;
-  color: var(--text-faint);
+.hero-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
+  box-shadow: var(--shadow-l);
+}
+.hero-top {
   display: flex;
-  gap: 6px;
   align-items: center;
-}
-.book-stats {
-  margin-top: auto;
-  padding-top: var(--size-4-2);
-  display: flex;
   justify-content: space-between;
+}
+.hero-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-accent);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+.hero-arrow {
+  color: var(--text-accent);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+}
+.hero-card:hover .hero-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+.hero-title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--text-normal);
+}
+.hero-recent {
+  margin: 0;
+  font-size: var(--font-size-m);
+  color: var(--text-muted);
+}
+.hero-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--size-4-2);
+}
+.progress-bar {
+  height: 4px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-s);
+  background: var(--text-accent);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.progress-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hero-foot {
+  display: flex;
   align-items: center;
-  font-size: 11px;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+  font-size: var(--font-size-s);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.stat-sep {
-  margin: 0 4px;
+.hero-foot .dot {
   color: var(--text-faint);
 }
-.stat-time {
+
+/* 列表模式的 hero：紧凑单行，匹配列表风格（无大渐变/进度条）*/
+.hero-list {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  padding: var(--size-4-3) var(--size-4-4);
+  margin-bottom: var(--size-4-6);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-normal);
+  overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.hero-list::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(400px circle at var(--mx, 30%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
+  opacity: 0;
+  transition: opacity var(--dur-norm) var(--ease-out);
+  pointer-events: none;
+}
+.hero-list:hover::before {
+  opacity: 1;
+}
+.hero-list:hover {
+  border-color: color-mix(in srgb, var(--text-accent) 30%, var(--background-modifier-border));
+}
+.hero-list-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-accent);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.hero-list-name {
+  font-size: var(--font-size-m);
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+.hero-list-recent {
+  font-size: var(--font-size-s);
   color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hero-list-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  margin-left: auto;
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.hero-list-arrow {
+  color: var(--text-accent);
+  flex-shrink: 0;
+}
+
+/* 分组列表：长篇/短篇各自一栏，栏间留白 */
+.shelf-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-10);
+}
+.book-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+}
+.section-title {
+  margin: 0;
+  font-size: var(--font-size-l);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-normal);
+}
+.section-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: var(--size-4-4);
+}
+/* Linear 风精致卡片 —— 大圆角 + 微渐变 + hover 鼠标跟随柔光晕 + 进入箭头。
+   position relative 承托 ::before；overflow hidden 让光晕裁剪在圆角内。*/
+.book-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: var(--size-4-4);
+  border-radius: var(--radius-l);
+  background: linear-gradient(180deg, var(--background-secondary-alt), var(--background-secondary));
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
+  min-height: 116px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-normal);
+  overflow: hidden;
+  animation: clw-card-in var(--dur-norm) var(--ease-out) both;
+  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
+}
+/* Linear 招牌 glow：hover 时鼠标位置发出 accent 色柔和光晕（圆心跟随 --mx/--my）*/
+.book-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 14%, transparent), transparent 45%);
+  opacity: 0;
+  transition: opacity var(--dur-norm) var(--ease-out);
+  pointer-events: none;
+}
+.book-card:hover::before {
+  opacity: 1;
+}
+.book-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
+  box-shadow: var(--shadow-l);
+}
+/* 进入箭头：绝对定位右上角，hover 显形平移；accent 色作卡片色彩焦点 */
+.card-arrow {
+  position: absolute;
+  top: var(--size-4-4);
+  right: var(--size-4-4);
+  color: var(--text-accent);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+}
+.book-card:hover .card-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+/* 书名：卡片视觉主体，紧字距 + 单行省略；右留白避让箭头 */
+.book-title {
+  margin: 0;
+  padding-right: var(--size-4-4);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--text-normal);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 卡片底部：细分隔线 + 数据（章数/字数）+ 时间。
+   margin-top auto 把 foot 推到卡片底部，与书名间形成弹性留白。*/
+.card-foot {
+  margin-top: auto;
+  padding-top: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.book-time {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .book-card {
+    animation: none;
+  }
+  .book-card:hover {
+    transform: none;
+  }
+  .card-arrow {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .hero-card:hover {
+    transform: none;
+  }
+  .hero-arrow {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .list-arrow {
+    opacity: 1;
+    transition: none;
+  }
+}
+
+/* 列表视图：表格化 —— 表头 + grid 列对齐，hover 高亮 + 鼠标跟随柔光 */
+.book-list {
+  display: flex;
+  flex-direction: column;
+}
+.list-head,
+.list-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 92px 96px 20px;
+  align-items: center;
+  gap: var(--size-4-3);
+  padding: 0 var(--size-4-4);
+}
+.list-head {
+  padding-top: var(--size-4-2);
+  padding-bottom: var(--size-4-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: var(--size-4-1);
+}
+.list-row {
+  position: relative;
+  padding-top: var(--size-4-3);
+  padding-bottom: var(--size-4-3);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-normal);
+  overflow: hidden;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+.list-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
+  opacity: 0;
+  transition: opacity var(--dur-norm) var(--ease-out);
+  pointer-events: none;
+}
+.list-row:hover::before {
+  opacity: 1;
+}
+.list-row:hover .list-name {
+  color: var(--text-accent);
+}
+/* 名称列：书名（主）+ 最近章节（副）上下排 */
+.col-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.list-name {
+  font-size: var(--font-size-m);
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-recent {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 数字列（章节/字数）右对齐 + tabular，整齐扫读 */
+.col-num {
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.col-edited {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.list-arrow {
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.list-row:hover .list-arrow {
+  opacity: 1;
+  color: var(--text-accent);
 }
 .modal-overlay {
   position: fixed;

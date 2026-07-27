@@ -95,8 +95,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="setting-row">
           <label>主题</label>
           <div class="seg">
-            <button :class="{ on: theme === 'light' }" @click="setTheme('light')">亮</button>
-            <button :class="{ on: theme === 'dark' }" @click="setTheme('dark')">暗</button>
+            <button :class="{ on: theme === 'light' }" @click="setTheme('light', $event)">亮</button>
+            <button :class="{ on: theme === 'dark' }" @click="setTheme('dark', $event)">暗</button>
           </div>
         </div>
         <div v-if="hasDesktop" class="setting-row">
