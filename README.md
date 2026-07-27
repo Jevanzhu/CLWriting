@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-762%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-1035%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/runtime%20deps-0-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -59,6 +59,8 @@ CLWriting 不是通用写作编辑器，而是一套面向中文网文生产的�
 | **多书工作目录** | `init` / `use` / `list` / `repair` 支持一个工作目录管理多本书。 |
 | **RAG 可选插件** | 纯 `node:sqlite` + 纯 JS 余弦召回；api_key 不进 git。 |
 | **导出 / 迁移** | `export` 输出干净正文，长篇按章、短篇集按篇打包；`import` 从 v0.2 正文轻量迁移，长短篇自动分流。 |
+| **Studio 桌面应用** | Electron + Vue 3 Obsidian 风格 GUI：三栏工作区、章节树、CodeMirror 编辑器、右栏信息/审阅/机检/分析面板、专注模式、可拖拽侧栏、窗口与偏好持久化。 |
+| **AI 辅助** | 选段改写（语气/风格调整）、AI 分析（情绪曲线/钩子强度/文风漂移）、上下文速查插入、工作台 AI 写作。 |
 
 ---
 
@@ -81,10 +83,16 @@ clwriting enter
 
 ```bash
 npm install
-npm run typecheck
-npm run build
-npm test
+npm run typecheck      # tsc + vue-tsc 双检
+npm run build:all      # CLI(tsup) + 前端(Vite)
+npm test               # 1035 单测
+npm run test:e2e       # 20 个 Playwright e2e（mock driver）
 node dist/cli.js --help
+
+# 桌面应用开发（Electron 4 件套）
+npm run dev:api        # Studio API :7878
+npm run dev:web        # Vite HMR :5173
+npm run dev:app        # Electron 主窗口（加载 5173）
 ```
 
 ---
@@ -183,10 +191,13 @@ auto 连写一批
 |---|---|
 | 运行时 | Node >= 24 |
 | 语言 | TypeScript strict |
+| 前端 | Vue 3 + Pinia + Vite |
+| 编辑器 | CodeMirror 6 |
+| 桌面壳 | Electron |
 | 存储 | `node:sqlite` |
-| 构建 | tsup |
-| 测试 | vitest |
-| 运行时依赖 | 0 个第三方依赖 |
+| 构建 | tsup（CLI）+ Vite（前端） |
+| 测试 | vitest（1035 单测 + 20 e2e） |
+| CLI 运行时依赖 | 0 个第三方依赖 |
 
 设计红线：
 
@@ -208,9 +219,13 @@ auto 连写一批
 | M0-M4 | 已完成 | 格式层、缓存、写章机检、状态机、git 隐身、三审、角色分发、知识层。 |
 | M5-M7 | 已完成 | 安装器、多书、自动连写、导出、迁移、RAG 插件。 |
 | M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入、题材阈值推荐和样本回灌报告。 |
+| M9-M10 | 已完成 | Studio Obsidian 风格前端：三栏工作区、章节树、CodeMirror 编辑器、大纲/设定表单、总览/节奏/关系图视图、专注模式、可拖拽侧栏。 |
+| M11 | 已完成 | 质量收口：机检红点树冒泡、E2E 全覆盖、评审瑕疵修复。 |
+| M12 | 已完成 | AI 辅助写作线：选段改写、AI 分析（情绪/钩子/文风）、上下文速查、工作台 AI 写作。 |
+| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、窗口/偏好持久化、token 系统贯通。 |
 | Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
 
-- **97 个测试文件 / 762 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；Studio 前端构建已消除 >500KB chunk warning；growth 当前境界缺失会明确红项阻断；RC 中文路径专项已在 Ubuntu / macOS / Windows CI matrix 通过。
+- **131 个测试文件 / 1035 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；前端构建已消除 >500KB chunk warning。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
 - Studio GUI 真宿主 smoke 已补独立入口：`npm run test:e2e:true-host` 会用本机 Claude Code 驱动工作台生成细纲；默认 `test:e2e` 仍使用 mock driver，保证 CI 稳定。
