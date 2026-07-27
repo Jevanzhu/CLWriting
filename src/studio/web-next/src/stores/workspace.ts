@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useDocStore } from './doc'
 
 /**
@@ -15,6 +15,8 @@ export interface Tab {
 export const useWorkspaceStore = defineStore('workspace', () => {
   const leftOpen = ref(true)
   const rightOpen = ref(true)
+  /** 左栏宽度（可拖拽调整，最小 180）。 */
+  const leftWidth = ref(220)
   const focusMode = ref(false)
   /** 左栏活动面板（细案 §5 leftPanel）。 */
   const leftPanel = ref<'tree' | 'search' | 'trash'>('tree')
@@ -28,6 +30,42 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
   const editorGetSelection = ref<(() => string) | null>(null)
   const bookName = ref<string | null>(null)
+
+  /** UI 偏好（全局，不按书区分）：左栏宽度 + 面板折叠态 + 左栏面板类型。
+   *  初始化时从 localStorage 读，后续 watch 自动写回（刷新/重启后保持）。 */
+  const UI_PREFS_KEY = 'clw2.ui-prefs'
+  try {
+    const raw = localStorage.getItem(UI_PREFS_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<{
+        leftWidth: number
+        leftOpen: boolean
+        rightOpen: boolean
+        leftPanel: 'tree' | 'search' | 'trash'
+      }>
+      if (typeof p.leftWidth === 'number' && p.leftWidth >= 180) leftWidth.value = p.leftWidth
+      if (typeof p.leftOpen === 'boolean') leftOpen.value = p.leftOpen
+      if (typeof p.rightOpen === 'boolean') rightOpen.value = p.rightOpen
+      if (p.leftPanel === 'tree' || p.leftPanel === 'search' || p.leftPanel === 'trash') leftPanel.value = p.leftPanel
+    }
+  } catch {
+    /* 损坏降级默认 */
+  }
+  watch([leftWidth, leftOpen, rightOpen, leftPanel], () => {
+    try {
+      localStorage.setItem(
+        UI_PREFS_KEY,
+        JSON.stringify({
+          leftWidth: leftWidth.value,
+          leftOpen: leftOpen.value,
+          rightOpen: rightOpen.value,
+          leftPanel: leftPanel.value,
+        }),
+      )
+    } catch {
+      /* localStorage 不可用忽略 */
+    }
+  })
 
   /** 活动 tab 的 docId（EditorView / 树高亮消费）。 */
   const activeDocId = computed(
@@ -149,6 +187,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function toggleLeft(): void {
     leftOpen.value = !leftOpen.value
   }
+  function setLeftWidth(w: number): void {
+    leftWidth.value = Math.max(180, w)
+  }
   function toggleRight(): void {
     rightOpen.value = !rightOpen.value
   }
@@ -157,6 +198,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   function setLeftPanel(p: 'tree' | 'search' | 'trash'): void {
     leftPanel.value = p
+    leftOpen.value = true // 从 ribbon 点面板入口时确保左栏打开
   }
   function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'): void {
     activeView.value = v
@@ -168,6 +210,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   return {
     leftOpen,
+    leftWidth,
     rightOpen,
     focusMode,
     leftPanel,
@@ -187,6 +230,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     confirmDiscard,
     cancelClose,
     toggleLeft,
+    setLeftWidth,
     toggleRight,
     toggleFocus,
     setLeftPanel,

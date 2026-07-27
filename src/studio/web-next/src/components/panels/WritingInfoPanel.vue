@@ -4,6 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { useUiStore } from '../../stores/ui'
 import { getConfig, revert, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter } from '../../shared/words'
 import type { TreeNode } from '../../types/tree'
@@ -12,6 +13,7 @@ const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+const ui = useUiStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) : undefined))
@@ -68,7 +70,13 @@ async function onRevert(): Promise<void> {
   if (!input) return
   const chapter = Number(input)
   if (!Number.isFinite(chapter) || chapter < 1) return
-  if (!confirm(`确认回滚到第 ${chapter} 章？此操作不可撤销（内容进 git 备份）。`)) return
+  const ok = await ui.ask({
+    title: '回滚章节',
+    message: `确认回滚到第 ${chapter} 章？此操作不可撤销（内容进 git 备份）。`,
+    confirmText: '回滚',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await revert(props.bookName, chapter)
     await tree.load(props.bookName)
@@ -145,14 +153,14 @@ async function onRevert(): Promise<void> {
   gap: var(--size-4-2);
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .side-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .side-hint.err {
@@ -162,7 +170,7 @@ async function onRevert(): Promise<void> {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 .label {
   color: var(--text-muted);
@@ -194,16 +202,16 @@ async function onRevert(): Promise<void> {
 .progress-fill {
   height: 100%;
   background: var(--interactive-accent);
-  transition: width 0.2s ease;
+  transition: width var(--dur-norm) var(--ease-out);
 }
 .progress-text {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .revert-btn {
   margin-top: var(--size-4-2);
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

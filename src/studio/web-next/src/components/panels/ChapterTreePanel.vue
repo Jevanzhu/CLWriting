@@ -4,6 +4,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useWordsStore } from '../../stores/words'
+import { useUiStore } from '../../stores/ui'
 import type { TreeNode } from '../../types/tree'
 import {
   createDoc,
@@ -27,6 +28,7 @@ const tree = useTreeStore()
 const words = useWordsStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
+const ui = useUiStore()
 
 const expanded = ref<Set<string>>(new Set(['写作']))
 const openError = ref<string | null>(null)
@@ -365,7 +367,13 @@ function onRenameCancel(): void {
 // --- 删除 ---
 async function doDelete(node: TreeNode): Promise<void> {
   if (!node.docId) return
-  if (!confirm(`确认删除「${node.name}」？可从回收站恢复。`)) return
+  const ok = await ui.ask({
+    title: '删除章节',
+    message: `确认删除「${node.name}」？可从回收站恢复。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await deleteDoc(props.bookName, node.docId)
     await tree.load(props.bookName)
@@ -481,7 +489,7 @@ watch(
   min-height: 100%;
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -490,7 +498,7 @@ watch(
 }
 .hint {
   padding: 8px var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .hint.err {

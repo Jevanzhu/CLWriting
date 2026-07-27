@@ -82,7 +82,7 @@ function onSave(): void {
   animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .side-title {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -92,12 +92,12 @@ function onSave(): void {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
 }
 .field input {
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-secondary);
@@ -110,7 +110,7 @@ function onSave(): void {
 }
 .btn {
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

@@ -15,6 +15,16 @@ export const useUiStore = defineStore('ui', () => {
   const settingsOpen = ref(false)
   const exportOpen = ref(false)
   const shelfOpen = ref(false)
+  // 通用确认弹窗（命令式）：const ok = await ui.ask({ ... })，替代原生 confirm()。
+  // 由 ConfirmPrompt.vue 渲染——保持应用内视觉一致，不弹系统原生框。
+  const confirmState = ref<{
+    title: string
+    message: string
+    confirmText?: string
+    cancelText?: string
+    danger?: boolean
+    resolve: (v: boolean) => void
+  } | null>(null)
   const toasts = ref<ToastItem[]>([])
   // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
@@ -43,6 +53,24 @@ export const useUiStore = defineStore('ui', () => {
   }
   function closeShelf(): void {
     shelfOpen.value = false
+  }
+  /** 命令式确认（替代原生 confirm）。await 返回 true/false；mask 点击视为取消。 */
+  function ask(opts: {
+    title: string
+    message: string
+    confirmText?: string
+    cancelText?: string
+    danger?: boolean
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      confirmState.value = { ...opts, resolve }
+    })
+  }
+  /** ConfirmPrompt 内部调：关闭弹窗 + resolve 调用方。 */
+  function resolveConfirm(v: boolean): void {
+    const s = confirmState.value
+    confirmState.value = null
+    s?.resolve(v)
   }
   /** 弹 toast（1.8s 自动消失）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
@@ -81,6 +109,9 @@ export const useUiStore = defineStore('ui', () => {
     closeExport,
     openShelf,
     closeShelf,
+    confirmState,
+    ask,
+    resolveConfirm,
     toast,
   }
 })

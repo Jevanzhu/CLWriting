@@ -54,6 +54,41 @@ let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
 
+/** 主窗口 bounds 持久化（userData/window-state.json）：关闭时存，启动时恢复。 */
+const stateFile = join(app.getPath('userData'), 'window-state.json')
+interface WinState {
+  bounds: { x: number; y: number; width: number; height: number }
+  maximized?: boolean
+}
+function loadWinState(): WinState | null {
+  try {
+    const s = JSON.parse(readFileSync(stateFile, 'utf-8')) as WinState
+    const wa = screen.getPrimaryDisplay().bounds
+    // 校验 bounds 有效且在屏幕可见区内（避免恢复到屏幕外 / 多屏拔除后坐标失效）
+    const { x, y, width, height } = s.bounds
+    if (
+      width >= 1200 && height >= 760 &&
+      x >= wa.x - 200 && y >= wa.y - 200 &&
+      x + width <= wa.x + wa.width + 200 &&
+      y + height <= wa.y + wa.height + 200
+    ) return s
+  } catch {
+    /* 无文件或损坏 → 默认 */
+  }
+  return null
+}
+function saveWinState(): void {
+  if (!mainWindow) return
+  try {
+    const maximized = mainWindow.isMaximized()
+    // 最大化时存正常（非最大化）bounds，恢复时按 maximized 标志决定是否最大化
+    const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    atomicWriteFile(stateFile, JSON.stringify({ bounds, maximized }))
+  } catch {
+    /* 忽略 */
+  }
+}
+
 // ── 工作目录持久化（userData/workdir.json）──────────────
 
 /** 持久化文件路径（Electron userData 目录）。 */
@@ -257,14 +292,17 @@ async function bootstrap(): Promise<void> {
     appUrl = `http://127.0.0.1:${port}`
   }
 
-  // 主窗口起始 1532×1237（Jevan 手动调整后的舒适尺寸：三栏 + 编辑区留白充足），
-  // 小屏按工作区 -80px 兜底不超出；min 1200×760 保三栏不挤。
+  // 主窗口 bounds：优先恢复上次尺寸/位置，无记录时默认 1532×1237
+  // （三栏 + 编辑区留白充足），小屏按工作区 -80px 兜底；min 1200×760 保三栏不挤。
+  const saved = loadWinState()
   const wa = screen.getPrimaryDisplay().workAreaSize
-  const winW = Math.min(1532, wa.width - 80)
-  const winH = Math.min(1237, wa.height - 80)
+  const winW = saved?.bounds.width ?? Math.min(1532, wa.width - 80)
+  const winH = saved?.bounds.height ?? Math.min(1237, wa.height - 80)
   mainWindow = new BrowserWindow({
     width: winW,
     height: winH,
+    x: saved?.bounds.x,
+    y: saved?.bounds.y,
     minWidth: 1200,
     minHeight: 760,
     title: 'CLWriting',
@@ -277,6 +315,10 @@ async function bootstrap(): Promise<void> {
       nodeIntegration: false, // 渲染进程不直连 Node（安全）
       preload: join(here, 'preload.cjs'), // 书库管理 IPC（CJS:sandbox preload 不支持 ESM）
     },
+  })
+  if (saved?.maximized) mainWindow.maximize()
+  mainWindow.on('close', () => {
+    saveWinState()
   })
   mainWindow.on('closed', () => {
     mainWindow = null

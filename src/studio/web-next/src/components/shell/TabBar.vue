@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 多标签栏（细案 T1.3）：章名 + dirty 圆点 + 关闭钮；点击切换、中键关闭。
+// 右侧固定收起右栏 + 专注入口（独立区域，不随 tabs 横滚）。
 import { computed } from 'vue'
+import { X, Focus, PanelRight, PanelLeft } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useDocStore } from '../../stores/doc'
 import { useTreeStore } from '../../stores/tree'
@@ -30,17 +32,47 @@ function onAux(e: MouseEvent, id: string): void {
 
 <template>
   <div class="tabbar" :class="{ 'is-drag': hasDesktop, 'avoid-traffic': hasDesktop && !leftVisible }">
-    <div
-      v-for="t in ws.tabs"
-      :key="t.id"
-      class="tab"
-      :class="{ active: t.id === ws.activeTabId }"
-      @click="ws.activateTab(t.id)"
-      @auxclick="onAux($event, t.id)"
-    >
-      <span class="dot" :class="{ dirty: dirty(t.docId) }"></span>
-      <span class="title">{{ title(t.docId) }}</span>
-      <button class="close" title="关闭" @click.stop="ws.requestClose(t.id)">×</button>
+    <div v-if="!ws.leftOpen" class="tabbar-actions-left">
+      <button
+        class="tb-btn"
+        data-tip="展开左栏" data-tip-dir="bottom"
+        @click="ws.toggleLeft()"
+      >
+        <PanelLeft :size="16" />
+      </button>
+    </div>
+    <div class="tabbar-scroll">
+      <div
+        v-for="t in ws.tabs"
+        :key="t.id"
+        class="tab"
+        :class="{ active: t.id === ws.activeTabId }"
+        @click="ws.activateTab(t.id)"
+        @auxclick="onAux($event, t.id)"
+      >
+        <span class="dot" :class="{ dirty: dirty(t.docId) }"></span>
+        <span class="title">{{ title(t.docId) }}</span>
+        <button class="close" data-tip="关闭" data-tip-dir="bottom" @click.stop="ws.requestClose(t.id)"><X :size="14" /></button>
+      </div>
+    </div>
+    <div class="tabbar-actions">
+      <button
+        class="tb-btn"
+        :class="{ active: ws.focusMode }"
+        :data-tip="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
+        data-tip-dir="bottom"
+        @click="ws.toggleFocus()"
+      >
+        <Focus :size="16" />
+      </button>
+      <button
+        v-show="!ws.rightOpen"
+        class="tb-btn"
+        data-tip="展开右栏" data-tip-dir="bottom"
+        @click="ws.toggleRight()"
+      >
+        <PanelRight :size="16" />
+      </button>
     </div>
   </div>
 </template>
@@ -49,26 +81,32 @@ function onAux(e: MouseEvent, id: string): void {
 .tabbar {
   min-height: var(--size-tabbar);
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: var(--size-4-2) var(--size-4-2) 0;
+  align-items: stretch;
   background: var(--tab-container-background);
   border-bottom: 1px solid var(--background-modifier-border);
-  overflow-x: auto;
-  overflow-y: hidden;  /* 仅横向滚动；杜绝 overflow-x:auto 副作用把 overflow-y 提升为 auto 而触发竖向滚动条（右侧灰条） */
+  overflow: hidden;
 }
-/* 桌面版：tab 之间的空白与右侧未占满区可拖动整窗（tab 本身可点） */
+/* 桌面版：空白区可拖动整窗（tab / 按钮本身可点） */
 .tabbar.is-drag {
   -webkit-app-region: drag;
 }
-/* 桌面版 + 左栏关闭（含专注模式）：ws-main 左移到交通灯区，首个 tab 右避让交通灯
- * （与 SidebarLeft left-tabs 的 padding-left:52 一致，避到 x:96；该区仍属 is-drag 可拖窗） */
-.tabbar.avoid-traffic {
+/* 桌面版交通灯避让：tabbar-actions-left 存在时由它避让（左栏关闭）；
+   不存在时（专注模式）由 tabbar-scroll 自身避让 */
+.tabbar.avoid-traffic:not(:has(.tabbar-actions-left)) .tabbar-scroll {
   padding-left: 52px;
 }
-/* Obsidian 风格 tab（变量名对齐官方公开 CSS 变量，值为本项目设定）：
- * 顶部圆角、间距分隔（无竖线）；活跃 tab 靠背景色差+圆角体现，底部留 1px 给横线分隔。
- * 不向下溢出（无 margin-bottom 负值）——避免叠加 overflow-x:auto 副作用触发竖向滚动条。 */
+/* tabs 滚动区（独立 overflow-x，右侧按钮不随之滚走） */
+.tabbar-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: var(--size-4-2) var(--size-4-2) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Obsidian 风格 tab（变量名对齐官方公开 CSS 变量，值为本项目设定） */
 .tab {
   display: flex;
   align-items: center;
@@ -108,16 +146,17 @@ function onAux(e: MouseEvent, id: string): void {
 }
 /* 关闭钮：仅 hover/活跃时显现（Obsidian 惯例） */
 .close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-faint);
-  font-size: var(--font-size-l);
-  line-height: 1;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 2px;
   border-radius: var(--radius-s);
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .tab:hover .close,
 .tab.active .close {
@@ -126,5 +165,48 @@ function onAux(e: MouseEvent, id: string): void {
 .close:hover {
   color: var(--text-error);
   background: var(--background-modifier-hover);
+}
+/* 左侧固定按钮区（展开左栏）——左栏关闭时出现，桌面版避让交通灯 */
+.tabbar-actions-left {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-left: var(--size-4-2);
+}
+.tabbar-actions-left .tb-btn {
+  -webkit-app-region: no-drag;
+}
+.tabbar.avoid-traffic .tabbar-actions-left {
+  padding-left: 52px;
+}
+/* 右侧固定按钮区（展开右栏 + 专注）——独立于 tabs 滚动区，始终钉在最右 */
+.tabbar-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--size-4-2);
+}
+.tabbar-actions .tb-btn {
+  -webkit-app-region: no-drag;
+}
+.tb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.tb-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.tb-btn.active {
+  color: var(--text-accent);
 }
 </style>

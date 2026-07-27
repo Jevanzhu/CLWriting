@@ -74,6 +74,7 @@
   --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --font-size-xxs: 10px;
   --font-size-xs: 11px;
   --font-size-s: 12px;
   --font-size-m: 13px;
@@ -85,6 +86,24 @@
   --dur-fast: 120ms;
   --dur-norm: 200ms;
   --dur-slow: 320ms;
+  /* dataviz 调色板（第二批）—— categorical(Okabe-Ito 色盲安全) + diverging + sequential + 语义。
+     categorical 编号命名不绑语义，组件层映射；div/seq 引用型跨主题自动适配。 */
+  --cat-1: #D55E00;   /* 朱红 — 紧张/对立（敌对·债务） */
+  --cat-2: #E69F00;   /* 暖橙 — 从属 */
+  --cat-3: #009E73;   /* 蓝绿 — 同辈/友善 */
+  --cat-4: #0072B2;   /* 蓝 — 沉稳/长辈 */
+  --cat-5: #CC79A7;   /* 玫红 — 亲密 */
+  --cat-6: #56B4E9;   /* 天蓝 — 备用 */
+  --div-pos: var(--cat-2);                          /* diverging 正（橙）*/
+  --div-zero: var(--background-modifier-border);    /* diverging 零（灰）*/
+  --div-neg: var(--cat-4);                          /* diverging 负（蓝）*/
+  --seq-1: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+  --seq-2: color-mix(in srgb, var(--interactive-accent) 50%, transparent);
+  --seq-3: color-mix(in srgb, var(--interactive-accent) 75%, transparent);
+  --seq-4: var(--interactive-accent);
+  --dv-good: #4e9d68;   /* 语义正向（收编 AnalysisPanel 预留 --color-green） */
+  --dv-warn: #d97706;   /* 语义警告（收编 --color-orange） */
+  --dv-bad: var(--text-error);
 }
 
 [data-theme='dark'] {
@@ -112,4 +131,13 @@
   --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.6);
+  /* dataviz 暗主题：categorical 提亮（暗底可辨）+ 语义提亮；div/seq 引用型自动适配不重述 */
+  --cat-1: #FF7B45;
+  --cat-2: #FFBC40;
+  --cat-3: #2EDD9E;
+  --cat-4: #5BB4F0;
+  --cat-5: #E09BC8;
+  --cat-6: #7DD0F5;
+  --dv-good: #5cb87a;
+  --dv-warn: #e8a847;
 }

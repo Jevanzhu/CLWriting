@@ -12,13 +12,13 @@ test('书架渲染含长/短篇双轨书卡', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '书架' })).toBeVisible()
   // 书卡 .book-title 显 title（exact 避免命中 .book-name 的 kind+name 组合串）
-  await expect(page.getByText('长篇测试书', { exact: true })).toBeVisible()
-  await expect(page.getByText('短篇测试集', { exact: true })).toBeVisible()
+  await expect(page.locator('.book-title', { hasText: '长篇测试书' })).toBeVisible()
+  await expect(page.locator('.book-title', { hasText: '短篇测试集' })).toBeVisible()
 })
 
 test('点书卡进书 → 工作区 shell 渲染', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // openBook → router.push('/book/:name')；URL 含 /book/ 即进书
   await expect(page).toHaveURL(/\/book\//)
   // WorkspaceShell 容器渲染（常驻，不依赖具体 view）

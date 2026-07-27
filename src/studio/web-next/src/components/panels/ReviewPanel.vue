@@ -90,7 +90,7 @@ function severityClass(s: string): string {
       <button
         class="rev-run-btn"
         :disabled="!isReviewable || aiOff || review.loading"
-        :title="aiOff ? 'AI 不可达（断网），仅可查看存量' : ''"
+        :data-tip="aiOff ? 'AI 不可达（断网），仅可查看存量' : ''"
         @click="runReview"
       >
         <RefreshCw :size="13" :class="{ spin: review.loading }" />
@@ -203,7 +203,7 @@ function severityClass(s: string): string {
   align-items: center;
   gap: var(--size-4-1);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -217,9 +217,9 @@ function severityClass(s: string): string {
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .rev-run-btn:hover:not(:disabled) {
   opacity: 0.88;
@@ -240,7 +240,7 @@ function severityClass(s: string): string {
 .rev-error,
 .rev-ai-off,
 .rev-stale {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   line-height: 1.6;
   display: flex;
@@ -263,7 +263,7 @@ function severityClass(s: string): string {
   background: var(--background-secondary);
 }
 .rev-verdict-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 10px;
@@ -291,7 +291,7 @@ function severityClass(s: string): string {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 .rev-verdict-btn:hover {
@@ -310,7 +310,7 @@ function severityClass(s: string): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--color-green, #4e9d68);
 }
 .rev-group {
@@ -322,7 +322,7 @@ function severityClass(s: string): string {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
 }
 .group-label--red {
@@ -334,7 +334,7 @@ function severityClass(s: string): string {
 .rev-item {
   padding: 6px 8px;
   border-radius: var(--radius-s);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   line-height: 1.5;
 }
 .rev-item--red {
@@ -353,7 +353,7 @@ function severityClass(s: string): string {
   flex-wrap: wrap;
 }
 .item-sev {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 700;
   padding: 1px 4px;
   border-radius: var(--radius-s);
@@ -367,11 +367,11 @@ function severityClass(s: string): string {
   color: var(--text-muted);
 }
 .item-lens {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
 }
 .item-loc {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   font-style: italic;
 }
@@ -380,12 +380,12 @@ function severityClass(s: string): string {
 }
 .item-evidence {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .item-fix {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 </style>

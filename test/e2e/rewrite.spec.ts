@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test'
 
 test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
   const cm = page.locator('.cm-content')
   await expect(cm).toBeVisible()
@@ -43,7 +43,7 @@ test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) 
 
 test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → ⌘S 持久', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
   const cm = page.locator('.cm-content')
   await expect(cm).toBeVisible()
@@ -74,8 +74,8 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
 
   // 重载验证持久（patch→⌘S 已落盘，重选章正文仍是 mock 产出）
+  // reload 留在书内（/book/...），直接重选章——无需再点书卡（原 getByText 命中的是面包屑）
   await page.reload()
-  await page.getByText('长篇测试书', { exact: true }).click()
   await page.getByText('初入宗门').first().click()
   await expect(page.locator('.cm-content')).toContainText('模拟产出')
 })

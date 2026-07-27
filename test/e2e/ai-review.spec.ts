@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
 
 test('三审：选章 → 审阅 tab → 三审 → 出 mock 意见', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
   await expect(page.locator('.cm-content')).toBeVisible()
 

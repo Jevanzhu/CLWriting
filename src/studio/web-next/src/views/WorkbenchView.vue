@@ -290,26 +290,26 @@ const recent = computed(() => wb.log.slice(-200))
   color: var(--text-accent);
 }
 .state-num {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   margin-right: 6px;
   font-variant-numeric: tabular-nums;
 }
 .conn {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .conn.on {
   color: var(--text-success);
 }
 .human-msg {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   line-height: 1.7;
   white-space: pre-wrap;
 }
 .action {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
   margin-top: var(--size-4-2);
 }
@@ -320,7 +320,7 @@ const recent = computed(() => wb.log.slice(-200))
 .prompt-input {
   flex: 1;
   height: 32px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   padding: 0 var(--size-4-2);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -334,7 +334,7 @@ const recent = computed(() => wb.log.slice(-200))
 .btn {
   padding: 0 16px;
   height: 32px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -354,7 +354,7 @@ const recent = computed(() => wb.log.slice(-200))
   border-color: var(--text-error);
 }
 .muted {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
 }
@@ -368,7 +368,7 @@ const recent = computed(() => wb.log.slice(-200))
   flex: 1;
   overflow: auto;
   font-family: var(--font-monospace);
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 .ev {
   padding: 2px 0;
@@ -393,7 +393,7 @@ const recent = computed(() => wb.log.slice(-200))
   word-break: break-all;
 }
 .err-msg {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-error);
 }
 .cli-grid {
@@ -403,7 +403,7 @@ const recent = computed(() => wb.log.slice(-200))
 }
 .cli-btn {
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-family: var(--font-monospace);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -424,7 +424,7 @@ const recent = computed(() => wb.log.slice(-200))
   margin-top: var(--size-4-2);
   padding: var(--size-4-2);
   font-family: var(--font-monospace);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   background: var(--background-primary);
   border-radius: var(--radius-s);
@@ -448,7 +448,7 @@ const recent = computed(() => wb.log.slice(-200))
 .ai-warn {
   padding: 8px 12px;
   margin-bottom: var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-warning);
   background: var(--background-modifier-border);
   border-radius: var(--radius-s);

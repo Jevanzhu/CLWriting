@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useTreeStore } from '../../stores/tree'
+import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
 
 // 回收站面板（细案 T1.7）：列表 + 恢复 / 永久删（二次确认）。恢复后刷新树。
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
+const ui = useUiStore()
 
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
@@ -31,7 +33,13 @@ async function restore(id: string): Promise<void> {
   }
 }
 async function purge(id: string): Promise<void> {
-  if (!confirm('永久删除不可恢复，确认？')) return
+  const ok = await ui.ask({
+    title: '永久删除',
+    message: '永久删除不可恢复，确认？',
+    confirmText: '永久删除',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await purgeTrash(props.bookName, id)
     await load()
@@ -70,7 +78,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
   padding: var(--size-4-2) 0;
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -79,7 +87,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
 }
 .hint {
   padding: 8px var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .hint.err {
@@ -101,7 +109,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
 .entry-name {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -113,7 +121,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
   flex-shrink: 0;
 }
 .btn {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);

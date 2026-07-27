@@ -207,14 +207,14 @@ onUnmounted(() => {
   border-radius: var(--radius-s);
   padding: 2px 6px;
   margin: -2px -6px;
-  transition: background 0.12s;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .inline-title.editable:hover {
   background: var(--background-modifier-hover);
 }
 .save-state {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .save-state.dirty {
@@ -231,7 +231,7 @@ onUnmounted(() => {
 }
 .conflict-btn {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   padding: 1px 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);

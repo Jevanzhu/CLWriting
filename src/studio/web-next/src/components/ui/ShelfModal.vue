@@ -3,7 +3,7 @@
 // 替代独立书架窗口——更轻量、与设置交互统一；选书即关浮层 + 路由跳转。
 import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { X, BookOpen, ArrowRight, LayoutGrid, List, Sun, Moon } from 'lucide-vue-next'
+import { X, BookOpen, ArrowRight, LayoutGrid, List, Sun, Moon, Plus } from 'lucide-vue-next'
 import { useShelfStore } from '../../stores/shelf'
 import { useUiStore } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
@@ -148,7 +148,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <button
                 class="toggle-btn"
                 :class="{ active: viewMode === 'grid' }"
-                data-tip="网格视图"
+                data-tip="网格视图" data-tip-dir="bottom"
                 @click="setView('grid')"
               >
                 <LayoutGrid :size="15" />
@@ -156,7 +156,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <button
                 class="toggle-btn"
                 :class="{ active: viewMode === 'list' }"
-                data-tip="列表视图"
+                data-tip="列表视图" data-tip-dir="bottom"
                 @click="setView('list')"
               >
                 <List :size="15" />
@@ -164,14 +164,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </div>
             <button
               class="btn icon"
-              :title="theme === 'dark' ? '切到亮色' : '切到暗色'"
+              :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'" data-tip-dir="bottom"
               @click="toggle($event)"
             >
               <Moon v-if="theme === 'light'" :size="16" />
               <Sun v-else :size="16" />
             </button>
-            <button class="btn primary" @click="showCreate = true">+ 新建书</button>
-            <button class="close-btn" title="关闭（Esc）" @click="ui.closeShelf">
+            <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
+            <button class="close-btn" data-tip="关闭（Esc）" data-tip-dir="bottom" @click="ui.closeShelf">
               <X :size="18" />
             </button>
           </div>
@@ -184,7 +184,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <BookOpen :size="40" class="empty-icon" />
             <p class="empty-title">书库还是空的</p>
             <p class="empty-text">建第一本书，开始你的长篇之旅</p>
-            <button class="btn primary" @click="showCreate = true">+ 新建书</button>
+            <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
           </div>
           <div v-else class="groups-grid">
             <section
@@ -394,7 +394,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
   color: var(--text-normal);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   cursor: pointer;
 }
 .btn.icon {
@@ -470,7 +470,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .empty-text {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 
 /* 长篇/短篇并排：auto-fit 自适应——两类左右栏，单类时占满整行 */
@@ -580,7 +580,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   transition: width var(--dur-slow) var(--ease-out);
 }
 .progress-text {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -769,7 +769,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-variant-numeric: tabular-nums;
 }
 .book-time {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
 }
 
@@ -789,7 +789,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .list-head {
   padding-top: var(--size-4-1);
   padding-bottom: var(--size-4-1);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -842,7 +842,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   text-overflow: ellipsis;
 }
 .list-recent {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -917,7 +917,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .err {
   color: var(--text-error);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   margin-top: var(--size-4-2);
 }
 

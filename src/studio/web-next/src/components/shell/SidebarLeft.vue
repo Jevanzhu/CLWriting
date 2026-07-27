@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderTree, Search, Trash2 } from 'lucide-vue-next'
+import { PanelLeftClose } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import ChapterTreePanel from '../panels/ChapterTreePanel.vue'
 import SearchPanel from '../panels/SearchPanel.vue'
@@ -16,28 +16,11 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
   <div class="sidebar-left" :class="{ 'has-traffic': hasDesktop }">
     <div class="left-tabs" :class="{ 'is-drag': hasDesktop }">
       <button
-        class="left-tab"
-        :class="{ active: ws.leftPanel === 'tree' }"
-        title="章节树"
-        @click="ws.setLeftPanel('tree')"
+        class="left-tab collapse-left"
+        data-tip="收起左栏" data-tip-dir="bottom"
+        @click="ws.toggleLeft()"
       >
-        <FolderTree :size="16" />
-      </button>
-      <button
-        class="left-tab"
-        :class="{ active: ws.leftPanel === 'search' }"
-        title="搜索"
-        @click="ws.setLeftPanel('search')"
-      >
-        <Search :size="16" />
-      </button>
-      <button
-        class="left-tab"
-        :class="{ active: ws.leftPanel === 'trash' }"
-        title="回收站"
-        @click="ws.setLeftPanel('trash')"
-      >
-        <Trash2 :size="16" />
+        <PanelLeftClose :size="16" />
       </button>
     </div>
     <div class="left-body">
@@ -91,6 +74,10 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 .left-tab.active {
   background: var(--background-modifier-active-hover);
   color: var(--text-accent);
+}
+/* 收起左栏：推到 left-tabs 最右（左栏右边缘，对称右栏的 PanelRightClose） */
+.left-tab.collapse-left {
+  margin-left: auto;
 }
 .left-body {
   flex: 1;

@@ -111,35 +111,19 @@ button:disabled {
     opacity: 1;
   }
 }
+/* D5 动效：柱状生长（RhythmView 字数柱进场；SVG rect scaleY from bottom）。
+   reduced-motion 由全局兜底归零（见文末 media query）。*/
+@keyframes clw-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
 
-/* P3 tooltip：[data-tip] hover 即时显示说明（替代原生 title 的长延迟 + 朴素系统样式）。
-   向右展开（适合左栏 ribbon 图标列）；hover 250ms 后显现，dur-fast 淡入。 */
-[data-tip] {
-  position: relative;
-}
-[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  left: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 4px 8px;
-  background: var(--background-secondary-alt);
-  color: var(--text-normal);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  box-shadow: var(--shadow-s);
-  font-size: var(--font-size-s);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 1000;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-[data-tip]:hover::after {
-  opacity: 1;
-  transition-delay: 250ms;
-}
+/* tooltip 已迁移到 TooltipHost.vue（全局 Teleport + fixed 定位，不受 overflow 裁切）。
+   各组件只需 data-tip / data-tip-dir 属性即可，无需 CSS 配合。*/
 
 /* Awwwards 冲击面：主题切换圆形扩散（View Transitions API）。
    useTheme.withThemeTransition 用 element.animate 驱动 ::view-transition-new(root)
@@ -156,6 +140,16 @@ button:disabled {
   z-index: 9999;
 }
 @media (prefers-reduced-motion: reduce) {
+  /* 全局兜底：所有 CSS 过渡/动画即时完成（0.01ms 保留 transitionend 事件不破坏逻辑）。
+     JS 驱动的动画（如 RelationsView 物理仿真）需各自检测 mediaQuery——CSS 管不到。*/
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation: none !important;

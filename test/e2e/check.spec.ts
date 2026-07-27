@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
 
 test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
   // 编辑区渲染（章节已打开）
   await expect(page.locator('.cm-content')).toBeVisible()

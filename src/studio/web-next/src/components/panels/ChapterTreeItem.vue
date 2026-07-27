@@ -131,7 +131,7 @@ watch(
       <span
         v-if="tree.issuePaths.has(node.path)"
         class="issue-dot"
-        title="有机检红项或审稿驳回"
+        data-tip="有机检红项或审稿驳回"
       ></span>
     </div>
 
@@ -183,7 +183,7 @@ watch(
   gap: 4px;
   height: 26px;
   padding-right: 8px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   cursor: pointer;
   border-radius: var(--radius-s);
@@ -201,7 +201,7 @@ watch(
 /* P2-7：顶级分组（写作/大纲/设定）作为分区标题，与章节行拉开层级 */
 .tree-item.group-head {
   margin-top: var(--size-4-3);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -211,7 +211,7 @@ watch(
 .caret {
   width: 12px;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   flex-shrink: 0;
   cursor: grab;
 }
@@ -247,7 +247,7 @@ watch(
   white-space: nowrap;
 }
 .badge {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   flex-shrink: 0;
 }
@@ -272,7 +272,7 @@ watch(
 .inline-input {
   flex: 1;
   height: 20px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   border: 1px solid var(--interactive-accent);
   border-radius: var(--radius-s);
   background: var(--background-primary);

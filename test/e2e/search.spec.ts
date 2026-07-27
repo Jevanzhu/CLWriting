@@ -8,9 +8,9 @@ import { test, expect } from '@playwright/test'
 
 test('全书搜索 → 命中 → 跳转开 tab', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 切搜索面板
-  await page.locator('.left-tab[title="搜索"]').click()
+  await page.locator('.left-tab[data-tip="搜索"]').click()
   // 输入埋词 + 回车
   await page.getByPlaceholder('全书搜索…').fill('玉佩')
   await page.keyboard.press('Enter')

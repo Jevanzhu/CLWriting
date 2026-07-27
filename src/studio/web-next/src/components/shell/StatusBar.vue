@@ -46,7 +46,7 @@ const connText = computed(() => {
   padding: 0 var(--size-4-3);
   background: var(--background-secondary);
   border-top: 1px solid var(--background-modifier-border);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .status-left {

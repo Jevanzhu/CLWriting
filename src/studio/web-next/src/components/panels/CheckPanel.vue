@@ -119,7 +119,7 @@ async function runCheck(): Promise<void> {
   align-items: center;
   gap: var(--size-4-1);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -133,9 +133,9 @@ async function runCheck(): Promise<void> {
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: opacity 0.12s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .check-run-btn:hover:not(:disabled) {
   opacity: 0.88;
@@ -154,7 +154,7 @@ async function runCheck(): Promise<void> {
 }
 .check-hint,
 .check-error {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   line-height: 1.6;
 }
@@ -168,7 +168,7 @@ async function runCheck(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--color-green, #4e9d68);
 }
 .check-group {
@@ -180,7 +180,7 @@ async function runCheck(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
 }
 .group-label--red {
@@ -192,7 +192,7 @@ async function runCheck(): Promise<void> {
 .check-item {
   padding: 6px 8px;
   border-radius: var(--radius-s);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   line-height: 1.5;
 }
 .check-item--red {
@@ -208,7 +208,7 @@ async function runCheck(): Promise<void> {
 }
 .item-id {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
 }
 </style>

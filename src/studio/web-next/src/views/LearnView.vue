@@ -163,13 +163,13 @@ async function onCommit(): Promise<void> {
 }
 .learn-lede {
   margin: var(--size-4-2) 0 var(--size-4-4);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   line-height: 1.7;
   color: var(--text-muted);
 }
 .learn-lede code {
   font-family: var(--font-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   background: var(--background-modifier-hover);
   padding: 1px 4px;
   border-radius: var(--radius-s);
@@ -189,7 +189,7 @@ async function onCommit(): Promise<void> {
   border-radius: var(--radius-s);
   background: var(--background-secondary);
   color: var(--text-normal);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   cursor: pointer;
 }
 .btn.primary {
@@ -213,7 +213,7 @@ async function onCommit(): Promise<void> {
   }
 }
 .learn-stat {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .learn-err,
@@ -222,7 +222,7 @@ async function onCommit(): Promise<void> {
   margin: 0 auto var(--size-4-3);
   padding: 8px 12px;
   border-radius: var(--radius-s);
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 .learn-err {
   display: flex;
@@ -257,7 +257,7 @@ async function onCommit(): Promise<void> {
   font-family: var(--font-ui);
 }
 .cand-count {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--text-faint);
   background: var(--background-modifier-hover);
@@ -266,7 +266,7 @@ async function onCommit(): Promise<void> {
 }
 .cand-section-hint {
   margin: 0 0 var(--size-4-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .cand-list {
@@ -279,7 +279,7 @@ async function onCommit(): Promise<void> {
   border-radius: var(--radius-m);
   background: var(--background-primary);
   padding: var(--size-4-3);
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .cand-card.picked {
   border-color: var(--interactive-accent);
@@ -292,7 +292,7 @@ async function onCommit(): Promise<void> {
   margin-bottom: var(--size-4-2);
 }
 .scene-tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-accent);
   background: var(--background-modifier-hover);
@@ -300,7 +300,7 @@ async function onCommit(): Promise<void> {
   border-radius: var(--radius-s);
 }
 .score {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 700;
   font-family: var(--font-monospace, monospace);
   padding: 1px 6px;
@@ -319,7 +319,7 @@ async function onCommit(): Promise<void> {
   background: var(--background-modifier-hover);
 }
 .src {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .cand-card-head input[type='checkbox'] {
@@ -350,7 +350,7 @@ async function onCommit(): Promise<void> {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   padding: var(--size-4-2) var(--size-4-3);
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .quote-card.picked {
   border-color: var(--interactive-accent);

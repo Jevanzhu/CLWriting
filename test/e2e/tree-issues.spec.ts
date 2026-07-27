@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test'
 
 test('树红点：verdict 驳回 → 冒泡亮；通过 → 灭', async ({ page }) => {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 选 0002「玉佩之秘」并打开
   await page.getByText('玉佩之秘').first().click()
   await expect(page.locator('.cm-content')).toBeVisible()

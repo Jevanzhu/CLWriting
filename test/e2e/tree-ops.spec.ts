@@ -8,18 +8,13 @@
  *
  * 右键菜单：.tree-item click({button:'right'}) → .cm-menu → 子菜单 hover .cm-has-sub
  * 展开 .cm-submenu → 点子项；inline 新建/重命名输入 .inline-input + Enter。
- * 删除走 window.confirm，beforeEach 自动 accept。
+ * 删除弹 ConfirmPrompt（通用确认框 .cp-modal），测试里点确认钮。
  */
 import { test, expect, type Page } from '@playwright/test'
 
-// 删除确认（window.confirm）自动接受
-test.beforeEach(async ({ page }) => {
-  page.on('dialog', (d) => d.accept())
-})
-
 async function gotoBook(page: Page): Promise<void> {
   await page.goto('/')
-  await page.getByText('长篇测试书', { exact: true }).click()
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
 }
 
@@ -68,13 +63,15 @@ test('软删 → 回收站还原', async ({ page }) => {
   // 软删
   await ctxOn(page, '玉佩之秘')
   await page.locator('.cm-menu').getByRole('button', { name: '删除' }).click()
+  // ConfirmPrompt 确认（替代原 window.confirm 自动 accept）
+  await page.locator('.cp-modal').getByRole('button', { name: '删除' }).click()
   await expect(page.locator('.tree-list')).not.toContainText('玉佩之秘')
   // 回收站还原
-  await page.locator('.left-tab[title="回收站"]').click()
+  await page.locator('.left-tab[data-tip="回收站"]').click()
   await expect(page.locator('.trash-panel')).toContainText('玉佩之秘')
   await page.getByRole('button', { name: '恢复' }).click()
   // 切回树，章回来
-  await page.locator('.left-tab[title="章节树"]').click()
+  await page.locator('.left-tab[data-tip="章节树"]').click()
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
 })
 

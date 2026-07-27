@@ -129,7 +129,7 @@ function accept(): void {
   align-items: center;
   gap: var(--size-4-1);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -141,7 +141,7 @@ function accept(): void {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   color: var(--text-normal);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   padding: 6px 8px;
   font-family: inherit;
 }
@@ -158,7 +158,7 @@ function accept(): void {
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   align-self: flex-start;
 }
@@ -179,7 +179,7 @@ function accept(): void {
 }
 .rw-hint,
 .rw-error {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   display: flex;
   align-items: flex-start;
@@ -192,7 +192,7 @@ function accept(): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   margin-top: var(--size-4-1);
 }
@@ -214,7 +214,7 @@ function accept(): void {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   font-family: var(--font-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
 }
 .diff-line {
@@ -260,7 +260,7 @@ function accept(): void {
   padding: 4px 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 .rw-accept {

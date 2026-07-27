@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// Obsidian view-header：面包屑（书名 › 视图）+ 右侧操作位（专注模式入口）。
+// Obsidian view-header：面包屑（书名 › 视图）。收起右栏/专注入口已移至 TabBar。
 import { computed } from 'vue'
-import { Focus } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 
 defineProps<{ bookName: string }>()
@@ -28,16 +27,6 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
       <span class="crumb-sep">›</span>
       <span class="crumb-current">{{ viewLabel }}</span>
     </div>
-    <div class="view-actions">
-      <button
-        class="action-btn"
-        :class="{ active: ws.focusMode }"
-        :title="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
-        @click="ws.toggleFocus()"
-      >
-        <Focus :size="16" />
-      </button>
-    </div>
   </div>
 </template>
 
@@ -46,48 +35,22 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
   height: 36px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 var(--size-4-3);
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
 }
-/* 桌面版：header 空白区可拖动整窗（面包屑/操作位仍可交互） */
 .view-header.is-drag {
   -webkit-app-region: drag;
 }
-.view-header.is-drag .crumbs,
-.view-header.is-drag .view-actions {
-  -webkit-app-region: no-drag;
-}
 .crumbs {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-faint);
+  -webkit-app-region: no-drag;
 }
 .crumb-current {
   color: var(--text-normal);
 }
 .crumb-sep {
   margin: 0 6px;
-}
-.action-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-faint);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.action-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-muted);
-}
-.action-btn.active {
-  background: var(--background-modifier-active-hover);
-  color: var(--text-accent);
 }
 </style>

@@ -2,7 +2,7 @@
 // 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
 import { ref, computed } from 'vue'
-import { Info, FileSearch, CheckSquare, BarChart3 } from 'lucide-vue-next'
+import { Info, FileSearch, CheckSquare, BarChart3, PanelRightClose } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
@@ -39,13 +39,21 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
 <template>
   <div class="sidebar-right">
     <div class="right-topbar" :class="{ 'is-drag': hasDesktop }">
+      <button
+        class="right-tab"
+        data-tip="收起右栏"
+        data-tip-dir="bottom"
+        @click="ws.toggleRight()"
+      >
+        <PanelRightClose :size="16" />
+      </button>
       <div class="right-tabs">
         <button
           v-for="t in tabs"
           :key="t.key"
           class="right-tab"
           :class="{ active: tab === t.key }"
-          :title="t.label"
+          :data-tip="t.label" data-tip-dir="bottom"
           @click="tab = t.key"
         >
           <component :is="t.icon" :size="16" />
@@ -88,7 +96,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   background: var(--background-secondary);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 0 var(--size-4-2);
   gap: var(--size-4-1);
 }
@@ -99,7 +107,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   display: flex;
   gap: var(--size-4-1);
 }
-.right-tabs button {
+.right-topbar button {
   -webkit-app-region: no-drag;
 }
 .right-tab {
@@ -113,7 +121,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .right-tab:hover {
   background: var(--background-modifier-hover);
@@ -141,7 +149,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   flex-direction: column;
 }
 .side-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-faint);
   text-transform: uppercase;
@@ -149,7 +157,7 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
   margin-bottom: var(--size-4-2);
 }
 .side-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
   line-height: 1.6;
 }

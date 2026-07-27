@@ -350,16 +350,17 @@ function resetView(): void {
   view.value = { x: 0, y: 0, w: W, h: H }
 }
 
-// --- 边着色（D2：按关系语义关键词分类）---
+// --- 边着色：按关系语义关键词映射 categorical token（Okabe-Ito 色盲安全）。
+// 债务/敌对同用 --cat-1（朱红），靠 .debt class 的虚线区分线型。 ---
 function edgeColor(e: SimEdge): string {
-  if (e.kind === 'debt') return '#c0392b' // 债务 = 暗红虚线
+  if (e.kind === 'debt') return 'var(--cat-1)'          // 债务 = 朱红虚线
   const t = e.type
-  if (/敌|仇|恨/.test(t)) return '#e05260' // 敌对红
-  if (/师|徒|长|父|母|养/.test(t)) return '#52a8e0' // 长辈/师徒蓝
-  if (/情|爱|恋|妻|夫|婚/.test(t)) return '#e072a8' // 亲密粉
-  if (/兄|弟|姐|妹|友|同/.test(t)) return '#7ac52b' // 同辈绿
-  if (/主|仆|属|下|臣/.test(t)) return '#e0a838' // 从属橙
-  return '#8a8a8a' // 其他灰
+  if (/敌|仇|恨/.test(t)) return 'var(--cat-1)'          // 敌对 = 朱红
+  if (/师|徒|长|父|母|养/.test(t)) return 'var(--cat-4)' // 长辈/师徒 = 蓝
+  if (/情|爱|恋|妻|夫|婚/.test(t)) return 'var(--cat-5)' // 亲密 = 玫红
+  if (/兄|弟|姐|妹|友|同/.test(t)) return 'var(--cat-3)' // 同辈 = 蓝绿
+  if (/主|仆|属|下|臣/.test(t)) return 'var(--cat-2)'    // 从属 = 橙
+  return 'var(--text-faint)'                             // 其他 = 灰
 }
 
 const nodeCount = computed(() => nodes.value.length)
@@ -383,7 +384,7 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
         <span class="count">{{ nodeCount }} 角色 · {{ edgeCount }} 关系<span v-if="debtCount">（含 {{ debtCount }} 债务）</span></span>
         <div class="rel-tools">
           <span class="hint">拖拽重排 · 滚轮缩放 · 点节点跳卡</span>
-          <button class="tool-btn" title="重置视图" @click="resetView">复位</button>
+          <button class="tool-btn" data-tip="重置视图" @click="resetView">复位</button>
         </div>
       </div>
       <div class="legend-row">
@@ -405,12 +406,12 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
           <g v-for="(e, i) in edges" :key="i" :class="{ dim: edgeDim(e) }">
             <line
               :x1="nodeX(e.from)" :y1="nodeY(e.from)" :x2="nodeX(e.to)" :y2="nodeY(e.to)"
-              class="edge" :class="{ debt: e.kind === 'debt' }" :stroke="edgeColor(e)"
+              class="edge" :class="{ debt: e.kind === 'debt' }" :style="{ stroke: edgeColor(e) }"
             />
             <text
               :x="(nodeX(e.from) + nodeX(e.to)) / 2"
               :y="(nodeY(e.from) + nodeY(e.to)) / 2"
-              class="edge-label" :fill="edgeColor(e)"
+              class="edge-label" :style="{ fill: edgeColor(e) }"
               text-anchor="middle"
             >{{ e.type }}</text>
           </g>
@@ -456,7 +457,7 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   gap: var(--size-4-3);
   margin-bottom: var(--size-4-2);
   padding: 0 2px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .lg {
@@ -479,15 +480,15 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
   border-top: 1.5px solid var(--interactive-accent);
 }
 .lg-line.lg-debt {
-  border-top: 1.5px dashed #c0392b;
+  border-top: 1.5px dashed var(--cat-1);
 }
 .count {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   font-weight: 600;
   color: var(--text-normal);
 }
 .hint {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .graph {
@@ -505,24 +506,24 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
 .edge {
   stroke: var(--background-modifier-border);
   stroke-width: 1.2;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .edge-label {
   fill: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   paint-order: stroke;
   stroke: var(--background-secondary);
   stroke-width: 3;
   pointer-events: none;
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .node {
   fill: var(--interactive-accent);
   stroke: var(--background-secondary);
   stroke-width: 2;
   cursor: grab;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .node.no-card {
   fill: var(--text-faint);
@@ -542,7 +543,7 @@ g.clickable {
 }
 .tool-btn {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -555,9 +556,9 @@ g.clickable {
 }
 .node-label {
   fill: var(--text-normal);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   pointer-events: none;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .dim {
   opacity: 0.12;
@@ -570,24 +571,24 @@ g.hover .node {
   padding: var(--size-4-6);
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .placeholder code {
   background: var(--background-modifier-border);
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
 }
 .err-block {
   padding: var(--size-4-4);
   text-align: center;
   color: var(--text-error);
-  font-size: 13px;
+  font-size: var(--font-size-m);
 }
 .btn {
   margin-left: var(--size-4-2);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);

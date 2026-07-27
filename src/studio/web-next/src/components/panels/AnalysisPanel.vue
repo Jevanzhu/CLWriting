@@ -125,7 +125,7 @@ const emotionLine = computed(() => {
 
 // dims 进度条配色：爽点/节奏感 高=好（绿）；拖沓 高=差（橙）
 function dimColor(label: string): string {
-  return label === '拖沓' ? 'var(--color-orange, #d97706)' : 'var(--color-green, #4e9d68)'
+  return label === '拖沓' ? 'var(--dv-warn)' : 'var(--dv-good)'
 }
 function dimWidth(label: string, v: number): string {
   const pct = label === '拖沓' ? (10 - v) * 10 : v * 10
@@ -183,7 +183,7 @@ function dimWidth(label: string, v: number): string {
       <div class="ap-card-head">
         <div class="ap-card-title"><Activity :size="14" /><span>情绪曲线</span></div>
         <div class="ap-head-right">
-          <label v-if="rhythmRow" class="ap-toggle" title="叠加节奏上下文">
+          <label v-if="rhythmRow" class="ap-toggle" data-tip="叠加节奏上下文">
             <input v-model="showRhythm" type="checkbox" />
             <Gauge :size="12" />
           </label>
@@ -197,8 +197,16 @@ function dimWidth(label: string, v: number): string {
       <EmptyState v-else-if="!emotionSlot.envelope" :icon="Activity" size="compact" :text="`暂无情绪曲线${aiOff ? '' : '，点「重新分析」生成'}。`" />
       <div v-else-if="emotionPayload && emotionPayload.length" class="ap-emotion-body">
         <svg :viewBox="`0 0 ${EMOTION_W} ${EMOTION_H}`" class="ap-emotion-svg" preserveAspectRatio="none">
+          <!-- diverging 渐变：顶部正情绪（橙）→ 零线灰 → 底部负情绪（蓝），沿 y 轴铺色 -->
+          <defs>
+            <linearGradient id="clw-emotion-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" :style="{ stopColor: 'var(--div-pos)' }" />
+              <stop offset="50%" :style="{ stopColor: 'var(--div-zero)' }" />
+              <stop offset="100%" :style="{ stopColor: 'var(--div-neg)' }" />
+            </linearGradient>
+          </defs>
           <line :x1="EMOTION_PAD" :y1="emotionY(0)" :x2="EMOTION_W - EMOTION_PAD" :y2="emotionY(0)" class="ap-emotion-zero" />
-          <polyline :points="emotionLine" class="ap-emotion-line" />
+          <polyline :points="emotionLine" class="ap-emotion-line" style="stroke: url(#clw-emotion-grad)" />
           <circle
             v-for="(d, i) in emotionPayload"
             :key="i"
@@ -206,6 +214,7 @@ function dimWidth(label: string, v: number): string {
             :cy="emotionY(d.emotion)"
             r="2.5"
             class="ap-emotion-dot"
+            :class="d.emotion >= 0 ? 'pos' : 'neg'"
           />
         </svg>
         <div class="ap-emotion-legend">
@@ -289,17 +298,17 @@ function dimWidth(label: string, v: number): string {
   gap: var(--size-4-3);
 }
 .ap-hint {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 .ap-stale {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 11px;
-  color: var(--color-orange, #d97706);
-  background: rgba(217, 119, 6, 0.08);
-  border: 1px solid rgba(217, 119, 6, 0.2);
+  font-size: var(--font-size-xs);
+  color: var(--dv-warn);
+  background: color-mix(in srgb, var(--dv-warn) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dv-warn) 20%, transparent);
   border-radius: var(--radius-s);
   padding: 6px 8px;
 }
@@ -324,7 +333,7 @@ function dimWidth(label: string, v: number): string {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-normal);
 }
@@ -347,7 +356,7 @@ function dimWidth(label: string, v: number): string {
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 .ap-run:disabled {
@@ -382,7 +391,7 @@ function dimWidth(label: string, v: number): string {
   flex: 1;
 }
 .ap-verdict {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   line-height: 1.5;
 }
@@ -391,7 +400,7 @@ function dimWidth(label: string, v: number): string {
   align-items: center;
   gap: 4px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .ap-dims {
@@ -402,7 +411,7 @@ function dimWidth(label: string, v: number): string {
 .ap-dim-head {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   margin-bottom: 3px;
 }
@@ -423,7 +432,7 @@ function dimWidth(label: string, v: number): string {
 .ap-dim-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s;
+  transition: width var(--dur-slow) var(--ease-out);
 }
 /* 情绪曲线 */
 .ap-emotion-body {
@@ -442,11 +451,14 @@ function dimWidth(label: string, v: number): string {
 }
 .ap-emotion-line {
   fill: none;
-  stroke: var(--interactive-accent);
+  /* stroke 由 inline style 引用 #clw-emotion-grad 渐变（diverging 蓝→灰→橙）*/
   stroke-width: 1.5;
 }
-.ap-emotion-dot {
-  fill: var(--interactive-accent);
+.ap-emotion-dot.pos {
+  fill: var(--div-pos);
+}
+.ap-emotion-dot.neg {
+  fill: var(--div-neg);
 }
 .ap-emotion-legend {
   display: flex;
@@ -457,7 +469,7 @@ function dimWidth(label: string, v: number): string {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .ap-emotion-label {
@@ -476,7 +488,7 @@ function dimWidth(label: string, v: number): string {
   padding: 5px 8px;
   background: var(--background-secondary);
   border-radius: var(--radius-s);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .ap-rhythm-label {
@@ -484,27 +496,27 @@ function dimWidth(label: string, v: number): string {
   font-weight: 600;
 }
 .ap-rhythm-warn {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 /* 钩子密度 */
 .ap-density {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 10px;
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
 .density-密 {
-  background: rgba(224, 93, 93, 0.15);
-  color: var(--text-error, #e05d5d);
+  background: color-mix(in srgb, var(--dv-bad) 15%, transparent);
+  color: var(--text-error);
 }
 .density-疏 {
-  background: rgba(217, 119, 6, 0.15);
-  color: var(--color-orange, #d97706);
+  background: color-mix(in srgb, var(--dv-warn) 15%, transparent);
+  color: var(--dv-warn);
 }
 .density-中 {
-  background: rgba(78, 157, 104, 0.15);
-  color: var(--color-green, #4e9d68);
+  background: color-mix(in srgb, var(--dv-good) 15%, transparent);
+  color: var(--dv-good);
 }
 .ap-hooks-list {
   display: flex;
@@ -520,7 +532,7 @@ function dimWidth(label: string, v: number): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .ap-hook-pos {
   font-weight: 600;
@@ -531,7 +543,7 @@ function dimWidth(label: string, v: number): string {
   border-radius: 8px;
   background: var(--background-modifier-border);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
 }
 .ap-hook-strength {
   display: inline-flex;
@@ -550,7 +562,7 @@ function dimWidth(label: string, v: number): string {
 }
 .ap-hook-note {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   line-height: 1.5;
 }
@@ -561,7 +573,7 @@ function dimWidth(label: string, v: number): string {
   gap: var(--size-4-2);
 }
 .ap-style-drift {
-  font-size: 13px;
+  font-size: var(--font-size-m);
   color: var(--text-normal);
   line-height: 1.5;
 }
@@ -571,14 +583,14 @@ function dimWidth(label: string, v: number): string {
   gap: 4px;
 }
 .ap-style-tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 8px;
-  background: rgba(217, 119, 6, 0.12);
-  color: var(--color-orange, #d97706);
+  background: color-mix(in srgb, var(--dv-warn) 12%, transparent);
+  color: var(--dv-warn);
 }
 .ap-style-line {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-muted);
 }
 .ap-style-line-label {
@@ -593,7 +605,7 @@ function dimWidth(label: string, v: number): string {
   border-left: 2px solid var(--background-modifier-border);
 }
 .ap-style-suggestion {
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-normal);
   line-height: 1.5;
 }
