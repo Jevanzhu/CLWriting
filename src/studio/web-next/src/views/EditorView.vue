@@ -249,7 +249,6 @@ onUnmounted(() => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   padding: var(--size-4-3) var(--size-4-6) var(--size-4-2);
   border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -271,10 +270,13 @@ onUnmounted(() => {
 .doc-crumb-sep {
   opacity: 0.5;
 }
-/* 第二排：标题居中 */
+/* 第二排：标题居中；与上方 meta-row 用细线分隔 */
 .doc-title-row {
   display: flex;
   justify-content: center;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: var(--size-4-2);
+  margin-top: var(--size-4-2);
 }
 .inline-title {
   flex: none;
