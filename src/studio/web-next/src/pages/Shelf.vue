@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+// 书架全屏页（独立窗口或主窗口路由）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
+// 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本页只保留全屏布局 + IPC 跳转。
+import { onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus } from 'lucide-vue-next'
-import { useShelfStore } from '../stores/shelf'
+import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
-import { apiJson } from '../api/client'
+import BookCard from '../components/ui/BookCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 
-// 书架视图：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
-// 书架为全屏页（无外壳），自带主题切换（工作区则走 ribbon）。
 const router = useRouter()
-const shelf = useShelfStore()
 const { theme, toggle } = useTheme()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const {
+  shelf, groups, latestBook, viewMode, setView,
+  showCreate, newName, creating, createError, createBook,
+} = useShelf({
+  onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
+})
+
 // Awwwards 冲击面：hero 数据条展示创作概况
 const totalWords = computed(() => shelf.books.reduce((s, b) => s + (b.words ?? 0), 0))
 const lastEdited = computed(() => {
@@ -21,62 +27,8 @@ const lastEdited = computed(() => {
     .filter(Boolean)
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
-// 书架按 kind 分组（长篇/短篇），各自一栏；空组不渲染
-const groups = computed(() => {
-  const longBks = shelf.books.filter((b) => b.kind !== 'short')
-  const shortBks = shelf.books.filter((b) => b.kind === 'short')
-  return [
-    { title: '长篇', books: longBks },
-    { title: '短篇', books: shortBks },
-  ].filter((g) => g.books.length)
-})
-// 最近编辑的书（hero 卡"继续写作"用）
-const latestBook = computed(() => {
-  const sorted = shelf.books
-    .filter((b) => b.lastEdited)
-    .sort((a, b) => new Date(b.lastEdited!).getTime() - new Date(a.lastEdited!).getTime())
-  return sorted[0] ?? null
-})
+
 onMounted(() => shelf.load())
-
-// 视图模式（网格/列表），localStorage 持久化用户偏好
-const storedView = typeof localStorage !== 'undefined' ? localStorage.getItem('clw-shelf-view') : null
-const viewMode = ref<'grid' | 'list'>(storedView === 'list' ? 'list' : 'grid')
-function setView(mode: 'grid' | 'list'): void {
-  viewMode.value = mode
-  try {
-    localStorage.setItem('clw-shelf-view', mode)
-  } catch {
-    /* localStorage 不可用时忽略 */
-  }
-}
-
-const showCreate = ref(false)
-const newName = ref('')
-const creating = ref(false)
-const createError = ref<string | null>(null)
-
-async function createBook(): Promise<void> {
-  const name = newName.value.trim()
-  if (!name) return
-  creating.value = true
-  createError.value = null
-  try {
-    await apiJson('/api/books', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name }),
-    })
-    showCreate.value = false
-    newName.value = ''
-    await shelf.load()
-    router.push(`/book/${encodeURIComponent(name)}`)
-  } catch (e) {
-    createError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    creating.value = false
-  }
-}
 
 function openBook(name: string): void {
   // 记住最近打开的书（主窗口启动直进工作区用）
@@ -92,45 +44,6 @@ function openBook(name: string): void {
   } else {
     router.push(`/book/${encodeURIComponent(name)}`)
   }
-}
-
-// 字数千分位 + 万字简写（书卡紧凑展示）
-function formatWords(n?: number): string {
-  if (!n) return '0 字'
-  if (n < 10000) return `${n.toLocaleString()} 字`
-  return `${(n / 10000).toFixed(1)} 万字`
-}
-
-// 最近编辑相对时间（书卡「N 天前」）
-function formatRelative(iso?: string | null): string {
-  if (!iso) return ''
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ''
-  const min = Math.floor((Date.now() - then) / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
-  const day = Math.floor(hr / 24)
-  if (day < 30) return `${day} 天前`
-  const month = Math.floor(day / 30)
-  if (month < 12) return `${month} 个月前`
-  return `${Math.floor(month / 12)} 年前`
-}
-
-// 目标字数完成百分比（hero 卡进度条）
-function progressPercent(b: { words?: number; targetWords?: number }): number {
-  if (!b.targetWords || !b.words) return 0
-  return Math.min(100, Math.round((b.words / b.targetWords) * 100))
-}
-
-// Linear 风光晕：鼠标移动时把光标相对卡片的位置写入 --mx/--my，
-// 驱动卡片 ::before 的 radial-gradient 圆心，呈现 Linear 招牌的鼠标跟随柔光。
-function onCardMove(e: MouseEvent): void {
-  const el = e.currentTarget as HTMLElement
-  const r = el.getBoundingClientRect()
-  el.style.setProperty('--mx', `${e.clientX - r.left}px`)
-  el.style.setProperty('--my', `${e.clientY - r.top}px`)
 }
 </script>
 
@@ -243,24 +156,15 @@ function onCardMove(e: MouseEvent): void {
             <span class="section-count">{{ grp.books.length }} 部</span>
           </header>
           <div v-if="viewMode === 'grid'" class="book-grid">
-            <button
+            <BookCard
               v-for="(b, i) in grp.books"
               :key="b.name"
-              class="book-card"
-              :style="{ animationDelay: (i * 40) + 'ms' }"
-              @mousemove="onCardMove"
-              @click="openBook(b.name)"
-            >
-              <h3 class="book-title">{{ b.title ?? b.name }}</h3>
-              <ArrowRight :size="15" class="card-arrow" />
-              <div class="card-foot">
-                <div class="card-stats">
-                  <span>{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
-                  <span v-if="b.kind !== 'short'">{{ formatWords(b.words) }}</span>
-                </div>
-                <span v-if="b.lastEdited" class="book-time">{{ formatRelative(b.lastEdited) }}</span>
-              </div>
-            </button>
+              :book="b"
+              variant="grid"
+              :index="i"
+              @move="onCardMove"
+              @click="openBook"
+            />
           </div>
           <div v-else class="book-list">
             <div class="list-head">
@@ -269,22 +173,14 @@ function onCardMove(e: MouseEvent): void {
               <span class="col-num">字数</span>
               <span class="col-edited">最近编辑</span>
             </div>
-            <button
+            <BookCard
               v-for="b in grp.books"
               :key="b.name"
-              class="list-row"
-              @mousemove="onCardMove"
-              @click="openBook(b.name)"
-            >
-              <div class="col-name">
-                <span class="list-name">{{ b.title ?? b.name }}</span>
-                <span v-if="b.latestChapter" class="list-recent">{{ b.latestChapter }}</span>
-              </div>
-              <span class="col-num">{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
-              <span class="col-num">{{ b.kind === 'short' ? '—' : formatWords(b.words) }}</span>
-              <span class="col-edited">{{ b.lastEdited ? formatRelative(b.lastEdited) : '—' }}</span>
-              <ArrowRight :size="15" class="list-arrow" />
-            </button>
+              :book="b"
+              variant="list"
+              @move="onCardMove"
+              @click="openBook"
+            />
           </div>
         </section>
         </div>
@@ -337,6 +233,14 @@ function onCardMove(e: MouseEvent): void {
   --size-4-12: 41px;
   --size-4-14: 48px;
   --size-4-16: 54px;
+  /* BookCard 尺寸覆盖（全屏页用大卡片）*/
+  --shelf-card-pad: var(--size-4-4);
+  --shelf-card-radius: var(--radius-l);
+  --shelf-card-min-h: 116px;
+  --shelf-card-line-clamp: 1;
+  --shelf-card-anim: clw-card-in var(--dur-norm) var(--ease-out) both;
+  --shelf-title-fs: var(--font-size-xl);
+  --shelf-list-cols: 1fr 72px 92px 96px 20px;
 }
 /* 顶部 titlebar：纯窗口拖动区（桌面版可拖动整窗），不放内容。*/
 .shelf-titlebar {
@@ -675,135 +579,13 @@ function onCardMove(e: MouseEvent): void {
   grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
   gap: var(--size-4-4);
 }
-/* Linear 风精致卡片 —— 大圆角 + 微渐变 + hover 鼠标跟随柔光晕 + 进入箭头。
-   position relative 承托 ::before；overflow hidden 让光晕裁剪在圆角内。*/
-.book-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  padding: var(--size-4-4);
-  border-radius: var(--radius-l);
-  background: linear-gradient(180deg, var(--background-secondary-alt), var(--background-secondary));
-  border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-s);
-  min-height: 116px;
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-normal);
-  overflow: hidden;
-  animation: clw-card-in var(--dur-norm) var(--ease-out) both;
-  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
-}
-/* Linear 招牌 glow：hover 时鼠标位置发出 accent 色柔和光晕（圆心跟随 --mx/--my）*/
-.book-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 14%, transparent), transparent 45%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.book-card:hover::before {
-  opacity: 1;
-}
-.book-card:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
-  box-shadow: var(--shadow-l);
-}
-/* 进入箭头：绝对定位右上角，hover 显形平移；accent 色作卡片色彩焦点 */
-.card-arrow {
-  position: absolute;
-  top: var(--size-4-4);
-  right: var(--size-4-4);
-  color: var(--text-accent);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
-}
-.book-card:hover .card-arrow {
-  opacity: 1;
-  transform: translateX(0);
-}
-/* 书名：卡片视觉主体，紧字距 + 单行省略；右留白避让箭头 */
-.book-title {
-  margin: 0;
-  padding-right: var(--size-4-4);
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.3;
-  color: var(--text-normal);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-/* 卡片底部：细分隔线 + 数据（章数/字数）+ 时间。
-   margin-top auto 把 foot 推到卡片底部，与书名间形成弹性留白。*/
-.card-foot {
-  margin-top: auto;
-  padding-top: var(--size-4-3);
-  border-top: 1px solid var(--background-modifier-border);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.card-stats {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.book-time {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-@media (prefers-reduced-motion: reduce) {
-  .book-card {
-    animation: none;
-  }
-  .book-card:hover {
-    transform: none;
-  }
-  .card-arrow {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-  .hero-card:hover {
-    transform: none;
-  }
-  .hero-arrow {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-  .list-arrow {
-    opacity: 1;
-    transition: none;
-  }
-}
-
-/* 列表视图：表格化 —— 表头 + grid 列对齐，hover 高亮 + 鼠标跟随柔光 */
-.book-list {
-  display: flex;
-  flex-direction: column;
-}
-.list-head,
-.list-row {
-  display: grid;
-  grid-template-columns: 1fr 72px 92px 96px 20px;
-  align-items: center;
-  gap: var(--size-4-3);
-  padding: 0 var(--size-4-4);
-}
+/* 列表视图：表头 */
 .list-head {
-  padding-top: var(--size-4-2);
-  padding-bottom: var(--size-4-2);
+  display: grid;
+  grid-template-columns: var(--shelf-list-cols, 1fr 56px 72px 72px 18px);
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-2);
   font-size: var(--font-size-xs);
   color: var(--text-faint);
   letter-spacing: 0.04em;
@@ -811,82 +593,16 @@ function onCardMove(e: MouseEvent): void {
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: var(--size-4-1);
 }
-.list-row {
-  position: relative;
-  padding-top: var(--size-4-3);
-  padding-bottom: var(--size-4-3);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--background-modifier-border);
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-normal);
-  overflow: hidden;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.list-row:last-child {
-  border-bottom: none;
-}
-.list-row::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.list-row:hover::before {
-  opacity: 1;
-}
-.list-row:hover .list-name {
-  color: var(--text-accent);
-}
-/* 名称列：书名（主）+ 最近章节（副）上下排 */
-.col-name {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.list-name {
-  font-size: var(--font-size-m);
-  font-weight: 500;
-  color: var(--text-normal);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.list-recent {
+.list-head .col-name,
+.list-head .col-num,
+.list-head .col-edited {
   font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-/* 数字列（章节/字数）右对齐 + tabular，整齐扫读 */
-.col-num {
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
+.list-head .col-name {
+  display: block;
+}
+.list-head .col-num {
   text-align: right;
-  white-space: nowrap;
-}
-.col-edited {
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.list-arrow {
-  color: var(--text-faint);
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-.list-row:hover .list-arrow {
-  opacity: 1;
-  color: var(--text-accent);
 }
 .modal-overlay {
   position: fixed;
@@ -933,5 +649,15 @@ function onCardMove(e: MouseEvent): void {
   color: var(--text-error);
   font-size: 12px;
   margin-top: var(--size-4-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-card:hover {
+    transform: none;
+  }
+  .hero-arrow {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 </style>

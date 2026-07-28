@@ -215,14 +215,6 @@ function findPositionalBookRoot(args: readonly string[]): string | undefined {
   return undefined
 }
 
-/**
- * 便捷：给只有简单 `args[0] ? resolve : cwd` 形态的命令用（enter/health/session-start 等
- * 无草稿位置参的命令）。等价于 resolveBookRoot(args)。
- */
-export function resolveBookRootFromArgs(args: readonly string[]): ResolveResult {
-  return resolveBookRoot(args)
-}
-
 // ── 自愈（#32 第 6 节，文件即真相 + 不报错拒绝）──
 
 export interface RepairResult {

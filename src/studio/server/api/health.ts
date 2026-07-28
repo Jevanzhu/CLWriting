@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { readMetrics } from '../../../metrics/ledger.js'
 import { aggregateMetrics } from '../../../metrics/report.js'
 import { scanLongChapters, scanShortPieces, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
@@ -33,7 +33,7 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
   route('GET', '/api/books/:name/health/style', (_req, res, params) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return reply(res, r.status, { error: r.error })
-    const kind = resolveKind(r.bookRoot)
+    const kind = readKind(r.bookRoot)
     const samples = kind === 'short' ? scanShortPieces(r.bookRoot) : scanLongChapters(r.bookRoot)
     reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
   })
@@ -49,10 +49,4 @@ function resolveBook(
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404 }
   return { bookRoot: join(workDir, entry.path) }
-}
-
-/** 读 book.yaml kind（缺省 long） */
-function resolveKind(bookRoot: string): 'long' | 'short' {
-  const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-  return config.kind === 'short' ? 'short' : 'long'
 }

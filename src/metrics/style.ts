@@ -73,7 +73,7 @@ const DEFAULT_DRIFT_WINDOW = 5
 const SHORT_TREND_MIN = 5
 
 /** 文风铁律路径 */
-export function ironRulesPath(bookRoot: string): string {
+function ironRulesPath(bookRoot: string): string {
   return join(bookRoot, '文风', '文风铁律.md')
 }
 

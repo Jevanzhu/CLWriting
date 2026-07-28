@@ -94,7 +94,7 @@ const ui = useUiStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 const kind = computed(() => (entry.value ? formKindOf(entry.value.path) : null))
-const defs = computed<FieldDef[]>(() => (kind.value ? FIELD_DEFS[kind.value] : []))
+const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
 
 const fields = ref<Record<string, string>>({})
 watch(
@@ -106,7 +106,7 @@ watch(
     }
     const parsed = parseFmFields(e.content)
     const out: Record<string, string> = {}
-    for (const f of FIELD_DEFS[kind.value]) out[f.key] = parsed[f.key] ?? ''
+    for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
     fields.value = out
   },
   { immediate: true },
@@ -118,7 +118,7 @@ async function onSave(): Promise<void> {
   saving.value = true
   try {
     const meta: Record<string, unknown> = {}
-    for (const f of FIELD_DEFS[kind.value]) {
+    for (const f of FIELD_DEFS[kind.value] ?? []) {
       const v = fields.value[f.key] ?? ''
       if (v === '') continue
       // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）

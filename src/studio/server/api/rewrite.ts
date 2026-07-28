@@ -17,7 +17,7 @@ import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -107,8 +107,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const absPath = join(bookRoot, m.path)
     if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-    const isShort = (config.kind ?? 'long') === 'short'
+    const isShort = readKind(bookRoot) === 'short'
     const draft = readDraft(absPath, isShort)
     if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
     const original = draft.body
@@ -222,13 +221,6 @@ export function buildRewritePrompt(
       : '按指令重写整章正文(保留 front matter,2000-4000 字,单章一主场景,章尾留钩)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
   )
   return parts.join('\n')
-}
-
-/** 读 book.yaml kind(long 缺省 / short) */
-function readKind(bookRoot: string): 'long' | 'short' {
-  const r = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!r.ok) return 'long'
-  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 /** 草稿文件名:长篇 草稿-<章号>.md;短篇 草稿-1.md(候选) */

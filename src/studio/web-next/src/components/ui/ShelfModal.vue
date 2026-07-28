@@ -1,76 +1,26 @@
 <script setup lang="ts">
 // 书架浮层（仿设置 modal）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
-// 替代独立书架窗口——更轻量、与设置交互统一；选书即关浮层 + 路由跳转。
-import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
+// 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本组件只保留浮层布局 + 关闭逻辑。
+import { onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { X, BookOpen, ArrowRight, LayoutGrid, List, Sun, Moon, Plus } from 'lucide-vue-next'
-import { useShelfStore } from '../../stores/shelf'
+import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../../composables/useShelf'
 import { useUiStore } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
-import { apiJson } from '../../api/client'
+import BookCard from './BookCard.vue'
 
 const router = useRouter()
 const ui = useUiStore()
-const shelf = useShelfStore()
 const { theme, toggle } = useTheme()
-
-// 按 kind 分组（长篇/短篇），空组不渲染
-const groups = computed(() => {
-  const longBks = shelf.books.filter((b) => b.kind !== 'short')
-  const shortBks = shelf.books.filter((b) => b.kind === 'short')
-  return [
-    { title: '长篇', books: longBks },
-    { title: '短篇', books: shortBks },
-  ].filter((g) => g.books.length)
-})
-
-// 最近编辑的书（hero"继续写作"用）
-const latestBook = computed(() => {
-  const sorted = shelf.books
-    .filter((b) => b.lastEdited)
-    .sort((a, b) => new Date(b.lastEdited!).getTime() - new Date(a.lastEdited!).getTime())
-  return sorted[0] ?? null
-})
-
-// 视图模式（网格/列表），localStorage 持久化
-const storedView = typeof localStorage !== 'undefined' ? localStorage.getItem('clw-shelf-view') : null
-const viewMode = ref<'grid' | 'list'>(storedView === 'list' ? 'list' : 'grid')
-function setView(mode: 'grid' | 'list'): void {
-  viewMode.value = mode
-  try {
-    localStorage.setItem('clw-shelf-view', mode)
-  } catch {
-    /* localStorage 不可用时忽略 */
-  }
-}
-
-// 新建书
-const showCreate = ref(false)
-const newName = ref('')
-const creating = ref(false)
-const createError = ref<string | null>(null)
-async function createBook(): Promise<void> {
-  const name = newName.value.trim()
-  if (!name) return
-  creating.value = true
-  createError.value = null
-  try {
-    await apiJson('/api/books', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name }),
-    })
-    showCreate.value = false
-    newName.value = ''
-    await shelf.load()
+const {
+  shelf, groups, latestBook, viewMode, setView,
+  showCreate, newName, creating, createError, createBook,
+} = useShelf({
+  onCreated: (name) => {
     ui.closeShelf()
     router.push(`/book/${encodeURIComponent(name)}`)
-  } catch (e) {
-    createError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    creating.value = false
-  }
-}
+  },
+})
 
 // 选书：记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）
 function openBook(name: string): void {
@@ -81,43 +31,6 @@ function openBook(name: string): void {
   }
   ui.closeShelf()
   router.push(`/book/${encodeURIComponent(name)}`)
-}
-
-// 字数千分位 + 万字简写
-function formatWords(n?: number): string {
-  if (!n) return '0 字'
-  if (n < 10000) return `${n.toLocaleString()} 字`
-  return `${(n / 10000).toFixed(1)} 万字`
-}
-// 最近编辑相对时间
-function formatRelative(iso?: string | null): string {
-  if (!iso) return ''
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ''
-  const min = Math.floor((Date.now() - then) / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
-  const day = Math.floor(hr / 24)
-  if (day < 30) return `${day} 天前`
-  const month = Math.floor(day / 30)
-  if (month < 12) return `${month} 个月前`
-  return `${Math.floor(month / 12)} 年前`
-}
-
-// 目标字数完成百分比（hero 进度条）
-function progressPercent(b: { words?: number; targetWords?: number }): number {
-  if (!b.targetWords || !b.words) return 0
-  return Math.min(100, Math.round((b.words / b.targetWords) * 100))
-}
-
-// Linear 风光晕：鼠标位置写入 --mx/--my 驱动卡片 ::before 的 radial-gradient 圆心
-function onCardMove(e: MouseEvent): void {
-  const el = e.currentTarget as HTMLElement
-  const r = el.getBoundingClientRect()
-  el.style.setProperty('--mx', `${e.clientX - r.left}px`)
-  el.style.setProperty('--my', `${e.clientY - r.top}px`)
 }
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
@@ -233,23 +146,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <span class="section-count">{{ grp.books.length }} 部</span>
               </header>
               <div v-if="viewMode === 'grid'" class="book-grid">
-                <button
+                <BookCard
                   v-for="b in grp.books"
                   :key="b.name"
-                  class="book-card"
-                  @mousemove="onCardMove"
-                  @click="openBook(b.name)"
-                >
-                  <h4 class="book-title">{{ b.title ?? b.name }}</h4>
-                  <ArrowRight :size="15" class="card-arrow" />
-                  <div class="card-foot">
-                    <div class="card-stats">
-                      <span>{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
-                      <span v-if="b.kind !== 'short'">{{ formatWords(b.words) }}</span>
-                    </div>
-                    <span v-if="b.lastEdited" class="book-time">{{ formatRelative(b.lastEdited) }}</span>
-                  </div>
-                </button>
+                  :book="b"
+                  variant="grid"
+                  @move="onCardMove"
+                  @click="openBook"
+                />
               </div>
               <div v-else class="book-list">
                 <div class="list-head">
@@ -258,22 +162,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <span class="col-num">字数</span>
                   <span class="col-edited">最近</span>
                 </div>
-                <button
+                <BookCard
                   v-for="b in grp.books"
                   :key="b.name"
-                  class="list-row"
-                  @mousemove="onCardMove"
-                  @click="openBook(b.name)"
-                >
-                  <div class="col-name">
-                    <span class="list-name">{{ b.title ?? b.name }}</span>
-                    <span v-if="b.latestChapter" class="list-recent">{{ b.latestChapter }}</span>
-                  </div>
-                  <span class="col-num">{{ b.chapters ?? 0 }} {{ b.kind === 'short' ? '篇' : '章' }}</span>
-                  <span class="col-num">{{ b.kind === 'short' ? '—' : formatWords(b.words) }}</span>
-                  <span class="col-edited">{{ b.lastEdited ? formatRelative(b.lastEdited) : '—' }}</span>
-                  <ArrowRight :size="15" class="list-arrow" />
-                </button>
+                  :book="b"
+                  variant="list"
+                  @move="onCardMove"
+                  @click="openBook"
+                />
               </div>
             </section>
           </div>
@@ -473,13 +369,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-size: var(--font-size-m);
 }
 
-/* 长篇/短篇并排：auto-fit 自适应——两类左右栏，单类时占满整行 */
+/* 长篇/短篇并排 */
 .groups-grid {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-6);
 }
-/* hero 跨整宽（grid-column 1/-1）——继续写作快捷入口 + 字数进度可视化 */
+/* hero 跨整宽——继续写作快捷入口 + 字数进度可视化 */
 .hero-card {
   grid-column: 1 / -1;
   position: relative;
@@ -597,7 +493,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .hero-time {
   color: var(--text-faint);
 }
-/* 列表模式 hero：紧凑单行，匹配列表风格 */
+/* 列表模式 hero：紧凑单行 */
 .hero-list {
   grid-column: 1 / -1;
   position: relative;
@@ -686,109 +582,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
-
-/* 网格卡片：Linear 风——渐变 + hover 鼠标跟随柔光晕 + 进入箭头 */
+/* 网格容器 */
 .book-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: var(--size-4-3);
 }
-.book-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  padding: var(--size-4-3);
-  border-radius: var(--radius-m);
-  background: linear-gradient(180deg, var(--background-secondary-alt), var(--background-secondary));
-  border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-s);
-  min-height: 96px;
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-normal);
-  overflow: hidden;
-  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
-}
-.book-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 14%, transparent), transparent 45%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.book-card:hover::before {
-  opacity: 1;
-}
-.book-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
-  box-shadow: var(--shadow-l);
-}
-.card-arrow {
-  position: absolute;
-  top: var(--size-4-3);
-  right: var(--size-4-3);
-  color: var(--text-accent);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
-}
-.book-card:hover .card-arrow {
-  opacity: 1;
-  transform: translateX(0);
-}
-.book-title {
-  margin: 0;
-  padding-right: var(--size-4-4);
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
-  color: var(--text-normal);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.card-foot {
-  margin-top: auto;
-  padding-top: var(--size-4-2);
-  border-top: 1px solid var(--background-modifier-border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.card-stats {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.book-time {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
-
-/* 列表视图：表格化——表头 + grid 列对齐 + hover 高亮 */
+/* 列表视图表头 */
 .book-list {
   display: flex;
   flex-direction: column;
 }
-.list-head,
-.list-row {
+.list-head {
   display: grid;
-  grid-template-columns: 1fr 56px 72px 72px 18px;
+  grid-template-columns: var(--shelf-list-cols, 1fr 56px 72px 72px 18px);
   align-items: center;
   gap: var(--size-4-2);
-  padding: 0 var(--size-4-2);
-}
-.list-head {
-  padding-top: var(--size-4-1);
-  padding-bottom: var(--size-4-1);
+  padding: var(--size-4-1) var(--size-4-2);
   font-size: var(--font-size-xxs);
   color: var(--text-faint);
   letter-spacing: 0.04em;
@@ -796,79 +606,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 2px;
 }
-.list-row {
-  position: relative;
-  padding-top: var(--size-4-2);
-  padding-bottom: var(--size-4-2);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--background-modifier-border);
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-normal);
-  overflow: hidden;
-}
-.list-row:last-child {
-  border-bottom: none;
-}
-.list-row::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(200px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.list-row:hover::before {
-  opacity: 1;
-}
-.list-row:hover .list-name {
-  color: var(--text-accent);
-}
-.col-name {
+.list-head .col-name {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
 }
-.list-name {
-  font-size: var(--font-size-s);
-  font-weight: 500;
-  color: var(--text-normal);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.list-recent {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.col-num {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
+.list-head .col-num {
   text-align: right;
-  white-space: nowrap;
-}
-.col-edited {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.list-arrow {
-  color: var(--text-faint);
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-.list-row:hover .list-arrow {
-  opacity: 1;
-  color: var(--text-accent);
 }
 
 /* 新建书弹窗（浮层内，z 高于 shelf-modal）*/
@@ -922,22 +667,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .book-card,
   .shelf-modal,
   .create-modal {
     animation: none;
-  }
-  .book-card:hover {
-    transform: none;
-  }
-  .card-arrow {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-  .list-arrow {
-    opacity: 1;
-    transition: none;
   }
 }
 </style>

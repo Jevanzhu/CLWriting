@@ -20,6 +20,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readFile } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import type { StudioDriver, DriverEvent } from '../../../driver/types.js'
 import { runClwritingCli } from '../cli-runner.js'
@@ -46,13 +47,6 @@ const LENS_LABEL: Record<string, string> = {
 export function lensToRole(lens: string): string {
   if (lens === 'emotion_peak') return 'emotion-review'
   return `${lens}-review`
-}
-
-/** 读 book.yaml kind(long 缺省 / short) */
-function readKind(bookRoot: string): 'long' | 'short' {
-  const r = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!r.ok) return 'long'
-  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 const REVIEW_VERDICT_MARKER = '<!-- verdict: approved -->'
@@ -98,7 +92,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const draftPath = join(workDir, kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`)
     if (!existsSync(draftPath)) return reply(res, 400, { error: '无草稿(先写稿)' })
     const draftFile = readFile(draftPath)
-    const draftBody = draftFile.ok ? (draftFile as { body: string }).body : readFileSync(draftPath, 'utf8')
+    const draftBody = draftFile.ok ? draftFile.body : readFileSync(draftPath, 'utf8')
 
     // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流(6.8④)——共享函数 runLensSpawnLoop
     const driver = getDriver('cc')

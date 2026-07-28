@@ -66,17 +66,16 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 async function onRevert(): Promise<void> {
-  const input = window.prompt('回滚到第几章？（后续章节内容将丢弃，可从 git 备份 ref 找回）')
-  if (!input) return
-  const chapter = Number(input)
-  if (!Number.isFinite(chapter) || chapter < 1) return
-  const ok = await ui.ask({
+  const input = await ui.prompt({
     title: '回滚章节',
-    message: `确认回滚到第 ${chapter} 章？此操作不可撤销（内容进 git 备份）。`,
+    message: '输入目标章号。后续章节内容将丢弃（可从 git 备份 ref 找回）。',
+    placeholder: '章号',
     confirmText: '回滚',
     danger: true,
   })
-  if (!ok) return
+  if (!input) return
+  const chapter = Number(input)
+  if (!Number.isFinite(chapter) || chapter < 1) return
   try {
     await revert(props.bookName, chapter)
     await tree.load(props.bookName)

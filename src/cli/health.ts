@@ -34,6 +34,7 @@ import {
   type ChapterSample,
 } from '../metrics/style.js'
 import { readBookConfig } from '../format/yaml.js'
+import { readKind } from '../studio/server/book-context.js'
 import {
   analyzeShortBudgetCalibration,
   analyzeShortCalibration,
@@ -147,7 +148,7 @@ function runStyleReport(bookRoot: string, freeze: boolean, last: number | undefi
   }
 
   // --style：重扫聚合 + 漂移 + 基线对照（#8）
-  const kind = resolveKind(bookRoot)
+  const kind = readKind(bookRoot)
   const samples = recentStyleSamples(
     kind === 'short' ? scanShortPieces(bookRoot) : scanLongChapters(bookRoot),
     last,
@@ -159,7 +160,7 @@ function runStyleReport(bookRoot: string, freeze: boolean, last: number | undefi
 
 /** 综合 --report（#12 合龙）：文风重扫 + 成本/审查读账 */
 function runFullReport(bookRoot: string, last: number | undefined): void {
-  const kind = resolveKind(bookRoot)
+  const kind = readKind(bookRoot)
   // 文风段（块 B 重扫）
   const samples = recentStyleSamples(
     kind === 'short' ? scanShortPieces(bookRoot) : scanLongChapters(bookRoot),
@@ -200,17 +201,6 @@ function recentStyleSamples(samples: ChapterSample[], last: number | undefined):
 function recentShortEntries<T extends { num: number }>(entries: T[], last: number | undefined): T[] {
   if (last === undefined || last <= 0 || entries.length <= last) return entries
   return [...entries].sort((a, b) => a.num - b.num).slice(-last)
-}
-
-/** 解析书仓库 kind（long/short）；读不到配置默认 long */
-function resolveKind(bookRoot: string): 'long' | 'short' {
-  try {
-    const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (cfg.ok) return cfg.config.kind === 'short' ? 'short' : 'long'
-  } catch {
-    // 配置读不到，默认 long
-  }
-  return 'long'
 }
 
 function printWarnings(warnings: ReturnType<typeof gitHealthCheck>['warnings']): void {

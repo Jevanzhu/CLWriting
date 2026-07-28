@@ -34,7 +34,7 @@ const cmds = computed<Cmd[]>(() => {
       list.push({
         id: 'doc:' + node.docId,
         no: m ? m[1] : undefined,
-        label: m ? m[2] : node.name,
+        label: m ? (m[2] ?? node.name) : node.name,
         group: 'chapter',
         run: () => openDoc(node),
       })

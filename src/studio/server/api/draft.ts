@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { buildSettingsContext } from './settings.js'
 
 interface DraftCtx {
@@ -61,13 +61,6 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     const bookRoot = join(ctx.workDir, entry.path)
     reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot)) })
   })
-}
-
-/** 读 book.yaml kind(long 缺省 / short) */
-function readKind(bookRoot: string): 'long' | 'short' {
-  const r = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!r.ok) return 'long'
-  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 /** 组 draft prompt:细纲 + 备料 + 要求(方案 6.6,长短篇 front matter 分支)*/

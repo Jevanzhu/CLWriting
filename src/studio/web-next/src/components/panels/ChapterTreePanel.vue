@@ -131,7 +131,7 @@ function nextChapterNo(): number {
 function lastVolumePath(): string | null {
   const writeGroup = tree.grouped.find((n) => n.path === '写作')
   const vols = (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))
-  return vols.length ? vols[vols.length - 1].path : null
+  return vols.length ? (vols[vols.length - 1]?.path ?? null) : null
 }
 function collectAncestors(ns: TreeNode[], target: string, acc: string[] = []): string[] | null {
   for (const n of ns) {

@@ -15,7 +15,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from '
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { rollbackToChapter } from '../../../git/rollback.js'
 
 interface FileCtx {
@@ -94,7 +94,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         reply(res, 400, { error: '章号/篇号得是正整数' })
         return
       }
-      const kind = resolveKind(r.bookRoot)
+      const kind = readKind(r.bookRoot)
       const result = rollbackToChapter(r.bookRoot, chapter, kind)
       if (!result.ok) {
         reply(res, 400, { error: result.humanMsg })
@@ -155,12 +155,6 @@ function editablePath(bookRoot: string, file: string): string | null {
   const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
   const allowed = EDIT_DIRS.some(({ dir }) => rel === dir || rel.startsWith(`${dir}/`))
   return allowed ? abs : null
-}
-
-/** 读 book.yaml kind（缺省 long） */
-function resolveKind(bookRoot: string): 'long' | 'short' {
-  const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-  return config.kind === 'short' ? 'short' : 'long'
 }
 
 function resolveBook(

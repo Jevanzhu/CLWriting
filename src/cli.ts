@@ -196,4 +196,10 @@ function printHelp(): void {
   console.log('  --help, -h       显示帮助')
 }
 
+/** 兜底：动态 import / 异步命令未捕获的 rejection 统一输出人话 + 非零退出 */
+process.on('unhandledRejection', (reason) => {
+  console.error(`✗ 未预期的错误：${reason instanceof Error ? reason.message : String(reason)}`)
+  process.exit(1)
+})
+
 main()

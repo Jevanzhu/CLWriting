@@ -228,7 +228,6 @@ auto 连写一批
 - **131 个测试文件 / 1035 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；前端构建已消除 >500KB chunk warning。
 - ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
 - 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
-- Studio GUI 真宿主 smoke 已补独立入口：`npm run test:e2e:true-host` 会用本机 Claude Code 驱动工作台生成细纲；默认 `test:e2e` 仍使用 mock driver，保证 CI 稳定。
 - 当前 RC 基线：50 章规模验证已完成并回收 D9/E1 修复；`health --metrics` 已接入宿主漏记软提示与预算校准提示，短篇 `health --report` 已追加阈值回灌、每篇预算候选、质量趋势和系列母题；`repair-plan` 已接入短篇重修建议；auto 待定稿记账链路已回归覆盖，`record-call --set-tokens` 已支持 token 真值事后回填；v0.2 实书迁移验证因当前无待迁移数据标记为 N/A。
 - RC 能力边界：`auto` 已支持长篇批量连写与短篇集批量连写；AI 产出仍由宿主在编排接缝提供，脚本负责待定稿、批量审稿、逐章/逐篇定稿与回滚。
 

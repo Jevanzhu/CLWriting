@@ -14,6 +14,9 @@
  */
 
 import type { ParseError } from './types.js'
+import { splitFrontMatter } from './frontmatter-core.js'
+// splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
+export { splitFrontMatter }
 
 // ── 值类型推断 ──────────────────────────────────
 
@@ -66,27 +69,7 @@ export function stringifyValue(val: unknown): string {
 }
 
 // ── front matter 提取/包裹 ──────────────────────
-
-/** 从 markdown 文本提取 front matter 段（--- 之间）与正文 */
-export function splitFrontMatter(
-  content: string,
-): { fmRaw: string; body: string } | null {
-  // 首行必须是 ---
-  if (!content.startsWith('---')) return null
-  const lines = content.split('\n')
-  // 找闭合 ---
-  let endIdx = -1
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') {
-      endIdx = i
-      break
-    }
-  }
-  if (endIdx === -1) return null
-  const fmRaw = lines.slice(1, endIdx).join('\n')
-  const body = lines.slice(endIdx + 1).join('\n')
-  return { fmRaw, body }
-}
+// splitFrontMatter 定义已移至 frontmatter-core.ts，文件顶部 re-export
 
 /** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
 export function parseFlat(

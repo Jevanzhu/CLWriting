@@ -8,6 +8,7 @@ import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
+import PromptDialog from '../ui/PromptDialog.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
 import SettingsModal from '../ui/SettingsModal.vue'
 import ShelfModal from '../ui/ShelfModal.vue'
@@ -93,6 +94,7 @@ function startResizeLeft(e: MouseEvent): void {
     <StatusBar :book-name="bookName" />
     <ConfirmDialog />
     <ConfirmPrompt />
+    <PromptDialog />
     <CommandPalette />
     <SettingsModal />
     <ShelfModal />

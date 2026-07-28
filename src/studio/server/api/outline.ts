@@ -15,7 +15,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { getDriver } from '../../../driver/index.js'
 import { buildSettingsContext } from './settings.js'
 
@@ -123,13 +123,6 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
     `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown,不要读文件、不要用工具。`,
   )
   return parts.join('\n\n')
-}
-
-/** 读 book.yaml kind(long 缺省 / short) */
-function readKind(bookRoot: string): 'long' | 'short' {
-  const r = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!r.ok) return 'long'
-  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }
 
 function readSafe(fp: string): string {

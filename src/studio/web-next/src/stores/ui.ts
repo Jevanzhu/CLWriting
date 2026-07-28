@@ -25,6 +25,18 @@ export const useUiStore = defineStore('ui', () => {
     danger?: boolean
     resolve: (v: boolean) => void
   } | null>(null)
+  // 通用输入弹窗（命令式）：const v = await ui.prompt({ ... })，替代原生 prompt()。
+  // 由 PromptDialog.vue 渲染——收文本输入，与 ConfirmPrompt（二选一）互补。
+  const promptState = ref<{
+    title: string
+    message: string
+    placeholder?: string
+    defaultValue?: string
+    confirmText?: string
+    cancelText?: string
+    danger?: boolean
+    resolve: (v: string | null) => void
+  } | null>(null)
   const toasts = ref<ToastItem[]>([])
   // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
@@ -72,6 +84,26 @@ export const useUiStore = defineStore('ui', () => {
     confirmState.value = null
     s?.resolve(v)
   }
+  /** 命令式输入（替代原生 prompt）。await 返回 string（确认）/ null（取消）；mask 点击视为取消。 */
+  function prompt(opts: {
+    title: string
+    message: string
+    placeholder?: string
+    defaultValue?: string
+    confirmText?: string
+    cancelText?: string
+    danger?: boolean
+  }): Promise<string | null> {
+    return new Promise((resolve) => {
+      promptState.value = { ...opts, resolve }
+    })
+  }
+  /** PromptDialog 内部调：关闭弹窗 + resolve 调用方。 */
+  function resolvePrompt(v: string | null): void {
+    const s = promptState.value
+    promptState.value = null
+    s?.resolve(v)
+  }
   /** 弹 toast（1.8s 自动消失）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
     const id = ++seq
@@ -110,8 +142,11 @@ export const useUiStore = defineStore('ui', () => {
     openShelf,
     closeShelf,
     confirmState,
+    promptState,
     ask,
     resolveConfirm,
+    prompt,
+    resolvePrompt,
     toast,
   }
 })

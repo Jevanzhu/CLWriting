@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readKind } from '../book-context.js'
 import { resolveSpawnTarget, runClwritingCli } from '../cli-runner.js'
 
 export { resolveSpawnTarget }
@@ -52,11 +52,4 @@ export function registerCliRoutes(ctx: CliCtx): void {
     // 吞掉 stdout/stderr 诊断信息（body 无 error 字段时 toast 只剩退出码数字）
     reply(res, 200, { ...result, step })
   })
-}
-
-/** 读 book.yaml kind(long 缺省 / short) */
-function readKind(bookRoot: string): 'long' | 'short' {
-  const r = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!r.ok) return 'long'
-  return ((r as { config: { kind?: string } }).config.kind ?? 'long') === 'short' ? 'short' : 'long'
 }

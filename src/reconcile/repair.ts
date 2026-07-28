@@ -169,8 +169,3 @@ export function formatRepairReport(report: RepairReport): string {
   lines.push('修好前相关功能降级（坏文件的账本暂不入缓存/机检），系统其余照常。坏文件原样保留，修复是改好后显式保存。')
   return lines.join('\n')
 }
-
-/** 降级判定：某文件是否因坏而不入缓存（#18 第 2 节降级不崩） */
-export function isDegradedFile(filePath: string, report: RepairReport): boolean {
-  return report.errors.some((e) => existsSync(e.file) && e.file === filePath)
-}

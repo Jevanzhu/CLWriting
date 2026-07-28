@@ -33,15 +33,3 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
   sessions.set(bookId, session)
   return session
 }
-
-export function getSession(bookId: string): Session | undefined {
-  return sessions.get(bookId)
-}
-
-export function disposeSession(bookId: string): void {
-  const s = sessions.get(bookId)
-  if (s) {
-    getDriver('cc').dispose(s)
-    sessions.delete(bookId)
-  }
-}

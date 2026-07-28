@@ -1,19 +1,17 @@
 // 与服务端共享的字数/章名纯函数（T2.1）：从主仓 src/format/words.ts re-export。
 // words.ts 零 Node 依赖，浏览器端可直接 import；chapters.ts 因 import node:fs 不可跨入。
 export { countWords, parseChapterFileName } from '../../../../format/words'
+// splitFrontMatter 从 frontmatter-core.ts re-export（零 Node 依赖，服务端/浏览器共用），
+// 消除此前手写 --- 查找逻辑的漂移风险。
+import { splitFrontMatter } from '../../../../format/frontmatter-core'
 
 /**
  * 剥 frontmatter（--- ... ---）取正文 body。
- * 与服务端 format/frontmatter.splitFrontMatter 同逻辑；不直接 re-export，
- * 因 format/frontmatter 顶层 import node:fs（readFile/writeFile）不可跨入浏览器。
+ * 复用 format/frontmatter-core.splitFrontMatter（单一源码）。
  */
 export function stripFrontmatter(content: string): string {
-  if (!content.startsWith('---')) return content
-  const lines = content.split('\n')
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') return lines.slice(i + 1).join('\n')
-  }
-  return content
+  const split = splitFrontMatter(content)
+  return split ? split.body : content
 }
 
 /**
@@ -22,18 +20,9 @@ export function stripFrontmatter(content: string): string {
  * 无 fm 或 fm 未闭合 → 返回 body；body 去前导空行（fm/body 分隔空行），本体原样保留（含末尾换行，往返一致）。
  */
 export function mergeFm(full: string, body: string): string {
-  if (!full.startsWith('---')) return body
-  const lines = full.split('\n')
-  let end = -1
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') {
-      end = i
-      break
-    }
-  }
-  if (end === -1) return body
-  const fmPart = lines.slice(0, end + 1).join('\n')
-  return `${fmPart}\n\n${body.replace(/^\n+/, '')}`
+  const split = splitFrontMatter(full)
+  if (!split) return body
+  return `---\n${split.fmRaw}\n---\n\n${body.replace(/^\n+/, '')}`
 }
 
 /**
@@ -42,19 +31,12 @@ export function mergeFm(full: string, body: string): string {
  * 无 frontmatter → 空对象。
  */
 export function parseFmFields(content: string): Record<string, string> {
-  if (!content.startsWith('---')) return {}
-  const lines = content.split('\n')
-  let end = -1
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') {
-      end = i
-      break
-    }
-  }
-  if (end === -1) return {}
+  const split = splitFrontMatter(content)
+  if (!split) return {}
+  const lines = split.fmRaw.split('\n')
   const out: Record<string, string> = {}
-  let i = 1
-  while (i < end) {
+  let i = 0
+  while (i < lines.length) {
     const line = lines[i]!
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('#')) {
@@ -73,7 +55,7 @@ export function parseFmFields(content: string): Record<string, string> {
       const folded = valRaw === '>'
       const block: string[] = []
       i++
-      while (i < end) {
+      while (i < lines.length) {
         const bl = lines[i]!
         if (bl.trim() === '') {
           block.push('')
