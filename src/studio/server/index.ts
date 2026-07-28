@@ -34,6 +34,7 @@ import { registerSearchRoutes } from './api/search.js'
 import { registerCheckRoutes } from './api/check.js'
 import { registerAnalysisRoutes } from './api/analysis.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
+import { registerAskRoutes } from './api/ask.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
@@ -70,6 +71,7 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerReviewRoutes({ workDir })
     registerOnboardRoutes({ workDir })
     registerRewriteRoutes({ workDir })
+    registerAskRoutes({ workDir })
   })
   return routes
 }
