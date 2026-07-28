@@ -382,17 +382,17 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   background: var(--background-secondary);
-  padding: var(--size-4-3) 0;
+  padding: var(--size-4-3) var(--size-4-4);
   overflow: hidden;
 }
 .doc-page {
   height: 100%;
   max-width: 820px;
-  margin: 0 var(--size-4-5);
+  margin: 0 auto;
   background: var(--background-primary);
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-m);
   overflow: hidden;
-  padding: var(--size-4-6) var(--size-4-6);
+  padding: var(--size-4-6);
 }
 </style>
