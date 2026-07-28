@@ -54,15 +54,25 @@ const wordAchievement = computed(() => {
 const CHART_W = 720
 const CHART_H = 170
 const PAD_BOTTOM = 22 // 章号标签
+const PAD_LEFT = 34 // Y 轴刻度标签
+const DRAW_W = CHART_W - PAD_LEFT
 const maxWords = computed(() =>
   Math.max(1, ...(data.value?.wordCurve ?? []).map((p) => p.字数)),
 )
+// Y 轴网格刻度（maxWords 的 25/50/75% 处）
+const Y_TICKS = [0.25, 0.5, 0.75]
+/** 字数简写：≥1万→X.X万，≥1千→X.Xk，其余原值 */
+function fmtWords(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(Math.round(n))
+}
 function barX(i: number, n: number): number {
-  const slot = CHART_W / Math.max(1, n)
-  return i * slot + slot * 0.2
+  const slot = DRAW_W / Math.max(1, n)
+  return PAD_LEFT + i * slot + slot * 0.2
 }
 function barW(n: number): number {
-  return (CHART_W / Math.max(1, n)) * 0.6
+  return (DRAW_W / Math.max(1, n)) * 0.6
 }
 function barY(字数: number): number {
   const h = (字数 / maxWords.value) * (CHART_H - PAD_BOTTOM - 10)
@@ -120,8 +130,14 @@ function distMax(g: DistGroup): number {
           :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
           preserveAspectRatio="xMidYMid meet"
         >
+          <!-- Y 轴网格线 + 刻度标签 -->
+          <text :x="2" :y="12" class="axis-label">字数</text>
+          <g v-for="(t, idx) in Y_TICKS" :key="idx">
+            <line :x1="PAD_LEFT" :x2="CHART_W" :y1="barY(maxWords * t)" :y2="barY(maxWords * t)" class="grid-line" />
+            <text :x="PAD_LEFT - 4" :y="barY(maxWords * t) + 3" class="grid-label" text-anchor="end">{{ fmtWords(maxWords * t) }}</text>
+          </g>
           <!-- 均篇虚线 -->
-          <line :x1="0" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
+          <line :x1="PAD_LEFT" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
           <text :x="CHART_W - 4" :y="avgY - 4" class="avg-text" text-anchor="end">均篇</text>
           <!-- 每章一条 -->
           <g v-for="(p, i) in data.wordCurve" :key="p.章号">
@@ -301,6 +317,22 @@ function distMax(g: DistGroup): number {
 .bar-label {
   fill: var(--text-faint);
   font-size: 9px;
+}
+.axis-label {
+  fill: var(--text-faint);
+  font-size: var(--font-size-xxs);
+  font-weight: 500;
+}
+.grid-line {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
+}
+.grid-label {
+  fill: var(--text-faint);
+  font-size: var(--font-size-xxs);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── 分布对比 ── */

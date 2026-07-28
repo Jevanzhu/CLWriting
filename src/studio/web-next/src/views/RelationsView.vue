@@ -390,8 +390,12 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
       <div class="legend-row">
         <span class="lg"><span class="lg-node lg-big"></span><span class="lg-node lg-small"></span>大小=出场度</span>
         <span class="lg"><span class="lg-node lg-gray"></span>无资料卡</span>
-        <span class="lg"><span class="lg-line"></span>关系</span>
-        <span class="lg"><span class="lg-line lg-debt"></span>债务</span>
+        <span class="lg"><span class="lg-line cat-1"></span>对立</span>
+        <span class="lg"><span class="lg-line cat-1 lg-debt"></span>债务</span>
+        <span class="lg"><span class="lg-line cat-4"></span>长辈</span>
+        <span class="lg"><span class="lg-line cat-5"></span>亲密</span>
+        <span class="lg"><span class="lg-line cat-3"></span>同辈</span>
+        <span class="lg"><span class="lg-line cat-2"></span>从属</span>
       </div>
       <svg
         ref="svgRef"
@@ -482,6 +486,11 @@ const debtCount = computed(() => edges.value.filter((e) => e.kind === 'debt').le
 .lg-line.lg-debt {
   border-top: 1.5px dashed var(--cat-1);
 }
+.lg-line.cat-1 { border-top-color: var(--cat-1); }
+.lg-line.cat-2 { border-top-color: var(--cat-2); }
+.lg-line.cat-3 { border-top-color: var(--cat-3); }
+.lg-line.cat-4 { border-top-color: var(--cat-4); }
+.lg-line.cat-5 { border-top-color: var(--cat-5); }
 .count {
   font-size: var(--font-size-m);
   font-weight: 600;

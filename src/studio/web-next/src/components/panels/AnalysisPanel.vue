@@ -109,14 +109,15 @@ async function runKind(kind: AnalysisKindFE): Promise<void> {
 // 情绪 SVG 折线坐标（emotion -2..2 → y；seg 顺序 → x）
 const EMOTION_W = 200
 const EMOTION_H = 64
-const EMOTION_PAD = 10
+const EMOTION_PAD_X = 20 // 左侧留 Y 轴标签空间
+const EMOTION_PAD_Y = 10
 function emotionX(i: number, n: number): number {
-  if (n <= 1) return EMOTION_W / 2
-  return EMOTION_PAD + (i / (n - 1)) * (EMOTION_W - 2 * EMOTION_PAD)
+  if (n <= 1) return (EMOTION_W + EMOTION_PAD_X) / 2
+  return EMOTION_PAD_X + (i / (n - 1)) * (EMOTION_W - EMOTION_PAD_X - EMOTION_PAD_Y)
 }
 function emotionY(v: number): number {
   const clamped = Math.max(-2, Math.min(2, v))
-  return EMOTION_PAD + (1 - (clamped + 2) / 4) * (EMOTION_H - 2 * EMOTION_PAD)
+  return EMOTION_PAD_Y + (1 - (clamped + 2) / 4) * (EMOTION_H - 2 * EMOTION_PAD_Y)
 }
 const emotionLine = computed(() => {
   const arr = emotionPayload.value ?? []
@@ -205,7 +206,11 @@ function dimWidth(label: string, v: number): string {
               <stop offset="100%" :style="{ stopColor: 'var(--div-neg)' }" />
             </linearGradient>
           </defs>
-          <line :x1="EMOTION_PAD" :y1="emotionY(0)" :x2="EMOTION_W - EMOTION_PAD" :y2="emotionY(0)" class="ap-emotion-zero" />
+          <!-- Y 轴语义标签：+2（正情绪）/ 0（中性）/ −2（负情绪）-->
+          <text x="2" :y="emotionY(2) + 3" class="ap-emotion-y">+2</text>
+          <text x="2" :y="emotionY(0) + 3" class="ap-emotion-y">0</text>
+          <text x="2" :y="emotionY(-2) + 3" class="ap-emotion-y">−2</text>
+          <line :x1="EMOTION_PAD_X" :y1="emotionY(0)" :x2="EMOTION_W - EMOTION_PAD_Y" :y2="emotionY(0)" class="ap-emotion-zero" />
           <polyline :points="emotionLine" class="ap-emotion-line" style="stroke: url(#clw-emotion-grad)" />
           <circle
             v-for="(d, i) in emotionPayload"
@@ -459,6 +464,11 @@ function dimWidth(label: string, v: number): string {
 }
 .ap-emotion-dot.neg {
   fill: var(--div-neg);
+}
+.ap-emotion-y {
+  fill: var(--text-faint);
+  font-size: var(--font-size-xxs);
+  font-variant-numeric: tabular-nums;
 }
 .ap-emotion-legend {
   display: flex;
