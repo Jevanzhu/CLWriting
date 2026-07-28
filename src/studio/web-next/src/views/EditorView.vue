@@ -345,32 +345,30 @@ onUnmounted(() => {
 .conflict-btn.danger:hover {
   color: var(--text-error);
 }
-/* AI 工具条容器（有边界感，成组而非散落）*/
+/* AI 按钮：独立胶囊（各自带边框，不包外层容器）*/
 .ai-tools {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 1px;
-  padding: 2px;
-  border-radius: var(--radius-m);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
+  gap: 4px;
 }
 .ai-tool-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  border: none;
+  padding: 3px 9px;
+  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  background: transparent;
+  background: var(--background-primary);
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .ai-tool-btn:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
   color: var(--text-accent);
 }
 .ai-spin {
