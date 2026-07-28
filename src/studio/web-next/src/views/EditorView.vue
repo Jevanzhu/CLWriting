@@ -221,13 +221,15 @@ onUnmounted(() => {
       </div>
     </header>
     <div class="doc-body">
-      <CmHost
-        ref="cmHost"
-        :model-value="body"
-        :mode="entry.mode"
-        :typewriter="ws.focusMode"
-        @update:model-value="onBodyChange"
-      />
+      <div class="doc-page">
+        <CmHost
+          ref="cmHost"
+          :model-value="body"
+          :mode="entry.mode"
+          :typewriter="ws.focusMode"
+          @update:model-value="onBodyChange"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -375,10 +377,22 @@ onUnmounted(() => {
 @keyframes ai-spin {
   to { transform: rotate(360deg); }
 }
+/* Word 风格：灰色桌面 + 白色纸张（shadow + 圆角）*/
 .doc-body {
   flex: 1;
   min-height: 0;
-  padding: var(--size-4-4) var(--size-4-6);
+  background: var(--background-secondary);
+  padding: var(--size-4-3) 0;
   overflow: hidden;
+}
+.doc-page {
+  height: 100%;
+  max-width: 820px;
+  margin: 0 var(--size-4-5);
+  background: var(--background-primary);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-m);
+  overflow: hidden;
+  padding: var(--size-4-6) var(--size-4-6);
 }
 </style>
