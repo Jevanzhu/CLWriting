@@ -270,13 +270,17 @@ onUnmounted(() => {
 .doc-crumb-sep {
   opacity: 0.5;
 }
-/* 第二排：标题居中；与上方 meta-row 用细线分隔 */
+/* 第二排：标题居中；与上方 meta-row 用细线分隔（负 margin 让 border 等宽于 doc-head）*/
 .doc-title-row {
   display: flex;
   justify-content: center;
   border-top: 1px solid var(--background-modifier-border);
   padding-top: var(--size-4-2);
+  padding-left: var(--size-4-6);
+  padding-right: var(--size-4-6);
   margin-top: var(--size-4-2);
+  margin-left: calc(-1 * var(--size-4-6));
+  margin-right: calc(-1 * var(--size-4-6));
 }
 .inline-title {
   flex: none;
