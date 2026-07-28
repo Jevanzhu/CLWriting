@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { Info, FileSearch, CheckSquare, BarChart3, PanelRightClose } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
@@ -25,10 +25,7 @@ const showOutlineForm = computed(() => {
   return node ? formKindOf(node.path) !== null : false
 })
 
-// M12 B0.5：右栏 tab（信息=字数/表单 / 审阅=三审+改写 / 机检 / 分析）；审阅·机检·分析由块1/2/3/4 逐个填充
-type RightTab = 'info' | 'review' | 'check' | 'analysis'
-const tab = ref<RightTab>('info')
-const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
+const tabs: { key: 'info' | 'review' | 'check' | 'analysis'; label: string; icon: typeof Info }[] = [
   { key: 'info', label: '信息', icon: Info },
   { key: 'review', label: '审阅', icon: FileSearch },
   { key: 'check', label: '机检', icon: CheckSquare },
@@ -52,9 +49,9 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
           v-for="t in tabs"
           :key="t.key"
           class="right-tab"
-          :class="{ active: tab === t.key }"
+          :class="{ active: ws.rightTab === t.key }"
           :data-tip="t.label" data-tip-dir="bottom"
-          @click="tab = t.key"
+          @click="ws.setRightTab(t.key)"
         >
           <component :is="t.icon" :size="16" />
         </button>
@@ -62,19 +59,19 @@ const tabs: { key: RightTab; label: string; icon: typeof Info }[] = [
     </div>
     <div class="right-body">
       <!-- 信息 tab：字数 / 大纲结构化表单 -->
-      <template v-if="tab === 'info'">
+      <template v-if="ws.rightTab === 'info'">
         <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
         <WritingInfoPanel v-else :book-name="bookName" />
       </template>
       <!-- 审阅 tab：块1 三审 + 块2 改写 -->
-      <div v-else-if="tab === 'review'" class="review-stack">
+      <div v-else-if="ws.rightTab === 'review'" class="review-stack">
         <ReviewPanel :book-name="bookName" />
         <RewritePanel :book-name="bookName" />
       </div>
       <!-- 机检 tab：块3 本地规则检查（无 AI，断网可用） -->
-      <CheckPanel v-else-if="tab === 'check'" :book-name="bookName" />
+      <CheckPanel v-else-if="ws.rightTab === 'check'" :book-name="bookName" />
       <!-- 分析 tab：块4 AI 分析（体验分 B4.1 先行；情绪/钩子/文风 B4.2-B4.4） -->
-      <AnalysisPanel v-else-if="tab === 'analysis'" :book-name="bookName" />
+      <AnalysisPanel v-else-if="ws.rightTab === 'analysis'" :book-name="bookName" />
       <ContextQuickPanel :book-name="bookName" />
     </div>
   </div>
