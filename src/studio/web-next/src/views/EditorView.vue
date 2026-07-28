@@ -27,6 +27,12 @@ const isReviewable = computed(() => {
   return /^工作区\/草稿-\d+\.md$/.test(entry.value.path)
 })
 
+// 面包屑：文档路径到父目录（末级=文件名=标题，不重复）
+const crumbs = computed(() => {
+  const p = entry.value?.path ?? ''
+  return p.replace(/\.md$/, '').split('/').slice(0, -1).filter(Boolean)
+})
+
 // AI 预设动作：选中文字 → 一键改写 → 右栏 diff 预览
 const aiActions = [
   { key: 'expand', label: '扩写', icon: Expand, instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
@@ -155,57 +161,67 @@ onUnmounted(() => {
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view">
     <header class="doc-head">
-      <input
-        v-if="isChapter"
-        v-model="titleModel"
-        class="inline-title editable"
-        placeholder="未命名"
-        @blur="onTitleCommit"
-        @keydown.enter.prevent="onTitleCommit"
-      />
-      <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
-      <span
-        class="save-state"
-        :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error && !entry.handLocked, handlocked: entry.handLocked }"
-      >
-        {{
-          entry.saving
-            ? '保存中…'
-            : entry.handLocked
-              ? '正在手写中（保存暂停）'
-              : entry.error
-                ? entry.error
-                : entry.dirty
-                  ? '未保存（⌘S）'
-                  : entry.savedAt
-                    ? '已保存'
-                    : ''
-        }}
-      </span>
-      <!-- 乐观锁冲突出路：重载（丢本地）/ 覆盖（丢远端），二选一解除冲突态 -->
-      <template v-if="entry.conflict">
-        <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
-        <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">
-          覆盖远端
-        </button>
-      </template>
+      <!-- 面包屑：文档路径（到父目录；末级=文件名=标题不重复）-->
+      <div v-if="crumbs.length" class="doc-crumbs">
+        <template v-for="(c, i) in crumbs" :key="i">
+          <span v-if="i > 0" class="doc-crumb-sep">›</span>
+          <span class="doc-crumb">{{ c }}</span>
+        </template>
+      </div>
+      <!-- 标题行：标题 + 保存态 + AI 按钮 -->
+      <div class="doc-title-row">
+        <input
+          v-if="isChapter"
+          v-model="titleModel"
+          class="inline-title editable"
+          placeholder="未命名"
+          @blur="onTitleCommit"
+          @keydown.enter.prevent="onTitleCommit"
+        />
+        <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
+        <span
+          class="save-state"
+          :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error && !entry.handLocked, handlocked: entry.handLocked }"
+        >
+          {{
+            entry.saving
+              ? '保存中…'
+              : entry.handLocked
+                ? '正在手写中（保存暂停）'
+                : entry.error
+                  ? entry.error
+                  : entry.dirty
+                    ? '未保存（⌘S）'
+                    : entry.savedAt
+                      ? '已保存'
+                      : ''
+          }}
+        </span>
+        <!-- 乐观锁冲突出路：重载（丢本地）/ 覆盖（丢远端），二选一解除冲突态 -->
+        <template v-if="entry.conflict">
+          <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
+          <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">
+            覆盖远端
+          </button>
+        </template>
+        <!-- AI 按钮（融入标题行右侧）-->
+        <div v-if="isReviewable" class="ai-tools">
+          <button
+            v-for="a in aiActions"
+            :key="a.key"
+            class="ai-tool-btn"
+            :disabled="aiOff || rewrite.loading"
+            :data-tip="aiOff ? 'AI 不可达' : a.label"
+            data-tip-dir="bottom"
+            @click="runAiAssist(a.instruction)"
+          >
+            <component :is="a.icon" :size="13" />
+            <span>{{ a.label }}</span>
+          </button>
+          <Loader2 v-if="rewrite.loading" :size="13" class="ai-spin" />
+        </div>
+      </div>
     </header>
-    <!-- AI 工具栏：扩写/缩写/润色/续写（选中文字 → 一键改写 → 右栏 diff 预览） -->
-    <div v-if="isReviewable" class="ai-toolbar">
-      <button
-        v-for="a in aiActions"
-        :key="a.key"
-        class="ai-tool-btn"
-        :disabled="aiOff || rewrite.loading"
-        :data-tip="aiOff ? 'AI 不可达' : a.label"
-        data-tip-dir="bottom"
-        @click="runAiAssist(a.instruction)"
-      >
-        <component :is="a.icon" :size="13" />
-        <span>{{ a.label }}</span>
-      </button>
-      <Loader2 v-if="rewrite.loading" :size="13" class="ai-spin" />
-    </div>
     <div class="doc-body">
       <CmHost
         ref="cmHost"
@@ -228,13 +244,29 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
+/* doc-head：面包屑行 + 标题行（含 AI 按钮），一条 border-bottom 分界 */
 .doc-head {
   flex-shrink: 0;
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--size-4-3) var(--size-4-6) var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.doc-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
+.doc-crumb-sep {
+  opacity: 0.5;
+}
+.doc-title-row {
+  display: flex;
   align-items: baseline;
   gap: var(--size-4-3);
-  padding: var(--size-4-4) var(--size-4-6) var(--size-4-2);
-  border-bottom: 1px solid var(--background-modifier-border);
 }
 .inline-title {
   flex: 1;
@@ -291,15 +323,12 @@ onUnmounted(() => {
 .conflict-btn.danger:hover {
   color: var(--text-error);
 }
-/* AI 工具栏：标题栏下方一行轻量按钮（扩写/缩写/润色/续写） */
-.ai-toolbar {
+/* AI 按钮（标题行右侧）*/
+.ai-tools {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--size-4-1);
-  padding: 0 var(--size-4-6);
-  height: 32px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  gap: 2px;
 }
 .ai-tool-btn {
   display: inline-flex;

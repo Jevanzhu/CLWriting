@@ -82,7 +82,7 @@ function startResizeLeft(e: MouseEvent): void {
       </div>
       <main class="ws-main">
         <TabBar :book-name="bookName" />
-        <ViewHeader :book-name="bookName" />
+        <ViewHeader v-if="ws.activeView !== 'editor'" :book-name="bookName" />
         <div class="ws-view">
           <slot />
         </div>
