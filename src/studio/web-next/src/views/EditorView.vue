@@ -161,24 +161,14 @@ onUnmounted(() => {
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view">
     <header class="doc-head">
-      <!-- 面包屑：文档路径（到父目录；末级=文件名=标题不重复）-->
-      <div v-if="crumbs.length" class="doc-crumbs">
-        <template v-for="(c, i) in crumbs" :key="i">
-          <span v-if="i > 0" class="doc-crumb-sep">›</span>
-          <span class="doc-crumb">{{ c }}</span>
-        </template>
-      </div>
-      <!-- 标题行：标题 + 保存态 + AI 按钮 -->
-      <div class="doc-title-row">
-        <input
-          v-if="isChapter"
-          v-model="titleModel"
-          class="inline-title editable"
-          placeholder="未命名"
-          @blur="onTitleCommit"
-          @keydown.enter.prevent="onTitleCommit"
-        />
-        <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
+      <!-- 第一排：面包屑(左) + 保存态 + AI 按钮(右) -->
+      <div class="doc-meta-row">
+        <div v-if="crumbs.length" class="doc-crumbs">
+          <template v-for="(c, i) in crumbs" :key="i">
+            <span v-if="i > 0" class="doc-crumb-sep">›</span>
+            <span class="doc-crumb">{{ c }}</span>
+          </template>
+        </div>
         <span
           class="save-state"
           :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error && !entry.handLocked, handlocked: entry.handLocked }"
@@ -197,14 +187,12 @@ onUnmounted(() => {
                       : ''
           }}
         </span>
-        <!-- 乐观锁冲突出路：重载（丢本地）/ 覆盖（丢远端），二选一解除冲突态 -->
         <template v-if="entry.conflict">
           <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
           <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">
             覆盖远端
           </button>
         </template>
-        <!-- AI 按钮（融入标题行右侧）-->
         <div v-if="isReviewable" class="ai-tools">
           <button
             v-for="a in aiActions"
@@ -220,6 +208,18 @@ onUnmounted(() => {
           </button>
           <Loader2 v-if="rewrite.loading" :size="13" class="ai-spin" />
         </div>
+      </div>
+      <!-- 第二排：标题居中 -->
+      <div class="doc-title-row">
+        <input
+          v-if="isChapter"
+          v-model="titleModel"
+          class="inline-title editable"
+          placeholder="未命名"
+          @blur="onTitleCommit"
+          @keydown.enter.prevent="onTitleCommit"
+        />
+        <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
       </div>
     </header>
     <div class="doc-body">
@@ -244,7 +244,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-/* doc-head：面包屑行 + 标题行（含 AI 按钮），一条 border-bottom 分界 */
+/* doc-head：第一排(面包屑+按钮) + 第二排(标题居中)，一条 border-bottom */
 .doc-head {
   flex-shrink: 0;
   display: flex;
@@ -253,7 +253,15 @@ onUnmounted(() => {
   padding: var(--size-4-3) var(--size-4-6) var(--size-4-2);
   border-bottom: 1px solid var(--background-modifier-border);
 }
+/* 第一排：面包屑靠左，保存态 + AI 按钮靠右 */
+.doc-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 24px;
+}
 .doc-crumbs {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -263,13 +271,16 @@ onUnmounted(() => {
 .doc-crumb-sep {
   opacity: 0.5;
 }
+/* 第二排：标题居中 */
 .doc-title-row {
   display: flex;
-  align-items: baseline;
-  gap: var(--size-4-3);
+  justify-content: center;
 }
 .inline-title {
-  flex: 1;
+  flex: none;
+  text-align: center;
+  min-width: 200px;
+  max-width: 80%;
   border: none;
   outline: none;
   background: transparent;
