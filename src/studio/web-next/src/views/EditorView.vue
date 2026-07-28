@@ -33,6 +33,18 @@ const crumbs = computed(() => {
   return p.replace(/\.md$/, '').split('/').slice(0, -1).filter(Boolean)
 })
 
+// 保存状态（药丸 + 圆点指示器）
+const saveStatus = computed<{ text: string; cls: string }>(() => {
+  const e = entry.value
+  if (!e) return { text: '', cls: '' }
+  if (e.saving) return { text: '保存中', cls: 'saving' }
+  if (e.handLocked) return { text: '手写中', cls: 'saving' }
+  if (e.error) return { text: '保存失败', cls: 'err' }
+  if (e.dirty) return { text: '未保存', cls: 'dirty' }
+  if (e.savedAt) return { text: '已保存', cls: 'saved' }
+  return { text: '', cls: '' }
+})
+
 // AI 预设动作：选中文字 → 一键改写 → 右栏 diff 预览
 const aiActions = [
   { key: 'expand', label: '扩写', icon: Expand, instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
@@ -169,23 +181,9 @@ onUnmounted(() => {
             <span class="doc-crumb">{{ c }}</span>
           </template>
         </div>
-        <span
-          class="save-state"
-          :class="{ dirty: entry.dirty, saving: entry.saving, err: !!entry.error && !entry.handLocked, handlocked: entry.handLocked }"
-        >
-          {{
-            entry.saving
-              ? '保存中…'
-              : entry.handLocked
-                ? '正在手写中（保存暂停）'
-                : entry.error
-                  ? entry.error
-                  : entry.dirty
-                    ? '未保存（⌘S）'
-                    : entry.savedAt
-                      ? '已保存'
-                      : ''
-          }}
+        <span v-if="saveStatus.text" class="save-pill" :class="saveStatus.cls">
+          <span class="save-dot" />
+          {{ saveStatus.text }}
         </span>
         <template v-if="entry.conflict">
           <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
@@ -244,43 +242,37 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-/* doc-head：第一排(面包屑+按钮) + 第二排(标题居中)，一条 border-bottom */
+/* doc-head：第一排(面包屑+按钮) + 第二排(标题居中) */
 .doc-head {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--size-4-3) var(--size-4-6) var(--size-4-2);
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) var(--size-4-6);
   border-bottom: 1px solid var(--background-modifier-border);
 }
-/* 第一排：面包屑靠左，保存态 + AI 按钮靠右 */
+/* 第一排：面包屑靠左，保存药丸 + AI 工具条靠右 */
 .doc-meta-row {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
-  min-height: 24px;
+  min-height: 28px;
 }
 .doc-crumbs {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 .doc-crumb-sep {
-  opacity: 0.5;
+  opacity: 0.4;
 }
-/* 第二排：标题居中；与上方 meta-row 用细线分隔（负 margin 让 border 等宽于 doc-head）*/
+/* 第二排：标题居中 */
 .doc-title-row {
   display: flex;
   justify-content: center;
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: var(--size-4-2);
-  padding-left: var(--size-4-6);
-  padding-right: var(--size-4-6);
-  margin-top: var(--size-4-2);
-  margin-left: calc(-1 * var(--size-4-6));
-  margin-right: calc(-1 * var(--size-4-6));
 }
 .inline-title {
   flex: none;
@@ -290,10 +282,10 @@ onUnmounted(() => {
   border: none;
   outline: none;
   background: transparent;
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
   color: var(--text-normal);
-  font-family: var(--font-ui);
+  font-family: var(--prose-font);
 }
 /* chapter 可编辑标题：hover 有底色提示可点；内边距补偿保持视觉对齐 */
 .inline-title.editable {
@@ -306,22 +298,35 @@ onUnmounted(() => {
 .inline-title.editable:hover {
   background: var(--background-modifier-hover);
 }
-.save-state {
+/* 保存状态药丸 + 圆点指示器 */
+.save-pill {
   flex-shrink: 0;
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-}
-.save-state.dirty {
-  color: var(--text-warning);
-}
-.save-state.saving {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
+  background: var(--background-modifier-hover);
 }
-.save-state.err {
-  color: var(--text-error);
+.save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
 }
-.save-state.handlocked {
-  color: var(--text-warning);
+.save-pill.saved .save-dot { background: var(--dv-good); }
+.save-pill.dirty .save-dot { background: var(--text-warning); }
+.save-pill.err .save-dot { background: var(--text-error); }
+.save-pill.saving .save-dot {
+  background: var(--text-accent);
+  animation: save-pulse 1s var(--ease-std) infinite;
+}
+@keyframes save-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 .conflict-btn {
   flex-shrink: 0;
@@ -340,18 +345,22 @@ onUnmounted(() => {
 .conflict-btn.danger:hover {
   color: var(--text-error);
 }
-/* AI 按钮（标题行右侧）*/
+/* AI 工具条容器（有边界感，成组而非散落）*/
 .ai-tools {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
 }
 .ai-tool-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 3px 10px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
