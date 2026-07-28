@@ -263,7 +263,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-s);
   color: var(--text-muted);
 }
 .doc-crumb-sep {
@@ -357,19 +357,16 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   padding: 3px 9px;
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-muted);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .ai-tool-btn:hover:not(:disabled) {
-  border-color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
-  color: var(--text-accent);
+  background: var(--interactive-accent-hover);
 }
 .ai-spin {
   color: var(--text-accent);
