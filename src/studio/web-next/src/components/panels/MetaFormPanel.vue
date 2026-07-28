@@ -176,7 +176,7 @@ async function onSave(): Promise<void> {
 .meta-form-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--size-4-2);
+  gap: var(--size-4-3);
 }
 .side-title {
   font-size: var(--font-size-xs);
@@ -192,11 +192,12 @@ async function onSave(): Promise<void> {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 .field-label {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
+  font-weight: 500;
 }
 .field-input {
   padding: 5px 8px;
@@ -206,20 +207,36 @@ async function onSave(): Promise<void> {
   background: var(--background-primary);
   color: var(--text-normal);
   font-family: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.field-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .field-input.area {
   resize: vertical;
+  min-height: 60px;
+  line-height: 1.6;
+}
+select.field-input {
+  cursor: pointer;
 }
 .save-btn {
-  margin-top: var(--size-4-2);
-  padding: 6px 14px;
+  margin-top: var(--size-4-1);
+  padding: 6px 16px;
   font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   cursor: pointer;
   align-self: flex-start;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.save-btn:hover:not(:disabled) {
+  background: var(--interactive-accent-hover);
 }
 .save-btn:disabled {
   opacity: 0.5;

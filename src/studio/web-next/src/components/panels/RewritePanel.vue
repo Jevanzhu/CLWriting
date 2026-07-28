@@ -20,7 +20,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (formKindOf(node.value.path) !== null) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)

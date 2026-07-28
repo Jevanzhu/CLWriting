@@ -20,10 +20,10 @@ const ui = useUiStore()
 const rewrite = useRewriteStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
-// AI 工具栏仅对正文 / 草稿显示（与 RewritePanel isReviewable 一致）
+// AI 工具栏：对所有有分类的文档（正文/大纲/设定）+ 草稿显示
 const isReviewable = computed(() => {
   if (!entry.value) return false
-  if (formKindOf(entry.value.path) === 'chapter') return true
+  if (formKindOf(entry.value.path) !== null) return true
   return /^工作区\/草稿-\d+\.md$/.test(entry.value.path)
 })
 
