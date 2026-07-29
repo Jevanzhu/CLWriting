@@ -31,6 +31,21 @@ export function ulid(): string {
   return encodeCrockford(time, 10) + encodeCrockford(randVal, 16)
 }
 
+/**
+ * 解出 ULID 前 10 字符编码的毫秒时间戳（48bit，JS number 可安全表示）。
+ * 快照清理按时间分桶用——比逐个读文件 front matter 便宜。
+ * 非法字符返回 0（调用方按"最旧"处理）。
+ */
+export function decodeUlidTime(id: string): number {
+  let v = 0
+  for (const c of id.slice(0, 10)) {
+    const i = CROCKFORD.indexOf(c)
+    if (i < 0) return 0
+    v = v * 32 + i
+  }
+  return v
+}
+
 /** 生成文档稳定 ID：`doc_` + 26 ULID。 */
 export function generateDocId(): string {
   return 'doc_' + ulid()

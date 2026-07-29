@@ -221,6 +221,23 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (rs) cfg.growth.realm_span_max = parseFiniteNumber(rs.value, DEFAULT_CONFIG.growth.realm_span_max ?? 2)
   }
 
+  // 快照保留策略（单章版本回滚）：缺省不写字段 → 用代码默认值
+  const snapshots = find('snapshots')
+  if (snapshots) {
+    const snapshotsConfig: NonNullable<BookConfig['snapshots']> = {}
+    const md = snapshots.children.find((c) => c.key === 'max_days')
+    if (md) {
+      const v = parseFiniteNumber(md.value, 0)
+      if (v > 0) snapshotsConfig.max_days = v
+    }
+    const mc = snapshots.children.find((c) => c.key === 'max_count')
+    if (mc) {
+      const v = parseFiniteNumber(mc.value, 0)
+      if (v > 0) snapshotsConfig.max_count = v
+    }
+    if (Object.keys(snapshotsConfig).length > 0) cfg.snapshots = snapshotsConfig
+  }
+
   // RAG 可选段（#37，非密：enabled/endpoint/model；api_key 不入此）
   const rag = find('rag')
   if (rag) {
@@ -366,6 +383,15 @@ export function stringifyBookConfig(cfg: BookConfig): string {
       `  enabled: ${cfg.rag.enabled}`,
       ...(cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
       ...(cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
+    )
+  }
+  // 快照保留策略（缺省不输出——现有仓库零改动红线）
+  if (cfg.snapshots && (cfg.snapshots.max_days !== undefined || cfg.snapshots.max_count !== undefined)) {
+    lines.push(
+      '',
+      'snapshots:',
+      ...(cfg.snapshots.max_days !== undefined ? [`  max_days: ${cfg.snapshots.max_days}`] : []),
+      ...(cfg.snapshots.max_count !== undefined ? [`  max_count: ${cfg.snapshots.max_count}`] : []),
     )
   }
   return lines.join('\n') + '\n'

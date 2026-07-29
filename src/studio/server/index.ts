@@ -30,6 +30,7 @@ import { registerIoRoutes } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
+import { registerSnapshotRoutes } from './api/snapshots.js'
 import { registerSearchRoutes } from './api/search.js'
 import { registerCheckRoutes } from './api/check.js'
 import { registerAnalysisRoutes } from './api/analysis.js'
@@ -60,6 +61,7 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerKnowledgeRoutes({ workDir, token })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir })
+    registerSnapshotRoutes({ workDir })
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir })
     registerAnalysisRoutes({ workDir })

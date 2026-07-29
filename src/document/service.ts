@@ -27,7 +27,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf } from './layout.js'
 import { appendAborted, appendPending, appendSettled, findUnsettled, type JournalPending } from './journal.js'
-import { writeSnapshot } from './snapshot.js'
+import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, type SnapshotPolicy } from './snapshot.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId } from './stable-id.js'
@@ -36,6 +36,7 @@ import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, s
 import { appendTrashEntry } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
+import { readBookConfig } from '../format/yaml.js'
 
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
@@ -242,7 +243,8 @@ export class DocumentService {
     }
   }
 
-  /** snapshot 策略（W0-1 §7）：restore/external-merge 覆盖前、定稿章首改前留底。 */
+  /** snapshot 策略（W0-1 §7）：restore/external-merge 覆盖前、定稿章首改前留底。
+   *  保存前留底走节流（policy.throttleMinutes），结构性操作（改名/删除）不节流。 */
   private maybeSnapshot(
     docId: string,
     relPath: string,
@@ -259,11 +261,26 @@ export class DocumentService {
     if (!reason) return
     // snapshot = 修改前的当前磁盘内容
     const currentContent = readFileSync(absPath, 'utf-8')
-    writeSnapshot(this.snapshotsDir, docId, currentContent, {
-      origin: input.origin,
-      reason,
-      baseRevision,
-    })
+    // restore/external-merge 是"真要反悔"的时刻，必留；autosave 走节流
+    const force = input.origin === 'restore' || input.origin === 'external-merge'
+    writeSnapshot(
+      this.snapshotsDir,
+      docId,
+      currentContent,
+      { origin: input.origin, reason, baseRevision },
+      { policy: this.snapshotPolicy(), force },
+    )
+  }
+
+  /** 快照保留策略：book.yaml 的 snapshots 段覆盖默认值（缺省 = 默认）。 */
+  private snapshotPolicy(): SnapshotPolicy {
+    const cfg = readBookConfig(join(this.bookRoot, 'book.yaml'))
+    const s = cfg.ok ? cfg.config.snapshots : undefined
+    return {
+      maxDays: s?.max_days ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
+      maxCount: s?.max_count ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
+      throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+    }
   }
 
   /** 条件性更新清单：书已有清单 + 条目已存在 → 刷新 path；否则 no-op（保存不建清单）。 */

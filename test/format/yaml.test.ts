@@ -174,3 +174,38 @@ test('workflow: strict 不输出（旧书无字段零改动红线）；free 输�
   expect(stringifyBookConfig({ ...DEFAULT_CONFIG, workflow: 'free' })).toContain('workflow: 自由')
   expect(stringifyBookConfig({ ...DEFAULT_CONFIG, workflow: 'assist' })).toContain('workflow: 辅助')
 })
+
+test('snapshots 段：缺省不输出（零改动红线）；有值往返一致', () => {
+  expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('snapshots')
+
+  const text = stringifyBookConfig({
+    ...DEFAULT_CONFIG,
+    snapshots: { max_days: 30, max_count: 50 },
+  })
+  expect(text).toContain('snapshots:')
+  expect(text).toContain('  max_days: 30')
+  expect(text).toContain('  max_count: 50')
+
+  const dir = mkdtempSync(join(tmpdir(), 'yaml-snap-'))
+  writeFileSync(join(dir, 'book.yaml'), text, 'utf-8')
+  const r = readBookConfig(join(dir, 'book.yaml'))
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.config.snapshots?.max_days).toBe(30)
+    expect(r.config.snapshots?.max_count).toBe(50)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('snapshots 段：非正数值忽略（回落代码默认）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yaml-snap-bad-'))
+  writeFileSync(
+    join(dir, 'book.yaml'),
+    'spec_version: 1\nbook:\n  title: 书\n  genre: 玄幻\nsnapshots:\n  max_days: 0\n  max_count: -5\n',
+    'utf-8',
+  )
+  const r = readBookConfig(join(dir, 'book.yaml'))
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.config.snapshots).toBeUndefined()
+  rmSync(dir, { recursive: true, force: true })
+})

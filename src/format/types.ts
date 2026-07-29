@@ -254,6 +254,13 @@ export interface BookConfig {
   growth: {
     realm_span_max?: number // 跃迁跨度上限（O1，#6）
   }
+  /** 快照保留策略（单章版本回滚）；缺省 = 14 天 / 30 个。分层保留桶为内部规则，不暴露 */
+  snapshots?: {
+    /** 超期删除（天） */
+    max_days?: number
+    /** 每文档保留上限（个） */
+    max_count?: number
+  }
   /** RAG 可选插件配置（#37，非密段；api_key 不入此、不入 git） */
   rag?: {
     enabled: boolean

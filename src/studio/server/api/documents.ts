@@ -27,7 +27,9 @@ interface DocumentCtx {
 /** per-bookRoot DocumentService 缓存（跨请求共享串行队列）。 */
 const services = new Map<string, DocumentService>()
 
-function getOrCreateService(bookRoot: string): DocumentService {
+/** per-bookRoot DocumentService 缓存（跨请求共享串行队列）。
+ *  snapshots.ts 的恢复端点复用同一实例——两个队列会破坏串行写保证。 */
+export function getOrCreateService(bookRoot: string): DocumentService {
   let svc = services.get(bookRoot)
   if (!svc) {
     svc = new DocumentService({ bookRoot })
