@@ -151,6 +151,83 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       reply(res, 200, { ok: true, envelope })
     },
   )
+
+  // AI 章节标签识别：spawnRole analyst [kind:tags] → JSON 返回（不落信封；前端拿结果写 fm）。
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/autotag',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const docId = params['docId'] ?? ''
+      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      const absPath = join(bookRoot, m.path)
+      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+
+      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+      const isShort = (config.kind ?? 'long') === 'short'
+      const draft = readDraft(absPath, isShort)
+      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+      const { body, chapter } = draft
+
+      const unit = isShort ? '篇' : '章'
+      const prompt = [
+        '[kind:tags]',
+        '',
+        `## 任务\n对第 ${chapter.章号} ${unit}正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
+        '',
+        `## 正文\n${body}`,
+        '',
+        '## 输出契约\n直接输出 JSON，不要多余文字、不要 markdown 代码块、不要读文件、不要用任何工具。',
+        '{"钩子类型": "<危机钩/悬念钩/渴望钩/情绪钩/选择钩>", "钩子强弱": "<强/中/弱>", "情绪定位": "<压抑/铺垫/小爽/大爽/转折>", "场景": "<战斗/对话/抒情/叙事铺陈/爽点高潮>"}',
+      ].join('\n')
+
+      const driver = getDriver('cc')
+      const session = await driver.startSession(ctx.workDir)
+      driver.spawnRole(session, 'analyst', prompt)
+      let text = ''
+      try {
+        for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
+          if (ev.type === 'text') text += String(ev.text ?? '')
+          else if (ev.type === 'done') break
+          else if (ev.type === 'error') {
+            driver.dispose(session)
+            return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
+          }
+        }
+      } catch (e) {
+        driver.dispose(session)
+        return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
+      }
+      driver.dispose(session)
+
+      let payload: Record<string, unknown>
+      try {
+        payload = JSON.parse(extractJson(text))
+      } catch {
+        return reply(res, 500, { ok: false, code: 'PARSE_FAIL', error: `产出非合法 JSON：${text.slice(0, 120)}` })
+      }
+
+      // 校验：只保留合法选项内的字段（防 AI 产出越界值）
+      const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
+        钩子类型: new Set(['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']),
+        钩子强弱: new Set(['强', '中', '弱']),
+        情绪定位: new Set(['压抑', '铺垫', '小爽', '大爽', '转折']),
+        场景: new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']),
+      }
+      const tags: Record<string, string> = {}
+      for (const key of Object.keys(ALLOWED_TAGS)) {
+        const allowed = ALLOWED_TAGS[key]
+        const v = String(payload[key] ?? '').trim()
+        if (allowed && allowed.has(v)) tags[key] = v
+      }
+      reply(res, 200, { ok: true, tags })
+    },
+  )
 }
 
 /** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约 + 章纲/stats 为底）。 */

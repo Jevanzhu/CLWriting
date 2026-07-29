@@ -44,3 +44,20 @@ export async function runAnalyze(name: string, docId: string, kind: AnalysisKind
   )
   return r.envelope
 }
+
+/** AI 章节标签（钩子/情绪/场景判定；后端校验后只含合法选项）。 */
+export interface ChapterTags {
+  钩子类型?: string
+  钩子强弱?: string
+  情绪定位?: string
+  场景?: string
+  [k: string]: string | undefined
+}
+// POST /documents/:docId/autotag —— AI 读正文判定章节标签，返回 tags（不落信封；前端写 fm）。
+export async function autotag(name: string, docId: string): Promise<ChapterTags> {
+  const r = await apiJson<{ ok: true; tags: ChapterTags }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/autotag`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+  )
+  return r.tags
+}

@@ -119,6 +119,7 @@ const MOCK_ANALYST_PAYLOAD: Record<string, unknown> = {
   ],
   hooks: { hooks: [{ pos: '章尾', type: '悬念钩', strength: 4, note: 'mock 悬念' }], density: '中' },
   style: { drift: 'mock 稳定', 口癖: ['mock 口癖'], 重复度评价: 'mock 正常', 建议: ['mock 建议'] },
+  tags: { 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折', 场景: '对话' },
 }
 
 /** 按 prompt 的 `[kind:x]` 标记挑 analyst mock 载荷；缺省 score（B4.1 先行）。 */
