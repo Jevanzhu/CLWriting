@@ -202,9 +202,16 @@ watch(
 .tree-item.dragging {
   opacity: 0.4;
 }
-/* 顶级分组（写作/大纲/设定）— 与普通行完全统一，仅保留分组间隔 */
+/* 顶级分组（写作/大纲/设定）— 弱化标签风格，与章节行拉开层级 */
 .tree-item.group-head {
-  margin-top: 2px;
+  margin-top: 10px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.tree-item.group-head:first-child {
+  margin-top: 0;
 }
 /* Lucide caret：折叠时旋转 -90°，展开时朝下，带过渡 */
 .caret {
