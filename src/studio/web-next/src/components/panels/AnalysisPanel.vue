@@ -3,13 +3,15 @@
 // 按 kind 读信封存量 → 各卡渲染（过期标）+ 逐 kind 重新分析（aiOff 置灰）。
 // 生成与展示解耦：AI 不可达时存量照常展示。
 import { computed, ref, watch } from 'vue'
-import { Sparkles, Activity, Anchor, Feather, RefreshCw, AlertCircle, Clock, Gauge } from 'lucide-vue-next'
+import { Sparkles, Activity, Anchor, Feather, RefreshCw, AlertCircle, Clock, Gauge, Tag } from 'lucide-vue-next'
 import { useAnalysisStore, type KindSlot } from '../../stores/analysis'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf } from '../../shared/words'
-import type { AnalysisKindFE } from '../../api/analysis'
+import { formKindOf, parseFmFields } from '../../shared/words'
+import { autotag, type AnalysisKindFE } from '../../api/analysis'
+import { updateDocMeta } from '../../api/documents'
 import { getRhythm, type RhythmResult } from '../../api/rhythm'
 import EmptyState from '../ui/EmptyState.vue'
 
@@ -27,6 +29,38 @@ const isReviewable = computed(() => {
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)
+
+const doc = useDocStore()
+const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
+/** 章节标签字段（AI 判定：钩子/情绪/场景，写入正文 fm 供 rhythm 读取）。 */
+const TAG_FIELDS = [
+  { key: '钩子类型', label: '钩子类型' },
+  { key: '钩子强弱', label: '钩子强弱' },
+  { key: '情绪定位', label: '情绪定位' },
+  { key: '场景', label: '场景' },
+] as const
+const tagValues = computed<Record<string, string>>(() => {
+  if (!entry.value) return {}
+  const parsed = parseFmFields(entry.value.content)
+  const out: Record<string, string> = {}
+  for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  return out
+})
+const tagging = ref(false)
+async function onAutoTag(): Promise<void> {
+  if (!docId.value || tagging.value) return
+  tagging.value = true
+  try {
+    const tags = await autotag(props.bookName, docId.value)
+    await updateDocMeta(props.bookName, docId.value, tags)
+    await doc.refresh(docId.value)
+    ui.toast('AI 识别完成', 'success')
+  } catch (err) {
+    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+  } finally {
+    tagging.value = false
+  }
+}
 
 // 各 kind payload 断言
 interface ScorePayload {
@@ -142,6 +176,24 @@ function dimWidth(label: string, v: number): string {
     <div v-if="scoreSlot.envelope && scoreSlot.stale" class="ap-stale">
       <AlertCircle :size="13" />
       <span>正文已变更，以下为旧版存量（可重新分析）。</span>
+    </div>
+
+    <!-- 章节标签卡（AI 判定：钩子/情绪/场景） -->
+    <div class="ap-card">
+      <div class="ap-card-head">
+        <div class="ap-card-title"><Tag :size="14" /><span>章节标签</span></div>
+        <button class="ap-run" :disabled="aiOff || tagging" @click="onAutoTag">
+          <RefreshCw :size="12" :class="{ spin: tagging }" />
+          <span>{{ tagging ? '识别中…' : 'AI 识别' }}</span>
+        </button>
+      </div>
+      <div class="ap-tags-grid">
+        <div v-for="f in TAG_FIELDS" :key="f.key" class="ap-tag-cell">
+          <span class="ap-tag-label">{{ f.label }}</span>
+          <span v-if="tagValues[f.key]" class="ap-tag-val">{{ tagValues[f.key] }}</span>
+          <span v-else class="ap-tag-empty">{{ tagging ? '…' : '—' }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- 体验分卡（B4.1） -->
@@ -316,6 +368,33 @@ function dimWidth(label: string, v: number): string {
   border: 1px solid color-mix(in srgb, var(--dv-warn) 20%, transparent);
   border-radius: var(--radius-s);
   padding: 6px 8px;
+}
+/* 章节标签 */
+.ap-tags-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-4-2) var(--size-4-3);
+}
+.ap-tag-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ap-tag-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.ap-tag-val {
+  font-size: var(--font-size-s);
+  padding: 2px 10px;
+  border-radius: var(--radius-s);
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  align-self: flex-start;
+}
+.ap-tag-empty {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
 }
 .ap-card {
   border: 1px solid var(--background-modifier-border);

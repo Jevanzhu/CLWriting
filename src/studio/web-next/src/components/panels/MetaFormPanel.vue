@@ -7,7 +7,6 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
-import { autotag } from '../../api/analysis'
 
 type FieldDef = {
   key: string
@@ -30,10 +29,6 @@ const TITLE: Record<string, string> = {
 const FIELD_DEFS: Record<string, FieldDef[]> = {
   // 章节（定稿/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
   chapter: [
-    { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
-    { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
-    { key: '情绪定位', label: '情绪定位', type: 'select', options: ['', '压抑', '铺垫', '小爽', '大爽', '转折'] },
-    { key: '场景', label: '场景', type: 'select', options: ['', '战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
     { key: '时间锚点', label: '时间锚点', type: 'text' },
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
@@ -113,36 +108,6 @@ watch(
   { immediate: true },
 )
 
-/** AI 判定型字段（仅章节侧只读展示；章纲侧仍可编辑）。 */
-const AI_FIELDS = new Set(['钩子类型', '钩子强弱', '情绪定位', '场景'])
-function isAiField(key: string): boolean {
-  return kind.value === 'chapter' && AI_FIELDS.has(key)
-}
-const aiOff = computed(() => ui.aiAvailable === false)
-const tagging = ref(false)
-async function onAutoTag(): Promise<void> {
-  if (!ws.activeDocId || tagging.value) return
-  tagging.value = true
-  try {
-    const tags = await autotag(props.bookName, ws.activeDocId)
-    await updateDocMeta(props.bookName, ws.activeDocId, tags)
-    await doc.refresh(ws.activeDocId)
-    // 刷新后重解析 fm 填充只读字段
-    const refreshed = doc.get(ws.activeDocId)
-    if (refreshed && kind.value) {
-      const parsed = parseFmFields(refreshed.content)
-      const out = { ...fields.value }
-      for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
-      fields.value = out
-    }
-    ui.toast('AI 识别完成', 'success')
-  } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
-  } finally {
-    tagging.value = false
-  }
-}
-
 const saving = ref(false)
 async function onSave(): Promise<void> {
   if (!entry.value || !ws.activeDocId || !kind.value) return
@@ -176,21 +141,9 @@ async function onSave(): Promise<void> {
   <div class="meta-form-panel">
     <div v-if="!entry" class="side-hint">未打开文档</div>
     <template v-else>
-      <button
-        v-if="kind === 'chapter'"
-        class="autotag-btn"
-        :disabled="tagging || aiOff"
-        @click="onAutoTag"
-      >
-        {{ tagging ? '识别中…' : 'AI 识别标签' }}
-      </button>
       <div v-for="f in defs" :key="f.key" class="field">
         <label class="field-label">{{ f.label }}</label>
-        <div v-if="isAiField(f.key)" class="field-readonly">
-          <span v-if="fields[f.key]" class="tag-pill">{{ fields[f.key] }}</span>
-          <span v-else class="tag-empty">{{ tagging ? '识别中…' : '未识别' }}</span>
-        </div>
-        <select v-else-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
+        <select v-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
           <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt || '（未选）' }}</option>
         </select>
         <textarea
@@ -264,42 +217,6 @@ async function onSave(): Promise<void> {
 }
 select.field-input {
   cursor: pointer;
-}
-/* AI 识别按钮 */
-.autotag-btn {
-  padding: 5px 12px;
-  font-size: var(--font-size-xs);
-  border: 1px solid color-mix(in srgb, var(--text-accent) 30%, transparent);
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--text-accent) 10%, transparent);
-  color: var(--text-accent);
-  cursor: pointer;
-  align-self: flex-start;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.autotag-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-accent) 18%, transparent);
-}
-.autotag-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-/* AI 判定字段只读展示 */
-.field-readonly {
-  display: flex;
-  align-items: center;
-  min-height: 30px;
-}
-.tag-pill {
-  padding: 2px 10px;
-  font-size: var(--font-size-s);
-  border-radius: var(--radius-s);
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
-}
-.tag-empty {
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
 }
 .save-btn {
   margin-top: var(--size-4-1);
