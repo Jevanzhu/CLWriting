@@ -59,7 +59,7 @@ CLWriting 不是通用写作编辑器，而是一套面向中文网文生产的�
 | **多书工作目录** | `init` / `use` / `list` / `repair` 支持一个工作目录管理多本书。 |
 | **RAG 可选插件** | 纯 `node:sqlite` + 纯 JS 余弦召回；api_key 不进 git。 |
 | **导出 / 迁移** | `export` 输出干净正文，长篇按章、短篇集按篇打包；`import` 从 v0.2 正文轻量迁移，长短篇自动分流。 |
-| **Studio 桌面应用** | Electron + Vue 3 Obsidian 风格 GUI：三栏工作区、章节树、CodeMirror 编辑器、右栏信息/审阅/机检/分析面板、专注模式、可拖拽侧栏、窗口与偏好持久化。 |
+| **Studio 桌面应用** | Electron + Vue 3 Obsidian 风格 GUI：三栏工作区、章节树、CodeMirror 编辑器、原生右键菜单、右栏信息/审阅/机检/分析面板、专注模式、可拖拽侧栏、JSON 配置持久化（三级架构，对齐 Obsidian）。 |
 | **AI 辅助** | 选段改写（语气/风格调整）、AI 分析（情绪曲线/钩子强度/文风漂移）、上下文速查插入、工作台 AI 写作。 |
 
 ---
@@ -222,7 +222,7 @@ auto 连写一批
 | M9-M10 | 已完成 | Studio Obsidian 风格前端：三栏工作区、章节树、CodeMirror 编辑器、大纲/设定表单、总览/节奏/关系图视图、专注模式、可拖拽侧栏。 |
 | M11 | 已完成 | 质量收口：机检红点树冒泡、E2E 全覆盖、评审瑕疵修复。 |
 | M12 | 已完成 | AI 辅助写作线：选段改写、AI 分析（情绪/钩子/文风）、上下文速查、工作台 AI 写作。 |
-| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、窗口/偏好持久化、token 系统贯通。 |
+| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、原生右键菜单、JSON 配置持久化（三级架构，对齐 Obsidian）、token 系统贯通。 |
 | Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
 
 - **131 个测试文件 / 1035 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；前端构建已消除 >500KB chunk warning。
