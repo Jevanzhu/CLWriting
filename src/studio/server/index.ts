@@ -24,6 +24,7 @@ import { registerReviewRoutes } from './api/review.js'
 import { registerOnboardRoutes } from './api/onboard.js'
 import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
+import { registerPrefsRoutes } from './api/prefs.js'
 import { registerPiecesRoutes } from './api/pieces.js'
 import { registerStateRoutes } from './api/state.js'
 import { registerIoRoutes } from './api/io.js'
@@ -38,7 +39,7 @@ import { registerAiStatusRoutes } from './api/ai-status.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
-function buildRoutes(workDir: string | null, token: string): RouteTable {
+function buildRoutes(workDir: string | null, token: string, userDataPath: string | null): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
@@ -55,6 +56,7 @@ function buildRoutes(workDir: string | null, token: string): RouteTable {
     registerDraftRoutes({ workDir })
     registerCliRoutes({ workDir })
     registerConfigRoutes({ workDir })
+    registerPrefsRoutes({ workDir, userDataPath })
     registerPiecesRoutes({ workDir })
     registerStateRoutes({ workDir })
     registerIoRoutes({ workDir, token })
@@ -83,12 +85,14 @@ export interface StudioServerOptions {
   staticDir?: string
   /** CLWriting 工作目录（含 .clwriting/）；null/缺省 = 未定位，书架将为空 + 提示 */
   workDir?: string | null
+  /** APP 级数据目录（Electron userData / CLI 约定路径）；全局偏好 JSON 存储位置 */
+  userDataPath?: string | null
 }
 
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
-  const routes = buildRoutes(opts.workDir ?? null, studioToken)
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 

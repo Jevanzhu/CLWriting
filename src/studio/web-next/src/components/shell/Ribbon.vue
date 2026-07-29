@@ -86,6 +86,14 @@ function openLibraryManager(): void {
       <div class="ribbon-sep" />
       <button
         class="rbtn" data-tip-dir="right"
+        :class="{ on: ws.activeView === 'onboard' }"
+        data-tip="开书对话（分步生成设定）"
+        @click="ws.setActiveView('onboard')"
+      >
+        <Compass :size="20" />
+      </button>
+      <button
+        class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'workbench' }"
         data-tip="工作台（AI 写作）"
         @click="ws.setActiveView('workbench')"
@@ -99,14 +107,6 @@ function openLibraryManager(): void {
         @click="ws.setActiveView('learn')"
       >
         <GraduationCap :size="20" />
-      </button>
-      <button
-        class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'onboard' }"
-        data-tip="开书对话（分步生成设定）"
-        @click="ws.setActiveView('onboard')"
-      >
-        <Compass :size="20" />
       </button>
     </div>
 

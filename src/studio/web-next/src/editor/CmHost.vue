@@ -2,7 +2,7 @@
 // CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：Obsidian 风格正文编辑器。
 // 无行号/无卡片边框、lineWrapping、正文字体（--prose-* 偏好）；md 模式加 markdown() 高亮。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import {
   HighlightStyle,
@@ -11,7 +11,7 @@ import {
   indentOnInput,
   syntaxHighlighting,
 } from '@codemirror/language'
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codemirror/search'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
@@ -168,7 +168,64 @@ function getSelectionRect(): { left: number; top: number; right: number; bottom:
     bottom: Math.max(a.bottom, b.bottom),
   }
 }
-defineExpose({ insertText, getSelection, getSelectionRect })
+/** 是否有非空选区（右键菜单判断剪切/复制启用） */
+function hasSelection(): boolean {
+  if (!view) return false
+  const sel = view.state.selection.main
+  return sel.from !== sel.to
+}
+/** 剪切：复制选区到剪贴板并删除 */
+async function clipboardCut(): Promise<void> {
+  if (!view) return
+  const sel = view.state.selection.main
+  if (sel.from === sel.to) return
+  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { /* 权限 */ }
+  view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
+  view.focus()
+}
+/** 复制：复制选区到剪贴板 */
+async function clipboardCopy(): Promise<void> {
+  if (!view) return
+  const sel = view.state.selection.main
+  if (sel.from === sel.to) return
+  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { /* 权限 */ }
+  view.focus()
+}
+/** 粘贴：从剪贴板读取并替换选区 */
+async function clipboardPaste(): Promise<void> {
+  if (!view) return
+  try {
+    const text = await navigator.clipboard.readText()
+    const sel = view.state.selection.main
+    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from + text.length }, scrollIntoView: true })
+  } catch { /* 权限 */ }
+  view.focus()
+}
+/** 全选 */
+function selectAll(): void {
+  if (!view) return
+  view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })
+  view.focus()
+}
+/** 撤销 */
+function undoAction(): void {
+  if (!view) return
+  undo(view)
+  view.focus()
+}
+/** 重做 */
+function redoAction(): void {
+  if (!view) return
+  redo(view)
+  view.focus()
+}
+/** 打开查找面板 */
+function openSearch(): void {
+  if (!view) return
+  openSearchPanel(view)
+  view.focus()
+}
+defineExpose({ insertText, getSelection, getSelectionRect, hasSelection, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
 
 onUnmounted(() => view?.destroy())
 </script>

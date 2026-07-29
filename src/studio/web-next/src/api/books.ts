@@ -11,9 +11,14 @@ export async function getTree(
 // GET /config → {config}（book.yaml）。target_words 在 config.book.target_words。
 export interface BookConfig {
   kind?: string
-  book?: { title?: string; genre?: string; target_words?: number; [k: string]: unknown }
+  host?: 'cc' | 'codex'
+  workflow?: 'free' | 'assist' | 'strict'
+  book?: { title?: string; genre?: string; target_words?: number; chapter_target_words?: number; [k: string]: unknown }
+  budget?: { calls_per_chapter?: number; [k: string]: unknown }
+  style?: { injection?: 'light' | 'heavy'; [k: string]: unknown }
   /** 快照保留策略（单章版本回滚）；缺省 = 后端默认 14 天 / 30 个 */
   snapshots?: { max_days?: number; max_count?: number }
+  rag?: { enabled?: boolean; endpoint?: string; model?: string; [k: string]: unknown }
   [k: string]: unknown
 }
 export async function getConfig(name: string): Promise<BookConfig> {

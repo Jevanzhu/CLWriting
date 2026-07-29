@@ -2,11 +2,13 @@
 // 结构化元数据表单（块3.1）：按当前文档 path 切字段集（章纲/卷纲/总纲），
 // 解析 fm 填值 → 编辑 → 保存落 fm（op=fm，不联动文件名）+ 静默刷新 doc content。
 import { ref, computed, watch } from 'vue'
+import { Tag } from 'lucide-vue-next'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
+import { getConfig } from '../../api/books'
 
 type FieldDef = {
   key: string
@@ -29,7 +31,6 @@ const TITLE: Record<string, string> = {
 const FIELD_DEFS: Record<string, FieldDef[]> = {
   // 章节（定稿/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
   chapter: [
-    { key: '时间锚点', label: '时间锚点', type: 'text' },
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'chapter-outline': [
@@ -108,6 +109,37 @@ watch(
   { immediate: true },
 )
 
+// ── 章节标签（AI 判定 → fm，只读展示；钩子/情绪/场景）──
+const TAG_FIELDS = [
+  { key: '时间锚点', label: '时间锚点' },
+  { key: '钩子类型', label: '钩子类型' },
+  { key: '钩子强弱', label: '钩子强弱' },
+  { key: '情绪定位', label: '情绪定位' },
+  { key: '场景', label: '场景' },
+] as const
+const tagValues = computed<Record<string, string>>(() => {
+  if (!entry.value) return {}
+  const parsed = parseFmFields(entry.value.content)
+  const out: Record<string, string> = {}
+  for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  return out
+})
+
+// 全局每章字数目标（book.yaml）—— 字数目标字段的 placeholder
+const globalChapterTarget = ref<number | undefined>(undefined)
+watch(
+  () => props.bookName,
+  async (n) => {
+    if (!n) return
+    try {
+      globalChapterTarget.value = (await getConfig(n)).book?.chapter_target_words
+    } catch {
+      /* 用默认 */
+    }
+  },
+  { immediate: true },
+)
+
 const saving = ref(false)
 async function onSave(): Promise<void> {
   if (!entry.value || !ws.activeDocId || !kind.value) return
@@ -140,7 +172,19 @@ async function onSave(): Promise<void> {
 <template>
   <div class="meta-form-panel">
     <div v-if="!entry" class="side-hint">未打开文档</div>
-    <template v-else>
+    <div v-else class="info-card">
+      <!-- 章节标签（chapter 才有，只读展示） -->
+      <div v-if="kind === 'chapter'" class="tag-block">
+        <div class="card-title"><Tag :size="14" />章节标签</div>
+        <div class="tag-grid">
+          <div v-for="f in TAG_FIELDS" :key="f.key" class="tag-cell">
+            <span class="tag-cell-label">{{ f.label }}</span>
+            <span v-if="tagValues[f.key]" class="tag-cell-val">{{ tagValues[f.key] }}</span>
+            <span v-else class="tag-cell-empty">—</span>
+          </div>
+        </div>
+      </div>
+      <!-- 设定字段（可编辑） -->
       <div v-for="f in defs" :key="f.key" class="field">
         <label class="field-label">{{ f.label }}</label>
         <select v-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
@@ -156,14 +200,14 @@ async function onSave(): Promise<void> {
           v-else
           v-model="fields[f.key]"
           :type="f.type"
-          :placeholder="f.placeholder"
+          :placeholder="f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder"
           class="field-input"
         />
       </div>
       <button class="save-btn" :disabled="saving" @click="onSave">
         {{ saving ? '保存中…' : '保存' }}
       </button>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -173,17 +217,36 @@ async function onSave(): Promise<void> {
   flex-direction: column;
   gap: var(--size-4-3);
 }
-.side-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
 .side-hint {
   font-size: var(--font-size-s);
   color: var(--text-faint);
 }
+/* 通用卡片（无外层边框——由 SidebarRight .info-stack 统一卡片；border-top 分隔统计区与表单区） */
+.info-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  margin-top: var(--size-4-3);
+  padding-top: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+/* 章节标签区（卡片内分块，border-bottom 分隔） */
+.tag-block {
+  padding-bottom: var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+/* 表单字段 */
 .field {
   display: flex;
   flex-direction: column;
@@ -199,7 +262,7 @@ async function onSave(): Promise<void> {
   font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  background: var(--background-primary);
+  background: var(--background-secondary);
   color: var(--text-normal);
   font-family: inherit;
   transition: border-color var(--dur-fast) var(--ease-out),
@@ -218,16 +281,47 @@ async function onSave(): Promise<void> {
 select.field-input {
   cursor: pointer;
 }
+/* 章节标签网格 */
+.tag-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-4-2) var(--size-4-3);
+}
+.tag-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tag-cell-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.tag-cell-val {
+  font-size: var(--font-size-s);
+  padding: 2px 10px;
+  border-radius: var(--radius-s);
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  align-self: flex-start;
+}
+.tag-cell-empty {
+  font-size: var(--font-size-s);
+  padding: 2px 10px;
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  background: var(--background-modifier-hover);
+  align-self: flex-start;
+}
+/* 保存按钮 */
 .save-btn {
-  margin-top: var(--size-4-1);
-  padding: 6px 16px;
+  align-self: flex-end;
+  padding: 5px 16px;
   font-size: var(--font-size-s);
   border: none;
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   cursor: pointer;
-  align-self: flex-start;
   transition: background var(--dur-fast) var(--ease-out);
 }
 .save-btn:hover:not(:disabled) {

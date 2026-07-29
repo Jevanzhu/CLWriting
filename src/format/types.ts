@@ -206,6 +206,8 @@ export interface BookConfig {
     volume_size?: number
     /** 全书/整集目标字数（决策 14）；完成度 = 已写字数 / target_words */
     target_words?: number
+    /** 每章默认字数目标（新建章 placeholder；单章可在 fm 覆盖） */
+    chapter_target_words?: number
   }
   leads: {
     enabled: string[] // 启用的扩展类（基础三类恒启用、不列）

@@ -96,6 +96,7 @@ function startResizeLeft(e: MouseEvent): void {
     <CommandPalette />
     <SettingsModal />
     <ShelfModal />
+    <ExportDialog />
     <Toast />
     <TooltipHost />
   </div>

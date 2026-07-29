@@ -33,6 +33,11 @@ export function analysisPath(bookRoot: string, docId: string): string {
   return join(bookRoot, '项目', '分析', `${docId}.json`)
 }
 
+/** 全书级分析路径：项目/分析/__book__.json（按书存，不绑 docId；style 全书文风用）。 */
+export function analysisBookPath(bookRoot: string): string {
+  return join(bookRoot, '项目', '分析', '__book__.json')
+}
+
 /** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。 */
 export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind): Envelope | null {
   const fp = analysisPath(bookRoot, docId)
@@ -60,6 +65,39 @@ export function writeAnalysis(
       raw = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
     } catch {
       // 损坏则重建（丢弃旧载荷）
+    }
+  }
+  raw[kind] = envelope
+  mkdirSync(dirname(fp), { recursive: true })
+  writeFileSync(fp, JSON.stringify(raw, null, 2), 'utf-8')
+}
+
+/** 读全书级某 kind 信封（项目/分析/__book__.json；无文件/无 kind/损坏 → null）。 */
+export function readBookAnalysis(bookRoot: string, kind: AnalysisKind): Envelope | null {
+  const fp = analysisBookPath(bookRoot)
+  if (!existsSync(fp)) return null
+  try {
+    const raw = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
+    const env = raw[kind]
+    return isEnvelope(env) ? env : null
+  } catch {
+    return null
+  }
+}
+
+/** 写全书级某 kind 信封（合并写：其他 kind 保留）。 */
+export function writeBookAnalysis(
+  bookRoot: string,
+  kind: AnalysisKind,
+  envelope: Envelope,
+): void {
+  const fp = analysisBookPath(bookRoot)
+  let raw: Record<string, unknown> = {}
+  if (existsSync(fp)) {
+    try {
+      raw = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
+    } catch {
+      /* 损坏则重建 */
     }
   }
   raw[kind] = envelope

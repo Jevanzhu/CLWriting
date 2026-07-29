@@ -61,3 +61,54 @@ export async function autotag(name: string, docId: string): Promise<ChapterTags>
   )
   return r.tags
 }
+
+// ── 全书聚合趋势（T1 后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
+
+export interface ScoreTrendPoint {
+  章号: number
+  标题: string
+  score: number
+  dims: Record<string, number>
+}
+export interface EmotionTrendPoint {
+  章号: number
+  标题: string
+  emotion: number
+  label: string
+}
+export interface HooksTrendPoint {
+  章号: number
+  标题: string
+  density: string
+  hookCount: number
+}
+export interface StylePayload {
+  drift: string
+  口癖: string[]
+  重复度评价: string
+  建议: string[]
+}
+export interface AnalysisOverview {
+  scoreTrend: ScoreTrendPoint[]
+  emotionTrend: EmotionTrendPoint[]
+  hooksTrend: HooksTrendPoint[]
+  style: StylePayload | null
+  /** 所有正文章节章号→docId 映射（供逐章/批量分析） */
+  allChapters: { 章号: number; docId: string }[]
+}
+
+// GET /analysis-overview —— 全书聚合趋势（体验分/情绪/钩子逐章 + 全书文风）。
+export async function getAnalysisOverview(name: string): Promise<AnalysisOverview> {
+  return apiJson<AnalysisOverview & { ok: true }>(
+    `/api/books/${encodeURIComponent(name)}/analysis-overview`,
+  )
+}
+
+// POST /analyze-style —— 全书文风分析（全文 stats + 最近 10 章采样 → AI）。
+export async function runStyleAnalysis(name: string): Promise<EnvelopeFE> {
+  const r = await apiJson<{ ok: true; envelope: EnvelopeFE }>(
+    `/api/books/${encodeURIComponent(name)}/analyze-style`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+  )
+  return r.envelope
+}

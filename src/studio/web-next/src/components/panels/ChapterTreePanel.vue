@@ -16,6 +16,7 @@ import {
 } from '../../api/documents'
 import { parseChapterFileName } from '../../shared/words'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
+import { useNativeMenu } from '../../composables/useNativeMenu'
 import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 
@@ -38,11 +39,8 @@ const activePath = computed<string | null>(
 )
 
 // --- 菜单状态 ---
-const menuVisible = ref(false)
-const menuX = ref(0)
-const menuY = ref(0)
-const menuItems = ref<MenuItem[]>([])
 const menuNode = ref<TreeNode | null>(null)
+const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
 
 // --- inline 新建/重命名 ---
 type Creating = {
@@ -216,29 +214,28 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
   const items = buildMenuItems(node)
   if (!items.length) return
   menuNode.value = node
-  menuItems.value = items
-  menuX.value = x
-  menuY.value = y
-  menuVisible.value = true
+  popup(items, x, y, onMenuSelect)
 }
 function onBlankContextMenu(e: MouseEvent): void {
   // 节点项 contextmenu 冒泡到此：节点 handler 已设对应菜单，跳过避免被空白菜单覆盖
   if ((e.target as HTMLElement).closest('.tree-item')) return
   e.preventDefault()
   menuNode.value = null
-  menuItems.value = [
-    {
-      key: 'new',
-      label: '新建',
-      submenu: [
-        { key: 'new-volume', label: '卷' },
-        { key: 'new-chapter-root', label: '章节' },
-      ],
-    },
-  ]
-  menuX.value = e.clientX
-  menuY.value = e.clientY
-  menuVisible.value = true
+  popup(
+    [
+      {
+        key: 'new',
+        label: '新建',
+        submenu: [
+          { key: 'new-volume', label: '卷' },
+          { key: 'new-chapter-root', label: '章节' },
+        ],
+      },
+    ],
+    e.clientX,
+    e.clientY,
+    onMenuSelect,
+  )
 }
 
 // --- 菜单动作分发 ---
@@ -527,12 +524,13 @@ watch(
     </div>
     <div v-if="openError" class="hint err">{{ openError }}</div>
     <ContextMenu
+      v-if="!isNative"
       :visible="menuVisible"
       :x="menuX"
       :y="menuY"
       :items="menuItems"
-      @select="onMenuSelect"
-      @close="menuVisible = false"
+      @select="onPopupSelect"
+      @close="onPopupClose"
     />
     <ChapterMetaDialog
       :model-value="!!metaEditing"

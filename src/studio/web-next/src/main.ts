@@ -7,17 +7,16 @@ import { usePrefsStore } from './stores/prefs'
 import { useUiStore } from './stores/ui'
 import './styles/tokens.css'
 import './styles/base.css'
-import './composables/useTheme' // 模块加载即 apply 持久化主题（副作用 import，渲染前 CSS 变量就位）
 
-// 启动：先取 token（boot 容错，后端未起则离线态挂载），再挂载应用。
-// top-level await：ESM 入口支持，确保任何写请求前 token 就位。
+// 启动：boot 取 token → 加载全局偏好（.clwriting/global.json）→ 挂载应用。
+// top-level await：ESM 入口支持，确保渲染前 token + 偏好就位。
 await boot()
 
-// 正文排版偏好预 apply（渲染前 :root 的 --prose-* 就位，避免闪默认值）。
+// 全局偏好异步加载（主题 + 排版 + 字体；首次从旧 localStorage 迁移到 JSON 文件）。
 // createPinia 不自动 setActivePinia，组件外用 store 前需手动设 active。
 const pinia = createPinia()
 setActivePinia(pinia)
-usePrefsStore().apply()
+await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS 变量就位）
 useUiStore().probeAiStatus() // G4：后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
 createApp(App).use(pinia).use(router).mount('#app')

@@ -2,7 +2,7 @@
 // 本章历史（单章版本回滚）：列 .snapshots 版本 → 选中恢复。
 // 恢复走 origin='restore'，服务端会先把当前内容留一份底——恢复本身可再撤销。
 import { ref, computed, watch } from 'vue'
-import { RotateCcw } from 'lucide-vue-next'
+import { RotateCcw, Clock, AlertCircle } from 'lucide-vue-next'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
@@ -61,7 +61,8 @@ async function load(): Promise<void> {
   try {
     entries.value = await listSnapshots(props.bookName, ws.activeDocId)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message : String(e)
+    err.value = msg === 'not found' ? '暂无历史数据' : msg
   } finally {
     loading.value = false
   }
@@ -102,11 +103,22 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 
 <template>
   <div class="history-panel">
-    <div v-if="!ws.activeDocId" class="side-hint">未打开文档</div>
-    <div v-else-if="loading && !entries.length" class="side-hint">读取中…</div>
-    <div v-else-if="err" class="side-hint err">{{ err }}</div>
-    <div v-else-if="!entries.length" class="side-hint">
-      暂无历史版本——保存过几次之后才会有。
+    <div v-if="!ws.activeDocId" class="empty-state">
+      <Clock :size="20" />
+      <span>未打开文档</span>
+    </div>
+    <div v-else-if="loading && !entries.length" class="empty-state">
+      <Clock :size="20" />
+      <span>读取中…</span>
+    </div>
+    <div v-else-if="err" class="empty-state err">
+      <AlertCircle :size="20" />
+      <span>{{ err }}</span>
+    </div>
+    <div v-else-if="!entries.length" class="empty-state">
+      <Clock :size="20" />
+      <span>暂无历史版本</span>
+      <span class="empty-sub">保存过几次之后才会生成版本快照</span>
     </div>
     <template v-else>
       <div class="row current">
@@ -139,17 +151,30 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 
 <style scoped>
 .history-panel {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  padding: var(--size-4-3);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.side-hint {
-  font-size: var(--font-size-s);
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-4) var(--size-4-2);
   color: var(--text-faint);
-  line-height: 1.6;
+  font-size: var(--font-size-s);
+  text-align: center;
 }
-.side-hint.err {
+.empty-state.err {
   color: var(--text-error);
+}
+.empty-sub {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
 }
 .row {
   display: flex;

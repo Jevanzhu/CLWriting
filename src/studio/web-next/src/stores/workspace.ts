@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { useDocStore } from './doc'
+import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观（TabBar 下拉 → ChapterTreePanel 执行）。 */
 export type CreateKind =
@@ -14,7 +15,14 @@ export type CreateKind =
 
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
- * activeDocId 持久化到 clw2.workspace.<书名>；恢复后由 Book.vue 调 validate 按 tree 剔除失效 docId。
+ *
+ * 三级配置架构（A+B，对齐 Obsidian）：
+ * - 全局偏好（主题/字体/字号/行距/段距）→ .clwriting/global.json（跨书共享）
+ * - 书级偏好（面板布局/最后文档）→ .clwriting/prefs.json（跟随书）
+ * - 章节级（标题/标签）→ frontmatter（不变）
+ *
+ * 切书时异步加载 .clwriting/prefs.json 恢复布局；变更时 debounce 写回。
+ * 首次加载如 prefs.json 不存在，从旧 localStorage 自动迁移。
  */
 export const useWorkspaceStore = defineStore('workspace', () => {
   const leftOpen = ref(true)
@@ -39,83 +47,90 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const editorGetSelection = ref<(() => string) | null>(null)
   const bookName = ref<string | null>(null)
 
-  /** UI 偏好（全局，不按书区分）：左栏宽度 + 面板折叠态 + 左栏面板类型。
-   *  初始化时从 localStorage 读，后续 watch 自动写回（刷新/重启后保持）。 */
-  const UI_PREFS_KEY = 'clw2.ui-prefs'
-  try {
-    const raw = localStorage.getItem(UI_PREFS_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<{
-        leftWidth: number
-        leftOpen: boolean
-        rightOpen: boolean
-        leftPanel: 'tree' | 'search' | 'trash'
-      }>
-      if (typeof p.leftWidth === 'number' && p.leftWidth >= 180) leftWidth.value = p.leftWidth
-      if (typeof p.leftOpen === 'boolean') leftOpen.value = p.leftOpen
-      if (typeof p.rightOpen === 'boolean') rightOpen.value = p.rightOpen
-      if (p.leftPanel === 'tree' || p.leftPanel === 'search' || p.leftPanel === 'trash') leftPanel.value = p.leftPanel
-    }
-  } catch {
-    /* 损坏降级默认 */
-  }
-  watch([leftWidth, leftOpen, rightOpen, leftPanel], () => {
-    try {
-      localStorage.setItem(
-        UI_PREFS_KEY,
-        JSON.stringify({
-          leftWidth: leftWidth.value,
-          leftOpen: leftOpen.value,
-          rightOpen: rightOpen.value,
-          leftPanel: leftPanel.value,
-        }),
-      )
-    } catch {
-      /* localStorage 不可用忽略 */
-    }
-  })
+  // ── 书库级 prefs 加载/持久化 ──
+  let prefsLoaded = false
+  let watchStop: (() => void) | null = null
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-  function storageKey(): string {
-    return `clw2.workspace.${bookName.value}`
-  }
-  function persist(): void {
-    if (!bookName.value) return
-    try {
-      localStorage.setItem(
-        storageKey(),
-        JSON.stringify({ activeDocId: activeDocId.value }),
-      )
-    } catch {
-      /* localStorage 不可用忽略 */
-    }
-  }
-
-  /** 切书：载入持久化 activeDocId（不校验，校验由 Book.vue 调 validate）。 */
+  /** 切书：异步加载书库级 prefs（工作区布局 + 最后打开文档）。 */
   function setBook(name: string): void {
     if (bookName.value === name) return
     bookName.value = name
-    try {
-      const raw = localStorage.getItem(storageKey())
-      if (raw) {
-        const data = JSON.parse(raw) as { activeDocId?: string | null }
-        activeDocId.value = data.activeDocId ?? null
-        return
-      }
-    } catch {
-      /* 损坏降级空 */
-    }
+    prefsLoaded = false
     activeDocId.value = null
+    void loadBookPrefs()
   }
 
-  /** tree load 后校验：activeDocId 失效则清空。 */
+  /** 从 .clwriting/prefs.json 加载书库级偏好；首次为空时从旧 localStorage 迁移。 */
+  async function loadBookPrefs(): Promise<void> {
+    if (!bookName.value) return
+    let prefs: BookPrefs = {}
+    try {
+      prefs = await getBookPrefs(bookName.value)
+    } catch { /* API 不可达用默认 */ }
+
+    // 向后兼容：prefs.json 不存在时从旧 localStorage 迁移
+    if (Object.keys(prefs).length === 0) {
+      try {
+        const oldUi = localStorage.getItem('clw2.ui-prefs')
+        if (oldUi) {
+          const p = JSON.parse(oldUi)
+          if (typeof p.leftWidth === 'number') prefs.leftWidth = p.leftWidth
+          if (typeof p.leftOpen === 'boolean') prefs.leftOpen = p.leftOpen
+          if (typeof p.rightOpen === 'boolean') prefs.rightOpen = p.rightOpen
+          if (p.leftPanel) prefs.leftPanel = p.leftPanel
+        }
+        const oldWs = localStorage.getItem(`clw2.workspace.${bookName.value}`)
+        if (oldWs) {
+          const w = JSON.parse(oldWs)
+          if (w.activeDocId !== undefined) prefs.activeDocId = w.activeDocId
+        }
+      } catch { /* 损坏降级 */ }
+      if (Object.keys(prefs).length > 0) {
+        void putBookPrefs(bookName.value, prefs).catch(() => {})
+      }
+    }
+
+    // 应用 prefs 到 store
+    if (typeof prefs.leftWidth === 'number' && prefs.leftWidth >= 180) leftWidth.value = prefs.leftWidth
+    if (typeof prefs.leftOpen === 'boolean') leftOpen.value = prefs.leftOpen
+    if (typeof prefs.rightOpen === 'boolean') rightOpen.value = prefs.rightOpen
+    if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash') leftPanel.value = prefs.leftPanel
+    activeDocId.value = prefs.activeDocId ?? null
+
+    prefsLoaded = true
+    startPersistWatch()
+  }
+
+  /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
+  function startPersistWatch(): void {
+    if (watchStop) watchStop()
+    watchStop = watch(
+      [leftWidth, leftOpen, rightOpen, leftPanel, activeDocId],
+      () => {
+        if (!prefsLoaded || !bookName.value) return
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          void putBookPrefs(bookName.value!, {
+            leftWidth: leftWidth.value,
+            leftOpen: leftOpen.value,
+            rightOpen: rightOpen.value,
+            leftPanel: leftPanel.value,
+            activeDocId: activeDocId.value,
+          }).catch(() => {})
+        }, 500)
+      },
+    )
+  }
+
+  /** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。 */
   function validate(validDocIds: Set<string>): void {
     if (activeDocId.value && !validDocIds.has(activeDocId.value)) {
       activeDocId.value = null
-      persist()
     }
   }
 
-  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存。 */
+  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。 */
   function openTab(docId: string): void {
     activeView.value = 'editor'
     if (activeDocId.value && activeDocId.value !== docId) {
@@ -123,7 +138,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (doc.get(activeDocId.value)?.dirty) void doc.save(activeDocId.value, 'autosave')
     }
     activeDocId.value = docId
-    persist()
   }
 
   /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。 */

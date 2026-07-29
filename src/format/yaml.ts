@@ -131,6 +131,11 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       const targetWords = parseFiniteNumber(tw.value, NaN)
       if (Number.isFinite(targetWords) && targetWords > 0) cfg.book.target_words = targetWords
     }
+    const ctw = book.children.find((c) => c.key === 'chapter_target_words')
+    if (ctw) {
+      const v = parseFiniteNumber(ctw.value, 0)
+      if (Number.isFinite(v) && v > 0) cfg.book.chapter_target_words = v
+    }
   }
 
   const leads = find('leads')
@@ -313,6 +318,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   }
   if (cfg.book.target_words !== undefined) {
     lines.push(`  target_words: ${cfg.book.target_words}`)
+  }
+  if (cfg.book.chapter_target_words !== undefined) {
+    lines.push(`  chapter_target_words: ${cfg.book.chapter_target_words}`)
   }
 
   // leads 段：长篇恒输出（账本类）；短篇无（账本降级单篇清单 #27）

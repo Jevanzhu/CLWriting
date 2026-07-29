@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { Trash2, RotateCcw, AlertCircle } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
 
-// 回收站面板（细案 T1.7）：列表 + 恢复 / 永久删（二次确认）。恢复后刷新树。
+// 回收站面板：严格仿章节树叶子行样式（dot-slot + label + hover 操作按钮）。
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const ui = useUiStore()
@@ -58,15 +59,29 @@ watch(() => props.bookName, () => load(), { immediate: true })
 
 <template>
   <div class="trash-panel">
-    <div class="side-title">回收站</div>
-    <div v-if="err" class="hint err">{{ err }}</div>
-    <div v-else-if="!entries.length" class="hint">回收站为空</div>
-    <div v-else class="entries">
-      <div v-for="e in entries" :key="e.id" class="entry">
-        <span class="entry-name">{{ basename(e.originalPath ?? e.path) }}</span>
-        <div class="entry-actions">
-          <button class="btn" @click="restore(e.id)">恢复</button>
-          <button class="btn danger" @click="purge(e.id)">永久删</button>
+    <!-- 空状态 -->
+    <div v-if="err" class="empty-state err">
+      <AlertCircle :size="20" />
+      <span>{{ err }}</span>
+    </div>
+    <div v-else-if="!entries.length" class="empty-state">
+      <Trash2 :size="20" />
+      <span>回收站为空</span>
+    </div>
+    <!-- 列表（严格仿章节树叶子行：dot-slot + label 27px 行高） -->
+    <div v-else class="tree-list">
+      <div v-for="e in entries" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
+        <span class="dot-slot">
+          <span class="dot dot-gray"></span>
+        </span>
+        <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
+        <div class="item-actions">
+          <button class="action-btn" data-tip="恢复" data-tip-dir="right" @click="restore(e.id)">
+            <RotateCcw :size="13" />
+          </button>
+          <button class="action-btn danger" data-tip="永久删除" data-tip-dir="right" @click="purge(e.id)">
+            <Trash2 :size="13" />
+          </button>
         </div>
       </div>
     </div>
@@ -75,64 +90,94 @@ watch(() => props.bookName, () => load(), { immediate: true })
 
 <style scoped>
 .trash-panel {
-  padding: var(--size-4-2) 0;
+  padding: var(--size-4-1) 0;
+  min-height: 100%;
 }
-.side-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0 var(--size-4-3) var(--size-4-2);
-}
-.hint {
-  padding: 8px var(--size-4-3);
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-}
-.hint.err {
-  color: var(--text-error);
-}
-.entries {
-  padding: 0 var(--size-4-2);
-}
-.entry {
+/* 空状态 */
+.empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: var(--size-4-2);
-  padding: var(--size-4-1) var(--size-4-2);
-  border-radius: var(--radius-s);
+  padding: var(--size-4-6) var(--size-4-2);
+  color: var(--text-faint);
+  font-size: var(--font-size-s);
+  text-align: center;
 }
-.entry:hover {
+.empty-state.err {
+  color: var(--text-error);
+}
+.tree-list {
+  padding: 0 var(--size-4-1);
+}
+/* ── 严格仿 ChapterTreeItem 叶子行 ── */
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 27px;
+  padding-left: 22px;
+  padding-right: 8px;
+  font-size: var(--font-size-m);
+  color: var(--text-normal);
+  cursor: default;
+  border-radius: var(--radius-s);
+  user-select: none;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.tree-item:hover {
   background: var(--background-modifier-hover);
 }
-.entry-name {
+.dot-slot {
+  width: 14px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dot-gray {
+  background: var(--text-faint);
+}
+.label {
   flex: 1;
   min-width: 0;
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.entry-actions {
+/* 操作按钮：默认隐藏，hover 行时显形（仿 HistoryPanel restore-btn） */
+.item-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
-.btn {
-  font-size: var(--font-size-xs);
-  padding: 2px 8px;
-  border: 1px solid var(--background-modifier-border);
+.tree-item:hover .item-actions {
+  opacity: 1;
+}
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
   border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-faint);
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
-.btn:hover {
+.action-btn:hover {
+  color: var(--interactive-accent);
   background: var(--background-modifier-hover);
 }
-.btn.danger {
+.action-btn.danger:hover {
   color: var(--text-error);
 }
 </style>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// 写作信息面板（细案 T2.2）：实时字数（剥 frontmatter）/ 目标进度 / 6 态 / 保存态。
+// 写作信息面板：实时字数 / 目标进度 / 6 态 / 保存态。
+// 无外层卡片（由 SidebarRight .info-stack 统一卡片容器包裹）。
 import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { getConfig, type BookConfig } from '../../api/books'
-import { countWords, stripFrontmatter } from '../../shared/words'
+import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
 import type { TreeNode } from '../../types/tree'
 
 const props = defineProps<{ bookName: string }>()
@@ -31,9 +32,7 @@ watch(
   { immediate: true },
 )
 
-// 章级实时字数（剥 fm 后正文）
 const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
-// 当前章所在卷字数（同卷 chapter 叶子 wordCount sum；非正文卷 → 0）
 const volumeWords = computed(() => {
   if (!node.value) return 0
   const m = node.value.path.match(/^定稿\/正文\/([^/]+)\//)
@@ -49,70 +48,60 @@ const volumeWords = computed(() => {
   walk(tree.raw)
   return sum
 })
-const target = computed(() => config.value.book?.target_words ?? 0)
-const progress = computed(() =>
-  target.value ? Math.min(100, Math.round((words.value / target.value) * 100)) : 0,
+// 章级目标优先级：fm「字数目标」> 全局每章字数（book.yaml chapter_target_words）
+const chapterTarget = computed(() => {
+  if (entry.value) {
+    const v = parseFmFields(entry.value.content)['字数目标']
+    if (v) return Number(v)
+  }
+  return config.value.book?.chapter_target_words ?? 0
+})
+const chapterProgress = computed(() =>
+  chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,
 )
 
 const STATUS_LABEL: Record<string, string> = {
-  idea: '构想',
-  draft: '草稿',
-  revision: '修订',
-  final: '定稿',
-  published: '已发布',
-  archived: '已归档',
+  idea: '构想', draft: '草稿', revision: '修订',
+  final: '定稿', published: '已发布', archived: '已归档',
 }
+const saveLabel = computed(() => {
+  const e = entry.value
+  if (!e) return '—'
+  if (e.saving) return '保存中…'
+  if (e.error) return e.error
+  if (e.dirty) return '未保存'
+  return e.savedAt ? '已保存' : '—'
+})
 </script>
 
 <template>
   <div class="info-panel">
-    <!-- 全书级（常显：任何视图都有意义） -->
-    <div class="row">
-      <span class="label">全书</span>
-      <span class="value">
-        {{ tree.totalWords.toLocaleString() }}
-        <span class="muted">（定稿 {{ tree.finalizedWords.toLocaleString() }}）</span>
-      </span>
-    </div>
-    <div v-if="target" class="progress-wrap">
-      <div class="progress-bar">
-        <div class="progress-fill" :style="{ width: progress + '%' }"></div>
-      </div>
-      <span class="progress-text">{{ progress }}% / {{ target.toLocaleString() }}</span>
-    </div>
-    <div v-else class="row">
-      <span class="label">目标</span>
-      <span class="muted">未设</span>
-    </div>
-    <div class="row">
-      <span class="label">状态</span>
-      <span class="value">{{ STATUS_LABEL[node?.status ?? ''] ?? '—' }}</span>
-    </div>
-    <!-- 章级编辑态：仅编辑视图 + 已开文档（否则本章信息与回滚均无意义） -->
     <template v-if="ws.activeView === 'editor' && entry">
-      <div class="row">
-        <span class="label">本章</span>
-        <span class="value">{{ words.toLocaleString() }}</span>
+      <!-- 字数 + 进度（始终显示进度条；无目标时 0%） -->
+      <div class="words-block">
+        <div class="words-row">
+          <span class="words-num">{{ words.toLocaleString() }}</span>
+          <span v-if="chapterTarget" class="words-target">/ {{ chapterTarget.toLocaleString() }}</span>
+          <span v-if="chapterTarget" class="words-pct">{{ chapterProgress }}%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" :style="{ width: chapterProgress + '%' }"></div>
+        </div>
       </div>
-      <div v-if="volumeWords" class="row">
-        <span class="label">本卷</span>
-        <span class="value">{{ volumeWords.toLocaleString() }}</span>
-      </div>
-      <div class="row">
-        <span class="label">保存</span>
-        <span class="value" :class="{ dirty: entry.dirty, err: !!entry.error }">
-          {{
-            entry.saving
-              ? '保存中…'
-              : entry.error
-                ? entry.error
-                : entry.dirty
-                  ? '未保存'
-                  : entry.savedAt
-                    ? '已保存'
-                    : '—'
-          }}
-        </span>
+      <!-- 元数据行 -->
+      <div class="meta-grid">
+        <div class="meta-cell">
+          <span class="meta-label">状态</span>
+          <span class="meta-val">{{ STATUS_LABEL[node?.status ?? ''] ?? '—' }}</span>
+        </div>
+        <div v-if="volumeWords" class="meta-cell">
+          <span class="meta-label">本卷</span>
+          <span class="meta-val">{{ volumeWords.toLocaleString() }}</span>
+        </div>
+        <div class="meta-cell">
+          <span class="meta-label">保存</span>
+          <span class="meta-val" :class="{ dirty: entry.dirty, err: !!entry.error }">{{ saveLabel }}</span>
+        </div>
       </div>
     </template>
     <div v-else class="side-hint">
@@ -126,14 +115,7 @@ const STATUS_LABEL: Record<string, string> = {
 .info-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--size-4-2);
-}
-.side-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  gap: var(--size-4-3);
 }
 .side-hint {
   font-size: var(--font-size-s);
@@ -142,46 +124,71 @@ const STATUS_LABEL: Record<string, string> = {
 .side-hint.err {
   color: var(--text-error);
 }
-.row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-s);
-}
-.label {
-  color: var(--text-muted);
-}
-.value {
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
-}
-.value.dirty {
-  color: var(--text-warning);
-}
-.value.err {
-  color: var(--text-error);
-}
-.muted {
-  color: var(--text-faint);
-}
-.progress-wrap {
+/* 字数 + 进度 */
+.words-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+.words-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.words-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.words-target {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.words-pct {
+  margin-left: auto;
+  font-size: var(--font-size-s);
+  color: var(--text-accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .progress-bar {
-  height: 4px;
+  height: 5px;
   background: var(--background-modifier-border);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
   background: var(--interactive-accent);
+  border-radius: 3px;
   transition: width var(--dur-norm) var(--ease-out);
 }
-.progress-text {
+/* 元数据网格 */
+.meta-grid {
+  display: flex;
+  gap: var(--size-4-4);
+}
+.meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.meta-label {
   font-size: var(--font-size-xs);
-  color: var(--text-faint);
+  color: var(--text-muted);
+}
+.meta-val {
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+.meta-val.dirty {
+  color: var(--text-warning);
+}
+.meta-val.err {
+  color: var(--text-error);
 }
 </style>

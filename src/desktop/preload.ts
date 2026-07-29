@@ -44,4 +44,12 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   onNavigate: (cb: (path: string) => void): void => {
     ipcRenderer.on('desktop:navigate', (_e, path: string) => cb(path))
   },
+  /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null */
+  showContextMenu: (
+    items: Array<Record<string, unknown>>,
+    cb: (key: string | null) => void,
+  ): void => {
+    ipcRenderer.once('desktop:context-menu-select', (_e, key: string | null) => cb(key))
+    ipcRenderer.send('desktop:context-menu', items)
+  },
 })

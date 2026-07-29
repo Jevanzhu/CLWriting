@@ -17,6 +17,18 @@ declare global {
       openLibraryDir: () => Promise<void>
       openBook: (name: string) => Promise<void>
       onNavigate: (cb: (path: string) => void) => void
+      /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null） */
+      showContextMenu: (
+        items: Array<{
+          key: string
+          label?: string
+          separator?: boolean
+          disabled?: boolean
+          accelerator?: string
+          submenu?: unknown[]
+        }>,
+        cb: (key: string | null) => void,
+      ) => void
     }
   }
 }

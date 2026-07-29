@@ -287,7 +287,7 @@ async function bootstrap(): Promise<void> {
     appUrl = 'http://localhost:5173'
   } else {
     const staticDir = resolveStaticDir()
-    const server = startServer({ port: 0, staticDir, workDir })
+    const server = startServer({ port: 0, staticDir, workDir, userDataPath: app.getPath('userData') })
     const port = await listenPort(server)
     appUrl = `http://127.0.0.1:${port}`
   }
@@ -413,6 +413,28 @@ function registerIpc(): void {
   ipcMain.handle('desktop:open-library-dir', () => {
     const workDir = readStore().current
     if (workDir) void shell.openPath(workDir)
+  })
+  // ── 原生右键菜单 ──
+  ipcMain.on('desktop:context-menu', (event, specs: unknown[]) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    let selected: string | null = null
+    function build(s: Record<string, unknown>): MenuItemConstructorOptions {
+      if (s.separator) return { type: 'separator' }
+      const item: MenuItemConstructorOptions = {
+        label: (s.label as string) ?? '',
+        enabled: s.disabled !== true,
+        click: () => { selected = s.key as string },
+      }
+      if (s.accelerator) item.accelerator = s.accelerator as string
+      const sub = s.submenu
+      if (Array.isArray(sub) && sub.length) item.submenu = (sub as Record<string, unknown>[]).map(build)
+      return item
+    }
+    const menu = Menu.buildFromTemplate(specs.map((s) => build(s as Record<string, unknown>)))
+    menu.popup({ window: win })
+    // macOS: popup 阻塞，菜单已关闭；发送选择结果（null=取消）
+    event.sender.send('desktop:context-menu-select', selected)
   })
 }
 

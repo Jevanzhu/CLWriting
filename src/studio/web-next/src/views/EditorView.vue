@@ -9,8 +9,12 @@ import { useUiStore } from '../stores/ui'
 import { useRewriteStore } from '../stores/rewrite'
 import { updateChapterMetaDoc } from '../api/documents'
 import { getConfig } from '../api/books'
+import { usePrefsStore } from '../stores/prefs'
 import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
+import ContextMenu from '../components/ui/ContextMenu.vue'
+import type { MenuItem } from '../components/ui/ContextMenu.vue'
+import { useNativeMenu } from '../composables/useNativeMenu'
 import EmptyState from '../components/ui/EmptyState.vue'
 
 const props = defineProps<{ docId: string | null }>()
@@ -19,6 +23,7 @@ const tree = useTreeStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 const rewrite = useRewriteStore()
+const prefs = usePrefsStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
 const isReviewable = computed(() => {
@@ -89,7 +94,71 @@ async function runAiAssist(instruction: string): Promise<void> {
   ws.setRightTab('review')
   await rewrite.run(doc.bookName, ws.activeDocId, instruction, sel)
 }
-const cmHost = ref<{ insertText: (t: string) => void; getSelection: () => string } | null>(null)
+type CmHostExposed = {
+  insertText: (t: string) => void
+  getSelection: () => string
+  hasSelection: () => boolean
+  clipboardCut: () => Promise<void>
+  clipboardCopy: () => Promise<void>
+  clipboardPaste: () => Promise<void>
+  selectAll: () => void
+  undoAction: () => void
+  redoAction: () => void
+  openSearch: () => void
+}
+const cmHost = ref<CmHostExposed | null>(null)
+
+// 右键菜单（桌面端 → macOS 原生 Menu；浏览器 → 自定义 ContextMenu）
+const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
+
+function onContextMenu(e: MouseEvent): void {
+  const hasSel = cmHost.value?.hasSelection() ?? false
+  popup(buildCtxItems(hasSel), e.clientX, e.clientY, onCtxSelect)
+}
+
+function buildCtxItems(hasSel: boolean): MenuItem[] {
+  const items: MenuItem[] = [
+    { key: 'cut', label: '剪切', accelerator: 'CmdOrCtrl+X', disabled: !hasSel },
+    { key: 'copy', label: '复制', accelerator: 'CmdOrCtrl+C', disabled: !hasSel },
+    { key: 'paste', label: '粘贴', accelerator: 'CmdOrCtrl+V' },
+    { key: 'sep1', label: '', separator: true },
+    { key: 'undo', label: '撤销', accelerator: 'CmdOrCtrl+Z' },
+    { key: 'redo', label: '重做', accelerator: 'CmdOrCtrl+Shift+Z' },
+    { key: 'sep2', label: '', separator: true },
+    { key: 'selectAll', label: '全选', accelerator: 'CmdOrCtrl+A' },
+    { key: 'sep3', label: '', separator: true },
+    { key: 'find', label: '查找', accelerator: 'CmdOrCtrl+F' },
+  ]
+  if (isReviewable.value && !aiOff.value) {
+    items.push({ key: 'sep4', label: '', separator: true })
+    items.push({
+      key: 'ai',
+      label: 'AI 辅助',
+      submenu: aiActions.map(a => ({
+        key: `ai-${a.key}`,
+        label: a.label,
+        disabled: !hasSel,
+      })),
+    })
+  }
+  return items
+}
+
+async function onCtxSelect(key: string): Promise<void> {
+  switch (key) {
+    case 'cut': await cmHost.value?.clipboardCut(); break
+    case 'copy': await cmHost.value?.clipboardCopy(); break
+    case 'paste': await cmHost.value?.clipboardPaste(); break
+    case 'undo': cmHost.value?.undoAction(); break
+    case 'redo': cmHost.value?.redoAction(); break
+    case 'selectAll': cmHost.value?.selectAll(); break
+    case 'find': cmHost.value?.openSearch(); break
+    case 'ai-expand': void runAiAssist(aiActions[0].instruction); break
+    case 'ai-condense': void runAiAssist(aiActions[1].instruction); break
+    case 'ai-polish': void runAiAssist(aiActions[2].instruction); break
+    case 'ai-continue': void runAiAssist(aiActions[3].instruction); break
+  }
+}
 
 const wordCount = computed(() => body.value.replace(/\s/g, '').length)
 
@@ -191,10 +260,15 @@ function tick(): void {
     void doc.save(entry.value.docId, 'autosave')
   }
 }
+function startTimer(): void {
+  if (timer) clearInterval(timer)
+  timer = setInterval(tick, Math.max(5, prefs.autosaveInterval) * 1000)
+}
 onMounted(() => {
-  timer = setInterval(tick, 30_000)
+  startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
 })
+watch(() => prefs.autosaveInterval, startTimer)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)
@@ -271,7 +345,7 @@ onUnmounted(() => {
           <span v-else class="page-title">{{ entry.name }}</span>
         </div>
         <!-- 正文编辑器 -->
-        <div class="page-editor">
+        <div class="page-editor" @contextmenu.prevent="onContextMenu">
           <CmHost
             ref="cmHost"
             :model-value="body"
@@ -286,6 +360,15 @@ onUnmounted(() => {
         <i class="crop cm-br" />
       </div>
     </div>
+    <ContextMenu
+      v-if="!isNative"
+      :visible="menuVisible"
+      :x="menuX"
+      :y="menuY"
+      :items="menuItems"
+      @select="onPopupSelect"
+      @close="onPopupClose"
+    />
   </div>
 </template>
 
@@ -315,7 +398,7 @@ onUnmounted(() => {
   padding: 0 var(--doc-pad-x);
 }
 .doc-head {
-  max-width: 1020px;
+  max-width: var(--page-width, 1020px);
   width: 100%;
   margin: var(--size-4-3) auto 0;
   background: var(--background-primary);
@@ -547,7 +630,7 @@ onUnmounted(() => {
   --page-pad: 105px;
   position: relative;
   height: 100%;
-  max-width: 1020px;
+  max-width: var(--page-width, 1020px);
   margin: 0 auto;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);

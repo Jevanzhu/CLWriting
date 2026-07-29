@@ -43,6 +43,8 @@ const formSectionTitle = computed(() => {
   const k = node ? formKindOf(node.path) : null
   return k ? `${FORM_TITLE[k] ?? '文档'}信息` : '信息'
 })
+/** 折叠区标题：有表单 → "章节信息"/"章纲信息"…；无表单 → "写作信息" */
+const sectionTitle = computed(() => (showOutlineForm.value ? formSectionTitle.value : '写作信息'))
 /** 正文/草稿才显示 AI 分析区（与 AnalysisPanel 内部 isReviewable 一致）。 */
 const isReviewable = computed(() => {
   if (!ws.activeDocId) return false
@@ -80,16 +82,16 @@ const isReviewable = computed(() => {
     <div class="right-body">
       <!-- 信息 tab：写作信息 + 章节表单 + AI 分析（折叠分区） -->
       <template v-if="ws.rightTab === 'info'">
-        <CollapseSection title="写作信息">
-          <WritingInfoPanel :book-name="bookName" />
+        <CollapseSection v-if="ws.activeDocId" :title="sectionTitle">
+          <div class="info-stack">
+            <WritingInfoPanel :book-name="bookName" />
+            <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
+          </div>
         </CollapseSection>
-        <CollapseSection v-if="showOutlineForm" :title="formSectionTitle">
-          <MetaFormPanel :book-name="bookName" />
-        </CollapseSection>
-        <CollapseSection v-if="isReviewable" title="AI 分析" :default-open="false">
+        <CollapseSection v-if="isReviewable" title="AI 分析">
           <AnalysisPanel :book-name="bookName" />
         </CollapseSection>
-        <CollapseSection v-if="isReviewable" title="本章历史" :default-open="false">
+        <CollapseSection v-if="isReviewable" title="本章历史">
           <HistoryPanel :book-name="bookName" />
         </CollapseSection>
       </template>
@@ -122,7 +124,7 @@ const isReviewable = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--size-4-2);
+  padding: 0 var(--size-4-3) 0 var(--size-4-2);
   gap: var(--size-4-1);
 }
 .right-topbar.is-drag {
@@ -168,6 +170,14 @@ const isReviewable = computed(() => {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-4);
+}
+.info-stack {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  padding: var(--size-4-3);
+  display: flex;
+  flex-direction: column;
 }
 .side-section {
   display: flex;
