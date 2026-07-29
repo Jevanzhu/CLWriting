@@ -26,6 +26,7 @@ const TITLE: Record<string, string> = {
   character: '角色',
   worldview: '世界观',
   item: '物品',
+  foreshadow: '伏笔',
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
@@ -81,6 +82,13 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '来源', label: '来源', type: 'text' },
     { key: '持有者', label: '持有者', type: 'text' },
     { key: '备注', label: '备注', type: 'textarea' },
+  ],
+  foreshadow: [
+    { key: '标题', label: '标题', type: 'text' },
+    { key: '状态', label: '状态', type: 'select', options: ['未回收', '已回收', '已废弃'] },
+    { key: '重要性', label: '重要性', type: 'select', options: ['高', '中', '低'] },
+    { key: '埋设章号', label: '埋设章号', type: 'number' },
+    { key: '回收章号', label: '回收章号', type: 'number' },
   ],
 }
 

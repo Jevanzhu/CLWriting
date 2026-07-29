@@ -4,7 +4,7 @@ import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 
-/** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观（TabBar 下拉 → ChapterTreePanel 执行）。 */
+/** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观/伏笔（TabBar 下拉 → ChapterTreePanel 执行）。 */
 export type CreateKind =
   | 'chapter'
   | 'chapter-outline'
@@ -13,6 +13,7 @@ export type CreateKind =
   | 'character'
   | 'item'
   | 'worldview'
+  | 'foreshadow'
 
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。

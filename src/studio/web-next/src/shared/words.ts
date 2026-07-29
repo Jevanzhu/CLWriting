@@ -83,7 +83,7 @@ export function formKindOf(
   path: string,
 ):
   | 'chapter' | 'chapter-outline' | 'volume-outline' | 'synopsis'
-  | 'character' | 'worldview' | 'item' | null {
+  | 'character' | 'worldview' | 'item' | 'foreshadow' | null {
   if (path.startsWith('定稿/正文/')) return 'chapter'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
@@ -91,5 +91,6 @@ export function formKindOf(
   if (path.startsWith('定稿/设定/角色/')) return 'character'
   if (path === '定稿/设定/世界观.md') return 'worldview'
   if (path.startsWith('定稿/设定/物品/')) return 'item'
+  if (path.startsWith('定稿/设定/伏笔/')) return 'foreshadow'
   return null
 }

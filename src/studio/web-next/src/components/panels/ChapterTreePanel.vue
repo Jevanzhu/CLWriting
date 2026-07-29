@@ -44,7 +44,7 @@ const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, on
 
 // --- inline 新建/重命名 ---
 type Creating = {
-  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc'
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc'
   renderDir: string
   fsDir: string
   seed: string
@@ -165,6 +165,9 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
   if (node.isDirectory && p === '定稿/设定/物品') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-item', label: '物品' }] }]
   }
+  if (node.isDirectory && p === '定稿/设定/伏笔') {
+    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-foreshadow', label: '伏笔' }] }]
+  }
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('定稿/设定/'))) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
   }
@@ -238,6 +241,7 @@ function onMenuSelect(key: string): void {
   else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path)
   else if (key === 'new-character') startCreate('character', node.path, node.path)
   else if (key === 'new-item') startCreate('item', node.path, node.path)
+  else if (key === 'new-foreshadow') startCreate('foreshadow', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
   else if (key === 'meta') {
@@ -318,6 +322,8 @@ function dispatchCreate(kind: CreateKind): void {
       return startCreate('character', '定稿/设定', '定稿/设定/角色')
     case 'item':
       return startCreate('item', '定稿/设定', '定稿/设定/物品')
+    case 'foreshadow':
+      return startCreate('foreshadow', '定稿/设定', '定稿/设定/伏笔')
     case 'synopsis':
       return void createSingleton('大纲/总纲.md', '总纲')
     case 'worldview':
@@ -325,7 +331,7 @@ function dispatchCreate(kind: CreateKind): void {
   }
 }
 function startCreate(
-  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc',
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc',
   renderDir: string,
   fsDir: string,
 ): void {
