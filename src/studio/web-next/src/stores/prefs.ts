@@ -1,17 +1,20 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import type { ThemeId } from '../types/theme'
 
 /**
- * 全局编辑器偏好 store（主题 + 排版 + 字体）。
+ * 全局编辑器偏好 store（主题 + 排版 + 字体 + 书架视图）。
  *
- * 存储：.clwriting/global.json（JSON 文件，对齐 Obsidian vault 级配置）。
+ * 存储：userData/global.json（APP 级，跨书库共享；对齐 Obsidian 全局配置）。
  * 替代旧 localStorage（LevelDB 黑盒，不可编辑不可备份）。
+ *
+ * 书级覆盖：pageWidth / autosaveInterval 可被 .clwriting/prefs.json 覆盖。
+ * effectivePageWidth = 书级 > 全局；apply() 用有效值。
+ * 书级覆盖的持久化由 workspace store 统一写入 prefs.json（避免双写冲突）。
  *
  * 初始化：main.ts 在 mount 前 await init() → API 读取 → apply CSS 变量。
  * 首次为空时从旧 localStorage 自动迁移。
- * 持久化：setter 改值后 debounce 500ms 写回 API。
  */
 const DEFAULTS = {
   theme: 'light' as ThemeId,
@@ -20,6 +23,7 @@ const DEFAULTS = {
   proseGap: 1,
   pageWidth: 1020,
   autosaveInterval: 30,
+  shelfView: 'grid' as 'grid' | 'list',
 }
 
 /** 旧 localStorage 键（仅迁移用，迁移后停用） */
@@ -34,6 +38,7 @@ const OLD_LS = {
   proseFontEn: 'clw.proseFontEn',
   pageWidth: 'clw.pageWidth',
   autosaveInterval: 'clw.autosaveInterval',
+  shelfView: 'clw-shelf-view',
 }
 
 /** 拼字体族：英文字体优先（英文片段），中文字体兜底（中文），最后系统 fallback。
@@ -47,6 +52,7 @@ function buildFontFamily(en: string, cn: string, fallback: string): string {
 }
 
 export const usePrefsStore = defineStore('prefs', () => {
+  // ── 全局偏好（global.json）──
   const theme = ref<ThemeId>(DEFAULTS.theme)
   const proseSize = ref(DEFAULTS.proseSize)
   const proseLh = ref(DEFAULTS.proseLh)
@@ -57,11 +63,19 @@ export const usePrefsStore = defineStore('prefs', () => {
   const proseFontEn = ref('')
   const pageWidth = ref(DEFAULTS.pageWidth)
   const autosaveInterval = ref(DEFAULTS.autosaveInterval)
+  const shelfView = ref<'grid' | 'list'>(DEFAULTS.shelfView)
 
-  // 持久化缓存 + debounce 定时器
+  // ── 书级覆盖（prefs.json；null = 用全局）──
+  const bookPageWidth = ref<number | null>(null)
+  const bookAutosaveInterval = ref<number | null>(null)
+
+  // ── 有效值（书级 > 全局）──
+  const effectivePageWidth = computed(() => bookPageWidth.value ?? pageWidth.value)
+  const effectiveAutosaveInterval = computed(() => bookAutosaveInterval.value ?? autosaveInterval.value)
+
   let persistTimer: ReturnType<typeof setTimeout> | null = null
 
-  /** 异步初始化：从 .clwriting/global.json 加载（替代 localStorage）。
+  /** 异步初始化：从 global.json 加载（替代 localStorage）。
    *  首次为空时从旧 localStorage 自动迁移。main.ts 在 mount 前调一次。 */
   async function init(): Promise<void> {
     let prefs: GlobalPrefs = {}
@@ -109,6 +123,8 @@ export const usePrefsStore = defineStore('prefs', () => {
           if (v) { (ref as typeof uiFontCn).value = v; has = true }
         }
       }
+      const sv = localStorage.getItem(OLD_LS.shelfView)
+      if (sv === 'grid' || sv === 'list') { shelfView.value = sv; has = true }
     } catch { /* localStorage 损坏降级 */ }
     return has
   }
@@ -125,9 +141,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.proseFontEn === 'string') proseFontEn.value = p.proseFontEn
     if (typeof p.pageWidth === 'number' && p.pageWidth > 0) pageWidth.value = p.pageWidth
     if (typeof p.autosaveInterval === 'number' && p.autosaveInterval > 0) autosaveInterval.value = p.autosaveInterval
+    if (p.shelfView === 'grid' || p.shelfView === 'list') shelfView.value = p.shelfView
   }
 
-  /** 从当前 ref 构建 GlobalPrefs 对象 */
+  /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖） */
   function buildCache(): GlobalPrefs {
     return {
       theme: theme.value,
@@ -140,10 +157,11 @@ export const usePrefsStore = defineStore('prefs', () => {
       proseFontEn: proseFontEn.value,
       pageWidth: pageWidth.value,
       autosaveInterval: autosaveInterval.value,
+      shelfView: shelfView.value,
     }
   }
 
-  /** debounce 写回 .clwriting/global.json（500ms） */
+  /** debounce 写回 global.json（500ms） */
   function schedulePersist(): void {
     if (persistTimer) clearTimeout(persistTimer)
     const cache = buildCache()
@@ -159,8 +177,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     r.style.setProperty('--prose-size', `${proseSize.value}px`)
     r.style.setProperty('--prose-lh', String(proseLh.value))
     r.style.setProperty('--prose-gap', `${proseGap.value}em`)
-    r.style.setProperty('--page-width', `${pageWidth.value}px`)
-    // 字体：仅用户设定时覆盖，否则用 tokens.css 默认（完整 fallback 链）
+    r.style.setProperty('--page-width', `${effectivePageWidth.value}px`)
     if (uiFontCn.value || uiFontEn.value) {
       r.style.setProperty('--font-ui', buildFontFamily(uiFontEn.value, uiFontCn.value, 'system-ui, sans-serif'))
     } else {
@@ -177,7 +194,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     document.documentElement.dataset.theme = theme.value
   }
 
-  // ── setter（设值 + apply + debounce 持久化）──
+  // ── setter ──
 
   function setThemeValue(id: ThemeId): void {
     theme.value = id
@@ -219,13 +236,29 @@ export const usePrefsStore = defineStore('prefs', () => {
     apply()
     schedulePersist()
   }
-  function setPageWidth(v: number): void {
-    pageWidth.value = v
+  /** 纸张宽度：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖） */
+  function setPageWidth(v: number, bookOnly = false): void {
+    if (bookOnly) {
+      bookPageWidth.value = v
+    } else {
+      pageWidth.value = v
+      bookPageWidth.value = null
+    }
     apply()
     schedulePersist()
   }
-  function setAutosaveInterval(v: number): void {
-    autosaveInterval.value = v
+  /** 自动保存间隔：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖） */
+  function setAutosaveInterval(v: number, bookOnly = false): void {
+    if (bookOnly) {
+      bookAutosaveInterval.value = v
+    } else {
+      autosaveInterval.value = v
+      bookAutosaveInterval.value = null
+    }
+    schedulePersist()
+  }
+  function setShelfView(v: 'grid' | 'list'): void {
+    shelfView.value = v
     schedulePersist()
   }
 
@@ -240,6 +273,11 @@ export const usePrefsStore = defineStore('prefs', () => {
     proseFontEn,
     pageWidth,
     autosaveInterval,
+    shelfView,
+    bookPageWidth,
+    bookAutosaveInterval,
+    effectivePageWidth,
+    effectiveAutosaveInterval,
     init,
     apply,
     applyTheme,
@@ -253,5 +291,6 @@ export const usePrefsStore = defineStore('prefs', () => {
     setProseFontEn,
     setPageWidth,
     setAutosaveInterval,
+    setShelfView,
   }
 })

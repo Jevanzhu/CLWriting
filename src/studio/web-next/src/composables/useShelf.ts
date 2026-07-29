@@ -4,6 +4,7 @@
  */
 import { ref, computed } from 'vue'
 import { useShelfStore } from '../stores/shelf'
+import { usePrefsStore } from '../stores/prefs'
 import { apiJson } from '../api/client'
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
@@ -71,16 +72,11 @@ export function useShelf(options?: {
     return sorted[0] ?? null
   })
 
-  // 视图模式（网格/列表），localStorage 持久化用户偏好
-  const storedView = typeof localStorage !== 'undefined' ? localStorage.getItem('clw-shelf-view') : null
-  const viewMode = ref<'grid' | 'list'>(storedView === 'list' ? 'list' : 'grid')
+  // 视图模式（网格/列表），全局偏好持久化（global.json）
+  const prefs = usePrefsStore()
+  const viewMode = computed(() => prefs.shelfView)
   function setView(mode: 'grid' | 'list'): void {
-    viewMode.value = mode
-    try {
-      localStorage.setItem('clw-shelf-view', mode)
-    } catch {
-      /* localStorage 不可用时忽略 */
-    }
+    prefs.setShelfView(mode)
   }
 
   // 新建书表单

@@ -42,6 +42,7 @@ export interface GlobalPrefs {
   proseFontEn?: string
   pageWidth?: number
   autosaveInterval?: number
+  shelfView?: 'grid' | 'list'
   [k: string]: unknown
 }
 

@@ -212,6 +212,22 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   setter(Math.min(max, Math.max(min, v)))
 }
 
+// ── 书级覆盖（纸张宽度/自动保存 可选"仅本书"）──
+const pageWidthBookOnly = computed(() => prefs.bookPageWidth !== null)
+const autosaveBookOnly = computed(() => prefs.bookAutosaveInterval !== null)
+function onPageWidthInput(v: number): void {
+  prefs.setPageWidth(v, pageWidthBookOnly.value)
+}
+function onAutosaveInput(v: number): void {
+  prefs.setAutosaveInterval(v, autosaveBookOnly.value)
+}
+function togglePageWidthScope(): void {
+  prefs.setPageWidth(prefs.effectivePageWidth, !pageWidthBookOnly.value)
+}
+function toggleAutosaveScope(): void {
+  prefs.setAutosaveInterval(prefs.effectiveAutosaveInterval, !autosaveBookOnly.value)
+}
+
 // Esc 关闭
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape' && ui.settingsOpen) ui.closeSettings()
@@ -345,22 +361,28 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">纸张宽度</div>
-                  <div class="setting-item-desc">写作区纸张的最大宽度</div>
+                  <div class="setting-item-desc">
+                    写作区纸张的最大宽度
+                    <button class="scope-btn" :class="{ on: pageWidthBookOnly }" @click="togglePageWidthScope">仅本书</button>
+                  </div>
                 </div>
                 <div class="setting-item-control">
-                  <input type="range" min="600" max="1400" step="20" :value="prefs.pageWidth" @input="prefs.setPageWidth(Number(($event.target as HTMLInputElement).value))" />
-                  <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.pageWidth" @change="numInput(600, 1400, prefs.setPageWidth, $event)" />
+                  <input type="range" min="600" max="1400" step="20" :value="prefs.effectivePageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
+                  <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.effectivePageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
                   <span class="val-suffix">px</span>
                 </div>
               </div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">自动保存</div>
-                  <div class="setting-item-desc">编辑后自动保存的间隔</div>
+                  <div class="setting-item-desc">
+                    编辑后自动保存的间隔
+                    <button class="scope-btn" :class="{ on: autosaveBookOnly }" @click="toggleAutosaveScope">仅本书</button>
+                  </div>
                 </div>
                 <div class="setting-item-control">
-                  <input type="range" min="5" max="120" step="5" :value="prefs.autosaveInterval" @input="prefs.setAutosaveInterval(Number(($event.target as HTMLInputElement).value))" />
-                  <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.autosaveInterval" @change="numInput(5, 120, prefs.setAutosaveInterval, $event)" />
+                  <input type="range" min="5" max="120" step="5" :value="prefs.effectiveAutosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
+                  <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.effectiveAutosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
                   <span class="val-suffix">s</span>
                 </div>
               </div>
@@ -747,6 +769,28 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-faint);
   margin-top: 3px;
   line-height: 1.4;
+}
+/* "仅本书"覆盖开关 */
+.scope-btn {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.scope-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-active);
+}
+.scope-btn.on {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  border-color: transparent;
+  color: var(--text-on-accent);
 }
 .setting-item-control {
   display: flex;

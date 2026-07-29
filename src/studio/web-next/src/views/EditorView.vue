@@ -262,13 +262,13 @@ function tick(): void {
 }
 function startTimer(): void {
   if (timer) clearInterval(timer)
-  timer = setInterval(tick, Math.max(5, prefs.autosaveInterval) * 1000)
+  timer = setInterval(tick, Math.max(5, prefs.effectiveAutosaveInterval) * 1000)
 }
 onMounted(() => {
   startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
 })
-watch(() => prefs.autosaveInterval, startTimer)
+watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)

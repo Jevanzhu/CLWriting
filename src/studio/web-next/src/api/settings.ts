@@ -37,3 +37,12 @@ export interface SettingsResult {
 export async function getSettings(name: string): Promise<SettingsResult> {
   return apiJson<SettingsResult>(`/api/books/${encodeURIComponent(name)}/settings`)
 }
+
+/** 补全名称列表（编辑器补全用；轻量端点：角色姓名 + 物品名称，只读 fm 不拉正文） */
+export interface CompletionNames {
+  characters: string[]
+  items: string[]
+}
+export async function getCompletionNames(name: string): Promise<CompletionNames> {
+  return apiJson<CompletionNames>(`/api/books/${encodeURIComponent(name)}/completion-names`)
+}

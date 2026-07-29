@@ -31,7 +31,7 @@ const doc = useDocStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 
-const expanded = ref<Set<string>>(new Set(['写作']))
+const expanded = computed<Set<string>>(() => new Set(ws.treeExpanded))
 const openError = ref<string | null>(null)
 
 const activePath = computed<string | null>(
@@ -57,30 +57,12 @@ const metaEditing = ref<{ docId: string; 章号: number | null; 标题: string }
 // --- 拖拽 ---
 const draggedPath = ref<string | null>(null)
 
-const storageKey = computed(() => `clw2.filetree.${props.bookName}`)
 
-function loadExpanded(): Set<string> {
-  try {
-    const raw = localStorage.getItem(storageKey.value)
-    if (raw) return new Set(JSON.parse(raw) as string[])
-  } catch {
-    /* 损坏降级默认 */
-  }
-  return new Set(['写作'])
-}
-function saveExpanded(): void {
-  try {
-    localStorage.setItem(storageKey.value, JSON.stringify([...expanded.value]))
-  } catch {
-    /* ignore */
-  }
-}
 function toggle(path: string): void {
   const next = new Set(expanded.value)
   if (next.has(path)) next.delete(path)
   else next.add(path)
-  expanded.value = next
-  saveExpanded()
+  ws.treeExpanded = [...next]
 }
 
 async function onSelect(node: TreeNode): Promise<void> {
@@ -362,8 +344,7 @@ function startCreate(
   const next = new Set(expanded.value)
   next.add(renderDir)
   if (ancestors) for (const a of ancestors) next.add(a)
-  expanded.value = next
-  saveExpanded()
+  ws.treeExpanded = [...next]
 }
 async function onCreateCommit(value: string): Promise<void> {
   const c = creating.value
@@ -471,12 +452,30 @@ async function doCopy(node: TreeNode): Promise<void> {
   }
 }
 
+/** 收集所有目录路径（首次打开全展开用） */
+function collectAllDirs(nodes: TreeNode[]): string[] {
+  const dirs: string[] = []
+  function walk(ns: TreeNode[]): void {
+    for (const n of ns) {
+      if (n.isDirectory) {
+        dirs.push(n.path)
+        walk(n.children)
+      }
+    }
+  }
+  walk(nodes)
+  return dirs
+}
+
 watch(
   () => props.bookName,
   async (name) => {
     if (!name) return
     await tree.load(name)
-    expanded.value = loadExpanded()
+    // 首次打开（无持久化展开状态）→ 全展开
+    if (ws.treeExpanded.length <= 1) {
+      ws.treeExpanded = collectAllDirs(tree.grouped)
+    }
     // 今日基线：tree.load 后 totalWords 已就绪（§5.4），不阻塞树渲染
     void words.ensureBaseline(name)
   },

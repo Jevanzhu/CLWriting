@@ -12,6 +12,9 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language'
 import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codemirror/search'
+import { autocompletion, startCompletion, completionKeymap, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
+import { getCompletionNames } from '../api/settings'
+import { useWorkspaceStore } from '../stores/workspace'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
@@ -58,6 +61,25 @@ const editorTheme = EditorView.theme({
   '.cm-content': { caretColor: 'var(--text-accent)', padding: '0', maxWidth: 'var(--prose-max-width, 720px)', margin: '0 auto' },
   '.cm-line': { padding: '0' },
   '.cm-activeLine': { backgroundColor: 'var(--background-modifier-hover)' },
+  // Autocomplete tooltip 美化（圆角卡片 + 阴影 + 选中高亮）
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    border: '1px solid var(--background-modifier-border)',
+    borderRadius: '8px',
+    background: 'var(--background-primary)',
+    boxShadow: '0 6px 24px rgba(0,0,0,0.10)',
+  },
+  '.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'var(--font-ui)',
+    fontSize: '14px',
+  },
+  '.cm-tooltip-autocomplete > ul > li': {
+    padding: '5px 14px',
+    borderRadius: '4px',
+  },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    background: 'var(--interactive-accent)',
+    color: 'var(--text-on-accent)',
+  },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'var(--background-modifier-active-hover)',
   },
@@ -76,8 +98,48 @@ const editorSetup: Extension[] = [
   highlightActiveLine(),
   highlightSpecialChars(),
   highlightSelectionMatches(),
-  keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap]),
+  autocompletion({ override: [characterCompletion], activateOnTyping: true, icons: false }),
+  EditorView.updateListener.of((u) => {
+    // @ 触发角色名补全（CM6 默认 activateOnTyping 只认 \w，@ 不触发）
+    if (!u.docChanged || !completionEntries.value.length) return
+    const head = u.state.selection.main.head
+    if (u.state.doc.sliceString(head - 1, head) === '@') startCompletion(u.view)
+  }),
+  keymap.of([
+    { key: 'Mod-i', run: (v) => { startCompletion(v); return true } },
+    ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap,
+  ]),
 ]
+
+// 补全名称：输入 @ 自动触发 或 Cmd+I 手动触发
+interface NameEntry { label: string; detail: string }
+const completionEntries = ref<NameEntry[]>([])
+function characterCompletion(context: CompletionContext): CompletionResult | null {
+  const entries = completionEntries.value
+  if (!entries.length) return null
+
+  // @ 触发：光标前有 @ 开头的文本
+  const at = context.matchBefore(/@[一-鿿\w]*/)
+  if (at && at.text.length >= 1) {
+    const query = at.text.slice(1)
+    const filtered = query ? entries.filter((e) => e.label.includes(query)) : entries
+    if (filtered.length) {
+      return {
+        from: at.from,
+        options: filtered.map((e) => ({ label: e.label, type: 'variable', detail: e.detail })),
+        validFor: /^@?[一-鿿\w]*$/,
+      }
+    }
+  }
+
+  // 显式触发（Cmd+I / Ctrl+Space）：总是弹出全部名称，在光标位置插入
+  if (!context.explicit) return null
+  return {
+    from: context.pos,
+    options: entries.map((e) => ({ label: e.label, type: 'variable', detail: e.detail })),
+    validFor: /^[一-鿿\w]*$/,
+  }
+}
 
 // 打字机模式（专注时启用）：输入时当前行 scrollIntoView 居中（仅 docChanged，不干扰主动滚动查看）
 function typewriterExt(on: boolean): Extension {
@@ -119,6 +181,23 @@ watch(
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })
     }
   },
+)
+
+// 补全名称列表（从设定 API 加载：角色名 + 物品名；@ / Cmd+I 触发用）
+const ws = useWorkspaceStore()
+watch(
+  () => ws.bookName,
+  async (name) => {
+    if (!name || props.readonly) { completionEntries.value = []; return }
+    try {
+      const r = await getCompletionNames(name)
+      completionEntries.value = [
+        ...r.characters.map((n) => ({ label: n, detail: '角色' })),
+        ...r.items.map((n) => ({ label: n, detail: '物品' })),
+      ]
+    } catch { /* 无设定数据 */ }
+  },
+  { immediate: true },
 )
 
 // 打字机开关（专注模式切换）：动态重配；进入时立即把当前行居中

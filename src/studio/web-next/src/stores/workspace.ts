@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { useDocStore } from './doc'
+import { usePrefsStore } from './prefs'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观（TabBar 下拉 → ChapterTreePanel 执行）。 */
@@ -38,6 +39,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const rightTab = ref<'info' | 'review' | 'check'>('info')
   /** 当前打开的文档 ID（单文档模式，无标签页）。 */
   const activeDocId = ref<string | null>(null)
+  /** 章节树展开路径（持久化到 prefs.json）。 */
+  const treeExpanded = ref<string[]>(['写作'])
   /** 新建信号（TabBar 触发 → ChapterTreePanel 监听执行）。createKind 标记类型，createTick 递增触发。 */
   const createKind = ref<CreateKind>('chapter')
   const createTick = ref(0)
@@ -85,6 +88,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           const w = JSON.parse(oldWs)
           if (w.activeDocId !== undefined) prefs.activeDocId = w.activeDocId
         }
+        const oldTree = localStorage.getItem(`clw2.filetree.${bookName.value}`)
+        if (oldTree) {
+          const arr = JSON.parse(oldTree)
+          if (Array.isArray(arr)) prefs.treeExpanded = arr
+        }
       } catch { /* 损坏降级 */ }
       if (Object.keys(prefs).length > 0) {
         void putBookPrefs(bookName.value, prefs).catch(() => {})
@@ -97,6 +105,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (typeof prefs.rightOpen === 'boolean') rightOpen.value = prefs.rightOpen
     if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash') leftPanel.value = prefs.leftPanel
     activeDocId.value = prefs.activeDocId ?? null
+    if (Array.isArray(prefs.treeExpanded)) treeExpanded.value = prefs.treeExpanded
+
+    // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）
+    const ps = usePrefsStore()
+    ps.bookPageWidth = typeof prefs.pageWidth === 'number' ? prefs.pageWidth : null
+    ps.bookAutosaveInterval = typeof prefs.autosaveInterval === 'number' ? prefs.autosaveInterval : null
+    ps.apply()
 
     prefsLoaded = true
     startPersistWatch()
@@ -105,8 +120,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
   function startPersistWatch(): void {
     if (watchStop) watchStop()
+    const ps = usePrefsStore()
     watchStop = watch(
-      [leftWidth, leftOpen, rightOpen, leftPanel, activeDocId],
+      [leftWidth, leftOpen, rightOpen, leftPanel, activeDocId, treeExpanded,
+       () => ps.bookPageWidth, () => ps.bookAutosaveInterval],
       () => {
         if (!prefsLoaded || !bookName.value) return
         if (debounceTimer) clearTimeout(debounceTimer)
@@ -117,6 +134,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             rightOpen: rightOpen.value,
             leftPanel: leftPanel.value,
             activeDocId: activeDocId.value,
+            treeExpanded: treeExpanded.value,
+            pageWidth: ps.bookPageWidth ?? undefined,
+            autosaveInterval: ps.bookAutosaveInterval ?? undefined,
           }).catch(() => {})
         }, 500)
       },
@@ -194,6 +214,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeView,
     rightTab,
     activeDocId,
+    treeExpanded,
     createKind,
     createTick,
     bookName,

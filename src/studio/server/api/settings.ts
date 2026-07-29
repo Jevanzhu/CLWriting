@@ -24,6 +24,21 @@ interface SettingsCtx {
   workDir: string | null
 }
 
+/** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文） */
+function readFmNames(dir: string, field: string): string[] {
+  const names: string[] = []
+  if (!existsSync(dir)) return names
+  try {
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.md') && !x.startsWith('._'))) {
+      const r = readFile(join(dir, f))
+      const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
+      const n = String(map.get(field) ?? basename(f, '.md'))
+      if (n) names.push(n)
+    }
+  } catch { /* 目录读取失败 → 空列表 */ }
+  return names
+}
+
 /** 角色卡(P2 结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
 export interface CharacterCard {
   file: string // 相对 bookRoot
@@ -58,6 +73,18 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       return reply(res, 200, { kind: 'short' as const, hint: '短篇无设定层(单篇内闭合)' })
     }
     reply(res, 200, settingsLong(bookRoot))
+  })
+
+  // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
+  route('GET', '/api/books/:name/completion-names', (_req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const setDir = join(ctx.workDir, entry.path, '定稿', '设定')
+    reply(res, 200, {
+      characters: readFmNames(join(setDir, '角色'), '姓名'),
+      items: readFmNames(join(setDir, '物品'), '名称'),
+    })
   })
 
   // P2 角色卡写回(防穿越:file 必须在 定稿/设定/角色/ 下)
