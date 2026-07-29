@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// 写作信息面板（细案 T2.2）：实时字数（剥 frontmatter）/ 目标进度 / 6 态 / 保存态 / 回滚入口。
+// 写作信息面板（细案 T2.2）：实时字数（剥 frontmatter）/ 目标进度 / 6 态 / 保存态。
 import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { useUiStore } from '../../stores/ui'
-import { getConfig, revert, type BookConfig } from '../../api/books'
+import { getConfig, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter } from '../../shared/words'
 import type { TreeNode } from '../../types/tree'
 
@@ -13,7 +12,6 @@ const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const ui = useUiStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) : undefined))
@@ -63,25 +61,6 @@ const STATUS_LABEL: Record<string, string> = {
   final: '定稿',
   published: '已发布',
   archived: '已归档',
-}
-
-async function onRevert(): Promise<void> {
-  const input = await ui.prompt({
-    title: '回滚章节',
-    message: '输入目标章号。后续章节内容将丢弃（可从 git 备份 ref 找回）。',
-    placeholder: '章号',
-    confirmText: '回滚',
-    danger: true,
-  })
-  if (!input) return
-  const chapter = Number(input)
-  if (!Number.isFinite(chapter) || chapter < 1) return
-  try {
-    await revert(props.bookName, chapter)
-    await tree.load(props.bookName)
-  } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
-  }
 }
 </script>
 
@@ -135,7 +114,6 @@ async function onRevert(): Promise<void> {
           }}
         </span>
       </div>
-      <button class="revert-btn" @click="onRevert">回滚到第 N 章…</button>
     </template>
     <div v-else class="side-hint">
       {{ entry ? '切到编辑视图查看本章信息' : '未打开文档——左侧选章开始写作' }}
@@ -205,20 +183,5 @@ async function onRevert(): Promise<void> {
 .progress-text {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
-}
-.revert-btn {
-  margin-top: var(--size-4-2);
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-  text-align: left;
-}
-.revert-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-error);
 }
 </style>

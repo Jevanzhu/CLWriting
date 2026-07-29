@@ -2,12 +2,13 @@
 // 设置弹窗（细案 T2.4 + T4.2）：主题（亮/暗）+ 正文排版滑块 + 桌面动作。
 // 沿用旧偏好键 clw-*（prefs store 持久化 + apply :root）。
 // 桌面动作（打开书库目录）仅桌面版显示——window.clwritingDesktop 判空降级。
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { getConfig, putConfig } from '../../api/books'
 
 const ui = useUiStore()
 const prefs = usePrefsStore()
@@ -74,6 +75,53 @@ function selValue(e: Event): string {
 async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
   await window.clwritingDesktop?.openBookDir(ws.bookName)
+}
+
+// ── 版本备份（快照保留策略，落 book.yaml）────────────
+// 缺省即后端默认值；改动时读回完整 config 再整体写回（服务端全量重写 book.yaml）。
+const SNAPSHOT_DEFAULTS = { maxDays: 14, maxCount: 30 }
+const snapDays = ref(SNAPSHOT_DEFAULTS.maxDays)
+const snapCount = ref(SNAPSHOT_DEFAULTS.maxCount)
+const snapSaving = ref(false)
+
+watch(
+  () => [ui.settingsOpen, ws.bookName] as const,
+  async ([open, name]) => {
+    if (!open || !name) return
+    try {
+      const cfg = await getConfig(name)
+      snapDays.value = cfg.snapshots?.max_days ?? SNAPSHOT_DEFAULTS.maxDays
+      snapCount.value = cfg.snapshots?.max_count ?? SNAPSHOT_DEFAULTS.maxCount
+    } catch {
+      /* 读不到就用默认值展示 */
+    }
+  },
+  { immediate: true },
+)
+
+async function saveSnapshotPolicy(): Promise<void> {
+  const name = ws.bookName
+  if (!name || snapSaving.value) return
+  snapSaving.value = true
+  try {
+    const cfg = await getConfig(name)
+    cfg.snapshots = { max_days: snapDays.value, max_count: snapCount.value }
+    await putConfig(name, cfg)
+    ui.toast('已保存备份设置', 'success')
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  } finally {
+    snapSaving.value = false
+  }
+}
+
+/** 数字输入落值：夹到合法区间后写回。 */
+function onSnapInput(which: 'days' | 'count', e: Event): void {
+  const raw = Number((e.target as HTMLInputElement).value)
+  if (!Number.isFinite(raw)) return
+  if (which === 'days') snapDays.value = Math.min(365, Math.max(1, Math.round(raw)))
+  else snapCount.value = Math.min(200, Math.max(1, Math.round(raw)))
+  void saveSnapshotPolicy()
 }
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
@@ -173,6 +221,31 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             @input="prefs.setGap(Number(($event.target as HTMLInputElement).value))"
           />
         </div>
+        <div class="setting-row">
+          <label>版本备份 <span class="hint">每章历史版本的保留规则</span></label>
+        </div>
+        <div class="setting-row sub">
+          <label>保留天数</label>
+          <input
+            class="num-input"
+            type="number"
+            min="1"
+            max="365"
+            :value="snapDays"
+            @change="onSnapInput('days', $event)"
+          />
+        </div>
+        <div class="setting-row sub">
+          <label>保留数量</label>
+          <input
+            class="num-input"
+            type="number"
+            min="1"
+            max="200"
+            :value="snapCount"
+            @change="onSnapInput('count', $event)"
+          />
+        </div>
         <div v-if="hasDesktop" class="setting-row">
           <label>书库</label>
           <button class="link-btn" @click="openBookDir">在文件管理器中打开书库目录</button>
@@ -239,6 +312,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .val {
   color: var(--text-normal);
   font-variant-numeric: tabular-nums;
+}
+/* 版本备份：主行给说明，子行左标签右输入 */
+.hint {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.setting-row.sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--size-4-2);
+  padding-left: var(--size-4-2);
+}
+.setting-row.sub label {
+  margin-bottom: 0;
+}
+.num-input {
+  width: 72px;
+  padding: 4px 8px;
+  font-size: var(--font-size-s);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.num-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
 }
 .setting-row input[type='range'] {
   width: 100%;

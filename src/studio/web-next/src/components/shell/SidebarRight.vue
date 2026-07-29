@@ -10,6 +10,7 @@ import CheckPanel from '../panels/CheckPanel.vue'
 import ReviewPanel from '../panels/ReviewPanel.vue'
 import RewritePanel from '../panels/RewritePanel.vue'
 import AnalysisPanel from '../panels/AnalysisPanel.vue'
+import HistoryPanel from '../panels/HistoryPanel.vue'
 import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
@@ -87,6 +88,9 @@ const isReviewable = computed(() => {
         </CollapseSection>
         <CollapseSection v-if="isReviewable" title="AI 分析" :default-open="false">
           <AnalysisPanel :book-name="bookName" />
+        </CollapseSection>
+        <CollapseSection v-if="isReviewable" title="本章历史" :default-open="false">
+          <HistoryPanel :book-name="bookName" />
         </CollapseSection>
       </template>
       <!-- 审阅 tab：块1 三审 + 块2 改写 -->
