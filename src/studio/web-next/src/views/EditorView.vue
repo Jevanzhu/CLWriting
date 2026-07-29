@@ -1,13 +1,14 @@
 <script setup lang="ts">
-// 文档编辑视图（细案 T1.2）：inline 标题（章名，只读）+ CM6 正文 + 保存态指示 + 30s 自动保存。
+// 文档编辑视图：单行路径式顶栏（面包屑→标题合为一条，720px 居中对齐正文）+ CM6 正文。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PenLine, Expand, Minimize2, Feather, CornerDownRight, Loader2 } from 'lucide-vue-next'
+import { PenLine, Loader2 } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { useRewriteStore } from '../stores/rewrite'
 import { updateChapterMetaDoc } from '../api/documents'
+import { getConfig } from '../api/books'
 import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -20,7 +21,6 @@ const ui = useUiStore()
 const rewrite = useRewriteStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
-// AI 工具栏：对所有有分类的文档（正文/大纲/设定）+ 草稿显示
 const isReviewable = computed(() => {
   if (!entry.value) return false
   if (formKindOf(entry.value.path) !== null) return true
@@ -33,7 +33,34 @@ const crumbs = computed(() => {
   return p.replace(/\.md$/, '').split('/').slice(0, -1).filter(Boolean)
 })
 
-// 保存状态（药丸 + 圆点指示器）
+// 章节正文状态（TreeNode.status → 中文标签）
+const STATUS_LABEL: Record<string, string> = {
+  idea: '构想', draft: '草稿', revision: '修订',
+  final: '定稿', published: '已发布', archived: '已归档',
+}
+const chapterStatus = computed(() => {
+  if (!props.docId) return null
+  const node = tree.byDocId.get(props.docId)
+  const s = node?.status
+  return s ? STATUS_LABEL[s] ?? null : null
+})
+// 状态色（和章节树六态对齐）：final·published 绿 / revision 红 / draft 黄 / 其余灰
+const statusCls = computed(() => {
+  if (!props.docId) return ''
+  const s = tree.byDocId.get(props.docId)?.status
+  switch (s) {
+    case 'final':
+    case 'published':
+      return 'st-good'
+    case 'revision':
+      return 'st-bad'
+    case 'draft':
+      return 'st-warn'
+    default:
+      return 'st-faint'
+  }
+})
+
 const saveStatus = computed<{ text: string; cls: string }>(() => {
   const e = entry.value
   if (!e) return { text: '', cls: '' }
@@ -45,12 +72,11 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
   return { text: '', cls: '' }
 })
 
-// AI 预设动作：选中文字 → 一键改写 → 右栏 diff 预览
 const aiActions = [
-  { key: 'expand', label: '扩写', icon: Expand, instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
-  { key: 'condense', label: '缩写', icon: Minimize2, instruction: '压缩选中段落，去掉冗余对话和描写，保留核心信息和情节走向' },
-  { key: 'polish', label: '润色', icon: Feather, instruction: '润色选中段落的文风和用词，提升文学性，不改变情节走向' },
-  { key: 'continue', label: '续写', icon: CornerDownRight, instruction: '保留原文不变，在后面续写200-500字，延续当前风格和情节' },
+  { key: 'expand', label: '扩写', instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
+  { key: 'condense', label: '缩写', instruction: '压缩选中段落，去掉冗余对话和描写，保留核心信息和情节走向' },
+  { key: 'polish', label: '润色', instruction: '润色选中段落的文风和用词，提升文学性，不改变情节走向' },
+  { key: 'continue', label: '续写', instruction: '保留原文不变，在后面续写200-500字，延续当前风格和情节' },
 ] as const
 
 async function runAiAssist(instruction: string): Promise<void> {
@@ -65,7 +91,8 @@ async function runAiAssist(instruction: string): Promise<void> {
 }
 const cmHost = ref<{ insertText: (t: string) => void; getSelection: () => string } | null>(null)
 
-// 右栏速查「插入」命令管道：pendingInsert 变 → 插入光标 + 清空（无编辑器也清空，避免残留）
+const wordCount = computed(() => body.value.replace(/\s/g, '').length)
+
 watch(
   () => ws.pendingInsert,
   (text) => {
@@ -77,8 +104,24 @@ watch(
 
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
-// 编辑区只显 body（剥离 fm）：仅对有右栏表单的文档剥离（fm 走表单管理）；
-// 六类账本/草稿等无表单文档显全文（剥离了 fm 也无处编辑，反而锁死）。
+// 当前书类型（长篇/短篇），顶栏 pill 展示；切书时重新拉取 book.yaml
+const bookKind = ref<'long' | 'short' | null>(null)
+watch(
+  () => doc.bookName,
+  async (name) => {
+    if (!name) {
+      bookKind.value = null
+      return
+    }
+    try {
+      const cfg = await getConfig(name)
+      bookKind.value = cfg.kind === 'short' ? 'short' : 'long'
+    } catch {
+      bookKind.value = null
+    }
+  },
+  { immediate: true },
+)
 const hasForm = computed(() => (entry.value ? formKindOf(entry.value.path) !== null : false))
 const body = computed(() => {
   const c = entry.value?.content ?? ''
@@ -87,11 +130,9 @@ const body = computed(() => {
 function onBodyChange(next: string): void {
   const e = entry.value
   if (!e) return
-  // 有表单：fm 不在编辑区 → mergeFm 拼回（保留 fm 头，只换 body）；无表单：原样 patch 全文
   doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
 }
 
-// 顶部标题：仅 chapter 可编辑，绑 fm 标题 → 失焦/回车写 fm 标题 + 联动 rename 文件名。
 const isChapter = computed(() => entry.value?.path.startsWith('定稿/正文/') ?? false)
 const titleModel = ref('')
 watch(
@@ -111,7 +152,6 @@ async function onTitleCommit(): Promise<void> {
   if (newTitle === current) return
   titleSaving.value = true
   try {
-    // 标题联动 rename（文件名 + fm 标题）；保护本地未存 body：记 body → 写后 refresh 拼回
     const localBody = stripFrontmatter(e.content)
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, { 标题: newTitle })
     await tree.load(doc.bookName!)
@@ -132,26 +172,19 @@ async function onTitleCommit(): Promise<void> {
   }
 }
 
-// 持久化恢复缺口：刷新后 tabs 恢复但 doc Map 空 → 活动 tab 无 entry → 自动 open。
-// 正常切 tab 不触发（entry 已在 Map，dirty 驻留不丢，决策 R6）。
 watch(
   () => props.docId,
   async (id) => {
     if (id && !doc.get(id)) {
       const node = tree.byDocId.get(id)
       if (node) {
-        try {
-          await doc.open(node)
-        } catch {
-          /* 打开失败静默（tab 仍在，点别的即可） */
-        }
+        try { await doc.open(node) } catch { /* 静默 */ }
       }
     }
   },
   { immediate: true },
 )
 
-// 30s 自动保存（origin='autosave'）：仅当前活动文档 dirty 时触发（细案 §7 数值）。
 let timer: ReturnType<typeof setInterval> | null = null
 function tick(): void {
   if (entry.value?.dirty && !entry.value.saving) {
@@ -160,7 +193,6 @@ function tick(): void {
 }
 onMounted(() => {
   timer = setInterval(tick, 30_000)
-  // 注册选区读取器（选段改写经 ws 读 cmHost.getSelection）
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
 })
 onUnmounted(() => {
@@ -172,63 +204,86 @@ onUnmounted(() => {
 <template>
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view">
-    <header class="doc-head">
-      <!-- 第一排：面包屑(左) + 保存态 + AI 按钮(右) -->
-      <div class="doc-meta-row">
-        <div v-if="crumbs.length" class="doc-crumbs">
+    <!-- 顶栏 wrapper：和 doc-body 共享左右 padding，保证卡片宽度同步 -->
+    <div class="doc-head-slot">
+      <header class="doc-head">
+      <div class="doc-bar">
+        <!-- 左：类型 pill · 面包屑 → 标题（完整路径） -->
+        <div class="bar-left">
+          <span v-if="bookKind" class="book-kind" :class="bookKind">{{ bookKind === 'long' ? '长篇' : '短篇' }}</span>
+          <span v-if="bookKind" class="bar-split" />
           <template v-for="(c, i) in crumbs" :key="i">
-            <span v-if="i > 0" class="doc-crumb-sep">›</span>
-            <span class="doc-crumb">{{ c }}</span>
+            <span v-if="i > 0" class="bar-sep">›</span>
+            <span class="bar-crumb">{{ c }}</span>
           </template>
+          <span v-if="crumbs.length" class="bar-sep">›</span>
+          <input
+            v-if="isChapter"
+            v-model="titleModel"
+            class="bar-title editable"
+            placeholder="未命名"
+            @blur="onTitleCommit"
+            @keydown.enter.prevent="onTitleCommit"
+          />
+          <span v-else class="bar-title">{{ entry.name }}</span>
         </div>
-        <span v-if="saveStatus.text" class="save-pill" :class="saveStatus.cls">
-          <span class="save-dot" />
-          {{ saveStatus.text }}
-        </span>
-        <template v-if="entry.conflict">
-          <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载远端</button>
-          <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">
-            覆盖远端
-          </button>
-        </template>
-        <div v-if="isReviewable" class="ai-tools">
-          <button
-            v-for="a in aiActions"
-            :key="a.key"
-            class="ai-tool-btn"
-            :disabled="aiOff || rewrite.loading"
-            :data-tip="aiOff ? 'AI 不可达' : a.label"
-            data-tip-dir="bottom"
-            @click="runAiAssist(a.instruction)"
-          >
-            <component :is="a.icon" :size="13" />
-            <span>{{ a.label }}</span>
-          </button>
-          <Loader2 v-if="rewrite.loading" :size="13" class="ai-spin" />
+        <!-- 右：状态 · 字数 · 保存 · AI 按钮 -->
+        <div class="bar-right">
+          <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
+          <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
+          <span v-if="saveStatus.text" class="save-status" :class="saveStatus.cls">
+            <span class="save-dot" />
+          </span>
+          <template v-if="entry.conflict">
+            <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载</button>
+            <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
+          </template>
+          <div v-if="isReviewable" class="ai-group">
+            <button
+              v-for="a in aiActions"
+              :key="a.key"
+              class="ai-btn"
+              :disabled="aiOff || rewrite.loading"
+              :data-tip="aiOff ? 'AI 不可达' : a.label"
+              data-tip-dir="bottom"
+              @click="runAiAssist(a.instruction)"
+            >
+              {{ a.label }}
+            </button>
+            <Loader2 v-if="rewrite.loading" :size="12" class="ai-btn-spin" />
+          </div>
         </div>
-      </div>
-      <!-- 第二排：标题居中 -->
-      <div class="doc-title-row">
-        <input
-          v-if="isChapter"
-          v-model="titleModel"
-          class="inline-title editable"
-          placeholder="未命名"
-          @blur="onTitleCommit"
-          @keydown.enter.prevent="onTitleCommit"
-        />
-        <input v-else class="inline-title" :value="entry.name" readonly placeholder="未命名" />
       </div>
     </header>
+    </div>
     <div class="doc-body">
       <div class="doc-page">
-        <CmHost
-          ref="cmHost"
-          :model-value="body"
-          :mode="entry.mode"
-          :typewriter="ws.focusMode"
-          @update:model-value="onBodyChange"
-        />
+        <!-- 标题居中 -->
+        <div class="page-title-area">
+          <input
+            v-if="isChapter"
+            v-model="titleModel"
+            class="page-title editable"
+            placeholder="未命名"
+            @blur="onTitleCommit"
+            @keydown.enter.prevent="onTitleCommit"
+          />
+          <span v-else class="page-title">{{ entry.name }}</span>
+        </div>
+        <!-- 正文编辑器 -->
+        <div class="page-editor">
+          <CmHost
+            ref="cmHost"
+            :model-value="body"
+            :mode="entry.mode"
+            :typewriter="ws.focusMode"
+            @update:model-value="onBodyChange"
+          />
+        </div>
+        <i class="crop cm-tl" />
+        <i class="crop cm-tr" />
+        <i class="crop cm-bl" />
+        <i class="crop cm-br" />
       </div>
     </div>
   </div>
@@ -243,86 +298,191 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--background-secondary);
+  /* 统一左右 padding（doc-head 和 doc-body 共享） */
+  --doc-pad-x: var(--size-4-12);
+  /* 角标参数（全局共享） */
+  --crop-size: 40px;
+  --crop-edge: 90px;
+  --crop-gap: 10px;
+  /* 正文宽度 = 纸张宽度 - 两侧(角标边距 + 角标大小 + 间距) */
+  --prose-max-width: max(320px, calc(100% - 2 * (var(--crop-edge) + var(--crop-size) + var(--crop-gap))));
 }
-/* doc-head：第一排(面包屑+按钮) + 第二排(标题居中) */
-.doc-head {
+
+/* ===== 独立顶栏（白底卡片，和正文纸张同风格） ===== */
+.doc-head-slot {
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  padding: var(--size-4-3) var(--size-4-6);
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 0 var(--doc-pad-x);
 }
-/* 第一排：面包屑靠左，保存药丸 + AI 工具条靠右 */
-.doc-meta-row {
+.doc-head {
+  max-width: 1020px;
+  width: 100%;
+  margin: var(--size-4-3) auto 0;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-s);
+  padding: var(--size-4-2) var(--size-4-3);
+}
+.doc-bar {
   display: flex;
   align-items: center;
-  gap: var(--size-4-2);
-  min-height: 28px;
+  justify-content: space-between;
+  gap: var(--size-4-3);
+  min-height: 30px;
 }
-.doc-crumbs {
-  flex: 1;
+
+/* 左：类型 pill · 面包屑 → 标题 */
+.bar-left {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
   font-size: var(--font-size-s);
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
-.doc-crumb-sep {
-  opacity: 0.4;
+/* 长篇/短篇 类型 pill（蓝/橙，与状态色绿红黄区分） */
+.book-kind {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: var(--radius-s);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
 }
-/* 第二排：标题居中 */
-.doc-title-row {
-  display: flex;
-  justify-content: center;
+.book-kind.long {
+  color: var(--cat-4);
+  background: color-mix(in srgb, var(--cat-4) 14%, transparent);
 }
-.inline-title {
-  flex: none;
-  text-align: center;
-  min-width: 200px;
-  max-width: 80%;
+.book-kind.short {
+  color: var(--cat-2);
+  background: color-mix(in srgb, var(--cat-2) 14%, transparent);
+}
+/* pill 与面包屑间的短分隔线（与 AI 区分隔风格统一） */
+.bar-split {
+  align-self: center;
+  flex-shrink: 0;
+  width: 1px;
+  height: 14px;
+  margin-left: 6px;
+  margin-right: 6px;
+  background: var(--background-modifier-border);
+}
+.bar-crumb {
+  white-space: nowrap;
+}
+.bar-sep {
+  opacity: 0.35;
+}
+.bar-title {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
   border: none;
   outline: none;
   background: transparent;
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--text-normal);
   font-family: var(--prose-font);
 }
-/* chapter 可编辑标题：hover 有底色提示可点；内边距补偿保持视觉对齐 */
-.inline-title.editable {
-  cursor: text;
+.bar-title.editable {
   border-radius: var(--radius-s);
-  padding: 2px 6px;
-  margin: -2px -6px;
+  padding: 1px 6px;
+  margin: -1px -6px;
+  cursor: text;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.inline-title.editable:hover {
+.bar-title.editable:hover,
+.bar-title.editable:focus {
   background: var(--background-modifier-hover);
 }
-/* 保存状态药丸 + 圆点指示器 */
-.save-pill {
+/* 纸张内标题（绝对定位，在角标上方） */
+.page-title-area {
+  position: absolute;
+  top: var(--size-4-6);
+  left: 0;
+  right: 0;
+  max-width: var(--prose-max-width);
+  margin: 0 auto;
+  z-index: 2;
+  text-align: center;
+}
+.page-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-normal);
+  font-family: var(--prose-font);
+  border: none;
+  outline: none;
+  background: transparent;
+  text-align: center;
+  width: 100%;
+}
+.page-title.editable {
+  border-radius: var(--radius-s);
+  padding: 2px var(--size-4-2);
+  cursor: text;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.page-title.editable:hover,
+.page-title.editable:focus {
+  background: var(--background-modifier-hover);
+}
+.page-editor {
+  height: 100%;
+}
+
+/* 右：状态 + AI */
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
   flex-shrink: 0;
+}
+.word-count {
+  font-size: var(--font-size-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-s);
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.doc-status {
+  font-size: var(--font-size-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-s);
+}
+.doc-status.st-good {
+  color: var(--text-success);
+  background: color-mix(in srgb, var(--text-success) 12%, transparent);
+}
+.doc-status.st-bad {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 12%, transparent);
+}
+.doc-status.st-warn {
+  color: var(--text-warning);
+  background: color-mix(in srgb, var(--text-warning) 12%, transparent);
+}
+.doc-status.st-faint {
+  color: var(--text-faint);
+  background: var(--background-modifier-hover);
+}
+.save-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  background: var(--background-modifier-hover);
 }
 .save-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--text-faint);
-  flex-shrink: 0;
 }
-.save-pill.saved .save-dot { background: var(--dv-good); }
-.save-pill.dirty .save-dot { background: var(--text-warning); }
-.save-pill.err .save-dot { background: var(--text-error); }
-.save-pill.saving .save-dot {
+.save-status.saved .save-dot { background: var(--dv-good); }
+.save-status.dirty .save-dot { background: var(--text-warning); }
+.save-status.err .save-dot { background: var(--text-error); }
+.save-status.saving .save-dot {
   background: var(--text-accent);
   animation: save-pulse 1s var(--ease-std) infinite;
 }
@@ -331,34 +491,27 @@ onUnmounted(() => {
   50% { opacity: 1; }
 }
 .conflict-btn {
-  flex-shrink: 0;
-  font-size: var(--font-size-s);
-  padding: 1px 8px;
+  font-size: var(--font-size-xs);
+  padding: 2px 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  background: var(--background-secondary);
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
 }
-.conflict-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.conflict-btn.danger:hover {
-  color: var(--text-error);
-}
-/* AI 按钮：独立胶囊（各自带边框，不包外层容器）*/
-.ai-tools {
-  flex-shrink: 0;
+.conflict-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.conflict-btn.danger:hover { color: var(--text-error); }
+
+/* AI 按钮 */
+.ai-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--size-4-1);
+  padding-left: var(--size-4-3);
+  border-left: 1px solid var(--background-modifier-border);
 }
-.ai-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
+.ai-btn {
+  padding: 3px 10px;
   border: none;
   border-radius: var(--radius-s);
   background: var(--interactive-accent);
@@ -367,32 +520,71 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.ai-tool-btn:hover:not(:disabled) {
+.ai-btn:hover:not(:disabled) {
   background: var(--interactive-accent-hover);
 }
-.ai-spin {
-  color: var(--text-accent);
-  animation: ai-spin 0.9s linear infinite;
+.ai-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
-@keyframes ai-spin {
+.ai-btn-spin {
+  color: var(--text-accent);
+  margin: 0 4px;
+  animation: ai-btn-rot 0.9s linear infinite;
+}
+@keyframes ai-btn-rot {
   to { transform: rotate(360deg); }
 }
-/* Word 风格：灰色桌面 + 白色纸张（shadow + 圆角）*/
+
+/* ===== Word 风格纸张 ===== */
 .doc-body {
   flex: 1;
   min-height: 0;
-  background: var(--background-secondary);
-  padding: var(--size-4-3) var(--size-4-4);
+  padding: var(--size-4-3) var(--doc-pad-x) var(--size-4-5);
   overflow: hidden;
 }
 .doc-page {
+  --page-pad: 105px;
+  position: relative;
   height: 100%;
-  max-width: 820px;
+  max-width: 1020px;
   margin: 0 auto;
   background: var(--background-primary);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow-m);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-s), var(--shadow-l);
   overflow: hidden;
-  padding: var(--size-4-6);
+  padding: var(--page-pad) 0;
+}
+.crop {
+  position: absolute;
+  width: var(--crop-size);
+  height: var(--crop-size);
+  pointer-events: none;
+  z-index: 1;
+}
+.cm-tl {
+  top: calc(var(--page-pad) - var(--crop-size));
+  left: min(var(--crop-edge), calc(50% - var(--crop-size) - var(--crop-gap)));
+  border-right: 1px solid var(--background-modifier-border-active);
+  border-bottom: 1px solid var(--background-modifier-border-active);
+}
+.cm-tr {
+  top: calc(var(--page-pad) - var(--crop-size));
+  right: min(var(--crop-edge), calc(50% - var(--crop-size) - var(--crop-gap)));
+  border-left: 1px solid var(--background-modifier-border-active);
+  border-bottom: 1px solid var(--background-modifier-border-active);
+}
+.cm-bl {
+  bottom: calc(var(--page-pad) - var(--crop-size));
+  left: min(var(--crop-edge), calc(50% - var(--crop-size) - var(--crop-gap)));
+  border-right: 1px solid var(--background-modifier-border-active);
+  border-top: 1px solid var(--background-modifier-border-active);
+}
+.cm-br {
+  bottom: calc(var(--page-pad) - var(--crop-size));
+  right: min(var(--crop-edge), calc(50% - var(--crop-size) - var(--crop-gap)));
+  border-left: 1px solid var(--background-modifier-border-active);
+  border-top: 1px solid var(--background-modifier-border-active);
 }
 </style>

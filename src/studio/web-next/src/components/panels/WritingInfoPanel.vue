@@ -87,7 +87,6 @@ async function onRevert(): Promise<void> {
 
 <template>
   <div class="info-panel">
-    <div class="side-title">写作信息</div>
     <!-- 全书级（常显：任何视图都有意义） -->
     <div class="row">
       <span class="label">全书</span>

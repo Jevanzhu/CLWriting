@@ -164,8 +164,7 @@ function run(c: Cmd): void {
   animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .palette {
-  width: 480px;
-  max-width: 92vw;
+  width: min(480px, calc(100vw - 32px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);

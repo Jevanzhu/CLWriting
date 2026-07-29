@@ -38,7 +38,7 @@ const ui = useUiStore()
   animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .cp-modal {
-  width: 360px;
+  width: min(360px, calc(100vw - 32px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);

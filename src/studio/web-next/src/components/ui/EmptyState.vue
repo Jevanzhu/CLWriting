@@ -67,8 +67,8 @@ const iconSize = computed(() =>
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 300px;
-  height: 300px;
+  width: min(300px, 50vw);
+  height: min(300px, 50vw);
   transform: translate(-50%, -50%);
   background: radial-gradient(circle, var(--text-accent) 0%, transparent 65%);
   opacity: 0.07;

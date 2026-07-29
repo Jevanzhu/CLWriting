@@ -631,7 +631,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: var(--size-4-4);
-  width: 320px;
+  width: min(320px, calc(100vw - 32px));
   box-shadow: var(--shadow-l);
   animation: clw-appear var(--dur-norm) var(--ease-out);
 }

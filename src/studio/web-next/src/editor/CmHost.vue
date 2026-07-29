@@ -26,7 +26,10 @@ import {
 import { tags as t } from '@lezer/highlight'
 
 const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [string] }>()
+const emit = defineEmits<{
+  'update:modelValue': [string]
+  'selectionChange': []
+}>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
 
@@ -52,7 +55,7 @@ const editorTheme = EditorView.theme({
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: 'var(--prose-font)', lineHeight: 'var(--prose-lh)' },
-  '.cm-content': { caretColor: 'var(--text-accent)', padding: '0', maxWidth: '720px', margin: '0 auto' },
+  '.cm-content': { caretColor: 'var(--text-accent)', padding: '0', maxWidth: 'var(--prose-max-width, 720px)', margin: '0 auto' },
   '.cm-line': { padding: '0' },
   '.cm-activeLine': { backgroundColor: 'var(--background-modifier-hover)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
@@ -100,6 +103,7 @@ onMounted(() => {
       ...(props.mode === 'md' ? [markdown()] : []),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
+        if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
       typewriterConf.of(typewriterExt(props.typewriter ?? false)),
     ],
@@ -149,7 +153,22 @@ function getSelection(): string {
   const sel = view.state.selection.main
   return sel.from === sel.to ? '' : view.state.sliceDoc(sel.from, sel.to)
 }
-defineExpose({ insertText, getSelection })
+/** 取选区矩形（视口坐标），失焦或空选区返回 null（浮动工具栏定位用）*/
+function getSelectionRect(): { left: number; top: number; right: number; bottom: number } | null {
+  if (!view || !view.hasFocus) return null
+  const sel = view.state.selection.main
+  if (sel.from === sel.to) return null
+  const a = view.coordsAtPos(sel.from)
+  const b = view.coordsAtPos(sel.to)
+  if (!a || !b) return null
+  return {
+    left: Math.min(a.left, b.left),
+    right: Math.max(a.right, b.right),
+    top: Math.min(a.top, b.top),
+    bottom: Math.max(a.bottom, b.bottom),
+  }
+}
+defineExpose({ insertText, getSelection, getSelectionRect })
 
 onUnmounted(() => view?.destroy())
 </script>

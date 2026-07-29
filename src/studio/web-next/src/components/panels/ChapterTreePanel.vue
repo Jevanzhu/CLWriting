@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
-import { useWorkspaceStore } from '../../stores/workspace'
+import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
 import { useWordsStore } from '../../stores/words'
 import { useUiStore } from '../../stores/ui'
 import type { TreeNode } from '../../types/tree'
@@ -46,7 +46,7 @@ const menuNode = ref<TreeNode | null>(null)
 
 // --- inline 新建/重命名 ---
 type Creating = {
-  kind: 'chapter' | 'chapter-outline' | 'character' | 'item' | 'volume' | 'doc'
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc'
   renderDir: string
   fsDir: string
   seed: string
@@ -132,6 +132,11 @@ function lastVolumePath(): string | null {
   const writeGroup = tree.grouped.find((n) => n.path === '写作')
   const vols = (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))
   return vols.length ? (vols[vols.length - 1]?.path ?? null) : null
+}
+/** 正文现有卷数（用于卷纲编号推断：N = 卷数 + 1）。 */
+function volumeCount(): number {
+  const writeGroup = tree.grouped.find((n) => n.path === '写作')
+  return (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path)).length
 }
 function collectAncestors(ns: TreeNode[], target: string, acc: string[] = []): string[] | null {
   for (const n of ns) {
@@ -296,8 +301,52 @@ async function onSaveMeta(meta: { 标题: string; 章号: number }): Promise<voi
 }
 
 // --- 新建 ---
+function onNewChapter(): void {
+  const vol = lastVolumePath()
+  startCreate('chapter', vol ?? '写作', vol ?? '定稿/正文')
+}
+/** 单文件类型（总纲/世界观）：固定路径，检测存在性，不走 inline 命名。 */
+async function createSingleton(relPath: string, label: string): Promise<void> {
+  const existing = tree.byPath.get(relPath)
+  if (existing?.docId) {
+    await doc.open(existing)
+    ws.openTab(existing.docId)
+    ui.toast(`${label}已存在，已为你打开`, 'info')
+    return
+  }
+  try {
+    await createDoc(props.bookName, { relPath })
+    await tree.load(props.bookName)
+    const fresh = tree.byPath.get(relPath)
+    if (fresh?.docId) {
+      await doc.open(fresh)
+      ws.openTab(fresh.docId)
+    }
+  } catch (e) {
+    openError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+/** TabBar 新建信号分派（按 createKind 路由到 startCreate / createSingleton）。 */
+function dispatchCreate(kind: CreateKind): void {
+  switch (kind) {
+    case 'chapter':
+      return onNewChapter()
+    case 'chapter-outline':
+      return startCreate('chapter-outline', '大纲', '大纲/章纲')
+    case 'volume-outline':
+      return startCreate('volume-outline', '大纲', '大纲/卷纲')
+    case 'character':
+      return startCreate('character', '定稿/设定', '定稿/设定/角色')
+    case 'item':
+      return startCreate('item', '定稿/设定', '定稿/设定/物品')
+    case 'synopsis':
+      return void createSingleton('大纲/总纲.md', '总纲')
+    case 'worldview':
+      return void createSingleton('定稿/设定/世界观.md', '世界观')
+  }
+}
 function startCreate(
-  kind: 'chapter' | 'chapter-outline' | 'character' | 'item' | 'volume' | 'doc',
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc',
   renderDir: string,
   fsDir: string,
 ): void {
@@ -306,7 +355,12 @@ function startCreate(
     openError.value = '当前书库无该区域，无法在此新建'
     return
   }
-  const seed = kind === 'chapter' || kind === 'chapter-outline' ? `${nextChapterNo()}-未命名` : ''
+  const seed =
+    kind === 'chapter' || kind === 'chapter-outline'
+      ? `${nextChapterNo()}-未命名`
+      : kind === 'volume-outline'
+        ? `卷纲_第${volumeCount() + 1}卷`
+        : ''
   creating.value = { kind, renderDir, fsDir, seed }
   const next = new Set(expanded.value)
   next.add(renderDir)
@@ -431,11 +485,18 @@ watch(
   },
   { immediate: true },
 )
+
+// TabBar 新建信号 → 监听 createTick 按 createKind 分派（首次 tick=0 不触发，跳过初始）
+watch(
+  () => ws.createTick,
+  (n, old) => {
+    if (old !== undefined && n > old) dispatchCreate(ws.createKind)
+  },
+)
 </script>
 
 <template>
   <div class="chapter-tree" @contextmenu="onBlankContextMenu($event)">
-    <div class="side-title">章节树</div>
     <div v-if="tree.loading" class="hint">加载中…</div>
     <div v-else-if="tree.error" class="hint err">{{ tree.error }}</div>
     <div v-else-if="!tree.grouped.length" class="hint">（无章节）</div>
@@ -485,20 +546,12 @@ watch(
 
 <style scoped>
 .chapter-tree {
-  padding: var(--size-4-2) 0;
+  padding: var(--size-4-1) 0;
   min-height: 100%;
-}
-.side-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0 var(--size-4-3) var(--size-4-2);
 }
 .hint {
   padding: 8px var(--size-4-3);
-  font-size: var(--font-size-s);
+  font-size: var(--font-size-m);
   color: var(--text-faint);
 }
 .hint.err {

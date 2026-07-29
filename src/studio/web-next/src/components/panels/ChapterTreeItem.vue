@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { ChevronDown } from 'lucide-vue-next'
 import type { TreeNode } from '../../types/tree'
 import { useTreeStore } from '../../stores/tree'
 
@@ -15,7 +16,7 @@ const props = defineProps<{
   activePath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
-  creatingKind: 'chapter' | 'chapter-outline' | 'character' | 'item' | 'volume' | 'doc' | null
+  creatingKind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc' | null
   creatingSeed: string
   /** inline 重命名输入框：path 命中则替代 label。 */
   renamePath: string | null
@@ -109,14 +110,16 @@ watch(
       @dragover="node.isDirectory ? $event.preventDefault() : undefined"
       @drop="node.isDirectory ? (emit('drop', node.path), $event.preventDefault()) : undefined"
     >
-      <span
+      <ChevronDown
         v-if="node.isDirectory"
+        :size="14"
         class="caret"
+        :class="{ 'caret-closed': !isOpen() }"
         draggable="true"
         @dragstart="emit('dragstart', node.path)"
         @dragend="emit('dragend')"
         @click.stop="emit('toggle', node.path)"
-      >{{ isOpen() ? '▾' : '▸' }}</span>
+      />
       <span v-else class="dot-slot">
         <span
           class="dot"
@@ -180,14 +183,15 @@ watch(
 .tree-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
+  gap: 5px;
+  height: 27px;
   padding-right: 8px;
   font-size: var(--font-size-m);
   color: var(--text-normal);
   cursor: pointer;
   border-radius: var(--radius-s);
   user-select: none;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 .tree-item:hover {
   background: var(--background-modifier-hover);
@@ -198,32 +202,29 @@ watch(
 .tree-item.dragging {
   opacity: 0.4;
 }
-/* P2-7：顶级分组（写作/大纲/设定）作为分区标题，与章节行拉开层级 */
+/* 顶级分组（写作/大纲/设定）— 与普通行完全统一，仅保留分组间隔 */
 .tree-item.group-head {
-  margin-top: var(--size-4-3);
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  height: 28px;
+  margin-top: 2px;
 }
+/* Lucide caret：折叠时旋转 -90°，展开时朝下，带过渡 */
 .caret {
-  width: 12px;
   color: var(--text-faint);
-  font-size: var(--font-size-xxs);
   flex-shrink: 0;
   cursor: grab;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.caret.caret-closed {
+  transform: rotate(-90deg);
 }
 .dot-slot {
-  width: 12px;
+  width: 14px;
   display: flex;
   justify-content: center;
   flex-shrink: 0;
 }
 .dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   cursor: grab;
 }
@@ -251,7 +252,7 @@ watch(
   color: var(--text-faint);
   flex-shrink: 0;
 }
-/* T9b：树红点（行尾，独立于行首六态 dot；有机检 red 或 verdict 驳回时亮）。 */
+/* 树红点（行尾，独立于行首六态 dot） */
 .issue-dot {
   width: 6px;
   height: 6px;
@@ -261,17 +262,12 @@ watch(
   animation: issue-pulse 1.6s ease-in-out infinite;
 }
 @keyframes issue-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 .inline-input {
   flex: 1;
-  height: 20px;
+  height: 22px;
   font-size: var(--font-size-m);
   border: 1px solid var(--interactive-accent);
   border-radius: var(--radius-s);

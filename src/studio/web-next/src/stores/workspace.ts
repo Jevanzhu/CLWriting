@@ -1,21 +1,21 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useDocStore } from './doc'
-import { useTreeStore } from './tree'
-import { formKindOf } from '../shared/words'
+
+/** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观（TabBar 下拉 → ChapterTreePanel 执行）。 */
+export type CreateKind =
+  | 'chapter'
+  | 'chapter-outline'
+  | 'volume-outline'
+  | 'synopsis'
+  | 'character'
+  | 'item'
+  | 'worldview'
 
 /**
- * 工作区状态（细案 §5 + T1.3）：面板折叠态 + tabs 多开 + 持久化恢复。
- * tabs 持久化到 clw2.workspace.<书名>；恢复后由 Book.vue 调 validate 按 tree 剔除失效 docId。
- * 关闭 dirty tab 走 pendingCloseTabId → ConfirmDialog 三选（保存/放弃/取消）。
+ * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
+ * activeDocId 持久化到 clw2.workspace.<书名>；恢复后由 Book.vue 调 validate 按 tree 剔除失效 docId。
  */
-export interface Tab {
-  id: string
-  docId: string
-  /** 文档类型 key（formKindOf 结果）；同类 tab 去重——同 kind 只保留一个。 */
-  kind: string | null
-}
-
 export const useWorkspaceStore = defineStore('workspace', () => {
   const leftOpen = ref(true)
   const rightOpen = ref(true)
@@ -27,10 +27,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 主区活动视图：编辑器 / 工作台 / 开书对话 / 总览（ribbon 切换；点章节回编辑器）。 */
   const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'>('editor')
   /** 右栏活动 tab（信息/审阅/机检/分析）；编辑器 AI 按钮可驱动切到审阅。 */
-  const rightTab = ref<'info' | 'review' | 'check' | 'analysis'>('info')
-  const tabs = ref<Tab[]>([])
-  const activeTabId = ref<string | null>(null)
-  const pendingCloseTabId = ref<string | null>(null)
+  const rightTab = ref<'info' | 'review' | 'check'>('info')
+  /** 当前打开的文档 ID（单文档模式，无标签页）。 */
+  const activeDocId = ref<string | null>(null)
+  /** 新建信号（TabBar 触发 → ChapterTreePanel 监听执行）。createKind 标记类型，createTick 递增触发。 */
+  const createKind = ref<CreateKind>('chapter')
+  const createTick = ref(0)
   /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。 */
   const pendingInsert = ref<string | null>(null)
   /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
@@ -73,11 +75,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   })
 
-  /** 活动 tab 的 docId（EditorView / 树高亮消费）。 */
-  const activeDocId = computed(
-    () => tabs.value.find((t) => t.id === activeTabId.value)?.docId ?? null,
-  )
-
   function storageKey(): string {
     return `clw2.workspace.${bookName.value}`
   }
@@ -86,138 +83,54 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       localStorage.setItem(
         storageKey(),
-        JSON.stringify({ tabs: tabs.value, activeTabId: activeTabId.value }),
+        JSON.stringify({ activeDocId: activeDocId.value }),
       )
     } catch {
       /* localStorage 不可用忽略 */
     }
   }
 
-  /** 切书：载入持久化 tabs（不校验，校验由 Book.vue 调 validate）。 */
+  /** 切书：载入持久化 activeDocId（不校验，校验由 Book.vue 调 validate）。 */
   function setBook(name: string): void {
     if (bookName.value === name) return
     bookName.value = name
     try {
       const raw = localStorage.getItem(storageKey())
       if (raw) {
-        const data = JSON.parse(raw) as { tabs?: Tab[]; activeTabId?: string | null }
-        // 旧持久化数据可能无 kind 字段 → 补 null（validate 时按 tree 补算）
-        tabs.value = (data.tabs ?? []).map((t) => ({ id: t.id, docId: t.docId, kind: t.kind ?? null }))
-        activeTabId.value = data.activeTabId ?? tabs.value[0]?.id ?? null
+        const data = JSON.parse(raw) as { activeDocId?: string | null }
+        activeDocId.value = data.activeDocId ?? null
         return
       }
     } catch {
       /* 损坏降级空 */
     }
-    tabs.value = []
-    activeTabId.value = null
+    activeDocId.value = null
   }
 
-  /** tree load 后校验：剔除失效 docId 的 tab + 补算 kind + 同类去重。 */
+  /** tree load 后校验：activeDocId 失效则清空。 */
   function validate(validDocIds: Set<string>): void {
-    const tree = useTreeStore()
-    const before = tabs.value.length
-    tabs.value = tabs.value.filter((t) => validDocIds.has(t.docId))
-    // 补算 kind（旧持久化数据无 kind 字段 / tree 刚加载）
-    for (const t of tabs.value) {
-      if (!t.kind) {
-        const node = tree.byDocId.get(t.docId)
-        t.kind = node ? formKindOf(node.path) : null
-      }
-    }
-    // 同类去重：多个同 kind tab 只保留第一个（恢复旧数据可能有多正文 tab）
-    const seen = new Set<string>()
-    tabs.value = tabs.value.filter((t) => {
-      if (!t.kind) return true
-      if (seen.has(t.kind)) return false
-      seen.add(t.kind)
-      return true
-    })
-    if (activeTabId.value && !tabs.value.some((t) => t.id === activeTabId.value)) {
-      activeTabId.value = tabs.value[0]?.id ?? null
-    }
-    if (tabs.value.length !== before) persist()
-  }
-
-  function openTab(docId: string): void {
-    activeView.value = 'editor' // 点章节回编辑器视图
-    const tree = useTreeStore()
-    const node = tree.byDocId.get(docId)
-    const kind = node ? formKindOf(node.path) : null
-
-    // 有 kind → 同类只开一个 tab：替换已有同类 tab 的 docId（切章不新开）
-    if (kind) {
-      const existing = tabs.value.find((t) => t.kind === kind)
-      if (existing) {
-        if (existing.docId !== docId) {
-          // 旧文档 dirty → 静默保存（不阻塞切换，与自动保存体验一致）
-          const doc = useDocStore()
-          if (doc.get(existing.docId)?.dirty) void doc.save(existing.docId, 'autosave')
-          existing.docId = docId
-        }
-        activeTabId.value = existing.id
-        persist()
-        return
-      }
-    }
-
-    // 无 kind 或首次开该类 → 检查同 docId
-    const dup = tabs.value.find((t) => t.docId === docId)
-    if (dup) {
-      activeTabId.value = dup.id
+    if (activeDocId.value && !validDocIds.has(activeDocId.value)) {
+      activeDocId.value = null
       persist()
-      return
     }
+  }
 
-    const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    tabs.value.push({ id, docId, kind })
-    activeTabId.value = id
-    persist()
-  }
-  function activateTab(id: string): void {
-    activeTabId.value = id
-    persist()
-  }
-  function closeTab(id: string): void {
-    const idx = tabs.value.findIndex((t) => t.id === id)
-    if (idx < 0) return
-    tabs.value.splice(idx, 1)
-    if (activeTabId.value === id) {
-      activeTabId.value = tabs.value[idx]?.id ?? tabs.value[idx - 1]?.id ?? null
+  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存。 */
+  function openTab(docId: string): void {
+    activeView.value = 'editor'
+    if (activeDocId.value && activeDocId.value !== docId) {
+      const doc = useDocStore()
+      if (doc.get(activeDocId.value)?.dirty) void doc.save(activeDocId.value, 'autosave')
     }
+    activeDocId.value = docId
     persist()
   }
 
-  /** 请求关闭：dirty 弹确认，否则直关。 */
-  function requestClose(id: string): void {
-    const tab = tabs.value.find((t) => t.id === id)
-    if (!tab) return
-    const doc = useDocStore()
-    if (doc.get(tab.docId)?.dirty) pendingCloseTabId.value = id
-    else closeTab(id)
+  /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。 */
+  function triggerCreate(kind: CreateKind = 'chapter'): void {
+    createKind.value = kind
+    createTick.value++
   }
-  /** 确认：保存后关闭。 */
-  async function confirmSaveAndClose(): Promise<void> {
-    const id = pendingCloseTabId.value
-    pendingCloseTabId.value = null
-    if (!id) return
-    const tab = tabs.value.find((t) => t.id === id)
-    if (!tab) return
-    const doc = useDocStore()
-    const ok = await doc.save(tab.docId, 'manual')
-    if (ok) closeTab(id)
-  }
-  /** 确认：放弃更改关闭。 */
-  function confirmDiscard(): void {
-    const id = pendingCloseTabId.value
-    pendingCloseTabId.value = null
-    if (id) closeTab(id)
-  }
-  /** 取消关闭。 */
-  function cancelClose(): void {
-    pendingCloseTabId.value = null
-  }
-
   /** 请求插入文本到编辑器光标（右栏速查「插入」用）。 */
   function requestInsert(text: string): void {
     pendingInsert.value = text
@@ -246,7 +159,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     leftOpen.value = true // 从 ribbon 点面板入口时确保左栏打开
   }
   /** 切右栏 tab（编辑器 AI 按钮调用时自动展开右栏）。 */
-  function setRightTab(t: 'info' | 'review' | 'check' | 'analysis'): void {
+  function setRightTab(t: 'info' | 'review' | 'check'): void {
     rightTab.value = t
     rightOpen.value = true
   }
@@ -266,20 +179,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     leftPanel,
     activeView,
     rightTab,
-    tabs,
-    activeTabId,
     activeDocId,
-    pendingCloseTabId,
+    createKind,
+    createTick,
     bookName,
     setBook,
     validate,
     openTab,
-    activateTab,
-    closeTab,
-    requestClose,
-    confirmSaveAndClose,
-    confirmDiscard,
-    cancelClose,
+    triggerCreate,
     toggleLeft,
     setLeftWidth,
     toggleRight,

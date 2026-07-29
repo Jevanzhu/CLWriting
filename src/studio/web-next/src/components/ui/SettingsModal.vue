@@ -194,8 +194,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .settings-modal {
-  width: 400px;
-  max-width: 92vw;
+  width: min(400px, calc(100vw - 32px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);

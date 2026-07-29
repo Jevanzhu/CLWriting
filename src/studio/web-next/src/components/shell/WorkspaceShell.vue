@@ -6,7 +6,6 @@ import SidebarRight from './SidebarRight.vue'
 import TabBar from './TabBar.vue'
 import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
-import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
 import PromptDialog from '../ui/PromptDialog.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
@@ -92,7 +91,6 @@ function startResizeLeft(e: MouseEvent): void {
       </div>
     </div>
     <StatusBar :book-name="bookName" />
-    <ConfirmDialog />
     <ConfirmPrompt />
     <PromptDialog />
     <CommandPalette />

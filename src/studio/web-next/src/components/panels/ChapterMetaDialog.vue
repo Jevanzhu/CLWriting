@@ -74,7 +74,7 @@ function onSave(): void {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   padding: 16px 18px;
-  width: 320px;
+  width: min(320px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
   gap: 12px;

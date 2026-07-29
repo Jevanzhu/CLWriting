@@ -4,7 +4,7 @@ import { useDocStore } from '../stores/doc'
 import { useUiStore } from '../stores/ui'
 
 // 全局快捷键（在 WorkspaceShell setup 调用，随外壳生命周期挂载/卸载）：
-// ⌘B 左栏 / ⌘⇧B 右栏 / ⌘⇧F 专注 / ⌘S 保存 / ⌘W 关 tab / ⌘P 命令面板 / ⌘, 设置。
+// ⌘B 左栏 / ⌘⇧B 右栏 / ⌘⇧F 专注 / ⌘S 保存 / ⌘P 命令面板 / ⌘, 设置。
 export function useHotkeys(): void {
   const ws = useWorkspaceStore()
   const doc = useDocStore()
@@ -26,9 +26,6 @@ export function useHotkeys(): void {
     } else if (k === 's' && !e.shiftKey) {
       e.preventDefault()
       if (ws.activeDocId) void doc.save(ws.activeDocId, 'manual')
-    } else if (k === 'w' && !e.shiftKey) {
-      e.preventDefault()
-      if (ws.activeTabId) ws.requestClose(ws.activeTabId)
     } else if (k === 'p' && !e.shiftKey) {
       e.preventDefault()
       ui.openPalette()
