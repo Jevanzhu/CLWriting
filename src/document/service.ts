@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
-import { layoutOf } from './layout.js'
+import { layoutOf, roleOf } from './layout.js'
 import { appendAborted, appendPending, appendSettled, findUnsettled, type JournalPending } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, type SnapshotPolicy } from './snapshot.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
@@ -365,8 +365,11 @@ export class DocumentService {
     return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName }))
   }
 
-  /** 更新章节元数据（标题/章号）：写 fm + 文件名同步 rename（章号-标题.md，docId 不变）。 */
-  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): MoveResult {
+  /** 更新章节元数据（标题/篇号）。
+   *  - 长篇 chapter：写 fm + 文件名同步 rename（章号4位-标题.md，docId 不变）。
+   *  - 短篇 piece-body：写 fm + 篇目录同步 rename（篇号3位-标题/，正文.md 文件名恒定，docId 不变）。
+   *    短篇与长篇同为「章节」——标题/篇号变化需体现在路径上，只是短篇标题落在篇包目录名而非文件名。 */
+  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number; 篇号?: number }): MoveResult {
     const path = this.lookupPathByDocId(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
@@ -375,23 +378,85 @@ export class DocumentService {
     if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
-    if (meta.章号 !== undefined) map.set('章号', meta.章号)
+    // piece-body 写「篇号」字段；chapter 写「章号」字段（接口按文档角色传其一）
+    if (isPieceBody(path)) {
+      if (meta.篇号 !== undefined) map.set('篇号', meta.篇号)
+    } else if (meta.章号 !== undefined) {
+      map.set('章号', meta.章号)
+    }
     try {
       writeDoc(abs, stringifyFlat(map), r.body)
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
-    // 文件名同步（章号-标题.md）；无变化则只 invalidate（标题改了 tree 要刷新）
-    const 章号 = map.get('章号')
     const 标题 = String(map.get('标题') ?? '')
-    // 章号补零 4 位，对齐项目章节命名约定（如 0001-开篇.md）
+    invalidateTreeIndex(this.bookRoot)
+
+    if (isPieceBody(path)) {
+      // 短篇：rename 篇包目录（篇/<篇号3位>-<标题>）；正文.md 文件名恒定
+      const oldDir = dirname(path)
+      const oldBase = basename(oldDir)
+      const 篇号 = map.get('篇号')
+      const numPrefix =
+        typeof 篇号 === 'number'
+          ? `${String(篇号).padStart(3, '0')}-`
+          : (oldBase.match(/^(\d+-)/)?.[1] ?? '')
+      const newDirName = `${numPrefix}${标题}`
+      if (oldBase !== newDirName) {
+        return this.renamePieceDir(docId, oldDir, `${dirname(oldDir)}/${newDirName}`)
+      }
+      return { ok: true, docId, path }
+    }
+
+    // 长篇 chapter：文件名按 章号4位-标题.md
+    const 章号 = map.get('章号')
     const newName =
       typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题}.md` : basename(path)
-    invalidateTreeIndex(this.bookRoot)
     if (basename(path) !== newName) {
       return this.doMoveOrRename(docId, { kind: 'rename', newName })
     }
     return { ok: true, docId, path }
+  }
+
+  /** 短篇篇包目录重命名（篇/Old/ → 篇/New/）：rename 整个目录（连带 清单.md 等），
+   *  正文.md 文件名恒定、docId 不变，清单 path 更新为 New/正文.md。
+   *  长篇用 doMoveOrRename（改文件名）；短篇目录是「章」的载体，故单独走目录 rename。 */
+  private renamePieceDir(docId: string, oldDirRel: string, newDirRel: string): MoveResult {
+    if (newDirRel === oldDirRel) return { ok: true, docId, path: `${newDirRel}/正文.md` }
+    const oldDocPath = `${oldDirRel}/正文.md`
+    const newDocPath = `${newDirRel}/正文.md`
+    const srcCaps = layoutOf(oldDocPath).capabilities
+    if (!srcCaps.rename || !srcCaps.move) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可移动/重命名' }
+    }
+    if (!layoutOf(newDocPath).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
+    }
+    const oldSafe = this.resolveSafePath(oldDirRel)
+    const newSafe = this.resolveSafePath(newDirRel)
+    if (!oldSafe || !newSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源篇目录不存在' }
+    if (existsSync(newSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标篇目录已存在' }
+
+    const oldFileAbs = join(oldSafe, '正文.md')
+    try {
+      const baseRev = existsSync(oldFileAbs) ? computeRevision(oldFileAbs) : null
+      const oldContent = existsSync(oldFileAbs) ? readFileSync(oldFileAbs, 'utf-8') : ''
+      if (existsSync(oldFileAbs)) {
+        writeSnapshot(this.snapshotsDir, docId, oldContent, {
+          origin: 'manual',
+          reason: '短篇重命名前留底',
+          baseRevision: baseRev,
+        })
+      }
+      mkdirSync(dirname(newSafe), { recursive: true })
+      renameSync(oldSafe, newSafe)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `短篇重命名失败：${errMsg(e)}` }
+    }
+    this.updateManifestPath(docId, newDocPath)
+    invalidateTreeIndex(this.bookRoot)
+    return { ok: true, docId, path: newDocPath }
   }
 
   /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
@@ -614,6 +679,11 @@ function errMsg(e: unknown): string {
 function bodyOf(raw: string): string {
   const s = splitFrontMatter(raw)
   return s ? s.body : raw
+}
+
+/** 短篇正文（篇/<篇号>-<标题>/正文.md）——标题编辑需联动篇目录名而非文件名。 */
+function isPieceBody(relPath: string): boolean {
+  return roleOf(relPath) === 'piece-body'
 }
 
 /** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */

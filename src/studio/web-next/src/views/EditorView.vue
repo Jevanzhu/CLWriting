@@ -245,7 +245,14 @@ async function onTitleCommit(): Promise<void> {
   titleSaving.value = true
   try {
     const localBody = stripFrontmatter(e.content)
-    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, { 标题: newTitle })
+    // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
+    const pieceNum = e.path.startsWith('篇/')
+      ? Number(parseFmFields(e.content).篇号 ?? 1)
+      : undefined
+    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
+      标题: newTitle,
+      ...(e.path.startsWith('篇/') && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
+    })
     await tree.load(doc.bookName!)
     const fresh = tree.byDocId.get(ws.activeDocId)
     if (fresh) {

@@ -164,6 +164,58 @@ test('updateChapterMeta: 未知 docId → NOT_FOUND', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+/** 造短篇书：篇/1-原标/正文.md + 清单登记 doc_p01（正文.md 文件名恒定，篇目录名随标题变）。 */
+function makeBookWithPiece(): { root: string; svc: DocumentService } {
+  const root = mkdtempSync(join(tmpdir(), 'w2a-piece-'))
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  mkdirSync(join(root, '篇', '1-原标'), { recursive: true })
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeFileSync(join(root, '篇', '1-原标', '正文.md'), '---\n篇号: 1\n标题: 原标\n---\n短篇正文', 'utf-8')
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"doc_p01","nodeType":"document","path":"篇/1-原标/正文.md","parentId":null,"status":"final"}',
+    ].join('\n') + '\n',
+  )
+  execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
+  return { root, svc: new DocumentService({ bookRoot: root }) }
+}
+
+test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 篇目录 rename（正文.md 恒定，docId 不变）', () => {
+  const { root, svc } = makeBookWithPiece()
+  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 篇号 1 → 3 位补零 001；标题更新；正文.md 文件名恒定
+  expect(r.path).toBe('篇/001-新标/正文.md')
+  expect(existsSync(join(root, '篇', '001-新标', '正文.md'))).toBe(true)
+  expect(existsSync(join(root, '篇', '1-原标'))).toBe(false)
+  const fm = readFileSync(join(root, '篇', '001-新标', '正文.md'), 'utf-8')
+  expect(fm).toContain('标题: 新标')
+  expect(fm).toContain('篇号: 1') // 篇号不变
+  expect(fm).toContain('短篇正文') // body 保留
+  // docId 不变（清单 path 更新）
+  const m = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(m).toContain('doc_p01')
+  expect(m).toContain('篇/001-新标/正文.md')
+  expect(m).not.toContain('篇/1-原标/正文.md')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('updateChapterMeta（短篇）: 改篇号 → fm 篇号 + 篇目录 rename（3 位补零）', () => {
+  const { root, svc } = makeBookWithPiece()
+  const r = svc.updateChapterMeta('doc_p01', { 篇号: 12, 标题: '原标' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('篇/012-原标/正文.md')
+  expect(existsSync(join(root, '篇', '012-原标', '正文.md'))).toBe(true)
+  const fm = readFileSync(join(root, '篇', '012-原标', '正文.md'), 'utf-8')
+  expect(fm).toContain('篇号: 12')
+  expect(fm).toContain('标题: 原标')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('updateDocMeta: 改卷纲字段 → fm 更新，文件名不变', () => {
   const { root, svc } = makeBookWithChapter()
   writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '---\n卷名: 第一卷\n---\n卷纲正文', 'utf-8')

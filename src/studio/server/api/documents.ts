@@ -178,14 +178,16 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         result = await svc.moveDocument({ docId, toDir: body.toDir })
       } else if (body.op === 'meta') {
         const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
-        const 章号 = Number(body.章号)
-        if (标题 === undefined && !Number.isFinite(章号)) {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
+        // 章号/篇号：接口兼容（长篇用 章号，短篇用 篇号；前端按文档类型传其一）
+        const numKey = typeof body.篇号 === 'number' || typeof body.篇号 === 'string' ? '篇号' : '章号'
+        const numVal = Number(numKey === '篇号' ? body.篇号 : body.章号)
+        if (标题 === undefined && !Number.isFinite(numVal)) {
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号/篇号' })
           return
         }
         result = svc.updateChapterMeta(docId, {
           ...(标题 !== undefined ? { 标题 } : {}),
-          ...(Number.isFinite(章号) ? { 章号 } : {}),
+          ...(Number.isFinite(numVal) ? { 篇号: numVal } : {}),
         })
       } else if (body.op === 'fm') {
         const meta = body.meta
