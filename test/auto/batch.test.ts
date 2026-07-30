@@ -27,7 +27,7 @@ function makeBookWithVolumeOutline(): string {
   execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
   execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '# 第一卷纲', 'utf-8')
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
@@ -125,7 +125,7 @@ test('连写: 产出搬入 待定稿/<章号-标题>/，工作区根清空', asy
 test('moveToPending: 账本推进.md 随章搬入待定稿', () => {
   const root = makeBookWithVolumeOutline()
   const workDir = join(root, '工作区')
-  writeFileSync(join(workDir, '账本推进.md'), '- 伏笔-001 埋下：信在桌上\n', 'utf-8')
+  writeFileSync(join(workDir, '账本推进.md'), '- 悬念-001 埋下：信在桌上\n', 'utf-8')
 
   const dir = moveToPending(workDir, root, 1, '第一章')
 

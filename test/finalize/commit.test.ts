@@ -29,7 +29,7 @@ function makeGitBook(): string {
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
 
   // 目录结构
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -39,15 +39,15 @@ function makeGitBook(): string {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }], _path: join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }], _path: join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
   })
   db.close()
 
   // 账本文件
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
+    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
     'utf-8',
   )
 
@@ -167,7 +167,7 @@ test('doFinalize: 全通过 → 原子 commit + 正文入定稿 + 工作区清�
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   const workDir = join(root, '工作区')
   const outline = join(workDir, '细纲.md')
-  writeFileSync(outline, '---\n章号: 1\n推进: [伏笔-031]\n---\n第1章细纲', 'utf-8')
+  writeFileSync(outline, '---\n章号: 1\n推进: [悬念-031]\n---\n第1章细纲', 'utf-8')
 
   // 确认细纲
   doConfirm(workDir, 1, outline, 'manual', DEFAULT_CONFIG)
@@ -185,7 +185,7 @@ test('doFinalize: 全通过 → 原子 commit + 正文入定稿 + 工作区清�
     bookRoot: root, workDir, outlinePath: outline, db, config: DEFAULT_CONFIG,
     chapter: ch, body: '林晚踏入北境，雪落无声。', fileName: '1-第一章.md', hasReviewVerdict: true,
     chapterSummary: '林晚抵达北境。',
-    leadUpdates: [{ leadId: '伏笔-031', entries: [{ 章号: 1, 动词: '推进', 证据: '焦痕' }] }],
+    leadUpdates: [{ leadId: '悬念-031', entries: [{ 章号: 1, 动词: '推进', 证据: '焦痕' }] }],
   })
 
   expect(r.ok).toBe(true)
@@ -300,11 +300,11 @@ test('doFinalize: commit 被 hook 拒绝（git 完好）→ 定稿区原子回�
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   const workDir = join(root, '工作区')
   const outline = join(workDir, '细纲.md')
-  writeFileSync(outline, '---\n章号: 1\n推进: [伏笔-031]\n---\n细纲', 'utf-8')
+  writeFileSync(outline, '---\n章号: 1\n推进: [悬念-031]\n---\n细纲', 'utf-8')
   doConfirm(workDir, 1, outline, 'manual', DEFAULT_CONFIG)
 
   // 账本原始内容（用于断言恢复）
-  const leadPath = join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md')
+  const leadPath = join(root, '大纲', '悬念', '悬念-031-灭门真凶.md')
   const leadBefore = readFileSync(leadPath, 'utf-8')
 
   // 装 pre-commit hook 让 commit 失败（git 完好，模拟真实 commit 被拒）
@@ -324,7 +324,7 @@ test('doFinalize: commit 被 hook 拒绝（git 完好）→ 定稿区原子回�
     bookRoot: root, workDir, outlinePath: outline, db, config: DEFAULT_CONFIG,
     chapter: ch, body: '正文', fileName: '1-第一章.md', hasReviewVerdict: true,
     chapterSummary: '摘要',
-    leadUpdates: [{ leadId: '伏笔-031', entries: [{ 章号: 1, 动词: '推进', 证据: '焦痕' }] }],
+    leadUpdates: [{ leadId: '悬念-031', entries: [{ 章号: 1, 动词: '推进', 证据: '焦痕' }] }],
   })
   expect(r.ok).toBe(false) // hook 拒绝 commit
   if (!r.ok) expect(r.reason).toContain('git 操作失败')
@@ -343,7 +343,7 @@ test('doFinalize: leadUpdates 写入履历 + 幂等去重 + 跨章跳过', () =>
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   const workDir = join(root, '工作区')
   const outline = join(workDir, '细纲.md')
-  writeFileSync(outline, '---\n章号: 1\n推进: [伏笔-031]\n---\n细纲', 'utf-8')
+  writeFileSync(outline, '---\n章号: 1\n推进: [悬念-031]\n---\n细纲', 'utf-8')
   doConfirm(workDir, 1, outline, 'manual', DEFAULT_CONFIG)
 
   const ch: ChapterMeta = {
@@ -352,14 +352,14 @@ test('doFinalize: leadUpdates 写入履历 + 幂等去重 + 跨章跳过', () =>
   const r = doFinalize({
     bookRoot: root, workDir, outlinePath: outline, db, config: DEFAULT_CONFIG,
     chapter: ch, body: '焦痕。', fileName: '1-第一章.md', hasReviewVerdict: true,
-    leadUpdates: [{ leadId: '伏笔-031', entries: [
+    leadUpdates: [{ leadId: '悬念-031', entries: [
       { 章号: 1, 动词: '推进', 证据: '焦痕一' },
       { 章号: 1, 动词: '推进', 证据: '焦痕二' }, // 同章同动词 → 幂等去重
       { 章号: 99, 动词: '推进', 证据: '跨章' }, // 非本章 → 跳过
     ]}],
   })
   expect(r.ok).toBe(true)
-  const leadContent = readFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), 'utf-8')
+  const leadContent = readFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'), 'utf-8')
   expect(leadContent.match(/推进/g)?.length).toBe(1) // 幂等：只写一条
   expect(leadContent).not.toContain('跨章') // 跨章 entry 被跳过
   db.close()

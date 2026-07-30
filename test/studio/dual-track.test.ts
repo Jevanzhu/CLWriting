@@ -61,13 +61,13 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
     expect(d.written.sceneDist['战斗']).toBe(1)
   })
 
-  it('账本：七类概览（伏笔 1 条进行中）', async () => {
+  it('账本：六类概览（悬念 1 条进行中）', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/leads`)
     const d = (await r.json()) as { kind: string; overview: { 类型: string; total: number; 进行中: number }[] }
     expect(d.kind).toBe('long')
-    const 伏笔 = d.overview.find((o) => o.类型 === '伏笔')
-    expect(伏笔?.total).toBe(1)
-    expect(伏笔?.进行中).toBe(1)
+    const 悬念 = d.overview.find((o) => o.类型 === '悬念')
+    expect(悬念?.total).toBe(1)
+    expect(悬念?.进行中).toBe(1)
   })
 
   it('设定：角色卡（林远）+ 境界体系', async () => {

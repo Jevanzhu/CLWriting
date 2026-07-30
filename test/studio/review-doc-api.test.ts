@@ -68,7 +68,7 @@ beforeAll(async () => {
   )
   bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),

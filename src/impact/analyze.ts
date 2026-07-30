@@ -57,10 +57,10 @@ export interface Conflict {
  * 扫描某设定的引用足迹，按发布状态分桶（#17 第 3 节）。
  *
  * @param bookRoot 书仓库根
- * @param target 设定名或账本编号（如「伏笔-031」「林晚」「筑基」），grep 命中
+ * @param target 设定名或账本编号（如「悬念-031」「林晚」「筑基」），grep 命中
  * @param newValue 可选：设定改成的新值（用于吃书检测，#17 第 4 节）；不传则只扫描引用
  *
- * 精确匹配优先：显式编号（伏笔-031）/专名优先；模糊指代（代词/化名）留 M4。
+ * 精确匹配优先：显式编号（悬念-031）/专名优先；模糊指代（代词/化名）留 M4。
  */
 export function scanReferences(bookRoot: string, target: string, newValue?: string): ImpactReport {
   const published = scanDir(join(bookRoot, '定稿', '正文'), target)

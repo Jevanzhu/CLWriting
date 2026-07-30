@@ -32,7 +32,7 @@ function makeLongBook(): string {
     stdio: 'pipe',
   })
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
@@ -73,8 +73,8 @@ function stageChapter(root: string, opts: { 推进: string; 兑现: boolean; 证
   const wd = join(root, '工作区')
   // 账本文件（进行中、履历空——本章埋下）
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
-    '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+    join(root, '大纲', '悬念', '悬念-040-神秘信件.md'),
+    '---\n编号: 悬念-040\n标题: 神秘信件\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
     'utf-8',
   )
   // 细纲：front matter 声明 推进
@@ -90,7 +90,7 @@ function stageChapter(root: string, opts: { 推进: string; 兑现: boolean; 证
   writeChapter(join(wd, '草稿-1.md'), CH1, body)
   // 账本推进.md：兑现与否
   if (opts.兑现) {
-    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-040 埋下：桌上多了一封没有署名的信\n', 'utf-8')
+    writeFileSync(join(wd, '账本推进.md'), '- 悬念-040 埋下：桌上多了一封没有署名的信\n', 'utf-8')
   }
   doConfirm(wd, 1, join(wd, '细纲.md'), 'manual', DEFAULT_CONFIG)
   writeFileSync(join(wd, '审稿.md'), `${REVIEW_VERDICT_MARKER} verdict: 通过\n`, 'utf-8')
@@ -99,18 +99,18 @@ function stageChapter(root: string, opts: { 推进: string; 兑现: boolean; 证
 test('finalize CLI long: 账本履历经 CLI 真落盘 + 进 commit（接缝核心回归）', () => {
   const root = makeLongBook()
   try {
-    stageChapter(root, { 推进: '伏笔-040', 兑现: true, 证据命中: true })
+    stageChapter(root, { 推进: '悬念-040', 兑现: true, 证据命中: true })
     const { exitCode } = captureCli(() => finalizeCommand([root]))
     expect(exitCode).toBeNull()
 
     // 账本文件含本章履历（落盘）——此前缺口下永不写入
-    const lead = readFileSync(join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'), 'utf-8')
+    const lead = readFileSync(join(root, '大纲', '悬念', '悬念-040-神秘信件.md'), 'utf-8')
     expect(lead).toContain('埋下')
     expect(lead).toContain('桌上多了一封没有署名的信')
 
     // 账本文件进 commit（精确 add 不再漏账本）。quotepath=false 让 git 输出中文原文不转八进制
     const files = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
-    expect(files).toContain('伏笔-040-神秘信件.md')
+    expect(files).toContain('悬念-040-神秘信件.md')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -119,8 +119,8 @@ test('finalize CLI long: 账本履历经 CLI 真落盘 + 进 commit（接缝核�
 test('check CLI long: 细纲声明推进但未兑现 → 两端闭合报红（exit 1）', () => {
   const root = makeLongBook()
   try {
-    // 声明推进 伏笔-040，但不建账本推进.md（没兑现）+ 正文不写
-    stageChapter(root, { 推进: '伏笔-040', 兑现: false, 证据命中: false })
+    // 声明推进 悬念-040，但不建账本推进.md（没兑现）+ 正文不写
+    stageChapter(root, { 推进: '悬念-040', 兑现: false, 证据命中: false })
     const { exitCode, stdout } = captureCli(() => checkCommand([root]))
     expect(exitCode).toBe('1')
     expect(stdout).toContain('声明')
@@ -134,21 +134,21 @@ test('check CLI long: 账本推进空证据不算兑现', () => {
   try {
     const wd = join(root, '工作区')
     writeFileSync(
-      join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
-      '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      join(root, '大纲', '悬念', '悬念-040-神秘信件.md'),
+      '---\n编号: 悬念-040\n标题: 神秘信件\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
       'utf-8',
     )
     writeFileSync(
       join(wd, '细纲.md'),
-      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-040]\n---\n本章埋下神秘信件。',
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [悬念-040]\n---\n本章埋下神秘信件。',
       'utf-8',
     )
     writeChapter(join(wd, '草稿-1.md'), CH1, '桌上多了一封没有署名的信。')
-    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-040 埋下:    \n', 'utf-8')
+    writeFileSync(join(wd, '账本推进.md'), '- 悬念-040 埋下:    \n', 'utf-8')
 
     const { exitCode, stdout } = captureCli(() => checkCommand([root]))
     expect(exitCode).toBe('1')
-    expect(stdout).toContain('声明本章推进 伏笔-040')
+    expect(stdout).toContain('声明本章推进 悬念-040')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -157,7 +157,7 @@ test('check CLI long: 账本推进空证据不算兑现', () => {
 test('review run long: 账本推进写入设定校对执行包', () => {
   const root = makeLongBook()
   try {
-    stageChapter(root, { 推进: '伏笔-040', 兑现: true, 证据命中: true })
+    stageChapter(root, { 推进: '悬念-040', 兑现: true, 证据命中: true })
     const { exitCode } = captureCli(() => reviewCommand(['run', root, '--chapter=1', '--parallel']))
     expect(exitCode).toBeNull()
 
@@ -168,7 +168,7 @@ test('review run long: 账本推进写入设定校对执行包', () => {
     expect(continuity).toBeDefined()
     expect(continuity!.ledger_checks).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        lead_id: '伏笔-040',
+        lead_id: '悬念-040',
         chapter: 1,
         verb: '埋下',
         evidence: '桌上多了一封没有署名的信',
@@ -183,19 +183,19 @@ test('review run/collect long: 显式待定稿草稿路径使用待定稿章目�
   const root = makeLongBook()
   try {
     writeFileSync(
-      join(root, '大纲', '伏笔', '伏笔-040-神秘信件.md'),
-      '---\n编号: 伏笔-040\n标题: 神秘信件\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      join(root, '大纲', '悬念', '悬念-040-神秘信件.md'),
+      '---\n编号: 悬念-040\n标题: 神秘信件\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
       'utf-8',
     )
     const pendingDir = join(root, '工作区', '待定稿', '0001-来信')
     mkdirSync(pendingDir, { recursive: true })
     writeFileSync(
       join(pendingDir, '细纲.md'),
-      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-040]\n---\n本章埋信。',
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [悬念-040]\n---\n本章埋信。',
       'utf-8',
     )
     writeChapter(join(pendingDir, '草稿-1.md'), CH1, '夜里，桌上多了一封没有署名的信。')
-    writeFileSync(join(pendingDir, '账本推进.md'), '- 伏笔-040 埋下：桌上多了一封没有署名的信\n', 'utf-8')
+    writeFileSync(join(pendingDir, '账本推进.md'), '- 悬念-040 埋下：桌上多了一封没有署名的信\n', 'utf-8')
 
     const draftPath = join(pendingDir, '草稿-1.md')
     const run = captureCli(() => reviewCommand(['run', root, '--chapter=1', '--parallel', draftPath]))
@@ -236,11 +236,11 @@ test('finalize CLI long: 账本推进指向不存在文件时拒绝假成功', (
     const wd = join(root, '工作区')
     writeFileSync(
       join(wd, '细纲.md'),
-      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [伏笔-099]\n---\n本章埋伏笔。',
+      '---\n章号: 1\n标题: 来信\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n推进: [悬念-099]\n---\n本章埋伏笔。',
       'utf-8',
     )
     writeChapter(join(wd, '草稿-1.md'), CH1, '桌上多了一封没有署名的信。')
-    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-099 埋下：桌上多了一封没有署名的信\n', 'utf-8')
+    writeFileSync(join(wd, '账本推进.md'), '- 悬念-099 埋下：桌上多了一封没有署名的信\n', 'utf-8')
     doConfirm(wd, 1, join(wd, '细纲.md'), 'manual', DEFAULT_CONFIG)
     writeFileSync(join(wd, '审稿.md'), `${REVIEW_VERDICT_MARKER} verdict: 通过\n`, 'utf-8')
 

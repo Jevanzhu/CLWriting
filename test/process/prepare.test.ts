@@ -26,7 +26,7 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
     情绪定位: '铺垫', _wordCount: 3000, _path: 'p150',
   })
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '焦痕' }], _path: 'p',
   })
 
@@ -52,7 +52,7 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
 
 test('prepare: 刚需段全在（近况/账本/铁律）', () => {
   const { root, db } = makeBookWithMaterial()
-  const r = prepare(db, DEFAULT_CONFIG, root, ['伏笔-031'])
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   const titles = r.sections.filter((s) => s.essential).map((s) => s.title)
   expect(titles).toContain('近况')
   expect(titles).toContain('本章推进的账本')
@@ -63,7 +63,7 @@ test('prepare: 刚需段全在（近况/账本/铁律）', () => {
 
 test('prepare: 无裁剪时 trimmed=false', () => {
   const { root, db } = makeBookWithMaterial()
-  const r = prepare(db, DEFAULT_CONFIG, root, ['伏笔-031'])
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   expect(r.trimmed).toBe(false)
   expect(r.text).not.toContain('因预算裁剪')
   db.close()
@@ -74,7 +74,7 @@ test('prepare: 超预算按优先级裁剪（弹性#4→#3→#2→#1），刚需
   const { root, db } = makeBookWithMaterial()
   // 设极小预算（100 token），逼裁剪
   const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 100 } }
-  const r = prepare(db, cfg, root, ['伏笔-031'])
+  const r = prepare(db, cfg, root, ['悬念-031'])
 
   expect(r.trimmed).toBe(true)
   expect(r.text).toContain('因预算裁剪')

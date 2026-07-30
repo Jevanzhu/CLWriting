@@ -34,10 +34,17 @@ function importanceRank(s: string): number {
   return s === '高' ? 0 : s === '中' ? 1 : 2
 }
 
+function riskRank(r?: string): number {
+  return r === '红' ? 0 : r === '黄' ? 1 : 2
+}
 const pending = computed(() =>
   list.value
     .filter((f) => f.状态 === '未回收')
-    .sort((a, b) => importanceRank(a.重要性) - importanceRank(b.重要性) || (a.埋设章号 ?? 9999) - (b.埋设章号 ?? 9999)),
+    .sort((a, b) => {
+      const dr = riskRank(a.足迹?.risk) - riskRank(b.足迹?.risk)
+      if (dr !== 0) return dr
+      return importanceRank(a.重要性) - importanceRank(b.重要性) || (a.埋设章号 ?? 9999) - (b.埋设章号 ?? 9999)
+    }),
 )
 const resolved = computed(() => list.value.filter((f) => f.状态 === '已回收'))
 const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废弃'))
@@ -119,12 +126,15 @@ watch(() => props.bookName, load, { immediate: true })
         :class="{ current: currentChapNo !== null && f.埋设章号 === currentChapNo }"
         @click="openFile(f.file)"
       >
-        <CircleAlert :size="14" class="fs-icon" />
-        <span class="fs-title">{{ f.标题 }}</span>
-        <span class="fs-meta">
-          <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
-          <span v-if="f.埋设章号" class="fs-chap">第{{ f.埋设章号 }}章</span>
-        </span>
+        <CircleAlert :size="14" class="fs-icon" :class="'risk-' + (f.足迹?.risk ?? '绿')" />
+        <div class="fs-body">
+          <span class="fs-title">{{ f.标题 }}</span>
+          <span v-if="f.足迹 && f.足迹.staleSpan > 0" class="fs-trail" :class="'risk-' + f.足迹.risk">
+            悬{{ f.足迹.staleSpan }}章<span v-if="f.足迹.lastHit"> · 末次提及 ch.{{ f.足迹.lastHit }}</span>
+          </span>
+          <span v-else-if="f.埋设章号" class="fs-chap">第{{ f.埋设章号 }}章埋设</span>
+        </div>
+        <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
       </div>
 
       <!-- 已回收（折叠） -->
@@ -219,6 +229,25 @@ watch(() => props.bookName, load, { immediate: true })
 .pending .fs-icon {
   color: var(--text-error);
 }
+.fs-icon.risk-黄 {
+  color: var(--text-warning);
+}
+.fs-icon.risk-绿 {
+  color: var(--text-success);
+}
+.fs-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fs-trail {
+  font-size: var(--font-size-xxs);
+}
+.fs-trail.risk-红 { color: var(--text-error); }
+.fs-trail.risk-黄 { color: var(--text-warning); }
+.fs-trail.risk-绿 { color: var(--text-faint); }
 .resolved {
   opacity: 0.55;
 }

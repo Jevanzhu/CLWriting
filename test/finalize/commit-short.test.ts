@@ -154,7 +154,7 @@ test('short finalize: 跳账本履历 + 跳章摘要（篇/ 下无 大纲/无 �
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '旧伞正文。',
       fileName: '002-旧伞/正文.md', hasReviewVerdict: true, kind: 'short',
-      leadUpdates: [{ leadId: '伏笔-001', entries: [{ 章号: 2, 动词: '埋下', 证据: '伞' }] }],
+      leadUpdates: [{ leadId: '悬念-001', entries: [{ 章号: 2, 动词: '埋下', 证据: '伞' }] }],
       chapterSummary: '第2篇摘要',
     })
     expect(r.ok).toBe(true)

@@ -32,7 +32,7 @@ function mustGit(args: string[], cwd: string): void {
 test('detectState: git 有问题 → 态 1（体检优先）', () => {
   const root = makeGitBook()
   // 造半提交（staged 残留）
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'), '改了', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'), '改了', 'utf-8')
   sh('git add -A', root)
 
   const d = detectState(root, DEFAULT_CONFIG)
@@ -49,7 +49,7 @@ test('detectState: git 有问题 → 态 1（体检优先）', () => {
 test('detectState: 源文件解析失败 → 态 2', () => {
   const root = makeGitBook()
   // 写一个坏账本文件（裸文件无 front matter，rebuild 会收 ParseError）
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
   sh('git add -A && git commit -m "加坏文件"', root)
 
   const d = detectState(root, DEFAULT_CONFIG)
@@ -66,15 +66,15 @@ test('detectState: 定稿区有未 commit 手改 → 态 3', () => {
   const root = makeGitBook()
   // 手改账本正文（保留合法 front matter，只改履历内容——真实手改场景）
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：作者手改的证据\n',
+    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：作者手改的证据\n',
     'utf-8',
   )
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(3)
   if (d.state === 3) {
-    expect(d.handEdits.some((f) => f.includes('伏笔-031'))).toBe(true)
+    expect(d.handEdits.some((f) => f.includes('悬念-031'))).toBe(true)
   }
   rmSync(root, { recursive: true, force: true })
 })

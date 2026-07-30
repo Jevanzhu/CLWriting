@@ -146,8 +146,7 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   writeFileSync(join(bookRoot, '定稿', '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
   writeFileSync(join(bookRoot, '定稿', '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
 
-  // 大纲：基础三类恒建 + 扩展类按启用
-  mkdirSync(join(bookRoot, '大纲', '伏笔'), { recursive: true })
+  // 大纲：基础两类恒建 + 扩展类按启用（伏笔已独立为 定稿/设定/伏笔/）
   mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲', '感情线'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })

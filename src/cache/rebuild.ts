@@ -26,7 +26,7 @@ import { readChapter } from '../format/chapters.js'
 import type { ParseError } from '../format/types.js'
 
 /** 基础三类（恒启用，母本第 2.1 节） */
-const BASE_LEAD_TYPES = ['伏笔', '悬念', '感情线'] as const
+const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
 
 /** 重建结果 */
 export interface RebuildResult {

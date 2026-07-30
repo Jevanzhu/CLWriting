@@ -25,7 +25,7 @@ const reportWithLedger: CheckReport = {
   sections: [],
   byproducts: {
     leadChanges: [
-      { leadId: '伏笔-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
+      { leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
     ],
   },
 }
@@ -55,7 +55,7 @@ test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只�
   // 账本清单只在设定校对（continuity）分包
   const continuity = packet.packets.find((p) => p.lens === 'continuity')!
   expect(continuity.ledger_checks).toHaveLength(1)
-  expect(continuity.ledger_checks[0]!.lead_id).toBe('伏笔-031')
+  expect(continuity.ledger_checks[0]!.lead_id).toBe('悬念-031')
   const reader = packet.packets.find((p) => p.lens === 'reader')!
   expect(reader.ledger_checks).toHaveLength(0)
   expect(packet.out_dir).toBe(join(workDir, '三审'))
@@ -82,7 +82,7 @@ test('buildReviewPacket: 合审档位 → 单分包但账本清单不丢', () =>
   expect(packet.packets).toHaveLength(1)
   // 合审单包仍带账本清单（不被降级稀释）
   expect(packet.packets[0]!.ledger_checks).toHaveLength(1)
-  expect(packet.packets[0]!.ledger_checks[0]!.lead_id).toBe('伏笔-031')
+  expect(packet.packets[0]!.ledger_checks[0]!.lead_id).toBe('悬念-031')
   rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -135,7 +135,7 @@ test('collectReviewIssues: 回收三视角 issues → 设定校对逮到账本 b
       category: 'ledger',
       location: '第12章第30段',
       evidence: ['正文只写「他看见痕迹」，未见推进掌印的描写'],
-      issue: '账本 伏笔-031 声明「推进」但正文证据不足，疑似账本造假。',
+      issue: '账本 悬念-031 声明「推进」但正文证据不足，疑似账本造假。',
       fix: '补出掌印推进的具体动作，或修正账本动词。',
     },
   ]
@@ -298,7 +298,7 @@ test('formatReviewPacket: 执行包含 issues 回写路径与各视角账本清�
   expect(text).toContain('满审')
   expect(text).toContain('预计调用：3 次')
   expect(text).toContain('issues 回写目录')
-  expect(text).toContain('伏笔-031')
+  expect(text).toContain('悬念-031')
   expect(text).toContain('clwriting review collect')
   rmSync(workDir, { recursive: true, force: true })
 })

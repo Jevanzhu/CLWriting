@@ -21,7 +21,7 @@ import type { ReviewIssue } from '../../src/review/contract.js'
  * 这是「账本造假被设定校对逮住」的核心闭环。
  */
 
-/** 造一本有 1 章已定稿、第 2 章正在写的书。账本 伏笔-031 在第 2 章履历里写了「推进」。 */
+/** 造一本有 1 章已定稿、第 2 章正在写的书。账本 悬念-031 在第 2 章履历里写了「推进」。 */
 function makeBookWithLedgerClaim(): { root: string; workDir: string } {
   const root = mkdtempSync(join(tmpdir(), '账本造假-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })
@@ -30,30 +30,30 @@ function makeBookWithLedgerClaim(): { root: string; workDir: string } {
   execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
 
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '.cache'), { recursive: true })
 
-  // 缓存：伏笔-031 第 1 章埋下、第 2 章推进（本章待审）
+  // 缓存：悬念-031 第 1 章埋下、第 2 章推进（本章待审）
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [
       { 章号: 1, 动词: '埋下', 证据: '焦痕' },
       { 章号: 2, 动词: '推进', 证据: '他终于看见焦痕背后的掌印。' },
     ],
-    _path: join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
+    _path: join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
   })
   syncChapter(db, { 章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' })
   db.close()
 
   // 账本 md（履历含第 2 章推进声明）
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n- 第002章 推进：他终于看见焦痕背后的掌印。\n',
+    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n- 第002章 推进：他终于看见焦痕背后的掌印。\n',
     'utf-8',
   )
 
@@ -81,8 +81,8 @@ test('端到端: 账本声明推进但正文无证据 → 设定校对 ledger bl
     checkReport: {
       sections: [],
       byproducts: {
-        // 机检算出的本章账本变动（伏笔-031 第 2 章推进）→ 设定校对要核对
-        leadChanges: [{ leadId: '伏笔-031', chapter: 2, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' }],
+        // 机检算出的本章账本变动（悬念-031 第 2 章推进）→ 设定校对要核对
+        leadChanges: [{ leadId: '悬念-031', chapter: 2, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' }],
       },
     },
     body: '主角走进房间，看了看四周。什么也没发生。',
@@ -106,7 +106,7 @@ test('端到端: 账本声明推进但正文无证据 → 设定校对 ledger bl
       category: 'ledger',
       location: '第2章正文',
       evidence: ['正文只写「看了看四周，什么也没发生」，未见掌印推进描写'],
-      issue: '账本 伏笔-031 声明第2章「推进」，但正文无对应证据，疑似账本造假。',
+      issue: '账本 悬念-031 声明第2章「推进」，但正文无对应证据，疑似账本造假。',
       fix: '补出掌印推进的具体描写，或修正账本动词为「提及」。',
     },
   ]
@@ -154,7 +154,7 @@ test('端到端: 作者 override 放行账本阻断 → finalize 读裁决通过
 
   // 三审跑出 ledger blocker，但作者判断可放行，显式 override
   const built = buildReviewPacket({
-    checkReport: { sections: [], byproducts: { leadChanges: [{ leadId: '伏笔-031', chapter: 2, verb: '推进', evidence: '掌印' }] } },
+    checkReport: { sections: [], byproducts: { leadChanges: [{ leadId: '悬念-031', chapter: 2, verb: '推进', evidence: '掌印' }] } },
     body: '正文。', chapter: 2, workDir,
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8, high_risk: false,

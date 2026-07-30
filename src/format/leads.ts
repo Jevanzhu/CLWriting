@@ -1,7 +1,7 @@
 /**
- * 账本七类容错读写 —— 依据 #3 账本格式 spec。
+ * 账本六类容错读写 —— 依据 #3 账本格式 spec。
  *
- * 文件组织（#3 第 2 节）：大纲/{七类}/<编号>-<标题>.md
+ * 文件组织（#3 第 2 节）：大纲/{六类}/<编号>-<标题>.md
  * 格式：平铺 front matter（通用字段 + 各类特化） + 履历段（markdown 列表）
  *
  * 容错（#3 第 8 节）：未知字段保留、回写不重排、坏文件返回结构化错误不崩。
@@ -22,9 +22,8 @@ import type {
   ParseError,
 } from './types.js'
 
-/** 账本七类的中文目录名（#3 第 2 节） */
+/** 账本六类的中文目录名（#3 第 2 节；伏笔已独立为设定伏笔系统） */
 export const LEAD_TYPES: readonly LeadType[] = [
-  '伏笔',
   '悬念',
   '感情线',
   '局线',
@@ -35,7 +34,6 @@ export const LEAD_TYPES: readonly LeadType[] = [
 
 /** #3 第 5 节动词表：每类的合法动词（机检用，M2） */
 export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; drop: string[] }> = {
-  伏笔: { open: ['埋下'], resolve: ['回收'], drop: ['放弃'] },
   悬念: { open: ['设下'], resolve: ['揭晓'], drop: ['放弃'] },
   感情线: { open: ['开启'], resolve: ['修成'], drop: ['无疾'] },
   局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
@@ -137,7 +135,7 @@ export function readLead(
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
-    类型: (map.get('类型') as LeadType) ?? '伏笔',
+    类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number(map.get('开启章') ?? 0),
     履历: parseHistory(r.body),
@@ -243,7 +241,7 @@ export function readLeadDir(
     if (!statSync(fp).isFile()) continue
     const parsedName = parseLeadFileName(f)
     if (parsedName === null) {
-      errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 伏笔-031-灭门真凶.md' })
+      errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 悬念-031-灭门真凶.md' })
       continue
     }
     const r = readLead(fp)
@@ -263,7 +261,7 @@ export function readLeadDir(
 /** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md） */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {
   const base = basename(fileName, '.md')
-  // 编号格式：类型-三位序号（如 伏笔-031），标题在编号之后
+  // 编号格式：类型-三位序号（如 悬念-031），标题在编号之后
   const m = base.match(/^(.+?-\d{3})-(.+)$/)
   if (!m) return null
   return { 编号: m[1]!, 标题: m[2]! }

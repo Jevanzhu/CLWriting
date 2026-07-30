@@ -29,7 +29,7 @@ function makeBook(): { root: string; db: DatabaseSync } {
     情绪定位: '铺垫', _wordCount: 3000, _path: 'p10',
   })
   syncLead(db, {
-    编号: '伏笔-001', 标题: '秘密', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-001', 标题: '秘密', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 1, 动词: '埋下', 证据: '线索' }], _path: 'p',
   })
   mkdirSync(join(root, '文风'), { recursive: true })
@@ -40,9 +40,9 @@ function makeBook(): { root: string; db: DatabaseSync } {
 test('R1: 不传 ragRecallText → 无 RAG 段（逐字节不变）', () => {
   const { root, db } = makeBook()
 
-  const withoutRag = prepare(db, DEFAULT_CONFIG, root, ['伏笔-001'])
-  const withUndefined = prepare(db, DEFAULT_CONFIG, root, ['伏笔-001'], undefined)
-  const withEmpty = prepare(db, DEFAULT_CONFIG, root, ['伏笔-001'], '')
+  const withoutRag = prepare(db, DEFAULT_CONFIG, root, ['悬念-001'])
+  const withUndefined = prepare(db, DEFAULT_CONFIG, root, ['悬念-001'], undefined)
+  const withEmpty = prepare(db, DEFAULT_CONFIG, root, ['悬念-001'], '')
 
   // 三者完全一致（逐字节不变）
   expect(withUndefined.sections).toEqual(withoutRag.sections)
@@ -61,7 +61,7 @@ test('R1: 传入 ragRecallText → push 弹性段 flexibleRank 5', () => {
   const { root, db } = makeBook()
   const ragText = '【RAG 召回】某场景的相关正文片段。'
 
-  const r = prepare(db, DEFAULT_CONFIG, root, ['伏笔-001'], ragText)
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-001'], ragText)
 
   const ragSection = r.sections.find((s) => s.title === 'RAG 召回')
   expect(ragSection).toBeDefined()
@@ -82,7 +82,7 @@ test('R1: 超预算时 RAG 段（rank 5）最先砍', () => {
     budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 200 },
   }
 
-  const r = prepare(db, tightConfig, root, ['伏笔-001'], ragText)
+  const r = prepare(db, tightConfig, root, ['悬念-001'], ragText)
 
   expect(r.trimmed).toBe(true)
   // RAG 段被整段移除（rank 5 最先砍）

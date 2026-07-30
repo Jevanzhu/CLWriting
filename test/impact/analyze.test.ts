@@ -28,8 +28,8 @@ function makeBookWithReferences(): string {
   sh('git add -A && git commit -m "ch:0001 第一章"', root)
 
   // 未发布大纲 —— 引用「筑基」（不 commit，保持「未发布」状态）
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-050-境界线.md'),
-    '---\n编号: 伏笔-050\n标题: 境界线\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：筑基起步\n', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-050-境界线.md'),
+    '---\n编号: 悬念-050\n标题: 境界线\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：筑基起步\n', 'utf-8')
 
   return root
 }
@@ -45,7 +45,7 @@ test('影响分析: 改设定「筑基」→ 已发布/未发布两份清单分�
 
   // 未发布：大纲的境界线账本引用了筑基
   expect(report.unpublished.length).toBeGreaterThanOrEqual(1)
-  expect(report.unpublished.some((r) => r.file.includes('伏笔-050'))).toBe(true)
+  expect(report.unpublished.some((r) => r.file.includes('悬念-050'))).toBe(true)
 
   const text = formatImpactReport(report)
   expect(text).toContain('已发布影响')

@@ -26,7 +26,7 @@ function makeBookWithChapter1(): string {
   execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
 
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -36,17 +36,17 @@ function makeBookWithChapter1(): string {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }],
-    _path: join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
+    _path: join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
   })
   syncChapter(db, { 章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' })
   db.close()
 
   // 账本 md
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
+    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
     'utf-8',
   )
   execSync('git add -A && git commit -m "init"', { cwd: root, stdio: 'pipe' })

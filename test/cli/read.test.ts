@@ -22,9 +22,9 @@ function makeSeededDb(): { db: DatabaseSync; dir: string } {
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
 
-  // 伏笔（已收尾）
+  // 悬念（已收尾）
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '已收尾', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '已收尾', 开启章: 12,
     履历: [
       { 章号: 12, 动词: '埋下', 证据: '焦痕' },
       { 章号: 152, 动词: '回收', 证据: '二叔' },
@@ -62,9 +62,9 @@ function makeSeededDb(): { db: DatabaseSync; dir: string } {
 
 // #4 第 4 节逐条查询测试
 
-test('readLeadHistory: 读伏笔履历', () => {
+test('readLeadHistory: 读悬念履历', () => {
   const { db, dir } = makeSeededDb()
-  const h = readLeadHistory(db, '伏笔-031')
+  const h = readLeadHistory(db, '悬念-031')
   expect(h).toHaveLength(2)
   expect(h[0]!.动词).toBe('埋下')
   expect(h[1]!.章号).toBe(152)

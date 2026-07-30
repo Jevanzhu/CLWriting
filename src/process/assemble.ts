@@ -20,7 +20,6 @@ import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 账本阈值默认表（母本第 2.2 节，#9 可覆盖） */
 const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
-  伏笔: 10,
   悬念: 10,
   感情线: 30,
   局线: 15,

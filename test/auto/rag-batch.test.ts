@@ -42,7 +42,7 @@ test('auto 连写: produce 内 await tools.prepareMaterials 拿到含 RAG 召回
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '卷纲', 'v1.md'), '纲', 'utf-8')
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '## 反和解\n禁止和解\n', 'utf-8')
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })

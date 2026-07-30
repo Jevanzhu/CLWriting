@@ -81,8 +81,8 @@ function runLong(input: CheckInput): CheckReport {
   // 当前章号
   const currentChapter = chapter.章号
 
-  // 已启用类 = 基础三类 + book.yaml enabled
-  const enabledTypes = ['伏笔', '悬念', '感情线', ...config.leads.enabled]
+  // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
+  const enabledTypes = ['悬念', '感情线', ...config.leads.enabled]
 
   // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
   sections.push(

@@ -16,6 +16,7 @@ import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../cli/read.js'
 import { readSamplesByScene } from '../format/style.js'
 import type { BookConfig, LeadType, StyleSample } from '../format/types.js'
+import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -160,6 +161,33 @@ export function prepare(
       flexibleRank: 2,
       degradedContent: parts.slice(0, 1).join('\n\n'),
     })
+  }
+
+  // 弹性#2b 伏笔提醒（足迹扫描驱动，flexibleRank=2）
+  // 未回收 + 高风险（红/黄）的伏笔——写作时提醒 AI 别忘记回收（替代账本 staleLeads 伏笔部分）
+  const fsEntries = readForeshadows(bookRoot)
+  if (fsEntries.length > 0) {
+    const fsTrails = scanForeshadowTrails(bookRoot, fsEntries)
+    const staleFs = fsEntries
+      .filter((f) => f.状态 === '未回收')
+      .flatMap((f) => {
+        const t = fsTrails.get(f.标题)
+        return t && (t.risk === '红' || t.risk === '黄') ? [{ f, t }] : []
+      })
+    if (staleFs.length > 0) {
+      const fsLines = staleFs.map(({ f, t }) => {
+        const kws = f.关联词.length > 0 ? f.关联词.slice(0, 3).join('/') : f.标题
+        const last = t.lastHit !== null ? `，末次提及 ch.${t.lastHit}` : ''
+        return `[${f.重要性}] ${f.标题}（${kws}）悬置 ${t.staleSpan} 章${last}`
+      })
+      sections.push({
+        title: '伏笔提醒（高风险未回收）',
+        content: fsLines.join('\n'),
+        essential: false,
+        flexibleRank: 2,
+        degradedContent: staleFs.map(({ f }) => `[${f.重要性}] ${f.标题}`).join('\n'),
+      })
+    }
   }
 
   // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）

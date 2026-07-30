@@ -3,7 +3,7 @@
  * 再点通过 → 该章红点灭。走前端渲染管线（tree store issuePaths 冒泡 + ChapterTreeItem 行尾红点）。
  *
  * 机检 red 聚合由 test/studio/tree-issues-api.test.ts 覆盖；本 spec 聚焦 UI 渲染 + 动态更新。
- * 选「玉佩之秘」（0002）为操作对象——伏笔证据对齐后机检 clean，且无其他 spec 操作它
+ * 选「玉佩之秘」（0002）为操作对象——悬念证据对齐后机检 clean，且无其他 spec 操作它
  * （ai-review/check/analysis 均用 0001），避免共享 workDir 的测试污染。
  */
 import { test, expect } from '@playwright/test'

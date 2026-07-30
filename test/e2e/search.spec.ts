@@ -1,7 +1,7 @@
 /**
  * T1.5 全书搜索（M11 E1）：搜索入口 → 输入埋词 → 命中列表 → 点击跳转开 tab。
  *
- * fixture 埋词：长篇 0001/0002 含「玉佩」（正文）+ 角色 林远.md 关系 + 伏笔。
+ * fixture 埋词：长篇 0001/0002 含「玉佩」（正文）+ 角色 林远.md 关系 + 悬念。
  * 命中 .result，点击 open(path) → doc.open + openTab → cm 渲染。
  */
 import { test, expect } from '@playwright/test'

@@ -82,7 +82,7 @@ function classifyByPath(path: string): HandEditKind {
   // 已发布正文：定稿/正文/*.md（#18 第 4 节，已 commit 的正文只读）
   if (path.startsWith('定稿/正文/')) return 'published-text'
   // 账本：大纲/{已启用类}/*.md
-  if (path.startsWith('大纲/伏笔/') || path.startsWith('大纲/悬念/') || path.startsWith('大纲/感情线/') ||
+  if (path.startsWith('大纲/悬念/') || path.startsWith('大纲/感情线/') ||
       path.startsWith('大纲/局线/') || path.startsWith('大纲/设定线/') || path.startsWith('大纲/成长线/') || path.startsWith('大纲/关系债/')) {
     return 'ledger'
   }

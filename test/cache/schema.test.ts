@@ -36,12 +36,12 @@ test('createAllTables: 建 5 表成功', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('syncLead + loadLeadFromCache: 伏笔写入回读一致', () => {
+test('syncLead + loadLeadFromCache: 悬念写入回读一致', () => {
   const { db, dir } = makeDb()
   const lead: Lead = {
-    编号: '伏笔-031',
+    编号: '悬念-031',
     标题: '灭门真凶',
-    类型: '伏笔',
+    类型: '悬念',
     状态: '已收尾',
     开启章: 12,
     履历: [
@@ -49,13 +49,13 @@ test('syncLead + loadLeadFromCache: 伏笔写入回读一致', () => {
       { 章号: 47, 动词: '推进', 证据: '狗不叫' },
       { 章号: 152, 动词: '回收', 证据: '二叔是真凶' },
     ],
-    _path: '大纲/伏笔/伏笔-031-灭门真凶.md',
+    _path: '大纲/悬念/悬念-031-灭门真凶.md',
   }
   syncLead(db, lead)
-  const loaded = loadLeadFromCache(db, '伏笔-031')
+  const loaded = loadLeadFromCache(db, '悬念-031')
   expect(loaded).not.toBeNull()
-  expect(loaded!.编号).toBe('伏笔-031')
-  expect(loaded!.类型).toBe('伏笔')
+  expect(loaded!.编号).toBe('悬念-031')
+  expect(loaded!.类型).toBe('悬念')
   expect(loaded!.开启章).toBe(12)
   expect(loaded!.履历).toHaveLength(3)
   expect(loaded!.履历[1]!.动词).toBe('推进')
@@ -85,12 +85,12 @@ test('syncLead: 成长线特化字段（cur_realm）映射', () => {
 test('syncLead: 幂等（重复写不重复履历）', () => {
   const { db, dir } = makeDb()
   const lead: Lead = {
-    编号: '伏笔-001', 标题: 'a', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-001', 标题: 'a', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 1, 动词: '埋下', 证据: 'x' }], _path: 'p',
   }
   syncLead(db, lead)
   syncLead(db, lead) // 重复
-  const count = db.prepare('SELECT count(*) AS c FROM lead_history WHERE lead_id=?').get('伏笔-001') as { c: number }
+  const count = db.prepare('SELECT count(*) AS c FROM lead_history WHERE lead_id=?').get('悬念-001') as { c: number }
   expect(count.c).toBe(1) // 不重复
   db.close()
   rmSync(dir, { recursive: true, force: true })

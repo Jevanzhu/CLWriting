@@ -65,7 +65,7 @@ test('prepare CLI: 从细纲推进/场景生成本章写作材料', async () => 
       '章号: 2',
       '标题: 来信',
       '场景: 对话',
-      '推进: [伏笔-031]',
+      '推进: [悬念-031]',
       '---',
       '本章继续追灭门真凶。',
     ].join('\n'), 'utf-8')
@@ -75,7 +75,7 @@ test('prepare CLI: 从细纲推进/场景生成本章写作材料', async () => 
     expect(stdout).toContain('本章写作材料.md')
     const material = readFileSync(join(root, '工作区', '本章写作材料.md'), 'utf-8')
     expect(material).toContain('本章推进的账本')
-    expect(material).toContain('伏笔-031')
+    expect(material).toContain('悬念-031')
     expect(material).toContain('文风样章')
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -85,7 +85,7 @@ test('prepare CLI: 从细纲推进/场景生成本章写作材料', async () => 
 test('rebook CLI: 默认只报告，--yes 才补登 commit', () => {
   const root = makeGitBook()
   try {
-    const leadPath = join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md')
+    const leadPath = join(root, '大纲', '悬念', '悬念-031-灭门真凶.md')
     writeFileSync(leadPath, `${readFileSync(leadPath, 'utf-8')}\n作者补了一句说明。\n`, 'utf-8')
 
     const report = captureCli(() => rebookCommand([root]))
@@ -99,7 +99,7 @@ test('rebook CLI: 默认只报告，--yes 才补登 commit', () => {
     const after = execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf-8' }).trim()
     expect(after).not.toBe(before)
     const files = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
-    expect(files).toContain('伏笔-031-灭门真凶.md')
+    expect(files).toContain('悬念-031-灭门真凶.md')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -35,8 +35,8 @@ test('readChapterLeadUpdates: 解析标准行（编号/动词/证据，全角冒
 test('readChapterLeadUpdates: 半角冒号 + 忽略非列表行', () => {
   const wd = tmpWorkDir()
   try {
-    writeFileSync(join(wd, '账本推进.md'), '# 本章推进\n说明文字一行\n- 伏笔-002 埋下: 桌上多了一封信\n', 'utf-8')
-    expect(readChapterLeadUpdates(wd)).toEqual([{ leadId: '伏笔-002', 动词: '埋下', 证据: '桌上多了一封信' }])
+    writeFileSync(join(wd, '账本推进.md'), '# 本章推进\n说明文字一行\n- 悬念-002 埋下: 桌上多了一封信\n', 'utf-8')
+    expect(readChapterLeadUpdates(wd)).toEqual([{ leadId: '悬念-002', 动词: '埋下', 证据: '桌上多了一封信' }])
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }
@@ -45,7 +45,7 @@ test('readChapterLeadUpdates: 半角冒号 + 忽略非列表行', () => {
 test('readChapterLeadUpdates: 空证据行忽略', () => {
   const wd = tmpWorkDir()
   try {
-    writeFileSync(join(wd, '账本推进.md'), '- 伏笔-002 埋下:    \n', 'utf-8')
+    writeFileSync(join(wd, '账本推进.md'), '- 悬念-002 埋下:    \n', 'utf-8')
     expect(readChapterLeadUpdates(wd)).toEqual([])
   } finally {
     rmSync(wd, { recursive: true, force: true })
@@ -55,7 +55,7 @@ test('readChapterLeadUpdates: 空证据行忽略', () => {
 test('aggregateLeadUpdates: 空证据核心不算正文命中', () => {
   expect(leadEvidenceMatchesBody('任意正文都不该让空证据通过。', '   ')).toBe(false)
   expect(aggregateLeadUpdates([
-    { leadId: '伏笔-002', 动词: '埋下', 证据: '   ' },
+    { leadId: '悬念-002', 动词: '埋下', 证据: '   ' },
   ], '任意正文都不该让空证据通过。', 1)).toEqual([])
 })
 

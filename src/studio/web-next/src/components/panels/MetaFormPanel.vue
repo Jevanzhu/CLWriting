@@ -87,6 +87,7 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '标题', label: '标题', type: 'text' },
     { key: '状态', label: '状态', type: 'select', options: ['未回收', '已回收', '已废弃'] },
     { key: '重要性', label: '重要性', type: 'select', options: ['高', '中', '低'] },
+    { key: '关联词', label: '关联词', type: 'text', placeholder: '逗号分隔，如：玉佩,祖父遗物' },
     { key: '埋设章号', label: '埋设章号', type: 'number' },
     { key: '回收章号', label: '回收章号', type: 'number' },
   ],

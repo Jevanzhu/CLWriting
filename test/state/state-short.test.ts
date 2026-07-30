@@ -167,7 +167,7 @@ test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', ()
     execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
     mkdirSync(join(root, '定稿', '正文'), { recursive: true })
-    mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+    mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })
     mkdirSync(join(root, '.cache'), { recursive: true })
     execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })

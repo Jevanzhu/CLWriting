@@ -3,7 +3,7 @@
  *
  * 供 dual-track 回归测 + e2e 复用（mkdtemp 临时目录，内容在代码里，灵活可控）。
  * 内容是测试小说数据（无敏感；不涉 api_key）。覆盖各 API 端点所需结构：
- * - 长篇：book.yaml + 大纲/总纲 + 大纲/伏笔 + 定稿/正文(2章) + 设定(角色/境界) + 文风铁律
+ * - 长篇：book.yaml + 大纲/总纲 + 大纲/悬念 + 定稿/正文(2章) + 设定(角色/境界) + 文风铁律
  * - 短篇：book.yaml + 篇(2篇 正文+清单) + 设定/集子定位 + 文风铁律
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -37,10 +37,10 @@ function makeLongBook(root: string): void {
   )
   mkdirSync(join(root, '大纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n玄幻：少年林远修真，玉佩藏着旧案。')
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-001-玉佩.md'),
-    '---\n编号: 伏笔-001\n标题: 玉佩\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
+    join(root, '大纲', '悬念', '悬念-001-玉佩.md'),
+    '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
   )
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   writeFileSync(

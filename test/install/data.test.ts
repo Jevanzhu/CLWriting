@@ -7,8 +7,8 @@ import {
   sanitizeLeadsEnabled,
 } from '../../src/install/data.js'
 
-test('BASE_LEAD_TYPES 恒为三类、EXTENDED 四类', () => {
-  expect(BASE_LEAD_TYPES).toEqual(['伏笔', '悬念', '感情线'])
+test('BASE_LEAD_TYPES 恒为两类、EXTENDED 四类', () => {
+  expect(BASE_LEAD_TYPES).toEqual(['悬念', '感情线'])
   expect(EXTENDED_LEAD_TYPES).toEqual(['局线', '设定线', '成长线', '关系债'])
 })
 
@@ -40,7 +40,7 @@ test('matchGenreLeads: 多组叠加（玄幻+宫斗混合题材）', () => {
   expect(matchGenreLeads('玄幻宫斗')).toEqual(['局线', '设定线', '成长线'])
 })
 
-test('matchGenreLeads: 冷门题材回落空（仅基础三类）', () => {
+test('matchGenreLeads: 冷门题材回落空（仅基础两类）', () => {
   expect(matchGenreLeads('都市')).toEqual([])
   expect(matchGenreLeads('都市职场')).toEqual([])
   expect(matchGenreLeads('')).toEqual([])
@@ -55,8 +55,8 @@ test('matchGenreLeads: 去重（同组重复命中只算一次）', () => {
 
 test('sanitizeLeadsEnabled: 剔除基础类 + 未知类 + 去重', () => {
   expect(sanitizeLeadsEnabled(['成长线', '局线'])).toEqual(['成长线', '局线'])
-  // 基础类（伏笔）应被剔除——基础类恒启用不列入 enabled
-  expect(sanitizeLeadsEnabled(['伏笔', '成长线'])).toEqual(['成长线'])
+  // 基础类（悬念）应被剔除——基础类恒启用不列入 enabled
+  expect(sanitizeLeadsEnabled(['悬念', '成长线'])).toEqual(['成长线'])
   // 未知类剔除
   expect(sanitizeLeadsEnabled(['未知线', '成长线'])).toEqual(['成长线'])
   // 去重

@@ -21,7 +21,7 @@ function makeBook(): string {
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '卷纲', 'v1.md'), '纲', 'utf-8')
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '.cache'), { recursive: true })

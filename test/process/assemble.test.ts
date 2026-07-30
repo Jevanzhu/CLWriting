@@ -24,7 +24,7 @@ function makeSeededDb(): { db: DatabaseSync; dir: string } {
 
   // 账本
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '已收尾', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '已收尾', 开启章: 12,
     履历: [], _path: 'p',
   })
   syncLead(db, {
@@ -51,7 +51,7 @@ test('assembleStatus: 已写章号 + 卷号', () => {
 test('assembleStatus: 进行中的线（不含已收尾）', () => {
   const { db, dir } = makeSeededDb()
   const s = assembleStatus(db, DEFAULT_CONFIG)
-  expect(s.openLeads).toHaveLength(2) // 悬念-008 + 成长线-003（伏笔-031 已收尾）
+  expect(s.openLeads).toHaveLength(2) // 悬念-008 + 成长线-003（悬念-031 已收尾）
   const ids = s.openLeads.map((l) => l.id)
   expect(ids).toContain('悬念-008')
   expect(ids).toContain('成长线-003')

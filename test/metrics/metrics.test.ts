@@ -468,7 +468,7 @@ function makeGitBook(): string {
   execSync('git config user.email test@test.com', { cwd: root, stdio: 'pipe' })
   execSync('git config user.name test', { cwd: root, stdio: 'pipe' })
   writeBookConfig(join(root, 'book.yaml'), config)
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })

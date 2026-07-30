@@ -50,15 +50,15 @@ test('trashDocument: 软删 → 移 .trash + 清单移除 + manifest 记录', as
 test('trashDocument: 账本（ledger trash=false）→ CAPABILITY_DENIED', async () => {
   const root = mkdtempSync(join(tmpdir(), 'w2a-trash-lg-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, '大纲', '伏笔', '001-玉佩.md'), '---\n---\n伏笔', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '001-玉佩.md'), '---\n---\n悬念', 'utf-8')
   writeFileSync(
     join(root, '项目', '文档清单.jsonl'),
     [
       '{"version":1,"type":"header"}',
-      '{"id":"doc_lg01","nodeType":"document","path":"大纲/伏笔/001-玉佩.md","parentId":null}',
+      '{"id":"doc_lg01","nodeType":"document","path":"大纲/悬念/001-玉佩.md","parentId":null}',
     ].join('\n') + '\n',
   )
   const svc = new DocumentService({ bookRoot: root })
@@ -67,7 +67,7 @@ test('trashDocument: 账本（ledger trash=false）→ CAPABILITY_DENIED', async
   if (r.ok) return
   expect(r.code).toBe('CAPABILITY_DENIED')
   // 原文件未动
-  expect(existsSync(join(root, '大纲', '伏笔', '001-玉佩.md'))).toBe(true)
+  expect(existsSync(join(root, '大纲', '悬念', '001-玉佩.md'))).toBe(true)
   rmSync(root, { recursive: true, force: true })
 })
 

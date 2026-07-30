@@ -131,6 +131,24 @@ test('getBookTreeIndex: 缓存同引用；invalidate 后重建 + revision 递增
   rmSync(root, { recursive: true, force: true })
 })
 
+test('getBookTreeIndex(force): 外部直接写盘的文件——缓存刷不出，force 重扫刷得出', () => {
+  const root = makeBook()
+  const idx1 = getBookTreeIndex(root)
+  expect(collectPaths(idx1.nodes)).not.toContain('定稿/设定/伏笔/神秘印记.md')
+
+  // 外部编辑器 / CLI / AI 直接落盘：不经 DocumentService，缓存不会失效
+  mkdirSync(join(root, '定稿', '设定', '伏笔'), { recursive: true })
+  writeFileSync(join(root, '定稿', '设定', '伏笔', '神秘印记.md'), '---\n标题: 神秘印记\n---\n正文', 'utf-8')
+
+  const stale = getBookTreeIndex(root)
+  expect(stale).toBe(idx1) // 缓存命中 → 新文件看不见（前端「刷新」也刷不出）
+  const fresh = getBookTreeIndex(root, true)
+  expect(collectPaths(fresh.nodes)).toContain('定稿/设定/伏笔/神秘印记.md')
+  expect(fresh.revision).toBeGreaterThan(idx1.revision)
+  expect(getBookTreeIndex(root)).toBe(fresh) // force 的结果回写缓存
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('buildTree: 有清单时叶子挂正式 docId（清单 path 带 .md 对齐）', () => {
   const root = makeBook()
   mkdirSync(join(root, '项目'), { recursive: true })

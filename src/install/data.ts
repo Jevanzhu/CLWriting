@@ -2,7 +2,7 @@
  * init 题材 → 扩展账本类推荐映射（O3）+ 常量 —— 依据 M5 #30 + 母本账本总表。
  *
  * 母本第 104-112 行账本总表的「典型题材」列反向推导：
- * - 基础三类（伏笔/悬念/感情线）恒启用，不列入 leads.enabled
+ * - 基础两类（悬念/感情线）恒启用，不列入 leads.enabled（伏笔已独立为设定伏笔系统）
  * - 扩展四类（局线/设定线/成长线/关系债）按题材推荐，作者可增删
  *
  * 纯函数、零依赖、零 AI——init 第 4 步查本表推荐，非调模型。
@@ -10,8 +10,8 @@
 
 import type { BookConfig, LeadType } from '../format/types.js'
 
-/** 基础三类（恒启用，不列入 book.yaml 的 leads.enabled） */
-export const BASE_LEAD_TYPES: readonly LeadType[] = ['伏笔', '悬念', '感情线']
+/** 基础两类（恒启用，不列入 book.yaml 的 leads.enabled；伏笔已独立为设定伏笔系统） */
+export const BASE_LEAD_TYPES: readonly LeadType[] = ['悬念', '感情线']
 
 /** 扩展四类（按题材启用，是 leads.enabled 的合法值） */
 export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['局线', '设定线', '成长线', '关系债']

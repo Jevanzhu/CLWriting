@@ -25,25 +25,25 @@ function sh(cmd: string, cwd: string): void {
 test('修复确认: 坏账本文件 → 检测到 ParseError + 人话定位', () => {
   const root = makeGitBook()
   // 写坏文件（裸文件无 front matter）
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
   sh('git add -A && git commit -m "加坏文件"', root)
 
   const errors = detectParseErrors(root)
   expect(errors.length).toBeGreaterThan(0)
-  expect(errors.some((e) => e.file.includes('伏笔-099'))).toBe(true)
+  expect(errors.some((e) => e.file.includes('悬念-099'))).toBe(true)
 
   const report = repairReport(root)
   expect(report.degraded).toBe(true)
   const text = formatRepairReport(report)
-  expect(text).toContain('伏笔-099')
+  expect(text).toContain('悬念-099')
   rmSync(root, { recursive: true, force: true })
 })
 
 test('修复确认: 缺必填字段 → obvious 建议给具体改法', () => {
   const root = makeGitBook()
   // 缺「编号」字段
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-098-无编号.md'),
-    '---\n标题: 无编号\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-098-无编号.md'),
+    '---\n标题: 无编号\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
   sh('git add -A && git commit -m "加缺字段文件"', root)
 
   const errors = detectParseErrors(root)
@@ -59,7 +59,7 @@ test('修复确认: 缺必填字段 → obvious 建议给具体改法', () => {
 
 test('修复确认: 坏文件原样保留（修复前不删不覆盖）', () => {
   const root = makeGitBook()
-  const badPath = join(root, '大纲', '伏笔', '伏笔-097-坏.md')
+  const badPath = join(root, '大纲', '悬念', '悬念-097-坏.md')
   const badContent = '坏内容必须保留'
   writeFileSync(badPath, badContent, 'utf-8')
   sh('git add -A && git commit -m "加坏文件"', root)
@@ -85,8 +85,8 @@ test('修复确认: 干净书 → 无错误、不降级', () => {
 
 test('手改对账: 手改账本履历 → 检测到 + ledger 分类 + 提议同步', () => {
   const root = makeGitBook()
-  writeFileSync(join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：作者手改证据\n', 'utf-8')
+  writeFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：作者手改证据\n', 'utf-8')
 
   const report = detectHandEdits(root)
   expect(report.edits.length).toBeGreaterThan(0)

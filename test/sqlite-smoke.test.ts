@@ -13,9 +13,9 @@ test('node:sqlite 建库→读写→删库重建（含中文落盘）', () => {
   // 建库 + 写（含中文值）
   const db1 = new DatabaseSync(dbPath)
   db1.exec('CREATE TABLE leads (id INTEGER PRIMARY KEY, name TEXT)')
-  db1.prepare('INSERT INTO leads (name) VALUES (?)').run('伏笔-031')
+  db1.prepare('INSERT INTO leads (name) VALUES (?)').run('悬念-031')
   const row = db1.prepare('SELECT name FROM leads WHERE id = 1').get() as { name: string }
-  expect(row.name).toBe('伏笔-031')
+  expect(row.name).toBe('悬念-031')
   db1.close()
   expect(existsSync(dbPath)).toBe(true)
 
