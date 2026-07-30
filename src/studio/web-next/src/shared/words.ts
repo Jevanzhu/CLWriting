@@ -82,9 +82,10 @@ export function parseFmFields(content: string): Record<string, string> {
 export function formKindOf(
   path: string,
 ):
-  | 'chapter' | 'chapter-outline' | 'volume-outline' | 'synopsis'
+  | 'chapter' | 'piece-body' | 'chapter-outline' | 'volume-outline' | 'synopsis'
   | 'character' | 'worldview' | 'item' | 'foreshadow' | null {
   if (path.startsWith('定稿/正文/')) return 'chapter'
+  if (path.startsWith('篇/') && path.endsWith('/正文.md')) return 'piece-body'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
   if (path === '大纲/总纲.md') return 'synopsis'
@@ -93,4 +94,9 @@ export function formKindOf(
   if (path.startsWith('定稿/设定/物品/')) return 'item'
   if (path.startsWith('定稿/设定/伏笔/')) return 'foreshadow'
   return null
+}
+
+/** 是否正文文档（长篇 chapter / 短篇 piece-body）—— 统一标题可编辑 + 可分析/review/check 判定。 */
+export function isBodyKind(path: string): boolean {
+  return path.startsWith('定稿/正文/') || (path.startsWith('篇/') && path.endsWith('/正文.md'))
 }

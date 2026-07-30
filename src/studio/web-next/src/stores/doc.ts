@@ -17,9 +17,11 @@ import type { TreeNode } from '../types/tree'
  * （adoptLegacyDoc），从而也获得快照/历史/冲突检测——不再降级盲写。
  */
 
+import { isBodyKind } from '../shared/words'
+
 /** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/工作区(非草稿) = md（语法高亮）。 */
 function modeOf(path: string): 'text' | 'md' {
-  if (path.startsWith('定稿/正文/')) return 'text'
+  if (isBodyKind(path)) return 'text'
   if (/(?:^|\/)草稿-\d+\.md$/.test(path)) return 'text'
   return 'md'
 }

@@ -12,7 +12,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 虚拟分组：写作（正文卷章+草稿）/ 大纲（+摘要）/ 设定（提升根级）/ 文风。 */
+  /** 虚拟分组：写作（正文卷章+短篇篇+草稿）/ 大纲（+摘要）/ 设定（提升根级）/ 文风。 */
   const grouped = computed(() => groupTree(raw.value))
 
   /** path → node 索引（在 grouped 上建，含虚拟组）。 */
@@ -155,7 +155,7 @@ export const useTreeStore = defineStore('tree', () => {
 })
 
 /** 虚拟分组 transform：真实磁盘节点 → 写作功能分组（移植旧 FileTree.groupTree）。
- *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 工作区草稿(status=draft)
+ *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 短篇 篇/ + 工作区草稿(status=draft)
  *  大纲：真实根目录 + 摘要并入；总纲置顶
  *  设定：定稿/设定 提升根级
  *  文风：真实根目录原样
@@ -169,6 +169,7 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const dagang = find(rawNodes, '大纲')
   const work = find(rawNodes, '工作区')
   const style = find(rawNodes, '文风')
+  const pian = find(rawNodes, '篇') // 短篇集正文目录
   const zhengwen = child(dingao, '定稿/正文')
   const shezhi = child(dingao, '定稿/设定')
   const zhaiyao = child(dingao, '定稿/摘要')
@@ -177,8 +178,8 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const drafts = (work?.children ?? []).filter((c) => !c.isDirectory && c.status === 'draft')
 
   const groups: TreeNode[] = []
-  // 1. 写作（虚拟）：正文真实子树 + 草稿
-  const writeChildren = [...(zhengwen?.children ?? []), ...drafts]
+  // 1. 写作（虚拟）：长篇正文卷章 + 短篇篇 + 草稿
+  const writeChildren = [...(zhengwen?.children ?? []), ...(pian?.children ?? []), ...drafts]
   if (writeChildren.length) {
     groups.push({ path: '写作', name: '写作', isDirectory: true, role: 'note', children: writeChildren })
   }
