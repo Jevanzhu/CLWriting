@@ -95,8 +95,8 @@ const hooksCoverage = computed(() => {
   return `${t.length}/${total}`
 })
 
-function gotoRhythm(): void {
-  ws.setActiveView('rhythm')
+function gotoOverview(): void {
+  ws.setActiveView('overview')
 }
 </script>
 
@@ -125,7 +125,7 @@ function gotoRhythm(): void {
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><span>全书速览</span></div>
-        <button class="ap-ov-link" @click="gotoRhythm">详情 →</button>
+        <button class="ap-ov-link" @click="gotoOverview">详情 →</button>
       </div>
       <div class="ap-ov-row">
         <span class="ap-ov-label">体验分</span>

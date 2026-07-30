@@ -7,7 +7,7 @@
  * 失败不崩（返 state:0 + 错误）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply } from '../http.js'
@@ -59,6 +59,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       stateCache = { bookRoot, result: state, ts: now }
     }
 
+    const timeline = computeTimeline(bookRoot, kind)
     reply(res, 200, {
       identity: {
         name: entry.name,
@@ -72,7 +73,9 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       progress: withTarget(computeProgress(bookRoot, kind), config.book.target_words),
       state,
       volumes: kind === 'short' ? [] : listVolumes(bookRoot),
-      timeline: computeTimeline(bookRoot, kind),
+      timeline,
+      recentChapter: kind === 'long' ? getRecentChapter(bookRoot) : null,
+      streak: computeStreak(timeline),
     })
   })
 }
@@ -129,4 +132,34 @@ function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: stri
   return [...byDay.entries()]
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** 最近一章（按章号最大）—— 供总览页"继续写作"入口 */
+function getRecentChapter(bookRoot: string): { 章号: number; 标题: string; path: string } | null {
+  const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+  if (chapters.length === 0) return null
+  const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))
+  const last = sorted[0]
+  if (!last?._path) return null
+  return { 章号: last.章号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
+}
+
+/** 连续写作天数：从 timeline 末尾往前数连续有产出的天数（允许今天还没写 → 从昨天起算） */
+function computeStreak(timeline: { date: string; count: number }[]): number {
+  if (timeline.length === 0) return 0
+  const dates = new Set(timeline.map((t) => t.date))
+  const cursor = new Date()
+  // 今天没写 → 从昨天起算（不因"今天还没动笔"就断 streak）
+  if (!dates.has(cursor.toISOString().slice(0, 10))) {
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  let streak = 0
+  for (;;) {
+    const dayStr = cursor.toISOString().slice(0, 10)
+    if (dates.has(dayStr)) {
+      streak++
+      cursor.setDate(cursor.getDate() - 1)
+    } else break
+  }
+  return streak
 }

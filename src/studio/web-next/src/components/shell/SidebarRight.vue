@@ -89,14 +89,14 @@ const isReviewable = computed(() => {
             <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
           </div>
         </CollapseSection>
+        <CollapseSection title="伏笔追踪">
+          <ForeshadowPanel :book-name="bookName" />
+        </CollapseSection>
         <CollapseSection v-if="isReviewable" title="AI 分析">
           <AnalysisPanel :book-name="bookName" />
         </CollapseSection>
         <CollapseSection v-if="isReviewable" title="本章历史">
           <HistoryPanel :book-name="bookName" />
-        </CollapseSection>
-        <CollapseSection title="伏笔追踪">
-          <ForeshadowPanel :book-name="bookName" />
         </CollapseSection>
       </template>
       <!-- 审阅 tab：块1 三审 + 块2 改写 -->

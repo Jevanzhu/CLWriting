@@ -4,7 +4,6 @@ import {
   Search,
   Trash2,
   LayoutGrid,
-  BarChart3,
   Share2,
   Wrench,
   Compass,
@@ -62,18 +61,10 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'overview' }"
-        data-tip="总览（书况 / 进度 / 卷纲 / 热力）"
+        data-tip="总览（进度 / 节奏 / 伏笔 / 文风）"
         @click="ws.setActiveView('overview')"
       >
         <LayoutGrid :size="20" />
-      </button>
-      <button
-        class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'rhythm' }"
-        data-tip="节奏（规划 vs 已写）"
-        @click="ws.setActiveView('rhythm')"
-      >
-        <BarChart3 :size="20" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"

@@ -6,7 +6,6 @@ import EditorView from '../views/EditorView.vue'
 import WorkbenchView from '../views/WorkbenchView.vue'
 import OnboardView from '../views/OnboardView.vue'
 import OverviewView from '../views/OverviewView.vue'
-import RhythmView from '../views/RhythmView.vue'
 import RelationsView from '../views/RelationsView.vue'
 import LearnView from '../views/LearnView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
@@ -43,7 +42,6 @@ watch(
       <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
       <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
       <OverviewView v-else-if="ws.activeView === 'overview'" :book-name="bookName" />
-      <RhythmView v-else-if="ws.activeView === 'rhythm'" :book-name="bookName" />
       <RelationsView v-else-if="ws.activeView === 'relations'" :book-name="bookName" />
       <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
       <OnboardView v-else :book-name="bookName" />

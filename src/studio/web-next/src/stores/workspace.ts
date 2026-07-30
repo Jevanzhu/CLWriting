@@ -35,7 +35,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 左栏活动面板（细案 §5 leftPanel）。 */
   const leftPanel = ref<'tree' | 'search' | 'trash'>('tree')
   /** 主区活动视图：编辑器 / 工作台 / 开书对话 / 总览（ribbon 切换；点章节回编辑器）。 */
-  const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'>('editor')
+  const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn'>('editor')
   /** 右栏活动 tab（信息/审阅/机检/分析）；编辑器 AI 按钮可驱动切到审阅。 */
   const rightTab = ref<'info' | 'review' | 'check'>('info')
   /** 当前打开的文档 ID（单文档模式，无标签页）。 */
@@ -198,7 +198,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     rightTab.value = t
     rightOpen.value = true
   }
-  function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'rhythm' | 'relations' | 'learn'): void {
+  function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn'): void {
     activeView.value = v
   }
   /** 注册/注销编辑器选区读取器（EditorView mount/unmount；选段改写用）。 */
