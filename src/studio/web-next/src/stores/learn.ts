@@ -86,6 +86,12 @@ export const useLearnStore = defineStore('learn', () => {
     }
   }
 
+  /** 清空所有勾选（不影响候选列表） */
+  function clearPicks(): void {
+    pickedSamples.value = new Set()
+    pickedQuotes.value = new Set()
+  }
+
   function clear(): void {
     samples.value = []
     quotes.value = []
@@ -109,6 +115,7 @@ export const useLearnStore = defineStore('learn', () => {
     toggleQuote,
     isSamplePicked,
     isQuotePicked,
+    clearPicks,
     commit,
     clear,
   }
