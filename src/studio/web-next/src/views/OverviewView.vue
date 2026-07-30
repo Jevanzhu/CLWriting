@@ -81,20 +81,54 @@ const days = computed(() => {
   if (!c) return 0
   return Math.max(1, Math.floor((Date.now() - new Date(c).getTime()) / 86400000))
 })
-/** 日均字数（总字数 / 创作天数） */
-const avgWords = computed(() => (days.value > 0 ? Math.round(words.value / days.value) : 0))
+/** 有产出的天数（timeline 只记有章节定稿的日子）。 */
+const activeDays = computed(() => (data.value?.timeline ?? []).filter((t) => t.count > 0).length)
+/** 写作日均：总字数 ÷ 有产出天数。用自然日当分母会把「建书 100 天只写了 3 天」
+ *  摊成一个没意义的小数，作者想看的是「动笔那几天，一天写多少」。 */
+const avgWords = computed(() => (activeDays.value > 0 ? Math.round(words.value / activeDays.value) : 0))
 const avgWordsFmt = computed(() =>
   avgWords.value >= 10000
     ? (avgWords.value / 10000).toFixed(1) + '万'
     : avgWords.value.toLocaleString(),
 )
 const maxCount = computed(() => Math.max(1, ...(data.value?.timeline ?? []).map((t) => t.count)))
-const heatCells = computed(() => data.value?.timeline ?? [])
+
+// ── 写作热力：逐日补齐 ──
+// timeline 只含有产出的日子，直接 v-for 会让 7/24 和 7/28 视觉相邻——断更看不出来。
+// 故按日历补零填满；窗口取最近 90 天（新书从建书日起），避免老书排出几百格。
+const HEAT_DAYS = 90
+const DAY_MS = 86400000
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const heatCells = computed<{ date: string; count: number }[]>(() => {
+  const tl = data.value?.timeline ?? []
+  if (!tl.length) return []
+  const byDate = new Map(tl.map((t) => [t.date, t.count]))
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const earliest = new Date(`${tl.reduce((a, t) => (t.date < a ? t.date : a), tl[0]!.date)}T00:00:00`)
+  const windowStart = new Date(today.getTime() - (HEAT_DAYS - 1) * DAY_MS)
+  const start = earliest > windowStart ? earliest : windowStart
+  const cells: { date: string; count: number }[] = []
+  // 用 setDate 按日历日推进：+86400000 在有夏令时的时区会漂出重复/缺失的一天
+  for (const d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+    const key = ymd(d)
+    cells.push({ date: key, count: byDate.get(key) ?? 0 })
+  }
+  return cells
+})
 
 // 进度环
 const RING_R = 44
 const C = 2 * Math.PI * RING_R
 const ringOffset = computed(() => C * (1 - percent.value / 100))
+/** 百分比显示：0~1 区间收敛成 "<1"，避免 24px 大字位上出现 "0.2"。 */
+const percentFmt = computed(() => {
+  const p = percent.value
+  if (p > 0 && p < 1) return '<1'
+  return String(Math.round(p))
+})
 
 // 伏笔健康度
 const fsStats = computed(() => {
@@ -125,6 +159,11 @@ const maxWords = computed(() =>
   Math.max(1, ...(rhythmData.value?.wordCurve ?? []).map((p) => p.字数)),
 )
 const Y_TICKS = [0.25, 0.5, 0.75]
+/** X 轴标签步长：控制在 ~20 个标签内。超 40 章就整排隐藏会让长篇横轴彻底失去参照。 */
+const tickStep = computed(() => {
+  const n = rhythmData.value?.wordCurve.length ?? 0
+  return Math.max(1, Math.ceil(n / 20))
+})
 /** 字数简写：≥1万→X.X万，≥1千→X.Xk，其余原值 */
 function fmtWords(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
@@ -225,7 +264,7 @@ async function runStyle(): Promise<void> {
                 :stroke-dasharray="C" :stroke-dashoffset="ringOffset" />
             </svg>
             <div class="ring-label">
-              <span class="rl-num">{{ percent }}</span>
+              <span class="rl-num">{{ percentFmt }}</span>
               <span class="rl-pct">%</span>
             </div>
           </div>
@@ -242,7 +281,7 @@ async function runStyle(): Promise<void> {
           </div>
           <div class="kpi">
             <span class="kpi-val">{{ avgWordsFmt }}</span>
-            <span class="kpi-label">日均字数</span>
+            <span class="kpi-label">写作日均</span>
           </div>
           <div v-if="streak > 0" class="kpi">
             <span class="kpi-val">{{ streak }}<small class="kpi-unit">天</small></span>
@@ -253,10 +292,14 @@ async function runStyle(): Promise<void> {
             <span class="kpi-label">创作</span>
           </div>
         </div>
-        <!-- 底部：进度条 -->
+        <!-- 底部：进度条（标出分母，否则只有一个孤零零的百分比）-->
         <div v-if="hasTarget" class="hero-foot">
           <div class="hbar-track">
             <div class="hbar-fill" :style="{ width: Math.max(1.5, percent) + '%' }"></div>
+          </div>
+          <div class="hbar-meta">
+            <span>已写 {{ wordsFmt }}</span>
+            <span>目标 {{ targetFmt }}</span>
           </div>
         </div>
       </section>
@@ -267,15 +310,18 @@ async function runStyle(): Promise<void> {
         <section class="panel">
           <div class="panel-head">
             <Flame :size="14" /> <span>写作热力</span>
-            <span v-if="heatCells.length" class="head-legend">{{ heatCells.length }} 日</span>
+            <span v-if="heatCells.length" class="head-legend">
+              近 {{ heatCells.length }} 天 · {{ activeDays }} 天有产出
+            </span>
           </div>
           <div v-if="heatCells.length" class="heat-grid">
             <span
               v-for="t in heatCells"
               :key="t.date"
               class="heat-cell"
-              :style="{ opacity: 0.12 + 0.88 * (t.count / maxCount) }"
-              :title="`${t.date} · ${t.count} 章`"
+              :class="{ 'is-empty': t.count === 0 }"
+              :style="t.count ? { opacity: 0.25 + 0.75 * (t.count / maxCount) } : undefined"
+              :title="t.count ? `${t.date} · ${t.count} 章` : `${t.date} · 未定稿`"
             ></span>
           </div>
           <div v-else class="heat-empty">
@@ -354,11 +400,10 @@ async function runStyle(): Promise<void> {
           >
             <title>第{{ p.章号 }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
           </circle>
-          <!-- X 轴章号 -->
-          <template v-if="rhythmData.wordCurve.length <= 40">
+          <!-- X 轴章号（按 tickStep 降采样，长篇也保留横轴参照）-->
+          <template v-for="(p, i) in rhythmData.wordCurve" :key="'wl'+p.章号">
             <text
-              v-for="(p, i) in rhythmData.wordCurve"
-              :key="'wl'+p.章号"
+              v-if="i % tickStep === 0"
               :x="ptX(i, rhythmData.wordCurve.length)"
               :y="CHART_H - 8"
               class="axis-label-x"
@@ -499,9 +544,10 @@ async function runStyle(): Promise<void> {
 .kpi-label { display: block; font-size: var(--font-size-xs); color: var(--text-faint); margin-top: 5px; }
 
 /* 底部 */
-.hero-foot { display: flex; flex-direction: column; gap: 10px; }
+.hero-foot { display: flex; flex-direction: column; gap: 6px; }
 .hbar-track { height: 3px; border-radius: 99px; background: var(--background-modifier-border); overflow: hidden; }
 .hbar-fill { height: 100%; border-radius: 99px; background: var(--interactive-accent); transition: width 0.9s var(--ease-out); }
+.hbar-meta { display: flex; justify-content: space-between; font-size: var(--font-size-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 
 /* ══ ② Bento 双列 ══ */
 .bento-2 { display: grid; grid-template-columns: 6fr 4fr; gap: var(--size-4-4); }
@@ -510,6 +556,8 @@ async function runStyle(): Promise<void> {
 /* 热力 */
 .heat-grid { display: flex; flex-wrap: wrap; gap: 3px; }
 .heat-cell { width: 12px; height: 12px; border-radius: 2px; background: var(--interactive-accent); transition: transform var(--dur-fast) var(--ease-out); }
+/* 空白日：铺底色而非 accent 淡化，断更区间才看得出是「没写」而不是「写得少」 */
+.heat-cell.is-empty { background: var(--background-modifier-border); opacity: 0.55; }
 .heat-cell:hover { transform: scale(1.4); }
 .heat-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 0; color: var(--text-faint); font-size: var(--font-size-xs); }
 .heat-empty svg { opacity: 0.25; }
@@ -549,8 +597,8 @@ async function runStyle(): Promise<void> {
 .dist-val .sep { margin: 0 2px; opacity: 0.5; }
 
 /* ══ ⑤ 文风总结 ══ */
-.spin { animation: rv-spin 0.9s linear infinite; }
-@keyframes rv-spin { to { transform: rotate(360deg); } }
+.spin { animation: ov-spin 0.9s linear infinite; }
+@keyframes ov-spin { to { transform: rotate(360deg); } }
 .btn-style {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px; border: 1px solid var(--background-modifier-border);
