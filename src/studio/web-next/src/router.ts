@@ -18,6 +18,10 @@ const router = createRouter({
       path: '/library',
       component: () => import('./pages/Library.vue'),
     },
+    {
+      path: '/welcome',
+      component: () => import('./pages/Welcome.vue'),
+    },
   ],
 })
 

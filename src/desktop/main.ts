@@ -259,26 +259,16 @@ function openLibraryWindow(): void {
 }
 
 async function bootstrap(): Promise<void> {
-  // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd) > 弹选择器
+  // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
+  // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
   let workDir: string | null = null
   if (store.current && existsSync(store.current)) {
     workDir = store.current
   } else {
     workDir = findWorkDir(process.cwd())
-    if (!workDir) {
-      // 无持久化（或失效）、cwd 也没定位到 → 弹选择器
-      const picked = await pickLibrary()
-      if (picked) {
-        saveCurrent(picked)
-        workDir = picked
-      }
-    }
   }
-
-  if (!workDir) {
-    console.warn('⚠ 未定位到工作目录，书架将为空（请在书架页点「打开书库」选择）。')
-  }
+  const needsWelcome = !workDir
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起内嵌 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
@@ -320,8 +310,17 @@ async function bootstrap(): Promise<void> {
   mainWindow.on('close', () => {
     saveWinState()
   })
+  // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
+  // （与书架窗口 desktop:open-book 主动 close 行为对齐）
+  mainWindow.on('focus', () => {
+    if (libraryWindow && !libraryWindow.isDestroyed()) {
+      libraryWindow.close()
+    }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
+    // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
+    app.quit()
   })
   // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
@@ -332,8 +331,8 @@ async function bootstrap(): Promise<void> {
   if (devUi) {
     await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
-  await mainWindow.loadURL(appUrl)
-  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}`)
+  await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
+  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────
