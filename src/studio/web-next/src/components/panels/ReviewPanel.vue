@@ -7,7 +7,7 @@ import { useReviewStore } from '../../stores/review'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 import type { ReviewIssueFE } from '../../api/review'
 
 const props = defineProps<{ bookName: string }>()
@@ -20,7 +20,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (isBodyKind(node.value.path)) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)

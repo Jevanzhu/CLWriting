@@ -15,7 +15,7 @@ import ForeshadowPanel from '../panels/ForeshadowPanel.vue'
 import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -51,7 +51,7 @@ const isReviewable = computed(() => {
   if (!ws.activeDocId) return false
   const node = tree.byDocId.get(ws.activeDocId)
   if (!node) return false
-  if (formKindOf(node.path) === 'chapter') return true
+  if (isBodyKind(node.path)) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.path)
 })
 </script>

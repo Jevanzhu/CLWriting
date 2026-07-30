@@ -10,7 +10,7 @@ import { useRewriteStore } from '../stores/rewrite'
 import { updateChapterMetaDoc } from '../api/documents'
 import { getConfig } from '../api/books'
 import { usePrefsStore } from '../stores/prefs'
-import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
+import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
@@ -225,7 +225,7 @@ function onBodyChange(next: string): void {
   doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
 }
 
-const isChapter = computed(() => entry.value?.path.startsWith('定稿/正文/') ?? false)
+const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
 watch(
   () => entry.value?.content,
@@ -326,23 +326,10 @@ onUnmounted(() => {
           />
           <span v-else class="bar-title">{{ entry.name }}</span>
         </div>
-        <!-- 右：状态 · 字数 · 保存 · AI 按钮 -->
+        <!-- 右：字数 · 状态 · 冲突 · AI · 保存（最右） -->
         <div class="bar-right">
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
-          <button
-            class="save-btn"
-            :class="saveStatus.cls"
-            :disabled="entry.saving || entry.handLocked || (!entry.dirty && !entry.error)"
-            data-tip="保存（⌘S）"
-            data-tip-dir="bottom"
-            @click="onSave"
-          >
-            <Loader2 v-if="entry.saving" :size="12" class="save-btn-spin" />
-            <Check v-else-if="entry.savedAt && !entry.dirty" :size="13" />
-            <Save v-else :size="13" />
-            <span>{{ saveBtnLabel }}</span>
-          </button>
           <template v-if="entry.conflict">
             <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载</button>
             <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
@@ -360,6 +347,21 @@ onUnmounted(() => {
               {{ a.label }}
             </button>
             <Loader2 v-if="rewrite.loading" :size="12" class="ai-btn-spin" />
+          </div>
+          <div class="save-group">
+            <button
+              class="save-btn"
+              :class="saveStatus.cls"
+              :disabled="entry.saving || entry.handLocked || (!entry.dirty && !entry.error)"
+              data-tip="保存（⌘S）"
+              data-tip-dir="bottom"
+              @click="onSave"
+            >
+              <Loader2 v-if="entry.saving" :size="12" class="save-btn-spin" />
+              <Check v-else-if="entry.savedAt && !entry.dirty" :size="12" />
+              <Save v-else :size="12" />
+              <span>{{ saveBtnLabel }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -587,7 +589,9 @@ onUnmounted(() => {
   color: var(--text-faint);
   background: var(--background-modifier-hover);
 }
-/* 保存按钮（参考 AI 实色 pill；dirty 主操作态用绿色实色，其余态软色） */
+/* 保存按钮：与 AI 按钮同款 pill（同 padding/字号/圆角），置于最右；所有状态都有
+   底色框（idle 灰 / dirty 实色翠绿 / saving·saved 绿软底 / err 红软底），
+   padding/高度/框样式跨状态一致 → 形状规格统一。 */
 .save-btn {
   display: inline-flex;
   align-items: center;
@@ -595,31 +599,44 @@ onUnmounted(() => {
   padding: 3px 10px;
   border: none;
   border-radius: var(--radius-s);
-  background: transparent;
+  background: var(--background-modifier-hover);
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-/* dirty：绿色实色 pill——主操作态，邀请点击 */
+/* dirty：实色翠绿——主操作态，与 AI 实色 pill 同形态、换绿色相 */
 .save-btn.dirty {
-  background: var(--text-success);
+  background: var(--dv-good);
   color: var(--text-on-accent);
-  font-weight: 500;
 }
 .save-btn.dirty:hover {
-  background: color-mix(in srgb, var(--text-success) 88%, white);
+  background: color-mix(in srgb, var(--dv-good) 88%, white);
 }
-.save-btn.saving { color: var(--text-accent); }
-.save-btn.saved { color: var(--text-success); }
-.save-btn.err { color: var(--text-error); }
-.save-btn:hover:not(:disabled):not(.dirty) {
+/* saving：翠绿软底 + 转圈（进行中，保持操作色相） */
+.save-btn.saving {
+  background: color-mix(in srgb, var(--dv-good) 22%, transparent);
+  color: var(--dv-good);
+}
+/* saved：淡翠绿软底 + ✓（完成态；保留框，与其他状态边缘对齐） */
+.save-btn.saved {
+  background: color-mix(in srgb, var(--dv-good) 14%, transparent);
+  color: var(--dv-good);
+}
+/* err：红软底——可点重试 */
+.save-btn.err {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 14%, transparent);
+}
+.save-btn.err:hover {
+  background: color-mix(in srgb, var(--text-error) 22%, transparent);
+}
+.save-btn:hover:not(:disabled):not(.dirty):not(.err) {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 .save-btn:disabled {
   cursor: default;
-  opacity: 0.5;
 }
 .save-btn-spin {
   animation: ai-btn-rot 0.9s linear infinite;
@@ -641,6 +658,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--size-4-1);
+  padding-left: var(--size-4-3);
+  border-left: 1px solid var(--background-modifier-border);
+}
+/* 保存按钮组：与 ai-group 对称（border-left + 同款 padding-left），分隔线两侧间距一致 */
+.save-group {
+  display: flex;
+  align-items: center;
   padding-left: var(--size-4-3);
   border-left: 1px solid var(--background-modifier-border);
 }

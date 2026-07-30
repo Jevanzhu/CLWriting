@@ -7,7 +7,7 @@ import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
 const check = useCheckStore()
@@ -18,7 +18,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isCheckable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (isBodyKind(node.value.path)) return true
   // 草稿（工作区/草稿-N.md）也可机检
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })

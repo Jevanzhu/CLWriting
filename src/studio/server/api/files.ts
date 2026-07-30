@@ -28,6 +28,8 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
   { dir: '定稿/设定', mode: 'md' },
   { dir: '大纲', mode: 'md' },
   { dir: '工作区', mode: 'md' }, // 2.5:草稿/细纲/审稿可见可改(改写针对草稿)
+  { dir: '篇', mode: 'md' }, // 短篇集正文（篇/N-标题/正文.md 纯文本 + 清单.md 结构）
+  { dir: '文风', mode: 'md' }, // 文风铁律/样章库/金句库
 ]
 
 export function registerFileRoutes(ctx: FileCtx): void {
@@ -41,8 +43,12 @@ export function registerFileRoutes(ctx: FileCtx): void {
       if (!existsSync(abs)) continue
       for (const p of walkMd(abs)) {
         const rel = relative(r.bookRoot, p).split('\\').join('/')
-        // 工作区草稿-N.md 用 text(同定稿正文纯文本),其余 md
-        const fileMode = dir === '工作区' && /(?:^|\/)草稿-\d+\.md$/.test(rel) ? 'text' : mode
+        // 纯文本正文：工作区草稿-N.md、短篇 篇/N-标题/正文.md；其余 md
+        const fileMode =
+          (dir === '工作区' && /(?:^|\/)草稿-\d+\.md$/.test(rel)) ||
+          (dir === '篇' && /(?:^|\/)正文\.md$/.test(rel))
+            ? 'text'
+            : mode
         files.push({ path: rel, mode: fileMode })
       }
     }

@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf, parseFmFields } from '../../shared/words'
+import { formKindOf, parseFmFields, isBodyKind } from '../../shared/words'
 import { getAnalysisOverview, autotag, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 
@@ -22,7 +22,7 @@ const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (isBodyKind(node.value.path)) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
 
