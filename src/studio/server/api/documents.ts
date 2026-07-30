@@ -88,10 +88,12 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
   route(
     'GET',
     '/api/books/:name/tree',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+    async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
-      const index = getBookTreeIndex(r.bookRoot)
+      // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
+      const refresh = new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh') === '1'
+      const index = getBookTreeIndex(r.bookRoot, refresh)
       reply(res, 200, {
         ok: true,
         nodes: index.nodes,

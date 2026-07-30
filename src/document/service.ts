@@ -30,8 +30,8 @@ import { appendAborted, appendPending, appendSettled, findUnsettled, type Journa
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, type SnapshotPolicy } from './snapshot.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
-import { generateDocId } from './stable-id.js'
-import { invalidateTreeIndex } from './tree.js'
+import { generateDocId, legacyId } from './stable-id.js'
+import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
@@ -469,8 +469,24 @@ export class DocumentService {
 
   /** 查清单 docId → path；无清单或未登记 → null（旧书需先建清单）。 */
   private lookupPathByDocId(docId: string): string | null {
-    if (!existsSync(this.manifestPath)) return null
-    return readManifest(this.manifestPath).entries.get(docId)?.path ?? null
+    if (existsSync(this.manifestPath)) {
+      const path = readManifest(this.manifestPath).entries.get(docId)?.path
+      if (path) return path
+    }
+    return this.adoptLegacyDoc(docId)
+  }
+
+  /**
+   * legacy 临时 ID 兜底：旧书文件无清单登记时，树用 legacyId(path) 当运行期 ID，
+   * 清单里查不到 → 结构性操作一律 NOT_FOUND。此处扫盘反查同 ID 的文件并补登记
+   * （stable-id.ts「首次结构性操作时落盘」）。非 legacy 前缀 / 无匹配 → null。
+   */
+  private adoptLegacyDoc(docId: string): string | null {
+    if (!docId.startsWith('legacy:')) return null
+    const hit = findByLegacyId(scanBookTree(this.bookRoot), docId)
+    if (!hit) return null
+    this.upsertManifestEntry(docId, hit)
+    return hit
   }
 
   /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。 */
@@ -592,4 +608,16 @@ function errMsg(e: unknown): string {
 function bodyOf(raw: string): string {
   const s = splitFrontMatter(raw)
   return s ? s.body : raw
+}
+
+/** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */
+function findByLegacyId(nodes: TreeNode[], docId: string): string | null {
+  for (const n of nodes) {
+    if (!n.isDirectory && legacyId(n.path) === docId) return n.path
+    if (n.children.length) {
+      const hit = findByLegacyId(n.children, docId)
+      if (hit) return hit
+    }
+  }
+  return null
 }

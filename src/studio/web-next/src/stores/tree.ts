@@ -117,11 +117,13 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  async function load(name: string): Promise<void> {
+  /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
+   *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
+  async function load(name: string, refresh = false): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const r = await getTree(name)
+      const r = await getTree(name, refresh)
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）

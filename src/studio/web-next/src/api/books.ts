@@ -2,10 +2,13 @@ import { apiJson } from './client'
 import type { TreeNode } from '../types/tree'
 
 // GET /api/books/:name/tree → {ok, nodes, revision, validatedAt}
+// refresh=true：让服务端丢树缓存重扫盘（外部编辑器/CLI 改动才刷得出来）
 export async function getTree(
   name: string,
+  refresh = false,
 ): Promise<{ nodes: TreeNode[]; revision: string; validatedAt?: string }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/tree`)
+  const q = refresh ? '?refresh=1' : ''
+  return apiJson(`/api/books/${encodeURIComponent(name)}/tree${q}`)
 }
 
 // GET /config → {config}（book.yaml）。target_words 在 config.book.target_words。

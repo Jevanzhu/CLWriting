@@ -190,9 +190,11 @@ function matchVolumeName(path: string): string | null {
 let globalRevision = 0
 const indexes = new Map<string, BookTreeIndex>()
 
-/** 读树缓存；无则重建并缓存。revision 进程级递增（即使跨 invalidate 也单调）。 */
-export function getBookTreeIndex(bookRoot: string): BookTreeIndex {
-  const cached = indexes.get(bookRoot)
+/** 读树缓存；无则重建并缓存。revision 进程级递增（即使跨 invalidate 也单调）。
+ *  force=true 丢弃缓存重扫——外部编辑器/CLI 直接改盘不经 invalidateTreeIndex，
+ *  前端显式刷新需要这条通路，否则外部改动永远刷不出来。 */
+export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex {
+  const cached = force ? undefined : indexes.get(bookRoot)
   if (cached) return cached
   const index: BookTreeIndex = {
     bookRoot,

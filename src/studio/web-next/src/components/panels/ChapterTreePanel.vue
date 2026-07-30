@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
@@ -477,7 +477,7 @@ watch(
   () => props.bookName,
   async (name) => {
     if (!name) return
-    await tree.load(name)
+    await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
     // 首次打开（无持久化展开状态）→ 全展开
     if (ws.treeExpanded.length <= 1) {
       ws.treeExpanded = collectAllDirs(tree.grouped)
@@ -487,6 +487,20 @@ watch(
   },
   { immediate: true },
 )
+
+// 窗口回前台 → 重扫盘。外部编辑器 / CLI / AI 写的文件不经 invalidateTreeIndex，
+// 服务端树缓存不会自己失效；切回 app 是「想看到最新状态」的最强信号。
+// 节流 2s：避免频繁切窗口时反复触发全盘扫描（buildTree 含 git status + 字数统计）。
+let lastRefresh = 0
+function onWindowFocus(): void {
+  if (!props.bookName) return
+  const now = performance.now()
+  if (now - lastRefresh < 2000) return
+  lastRefresh = now
+  void tree.load(props.bookName, true)
+}
+onMounted(() => window.addEventListener('focus', onWindowFocus))
+onUnmounted(() => window.removeEventListener('focus', onWindowFocus))
 
 // TabBar 新建信号 → 监听 createTick 按 createKind 分派（首次 tick=0 不触发，跳过初始）
 watch(

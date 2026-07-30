@@ -418,13 +418,18 @@ function registerIpc(): void {
   ipcMain.on('desktop:context-menu', (event, specs: unknown[]) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
-    let selected: string | null = null
+    let sent = false
+    function sendOnce(key: string | null): void {
+      if (sent) return
+      sent = true
+      event.sender.send('desktop:context-menu-select', key)
+    }
     function build(s: Record<string, unknown>): MenuItemConstructorOptions {
       if (s.separator) return { type: 'separator' }
       const item: MenuItemConstructorOptions = {
         label: (s.label as string) ?? '',
         enabled: s.disabled !== true,
-        click: () => { selected = s.key as string },
+        click: () => { sendOnce(s.key as string) },
       }
       if (s.accelerator) item.accelerator = s.accelerator as string
       const sub = s.submenu
@@ -432,9 +437,16 @@ function registerIpc(): void {
       return item
     }
     const menu = Menu.buildFromTemplate(specs.map((s) => build(s as Record<string, unknown>)))
-    menu.popup({ window: win })
-    // macOS: popup 阻塞，菜单已关闭；发送选择结果（null=取消）
-    event.sender.send('desktop:context-menu-select', selected)
+    // popup 非阻塞：菜单关闭走 callback，点选走 click。macOS 下 NSMenu 先关
+    // 菜单再派发 action，click 可能晚于 callback —— 故 callback 里延后一拍
+    // 才补发 null（取消），给 click 抢先 sendOnce 的机会。渲染侧是
+    // ipcRenderer.once，只认第一条消息，抢先发 null 会吞掉整个菜单动作。
+    menu.popup({
+      window: win,
+      callback: () => {
+        setTimeout(() => sendOnce(null), 0)
+      },
+    })
   })
 }
 
@@ -442,10 +454,21 @@ function registerIpc(): void {
 
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
+  /** 业务菜单项 click → 发 actionKey 给当前聚焦窗口（前端 useAppActions.dispatch 消费）。
+   *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。 */
+  function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
+    return {
+      click: () =>
+        BrowserWindow.getFocusedWindow()?.webContents.send('desktop:menu-action', key),
+    }
+  }
   const macAppMenu: MenuItemConstructorOptions = {
     label: app.name,
     submenu: [
       { role: 'about' },
+      { type: 'separator' },
+      // macOS 肌肉记忆：偏好设置置于 app 菜单
+      { label: '偏好设置…', accelerator: 'CmdOrCtrl+,', ...action('settings') },
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -461,11 +484,13 @@ function buildMenu(): void {
     {
       label: '文件',
       submenu: [
+        { label: '新建书…', accelerator: 'CmdOrCtrl+N', ...action('new-book') },
         {
           label: '打开书库目录…',
           accelerator: 'CmdOrCtrl+O',
           click: () => void openLibraryAction(),
         },
+        { label: '导出…', accelerator: 'CmdOrCtrl+E', ...action('export') },
         { type: 'separator' },
         isMac ? { role: 'close' as const } : { role: 'quit' as const },
       ],
@@ -485,9 +510,16 @@ function buildMenu(): void {
     {
       label: '视图',
       submenu: [
+        { label: '切换左栏', accelerator: 'CmdOrCtrl+B', ...action('toggle-left') },
+        { label: '切换右栏', accelerator: 'CmdOrCtrl+Shift+B', ...action('toggle-right') },
+        { label: '专注模式', accelerator: 'CmdOrCtrl+Shift+F', ...action('focus') },
+        { type: 'separator' },
+        { label: '切换亮/暗主题', ...action('theme') },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        // 开发者工具仅 dev 显示（打包后隐藏）
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -496,6 +528,26 @@ function buildMenu(): void {
         { role: 'togglefullscreen' },
       ],
     },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
+        { label: '书架', click: () => openShelfWindow() },
+        { label: '书库管理', click: () => openLibraryWindow() },
+      ],
+    },
+    // macOS 的「关于」在 app 菜单；非 mac 单独「帮助」菜单承载
+    ...(isMac
+      ? []
+      : [
+          {
+            label: '帮助',
+            submenu: [{ role: 'about' as const }],
+          } as MenuItemConstructorOptions,
+        ]),
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
