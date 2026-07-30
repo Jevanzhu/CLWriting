@@ -483,7 +483,7 @@ async function runStyle(): Promise<void> {
   color: var(--text-muted); margin-bottom: 14px;
 }
 .panel-head svg { opacity: 0.5; flex-shrink: 0; }
-.head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-faint); }
+.head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
 .empty { font-size: var(--font-size-s); color: var(--text-faint); padding: var(--size-4-2) 0; }
 
 /* stagger */
@@ -540,14 +540,14 @@ async function runStyle(): Promise<void> {
 }
 .kpi-val { display: block; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-normal); line-height: 1.1; }
 .kpi-hero .kpi-val { color: var(--text-accent); }
-.kpi-unit { font-size: 13px; font-weight: 500; color: var(--text-faint); margin-left: 3px; }
-.kpi-label { display: block; font-size: var(--font-size-xs); color: var(--text-faint); margin-top: 5px; }
+.kpi-unit { font-size: 13px; font-weight: 500; color: var(--text-muted); margin-left: 3px; }
+.kpi-label { display: block; font-size: var(--font-size-xs); color: var(--text-muted); margin-top: 5px; }
 
 /* 底部 */
 .hero-foot { display: flex; flex-direction: column; gap: 6px; }
 .hbar-track { height: 3px; border-radius: 99px; background: var(--background-modifier-border); overflow: hidden; }
 .hbar-fill { height: 100%; border-radius: 99px; background: var(--interactive-accent); transition: width 0.9s var(--ease-out); }
-.hbar-meta { display: flex; justify-content: space-between; font-size: var(--font-size-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.hbar-meta { display: flex; justify-content: space-between; font-size: var(--font-size-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ══ ② Bento 双列 ══ */
 .bento-2 { display: grid; grid-template-columns: 6fr 4fr; gap: var(--size-4-4); }
@@ -568,7 +568,7 @@ async function runStyle(): Promise<void> {
 .fs-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .fs-row.r-红 .fs-dot { background: var(--text-error); box-shadow: 0 0 5px color-mix(in srgb, var(--text-error) 50%, transparent); }
 .fs-row.r-黄 .fs-dot { background: var(--text-warning); }
-.fs-row.r-绿 .fs-dot { background: var(--text-success); }
+.fs-row.r-绿 .fs-dot { background: var(--dv-good); }
 .fs-n { font-size: var(--font-size-2xl); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 22px; color: var(--text-normal); }
 .fs-t { font-size: var(--font-size-xs); color: var(--text-faint); }
 .fs-foot { margin-top: 10px; font-size: var(--font-size-xs); color: var(--text-faint); }
