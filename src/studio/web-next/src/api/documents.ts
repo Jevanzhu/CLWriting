@@ -8,6 +8,19 @@ export async function getContent(name: string, path: string): Promise<string> {
   return data.content
 }
 
+// PUT /file?file=<path> ← {content}（路径寻址写全文；文件须已存在）。
+// 用于无 docId 的资产文件（如 文风/文风铁律.md，撤出编辑树后在 SettingsModal 编辑）。
+export async function putContent(name: string, path: string, content: string): Promise<void> {
+  await apiJson<{ ok: true }>(
+    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+  )
+}
+
 // PUT /documents/:docId/content —— 乐观锁保存（细案 §2.1 保存协议）。
 // 成功 → {ok,revision,superseded}；409 冲突由 apiJson 抛 ApiError{code:'REVISION_CONFLICT'}，调用方 catch。
 export interface SaveOk {

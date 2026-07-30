@@ -158,7 +158,7 @@ export const useTreeStore = defineStore('tree', () => {
  *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 短篇 篇/ + 工作区草稿(status=draft)
  *  大纲：真实根目录 + 摘要并入；总纲置顶
  *  设定：定稿/设定 提升根级
- *  文风：真实根目录原样
+ *  文风撤出树（机检/收割幕后资产，见 SettingsModal「文风铁律」）；不在写作树暴露。
  *  工作区（除草稿）不进树；根级散文件（book.yaml/AGENTS.md/.gitignore）自动过滤。 */
 function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const find = (ns: TreeNode[], path: string): TreeNode | undefined => ns.find((n) => n.path === path)
@@ -168,7 +168,6 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const dingao = find(rawNodes, '定稿')
   const dagang = find(rawNodes, '大纲')
   const work = find(rawNodes, '工作区')
-  const style = find(rawNodes, '文风')
   const pian = find(rawNodes, '篇') // 短篇集正文目录
   const zhengwen = child(dingao, '定稿/正文')
   const shezhi = child(dingao, '定稿/设定')
@@ -191,7 +190,6 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   }
   // 3. 设定（提升根级）
   if (shezhi) groups.push(shezhi)
-  // 4. 文风
-  if (style) groups.push(style)
+  // 文风撤出写作树（机检/收割幕后资产，编辑入口在 SettingsModal「文风铁律」）。
   return groups
 }
