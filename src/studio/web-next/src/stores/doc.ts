@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getContent, saveContent, putFileBlind } from '../api/documents'
+import { getContent, saveContent } from '../api/documents'
 import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
@@ -13,6 +13,8 @@ import type { TreeNode } from '../types/tree'
  * 文档 store（细案 §5）：Map<docId, DocEntry>。
  * 打开即入 Map，切 tab 不丢 dirty（对旧版「切文件丢脏」的修正，决策 R6）。
  * 保存走 documents API 乐观锁（expectedRevision + operationId + origin）。
+ * legacy 文档（旧书无清单登记）同样走此路径：首次保存时 service 层自动补登记
+ * （adoptLegacyDoc），从而也获得快照/历史/冲突检测——不再降级盲写。
  */
 
 /** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/工作区(非草稿) = md（语法高亮）。 */
@@ -28,7 +30,7 @@ export interface DocEntry {
   name: string
   mode: 'text' | 'md'
   content: string
-  baselineRevision: `sha256:${string}` | null
+  baselineRevision: `sha256:${string}`
   dirty: boolean
   saving: boolean
   savedAt: number | null
@@ -37,8 +39,6 @@ export interface DocEntry {
   conflict: boolean
   /** hand 手写占用：CLI hand 正在编辑该草稿，保存被服务端拒（409 HAND_LOCKED）；autosave 跳过避免反复 409，manual 重试探锁。 */
   handLocked: boolean
-  /** legacy 未登记文档：保存降级 PUT /file 盲写（无乐观锁），细案 §2.1 兜底。 */
-  legacy: boolean
 }
 
 export const useDocStore = defineStore('doc', () => {
@@ -61,23 +61,19 @@ export const useDocStore = defineStore('doc', () => {
     if (!node.docId) throw new Error('节点无 docId')
     if (docs.value.has(node.docId)) return
     const content = await getContent(bookName.value!, node.path)
-    const legacy = node.docId.startsWith('legacy:')
-    // legacy 文档无服务端登记，baselineRevision 仅作展示基线（保存走盲写不用它）
-    const baselineRevision = legacy ? null : await sha256Revision(content)
     docs.value.set(node.docId, {
       docId: node.docId,
       path: node.path,
       name: node.name,
       mode: modeOf(node.path),
       content,
-      baselineRevision,
+      baselineRevision: await sha256Revision(content),
       dirty: false,
       saving: false,
       savedAt: null,
       error: null,
       conflict: false,
       handLocked: false,
-      legacy,
     })
   }
 
@@ -90,7 +86,7 @@ export const useDocStore = defineStore('doc', () => {
     e.error = null
   }
 
-  /** 保存：正式文档走乐观锁 PUT；legacy 降级 PUT /file 盲写。origin 区分手动/自动。 */
+  /** 保存：走乐观锁 PUT。origin 区分手动/自动。 */
   async function save(docId: string, origin: 'manual' | 'autosave' = 'manual'): Promise<boolean> {
     const e = docs.value.get(docId)
     if (!e || e.saving || !e.dirty) return false
@@ -101,18 +97,13 @@ export const useDocStore = defineStore('doc', () => {
     // 快照本次落盘内容：await 期间的新输入不属于本次保存，成功后不得误清其 dirty
     const snapshot = e.content
     try {
-      if (e.legacy) {
-        // legacy 未登记：盲写兜底（无锁，细案 §2.1）
-        await putFileBlind(bookName.value!, e.path, snapshot)
-      } else {
-        const r = await saveContent(bookName.value!, docId, {
-          content: snapshot,
-          expectedRevision: e.baselineRevision,
-          operationId: newOperationId(),
-          origin,
-        })
-        e.baselineRevision = r.revision
-      }
+      const r = await saveContent(bookName.value!, docId, {
+        content: snapshot,
+        expectedRevision: e.baselineRevision,
+        operationId: newOperationId(),
+        origin,
+      })
+      e.baselineRevision = r.revision
       e.conflict = false
       e.handLocked = false
       if (e.content === snapshot) e.dirty = false
@@ -148,7 +139,7 @@ export const useDocStore = defineStore('doc', () => {
     try {
       const content = await getContent(bookName.value!, e.path)
       e.content = content
-      e.baselineRevision = e.legacy ? null : await sha256Revision(content)
+      e.baselineRevision = await sha256Revision(content)
       e.dirty = false
       e.conflict = false
       e.error = null
@@ -161,7 +152,7 @@ export const useDocStore = defineStore('doc', () => {
   /** 冲突出路②覆盖：以远端当前内容算基线 revision，再把本地内容写上去（覆盖外部修改）。 */
   async function overwriteRemote(docId: string): Promise<void> {
     const e = docs.value.get(docId)
-    if (!e || e.saving || e.legacy) return
+    if (!e || e.saving) return
     try {
       const remote = await getContent(bookName.value!, e.path)
       e.baselineRevision = await sha256Revision(remote)
@@ -180,7 +171,7 @@ export const useDocStore = defineStore('doc', () => {
     try {
       const content = await getContent(bookName.value!, e.path)
       e.content = content
-      e.baselineRevision = e.legacy ? null : await sha256Revision(content)
+      e.baselineRevision = await sha256Revision(content)
       e.dirty = false
     } catch {
       /* 静默失败（best-effort 对齐磁盘） */

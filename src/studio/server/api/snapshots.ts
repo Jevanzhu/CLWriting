@@ -14,7 +14,6 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readManifest } from '../../../document/manifest.js'
 import { listSnapshotEntries, readSnapshot } from '../../../document/snapshot.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../document/stable-id.js'
@@ -36,9 +35,10 @@ function resolveDoc(
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404 }
   const bookRoot = join(workDir, entry.path)
-  const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-  if (!m) return { error: `文档ID未登记：${docId}`, status: 404 }
-  return { bookRoot, relPath: m.path, snapshotsDir: join(bookRoot, '工作区', '.snapshots') }
+  // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
+  const relPath = getOrCreateService(bookRoot).resolvePath(docId)
+  if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404 }
+  return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.snapshots') }
 }
 
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {

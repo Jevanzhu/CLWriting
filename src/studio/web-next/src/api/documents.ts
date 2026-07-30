@@ -36,19 +36,6 @@ export async function saveContent(
   )
 }
 
-// PUT /file 盲写兜底（细案 §2.1：仅 legacy 未登记文档用；无乐观锁/无 operationId）。
-// legacy 文档无法走 documents API（PUT 404 / POST 409），降级盲写以保住写作闭环。
-export async function putFileBlind(name: string, path: string, content: string): Promise<void> {
-  await apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    },
-  )
-}
-
 // --- 树 CRUD（细案 §2.1）---
 
 // POST /documents（新建；建卷即建首章靠 relPath 含 <卷>/<首章>.md）。

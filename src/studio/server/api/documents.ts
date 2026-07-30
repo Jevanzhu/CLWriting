@@ -13,7 +13,6 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readManifest } from '../../../document/manifest.js'
 import { isHandDraftLocked } from '../../../process/gui-active.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
@@ -53,13 +52,15 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
 
       const docId = params['docId'] ?? ''
-      const entry = readManifest(join(r.bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!entry) {
+      const svc = getOrCreateService(r.bookRoot)
+      // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
+      const path = svc.resolvePath(docId)
+      if (!path) {
         reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
         return
       }
       // M12 B0.4：hand 占用该草稿时拒绝保存（避免 Studio autosave 覆盖外部手写）
-      if (isHandDraftLocked(r.bookRoot, entry.path)) {
+      if (isHandDraftLocked(r.bookRoot, path)) {
         reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在手写中（CLI hand 占用）' })
         return
       }
@@ -74,8 +75,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
 
-      const svc = getOrCreateService(r.bookRoot)
-      const outcome = await svc.save(docId, entry.path, input)
+      const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return

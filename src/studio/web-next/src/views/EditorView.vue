@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 文档编辑视图：单行路径式顶栏（面包屑→标题合为一条，720px 居中对齐正文）+ CM6 正文。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PenLine, Loader2 } from 'lucide-vue-next'
+import { PenLine, Loader2, Save, Check } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -76,6 +76,29 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
   if (e.savedAt) return { text: '已保存', cls: 'saved' }
   return { text: '', cls: '' }
 })
+
+/** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。 */
+const saveBtnLabel = computed(() => {
+  const e = entry.value
+  if (!e) return '保存'
+  if (e.saving) return '保存中'
+  if (e.handLocked) return '手写中'
+  if (e.error) return '重试'
+  return e.dirty ? '保存' : '已保存'
+})
+
+/** 手动保存（按钮 + ⌘S/Ctrl+S）。 */
+function onSave(): void {
+  const e = entry.value
+  if (!e || e.saving || e.handLocked || (!e.dirty && !e.error)) return
+  void doc.save(e.docId, 'manual')
+}
+function onKeydown(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    onSave()
+  }
+}
 
 const aiActions = [
   { key: 'expand', label: '扩写', instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
@@ -267,11 +290,13 @@ function startTimer(): void {
 onMounted(() => {
   startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
+  window.addEventListener('keydown', onKeydown)
 })
 watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -305,9 +330,19 @@ onUnmounted(() => {
         <div class="bar-right">
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
-          <span v-if="saveStatus.text" class="save-status" :class="saveStatus.cls">
-            <span class="save-dot" />
-          </span>
+          <button
+            class="save-btn"
+            :class="saveStatus.cls"
+            :disabled="entry.saving || entry.handLocked || (!entry.dirty && !entry.error)"
+            data-tip="保存（⌘S）"
+            data-tip-dir="bottom"
+            @click="onSave"
+          >
+            <Loader2 v-if="entry.saving" :size="12" class="save-btn-spin" />
+            <Check v-else-if="entry.savedAt && !entry.dirty" :size="13" />
+            <Save v-else :size="13" />
+            <span>{{ saveBtnLabel }}</span>
+          </button>
           <template v-if="entry.conflict">
             <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载</button>
             <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
@@ -552,26 +587,42 @@ onUnmounted(() => {
   color: var(--text-faint);
   background: var(--background-modifier-hover);
 }
-.save-status {
+/* 保存按钮（参考 AI 实色 pill；dirty 主操作态用绿色实色，其余态软色） */
+.save-btn {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.save-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
+/* dirty：绿色实色 pill——主操作态，邀请点击 */
+.save-btn.dirty {
+  background: var(--text-success);
+  color: var(--text-on-accent);
+  font-weight: 500;
 }
-.save-status.saved .save-dot { background: var(--dv-good); }
-.save-status.dirty .save-dot { background: var(--text-warning); }
-.save-status.err .save-dot { background: var(--text-error); }
-.save-status.saving .save-dot {
-  background: var(--text-accent);
-  animation: save-pulse 1s var(--ease-std) infinite;
+.save-btn.dirty:hover {
+  background: color-mix(in srgb, var(--text-success) 88%, white);
 }
-@keyframes save-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+.save-btn.saving { color: var(--text-accent); }
+.save-btn.saved { color: var(--text-success); }
+.save-btn.err { color: var(--text-error); }
+.save-btn:hover:not(:disabled):not(.dirty) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.save-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.save-btn-spin {
+  animation: ai-btn-rot 0.9s linear infinite;
 }
 .conflict-btn {
   font-size: var(--font-size-xs);

@@ -76,10 +76,6 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
-  if (cur.baselineRevision === null) {
-    ui.toast('该文档未登记，无法恢复', 'error')
-    return
-  }
   const ok = await ui.ask({
     title: `恢复到 ${fmtTime(e.time)} 的版本`,
     message: `当前正文将被这个版本覆盖。当前内容会自动留一份底，恢复后仍可退回。`,

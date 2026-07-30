@@ -162,6 +162,12 @@ export class DocumentService {
       .then((qr) => ({ ...qr.result, superseded: qr.superseded }))
   }
 
+  /** docId → relPath（含 legacy 兜底：旧文件首次访问时扫盘反查并补登记清单，
+   *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。 */
+  resolvePath(docId: string): string | null {
+    return this.lookupPathByDocId(docId)
+  }
+
   /** 冻结该文档保存队列（定稿流程用，已入队的跑完）。 */
   freeze(docId: string): void {
     this.queue.freeze(docId)
