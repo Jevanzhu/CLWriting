@@ -545,7 +545,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </template>
 
             <!-- ═══ AI ═══ -->
-            <template v-else>
+            <template v-else-if="activeTab === 'ai'">
               <div v-if="!hasBook" class="empty-tab">
                 <Sparkles :size="28" />
                 <p>请先打开一本书</p>
