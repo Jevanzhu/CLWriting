@@ -241,7 +241,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   opacity: 1;
 }
 .restore-btn:hover {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
   background: var(--background-modifier-hover);
 }
 .restore-btn:disabled {

@@ -234,7 +234,7 @@ function run(c: Cmd): void {
   flex-shrink: 0;
 }
 .palette-item.sel .pi-enter {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
 }
 .palette-empty {
   padding: var(--size-4-3);

@@ -236,7 +236,7 @@ watch(
   cursor: grab;
 }
 .dot-green {
-  background: var(--text-success);
+  background: var(--dv-good);
 }
 .dot-red {
   background: var(--text-error);

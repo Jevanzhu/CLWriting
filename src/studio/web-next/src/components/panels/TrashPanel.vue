@@ -174,7 +174,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
   transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .action-btn:hover {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
   background: var(--background-modifier-hover);
 }
 .action-btn.danger:hover {

@@ -178,7 +178,7 @@ watch(() => props.bookName, load, { immediate: true })
   font-size: var(--font-size-xs);
 }
 .stat-pending { color: var(--text-error); }
-.stat-resolved { color: var(--text-success); }
+.stat-resolved { color: var(--dv-good); }
 .stat-abandoned { color: var(--text-faint); }
 
 .hint {
@@ -233,7 +233,7 @@ watch(() => props.bookName, load, { immediate: true })
   color: var(--text-warning);
 }
 .fs-icon.risk-绿 {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .fs-body {
   flex: 1;
@@ -252,7 +252,7 @@ watch(() => props.bookName, load, { immediate: true })
   opacity: 0.55;
 }
 .resolved .fs-icon {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .fs-title {
   flex: 1;
@@ -320,6 +320,6 @@ watch(() => props.bookName, load, { immediate: true })
 }
 .fs-add:hover {
   border-color: var(--interactive-accent);
-  color: var(--interactive-accent);
+  color: var(--text-accent);
 }
 </style>

@@ -583,8 +583,8 @@ onUnmounted(() => {
   border-radius: var(--radius-s);
 }
 .doc-status.st-good {
-  color: var(--text-success);
-  background: color-mix(in srgb, var(--text-success) 12%, transparent);
+  color: var(--dv-good);
+  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
 }
 .doc-status.st-bad {
   color: var(--text-error);

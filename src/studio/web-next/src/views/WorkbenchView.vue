@@ -303,7 +303,7 @@ const recent = computed(() => wb.log.slice(-200))
   color: var(--text-faint);
 }
 .conn.on {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .human-msg {
   font-size: var(--font-size-m);
@@ -392,7 +392,7 @@ const recent = computed(() => wb.log.slice(-200))
   white-space: pre-wrap;
 }
 .ev.done {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .ev.error {
   color: var(--text-error);

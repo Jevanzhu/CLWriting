@@ -1118,7 +1118,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-warning, var(--text-accent));
 }
 .style-rules-saved {
-  color: var(--text-success, var(--text-muted));
+  color: var(--dv-good, var(--text-muted));
 }
 .style-rules-empty {
   color: var(--text-faint);

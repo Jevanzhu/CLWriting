@@ -240,7 +240,7 @@ function gotoOverview(): void {
   transition: color var(--dur-fast) var(--ease-out);
 }
 .ap-ov-link:hover {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
 }
 .ap-ov-row {
   display: flex;

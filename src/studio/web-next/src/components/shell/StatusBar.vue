@@ -63,7 +63,7 @@ const connText = computed(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--text-success);
+  background: var(--dv-good);
 }
 .status-dot.off {
   background: var(--text-error);
