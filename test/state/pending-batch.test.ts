@@ -63,7 +63,7 @@ test('态 8: 路由 action=pending-batch-review + 人话含章数', () => {
   expect(result.route.action).toBe('pending-batch-review')
   expect(result.route.humanMsg).toContain('1 章待审稿')
   expect(result.route.humanMsg).toContain('第 5 章')
-  expect(result.route.humanMsg).toContain('clwriting review batch')
+  expect(result.route.humanMsg).toContain('回滚重写')
 
   rmSync(root, { recursive: true, force: true })
 })
