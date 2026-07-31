@@ -197,7 +197,7 @@ async function onSave(): Promise<void> {
     <div v-else class="info-card">
       <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景，短篇 piece-body 目标情绪/核心反转） -->
       <div v-if="tagFields.length" class="tag-block">
-        <div class="card-title"><Tag :size="14" />{{ kind === 'piece-body' ? '短篇标签' : '章节标签' }}</div>
+        <div class="card-title"><Tag :size="14" />{{ kind === 'piece-body' ? '短篇标签' : '章节标签' }}<span class="ai-tag">AI 判定</span></div>
         <div class="tag-grid" :class="{ 'single-col': tagFields.length <= 2 }">
           <div v-for="f in tagFields" :key="f.key" class="tag-cell">
             <span class="tag-cell-label">{{ f.label }}</span>
@@ -259,6 +259,12 @@ async function onSave(): Promise<void> {
   font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-normal);
+}
+.ai-tag {
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-left: 2px;
 }
 /* 章节标签区（卡片内分块，border-bottom 分隔） */
 .tag-block {

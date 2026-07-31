@@ -77,7 +77,6 @@ async function runCheck(): Promise<void> {
           class="check-item check-item--red"
         >
           <div class="item-msg">{{ it.message }}</div>
-          <div class="item-id">{{ it.checkId }}</div>
         </div>
       </div>
 
@@ -92,7 +91,6 @@ async function runCheck(): Promise<void> {
           class="check-item check-item--yellow"
         >
           <div class="item-msg">{{ it.message }}</div>
-          <div class="item-id">{{ it.checkId }}</div>
         </div>
       </div>
     </template>
@@ -205,10 +203,5 @@ async function runCheck(): Promise<void> {
 }
 .item-msg {
   color: var(--text-normal);
-}
-.item-id {
-  margin-top: 2px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
 }
 </style>

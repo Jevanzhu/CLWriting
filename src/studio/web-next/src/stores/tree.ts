@@ -12,7 +12,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 虚拟分组：写作（正文卷章+短篇篇+草稿）/ 大纲（+摘要）/ 设定（提升根级）/ 文风。 */
+  /** 虚拟分组：写作（正文卷章+短篇篇+草稿）/ 大纲 / 设定（提升根级）/ 文风。 */
   const grouped = computed(() => groupTree(raw.value))
 
   /** path → node 索引（在 grouped 上建，含虚拟组）。 */
@@ -156,7 +156,7 @@ export const useTreeStore = defineStore('tree', () => {
 
 /** 虚拟分组 transform：真实磁盘节点 → 写作功能分组（移植旧 FileTree.groupTree）。
  *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 短篇 篇/ + 工作区草稿(status=draft)
- *  大纲：真实根目录 + 摘要并入；总纲置顶
+ *  大纲：真实根目录（总纲/卷纲/章纲）；总纲置顶
  *  设定：定稿/设定 提升根级
  *  文风撤出树（机检/收割幕后资产，见 SettingsModal「文风铁律」）；不在写作树暴露。
  *  工作区（除草稿）不进树；根级散文件（book.yaml/AGENTS.md/.gitignore）自动过滤。 */
@@ -171,7 +171,6 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const pian = find(rawNodes, '篇') // 短篇集正文目录
   const zhengwen = child(dingao, '定稿/正文')
   const shezhi = child(dingao, '定稿/设定')
-  const zhaiyao = child(dingao, '定稿/摘要')
 
   // 草稿：工作区下 status=draft 的叶子，抽到「写作」区
   const drafts = (work?.children ?? []).filter((c) => !c.isDirectory && c.status === 'draft')
@@ -186,17 +185,15 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   // 关系线为派生数据（角色卡关系派生），不进编辑树。
   const LEAD_NAMES = new Set(['悬念', '感情线', '布局线', '设定线', '成长线'])
   const LEAD_ORDER = ['悬念', '感情线', '布局线', '设定线', '成长线']
-  // 2. 大纲：纲领类（总纲/卷纲/章纲）+ 摘要（已写回顾）；线索类已拆到「布线」组
+  // 2. 大纲：纲领类（总纲/卷纲/章纲）；线索类已拆到「布线」组
   if (dagang) {
     const kept = dagang.children.filter((c) => c.name !== '关系线' && !LEAD_NAMES.has(c.name))
     const outlineRank = (name: string): number => {
-      if (name === '摘要') return 4
       const i = ['总纲', '卷纲', '章纲'].indexOf(name)
-      return i === -1 ? 5 : i
+      return i === -1 ? 4 : i
     }
-    const nodes = zhaiyao ? [...kept, zhaiyao] : kept
-    nodes.sort((a, b) => outlineRank(a.name) - outlineRank(b.name))
-    if (nodes.length) groups.push({ ...dagang, children: nodes })
+    kept.sort((a, b) => outlineRank(a.name) - outlineRank(b.name))
+    if (kept.length) groups.push({ ...dagang, children: kept })
   }
   // 3. 布线（虚拟根级大类）：线索类从大纲目录提取，单独成组（与写作/大纲/设定同级）
   const leads = (dagang?.children ?? []).filter((c) => LEAD_NAMES.has(c.name))

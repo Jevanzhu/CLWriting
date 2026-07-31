@@ -78,6 +78,10 @@ function severityClass(s: string): string {
   if (s === 'S1' || s === 'S2') return 'sev-high'
   return 'sev-low'
 }
+/** severity 人话（S1/S2→重点，其余→参考；内部编号不暴露给作者） */
+function severityLabel(s: string): string {
+  return s === 'S1' || s === 'S2' ? '重点' : '参考'
+}
 </script>
 
 <template>
@@ -149,7 +153,7 @@ function severityClass(s: string): string {
           class="rev-item rev-item--red"
         >
           <div class="item-head">
-            <span class="item-sev" :class="severityClass(it.severity)">{{ it.severity }}</span>
+            <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
             <span class="item-lens">{{ lensLabel(it.lens) }}</span>
             <span v-if="it.location" class="item-loc">{{ it.location }}</span>
           </div>
@@ -170,7 +174,7 @@ function severityClass(s: string): string {
           class="rev-item rev-item--yellow"
         >
           <div class="item-head">
-            <span class="item-sev" :class="severityClass(it.severity)">{{ it.severity }}</span>
+            <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
             <span class="item-lens">{{ lensLabel(it.lens) }}</span>
             <span v-if="it.location" class="item-loc">{{ it.location }}</span>
           </div>

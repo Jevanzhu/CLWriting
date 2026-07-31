@@ -283,7 +283,7 @@ async function load(): Promise<void> {
       return
     }
     isShort.value = false
-    buildGraph(r.characters, r.characterRelations, r.debtGraph ?? [])
+    buildGraph(r.characters, r.characterRelations, [])
     loading.value = false
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)

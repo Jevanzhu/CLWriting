@@ -2,7 +2,7 @@
  * tree store 测试（T4.4 第二批）：groupTree 虚拟分组（移植旧 FileTree，平价基准）
  * + byPath/byDocId 索引 + load 错误态。
  *
- * groupTree 规则：写作(虚拟:正文卷章+草稿) / 大纲(总纲置顶+摘要次之) / 设定提升；文风撤出（幕后资产）。
+ * groupTree 规则：写作(虚拟:正文卷章+草稿) / 大纲(总纲置顶) / 设定提升；文风撤出（幕后资产）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -95,12 +95,11 @@ describe('tree · groupTree 虚拟分组（平价基准）', () => {
     expect(write.children.some((c) => c.docId === 'doc7')).toBe(true)
   })
 
-  it('大纲：纲领类(总纲/卷纲/章纲) + 摘要（线索已拆到布线组）', async () => {
+  it('大纲：纲领类(总纲/卷纲/章纲)；线索已拆到布线组', async () => {
     const tree = await setup()
     const dagang = tree.grouped.find((g) => g.path === '大纲')!
     expect(dagang.children[0].name).toBe('总纲')
-    expect(dagang.children[1]?.path).toBe('定稿/摘要') // 摘要并入第二位
-    expect(dagang.children[2]?.name).toBe('分卷纲')
+    expect(dagang.children[1]?.name).toBe('分卷纲')
   })
 
   it('布线（虚拟大类）：线索类从大纲拆出单独成组', async () => {
