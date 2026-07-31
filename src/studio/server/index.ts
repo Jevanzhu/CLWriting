@@ -162,6 +162,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add(`http://127.0.0.1:${opts.port}`)
     allowedOrigins.add(`http://localhost:${opts.port}`)
   }
+  // keep-alive 治理:Node 默认 keepAliveTimeout=5s,客户端连接池缓存的连接超过 5s 被服务端关掉,
+  // 客户端复用已 FIN 的 socket 写入 → EPIPE(长生成后 POST 大草稿体时偶发)。
+  // 拉长到 30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout(Node v19+ 硬约束)。
+  server.keepAliveTimeout = 30_000
+  server.headersTimeout = 35_000
   server.listen(opts.port, host)
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {
