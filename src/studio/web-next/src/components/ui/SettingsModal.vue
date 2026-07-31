@@ -2,25 +2,23 @@
 // 设置弹窗（Obsidian 风格：左侧分类导航 + 右侧列表项）。
 // 分类：外观 / 编辑器 / 备份 / 书籍 / AI。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { X, Palette, Type, History, BookOpen, Sparkles, Feather } from 'lucide-vue-next'
+import { X, Palette, Type, History, BookOpen, Sparkles } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
-import { getContent, putContent } from '../../api/documents'
-import { ApiError } from '../../api/client'
 
 const ui = useUiStore()
 const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
 const ws = useWorkspaceStore()
 
-type Tab = 'appearance' | 'editor' | 'backup' | 'book' | 'ai' | 'style'
+type Tab = 'appearance' | 'editor' | 'backup' | 'book' | 'ai'
 const activeTab = ref<Tab>('appearance')
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
-/** 当前 tab 的配置归属：外观/编辑器 → 全局（跨书共享）；备份/书籍/AI/文风 → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：外观/编辑器 → 全局（跨书共享）；备份/书籍/AI → 本书（跟随当前书） */
 const tabScope = computed<'global' | 'book'>(() =>
   activeTab.value === 'appearance' || activeTab.value === 'editor' ? 'global' : 'book',
 )
@@ -198,73 +196,6 @@ function onRagModel(e: Event): void {
   })
 }
 
-// ── 文风铁律（文风/文风铁律.md，撤出编辑树后的编辑入口；复用 /file 读写全文）──
-const STYLE_RULES_PATH = '文风/文风铁律.md'
-const styleRules = ref('')
-const styleRulesOrig = ref('') // 上次保存的内容，用于「未保存」提示
-const styleRulesLoading = ref(false)
-const styleRulesSaving = ref(false)
-const styleRulesMissing = ref(false) // 文件不存在（旧书未生成）
-const styleRulesDirty = computed(() => styleRules.value !== styleRulesOrig.value)
-
-async function loadStyleRules(name: string): Promise<void> {
-  styleRulesLoading.value = true
-  styleRulesMissing.value = false
-  try {
-    styleRules.value = await getContent(name, STYLE_RULES_PATH)
-    styleRulesOrig.value = styleRules.value
-  } catch (e) {
-    // 404 = 旧书/onboard 未生成铁律；展示空稿占位，允许作者新建
-    if (e instanceof ApiError && e.status === 404) {
-      styleRulesMissing.value = true
-      styleRules.value = ''
-      styleRulesOrig.value = ''
-    } else {
-      ui.toast(e instanceof Error ? e.message : String(e), 'error')
-    }
-  } finally {
-    styleRulesLoading.value = false
-  }
-}
-
-async function onSaveStyleRules(): Promise<void> {
-  const name = ws.bookName
-  if (!name) return
-  // 文件不存在时先建空文件（putContent 要求文件已存在）
-  if (styleRulesMissing.value) {
-    try {
-      await putContent(name, STYLE_RULES_PATH, '')
-      styleRulesMissing.value = false
-    } catch (e) {
-      ui.toast('新建铁律失败：' + (e instanceof Error ? e.message : String(e)), 'error')
-      return
-    }
-  }
-  styleRulesSaving.value = true
-  try {
-    await putContent(name, STYLE_RULES_PATH, styleRules.value)
-    styleRulesOrig.value = styleRules.value
-    ui.toast('文风铁律已保存', 'success')
-  } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
-  } finally {
-    styleRulesSaving.value = false
-  }
-}
-
-// 切到文风 tab 时拉取；切书/重开弹窗时重置（配合上面的 watch）
-watch(
-  () => [ui.settingsOpen, ws.bookName, activeTab.value] as const,
-  ([open, name, tab], prev) => {
-    if (!open || !name) return
-    if (tab !== 'style') return
-    // 仅在首次进入或切书后重拉（避免同会话内重复请求）
-    const prevName = prev?.[1]
-    if (prev && prev[0] === open && prev[1] === name && prev[2] === tab) return
-    void loadStyleRules(name)
-  },
-)
-
 /** range 配套数字输入：clamp 到范围后调 setter */
 function numInput(min: number, max: number, setter: (v: number) => void, e: Event): void {
   const v = Number((e.target as HTMLInputElement).value)
@@ -321,9 +252,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
               <Sparkles :size="16" /><span>AI</span>
-            </button>
-            <button :class="{ active: activeTab === 'style' }" @click="activeTab = 'style'">
-              <Feather :size="16" /><span>文风</span>
             </button>
           </nav>
 
@@ -614,45 +542,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     </div>
                   </div>
                 </template>
-              </template>
-            </template>
-
-            <!-- ═══ 文风 ═══ -->
-            <template v-else-if="activeTab === 'style'">
-              <div v-if="!hasBook" class="empty-tab">
-                <Feather :size="28" />
-                <p>请先打开一本书</p>
-              </div>
-              <template v-else>
-                <div class="book-banner">
-                  <BookOpen :size="16" />
-                  <span>{{ ws.bookName }}</span>
-                </div>
-                <div class="group-title">文风铁律</div>
-                <div class="style-rules-card">
-                  <div class="style-rules-head">
-                    <div class="style-rules-meta">
-                      <span v-if="styleRulesMissing" class="style-rules-empty">尚无铁律——开书时未生成，留空新建</span>
-                      <span v-else-if="styleRulesDirty" class="style-rules-dirty">未保存</span>
-                      <span v-else class="style-rules-saved">已保存</span>
-                    </div>
-                    <button
-                      class="btn primary save-btn"
-                      :disabled="styleRulesSaving || !styleRulesDirty"
-                      @click="onSaveStyleRules"
-                    >{{ styleRulesSaving ? '保存中…' : '保存' }}</button>
-                  </div>
-                  <textarea
-                    class="style-rules-editor"
-                    v-model="styleRules"
-                    :disabled="styleRulesLoading"
-                    :placeholder="styleRulesMissing ? '正文规范、对话标签占比上限、句长方差、重复率上限、题材专属禁忌……' : '加载中…'"
-                    spellcheck="false"
-                  ></textarea>
-                </div>
-                <div class="setting-item-desc style-rules-hint">
-                  文风铁律是校对判定与 AI 写章文风对齐的依据；原存于文章树「文风」目录，现收入设置区集中维护。
-                </div>
               </template>
             </template>
           </div>
@@ -1071,74 +960,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .switch input:checked + .switch-slider::before {
   transform: translateX(16px);
-}
-
-/* ── 文风铁律编辑区 ── */
-.style-rules-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  padding: var(--size-4-3);
-  background: var(--background-secondary);
-}
-.style-rules-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--size-4-3);
-}
-.style-rules-meta {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.style-rules-dirty {
-  color: var(--text-warning, var(--text-accent));
-}
-.style-rules-saved {
-  color: var(--dv-good, var(--text-muted));
-}
-.style-rules-empty {
-  color: var(--text-faint);
-  font-style: italic;
-}
-.save-btn {
-  padding: 6px 16px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  border: 1px solid var(--interactive-accent);
-  border-radius: var(--radius-s);
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  cursor: pointer;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-.save-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.style-rules-editor {
-  width: 100%;
-  min-height: 320px;
-  resize: vertical;
-  padding: 12px 14px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--font-size-s);
-  line-height: 1.6;
-  color: var(--text-normal);
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  resize: vertical;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-}
-.style-rules-editor:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-}
-.style-rules-hint {
-  margin-top: var(--size-4-2);
 }
 </style>

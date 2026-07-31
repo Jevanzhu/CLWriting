@@ -1,7 +1,7 @@
 /**
  * learn 命令测试 —— M7 #38。
  *
- * 验证：候选产出（#10 打分、场景归类、低分过滤）、入库（序号递增、#5 格式）。
+ * 验证：候选产出（#10 打分、低分过滤）、入库（条目库样章条目，S8）。
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -9,9 +9,9 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { learnFromBook } from '../../src/learn/index.js'
-import { commitSamples, commitQuotes, nextSampleSeq } from '../../src/learn/commit.js'
+import { commitSamples, commitQuotes } from '../../src/learn/commit.js'
 import { writeChapter } from '../../src/format/chapters.js'
-import { readSample } from '../../src/format/style.js'
+import { readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { SampleCandidate, QuoteCandidate } from '../../src/learn/index.js'
 
@@ -95,9 +95,9 @@ describe('learnFromBook', () => {
     expect(result.ok).toBe(true)
     if (!result.samples) return
 
-    // 战斗段（干净）打分应 >= 对话段（含 AI 味对话标签）
-    const battle = result.samples.find((s) => s.场景 === '战斗')
-    const dialogue = result.samples.find((s) => s.场景 === '对话')
+    // 战斗段（干净，第 1 章）打分应 >= 对话段（含 AI 味对话标签，第 2 章）
+    const battle = result.samples.find((s) => s.章号 === 1)
+    const dialogue = result.samples.find((s) => s.章号 === 2)
     if (battle && dialogue) {
       expect(battle.打分).toBeGreaterThanOrEqual(dialogue.打分)
     }
@@ -118,71 +118,64 @@ describe('commitSamples / commitQuotes', () => {
 
   beforeEach(() => {
     bookRoot = join(tmpdir(), `clwriting-commit-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    mkdirSync(join(bookRoot, '文风', '样章库', '战斗'), { recursive: true })
-    mkdirSync(join(bookRoot, '文风', '金句库'), { recursive: true })
+    mkdirSync(bookRoot, { recursive: true })
   })
 
   afterEach(() => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
 
-  it('nextSampleSeq：空目录返回 1，有文件递增', () => {
-    expect(nextSampleSeq(join(bookRoot, '文风', '样章库'), '战斗')).toBe(1)
-    // 造一个 003.md
-    writeFileSync(join(bookRoot, '文风', '样章库', '战斗', '战斗-003.md'), 'test', 'utf-8')
-    expect(nextSampleSeq(join(bookRoot, '文风', '样章库'), '战斗')).toBe(4)
-  })
-
-  it('commitSamples：入库 #5 格式（来源=作者原作 + 序号 3 位补零）', () => {
+  it('commitSamples：入条目库样章条目（来源=收割 + 序号 3 位补零）', () => {
     const picks: SampleCandidate[] = [
-      { 场景: '战斗', 正文: '战斗段落正文', 出处: '《测试》第 1 章', 章号: 1, 打分: 90 },
-      { 场景: '战斗', 正文: '另一段战斗', 出处: '《测试》第 2 章', 章号: 2, 打分: 85 },
+      { 场景: '通用', 正文: '战斗段落正文', 出处: '《测试》第 1 章', 章号: 1, 打分: 90 },
+      { 场景: '通用', 正文: '另一段战斗', 出处: '《测试》第 2 章', 章号: 2, 打分: 85 },
     ]
     const files = commitSamples(bookRoot, picks)
 
     expect(files).toHaveLength(2)
-    expect(files[0]).toBe('文风/样章库/战斗/战斗-001.md')
-    expect(files[1]).toBe('文风/样章库/战斗/战斗-002.md')
+    expect(files[0]).toBe('文风/条目/样章/通用-001.md')
+    expect(files[1]).toBe('文风/条目/样章/通用-002.md')
 
-    // 读回验证 #5 格式
-    const r = readSample(join(bookRoot, '文风', '样章库', '战斗', '战斗-001.md'))
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.sample.场景).toBe('战斗')
-      expect(r.sample.来源).toBe('作者原作')
-      expect(r.sample.出处).toBe('《测试》第 1 章')
-      expect(r.sample.正文).toBe('战斗段落正文')
-    }
+    // 读回验证条目字段
+    const { entries, errors } = readEntries(join(bookRoot, ENTRIES_DIR), '样章')
+    expect(errors).toHaveLength(0)
+    const first = entries.find((e) => e.出处 === '《测试》第 1 章')
+    expect(first).toBeDefined()
+    expect(first?.来源).toBe('收割')
+    expect(first?.场景).toBe('通用')
+    expect(first?.正文).toBe('战斗段落正文')
   })
 
-  it('commitQuotes：追加到 文风/金句库/<场景>.md', () => {
+  it('commitQuotes：金句作为样章条目入库（标签带 金句）', () => {
     const picks: QuoteCandidate[] = [
-      { 场景: '战斗', 正文: '忽然一剑封喉', 出处: '《测试》第 1 章', 章号: 1 },
+      { 场景: '通用', 正文: '忽然一剑封喉', 出处: '《测试》第 1 章', 章号: 1 },
     ]
     const files = commitQuotes(bookRoot, picks)
 
     expect(files).toHaveLength(1)
-    expect(files[0]).toBe('文风/金句库/战斗.md')
-    const content = readFileSync(join(bookRoot, '文风', '金句库', '战斗.md'), 'utf-8')
-    expect(content).toContain('忽然一剑封喉')
-    expect(content).toContain('——《测试》第 1 章')
+    expect(files[0]).toBe('文风/条目/样章/通用-001.md')
+    const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '样章')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.标签).toContain('金句')
+    expect(entries[0]?.正文).toBe('忽然一剑封喉')
+    expect(entries[0]?.出处).toBe('《测试》第 1 章')
   })
 
-  it('G5：commitSamples 带技法指令则写入，缺省不写该字段', () => {
+  it('G5：commitSamples 带技法指令则落 说明 字段，缺省不写该字段', () => {
     const picks: SampleCandidate[] = [
-      { 场景: '战斗', 正文: '一剑破阵', 出处: '《测试》第 1 章', 章号: 1, 打分: 90, 技法指令: '学它的短句节奏' },
-      { 场景: '战斗', 正文: '无技法指令段', 出处: '《测试》第 2 章', 章号: 2, 打分: 88 },
+      { 场景: '通用', 正文: '一剑破阵', 出处: '《测试》第 1 章', 章号: 1, 打分: 90, 技法指令: '学它的短句节奏' },
+      { 场景: '通用', 正文: '无技法指令段', 出处: '《测试》第 2 章', 章号: 2, 打分: 88 },
     ]
     commitSamples(bookRoot, picks)
 
-    // 带技法指令 → 读回有该字段
-    const withSkill = readSample(join(bookRoot, '文风', '样章库', '战斗', '战斗-001.md'))
-    expect(withSkill.ok).toBe(true)
-    if (withSkill.ok) expect(withSkill.sample.技法指令).toBe('学它的短句节奏')
+    const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '样章')
+    // 带技法指令 → 说明 写入
+    const withSkill = entries.find((e) => e.出处 === '《测试》第 1 章')
+    expect(withSkill?.说明).toBe('学它的短句节奏')
 
     // 缺省 → 无该字段（不写空串）
-    const without = readSample(join(bookRoot, '文风', '样章库', '战斗', '战斗-002.md'))
-    expect(without.ok).toBe(true)
-    if (without.ok) expect(without.sample.技法指令).toBeUndefined()
+    const without = entries.find((e) => e.出处 === '《测试》第 2 章')
+    expect(without).toBeDefined()
+    expect(without?.说明).toBeUndefined()
   })
 })

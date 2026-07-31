@@ -194,7 +194,7 @@ function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): vo
   // 篇/：多篇并存，替代长篇 定稿/正文/；建空（第一篇走单篇流程创建，#27）
   mkdirSync(join(bookRoot, '篇'), { recursive: true })
 
-  // 文风/：整集共享（样章库 few-shot + 文风铁律含禁词 + 金句库），长短同构
+  // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
   scaffoldSharedStyle(bookRoot, _opts.genre)
 
   // 工作区/：临时区（当前在写的篇，态 4 续跑粒度=篇）
@@ -213,10 +213,7 @@ const PRESET_AI_FLAVOR: { 词: string; 替换: string }[] = [
 
 /** 文风冷启动占位（O2，长短共用——整集/整本书共享笔感/禁词/机检）。 */
 function scaffoldSharedStyle(bookRoot: string, genre: string): void {
-  for (const scene of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
-    mkdirSync(join(bookRoot, '文风', '样章库', scene), { recursive: true })
-  }
-  mkdirSync(join(bookRoot, '文风', '金句库'), { recursive: true })
+  mkdirSync(join(bookRoot, '文风'), { recursive: true })
   writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre), 'utf-8')
   // 条目库骨架 + 预置 AI 味禁词（S5：禁词知识在条目库，铁律纯配置；
   // 条目目录存在 = 迁移幂等闸生效，新书不再走迁移）
@@ -342,7 +339,7 @@ export function renderBookAgentsMd(opts: BookScaffoldOpts): string {
       '## 结构',
       '',
       '- `篇/<篇号3位>-<标题>/`：已定稿篇（`正文.md` + `清单.md`），只进不改',
-      '- `文风/`：整集共享（样章库 / 文风铁律 / 金句库）',
+      '- `文风/`：整集共享（条目库 / 文风铁律）',
       '- `工作区/`：当前在写的篇（定稿后移入 `篇/`）',
       '',
       '## 单篇创作流程（P1–P4，情绪为目标函数）',
@@ -414,15 +411,8 @@ export function renderBookAgentsMd(opts: BookScaffoldOpts): string {
     '',
     '### 样章格式',
     '',
-    '`文风/样章库/<场景>/<场景>-001.md` 必须带 front matter，至少写 `场景:`：',
-    '',
-    '```markdown',
-    '---',
-    '场景: 对话',
-    '来源: 作者原作',
-    '---',
-    '样章正文。',
-    '```',
+    '样章在 `文风/条目/样章/` 作为条目维护（front matter 带 `类型: 样章` + `场景:`），',
+    '推荐经应用文风页收录（确认候选 / 手动新增），不必手建文件。',
     '',
   ].join('\n')
 }

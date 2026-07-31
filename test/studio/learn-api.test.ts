@@ -2,7 +2,7 @@
  * learn 文风收割端点测（#8.3）：候选入库胶水 + 边界。
  *
  * - POST /learn 无定稿正文 → 400（learnFromBook 返 ok:false）
- * - POST /learn-commit mock 候选 → 入库 文风/样章库/<场景>/（commitSamples 胶水）
+ * - POST /learn-commit mock 候选 → 入库 文风/条目/样章/（commitSamples 胶水，S8）
  *
  * 复用 api-integration 的 fixture 模式（长篇书）。commitSamples/learnFromBook 内核已测，此处只验端点胶水。
  */
@@ -54,7 +54,7 @@ describe('learn 文风收割端点（#8.3）', () => {
     expect(d.error).toMatch(/没有定稿正文/)
   })
 
-  it('POST /learn-commit mock 样章候选 → 入库 文风/样章库/对话/', async () => {
+  it('POST /learn-commit mock 样章候选 → 入库 文风/条目/样章/', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/learn-commit`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
@@ -69,8 +69,8 @@ describe('learn 文风收割端点（#8.3）', () => {
     const d = (await r.json()) as { ok?: boolean; sampleFiles?: string[] }
     expect(d.ok).toBe(true)
     expect(d.sampleFiles).toHaveLength(1)
-    // 入库文件 文风/样章库/对话/对话-001.md
-    expect(existsSync(join(workDir, BOOK, '文风', '样章库', '对话', '对话-001.md'))).toBe(true)
+    // 入库文件为条目库样章条目（S8：样章库退场）
+    expect(existsSync(join(workDir, BOOK, '文风', '条目', '样章', '对话-001.md'))).toBe(true)
   })
 
   it('POST /learn-commit 无 token → 403', async () => {

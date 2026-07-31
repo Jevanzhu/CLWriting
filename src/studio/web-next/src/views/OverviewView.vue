@@ -2,25 +2,25 @@
 // 总览视图（v5 · Bento 仪表盘）：拓宽 940px + 不规则网格 + 大数字 KPI +
 // 面积图 + 实线 hairline 网格。图表设计遵循 dataviz 规范。
 // 结构：①Hero(KPI) → ②热力(6):伏笔(4) → ③字数曲线(面积) →
-//       ④节奏分布(子弹图) → ⑤文风总结
-// 短篇不显示 ③④（无章纲数据）；文风总结 ⑤ 长短篇通用（有正文即可）。
+//       ④节奏分布(子弹图) → ⑤文风摘要卡（完整功能在文风工作台）
+// 短篇不显示 ③④（无章纲数据）；文风摘要 ⑤ 长短篇通用（有正文即可）。
 import { ref, computed, onMounted } from 'vue'
 import {
   Flame, AlertTriangle,
-  RefreshCw, Feather,
+  Feather, ArrowUpRight,
   TrendingUp, BarChart3,
 } from 'lucide-vue-next'
 import { getOverview, type OverviewResult } from '../api/overview'
 import { getForeshadows, type Foreshadow } from '../api/foreshadows'
 import { getRhythm, type RhythmLong, type RhythmDist } from '../api/rhythm'
 import {
-  getAnalysisOverview, runStyleAnalysis,
+  getAnalysisOverview,
   type AnalysisOverview,
 } from '../api/analysis'
-import { useUiStore } from '../stores/ui'
+import { useWorkspaceStore } from '../stores/workspace'
 
 const props = defineProps<{ bookName: string }>()
-const ui = useUiStore()
+const ws = useWorkspaceStore()
 
 // ── 数据 refs ─────────────────────────────────
 const data = ref<OverviewResult | null>(null)
@@ -214,24 +214,6 @@ const distGroups = computed<DistGroup[]>(() => {
 })
 function distMax(g: DistGroup): number {
   return Math.max(1, ...g.keys.map((k) => Math.max(g.written[k] ?? 0, g.planned[k] ?? 0)))
-}
-
-// ══ ⑤ 文风总结 ════════════════════════════
-const aiOff = computed(() => ui.aiAvailable === false)
-const styleAnalyzing = ref(false)
-
-async function runStyle(): Promise<void> {
-  if (styleAnalyzing.value) return
-  styleAnalyzing.value = true
-  try {
-    await runStyleAnalysis(props.bookName)
-    await loadAnalysis()
-    ui.toast('文风分析完成', 'success')
-  } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
-  } finally {
-    styleAnalyzing.value = false
-  }
 }
 </script>
 
@@ -438,13 +420,13 @@ async function runStyle(): Promise<void> {
         </div>
       </section>
 
-      <!-- ── ⑤ 文风总结（全书级 AI 分析）── -->
+      <!-- ── ⑤ 文风摘要（存量一句话+口癖；完整验收/收割在文风工作台）── -->
       <section v-if="chapters > 0" class="panel">
         <div class="panel-head">
-          <Feather :size="14" /> <span>文风总结</span>
-          <button class="btn-style" :disabled="aiOff || styleAnalyzing" @click="runStyle">
-            <RefreshCw :size="11" :class="{ spin: styleAnalyzing }" />
-            <span>{{ styleAnalyzing ? '分析中…' : '重新分析' }}</span>
+          <Feather :size="14" /> <span>文风摘要</span>
+          <button class="btn-style" @click="ws.setActiveView('style')">
+            <span>文风工作台</span>
+            <ArrowUpRight :size="11" />
           </button>
         </div>
         <div v-if="analysis?.style" class="style-body">
@@ -452,14 +434,8 @@ async function runStyle(): Promise<void> {
           <div v-if="analysis.style.口癖?.length" class="style-tags">
             <span v-for="(t, i) in analysis.style.口癖" :key="i" class="style-tag">{{ t }}</span>
           </div>
-          <div v-if="analysis.style.重复度评价" class="style-line">
-            <span class="style-line-label">重复度</span>{{ analysis.style.重复度评价 }}
-          </div>
-          <div v-if="analysis.style.建议?.length" class="style-suggestions">
-            <div v-for="(s, i) in analysis.style.建议" :key="i" class="style-suggestion">{{ s }}</div>
-          </div>
         </div>
-        <div v-else class="empty">暂无文风分析{{ aiOff ? '' : '，点「重新分析」生成' }}</div>
+        <div v-else class="empty">暂无文风分析，到文风工作台跑一轮验收</div>
       </section>
     </div>
   </div>
@@ -596,24 +572,18 @@ async function runStyle(): Promise<void> {
 .dist-val { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
 .dist-val .sep { margin: 0 2px; opacity: 0.5; }
 
-/* ══ ⑤ 文风总结 ══ */
-.spin { animation: ov-spin 0.9s linear infinite; }
-@keyframes ov-spin { to { transform: rotate(360deg); } }
+/* ══ ⑤ 文风摘要 ══ */
 .btn-style {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px; border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s); background: var(--interactive-accent);
-  color: var(--text-on-accent); font-size: var(--font-size-xxs); cursor: pointer; margin-left: auto;
+  border-radius: var(--radius-s); background: var(--background-primary);
+  color: var(--text-muted); font-size: var(--font-size-xxs); cursor: pointer; margin-left: auto;
 }
-.btn-style:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-style:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .style-body { display: flex; flex-direction: column; gap: var(--size-4-2); }
 .style-drift { font-size: var(--font-size-m); color: var(--text-normal); line-height: 1.5; }
 .style-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .style-tag { font-size: var(--font-size-xs); padding: 1px 8px; border-radius: 8px; background: color-mix(in srgb, var(--dv-warn) 12%, transparent); color: var(--dv-warn); }
-.style-line { font-size: var(--font-size-s); color: var(--text-muted); }
-.style-line-label { color: var(--text-faint); margin-right: 4px; }
-.style-suggestions { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; border-left: 2px solid var(--background-modifier-border); }
-.style-suggestion { font-size: var(--font-size-s); color: var(--text-normal); line-height: 1.5; }
 
 
 /* ══ 动画 ══ */

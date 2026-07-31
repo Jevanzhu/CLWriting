@@ -30,11 +30,11 @@ test('init short: 建短篇集布局（篇/ + 共享文风 + 工作区），不�
     expect(existsSync(join(bookRoot, '篇'))).toBe(true)
     expect(readdirSync(join(bookRoot, '篇'))).toHaveLength(0)
 
-    // 整集共享文风（样章库五场景 + 文风铁律 + 金句库）
-    expect(existsSync(join(bookRoot, '文风', '样章库', '战斗'))).toBe(true)
-    expect(existsSync(join(bookRoot, '文风', '样章库', '爽点高潮'))).toBe(true)
+    // 整集共享文风（条目库 + 文风铁律；样章库/金句库已退场，S8）
+    expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)
     expect(existsSync(join(bookRoot, '文风', '文风铁律.md'))).toBe(true)
-    expect(existsSync(join(bookRoot, '文风', '金句库'))).toBe(true)
+    expect(existsSync(join(bookRoot, '文风', '样章库'))).toBe(false)
+    expect(existsSync(join(bookRoot, '文风', '金句库'))).toBe(false)
 
     // 工作区（临时区）
     expect(existsSync(join(bookRoot, '工作区'))).toBe(true)

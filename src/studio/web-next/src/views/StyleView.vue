@@ -22,6 +22,8 @@ import { useStyleStore } from '../stores/style'
 import { useUiStore } from '../stores/ui'
 import { useWorkspaceStore } from '../stores/workspace'
 import { getConfig, putConfig } from '../api/books'
+import { getContent, putContent } from '../api/documents'
+import { ApiError } from '../api/client'
 import { runStyleAnalysis, type StylePayload } from '../api/analysis'
 import EmptyState from '../components/ui/EmptyState.vue'
 import type { EntryKindFE, StyleCandidateFE } from '../api/style'
@@ -87,6 +89,54 @@ async function onInjection(v: 'light' | 'heavy'): Promise<void> {
     ui.toast('注入强度已保存', 'success')
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  }
+}
+
+// 铁律原文编辑（文风/文风铁律.md 纯配置；折叠展开，保存后重拉阈值）
+const RULES_PATH = '文风/文风铁律.md'
+const editingRules = ref(false)
+const rulesText = ref('')
+const rulesOrig = ref('')
+const rulesMissing = ref(false)
+const rulesSaving = ref(false)
+const rulesDirty = computed(() => rulesText.value !== rulesOrig.value)
+async function toggleRulesEdit(): Promise<void> {
+  if (editingRules.value) {
+    editingRules.value = false
+    return
+  }
+  rulesMissing.value = false
+  try {
+    rulesText.value = await getContent(props.bookName, RULES_PATH)
+    rulesOrig.value = rulesText.value
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      rulesMissing.value = true
+      rulesText.value = ''
+      rulesOrig.value = ''
+    } else {
+      ui.toast(e instanceof Error ? e.message : String(e), 'error')
+      return
+    }
+  }
+  editingRules.value = true
+}
+async function saveRules(): Promise<void> {
+  if (rulesSaving.value) return
+  rulesSaving.value = true
+  try {
+    if (rulesMissing.value) {
+      await putContent(props.bookName, RULES_PATH, '')
+      rulesMissing.value = false
+    }
+    await putContent(props.bookName, RULES_PATH, rulesText.value)
+    rulesOrig.value = rulesText.value
+    ui.toast('文风铁律已保存', 'success')
+    await style.load(props.bookName) // 阈值可能已改，重拉定标数据
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  } finally {
+    rulesSaving.value = false
   }
 }
 
@@ -301,6 +351,24 @@ function avg(series: number[]): number {
               <button class="seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>
             </div>
             <span class="al-faint">{{ injection === 'light' ? '每章注入1段样章参考' : '每章注入3段样章参考' }}</span>
+            <button class="btn-ghost rules-toggle" @click="toggleRulesEdit">
+              {{ editingRules ? '收起铁律原文' : '编辑铁律原文' }}
+            </button>
+          </div>
+          <div v-if="editingRules" class="rules-edit">
+            <textarea
+              v-model="rulesText"
+              class="rules-textarea"
+              rows="12"
+              spellcheck="false"
+              :placeholder="rulesMissing ? '尚无铁律——留空新建。机检阈值、删除分级等纯配置。' : ''"
+            ></textarea>
+            <div class="af-actions">
+              <span v-if="rulesDirty" class="al-faint">未保存</span>
+              <button class="btn-primary" :disabled="rulesSaving || !rulesDirty" @click="saveRules">
+                {{ rulesSaving ? '保存中…' : '保存' }}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -746,6 +814,30 @@ function avg(series: number[]): number {
 .seg-btn.on {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+}
+.rules-toggle {
+  margin-left: auto;
+}
+.rules-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rules-textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  outline: none;
+}
+.rules-textarea:focus {
+  border-color: var(--interactive-accent);
 }
 
 /* ══ ② 条目库 ══ */

@@ -8,7 +8,6 @@ import {
   Wrench,
   Compass,
   Feather,
-  GraduationCap,
   Download,
   BookOpen,
   Library,
@@ -99,14 +98,6 @@ function openLibraryManager(): void {
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
-      </button>
-      <button
-        class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'learn' }"
-        data-tip="文风收割（样章/金句候选收录）"
-        @click="ws.setActiveView('learn')"
-      >
-        <GraduationCap :size="20" />
       </button>
     </div>
 
