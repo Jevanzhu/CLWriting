@@ -34,12 +34,12 @@ test('hand 锁：Studio 保存手写中文档 → 409 提示 + 清锁恢复', as
   await cm.click()
   await page.keyboard.type('本地改动')
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('手写中', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('手写中', { timeout: 5_000 })
   // 不弹冲突出路层（hand 锁不可覆盖）
   await expect(page.locator('.conflict-btn')).toHaveCount(0)
 
   // 清锁 → manual 保存恢复成功
   rmSync(guiPath, { force: true })
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 })

@@ -16,23 +16,23 @@ test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) 
   await expect(page.locator('.learn-title')).toHaveText('文风收割')
 
   // 入库按钮初始置灰（pickedCount=0，disabled）
-  await expect(page.locator('.learn-actions .btn', { hasText: '入库勾选' })).toBeDisabled()
+  await expect(page.locator('.head-actions .btn:not(.primary)')).toBeDisabled()
 
   // 收割候选（规则打分，POST /learn）
-  await page.locator('.learn-actions .btn.primary').click()
+  await page.locator('.head-actions .btn.primary').click()
 
   // 样章候选渲染（fixture 0001 有 ≥50 字段落，打分 ≥60）
   await expect(page.locator('.cand-card').first()).toBeVisible({ timeout: 10_000 })
 
   // 勾选第一篇样章
-  await page.locator('.cand-card-head input[type="checkbox"]').first().check()
+  await page.locator('.cand-head input[type="checkbox"]').first().check()
 
   // 入库按钮启用 + 文本含勾选数 1
-  const commitBtn = page.locator('.learn-actions .btn', { hasText: '入库勾选' })
+  const commitBtn = page.locator('.head-actions .btn:not(.primary)')
   await expect(commitBtn).toBeEnabled()
   await expect(commitBtn).toContainText('1')
 
   // 入库 → 成功提示
   await commitBtn.click()
-  await expect(page.locator('.learn-msg')).toContainText('已入库', { timeout: 10_000 })
+  await expect(page.locator('.banner.ok')).toContainText('已入库', { timeout: 10_000 })
 })

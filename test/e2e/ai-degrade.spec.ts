@@ -43,7 +43,7 @@ test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   await cm.click()
   await page.keyboard.type('降级时仍可编辑')
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // ③ 切工作台 → AI 降级警告条（生成按钮 v-if=!running，running 态不渲染，故以警告条为降级标志）
   await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()

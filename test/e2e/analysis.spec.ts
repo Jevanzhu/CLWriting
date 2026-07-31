@@ -14,7 +14,7 @@ test('分析：选章 → 重新分析 → 体验分 → 改正文 → 存量 + 
   await expect(page.locator('.cm-content')).toBeVisible()
 
   // 切右栏「分析」tab（第4个 .right-tab：信息/审阅/机检/分析）
-  await page.locator('.right-tab').nth(3).click()
+  await page.locator('.right-tabs .right-tab').nth(3).click()
 
   // 暂无体验分 → 点「重新分析」
   await expect(page.locator('.analysis-panel .ap-card', { hasText: '体验分' }).locator('.empty-state')).toBeVisible()
@@ -43,13 +43,13 @@ test('分析：选章 → 重新分析 → 体验分 → 改正文 → 存量 + 
   await cm.click()
   await page.keyboard.type('e2e 改动正文触发过期')
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // reload → 存量信封仍在 + 过期标注（正文已变更）
   // reload 留在书内（/book/...），直接重选章（原 getByText 命中的是面包屑）
   await page.reload()
   await page.getByText('初入宗门').first().click()
-  await page.locator('.right-tab').nth(3).click()
+  await page.locator('.right-tabs .right-tab').nth(3).click()
   await expect(page.locator('.analysis-panel .ap-score-num')).toHaveText('8')
   await expect(page.locator('.analysis-panel .ap-stale')).toBeVisible()
 })

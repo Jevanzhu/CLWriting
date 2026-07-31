@@ -14,7 +14,7 @@ test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({
   await expect(page.locator('.cm-content')).toBeVisible()
 
   // 切右栏「机检」tab（CheckSquare 图标，第3个 .right-tab：信息/审阅/机检/分析）
-  await page.locator('.right-tab').nth(2).click()
+  await page.locator('.right-tabs .right-tab').nth(2).click()
   // CheckPanel 渲染 → 点「机检」按钮
   await page.locator('.check-run-btn').click()
   // 报告产出：未发现问题(.check-clean) 或 红/黄项分组(.check-group) 可见

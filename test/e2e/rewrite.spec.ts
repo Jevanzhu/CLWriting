@@ -32,7 +32,7 @@ test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) 
   })
 
   // 切审阅 tab（编辑区 blur 但 CM EditorState selection 保留）+ 改写指令 + 点改写
-  await page.locator('.right-tab').nth(1).click()
+  await page.locator('.right-tabs .right-tab').nth(1).click()
   await page.locator('.rewrite-panel .rw-input').fill('更生动')
   await page.locator('.rewrite-panel .rw-run-btn').click()
 
@@ -52,7 +52,7 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   await expect(cm).not.toContainText('模拟产出')
 
   // 切右栏「审阅」tab（第2个 .right-tab：信息/审阅/机检/分析）
-  await page.locator('.right-tab').nth(1).click()
+  await page.locator('.right-tabs .right-tab').nth(1).click()
 
   // 输指令 + 触发改写整章
   await page.locator('.rewrite-panel .rw-input').fill('让开头更紧张')
@@ -71,7 +71,7 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
 
   // ⌘S 保存 → 落盘
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // 重载验证持久（patch→⌘S 已落盘，重选章正文仍是 mock 产出）
   // reload 留在书内（/book/...），直接重选章——无需再点书卡（原 getByText 命中的是面包屑）

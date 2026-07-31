@@ -22,7 +22,7 @@ test('树红点：verdict 驳回 → 冒泡亮；通过 → 灭', async ({ page 
   await expect(row0002.locator('.issue-dot')).toHaveCount(0)
 
   // 审阅 tab（FileSearch，第2个 .right-tab）→ 点驳回
-  await page.locator('.right-tab').nth(1).click()
+  await page.locator('.right-tabs .right-tab').nth(1).click()
   await expect(page.locator('.review-panel .rev-verdict-badge')).toHaveText('待审')
   await page.locator('.review-panel .rev-verdict-btn.reject').click()
   await expect(page.locator('.review-panel .rev-verdict-badge')).toHaveText('驳回')
