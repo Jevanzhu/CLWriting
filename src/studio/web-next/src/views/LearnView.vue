@@ -119,13 +119,13 @@ async function onCommit(): Promise<void> {
             @click="onCommit"
           >
             <PackageCheck :size="14" />
-            <span>{{ learn.committing ? '入库中…' : `入库（${learn.pickedCount}）` }}</span>
+            <span>{{ learn.committing ? '收录中…' : `收录（${learn.pickedCount}）` }}</span>
           </button>
         </div>
       </div>
       <p class="learn-lede">
-        扫描定稿正文，按机检规则打分 + 场景预归类，产出样章 / 金句候选。
-        作者勾选后才入库到 <code>文风 / 样章库</code>——品味归人，不自动入库。
+        扫描定稿正文，按校对规则打分 + 按场景归类，产出样章 / 金句候选。
+        作者勾选后才收录到文风样章库——品味归人，不自动收录。
       </p>
     </header>
 

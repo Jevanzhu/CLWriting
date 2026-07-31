@@ -134,7 +134,7 @@ watch(
       <span
         v-if="tree.issuePaths.has(node.path)"
         class="issue-dot"
-        data-tip="有机检红项或审稿驳回"
+        data-tip="有校对红项或审稿驳回"
       ></span>
     </div>
 

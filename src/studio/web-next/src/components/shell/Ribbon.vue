@@ -94,7 +94,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'learn' }"
-        data-tip="文风收割（样章/金句候选入库）"
+        data-tip="文风收割（样章/金句候选收录）"
         @click="ws.setActiveView('learn')"
       >
         <GraduationCap :size="20" />

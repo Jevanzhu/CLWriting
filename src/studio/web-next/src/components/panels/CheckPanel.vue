@@ -36,7 +36,7 @@ async function runCheck(): Promise<void> {
     <div class="check-head">
       <div class="check-title-row">
         <ShieldCheck :size="14" />
-        <span class="check-title">本地机检</span>
+        <span class="check-title">本地校对</span>
       </div>
       <button
         class="check-run-btn"
@@ -44,12 +44,12 @@ async function runCheck(): Promise<void> {
         @click="runCheck"
       >
         <RefreshCw :size="13" :class="{ spin: check.loading }" />
-        <span>{{ check.loading ? '检查中…' : '机检' }}</span>
+        <span>{{ check.loading ? '检查中…' : '校对' }}</span>
       </button>
     </div>
 
     <div v-if="!isCheckable" class="check-hint">
-      机检仅适用于正文 / 草稿文档。
+      校对仅适用于正文 / 草稿文档。
     </div>
 
     <div v-else-if="check.error" class="check-error">
@@ -98,7 +98,7 @@ async function runCheck(): Promise<void> {
     </template>
 
     <div v-else class="check-hint">
-      点击「机检」检查当前文档（禁词 / 复读 / 句式 / 字数 / 账本…）。
+      点击「校对」检查当前文档（禁词 / 复读 / 句式 / 字数 / 设定连贯…）。
     </div>
   </section>
 </template>

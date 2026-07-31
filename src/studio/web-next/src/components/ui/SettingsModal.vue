@@ -672,7 +672,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   ></textarea>
                 </div>
                 <div class="setting-item-desc style-rules-hint">
-                  文风铁律是机检判定与 AI 写章文风对齐的依据；原存于文章树「文风」目录，现收入设置区集中维护。
+                  文风铁律是校对判定与 AI 写章文风对齐的依据；原存于文章树「文风」目录，现收入设置区集中维护。
                 </div>
               </template>
             </template>

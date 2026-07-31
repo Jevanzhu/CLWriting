@@ -200,7 +200,7 @@ function openBook(name: string): void {
         <input
           v-model="newName"
           class="input"
-          placeholder="书名（用作目录名）"
+          placeholder="书名"
           @keyup.enter="createBook"
         />
         <div v-if="createError" class="err">{{ createError }}</div>

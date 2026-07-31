@@ -77,7 +77,7 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     await onboardSave(props.bookName, { step: active.value, content: content.value })
-    ui.toast('已落盘', 'success')
+    ui.toast('已保存', 'success')
     void tree.load(props.bookName)
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
@@ -105,7 +105,7 @@ onMounted(async () => {
       <div class="hero-top">
         <div class="hero-left">
           <h1 class="hero-title">开书对话</h1>
-          <span class="hero-sub">分步 AI 生成设定 · 逐确认后落盘</span>
+          <span class="hero-sub">分步 AI 生成设定 · 逐确认后保存</span>
         </div>
         <div class="hero-progress">
           <div class="prog-track">
@@ -160,7 +160,7 @@ onMounted(async () => {
 
             <div class="detail-meta">
               <div class="meta-row">
-                <span class="meta-k">落盘路径</span>
+                <span class="meta-k">保存位置</span>
                 <code class="meta-v">{{ STEP_PATH[active] }}</code>
               </div>
               <div v-if="isGenerated(active)" class="meta-warn">
@@ -194,11 +194,11 @@ onMounted(async () => {
             <textarea
               v-model="content"
               class="content-edit"
-              placeholder="可编辑后落盘"
+              placeholder="可编辑后保存"
             ></textarea>
             <div class="actions">
               <button class="btn primary" :disabled="saving" @click="save">
-                {{ saving ? '保存中…' : '落盘' }}
+                {{ saving ? '保存中…' : '保存' }}
               </button>
               <button class="btn" @click="gen">
                 <RotateCcw :size="13" /><span>重新生成</span>

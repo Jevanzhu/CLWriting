@@ -130,7 +130,7 @@ watch(() => props.bookName, load, { immediate: true })
         <div class="fs-body">
           <span class="fs-title">{{ f.标题 }}</span>
           <span v-if="f.足迹 && f.足迹.staleSpan > 0" class="fs-trail" :class="'risk-' + f.足迹.risk">
-            悬{{ f.足迹.staleSpan }}章<span v-if="f.足迹.lastHit"> · 末次提及 ch.{{ f.足迹.lastHit }}</span>
+            悬{{ f.足迹.staleSpan }}章<span v-if="f.足迹.lastHit"> · 末次提及第{{ f.足迹.lastHit }}章</span>
           </span>
           <span v-else-if="f.埋设章号" class="fs-chap">第{{ f.埋设章号 }}章埋设</span>
         </div>

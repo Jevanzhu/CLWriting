@@ -31,7 +31,7 @@ const showOutlineForm = computed(() => {
 const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info }[] = [
   { key: 'info', label: '信息', icon: Info },
   { key: 'review', label: '审阅', icon: FileSearch },
-  { key: 'check', label: '机检', icon: CheckSquare },
+  { key: 'check', label: '校对', icon: CheckSquare },
 ]
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。 */
 const FORM_TITLE: Record<string, string> = {

@@ -64,7 +64,7 @@ async function switchTo(path: string): Promise<void> {
           <div class="entry-icon"><FolderOpen :size="22" /></div>
           <div class="entry-text">
             <span class="entry-title">打开已有书库</span>
-            <span class="entry-desc">选择一个包含 .clwriting 的目录继续创作</span>
+            <span class="entry-desc">选择已有的书库文件夹继续创作</span>
           </div>
           <ArrowRight :size="18" class="entry-arrow" />
         </button>
