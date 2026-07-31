@@ -182,14 +182,34 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   if (writeChildren.length) {
     groups.push({ path: '写作', name: '写作', isDirectory: true, role: 'note', children: writeChildren })
   }
-  // 2. 大纲（总纲置顶 + 摘要次之）；关系债为派生数据（角色卡关系派生），不进编辑树
+  // 线索类（基础悬念/感情线 + 扩展布局线/设定线/成长线）拆出为独立「布线」根级大类；
+  // 关系线为派生数据（角色卡关系派生），不进编辑树。
+  const LEAD_NAMES = new Set(['悬念', '感情线', '布局线', '设定线', '成长线'])
+  const LEAD_ORDER = ['悬念', '感情线', '布局线', '设定线', '成长线']
+  // 2. 大纲：纲领类（总纲/卷纲/章纲）+ 摘要（已写回顾）；线索类已拆到「布线」组
   if (dagang) {
-    const zonggang = dagang.children.find((c) => !c.isDirectory && c.name === '总纲')
-    const rest = dagang.children.filter((c) => c !== zonggang && c.name !== '关系债')
-    groups.push({ ...dagang, children: [zonggang, zhaiyao, ...rest].filter(Boolean) as TreeNode[] })
+    const kept = dagang.children.filter((c) => c.name !== '关系线' && !LEAD_NAMES.has(c.name))
+    const outlineRank = (name: string): number => {
+      if (name === '摘要') return 4
+      const i = ['总纲', '卷纲', '章纲'].indexOf(name)
+      return i === -1 ? 5 : i
+    }
+    const nodes = zhaiyao ? [...kept, zhaiyao] : kept
+    nodes.sort((a, b) => outlineRank(a.name) - outlineRank(b.name))
+    if (nodes.length) groups.push({ ...dagang, children: nodes })
   }
-  // 3. 设定（提升根级）
-  if (shezhi) groups.push(shezhi)
+  // 3. 布线（虚拟根级大类）：线索类从大纲目录提取，单独成组（与写作/大纲/设定同级）
+  const leads = (dagang?.children ?? []).filter((c) => LEAD_NAMES.has(c.name))
+  if (leads.length) {
+    leads.sort((a, b) => LEAD_ORDER.indexOf(a.name) - LEAD_ORDER.indexOf(b.name))
+    groups.push({ path: '布线', name: '布线', isDirectory: true, role: 'note', children: leads })
+  }
+  // 4. 设定（提升根级）：名册.md 仅作机检「新专名候选」比对源（check/count.ts 直读路径），
+  //  作者无编辑面、与角色/ 目录分工重叠，撤出写作树（对标文风：幕后资产不暴露给作者）。
+  if (shezhi) {
+    const filtered = shezhi.children.filter((c) => c.path !== '定稿/设定/名册.md')
+    groups.push({ ...shezhi, children: filtered })
+  }
   // 文风撤出写作树（机检/收割幕后资产，编辑入口在 SettingsModal「文风铁律」）。
   return groups
 }

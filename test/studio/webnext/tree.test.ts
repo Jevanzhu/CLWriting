@@ -2,7 +2,7 @@
  * tree store 测试（T4.4 第二批）：groupTree 虚拟分组（移植旧 FileTree，平价基准）
  * + byPath/byDocId 索引 + load 错误态。
  *
- * groupTree 规则：写作(虚拟:正文卷章+草稿) / 大纲(总纲置顶+摘要次之) / 设定提升 / 文风原样。
+ * groupTree 规则：写作(虚拟:正文卷章+草稿) / 大纲(总纲置顶+摘要次之) / 设定提升；文风撤出（幕后资产）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -95,7 +95,7 @@ describe('tree · groupTree 虚拟分组（平价基准）', () => {
     expect(write.children.some((c) => c.docId === 'doc7')).toBe(true)
   })
 
-  it('大纲：总纲置顶 + 摘要次之 + 其余在后', async () => {
+  it('大纲：纲领类(总纲/卷纲/章纲) + 摘要（线索已拆到布线组）', async () => {
     const tree = await setup()
     const dagang = tree.grouped.find((g) => g.path === '大纲')!
     expect(dagang.children[0].name).toBe('总纲')
@@ -103,14 +103,38 @@ describe('tree · groupTree 虚拟分组（平价基准）', () => {
     expect(dagang.children[2]?.name).toBe('分卷纲')
   })
 
+  it('布线（虚拟大类）：线索类从大纲拆出单独成组', async () => {
+    getTree.mockResolvedValue({
+      ok: true,
+      nodes: [
+        dir('大纲', [
+          leaf('大纲/总纲.md', 'd1'),
+          dir('大纲/卷纲', [leaf('大纲/卷纲/第一卷.md', 'd4')]),
+          dir('大纲/悬念', [leaf('大纲/悬念/悬念-001-x.md', 'd2')]),
+          dir('大纲/布局线', [leaf('大纲/布局线/布局线-001-x.md', 'd3')]),
+        ]),
+      ],
+      revision: 'r1',
+      validatedAt: '',
+    })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    const bx = tree.grouped.find((g) => g.path === '布线')!
+    expect(bx).toBeTruthy()
+    expect(bx.children.map((c) => c.name)).toEqual(['悬念', '布局线'])
+    // 线索已从大纲组移除，大纲只剩纲领类
+    const dg = tree.grouped.find((g) => g.path === '大纲')!
+    expect(dg.children.map((c) => c.name)).toEqual(['总纲', '卷纲'])
+  })
+
   it('设定提升到根级', async () => {
     const tree = await setup()
     expect(tree.grouped.some((g) => g.path === '定稿/设定')).toBe(true)
   })
 
-  it('文风原样保留', async () => {
+  it('文风撤出树（幕后资产，不进编辑树）', async () => {
     const tree = await setup()
-    expect(tree.grouped.some((g) => g.path === '文风')).toBe(true)
+    expect(tree.grouped.some((g) => g.path === '文风')).toBe(false)
   })
 
   it('工作区非草稿文件不进树', async () => {
