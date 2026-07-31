@@ -22,6 +22,7 @@ import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
+import { recordAiVersion } from '../../../git/ai-track.js'
 
 interface RewriteCtx {
   workDir: string | null
@@ -152,6 +153,19 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
     }
     reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
+  })
+
+  // 改稿轨迹采集（文风S2）：作者接受改写时前端上报 AI 版全文 → 旁路 ref。
+  // 只写 ref 不碰正文（「AI 永不落盘正文」红线不破）；失败静默——轨迹是旁路证据，不阻断接受。
+  route('POST', '/api/books/:name/documents/:docId/ai-version', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    const reqBody = await readJson(req)
+    const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
+    if (!content.trim()) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'content 为空' })
+    const ref = recordAiVersion(join(ctx.workDir, entry.path), params['docId'] ?? '', content)
+    reply(res, 200, { ok: true, recorded: ref !== null })
   })
 
   // 应用改写:accept 落盘(先备份原稿可回滚),false 丢弃

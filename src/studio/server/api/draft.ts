@@ -20,6 +20,7 @@ import { readManifest } from '../../../document/manifest.js'
 import { writeSnapshot } from '../../../document/snapshot.js'
 import { legacyId } from '../../../document/stable-id.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
+import { recordAiVersion } from '../../../git/ai-track.js'
 
 interface DraftCtx {
   workDir: string | null
@@ -104,7 +105,10 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
         break
       }
     }
-    reply(res, 200, { ok: true, path: relPath, words: content.length, docId: docId ?? legacyId(relPath), snapshotted: snapshotId !== null })
+    const finalDocId = docId ?? legacyId(relPath)
+    // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
+    recordAiVersion(bookRoot, finalDocId, content)
+    reply(res, 200, { ok: true, path: relPath, words: content.length, docId: finalDocId, snapshotted: snapshotId !== null })
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn

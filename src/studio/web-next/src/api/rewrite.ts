@@ -25,3 +25,12 @@ export async function runRewriteDoc(
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
   )
 }
+
+// POST /documents/:docId/ai-version —— 改稿轨迹采集（文风S2）：接受改写时上报 AI 版全文。
+// fire-and-forget 语义：轨迹是旁路证据，失败由调用方静默吞掉，不阻断接受。
+export async function reportAiVersion(name: string, docId: string, content: string): Promise<void> {
+  await apiJson(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/ai-version`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) },
+  )
+}

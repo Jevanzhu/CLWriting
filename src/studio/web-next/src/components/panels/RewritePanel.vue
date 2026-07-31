@@ -40,7 +40,7 @@ async function runRewrite(): Promise<void> {
 }
 
 function accept(): void {
-  if (docId.value) rewrite.accept(docId.value)
+  if (docId.value) rewrite.accept(props.bookName, docId.value)
   instruction.value = ''
 }
 </script>

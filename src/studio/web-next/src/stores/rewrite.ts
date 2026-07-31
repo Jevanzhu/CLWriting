@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { runRewriteDoc, type RewriteResult } from '../api/rewrite'
+import { runRewriteDoc, reportAiVersion, type RewriteResult } from '../api/rewrite'
 import { useDocStore } from './doc'
 
 /**
@@ -27,9 +27,11 @@ export const useRewriteStore = defineStore('rewrite', () => {
     }
   }
 
-  /** 接受改写 → rewritten 写入 doc content（dirty）；作者 ⌘S 走标准保存。 */
-  function accept(docId: string): void {
+  /** 接受改写 → rewritten 写入 doc content（dirty）；作者 ⌘S 走标准保存。
+   *  接受瞬间上报 AI 版进改稿轨迹（文风S2，fire-and-forget，失败静默）。 */
+  function accept(name: string, docId: string): void {
     if (!result.value) return
+    void reportAiVersion(name, docId, result.value.rewritten).catch(() => {})
     useDocStore().patch(docId, result.value.rewritten)
     result.value = null
   }
