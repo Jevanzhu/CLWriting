@@ -207,7 +207,7 @@ function resolvePackageDir(): string | null {
 
 /** 把字符串数组收敛为合法扩展账本类（剔除基础类/未知类/去重）。 */
 function sanitizeToExtendedLeads(raw: readonly string[]): LeadType[] {
-  const extended = new Set<LeadType>(['局线', '设定线', '成长线', '关系债'])
+  const extended = new Set<LeadType>(['布局线', '设定线', '成长线', '关系线'])
   const seen = new Set<LeadType>()
   const out: LeadType[] = []
   for (const r of raw) {

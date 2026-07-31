@@ -1,12 +1,12 @@
 /**
  * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读写）。
  *
- * GET /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系债子图
+ * GET /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
  * PUT /api/books/:name/settings/character  body {file, 姓名, 身份?, 目标?, 境界?, 正文}
  *   → 写回 定稿/设定/角色/<名>.md（front matter + 正文，防穿越）→ {ok, file}
  *
  * P2 知识层:角色卡 front matter 约定(姓名/身份/目标/境界)+ 正文(性格/外貌/履历自由描述)。
- * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系债从账本。
+ * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系线从账本。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative } from 'node:path'
@@ -164,8 +164,8 @@ function settingsLong(bookRoot: string): unknown {
   const characters = readCharacterCards(join(setDir, '角色'), bookRoot)
   const timeline = scanFreeMd(join(setDir, '时间线'))
 
-  // 关系债子图（账本关系债类）
-  const { leads } = readLeadDir(join(bookRoot, '大纲', '关系债'))
+  // 关系线子图（账本关系线类）
+  const { leads } = readLeadDir(join(bookRoot, '大纲', '关系线'))
   const debtGraph = leads
     .filter((l) => l.欠方 || l.债主)
     .map((l) => ({ 编号: l.编号, 标题: l.标题, 状态: l.状态, 欠方: l.欠方 ?? '', 债主: l.债主 ?? '' }))

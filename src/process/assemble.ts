@@ -22,10 +22,10 @@ import type { BookConfig, LeadType } from '../format/types.js'
 const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
   悬念: 10,
   感情线: 30,
-  局线: 15,
+  布局线: 15,
   设定线: 50,
   成长线: 40,
-  关系债: 20,
+  关系线: 20,
 }
 
 /** 近况快照（供阶段 1 起草细纲 + 阶段 3 备料） */

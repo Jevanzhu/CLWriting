@@ -16,7 +16,7 @@ function makeBookFixture(): string {
   // 用中文目录名（验证中文路径全链路）
   const root = mkdtempSync(join(tmpdir(), '北境往事-'))
 
-  // book.yaml：启用 局线 + 成长线（扩展类）
+  // book.yaml：启用 布局线 + 成长线（扩展类）
   const cfg: BookConfig = {
     ...DEFAULT_CONFIG,
     book: { title: '北境往事', genre: '玄幻' },
@@ -51,7 +51,7 @@ function makeBookFixture(): string {
     ],
   })
 
-  // 大纲/局线/（未启用 → 目录不存在，重建跳过）
+  // 大纲/布局线/（未启用 → 目录不存在，重建跳过）
 
   // 定稿/正文/— 1 章
   const 正文dir = join(root, '定稿', '正文')
@@ -135,20 +135,20 @@ test('rebuild: 按 book.yaml 启用类扫描（未启用类不扫）', () => {
   const root = makeBookFixture()
   const cachePath = join(root, '.cache', 'index.db')
 
-  // 在未启用的 局线 目录放一个条目（book.yaml 只启用了 成长线）
-  const 局线dir = join(root, '大纲', '局线')
-  mkdirSync(局线dir, { recursive: true })
-  writeLead(join(局线dir, '局线-001-暗流.md'), {
-    编号: '局线-001', 标题: '暗流', 类型: '局线', 状态: '进行中', 开启章: 10,
+  // 在未启用的 布局线 目录放一个条目（book.yaml 只启用了 成长线）
+  const 布局线dir = join(root, '大纲', '布局线')
+  mkdirSync(布局线dir, { recursive: true })
+  writeLead(join(布局线dir, '布局线-001-暗流.md'), {
+    编号: '布局线-001', 标题: '暗流', 类型: '布局线', 状态: '进行中', 开启章: 10,
     履历: [{ 章号: 10, 动词: '布局', 证据: '暗流涌动' }],
   })
 
   const result = rebuild(root, cachePath)
-  // 局线未启用 → 不应入库
+  // 布局线未启用 → 不应入库
   expect(result.leadCount).toBe(3)
 
   const db = new DatabaseSync(cachePath)
-  const has = db.prepare('SELECT count(*) AS c FROM leads WHERE id=?').get('局线-001') as { c: number }
+  const has = db.prepare('SELECT count(*) AS c FROM leads WHERE id=?').get('布局线-001') as { c: number }
   expect(has.c).toBe(0)
   db.close()
 

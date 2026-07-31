@@ -47,8 +47,8 @@ describe('formKindOf（含 chapter）', () => {
   it('定稿/设定/角色 → character', () => {
     expect(formKindOf('定稿/设定/角色/林远.md')).toBe('character')
   })
-  it('大纲/关系债（派生数据，移出编辑树）→ null（不进表单）', () => {
-    expect(formKindOf('大纲/关系债/关系债-001-师徒债.md')).toBeNull()
+  it('大纲/关系线（派生数据，移出编辑树）→ null（不进表单）', () => {
+    expect(formKindOf('大纲/关系线/关系线-001-师徒债.md')).toBeNull()
   })
   it('非表单文档 → null', () => {
     expect(formKindOf('笔记/随便.md')).toBeNull()

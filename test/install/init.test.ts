@@ -65,7 +65,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   // 扩展类按 leadsEnabled 建
   expect(existsSync(join(bookRoot, '大纲', '成长线'))).toBe(true)
   expect(existsSync(join(bookRoot, '大纲', '设定线'))).toBe(true)
-  expect(existsSync(join(bookRoot, '大纲', '局线'))).toBe(false) // 未启用不建
+  expect(existsSync(join(bookRoot, '大纲', '布局线'))).toBe(false) // 未启用不建
   // 文风冷启动
   expect(existsSync(join(bookRoot, '文风', '样章库', '战斗'))).toBe(true)
   expect(existsSync(join(bookRoot, '文风', '文风铁律.md'))).toBe(true)

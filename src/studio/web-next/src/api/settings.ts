@@ -18,7 +18,7 @@ export interface RelationEdge {
   type: string
 }
 
-/** 债务子图边（块5 D2）：欠方 → 债主（来自 大纲/关系债） */
+/** 债务子图边（块5 D2）：欠方 → 债主（来自 大纲/关系线） */
 export interface DebtEdge {
   编号: string
   标题: string

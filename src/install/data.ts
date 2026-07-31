@@ -3,7 +3,7 @@
  *
  * 母本第 104-112 行账本总表的「典型题材」列反向推导：
  * - 基础两类（悬念/感情线）恒启用，不列入 leads.enabled（伏笔已独立为设定伏笔系统）
- * - 扩展四类（局线/设定线/成长线/关系债）按题材推荐，作者可增删
+ * - 扩展四类（布局线/设定线/成长线/关系线）按题材推荐，作者可增删
  *
  * 纯函数、零依赖、零 AI——init 第 4 步查本表推荐，非调模型。
  */
@@ -14,7 +14,7 @@ import type { BookConfig, LeadType } from '../format/types.js'
 export const BASE_LEAD_TYPES: readonly LeadType[] = ['悬念', '感情线']
 
 /** 扩展四类（按题材启用，是 leads.enabled 的合法值） */
-export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['局线', '设定线', '成长线', '关系债']
+export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['布局线', '设定线', '成长线', '关系线']
 
 /**
  * 题材关键词 → 推荐扩展账本类（O3）。
@@ -24,12 +24,12 @@ export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['局线', '设定线', 
 const GENRE_LEADS_MAP: readonly { keywords: readonly string[]; leads: readonly LeadType[] }[] = [
   // 玄幻/仙侠/末世/种田/历史 → 成长线 + 设定线（力量体系 + 世界观）
   { keywords: ['玄幻', '仙侠', '修仙', '末世', '种田', '历史', '架空'], leads: ['成长线', '设定线'] },
-  // 悬疑/无限流/规则怪谈/宫斗 → 局线（多线博弈）
-  { keywords: ['悬疑', '推理', '无限流', '怪谈', '宫斗', '权谋', '谍战'], leads: ['局线'] },
+  // 悬疑/无限流/规则怪谈/宫斗 → 布局线（多线博弈）
+  { keywords: ['悬疑', '推理', '无限流', '怪谈', '宫斗', '权谋', '谍战'], leads: ['布局线'] },
   // 游戏/竞技 → 成长线（升级阶梯）
   { keywords: ['游戏', '竞技', '体育', '电竞'], leads: ['成长线'] },
-  // 狗血言情/官场/宅斗 → 关系债（人情债/恩怨）
-  { keywords: ['言情', '狗血', '官场', '宅斗', '宅院', '婆媳', '婚恋'], leads: ['关系债'] },
+  // 狗血言情/官场/宅斗 → 关系线（人情债/恩怨）
+  { keywords: ['言情', '狗血', '官场', '宅斗', '宅院', '婆媳', '婚恋'], leads: ['关系线'] },
 ]
 
 /**

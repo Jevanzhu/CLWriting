@@ -26,20 +26,20 @@ import type {
 export const LEAD_TYPES: readonly LeadType[] = [
   '悬念',
   '感情线',
-  '局线',
+  '布局线',
   '设定线',
   '成长线',
-  '关系债',
+  '关系线',
 ] as const
 
 /** #3 第 5 节动词表：每类的合法动词（机检用，M2） */
 export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; drop: string[] }> = {
   悬念: { open: ['设下'], resolve: ['揭晓'], drop: ['放弃'] },
   感情线: { open: ['开启'], resolve: ['修成'], drop: ['无疾'] },
-  局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
+  布局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
   设定线: { open: ['树立'], resolve: ['固化'], drop: ['倾覆'] },
   成长线: { open: ['起步'], resolve: ['突破', '跨层', '跃迁'], drop: ['瓶颈'] },
-  关系债: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
+  关系线: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
 }
 
 // ── 履历段解析（#3 第 4 节）──────────────────────
@@ -106,7 +106,7 @@ function bodyBeforeHistory(body: string): string {
 /** 已知 front matter 字段（用于区分已知 vs 未知/容错保留） */
 const KNOWN_FM_KEYS = new Set([
   '编号', '标题', '类型', '状态', '开启章',
-  '境界体系', '当前境界', '父局线', '欠方', '债主',
+  '境界体系', '当前境界', '父布局线', '欠方', '债主',
 ])
 
 /** 读取一个账本 md → Lead 内存模型（容错） */
@@ -148,7 +148,7 @@ export function readLead(
   // 特化字段（仅当存在时赋值）
   if (map.has('境界体系')) lead.境界体系 = String(map.get('境界体系'))
   if (map.has('当前境界')) lead.当前境界 = String(map.get('当前境界'))
-  if (map.has('父局线')) lead.父局线 = String(map.get('父局线'))
+  if (map.has('父布局线')) lead.父布局线 = String(map.get('父布局线'))
   if (map.has('欠方')) lead.欠方 = String(map.get('欠方'))
   if (map.has('债主')) lead.债主 = String(map.get('债主'))
 
@@ -169,7 +169,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
   }
   if (lead.境界体系 !== undefined) knownVal['境界体系'] = lead.境界体系
   if (lead.当前境界 !== undefined) knownVal['当前境界'] = lead.当前境界
-  if (lead.父局线 !== undefined) knownVal['父局线'] = lead.父局线
+  if (lead.父布局线 !== undefined) knownVal['父布局线'] = lead.父布局线
   if (lead.欠方 !== undefined) knownVal['欠方'] = lead.欠方
   if (lead.债主 !== undefined) knownVal['债主'] = lead.债主
 
@@ -187,7 +187,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
   }
 
   // #2 原始顺序未覆盖的已知字段（内存新增）按 #3 第 3 节标准顺序追加
-  for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父局线', '欠方', '债主']) {
+  for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父布局线', '欠方', '债主']) {
     if (key in knownVal && !emitted.has(key)) {
       map.set(key, knownVal[key])
       emitted.add(key)
