@@ -304,7 +304,7 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       const list = detected.handEdits.map((f) => `· ${f}`).join('\n')
       return {
         state: 3,
-        humanMsg: `检测到未入账的手改。先运行 clwriting rebook 查看对账报告；确认入账后运行 clwriting rebook --yes：\n${list}`,
+        humanMsg: `你直接改了下面这些文件，需要同步一下：\n${list}`,
         action: 'rebook',
         needsAI: true, // 补登内容判断 M4
       }
@@ -333,7 +333,7 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
     case 6:
       return {
         state: 6,
-        humanMsg: `该体检了（距上次体检 ${detected.chaptersSince} 章）。建议跑账本对账：先用 clwriting health 查 git 健康状况，再核对悬太久的线与形式三检。做完体检可跳过继续开新章。`,
+        humanMsg: `该体检了（距上次体检 ${detected.chaptersSince} 章）。查一下 git 健康状况，核对悬太久的线，做完可以继续开新章。`,
         action: 'health-check-periodic',
         needsAI: false, // M3 出触发 + 概要；深度账本对账 M4（#15 第 6 节）
       }
@@ -354,7 +354,7 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       const unit = kind === 'short' ? '篇' : '章'
       return {
         state: 8,
-        humanMsg: `有 ${chs.length} ${unit}待审稿（第 ${list} ${unit}）。先用 clwriting review batch list 查看；通过后 clwriting review batch finalize 逐${unit}定稿，或 clwriting review batch rollback --yes 整批回滚。`,
+        humanMsg: `有 ${chs.length} ${unit}待审稿（第 ${list} ${unit}）。逐章过一遍，通过的定稿，不满意的回滚重写。`,
         action: 'pending-batch-review',
         needsAI: false, // 审稿是作者硬闸（品味归人，原则 7）
       }

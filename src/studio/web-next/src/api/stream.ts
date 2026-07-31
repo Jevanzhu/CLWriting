@@ -10,6 +10,8 @@ export interface BookState {
   action: string
   nextChapter?: number
   kind?: string
+  /** 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位 */
+  resumePoint?: 'pre-commit' | 'post-commit-residue'
 }
 export async function getState(name: string): Promise<BookState> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/state`)

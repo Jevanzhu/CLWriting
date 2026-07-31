@@ -39,21 +39,18 @@ const STEP_LABELS: Record<string, string> = {
   finalize: '定稿',
   enter: '入书',
   hand: '手写',
-  rebook: '重开',
+  rebook: '补登',
 }
-// 态机 action（机器侧命令标识）→ 中文动作标签，避免对作者暴露 write-new-chapter 等英文。
-// 新增 action 需同步补映射；未命中 fallback 原值兜底。
-const ACTION_LABELS: Record<string, string> = {
-  'git-health': '修复 git 问题',
-  repair: '修复源文件',
-  rebook: '补登手改',
-  resume: '续写断点',
-  'volume-review': '卷复盘',
-  'health-check-periodic': '定期体检',
-  'write-new-chapter': '开写新章',
-  'write-new-chapter-hand': '手写起草',
-  'pending-batch-review': '批量审稿',
-  'pending-ai': 'AI 介入',
+// 态机 action → 可执行操作（每个建议动作都有 UI 按钮，一键执行不等作者开命令行）。
+// 新增 action 需同步补映射；repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）。
+const ACTION_RUNS: Record<string, { label: string; run: () => void | Promise<void> }> = {
+  'write-new-chapter':      { label: '开写新章', run: onSpawn },
+  'write-new-chapter-hand': { label: '手写起草', run: () => onCli('hand') },
+  'rebook':                 { label: '补登',     run: () => onCli('rebook') },
+  'git-health':             { label: '体检',     run: () => onCli('health') },
+  'health-check-periodic':  { label: '体检',     run: () => onCli('health') },
+  'pending-batch-review':   { label: '开始审稿', run: () => onCli('review-batch') },
+  'volume-review':          { label: '卷复盘',   run: onSpawn },
 }
 const cliRunning = ref<string | null>(null)
 const cliReport = ref('')
@@ -61,10 +58,18 @@ const draftSaved = ref<{ path?: string; words: number } | null>(null)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 const draftWords = computed(() => wb.textOut.length)
-// 建议动作中文标签（映射 action 枚举；未命中兜底原值）
-const actionLabel = computed(() => {
+// 当前建议操作（resume 按 resumePoint 分流：pre-commit 续写 / post-commit-residue 重新定位）
+const currentAction = computed<{ label: string; run: () => void | Promise<void> } | null>(() => {
   const a = state.value?.action
-  return a ? (ACTION_LABELS[a] ?? a) : ''
+  if (!a) return null
+  if (a === 'resume') {
+    return state.value?.resumePoint === 'post-commit-residue'
+      ? { label: '重新定位', run: () => onCli('enter') }
+      : { label: '续写', run: onSpawn }
+  }
+  // repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）
+  if (a === 'repair') return null
+  return ACTION_RUNS[a] ?? null
 })
 
 async function refreshState(): Promise<void> {
@@ -185,7 +190,7 @@ const recent = computed(() => wb.log.slice(-200))
     <div v-if="ui.aiAvailable === false" class="ai-warn">
       AI 驱动不可用（claude CLI 未就绪），写作功能暂不可用。请确认 claude CLI 已安装并在 PATH。
     </div>
-    <!-- 状态卡（M4：删态N编号，只留人话） -->
+    <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
     <section class="card">
       <div class="card-head">
         <span class="state-tag">{{ state?.stateName ?? '未知' }}</span>
@@ -194,40 +199,17 @@ const recent = computed(() => wb.log.slice(-200))
         </span>
       </div>
       <p class="human-msg">{{ state?.humanMsg ?? '读取状态中…' }}</p>
-      <p v-if="actionLabel" class="action">建议：{{ actionLabel }}</p>
-    </section>
-
-    <!-- 触发生成 -->
-    <section class="card">
-      <div class="spawn-row">
-        <input
-          v-model="prompt"
-          class="prompt-input"
-          placeholder="写作提示（可选，留空用角色默认）"
-          :disabled="wb.running"
-          @keyup.enter="!wb.running && onSpawn()"
-        />
-        <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
-        <button v-else class="btn danger" @click="onInterrupt">中断</button>
+      <div v-if="currentAction" class="action-row">
+        <span class="action-hint">建议下一步</span>
+        <button
+          class="btn mini primary"
+          :disabled="!!cliRunning || wb.running"
+          @click="currentAction.run"
+        >{{ currentAction.label }}</button>
       </div>
     </section>
 
-    <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
-    <section class="card draft-card">
-      <div class="card-head">
-        <span>生成正文</span>
-        <span class="muted">{{ draftWords }} 字</span>
-      </div>
-      <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
-      <div class="draft-actions">
-        <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
-          存草稿并编辑
-        </button>
-        <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
-      </div>
-    </section>
-
-    <!-- 高级（M4 默认收起）：事件流 + 阶段任务 + CLI 报告，调试功能一个不删 -->
+    <!-- 高级（流程可见：事件流 + 阶段任务 + CLI 报告） -->
     <section class="card">
       <CollapseSection title="高级" :default-open="false">
         <div class="adv-block">
@@ -262,6 +244,36 @@ const recent = computed(() => wb.log.slice(-200))
           <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
         </div>
       </CollapseSection>
+    </section>
+
+    <!-- 触发生成 -->
+    <section class="card">
+      <div class="spawn-row">
+        <input
+          v-model="prompt"
+          class="prompt-input"
+          placeholder="写作提示（可选，留空用角色默认）"
+          :disabled="wb.running"
+          @keyup.enter="!wb.running && onSpawn()"
+        />
+        <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
+        <button v-else class="btn danger" @click="onInterrupt">中断</button>
+      </div>
+    </section>
+
+    <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
+    <section class="card draft-card">
+      <div class="card-head">
+        <span>生成正文</span>
+        <span class="muted">{{ draftWords }} 字</span>
+      </div>
+      <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
+      <div class="draft-actions">
+        <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
+          存草稿并编辑
+        </button>
+        <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+      </div>
     </section>
 
     <div v-if="err" class="err-msg">{{ err }}</div>
@@ -311,10 +323,20 @@ const recent = computed(() => wb.log.slice(-200))
   line-height: 1.7;
   white-space: pre-wrap;
 }
-.action {
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
   margin-top: var(--size-4-2);
+}
+.action-hint {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
+}
+.btn.mini {
+  height: 28px;
+  padding: 0 12px;
+  font-size: var(--font-size-s);
 }
 .spawn-row {
   display: flex;
