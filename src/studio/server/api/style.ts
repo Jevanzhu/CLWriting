@@ -1,0 +1,183 @@
+/**
+ * 文风系统 REST 端点（文风系统重整 S6）：条目库 + 候选箱 + 收割。
+ *
+ * GET    /api/books/:name/style/entries              条目列表（首读触发自动迁移，结果附返回供 toast）
+ * POST   /api/books/:name/style/entries              新增条目（源4 作者手动直达入库）
+ * DELETE /api/books/:name/style/entries              删条目（body {path}，限条目目录内）
+ * GET    /api/books/:name/style/candidates           候选列表（呈现状态含 30 天过期）
+ * POST   /api/books/:name/style/candidates/confirm   确认（→ 条目库，删候选文件）
+ * POST   /api/books/:name/style/candidates/ignore    忽略（落盘留档，查重闸记住）
+ * POST   /api/books/:name/style/harvest              收割：源1 轨迹比对 + 源2 漂移映射（零 AI）
+ *
+ * 「候选制，品味归人」：确认/新增是仅有的入库通道，收割只落候选。
+ */
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join, relative, isAbsolute } from 'node:path'
+import { rmSync } from 'node:fs'
+import { route } from '../router.js'
+import { reply, readJson } from '../http.js'
+import { readBooks } from '../../../install/books.js'
+import {
+  readEntries,
+  addEntry,
+  ENTRIES_DIR,
+  ENTRY_KINDS,
+  SOURCE_RANK,
+} from '../../../format/style-entry.js'
+import {
+  readCandidates,
+  effectiveStatus,
+  confirmCandidate,
+  ignoreCandidate,
+  CANDIDATES_DIR,
+} from '../../../format/style-candidate.js'
+import { migrateStyleLibrary } from '../../../format/style-migrate.js'
+import { harvestStyleCandidates } from '../../../process/style-harvest.js'
+import { readKind } from '../book-context.js'
+import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
+
+interface StyleCtx {
+  workDir: string | null
+}
+
+/** 服务端今天（候选 创建/过期口径统一在服务端） */
+function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** 绝对 _path → 书内相对路径（前端确认/忽略/删除都用相对路径互传） */
+function relPath(bookRoot: string, p: string | undefined): string {
+  if (!p) return ''
+  return isAbsolute(p) ? relative(bookRoot, p) : p
+}
+
+/** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径） */
+function insideDir(rel: string, dir: string): boolean {
+  return rel.startsWith(`${dir}/`) && !rel.includes('..') && !isAbsolute(rel)
+}
+
+export function registerStyleRoutes(ctx: StyleCtx): void {
+  const resolveBook = (
+    res: ServerResponse,
+    params: Record<string, string | undefined>,
+  ): string | null => {
+    if (!ctx.workDir) {
+      reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      return null
+    }
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) {
+      reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书:${params['name']}` })
+      return null
+    }
+    return join(ctx.workDir, entry.path)
+  }
+
+  // 条目列表（老书首读自动迁移——幂等，常态 no-op；迁移发生时附结果供 toast）
+  route('GET', '/api/books/:name/style/entries', (_req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const migration = migrateStyleLibrary(bookRoot)
+    const { entries, errors } = readEntries(join(bookRoot, ENTRIES_DIR))
+    reply(res, 200, {
+      ok: true,
+      entries: entries.map((e) => ({ ...e, _path: relPath(bookRoot, e._path) })),
+      errors,
+      migration: migration.migrated > 0 ? migration : null,
+    })
+  })
+
+  // 新增条目（源4 作者手动：选中存样章/反例、条目库直接新增）
+  route('POST', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const body = (await readJson(req)) as Record<string, unknown>
+    const kind = body['类型']
+    if (typeof kind !== 'string' || !(ENTRY_KINDS as readonly string[]).includes(kind)) {
+      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '类型须为 样章/手法/反例/禁词' })
+    }
+    const text = typeof body['正文'] === 'string' ? body['正文'].trim() : ''
+    if (!text) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '正文为空' })
+    const scene = typeof body['场景'] === 'string' && body['场景'].trim() ? body['场景'].trim() : '通用'
+    const source = body['来源']
+    const entry: StyleEntry = {
+      类型: kind as EntryKind,
+      场景: scene,
+      来源: typeof source === 'string' && source in SOURCE_RANK ? (source as EntrySource) : '作者标注',
+      ...(typeof body['说明'] === 'string' && body['说明'].trim() ? { 说明: body['说明'].trim() } : {}),
+      ...(typeof body['出处'] === 'string' && body['出处'].trim() ? { 出处: body['出处'].trim() } : {}),
+      ...(Array.isArray(body['标签']) ? { 标签: (body['标签'] as unknown[]).map(String) } : {}),
+      正文: text,
+    }
+    reply(res, 200, { ok: true, path: addEntry(bookRoot, entry) })
+  })
+
+  // 删条目（限 文风/条目/ 内）
+  route('DELETE', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const body = (await readJson(req)) as Record<string, unknown>
+    const p = typeof body['path'] === 'string' ? body['path'] : ''
+    if (!insideDir(p, ENTRIES_DIR)) {
+      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'path 须在 文风/条目/ 内' })
+    }
+    rmSync(join(bookRoot, p), { force: true })
+    reply(res, 200, { ok: true })
+  })
+
+  // 候选列表（状态经 30 天过期呈现；文件不动，已忽略可翻出）
+  route('GET', '/api/books/:name/style/candidates', (_req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const t = today()
+    const { candidates, errors } = readCandidates(join(bookRoot, CANDIDATES_DIR))
+    reply(res, 200, {
+      ok: true,
+      candidates: candidates.map((c) => ({
+        ...c,
+        状态: effectiveStatus(c, t),
+        _path: relPath(bookRoot, c._path),
+      })),
+      errors,
+    })
+  })
+
+  // 确认候选 → 条目库
+  route('POST', '/api/books/:name/style/candidates/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const body = (await readJson(req)) as Record<string, unknown>
+    const p = typeof body['path'] === 'string' ? body['path'] : ''
+    if (!insideDir(p, CANDIDATES_DIR)) {
+      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'path 须在 文风/候选/ 内' })
+    }
+    const entryPath = confirmCandidate(bookRoot, p)
+    if (entryPath === null) {
+      return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: '候选不存在或已损坏' })
+    }
+    reply(res, 200, { ok: true, entryPath })
+  })
+
+  // 忽略候选（落盘留档）
+  route('POST', '/api/books/:name/style/candidates/ignore', async (req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const body = (await readJson(req)) as Record<string, unknown>
+    const p = typeof body['path'] === 'string' ? body['path'] : ''
+    if (!insideDir(p, CANDIDATES_DIR)) {
+      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'path 须在 文风/候选/ 内' })
+    }
+    if (!ignoreCandidate(bookRoot, p)) {
+      return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: '候选不存在或已损坏' })
+    }
+    reply(res, 200, { ok: true })
+  })
+
+  // 收割（零 AI：源1 轨迹比对 + 源2 漂移映射；查重闸保证可重复点）
+  route('POST', '/api/books/:name/style/harvest', (_req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const r = harvestStyleCandidates(bookRoot, readKind(bookRoot), today())
+    reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+  })
+}
