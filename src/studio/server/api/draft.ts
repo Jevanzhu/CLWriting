@@ -9,16 +9,57 @@
  * 工作区是 driver 落盘区(非手编);前端收集 driver text 流(done 后)调此落盘。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
 import { buildSettingsContext } from './settings.js'
+import { readManifest } from '../../../document/manifest.js'
+import { writeSnapshot } from '../../../document/snapshot.js'
 
 interface DraftCtx {
   workDir: string | null
+}
+
+/**
+ * M1 草稿覆写留底：目标已存在且内容不同 → force 快照（origin: draft-overwrite）。
+ * docId 反查文档清单（与编辑器历史同目录，作者可从本章历史恢复）；
+ * 未登记回落文件名派生键（草稿-N）。快照失败不阻断落盘（留底是护栏，不是门禁）。
+ * 返回快照 id（null = 无需留底或留底失败）。
+ */
+export function snapshotBeforeOverwrite(bookRoot: string, relPath: string, newContent: string): string | null {
+  const absPath = join(bookRoot, relPath)
+  if (!existsSync(absPath)) return null
+  let old: string
+  try {
+    old = readFileSync(absPath, 'utf8')
+  } catch {
+    return null
+  }
+  if (old === newContent) return null
+  // docId：清单反查（编辑器保存的快照同目录）→ 未登记按文件名派生
+  let docId: string | undefined
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  for (const e of manifest.entries.values()) {
+    if (e.path === relPath) {
+      docId = e.id
+      break
+    }
+  }
+  if (!docId) docId = basename(relPath, '.md')
+  try {
+    return writeSnapshot(
+      join(bookRoot, '工作区', '.snapshots'),
+      docId,
+      old,
+      { origin: 'draft-overwrite' },
+      { force: true },
+    )
+  } catch {
+    return null
+  }
 }
 
 export function registerDraftRoutes(ctx: DraftCtx): void {
@@ -41,13 +82,24 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     // 长篇 草稿-<章号>.md(review --chapter=N 推导);短篇 草稿-1.md(候选序号)
     const draftFile = kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
     const relPath = `工作区/${draftFile}`
+    // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
+    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content)
     try {
       mkdirSync(draftDir, { recursive: true })
       writeFileSync(join(draftDir, draftFile), content, 'utf8')
     } catch (e) {
       return reply(res, 500, { error: `落盘失败:${e instanceof Error ? e.message : String(e)}` })
     }
-    reply(res, 200, { ok: true, path: relPath, words: content.length })
+    // M3 返回 docId（清单已登记则给真 ID，前端可直接打开）；snapshotted 供前端提示可恢复
+    const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+    let docId: string | null = null
+    for (const e of manifest.entries.values()) {
+      if (e.path === relPath) {
+        docId = e.id
+        break
+      }
+    }
+    reply(res, 200, { ok: true, path: relPath, words: content.length, docId, snapshotted: snapshotId !== null })
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn
