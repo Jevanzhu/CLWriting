@@ -123,7 +123,10 @@ function runClaude(
   prompt: string,
   opts: { allowedTools?: string[]; role?: string },
 ): void {
-  const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose']
+  // effort 限 low:实测 xhigh/medium 的 thinking 会不稳定地独占 output token 上限(32000),
+  // 导致正文偶发 0 字(low 稳定输出)。写作以正文生成为主,不需要深度推理。CLW_EFFORT 可覆盖。
+  const effort = process.env['CLW_EFFORT'] ?? 'low'
+  const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--effort', effort]
   // spawnRole 禁所有工具(--tools '');send 放指定工具(--allowedTools)
   if (opts.allowedTools && opts.allowedTools.length) {
     args.push('--allowedTools', opts.allowedTools.join(','))
