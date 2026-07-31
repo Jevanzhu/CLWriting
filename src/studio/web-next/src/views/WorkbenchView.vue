@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 工作台写作模式（细案 T3.2）：状态卡（/state）+ spawn/interrupt + 事件流（workbench.log）。
-// rebook/hand/cli 任务列表/草稿保存留后续（T3.2 扩展 / T3.3）。
+// 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
+// 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（M4 去机器味：作者看文章，调试功能全保留）。
 import { ref, watch, computed } from 'vue'
 import { Activity } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
@@ -17,6 +17,7 @@ import {
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import EmptyState from '../components/ui/EmptyState.vue'
+import CollapseSection from '../components/ui/CollapseSection.vue'
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -184,13 +185,10 @@ const recent = computed(() => wb.log.slice(-200))
     <div v-if="ui.aiAvailable === false" class="ai-warn">
       AI 驱动不可用（claude CLI 未就绪），写作功能暂不可用。请确认 claude CLI 已安装并在 PATH。
     </div>
-    <!-- 状态卡 -->
+    <!-- 状态卡（M4：删态N编号，只留人话） -->
     <section class="card">
       <div class="card-head">
-        <span class="state-tag">
-          <span v-if="state?.state" class="state-num">态 {{ state.state }}</span>
-          {{ state?.stateName ?? '未知' }}
-        </span>
+        <span class="state-tag">{{ state?.stateName ?? '未知' }}</span>
         <span class="conn" :class="{ on: wb.connected }">
           {{ wb.connected ? '已连接' : '连接中' }}
         </span>
@@ -214,52 +212,56 @@ const recent = computed(() => wb.log.slice(-200))
       </div>
     </section>
 
-    <!-- 事件流 -->
-    <section class="card stream-card">
-      <div class="card-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
-      <div class="stream">
-        <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」触发" size="compact" />
-        <div
-          v-for="(ev, i) in recent"
-          :key="i"
-          class="ev"
-          :class="evKind(ev)"
-        >
-          <span class="ev-ts">{{ ev._ts }}</span>
-          <span class="ev-text">{{ evLabel(ev) }}</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- CLI 八阶段任务 -->
-    <section class="card">
-      <div class="card-head"><span>八阶段任务（第 {{ chapter }} 章）</span></div>
-      <div class="cli-grid">
-        <button
-          v-for="step in CLI_STEPS"
-          :key="step"
-          class="cli-btn"
-          :title="step"
-          :disabled="!!cliRunning"
-          @click="onCli(step)"
-        >
-          {{ cliRunning === step ? `${STEP_LABELS[step] ?? step}…` : STEP_LABELS[step] ?? step }}
-        </button>
-      </div>
-      <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
-    </section>
-
-    <!-- 草稿保存 -->
-    <section class="card">
+    <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
+    <section class="card draft-card">
       <div class="card-head">
         <span>生成正文</span>
         <span class="muted">{{ draftWords }} 字</span>
       </div>
-      <pre class="draft-preview">{{ wb.textOut || '（无正文）' }}</pre>
-      <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
-        存草稿并编辑
-      </button>
-      <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+      <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
+      <div class="draft-actions">
+        <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
+          存草稿并编辑
+        </button>
+        <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+      </div>
+    </section>
+
+    <!-- 高级（M4 默认收起）：事件流 + 阶段任务 + CLI 报告，调试功能一个不删 -->
+    <section class="card">
+      <CollapseSection title="高级" :default-open="false">
+        <div class="adv-block">
+          <div class="adv-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
+          <div class="stream">
+            <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」触发" size="compact" />
+            <div
+              v-for="(ev, i) in recent"
+              :key="i"
+              class="ev"
+              :class="evKind(ev)"
+            >
+              <span class="ev-ts">{{ ev._ts }}</span>
+              <span class="ev-text">{{ evLabel(ev) }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="adv-block">
+          <div class="adv-head"><span>阶段任务（第 {{ chapter }} 章）</span></div>
+          <div class="cli-grid">
+            <button
+              v-for="step in CLI_STEPS"
+              :key="step"
+              class="cli-btn"
+              :title="step"
+              :disabled="!!cliRunning"
+              @click="onCli(step)"
+            >
+              {{ cliRunning === step ? `${STEP_LABELS[step] ?? step}…` : STEP_LABELS[step] ?? step }}
+            </button>
+          </div>
+          <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
+        </div>
+      </CollapseSection>
     </section>
 
     <div v-if="err" class="err-msg">{{ err }}</div>
@@ -295,12 +297,6 @@ const recent = computed(() => wb.log.slice(-200))
 }
 .state-tag {
   color: var(--text-accent);
-}
-.state-num {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  margin-right: 6px;
-  font-variant-numeric: tabular-nums;
 }
 .conn {
   font-size: var(--font-size-xs);
@@ -365,14 +361,23 @@ const recent = computed(() => wb.log.slice(-200))
   font-weight: 400;
   color: var(--text-faint);
 }
-.stream-card {
-  flex: 1;
-  min-height: 200px;
+.adv-block {
+  margin-bottom: var(--size-4-3);
+}
+.adv-block:last-child {
+  margin-bottom: 0;
+}
+.adv-head {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-2);
 }
 .stream {
-  flex: 1;
+  max-height: 240px;
   overflow: auto;
   font-family: var(--font-monospace);
   font-size: var(--font-size-s);
@@ -439,7 +444,15 @@ const recent = computed(() => wb.log.slice(-200))
   max-height: 200px;
   overflow: auto;
 }
+.draft-card {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+}
 .draft-preview {
+  flex: 1;
+  min-height: 120px;
   margin: var(--size-4-2) 0;
   padding: var(--size-4-3);
   font-family: var(--prose-font);
@@ -449,8 +462,12 @@ const recent = computed(() => wb.log.slice(-200))
   background: var(--background-primary);
   border-radius: var(--radius-s);
   white-space: pre-wrap;
-  max-height: 300px;
   overflow: auto;
+}
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
 }
 .ai-warn {
   padding: 8px 12px;
