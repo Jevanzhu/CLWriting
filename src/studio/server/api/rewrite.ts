@@ -91,6 +91,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 
   // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ spawnRole('writer') → lineDiff
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
+  // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
   route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
@@ -99,6 +100,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const instruction = String(reqBody['instruction'] ?? '').trim()
     if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
     const selectionRaw = String(reqBody['selection'] ?? '').trim()
+    const append = reqBody['append'] === true
 
     const bookRoot = join(ctx.workDir, entry.path)
     const docId = params['docId'] ?? ''
@@ -111,14 +113,16 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const draft = readDraft(absPath, isShort)
     if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
     const original = draft.body
-    // 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。统一走 local prompt（body 语境，不涉 fm）
+    // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
     const selection = selectionRaw || original
-    const mode: 'local' | 'whole' = selectionRaw ? 'local' : 'whole'
+    const mode: 'local' | 'whole' | 'append' = append ? 'append' : selectionRaw ? 'local' : 'whole'
     if (mode === 'local' && !original.includes(selection)) {
       return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
     }
 
-    const prompt = buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
+    const prompt = append
+      ? buildAppendPrompt(original, instruction)
+      : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
     const driver = getDriver('cc')
     const session = await driver.startSession(ctx.workDir)
     driver.spawnRole(session, 'writer', prompt)
@@ -140,7 +144,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 
     const produced = text.trim()
     if (!produced) return reply(res, 500, { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' })
-    const rewritten = mode === 'local' ? original.replace(selection, produced) : produced
+    const rewritten =
+      mode === 'append' ? appendRewritten(original, produced)
+      : mode === 'local' ? original.replace(selection, produced)
+      : produced
     if (rewritten === original) {
       return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
     }
@@ -221,6 +228,26 @@ export function buildRewritePrompt(
       : '按指令重写整章正文(保留 front matter,2000-4000 字,单章一主场景,章尾留钩)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
   )
   return parts.join('\n')
+}
+
+/** 组续写 prompt(M2 续写解选区:全文作语境,只输出续写部分,不复述原文)*/
+export function buildAppendPrompt(original: string, instruction: string): string {
+  return [
+    '## 正文全文(语境)',
+    original.trim() || '(本章尚无正文,从头开写)',
+    '',
+    '## 续写指令',
+    instruction,
+    '',
+    '## 要求',
+    '在正文之后继续写。只输出续写部分,不要复述或改动原文任何内容;保持正文纯文本(段落+空行,禁 MD 标题/格式),延续当前文风与情节。直接输出续写文字,不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
+  ].join('\n')
+}
+
+/** append 续写拼稿:原文(去尾换行)+ 空行 + 续写;空白页直接用续写 */
+export function appendRewritten(original: string, produced: string): string {
+  const base = original.replace(/\n+$/, '')
+  return base ? `${base}\n\n${produced}` : produced
 }
 
 /** 草稿文件名:长篇 草稿-<章号>.md;短篇 草稿-1.md(候选) */

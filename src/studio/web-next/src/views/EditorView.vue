@@ -107,15 +107,17 @@ const aiActions = [
   { key: 'continue', label: '续写', instruction: '保留原文不变，在后面续写200-500字，延续当前风格和情节' },
 ] as const
 
-async function runAiAssist(instruction: string): Promise<void> {
+async function runAiAssist(action: { key: string; instruction: string }): Promise<void> {
   const sel = ws.editorGetSelection?.() ?? ''
-  if (!sel) {
+  // M2 续写解选区：无选区的续写走 append（空白页/卡壳时刻）；其余动作仍需选区靶点
+  const isAppend = action.key === 'continue' && !sel
+  if (!sel && !isAppend) {
     ui.toast('请先选中要操作的文字', 'info')
     return
   }
   if (!ws.activeDocId || !doc.bookName) return
   ws.setRightTab('review')
-  await rewrite.run(doc.bookName, ws.activeDocId, instruction, sel)
+  await rewrite.run(doc.bookName, ws.activeDocId, action.instruction, sel, isAppend)
 }
 type CmHostExposed = {
   insertText: (t: string) => void
@@ -176,10 +178,10 @@ async function onCtxSelect(key: string): Promise<void> {
     case 'redo': cmHost.value?.redoAction(); break
     case 'selectAll': cmHost.value?.selectAll(); break
     case 'find': cmHost.value?.openSearch(); break
-    case 'ai-expand': void runAiAssist(aiActions[0].instruction); break
-    case 'ai-condense': void runAiAssist(aiActions[1].instruction); break
-    case 'ai-polish': void runAiAssist(aiActions[2].instruction); break
-    case 'ai-continue': void runAiAssist(aiActions[3].instruction); break
+    case 'ai-expand': void runAiAssist(aiActions[0]); break
+    case 'ai-condense': void runAiAssist(aiActions[1]); break
+    case 'ai-polish': void runAiAssist(aiActions[2]); break
+    case 'ai-continue': void runAiAssist(aiActions[3]); break
   }
 }
 
@@ -349,7 +351,7 @@ onUnmounted(() => {
               :disabled="aiOff || rewrite.loading"
               :data-tip="aiOff ? 'AI 不可达' : a.label"
               data-tip-dir="bottom"
-              @click="runAiAssist(a.instruction)"
+              @click="runAiAssist(a)"
             >
               {{ a.label }}
             </button>

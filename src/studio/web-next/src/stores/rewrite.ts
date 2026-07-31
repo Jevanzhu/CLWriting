@@ -12,11 +12,12 @@ export const useRewriteStore = defineStore('rewrite', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function run(name: string, docId: string, instruction: string, selection: string): Promise<void> {
+  async function run(name: string, docId: string, instruction: string, selection: string, append = false): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const body = selection ? { instruction, selection } : { instruction }
+      // append（M2 续写解选区）：无选区纯追加；否则有选区 local / 无选区 whole
+      const body = append ? { instruction, append: true } : selection ? { instruction, selection } : { instruction }
       result.value = await runRewriteDoc(name, docId, body)
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
