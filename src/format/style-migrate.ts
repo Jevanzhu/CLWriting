@@ -2,15 +2,16 @@
  * 文风库一次性迁移 —— 旧四散存储 → 统一条目库（文风系统重整）。
  *
  * 样章库/金句库：搬移（迁移后删旧文件，空目录顺手清掉）。
- * 文风铁律：只提取复制（反和解禁词 / AI 味替换表 → 禁词条目），原文不动——
- *   注入与机检仍读铁律原文，S5 瘦身时才收口，迁移期间行为零变化。
+ * 文风铁律：提取（反和解禁词 / AI 味替换表 → 禁词条目）后瘦身为纯配置
+ *   （S5 收口：保留可量化约束 + 删除分级，禁词知识归条目库；机检禁词走
+ *   readIronRules 合并条目库，行为不缺失）。
  *
  * 幂等：文风/条目/ 目录已存在 → no-op。
  * 回退依赖 git 托管（文风/ 不在 gitignore，误迁可 checkout 回退）。
  * 消费方触发（同伏笔迁移范式）：首次进文风视图时调用，结果落 toast。
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
 import { writeEntry, ENTRIES_DIR } from './style-entry.js'
@@ -100,6 +101,22 @@ function rmdirIfEmpty(dir: string): void {
   } catch {
     /* 非空或不存在 */
   }
+}
+
+/**
+ * 铁律瘦身（S5）：删「反和解段」「AI 味替换参考」段（知识已入条目库），
+ * 保留头部引言、可量化约束、删除分级及作者自加段（保守：未知段一律保留）。
+ */
+export function slimIronRules(text: string): string {
+  const out: string[] = []
+  let dropping = false
+  for (const line of text.split('\n')) {
+    if (/^##\s/.test(line)) {
+      dropping = /反和解|AI\s*味替换/.test(line)
+    }
+    if (!dropping) out.push(line)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
 /**
@@ -194,7 +211,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   }
   if (quoteCount > 0) result.details.push(`金句库 → ${quoteCount} 条样章（标签: 金句）`)
 
-  // ── 3. 铁律提取（复制不删，S5 瘦身收口）：反和解禁词 + AI 味替换表 → 禁词条目 ──
+  // ── 3. 铁律：提取（反和解禁词 + AI 味替换表 → 禁词条目）→ 瘦身为纯配置 ──
   const rulesFile = join(styleDir, '文风铁律.md')
   if (existsSync(rulesFile)) {
     const rulesText = readFileSync(rulesFile, 'utf-8')
@@ -212,8 +229,14 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
       write({ 类型: '禁词', 场景: '通用', 来源: '导入', 标签: ['AI味'], 说明: row.替换, 正文: row.词 })
       flavorCount++
     }
-    if (banned.length > 0) result.details.push(`铁律反和解段 → ${banned.length} 条禁词（原文保留至 S5 瘦身）`)
+    if (banned.length > 0) result.details.push(`铁律反和解段 → ${banned.length} 条禁词`)
     if (flavorCount > 0) result.details.push(`铁律 AI 味表 → ${flavorCount} 条禁词（标签: AI味）`)
+    // 瘦身写回（机检禁词已由 readIronRules 合并条目库，不缺失）
+    const slimmed = slimIronRules(rulesText)
+    if (slimmed !== rulesText) {
+      writeFileSync(rulesFile, slimmed, 'utf-8')
+      result.details.push('铁律瘦身为纯配置（禁词知识归条目库）')
+    }
   }
 
   // 空迁移（三源皆无产出）也建条目目录骨架——幂等闸生效，下次不再扫

@@ -11,6 +11,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
+import { addEntry } from '../format/style-entry.js'
 import { BASE_LEAD_TYPES, recommendShortChecks } from './data.js'
 import { addCommit, git } from '../git/exec.js'
 import type { BookConfig, LeadType } from '../format/types.js'
@@ -200,6 +201,16 @@ function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): vo
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
 }
 
+/** 新书预置 AI 味禁词（旧铁律替换表同源；「AI味」标签=软禁词，只注入不机检） */
+const PRESET_AI_FLAVOR: { 词: string; 替换: string }[] = [
+  { 词: '深吸一口气', 替换: '具体动作（胸口起伏了一下 / 把烟摁灭）或删' },
+  { 词: '缓缓 / 微微 / 轻轻 / 淡淡', 替换: '删，或给具体幅度' },
+  { 词: '不禁 / 不由得', 替换: '删' },
+  { 词: '嘴角勾起一抹弧度', 替换: '换具体表情或动作' },
+  { 词: '空气仿佛凝固', 替换: '删，或写具体反应' },
+  { 词: '抽象情绪总结句', 替换: '删，或换成具体动作 / 物件' },
+]
+
 /** 文风冷启动占位（O2，长短共用——整集/整本书共享笔感/禁词/机检）。 */
 function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   for (const scene of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
@@ -207,6 +218,11 @@ function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   }
   mkdirSync(join(bookRoot, '文风', '金句库'), { recursive: true })
   writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre), 'utf-8')
+  // 条目库骨架 + 预置 AI 味禁词（S5：禁词知识在条目库，铁律纯配置；
+  // 条目目录存在 = 迁移幂等闸生效，新书不再走迁移）
+  for (const row of PRESET_AI_FLAVOR) {
+    addEntry(bookRoot, { 类型: '禁词', 场景: '通用', 来源: '导入', 标签: ['AI味'], 说明: row.替换, 正文: row.词 })
+  }
 }
 
 /** 第一卷卷纲范例（§17 决策①，与 定稿/正文/第一卷/ 同名关联，开箱引导卷结构）。 */
@@ -240,16 +256,12 @@ export function renderVolumeOutlineExample(): string {
   ].join('\n')
 }
 
-/** 文风铁律模板（冷启动占位，作者后续按本书调性补）。 */
+/** 文风铁律模板（S5 瘦身为纯配置：阈值 + 删除分级；禁词知识在条目库）。 */
 export function renderStyleRules(_genre: string): string {
   return [
     '# 文风铁律',
     '',
-    '> 本书的文风硬约束 + AI 味防御。可手改（文件即真相）；机检按下方「可量化约束」实时核对。',
-    '',
-    '## 反和解段（AI 味防御）',
-    '',
-    '（待作者补：本章不可出现的套话/硬禁词清单——写进这里的词命中即报红）',
+    '> 本书的文风硬约束（纯配置）。可手改（文件即真相）；机检按下方「可量化约束」实时核对；禁词在 文风/条目/禁词/ 维护。',
     '',
     '## 可量化约束',
     '',
@@ -262,19 +274,6 @@ export function renderStyleRules(_genre: string): string {
     '- 结尾总结体: 避免',
     '',
     '人工参考（不进机检）：对话占比目标 30–50%、平均句长 15–25 字。',
-    '',
-    '## AI 味替换参考',
-    '',
-    '软约束，写稿与去 AI 味时用，**非硬禁词**（高频才换，低频或有剧情功能可留；保留创作意图 > 机械替换）：',
-    '',
-    '| AI 味表达 | 替换方向 |',
-    '|---|---|',
-    '| 深吸一口气 | 具体动作（胸口起伏了一下 / 把烟摁灭）或删 |',
-    '| 缓缓 / 微微 / 轻轻 / 淡淡 | 删，或给具体幅度 |',
-    '| 不禁 / 不由得 | 删 |',
-    '| 嘴角勾起一抹弧度 | 换具体表情或动作 |',
-    '| 空气仿佛凝固 | 删，或写具体反应 |',
-    '| 抽象情绪总结句 | 删，或换成具体动作 / 物件 |',
     '',
     '## 删除上限分级（去 AI 味安全网·自愈不门禁）',
     '',

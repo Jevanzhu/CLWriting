@@ -166,3 +166,16 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
   writeEntry(join(dir, fileName), e)
   return `${ENTRIES_DIR}/${e.类型}/${fileName}`
 }
+
+/**
+ * 条目库硬禁词列表（机检收口 S5：禁词知识在条目库；无条目库 → 空）。
+ * 「AI味」标签的是软禁词（旧铁律替换表迁移而来）——只注入不机检，
+ * 保持旧语义：反和解硬禁词命中报红，AI 味词交给写稿/去味阶段。
+ */
+export function readBannedEntryWords(bookRoot: string): string[] {
+  const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '禁词')
+  return entries
+    .filter((e) => !(e.标签?.includes('AI味')))
+    .map((e) => e.正文.trim())
+    .filter(Boolean)
+}

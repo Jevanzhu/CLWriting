@@ -1,6 +1,6 @@
 /**
  * 文风库迁移单测（文风系统重整 S1）。
- * 样章搬移 / 金句拆条 / 铁律提取（复制不删）/ 幂等 / 词去重 / 空书。
+ * 样章搬移 / 金句拆条 / 铁律提取+瘦身 / 幂等 / 词去重 / 空书。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
@@ -100,7 +100,7 @@ describe('migrateStyleLibrary', () => {
     expect(existsSync(join(root, '文风', '金句库.md'))).toBe(false)
   })
 
-  it('铁律提取：硬禁词无标签、AI 味带标签+说明、重合词去重；原文保留', () => {
+  it('铁律提取：硬禁词无标签、AI 味带标签+说明、重合词去重；瘦身写回', () => {
     writeFileSync(join(root, '文风', '文风铁律.md'), IRON_RULES, 'utf-8')
     const r = migrateStyleLibrary(root)
     // 硬禁词 2（势不两立/深吸一口气）+ AI 味 1（缓缓 / 微微；深吸一口气重合跳过）
@@ -111,8 +111,14 @@ describe('migrateStyleLibrary', () => {
     const soft = entries.find((e) => e.正文 === '缓缓 / 微微')!
     expect(soft.标签).toEqual(['AI味'])
     expect(soft.说明).toBe('删，或给具体幅度')
-    // 铁律原文一字未动（S5 瘦身才收口）
-    expect(readFileSync(join(root, '文风', '文风铁律.md'), 'utf-8')).toBe(IRON_RULES)
+    // S5 瘦身写回：反和解段 + AI 味表删（知识归条目库），删除分级保留
+    const slim = readFileSync(join(root, '文风', '文风铁律.md'), 'utf-8')
+    expect(slim).not.toContain('反和解')
+    expect(slim).not.toContain('AI 味替换')
+    expect(slim).not.toContain('势不两立')
+    expect(slim).toContain('删除上限分级')
+    expect(slim).toContain('轻度 ≤15%')
+    expect(r.details.some((d) => d.includes('瘦身'))).toBe(true)
   })
 
   it('幂等：第二次调用 no-op', () => {

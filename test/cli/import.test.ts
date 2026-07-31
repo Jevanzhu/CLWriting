@@ -57,11 +57,12 @@ describe('importV02Book', () => {
     expect(existsSync(join(bookRoot, '大纲', '悬念'))).toBe(true)
     expect(existsSync(join(bookRoot, '大纲', '感情线'))).toBe(true)
     expect(existsSync(join(bookRoot, '大纲', '总纲.md'))).toBe(true)
-    // 文风冷启动（修复 S1：上一轮文风铁律是空壳，现在应是 scaffold 完整模板）
+    // 文风冷启动（S5：铁律纯配置 + 预置 AI 味禁词进条目库）
     expect(existsSync(join(bookRoot, '文风', '样章库', '战斗'))).toBe(true)
     const iron = require('node:fs').readFileSync(join(bookRoot, '文风', '文风铁律.md'), 'utf-8')
-    expect(iron).toContain('反和解段')
     expect(iron).toContain('可量化约束')
+    expect(iron).not.toContain('反和解段')
+    expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)
     // 定稿区完整（scaffoldDirectories 建的，非简化版）
     expect(existsSync(join(bookRoot, '定稿', '摘要', '章摘要'))).toBe(true)
     expect(existsSync(join(bookRoot, '定稿', '设定', '角色'))).toBe(true)

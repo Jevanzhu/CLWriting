@@ -14,12 +14,13 @@
  * - 入库格式复用 #5 writeSample（见 commit.ts）
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
-import { parseIronRules, checkStyleMetrics, checkRepeat } from '../check/count.js'
+import { checkStyleMetrics, checkRepeat } from '../check/count.js'
+import { readIronRules } from '../metrics/style.js'
 import type { IronRules } from '../check/count.js'
 
 /** 样章候选 */
@@ -130,11 +131,8 @@ export function learnFromBook(bookRoot: string): LearnResult {
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   if (cfg.ok && cfg.config.book.title) bookTitle = cfg.config.book.title
 
-  let ironRules: IronRules = {}
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  if (existsSync(ironPath)) {
-    ironRules = parseIronRules(readFileSync(ironPath, 'utf-8'))
-  }
+  // 铁律阈值 + 条目库禁词（S5 收口：统一走 readIronRules）
+  const ironRules: IronRules = readIronRules(bookRoot)
 
   // 3. 读正文
   const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter, syncSummary } from '../../src/cache/sync.js'
 import { prepare, estimateTokens } from '../../src/process/prepare.js'
+import { addEntry } from '../../src/format/style-entry.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -201,6 +202,27 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
   const style = r.sections.find((s) => s.title === '文风样章')
   expect(style).toBeDefined() // 降档保留，未整段删
   expect(style!.content.length).toBeLessThan(1500) // 降档后仅 1 段（≈1000 字），非 heavy 全量 3 段
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('prepare S5: 条目库存在 → 文风便宜段必带 + 条目样章弹性段，铁律不注入', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 建条目库（迁移后形态）：禁词/手法/样章——条目库存在即走新路
+  addEntry(root, { 类型: '禁词', 场景: '通用', 来源: '导入', 正文: '强行和解' })
+  addEntry(root, { 类型: '手法', 场景: '通用', 来源: '收割', 正文: '对话不用提示语' })
+  addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 说明: '学它的停顿', 正文: '刀光没入雪雾。' })
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'], undefined, '战斗')
+  const style = r.sections.find((s) => s.title === '文风')
+  expect(style?.essential).toBe(true)
+  expect(style?.content).toContain('禁用：强行和解')
+  expect(style?.content).toContain('- 对话不用提示语')
+  // 铁律全文不再注入（纯配置不给 AI）
+  expect(r.sections.find((s) => s.title === '文风铁律')).toBeUndefined()
+  // 样章从条目库出，格式与旧样章注入一致（说明=技法指令行）
+  const sample = r.sections.find((s) => s.title === '文风样章')
+  expect(sample?.flexibleRank).toBe(2)
+  expect(sample?.content).toBe('技法指令：学它的停顿\n刀光没入雪雾。')
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

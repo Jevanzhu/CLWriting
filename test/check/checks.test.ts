@@ -376,7 +376,7 @@ test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
 })
 
-test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ 含 deslop 段', () => {
+test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ S5 纯配置瘦身', () => {
   const iron = renderStyleRules('玄幻')
   // 机检激活：parseIronRules 从 scaffold 铁律解析出全部可量化阈值（修复「骨架阈值睡着」）
   const rules = parseIronRules(iron)
@@ -385,14 +385,12 @@ test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ 含 deslo
   expect(rules.maxDialogueTagRatio).toBe(0.5)
   expect(rules.maxParallelStreak).toBe(3)
   expect(rules.avoidSummaryEnding).toBe(true)
-  // deslop 软约束段（吸收点 2.5）：替换库 + 删除上限分级 + 需复核
-  expect(iron).toContain('AI 味替换参考')
-  expect(iron).toContain('深吸一口气')
+  // S5 瘦身：纯配置双段（阈值 + 删除分级）；禁词知识归条目库，不再在铁律
+  expect(iron).toContain('可量化约束')
   expect(iron).toContain('轻度 ≤15%')
   expect(iron).toContain('[需复核]')
-  // 保留 import.test.ts 依赖的两个锚点标题
-  expect(iron).toContain('反和解段')
-  expect(iron).toContain('可量化约束')
+  expect(iron).not.toContain('反和解段')
+  expect(iron).not.toContain('AI 味替换参考')
 })
 
 test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () => {

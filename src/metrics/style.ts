@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSy
 import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readSamplesByScene } from '../format/style.js'
+import { readBannedEntryWords } from '../format/style-entry.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { parseIronRules, computeStyleMetrics, type IronRules, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
@@ -82,11 +83,15 @@ export function baselinePath(bookRoot: string): string {
   return join(bookRoot, '文风', '基线.json')
 }
 
-/** 读铁律阈值；铁律文件不存在 → 空规则（各项不检，诚实降级） */
+/** 读铁律阈值 + 条目库禁词合并（S5 收口：禁词知识在条目库，铁律瘦身为纯配置）；皆无 → 空规则 */
 export function readIronRules(bookRoot: string): IronRules {
   const p = ironRulesPath(bookRoot)
-  if (!existsSync(p)) return {}
-  return parseIronRules(readFileSync(p, 'utf-8'))
+  const rules = existsSync(p) ? parseIronRules(readFileSync(p, 'utf-8')) : {}
+  const entryWords = readBannedEntryWords(bookRoot)
+  if (entryWords.length > 0) {
+    rules.bannedWords = [...new Set([...(rules.bannedWords ?? []), ...entryWords])]
+  }
+  return rules
 }
 
 /**

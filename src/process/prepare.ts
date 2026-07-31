@@ -1,7 +1,7 @@
 /**
  * 备料 + 输入预算闸 —— 阶段 3（母本第 6.3 节，依据 #12 输入预算闸 spec）。
  *
- * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风铁律 + 文风样章 + 近章结尾。
+ * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风（条目库/铁律）+ 文风样章 + 近章结尾。
  *
  * 预算闸（#12）：
  * 1. 源头限流——账本只取本章细纲声明推进的条目 + 少数悬太久（不取全部 open）
@@ -15,6 +15,8 @@ import { join } from 'node:path'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../cli/read.js'
 import { readSamplesByScene } from '../format/style.js'
+import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
+import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
 import type { BookConfig, LeadType, StyleSample } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 
@@ -102,14 +104,30 @@ export function prepare(
     })
   }
 
-  // #3 文风铁律（刚需——#12 含反和解标准段）
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  if (existsSync(ironPath)) {
-    sections.push({
-      title: '文风铁律',
-      content: readFileSync(ironPath, 'utf-8').trim(),
-      essential: true,
-    })
+  // #3 文风（S5 预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
+  // 未迁移书（无条目库）→ 旧行为：铁律全文刚需注入
+  const entriesDir = join(bookRoot, ENTRIES_DIR)
+  const hasEntryLib = existsSync(entriesDir)
+  const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
+  const entryLib = hasEntryLib ? readEntries(entriesDir).entries : []
+  if (hasEntryLib) {
+    const ess = buildStyleEssentials(entryLib, scenes)
+    if (ess) {
+      sections.push({
+        title: '文风',
+        content: ess,
+        essential: true,
+      })
+    }
+  } else {
+    const ironPath = join(bookRoot, '文风', '文风铁律.md')
+    if (existsSync(ironPath)) {
+      sections.push({
+        title: '文风铁律',
+        content: readFileSync(ironPath, 'utf-8').trim(),
+        essential: true,
+      })
+    }
   }
 
   // ── 弹性段（#12 第 4 节：可裁剪，按优先级）──────
@@ -135,31 +153,35 @@ export function prepare(
   }
 
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
-  // G2 跨场景：主场景优先、次场景补，总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
-  const sampleDir = join(bookRoot, '文风', '样章库')
-  const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
-  const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+  // 条目库路（S5）：pickSampleEntries 保持 G2 跨场景语义（每场景 1 条保代表 + 主场景补满）；
+  // 未迁移书走旧样章库。总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
   const maxTotal = config.style.injection === 'heavy' ? 3 : 1
-  // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
-  const picked: StyleSample[] = []
-  for (const samples of perScene) {
-    if (samples.length > 0) picked.push(samples[0]!)
-  }
-  for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
-    picked.push(perScene[0]![i]!)
-  }
-  const injected = picked.slice(0, maxTotal)
-  if (injected.length > 0) {
-    const parts = injected.map((s) => {
+  let sampleParts: string[] = []
+  if (hasEntryLib) {
+    sampleParts = pickSampleEntries(entryLib, scenes, maxTotal).map(sampleEntryText)
+  } else {
+    const sampleDir = join(bookRoot, '文风', '样章库')
+    const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+    // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
+    const picked: StyleSample[] = []
+    for (const samples of perScene) {
+      if (samples.length > 0) picked.push(samples[0]!)
+    }
+    for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
+      picked.push(perScene[0]![i]!)
+    }
+    sampleParts = picked.slice(0, maxTotal).map((s) => {
       if (!s.技法指令) return s.正文
       return `技法指令：${s.技法指令}\n${s.正文}`
     })
+  }
+  if (sampleParts.length > 0) {
     sections.push({
       title: '文风样章',
-      content: parts.join('\n\n'),
+      content: sampleParts.join('\n\n'),
       essential: false,
       flexibleRank: 2,
-      degradedContent: parts.slice(0, 1).join('\n\n'),
+      degradedContent: sampleParts.slice(0, 1).join('\n\n'),
     })
   }
 
