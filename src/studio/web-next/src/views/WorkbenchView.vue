@@ -4,6 +4,8 @@
 import { ref, watch, computed } from 'vue'
 import { Activity } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
+import { useWorkspaceStore } from '../stores/workspace'
+import { useTreeStore } from '../stores/tree'
 import {
   getState,
   spawnRole,
@@ -19,6 +21,8 @@ import EmptyState from '../components/ui/EmptyState.vue'
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
 const ui = useUiStore()
+const ws = useWorkspaceStore()
+const tree = useTreeStore()
 
 const state = ref<BookState | null>(null)
 const prompt = ref('')
@@ -30,7 +34,7 @@ const CLI_STEPS = ['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', '
 const STEP_LABELS: Record<string, string> = {
   prepare: '备料',
   confirm: '确认',
-  check: '机检',
+  check: '校对',
   finalize: '定稿',
   enter: '入书',
   hand: '手写',
@@ -119,16 +123,19 @@ async function onCli(step: string): Promise<void> {
   }
 }
 
-// 草稿保存：done 后把生成正文 textOut 存为当前章草稿
+// 存草稿并编辑（M3）：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
 async function onSaveDraft(): Promise<void> {
   if (!wb.textOut.trim()) {
     ui.toast('无正文可存', 'error')
     return
   }
   try {
-    await saveDraft(props.bookName, chapter.value, wb.textOut)
+    const r = await saveDraft(props.bookName, chapter.value, wb.textOut)
     draftSaved.value = { words: wb.textOut.length }
-    ui.toast(`第 ${chapter.value} 章草稿已存`, 'success')
+    // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
+    await tree.load(props.bookName)
+    ws.openTab(r.docId)
+    ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
     ui.toast(err.value, 'error')
@@ -250,7 +257,7 @@ const recent = computed(() => wb.log.slice(-200))
       </div>
       <pre class="draft-preview">{{ wb.textOut || '（无正文）' }}</pre>
       <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
-        存为第 {{ chapter }} 章草稿
+        存草稿并编辑
       </button>
       <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
     </section>

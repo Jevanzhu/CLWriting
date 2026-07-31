@@ -1,14 +1,20 @@
 /**
- * M1 草稿覆写留底单测（最小修缮方案）。
+ * M1 草稿覆写留底 + M3 docId 返回单测（最小修缮方案）。
  *
  * snapshotBeforeOverwrite 纯函数：覆写前检测 + force 快照。
- * 范式同 kind-branches：临时目录 fixture，不起 HTTP、不调大模型。
+ * draft-save 端点集成：响应 {docId, snapshotted} 契约（前端「存草稿并编辑」跳转依赖）。
+ * 范式同 kind-branches：临时目录 fixture，不调大模型。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { snapshotBeforeOverwrite } from '../../src/studio/server/api/draft.js'
+import { startServer } from '../../src/studio/server/index.js'
+import { legacyId, generateDocId } from '../../src/document/stable-id.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 let root = ''
 const REL = '工作区/草稿-42.md'
@@ -84,5 +90,79 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     const files = snapshotFiles('草稿-1')
     expect(files).toHaveLength(1)
     expect(readFileSync(join(root, '工作区', '.snapshots', '草稿-1', files[0]!), 'utf8')).toContain('第1篇草稿')
+  })
+})
+
+// ---- 端点集成：POST /draft-save 响应契约（M3 存草稿并编辑） ----
+
+const BOOK = '草稿测试书'
+let workDir = ''
+let server: http.Server | undefined
+let baseUrl = ''
+let token = ''
+
+function postDraft(body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
+  return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/draft-save`, {
+    method: 'POST',
+    headers: { 'x-studio-token': token, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
+}
+
+beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), 'clwriting-draft-api-'))
+  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+  )
+  const bookRoot = join(workDir, BOOK)
+  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    'utf8',
+  )
+  server = startServer({ port: 0, workDir })
+  await new Promise<void>((r) => server!.once('listening', r))
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const r = await fetch(`${baseUrl}/api/boot`)
+  token = ((await r.json()) as { token: string }).token
+})
+
+afterAll(async () => {
+  if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
+})
+
+describe('POST /draft-save 响应契约（M3）', () => {
+  it('新草稿：docId 回落 legacyId(relPath)（与树扫盘一致）+ snapshotted=false', async () => {
+    const r = await postDraft({ chapter: 2, content: '第一版生成正文。' })
+    expect(r.status).toBe(200)
+    expect(r.json['ok']).toBe(true)
+    expect(r.json['path']).toBe('工作区/草稿-2.md')
+    expect(r.json['docId']).toBe(legacyId('工作区/草稿-2.md'))
+    expect(r.json['snapshotted']).toBe(false)
+  })
+
+  it('覆写不同内容：snapshotted=true（M1 留底生效）', async () => {
+    const r = await postDraft({ chapter: 2, content: '第二版生成正文，盖掉第一版。' })
+    expect(r.status).toBe(200)
+    expect(r.json['snapshotted']).toBe(true)
+    // 快照真实落盘（legacyId 派生失败时 basename 兜底 → 目录名 草稿-2）
+    const snapDir = join(workDir, BOOK, '工作区', '.snapshots')
+    expect(existsSync(snapDir)).toBe(true)
+  })
+
+  it('清单已登记：docId 返回真 ID', async () => {
+    const manifestPath = join(workDir, BOOK, '项目', '文档清单.jsonl')
+    mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
+    const m = readManifest(manifestPath)
+    const realId = generateDocId()
+    upsertEntry(m, { id: realId, nodeType: 'document', path: '工作区/草稿-3.md', parentId: null })
+    writeManifest(manifestPath, m)
+    const r = await postDraft({ chapter: 3, content: '登记过的草稿内容。' })
+    expect(r.status).toBe(200)
+    expect(r.json['docId']).toBe(realId)
   })
 })

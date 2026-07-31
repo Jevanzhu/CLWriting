@@ -18,6 +18,8 @@ import { readKind } from '../book-context.js'
 import { buildSettingsContext } from './settings.js'
 import { readManifest } from '../../../document/manifest.js'
 import { writeSnapshot } from '../../../document/snapshot.js'
+import { legacyId } from '../../../document/stable-id.js'
+import { invalidateTreeIndex } from '../../../document/tree.js'
 
 interface DraftCtx {
   workDir: string | null
@@ -90,7 +92,10 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     } catch (e) {
       return reply(res, 500, { error: `落盘失败:${e instanceof Error ? e.message : String(e)}` })
     }
-    // M3 返回 docId（清单已登记则给真 ID，前端可直接打开）；snapshotted 供前端提示可恢复
+    // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
+    invalidateTreeIndex(bookRoot)
+    // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
+    // 与树扫盘一致，前端可直接 openTab）；snapshotted 供前端提示可从历史恢复
     const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
     let docId: string | null = null
     for (const e of manifest.entries.values()) {
@@ -99,7 +104,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
         break
       }
     }
-    reply(res, 200, { ok: true, path: relPath, words: content.length, docId, snapshotted: snapshotId !== null })
+    reply(res, 200, { ok: true, path: relPath, words: content.length, docId: docId ?? legacyId(relPath), snapshotted: snapshotId !== null })
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn

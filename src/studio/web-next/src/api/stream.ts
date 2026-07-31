@@ -32,9 +32,17 @@ export async function interrupt(name: string): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' })
 }
 
-// POST /draft-save {chapter, content}
-export async function saveDraft(name: string, chapter: number, content: string): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/draft-save`, {
+// POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
+// docId：清单真 ID 或 legacyId 派生（与树一致，可直接 openTab）；snapshotted：覆写前留了快照（M1）
+export interface DraftSaveResult {
+  ok: boolean
+  path: string
+  words: number
+  docId: string
+  snapshotted: boolean
+}
+export async function saveDraft(name: string, chapter: number, content: string): Promise<DraftSaveResult> {
+  return apiJson(`/api/books/${encodeURIComponent(name)}/draft-save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chapter, content }),
