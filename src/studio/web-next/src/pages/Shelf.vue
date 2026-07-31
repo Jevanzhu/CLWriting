@@ -49,10 +49,17 @@ function openBook(name: string): void {
 
 <template>
   <div class="shelf" :class="{ 'has-traffic': hasDesktop }">
+    <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
+    <div class="ambient">
+      <div class="glow glow-tr"></div>
+      <div class="glow glow-bl"></div>
+    </div>
+
     <header class="shelf-titlebar" />
     <main class="shelf-main">
       <header class="shelf-head">
         <div class="head-left">
+          <div class="head-mark"><BookOpen :size="24" /></div>
           <h1 class="head-title">书架</h1>
           <p v-if="shelf.books.length" class="head-sub">
             <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span><span class="sub-num">{{ formatWords(totalWords) }}</span><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
@@ -210,9 +217,15 @@ function openBook(name: string): void {
 
 <style scoped>
 .shelf {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+      var(--background-primary));
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
      子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改 */
   --font-size-2xl: 20px;
@@ -244,10 +257,12 @@ function openBook(name: string): void {
 }
 /* 顶部 titlebar：纯窗口拖动区（桌面版可拖动整窗），不放内容。*/
 .shelf-titlebar {
+  position: relative;
+  z-index: 1;
   height: var(--size-tabbar);
   flex-shrink: 0;
   border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
+  background: transparent;
 }
 .shelf.has-traffic .shelf-titlebar {
   -webkit-app-region: drag;
@@ -259,6 +274,23 @@ function openBook(name: string): void {
   justify-content: space-between;
   gap: var(--size-4-4);
   margin-bottom: var(--size-4-7);
+  animation: fade-up 0.5s var(--ease-out) both;
+}
+/* 品牌徽标（与 Welcome/Library 同语言） */
+.head-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--size-4-2);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
+    var(--shadow-m),
+    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .head-left {
   display: flex;
@@ -269,10 +301,14 @@ function openBook(name: string): void {
 .head-title {
   margin: 0;
   font-size: var(--font-size-2xl);
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  color: var(--text-normal);
+  background: linear-gradient(135deg, var(--text-accent), var(--text-normal) 75%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .head-sub {
   margin: 0;
@@ -292,6 +328,8 @@ function openBook(name: string): void {
   opacity: 0.6;
 }
 .shelf-main {
+  position: relative;
+  z-index: 1;
   flex: 1;
   width: 100%;
   max-width: 1080px;
@@ -659,5 +697,45 @@ function openBook(name: string): void {
     transform: none;
     transition: none;
   }
+}
+
+/* ══ 环境氛围层（与 Welcome 同语言）══ */
+.ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: opacity, transform;
+}
+.glow-tr {
+  top: -18%;
+  right: -8%;
+  width: 50vw;
+  height: 50vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
+  animation: shelf-breathe 18s var(--ease-std) infinite;
+}
+.glow-bl {
+  bottom: -22%;
+  left: -12%;
+  width: 42vw;
+  height: 42vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
+  animation: shelf-breathe 24s var(--ease-std) infinite reverse;
+}
+@keyframes shelf-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.1); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 </style>
