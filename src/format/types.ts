@@ -17,10 +17,10 @@
 export type LeadType =
   | '悬念'
   | '感情线'
-  | '局线'
+  | '布局线'
   | '设定线'
   | '成长线'
-  | '关系债'
+  | '关系线'
 
 /** 账本三态（#3 第 5 节，磁盘中文 ↔ 机器语义） */
 export type LeadStatus = '进行中' | '已收尾' | '已放弃'
@@ -46,9 +46,9 @@ export interface Lead {
   // 特化字段（#6/#3 第 6 节，仅对应类型出现）
   境界体系?: string // 成长线（#6 第 3 节）
   当前境界?: string // 成长线
-  父局线?: string // 局线（#3 第 6.2 节，局中局）
-  欠方?: string // 关系债（#3 第 6.3 节）
-  债主?: string // 关系债
+  父布局线?: string // 布局线（#3 第 6.2 节，局中局）
+  欠方?: string // 关系线（#3 第 6.3 节）
+  债主?: string // 关系线
 
   // 容错：未知字段原样保留（#3 第 8 节）
   _raw?: Record<string, string>
@@ -169,6 +169,35 @@ export interface StyleSample {
   正文: string // 样章本身（front matter 之后的正文）
   _raw?: Record<string, string>
   _path?: string
+}
+
+// ── 文风条目（文风系统重整：统一模型吃掉样章/手法/反例/禁词）──
+
+/** 条目类型（极性不设字段，由类型推导：样章/手法=正，反例/禁词=负） */
+export type EntryKind = '样章' | '手法' | '反例' | '禁词'
+
+/** 条目来源（即证据强度：改稿行为 > 作者标注 > 收割 > 题材范文 > 导入） */
+export type EntrySource = '作者标注' | '改稿行为' | '收割' | '题材范文' | '导入'
+
+/** 统一文风条目 */
+export interface StyleEntry {
+  类型: EntryKind
+  场景: string // 具体场景 或「通用」
+  来源: EntrySource
+  说明?: string // 样章=学什么 / 反例=错在哪 / 手法=本身补充 / 禁词=为什么不要
+  出处?: string
+  标签?: string[] // 金句 / 锚点 / AI味 / …
+  正文: string // 样章正文 / 手法描述 / 反例正文 / 禁词
+  证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式 S4 定义）
+  _raw?: Record<string, string>
+  _path?: string
+}
+
+/** 改稿行为来源的原始证据（供作者在候选箱确认时对照看） */
+export interface EntryEvidence {
+  章号: number
+  AI版: string
+  作者版: string
 }
 
 // ── 境界枚举（#6 第 2 节）────────────────────────
