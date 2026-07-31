@@ -34,6 +34,29 @@ export function encodeRefSegment(docId: string): string {
 }
 
 /**
+ * ref 段 → docId 反解（legacy-<16hex> → legacy:<16hex>；其余原样）。
+ * docId 仅两形态，doc_<ULID> 编码前后一致，可无损往返。
+ */
+export function decodeRefSegment(seg: string): string {
+  const m = seg.match(/^legacy-([0-9a-f]{16})$/)
+  return m ? `legacy:${m[1]}` : seg
+}
+
+/** 列全书有轨迹的 docId（候选收割遍历用；非 git 仓库 → 空） */
+export function listTrackedDocs(bookRoot: string): string[] {
+  const r = git(['for-each-ref', '--format=%(refname)', `${REF_ROOT}/`], bookRoot)
+  if (!r.ok) return []
+  const docIds = new Set<string>()
+  for (const line of r.stdout.split('\n')) {
+    const ref = line.trim()
+    if (!ref.startsWith(`${REF_ROOT}/`)) continue
+    const seg = ref.slice(REF_ROOT.length + 1).split('/')[0]
+    if (seg) docIds.add(decodeRefSegment(seg))
+  }
+  return [...docIds]
+}
+
+/**
  * 记录一版 AI 文本：hash-object 写 blob → update-ref 挂旁路 ref。
  * @returns ref 全名；书不是 git 仓库或 git 失败 → null（不阻断调用方）
  */

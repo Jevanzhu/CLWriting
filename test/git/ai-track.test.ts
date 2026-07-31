@@ -12,6 +12,8 @@ import {
   readAiVersion,
   deleteAiVersions,
   encodeRefSegment,
+  decodeRefSegment,
+  listTrackedDocs,
 } from '../../src/git/ai-track.js'
 import { git, addCommit } from '../../src/git/exec.js'
 import { legacyId } from '../../src/document/stable-id.js'
@@ -108,5 +110,19 @@ describe('旁路语义', () => {
     expect(deleteAiVersions(root, 'doc_A')).toBe(2)
     expect(listAiVersions(root, 'doc_A')).toHaveLength(0)
     expect(listAiVersions(root, 'doc_B')).toHaveLength(1)
+  })
+
+  it('listTrackedDocs：列全书轨迹文档，legacy docId 反解还原冒号', () => {
+    const legacy = legacyId('工作区/草稿-3.md')
+    recordAiVersion(root, 'doc_A', '一')
+    recordAiVersion(root, 'doc_A', '二')
+    recordAiVersion(root, legacy, '三')
+    const docs = listTrackedDocs(root)
+    expect(docs).toHaveLength(2)
+    expect(docs).toContain('doc_A')
+    expect(docs).toContain(legacy)
+    // 纯函数往返
+    expect(decodeRefSegment(encodeRefSegment(legacy))).toBe(legacy)
+    expect(decodeRefSegment('doc_A')).toBe('doc_A')
   })
 })
