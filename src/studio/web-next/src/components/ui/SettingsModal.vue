@@ -91,7 +91,6 @@ const snapCount = ref(SNAPSHOT_DEFAULTS.maxCount)
 const aiHost = ref<'cc' | 'codex'>('cc')
 const aiWorkflow = ref<'free' | 'assist' | 'strict'>('strict')
 const aiCallsPerChapter = ref(8)
-const aiStyleInjection = ref<'light' | 'heavy'>('light')
 const ragEnabled = ref(false)
 const ragEndpoint = ref('')
 const ragModel = ref('')
@@ -109,7 +108,6 @@ watch(
       aiHost.value = (cfg.host as 'cc' | 'codex') ?? 'cc'
       aiWorkflow.value = (cfg.workflow as 'free' | 'assist' | 'strict') ?? 'strict'
       aiCallsPerChapter.value = cfg.budget?.calls_per_chapter ?? 8
-      aiStyleInjection.value = (cfg.style?.injection as 'light' | 'heavy') ?? 'light'
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''
       ragModel.value = cfg.rag?.model ?? ''
@@ -176,13 +174,6 @@ function onAiCalls(e: Event): void {
   void saveConfig((c) => {
     if (!c.budget) c.budget = {}
     c.budget.calls_per_chapter = aiCallsPerChapter.value
-  })
-}
-function onAiStyle(v: 'light' | 'heavy'): void {
-  aiStyleInjection.value = v
-  void saveConfig((c) => {
-    if (!c.style) c.style = {}
-    c.style.injection = v
   })
 }
 function onRagToggle(e: Event): void {
@@ -587,18 +578,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <div class="setting-item-control">
                     <input class="num-input" type="number" min="1" max="50" :value="aiCallsPerChapter" @change="onAiCalls($event)" />
                     <span class="val-suffix">次</span>
-                  </div>
-                </div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">文风注入</div>
-                    <div class="setting-item-desc">AI 生成时文风参考的强度</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <div class="seg">
-                      <button :class="{ on: aiStyleInjection === 'light' }" @click="onAiStyle('light')">轻度</button>
-                      <button :class="{ on: aiStyleInjection === 'heavy' }" @click="onAiStyle('heavy')">重度</button>
-                    </div>
                   </div>
                 </div>
 

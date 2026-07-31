@@ -188,4 +188,15 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     })
     expect(r.status).toBe(400)
   })
+
+  it('全书 analyze-style → 源3 落候选（口癖→禁词 + 建议→手法）；重跑走查重闸', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; styleCandidates: number }
+    expect(j.ok).toBe(true)
+    expect(j.styleCandidates).toBe(2) // mock 口癖 ×1 + mock 建议 ×1
+
+    const again = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
+    expect((again.json as { styleCandidates: number }).styleCandidates).toBe(0)
+  })
 })

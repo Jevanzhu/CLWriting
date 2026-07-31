@@ -171,3 +171,27 @@ describe('收割 + 候选箱端点（源1 闭环）', () => {
     expect(evil.status).toBe(400)
   })
 })
+
+describe('定标端点（S7）', () => {
+  it('GET config：铁律缺省空规则 + injection=light + 基线 null', async () => {
+    const r = await api('/style/config')
+    expect(r.status).toBe(200)
+    expect(r.json['rules']).toEqual({})
+    expect(r.json['injection']).toBe('light')
+    expect(r.json['baseline']).toBeNull()
+  })
+
+  it('POST baseline/freeze：条目库样章按场景冻结；config 读回摘要', async () => {
+    const fr = await api('/style/baseline/freeze', { method: 'POST' })
+    expect(fr.status).toBe(200)
+    const b = fr.json['baseline'] as Record<string, unknown>
+    expect(b['frozenFrom']).toBe('文风/条目/样章')
+    // 迁移入库的「战斗」样章 + confirm 入库的「通用」样章
+    expect((b['scenes'] as string[]).sort()).toEqual(['战斗', '通用'])
+    expect(existsSync(join(bookRoot, '文风', '基线.json'))).toBe(true)
+
+    const cfg = await api('/style/config')
+    const cb = cfg.json['baseline'] as Record<string, unknown>
+    expect(cb['frozenFrom']).toBe('文风/条目/样章')
+  })
+})

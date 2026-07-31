@@ -26,6 +26,7 @@ import { getDriver } from '../../../driver/index.js'
 import type { DriverEvent } from '../../../driver/types.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { extractJson } from '../../../format/json-extract.js'
+import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 
 interface AnalysisCtx {
   workDir: string | null
@@ -385,7 +386,17 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         payload,
       }
       writeBookAnalysis(bookRoot, 'style', envelope)
-      reply(res, 200, { ok: true, envelope })
+
+      // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
+      let styleCandidates = 0
+      if (typeof payload === 'object' && payload !== null) {
+        const mapped = mapAnalysisToCandidates(
+          payload as { 口癖?: string[]; 建议?: string[] },
+          new Date().toISOString().slice(0, 10),
+        )
+        styleCandidates = persistCandidates(bookRoot, mapped).created.length
+      }
+      reply(res, 200, { ok: true, envelope, styleCandidates })
     },
   )
 }

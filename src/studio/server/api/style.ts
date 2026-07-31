@@ -8,15 +8,20 @@
  * POST   /api/books/:name/style/candidates/confirm   确认（→ 条目库，删候选文件）
  * POST   /api/books/:name/style/candidates/ignore    忽略（落盘留档，查重闸记住）
  * POST   /api/books/:name/style/harvest              收割：源1 轨迹比对 + 源2 漂移映射（零 AI）
+ * GET    /api/books/:name/style/config               定标：铁律阈值 + 基线摘要 + 注入强度
+ * POST   /api/books/:name/style/baseline/freeze      重新冻结基线（样章条目按场景算指纹）
  *
  * 「候选制，品味归人」：确认/新增是仅有的入库通道，收割只落候选。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { rmSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
+import { readBookConfig } from '../../../format/yaml.js'
+import { parseIronRules } from '../../../check/count.js'
+import { readBaseline, freezeBaseline } from '../../../metrics/style.js'
 import {
   readEntries,
   addEntry,
@@ -179,5 +184,36 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!bookRoot) return
     const r = harvestStyleCandidates(bookRoot, readKind(bookRoot), today())
     reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+  })
+
+  // 定标数据：铁律阈值（纯配置本身，不合并条目禁词）+ 基线摘要 + 注入强度
+  route('GET', '/api/books/:name/style/config', (_req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    const rulesFile = join(bookRoot, '文风', '文风铁律.md')
+    const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
+    const baseline = readBaseline(bookRoot)
+    const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
+    const injection = cfg.ok && cfg.config.style?.injection === 'heavy' ? 'heavy' : 'light'
+    reply(res, 200, {
+      ok: true,
+      rules,
+      baseline: baseline
+        ? { frozenAt: baseline.frozenAt, frozenFrom: baseline.frozenFrom, scenes: Object.keys(baseline.byScene) }
+        : null,
+      injection,
+    })
+  })
+
+  // 重新冻结基线（条目库样章按场景算指纹；无样章 → 400 诚实报错）
+  route('POST', '/api/books/:name/style/baseline/freeze', (_req: IncomingMessage, res: ServerResponse, params) => {
+    const bookRoot = resolveBook(res, params)
+    if (!bookRoot) return
+    try {
+      const b = freezeBaseline(bookRoot)
+      reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
+    } catch (e) {
+      reply(res, 400, { ok: false, code: 'NO_SAMPLES', error: e instanceof Error ? e.message : String(e) })
+    }
   })
 }

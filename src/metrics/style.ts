@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSy
 import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readSamplesByScene } from '../format/style.js'
-import { readBannedEntryWords } from '../format/style-entry.js'
+import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { parseIronRules, computeStyleMetrics, type IronRules, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
@@ -294,45 +294,65 @@ export function readBaseline(bookRoot: string): StyleBaseline | null {
   }
 }
 
-/** 冻结基线：扫 文风/样章库/ 逐场景算指纹 → 写 文风/基线.json（幂等覆盖）。
- *  空样章库 → 抛错不写文件（诚实，不伪装）。返回冻结的基线。 */
+/** 冻结基线：样章按场景算指纹 → 写 文风/基线.json（幂等覆盖）。
+ *  条目库存在走样章条目（S7 收口，迁移后唯一真相），否则旧样章库目录。
+ *  无有效样章 → 抛错不写文件（诚实，不伪装）。返回冻结的基线。 */
 export function freezeBaseline(bookRoot: string): StyleBaseline {
-  const sampleDir = join(bookRoot, '文风', '样章库')
   const rules = readIronRules(bookRoot)
-  // 列出所有场景子目录
-  let sceneEntries: string[]
-  try {
-    sceneEntries = readdirSync(sampleDir).filter((n) => !n.startsWith('._'))
-  } catch {
-    throw new Error('样章库目录不存在（文风/样章库/），无法冻结基线')
-  }
-
   const byScene: Record<string, FullStyleStats> = {}
   const allBodies: { scene: string; body: string }[] = []
-  let invalidSampleCount = 0
-  for (const scene of sceneEntries) {
-    const scenePath = join(sampleDir, scene)
-    if (!statSync(scenePath).isDirectory()) continue
-    const { samples, errors } = readSamplesByScene(sampleDir, scene)
-    invalidSampleCount += errors.length
-    if (samples.length === 0) continue // 空场景目录跳过
-    const combined = samples.map((s) => s.正文).join('\n\n')
-    byScene[scene] = computeFullStats(combined, rules)
-    for (const s of samples) allBodies.push({ scene, body: s.正文 })
-  }
+  let frozenFrom = '文风/样章库'
 
-  if (Object.keys(byScene).length === 0) {
-    if (invalidSampleCount > 0) {
-      throw new Error('样章库没有有效样章：样章必须放在 文风/样章库/<场景>/<场景>-001.md，且 front matter 至少包含「场景: <场景>」。')
+  const entriesDir = join(bookRoot, ENTRIES_DIR)
+  if (existsSync(entriesDir)) {
+    // 新路：条目库样章按 场景 字段分组
+    frozenFrom = `${ENTRIES_DIR}/样章`
+    const { entries } = readEntries(entriesDir, '样章')
+    const groups = new Map<string, string[]>()
+    for (const e of entries) {
+      const scene = e.场景 || '通用'
+      groups.set(scene, [...(groups.get(scene) ?? []), e.正文])
     }
-    throw new Error('样章库为空（无有效样章），无法冻结基线')
+    for (const [scene, bodies] of groups) {
+      byScene[scene] = computeFullStats(bodies.join('\n\n'), rules)
+      for (const body of bodies) allBodies.push({ scene, body })
+    }
+    if (Object.keys(byScene).length === 0) {
+      throw new Error('条目库没有样章条目（文风/条目/样章/），先收录样章再冻结基线')
+    }
+  } else {
+    // 旧路：未迁移的书扫样章库场景目录
+    const sampleDir = join(bookRoot, '文风', '样章库')
+    let sceneEntries: string[]
+    try {
+      sceneEntries = readdirSync(sampleDir).filter((n) => !n.startsWith('._'))
+    } catch {
+      throw new Error('样章库目录不存在（文风/样章库/），无法冻结基线')
+    }
+    let invalidSampleCount = 0
+    for (const scene of sceneEntries) {
+      const scenePath = join(sampleDir, scene)
+      if (!statSync(scenePath).isDirectory()) continue
+      const { samples, errors } = readSamplesByScene(sampleDir, scene)
+      invalidSampleCount += errors.length
+      if (samples.length === 0) continue // 空场景目录跳过
+      const combined = samples.map((s) => s.正文).join('\n\n')
+      byScene[scene] = computeFullStats(combined, rules)
+      for (const s of samples) allBodies.push({ scene, body: s.正文 })
+    }
+    if (Object.keys(byScene).length === 0) {
+      if (invalidSampleCount > 0) {
+        throw new Error('样章库没有有效样章：样章必须放在 文风/样章库/<场景>/<场景>-001.md，且 front matter 至少包含「场景: <场景>」。')
+      }
+      throw new Error('样章库为空（无有效样章），无法冻结基线')
+    }
   }
 
   const overallBody = allBodies.map((b) => b.body).join('\n\n')
   const baseline: StyleBaseline = {
     version: 1,
     frozenAt: new Date().toISOString(),
-    frozenFrom: '文风/样章库',
+    frozenFrom,
     byScene,
     overall: computeFullStats(overallBody, rules),
   }

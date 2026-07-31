@@ -7,6 +7,7 @@ import {
   Share2,
   Wrench,
   Compass,
+  Feather,
   GraduationCap,
   Download,
   BookOpen,
@@ -73,6 +74,14 @@ function openLibraryManager(): void {
         @click="ws.setActiveView('relations')"
       >
         <Share2 :size="20" />
+      </button>
+      <button
+        class="rbtn" data-tip-dir="right"
+        :class="{ on: ws.activeView === 'style' }"
+        data-tip="文风（条目库 / 候选箱 / 基线）"
+        @click="ws.setActiveView('style')"
+      >
+        <Feather :size="20" />
       </button>
       <div class="ribbon-sep" />
       <button
