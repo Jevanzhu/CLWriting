@@ -26,7 +26,19 @@ export {
   emptySettings,
   newProviderId,
   maskKey,
+  type ProviderStore,
 } from './store.js'
+export {
+  createVault,
+  openVault,
+  sealKey,
+  openKey,
+  VAULT_VERSION,
+  VaultVersionError,
+  VaultDecryptError,
+  type Vault,
+  type SealedKey,
+} from './vault.js'
 export { createProvider, probeCapabilities } from './probe.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider } from './openai-adapter.js'
