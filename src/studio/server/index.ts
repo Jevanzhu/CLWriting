@@ -42,7 +42,6 @@ import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { createStaticHandler } from './static.js'
-import { initCcDriver } from '../../driver/index.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
 function buildRoutes(workDir: string | null, token: string, userDataPath: string | null): RouteTable {
@@ -106,8 +105,6 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migratePieceLayout(join(opts.workDir, book.path))
     }
   }
-  // 注入 userDataPath 到 cc driver（读 providers.json 取当前供应商）
-  initCcDriver(opts.userDataPath ?? null)
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null

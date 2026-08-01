@@ -25,12 +25,12 @@ test('cc.emit: 往 session 事件流推自定义事件（review 逐角进度）'
   ccDriver.dispose(session)
 })
 
-test('cc.interrupt: 推 interrupted + session 保留可再 spawn', async () => {
+test('cc.interrupt: 推 interrupted + session 保留可用', async () => {
   const session = await ccDriver.startSession('/tmp')
   ccDriver.interrupt!(session)
   const ev = await firstEvent(ccDriver.stream(session) as AsyncGenerator<DriverEvent>)
   expect(ev.type).toBe('interrupted')
-  expect(session.closed).toBe(false) // session 未关，可再 spawnRole
+  expect(session.closed).toBe(false) // session 未关，可再 emit / 复用流
   ccDriver.dispose(session)
 })
 

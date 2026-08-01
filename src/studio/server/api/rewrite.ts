@@ -1,19 +1,20 @@
 /**
- * rewrite 改写端点(2.5):局部改写 + 整章返修 + diff。
+ * rewrite 改写端点(2.5 + M12 B2.1):局部改写 + 整章返修 + diff,docId 直读。
  *
- * POST /api/books/:name/rewrite  body {chapter, mode:'local'|'whole', selection?, instruction, reviewIssues?}
- *   → 读原稿(工作区/草稿-<chapter>.md)→ 组 prompt → generateTool(submit_text)→ produced
- *   → local:replace(selection, produced);whole:produced 即整稿
+ * POST /api/books/:name/documents/:docId/rewrite  body {instruction, selection?, append?}
+ *   → 读正文(strip fm body)→ 组 prompt → generateTool(submit_text)→ produced
+ *   → local:replace(selection, produced);whole:produced 即整稿;append:原文+续写
  *   → lineDiff(原, 改)→ {ok, mode, original, rewritten, diff}
  *
- * POST /api/books/:name/rewrite-apply  body {chapter, content, accept}
- *   → accept:true 备份(草稿-<chapter>.bak.md)+ 落新稿;false 丢弃 → {ok, applied, path?}
+ * POST /api/books/:name/documents/:docId/ai-version  body {content}
+ *   → 作者接受改写时上报 AI 版全文 → 旁路 ref(文风S2 轨迹,不碰正文)
  *
- * 改写走 generateTool(submit_text);返修前备份可回滚。diff 行级 LCS 自写(YAGNI,~50 行)。
+ * 改写走 generateTool(submit_text);apply 不走后端,前端拿 rewritten 进编辑器由作者 ⌘S 保存。
+ * diff 行级 LCS 自写(YAGNI,~50 行)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -81,44 +82,6 @@ export interface DiffLine {
 }
 
 export function registerRewriteRoutes(ctx: RewriteCtx): void {
-  // 改写:局部/整章 → generateTool(submit_text)→ diff
-  route('POST', '/api/books/:name/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const reqBody = await readJson(req)
-    const chapter = Number(reqBody['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
-    const mode = reqBody['mode'] === 'whole' ? 'whole' : 'local'
-    const instruction = String(reqBody['instruction'] ?? '').trim()
-    if (!instruction) return reply(res, 400, { error: 'instruction(改写指令)必填' })
-    const selection = mode === 'local' ? String(reqBody['selection'] ?? '').trim() : ''
-    if (mode === 'local' && !selection) return reply(res, 400, { error: 'local 模式需 selection(选段文本)' })
-    const reviewIssuesRaw = reqBody['reviewIssues']
-    const reviewIssues = Array.isArray(reviewIssuesRaw) ? reviewIssuesRaw.map(String) : []
-
-    const bookRoot = join(ctx.workDir, entry.path)
-    const kind = readKind(bookRoot)
-    const draftFile = draftFileName(chapter, kind)
-    const draftPath = join(bookRoot, '工作区', draftFile)
-    if (!existsSync(draftPath)) return reply(res, 400, { error: `无草稿(工作区/${draftFile}),先写稿` })
-    const original = readFileSync(draftPath, 'utf8')
-
-    const prompt = buildRewritePrompt(mode, original, selection, instruction, reviewIssues, chapter, kind)
-
-    const result = await runRewriter(ctx.userDataPath, prompt)
-    if (!result.ok) return reply(res, 500, { error: result.error })
-    const produced = result.produced
-
-    // local:用产出替换 selection(其余原样);whole:产出即整稿
-    const rewritten = mode === 'local' ? original.replace(selection, produced) : produced
-    if (mode === 'local' && rewritten === original) {
-      return reply(res, 500, { error: 'selection 在原稿未找到(无法定位选段);整章返修用 mode:whole' })
-    }
-
-    reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
-  })
-
   // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ generateTool(submit_text) → lineDiff
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
@@ -179,35 +142,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     reply(res, 200, { ok: true, recorded: ref !== null })
   })
 
-  // 应用改写:accept 落盘(先备份原稿可回滚),false 丢弃
-  route('POST', '/api/books/:name/rewrite-apply', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const reqBody = await readJson(req)
-    const chapter = Number(reqBody['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
-    const accept = reqBody['accept'] === true
-    const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
-    if (accept && !content.trim()) return reply(res, 400, { error: 'content 为空' })
-
-    const bookRoot = join(ctx.workDir, entry.path)
-    const kind = readKind(bookRoot)
-    const draftFile = draftFileName(chapter, kind)
-    const draftPath = join(bookRoot, '工作区', draftFile)
-    if (!existsSync(draftPath)) return reply(res, 404, { error: '无草稿' })
-    const relPath = `工作区/${draftFile}`
-
-    if (!accept) return reply(res, 200, { ok: true, applied: false })
-    try {
-      copyFileSync(draftPath, join(bookRoot, '工作区', draftFile.replace('.md', '.bak.md'))) // 备份可回滚
-      writeFileSync(draftPath, content, 'utf8')
-    } catch (e) {
-      return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
-    }
-    reply(res, 200, { ok: true, applied: true, path: relPath, words: content.length })
-  })
-}
+  }
 
 /** 组改写 prompt(方案 6.7:原文 + 指令 + 要求)*/
 export function buildRewritePrompt(

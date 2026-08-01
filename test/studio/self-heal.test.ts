@@ -62,14 +62,12 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
   }
 }
 
-/** 最小 driver（仅 emit 用于 SSE 进度回流；spawnRole/stream 不再被 self-heal 调用） */
+/** 最小 driver（仅 emit 用于 SSE 进度回流；stream 不再被 self-heal 调用） */
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
     async startSession(cwd: string): Promise<Session> {
       return { id: 'mock', cwd, closed: false }
     },
-    spawnRole(): void {},
-    send(): void {},
     async *stream(): AsyncGenerator<DriverEvent> {},
     respondApproval(): void {},
     async resume(): Promise<Session> {

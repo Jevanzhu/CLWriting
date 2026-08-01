@@ -1,8 +1,8 @@
 /**
  * driver 抽象层类型(方案第 9 节)。
  *
- * driver 不编排,只「起会话 + 单步生成 + 事件流」。编排权在 GUI。
- * driver 唯一职责:cc = provider 直连(mock = 假事件流);
+ * driver 不编排,只「起会话 + 事件流」。编排权在 GUI / 各端点。
+ * driver 唯一职责:cc / mock = SSE 基础设施(会话 + 事件总线);
  * 结构化产出走 gen.ts generateTool/generateText(不经 driver)。
  */
 
@@ -52,14 +52,10 @@ export type DriverEvent =
     }
   | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
 
-/** driver 接口(B 编排:单步生成器,窄化) */
+/** driver 接口(SSE 基础设施,窄化) */
 export interface StudioDriver {
   /** 起会话(带项目上下文;不注入 SKILL.md) */
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
-  /** 主操作:以角色系统提示起单步生成(B 默认,干净上下文) */
-  spawnRole(session: Session, role: string, prompt: string): void
-  /** 辅:软触发主 agent 编排(仅 outline 等多源合成,--resume 续主 session) */
-  send(session: Session, prompt: string): void
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
   /** 审批 / 选择回灌 */
@@ -68,10 +64,10 @@ export interface StudioDriver {
   resume(sessionId: string): Promise<Session>
   /** 结束会话 */
   dispose(session: Session): void
-  /** 中断当前生成(kill 子进程 + 推 interrupted;session 保留可再 spawn)。可选,mock 可不实现 */
+  /** 中断当前生成(推 interrupted;session 保留可再用)。可选,mock 可不实现 */
   interrupt?(session: Session): void
-  /** 当前是否有存活的生成子进程(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
+  /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
-  /** 往 session 事件流推自定义事件(编排层回推进度,如 review 逐角)。可选 */
+  /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */
   emit?(session: Session, ev: DriverEvent): void
 }

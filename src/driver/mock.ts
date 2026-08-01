@@ -2,7 +2,8 @@
  * mock driver：不调大模型的假事件流，供前端开发 / e2e 测试。
  *
  * 架构红线：mock 不调任何大模型（纯定时器模拟流式产出）。
- * 复刻 StudioDriver 契约：spawnRole/send 触发 → 假 role_spawn + 分块 text + usage + done。
+ * 只做 SSE 基础设施：会话 + 事件总线（stream / emit / dispose）。
+ * AI 生成不再经 driver——mock 链路由各端点自带 mock 快路径（tryMockTool / 文本模拟流）。
  */
 import type {
   Session,
@@ -38,8 +39,6 @@ function push(id: string, ev: DriverEvent): void {
   ch.waiters = []
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-
 export const mockDriver: StudioDriver = {
   async startSession(cwd: string, _opts?: SessionOptions): Promise<Session> {
     const id = `mock-${Date.now()}-${++sessionSeq}`
@@ -53,14 +52,6 @@ export const mockDriver: StudioDriver = {
       tools: ['Read', 'Edit', 'Write', 'Bash(clwriting:*)'],
     })
     return session
-  },
-
-  spawnRole(session: Session, role: string, prompt: string): void {
-    void runMockGenerate(session, role, prompt, 'spawnRole')
-  },
-
-  send(session: Session, prompt: string): void {
-    void runMockGenerate(session, 'main', prompt, 'send')
   },
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
@@ -96,69 +87,8 @@ export const mockDriver: StudioDriver = {
     channels.delete(session.id)
     sessions.delete(session.id)
   },
-}
 
-/** 三审 lens role 的 mock issues（供三审 e2e 断言意见；evidence 非空过硬闸）。 */
-const MOCK_REVIEW_ISSUES = JSON.stringify([
-  {
-    category: 'pacing',
-    severity: 'S3',
-    location: '开头',
-    evidence: ['主角登场'],
-    issue: 'mock 三审：开篇节奏偏快，可加环境铺垫',
-    fix: '补充场景描写',
+  emit(session: Session, ev: DriverEvent): void {
+    push(session.id, ev)
   },
-])
-
-/** analyst 各 kind 的 mock 载荷（按 prompt `[kind:x]` 标记分发；B4 四载荷固定 JSON 供 e2e 断言）。 */
-const MOCK_ANALYST_PAYLOAD: Record<string, unknown> = {
-  score: { score: 8, verdict: 'mock 体验：节奏稳健，爽点集中章尾', dims: { 爽点: 8, 节奏感: 7, 拖沓: 3 } },
-  emotion: [
-    { seg: '开头', emotion: 0, label: 'mock 平稳' },
-    { seg: '高潮', emotion: 2, label: 'mock 高点' },
-  ],
-  hooks: { hooks: [{ pos: '章尾', type: '悬念钩', strength: 4, note: 'mock 悬念' }], density: '中' },
-  style: { drift: 'mock 稳定', 口癖: ['mock 口癖'], 重复度评价: 'mock 正常', 建议: ['mock 建议'] },
-  tags: { 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折', 场景: '对话' },
-}
-
-/** 按 prompt 的 `[kind:x]` 标记挑 analyst mock 载荷；缺省 score（B4.1 先行）。 */
-function pickAnalystMock(prompt: string): string {
-  const m = prompt.match(/\[kind:([a-z]+)\]/)
-  const kind = m?.[1] ?? 'score'
-  return JSON.stringify(MOCK_ANALYST_PAYLOAD[kind] ?? MOCK_ANALYST_PAYLOAD['score'])
-}
-
-/** 模拟一次单步生成:send 显 role_spawn + 分块 text + usage + done(spawnRole 干净,无 role_spawn) */
-async function runMockGenerate(
-  session: Session,
-  role: string,
-  prompt: string,
-  mode: 'spawnRole' | 'send',
-): Promise<void> {
-  if (session.closed) return
-  if (mode === 'send') {
-    push(session.id, { type: 'role_spawn', role, parentToolUseId: `tu-${Date.now()}` })
-  }
-  const preview = prompt.length > 30 ? `${prompt.slice(0, 30)}…` : prompt
-  const isReviewRole = role.endsWith('-review')
-  const isAnalyst = role === 'analyst'
-  const sample = isReviewRole
-    ? MOCK_REVIEW_ISSUES
-    : isAnalyst
-      ? pickAnalystMock(prompt)
-      : `【mock · ${role}】收到「${preview}」,这是 mock driver 的模拟产出。\n`
-  for (const chunk of chunkText(sample, 12)) {
-    if (session.closed) return
-    await sleep(60)
-    push(session.id, { type: 'text', text: chunk, role })
-  }
-  push(session.id, { type: 'usage', cost: 0.0001, tokens: 120 })
-  push(session.id, { type: 'done', cost: 0.0001, usage: 120, reason: 'success' })
-}
-
-function* chunkText(text: string, size: number): Generator<string> {
-  for (let i = 0; i < text.length; i += size) {
-    yield text.slice(i, i + size)
-  }
 }

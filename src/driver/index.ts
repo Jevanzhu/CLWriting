@@ -14,7 +14,6 @@ export type {
   DriverEvent,
   StudioDriver,
 } from './types.js'
-export { initCcDriver } from './cc.js'
 
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()

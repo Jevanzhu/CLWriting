@@ -1,16 +1,15 @@
 /**
- * review 三审端点(C.3):内核打包 → generateTool(submit_issues)×3 产 issues → 内核回收产审稿单。
+ * review 三审端点(C.3 + M12 B0.2/1.3):docId 直读 → generateTool(submit_issues)×3 → 落信封。
  *
- * POST /api/books/:name/review  body {chapter}
- *   ① buildReviewPacket → 工作区/三审/packet.json
- *   ② 读 packet → 各 lens generateTool(submit_issues) 收 issues → 工作区/三审/issues-<lens>.json
- *   ③ collectReviewIssues 归一化 → 写工作区/审稿.md
- *   → 返 {ok, lenses, report(审稿.md 全文)}
+ * POST /api/books/:name/documents/:docId/review  body {}
+ *   → 机检 → buildReviewPacket(临时 out_dir)→ 各 lens generateTool(submit_issues) 收 issues
+ *   → collectReviewIssues 归一化 → 落分析信封(kind=review)
+ *   → 返 {ok, lenses, collected}
  *
- * POST /api/books/:name/review-verdict  body {approved}
- *   → 改 工作区/审稿.md verdict 行(approved 写「通过」)→ finalize 据此放行
+ * POST /api/books/:name/documents/:docId/review-verdict  body {approved}
+ *   → 合并写信封 payload.verdict(不改 fm / 不走 finalize)→ 返 {ok, verdict}
  *
- * B 编排:打包/回收是内核确定性步骤,generateTool×3 是真审稿(AI);串行避并发。
+ * 打包/回收是内核确定性步骤,generateTool×3 是真审稿(AI);串行避并发。进度经主 session SSE 回流。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -19,11 +18,10 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { readKind } from '../book-context.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
-import { buildReviewPacket, collectReviewIssues, writeReviewPacket, writeReviewVerdict } from '../../../review/run.js'
+import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { createProvider, currentProvider } from '../../../ai/provider/index.js'
 import { generateTool } from '../../../ai/gen.js'
@@ -51,72 +49,7 @@ export function lensToRole(lens: string): string {
   return `${lens}-review`
 }
 
-const REVIEW_VERDICT_MARKER = '<!-- verdict: approved -->'
-
 export function registerReviewRoutes(ctx: ReviewCtx): void {
-  // 三审:run → generateTool(submit_issues)×3 → collect
-  route('POST', '/api/books/:name/review', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const reqBody = await readJson(req)
-    const chapter = Number(reqBody['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
-
-    const bookRoot = join(ctx.workDir, entry.path)
-    const kind = readKind(bookRoot)
-    const workDir = join(bookRoot, '工作区')
-
-    // ① 读草稿 + 机检 → buildReviewPacket（直接调用，不再 spawn CLI）
-    const draftPath = join(workDir, kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`)
-    if (!existsSync(draftPath)) return reply(res, 400, { error: '无草稿(先写稿)' })
-    const outcome = runCheckForDocument(bookRoot, draftPath)
-    if (!outcome.ok) return reply(res, checkOutcomeStatus(outcome.code), { error: outcome.error })
-    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-    const built = buildReviewPacket({
-      checkReport: outcome.report,
-      body: outcome.body,
-      chapter,
-      workDir,
-      capabilities: { parallel_subagents: false, multiple_calls: true },
-      remaining_calls: config.budget?.calls_per_chapter ?? 8,
-      high_risk: false,
-      kind,
-    })
-    if (!built.ok) return reply(res, 500, { error: built.reason })
-    // 写 packet.json（collectReviewIssues 需要读它）
-    writeReviewPacket(built.packet)
-
-    const packet = built.packet
-    const draftBody = outcome.body
-
-    // ② 各 lens generateTool(submit_issues) 产 issues(串行);逐角进度经主 session 回流
-    const driver = getDriver('cc')
-    const mainSession = await ensureSession(params['name']!, ctx.workDir!)
-    const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
-      if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
-    }
-    const loopResult = await runLensSpawnLoop({
-      userDataPath: ctx.userDataPath,
-      packets: packet.packets,
-      body: draftBody,
-      chapter,
-      kind,
-      outDir: join(workDir, '三审'),
-      onProgress: emitProgress,
-    })
-    if (!loopResult.ok) return reply(res, 500, { error: loopResult.error })
-    const lenses = loopResult.lenses
-
-    // ③ collectReviewIssues + writeReviewVerdict（直接调用，不再 spawn CLI）
-    const collected = collectReviewIssues({ packet })
-    writeReviewVerdict(workDir, collected)
-
-    const verdictPath = join(workDir, '审稿.md')
-    const report = existsSync(verdictPath) ? readFileSync(verdictPath, 'utf8') : '(未生成审稿单)'
-    reply(res, 200, { ok: true, lenses, report })
-  })
-
   // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
   route(
     'POST',
@@ -189,29 +122,6 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
     },
   )
-
-  // 裁决:改 审稿.md verdict 行
-  route('POST', '/api/books/:name/review-verdict', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const reqBody = await readJson(req)
-    const approved = reqBody['approved'] === true
-    const verdictPath = join(ctx.workDir, entry.path, '工作区', '审稿.md')
-    if (!existsSync(verdictPath)) return reply(res, 404, { error: '无审稿单(先跑三审)' })
-    let md = readFileSync(verdictPath, 'utf8')
-    const target = approved
-      ? `${REVIEW_VERDICT_MARKER} verdict: 通过`
-      : `${REVIEW_VERDICT_MARKER} verdict: <把「通过」填这里>`
-    const re = new RegExp(`${escapeRegexp(REVIEW_VERDICT_MARKER)} verdict: [^\\n]*`)
-    if (re.test(md)) {
-      md = md.replace(re, target)
-    } else {
-      md += `\n\n${target}\n`
-    }
-    writeFileSync(verdictPath, md, 'utf8')
-    reply(res, 200, { ok: true, approved })
-  })
 
   // 裁决直读（M12 B1.3，docId 线，方案 A）：落 review 信封 payload.verdict（不改 fm / deriveStatus）。
   // 手写线不走 finalize；verdict 是作者基于三审意见的裁决，纯展示标记 + 信封存档。
@@ -341,8 +251,4 @@ function buildLensPrompt(
     `## category 枚举参考\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
-}
-
-function escapeRegexp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

@@ -17,10 +17,10 @@ export async function getState(name: string): Promise<BookState> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/state`)
 }
 
-// POST /spawn {role?, prompt?, mode?} —— 起角色生成（AI 阻塞）
+// POST /spawn {role?, prompt?} —— 起角色生成（AI 阻塞）
 export async function spawnRole(
   name: string,
-  body: { role?: string; prompt?: string; mode?: 'spawnRole' | 'send' },
+  body: { role?: string; prompt?: string },
 ): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/spawn`, {
     method: 'POST',
