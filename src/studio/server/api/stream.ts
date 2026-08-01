@@ -42,6 +42,9 @@ async function runWriterSpawn(opts: {
     opts.driver.emit?.(opts.mainSession, ev)
   }
 
+  // 通知前端：生成开始（前端清空旧正文 + 设 running=true）
+  emit({ type: 'role_spawn', role: opts.role, parentToolUseId: `tu-${Date.now()}` })
+
   // mock 快路：分块推送模拟流式
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
     const mockText = `【mock · ${opts.role}】这是 mock 的模拟写稿产出。\n`
