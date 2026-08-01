@@ -162,7 +162,7 @@ test('resolveBookRoot 优先级 4: 都不是 → 人话报错', () => {
   expect(r.ok).toBe(false)
   if (!r.ok) {
     expect(r.reason).toContain('选书')
-    expect(r.reason).toContain('init')
+    expect(r.reason).toContain('新建')
   }
   cleanupTempDir(empty)
 })

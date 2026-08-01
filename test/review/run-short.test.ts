@@ -1,4 +1,4 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,10 +9,11 @@ import {
   lensIssuesFileName,
   COMBINED_ISSUES_FILE,
   readReviewPacket,
+  writeReviewPacket,
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
-import { reviewCommand } from '../../src/cli/review.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { runCheckForDocument } from '../../src/studio/server/api/check.js'
 import { writePiece } from '../../src/format/pieces.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
@@ -60,7 +61,7 @@ test('buildReviewPacket short: 满审产短篇三视角分包', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
-test('review run short: 读取篇号草稿并把清单核对写入执行包', () => {
+test('review 打包 short: 读取篇号草稿并把清单核对写入执行包', () => {
   const root = mkdtempSync(join(tmpdir(), 'review-short-cli-'))
   const workDir = join(root, '工作区')
   try {
@@ -86,26 +87,32 @@ test('review run short: 读取篇号草稿并把清单核对写入执行包', ()
     }
     writePieceList(join(workDir, '清单.md'), list)
 
-    const out: string[] = []
-    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
-    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
-    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit ${code ?? ''}`)
-    }) as typeof process.exit)
-    try {
-      reviewCommand(['run', root, '--chapter=1', '--single'])
-    } finally {
-      log.mockRestore()
-      err.mockRestore()
-      exit.mockRestore()
-    }
+    // 机检 → byproducts.pieceListChecks（清单核对条目，payoff 设定收尾审用）
+    const outcome = runCheckForDocument(root, join(workDir, '草稿-1.md'))
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
 
-    expect(out.join('\n')).toContain('第 1 篇')
+    // 打包执行包
+    const built = buildReviewPacket({
+      checkReport: outcome.report,
+      body: outcome.body,
+      chapter: outcome.chapter.章号,
+      workDir,
+      capabilities: { parallel_subagents: false, multiple_calls: true },
+      remaining_calls: 8,
+      high_risk: false,
+      kind: 'short',
+    })
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    writeReviewPacket(built.packet)
+
     const loaded = readReviewPacket(workDir)
     expect(loaded.ok).toBe(true)
     if (!loaded.ok) return
-    expect(loaded.packet.packets[0]?.lens).toBe('payoff')
-    expect(loaded.packet.packets[0]?.list_checks).toEqual([
+    // 清单核对恒挂在 payoff（设定收尾审）分项上
+    const payoff = loaded.packet.packets.find((p) => p.lens === 'payoff')
+    expect(payoff?.list_checks).toEqual([
       { type: 'reversal', subject: '来客就是死者', location: '开头', detail: '门外没有脚印' },
       { type: 'reversal', subject: '来客就是死者', location: '中段', detail: '镜中没有影子' },
       { type: 'reversal', subject: '来客就是死者', location: '尾声', detail: '钟表倒走' },

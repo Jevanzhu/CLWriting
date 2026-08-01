@@ -110,7 +110,7 @@ test('态 8: recap batchPause 读 .auto-batch.json paused', () => {
   const text = formatRecap(recap)
   expect(text).toContain('连写暂停')
   expect(text).toContain('第 3 章暂停')
-  expect(text).toContain('auto --resume')
+  expect(text).toContain('恢复续写')
 
   rmSync(root, { recursive: true, force: true })
 })

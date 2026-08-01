@@ -335,7 +335,7 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
     // 新批次：已有未完批次 → 拒绝静默覆盖（无论是否 paused，未完就要 resume 或回滚）
     const existing = readBatchProgress(bookRoot)
     if (existing && existing.completed.length < existing.target_count) {
-      return { ok: false, reason: '已有未完批次，先用 clwriting auto --resume 续跑，或整批回滚后再开新批。', progress: existing }
+      return { ok: false, reason: '已有未完批次，先用续跑功能恢复，或整批回滚后再开新批。', progress: existing }
     }
     const startChapter = opts.startChapter ?? detectNextChapter(bookRoot)
     progress = {
@@ -374,7 +374,7 @@ export async function doAutoBatch(opts: AutoBatchOptions): Promise<AutoBatchResu
       progress.paused = {
         at_chapter: chapterNum,
         reason: 'system',
-        detail: 'git 健康检查失败（半提交/冲突/锁/网盘副本），先 clwriting health 处理',
+        detail: 'git 健康检查失败（半提交/冲突/锁/网盘副本），先处理再继续',
         paused_at: new Date().toISOString(),
       }
       writeBatchProgress(bookRoot, progress)

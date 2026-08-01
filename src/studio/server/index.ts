@@ -22,7 +22,6 @@ import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
-import { registerCliRoutes } from './api/cli.js'
 import { registerReviewRoutes } from './api/review.js'
 import { registerOnboardRoutes } from './api/onboard.js'
 import { registerRewriteRoutes } from './api/rewrite.js'
@@ -41,14 +40,16 @@ import { registerAnalysisRoutes } from './api/analysis.js'
 import { registerForeshadowRoutes } from './api/foreshadows.js'
 import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
+import { registerProvidersRoutes } from './api/providers.js'
 import { createStaticHandler } from './static.js'
+import { initCcDriver } from '../../driver/index.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
 function buildRoutes(workDir: string | null, token: string, userDataPath: string | null): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
-    registerAiStatusRoutes()
+    registerAiStatusRoutes({ userDataPath })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token })
@@ -59,7 +60,6 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerLeadsRoutes({ workDir })
     registerSettingsRoutes({ workDir })
     registerDraftRoutes({ workDir })
-    registerCliRoutes({ workDir })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerPiecesRoutes({ workDir })
@@ -74,9 +74,10 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerAnalysisRoutes({ workDir })
     registerForeshadowRoutes({ workDir })
     registerStyleRoutes({ workDir })
+    registerProvidersRoutes({ userDataPath })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
-    registerStreamRoutes({ workDir })
+    registerStreamRoutes({ workDir, userDataPath })
     registerOutlineRoutes({ workDir })
     registerReviewRoutes({ workDir })
     registerOnboardRoutes({ workDir })
@@ -105,6 +106,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migratePieceLayout(join(opts.workDir, book.path))
     }
   }
+  // 注入 userDataPath 到 cc driver（读 providers.json 取当前供应商）
+  initCcDriver(opts.userDataPath ?? null)
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null

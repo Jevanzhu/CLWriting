@@ -75,7 +75,7 @@ describe('P0 CORS 安全边界', () => {
   })
 
   it('POST 恶意 Origin → 403', async () => {
-    const r = await rawRequest('POST', `/api/books/${encodeURIComponent('测试书')}/cli`, 'http://evil.com')
+    const r = await rawRequest('POST', `/api/books/${encodeURIComponent('测试书')}/export`, 'http://evil.com')
     expect(r.status).toBe(403)
   })
 

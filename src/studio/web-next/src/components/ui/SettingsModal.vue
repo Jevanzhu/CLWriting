@@ -8,6 +8,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
+import AiServicePanel from './AiServicePanel.vue'
 
 const ui = useUiStore()
 const prefs = usePrefsStore()
@@ -18,9 +19,9 @@ type Tab = 'appearance' | 'editor' | 'backup' | 'book' | 'ai'
 const activeTab = ref<Tab>('appearance')
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
-/** 当前 tab 的配置归属：外观/编辑器 → 全局（跨书共享）；备份/书籍/AI → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：外观/编辑器/AI → 全局（跨书共享）；备份/书籍 → 本书（跟随当前书） */
 const tabScope = computed<'global' | 'book'>(() =>
-  activeTab.value === 'appearance' || activeTab.value === 'editor' ? 'global' : 'book',
+  activeTab.value === 'backup' || activeTab.value === 'book' ? 'book' : 'global',
 )
 
 // ── 系统字体（桌面版 IPC）──
@@ -85,10 +86,7 @@ const chapterTargetWords = ref<number | null>(null)
 const SNAPSHOT_DEFAULTS = { maxDays: 14, maxCount: 30 }
 const snapDays = ref(SNAPSHOT_DEFAULTS.maxDays)
 const snapCount = ref(SNAPSHOT_DEFAULTS.maxCount)
-// AI 配置
-const aiHost = ref<'cc' | 'codex'>('cc')
-const aiWorkflow = ref<'free' | 'assist' | 'strict'>('strict')
-const aiCallsPerChapter = ref(8)
+// AI 配置（RAG 保留在 book.yaml）
 const ragEnabled = ref(false)
 const ragEndpoint = ref('')
 const ragModel = ref('')
@@ -103,9 +101,6 @@ watch(
       chapterTargetWords.value = cfg.book?.chapter_target_words ?? null
       snapDays.value = cfg.snapshots?.max_days ?? SNAPSHOT_DEFAULTS.maxDays
       snapCount.value = cfg.snapshots?.max_count ?? SNAPSHOT_DEFAULTS.maxCount
-      aiHost.value = (cfg.host as 'cc' | 'codex') ?? 'cc'
-      aiWorkflow.value = (cfg.workflow as 'free' | 'assist' | 'strict') ?? 'strict'
-      aiCallsPerChapter.value = cfg.budget?.calls_per_chapter ?? 8
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''
       ragModel.value = cfg.rag?.model ?? ''
@@ -156,24 +151,7 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
   })
 }
 
-// AI 配置操作（即时保存）
-function onAiHost(v: 'cc' | 'codex'): void {
-  aiHost.value = v
-  void saveConfig((c) => { c.host = v })
-}
-function onAiWorkflow(v: 'free' | 'assist' | 'strict'): void {
-  aiWorkflow.value = v
-  void saveConfig((c) => { c.workflow = v })
-}
-function onAiCalls(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  if (!Number.isFinite(raw)) return
-  aiCallsPerChapter.value = Math.min(50, Math.max(1, Math.round(raw)))
-  void saveConfig((c) => {
-    if (!c.budget) c.budget = {}
-    c.budget.calls_per_chapter = aiCallsPerChapter.value
-  })
-}
+// AI 配置操作（RAG 保留在 book.yaml，即时保存）
 function onRagToggle(e: Event): void {
   ragEnabled.value = (e.target as HTMLInputElement).checked
   void saveConfig((c) => {
@@ -460,54 +438,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <button class="link-btn" @click="openBookDir">打开</button>
                   </div>
                 </div>
-              </template>
-            </template>
-
-            <!-- ═══ AI ═══ -->
-            <template v-else-if="activeTab === 'ai'">
-              <div v-if="!hasBook" class="empty-tab">
-                <Sparkles :size="28" />
-                <p>请先打开一本书</p>
-              </div>
-              <template v-else>
-                <div class="group-title">宿主与工作流</div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">AI 宿主</div>
-                    <div class="setting-item-desc">AI 调用的后端驱动</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <div class="seg">
-                      <button :class="{ on: aiHost === 'cc' }" @click="onAiHost('cc')">Claude Code</button>
-                      <button :class="{ on: aiHost === 'codex' }" @click="onAiHost('codex')">Codex</button>
-                    </div>
-                  </div>
-                </div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">工作流模式</div>
-                    <div class="setting-item-desc">门禁强度：自由不拦、辅助提醒、严格拦截</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <div class="seg">
-                      <button :class="{ on: aiWorkflow === 'free' }" @click="onAiWorkflow('free')">自由</button>
-                      <button :class="{ on: aiWorkflow === 'assist' }" @click="onAiWorkflow('assist')">辅助</button>
-                      <button :class="{ on: aiWorkflow === 'strict' }" @click="onAiWorkflow('strict')">严格</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="group-title">生成控制</div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">每章调用上限</div>
-                    <div class="setting-item-desc">单章 AI 调用次数上限</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <input class="num-input" type="number" min="1" max="50" :value="aiCallsPerChapter" @change="onAiCalls($event)" />
-                    <span class="val-suffix">次</span>
-                  </div>
-                </div>
 
                 <div class="group-title">知识检索（RAG）</div>
                 <div class="setting-item">
@@ -543,6 +473,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                 </template>
               </template>
+            </template>
+
+            <!-- ═══ AI ═══ -->
+            <template v-else-if="activeTab === 'ai'">
+              <AiServicePanel />
             </template>
           </div>
         </div>

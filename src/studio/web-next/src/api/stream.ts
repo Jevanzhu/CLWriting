@@ -29,9 +29,19 @@ export async function spawnRole(
   })
 }
 
-// POST /interrupt —— 中断当前生成
+// POST /interrupt —— 中断当前生成（同时停自愈编排循环）
 export async function interrupt(name: string): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' })
+}
+
+// POST /auto-write {chapter} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。
+// fire-and-forget：立即返回，进度经 SSE 的 self_heal_* 事件回流。409 = 本书已在跑。
+export async function autoWrite(name: string, chapter: number): Promise<{ ok: boolean; chapter: number }> {
+  return apiJson(`/api/books/${encodeURIComponent(name)}/auto-write`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter }),
+  })
 }
 
 // POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
@@ -54,24 +64,6 @@ export async function saveDraft(name: string, chapter: number, content: string):
 // GET /draft-prompt?chapter= → {prompt}
 export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/draft-prompt?chapter=${chapter}`)
-}
-
-// POST /cli {step, chapter?, yes?} —— 确定性 CLI 步骤（prepare/confirm/check/finalize/enter/hand/rebook）
-export interface CliResult {
-  ok: boolean
-  code: number
-  stdout: string
-  stderr: string
-}
-export async function runCli(
-  name: string,
-  body: { step: string; chapter?: number; yes?: boolean },
-): Promise<CliResult> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/cli`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
 }
 
 // POST /outline {chapter} —— 大纲生成（AI 阻塞，多源合成）

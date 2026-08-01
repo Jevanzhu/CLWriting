@@ -8,8 +8,8 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-1035%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
-[![Deps](https://img.shields.io/badge/runtime%20deps-0-e879f9)](#%EF%B8%8F-技术栈)
+[![Test](https://img.shields.io/badge/tests-1178%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Deps](https://img.shields.io/badge/AI%20provider-Anthropic%20%2B%20OpenAI-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
 
@@ -66,63 +66,46 @@ CLWriting 不是通用写作编辑器，而是一套面向中文网文生产的�
 
 ## 🚀 快速开始
 
-要求 **Node >= 24**。低版本会以人话提示升级并退出。
-
-```bash
-# 建工作目录 + 第一本书（长篇）
-clwriting init --name 我的世界 --genre 玄幻
-
-# 或建一个短篇集
-clwriting init --kind short --name 午夜故事 --genre 悬疑
-
-# 进门体检 → 判态 → 路由
-clwriting enter
-```
-
-本仓库开发调试：
+要求 **Node >= 24**。
 
 ```bash
 npm install
-npm run typecheck      # tsc + vue-tsc 双检
-npm run build:all      # CLI(tsup) + 前端(Vite)
-npm test               # 1035 单测
-npm run test:e2e       # 20 个 Playwright e2e（mock driver）
-node dist/cli.js --help
 
-# 桌面应用开发（Electron 4 件套）
-npm run dev:api        # Studio API :7878
-npm run dev:web        # Vite HMR :5173
-npm run dev:app        # Electron 主窗口（加载 5173）
+# 桌面应用（GUI 全流程：建书、写作、审稿、定稿）
+npm run dev:app
 ```
+
+开发调试：
+
+```bash
+npm run typecheck          # tsc 双检
+npm run build:all          # 桌面构建 + 前端(Vite)
+npm test                   # 1178 单测
+npm run test:e2e           # Playwright e2e（mock 驱动）
+npx tsx scripts/dev-api.ts # Studio API :7878（配合 dev:web 前端调试）
+```
+
+首次使用：在「设置 → AI」里添加一家 AI 供应商（Anthropic 官方 / Claude 中转 / OpenAI 兼容任选），
+点「测试连接」确认能力，启用后即可建书开写。作者全程在 GUI 内操作，无需命令行。
 
 ---
 
 ## 🔁 工作流
 
 ```text
-长篇
-  enter
-    → 起草细纲
-    → confirm 细纲
-    → 写正文
-    → check 机检
-    → review 三审
-    → 作者裁决
-    → finalize 定稿
-    → 下一章
-
-短篇集
-  init --kind short 建集
-    → enter 出下一篇
-    → 定情绪 + 核心反转
-    → 五段大纲 + 情绪曲线 + 清单.md
-    → 正文
-    → check + review
-    → finalize 按篇定稿
+建书（GUI 表单：书名 / 题材 / 长短篇）
+  → 设定界：大纲（卷纲 / 章纲 / 总纲）+ 角色 + 世界观 + 物品
+  → 写作：编辑器写稿；「全自动写章」= AI 写稿 → 机检 → 报红自动重写 → 全绿交你
+  → 三审（读者 / 编辑 / 设定）→ 作者裁决
+  → 批量审稿：待定稿逐章/逐篇定稿或整批回滚
+  → 下一章
 ```
 
-`init --kind short` 会按题材写入短篇机检推荐阈值；未命中题材时沿用通用默认。
-这些值只是起点，可在 `book.yaml` 按集调整：
+短篇集形态：`建书选择短篇集` → 每篇定情绪 + 核心反转 → 五段大纲 + 情绪曲线 + 清单.md →
+正文 → 机检 + 三审 → 按篇定稿。
+
+状态机全程只给**人话建议**（进门体检、续写断点、卷末复盘、待审稿提示），对应的执行动作
+直接在界面上完成；`book.yaml` 仍可按集调整机检阈值与调用预算：
 
 ```yaml
 short:
@@ -130,7 +113,6 @@ short:
   target_emotions: [惊悚, 后怕, 震惊, 不安]
   target_reversal_types: [死者反转, 真凶反转, 身份反转, 时间/记忆反转]
   target_ending_flavors: [后怕, 反噬, 余寒, 真相落地]
-  series_motifs: [七号公寓, 红伞, 旧收音机]
   word_min: 6000
   word_max: 16000
   body_part_threshold: 5
@@ -139,49 +121,34 @@ short:
   opening_env_chars: 220
 ```
 
-内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile` 与目标分布作为平台/栏目画像。`enter` 起草新篇时会生成 `工作区/策划导航.md`，提示本篇避开项、补位项和清单底线；`health --report` 会基于已定稿短篇输出平台画像、反转质量评分、质量趋势、轻量系列母题、阈值回灌建议和预算校准建议；`repair-plan` 会把弱项转成重修动作；`short.strict: true` 可把短篇专属黄项升为硬闸。
+内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile`
+与目标分布作为平台/栏目画像。`short.strict: true` 可把短篇专属黄项升为硬闸。
 
-调用预算仍使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
+调用预算使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
 
 ```yaml
 budget:
   calls_per_chapter: 8
 ```
 
-自动模式会把多章/多篇草稿攒进 `工作区/待定稿/`：
-
-```text
-auto 连写一批
-  → batch review
-  → 逐章/逐篇 finalize
-  → enter 回到干净态
-```
+自动连写把多章/多篇草稿攒进 `工作区/待定稿/`，作者在「批量审稿」界面逐章/逐篇定稿或整批回滚。
 
 ---
 
-## 📜 命令一览
+## 📚 作者交互面
 
-| 分组 | 命令 | 作用 |
-|---|---|---|
-| 创作主链 | `enter` | 单入口：进门体检、判态、路由到当前动作；短篇新篇会生成细纲、清单和策划导航。 |
-| 创作主链 | `confirm` | 细纲确认留痕，哈希绑定章 / 篇号。 |
-| 创作主链 | `record-call` | 记录大纲 / 草稿 AI 调用次数与 token，支持事后回填 token 真值。 |
-| 创作主链 | `check` | 机检硬闸，长篇查账本，短篇查清单与专属项；短篇可用 `--strict-short` 把专属黄项升为硬闸。 |
-| 创作主链 | `review` | 三审编排：`plan` / `run` / `collect` / `batch`。 |
-| 创作主链 | `finalize` | 前置闸通过后原子定稿并提交。 |
-| 编排回滚 | `auto` | 长篇/短篇连写一批，支持 `--resume`，坏章/坏篇自动隔离。 |
-| 编排回滚 | `revert` | 回到第 N 章 / 篇，备份后回滚并重建缓存。 |
-| 编排回滚 | `health` | git、指标、文风和综合报告体检，支持 `--metrics` / `--style` / `--report`；短篇综合报告会提示平台画像、反转评分、质量趋势、系列母题、策划分布、重复风险、阈值回灌和预算校准建议。 |
-| 编排回滚 | `repair-plan` | 短篇重修计划，把反转弱项、清单缺口、审查指标和集级重复风险转成改稿动作。 |
-| 编排回滚 | `session-start` | 输出给宿主 AI 的有界开场上下文。 |
-| 书库管理 | `init` | 建工作目录和第一本书，支持 `--kind short`。 |
-| 书库管理 | `use` / `list` / `repair` | 换书、列书、自愈登记。 |
-| 书库管理 | `update` | 升级插件本体，作者数据只增不覆盖。 |
-| 知识插件 | `roles` | 角色单源分发到 Claude / Codex / 通用壳。 |
-| 知识插件 | `knowledge` | 知识层素材速查与 manifest 校验。 |
-| 知识插件 | `learn` | 文风样章与金句收割入库。 |
-| 知识插件 | `enable-rag` | 启用 RAG 可选插件。 |
-| 数据流转 | `export` / `import` | 定稿导出（长篇全本 / 短篇全篇集；短篇附投稿视图，支持 `--platform` 投稿模板）/ v0.2 正文导入。 |
+作者不需要命令行：全部能力收敛进 **Studio 桌面应用**（Electron + Vue 3）。
+
+| 交互面 | 说明 |
+|---|---|
+| 状态卡 | 每次进书自动体检、判态，用人话告诉你现在该做什么。 |
+| 全自动写章 | 一键：AI 写稿 → 机检 → 报红自动重写 → 全绿才交给你确认。 |
+| 编辑器 | CodeMirror 6 三栏工作区；专注模式；选段改写；AI 分析。 |
+| 章节树 | 文档滑动（灵感/大纲/设定/写作/待定稿），机检红点逐级冒泡。 |
+| 三审 / 批量审稿 | 读者/编辑/设定三视角审稿；待定稿逐章定稿或整批回滚。 |
+| 文风系统 | 样章/金句收割、候选箱、形象对照报告。 |
+
+服务端直接调用内核模块（不再 spawn 任何 CLI 子进程）。
 
 ---
 
@@ -195,16 +162,15 @@ auto 连写一批
 | 编辑器 | CodeMirror 6 |
 | 桌面壳 | Electron |
 | 存储 | `node:sqlite` |
-| 构建 | tsup（CLI）+ Vite（前端） |
-| 测试 | vitest（1035 单测 + 20 e2e） |
-| CLI 运行时依赖 | 0 个第三方依赖 |
+| AI 提供者 | Anthropic / OpenAI 双协议适配器（`@anthropic-ai/sdk` + `openai`，baseURL 可指用户端点） |
+| 构建 | tsup（桌面主进程）+ Vite（前端） |
+| 测试 | vitest（1178 单测 + e2e） |
 
 设计红线：
 
-- 作者数据不被 `update` 覆盖。
+- 作者数据不被升级覆盖。
 - 书仓库默认安装 `pre-push` 保护，阻止小说正文误推到远端。
-- `health` 会提示书仓库配置的 remote，提醒正文外传风险。
-- api_key 不进 git。
+- api_key 不进 git（落本地 `.clwriting/rag.secret`，0600）。
 - `Dev/` 是本地规划资料，不进入正式发布文件。
 - 定稿走原子 commit，失败则回滚定稿区改动。
 
@@ -218,18 +184,18 @@ auto 连写一批
 |---|---|---|
 | M0-M4 | 已完成 | 格式层、缓存、写章机检、状态机、git 隐身、三审、角色分发、知识层。 |
 | M5-M7 | 已完成 | 安装器、多书、自动连写、导出、迁移、RAG 插件。 |
-| M8 | 已完成 | 短篇轨：`kind: short`、短篇集布局、精简态机、按篇定稿、清单、机检、三审、导入、题材阈值推荐和样本回灌报告。 |
+| M8 | 已完成 | 短篇轨：`kind: short` 布局、精简态机、按篇定稿、清单、机检、三审、题材阈值推荐。 |
 | M9-M10 | 已完成 | Studio Obsidian 风格前端：三栏工作区、章节树、CodeMirror 编辑器、大纲/设定表单、总览/节奏/关系图视图、专注模式、可拖拽侧栏。 |
 | M11 | 已完成 | 质量收口：机检红点树冒泡、E2E 全覆盖、评审瑕疵修复。 |
 | M12 | 已完成 | AI 辅助写作线：选段改写、AI 分析（情绪/钩子/文风）、上下文速查、工作台 AI 写作。 |
-| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、原生右键菜单、JSON 配置持久化（三级架构，对齐 Obsidian）、token 系统贯通。 |
-| Beta 体检体系 | 已落地，继续校准 | `health` 指标 / 文风 / 综合报告、定稿落账、`record-call` 成本采集和 token 字段通道。 |
+| W1-W5 | 已完成 | AI 链路重构：provider 双协议抽象、tool_use 契约层、runTask 编排器、review/analysis 直连、**CLI 全退场**。 |
+| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、原生右键菜单、JSON 配置持久化、token 系统贯通。 |
+| Beta 体检体系 | 已落地，继续校准 | 指标 / 文风 / 综合报告、定稿落账、成本采集。 |
 
-- **131 个测试文件 / 1035 个测试全绿**，`tsc --noEmit` + `vue-tsc --noEmit` 通过，`build:all` 构建通过；前端构建已消除 >500KB chunk warning。
-- ZCode（CC 等价宿主）smoke 出口达成：长篇与短篇正反向闭环均已复现。
-- 真 Claude Code 短篇 smoke 正负向闭环已复现；真 Codex CLI 短篇正向 smoke 已覆盖角色壳加载、写篇、机检、三审回收与 Codex 自身 `finalize` 定稿。
-- 当前 RC 基线：50 章规模验证已完成并回收 D9/E1 修复；`health --metrics` 已接入宿主漏记软提示与预算校准提示，短篇 `health --report` 已追加阈值回灌、每篇预算候选、质量趋势和系列母题；`repair-plan` 已接入短篇重修建议；auto 待定稿记账链路已回归覆盖，`record-call --set-tokens` 已支持 token 真值事后回填；v0.2 实书迁移验证因当前无待迁移数据标记为 N/A。
-- RC 能力边界：`auto` 已支持长篇批量连写与短篇集批量连写；AI 产出仍由宿主在编排接缝提供，脚本负责待定稿、批量审稿、逐章/逐篇定稿与回滚。
+- **145 个测试文件 / 1178 个测试全绿**，`tsc --noEmit` 通过，`build:all` 构建通过。
+- 短篇全流程定稿验证已通过；AI 产出经 tool_use 结构化约束，front matter 零漂移。
+- 作者侧全程自然语言：设置里添加供应商 → 测试连接 → 全自动写章/编辑器写作/三审/定稿，零命令行。
+- 架构红线：**不再 spawn 任何 CLI 子进程**；全部 AI 流量经 provider 直连，确定性操作直接 import 内核模块。
 
 ---
 

@@ -158,7 +158,7 @@ function openBook(name: string): void {
       <div v-else-if="shelf.error" class="shelf-status err">{{ shelf.error }}</div>
       <div v-else-if="shelf.workDirMissing" class="shelf-status">
         <p>未打开书库。</p>
-        <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
+        <p class="sub">{{ shelf.hint ?? '请在设置中指定书库目录。' }}</p>
       </div>
       <EmptyState
         v-else-if="!shelf.books.length"

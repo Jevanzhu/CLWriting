@@ -25,13 +25,13 @@ function cleanReport(): CheckReport {
 }
 
 test('evaluateRetry: 无红项 → pass', () => {
-  expect(evaluateRetry(cleanReport(), 1).state).toBe('pass')
+  expect(evaluateRetry(cleanReport(), 0).state).toBe('pass')
   // 黄项也不打回
-  expect(evaluateRetry(yellowReport(), 1).state).toBe('pass')
+  expect(evaluateRetry(yellowReport(), 0).state).toBe('pass')
 })
 
-test('evaluateRetry: 红项 → retry（未超限）', () => {
-  const s = evaluateRetry(redReport(), 1, 3)
+test('evaluateRetry: 红项 → retry（未超限，attempt=即将进行的第几次重写）', () => {
+  const s = evaluateRetry(redReport(), 0, 3)
   expect(s.state).toBe('retry')
   if (s.state === 'retry') {
     expect(s.attempt).toBe(1)
@@ -40,10 +40,17 @@ test('evaluateRetry: 红项 → retry（未超限）', () => {
   }
 })
 
-test('evaluateRetry: 红项 + 超限 → escalate', () => {
+test('evaluateRetry: 已重写 3 次仍红 → escalate（maxAttempts=3 恰好放行 3 次重写）', () => {
+  // 已完成重写次数 0/1/2 均放行重写，第 3 次重写后仍红才升级
+  for (const done of [0, 1, 2]) {
+    const s = evaluateRetry(redReport(), done, 3)
+    expect(s.state).toBe('retry')
+    if (s.state === 'retry') expect(s.attempt).toBe(done + 1)
+  }
   const s = evaluateRetry(redReport(), 3, 3)
   expect(s.state).toBe('escalate')
   if (s.state === 'escalate') {
+    expect(s.attempt).toBe(3)
     expect(s.redFeedback).toContain('已重试 3 次')
     expect(s.redFeedback).toContain('需作者介入')
   }

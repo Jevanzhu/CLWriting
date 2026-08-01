@@ -13,7 +13,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
-import { readLeadHistory, readLeadStatus } from '../cli/read.js'
+import { readLeadHistory } from '../format/read.js'
 
 /**
  * 账本形式三检。

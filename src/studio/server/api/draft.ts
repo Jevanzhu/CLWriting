@@ -27,12 +27,17 @@ interface DraftCtx {
 }
 
 /**
- * M1 草稿覆写留底：目标已存在且内容不同 → force 快照（origin: draft-overwrite）。
+ * M1 草稿覆写留底：目标已存在且内容不同 → force 快照（origin 缺省 draft-overwrite）。
  * docId 反查文档清单（与编辑器历史同目录，作者可从本章历史恢复）；
  * 未登记回落文件名派生键（草稿-N）。快照失败不阻断落盘（留底是护栏，不是门禁）。
  * 返回快照 id（null = 无需留底或留底失败）。
  */
-export function snapshotBeforeOverwrite(bookRoot: string, relPath: string, newContent: string): string | null {
+export function snapshotBeforeOverwrite(
+  bookRoot: string,
+  relPath: string,
+  newContent: string,
+  origin = 'draft-overwrite',
+): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
   let old: string
@@ -53,16 +58,50 @@ export function snapshotBeforeOverwrite(bookRoot: string, relPath: string, newCo
   }
   if (!docId) docId = basename(relPath, '.md')
   try {
-    return writeSnapshot(
-      join(bookRoot, '工作区', '.snapshots'),
-      docId,
-      old,
-      { origin: 'draft-overwrite' },
-      { force: true },
-    )
+    return writeSnapshot(join(bookRoot, '工作区', '.snapshots'), docId, old, { origin }, { force: true })
   } catch {
     return null
   }
+}
+
+/**
+ * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
+ * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹。
+ *
+ * 闭环中间轮传 `recordAi:false`——中间稿不是作者会手改的对象，
+ * 记进文风轨迹只会污染信号（终局那次才记）。落盘失败向上抛，调用方决定回应。
+ */
+export function saveDraft(
+  bookRoot: string,
+  chapter: number,
+  content: string,
+  opts?: { recordAi?: boolean; snapshotOrigin?: string },
+): { relPath: string; docId: string; words: number; snapshotted: boolean } {
+  const kind = readKind(bookRoot)
+  const draftDir = join(bookRoot, '工作区')
+  // 长篇 草稿-<章号>.md(review --chapter=N 推导);短篇 草稿-1.md(候选序号)
+  const draftFile = kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
+  const relPath = `工作区/${draftFile}`
+  // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
+  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
+  mkdirSync(draftDir, { recursive: true })
+  writeFileSync(join(draftDir, draftFile), content, 'utf8')
+  // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
+  invalidateTreeIndex(bookRoot)
+  // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
+  // 与树扫盘一致，前端可直接 openTab）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  let docId: string | null = null
+  for (const e of manifest.entries.values()) {
+    if (e.path === relPath) {
+      docId = e.id
+      break
+    }
+  }
+  const finalDocId = docId ?? legacyId(relPath)
+  // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
+  if (opts?.recordAi !== false) recordAiVersion(bookRoot, finalDocId, content)
+  return { relPath, docId: finalDocId, words: content.length, snapshotted: snapshotId !== null }
 }
 
 export function registerDraftRoutes(ctx: DraftCtx): void {
@@ -80,35 +119,19 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     if (!content.trim()) return reply(res, 400, { error: 'content 为空' })
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const kind = readKind(bookRoot)
-    const draftDir = join(bookRoot, '工作区')
-    // 长篇 草稿-<章号>.md(review --chapter=N 推导);短篇 草稿-1.md(候选序号)
-    const draftFile = kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
-    const relPath = `工作区/${draftFile}`
-    // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
-    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content)
+    let saved: ReturnType<typeof saveDraft>
     try {
-      mkdirSync(draftDir, { recursive: true })
-      writeFileSync(join(draftDir, draftFile), content, 'utf8')
+      saved = saveDraft(bookRoot, chapter, content)
     } catch (e) {
       return reply(res, 500, { error: `落盘失败:${e instanceof Error ? e.message : String(e)}` })
     }
-    // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
-    invalidateTreeIndex(bookRoot)
-    // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
-    // 与树扫盘一致，前端可直接 openTab）；snapshotted 供前端提示可从历史恢复
-    const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-    let docId: string | null = null
-    for (const e of manifest.entries.values()) {
-      if (e.path === relPath) {
-        docId = e.id
-        break
-      }
-    }
-    const finalDocId = docId ?? legacyId(relPath)
-    // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
-    recordAiVersion(bookRoot, finalDocId, content)
-    reply(res, 200, { ok: true, path: relPath, words: content.length, docId: finalDocId, snapshotted: snapshotId !== null })
+    reply(res, 200, {
+      ok: true,
+      path: saved.relPath,
+      words: saved.words,
+      docId: saved.docId,
+      snapshotted: saved.snapshotted,
+    })
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn

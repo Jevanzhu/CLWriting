@@ -2,7 +2,7 @@
 // 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
 // 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（M4 去机器味：作者看文章，调试功能全保留）。
 import { ref, watch, computed } from 'vue'
-import { Activity } from 'lucide-vue-next'
+import { Activity, CircleCheck, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -10,10 +10,9 @@ import {
   getState,
   spawnRole,
   interrupt,
-  runCli,
   saveDraft,
+  autoWrite,
   type BookState,
-  type CliResult,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -29,43 +28,23 @@ const state = ref<BookState | null>(null)
 const prompt = ref('')
 const err = ref<string | null>(null)
 
-// cli 八阶段（细案 §2.1 step 枚举）：确定性 CLI 步骤，POST /cli {step}
-const CLI_STEPS = ['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', 'rebook'] as const
-// 八阶段英文值 → 中文标签（值传 API 不变；英文值作 title 保留可调试性）
-const STEP_LABELS: Record<string, string> = {
-  prepare: '备料',
-  confirm: '确认',
-  check: '校对',
-  finalize: '定稿',
-  enter: '入书',
-  hand: '手写',
-  rebook: '补登',
-}
-// 态机 action → 可执行操作（每个建议动作都有 UI 按钮，一键执行不等作者开命令行）。
-// 新增 action 需同步补映射；repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）。
+// 态机 action → 可执行操作（每个建议动作都有 UI 按钮）。
+// CLI 确定性步骤（hand/rebook/health/review-batch/enter）随 CLI 退场：对应 action 不再有按钮，
+// 状态卡只展示 humanMsg；写章统一走「自动写章」或编辑器。
 const ACTION_RUNS: Record<string, { label: string; run: () => void | Promise<void> }> = {
   'write-new-chapter':      { label: '开写新章', run: onSpawn },
-  'write-new-chapter-hand': { label: '手写起草', run: () => onCli('hand') },
-  'rebook':                 { label: '补登',     run: () => onCli('rebook') },
-  'git-health':             { label: '体检',     run: () => onCli('health') },
-  'health-check-periodic':  { label: '体检',     run: () => onCli('health') },
-  'pending-batch-review':   { label: '开始审稿', run: () => onCli('review-batch') },
-  'volume-review':          { label: '卷复盘',   run: onSpawn },
+  'volume-review':          { label: '卷复盘', run: onSpawn },
 }
-const cliRunning = ref<string | null>(null)
-const cliReport = ref('')
 const draftSaved = ref<{ path?: string; words: number } | null>(null)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 const draftWords = computed(() => wb.textOut.length)
-// 当前建议操作（resume 按 resumePoint 分流：pre-commit 续写 / post-commit-residue 重新定位）
+// 当前建议操作（resume 续写；post-commit-residue 幂等清理无按钮，靠 humanMsg 提示）
 const currentAction = computed<{ label: string; run: () => void | Promise<void> } | null>(() => {
   const a = state.value?.action
   if (!a) return null
   if (a === 'resume') {
-    return state.value?.resumePoint === 'post-commit-residue'
-      ? { label: '重新定位', run: () => onCli('enter') }
-      : { label: '续写', run: onSpawn }
+    return { label: '续写', run: onSpawn }
   }
   // repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）
   if (a === 'repair') return null
@@ -111,23 +90,30 @@ async function onInterrupt(): Promise<void> {
   }
 }
 
-// CLI 八阶段步骤：prepare/confirm/check/finalize/enter/hand/rebook
-async function onCli(step: string): Promise<void> {
-  cliRunning.value = step
-  cliReport.value = ''
+// 全自动写章：AI 写稿→机检→红则自动重写→全绿或触顶交作者。进度经 SSE self_heal_* 事件回流。
+async function onAutoWrite(): Promise<void> {
   err.value = null
   try {
-    const r: CliResult = await runCli(props.bookName, { step, chapter: chapter.value, yes: true })
-    cliReport.value = r.stdout || r.stderr || `(exit ${r.code})`
-    ui.toast(`${STEP_LABELS[step] ?? step} 完成`, r.ok ? 'success' : 'error')
-    void refreshState()
+    await autoWrite(props.bookName, chapter.value)
+    ui.toast(`第 ${chapter.value} 章已开始全自动写稿`, 'info')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
     ui.toast(err.value, 'error')
-  } finally {
-    cliRunning.value = null
   }
 }
+
+// 自愈进度人话（阶段 + 第 N/M 次重写 + 剩余红项数）
+const healText = computed(() => {
+  const p = wb.healProgress
+  if (wb.healPhase === 'rewriting' && p) {
+    return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余红项 ${p.remaining.length} 条）`
+  }
+  if (wb.healPhase === 'drafting') return '正在写稿…'
+  if (wb.healPhase === 'checking') return '机检中…'
+  if (wb.healPhase === 'rewriting') return '正在重写…'
+  return ''
+})
+const healDone = computed(() => wb.healResult)
 
 // 存草稿并编辑（M3）：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
 async function onSaveDraft(): Promise<void> {
@@ -163,6 +149,14 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
       return `[用量] tokens=${ev.tokens} cost=${ev.cost}`
     case 'review-progress':
       return `[审稿] ${ev.lens} · ${ev.label} (${ev.phase})`
+    case 'self_heal_phase':
+      return `[自愈] 阶段 ${ev.phase}`
+    case 'self_heal_reset':
+      return '[自愈] 清正文缓冲（新一轮重写）'
+    case 'self_heal_progress':
+      return `[自愈] 第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余红项 ${(ev.remaining as string[] | undefined)?.length ?? 0}`
+    case 'self_heal_result':
+      return `[自愈] 终局 ${ev.outcome}`
     case 'done':
       return `[完成] reason=${ev.reason} usage=${ev.usage}`
     case 'error':
@@ -188,7 +182,7 @@ const recent = computed(() => wb.log.slice(-200))
   <div class="workbench">
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 驱动不可用（claude CLI 未就绪），写作功能暂不可用。请确认 claude CLI 已安装并在 PATH。
+      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用供应商。
     </div>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
     <section class="card">
@@ -203,13 +197,13 @@ const recent = computed(() => wb.log.slice(-200))
         <span class="action-hint">建议下一步</span>
         <button
           class="btn mini primary"
-          :disabled="!!cliRunning || wb.running"
+          :disabled="wb.running"
           @click="currentAction.run"
         >{{ currentAction.label }}</button>
       </div>
     </section>
 
-    <!-- 高级（流程可见：事件流 + 阶段任务 + CLI 报告） -->
+    <!-- 高级（流程可见：事件流） -->
     <section class="card">
       <CollapseSection title="高级" :default-open="false">
         <div class="adv-block">
@@ -227,22 +221,6 @@ const recent = computed(() => wb.log.slice(-200))
             </div>
           </div>
         </div>
-        <div class="adv-block">
-          <div class="adv-head"><span>阶段任务（第 {{ chapter }} 章）</span></div>
-          <div class="cli-grid">
-            <button
-              v-for="step in CLI_STEPS"
-              :key="step"
-              class="cli-btn"
-              :title="step"
-              :disabled="!!cliRunning"
-              @click="onCli(step)"
-            >
-              {{ cliRunning === step ? `${STEP_LABELS[step] ?? step}…` : STEP_LABELS[step] ?? step }}
-            </button>
-          </div>
-          <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
-        </div>
       </CollapseSection>
     </section>
 
@@ -258,7 +236,47 @@ const recent = computed(() => wb.log.slice(-200))
         />
         <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
         <button v-else class="btn danger" @click="onInterrupt">中断</button>
+        <button
+          v-if="!wb.running"
+          class="btn auto"
+          :disabled="ui.aiAvailable === false"
+          title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
+          @click="onAutoWrite"
+        >
+          <Sparkles :size="14" />
+          全自动写章
+        </button>
       </div>
+    </section>
+
+    <!-- 全自动写章：进度 + 终局（红项只在重试触顶后才流到作者） -->
+    <section v-if="healText || healDone" class="card heal-card">
+      <div v-if="healText" class="heal-row running">
+        <span class="heal-dot" />
+        <span>{{ healText }}</span>
+      </div>
+      <template v-if="healDone">
+        <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
+          <CircleCheck :size="16" />
+          <span>机检全绿，可以定稿了</span>
+        </div>
+        <div v-else-if="healDone.outcome === 'escalate'" class="heal-row warn">
+          <TriangleAlert :size="16" />
+          <div class="heal-detail">
+            <div>AI 已重试到上限仍有红项，需要你来定夺</div>
+            <ul class="heal-reds">
+              <li v-for="(r, i) in healDone.reds ?? []" :key="i">{{ r }}</li>
+            </ul>
+          </div>
+        </div>
+        <div v-else-if="healDone.outcome === 'aborted'" class="heal-row">
+          <span>已中断，草稿保留最后一次产出</span>
+        </div>
+        <div v-else class="heal-row warn">
+          <TriangleAlert :size="16" />
+          <span>{{ healDone.error ?? '写稿失败' }}</span>
+        </div>
+      </template>
     </section>
 
     <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
@@ -377,6 +395,73 @@ const recent = computed(() => wb.log.slice(-200))
 .btn.danger {
   color: var(--text-error);
   border-color: var(--text-error);
+}
+/* 全自动写章：与「生成」同排的次级强调（accent 描边不抢主按钮） */
+.btn.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+.btn.auto:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+.btn.auto:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.heal-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+.heal-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+}
+.heal-row.ok {
+  color: var(--text-accent);
+}
+.heal-row.warn {
+  color: var(--text-error);
+}
+.heal-row.running {
+  color: var(--text-muted);
+}
+.heal-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  animation: heal-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes heal-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.heal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.heal-reds {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+.heal-reds li {
+  margin: 2px 0;
 }
 .muted {
   font-size: var(--font-size-xs);

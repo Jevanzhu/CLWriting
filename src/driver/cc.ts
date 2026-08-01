@@ -1,18 +1,13 @@
 /**
- * CC driver(批2):claude CLI headless 实现。
+ * CC driver（重构版）：provider 直连，不再 spawn claude CLI。
  *
- * spawn `claude -p --output-format stream-json --verbose` 子进程,逐行解析 → DriverEvent。
- * 架构红线:不直连大模型,所有流量经 claude CLI(复用用户认证 / GLM 网关,继承 env)。
+ * spawnRole → 按 role 映射 system prompt → provider.stream() → 事件推 channel。
+ * SSE /stream 读 channel（不变）；interrupt → AbortController.abort()（替代 kill 子进程）。
  *
- * stream-json 事件(2026-06-23 PoC 确认,claude 2.1.185):
- *   system/init → init · assistant.content[text|tool_use] → text|tool_use
- *   user.content[tool_result] → tool_result · result → done
+ * 此路径为纯文本生成（无 tool_use）——供 /spawn 手动写稿 + outline + onboard。
+ * 结构化产出（submit_chapter 等）走 gen.ts（self-heal / rewrite / review / analysis）。
  */
-import { spawn } from 'node:child_process'
-import type { ChildProcess } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { splitFrontMatter } from '../format/frontmatter.js'
+import { createProvider, currentProvider, type ProviderConf, type GenRequest } from '../ai/provider/index.js'
 import type {
   Session,
   SessionOptions,
@@ -20,19 +15,27 @@ import type {
   DriverEvent,
   StudioDriver,
 } from './types.js'
+import { WRITER_SYSTEM_LONG, ANALYST_SYSTEM, REVIEW_SYSTEMS } from '../ai/prompts/index.js'
 
-/** 每 session 一个事件总线(子进程 stdout 解析后 push,stream 排空) */
+/** 每 session 一个事件总线 */
 interface Channel {
   events: DriverEvent[]
   waiters: Array<() => void>
-  /** 本次 spawn 是否已推过终止事件(done/error);close 时据此补推,防 SSE 收不到终止信号 */
   terminated?: boolean
 }
 const channels = new Map<string, Channel>()
 const sessions = new Map<string, Session>()
-/** session → claude 子进程(dispose 时 kill 防僵尸,Opus P1) */
-const sessionChild = new Map<string, ChildProcess>()
+/** session → AbortController（interrupt 时 abort，替代 kill 子进程） */
+const sessionCtrl = new Map<string, AbortController>()
 let sessionSeq = 0
+
+/** 应用数据目录（initDriver 注入，provider 从此读 providers.json） */
+let userDataPath: string | null = null
+
+/** 初始化 driver（server 启动时调一次） */
+export function initCcDriver(path: string | null): void {
+  userDataPath = path
+}
 
 function channel(id: string): Channel {
   let ch = channels.get(id)
@@ -51,130 +54,111 @@ function push(id: string, ev: DriverEvent): void {
   ch.waiters = []
 }
 
-/** 读角色系统提示(.claude/agents/<role>.md 去 frontmatter 后正文) */
-function readRolePrompt(cwd: string, role: string): string {
-  const fp = join(cwd, '.claude', 'agents', `${role}.md`)
-  if (!existsSync(fp)) return ''
-  let raw = ''
-  try {
-    raw = readFileSync(fp, 'utf8')
-  } catch {
-    return ''
+/** role → system prompt 映射（纯写作规则，不含工具指令） */
+function roleToSystemPrompt(role: string): string {
+  // review 角色：lens-review → REVIEW_SYSTEMS[lens]
+  if (role.endsWith('-review')) {
+    const lens = role === 'emotion-review' ? 'emotion_peak' : role.replace('-review', '')
+    return REVIEW_SYSTEMS[lens] ?? ''
   }
-  // renderClaudeAgent 格式:--- frontmatter --- 正文;取正文作系统提示
-  const split = splitFrontMatter(raw)
-  return split === null ? raw.trim() : split.body.trim()
+  if (role === 'writer') return WRITER_SYSTEM_LONG
+  if (role === 'analyst') return ANALYST_SYSTEM
+  // outline / onboard / main 等：system prompt 在 user message 里，这里返空
+  return ''
 }
 
-/** 解析 stream-json 一行 → DriverEvent[] */
-export function parseLine(line: string, role: string | undefined): DriverEvent[] {
-  let obj: Record<string, unknown>
-  try {
-    obj = JSON.parse(line) as Record<string, unknown>
-  } catch {
-    return []
-  }
-  const t = obj['type']
-  if (t === 'system' && obj['subtype'] === 'init') {
-    return [
-      {
-        type: 'init',
-        sessionId: String(obj['session_id'] ?? ''),
-        agents: (obj['agents'] as string[]) ?? [],
-        tools: (obj['tools'] as string[]) ?? [],
-      },
-    ]
-  }
-  if (t === 'assistant') {
-    const msg = obj['message'] as { content?: unknown[] } | undefined
-    const out: DriverEvent[] = []
-    for (const b of (msg?.content as Record<string, unknown>[]) ?? []) {
-      if (b['type'] === 'text') out.push({ type: 'text', text: String(b['text'] ?? ''), role })
-      else if (b['type'] === 'tool_use')
-        out.push({ type: 'tool_use', tool: String(b['name'] ?? ''), input: b['input'], role })
-    }
-    return out
-  }
-  if (t === 'user') {
-    const msg = obj['message'] as { content?: unknown[] } | undefined
-    const out: DriverEvent[] = []
-    for (const b of (msg?.content as Record<string, unknown>[]) ?? []) {
-      if (b['type'] === 'tool_result') out.push({ type: 'tool_result', result: b['content'], role })
-    }
-    return out
-  }
-  if (t === 'result') {
-    const usage = obj['usage'] as { output_tokens?: number } | undefined
-    return [
-      {
-        type: 'done',
-        cost: Number(obj['total_cost_usd'] ?? 0),
-        usage: usage?.output_tokens ?? 0,
-        reason: obj['subtype'] === 'success' ? 'success' : obj['is_error'] ? 'error' : 'cancelled',
-      },
-    ]
-  }
-  return []
+/** 读当前 provider conf；未配置 → null */
+function getProviderConf(): ProviderConf | null {
+  if (!userDataPath) return null
+  return currentProvider(userDataPath)
 }
 
-/** spawn claude 子进程,解析 stream-json 推 events */
-function runClaude(
+/** 跑一次 provider 生成，推事件到 channel */
+async function runProvider(
   session: Session,
+  systemPrompt: string,
   prompt: string,
-  opts: { allowedTools?: string[]; role?: string },
-): void {
-  // effort 限 low:实测 xhigh/medium 的 thinking 会不稳定地独占 output token 上限(32000),
-  // 导致正文偶发 0 字(low 稳定输出)。写作以正文生成为主,不需要深度推理。CLW_EFFORT 可覆盖。
-  const effort = process.env['CLW_EFFORT'] ?? 'low'
-  const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--effort', effort]
-  // spawnRole 禁所有工具(--tools '');send 放指定工具(--allowedTools)
-  if (opts.allowedTools && opts.allowedTools.length) {
-    args.push('--allowedTools', opts.allowedTools.join(','))
-  } else {
-    args.push('--tools', '')
+): Promise<void> {
+  const conf = getProviderConf()
+  if (!conf) {
+    push(session.id, {
+      type: 'error',
+      kind: 'config',
+      message: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。',
+      recoverable: false,
+    })
+    push(session.id, { type: 'done', cost: 0, usage: 0, reason: 'error' })
+    return
   }
-  const role = opts.role
-  // 同 session 快速二次 spawn 时,先 kill 上一个未结束的子进程,防泄漏 + 事件交错(P1)
-  const prev = sessionChild.get(session.id)
-  if (prev && !prev.killed) prev.kill('SIGTERM')
-  const child = spawn('claude', args, { cwd: session.cwd, env: process.env })
-  sessionChild.set(session.id, child)
-  // 超时保护(5min,claude 挂起时 kill 防 session 永久等待)
-  const timer = setTimeout(() => {
-    if (!child.killed) {
-      child.kill('SIGTERM')
-      push(session.id, { type: 'error', kind: 'spawn', message: 'claude 子进程超时(5min)被终止', recoverable: true })
-    }
-  }, 5 * 60 * 1000)
 
-  let buf = ''
-  child.stdout.on('data', (chunk: Buffer) => {
-    buf += chunk.toString()
-    let idx: number
-    while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx).trim()
-      buf = buf.slice(idx + 1)
-      if (!line) continue
-      for (const ev of parseLine(line, role)) push(session.id, ev)
+  const ctrl = new AbortController()
+  sessionCtrl.set(session.id, ctrl)
+
+  // 超时保护（5min）
+  const timer = setTimeout(() => ctrl.abort(), 5 * 60 * 1000)
+
+  const req: GenRequest = {
+    systemPrompt,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 8000,
+  }
+
+  try {
+    const provider = createProvider(conf)
+    for await (const ev of provider.stream(req, ctrl.signal)) {
+      if (session.closed) break
+      switch (ev.type) {
+        case 'text':
+          push(session.id, { type: 'text', text: ev.delta })
+          break
+        case 'done':
+          push(session.id, {
+            type: 'usage',
+            cost: 0,
+            tokens: ev.usage.outputTokens,
+          })
+          push(session.id, {
+            type: 'done',
+            cost: 0,
+            usage: ev.usage.outputTokens,
+            reason: 'success',
+          })
+          break
+        case 'error':
+          push(session.id, {
+            type: 'error',
+            kind: 'provider',
+            message: ev.message,
+            recoverable: ev.retryable,
+          })
+          break
+        default:
+          break
+      }
     }
-  })
-  child.on('error', (e) => {
+  } catch (e) {
+    if (session.closed || ctrl.signal.aborted) {
+      // 中断或 dispose：不报错
+    } else {
+      push(session.id, {
+        type: 'error',
+        kind: 'provider',
+        message: e instanceof Error ? e.message : String(e),
+        recoverable: false,
+      })
+    }
+  } finally {
     clearTimeout(timer)
-    push(session.id, { type: 'error', kind: 'spawn', message: e.message, recoverable: false })
-  })
-  child.on('close', () => {
-    clearTimeout(timer)
-    sessionChild.delete(session.id)
+    sessionCtrl.delete(session.id)
+    // 兜底：异常退出未推 done → 补推
     const ch = channel(session.id)
-    // 异常退出(无 result/无前置 error)时未推终止事件 → 补推 done,
-    // 否则持久 SSE 消费方收不到本次 spawn 的终止信号,UI 卡在等待(P0)
     if (!ch.terminated) {
       ch.terminated = true
-      ch.events.push({ type: 'done', cost: 0, usage: 0, reason: 'error' })
+      ch.events.push({ type: 'done', cost: 0, usage: 0, reason: 'success' })
     }
     for (const w of ch.waiters) w()
     ch.waiters = []
-  })
+  }
 }
 
 export const ccDriver: StudioDriver = {
@@ -187,14 +171,13 @@ export const ccDriver: StudioDriver = {
   },
 
   spawnRole(session: Session, role: string, prompt: string): void {
-    const sys = readRolePrompt(session.cwd, role)
-    const full = sys ? `${sys}\n\n---\n\n${prompt}` : prompt
-    runClaude(session, full, { role })
+    const sys = roleToSystemPrompt(role)
+    void runProvider(session, sys, prompt)
   },
 
   send(session: Session, prompt: string): void {
-    // 软触发主 agent 调 Agent/Task 工具(--resume 续主 session 留后续)
-    runClaude(session, prompt, { allowedTools: ['Agent', 'Task', 'Read'], role: 'main' })
+    // send = 无 system prompt 的纯 user message（outline / onboard 等多源合成）
+    void runProvider(session, '', prompt)
   },
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
@@ -209,7 +192,7 @@ export const ccDriver: StudioDriver = {
   },
 
   respondApproval(_session: Session, _approval: ApprovalResponse): void {
-    // headless -p 无交互审批(B 编排单步生成用不到)
+    // 无交互审批
   },
 
   async resume(sessionId: string): Promise<Session> {
@@ -222,10 +205,10 @@ export const ccDriver: StudioDriver = {
 
   dispose(session: Session): void {
     session.closed = true
-    // kill 子进程(防僵尸:claude 挂起时 dispose 不杀会泄漏)
-    const child = sessionChild.get(session.id)
-    if (child && !child.killed) child.kill('SIGTERM')
-    sessionChild.delete(session.id)
+    // abort 当前生成（替代 kill 子进程）
+    const ctrl = sessionCtrl.get(session.id)
+    if (ctrl) ctrl.abort()
+    sessionCtrl.delete(session.id)
     const ch = channels.get(session.id)
     if (ch) {
       for (const w of ch.waiters) w()
@@ -236,22 +219,21 @@ export const ccDriver: StudioDriver = {
   },
 
   interrupt(session: Session): void {
-    // kill 当前子进程 + 推 interrupted;标 terminated 防 close 再补 done。session 保留可再 spawn
-    const child = sessionChild.get(session.id)
-    if (child && !child.killed) child.kill('SIGTERM')
+    // abort 当前生成 + 推 interrupted；session 保留可再 spawn
+    const ctrl = sessionCtrl.get(session.id)
+    if (ctrl) ctrl.abort()
     const ch = channel(session.id)
     ch.terminated = true
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })
   },
 
   emit(session: Session, ev: DriverEvent): void {
-    // 编排层回推自定义事件(如 review 逐角进度)到 session 事件流,经主 SSE 转发前端
     push(session.id, ev)
   },
 
   isRunning(session: Session): boolean {
-    // 生成中 = 子进程存活(未 kill 且未退出);SSE 新连接据此补发运行态快照
-    const child = sessionChild.get(session.id)
-    return !!child && !child.killed && child.exitCode === null
+    // 生成中 = 有未完成的 AbortController
+    const ctrl = sessionCtrl.get(session.id)
+    return !!ctrl && !session.closed
   },
 }

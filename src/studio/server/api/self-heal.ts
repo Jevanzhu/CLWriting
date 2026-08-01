@@ -1,0 +1,313 @@
+/**
+ * 全自动写章 · 红项自愈闭环编排器（重构版）。
+ *
+ * provider 直连 + tool_use 结构化产出，不再 spawn claude CLI。
+ * 作者触发一次 → AI 写稿（tool_use）→ 机检 → 红则自动重写 → 全绿或触顶交作者。
+ *
+ * 架构要点：
+ * - provider 从 providers.json 取当前供应商（userDataPath 注入）
+ * - 进度经主 session emit 回流（/stream 转发前端）；text 逐字转发
+ * - 每轮重写前发 self_heal_reset：整章重写产出的是完整替换稿
+ * - AbortSignal 贯穿到 provider（interrupt 时 abort 请求）
+ */
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { rebuild } from '../../../cache/rebuild.js'
+import { readBookConfig } from '../../../format/yaml.js'
+import { evaluateRetry } from '../../../process/retry.js'
+import { getRedItems } from '../../../check/types.js'
+import type { BookConfig } from '../../../format/types.js'
+import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
+import { readKind } from '../book-context.js'
+import { checkWithDb, type CheckOutcome } from './check.js'
+import { buildDraftPrompt, saveDraft } from './draft.js'
+import { buildRewritePrompt, draftFileName } from './rewrite.js'
+import { generateTool } from '../../../ai/gen.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { chapterTool, chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
+import { writerSystem } from '../../../ai/prompts/index.js'
+
+/** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号） */
+const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项，保持正文连贯与既定情节走向。'
+
+export interface SelfHealOpts {
+  /** 进度 emit 目标：只 emit，不在其上生成 */
+  driver: StudioDriver
+  mainSession: Session
+  /** APP 数据目录（读 providers.json 取当前供应商） */
+  userDataPath: string
+  cwd: string
+  bookRoot: string
+  /** 并发锁 key */
+  bookName: string
+  chapter: number
+  /** 最大重写次数（默认 3） */
+  maxAttempts?: number
+  /** 机检注入（单测替身） */
+  check?: (draftPath: string) => CheckOutcome
+  /** 落盘注入（单测替身） */
+  save?: typeof saveDraft
+  /** 生成函数注入（单测替身）；缺省用 provider + tool_use 生成。
+   *  接收 userPrompt + kind，返回完整 markdown（front matter + 正文）。 */
+  genFn?: (userPrompt: string, kind: 'long' | 'short', signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
+}
+
+export type SelfHealOutcome =
+  | { outcome: 'pass'; docId: string; path: string; attempts: number }
+  | { outcome: 'escalate'; reds: string[]; docId: string; path: string; attempts: number }
+  | { outcome: 'aborted' }
+  | { outcome: 'failed'; error: string }
+
+/** 运行中的编排（book 级并发锁 + 中断句柄） */
+interface RunState {
+  ctrl: AbortController
+}
+const running = new Map<string, RunState>()
+
+/** 本书是否正在全自动写章 */
+export function isSelfHealRunning(bookName: string): boolean {
+  return running.has(bookName)
+}
+
+/** 中断本书的全自动写章 */
+export function abortSelfHeal(bookName: string): boolean {
+  const st = running.get(bookName)
+  if (!st) return false
+  st.ctrl.abort()
+  return true
+}
+
+/**
+ * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
+ */
+export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
+  const state: RunState = { ctrl: new AbortController() }
+  running.set(opts.bookName, state)
+  let result: SelfHealOutcome
+  try {
+    result = await orchestrate(opts, state)
+  } catch (e) {
+    result = { outcome: 'failed', error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    running.delete(opts.bookName)
+  }
+  emitResult(opts, result)
+  return result
+}
+
+async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHealOutcome> {
+  const { bookRoot, chapter } = opts
+  const maxAttempts = opts.maxAttempts ?? 3
+  const save = opts.save ?? saveDraft
+  const kind = readKind(bookRoot)
+  const isShort = kind === 'short'
+  const draftPath = join(bookRoot, '工作区', draftFileName(chapter, kind))
+
+  // 前端：running=true + 清空旧正文
+  emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+
+  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  if (!isShort) {
+    const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
+    if (rebuilt.errors.length > 0) {
+      return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
+    }
+  }
+  const check = opts.check ?? ((p: string) => checkWithFreshDb(bookRoot, p, config, isShort))
+
+  // ① 首稿
+  emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
+  const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind))
+  if (first.status !== 'ok') return spawnFailure(first)
+  let current = first.text
+  save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+
+  // ② 机检 → 红则重写 → 全绿或触顶
+  let attempt = 0
+  for (;;) {
+    if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
+    emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
+    const outcome = check(draftPath)
+
+    let feedback: string
+    let reds: string[]
+    let chapterNo = chapter
+
+    if (outcome.ok) {
+      chapterNo = outcome.chapter.章号
+      const st = evaluateRetry(outcome.report, attempt, maxAttempts)
+      if (st.state === 'pass') {
+        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        return { outcome: 'pass', docId: final.docId, path: final.relPath, attempts: attempt }
+      }
+      if (st.state === 'escalate') {
+        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        return {
+          outcome: 'escalate',
+          reds: redMessages(outcome),
+          docId: final.docId,
+          path: final.relPath,
+          attempts: attempt,
+        }
+      }
+      feedback = st.redFeedback
+      reds = redMessages(outcome)
+    } else {
+      // tool_use 契约下 fm 漂移不应出现；但保留降级处理
+      if (outcome.code !== 'NOT_CHAPTER') return { outcome: 'failed', error: outcome.error }
+      reds = [`草稿格式不合规：${outcome.error}`]
+      if (attempt >= maxAttempts) {
+        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        return { outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
+      }
+      feedback = `请修复以下红项后重写：\n- ${reds[0]}`
+    }
+
+    // ③ 退回重写
+    emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
+    emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
+    emit(opts, { type: 'self_heal_reset' })
+
+    const prompt = buildRewritePrompt(
+      'whole',
+      current,
+      '',
+      REWRITE_INSTRUCTION,
+      feedbackToIssues(feedback),
+      chapterNo,
+      kind,
+    )
+    const again = await runGenerate(opts, state, kind, prompt)
+    if (again.status !== 'ok') return spawnFailure(again)
+    current = again.text
+    save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+    attempt++
+  }
+}
+
+type SpawnResult =
+  | { status: 'ok'; text: string }
+  | { status: 'aborted' }
+  | { status: 'error'; error: string }
+
+/**
+ * 生成入口：优先用注入的 genFn（单测），否则用 provider + tool_use。
+ * text 逐字转发主 session（前端实时见产出）。
+ */
+async function runGenerate(
+  opts: SelfHealOpts,
+  state: RunState,
+  kind: 'long' | 'short',
+  userPrompt: string,
+): Promise<SpawnResult> {
+  if (state.ctrl.signal.aborted) return { status: 'aborted' }
+
+  // 注入的生成函数（单测替身）
+  if (opts.genFn) {
+    try {
+      const text = await opts.genFn(userPrompt, kind, state.ctrl.signal, (delta) =>
+        emit(opts, { type: 'text', text: delta }),
+      )
+      if (state.ctrl.signal.aborted) return { status: 'aborted' }
+      if (!text.trim()) return { status: 'error', error: 'AI 产出为空' }
+      return { status: 'ok', text }
+    } catch (e) {
+      if (state.ctrl.signal.aborted) return { status: 'aborted' }
+      return { status: 'error', error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  // 真实 provider + tool_use
+  const conf = currentProvider(opts.userDataPath)
+  if (!conf) return { status: 'error', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+
+  const provider = createProvider(conf)
+  try {
+    const { input, text } = await generateTool(
+      provider,
+      {
+        systemPrompt: writerSystem(kind),
+        messages: [{ role: 'user', content: userPrompt }],
+        maxTokens: 8000,
+        tools: [chapterTool(kind)],
+        toolChoice: 'tool',
+        toolName: chapterToolName(kind),
+      },
+      state.ctrl.signal,
+      (delta) => emit(opts, { type: 'text', text: delta }),
+    )
+
+    if (state.ctrl.signal.aborted) return { status: 'aborted' }
+
+    // tool_use 结构化产出 → 拼装 front matter + 正文
+    const assembled = assembleChapter(input, opts.chapter, kind)
+    if (assembled.ok) {
+      return { status: 'ok', text: assembled.content }
+    }
+
+    // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
+    if (text.trim()) {
+      return { status: 'ok', text: text.trim() }
+    }
+    return { status: 'error', error: 'AI 产出为空' }
+  } catch (e) {
+    if (state.ctrl.signal.aborted) return { status: 'aborted' }
+    return { status: 'error', error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+function spawnFailure(r: SpawnResult): SelfHealOutcome {
+  if (r.status === 'aborted') return { outcome: 'aborted' }
+  return { outcome: 'failed', error: r.status === 'error' ? r.error : '写稿失败' }
+}
+
+/** 每轮开关 db */
+function checkWithFreshDb(
+  bookRoot: string,
+  draftPath: string,
+  config: BookConfig,
+  isShort: boolean,
+): CheckOutcome {
+  const db = isShort ? null : new DatabaseSync(join(bookRoot, '.cache', 'index.db'))
+  try {
+    return checkWithDb(bookRoot, draftPath, db, config, isShort)
+  } finally {
+    if (db) db.close()
+  }
+}
+
+function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
+  return getRedItems(outcome.report).map((i) => i.message)
+}
+
+function feedbackToIssues(feedback: string): string[] {
+  const items = feedback
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('- '))
+    .map((l) => l.slice(2).trim())
+    .filter(Boolean)
+  return items.length > 0 ? items : [feedback.trim()]
+}
+
+function emit(opts: SelfHealOpts, ev: DriverEvent): void {
+  opts.driver.emit?.(opts.mainSession, ev)
+}
+
+function emitResult(opts: SelfHealOpts, result: SelfHealOutcome): void {
+  const ev: DriverEvent =
+    result.outcome === 'pass'
+      ? { type: 'self_heal_result', outcome: 'pass', docId: result.docId, path: result.path }
+      : result.outcome === 'escalate'
+        ? { type: 'self_heal_result', outcome: 'escalate', reds: result.reds, docId: result.docId, path: result.path }
+        : result.outcome === 'aborted'
+          ? { type: 'self_heal_result', outcome: 'aborted' }
+          : { type: 'self_heal_result', outcome: 'failed', error: result.error }
+  emit(opts, ev)
+  emit(opts, {
+    type: 'done',
+    cost: 0,
+    usage: 0,
+    reason: result.outcome === 'aborted' ? 'cancelled' : result.outcome === 'failed' ? 'error' : 'success',
+  })
+}

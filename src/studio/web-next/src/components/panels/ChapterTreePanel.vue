@@ -194,7 +194,7 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
     }
     items.push({ key: 'copy', label: '创建副本' })
   } else if (isBodyKind(node.path) && node.path.startsWith('篇/')) {
-    // 短篇正文：标题/篇号编辑（联动篇目录名）；无跨卷移动（短篇集扁平）
+    // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平）
     items.push({ key: 'meta', label: '篇章信息…' })
   }
   items.push({ key: 'sep-a', label: '', separator: true })
@@ -255,8 +255,8 @@ function onMenuSelect(key: string): void {
   else if (key === 'rename') renamePath.value = node.path
   else if (key === 'meta') {
     const isPiece = isBodyKind(node.path) && node.path.startsWith('篇/')
-    // 短篇：从篇目录名 篇/N-标题/ 提取 篇号+标题；长篇从文件名 0001-标题.md 提取 章号+标题
-    const m = parseChapterFileName(isPiece ? node.path.replace(/\/正文\.md$/, '') : node.path)
+    // 短篇/长篇均从文件名提取编号+标题（短篇 篇/N-标题.md，长篇 定稿/正文/N-标题.md）
+    const m = parseChapterFileName(node.path)
     metaEditing.value = {
       docId: node.docId ?? '',
       标题: m?.标题 ?? node.name,

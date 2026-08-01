@@ -7,15 +7,13 @@
  * - 近章钩子/情绪（节奏连续性参考）
  * - 当前卷信息
  *
- * 全程读 M1 精准读取（cli/read.ts），零 token 脚本组装。
+ * 全程读 M1 精准读取（format/read.ts），零 token 脚本组装。
  */
 
 import type { DatabaseSync } from 'node:sqlite'
 import {
-  readLeadStatus,
   readStaleLeads,
-  readChapterLocation,
-} from '../cli/read.js'
+} from '../format/read.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 账本阈值默认表（母本第 2.2 节，#9 可覆盖） */

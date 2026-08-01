@@ -1,0 +1,625 @@
+<script setup lang="ts">
+// AI 服务供应商管理面板（设置页 AI tab 的内容）。
+// 应用级配置，跨书共享，存 userData/providers.json。
+import { ref, onMounted } from 'vue'
+import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil } from 'lucide-vue-next'
+import {
+  getProviders,
+  createProvider,
+  updateProvider,
+  deleteProvider,
+  setCurrentProvider,
+  testProvider,
+  type ProviderConfDto,
+  type ProviderCaps,
+  type Protocol,
+  type AuthStrategy,
+  type TestResult,
+} from '../../api/providers'
+import { useUiStore } from '../../stores/ui'
+
+const ui = useUiStore()
+
+const providers = ref<ProviderConfDto[]>([])
+const currentId = ref<string | null>(null)
+const loading = ref(false)
+const testing = ref<string | null>(null)
+const testResults = ref<Map<string, TestResult>>(new Map())
+
+// 编辑/新增表单
+const editing = ref(false)
+const editId = ref<string | null>(null)
+const form = ref({
+  name: '',
+  protocol: 'openai' as Protocol,
+  auth: 'bearer' as AuthStrategy,
+  baseUrl: '',
+  model: '',
+  apiKey: '',
+})
+
+const PROTOCOL_OPTIONS: { value: Protocol; label: string; auth: AuthStrategy; hint: string }[] = [
+  { value: 'anthropic', label: 'Anthropic 官方格式', auth: 'anthropic', hint: 'Anthropic 官方 API' },
+  { value: 'anthropic', label: 'Claude 中转 / 网关', auth: 'claudeAuth', hint: 'Claude Code 兼容网关，只认 Bearer' },
+  { value: 'openai', label: 'OpenAI 兼容格式', auth: 'bearer', hint: '厂商原生端点、中继、自建' },
+]
+
+async function refresh(): Promise<void> {
+  loading.value = true
+  try {
+    const data = await getProviders()
+    providers.value = data.providers
+    currentId.value = data.currentId
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(refresh)
+
+function startAdd(): void {
+  editing.value = true
+  editId.value = null
+  form.value = { name: '', protocol: 'openai', auth: 'bearer', baseUrl: '', model: '', apiKey: '' }
+}
+
+function startEdit(p: ProviderConfDto): void {
+  editing.value = true
+  editId.value = p.id
+  form.value = { name: p.name, protocol: p.protocol, auth: p.auth, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
+}
+
+function cancelEdit(): void {
+  editing.value = false
+  editId.value = null
+}
+
+function selectPreset(protocol: Protocol, auth: AuthStrategy): void {
+  form.value.protocol = protocol
+  form.value.auth = auth
+}
+
+async function save(): Promise<void> {
+  const f = form.value
+  if (!f.name.trim()) return ui.toast('名称必填', 'error')
+  if (!f.baseUrl.trim()) return ui.toast('API 地址必填', 'error')
+  if (!f.model.trim()) return ui.toast('模型名必填', 'error')
+  if (!editId.value && !f.apiKey.trim()) return ui.toast('API Key 必填', 'error')
+
+  try {
+    if (editId.value) {
+      await updateProvider(editId.value, f)
+      ui.toast('已保存', 'success')
+    } else {
+      await createProvider(f)
+      ui.toast('已添加', 'success')
+    }
+    editing.value = false
+    editId.value = null
+    await refresh()
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  }
+}
+
+async function remove(p: ProviderConfDto): Promise<void> {
+  if (!confirm(`删除供应商「${p.name}」？`)) return
+  try {
+    const r = await deleteProvider(p.id)
+    currentId.value = r.currentId
+    await refresh()
+    ui.toast('已删除', 'success')
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  }
+}
+
+async function activate(p: ProviderConfDto): Promise<void> {
+  if (!p.caps) return ui.toast('请先测试连接', 'error')
+  try {
+    await setCurrentProvider(p.id)
+    currentId.value = p.id
+    ui.toast(`已启用「${p.name}」`, 'success')
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  }
+}
+
+async function test(p: ProviderConfDto): Promise<void> {
+  testing.value = p.id
+  try {
+    const r = await testProvider(p.id)
+    testResults.value.set(p.id, r)
+    await refresh()
+    if (r.ok && r.caps?.toolUse) ui.toast(`${p.name} 测试通过`, 'success')
+    else if (r.ok && !r.caps?.toolUse) ui.toast(`${p.name} 连通但不支持工具调用`, 'error')
+    else ui.toast(r.error ?? '测试失败', 'error')
+  } catch (e) {
+    testResults.value.set(p.id, { ok: false, error: e instanceof Error ? e.message : String(e) })
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  } finally {
+    testing.value = null
+  }
+}
+
+function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | null {
+  if (!caps) return null
+  if (!caps.toolUse) return { text: '不可用于写作', cls: 'bad' }
+  const parts: string[] = []
+  if (caps.streaming) parts.push('流式')
+  if (caps.toolChoice) parts.push('强制工具')
+  return { text: parts.length ? parts.join(' · ') : '基础', cls: 'ok' }
+}
+
+function timeAgo(ts: number | undefined): string {
+  if (!ts) return ''
+  const diff = Date.now() - ts
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+  return `${Math.floor(diff / 86400000)} 天前`
+}
+</script>
+
+<template>
+  <div class="ai-service-panel">
+    <!-- 供应商列表 -->
+    <template v-if="!editing">
+      <div class="group-title">
+        AI 服务供应商
+        <button class="add-btn" @click="startAdd"><Plus :size="14" />添加</button>
+      </div>
+
+      <div v-if="loading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
+
+      <div v-else-if="providers.length === 0" class="empty">
+        <p>尚未配置任何 AI 服务供应商</p>
+        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加供应商</button>
+      </div>
+
+      <template v-else>
+        <div v-for="p in providers" :key="p.id" class="provider-card" :class="{ active: p.id === currentId }">
+          <div class="provider-head">
+            <div class="provider-name">
+              <span class="dot" :class="p.id === currentId ? 'on' : 'off'" />
+              {{ p.name }}
+            </div>
+            <div class="provider-actions">
+              <button
+                v-if="p.id !== currentId && p.caps?.toolUse"
+                class="mini-btn"
+                data-tip="设为当前启用"
+                @click="activate(p)"
+              >
+                <Check :size="13" />
+              </button>
+              <button
+                class="mini-btn"
+                :class="{ testing: testing === p.id }"
+                :disabled="testing === p.id"
+                data-tip="测试连接"
+                @click="test(p)"
+              >
+                <Loader2 v-if="testing === p.id" :size="13" class="spin" />
+                <Zap v-else :size="13" />
+              </button>
+              <button class="mini-btn" data-tip="编辑" @click="startEdit(p)">
+                <Pencil :size="13" />
+              </button>
+              <button class="mini-btn danger" data-tip="删除" @click="remove(p)">
+                <Trash2 :size="13" />
+              </button>
+            </div>
+          </div>
+          <div class="provider-meta">
+            <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
+            <span class="tag dim">{{ p.auth }}</span>
+            <span class="model">{{ p.model }}</span>
+            <span class="key">{{ p.apiKeyMasked }}</span>
+          </div>
+          <!-- caps 徽章 -->
+          <div v-if="p.caps" class="caps-row">
+            <span class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
+            <span class="probed-at">探测于 {{ timeAgo(p.capsProbedAt) }}</span>
+          </div>
+          <!-- 测试结果详情 -->
+          <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
+            <div v-for="(d, i) in testResults.get(p.id)?.details" :key="i" class="detail-line">{{ d }}</div>
+            <div v-if="testResults.get(p.id)?.error" class="detail-line err">
+              <AlertTriangle :size="12" /> {{ testResults.get(p.id)?.error }}
+            </div>
+          </div>
+          <div v-if="!p.caps" class="caps-hint">
+            <AlertTriangle :size="12" /> 尚未测试连接——未探测的供应商不能启用
+          </div>
+        </div>
+      </template>
+    </template>
+
+    <!-- 新增/编辑表单 -->
+    <template v-else>
+      <div class="group-title">{{ editId ? '编辑供应商' : '新增供应商' }}</div>
+      <div class="form">
+        <!-- 协议模板选择 -->
+        <div class="form-row">
+          <label>类型</label>
+          <div class="preset-list">
+            <button
+              v-for="(opt, i) in PROTOCOL_OPTIONS"
+              :key="i"
+              class="preset-btn"
+              :class="{ on: form.protocol === opt.value && form.auth === opt.auth }"
+              @click="selectPreset(opt.value, opt.auth)"
+            >
+              <span class="preset-label">{{ opt.label }}</span>
+              <span class="preset-hint">{{ opt.hint }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>名称</label>
+          <input v-model="form.name" type="text" placeholder="如「我的中转」" class="text-input" />
+        </div>
+        <div class="form-row">
+          <label>API 地址</label>
+          <input v-model="form.baseUrl" type="text" placeholder="https://..." class="text-input" />
+        </div>
+        <div class="form-row">
+          <label>模型名</label>
+          <input v-model="form.model" type="text" placeholder="如 gpt-4o / claude-sonnet-5-20251022" class="text-input" />
+        </div>
+        <div class="form-row">
+          <label>API Key</label>
+          <input
+            v-model="form.apiKey"
+            type="password"
+            :placeholder="editId ? '不改则保留原 Key' : '粘贴你的 API Key'"
+            class="text-input"
+          />
+        </div>
+
+        <div class="form-actions">
+          <button class="cancel-btn" @click="cancelEdit">取消</button>
+          <button class="save-btn" @click="save">保存</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.ai-service-panel {
+  max-width: 560px;
+}
+
+/* ── 分组标题 ── */
+.group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding-bottom: var(--size-4-2);
+}
+
+/* ── 添加按钮 ── */
+.add-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.add-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.add-btn-lg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.add-btn-lg:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ── 空状态 ── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-3);
+  padding: var(--size-4-8) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-s);
+}
+
+/* ── 供应商卡片 ── */
+.provider-card {
+  padding: var(--size-4-3) var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin-bottom: var(--size-4-2);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.provider-card.active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 4%, transparent);
+}
+
+.provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.provider-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.on {
+  background: var(--color-green);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-green) 60%, transparent);
+}
+.dot.off {
+  background: var(--text-faint);
+}
+
+.provider-actions {
+  display: flex;
+  gap: 4px;
+}
+.mini-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.mini-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.mini-btn.danger:hover {
+  color: var(--color-red);
+}
+.mini-btn.testing {
+  pointer-events: none;
+}
+
+.provider-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.tag {
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+}
+.tag.dim {
+  background: var(--background-modifier-hover);
+  color: var(--text-faint);
+}
+.model {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.key {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ── caps 徽章 ── */
+.caps-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.caps-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+.caps-badge.ok {
+  background: color-mix(in srgb, var(--color-green) 14%, transparent);
+  color: var(--color-green);
+}
+.caps-badge.bad {
+  background: color-mix(in srgb, var(--color-red) 14%, transparent);
+  color: var(--color-red);
+}
+.probed-at {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.caps-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--color-orange, var(--text-muted));
+}
+
+/* ── 测试详情 ── */
+.test-detail {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.test-detail.fail {
+  background: color-mix(in srgb, var(--color-red) 6%, transparent);
+}
+.detail-line {
+  line-height: 1.6;
+}
+.detail-line.err {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-red);
+}
+
+/* ── 表单 ── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.form-row label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.text-input {
+  padding: 8px 12px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.text-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+  text-align: left;
+}
+.preset-btn:hover {
+  border-color: var(--interactive-accent);
+}
+.preset-btn.on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+}
+.preset-label {
+  font-size: var(--font-size-s);
+  font-weight: 500;
+  color: var(--text-normal);
+}
+.preset-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: var(--size-4-2);
+}
+.cancel-btn {
+  padding: 7px 18px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cancel-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.save-btn {
+  padding: 7px 18px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+.save-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* ── spin ── */
+.spin {
+  animation: clw-spin 0.8s linear infinite;
+}
+@keyframes clw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

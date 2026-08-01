@@ -1,9 +1,10 @@
 /**
  * 状态机单入口 —— 依据 #15 状态机单入口 spec（M3 子 spec·#15）+ 母本第 6.4 节。
  *
- * 每次进书按序判定 7 态、命中即路由（#15 第 2 节）：
+ * 每次进书按序判定、命中即路由（#15 第 2 节）：
  * 1 git 健康检查 → 2 源文件解析失败 → 3 未入账手改 → 4 工作区未完成
- * → 5 卷末 → 6 体检周期 → 7 起草新章
+ * → 8 待批量审稿 → 5 卷末 → 7 起草新章
+ * （CLI 退场：体检周期态 6 已移除，不再拦写章。）
  *
  * 设计（#15 第 1 节原则）：
  * - 单入口、按序判定：前一个命中就路由，不再判后面的（体检优先于续跑、续跑优先于周期）。
@@ -19,10 +20,9 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gitHealthCheck, statusPorcelain, lastCommitMsg, findChapterCommit } from '../git/exec.js'
 import { rebuild } from '../cache/rebuild.js'
-import { readBookConfig, getWorkflow } from '../format/yaml.js'
+import { readBookConfig } from '../format/yaml.js'
 import { hashFile } from '../fs/hash.js'
 import { assembleStatus } from '../process/assemble.js'
-import { checkHealthDue, DEFAULT_HEALTH_CHECK_INTERVAL } from '../cache/healthcheck.js'
 import { countPieces } from '../format/pieces.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
@@ -34,8 +34,8 @@ function volumeSizeOf(config: BookConfig): number {
   return typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? size : DEFAULT_VOLUME_SIZE
 }
 
-/** 7 态枚举（#15 第 2 节顺序）+ 态 8 待批量审稿（M6 #34） */
-export type BookState = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+/** 状态枚举（#15 第 2 节顺序）+ 态 8 待批量审稿（M6 #34）+ 态 5 卷末；CLI 退场无态 6 */
+export type BookState = 1 | 2 | 3 | 4 | 5 | 7 | 8
 
 /** 态名（人话，#15 第 2 节表）+ 态 8（M6 #34） */
 export const STATE_NAMES: Record<BookState, string> = {
@@ -44,7 +44,6 @@ export const STATE_NAMES: Record<BookState, string> = {
   3: '未入账手改',
   4: '工作区未完成',
   5: '卷末',
-  6: '体检周期',
   7: '起草新章',
   8: '待批量审稿',
 }
@@ -59,7 +58,6 @@ export type DetectedState =
   | { state: 3; handEdits: string[] } // 未 commit 的脏文件清单
   | { state: 4; chapterNum: number; resumePoint: 'pre-commit' | 'post-commit-residue' } // #13 中断点
   | { state: 5; volume: number } // 第几卷写完了
-  | { state: 6; chaptersSince: number } // 距上次体检多少章
   | { state: 7; nextChapter: number }
   | { state: 8; pendingChapters: number[] } // M6 #34：待定稿有完成章待批量审稿
 
@@ -80,9 +78,7 @@ export type RouterActionKind =
   | 'rebook' // 态 3 → #18 提议补登
   | 'resume' // 态 4 → #13 中断恢复续跑
   | 'volume-review' // 态 5 → 卷复盘（M3 概要）
-  | 'health-check-periodic' // 态 6 → 体检（M3 概要）
   | 'write-new-chapter' // 态 7 → M2 AI 写章流程
-  | 'write-new-chapter-hand' // 态 7 → W2B 手写起草（自由模式默认）
   | 'pending-batch-review' // 态 8 → M6 #35 批量审稿
   | 'pending-ai' // AI 介入点（M3 桩，M4 真执行）
 
@@ -180,12 +176,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     return { state: 5, volume: currentChapter / volumeSize }
   }
 
-  // #6 体检周期（#15 第 6 节）：距上次体检 ≥ 阈值则到期，提示做账本对账体检。
-  // 体检周期标记存 .cache/health-check.json（独立于 index.db，不受 rebuild 清空影响）。
-  const chaptersSince = checkHealthDue(bookRoot, currentChapter, DEFAULT_HEALTH_CHECK_INTERVAL)
-  if (chaptersSince !== null) {
-    return { state: 6, chaptersSince }
-  }
+  // #6 体检周期：CLI 退场后移除（态 6 不再拦截写章），直接落态 7。
 
   // #7 起草新章（兜底）
   return { state: 7, nextChapter: currentChapter + 1 }
@@ -278,7 +269,7 @@ function existsDraft(workDir: string): boolean {
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
  * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，M3 出人话不真执行。
  */
-export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long', config?: BookConfig): RouterAction {
+export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long'): RouterAction {
   switch (detected.state) {
     case 1: {
       const list = detected.issues.map((i) => `· ${i.humanMsg}（${i.fix}）`).join('\n')
@@ -330,22 +321,14 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
         action: 'volume-review',
         needsAI: true, // 卷复盘深度 M4
       }
-    case 6:
-      return {
-        state: 6,
-        humanMsg: `该体检了（距上次体检 ${detected.chaptersSince} 章）。查一下 git 健康状况，核对悬太久的线，做完可以继续开新章。`,
-        action: 'health-check-periodic',
-        needsAI: false, // M3 出触发 + 概要；深度账本对账 M4（#15 第 6 节）
-      }
     case 7: {
       const unit = kind === 'short' ? '篇' : '章'
-      // W2B §3.1：自由模式态 7 默认手写起草（AI 线冻结，作者主导）；严格模式走 M2 AI 流程
-      const isFree = config ? getWorkflow(config) === 'free' : false
+      // CLI 退场后写章收敛为单一入口（全自动/编辑器），不再分「手写起草」动作
       return {
         state: 7,
         humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
-        action: isFree ? 'write-new-chapter-hand' : 'write-new-chapter',
-        needsAI: false, // M2 AI 写稿由 M4 壳调；手写跳预算闸（W2B §3.1）
+        action: 'write-new-chapter',
+        needsAI: false, // M2 AI 写稿由 M4 壳调
       }
     }
     case 8: {
@@ -495,7 +478,7 @@ export function formatRecap(recap: StatusRecap, kind: 'long' | 'short' = 'long')
   }
   if (recap.batchPause) {
     const p = recap.batchPause
-    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} ${unit}暂停（${p.reason}：${p.detail}），处理后 \`clwriting auto --resume\`。`)
+    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} ${unit}暂停（${p.reason}：${p.detail}），处理后恢复续写。`)
   }
   return lines.join('\n')
 }
@@ -519,7 +502,7 @@ export function enter(bookRoot: string): EnterResult {
   const cfgPath = join(bookRoot, 'book.yaml')
   const { config } = readBookConfig(cfgPath)
   const detected = detectState(bookRoot, config)
-  const route = routeState(detected, config.kind ?? 'long', config)
+  const route = routeState(detected, config.kind ?? 'long')
   const recap = buildRecap(bookRoot, config, detected)
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }

@@ -5,15 +5,13 @@
  * 每态一个 fixture，验证判定顺序与命中。
  */
 
-import { test, expect, vi } from 'vitest'
+import { test, expect } from 'vitest'
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
 import { detectState, routeState, enter, formatRecap, formatRoute } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { readHealthCheck, writeHealthCheck } from '../../src/cache/healthcheck.js'
-import { healthCommand } from '../../src/cli/health.js'
 import { git } from '../../src/git/exec.js'
 
 const FAST_CHAPTER_FIXTURE = { commitEach: false }
@@ -118,83 +116,6 @@ test('detectState: book.volume_size 覆盖每卷章数', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 态 6: 体检周期（#15 第 6 节，距上次体检 ≥ 阈值则到期）────────
-
-test('detectState: 从未体检且章数够（35 章）→ 态 6 体检周期到期', () => {
-  // 35 章：越过态 5（35 % 50 ≠ 0），无 health-check.json → last=0 → 35 ≥ 30 → 态 6
-  const root = makeGitBookWithChapters(35, FAST_CHAPTER_FIXTURE)
-  const d = detectState(root, DEFAULT_CONFIG)
-  expect(d.state).toBe(6)
-  if (d.state === 6) {
-    expect(d.chaptersSince).toBe(35)
-  }
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('detectState: 近期体检过（距上次 < 阈值）→ 不触发态 6，落态 7', () => {
-  const root = makeGitBookWithChapters(35, FAST_CHAPTER_FIXTURE)
-  writeHealthCheck(root, 30) // 第 30 章刚体检过 → 距今 5 章 < 30 → 未到期
-  const d = detectState(root, DEFAULT_CONFIG)
-  expect(d.state).toBe(7)
-  if (d.state === 7) {
-    expect(d.nextChapter).toBe(36)
-  }
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('detectState: 体检周期阈值边界（距上次恰好 = 阈值 → 到期）', () => {
-  const root = makeGitBookWithChapters(40, FAST_CHAPTER_FIXTURE)
-  writeHealthCheck(root, 10) // 距今 30 章 = 阈值 → 到期（≥ 判定）
-  const d = detectState(root, DEFAULT_CONFIG)
-  expect(d.state).toBe(6)
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('routeState: 态 6 → 体检人话提示（非 AI 桩，建议跑 health）', () => {
-  const action = routeState({ state: 6, chaptersSince: 35 })
-  expect(action.state).toBe(6)
-  expect(action.needsAI).toBe(false)
-  expect(action.humanMsg).toContain('体检')
-  expect(action.humanMsg).toContain('35')
-})
-
-test('体检闭环: 态 6 → 跑 health 干净 → 写 health-check.json → 再 enter 落态 7', () => {
-  // 35 章从未体检 → 态 6
-  const root = makeGitBookWithChapters(35, FAST_CHAPTER_FIXTURE)
-  expect(detectState(root, DEFAULT_CONFIG).state).toBe(6)
-
-  // 作者跑 clwriting health：git 干净 → 重建缓存 → 记体检完成
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-  try {
-    healthCommand([root])
-  } finally {
-    log.mockRestore()
-  }
-  expect(readHealthCheck(root)?.last_check_chapter).toBe(35)
-
-  // 再判态：距上次体检 0 章 < 30 → 落态 7（提示消除）
-  const d = detectState(root, DEFAULT_CONFIG)
-  expect(d.state).toBe(7)
-  if (d.state === 7) {
-    expect(d.nextChapter).toBe(36)
-  }
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('healthCommand: 缓存不存在时也会先重建，再记录当前章', () => {
-  const root = makeGitBookWithChapters(35, FAST_CHAPTER_FIXTURE)
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-  try {
-    healthCommand([root])
-  } finally {
-    log.mockRestore()
-  }
-
-  const rec = readHealthCheck(root)
-  expect(rec?.last_check_chapter).toBe(35)
-  rmSync(root, { recursive: true, force: true })
-})
-
 // ── 态 7: 起草新章（兜底）──────────────────────────
 
 test('detectState: 一切干净的空书 → 态 7 起草新章', () => {
@@ -217,9 +138,9 @@ test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 判定顺序：体检优先于续跑 ───────────────────────
+// ── 判定顺序：git 异常优先 ────────────────────────
 
-test('detectState: 体检优先（git 坏 + 工作区未完成 → 先报态 1）', () => {
+test('detectState: git 异常优先（git 坏 + 工作区未完成 → 先报态 1）', () => {
   const root = makeGitBook()
   stageIncompleteChapter(root, 1) // 工作区未完成（态 4）
   // 再造 git 问题（态 1）
@@ -246,17 +167,16 @@ test('routeState: 各态路由动作 + needsAI 标记', () => {
   rmSync(root7, { recursive: true, force: true })
 })
 
-test('routeState: 态 7 workflow 分叉（W2B §3.1 手写 vs AI）', () => {
-  // 自由模式（新书默认）→ 手写起草（AI 线冻结，作者主导）
+test('routeState: 态 7 统一写章入口（CLI 退场，不再分手写/严格）', () => {
+  // 自由 / 严格 / 缺省 config → 一律 write-new-chapter（写章收敛到全自动/编辑器）
   const rootFree = makeGitBook()
   const freeCfg = { ...DEFAULT_CONFIG, workflow: 'free' as const }
-  expect(routeState(detectState(rootFree, freeCfg), 'long', freeCfg).action).toBe('write-new-chapter-hand')
+  expect(routeState(detectState(rootFree, freeCfg), 'long').action).toBe('write-new-chapter')
   rmSync(rootFree, { recursive: true, force: true })
 
-  // 严格模式（旧书缺省）→ M2 AI 流程不变
   const rootStrict = makeGitBook()
   const strictCfg = { ...DEFAULT_CONFIG, workflow: 'strict' as const }
-  expect(routeState(detectState(rootStrict, strictCfg), 'long', strictCfg).action).toBe('write-new-chapter')
+  expect(routeState(detectState(rootStrict, strictCfg), 'long').action).toBe('write-new-chapter')
   rmSync(rootStrict, { recursive: true, force: true })
 
   // 无 config（旧调用兼容）→ AI 流程

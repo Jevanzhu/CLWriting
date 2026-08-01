@@ -80,13 +80,25 @@ export function writeChapter(filePath: string, ch: ChapterMeta, body: string): v
   writeFile(filePath, stringifyFlat(chapterToMap(ch)), body)
 }
 
-/** 枚举校验（#7 第 4 节，机检用） */
+/**
+ * 枚举校验（#7 第 4 节，机检用）。
+ * 错误文案带合法值清单——红项要回灌给 AI 自愈重写（self-heal 闭环），
+ * 只说「越界」它改不对（实测连改 3 次仍填同一个非法值）。
+ */
 export function validateEnums(ch: ChapterMeta): string[] {
   const errs: string[] = []
-  if (!HOOK_TYPES.includes(ch.钩子类型)) errs.push(`钩子类型越界：${ch.钩子类型}`)
-  if (!HOOK_LEVELS.includes(ch.钩子强弱)) errs.push(`钩子强弱越界：${ch.钩子强弱}`)
-  if (!EMOTIONS.includes(ch.情绪定位)) errs.push(`情绪定位越界：${ch.情绪定位}`)
-  if (ch.场景 && !SCENE_TYPES.includes(ch.场景)) errs.push(`场景越界：${ch.场景}`)
+  if (!HOOK_TYPES.includes(ch.钩子类型)) {
+    errs.push(`钩子类型越界：${ch.钩子类型}（合法值：${HOOK_TYPES.join('/')}）`)
+  }
+  if (!HOOK_LEVELS.includes(ch.钩子强弱)) {
+    errs.push(`钩子强弱越界：${ch.钩子强弱}（合法值：${HOOK_LEVELS.join('/')}）`)
+  }
+  if (!EMOTIONS.includes(ch.情绪定位)) {
+    errs.push(`情绪定位越界：${ch.情绪定位}（合法值：${EMOTIONS.join('/')}）`)
+  }
+  if (ch.场景 && !SCENE_TYPES.includes(ch.场景)) {
+    errs.push(`场景越界：${ch.场景}（合法值：${SCENE_TYPES.join('/')}）`)
+  }
   return errs
 }
 

@@ -152,7 +152,7 @@ export function writeReviewPacket(packet: ReviewExecutionPacket): string {
 export function readReviewPacket(workDir: string): { ok: true; packet: ReviewExecutionPacket; path: string } | { ok: false; reason: string } {
   const path = join(workDir, '三审', REVIEW_PACKET_FILE)
   if (!existsSync(path)) {
-    return { ok: false, reason: `找不到三审执行包：${path}。先运行 clwriting review run。` }
+    return { ok: false, reason: `找不到三审执行包：${path}。请重新三审。` }
   }
   let raw: unknown
   try {
@@ -247,7 +247,7 @@ export function formatReviewPacket(packet: ReviewExecutionPacket): string {
     lines.push(`- 输出契约：JSON only / 必带 evidence / 不打分 / **只写问题，无问题回空数组 []（勿写正面确认）**；category 为 ledger·reversal·payoff·safety 的 issue 恒阻断（仅在真有问题时报）；回写 ${issueFile}`)
     lines.push('')
   }
-  lines.push('宿主按上述分包各调一次模型，把 issues JSON 回写到 issues 回写目录后，运行 `clwriting review collect` 归一化生成审稿单。')
+  lines.push('宿主按上述分包各调一次模型，把 issues JSON 回写到 issues 回写目录，再由宿主归一化收敛为审稿单。')
   return lines.join('\n')
 }
 

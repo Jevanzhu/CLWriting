@@ -1,4 +1,4 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect } from 'vitest'
 import { execSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +16,6 @@ import {
   rollbackPendingBatch,
   rejectPendingChapter,
 } from '../../src/auto/review-batch.js'
-import { reviewCommand } from '../../src/cli/review.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
@@ -198,57 +197,6 @@ test('逐章定稿: 待定稿 .ai-calls.json 经 batch finalize 落入 metrics',
   expect(records[0]!.tokens).toBe(4000)
 
   rmSync(root, { recursive: true, force: true })
-})
-
-test('CLI: review batch list/finalize 可达并清理已定稿章', async () => {
-  const root = await makeBookWithPending(1)
-  approvePending(root, 1)
-  const lines: string[] = []
-  const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-    lines.push(args.map(String).join(' '))
-  })
-  try {
-    reviewCommand(['batch', 'list', root])
-    expect(lines.join('\n')).toContain('第 1 章')
-    reviewCommand(['batch', 'finalize', root])
-    expect(existsSync(join(root, '定稿', '正文', '1-第1章.md'))).toBe(true)
-    expect(listPendingChapters(root)).toHaveLength(0)
-  } finally {
-    log.mockRestore()
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('CLI: 短篇 review batch list/finalize 文案按篇输出', async () => {
-  const root = await makeShortBookWithPending(1)
-  approveShortPending(root, 1)
-  const lines: string[] = []
-  const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-    lines.push(args.map(String).join(' '))
-  })
-  try {
-    reviewCommand(['batch', 'list', root])
-    expect(lines.join('\n')).toContain('待审篇 1 篇')
-    expect(lines.join('\n')).toContain('第 1 篇')
-    reviewCommand(['batch', 'finalize', root])
-    expect(existsSync(join(root, '篇', '001-第1夜.md'))).toBe(true)
-    expect(listPendingChapters(root)).toHaveLength(0)
-  } finally {
-    log.mockRestore()
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('CLI: review batch rollback --yes 清理待定稿', async () => {
-  const root = await makeBookWithPending(1)
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-  try {
-    reviewCommand(['batch', 'rollback', root, '--yes'])
-    expect(existsSync(pendingRoot(root))).toBe(false)
-  } finally {
-    log.mockRestore()
-    rmSync(root, { recursive: true, force: true })
-  }
 })
 
 test('逐章定稿: 未裁决章被前置闸拦', async () => {

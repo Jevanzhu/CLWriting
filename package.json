@@ -8,12 +8,8 @@
     "node": ">=24"
   },
   "main": "dist/desktop/main.js",
-  "bin": {
-    "clwriting": "./dist/cli.js"
-  },
   "files": [
-    "dist",
-    "templates"
+    "dist"
   ],
   "scripts": {
     "build": "tsup",
@@ -29,7 +25,6 @@
     "typecheck:web-next": "npm --prefix src/studio/web-next run typecheck",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:rc-path": "vitest run test/cli/rc-path-smoke.test.ts",
     "test:watch": "vitest",
     "test:e2e": "npm run build:web && playwright test",
     "dev:electron": "npm run build:all && electron .",
@@ -55,6 +50,8 @@
     "esbuild": "^0.28.1"
   },
   "dependencies": {
-    "font-list": "^2.1.0"
+    "@anthropic-ai/sdk": "^0.115.0",
+    "font-list": "^2.1.0",
+    "openai": "^7.3.0"
   }
 }

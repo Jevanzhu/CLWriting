@@ -299,7 +299,7 @@ test('formatReviewPacket: 执行包含 issues 回写路径与各视角账本清�
   expect(text).toContain('预计调用：3 次')
   expect(text).toContain('issues 回写目录')
   expect(text).toContain('悬念-031')
-  expect(text).toContain('clwriting review collect')
+  expect(text).toContain('归一化收敛为审稿单')
   rmSync(workDir, { recursive: true, force: true })
 })
 

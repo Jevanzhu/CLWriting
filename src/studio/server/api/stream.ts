@@ -1,8 +1,10 @@
 /**
  * driver SSE 端点(批1 mock):GUI 订阅 driver 事件流 + 触发生成。
  *
- * GET  /api/books/:name/stream → SSE(订阅 driver.stream,持续推送 DriverEvent)
- * POST /api/books/:name/spawn  → 触发 spawnRole / send(body {role, prompt, mode?})
+ * GET  /api/books/:name/stream     → SSE(订阅 driver.stream,持续推送 DriverEvent)
+ * POST /api/books/:name/spawn      → 触发 spawnRole / send(body {role, prompt, mode?})
+ * POST /api/books/:name/interrupt  → 中断生成 + 停自愈编排
+ * POST /api/books/:name/auto-write → 全自动写章(写稿→机检→红则重写闭环,body {chapter})
  *
  * 架构红线:此处只转发 driver 事件 / 触发 driver,不直连大模型。
  */
@@ -12,9 +14,11 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver, type DriverEvent } from '../../../driver/index.js'
+import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from './self-heal.js'
 
 interface StreamCtx {
   workDir: string | null
+  userDataPath: string | null
 }
 
 export function registerStreamRoutes(ctx: StreamCtx): void {
@@ -96,9 +100,46 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const session = await ensureSession(params['name']!, ctx.workDir)
+    const bookName = params['name']!
+    // 先停自愈编排循环:只 kill 子进程的话编排器会接着起下一轮重写
+    abortSelfHeal(bookName)
+    const session = await ensureSession(bookName, ctx.workDir)
     const driver = getDriver('cc')
     if (driver.interrupt) driver.interrupt(session)
     reply(res, 200, { ok: true })
+  })
+
+  // 全自动写章(红项自愈闭环):AI 写稿 → 机检 → 红则自动退回重写 → 全绿或触顶交作者。
+  // fire-and-forget(与 /spawn 同风格):编排最长可跑十几分钟,进度全程经主 session SSE 回流。
+  route('POST', '/api/books/:name/auto-write', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const bookName = params['name']!
+    // 并发保护:check 阶段无子进程 → isRunning 假空闲 → 前端可再触发,两个编排器会互相覆写草稿
+    if (isSelfHealRunning(bookName)) {
+      return reply(res, 409, { error: '本书正在全自动写章,先等它跑完或中断' })
+    }
+
+    const body = await readJson(req)
+    const chapter = Number(body['chapter'])
+    if (!Number.isInteger(chapter) || chapter < 1) {
+      return reply(res, 400, { error: 'chapter 需为正整数' })
+    }
+
+    // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
+    const mainSession = await ensureSession(bookName, ctx.workDir)
+    const driver = getDriver('cc')
+    void runSelfHeal({
+      driver,
+      mainSession,
+      userDataPath: ctx.userDataPath!,
+      cwd: ctx.workDir,
+      bookRoot: join(ctx.workDir, entry.path),
+      bookName,
+      chapter,
+    })
+
+    reply(res, 200, { ok: true, chapter })
   })
 }

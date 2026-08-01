@@ -1,16 +1,16 @@
 /**
- * review 三审端点(C.3):CLI run 打包 → driver spawnRole×3 产 issues JSON → CLI collect 产审稿.md。
+ * review 三审端点(C.3):内核打包 → driver spawnRole×3 产 issues JSON → 内核回收产审稿单。
  *
  * POST /api/books/:name/review  body {chapter}
- *   ① spawn `clwriting review run --chapter=N` → 工作区/三审/packet.json
+ *   ① buildReviewPacket → 工作区/三审/packet.json
  *   ② 读 packet → 各 lens spawnRole(`<lens>-review`) 收 issues JSON → 工作区/三审/issues-<lens>.json
- *   ③ spawn `clwriting review collect --chapter=N` → 工作区/审稿.md
+ *   ③ collectReviewIssues 归一化 → 写工作区/审稿.md
  *   → 返 {ok, lenses, report(审稿.md 全文)}
  *
  * POST /api/books/:name/review-verdict  body {approved}
  *   → 改 工作区/审稿.md verdict 行(approved 写「通过」)→ finalize 据此放行
  *
- * B 编排:run/collect 是 CLI 确定性打包/回收,spawnRole×3 是真审稿(AI);串行避 GLM 并发。
+ * B 编排:打包/回收是内核确定性步骤,spawnRole×3 是真审稿(AI);串行避并发。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -18,15 +18,13 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readFile } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readKind } from '../book-context.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import type { StudioDriver, DriverEvent } from '../../../driver/types.js'
-import { runClwritingCli } from '../cli-runner.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
-import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
+import { buildReviewPacket, collectReviewIssues, writeReviewPacket, writeReviewVerdict } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { extractJson } from '../../../format/json-extract.js'
 
@@ -65,36 +63,30 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const kind = readKind(bookRoot)
     const workDir = join(bookRoot, '工作区')
 
-    // ① review run(CLI 打包,产 工作区/三审/packet.json)
-    const runResult = await runClwritingCli(['review', 'run', '--chapter=' + String(chapter)], bookRoot)
-    if (!runResult.ok) {
-      return reply(res, 500, { error: `review run 失败:${(runResult.stderr || runResult.stdout).trim().slice(0, 200)}` })
-    }
-
-    const packetPath = join(workDir, '三审', 'packet.json')
-    if (!existsSync(packetPath)) return reply(res, 500, { error: 'review run 未产出 packet.json' })
-    let packet: {
-      lenses_run: string[]
-      packets: Array<{
-        lens: string
-        title?: string
-        focus?: string[]
-        ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }>
-      }>
-    }
-    try {
-      packet = JSON.parse(readFileSync(packetPath, 'utf8'))
-    } catch {
-      return reply(res, 500, { error: 'packet.json 解析失败(文件损坏或写入未完成)' })
-    }
-
-    // 草稿正文(去 front matter):长篇 草稿-<章号>.md;短篇 草稿-1.md(候选),与 /draft-save 落盘一致
+    // ① 读草稿 + 机检 → buildReviewPacket（直接调用，不再 spawn CLI）
     const draftPath = join(workDir, kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`)
     if (!existsSync(draftPath)) return reply(res, 400, { error: '无草稿(先写稿)' })
-    const draftFile = readFile(draftPath)
-    const draftBody = draftFile.ok ? draftFile.body : readFileSync(draftPath, 'utf8')
+    const outcome = runCheckForDocument(bookRoot, draftPath)
+    if (!outcome.ok) return reply(res, checkOutcomeStatus(outcome.code), { error: outcome.error })
+    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+    const built = buildReviewPacket({
+      checkReport: outcome.report,
+      body: outcome.body,
+      chapter,
+      workDir,
+      capabilities: { parallel_subagents: false, multiple_calls: true },
+      remaining_calls: config.budget?.calls_per_chapter ?? 8,
+      high_risk: false,
+      kind,
+    })
+    if (!built.ok) return reply(res, 500, { error: built.reason })
+    // 写 packet.json（collectReviewIssues 需要读它）
+    writeReviewPacket(built.packet)
 
-    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流(6.8④)——共享函数 runLensSpawnLoop
+    const packet = built.packet
+    const draftBody = outcome.body
+
+    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流
     const driver = getDriver('cc')
     const mainSession = await ensureSession(params['name']!, ctx.workDir!)
     const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
@@ -113,15 +105,13 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     if (!loopResult.ok) return reply(res, 500, { error: loopResult.error })
     const lenses = loopResult.lenses
 
-    // ③ review collect(CLI 回收产审稿.md)
-    const collectResult = await runClwritingCli(['review', 'collect', '--chapter=' + String(chapter)], bookRoot)
-    if (!collectResult.ok) {
-      return reply(res, 500, { error: `review collect 失败:${(collectResult.stderr || collectResult.stdout).trim().slice(0, 200)}` })
-    }
+    // ③ collectReviewIssues + writeReviewVerdict（直接调用，不再 spawn CLI）
+    const collected = collectReviewIssues({ packet })
+    writeReviewVerdict(workDir, collected)
 
     const verdictPath = join(workDir, '审稿.md')
     const report = existsSync(verdictPath) ? readFileSync(verdictPath, 'utf8') : '(未生成审稿单)'
-    reply(res, 200, { ok: true, lenses, report, collectLog: collectResult.stdout.trim().slice(0, 200) })
+    reply(res, 200, { ok: true, lenses, report })
   })
 
   // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → spawnRole×3 → 落信封

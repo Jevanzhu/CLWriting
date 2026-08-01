@@ -8,8 +8,8 @@ import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { doConfirm } from '../../src/gate/confirm.js'
-import { readReviewVerdict, REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
-import { finalizeCommand } from '../../src/cli/finalize.js'
+import { REVIEW_VERDICT_MARKER } from '../../src/review/run.js'
+import { finalizePendingChapters } from '../../src/auto/review-batch.js'
 
 /**
  * R2（#35）：finalize --from <待定稿章目录> 从待定稿定稿，doFinalize 内核零改动。
@@ -86,15 +86,16 @@ test('R2: finalize --from 待定稿章目录 → 原子 commit 成功', () => {
     'utf-8',
   )
 
-  // finalize --from
-  finalizeCommand(['--from', pendingDir])
+  // finalizePendingChapters（从待定稿定稿，doFinalize 内核零改动）
+  const results = finalizePendingChapters(root, [2])
+  expect(results[0]!.ok).toBe(true)
 
   // 定稿区有第 2 章
   expect(existsSync(join(root, '定稿', '正文', '2-第二章.md'))).toBe(true)
   // git 有 ch:0002 commit
   const log = execSync('git log --oneline', { cwd: root, stdio: 'pipe' }).toString()
   expect(log).toContain('ch:0002')
-  // 直连 --from 成功后清理待定稿章目录，并从批次进度移除
+  // 定稿成功后清理待定稿章目录，并更新批次进度
   expect(existsSync(pendingDir)).toBe(false)
   const progress = JSON.parse(readFileSync(join(root, '工作区', '待定稿', '.auto-batch.json'), 'utf-8')) as { completed: number[] }
   expect(progress.completed).toEqual([])
@@ -116,44 +117,11 @@ test('R2: finalize --from 未裁决章 → 前置闸拦「还没拍板」', () =
   )
   // 不写审稿.md（未裁决）
 
-  // finalize --from 应被前置闸拦（process.exit → 抛错）
-  expect(() => finalizeCommand(['--from', pendingDir])).toThrow()
+  // finalizePendingChapters 应被前置闸拦（返回 ok:false）
+  const results = finalizePendingChapters(root, [2])
+  expect(results[0]!.ok).toBe(false)
   // 定稿区无第 2 章
   expect(existsSync(join(root, '定稿', '正文', '2-第二章.md'))).toBe(false)
-
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('R2: --from 路径找不到书仓库 → 报错', () => {
-  const empty = mkdtempSync(join(tmpdir(), '无书-'))
-  const pendingDir = join(empty, '某章')
-  mkdirSync(pendingDir, { recursive: true })
-  // 无 book.yaml 的目录
-  expect(() => finalizeCommand(['--from', pendingDir])).toThrow()
-  rmSync(empty, { recursive: true, force: true })
-})
-
-test('R2: 无 --from 时 workDir 仍是工作区根（不破坏既有用法）', () => {
-  const root = makeBookWithChapter1()
-  // 工作区根造第 2 章（既有单章定稿路径）
-  const workDir = join(root, '工作区')
-  const outline = join(workDir, '细纲.md')
-  writeFileSync(outline, '第2章细纲。', 'utf-8')
-  doConfirm(workDir, 2, outline, 'manual', DEFAULT_CONFIG)
-  writeFileSync(
-    join(workDir, '草稿-1.md'),
-    '---\n章号: 2\n标题: 第二章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n',
-    'utf-8',
-  )
-  writeFileSync(
-    join(workDir, '审稿.md'),
-    `# 审稿单\n\n\`\`\`\n${REVIEW_VERDICT_MARKER} verdict: 通过\n\`\`\`\n`,
-    'utf-8',
-  )
-
-  // 既有用法（无 --from，传书目录参数）应照常工作
-  finalizeCommand([root])
-  expect(existsSync(join(root, '定稿', '正文', '2-第二章.md'))).toBe(true)
 
   rmSync(root, { recursive: true, force: true })
 })

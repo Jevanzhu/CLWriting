@@ -117,7 +117,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 400, { error: '未定位到工作目录' })
       return
     }
-    const name = params['name']
+    const name = params['name'] ?? ''
     const entry = readBooks(ctx.workDir).find((b) => b.name === name)
     if (!entry) {
       reply(res, 404, { error: `没有这本书：${name}` })

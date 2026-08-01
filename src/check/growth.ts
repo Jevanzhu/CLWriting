@@ -10,7 +10,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
-import { readGrowthHistory, readCurrentRealm } from '../cli/read.js'
+import { readGrowthHistory, readCurrentRealm } from '../format/read.js'
 import { extractExactRealmFromEvidence, realmIndex } from '../format/realms.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import type { RealmDoc } from '../format/types.js'

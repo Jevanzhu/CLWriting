@@ -37,6 +37,19 @@ export type DriverEvent =
   | { type: 'error'; kind: string; message: string; recoverable: boolean }
   | { type: 'interrupted'; reason: string }
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
+  // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
+  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting'; attempt?: number }
+  /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
+  | { type: 'self_heal_reset' }
+  | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[] }
+  | {
+      type: 'self_heal_result'
+      outcome: 'pass' | 'escalate' | 'aborted' | 'failed'
+      reds?: string[]
+      docId?: string
+      path?: string
+      error?: string
+    }
   | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
 
 /** driver 接口(B 编排:单步生成器,窄化) */

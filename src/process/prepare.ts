@@ -13,11 +13,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { assembleStatus, formatStatus } from './assemble.js'
-import { readLeadHistory, readChapterSummaries } from '../cli/read.js'
+import { readLeadHistory, readChapterSummaries } from '../format/read.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
-import type { BookConfig, LeadType, StyleSample } from '../format/types.js'
+import type { BookConfig, StyleSample } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
