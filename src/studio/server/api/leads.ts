@@ -7,7 +7,7 @@
  * 停滞预警 = GUI 衍生（进行中 + 最后履历距今 ≥N 章），非账本原生字段（#7.3 口径）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, dirname } from 'node:path'
+import { join, basename } from 'node:path'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -82,14 +82,14 @@ function leadsLong(bookRoot: string): unknown {
 /**
  * 短篇集子总览（#7.3 短篇分支）：跨篇聚合。
  * 每篇：核心反转 / 目标情绪 / 字数 / 情绪峰值（清单情绪曲线 max）/ 伏笔回收率。
- * 数据源 readPieceDir（篇/）+ readPieceList（篇/N-T/清单.md），现成。
+ * 数据源 readPieceDir（篇/）+ readPieceList（清单/N-T.md），现成。
  */
 function leadsShort(bookRoot: string): unknown {
   const { pieces } = readPieceDir(join(bookRoot, '篇'))
   const sorted = pieces.slice().sort((a, b) => a.篇号 - b.篇号)
   const rows = sorted.map((p) => {
-    // 清单：情绪峰值 + 伏笔回收率（容错：无清单 → 空清单）
-    const listPath = p._path ? join(dirname(p._path), '清单.md') : ''
+    // 清单：情绪峰值 + 伏笔回收率（容错：无清单 → 空清单）；清单与正文分离，同名存于 清单/
+    const listPath = p._path ? join(bookRoot, '清单', basename(p._path)) : ''
     const listResult = listPath ? readPieceList(listPath) : null
     const list = listResult?.ok ? listResult.list : emptyPieceList()
     const curve = list.情绪曲线 ?? []

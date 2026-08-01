@@ -23,7 +23,7 @@ export function importCommand(args: string[]): void {
     console.log('  --genre <题材>       题材（可选，驱动账本类推荐）')
     console.log()
     console.log('自动判定（length-routing）：优先级 --kind > 章节数≥5 > 字数≥30000；长短信号冲突会请 --kind 拍板。')
-    console.log('导入后：长篇正文落 定稿/正文/；短篇正文落 篇/<篇号>-<标题>/正文.md（集布局）。元数据占位（_raw 标「导入: 待标注」，不伪装）。')
+    console.log('导入后：长篇正文落 定稿/正文/；短篇正文落 篇/<篇号>-<标题>.md，清单落 清单/（分离）。元数据占位（_raw 标「导入: 待标注」，不伪装）。')
     return
   }
 

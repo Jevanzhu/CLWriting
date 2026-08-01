@@ -30,11 +30,11 @@ beforeAll(async () => {
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\n',
   )
-  // 第 1 篇：正文 + 清单
-  const pieceDir = join(bookRoot, '篇', '001-雨夜门铃')
-  mkdirSync(pieceDir, { recursive: true })
+  // 第 1 篇：正文 + 清单（新结构：篇/N-T.md + 清单/N-T.md）
+  mkdirSync(join(bookRoot, '篇'), { recursive: true })
+  mkdirSync(join(bookRoot, '清单'), { recursive: true })
   writeFileSync(
-    join(pieceDir, '正文.md'),
+    join(bookRoot, '篇', '001-雨夜门铃.md'),
     [
       '---',
       '篇号: 1',
@@ -54,7 +54,7 @@ beforeAll(async () => {
     ].join('\n'),
   )
   writeFileSync(
-    join(pieceDir, '清单.md'),
+    join(bookRoot, '清单', '001-雨夜门铃.md'),
     [
       '## 反转线索表',
       '- 核心反转：来客就是三年前的死者',

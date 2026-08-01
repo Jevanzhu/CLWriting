@@ -367,8 +367,7 @@ export class DocumentService {
 
   /** 更新章节元数据（标题/篇号）。
    *  - 长篇 chapter：写 fm + 文件名同步 rename（章号4位-标题.md，docId 不变）。
-   *  - 短篇 piece-body：写 fm + 篇目录同步 rename（篇号3位-标题/，正文.md 文件名恒定，docId 不变）。
-   *    短篇与长篇同为「章节」——标题/篇号变化需体现在路径上，只是短篇标题落在篇包目录名而非文件名。 */
+   *  - 短篇 piece-body：写 fm + 文件名同步 rename（篇号3位-标题.md，docId 不变）+ 清单同名跟随。 */
   updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number; 篇号?: number }): MoveResult {
     const path = this.lookupPathByDocId(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
@@ -393,17 +392,17 @@ export class DocumentService {
     invalidateTreeIndex(this.bookRoot)
 
     if (isPieceBody(path)) {
-      // 短篇：rename 篇包目录（篇/<篇号3位>-<标题>）；正文.md 文件名恒定
-      const oldDir = dirname(path)
-      const oldBase = basename(oldDir)
+      // 短篇：rename 文件名（篇/<篇号3位>-<标题>.md）+ 同步清单同名文件
       const 篇号 = map.get('篇号')
       const numPrefix =
         typeof 篇号 === 'number'
           ? `${String(篇号).padStart(3, '0')}-`
-          : (oldBase.match(/^(\d+-)/)?.[1] ?? '')
-      const newDirName = `${numPrefix}${标题}`
-      if (oldBase !== newDirName) {
-        return this.renamePieceDir(docId, oldDir, `${dirname(oldDir)}/${newDirName}`)
+          : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
+      const newName = `${numPrefix}${标题}.md`
+      if (basename(path) !== newName) {
+        const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
+        if (result.ok) this.syncRenamePieceList(path, newName)
+        return result
       }
       return { ok: true, docId, path }
     }
@@ -418,45 +417,21 @@ export class DocumentService {
     return { ok: true, docId, path }
   }
 
-  /** 短篇篇包目录重命名（篇/Old/ → 篇/New/）：rename 整个目录（连带 清单.md 等），
-   *  正文.md 文件名恒定、docId 不变，清单 path 更新为 New/正文.md。
-   *  长篇用 doMoveOrRename（改文件名）；短篇目录是「章」的载体，故单独走目录 rename。 */
-  private renamePieceDir(docId: string, oldDirRel: string, newDirRel: string): MoveResult {
-    if (newDirRel === oldDirRel) return { ok: true, docId, path: `${newDirRel}/正文.md` }
-    const oldDocPath = `${oldDirRel}/正文.md`
-    const newDocPath = `${newDirRel}/正文.md`
-    const srcCaps = layoutOf(oldDocPath).capabilities
-    if (!srcCaps.rename || !srcCaps.move) {
-      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可移动/重命名' }
-    }
-    if (!layoutOf(newDocPath).capabilities.write) {
-      return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
-    }
-    const oldSafe = this.resolveSafePath(oldDirRel)
-    const newSafe = this.resolveSafePath(newDirRel)
-    if (!oldSafe || !newSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
-    if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源篇目录不存在' }
-    if (existsSync(newSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标篇目录已存在' }
-
-    const oldFileAbs = join(oldSafe, '正文.md')
+  /** 短篇清单同步重命名（清单/Old.md → 清单/New.md）：
+   *  正文已 rename，清单同名文件跟随。清单不存在时静默跳过（不阻断正文 rename）。 */
+  private syncRenamePieceList(oldBodyRel: string, newName: string): void {
+    const oldListRel = `清单/${basename(oldBodyRel)}`
+    const newListRel = `清单/${newName}`
+    const oldSafe = this.resolveSafePath(oldListRel)
+    const newSafe = this.resolveSafePath(newListRel)
+    if (!oldSafe || !newSafe) return
+    if (!existsSync(oldSafe)) return
     try {
-      const baseRev = existsSync(oldFileAbs) ? computeRevision(oldFileAbs) : null
-      const oldContent = existsSync(oldFileAbs) ? readFileSync(oldFileAbs, 'utf-8') : ''
-      if (existsSync(oldFileAbs)) {
-        writeSnapshot(this.snapshotsDir, docId, oldContent, {
-          origin: 'manual',
-          reason: '短篇重命名前留底',
-          baseRevision: baseRev,
-        })
-      }
       mkdirSync(dirname(newSafe), { recursive: true })
       renameSync(oldSafe, newSafe)
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `短篇重命名失败：${errMsg(e)}` }
+    } catch {
+      // 清单同步失败不阻断正文 rename
     }
-    this.updateManifestPath(docId, newDocPath)
-    invalidateTreeIndex(this.bookRoot)
-    return { ok: true, docId, path: newDocPath }
   }
 
   /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
@@ -681,7 +656,7 @@ function bodyOf(raw: string): string {
   return s ? s.body : raw
 }
 
-/** 短篇正文（篇/<篇号>-<标题>/正文.md）——标题编辑需联动篇目录名而非文件名。 */
+/** 短篇正文（篇/<篇号>-<标题>.md）——标题编辑联动文件名 rename + 清单同步。 */
 function isPieceBody(relPath: string): boolean {
   return roleOf(relPath) === 'piece-body'
 }

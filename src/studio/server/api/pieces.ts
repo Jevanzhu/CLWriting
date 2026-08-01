@@ -4,13 +4,13 @@
  * - GET /api/books/:name/pieces     篇列表（PieceMeta 摘要：篇号/标题/目标情绪/核心反转/字数）
  * - GET /api/books/:name/piece/:no  单篇详情（元数据 + 正文 body + 清单 PieceList）
  *
- * 数据源现成（零解析新增）：readPieceDir（篇/）+ readPieceList（篇/N-T/清单.md）+ readFile（正文 body）。
+ * 数据源现成（零解析新增）：readPieceDir（篇/）+ readPieceList（清单/N-T.md）+ readFile（正文 body）。
  * 短篇账本降级为单篇清单（反转线索表 + 情绪曲线 + 伏笔回收），单篇闭合，归本页（非七类账本，见 leads.ts 短篇分支）。
  *
  * 安全：:no 仅用于与 readPieceDir 扫到的合法篇目录（^\d+-）匹配，不拼路径；篇号非整数 → 400。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, dirname } from 'node:path'
+import { join, basename } from 'node:path'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -73,8 +73,8 @@ export function registerPiecesRoutes(ctx: PiecesCtx): void {
     const bodyResult = readFile(piece._path)
     const body = bodyResult.ok ? bodyResult.body : ''
 
-    // 清单（容错：不存在/坏 → 空清单，不崩）
-    const listPath = join(dirname(piece._path), '清单.md')
+    // 清单（容错：不存在/坏 → 空清单，不崩）；清单与正文分离，同名文件存于 清单/
+    const listPath = join(bookRoot, '清单', basename(piece._path))
     const listResult = readPieceList(listPath)
     const list: PieceList = listResult.ok ? listResult.list : emptyPieceList()
     // 去内部 _ 字段（_path/_raw）

@@ -2,11 +2,11 @@
  * 短篇集级索引与重复风险体检。
  *
  * 目标：短篇主链已按单篇闭环，本模块只做整集层面的轻量扫描。
- * 数据来自已定稿 `篇/<篇号>-<标题>/正文.md` 与同目录 `清单.md`，
+ * 数据来自已定稿 `篇/<篇号>-<标题>.md` 与 `清单/<篇号>-<标题>.md`，
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readPiece } from '../format/pieces.js'
 import { readPieceList } from '../format/manifest.js'
@@ -248,6 +248,7 @@ const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTempl
 /** 扫描短篇集索引。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const piecesDir = join(bookRoot, '篇')
+  const 清单Dir = join(bookRoot, '清单')
   if (!existsSync(piecesDir)) return []
   let names: string[]
   try {
@@ -259,15 +260,14 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const entries: ShortPieceIndexEntry[] = []
   for (const name of names) {
     if (name.startsWith('._')) continue
-    const dir = join(piecesDir, name)
-    if (!safeIsDirectory(dir)) continue
-    const bodyPath = join(dir, '正文.md')
+    if (!/^\d+-.*\.md$/.test(name)) continue
+    const bodyPath = join(piecesDir, name)
     if (!existsSync(bodyPath)) continue
 
     const piece = readPiece(bodyPath)
     if (!piece.ok) continue
     const file = readFile(bodyPath)
-    const list = readListIfExists(join(dir, '清单.md'))
+    const list = readListIfExists(join(清单Dir, name))
     const coreReversal = firstReal(piece.piece.核心反转, list?.反转线索表.核心反转)
     const body = file.ok ? file.body : ''
     entries.push({
@@ -554,9 +554,8 @@ export function scanShortCalibrationSamples(bookRoot: string, openingChars = 300
   const samples: ShortCalibrationSample[] = []
   for (const name of names) {
     if (name.startsWith('._')) continue
-    const dir = join(piecesDir, name)
-    if (!safeIsDirectory(dir)) continue
-    const bodyPath = join(dir, '正文.md')
+    if (!/^\d+-.*\.md$/.test(name)) continue
+    const bodyPath = join(piecesDir, name)
     if (!existsSync(bodyPath)) continue
     const piece = readPiece(bodyPath)
     const file = readFile(bodyPath)
@@ -866,14 +865,6 @@ function readListIfExists(path: string): PieceList | null {
   if (!existsSync(path)) return null
   const r = readPieceList(path)
   return r.ok ? r.list : null
-}
-
-function safeIsDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory()
-  } catch {
-    return false
-  }
 }
 
 function collectStructureObjects(list: PieceList | null): string[] {

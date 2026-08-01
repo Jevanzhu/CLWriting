@@ -149,11 +149,8 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
   const changedPaths: string[] = [] // 相对 bookRoot 的路径（commit 用 + 失败回滚用）
 
   if (isShort) {
-    // 短篇落点：篇/<篇号>-<标题>/正文.md（M8 #26）；fileName 约定 = `<篇号>-<标题>/正文.md`，落 篇/ 下
-    const pieceDirName = fileName.split('/')[0]!
+    // 短篇落点：篇/<篇号>-<标题>.md（正文）+ 清单/<篇号>-<标题>.md（清单分离，不混放）
     const chapterPath = join(bookRoot, '篇', fileName)
-    // 篇目录可能不存在（新篇），写正文前建（fileName 含子路径，需 mkdir 父目录）
-    mkdirSync(join(bookRoot, '篇', pieceDirName), { recursive: true })
     const chapterRel = `篇/${fileName}`
     // 短篇正文用 PieceMeta（篇号/标题/目标情绪/核心反转），从 ChapterMeta（章号承载篇号）映射；
     // 目标情绪/核心反转藏在 _raw（readDraft 短篇分支保留），无则按篇号/标题最小字段写
@@ -166,7 +163,8 @@ export function doFinalize(input: FinalizeInput): FinalizeResult {
     changedPaths.push(chapterRel)
     const sourceManifest = join(workDir, '清单.md')
     if (existsSync(sourceManifest)) {
-      const manifestRel = `篇/${pieceDirName}/清单.md`
+      mkdirSync(join(bookRoot, '清单'), { recursive: true })
+      const manifestRel = `清单/${fileName}`
       copyFileSync(sourceManifest, join(bookRoot, manifestRel))
       changedPaths.push(manifestRel)
     }
@@ -388,7 +386,7 @@ function findFinalizedUnit(bookRoot: string, unitNum: number, kind: 'long' | 'sh
       if (!m) continue
       const n = Number(m[1])
       if (n === unitNum || name.startsWith(`${prefix}-`)) {
-        const rel = kind === 'short' ? `篇/${name}/正文.md` : `定稿/正文/${name}`
+        const rel = kind === 'short' ? `篇/${name}` : `定稿/正文/${name}`
         if (kind === 'short' && !existsSync(join(bookRoot, rel))) continue
         return rel
       }
@@ -474,12 +472,9 @@ function rollbackWorktreeChanges(bookRoot: string, relPaths: string[]): void {
       // HEAD 里有：恢复工作树到 HEAD 版本（丢弃本次改动）
       git(['checkout', 'HEAD', '--', rel], bookRoot)
     } else if (existsSync(full)) {
-      // HEAD 里没有（本章新建）：删除
+      // HEAD 里没有（本章新建）：删除文件（新结构正文/清单都在根级目录下直接存，无子目录需清）
       try {
         unlinkSync(full)
-        rmdirSync(dirname(full))
-        // 短篇落点 篇/<篇>/正文.md:清空后尝试删 篇/(仅当空);长篇 grand=定稿/ 非空自动失败忽略
-        rmdirSync(dirname(dirname(full)))
       } catch {
         // best-effort
       }

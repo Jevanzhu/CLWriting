@@ -151,7 +151,7 @@ export function scanLongChapters(bookRoot: string): ChapterSample[] {
   return samples.sort((a, b) => a.num - b.num)
 }
 
-/** 短篇重扫：扫 篇 下各目录的正文.md 逐篇算指纹（按篇号排序） */
+/** 短篇重扫：扫 篇/*.md 逐篇算指纹（按篇号排序） */
 export function scanShortPieces(bookRoot: string): ChapterSample[] {
   const piecesDir = join(bookRoot, '篇')
   const rules = readIronRules(bookRoot)
@@ -165,24 +165,17 @@ export function scanShortPieces(bookRoot: string): ChapterSample[] {
   }
   for (const name of entries) {
     if (name.startsWith('._')) continue
-    const dir = join(piecesDir, name)
-    let isDir = false
-    try {
-      isDir = statSync(dir).isDirectory()
-    } catch {
-      continue // 竞态(目录被删)/坏符号链接,跳过(同 short-index.ts safeIsDirectory 范式)
-    }
-    if (!isDir) continue
-    const bodyPath = join(dir, '正文.md')
+    if (!/^\d+-.*\.md$/.test(name)) continue
+    const bodyPath = join(piecesDir, name)
     if (!existsSync(bodyPath)) continue
     const r = readFile(bodyPath)
     if (!r.ok) continue
     // 篇号从文件名前缀取（NNN-标题）
     const numMatch = name.match(/^(\d+)/)
     const num = numMatch ? Number(numMatch[1]) : 0
-    // 标题从 front matter 取，缺则用目录名
+    // 标题从 front matter 取，缺则用文件名（去 .md）
     const fm = parseFlat(r.fmRaw)
-    const title = String(fm.get('标题') ?? name)
+    const title = String(fm.get('标题') ?? name.replace(/\.md$/, ''))
     samples.push({ num, title, stats: computeFullStats(r.body, rules) })
   }
   return samples.sort((a, b) => a.num - b.num)

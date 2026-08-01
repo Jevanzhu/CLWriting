@@ -187,12 +187,15 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
 
 /**
  * 短篇集目录布局（M8 #25 第 3 节）：一仓库一短篇集。
- * 建 `篇/`（空，不预建篇）+ 整集共享 `文风/` + `工作区/`。
+ * 建 `篇/`（正文）+ `清单/`（清单分离，与正文不混放）+ 整集共享 `文风/` + `工作区/`。
  * 不建 定稿/、大纲/、卷纲、设定、growth——短篇无长程载重。
  */
 function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): void {
-  // 篇/：多篇并存，替代长篇 定稿/正文/；建空（第一篇走单篇流程创建，#27）
+  // 篇/：多篇正文并存，替代长篇 定稿/正文/；建空（第一篇走单篇流程创建，#27）
   mkdirSync(join(bookRoot, '篇'), { recursive: true })
+
+  // 清单/：短篇清单（反转线索表/情绪曲线/伏笔回收），与正文分离存放
+  mkdirSync(join(bookRoot, '清单'), { recursive: true })
 
   // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
   scaffoldSharedStyle(bookRoot, _opts.genre)
@@ -338,7 +341,7 @@ export function renderBookAgentsMd(opts: BookScaffoldOpts): string {
       '',
       '## 结构',
       '',
-      '- `篇/<篇号3位>-<标题>/`：已定稿篇（`正文.md` + `清单.md`），只进不改',
+      '- `篇/<篇号3位>-<标题>.md`：已定稿篇正文；清单分离存于 `清单/`，只进不改',
       '- `文风/`：整集共享（条目库 / 文风铁律）',
       '- `工作区/`：当前在写的篇（定稿后移入 `篇/`）',
       '',

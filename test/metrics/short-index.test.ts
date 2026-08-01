@@ -32,9 +32,9 @@ function makePiece(root: string, num: number, title: string, opts: {
   object: string
   ending: string
 }): void {
-  const dir = join(root, '篇', `${String(num).padStart(3, '0')}-${title}`)
-  mkdirSync(dir, { recursive: true })
-  writePiece(join(dir, '正文.md'), {
+  const name = `${String(num).padStart(3, '0')}-${title}.md`
+  mkdirSync(join(root, '篇'), { recursive: true })
+  writePiece(join(root, '篇', name), {
     篇号: num,
     标题: title,
     目标情绪: opts.emotion,
@@ -58,7 +58,8 @@ function makePiece(root: string, num: number, title: string, opts: {
     ],
     伏笔回收: [{ 伏笔: opts.object, 回收位置: '结尾' }],
   }
-  writePieceList(join(dir, '清单.md'), list)
+  mkdirSync(join(root, '清单'), { recursive: true })
+  writePieceList(join(root, '清单', name), list)
 }
 
 test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
@@ -170,15 +171,15 @@ test('formatShortCollectionReport: 无风险时输出节奏体检绿项', () => 
 test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评分', () => {
   const root = mkdtempSync(join(tmpdir(), 'short-index-weak-'))
   try {
-    const dir = join(root, '篇', '001-薄反转')
-    mkdirSync(dir, { recursive: true })
-    writePiece(join(dir, '正文.md'), {
+    mkdirSync(join(root, '篇'), { recursive: true })
+    writePiece(join(root, '篇', '001-薄反转.md'), {
       篇号: 1,
       标题: '薄反转',
       目标情绪: '惊悚',
       核心反转: '待补',
     }, '很短的正文')
-    writePieceList(join(dir, '清单.md'), {
+    mkdirSync(join(root, '清单'), { recursive: true })
+    writePieceList(join(root, '清单', '001-薄反转.md'), {
       反转线索表: {
         核心反转: '待补',
         铺垫点: [{ 位置: '开头', 内容: '脚印' }],
@@ -349,9 +350,9 @@ test('analyzeShortCalibration: 从定稿短篇样本生成阈值回灌建议', (
   const root = mkdtempSync(join(tmpdir(), 'short-calibration-'))
   try {
     for (let i = 1; i <= 5; i++) {
-      const dir = join(root, '篇', `${String(i).padStart(3, '0')}-样本${i}`)
-      mkdirSync(dir, { recursive: true })
-      writePiece(join(dir, '正文.md'), {
+      const name = `${String(i).padStart(3, '0')}-样本${i}.md`
+      mkdirSync(join(root, '篇'), { recursive: true })
+      writePiece(join(root, '篇', name), {
         篇号: i,
         标题: `样本${i}`,
         目标情绪: '惊悚',
@@ -457,15 +458,15 @@ test('analyzeShortBudgetCalibration: 漏记样本不参与预算候选，完整�
 test('analyzeShortRepairPlan: 把反转弱项、重复风险和审查指标转成重修动作', () => {
   const root = mkdtempSync(join(tmpdir(), 'short-repair-plan-'))
   try {
-    const dir = join(root, '篇', '001-薄反转')
-    mkdirSync(dir, { recursive: true })
-    writePiece(join(dir, '正文.md'), {
+    mkdirSync(join(root, '篇'), { recursive: true })
+    writePiece(join(root, '篇', '001-薄反转.md'), {
       篇号: 1,
       标题: '薄反转',
       目标情绪: '惊悚',
       核心反转: '待补',
     }, '很短的正文')
-    writePieceList(join(dir, '清单.md'), {
+    mkdirSync(join(root, '清单'), { recursive: true })
+    writePieceList(join(root, '清单', '001-薄反转.md'), {
       反转线索表: {
         核心反转: '待补',
         铺垫点: [{ 位置: '开头', 内容: '脚印' }],

@@ -56,15 +56,15 @@ describe('repair-plan CLI', () => {
       ].join('\n'),
       'utf-8',
     )
-    const dir = join(root, '篇', '001-薄反转')
-    mkdirSync(dir, { recursive: true })
-    writePiece(join(dir, '正文.md'), {
+    mkdirSync(join(root, '篇'), { recursive: true })
+    mkdirSync(join(root, '清单'), { recursive: true })
+    writePiece(join(root, '篇', '001-薄反转.md'), {
       篇号: 1,
       标题: '薄反转',
       目标情绪: '惊悚',
       核心反转: '待补',
     }, '很短的正文')
-    writePieceList(join(dir, '清单.md'), {
+    writePieceList(join(root, '清单', '001-薄反转.md'), {
       反转线索表: {
         核心反转: '待补',
         铺垫点: [{ 位置: '开头', 内容: '脚印' }],

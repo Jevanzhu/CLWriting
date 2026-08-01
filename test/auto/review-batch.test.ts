@@ -129,8 +129,8 @@ test('短篇逐篇定稿: approved 待定稿篇落 篇/ + pc commit + 清单归�
   const results = finalizePendingChapters(root, [1])
 
   expect(results[0]!.ok).toBe(true)
-  expect(existsSync(join(root, '篇', '001-第1夜', '正文.md'))).toBe(true)
-  expect(existsSync(join(root, '篇', '001-第1夜', '清单.md'))).toBe(true)
+  expect(existsSync(join(root, '篇', '001-第1夜.md'))).toBe(true)
+  expect(existsSync(join(root, '清单', '001-第1夜.md'))).toBe(true)
   const log = execSync('git log --oneline', { cwd: root, stdio: 'pipe' }).toString()
   expect(log).toContain('pc:001')
   expect(log).not.toContain('ch:0001')
@@ -231,7 +231,7 @@ test('CLI: 短篇 review batch list/finalize 文案按篇输出', async () => {
     expect(lines.join('\n')).toContain('待审篇 1 篇')
     expect(lines.join('\n')).toContain('第 1 篇')
     reviewCommand(['batch', 'finalize', root])
-    expect(existsSync(join(root, '篇', '001-第1夜', '正文.md'))).toBe(true)
+    expect(existsSync(join(root, '篇', '001-第1夜.md'))).toBe(true)
     expect(listPendingChapters(root)).toHaveLength(0)
   } finally {
     log.mockRestore()

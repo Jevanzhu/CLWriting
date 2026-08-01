@@ -43,9 +43,8 @@ describe('layout / roleOf 按路径判 role', () => {
   })
 
   it('短篇篇包', () => {
-    expect(roleOf('篇/001-雨夜/正文.md')).toBe('piece-body')
-    expect(roleOf('篇/001-雨夜/清单.md')).toBe('piece-manifest')
-    expect(roleOf('篇/001-雨夜/其他.md')).toBe('note')
+    expect(roleOf('篇/001-雨夜.md')).toBe('piece-body')
+    expect(roleOf('清单/001-雨夜.md')).toBe('piece-manifest')
   })
 
   it('反斜杠与前导 ./ 容错', () => {

@@ -570,7 +570,7 @@ export function checkPieceFrontMatter(
   fileName: string,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 篇号 == 文件名前缀（篇/001-标题/正文.md → 取 001）
+  // 篇号 == 文件名前缀（篇/001-标题.md → 取 001）
   const fileNum = Number(fileName.match(/(\d+)-/)?.[1])
   if (!Number.isNaN(fileNum) && fileNum !== piece.篇号) {
     items.push({

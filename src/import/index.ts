@@ -178,22 +178,23 @@ export function importV02Book(options: ImportOptions): ImportResult {
 
   // 7. 落正文（按 kind 分支落点）
   if (kind === 'short') {
-    // 短篇集：每篇 → 篇/<篇号3位>-<标题>/正文.md（#29 第 4 节）；清单.md 留空占位（不臆造反转线索，吸收点 7.5）
+    // 短篇集：每篇 → 篇/<篇号3位>-<标题>.md；清单 → 清单/<篇号3位>-<标题>.md（分离存放）
+    mkdirSync(join(bookRoot, '篇'), { recursive: true })
+    mkdirSync(join(bookRoot, '清单'), { recursive: true })
     for (let i = 0; i < chapters.length; i++) {
       const ch = chapters[i]!
       const 篇号 = i + 1
       // 净化标题防穿越(源文件标题含 ../ 或 / 时,pieceDir 会逃出 bookRoot)
       const safeTitle = sanitizeName(ch.标题)
-      const pieceDir = join(bookRoot, '篇', `${String(篇号).padStart(3, '0')}-${safeTitle}`)
-      mkdirSync(pieceDir, { recursive: true })
+      const pieceName = `${String(篇号).padStart(3, '0')}-${safeTitle}.md`
       const piece: PieceMeta = {
         篇号,
         标题: safeTitle,
         // 外部短篇无 v1 目标情绪/核心反转 → 占位 + 诚实标注，不伪装（#29 第 4 节）
         _raw: { 导入: '待标注' },
       }
-      writePiece(join(pieceDir, '正文.md'), piece, ch.body)
-      writePieceList(join(pieceDir, '清单.md'), emptyPieceList())
+      writePiece(join(bookRoot, '篇', pieceName), piece, ch.body)
+      writePieceList(join(bookRoot, '清单', pieceName), emptyPieceList())
     }
   } else {
     // 长篇：定稿/正文/<章号>-<标题>.md（行为逐字节不变，#36）

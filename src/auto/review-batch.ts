@@ -213,7 +213,7 @@ function readPendingDraft(
 
 function finalUnitFileName(chapter: ChapterMeta, kind: UnitKind): string {
   if (kind === 'short') {
-    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
+    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}.md`
   }
   return `${chapter.章号}-${chapter.标题}.md`
 }

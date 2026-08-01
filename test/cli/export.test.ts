@@ -146,9 +146,7 @@ describe('exportBook', () => {
       { 篇号: 2, 标题: '第二夜', body: '第二夜正文' },
     ]
     for (const piece of pieces) {
-      const dir = join(shortRoot, '篇', `${String(piece.篇号).padStart(3, '0')}-${piece.标题}`)
-      mkdirSync(dir, { recursive: true })
-      writePiece(join(dir, '正文.md'), {
+      writePiece(join(shortRoot, '篇', `${String(piece.篇号).padStart(3, '0')}-${piece.标题}.md`), {
         篇号: piece.篇号,
         标题: piece.标题,
         目标情绪: '惊悚',
@@ -190,13 +188,13 @@ describe('exportBook', () => {
 
   it('CLI short: 输出篇数文案', () => {
     const shortRoot = join(tmpdir(), `clwriting-export-short-cli-${Date.now()}`)
-    mkdirSync(join(shortRoot, '篇', '001-第一夜'), { recursive: true })
+    mkdirSync(join(shortRoot, '篇'), { recursive: true })
     writeFileSync(
       join(shortRoot, 'book.yaml'),
       'spec_version: 1\nkind: short\n\nbook:\n  title: 夜语集\n  genre: 悬疑\n',
       'utf-8',
     )
-    writePiece(join(shortRoot, '篇', '001-第一夜', '正文.md'), {
+    writePiece(join(shortRoot, '篇', '001-第一夜.md'), {
       篇号: 1,
       标题: '第一夜',
     }, '第一夜正文')
@@ -216,13 +214,13 @@ describe('exportBook', () => {
 
   it('CLI short: --platform 生成平台化投稿视图', () => {
     const shortRoot = join(tmpdir(), `clwriting-export-short-platform-${Date.now()}`)
-    mkdirSync(join(shortRoot, '篇', '001-第一夜'), { recursive: true })
+    mkdirSync(join(shortRoot, '篇'), { recursive: true })
     writeFileSync(
       join(shortRoot, 'book.yaml'),
       'spec_version: 1\nkind: short\n\nbook:\n  title: 夜语集\n  genre: 悬疑\n',
       'utf-8',
     )
-    writePiece(join(shortRoot, '篇', '001-第一夜', '正文.md'), {
+    writePiece(join(shortRoot, '篇', '001-第一夜.md'), {
       篇号: 1,
       标题: '第一夜',
       目标情绪: '惊悚',

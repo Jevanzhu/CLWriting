@@ -9,7 +9,7 @@
  * - 大纲/卷纲 → volume-outline；大纲/<七类账本> → ledger；大纲/ 其他 → outline
  * - 文风 → style；简介.md → introduction；工作区/草稿-N.md|细纲.md → draft
  * - 素材 → material；笔记 → note；废稿 → discard；未匹配 → note（自由文档，全开）
- * - 短篇：篇/<篇号>-<标题>/正文.md → piece-body；…/清单.md → piece-manifest
+ * - 短篇：篇/<篇号>-<标题>.md → piece-body；清单/<篇号>-<标题>.md → piece-manifest
  *
  * 系统文档（账本 ledger / 篇清单 piece-manifest）trash=false（W0-1 §2）。
  * 工作区内部目录（.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）
@@ -64,12 +64,9 @@ function norm(p: string): string {
 /** 按路径判 role（W0-1 §9）。relPath 是书仓库相对路径。 */
 export function roleOf(relPath: string): DocumentRole {
   const p = norm(relPath)
-  // 短篇篇包
-  if (p.startsWith('篇/')) {
-    if (p.endsWith('/正文.md')) return 'piece-body'
-    if (p.endsWith('/清单.md')) return 'piece-manifest'
-    return 'note'
-  }
+  // 短篇正文（篇/<篇号>-<标题>.md）；清单分离到 清单/ 同名文件
+  if (p.startsWith('篇/')) return 'piece-body'
+  if (p.startsWith('清单/')) return 'piece-manifest'
   // 长篇
   if (p.startsWith('定稿/正文/')) return 'chapter'
   if (p.startsWith('定稿/设定/')) return 'setting'

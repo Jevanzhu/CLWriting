@@ -1,7 +1,7 @@
 /**
  * 短篇按篇定稿测试 —— M8 #26。
  *
- * 验收：short finalize 落 篇/<篇号>-<标题>/正文.md；commit msg pc:<篇号3位>；
+ * 验收：short finalize 落 篇/<篇号>-<标题>.md；commit msg pc:<篇号3位>；
  * 跳账本履历、跳章摘要；前置闸只跑审稿裁决 + 确认哈希（跳形式三检）。
  */
 
@@ -39,7 +39,7 @@ function makeShortBook(): string {
   return root
 }
 
-test('short finalize: 落 篇/<篇号>-<标题>/正文.md + commit pc: 前缀', () => {
+test('short finalize: 落 篇/<篇号>-<标题>.md + commit pc: 前缀', () => {
   const root = makeShortBook()
   try {
     const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -52,12 +52,12 @@ test('short finalize: 落 篇/<篇号>-<标题>/正文.md + commit pc: 前缀', 
     const r = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
-      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+      fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
     })
     expect(r.ok).toBe(true)
 
-    // 落点：篇/001-雪夜/正文.md
-    expect(existsSync(join(root, '篇', '001-雪夜', '正文.md'))).toBe(true)
+    // 落点：篇/001-雪夜.md
+    expect(existsSync(join(root, '篇', '001-雪夜.md'))).toBe(true)
     // 不落 定稿/正文/（短篇无此目录）
     expect(existsSync(join(root, '定稿'))).toBe(false)
 
@@ -86,23 +86,23 @@ test('short finalize: 清单.md 随正文同 pc commit 归档', () => {
     const r = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
-      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+      fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
     })
     expect(r.ok).toBe(true)
 
-    const manifestPath = join(root, '篇', '001-雪夜', '清单.md')
+    const manifestPath = join(root, '清单', '001-雪夜.md')
     expect(existsSync(manifestPath)).toBe(true)
     expect(readFileSync(manifestPath, 'utf-8')).toContain('来客就是死者')
     const committedFiles = execSync('git -c core.quotepath=false show --name-only --format= HEAD', { cwd: root, encoding: 'utf-8' })
-    expect(committedFiles).toContain('篇/001-雪夜/正文.md')
-    expect(committedFiles).toContain('篇/001-雪夜/清单.md')
+    expect(committedFiles).toContain('篇/001-雪夜.md')
+    expect(committedFiles).toContain('清单/001-雪夜.md')
     db.close()
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('short finalize: commit 失败回滚不残留空篇目录，解锁后可重试', () => {
+test('short finalize: commit 失败回滚不残留篇文件，解锁后可重试', () => {
   const root = makeShortBook()
   try {
     const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -119,19 +119,19 @@ test('short finalize: commit 失败回滚不残留空篇目录，解锁后可重
     const failed = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
-      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+      fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
     })
     expect(failed.ok).toBe(false)
-    expect(existsSync(join(root, '篇', '001-雪夜'))).toBe(false)
+    expect(existsSync(join(root, '篇', '001-雪夜.md'))).toBe(false)
 
     rmSync(locked, { force: true })
     const retried = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '雪夜的正文内容，主角推开客栈的门……',
-      fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+      fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
     })
     expect(retried.ok).toBe(true)
-    expect(existsSync(join(root, '篇', '001-雪夜', '正文.md'))).toBe(true)
+    expect(existsSync(join(root, '篇', '001-雪夜.md'))).toBe(true)
 
     db.close()
   } finally {
@@ -153,7 +153,7 @@ test('short finalize: 跳账本履历 + 跳章摘要（篇/ 下无 大纲/无 �
     const r = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
       chapter: ch, body: '旧伞正文。',
-      fileName: '002-旧伞/正文.md', hasReviewVerdict: true, kind: 'short',
+      fileName: '002-旧伞.md', hasReviewVerdict: true, kind: 'short',
       leadUpdates: [{ leadId: '悬念-001', entries: [{ 章号: 2, 动词: '埋下', 证据: '伞' }] }],
       chapterSummary: '第2篇摘要',
     })
@@ -183,7 +183,7 @@ test('short finalize: 前置闸跳形式三检（无账本也通过），但审�
     // 无审稿裁决 → 拒绝（审稿是刚需闸，长短共用）
     const r = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
-      chapter: ch, body: '正文', fileName: '001-雪夜/正文.md', hasReviewVerdict: false, kind: 'short',
+      chapter: ch, body: '正文', fileName: '001-雪夜.md', hasReviewVerdict: false, kind: 'short',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toContain('拍板')
@@ -209,7 +209,7 @@ test('short finalize 成功后工作区清空', () => {
     const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折' }
     const r = doFinalize({
       bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
-      chapter: ch, body: '正文', fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+      chapter: ch, body: '正文', fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
     })
     expect(r.ok).toBe(true)
 

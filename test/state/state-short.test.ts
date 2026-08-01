@@ -33,11 +33,10 @@ function makeShortBook(): string {
   return root
 }
 
-/** 造一篇定稿（篇/<篇号3位>-<标题>/正文.md + pc: commit）。 */
+/** 造一篇定稿（篇/<篇号3位>-<标题>.md + pc: commit）。 */
 function finalizePiece(root: string, num: number, title: string): void {
-  const dir = join(root, '篇', `${String(num).padStart(3, '0')}-${title}`)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, '正文.md'), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
+  mkdirSync(join(root, '篇'), { recursive: true })
+  writeFileSync(join(root, '篇', `${String(num).padStart(3, '0')}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
   execSync(`git add -A && git commit -m "pc:${String(num).padStart(3, '0')} ${title}"`, { cwd: root, stdio: 'pipe' })
 }
 
@@ -46,7 +45,7 @@ test('short 态 3: 篇/ 有未 commit 改动 → 态 3（看 篇/，不看 定�
   try {
     // 改已定稿篇的正文（未 commit）→ 态 3 手改
     finalizePiece(root, 1, '雪夜')
-    writeFileSync(join(root, '篇', '001-雪夜', '正文.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
+    writeFileSync(join(root, '篇', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
 
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(3)

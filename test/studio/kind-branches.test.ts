@@ -79,9 +79,9 @@ describe('buildOutlinePrompt(kind 分支)', () => {
   })
 
   it('短篇:有前篇时注入前篇摘要(避重复主题/情绪)', () => {
-    mkdirSync(join(root, '篇', '001-旧案'), { recursive: true })
+    mkdirSync(join(root, '篇'), { recursive: true })
     writeFileSync(
-      join(root, '篇', '001-旧案', '正文.md'),
+      join(root, '篇', '001-旧案.md'),
       '---\n篇号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
     )
     const p = buildOutlinePrompt(root, 2, 'short')

@@ -7,8 +7,11 @@
  */
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
+import { readBooks } from '../../install/books.js'
+import { migratePieceLayout } from '../../format/pieces.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
@@ -96,6 +99,12 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
+  // 迁移旧短篇目录结构（篇/N-T/正文.md → 篇/N-T.md + 清单/N-T.md；幂等，无旧结构 no-op）
+  if (opts.workDir) {
+    for (const book of readBooks(opts.workDir)) {
+      migratePieceLayout(join(opts.workDir, book.path))
+    }
+  }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null

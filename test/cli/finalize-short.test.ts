@@ -2,7 +2,7 @@
  * 短篇 finalize CLI 门面测试 —— M8 第二批 #27。
  *
  * 验收致命坑修复：finalize CLI 读 config.kind 传给 doFinalize；
- * 短篇落 篇/<篇号>-<标题>/正文.md + commit pc: 前缀；文案出「篇」。
+ * 短篇落 篇/<篇号>-<标题>.md + commit pc: 前缀；文案出「篇」。
  */
 
 import { test, expect, vi } from 'vitest'
@@ -80,8 +80,8 @@ test('finalize CLI short: 落 篇/ + pc: 前缀 + 文案出「篇」', () => {
     const { stdout, exitCode } = captureCli(() => finalizeCommand([root]))
     expect(exitCode).toBeNull()
     expect(stdout).toContain('第 1 篇已定稿')
-    // 正文落 篇/001-雪夜来客/正文.md
-    expect(existsSync(join(root, '篇', '001-雪夜来客', '正文.md'))).toBe(true)
+    // 正文落 篇/001-雪夜来客.md
+    expect(existsSync(join(root, '篇', '001-雪夜来客.md'))).toBe(true)
     // commit msg 前缀 pc:001
     const log = execSync('git log --format=%s', { cwd: root, encoding: 'utf-8' }).trim().split('\n')
     expect(log.some((m) => /^pc:001 /.test(m))).toBe(true)

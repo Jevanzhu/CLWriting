@@ -81,10 +81,11 @@ function makeShortBookWithRepeats(): string {
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
+  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '清单'), { recursive: true })
   for (let i = 1; i <= 3; i++) {
-    const dir = join(root, '篇', `${String(i).padStart(3, '0')}-雪夜${i}`)
-    mkdirSync(dir, { recursive: true })
-    writePiece(join(dir, '正文.md'), {
+    const slug = `${String(i).padStart(3, '0')}-雪夜${i}`
+    writePiece(join(root, '篇', `${slug}.md`), {
       篇号: i,
       标题: `雪夜${i}`,
       目标情绪: '惊悚',
@@ -108,7 +109,7 @@ function makeShortBookWithRepeats(): string {
       ],
       伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
     }
-    writePieceList(join(dir, '清单.md'), list)
+    writePieceList(join(root, '清单', `${slug}.md`), list)
     appendMetric(root, {
       kind: 'short', num: i, title: `雪夜${i}`, words: 10, at: `2026-06-20T00:00:0${i}.000Z`,
       calls: { outline: 1, draft: 1, review: 3, total: 5, limit: 8 }, tokens: null,

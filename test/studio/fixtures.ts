@@ -80,24 +80,22 @@ function makeShortBook(root: string): void {
     join(root, 'book.yaml'),
     'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\nbudget:\n  calls_per_chapter: 8\nstyle:\n  injection: light\nshort:\n  word_min: 1000\n  word_max: 5000\n',
   )
-  const p1 = join(root, '篇', '001-雨夜门铃')
-  mkdirSync(p1, { recursive: true })
+  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '清单'), { recursive: true })
   writeFileSync(
-    join(p1, '正文.md'),
+    join(root, '篇', '001-雨夜门铃.md'),
     '---\n篇号: 1\n标题: 雨夜门铃\n目标情绪: 惊悚\n核心反转: 来客是三年前的死者\n---\n## 开头钩子\n\n门外没有脚印。\n\n## 反转\n\n来客笑了，他是死者。',
   )
   writeFileSync(
-    join(p1, '清单.md'),
+    join(root, '清单', '001-雨夜门铃.md'),
     '## 反转线索表\n- 核心反转：来客是三年前的死者\n- 铺垫点（≥3，反转可回溯）：\n  - [开头钩子] 门外没有脚印\n  - [铺垫] 旧收音机\n\n## 情绪曲线\n- [开头钩子] 惊悚 4/10\n- [反转] 后怕 9/10\n\n## 伏笔回收\n- 门外没有脚印 → 回收于 反转\n',
   )
-  const p2 = join(root, '篇', '002-红伞')
-  mkdirSync(p2, { recursive: true })
   writeFileSync(
-    join(p2, '正文.md'),
+    join(root, '篇', '002-红伞.md'),
     '---\n篇号: 2\n标题: 红伞\n目标情绪: 后怕\n核心反转: 红伞内侧写着主角名字\n---\n## 开头\n\n红伞靠在墙边滴水。\n\n## 反转\n\n伞内侧写着主角的名字。',
   )
   writeFileSync(
-    join(p2, '清单.md'),
+    join(root, '清单', '002-红伞.md'),
     '## 反转线索表\n- 核心反转：红伞内侧写着主角名字\n- 铺垫点（≥3，反转可回溯）：\n  - [开头] 红伞滴水\n\n## 情绪曲线\n- [开头] 不安 5/10\n- [反转] 后怕 8/10\n\n## 伏笔回收\n- 红伞 → 回收于 反转\n',
   )
   mkdirSync(join(root, '定稿', '设定'), { recursive: true })

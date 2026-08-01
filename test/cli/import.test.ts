@@ -105,11 +105,11 @@ describe('importV02Book', () => {
     expect(result.kind).toBe('short')
     expect(result.chapterCount).toBe(2)
     const bookRoot = result.bookRoot!
-    // 短篇集布局：篇/ 子目录，无 定稿/正文/
-    expect(existsSync(join(bookRoot, '篇', '001-短篇', '正文.md'))).toBe(true)
-    expect(existsSync(join(bookRoot, '篇', '002-续', '正文.md'))).toBe(true)
-    // 清单.md 占位（不臆造反转线索）
-    expect(existsSync(join(bookRoot, '篇', '001-短篇', '清单.md'))).toBe(true)
+    // 短篇集布局：篇/<篇号>-<标题>.md，无 定稿/正文/
+    expect(existsSync(join(bookRoot, '篇', '001-短篇.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '篇', '002-续.md'))).toBe(true)
+    // 清单分离到 清单/<篇号>-<标题>.md（不臆造反转线索）
+    expect(existsSync(join(bookRoot, '清单', '001-短篇.md'))).toBe(true)
     expect(existsSync(join(bookRoot, '定稿', '正文'))).toBe(false)
     // book.yaml kind: short
     const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
@@ -128,7 +128,7 @@ describe('importV02Book', () => {
     expect(result.kind).toBe('short')
     // 5 篇落 篇/
     expect(result.chapterCount).toBe(5)
-    expect(existsSync(join(result.bookRoot!, '篇', '005-第5章标题', '正文.md'))).toBe(true)
+    expect(existsSync(join(result.bookRoot!, '篇', '005-第5章标题.md'))).toBe(true)
   })
 
   it('长短信号冲突（<5 章但 ≥30000 字）→ 请 --kind 拍板', () => {
