@@ -9,10 +9,11 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
 import { computeProgress, computeLastEdited, computeLatestChapter } from './progress.js'
@@ -108,6 +109,31 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
+  })
+
+  // 删书（物理删除：rmSync 书目录 + 移 books.jsonl 登记 + 清 active 指针）
+  route('DELETE', '/api/books/:name', (_req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) {
+      reply(res, 400, { error: '未定位到工作目录' })
+      return
+    }
+    const name = params['name']
+    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
+    if (!entry) {
+      reply(res, 404, { error: `没有这本书：${name}` })
+      return
+    }
+    // 删书目录（递归，含 git 历史）
+    const bookAbs = join(ctx.workDir, entry.path)
+    try {
+      rmSync(bookAbs, { recursive: true, force: true })
+    } catch (e) {
+      reply(res, 500, { error: `删除目录失败：${e instanceof Error ? e.message : String(e)}` })
+      return
+    }
+    // 移 books.jsonl 登记 + 清活动书指针
+    removeBookEntry(ctx.workDir, name)
+    reply(res, 200, { ok: true, name })
   })
 
   // 单书身份

@@ -104,6 +104,19 @@ export function appendBook(
   return { ok: true }
 }
 
+/**
+ * 从 books.jsonl 移除一本书的登记（不改文件系统）。
+ * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
+ */
+export function removeBookEntry(workDir: string, name: string): void {
+  const books = readBooks(workDir).filter((b) => b.name !== name)
+  writeBooks(workDir, books)
+  // 活动书被删 → 清指针（下次进书架会提示选书）
+  if (readActive(workDir) === name) {
+    atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+  }
+}
+
 // ── 活动书指针（#32 第 3 节）──────────────────────
 
 /** 读活动书 name（.clwriting/active 单行）。缺失返回 null。 */

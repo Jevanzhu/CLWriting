@@ -24,3 +24,8 @@ export async function listBooks(): Promise<{
 }> {
   return apiJson('/api/books')
 }
+
+// DELETE /api/books/:name → 物理删除（目录 + 登记 + active 指针）
+export async function deleteBook(name: string): Promise<void> {
+  await apiJson(`/api/books/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}

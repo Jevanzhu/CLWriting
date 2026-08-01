@@ -6,6 +6,7 @@ import { ref, computed } from 'vue'
 import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
 import { apiJson } from '../api/client'
+import { deleteBook } from '../api/shelf'
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
 export function formatWords(n?: number): string {
@@ -106,6 +107,64 @@ export function useShelf(options?: {
     }
   }
 
+  // ── 批量管理 + 删除 ──
+  const batchMode = ref(false)
+  const selected = ref<Set<string>>(new Set())
+  /** 待删除的书名列表（非 null = 确认弹窗打开） */
+  const confirmTarget = ref<string[] | null>(null)
+  const deleting = ref(false)
+  /** 删除失败时的错误信息（成功时为 null） */
+  const deleteError = ref<string | null>(null)
+
+  function toggleSelect(name: string): void {
+    const s = new Set(selected.value)
+    if (s.has(name)) s.delete(name)
+    else s.add(name)
+    selected.value = s
+  }
+  function selectAll(): void {
+    selected.value = new Set(shelf.books.map((b) => b.name))
+  }
+  function enterBatch(): void {
+    batchMode.value = true
+    selected.value = new Set()
+  }
+  function exitBatch(): void {
+    batchMode.value = false
+    selected.value = new Set()
+  }
+  /** 打开确认弹窗（传入待删书名列表） */
+  function requestDelete(names: string[]): void {
+    if (names.length === 0) return
+    deleteError.value = null
+    confirmTarget.value = names
+  }
+  function cancelDelete(): void {
+    confirmTarget.value = null
+  }
+  /** 确认删除：串行调 DELETE API → 刷新书架 → 退出批量模式 */
+  async function confirmDelete(): Promise<void> {
+    const names = confirmTarget.value
+    if (!names || names.length === 0) return
+    deleting.value = true
+    try {
+      for (const name of names) {
+        await deleteBook(name)
+      }
+      confirmTarget.value = null
+      // 删除完成后清选中 + 退出批量模式
+      selected.value = new Set()
+      batchMode.value = false
+      await shelf.load()
+    } catch (e) {
+      // 删除失败：保留弹窗 + 显示错误，用户可重试或取消
+      deleteError.value = e instanceof Error ? e.message : String(e)
+      await shelf.load()
+    } finally {
+      deleting.value = false
+    }
+  }
+
   return {
     shelf,
     groups,
@@ -117,5 +176,18 @@ export function useShelf(options?: {
     creating,
     createError,
     createBook,
+    // 批量管理 + 删除
+    batchMode,
+    selected,
+    toggleSelect,
+    selectAll,
+    enterBatch,
+    exitBatch,
+    confirmTarget,
+    deleting,
+    deleteError,
+    requestDelete,
+    confirmDelete,
+    cancelDelete,
   }
 }
