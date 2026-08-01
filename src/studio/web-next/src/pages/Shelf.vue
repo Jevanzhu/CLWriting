@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // 书架全屏页（独立窗口或主窗口路由）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
 // 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本页只保留全屏布局 + IPC 跳转。
-import { onMounted, computed } from 'vue'
+import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../composables/useShelf'
+import { useNativeMenu } from '../composables/useNativeMenu'
 import { useTheme } from '../composables/useTheme'
+import ContextMenu, { type MenuItem } from '../components/ui/ContextMenu.vue'
 import BookCard from '../components/ui/BookCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 
@@ -15,9 +17,35 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 const {
   shelf, groups, latestBook, viewMode, setView,
   showCreate, newName, creating, createError, createBook,
+  batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
+  confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
 } = useShelf({
   onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
 })
+
+// 右键菜单：桌面端原生 Menu，浏览器回退 ContextMenu
+const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
+
+function onCardContextmenu(e: MouseEvent, name: string): void {
+  const items: MenuItem[] = [
+    { key: 'open', label: '打开' },
+    { key: 'sep1', label: '', separator: true },
+    { key: 'folder', label: '打开所在文件夹', disabled: !hasDesktop },
+    { key: 'sep2', label: '', separator: true },
+    { key: 'delete', label: '删除…', danger: true },
+  ]
+  popup(items, e.clientX, e.clientY, (key) => {
+    if (key === 'open') openBook(name)
+    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name)
+    else if (key === 'delete') requestDelete([name])
+  })
+}
+
+// 卡片点击：批量模式 toggle 选中，否则打开书
+function handleCardClick(name: string): void {
+  if (batchMode.value) toggleSelect(name)
+  else openBook(name)
+}
 
 // Awwwards 冲击面：hero 数据条展示创作概况
 const totalWords = computed(() => shelf.books.reduce((s, b) => s + (b.words ?? 0), 0))
@@ -28,7 +56,19 @@ const lastEdited = computed(() => {
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
 
-onMounted(() => shelf.load())
+// Esc：确认弹窗 → 建书 → 批量模式（逐级收）
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    if (confirmTarget.value) cancelDelete()
+    else if (showCreate.value) showCreate.value = false
+    else if (batchMode.value) exitBatch()
+  }
+}
+onMounted(() => {
+  shelf.load()
+  window.addEventListener('keydown', onKeydown)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 function openBook(name: string): void {
   // 记住最近打开的书（主窗口启动直进工作区用）
@@ -67,33 +107,51 @@ function openBook(name: string): void {
           <p v-else class="head-sub">开启你的长篇之旅</p>
         </div>
         <div class="shelf-actions">
-          <div class="view-toggle">
+          <template v-if="!batchMode">
+            <div class="view-toggle">
+              <button
+                class="toggle-btn"
+                :class="{ active: viewMode === 'grid' }"
+                data-tip="网格视图"
+                @click="setView('grid')"
+              >
+                <LayoutGrid :size="15" />
+              </button>
+              <button
+                class="toggle-btn"
+                :class="{ active: viewMode === 'list' }"
+                data-tip="列表视图"
+                @click="setView('list')"
+              >
+                <List :size="15" />
+              </button>
+            </div>
             <button
-              class="toggle-btn"
-              :class="{ active: viewMode === 'grid' }"
-              data-tip="网格视图"
-              @click="setView('grid')"
+              v-if="shelf.books.length"
+              class="btn batch-enter"
+              data-tip="批量管理"
+              @click="enterBatch"
             >
-              <LayoutGrid :size="15" />
+              <CheckSquare :size="14" /> 管理
             </button>
             <button
-              class="toggle-btn"
-              :class="{ active: viewMode === 'list' }"
-              data-tip="列表视图"
-              @click="setView('list')"
+              class="btn icon"
+              :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
+              @click="toggle($event)"
             >
-              <List :size="15" />
+              <Moon v-if="theme === 'light'" :size="16" />
+              <Sun v-else :size="16" />
             </button>
-          </div>
-          <button
-            class="btn icon"
-            :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
-            @click="toggle($event)"
-          >
-            <Moon v-if="theme === 'light'" :size="16" />
-            <Sun v-else :size="16" />
-          </button>
-          <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
+            <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
+          </template>
+          <template v-else>
+            <span class="batch-count-inline">已选 {{ selected.size }} 本</span>
+            <button class="btn" :disabled="!shelf.books.length" @click="selectAll">全选</button>
+            <button class="btn danger" :disabled="selected.size === 0" @click="requestDelete([...selected])">
+              <Trash2 :size="14" /> 删除<span v-if="selected.size" class="del-num">({{ selected.size }})</span>
+            </button>
+            <button class="btn" @click="exitBatch">完成</button>
+          </template>
         </div>
       </header>
       <div v-if="shelf.loading" class="shelf-status">加载中…</div>
@@ -113,7 +171,7 @@ function openBook(name: string): void {
       </EmptyState>
       <template v-else>
         <section
-          v-if="latestBook && viewMode === 'grid'"
+          v-if="latestBook && viewMode === 'grid' && !batchMode"
           class="hero-card"
           @mousemove="onCardMove"
           @click="openBook(latestBook.name)"
@@ -142,7 +200,7 @@ function openBook(name: string): void {
           </div>
         </section>
         <section
-          v-else-if="latestBook"
+          v-else-if="latestBook && !batchMode"
           class="hero-list"
           @mousemove="onCardMove"
           @click="openBook(latestBook.name)"
@@ -169,8 +227,11 @@ function openBook(name: string): void {
               :book="b"
               variant="grid"
               :index="i"
+              :batch-mode="batchMode"
+              :selected="selected.has(b.name)"
               @move="onCardMove"
-              @click="openBook"
+              @click="handleCardClick"
+              @contextmenu="onCardContextmenu($event, b.name)"
             />
           </div>
           <div v-else class="book-list">
@@ -185,8 +246,11 @@ function openBook(name: string): void {
               :key="b.name"
               :book="b"
               variant="list"
+              :batch-mode="batchMode"
+              :selected="selected.has(b.name)"
               @move="onCardMove"
-              @click="openBook"
+              @click="handleCardClick"
+              @contextmenu="onCardContextmenu($event, b.name)"
             />
           </div>
         </section>
@@ -212,7 +276,44 @@ function openBook(name: string): void {
         </div>
       </div>
     </div>
+
   </div>
+
+  <!-- 右键菜单（浏览器回退；桌面端走原生 Menu） -->
+  <ContextMenu
+    v-if="!isNative"
+    :visible="menuVisible"
+    :x="menuX"
+    :y="menuY"
+    :items="menuItems"
+    @select="onPopupSelect"
+    @close="onPopupClose"
+  />
+
+  <!-- 删除确认弹窗 -->
+  <Teleport to="body">
+    <div v-if="confirmTarget" class="confirm-overlay" @click.self="cancelDelete">
+      <div class="confirm-dialog">
+        <div class="confirm-head">
+          <Trash2 :size="22" class="confirm-icon-danger" />
+          <h3>确认删除</h3>
+        </div>
+        <p class="confirm-text">
+          将永久删除以下 {{ confirmTarget.length }} 本书及其全部内容（含定稿、大纲、设定），不可恢复：
+        </p>
+        <div v-if="deleteError" class="confirm-err">{{ deleteError }}</div>
+        <div class="confirm-names">
+          <span v-for="n in confirmTarget" :key="n" class="confirm-name">{{ n }}</span>
+        </div>
+        <div class="confirm-actions">
+          <button class="btn" @click="cancelDelete" :disabled="deleting">取消</button>
+          <button class="btn danger" @click="confirmDelete" :disabled="deleting">
+            {{ deleting ? '删除中…' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -371,6 +472,10 @@ function openBook(name: string): void {
   box-shadow: var(--shadow-s);
 }
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 6px 14px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -378,6 +483,7 @@ function openBook(name: string): void {
   color: var(--text-normal);
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn.icon {
   padding: 6px;
@@ -737,5 +843,110 @@ function openBook(name: string): void {
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
+}
+
+/* ── 批量模式：header 内联 ── */
+.batch-count-inline {
+  font-size: var(--font-size-s);
+  color: var(--text-accent);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* 管理按钮：带文字标签 */
+.btn.batch-enter {
+  font-size: var(--font-size-s);
+  gap: 5px;
+}
+.del-num {
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
+/* ── 危险按钮 ── */
+.btn.danger {
+  background: var(--text-error);
+  border-color: var(--text-error);
+  color: #fff;
+}
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* ── 删除确认弹窗 ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 300;
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
+.confirm-dialog {
+  width: 380px;
+  max-width: 90vw;
+  padding: var(--size-4-5);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-3);
+}
+.confirm-icon-danger {
+  color: var(--text-error);
+  flex-shrink: 0;
+}
+.confirm-head h3 {
+  margin: 0;
+  font-size: var(--font-size-l);
+  font-weight: 600;
+}
+.confirm-text {
+  margin: 0 0 var(--size-4-3);
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.confirm-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--size-4-4);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+}
+.confirm-name {
+  font-size: var(--font-size-xs);
+  color: var(--text-normal);
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+.confirm-err {
+  margin: 0 0 var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+  color: var(--text-error);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 </style>

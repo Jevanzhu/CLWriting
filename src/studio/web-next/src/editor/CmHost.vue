@@ -323,4 +323,16 @@ onUnmounted(() => view?.destroy())
 .cm-host :deep(.cm-scroller) {
   overflow: auto;
 }
+/* 编辑器滚动条：比全局更细（6px → 近 Obsidian 极简风） */
+.cm-host :deep(.cm-scroller)::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.cm-host :deep(.cm-scroller)::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+.cm-host :deep(.cm-scroller)::-webkit-scrollbar-thumb:hover {
+  background: var(--background-modifier-border-hover);
+}
 </style>
