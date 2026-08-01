@@ -78,9 +78,9 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath })
-    registerOutlineRoutes({ workDir })
+    registerOutlineRoutes({ workDir, userDataPath })
     registerReviewRoutes({ workDir, userDataPath })
-    registerOnboardRoutes({ workDir })
+    registerOnboardRoutes({ workDir, userDataPath })
     registerRewriteRoutes({ workDir, userDataPath })
   })
   return routes

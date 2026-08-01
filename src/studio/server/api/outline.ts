@@ -1,11 +1,10 @@
 /**
- * outline 端点(C.2a):主 agent send 合成多源 → 工作区/细纲-N.md。
+ * outline 端点(C.2a):组多源 prompt → generateText → 工作区/细纲.md。
  *
  * POST /api/books/:name/outline  body {chapter}
- *   → 组 prompt(总纲 + 前章摘要)→ driver send(独立 session)→ 收 stream → 落盘 → {ok, path, words}
+ *   → 组 prompt(总纲 + 前章摘要)→ generateText → 落盘 → {ok, path, words}
  *
- * send 是主 agent 软触发(方案 6.6 outline):GUI 组多源 prompt,主 agent 产细纲。
- * 独立 session(不入 ensureSession map),避免与工作台 EventSource /stream 竞争同 channel。
+ * prompt 自含任务说明（system prompt 为空），纯文本产出。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -16,11 +15,39 @@ import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { readKind } from '../book-context.js'
-import { getDriver } from '../../../driver/index.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { generateText } from '../../../ai/gen.js'
 import { buildSettingsContext } from './settings.js'
 
 interface OutlineCtx {
   workDir: string | null
+  userDataPath: string | null
+}
+
+/** 跑一次大纲生成（generateText 纯文本产出，替代 driver.spawnRole）。 */
+async function runOutline(
+  userDataPath: string | null,
+  prompt: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+    return { ok: true, text: '## mock 细纲\n\n- 场景：叙事铺陈\n- 情节骨架：开篇→发展→章尾钩' }
+  }
+  if (!userDataPath) return { ok: false, error: '未定位到应用数据目录' }
+  const conf = currentProvider(userDataPath)
+  if (!conf) return { ok: false, error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  const provider = createProvider(conf)
+  const ctrl = new AbortController()
+  try {
+    const text = await generateText(
+      provider,
+      { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: 4000 },
+      ctrl.signal,
+    )
+    if (text.trim()) return { ok: true, text: text.trim() }
+    return { ok: false, error: 'AI 产出为空' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 export function registerOutlineRoutes(ctx: OutlineCtx): void {
@@ -37,31 +64,13 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const kind = readKind(bookRoot)
     const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
 
-    // spawnRole('outline') 禁工具(--tools '')主 agent 直接产细纲,避 send 软触发 spawn Agent 卡住;
-    // 无 outline 角色文件则 readRolePrompt 返空 → 纯 prompt
-    const driver = getDriver('cc')
-    const session = await driver.startSession(ctx.workDir)
-    driver.spawnRole(session, 'outline', prompt)
+    // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
+    const result = await runOutline(ctx.userDataPath, prompt)
+    if (!result.ok) return reply(res, 500, { error: result.error })
 
-    let text = ''
-    try {
-      for await (const ev of driver.stream(session)) {
-        if (ev.type === 'text') text += ev.text
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          driver.dispose(session)
-          return reply(res, 500, { error: `driver:${ev.message}` })
-        }
-      }
-    } catch (e) {
-      driver.dispose(session)
-      return reply(res, 500, { error: `stream:${e instanceof Error ? e.message : String(e)}` })
-    }
-    driver.dispose(session)
-
-    const content = text.trim()
+    const content = result.text
     const outlineDir = join(bookRoot, '工作区')
-    const relPath = `工作区/细纲.md` // CLI prepare/confirm 读固定 工作区/细纲.md(当前章,覆盖)
+    const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
     try {
       mkdirSync(outlineDir, { recursive: true })
       writeFileSync(join(outlineDir, `细纲.md`), content || '(空细纲)', 'utf8')
@@ -95,7 +104,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
-      `## 要求\n产出第 ${chapter} 篇篇纲:① 目标情绪(本篇要落地的核心情绪);② 核心反转(单篇反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单篇闭合不烂尾)。直接输出篇纲 markdown,不要读文件、不要用工具。`,
+      `## 要求\n产出第 ${chapter} 篇篇纲:① 目标情绪(本篇要落地的核心情绪);② 核心反转(单篇反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单篇闭合不烂尾)。直接输出篇纲 markdown。`,
     )
     return parts.join('\n\n')
   }
@@ -120,7 +129,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   const settingsCtx = buildSettingsContext(bookRoot)
   if (settingsCtx) parts.push(settingsCtx)
   parts.push(
-    `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown,不要读文件、不要用工具。`,
+    `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown。`,
   )
   return parts.join('\n\n')
 }

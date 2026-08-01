@@ -1,8 +1,8 @@
 /**
- * mock driver(批1):无 CLI / 无认证的假事件流,供前端开发与无认证环境。
+ * mock driver：不调大模型的假事件流，供前端开发 / e2e 测试。
  *
- * 架构红线:mock 不调任何大模型(纯定时器模拟流式产出)。
- * 复刻 StudioDriver 契约:spawnRole/send 触发 → 假 role_spawn + 分块 text + usage + done。
+ * 架构红线：mock 不调任何大模型（纯定时器模拟流式产出）。
+ * 复刻 StudioDriver 契约：spawnRole/send 触发 → 假 role_spawn + 分块 text + usage + done。
  */
 import type {
   Session,
@@ -147,7 +147,7 @@ async function runMockGenerate(
     ? MOCK_REVIEW_ISSUES
     : isAnalyst
       ? pickAnalystMock(prompt)
-      : `【mock · ${role}】收到「${preview}」,这是 mock driver 的模拟产出。真 driver(批2)将经 claude CLI 生成。\n`
+      : `【mock · ${role}】收到「${preview}」,这是 mock driver 的模拟产出。\n`
   for (const chunk of chunkText(sample, 12)) {
     if (session.closed) return
     await sleep(60)

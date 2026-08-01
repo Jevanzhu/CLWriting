@@ -2,8 +2,8 @@
  * driver 抽象层类型(方案第 9 节)。
  *
  * driver 不编排,只「起会话 + 单步生成 + 事件流」。编排权在 GUI。
- * 架构红线:driver 唯一职责 = 驱动 CC(批2 spawn claude)/ mock(批1);
- * GUI 后端不直连大模型(见 memory gui-不直连大模型)。
+ * driver 唯一职责:cc = provider 直连(mock = 假事件流);
+ * 结构化产出走 gen.ts generateTool/generateText(不经 driver)。
  */
 
 /** 一个 book 一个 driver session(切书:dispose 旧 + startSession 新) */

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { getAnalysisEnvelope, runAnalyze, type AnalysisKindFE, type EnvelopeFE } from '../api/analysis'
 
 /**
- * 分析 store（M12 块4 B4.0）：按 kind 存信封 + stale 标志；触发重新分析（spawnRole analyst）。
+ * 分析 store（M12 块4 B4.0）：按 kind 存信封 + stale 标志；触发重新分析（generateTool submit_<kind>）。
  * 生成与展示解耦：AI 不可达时存量照常展示，仅「重新分析」置灰（无开关、置灰不隐藏）。
  * B4.1 仅渲染 score；emotion/hooks/style 信封可落盘但前端渲染随 B4.2-B4.4 补。
  */

@@ -3,11 +3,10 @@
  *
  * POST /api/books/:name/onboard-ai  body {step}
  *   长篇 step: synopsis|characters|world|realm|volume|leads-seed|style-sample|style-rules|style-quotes
- *   → 组 prompt(title/genre/kind)→ spawnRole('onboard', prompt)禁工具 → 收 text → 落盘
+ *   → 组 prompt(title/genre/kind)→ generateText → 落盘
  *   → {ok, step, path, words, content}
  *
- * 各步独立 spawnRole(避 GLM send spawn Agent 卡死,C.2a 教训)。role='onboard'
- * 无 agents/onboard.md → readRolePrompt 返空 → 纯 prompt 驱动(任务+设定规范自含)。
+ * 各步独立生成。prompt 自含任务说明（system prompt 为空），纯文本产出。
  * realm 仅成长线书(leads enabled 含「成长线」)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -17,11 +16,38 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { getDriver } from '../../../driver/index.js'
-import type { DriverEvent } from '../../../driver/types.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { generateText } from '../../../ai/gen.js'
 
 interface OnboardCtx {
   workDir: string | null
+  userDataPath: string | null
+}
+
+/** 跑一次 onboard 步骤生成（generateText 纯文本产出，替代 driver.spawnRole）。 */
+async function runOnboard(
+  userDataPath: string | null,
+  prompt: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+    return { ok: true, text: '## mock 设定\n\n这是 mock 的模拟设定产出。' }
+  }
+  if (!userDataPath) return { ok: false, error: '未定位到应用数据目录' }
+  const conf = currentProvider(userDataPath)
+  if (!conf) return { ok: false, error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  const provider = createProvider(conf)
+  const ctrl = new AbortController()
+  try {
+    const text = await generateText(
+      provider,
+      { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: 4000 },
+      ctrl.signal,
+    )
+    if (text.trim()) return { ok: true, text: text.trim() }
+    return { ok: false, error: 'AI 产出为空' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 type OnboardStep =
@@ -82,26 +108,10 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
     const prompt = buildOnboardPrompt(step, title, genre, kind, discussionContext)
 
-    const driver = getDriver('cc')
-    const session = await driver.startSession(ctx.workDir)
-    driver.spawnRole(session, 'onboard', prompt)
-    let text = ''
-    try {
-      for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-        if (ev.type === 'text') text += String(ev.text ?? '')
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          driver.dispose(session)
-          return reply(res, 500, { error: `driver:${ev.message}` })
-        }
-      }
-    } catch (e) {
-      driver.dispose(session)
-      return reply(res, 500, { error: `stream:${e instanceof Error ? e.message : String(e)}` })
-    }
-    driver.dispose(session)
+    const result = await runOnboard(ctx.userDataPath, prompt)
+    if (!result.ok) return reply(res, 500, { error: result.error })
 
-    const content = text.trim() || '(空产出)'
+    const content = result.text || '(空产出)'
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
@@ -147,7 +157,7 @@ function buildOnboardPrompt(
     : ''
   const common = `${discuss}\n\n## 设定规范(防臆造)\n- 据「${genre}」题材内生推导,不臆造与题材冲突的设定\n- 留余地(后续卷/章可展开),不过度填死${
     discussionContext ? '\n- 优先据「既有讨论」整理,讨论未覆盖处再据题材推导' : ''
-  }\n\n## 输出\n直接输出 markdown 全文,不要读文件、不要用任何工具。`
+  }\n\n## 输出\n直接输出 markdown 全文。`
   switch (step) {
     case 'synopsis':
       return `## 任务\n为这部${genre}小说《${title}》生成总纲。\n\n${ctx}\n\n## 要求\n产出总纲,含:核心(一句话主线)、主角(姓名/身份/驱动/初始处境)、世界观(力量体系/核心势力/规则)、主线(明线成长 + 暗线探秘)、反转靶心(全书最大反转)、卷目(第一卷定位)。${common}`
