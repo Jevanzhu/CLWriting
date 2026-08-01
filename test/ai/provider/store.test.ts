@@ -5,7 +5,7 @@
  * 明文迁移、半迁移收敛、删除清理、损坏不覆盖、版本守卫。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -220,4 +220,39 @@ test('补充: apiKey 为空的 provider 不写入 vault.keys', () => {
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.vault.keys['prov-with-key']).toBeDefined()
   expect(raw.vault.keys['prov-no-key']).toBeUndefined()
+})
+
+// ── S5：写入健壮性（D5-D8）──────────────────────────
+
+test('S5-D6: JSON 损坏 → loadProviders 抛错（不静默返回空）', () => {
+  writeFileSync(FP(), '{ broken json !!! }', 'utf8')
+  expect(() => loadProviders(dir)).toThrow(/解析失败/)
+})
+
+test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-first-secret12345' })]
+  saveProviders(dir, store) // 首次创建（无备份）
+
+  // 改动后再次 save → 应备份首次内容
+  store.providers[0]!.apiKey = 'sk-second-secret1234'
+  saveProviders(dir, store)
+
+  const bakPath = join(dir, 'providers.bak.json')
+  expect(existsSync(bakPath)).toBe(true)
+  const bak = readFileSync(bakPath, 'utf8')
+  // 备份是首次 save 的密文（不含任何明文 key）
+  expect(bak).not.toContain('sk-first-secret12345')
+  expect(bak).not.toContain('sk-second-secret1234')
+  // 备份含 vault（密文）
+  expect(JSON.parse(bak).vault).toBeDefined()
+})
+
+test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-atomic-test123456' })]
+  saveProviders(dir, store)
+  expect(existsSync(join(dir, 'providers.json.tmp'))).toBe(false)
+  // 主文件完整可读
+  expect(JSON.parse(readFileSync(FP(), 'utf8')).vault).toBeDefined()
 })

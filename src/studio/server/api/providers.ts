@@ -45,6 +45,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const body = await readJson(req)
     const parsed = parseProviderInput(body)
     if (!parsed.ok) return reply(res, 400, { error: parsed.error })
+    // D10：新增时 apiKey 必填（编辑时留空 = 保留原 key）
+    if (!parsed.apiKey) return reply(res, 400, { error: 'apiKey 必填' })
 
     const s = loadProviders(ctx.userDataPath)
     const conf: ProviderConf = {

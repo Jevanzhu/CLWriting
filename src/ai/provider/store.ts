@@ -12,8 +12,8 @@
  *
  * 写入健壮性（原子写/备份/损坏不静默）属于 S5，本文件仅做 chmod 0600。
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, renameSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { ProviderConf, ProviderSettings } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
@@ -67,9 +67,9 @@ export function loadProviders(userDataPath: string): ProviderStore {
   let raw: DiskFormat
   try {
     raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
-  } catch {
-    // 文件损坏——S5 改为保留原文件 + 报错；当前版本静默返回空（D6 待修）
-    return emptySettings()
+  } catch (e) {
+    // D6：损坏不静默——保留原文件、向上报错（router 全局 catch 转 500 响应）
+    throw new Error(`providers.json 解析失败，文件可能损坏：${e instanceof Error ? e.message : ''}`)
   }
   if (!Array.isArray(raw.providers)) return emptySettings()
 
@@ -145,13 +145,23 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
   })
 
   const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, vault }
-  // 写时即设 0600——先写后 chmod 有 0644 窗口期（D8，S5 修）
-  writeFileSync(fp, JSON.stringify(disk, null, 2) + '\n', 'utf8')
-  try {
-    chmodSync(fp, 0o600)
-  } catch {
-    // Windows / 某些 FS 不支持 chmod；写成功即可
+  const json = JSON.stringify(disk, null, 2) + '\n'
+
+  // D7：写前备份（文件已存在时）——同权限 0600
+  if (existsSync(fp)) {
+    const bak = join(dirname(fp), 'providers.bak.json')
+    copyFileSync(fp, bak)
+    try {
+      chmodSync(bak, 0o600)
+    } catch {
+      // Windows / 某些 FS 不支持 chmod；备份成功即可
+    }
   }
+
+  // D5+D8：原子写——临时文件(创建即 0600) → rename 原子替换，杜绝半写与权限窗口
+  const tmp = join(dirname(fp), `${FILE}.tmp`)
+  writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600 })
+  renameSync(tmp, fp)
 }
 
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */

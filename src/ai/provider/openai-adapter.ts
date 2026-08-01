@@ -18,6 +18,7 @@ import type {
   TokenUsage,
   ToolDef,
 } from './types.js'
+import { redactSecret } from './redact.js'
 
 /** 创建 OpenAI 客户端 */
 function createClient(conf: ProviderConf): OpenAI {
@@ -181,15 +182,15 @@ export function createOpenAIProvider(conf: ProviderConf): ModelProvider {
   }
 }
 
-/** SDK 异常 → GenEvent.error */
+/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
 function toErrorEvent(e: unknown): GenEvent {
   if (e instanceof OpenAI.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
-    return { type: 'error', message: `OpenAI API ${e.status}: ${e.message}`, retryable }
+    return { type: 'error', message: redactSecret(`OpenAI API ${e.status}: ${e.message}`), retryable }
   }
   if (e instanceof Error && e.name === 'AbortError') {
     return { type: 'error', message: '已中断', retryable: false }
   }
   const msg = e instanceof Error ? e.message : String(e)
-  return { type: 'error', message: msg, retryable: false }
+  return { type: 'error', message: redactSecret(msg), retryable: false }
 }
