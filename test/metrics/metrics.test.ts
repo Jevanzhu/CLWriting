@@ -627,7 +627,7 @@ test('短篇落账: kind=short + num=篇号，落 篇/ 下后 metrics 落一行�
   const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折' }
   const r = doFinalize({
     bookRoot: root, workDir, outlinePath: outline, db, config: SHORT_CONFIG,
-    chapter: ch, body: '雪夜的正文。', fileName: '001-雪夜/正文.md', hasReviewVerdict: true, kind: 'short',
+    chapter: ch, body: '雪夜的正文。', fileName: '001-雪夜.md', hasReviewVerdict: true, kind: 'short',
   })
   expect(r.ok).toBe(true)
 
