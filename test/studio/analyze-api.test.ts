@@ -148,11 +148,11 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kindï¼ˆM12 B4.0/B4.1ï¼
       kind: 'emotion',
     })
     expect(r.status).toBe(200)
-    const j = r.json as { ok: boolean; envelope: { payload: { emotion: number; label: string }[] } }
+    const j = r.json as { ok: boolean; envelope: { payload: { segments: { emotion: number; label: string }[] } } }
     expect(j.ok).toBe(true)
-    expect(Array.isArray(j.envelope.payload)).toBe(true)
-    expect(j.envelope.payload.length).toBeGreaterThan(0)
-    const e = j.envelope.payload[0]!.emotion
+    expect(Array.isArray(j.envelope.payload.segments)).toBe(true)
+    expect(j.envelope.payload.segments.length).toBeGreaterThan(0)
+    const e = j.envelope.payload.segments[0]!.emotion
     expect(e).toBeGreaterThanOrEqual(-2)
     expect(e).toBeLessThanOrEqual(2)
   })

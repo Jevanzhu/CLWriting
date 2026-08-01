@@ -1,16 +1,16 @@
 /**
- * review 三审端点(C.3):内核打包 → driver spawnRole×3 产 issues JSON → 内核回收产审稿单。
+ * review 三审端点(C.3):内核打包 → generateTool(submit_issues)×3 产 issues → 内核回收产审稿单。
  *
  * POST /api/books/:name/review  body {chapter}
  *   ① buildReviewPacket → 工作区/三审/packet.json
- *   ② 读 packet → 各 lens spawnRole(`<lens>-review`) 收 issues JSON → 工作区/三审/issues-<lens>.json
+ *   ② 读 packet → 各 lens generateTool(submit_issues) 收 issues → 工作区/三审/issues-<lens>.json
  *   ③ collectReviewIssues 归一化 → 写工作区/审稿.md
  *   → 返 {ok, lenses, report(审稿.md 全文)}
  *
  * POST /api/books/:name/review-verdict  body {approved}
  *   → 改 工作区/审稿.md verdict 行(approved 写「通过」)→ finalize 据此放行
  *
- * B 编排:打包/回收是内核确定性步骤,spawnRole×3 是真审稿(AI);串行避并发。
+ * B 编排:打包/回收是内核确定性步骤,generateTool×3 是真审稿(AI);串行避并发。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -21,15 +21,19 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readKind } from '../book-context.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
-import type { StudioDriver, DriverEvent } from '../../../driver/types.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues, writeReviewPacket, writeReviewVerdict } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
-import { extractJson } from '../../../format/json-extract.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { generateTool } from '../../../ai/gen.js'
+import { submitIssues, ISSUES_TOOL_NAME } from '../../../ai/contract/index.js'
+import { reviewSystem } from '../../../ai/prompts/index.js'
+import { tryMockTool } from '../../../ai/mock-tool.js'
 
 interface ReviewCtx {
   workDir: string | null
+  userDataPath: string | null
 }
 
 const LENS_LABEL: Record<string, string> = {
@@ -50,7 +54,7 @@ export function lensToRole(lens: string): string {
 const REVIEW_VERDICT_MARKER = '<!-- verdict: approved -->'
 
 export function registerReviewRoutes(ctx: ReviewCtx): void {
-  // 三审:run → spawnRole×3 → collect
+  // 三审:run → generateTool(submit_issues)×3 → collect
   route('POST', '/api/books/:name/review', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
@@ -86,15 +90,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     const packet = built.packet
     const draftBody = outcome.body
 
-    // ② 各 lens spawnRole 产 issues JSON(串行);逐角进度经主 session 回流
+    // ② 各 lens generateTool(submit_issues) 产 issues(串行);逐角进度经主 session 回流
     const driver = getDriver('cc')
     const mainSession = await ensureSession(params['name']!, ctx.workDir!)
     const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
       if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
     }
     const loopResult = await runLensSpawnLoop({
-      driver,
-      cwd: ctx.workDir!,
+      userDataPath: ctx.userDataPath,
       packets: packet.packets,
       body: draftBody,
       chapter,
@@ -114,7 +117,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     reply(res, 200, { ok: true, lenses, report })
   })
 
-  // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → spawnRole×3 → 落信封
+  // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
   route(
     'POST',
     '/api/books/:name/documents/:docId/review',
@@ -157,15 +160,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       })
       if (!built.ok) return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
 
-      // spawnRole×3（共享循环；逐角进度经主 session SSE 回流）
+      // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
       const driver = getDriver('cc')
       const mainSession = await ensureSession(params['name']!, ctx.workDir!)
       const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
         if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
       }
       const loopResult = await runLensSpawnLoop({
-        driver,
-        cwd: ctx.workDir!,
+        userDataPath: ctx.userDataPath,
         packets: built.packet.packets,
         body,
         chapter: chapter.章号,
@@ -245,13 +247,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 }
 
 /**
- * 三审 spawnRole×3 共享循环（M12 B0.2 提取）：草稿线 + docId 直读线共用。
- * 逐 lens：startSession → spawnRole → stream 收 text → 写 issues-<lens>.json → 进度回流。
+ * 三审 generateTool×3 共享循环（M12 B0.2 提取）：草稿线 + docId 直读线共用。
+ * 逐 lens：generateTool(submit_issues) → 收 issues → 写 issues-<lens>.json → 进度回流。
  * 串行避 GLM 并发；出错返 {ok:false,error}（调用方决定 reply）。
  */
 async function runLensSpawnLoop(opts: {
-  driver: StudioDriver
-  cwd: string
+  userDataPath: string | null
   packets: Array<{
     lens: string
     title?: string
@@ -266,29 +267,51 @@ async function runLensSpawnLoop(opts: {
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
   const lenses: string[] = []
   mkdirSync(opts.outDir, { recursive: true })
+
+  // mock 快路：直接返回 mock 数据，不创建 provider
+  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+    for (const sub of opts.packets) {
+      const lens = sub.lens
+      lenses.push(lens)
+      opts.onProgress?.(lens, 'start')
+      const mock = tryMockTool(ISSUES_TOOL_NAME)
+      const issues = (mock?.input as { issues?: unknown[] })?.issues ?? []
+      writeFileSync(join(opts.outDir, `issues-${lens}.json`), JSON.stringify(issues), 'utf8')
+      opts.onProgress?.(lens, 'done')
+    }
+    return { ok: true, lenses }
+  }
+
+  if (!opts.userDataPath) return { ok: false, error: '未定位到应用数据目录' }
+  const conf = currentProvider(opts.userDataPath)
+  if (!conf) return { ok: false, error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  const provider = createProvider(conf)
   for (const sub of opts.packets) {
     const lens = sub.lens
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
-    const session = await opts.driver.startSession(opts.cwd)
-    opts.driver.spawnRole(session, lensToRole(lens), prompt)
-    let text = ''
+    const ctrl = new AbortController()
     try {
-      for await (const ev of opts.driver.stream(session) as AsyncGenerator<DriverEvent>) {
-        if (ev.type === 'text') text += String(ev.text ?? '')
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          opts.driver.dispose(session)
-          return { ok: false, error: `${lens}-review driver:${ev.message}` }
-        }
-      }
+      const { input, text } = await generateTool(
+        provider,
+        {
+          systemPrompt: reviewSystem(lens),
+          messages: [{ role: 'user', content: prompt }],
+          maxTokens: 4000,
+          tools: [submitIssues()],
+          toolChoice: 'tool',
+          toolName: ISSUES_TOOL_NAME,
+        },
+        ctrl.signal,
+      )
+      // tool_use 产出 → input.issues；降级用 text
+      const issues = (input as { issues?: unknown[] })?.issues
+      const issuesJson = issues ? JSON.stringify(issues) : text.trim()
+      writeFileSync(join(opts.outDir, `issues-${lens}.json`), issuesJson, 'utf8')
     } catch (e) {
-      opts.driver.dispose(session)
-      return { ok: false, error: `${lens}-review stream:${e instanceof Error ? e.message : String(e)}` }
+      return { ok: false, error: `${lens}-review gen:${e instanceof Error ? e.message : String(e)}` }
     }
-    opts.driver.dispose(session)
-    writeFileSync(join(opts.outDir, `issues-${lens}.json`), extractJson(text), 'utf8')
     opts.onProgress?.(lens, 'done')
   }
   return { ok: true, lenses }
@@ -315,7 +338,7 @@ function buildLensPrompt(
   }
   parts.push(`## 正文\n${draftBody}`)
   parts.push(
-    `## 输出契约\n直接输出 JSON 数组(不要多余文字、不要读文件、不要用任何工具),无问题回 []。每个 issue 必须是:\n{"category": "<枚举>", "severity": "<S1|S2|S3|S4>", "evidence": "正文原句", "issue": "问题说明", "fix": "改稿建议"}\n- category 从枚举选:high_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
+    `## category 枚举参考\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
 }

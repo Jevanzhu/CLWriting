@@ -2,14 +2,14 @@
  * rewrite 改写端点(2.5):局部改写 + 整章返修 + diff。
  *
  * POST /api/books/:name/rewrite  body {chapter, mode:'local'|'whole', selection?, instruction, reviewIssues?}
- *   → 读原稿(工作区/草稿-<chapter>.md)→ 组 prompt → spawnRole('writer')→ 收 text
+ *   → 读原稿(工作区/草稿-<chapter>.md)→ 组 prompt → generateTool(submit_text)→ produced
  *   → local:replace(selection, produced);whole:produced 即整稿
  *   → lineDiff(原, 改)→ {ok, mode, original, rewritten, diff}
  *
  * POST /api/books/:name/rewrite-apply  body {chapter, content, accept}
  *   → accept:true 备份(草稿-<chapter>.bak.md)+ 落新稿;false 丢弃 → {ok, applied, path?}
  *
- * 改写走 spawnRole('writer',方案 6.7);返修前备份可回滚。diff 行级 LCS 自写(YAGNI,~50 行)。
+ * 改写走 generateTool(submit_text);返修前备份可回滚。diff 行级 LCS 自写(YAGNI,~50 行)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -18,14 +18,61 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
-import { getDriver } from '../../../driver/index.js'
-import type { DriverEvent } from '../../../driver/types.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { generateTool } from '../../../ai/gen.js'
+import { submitText } from '../../../ai/contract/index.js'
+import { REWRITER_SYSTEM } from '../../../ai/prompts/index.js'
+import { tryMockTool } from '../../../ai/mock-tool.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
 
 interface RewriteCtx {
   workDir: string | null
+  userDataPath: string | null
+}
+
+/** 跑一次 writer 改写（tool_use 结构化产出，替代 spawnRole）。 */
+async function runRewriter(
+  userDataPath: string | null,
+  prompt: string,
+): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
+  // mock 快路
+  const mock = tryMockTool('submit_text')
+  if (mock) {
+    const produced = String((mock.input as Record<string, unknown>)['正文'] ?? '').trim()
+    if (produced) return { ok: true, produced }
+  }
+
+  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: '未定位到应用数据目录' }
+  const conf = currentProvider(userDataPath)
+  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  const provider = createProvider(conf)
+  const ctrl = new AbortController()
+  try {
+    const { input, text } = await generateTool(
+      provider,
+      {
+        systemPrompt: REWRITER_SYSTEM,
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 8000,
+        tools: [submitText()],
+        toolChoice: 'tool',
+        toolName: 'submit_text',
+      },
+      ctrl.signal,
+    )
+    // tool_use 产出 → input.正文
+    if (input && typeof input === 'object') {
+      const produced = String((input as Record<string, unknown>)['正文'] ?? '').trim()
+      if (produced) return { ok: true, produced }
+    }
+    // 降级：tool_use 未命中 → 直接用 text
+    if (text.trim()) return { ok: true, produced: text.trim() }
+    return { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' }
+  } catch (e) {
+    return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 export interface DiffLine {
@@ -34,7 +81,7 @@ export interface DiffLine {
 }
 
 export function registerRewriteRoutes(ctx: RewriteCtx): void {
-  // 改写:局部/整章 → spawnRole(writer)→ diff
+  // 改写:局部/整章 → generateTool(submit_text)→ diff
   route('POST', '/api/books/:name/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
@@ -59,27 +106,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 
     const prompt = buildRewritePrompt(mode, original, selection, instruction, reviewIssues, chapter, kind)
 
-    const driver = getDriver('cc')
-    const session = await driver.startSession(ctx.workDir)
-    driver.spawnRole(session, 'writer', prompt)
-    let text = ''
-    try {
-      for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-        if (ev.type === 'text') text += String(ev.text ?? '')
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          driver.dispose(session)
-          return reply(res, 500, { error: `driver:${ev.message}` })
-        }
-      }
-    } catch (e) {
-      driver.dispose(session)
-      return reply(res, 500, { error: `stream:${e instanceof Error ? e.message : String(e)}` })
-    }
-    driver.dispose(session)
-
-    const produced = text.trim()
-    if (!produced) return reply(res, 500, { error: 'writer 产出为空' })
+    const result = await runRewriter(ctx.userDataPath, prompt)
+    if (!result.ok) return reply(res, 500, { error: result.error })
+    const produced = result.produced
 
     // local:用产出替换 selection(其余原样);whole:产出即整稿
     const rewritten = mode === 'local' ? original.replace(selection, produced) : produced
@@ -90,7 +119,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
   })
 
-  // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ spawnRole('writer') → lineDiff
+  // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ generateTool(submit_text) → lineDiff
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
   route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -124,27 +153,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const prompt = append
       ? buildAppendPrompt(original, instruction)
       : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
-    const driver = getDriver('cc')
-    const session = await driver.startSession(ctx.workDir)
-    driver.spawnRole(session, 'writer', prompt)
-    let text = ''
-    try {
-      for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-        if (ev.type === 'text') text += String(ev.text ?? '')
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          driver.dispose(session)
-          return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
-        }
-      }
-    } catch (e) {
-      driver.dispose(session)
-      return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
-    }
-    driver.dispose(session)
-
-    const produced = text.trim()
-    if (!produced) return reply(res, 500, { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' })
+    const result = await runRewriter(ctx.userDataPath, prompt)
+    if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+    const produced = result.produced
     const rewritten =
       mode === 'append' ? appendRewritten(original, produced)
       : mode === 'local' ? original.replace(selection, produced)
@@ -217,7 +228,7 @@ export function buildRewritePrompt(
       instruction,
       '',
       '## 要求',
-      '只改写选中段落,不动其他;保持正文纯文本(段落+空行,禁 MD 标题/格式)。直接输出改写后的段落全文,不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
+      '只改写选中段落,不动其他;保持正文纯文本(段落+空行,禁 MD 标题/格式)。',
     ].join('\n')
   }
   const unit = kind === 'short' ? '篇' : '章'
@@ -238,8 +249,8 @@ export function buildRewritePrompt(
     '',
     '## 要求',
     kind === 'short'
-      ? '按指令重写整篇正文(保留 front matter,8000-20000 字,单篇完整开合:铺垫→反转→收尾)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。'
-      : '按指令重写整章正文(保留 front matter,2000-4000 字,单章一主场景,章尾留钩)。直接输出完整草稿(front matter + 正文),不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
+      ? '按指令重写整篇正文(8000-20000 字,单篇完整开合:铺垫→反转→收尾)。'
+      : '按指令重写整章正文(2000-4000 字,单章一主场景,章尾留钩)。',
   )
   return parts.join('\n')
 }
@@ -254,7 +265,7 @@ export function buildAppendPrompt(original: string, instruction: string): string
     instruction,
     '',
     '## 要求',
-    '在正文之后继续写。只输出续写部分,不要复述或改动原文任何内容;保持正文纯文本(段落+空行,禁 MD 标题/格式),延续当前文风与情节。直接输出续写文字,不要任何说明性文字、不要 record-call 提醒、不要读文件、不要用任何工具。',
+    '在正文之后继续写。只输出续写部分,不要复述或改动原文任何内容;保持正文纯文本(段落+空行,禁 MD 标题/格式),延续当前文风与情节。',
   ].join('\n')
 }
 

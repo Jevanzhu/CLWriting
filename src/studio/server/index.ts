@@ -71,7 +71,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerSnapshotRoutes({ workDir })
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir })
-    registerAnalysisRoutes({ workDir })
+    registerAnalysisRoutes({ workDir, userDataPath })
     registerForeshadowRoutes({ workDir })
     registerStyleRoutes({ workDir })
     registerProvidersRoutes({ userDataPath })
@@ -79,9 +79,9 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath })
     registerOutlineRoutes({ workDir })
-    registerReviewRoutes({ workDir })
+    registerReviewRoutes({ workDir, userDataPath })
     registerOnboardRoutes({ workDir })
-    registerRewriteRoutes({ workDir })
+    registerRewriteRoutes({ workDir, userDataPath })
   })
   return routes
 }

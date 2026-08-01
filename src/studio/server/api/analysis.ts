@@ -5,7 +5,7 @@
  *   → 读 项目/分析/<docId>.json 中该 kind 的信封 + stale 标志（无 AI 依赖）。
  *
  * POST /api/books/:name/documents/:docId/analyze  body {kind}
- *   → docId → 正文（strip fm）→ 组 prompt → spawnRole('analyst') → extractJson
+ *   → docId → 正文（strip fm）→ 组 prompt → generateTool(submit_<kind>) → 信封落盘
  *   → 信封落盘；kind ∈ {score/emotion/hooks/style}（review 走独立三审端点）。
  *
  * 信封落盘与展示解耦：AI 不可达时存量照常展示，仅「重新分析」置灰（无开关、置灰不隐藏）。
@@ -22,14 +22,52 @@ import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
 import { readIronRules, computeFullStats } from '../../../metrics/style.js'
-import { getDriver } from '../../../driver/index.js'
-import type { DriverEvent } from '../../../driver/types.js'
+import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { generateTool } from '../../../ai/gen.js'
+import { submitAnalysis, analysisToolName, type AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
+import { ANALYST_SYSTEM } from '../../../ai/prompts/index.js'
+import { tryMockTool } from '../../../ai/mock-tool.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
-import { extractJson } from '../../../format/json-extract.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 
 interface AnalysisCtx {
   workDir: string | null
+  userDataPath: string | null
+}
+
+/** 跑一次 analyst 生成（tool_use 结构化产出，替代 spawnRole + extractJson）。 */
+async function runAnalyst(
+  userDataPath: string | null,
+  kind: ContractKind,
+  prompt: string,
+): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
+  // mock 快路（CLWRITING_DRIVER=mock 时不依赖真实 provider）
+  const mock = tryMockTool(analysisToolName(kind))
+  if (mock) return { ok: true, payload: mock.input }
+
+  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: '未定位到应用数据目录' }
+  const conf = currentProvider(userDataPath)
+  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  const provider = createProvider(conf)
+  const ctrl = new AbortController()
+  try {
+    const { input } = await generateTool(
+      provider,
+      {
+        systemPrompt: ANALYST_SYSTEM,
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 4000,
+        tools: [submitAnalysis(kind)],
+        toolChoice: 'tool',
+        toolName: analysisToolName(kind),
+      },
+      ctrl.signal,
+    )
+    if (input) return { ok: true, payload: input }
+    return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }
+  } catch (e) {
+    return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 /** analyze 端点支持的 kind（review 走独立三审端点，不在此）。 */
@@ -41,19 +79,6 @@ const ANALYSIS_LABEL: Record<AnalysisKind, string> = {
   emotion: '情绪曲线',
   hooks: '钩子密度',
   style: '文风总结',
-}
-
-/** 各 kind JSON 输出契约（prompt 末尾约束；review 不走此端点，空串占位）。 */
-const ANALYSIS_CONTRACTS: Record<AnalysisKind, string> = {
-  review: '',
-  score:
-    '格式：{"score": <1-10 整数>, "verdict": "<一句总评>", "dims": {"爽点": <1-10>, "节奏感": <1-10>, "拖沓": <1-10>}}（拖沓分越高越拖沓）',
-  emotion:
-    '格式：[{"seg": "<段落标识>", "emotion": <-2..2 整数>, "label": "<情绪标签>"}]（-2 谷底 / 0 平 / +2 高潮，按正文顺序分段）',
-  hooks:
-    '格式：{"hooks": [{"pos": "<位置>", "type": "<危机钩/悬念钩/渴望钩/情绪钩/选择钩>", "strength": <1-5>, "note": "<一句话>"}], "density": "<疏/中/密>"}',
-  style:
-    '格式：{"drift": "<与基线偏离方向>", "口癖": ["<高频词/句式>"], "重复度评价": "<一句话>", "建议": ["<改进建议>"]}',
 }
 
 export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
@@ -88,7 +113,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     },
   )
 
-  // 重新分析（B4.0）：kind → spawnRole(analyst) → extractJson → 落信封
+  // 重新分析（B4.0）：kind → generateTool(submit_<kind>) → 落信封
   route(
     'POST',
     '/api/books/:name/documents/:docId/analyze',
@@ -116,31 +141,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const { body, chapter } = draft
 
       const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long', bookRoot)
-      const driver = getDriver('cc')
-      const session = await driver.startSession(ctx.workDir)
-      driver.spawnRole(session, 'analyst', prompt)
-      let text = ''
-      try {
-        for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-          if (ev.type === 'text') text += String(ev.text ?? '')
-          else if (ev.type === 'done') break
-          else if (ev.type === 'error') {
-            driver.dispose(session)
-            return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
-          }
-        }
-      } catch (e) {
-        driver.dispose(session)
-        return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
-      }
-      driver.dispose(session)
-
-      let payload: unknown
-      try {
-        payload = JSON.parse(extractJson(text))
-      } catch {
-        return reply(res, 500, { ok: false, code: 'PARSE_FAIL', error: `产出非合法 JSON：${text.slice(0, 120)}` })
-      }
+      const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt)
+      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      const payload = result.payload
 
       const fullContent = readFileSync(absPath, 'utf-8')
       const envelope = {
@@ -154,7 +157,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     },
   )
 
-  // AI 章节标签识别：spawnRole analyst [kind:tags] → JSON 返回（不落信封；前端拿结果写 fm）。
+  // AI 章节标签识别：generateTool(submit_tags) → 结构化返回（不落信封；前端拿结果写 fm）。
   route(
     'POST',
     '/api/books/:name/documents/:docId/autotag',
@@ -183,36 +186,11 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         `## 任务\n对第 ${chapter.章号} ${unit}正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
         '',
         `## 正文\n${body}`,
-        '',
-        '## 输出契约\n直接输出 JSON，不要多余文字、不要 markdown 代码块、不要读文件、不要用任何工具。',
-        '{"钩子类型": "<危机钩/悬念钩/渴望钩/情绪钩/选择钩>", "钩子强弱": "<强/中/弱>", "情绪定位": "<压抑/铺垫/小爽/大爽/转折>", "场景": "<战斗/对话/抒情/叙事铺陈/爽点高潮>"}',
       ].join('\n')
 
-      const driver = getDriver('cc')
-      const session = await driver.startSession(ctx.workDir)
-      driver.spawnRole(session, 'analyst', prompt)
-      let text = ''
-      try {
-        for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-          if (ev.type === 'text') text += String(ev.text ?? '')
-          else if (ev.type === 'done') break
-          else if (ev.type === 'error') {
-            driver.dispose(session)
-            return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
-          }
-        }
-      } catch (e) {
-        driver.dispose(session)
-        return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
-      }
-      driver.dispose(session)
-
-      let payload: Record<string, unknown>
-      try {
-        payload = JSON.parse(extractJson(text))
-      } catch {
-        return reply(res, 500, { ok: false, code: 'PARSE_FAIL', error: `产出非合法 JSON：${text.slice(0, 120)}` })
-      }
+      const result = await runAnalyst(ctx.userDataPath, 'tags', prompt)
+      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      const payload = result.payload as Record<string, unknown>
 
       // 校验：只保留合法选项内的字段（防 AI 产出越界值）
       const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
@@ -278,8 +256,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
             scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims })
           }
           const emotionEnv = readAnalysis(bookRoot, docId, 'emotion')
-          if (emotionEnv?.payload && Array.isArray(emotionEnv.payload)) {
-            const arr = emotionEnv.payload as { emotion: number; label: string }[]
+          if (emotionEnv?.payload) {
+            // tool_use 后 payload 为 { segments: [...] }；兼容旧版裸数组
+            const raw = emotionEnv.payload
+            const arr = Array.isArray(raw)
+              ? (raw as { emotion: number; label: string }[])
+              : ((raw as { segments?: { emotion: number; label: string }[] }).segments ?? [])
             if (arr.length > 0) {
               const last = arr[arr.length - 1]! // 末段值（章末情绪 = 下章起点）
               emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
@@ -348,36 +330,11 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
         '',
         `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
-        '',
-        '## 输出契约\n直接输出 JSON，不要多余文字、不要 markdown 代码块、不要读文件、不要用任何工具。',
-        ANALYSIS_CONTRACTS['style'],
       ].join('\n')
 
-      const driver = getDriver('cc')
-      const session = await driver.startSession(ctx.workDir)
-      driver.spawnRole(session, 'analyst', prompt)
-      let text = ''
-      try {
-        for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-          if (ev.type === 'text') text += String(ev.text ?? '')
-          else if (ev.type === 'done') break
-          else if (ev.type === 'error') {
-            driver.dispose(session)
-            return reply(res, 500, { ok: false, code: 'DRIVER_FAIL', error: `driver:${ev.message}` })
-          }
-        }
-      } catch (e) {
-        driver.dispose(session)
-        return reply(res, 500, { ok: false, code: 'STREAM_FAIL', error: `stream:${e instanceof Error ? e.message : String(e)}` })
-      }
-      driver.dispose(session)
-
-      let payload: unknown
-      try {
-        payload = JSON.parse(extractJson(text))
-      } catch {
-        return reply(res, 500, { ok: false, code: 'PARSE_FAIL', error: `产出非合法 JSON：${text.slice(0, 120)}` })
-      }
+      const result = await runAnalyst(ctx.userDataPath, 'style', prompt)
+      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      const payload = result.payload
 
       const envelope = {
         generatedAt: new Date().toISOString(),
@@ -426,13 +383,7 @@ function buildAnalystPrompt(
     const stats = computeFullStats(body, rules)
     parts.push('', `## 本地文风 stats\n${JSON.stringify(stats)}`, '', `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`)
   }
-  parts.push(
-    '',
-    `## 正文\n${body}`,
-    '',
-    '## 输出契约\n直接输出 JSON，不要多余文字、不要 markdown 代码块、不要读文件、不要用任何工具。',
-    ANALYSIS_CONTRACTS[kind],
-  )
+  parts.push('', `## 正文\n${body}`)
   return parts.join('\n')
 }
 
