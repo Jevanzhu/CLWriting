@@ -5,14 +5,14 @@
  *
  * 新架构：探 provider 配置（providers.json 是否有已配置且已探测的当前供应商）。
  * mock 模式永可达；CLWRITING_E2E_AI_DOWN=1 模拟不可达。
+ *
+ * P0-2：不再缓存——每次实时探测。currentProvider 只是一次 providers.json 读，
+ * 代价可忽略；缓存会让「供应商刚配置好」落在 10s 旧结果上，按钮仍置灰。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { currentProvider } from '../../../ai/provider/index.js'
-
-let cache: { result: ProbeResult; ts: number } | null = null
-const CACHE_TTL = 10000
 
 interface ProbeResult {
   available: boolean
@@ -25,21 +25,13 @@ interface AiStatusCtx {
 
 export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
   route('GET', '/api/ai-status', (_req: IncomingMessage, res: ServerResponse) => {
-    // e2e AI-DOWN：跳缓存直接探
+    // e2e AI-DOWN：跳全部逻辑直接判定
     if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
       reply(res, 200, probeAi(null))
       return
     }
-    // 从环境读 userDataPath（router 不注入，用 process.env 缓存的）
-    const userDataPath = ctx.userDataPath
-    const now = Date.now()
-    if (cache && now - cache.ts < CACHE_TTL) {
-      reply(res, 200, cache.result)
-      return
-    }
-    const result = probeAi(userDataPath)
-    cache = { result, ts: now }
-    reply(res, 200, result)
+    // 每次实时探测（P0-2：无缓存，供应商增改/测试/切换后立即可达）
+    reply(res, 200, probeAi(ctx.userDataPath))
   })
 }
 

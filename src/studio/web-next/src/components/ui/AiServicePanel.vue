@@ -98,6 +98,8 @@ async function save(): Promise<void> {
     }
     editing.value = false
     editId.value = null
+    // P0-2：供应商表已变 → 刷新 AI 可达性（新增后未测连接按钮仍灰，语义正确）
+    void ui.probeAiStatus()
     await refresh()
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
@@ -109,6 +111,8 @@ async function remove(p: ProviderConfDto): Promise<void> {
   try {
     const r = await deleteProvider(p.id)
     currentId.value = r.currentId
+    // P0-2：删除可能翻转可达性（删除当前供应商 + 无兜底 → 不可达）
+    void ui.probeAiStatus()
     await refresh()
     ui.toast('已删除', 'success')
   } catch (e) {
@@ -121,6 +125,8 @@ async function activate(p: ProviderConfDto): Promise<void> {
   try {
     await setCurrentProvider(p.id)
     currentId.value = p.id
+    // P0-2：切换当前供应商后工作台/开书按钮应立即可用
+    void ui.probeAiStatus()
     ui.toast(`已启用「${p.name}」`, 'success')
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
@@ -132,6 +138,8 @@ async function test(p: ProviderConfDto): Promise<void> {
   try {
     const r = await testProvider(p.id)
     testResults.value.set(p.id, r)
+    // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
+    void ui.probeAiStatus()
     await refresh()
     if (r.ok && r.caps?.toolUse) ui.toast(`${p.name} 测试通过`, 'success')
     else if (r.ok && !r.caps?.toolUse) ui.toast(`${p.name} 连通但不支持工具调用`, 'error')

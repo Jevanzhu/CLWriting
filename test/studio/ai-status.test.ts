@@ -1,6 +1,6 @@
 /**
  * G4-a + G6：AI 可达性探测端点 + editor 端点不受 AI 可达影响。
- * CLWRITING_DRIVER=mock → available:true；连续请求命中缓存。
+ * CLWRITING_DRIVER=mock → available:true；连续请求一致（P0-2 起无缓存，每次实时重算）。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -66,7 +66,7 @@ describe('G4-a：GET /api/ai-status（mock 模式）', () => {
     expect(j.available).toBe(true)
   })
 
-  it('连续请求一致（缓存透明）', async () => {
+  it('连续请求一致（无缓存，结果稳定）', async () => {
     const r1 = await get('/api/ai-status')
     const r2 = await get('/api/ai-status')
     const j1 = r1.json as { available: boolean }

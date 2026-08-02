@@ -159,7 +159,7 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
-      `## 要求\n产出完整草稿:短篇 front matter(篇号: ${chapter} / 标题 / 目标情绪 / 核心反转) + 正文(纯文本段落,单篇闭合,余韵收尾)。`,
+      `## 要求\n只输出第 ${chapter} 篇正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单篇闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
     return parts.join('\n\n')
   }
@@ -171,7 +171,7 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
   const settingsCtx = buildSettingsContext(bookRoot)
   if (settingsCtx) parts.push(settingsCtx)
   parts.push(
-    `## 要求\n产出完整草稿:章节 front matter(章号: ${chapter} / 标题 / 钩子类型 / 钩子强弱 / 情绪定位) + 正文(纯文本段落,章尾留钩)。`,
+    `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
   return parts.join('\n\n')
 }

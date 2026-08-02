@@ -67,6 +67,20 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     reply(res, 200, { provider: maskProvider(conf) })
   })
 
+  // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
+  route('PUT', '/api/providers/current', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    const body = await readJson(req)
+    const id = String(body['id'] ?? '')
+    const s = loadProviders(ctx.userDataPath)
+    if (id && !s.providers.find((p) => p.id === id)) {
+      return reply(res, 404, { error: '供应商不存在' })
+    }
+    s.currentId = id || null
+    saveProviders(ctx.userDataPath, s)
+    reply(res, 200, { ok: true, currentId: s.currentId })
+  })
+
   // 编辑
   route('PUT', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
@@ -116,20 +130,6 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (s.currentId === id) {
       s.currentId = s.providers[0]?.id ?? null
     }
-    saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { ok: true, currentId: s.currentId })
-  })
-
-  // 设为当前启用
-  route('PUT', '/api/providers/current', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
-    const body = await readJson(req)
-    const id = String(body['id'] ?? '')
-    const s = loadProviders(ctx.userDataPath)
-    if (id && !s.providers.find((p) => p.id === id)) {
-      return reply(res, 404, { error: '供应商不存在' })
-    }
-    s.currentId = id || null
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { ok: true, currentId: s.currentId })
   })
