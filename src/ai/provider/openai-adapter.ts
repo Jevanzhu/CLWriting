@@ -97,6 +97,7 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): Model
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
+      let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
@@ -117,7 +118,7 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): Model
             if (usage) {
               const ev = emitDone(
                 { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 },
-                'stop',
+                pendingStopReason,
               )
               if (ev) yield ev
             }
@@ -145,7 +146,7 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): Model
             }
           }
 
-          // finish_reason → 发 tool 事件 + done
+          // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
           if (choice.finish_reason) {
             // 所有 tool_calls 已拼完 → 发出
             for (const [, acc] of toolAccum) {
@@ -161,18 +162,21 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): Model
             }
             toolAccum.clear()
 
-            const reason = choice.finish_reason
-            const stopReason = reason === 'tool_calls' ? 'tool_use' : reason
-            const u: TokenUsage = usage
-              ? { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 }
-              : { inputTokens: 0, outputTokens: 0 }
-            const ev = emitDone(u, stopReason)
-            if (ev) yield ev
+            pendingStopReason = choice.finish_reason === 'tool_calls' ? 'tool_use' : choice.finish_reason
+            // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
+            if (usage) {
+              const ev = emitDone(
+                { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 },
+                pendingStopReason,
+              )
+              if (ev) yield ev
+            }
+            // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
           }
         }
 
         if (!doneEmitted) {
-          const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, 'stop')
+          const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
           if (ev) yield ev
         }
       } catch (e) {

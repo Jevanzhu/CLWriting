@@ -8,7 +8,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -111,7 +111,22 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     expect(b.status).toBe(200)
     const pb = b.json.provider
 
-    // 关键断言：当前供应商切换必须命中字面量路由而非 :id（P0-1 回归）
+    // P2-6：未探测不许启用——b 的 caps=null → 400（也验证路由命中正确：遮蔽会是 404）
+    const sw1 = await req<{ error: string }>({
+      method: 'PUT',
+      path: '/api/providers/current',
+      body: { id: pb.id },
+    })
+    expect(sw1.status).toBe(400)
+    expect(sw1.json.error).toContain('测试连接')
+
+    // 模拟已探测：直接写 caps 到 providers.json
+    const sPath = join(userDataPath, 'providers.json')
+    const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { providers: { id: string; caps: unknown }[] }
+    s.providers.find((p) => p.id === pb.id)!.caps = { toolUse: true, toolChoice: true }
+    writeFileSync(sPath, JSON.stringify(s))
+
+    // 关键断言：已探测后切换命中字面量路由而非 :id（P0-1 回归）
     const sw = await req<{ ok: boolean; currentId: string }>({
       method: 'PUT',
       path: '/api/providers/current',

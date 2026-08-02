@@ -123,6 +123,24 @@ describe('Anthropic 适配器', () => {
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)
     expect(evs[0]).toMatchObject({ type: 'error', message: '已中断', retryable: false })
   })
+
+  it('message_start 缓存 input_tokens（message_delta 不含时回退，P2-3）', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 1 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', usage: { output_tokens: 50 }, delta: { stop_reason: 'end_turn' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    // message_delta 无 input_tokens → 回退 message_start 缓存的 100
+    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 100, outputTokens: 50 } })
+  })
 })
 
 describe('OpenAI 适配器', () => {

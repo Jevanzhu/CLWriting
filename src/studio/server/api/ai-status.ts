@@ -16,6 +16,7 @@ import { currentProvider } from '../../../ai/provider/index.js'
 
 interface ProbeResult {
   available: boolean
+  driver: string // 当前供应商名（供状态栏显示；空 = 未配置）
   reason?: string
 }
 
@@ -39,20 +40,20 @@ export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
 function probeAi(userDataPath: string | null): ProbeResult {
   // e2e 专用短路：模拟 AI 不可达
   if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
-    return { available: false, reason: 'e2e: AI 不可达模拟' }
+    return { available: false, driver: '', reason: 'e2e: AI 不可达模拟' }
   }
   if (process.env.CLWRITING_DRIVER === 'mock') {
-    return { available: true }
+    return { available: true, driver: 'mock' }
   }
   if (!userDataPath) {
-    return { available: false, reason: '未定位到应用数据目录' }
+    return { available: false, driver: '', reason: '未定位到应用数据目录' }
   }
   const prov = currentProvider(userDataPath)
   if (!prov) {
-    return { available: false, reason: '未配置 AI 服务供应商（请在设置页添加）' }
+    return { available: false, driver: '', reason: '未配置 AI 服务供应商（请在设置页添加）' }
   }
   if (!prov.caps) {
-    return { available: false, reason: `供应商「${prov.name}」尚未测试连接` }
+    return { available: false, driver: prov.name, reason: `供应商「${prov.name}」尚未测试连接` }
   }
-  return { available: true }
+  return { available: true, driver: prov.name }
 }

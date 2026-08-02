@@ -37,7 +37,7 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
   // mock 快路：e2e / 前端开发不真探（mock driver 不调大模型）——测试连接按钮在 mock 下可用
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
     return {
-      caps: { toolUse: true, toolChoice: true, streaming: true },
+      caps: { toolUse: true, toolChoice: true },
       details: ['mock 驱动：模拟全能力（未真探）'],
     }
   }
@@ -46,7 +46,6 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
   const caps: ProviderCaps = {
     toolUse: false,
     toolChoice: false,
-    streaming: false,
   }
 
   // ① 连通 + 认证 + ② 流式（合并为一个请求）
@@ -70,7 +69,6 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
     } finally {
       clearTimeout(timeout)
     }
-    caps.streaming = gotDelta
     details.push('连通 + 认证通过')
     if (gotDelta) details.push('流式产出正常')
     else details.push('非流式产出（UI 无逐字显示）')

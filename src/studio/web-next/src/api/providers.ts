@@ -8,7 +8,6 @@ export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 export interface ProviderCaps {
   toolUse: boolean
   toolChoice: boolean
-  streaming: boolean
 }
 
 export interface ProviderConfDto {

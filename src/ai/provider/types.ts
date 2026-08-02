@@ -47,7 +47,6 @@ export interface ProviderSettings {
 export interface ProviderCaps {
   toolUse: boolean // 契约层依赖；false 则该供应商不可用于写作
   toolChoice: boolean // 强制调用；false 则退回 prompt 引导 + 校验重试
-  streaming: boolean // 流式产出
 }
 
 /**

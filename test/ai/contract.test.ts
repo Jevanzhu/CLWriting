@@ -43,6 +43,16 @@ describe('assembleChapter 长篇', () => {
     expect(assembleChapter(null, 1, 'long')).toMatchObject({ ok: false })
     expect(assembleChapter('string', 1, 'long')).toMatchObject({ ok: false })
   })
+
+  it('标题含换行 → sanitize 为单行（P2-8：fm 按行解析不被截断）', () => {
+    const r = assembleChapter({ 标题: '第一行\n第二行', 正文: '正文' }, 1, 'long')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      // 换行转空格，fm 仍按行解析：标题行 = "标题: 第一行 第二行"
+      expect(r.content).toContain('标题: 第一行 第二行')
+      expect(r.content).not.toContain('标题: 第一行\n')
+    }
+  })
 })
 
 describe('assembleChapter 短篇', () => {

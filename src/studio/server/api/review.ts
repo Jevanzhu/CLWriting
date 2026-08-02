@@ -13,6 +13,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
@@ -111,9 +112,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 
       // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
       const collected = collectReviewIssues({ packet: built.packet })
+      // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
+      const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
       writeAnalysis(bookRoot, docId, 'review', {
         generatedAt: new Date().toISOString(),
-        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc',
+        model: prov ? `${prov.name}/${prov.model}` : 'mock',
         sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
         payload: { collected, lenses: loopResult.lenses },
       })

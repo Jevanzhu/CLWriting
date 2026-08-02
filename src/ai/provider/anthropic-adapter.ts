@@ -79,6 +79,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic):
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
+      let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens（P2-3）
       // 去重：某些上游发重复 message_delta（cc-switch issue 记录的故障）
       // done 幂等，重复到达时忽略
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
@@ -96,6 +97,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic):
 
         for await (const event of stream) {
           switch (event.type) {
+            case 'message_start': {
+              // input_tokens 在 message_start（message_delta 一般不含，P2-3）
+              inputTokensFromStart = event.message.usage.input_tokens
+              break
+            }
             case 'content_block_start': {
               const block = event.content_block
               if (block.type === 'tool_use') {
@@ -127,10 +133,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic):
               break
             }
             case 'message_delta': {
-              // 最终 usage + stop_reason 在 message_delta 里
+              // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）
               if (event.usage) {
                 const usage: TokenUsage = {
-                  inputTokens: event.usage.input_tokens ?? 0,
+                  inputTokens: event.usage.input_tokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? 0,
                 }
                 const ev = emitDone(usage, event.delta?.stop_reason ?? 'end_turn')
@@ -141,9 +147,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic):
           }
         }
 
-        // 兜底：某些端点可能不推 message_delta usage → 用 message_start 的 usage
+        // 兜底：某些端点可能不推 message_delta usage → 用 message_start 缓存的 input_tokens
         if (!doneEmitted) {
-          const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, 'end_turn')
+          const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, 'end_turn')
           if (ev) yield ev
         }
       } catch (e) {

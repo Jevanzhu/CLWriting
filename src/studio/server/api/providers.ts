@@ -73,8 +73,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const body = await readJson(req)
     const id = String(body['id'] ?? '')
     const s = loadProviders(ctx.userDataPath)
-    if (id && !s.providers.find((p) => p.id === id)) {
+    const target = id ? s.providers.find((p) => p.id === id) : undefined
+    if (id && !target) {
       return reply(res, 404, { error: '供应商不存在' })
+    }
+    // P2-6：未探测不许启用——服务端校验 caps（前端守卫可绕过）
+    if (target && !target.caps) {
+      return reply(res, 400, { error: `供应商「${target.name}」尚未测试连接，请先探测能力` })
     }
     s.currentId = id || null
     saveProviders(ctx.userDataPath, s)

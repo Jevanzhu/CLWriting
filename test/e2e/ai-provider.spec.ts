@@ -61,7 +61,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 
   // 测试连接：mock 短路返回全能力 → caps 徽章出现
   await card.locator('.mini-btn[data-tip="测试连接"]').click()
-  await expect(card.locator('.caps-badge')).toContainText('流式', { timeout: 10_000 })
+  await expect(card.locator('.caps-badge')).toContainText('强制工具', { timeout: 10_000 })
 
   // 添加第二个供应商
   await page.locator('.ai-service-panel .add-btn', { hasText: '添加' }).click()
@@ -76,7 +76,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   card = page.locator('.provider-card', { hasText: '备用中转' })
   // 第二个不是 current → 有「设为当前启用」按钮；点击切换（P0-1：PUT /current 不被 /:id 遮蔽）
   await card.locator('.mini-btn[data-tip="测试连接"]').click()
-  await expect(card.locator('.caps-badge')).toContainText('流式', { timeout: 10_000 })
+  await expect(card.locator('.caps-badge')).toContainText('强制工具', { timeout: 10_000 })
   await card.locator('.mini-btn[data-tip="设为当前启用"]').click()
   await expect(card.locator('.dot.on')).toBeVisible()
 

@@ -117,27 +117,29 @@ export function assembleChapter(
   const 正文 = typeof o['正文'] === 'string' ? (o['正文'] as string).trim() : ''
   if (!正文) return { ok: false, error: '正文字段为空' }
 
+  // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析，P2-8）
+  const fmVal = (v: unknown): string => String(v ?? '').trim().replace(/[\r\n]+/g, ' ')
   const lines: string[] = []
   if (kind === 'short') {
     lines.push(`篇号: ${chapter}`)
   } else {
     lines.push(`章号: ${chapter}`)
   }
-  const 标题 = String(o['标题'] ?? '').trim()
+  const 标题 = fmVal(o['标题'])
   if (标题) lines.push(`标题: ${标题}`)
   if (kind === 'short') {
-    const 目标情绪 = String(o['目标情绪'] ?? '').trim()
+    const 目标情绪 = fmVal(o['目标情绪'])
     if (目标情绪) lines.push(`目标情绪: ${目标情绪}`)
-    const 核心反转 = String(o['核心反转'] ?? '').trim()
+    const 核心反转 = fmVal(o['核心反转'])
     if (核心反转) lines.push(`核心反转: ${核心反转}`)
   } else {
-    const 钩子类型 = String(o['钩子类型'] ?? '').trim()
+    const 钩子类型 = fmVal(o['钩子类型'])
     if (钩子类型) lines.push(`钩子类型: ${钩子类型}`)
-    const 钩子强弱 = String(o['钩子强弱'] ?? '').trim()
+    const 钩子强弱 = fmVal(o['钩子强弱'])
     if (钩子强弱) lines.push(`钩子强弱: ${钩子强弱}`)
-    const 情绪定位 = String(o['情绪定位'] ?? '').trim()
+    const 情绪定位 = fmVal(o['情绪定位'])
     if (情绪定位) lines.push(`情绪定位: ${情绪定位}`)
-    const 场景 = String(o['场景'] ?? '').trim()
+    const 场景 = fmVal(o['场景'])
     if (场景) lines.push(`场景: ${场景}`)
   }
 

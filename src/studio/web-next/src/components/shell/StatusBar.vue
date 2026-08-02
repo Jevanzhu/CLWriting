@@ -11,12 +11,10 @@ const { themeName } = useTheme()
 const tree = useTreeStore()
 const words = useWordsStore()
 const ui = useUiStore()
-// AI driver → 显示名（cc=Claude Code；未来接入其他服务在此扩展）
-const DRIVER_LABEL: Record<string, string> = { cc: 'Claude Code' }
+// aiDriver = 当前供应商名（ai-status 返回）；空 = 未配置
 const connText = computed(() => {
   if (!serverOnline.value) return '服务连接中断'
-  const drv = DRIVER_LABEL[ui.aiDriver] ?? ui.aiDriver
-  return ui.aiAvailable && drv ? `${drv} 已连接` : '服务已连接'
+  return ui.aiAvailable && ui.aiDriver ? `${ui.aiDriver} 已连接` : '服务已连接'
 })
 </script>
 

@@ -95,7 +95,9 @@ export async function generateTool(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<{ input: unknown; text: string; usage: TokenUsage }> {
-  const r = await generate(provider, req, signal, onText)
+  // caps.toolChoice=true → 强制工具调用（确保结构化产出）；false 则依赖 prompt 引导 + text 兜底
+  const effective = provider.conf.caps?.toolChoice ? { ...req, toolChoice: 'any' as const } : req
+  const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
   return {
     input: tool ? tool.input : null,

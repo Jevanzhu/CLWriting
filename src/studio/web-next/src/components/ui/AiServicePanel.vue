@@ -156,7 +156,6 @@ function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | n
   if (!caps) return null
   if (!caps.toolUse) return { text: '不可用于写作', cls: 'bad' }
   const parts: string[] = []
-  if (caps.streaming) parts.push('流式')
   if (caps.toolChoice) parts.push('强制工具')
   return { text: parts.length ? parts.join(' · ') : '基础', cls: 'ok' }
 }
