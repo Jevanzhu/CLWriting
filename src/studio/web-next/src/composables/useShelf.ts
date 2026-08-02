@@ -83,6 +83,7 @@ export function useShelf(options?: {
   // 新建书表单
   const showCreate = ref(false)
   const newName = ref('')
+  const newKind = ref<'long' | 'short'>('long')
   const creating = ref(false)
   const createError = ref<string | null>(null)
   async function createBook(): Promise<void> {
@@ -94,10 +95,11 @@ export function useShelf(options?: {
       await apiJson('/api/books', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, kind: newKind.value }),
       })
       showCreate.value = false
       newName.value = ''
+      newKind.value = 'long'
       await shelf.load()
       options?.onCreated?.(name)
     } catch (e) {
@@ -173,6 +175,7 @@ export function useShelf(options?: {
     setView,
     showCreate,
     newName,
+    newKind,
     creating,
     createError,
     createBook,

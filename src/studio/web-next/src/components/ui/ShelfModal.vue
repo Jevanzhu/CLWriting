@@ -16,7 +16,7 @@ const ui = useUiStore()
 const { theme, toggle } = useTheme()
 const {
   shelf, groups, latestBook, viewMode, setView,
-  showCreate, newName, creating, createError, createBook,
+  showCreate, newName, newKind, creating, createError, createBook,
   batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
   confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
 } = useShelf({
@@ -235,6 +235,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div v-if="showCreate" class="create-overlay" @click.self="showCreate = false">
         <div class="create-modal">
           <h3>新建书</h3>
+          <div class="kind-picker">
+            <button type="button" :class="['kind-btn', { active: newKind === 'long' }]" @click="newKind = 'long'">
+              长篇
+            </button>
+            <button type="button" :class="['kind-btn', { active: newKind === 'short' }]" @click="newKind = 'short'">
+              短篇
+            </button>
+          </div>
           <input
             v-model="newName"
             class="input"
@@ -736,6 +744,33 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   margin: 0 0 var(--size-4-3);
   font-size: var(--font-size-m);
   font-weight: 600;
+}
+.kind-picker {
+  display: flex;
+  gap: 3px;
+  margin-bottom: var(--size-4-2);
+  padding: 3px;
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.kind-btn {
+  flex: 1;
+  padding: 5px var(--size-4-2);
+  border: none;
+  border-radius: calc(var(--radius-s) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.kind-btn.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: 500;
+}
+.kind-btn:not(.active):hover {
+  color: var(--text-normal);
 }
 .input {
   width: 100%;
