@@ -22,11 +22,10 @@ import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
 import { readIronRules, computeFullStats } from '../../../metrics/style.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
 import { submitAnalysis, analysisToolName, type AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { ANALYST_SYSTEM } from '../../../ai/prompts/index.js'
-import { tryMockTool } from '../../../ai/mock-tool.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 
@@ -35,39 +34,32 @@ interface AnalysisCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 analyst 生成（tool_use 结构化产出，替代 spawnRole + extractJson）。 */
+/** 跑一次 analyst 生成（经 runTask 统一编排：mock/provider/中断/错误文案；mock 与真实同走 decode）。 */
 async function runAnalyst(
   userDataPath: string | null,
   kind: ContractKind,
   prompt: string,
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
-  // mock 快路（CLWRITING_DRIVER=mock 时不依赖真实 provider）
-  const mock = tryMockTool(analysisToolName(kind))
-  if (mock) return { ok: true, payload: mock.input }
-
-  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: '未定位到应用数据目录' }
-  const conf = currentProvider(userDataPath)
-  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
-  const provider = createProvider(conf)
-  const ctrl = new AbortController()
-  try {
-    const { input } = await generateTool(
-      provider,
-      {
-        systemPrompt: ANALYST_SYSTEM,
-        messages: [{ role: 'user', content: prompt }],
-        maxTokens: 4000,
-        tools: [submitAnalysis(kind)],
-        toolChoice: 'tool',
-        toolName: analysisToolName(kind),
-      },
-      ctrl.signal,
-    )
-    if (input) return { ok: true, payload: input }
-    return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }
-  } catch (e) {
-    return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
-  }
+  const out = await runTask<{ input: unknown; text: string }>({
+    userDataPath,
+    mockTool: analysisToolName(kind),
+    run: (provider, signal) =>
+      generateTool(
+        provider,
+        {
+          systemPrompt: ANALYST_SYSTEM,
+          messages: [{ role: 'user', content: prompt }],
+          maxTokens: 4000,
+          tools: [submitAnalysis(kind)],
+          toolChoice: 'tool',
+          toolName: analysisToolName(kind),
+        },
+        signal,
+      ),
+  })
+  if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
+  if (out.data.input) return { ok: true, payload: out.data.input }
+  return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }
 }
 
 /** analyze 端点支持的 kind（review 走独立三审端点，不在此）。 */

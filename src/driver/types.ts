@@ -68,6 +68,8 @@ export interface StudioDriver {
   interrupt?(session: Session): void
   /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
+  /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。可选,mock 可不实现 */
+  registerCtrl?(session: Session, ctrl: AbortController): void
   /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */
   emit?(session: Session, ev: DriverEvent): void
 }

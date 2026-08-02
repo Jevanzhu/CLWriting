@@ -19,11 +19,10 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
 import { submitText } from '../../../ai/contract/index.js'
 import { REWRITER_SYSTEM } from '../../../ai/prompts/index.js'
-import { tryMockTool } from '../../../ai/mock-tool.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
@@ -33,47 +32,38 @@ interface RewriteCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 writer 改写（tool_use 结构化产出，替代 spawnRole）。 */
+/** 跑一次 writer 改写（经 runTask 统一编排：mock/provider/中断/错误文案；mock 与真实同走 decode）。 */
 async function runRewriter(
   userDataPath: string | null,
   prompt: string,
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
-  // mock 快路
-  const mock = tryMockTool('submit_text')
-  if (mock) {
-    const produced = String((mock.input as Record<string, unknown>)['正文'] ?? '').trim()
+  const out = await runTask<{ input: unknown; text: string }>({
+    userDataPath,
+    mockTool: 'submit_text',
+    run: (provider, signal) =>
+      generateTool(
+        provider,
+        {
+          systemPrompt: REWRITER_SYSTEM,
+          messages: [{ role: 'user', content: prompt }],
+          maxTokens: 8000,
+          tools: [submitText()],
+          toolChoice: 'tool',
+          toolName: 'submit_text',
+        },
+        signal,
+      ),
+  })
+  if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
+  const { input, text } = out.data
+  // tool_use 产出 → input.正文
+  if (input && typeof input === 'object') {
+    const produced = String((input as Record<string, unknown>)['正文'] ?? '').trim()
     if (produced) return { ok: true, produced }
   }
-
-  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: '未定位到应用数据目录' }
-  const conf = currentProvider(userDataPath)
-  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
-  const provider = createProvider(conf)
-  const ctrl = new AbortController()
-  try {
-    const { input, text } = await generateTool(
-      provider,
-      {
-        systemPrompt: REWRITER_SYSTEM,
-        messages: [{ role: 'user', content: prompt }],
-        maxTokens: 8000,
-        tools: [submitText()],
-        toolChoice: 'tool',
-        toolName: 'submit_text',
-      },
-      ctrl.signal,
-    )
-    // tool_use 产出 → input.正文
-    if (input && typeof input === 'object') {
-      const produced = String((input as Record<string, unknown>)['正文'] ?? '').trim()
-      if (produced) return { ok: true, produced }
-    }
-    // 降级：tool_use 未命中 → 直接用 text
-    if (text.trim()) return { ok: true, produced: text.trim() }
-    return { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' }
-  } catch (e) {
-    return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
-  }
+  // 降级：tool_use 未命中 → 直接用 text
+  if (text.trim()) return { ok: true, produced: text.trim() }
+  return { ok: false, code: 'EMPTY_OUTPUT', error: 'writer 产出为空' }
 }
 
 export interface DiffLine {

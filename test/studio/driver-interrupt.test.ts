@@ -57,3 +57,28 @@ test('cc.resume: 仅恢复当前进程内仍活着的 session 并保留 cwd', as
   await expect(ccDriver.resume(session.id)).rejects.toThrow('无法恢复未知或已关闭的 CC session')
   await expect(ccDriver.resume('cc-missing')).rejects.toThrow('无法恢复未知或已关闭的 CC session')
 })
+
+test('P1-2 registerCtrl: interrupt 可真 abort 生成请求 + isRunning 判在途', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  // 登记后：isRunning 判在途（SSE 新连接 sync 快照依据）
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  // 请求未中断前 signal 存活
+  expect(ctrl.signal.aborted).toBe(false)
+  // interrupt → 真实 abort ctrl（生成循环据此停止拉流）
+  ccDriver.interrupt!(session)
+  expect(ctrl.signal.aborted).toBe(true)
+  const ev = await firstEvent(ccDriver.stream(session) as AsyncGenerator<DriverEvent>)
+  expect(ev.type).toBe('interrupted')
+  ccDriver.dispose(session)
+})
+
+test('P1-2 dispose: session 关闭时 abort 已登记 ctrl', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  ccDriver.dispose(session)
+  expect(ctrl.signal.aborted).toBe(true)
+  expect(ccDriver.isRunning!(session)).toBe(false)
+})

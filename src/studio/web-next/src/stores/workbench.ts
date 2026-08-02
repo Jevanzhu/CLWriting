@@ -58,10 +58,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     const e = { ...raw, _ts: ts() } as SseEvent
     log.value.push(e)
-    if (e.type === 'init' || e.type === 'role_spawn') {
+    if (e.type === 'role_spawn') {
+      // 生成开始（provider 直连路径即以此事件声明生成在途）
       running.value = true
       textOut.value = '' // 新生成清空旧正文
-      // 新一轮全自动写章：清上一轮的阶段/进度/终局
+      healPhase.value = null
+      healProgress.value = null
+      healResult.value = null
+    } else if (e.type === 'init') {
+      // 会话建连元数据（mock driver 每次连接都发）——不代表生成在途，不置 running
+      textOut.value = ''
       healPhase.value = null
       healProgress.value = null
       healResult.value = null

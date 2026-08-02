@@ -16,7 +16,7 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { runTask } from '../../../ai/runner.js'
 import { generateText } from '../../../ai/gen.js'
 
 interface OnboardCtx {
@@ -24,30 +24,28 @@ interface OnboardCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 onboard 步骤生成（generateText 纯文本产出，替代 driver.spawnRole）。 */
+/** mock 快路的固定产出（CLWRITING_DRIVER=mock） */
+const MOCK_ONBOARD = '## mock 设定\n\n这是 mock 的模拟设定产出。'
+
+/** 跑一次 onboard 步骤生成（产物经 runTask 统一编排：mock/provider/中断/错误文案）。 */
 async function runOnboard(
   userDataPath: string | null,
   prompt: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (process.env['CLWRITING_DRIVER'] === 'mock') {
-    return { ok: true, text: '## mock 设定\n\n这是 mock 的模拟设定产出。' }
-  }
-  if (!userDataPath) return { ok: false, error: '未定位到应用数据目录' }
-  const conf = currentProvider(userDataPath)
-  if (!conf) return { ok: false, error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
-  const provider = createProvider(conf)
-  const ctrl = new AbortController()
-  try {
-    const text = await generateText(
-      provider,
-      { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: 4000 },
-      ctrl.signal,
-    )
-    if (text.trim()) return { ok: true, text: text.trim() }
-    return { ok: false, error: 'AI 产出为空' }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
-  }
+  const out = await runTask<string>({
+    userDataPath,
+    mockText: MOCK_ONBOARD,
+    run: (provider, signal) =>
+      generateText(
+        provider,
+        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: 4000 },
+        signal,
+      ),
+  })
+  if (!out.ok) return { ok: false, error: out.error }
+  const text = out.data.trim()
+  if (!text) return { ok: false, error: 'AI 产出为空' }
+  return { ok: true, text }
 }
 
 type OnboardStep =

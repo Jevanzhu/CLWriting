@@ -12,6 +12,8 @@ import {
   interrupt,
   saveDraft,
   autoWrite,
+  getDraftPrompt,
+  generateOutline,
   type BookState,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
@@ -70,11 +72,32 @@ watch(
     if (prev && !r) void refreshState()
   },
 )
+// P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
+// tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
+watch(
+  () => wb.healResult,
+  async (r) => {
+    if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
+    if (!r.docId) return
+    try {
+      await tree.load(props.bookName)
+      ws.openTab(r.docId)
+      ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
+    } catch {
+      /* 树刷新/打开失败不阻断（草稿已落盘，作者可从文章树手动找） */
+    }
+  },
+)
 
 async function onSpawn(): Promise<void> {
   err.value = null
   try {
-    await spawnRole(props.bookName, { role: 'writer', prompt: prompt.value || undefined })
+    // P0-3：先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
+    // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
+    const { prompt: ctx } = await getDraftPrompt(props.bookName, chapter.value)
+    const userText = prompt.value.trim()
+    const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
+    await spawnRole(props.bookName, { role: 'writer', prompt: final })
     ui.toast('已触发生成', 'info')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
@@ -96,6 +119,18 @@ async function onAutoWrite(): Promise<void> {
   try {
     await autoWrite(props.bookName, chapter.value)
     ui.toast(`第 ${chapter.value} 章已开始全自动写稿`, 'info')
+  } catch (e) {
+    err.value = e instanceof Error ? e.message : String(e)
+    ui.toast(err.value, 'error')
+  }
+}
+
+// P1-3：AI 生成本章细纲（工作区/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
+async function onOutline(): Promise<void> {
+  err.value = null
+  try {
+    await generateOutline(props.bookName, chapter.value)
+    ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
     ui.toast(err.value, 'error')
@@ -236,6 +271,14 @@ const recent = computed(() => wb.log.slice(-200))
         />
         <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
         <button v-else class="btn danger" @click="onInterrupt">中断</button>
+        <button
+          class="btn"
+          :disabled="wb.running || ui.aiAvailable === false"
+          title="AI 生成本章细纲（写稿前的语境准备，全自动写章可读）"
+          @click="onOutline"
+        >
+          生成细纲
+        </button>
         <button
           v-if="!wb.running"
           class="btn auto"

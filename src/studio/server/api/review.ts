@@ -23,11 +23,10 @@ import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
 import { submitIssues, ISSUES_TOOL_NAME } from '../../../ai/contract/index.js'
 import { reviewSystem } from '../../../ai/prompts/index.js'
-import { tryMockTool } from '../../../ai/mock-tool.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -178,50 +177,35 @@ async function runLensSpawnLoop(opts: {
   const lenses: string[] = []
   mkdirSync(opts.outDir, { recursive: true })
 
-  // mock 快路：直接返回 mock 数据，不创建 provider
-  if (process.env['CLWRITING_DRIVER'] === 'mock') {
-    for (const sub of opts.packets) {
-      const lens = sub.lens
-      lenses.push(lens)
-      opts.onProgress?.(lens, 'start')
-      const mock = tryMockTool(ISSUES_TOOL_NAME)
-      const issues = (mock?.input as { issues?: unknown[] })?.issues ?? []
-      writeFileSync(join(opts.outDir, `issues-${lens}.json`), JSON.stringify(issues), 'utf8')
-      opts.onProgress?.(lens, 'done')
-    }
-    return { ok: true, lenses }
-  }
-
-  if (!opts.userDataPath) return { ok: false, error: '未定位到应用数据目录' }
-  const conf = currentProvider(opts.userDataPath)
-  if (!conf) return { ok: false, error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
-  const provider = createProvider(conf)
+  // 逐 lens：runTask 统一编排（mock 快路/provider/中断/错误文案），mock 与真实同走 decode
   for (const sub of opts.packets) {
     const lens = sub.lens
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
-    const ctrl = new AbortController()
-    try {
-      const { input, text } = await generateTool(
-        provider,
-        {
-          systemPrompt: reviewSystem(lens),
-          messages: [{ role: 'user', content: prompt }],
-          maxTokens: 4000,
-          tools: [submitIssues()],
-          toolChoice: 'tool',
-          toolName: ISSUES_TOOL_NAME,
-        },
-        ctrl.signal,
-      )
-      // tool_use 产出 → input.issues；降级用 text
-      const issues = (input as { issues?: unknown[] })?.issues
-      const issuesJson = issues ? JSON.stringify(issues) : text.trim()
-      writeFileSync(join(opts.outDir, `issues-${lens}.json`), issuesJson, 'utf8')
-    } catch (e) {
-      return { ok: false, error: `${lens}-review gen:${e instanceof Error ? e.message : String(e)}` }
-    }
+    const out = await runTask<{ input: unknown; text: string }>({
+      userDataPath: opts.userDataPath,
+      mockTool: ISSUES_TOOL_NAME,
+      run: (provider, signal) =>
+        generateTool(
+          provider,
+          {
+            systemPrompt: reviewSystem(lens),
+            messages: [{ role: 'user', content: prompt }],
+            maxTokens: 4000,
+            tools: [submitIssues()],
+            toolChoice: 'tool',
+            toolName: ISSUES_TOOL_NAME,
+          },
+          signal,
+        ),
+    })
+    if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
+    const { input, text } = out.data
+    // tool_use 产出 → input.issues；降级用 text
+    const issues = (input as { issues?: unknown[] })?.issues
+    const issuesJson = issues ? JSON.stringify(issues) : text.trim()
+    writeFileSync(join(opts.outDir, `issues-${lens}.json`), issuesJson, 'utf8')
     opts.onProgress?.(lens, 'done')
   }
   return { ok: true, lenses }

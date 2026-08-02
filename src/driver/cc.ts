@@ -98,6 +98,11 @@ export const ccDriver: StudioDriver = {
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })
   },
 
+  // P1-2：编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效
+  registerCtrl(session: Session, ctrl: AbortController): void {
+    sessionCtrl.set(session.id, ctrl)
+  },
+
   emit(session: Session, ev: DriverEvent): void {
     push(session.id, ev)
   },

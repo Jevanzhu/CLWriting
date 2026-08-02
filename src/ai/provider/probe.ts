@@ -34,6 +34,13 @@ export function createProvider(conf: ProviderConf): ModelProvider {
  * 4 个请求，输出 token 合计 < 100，单轮 1–3 秒。
  */
 export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult> {
+  // mock 快路：e2e / 前端开发不真探（mock driver 不调大模型）——测试连接按钮在 mock 下可用
+  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+    return {
+      caps: { toolUse: true, toolChoice: true, streaming: true },
+      details: ['mock 驱动：模拟全能力（未真探）'],
+    }
+  }
   const provider = createProvider(conf)
   const details: string[] = []
   const caps: ProviderCaps = {

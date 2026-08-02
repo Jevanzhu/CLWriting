@@ -16,7 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from './self-heal.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { runTask } from '../../../ai/runner.js'
 import { generateText } from '../../../ai/gen.js'
 import { writerSystem } from '../../../ai/prompts/index.js'
 import { readKind } from '../book-context.js'
@@ -27,8 +27,9 @@ interface StreamCtx {
 }
 
 /**
- * fire-and-forget 写稿：generateText + writerSystem，text 增量经 driver.emit 推 SSE。
- * 替代旧 driver.spawnRole 路径——调用层统一到 gen.ts + provider 直连。
+ * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
+ * text 增量经 driver.emit 推 SSE。替代旧 driver.spawnRole 路径。
+ * P1-2：ctrl 经 registerCtrl 交给 driver——interrupt() 可 abort 真实请求，isRunning() 判在途。
  */
 async function runWriterSpawn(opts: {
   driver: StudioDriver
@@ -45,7 +46,7 @@ async function runWriterSpawn(opts: {
   // 通知前端：生成开始（前端清空旧正文 + 设 running=true）
   emit({ type: 'role_spawn', role: opts.role, parentToolUseId: `tu-${Date.now()}` })
 
-  // mock 快路：分块推送模拟流式
+  // mock 快路：emit 模拟事件序列（runTask 的 mockText 只返回值、不透出事件流，故 mock 独立处理）
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
     const mockText = `【mock · ${opts.role}】这是 mock 的模拟写稿产出。\n`
     for (let i = 0; i < mockText.length; i += 12) {
@@ -56,31 +57,25 @@ async function runWriterSpawn(opts: {
     return
   }
 
-  if (!opts.userDataPath) {
-    emit({ type: 'error', kind: 'provider', message: '未定位到应用数据目录', recoverable: false })
-    return
-  }
-  const conf = currentProvider(opts.userDataPath)
-  if (!conf) {
-    emit({ type: 'error', kind: 'provider', message: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。', recoverable: false })
-    return
-  }
-  const provider = createProvider(conf)
-  const ctrl = new AbortController()
   const kind = readKind(opts.bookRoot)
   // writer 用 writerSystem；其他角色 system prompt 为空（prompt 自含任务）
   const sys = opts.role === 'writer' ? writerSystem(kind) : ''
+  const out = await runTask<string>({
+    userDataPath: opts.userDataPath,
+    register: (ctrl) => opts.driver.registerCtrl?.(opts.mainSession, ctrl),
+    run: (provider, signal) =>
+      generateText(
+        provider,
+        { systemPrompt: sys, messages: [{ role: 'user', content: opts.prompt }], maxTokens: 8000 },
+        signal,
+        (delta) => emit({ type: 'text', text: delta, role: opts.role }),
+      ),
+  })
 
-  try {
-    await generateText(
-      provider,
-      { systemPrompt: sys, messages: [{ role: 'user', content: opts.prompt }], maxTokens: 8000 },
-      ctrl.signal,
-      (delta) => emit({ type: 'text', text: delta, role: opts.role }),
-    )
+  if (out.ok) {
     emit({ type: 'done', cost: 0, usage: 0, reason: 'success' })
-  } catch (e) {
-    emit({ type: 'error', kind: 'provider', message: e instanceof Error ? e.message : String(e), recoverable: false })
+  } else {
+    emit({ type: 'error', kind: 'provider', message: out.error, recoverable: false })
   }
 }
 
@@ -147,6 +142,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const body = await readJson(req)
     const role = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
     const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
+    // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
+    if (!prompt.trim()) {
+      return reply(res, 400, { error: 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）' })
+    }
 
     const mainSession = await ensureSession(params['name']!, ctx.workDir)
     const driver = getDriver('cc')

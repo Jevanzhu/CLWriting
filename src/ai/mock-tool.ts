@@ -18,6 +18,21 @@ const MOCK_TOOL_INPUT: Record<string, unknown> = {
   submit_tags: { 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折', 场景: '对话' },
   submit_issues: { issues: [{ category: 'pacing', severity: 'S3', evidence: '正文原句', issue: 'mock 问题', fix: 'mock 修复' }] },
   submit_text: { 正文: '这是 mock 改写后的正文文本，保持了原有的叙事风格。' },
+  // 写稿契约（self-heal mock 快路，审查 §六 self-heal 独缺 → runTask 补齐）
+  submit_chapter: {
+    标题: 'mock 章节标题',
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '转折',
+    场景: '对话',
+    正文: '这是 mock 自动写章产出的章节正文，段落与空行，保持了叙事节奏。',
+  },
+  submit_piece: {
+    标题: 'mock 短篇标题',
+    目标情绪: '温暖',
+    核心反转: '一切都藏在细节里',
+    正文: '这是 mock 自动写章产出的短篇正文，段落与空行，单篇闭合。',
+  },
 }
 
 /**

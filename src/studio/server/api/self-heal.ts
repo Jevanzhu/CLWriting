@@ -24,6 +24,8 @@ import { buildDraftPrompt, saveDraft } from './draft.js'
 import { buildRewritePrompt, draftFileName } from './rewrite.js'
 import { generateTool } from '../../../ai/gen.js'
 import { createProvider, currentProvider } from '../../../ai/provider/index.js'
+import { tryMockTool } from '../../../ai/mock-tool.js'
+import { NO_PROVIDER_MSG } from '../../../ai/runner.js'
 import { chapterTool, chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
 import { writerSystem } from '../../../ai/prompts/index.js'
 
@@ -217,9 +219,24 @@ async function runGenerate(
     }
   }
 
+  // mock 快路（审查 §六：六条 AI 路径唯独 self-heal 缺失 → 补齐，e2e 可覆盖全自动写章）。
+  // emit 模拟增量（前端/测试能见推进），终稿走 assembleChapter（与真实同 decode）。
+  const mock = tryMockTool(chapterToolName(kind))
+  if (mock) {
+    const body = String((mock.input as { 正文?: string })['正文'] ?? '')
+    if (body) {
+      for (let i = 0; i < body.length; i += 12) {
+        emit(opts, { type: 'text', text: body.slice(i, i + 12) })
+      }
+    }
+    const assembled = assembleChapter(mock.input, opts.chapter, kind)
+    if (assembled.ok) return { status: 'ok', text: assembled.content }
+    return { status: 'error', error: 'AI 产出为空' }
+  }
+
   // 真实 provider + tool_use
   const conf = currentProvider(opts.userDataPath)
-  if (!conf) return { status: 'error', error: '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。' }
+  if (!conf) return { status: 'error', error: NO_PROVIDER_MSG }
 
   const provider = createProvider(conf)
   try {
