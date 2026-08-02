@@ -6,7 +6,7 @@ import { apiJson } from './client'
 export type ExportFormat = 'merged' | 'split' | 'both'
 export type ExportPlatform = 'generic' | 'wechat' | 'zhihu-salt' | 'fanqie' | 'xiaohongshu'
 
-export interface CliResult {
+export interface ExportResponse {
   ok: boolean
   code?: number
   stdout?: string
@@ -16,8 +16,8 @@ export interface CliResult {
 export async function exportBook(
   name: string,
   body: { format: ExportFormat; platform?: ExportPlatform },
-): Promise<CliResult> {
-  return apiJson<CliResult>(`/api/books/${encodeURIComponent(name)}/export`, {
+): Promise<ExportResponse> {
+  return apiJson<ExportResponse>(`/api/books/${encodeURIComponent(name)}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
