@@ -14,7 +14,7 @@ export interface ProviderConfDto {
   id: string
   name: string
   protocol: Protocol
-  auth: AuthStrategy
+  auth?: AuthStrategy
   baseUrl: string
   model: string
   apiKey: string // 返回时为空串（不回传原始 key）
@@ -38,7 +38,6 @@ export async function getProviders(): Promise<{ providers: ProviderConfDto[]; cu
 export async function createProvider(body: {
   name: string
   protocol: Protocol
-  auth: AuthStrategy
   baseUrl: string
   model: string
   apiKey: string
@@ -52,7 +51,7 @@ export async function createProvider(body: {
 
 export async function updateProvider(
   id: string,
-  body: { name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; model: string; apiKey: string },
+  body: { name: string; protocol: Protocol; baseUrl: string; model: string; apiKey: string },
 ): Promise<{ provider: ProviderConfDto }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',

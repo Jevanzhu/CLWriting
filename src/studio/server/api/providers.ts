@@ -179,8 +179,8 @@ function parseProviderInput(
   if (!name) return { ok: false, error: 'name 必填' }
   const protocol = String(body['protocol'] ?? '') as Protocol
   if (protocol !== 'anthropic' && protocol !== 'openai') return { ok: false, error: 'protocol 需为 anthropic 或 openai' }
-  const auth = String(body['auth'] ?? '') as AuthStrategy
-  if (auth !== 'anthropic' && auth !== 'claudeAuth' && auth !== 'bearer') return { ok: false, error: 'auth 需为 anthropic / claudeAuth / bearer' }
+  // auth 由 protocol 自动推断（UI 已简化为 2 种 API 格式，不再暴露 auth 选择）
+  const auth: AuthStrategy = protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
   const model = String(body['model'] ?? '').trim()

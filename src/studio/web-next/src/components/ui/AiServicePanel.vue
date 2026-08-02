@@ -13,7 +13,6 @@ import {
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
-  type AuthStrategy,
   type TestResult,
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
@@ -32,16 +31,14 @@ const editId = ref<string | null>(null)
 const form = ref({
   name: '',
   protocol: 'openai' as Protocol,
-  auth: 'bearer' as AuthStrategy,
   baseUrl: '',
   model: '',
   apiKey: '',
 })
 
-const PROTOCOL_OPTIONS: { value: Protocol; label: string; auth: AuthStrategy; hint: string }[] = [
-  { value: 'anthropic', label: 'Anthropic 官方格式', auth: 'anthropic', hint: 'Anthropic 官方 API' },
-  { value: 'anthropic', label: 'Claude 中转 / 网关', auth: 'claudeAuth', hint: 'Claude Code 兼容网关，只认 Bearer' },
-  { value: 'openai', label: 'OpenAI 兼容格式', auth: 'bearer', hint: '厂商原生端点、中继、自建' },
+const PROTOCOL_OPTIONS: { value: Protocol; label: string; hint: string }[] = [
+  { value: 'anthropic', label: 'Anthropic', hint: 'Anthropic API 格式' },
+  { value: 'openai', label: 'OpenAI', hint: 'OpenAI API 格式' },
 ]
 
 async function refresh(): Promise<void> {
@@ -62,13 +59,13 @@ onMounted(refresh)
 function startAdd(): void {
   editing.value = true
   editId.value = null
-  form.value = { name: '', protocol: 'openai', auth: 'bearer', baseUrl: '', model: '', apiKey: '' }
+  form.value = { name: '', protocol: 'openai', baseUrl: '', model: '', apiKey: '' }
 }
 
 function startEdit(p: ProviderConfDto): void {
   editing.value = true
   editId.value = p.id
-  form.value = { name: p.name, protocol: p.protocol, auth: p.auth, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
+  form.value = { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
 }
 
 function cancelEdit(): void {
@@ -76,9 +73,8 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-function selectPreset(protocol: Protocol, auth: AuthStrategy): void {
+function selectPreset(protocol: Protocol): void {
   form.value.protocol = protocol
-  form.value.auth = auth
 }
 
 async function save(): Promise<void> {
@@ -222,7 +218,6 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="provider-meta">
             <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
-            <span class="tag dim">{{ p.auth }}</span>
             <span class="model">{{ p.model }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
@@ -257,8 +252,8 @@ function timeAgo(ts: number | undefined): string {
               v-for="(opt, i) in PROTOCOL_OPTIONS"
               :key="i"
               class="preset-btn"
-              :class="{ on: form.protocol === opt.value && form.auth === opt.auth }"
-              @click="selectPreset(opt.value, opt.auth)"
+              :class="{ on: form.protocol === opt.value }"
+              @click="selectPreset(opt.value)"
             >
               <span class="preset-label">{{ opt.label }}</span>
               <span class="preset-hint">{{ opt.hint }}</span>

@@ -18,17 +18,14 @@ import type {
 } from './types.js'
 import { redactSecret } from './redact.js'
 
-/** 创建 Anthropic 客户端（auth 策略分流） */
+/** 创建 Anthropic 客户端（同时带 x-api-key + Bearer，官方与中转通吃） */
 function createClient(conf: ProviderConf): Anthropic {
-  const opts: Record<string, unknown> = { baseURL: conf.baseUrl }
-  if (conf.auth === 'claudeAuth') {
-    // 中转服务：只认 Bearer（authToken 而非 apiKey）
-    opts['authToken'] = conf.apiKey
-  } else {
-    // 官方：x-api-key
-    opts['apiKey'] = conf.apiKey
-  }
-  return new Anthropic(opts)
+  return new Anthropic({
+    baseURL: conf.baseUrl,
+    apiKey: conf.apiKey,
+    // 中转网关只认 Authorization: Bearer，官方端点只认 x-api-key——同时发，两边兼容
+    defaultHeaders: { Authorization: `Bearer ${conf.apiKey}` },
+  })
 }
 
 /** GenRequest → Anthropic MessageCreateParams */
