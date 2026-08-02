@@ -10,7 +10,7 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
-import { detectState, routeState, enter, formatRecap, formatRoute } from '../../src/state/state.js'
+import { detectState, routeState, enter } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { git } from '../../src/git/exec.js'
 
@@ -187,18 +187,14 @@ test('routeState: 态 7 统一写章入口（CLI 退场，不再分手写/严格
 
 // ── enter 单入口 + 近况复述 ─────────────────────────
 
-test('enter: 干净书 → 近况复述 + 路由建议（零机器味）', () => {
+test('enter: 干净书 → recap + route 结构正确', () => {
   const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
   const { recap, route } = enter(root)
 
-  // 近况复述
-  const recapText = formatRecap(recap)
-  expect(recapText).toContain('已定稿到第 3 章')
-  expect(recapText).toContain('git 干净')
-  // 路由
-  const routeText = formatRoute(route)
-  expect(routeText).toContain('起草新章')
-  expect(routeText).toContain('第 4 章')
+  expect(recap.currentChapter).toBe(3)
+  expect(recap.gitClean).toBe(true)
+  expect(recap.nextChapter).toBe(4)
+  expect(route.action).toBe('write-new-chapter')
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -213,11 +209,11 @@ test('enter: git 异常且缓存缺失 → 不崩，返回 git-health 路由', (
   rmSync(root, { recursive: true, force: true })
 })
 
-test('enter: 写满一卷 → 近况复述显示态 5 卷末', () => {
+test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
   const root = makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE)
   const { recap, route } = enter(root)
   expect(recap.state).toBe(5)
-  expect(formatRoute(route)).toContain('卷复盘')
+  expect(route.action).toBe('volume-review')
   rmSync(root, { recursive: true, force: true })
 })
 

@@ -453,39 +453,9 @@ function parseLastConfirm(bookRoot: string): StatusRecap['lastConfirm'] {
   return { chapter, hash, mode, at, verified }
 }
 
-/** 近况复述 → 人话文本（#15 第 4 节，对作者零机器味） */
-export function formatRecap(recap: StatusRecap, kind: 'long' | 'short' = 'long'): string {
-  const lines: string[] = []
-  const unit = kind === 'short' ? '篇' : '章'
-  if (kind === 'short') {
-    lines.push(`【近况】已定稿到第 ${recap.currentChapter} ${unit}，下一篇 ${recap.nextChapter}。`)
-  } else {
-    lines.push(`【近况】已定稿到第 ${recap.currentChapter} ${unit}（第 ${recap.currentVolume} 卷），下一章 ${recap.nextChapter}。`)
-  }
-  lines.push(
-    `【体检】git ${recap.gitClean ? '干净 ✓' : '有问题 ✗'}；` +
-      `${recap.parseErrors ? '有源文件坏 ✗' : '账本无解析错误 ✓'}；` +
-      `${recap.handEdits ? '有未入账手改 ✗' : '无未入账手改 ✓'}。`,
-  )
-  if (recap.lastConfirm && recap.lastConfirm.chapter > 0) {
-    const c = recap.lastConfirm
-    const flag = c.verified === true
-      ? '一致 ✓'
-      : c.verified === false
-        ? '⚠ 不一致（确认后又改过细纲）'
-        : '未复核（工作区细纲已清理，仅复述提交留痕）'
-    lines.push(`【确认复述】第 ${c.chapter} ${unit}细纲确认哈希 ${c.hash.slice(0, 16)}…（${c.mode}，${c.at}）${flag}。`)
-  }
-  if (recap.batchPause) {
-    const p = recap.batchPause
-    lines.push(`【连写暂停】⚠ 第 ${p.atChapter} ${unit}暂停（${p.reason}：${p.detail}），处理后恢复续写。`)
-  }
-  return lines.join('\n')
-}
-
 // ── 单入口：enter（#15 第 3 节，CLI + 库双形态）────────
 
-/** enter 结果（库形态：结构化；CLI 再 formatRecap/formatRoute 出人话） */
+/** enter 结果（库形态：结构化数据，前端自行渲染） */
 export interface EnterResult {
   recap: StatusRecap
   detected: DetectedState
@@ -507,9 +477,3 @@ export function enter(bookRoot: string): EnterResult {
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }
 
-/** 路由 → 人话（对作者：现在该干什么） */
-export function formatRoute(route: RouterAction, kind: 'long' | 'short' = 'long'): string {
-  const stateName = kind === 'short' && route.state === 7 ? '起草新篇' : STATE_NAMES[route.state]
-  const prefix = `【${stateName}】`
-  return `${prefix} ${route.humanMsg}`
-}

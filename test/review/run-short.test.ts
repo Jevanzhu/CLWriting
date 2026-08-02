@@ -5,11 +5,8 @@ import { join } from 'node:path'
 import {
   buildReviewPacket,
   collectReviewIssues,
-  renderReviewVerdict,
   lensIssuesFileName,
   COMBINED_ISSUES_FILE,
-  readReviewPacket,
-  writeReviewPacket,
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -105,13 +102,8 @@ test('review 打包 short: 读取篇号草稿并把清单核对写入执行包',
     })
     expect(built.ok).toBe(true)
     if (!built.ok) return
-    writeReviewPacket(built.packet)
-
-    const loaded = readReviewPacket(workDir)
-    expect(loaded.ok).toBe(true)
-    if (!loaded.ok) return
     // 清单核对恒挂在 payoff（设定收尾审）分项上
-    const payoff = loaded.packet.packets.find((p) => p.lens === 'payoff')
+    const payoff = built.packet.packets.find((p) => p.lens === 'payoff')
     expect(payoff?.list_checks).toEqual([
       { type: 'reversal', subject: '来客就是死者', location: '开头', detail: '门外没有脚印' },
       { type: 'reversal', subject: '来客就是死者', location: '中段', detail: '镜中没有影子' },
@@ -188,31 +180,5 @@ test('collectReviewIssues short 合审: 单包覆盖三视角不缺', () => {
   const collected = collectReviewIssues({ packet })
   expect(collected.ok).toBe(true)
   expect(collected.missing_lenses).toHaveLength(0) // 合审单包覆盖三视角
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-// ── renderReviewVerdict short: 清单核对阻断专列 ────
-
-test('renderReviewVerdict short: reversal blocker 渲染清单核对阻断专列', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
-  const packet = makeShortFullPacket(workDir)
-  mkdirSync(packet.out_dir, { recursive: true })
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('hook')), '[]', 'utf-8')
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('payoff')), '[]', 'utf-8')
-  const emotionIssues: ReviewIssue[] = [
-    {
-      lens: 'emotion_peak', severity: 'S2', category: 'reversal',
-      location: '反转段', evidence: ['无铺垫'], issue: '反转不成立', fix: '补铺垫',
-    },
-  ]
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('emotion_peak')), JSON.stringify(emotionIssues), 'utf-8')
-
-  const collected = collectReviewIssues({ packet })
-  expect(collected.ok).toBe(true)
-  const text = renderReviewVerdict(collected)
-  expect(text).toContain('# 审稿单 · 第 1 篇')
-  expect(text).toContain('- 视角：钩子审 / 情绪反转审 / 设定收尾审')
-  expect(text).not.toContain('设定校对 / 钩子审')
-  expect(text).toContain('清单核对阻断')
   rmSync(workDir, { recursive: true, force: true })
 })

@@ -13,7 +13,7 @@ import { execSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { makeGitBook, makeGitBookWithChapters } from '../helpers/book.js'
 import { rollbackToChapter } from '../../src/git/rollback.js'
-import { enter, formatRecap } from '../../src/state/state.js'
+import { enter } from '../../src/state/state.js'
 import { findChapterCommit, git } from '../../src/git/exec.js'
 import { appendMetric, readMetrics, type MetricRecord } from '../../src/metrics/ledger.js'
 
@@ -164,9 +164,6 @@ test('兜底闭环: 伪造确认 → enter 复述暴露 → revert 推翻（M3 �
     expect(recap.lastConfirm.mode).toBe('auto') // 自动盖章（伪造的可疑点）
     expect(recap.lastConfirm.verified).toBe(false) // 哈希不符 → 暴露
   }
-  const recapText = formatRecap(recap)
-  expect(recapText).toContain('不一致')
-
   // #2 作者察觉，下达「回到第 2 章」推翻
   const r = rollbackToChapter(root, 2)
   expect(r.ok).toBe(true)
@@ -194,8 +191,5 @@ test('兜底闭环: 正常确认但细纲已清理 → enter 只复述留痕，�
   if (recap.lastConfirm) {
     expect(recap.lastConfirm.verified).toBeNull()
   }
-  const text = formatRecap(recap)
-  expect(text).not.toContain('不一致')
-  expect(text).toContain('未复核')
   rmSync(root, { recursive: true, force: true })
 })

@@ -2,7 +2,7 @@
  * 工作区续跑（态 4 中断点判定）+ git 人话层测试。
  *
  * 工单施工序 3-4 验证点：
- * - 态 4 续跑判定（#13 第 5 节中断点：pre-commit 续写 / post-commit-residue 幂等清理）
+ * - 态 4 续跑判定（#13 第 5 节中断点：pre-commit 续写）
  * - git 人话层：脚本代敲 git 全链路、作者侧零裸 git 命令
  */
 
@@ -11,7 +11,7 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
-import { detectState, routeState, formatRoute } from '../../src/state/state.js'
+import { detectState, routeState } from '../../src/state/state.js'
 import { addCommit, findChapterCommit } from '../../src/git/exec.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 
@@ -66,17 +66,5 @@ test('findChapterCommit: 按 ch:NNNN 前缀反查章 commit（#16 第 5 节回�
   expect(findChapterCommit(root, 99)).toBeNull() // 不存在的章
   // 三章 commit 不同
   expect(findChapterCommit(root, 1)).not.toBe(findChapterCommit(root, 2))
-  rmSync(root, { recursive: true, force: true })
-})
-
-// ── 近况复述：续跑态显示中断点 ─────────────────────
-
-test('近况复述: 态4 pre-commit → 路由人话含续写指引', () => {
-  const root = makeGitBook()
-  stageIncompleteChapter(root, 1)
-  const d = detectState(root, DEFAULT_CONFIG)
-  const text = formatRoute(routeState(d))
-  expect(text).toContain('工作区未完成')
-  expect(text).toMatch(/续写|接着干/)
   rmSync(root, { recursive: true, force: true })
 })
