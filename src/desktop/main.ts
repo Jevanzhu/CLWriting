@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { startServer } from '../studio/server/index.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { getFonts as getSystemFontList } from 'font-list'
 import {
   parseStore,
@@ -41,6 +42,13 @@ import {
 import type { WorkDirStore } from './workdir-store.js'
 
 const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
+
+// userData 强制统一到定值（大写 CLWriting）。
+// Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
+// （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
+// 侥幸同目录，Linux 上会分裂成两个目录导致配置不互通。见 src/fs/user-data-path.ts。
+// 必须在 app.getPath('userData') 首次调用（如下方 stateFile）之前执行。
+app.setPath('userData', defaultUserDataPath())
 
 /** 前端静态目录：打包后 asar 内 / 开发项目根 dist/web */
 function resolveStaticDir(): string {
