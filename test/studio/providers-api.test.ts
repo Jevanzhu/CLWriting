@@ -120,10 +120,11 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     expect(sw1.status).toBe(400)
     expect(sw1.json.error).toContain('测试连接')
 
-    // 模拟已探测：直接写 caps 到 providers.json
+    // 模拟已探测：直接写 caps 到 providers.json（pa + pb 都写，DELETE 回落也需要 caps）
     const sPath = join(userDataPath, 'providers.json')
     const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { providers: { id: string; caps: unknown }[] }
-    s.providers.find((p) => p.id === pb.id)!.caps = { toolUse: true, toolChoice: true }
+    s.providers.find((p) => p.id === pb.id)!.caps = { connected: true, streaming: true }
+    s.providers.find((p) => p.id === pa.id)!.caps = { connected: true, streaming: true }
     writeFileSync(sPath, JSON.stringify(s))
 
     // 关键断言：已探测后切换命中字面量路由而非 :id（P0-1 回归）
@@ -190,5 +191,45 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     })
     expect(r.status).toBe(404)
     expect(r.json.error).toContain('供应商不存在')
+  })
+})
+
+describe('P0-3 modelCaps 缓存失效', () => {
+  it('编辑供应商关键字段后清 modelCaps 缓存', async () => {
+    const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
+    const pid = a.json.provider.id
+
+    // 手动写入 modelCaps 缓存
+    const sPath = join(userDataPath, 'providers.json')
+    const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
+    s.modelCaps = { [`${pid}/test-model`]: { toolUse: true, toolChoice: true } }
+    writeFileSync(sPath, JSON.stringify(s))
+
+    // 编辑（改变 baseUrl → fieldsChanged=true）
+    const ed = await req<{ provider: ProviderDto }>({
+      method: 'PUT',
+      path: `/api/providers/${pid}`,
+      body: { ...CONF, baseUrl: 'https://changed.local/v1' },
+    })
+    expect(ed.status).toBe(200)
+
+    const after = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
+    expect(after.modelCaps[`${pid}/test-model`]).toBeUndefined()
+  })
+
+  it('删除供应商时清 modelCaps 缓存', async () => {
+    const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
+    const pid = a.json.provider.id
+
+    const sPath = join(userDataPath, 'providers.json')
+    const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
+    s.modelCaps = { [`${pid}/test-model`]: { toolUse: true, toolChoice: true } }
+    writeFileSync(sPath, JSON.stringify(s))
+
+    const del = await req<{ ok: boolean }>({ method: 'DELETE', path: `/api/providers/${pid}` })
+    expect(del.status).toBe(200)
+
+    const after = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
+    expect(after.modelCaps[`${pid}/test-model`]).toBeUndefined()
   })
 })

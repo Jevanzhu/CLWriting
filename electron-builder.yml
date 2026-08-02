@@ -3,10 +3,9 @@ appId: com.clwriting.studio
 productName: CLWriting
 directories:
   output: dist-electron
-# asar 内容：主进程 + cli + chunks + 前端 + 模板
+# asar 内容：主进程 + chunks + 前端
 files:
   - dist/**/*
-  - templates/**/*
   - package.json
 asar: true
 mac:

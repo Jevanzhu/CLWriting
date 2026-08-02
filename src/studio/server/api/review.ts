@@ -117,7 +117,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
       writeAnalysis(bookRoot, docId, 'review', {
         generatedAt: new Date().toISOString(),
-        model: prov ? `${prov.name}/${prov.model}` : 'mock',
+        model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
         sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
         payload: { collected, lenses: loopResult.lenses },
       })

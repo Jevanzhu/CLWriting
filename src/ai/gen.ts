@@ -58,6 +58,10 @@ export async function* withFirstByteTimeout(
         if (result.done) { await it.return?.(); return }
         firstByteReceived = true
         yield result.value
+      } catch (e) {
+        // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）
+        await it.return?.()
+        throw e
       } finally {
         if (timer) clearTimeout(timer)
       }
@@ -118,6 +122,10 @@ export async function generateText(
   onText?: (delta: string) => void,
 ): Promise<string> {
   const r = await generate(provider, req, signal, onText)
+  // P1-3：纯文本端点截断检查（与 generateTool 对称）
+  if (r.stopReason === 'max_tokens') {
+    throw new GenError(`AI 产出达到长度上限（max_tokens=${req.maxTokens}）被截断。请增大档位 maxTokens 或精简 prompt。`, false)
+  }
   return r.text
 }
 
@@ -131,10 +139,18 @@ export async function generateTool(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string }> {
+  // P0-2：模型不支持工具调用 → 提前拒绝（避免进入生成阶段拿不到 tool_use 再降级失败浪费 token）
+  if (provider.modelCaps?.toolUse === false) {
+    throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false)
+  }
   // 模型级 caps.toolChoice=true → 强制工具调用（确保结构化产出）；null/false 则依赖 prompt 引导 + text 兜底
   const effective = provider.modelCaps?.toolChoice ? { ...req, toolChoice: 'any' as const } : req
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
+  // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
+  if (!tool && r.stopReason === 'max_tokens') {
+    throw new GenError(`AI 产出达到长度上限（max_tokens=${req.maxTokens}）被截断，结构化结果不完整。请增大档位 maxTokens 或精简 prompt。`, false)
+  }
   return {
     input: tool ? tool.input : null,
     text: r.text,

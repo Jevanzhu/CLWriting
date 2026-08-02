@@ -1,9 +1,8 @@
 /**
- * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读写）。
+ * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读）。
  *
- * GET /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
- * PUT /api/books/:name/settings/character  body {file, 姓名, 身份?, 目标?, 境界?, 正文}
- *   → 写回 定稿/设定/角色/<名>.md（front matter + 正文，防穿越）→ {ok, file}
+ * GET  /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
+ * GET  /api/books/:name/completion-names → 角色姓名 + 物品名称（编辑器补全用）
  *
  * P2 知识层:角色卡 front matter 约定(姓名/身份/目标/境界)+ 正文(性格/外貌/履历自由描述)。
  * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系线从账本。

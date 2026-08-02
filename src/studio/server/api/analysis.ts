@@ -144,7 +144,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const fullContent = readFileSync(absPath, 'utf-8')
       const envelope = {
         generatedAt: new Date().toISOString(),
-        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc',
+        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
         sourceHash: sourceHashOf(fullContent),
         payload,
       }
@@ -334,7 +334,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
       const envelope = {
         generatedAt: new Date().toISOString(),
-        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc',
+        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
         sourceHash: sourceHashOf(sampleText),
         payload,
       }

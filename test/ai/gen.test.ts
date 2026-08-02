@@ -88,6 +88,21 @@ describe('generateText / generateTool 简化路径', () => {
     expect(t).toBe('细纲')
   })
 
+  // P1-3：纯文本端点截断检查（与 generateTool 对称，覆盖 outline/onboard）
+  it('generateText 在 max_tokens 截断时抛 GenError', async () => {
+    const p: ModelProvider = {
+      conf: CONF,
+      modelCaps: null,
+      async *stream() {
+        yield { type: 'text', delta: '不完整的大纲' }
+        yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
+      },
+    }
+    await expect(
+      generateText(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
+  })
+
   it('generateTool 取第一个 tool 的 input；无 tool 时 input=null 回退 text', async () => {
     const a = await generateTool(
       provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),
@@ -103,6 +118,35 @@ describe('generateText / generateTool 简化路径', () => {
     )
     expect(b.input).toBeNull()
     expect(b.text).toBe('自由文本')
+  })
+
+  // P0-2：modelCaps.toolUse=false → 提前拒绝，不进入生成阶段
+  it('generateTool 在 toolUse=false 时抛不可重试 GenError', async () => {
+    const p: ModelProvider = {
+      conf: CONF,
+      modelCaps: { toolUse: false, toolChoice: false },
+      async *stream() {
+        yield { type: 'text', delta: '不该走到这里' }
+      },
+    }
+    await expect(
+      generateTool(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
+  })
+
+  // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级
+  it('generateTool 在 max_tokens 截断且无 tool_use 时抛 GenError', async () => {
+    const p: ModelProvider = {
+      conf: CONF,
+      modelCaps: { toolUse: true, toolChoice: true },
+      async *stream() {
+        yield { type: 'text', delta: '不完整的产出' }
+        yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
+      },
+    }
+    await expect(
+      generateTool(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
   })
 })
 
@@ -137,6 +181,23 @@ describe('B-2 首字节超时', () => {
     const first = await iter.next()
     expect(first.done).toBe(false)
     expect(first.value.type).toBe('text')
+  })
+
+  // P1-1：超时后必须关闭上游迭代器（释放 HTTP 连接，否则叠加重试最多 4 条悬挂连接并存）
+  it('超时后调用上游 it.return() 释放连接', async () => {
+    let returnCalled = false
+    const slow: AsyncIterable<GenEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<GenEvent>>((r) =>
+            setTimeout(() => r({ done: false, value: { type: 'text', delta: 'late' } }), 500)),
+          return: () => { returnCalled = true; return Promise.resolve({ done: true, value: undefined }) },
+        }
+      },
+    }
+    const iter = withFirstByteTimeout(slow, 10)
+    await expect(iter.next()).rejects.toThrow('首字节超时')
+    expect(returnCalled).toBe(true)
   })
 })
 

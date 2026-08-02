@@ -42,8 +42,8 @@ export type TaskResult<T> = TaskOk<T> | TaskErr
 /** B-1：可重试错误（429/5xx）的退避重试上限（退避 1s → 2s → 4s） */
 const MAX_RETRIES = 3
 const BACKOFF_MS = [1000, 2000, 4000] as const
-/** B-2：整体超时上限（含重试的总时长） */
-const TOTAL_TIMEOUT_MS = 600_000 // 10 min
+/** B-2：整体超时默认上限（档位 timeoutMs 可覆盖） */
+const DEFAULT_TIMEOUT_MS = 600_000 // 10 min
 
 /** 可中断 sleep（abort 到达立即 resolve，不继续等退避） */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -114,8 +114,8 @@ export async function runTask<T>(opts: {
     const mock = tryMockTool(opts.mockTool)
     if (mock) return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null }
   }
-  // mock 快路（文本型）：直接返回预定值
-  if (opts.mockText !== undefined) {
+  // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
+  if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
     return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null }
   }
 
@@ -125,13 +125,15 @@ export async function runTask<T>(opts: {
   const ctrl = opts.ctrl ?? new AbortController()
   if (opts.register) opts.register(ctrl)
 
-  // B-2：整体超时（含重试的总时长上限）——abort ctrl，由下方 catch 区分超时 vs 用户中断
+  // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
+  const tier = resolveTier(opts.userDataPath, opts.tierKind ?? 'creative')
+  const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let timedOut = false
-  const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, TOTAL_TIMEOUT_MS)
+  const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)
 
   const timeoutAbort = (): TaskErr =>
     timedOut
-      ? { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${TOTAL_TIMEOUT_MS / 60_000} 分钟）` }
+      ? { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）` }
       : { ok: false, code: 'ABORTED', error: '已中断' }
 
   try {

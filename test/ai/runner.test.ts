@@ -87,6 +87,17 @@ describe('runTask mock 快路', () => {
     })
     expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
   })
+
+  // P0-1：非 mock 环境 mockText 不短路（与 mockTool 守卫对称，防生产返回 mock 文本）
+  it('非 mock 环境 mockText 不短路（走 provider 解析）', async () => {
+    delete process.env.CLWRITING_DRIVER
+    const out = await runTask<string>({
+      userDataPath: tempUserData(), // 无 providers.json → NO_PROVIDER，证明没走 mock
+      mockText: '## mock 细纲',
+      run: (_p, _s) => Promise.resolve('never'),
+    })
+    expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
+  })
 })
 
 describe('runTask provider 解析与统一错误文案', () => {

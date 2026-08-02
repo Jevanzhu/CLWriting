@@ -204,6 +204,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       caps: fieldsChanged ? null : existing.caps,
       capsProbedAt: fieldsChanged ? undefined : existing.capsProbedAt,
     }
+    // P0-3：编辑后 modelCaps 可能不再准确（baseUrl/key 变了）→ 清缓存要求重新探测
+    if (fieldsChanged) {
+      const prefix = `${id}/`
+      for (const key of Object.keys(s.modelCaps)) {
+        if (key.startsWith(prefix)) delete s.modelCaps[key]
+      }
+    }
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskProvider(s.providers[idx]!) })
   })
@@ -217,7 +224,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
     s.providers.splice(idx, 1)
     if (s.currentId === id) {
-      s.currentId = s.providers[0]?.id ?? null
+      // P2：回落首项也需校验 caps（与 PUT current 一致——未探测不许启用）
+      const next = s.providers[0]
+      s.currentId = next?.caps ? next.id : null
+    }
+    // P0-3：删除供应商时清除其 modelCaps 缓存条目（换端点后不能沿用旧能力判定）
+    const mcPrefix = `${id}/`
+    for (const key of Object.keys(s.modelCaps)) {
+      if (key.startsWith(mcPrefix)) delete s.modelCaps[key]
     }
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { ok: true, currentId: s.currentId })

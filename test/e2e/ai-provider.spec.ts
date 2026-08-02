@@ -48,8 +48,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   let inputs = page.locator('.ai-service-panel .form .text-input')
   await inputs.nth(0).fill('我的中转')
   await inputs.nth(1).fill('https://openai.local/v1')
-  await inputs.nth(2).fill('gpt-4o')
-  await inputs.nth(3).fill('sk-test-key-1234')
+  await inputs.nth(2).fill('sk-test-key-1234')
   await page.locator('.ai-service-panel .form .save-btn').click()
 
   let card = page.locator('.provider-card')
@@ -68,8 +67,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   inputs = page.locator('.ai-service-panel .form .text-input')
   await inputs.nth(0).fill('备用中转')
   await inputs.nth(1).fill('https://backend.local/v1')
-  await inputs.nth(2).fill('claude-sonnet-5')
-  await inputs.nth(3).fill('sk-test-key-9999')
+  await inputs.nth(2).fill('sk-test-key-9999')
   await page.locator('.ai-service-panel .form .save-btn').click()
 
   await expect(page.locator('.provider-card')).toHaveCount(2)

@@ -7,6 +7,10 @@ import OpenAI from 'openai'
 import type { Protocol } from './types.js'
 
 export async function listModels(protocol: Protocol, baseUrl: string, apiKey: string): Promise<string[]> {
+  // mock 环境短路（CLWRITING_DRIVER=mock）——避免向不存在端点发真实请求导致 fetchModels 超时
+  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+    return ['gpt-4o', 'gpt-4o-mini']
+  }
   if (protocol === 'anthropic') {
     const client = new Anthropic({
       baseURL: baseUrl,

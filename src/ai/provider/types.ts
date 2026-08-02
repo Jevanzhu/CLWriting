@@ -60,6 +60,8 @@ export interface TierSlot {
   model: string
   effort: 'low' | 'medium' | 'high'
   maxTokens: number
+  /** 整体超时上限 ms（B-2：档位可覆盖默认 10min）；缺省 → runner 默认值 */
+  timeoutMs?: number
 }
 
 /** 任务档位配置（应用级，存 providers.json） */
