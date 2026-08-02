@@ -13,6 +13,7 @@ import type {
   GenRequest,
   GenEvent,
   ModelProvider,
+  ModelCaps,
   TokenUsage,
   ToolDef,
 } from './types.js'
@@ -31,7 +32,7 @@ function createClient(conf: ProviderConf): Anthropic {
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
   const params: Anthropic.MessageCreateParamsStreaming = {
-    model: conf.model,
+    model: conf.model ?? '',
     max_tokens: req.maxTokens,
     system: req.systemPrompt,
     messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
@@ -68,11 +69,12 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic): ModelProvider {
+export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, modelCaps?: ModelCaps | null): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
     conf,
+    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false

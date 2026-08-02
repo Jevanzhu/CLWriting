@@ -29,9 +29,9 @@ export interface ProviderConf {
   protocol: Protocol
   auth: AuthStrategy
   baseUrl: string
-  model: string
+  model?: string // 方案 A：model 移至全局（工作台选），供应商不再绑死
   apiKey: string // 存 userData（见 store.ts）
-  caps: ProviderCaps | null // null = 尚未探测
+  caps: ProviderCaps | null // 服务级能力（连通/流式）；null = 尚未测试连接
   capsProbedAt?: number
   sortIndex?: number
   notes?: string
@@ -43,10 +43,31 @@ export interface ProviderSettings {
   currentId: string | null
 }
 
-/** 能力矩阵——探测所得，驱动适配器和契约层的分支依据 */
+/** 服务级能力——连通 / 认证 / 流式（供应商「测试连接」探测所得） */
 export interface ProviderCaps {
-  toolUse: boolean // 契约层依赖；false 则该供应商不可用于写作
+  connected: boolean // 连通 + 认证（listModels 成功即算通过）
+  streaming: boolean // 流式产出（逐字增量可用）
+}
+
+/** 模型级能力——tool_use / tool_choice（选定模型后探测，按 providerId+model 缓存） */
+export interface ModelCaps {
+  toolUse: boolean // 契约层依赖；false 则该模型不可用于写作
   toolChoice: boolean // 强制调用；false 则退回 prompt 引导 + 校验重试
+}
+
+/** 任务档位槽——模型 + 推理深度 + 单次输出上限（Q3 甲：端点按任务类型取档） */
+export interface TierSlot {
+  model: string
+  effort: 'low' | 'medium' | 'high'
+  maxTokens: number
+}
+
+/** 任务档位配置（应用级，存 providers.json） */
+export interface TierConfig {
+  /** 创作档（写正文 / 改写 / 大纲 / 开书引导） */
+  creative: TierSlot
+  /** 助手档（三审 / 分析 / 检查）；null = 未配，回落 creative */
+  assistant: TierSlot | null
 }
 
 /**
@@ -93,12 +114,20 @@ export interface TokenUsage {
 /** Provider 接口——适配器实现 */
 export interface ModelProvider {
   readonly conf: ProviderConf
+  /** 模型级能力（tool_use / tool_choice）；null = 未探测，生成时保守降级 */
+  readonly modelCaps: ModelCaps | null
   stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent>
 }
 
-/** 探测结果 */
+/** 服务级探测结果（供应商「测试连接」） */
 export interface ProbeResult {
   caps: ProviderCaps
   /** 探测过程中的诊断信息（不含书稿内容，不含完整 key） */
+  details: string[]
+}
+
+/** 模型级探测结果（选定模型后触发） */
+export interface ModelProbeResult {
+  caps: ModelCaps
   details: string[]
 }

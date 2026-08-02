@@ -5,7 +5,7 @@
  * generateText / generateTool 简化路径。
  */
 import { describe, expect, it } from 'vitest'
-import { generate, generateText, generateTool, GenError } from '../../src/ai/gen.js'
+import { generate, generateText, generateTool, GenError, withFirstByteTimeout } from '../../src/ai/gen.js'
 import type { GenEvent, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 
 const CONF = { name: 'fake' } as ProviderConf
@@ -13,6 +13,7 @@ const CONF = { name: 'fake' } as ProviderConf
 function provider(events: GenEvent[]): ModelProvider {
   return {
     conf: CONF,
+    modelCaps: null,
     async *stream() {
       for (const e of events) yield e
     },
@@ -110,5 +111,43 @@ describe('GenError 类型', () => {
     const e = new GenError('rate', true)
     expect(e.name).toBe('GenError')
     expect(e.retryable).toBe(true)
+  })
+})
+
+describe('B-2 首字节超时', () => {
+  it('首个事件前超时 → 可重试 GenError', async () => {
+    const slow: AsyncIterable<GenEvent> = {
+      async *[Symbol.asyncIterator]() {
+        await new Promise((r) => setTimeout(r, 500))
+        yield { type: 'text', delta: 'too late' }
+      },
+    }
+    const iter = withFirstByteTimeout(slow, 10) // 10ms 超时
+    await expect(iter.next()).rejects.toThrow('首字节超时')
+  })
+
+  it('首字节在超时前到达 → 正常产出（超时取消）', async () => {
+    const fast: AsyncIterable<GenEvent> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', delta: 'fast' }
+        yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
+      },
+    }
+    const iter = withFirstByteTimeout(fast, 10_000)
+    const first = await iter.next()
+    expect(first.done).toBe(false)
+    expect(first.value.type).toBe('text')
+  })
+})
+
+describe('B-3 stopReason 传递', () => {
+  it('generateTool 返回值含 stopReason（max_tokens 截断可检测）', async () => {
+    const r = await generateTool(
+      provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'max_tokens' }]),
+      { systemPrompt: '', messages: [], maxTokens: 100 },
+      signal(),
+    )
+    expect(r.stopReason).toBe('max_tokens')
+    expect(r.input).toEqual({ 正文: 'y' })
   })
 })

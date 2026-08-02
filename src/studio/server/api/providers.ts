@@ -19,9 +19,14 @@ import {
   newProviderId,
   maskKey,
   probeCapabilities,
+  probeModelCaps,
+  setCurrentModel,
+  getModelCaps,
+  setModelCaps,
   type ProviderConf,
   type Protocol,
   type AuthStrategy,
+  type TierSlot,
 } from '../../../ai/provider/index.js'
 import { listModels } from '../../../ai/provider/models.js'
 
@@ -37,6 +42,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     reply(res, 200, {
       providers: s.providers.map(maskProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
       currentId: s.currentId,
+      currentModel: s.currentModel,
+      tiers: s.tiers,
     })
   })
 
@@ -56,7 +63,6 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       protocol: parsed.protocol,
       auth: parsed.auth,
       baseUrl: parsed.baseUrl,
-      model: parsed.model,
       apiKey: parsed.apiKey,
       caps: null,
       sortIndex: s.providers.length,
@@ -87,6 +93,85 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     reply(res, 200, { ok: true, currentId: s.currentId })
   })
 
+  // 全局当前模型（方案 A：model 独立于供应商，工作台选择）
+  // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
+  route('PUT', '/api/ai-model', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    const body = await readJson(req)
+    const model = String(body['model'] ?? '').trim()
+    if (!model) return reply(res, 400, { error: 'model 必填' })
+    setCurrentModel(ctx.userDataPath, model)
+
+    // 模型级 caps：查缓存，未命中则探测
+    const s = loadProviders(ctx.userDataPath)
+    const conf = s.providers.find((p) => p.id === s.currentId)
+    if (!conf) {
+      reply(res, 200, { ok: true, model })
+      return
+    }
+    let caps = getModelCaps(ctx.userDataPath, conf.id, model)
+    let details: string[] | undefined
+    if (!caps) {
+      try {
+        const probed = await probeModelCaps({ ...conf, model })
+        caps = probed.caps
+        details = probed.details
+        setModelCaps(ctx.userDataPath, conf.id, model, caps)
+      } catch (e) {
+        // 探测失败不阻塞选模型——生成时降级（modelCaps=null）
+        details = [`模型能力探测失败：${e instanceof Error ? e.message : String(e)}`]
+      }
+    }
+    reply(res, 200, { ok: true, model, modelCaps: caps, details })
+  })
+
+  // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
+  route('PUT', '/api/tiers', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    const body = await readJson(req)
+    const creativeRaw = body['creative']
+    if (typeof creativeRaw !== 'object' || creativeRaw === null) {
+      return reply(res, 400, { error: 'creative 档位必填' })
+    }
+    const creative = parseTierSlot(creativeRaw as Record<string, unknown>)
+    if (!creative.ok) return reply(res, 400, { error: creative.error })
+
+    let assistant: TierSlot | null = null
+    const assistantRaw = body['assistant']
+    if (assistantRaw !== null && assistantRaw !== undefined) {
+      if (typeof assistantRaw !== 'object') {
+        return reply(res, 400, { error: 'assistant 档位需为对象或 null' })
+      }
+      const a = parseTierSlot(assistantRaw as Record<string, unknown>)
+      if (!a.ok) return reply(res, 400, { error: a.error })
+      assistant = a.slot
+    }
+
+    const s = loadProviders(ctx.userDataPath)
+    s.tiers = { creative: creative.slot, assistant }
+    // 同步 currentModel（兼容 resolveTier 回落逻辑）
+    s.currentModel = creative.slot.model || null
+    saveProviders(ctx.userDataPath, s)
+
+    // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
+    const conf = s.providers.find((p) => p.id === s.currentId)
+    const probeDetails: Record<string, string[]> = {}
+    if (conf) {
+      const models = [creative.slot.model, assistant?.model].filter((m): m is string => !!m)
+      for (const model of models) {
+        if (!getModelCaps(ctx.userDataPath, conf.id, model)) {
+          try {
+            const probed = await probeModelCaps({ ...conf, model })
+            setModelCaps(ctx.userDataPath, conf.id, model, probed.caps)
+          } catch (e) {
+            probeDetails[model] = [`模型能力探测失败：${e instanceof Error ? e.message : String(e)}`]
+          }
+        }
+      }
+    }
+    reply(res, 200, { ok: true, tiers: s.tiers, details: probeDetails })
+  })
+
   // 编辑
   route('PUT', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
@@ -106,7 +191,6 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const fieldsChanged =
       existing.baseUrl !== parsed.baseUrl ||
       existing.apiKey !== newKey ||
-      existing.model !== parsed.model ||
       existing.protocol !== parsed.protocol ||
       existing.auth !== parsed.auth
 
@@ -116,7 +200,6 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       protocol: parsed.protocol,
       auth: parsed.auth,
       baseUrl: parsed.baseUrl,
-      model: parsed.model,
       apiKey: newKey,
       caps: fieldsChanged ? null : existing.caps,
       capsProbedAt: fieldsChanged ? undefined : existing.capsProbedAt,
@@ -202,7 +285,7 @@ function maskProvider(conf: ProviderConf): ProviderConf & { apiKeyMasked: string
 function parseProviderInput(
   body: Record<string, unknown>,
 ):
-  | { ok: true; name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; model: string; apiKey: string }
+  | { ok: true; name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string }
   | { ok: false; error: string } {
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
@@ -212,12 +295,21 @@ function parseProviderInput(
   const auth: AuthStrategy = protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
-  const model = String(body['model'] ?? '').trim()
-  if (!model) return { ok: false, error: 'model 必填' }
   const apiKey = String(body['apiKey'] ?? '').trim()
-  // 编辑时 apiKey 可为空=保留原 key（端点处理），新增时必填
-  if (!apiKey && body['apiKey'] === undefined) {
-    // apiKey 字段缺失：编辑场景允许（保留原 key），新增场景由调用方检查
+  return { ok: true, name, protocol, auth, baseUrl, apiKey }
+}
+
+/** 解析档位槽输入（模型 + 推理深度 + 单次输出上限） */
+function parseTierSlot(raw: Record<string, unknown>): { ok: true; slot: TierSlot } | { ok: false; error: string } {
+  const model = String(raw['model'] ?? '').trim()
+  if (!model) return { ok: false, error: 'model 必填' }
+  const effort = String(raw['effort'] ?? 'high')
+  if (effort !== 'low' && effort !== 'medium' && effort !== 'high') {
+    return { ok: false, error: 'effort 需为 low/medium/high' }
   }
-  return { ok: true, name, protocol, auth, baseUrl, model, apiKey }
+  const maxTokens = Number(raw['maxTokens'])
+  if (!Number.isInteger(maxTokens) || maxTokens < 1) {
+    return { ok: false, error: 'maxTokens 需为正整数' }
+  }
+  return { ok: true, slot: { model, effort: effort as 'low' | 'medium' | 'high', maxTokens } }
 }

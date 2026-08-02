@@ -10,11 +10,13 @@ import {
   deleteProvider,
   setCurrentProvider,
   testProvider,
-  fetchModels as fetchModelsApi,
+  fetchModels,
+  setTiers,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
   type TestResult,
+  type TierSlot,
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
 
@@ -26,6 +28,15 @@ const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
 
+// 任务档位（D 档：创作档/助手档）
+const models = ref<string[]>([])
+const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null }>({
+  creative: { model: '', effort: 'high', maxTokens: 16000 },
+  assistant: null,
+})
+const assistantEnabled = ref(false)
+const tierSaving = ref(false)
+
 // 编辑/新增表单
 const editing = ref(false)
 const editId = ref<string | null>(null)
@@ -33,7 +44,6 @@ const form = ref({
   name: '',
   protocol: 'openai' as Protocol,
   baseUrl: '',
-  model: '',
   apiKey: '',
 })
 
@@ -48,6 +58,18 @@ async function refresh(): Promise<void> {
     const data = await getProviders()
     providers.value = data.providers
     currentId.value = data.currentId
+    // D 档：读档位配置 + 模型列表
+    tierForm.value.creative = { ...data.tiers.creative }
+    tierForm.value.assistant = data.tiers.assistant ? { ...data.tiers.assistant } : null
+    assistantEnabled.value = !!data.tiers.assistant
+    if (currentId.value) {
+      try {
+        const r = await fetchModels({ id: currentId.value })
+        models.value = r.models
+      } catch {
+        models.value = []
+      }
+    }
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
   } finally {
@@ -60,13 +82,13 @@ onMounted(refresh)
 function startAdd(): void {
   editing.value = true
   editId.value = null
-  form.value = { name: '', protocol: 'openai', baseUrl: '', model: '', apiKey: '' }
+  form.value = { name: '', protocol: 'openai', baseUrl: '', apiKey: '' }
 }
 
 function startEdit(p: ProviderConfDto): void {
   editing.value = true
   editId.value = p.id
-  form.value = { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
+  form.value = { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, apiKey: '' }
 }
 
 function cancelEdit(): void {
@@ -78,33 +100,10 @@ function selectPreset(protocol: Protocol): void {
   form.value.protocol = protocol
 }
 
-// 模型列表获取（调供应商 /v1/models，中转不支持时 fallback 手输）
-const modelOptions = ref<string[]>([])
-const fetchingModels = ref(false)
-async function fetchModels(): Promise<void> {
-  fetchingModels.value = true
-  try {
-    const body = editId.value
-      ? { id: editId.value }
-      : { protocol: form.value.protocol, baseUrl: form.value.baseUrl, apiKey: form.value.apiKey }
-    if (!editId.value && !form.value.baseUrl.trim()) return ui.toast('请先填写 API 地址', 'error')
-    if (!editId.value && !form.value.apiKey.trim()) return ui.toast('请先填写 API Key', 'error')
-    const res = await fetchModelsApi(body)
-    modelOptions.value = res.models
-    if (res.models.length === 0) ui.toast('模型列表为空', 'error')
-    else ui.toast(`获取到 ${res.models.length} 个模型`, 'success')
-  } catch (e) {
-    ui.toast(`获取失败：${e instanceof Error ? e.message : String(e)}`, 'error')
-  } finally {
-    fetchingModels.value = false
-  }
-}
-
 async function save(): Promise<void> {
   const f = form.value
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.baseUrl.trim()) return ui.toast('API 地址必填', 'error')
-  if (!f.model.trim()) return ui.toast('模型名必填', 'error')
   if (!editId.value && !f.apiKey.trim()) return ui.toast('API Key 必填', 'error')
 
   try {
@@ -160,8 +159,7 @@ async function test(p: ProviderConfDto): Promise<void> {
     // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
     void ui.probeAiStatus()
     await refresh()
-    if (r.ok && r.caps?.toolUse) ui.toast(`${p.name} 测试通过`, 'success')
-    else if (r.ok && !r.caps?.toolUse) ui.toast(`${p.name} 连通但不支持工具调用`, 'error')
+    if (r.ok && r.caps?.connected) ui.toast(`${p.name} 测试通过`, 'success')
     else ui.toast(r.error ?? '测试失败', 'error')
   } catch (e) {
     testResults.value.set(p.id, { ok: false, error: e instanceof Error ? e.message : String(e) })
@@ -171,12 +169,36 @@ async function test(p: ProviderConfDto): Promise<void> {
   }
 }
 
+function toggleAssistant(on: boolean): void {
+  if (on && !tierForm.value.assistant) {
+    tierForm.value.assistant = { model: tierForm.value.creative.model, effort: 'low', maxTokens: 4000 }
+  }
+}
+
+async function saveTiers(): Promise<void> {
+  if (!tierForm.value.creative.model) return ui.toast('创作档模型必选', 'error')
+  tierSaving.value = true
+  try {
+    await setTiers({
+      creative: tierForm.value.creative,
+      assistant: assistantEnabled.value ? tierForm.value.assistant : null,
+    })
+    void ui.probeAiStatus()
+    ui.toast('档位已保存', 'success')
+    await refresh()
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+  } finally {
+    tierSaving.value = false
+  }
+}
+
 function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | null {
   if (!caps) return null
-  if (!caps.toolUse) return { text: '不可用于写作', cls: 'bad' }
-  const parts: string[] = []
-  if (caps.toolChoice) parts.push('强制工具')
-  return { text: parts.length ? parts.join(' · ') : '基础', cls: 'ok' }
+  if (!caps.connected) return { text: '连接失败', cls: 'bad' }
+  const parts = ['已连接']
+  if (caps.streaming) parts.push('流式')
+  return { text: parts.join(' · '), cls: 'ok' }
 }
 
 function timeAgo(ts: number | undefined): string {
@@ -214,7 +236,7 @@ function timeAgo(ts: number | undefined): string {
             </div>
             <div class="provider-actions">
               <button
-                v-if="p.id !== currentId && p.caps?.toolUse"
+                v-if="p.id !== currentId && p.caps?.connected"
                 class="mini-btn"
                 data-tip="设为当前启用"
                 @click="activate(p)"
@@ -241,7 +263,6 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="provider-meta">
             <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
-            <span class="model">{{ p.model }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
           <!-- caps 徽章 -->
@@ -261,6 +282,55 @@ function timeAgo(ts: number | undefined): string {
           </div>
         </div>
       </template>
+
+      <!-- 任务档位 -->
+      <div v-if="currentId && models.length > 0" class="tier-section">
+        <div class="group-title">任务档位</div>
+        <div class="tier-card">
+          <div class="tier-head">
+            <span class="tier-name">创作档</span>
+            <span class="tier-desc">写正文 / 改写 / 大纲</span>
+          </div>
+          <div class="tier-fields">
+            <select v-model="tierForm.creative.model" class="tier-select">
+              <option value="" disabled>选择模型</option>
+              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <select v-model="tierForm.creative.effort" class="tier-select sm">
+              <option value="high">深度</option>
+              <option value="medium">平衡</option>
+              <option value="low">快速</option>
+            </select>
+            <input v-model.number="tierForm.creative.maxTokens" type="number" min="1000" max="65536" step="1000" class="tier-input" />
+            <span class="tier-unit">tokens</span>
+          </div>
+        </div>
+        <div class="tier-card">
+          <div class="tier-head">
+            <label class="tier-toggle">
+              <input type="checkbox" v-model="assistantEnabled" @change="toggleAssistant(assistantEnabled)" />
+              <span class="tier-name">助手档</span>
+            </label>
+            <span class="tier-desc">三审 / 分析 · 不配则回落创作档</span>
+          </div>
+          <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
+            <select v-model="tierForm.assistant.model" class="tier-select">
+              <option value="" disabled>选择模型</option>
+              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <select v-model="tierForm.assistant.effort" class="tier-select sm">
+              <option value="high">深度</option>
+              <option value="medium">平衡</option>
+              <option value="low">快速</option>
+            </select>
+            <input v-model.number="tierForm.assistant.maxTokens" type="number" min="1000" max="65536" step="1000" class="tier-input" />
+            <span class="tier-unit">tokens</span>
+          </div>
+        </div>
+        <button class="save-btn" :disabled="tierSaving" @click="saveTiers">
+          <Loader2 v-if="tierSaving" :size="14" class="spin" /> 保存档位
+        </button>
+      </div>
     </template>
 
     <!-- 新增/编辑表单 -->
@@ -291,18 +361,6 @@ function timeAgo(ts: number | undefined): string {
         <div class="form-row">
           <label>API 地址</label>
           <input v-model="form.baseUrl" type="text" placeholder="https://..." class="text-input" />
-        </div>
-        <div class="form-row">
-          <label>模型名</label>
-          <div class="model-row">
-            <input v-model="form.model" list="model-options" type="text" placeholder="点「获取」拉列表，或手动输入" class="text-input" />
-            <datalist id="model-options">
-              <option v-for="m in modelOptions" :key="m" :value="m" />
-            </datalist>
-            <button type="button" class="mini-btn" :disabled="fetchingModels" @click="fetchModels">
-              {{ fetchingModels ? '...' : '获取' }}
-            </button>
-          </div>
         </div>
         <div class="form-row">
           <label>API Key</label>
@@ -479,11 +537,6 @@ function timeAgo(ts: number | undefined): string {
   background: var(--background-modifier-hover);
   color: var(--text-faint);
 }
-.model {
-  font-family: var(--font-monospace);
-  font-size: 11px;
-  color: var(--text-muted);
-}
 .key {
   font-family: var(--font-monospace);
   font-size: 11px;
@@ -577,15 +630,6 @@ function timeAgo(ts: number | undefined): string {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
-.model-row {
-  display: flex;
-  gap: var(--size-4-2);
-  align-items: center;
-}
-.model-row .text-input {
-  flex: 1;
-}
-
 .preset-list {
   display: flex;
   flex-direction: column;
@@ -662,5 +706,73 @@ function timeAgo(ts: number | undefined): string {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ── 任务档位 ── */
+.tier-section {
+  margin-top: var(--size-4-6);
+}
+.tier-card {
+  padding: var(--size-4-3) var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin-bottom: var(--size-4-2);
+}
+.tier-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--size-4-2);
+}
+.tier-name {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.tier-desc {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.tier-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.tier-toggle input {
+  accent-color: var(--interactive-accent);
+}
+.tier-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tier-select {
+  flex: 1;
+  min-width: 140px;
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.tier-select.sm {
+  flex: 0 0 auto;
+  min-width: 80px;
+}
+.tier-input {
+  width: 90px;
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.tier-unit {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 </style>

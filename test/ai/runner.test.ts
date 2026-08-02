@@ -5,12 +5,13 @@
  * mock/真实 decode 一致、resolveProvider 独立行为。
  * （GEN_FAIL / ABORTED 需真实 provider 网络路径，不在这层单测，由 e2e 覆盖。）
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
+import { GenError } from '../../src/ai/gen.js'
 
 const workDirs: string[] = []
 function tempUserData(): string {
@@ -22,6 +23,28 @@ afterEach(() => {
   for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
 })
+
+/** 写最小 providers.json（明文 apiKey，loadProviders 自动迁移加密） */
+function writeProviders(userDataPath: string): void {
+  writeFileSync(
+    join(userDataPath, 'providers.json'),
+    JSON.stringify({
+      providers: [
+        {
+          id: 'prov-test',
+          name: 'test',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://localhost:1',
+          apiKey: 'sk-test',
+          caps: { connected: true, streaming: true },
+        },
+      ],
+      currentId: 'prov-test',
+      currentModel: 'gpt-4o',
+    }),
+  )
+}
 
 describe('runTask mock 快路', () => {
   it('mockText 形态：CLWRITING_DRIVER=mock 直接返回预定文本，不触 run', async () => {
@@ -89,5 +112,57 @@ describe('resolveProvider 独立行为', () => {
     process.env.CLWRITING_DRIVER = 'mock'
     expect(resolveProvider(null)).toMatchObject({ ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG })
     expect(resolveProvider(tempUserData())).toMatchObject({ ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG })
+  })
+})
+
+describe('runTask B-1 指数退避重试', () => {
+  it('可重试错误（429）→ 退避后重试成功', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: () => {
+        calls++
+        if (calls < 2) throw new GenError('429 limit', true)
+        return Promise.resolve('ok')
+      },
+    })
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.data).toBe('ok')
+    expect(calls).toBe(2) // 第一次 429 → 退避 → 第二次成功
+  }, 10_000)
+
+  it('不可重试错误 → 不重试，直接 GEN_FAIL', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: () => {
+        calls++
+        throw new GenError('400 bad request', false)
+      },
+    })
+    expect(out).toMatchObject({ ok: false, code: 'GEN_FAIL' })
+    expect(calls).toBe(1)
+  })
+
+  it('abort 优先于重试（中断不进退避）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const ctrl = new AbortController()
+    let calls = 0
+    const out = await runTask<string>({
+      userDataPath: ud,
+      ctrl,
+      run: () => {
+        calls++
+        ctrl.abort() // 用户中断
+        throw new GenError('429 limit', true) // 虽然可重试，但已 abort
+      },
+    })
+    expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+    expect(calls).toBe(1) // 不重试
   })
 })

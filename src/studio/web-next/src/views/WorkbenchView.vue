@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
 // 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（M4 去机器味：作者看文章，调试功能全保留）。
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { Activity, CircleCheck, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -17,6 +17,7 @@ import {
   type BookState,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
+import { getProviders, type TierSlot } from '../api/providers'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
 
@@ -29,6 +30,18 @@ const tree = useTreeStore()
 const state = ref<BookState | null>(null)
 const prompt = ref('')
 const err = ref<string | null>(null)
+
+// 任务档位信息（只读显示，配置在设置 → AI）
+const tierCreative = ref<TierSlot | null>(null)
+
+async function loadTier(): Promise<void> {
+  try {
+    const data = await getProviders()
+    tierCreative.value = data.tiers?.creative ?? null
+  } catch {
+    /* 静默——档位显示不阻断主流程 */
+  }
+}
 
 // 态机 action → 可执行操作（每个建议动作都有 UI 按钮）。
 // CLI 确定性步骤（hand/rebook/health/review-batch/enter）随 CLI 退场：对应 action 不再有按钮，
@@ -65,6 +78,9 @@ watch(
   () => refreshState(),
   { immediate: true },
 )
+onMounted(() => {
+  void loadTier()
+})
 // 生成结束（running false 跳变）刷新状态卡
 watch(
   () => wb.running,
@@ -86,6 +102,16 @@ watch(
     } catch {
       /* 树刷新/打开失败不阻断（草稿已落盘，作者可从文章树手动找） */
     }
+  },
+)
+
+// B-3：max_tokens 截断等非致命警告 → toast 提示
+watch(
+  () => wb.warning,
+  (msg) => {
+    if (!msg) return
+    ui.toast(msg, 'error')
+    wb.warning = null
   },
 )
 
@@ -186,6 +212,10 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
       return `[自愈] 阶段 ${ev.phase}`
     case 'self_heal_reset':
       return '[自愈] 清正文缓冲（新一轮重写）'
+    case 'text_reset':
+      return '[重试] 清正文缓冲（流式重试防重复产出）'
+    case 'warning':
+      return `[警告] ${ev.message}`
     case 'self_heal_progress':
       return `[自愈] 第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余红项 ${(ev.remaining as string[] | undefined)?.length ?? 0}`
     case 'self_heal_result':
@@ -217,6 +247,14 @@ const recent = computed(() => wb.log.slice(-200))
     <div v-if="ui.aiAvailable === false" class="ai-warn">
       AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用供应商。
     </div>
+    <!-- 任务档位（只读显示，配置在设置 → AI） -->
+    <section v-if="tierCreative" class="card model-bar">
+      <span class="model-label">创作档</span>
+      <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
+      <span v-if="tierCreative.model" class="tier-meta">
+        {{ tierCreative.effort === 'high' ? '深度' : tierCreative.effort === 'medium' ? '平衡' : '快速' }} · {{ tierCreative.maxTokens.toLocaleString() }} tokens
+      </span>
+    </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
     <section class="card">
       <div class="card-head">
@@ -396,6 +434,42 @@ const recent = computed(() => wb.log.slice(-200))
   height: 28px;
   padding: 0 12px;
   font-size: var(--font-size-s);
+}
+.model-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+}
+.model-label {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.model-select {
+  flex: 1;
+  height: 30px;
+  font-size: var(--font-size-s);
+  padding: 0 var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+  font-family: var(--font-monospace);
+}
+.model-select:focus {
+  border-color: var(--interactive-accent);
+}
+.tier-model {
+  font-family: var(--font-monospace);
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+}
+.tier-meta {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 .spawn-row {
   display: flex;

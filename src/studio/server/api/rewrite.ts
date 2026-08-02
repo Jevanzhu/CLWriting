@@ -21,6 +21,7 @@ import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
 import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
+import { resolveTier } from '../../../ai/provider/index.js'
 import { submitText } from '../../../ai/contract/index.js'
 import { REWRITER_SYSTEM } from '../../../ai/prompts/index.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -37,8 +38,10 @@ async function runRewriter(
   userDataPath: string | null,
   prompt: string,
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
+  const tier = resolveTier(userDataPath, 'creative')
   const out = await runTask<{ input: unknown; text: string }>({
     userDataPath,
+    tierKind: 'creative',
     mockTool: 'submit_text',
     run: (provider, signal) =>
       generateTool(
@@ -46,7 +49,8 @@ async function runRewriter(
         {
           systemPrompt: REWRITER_SYSTEM,
           messages: [{ role: 'user', content: prompt }],
-          maxTokens: 8000,
+          maxTokens: tier.maxTokens,
+          effort: tier.effort,
           tools: [submitText()],
           toolChoice: 'tool',
           toolName: 'submit_text',

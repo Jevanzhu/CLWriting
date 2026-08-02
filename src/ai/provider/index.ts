@@ -9,6 +9,9 @@ export type {
   ProviderConf,
   ProviderSettings,
   ProviderCaps,
+  ModelCaps,
+  TierSlot,
+  TierConfig,
   GenRequest,
   ChatMsg,
   ToolDef,
@@ -16,6 +19,7 @@ export type {
   TokenUsage,
   ModelProvider,
   ProbeResult,
+  ModelProbeResult,
 } from './types.js'
 
 export { PRESETS, type ProviderPreset } from './presets.js'
@@ -23,6 +27,11 @@ export {
   loadProviders,
   saveProviders,
   currentProvider,
+  currentModelOf,
+  setCurrentModel,
+  getModelCaps,
+  setModelCaps,
+  resolveTier,
   emptySettings,
   newProviderId,
   maskKey,
@@ -39,6 +48,6 @@ export {
   type Vault,
   type SealedKey,
 } from './vault.js'
-export { createProvider, probeCapabilities } from './probe.js'
+export { createProvider, probeCapabilities, probeModelCaps } from './probe.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider } from './openai-adapter.js'

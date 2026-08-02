@@ -18,6 +18,7 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { runTask } from '../../../ai/runner.js'
 import { generateText } from '../../../ai/gen.js'
+import { resolveTier } from '../../../ai/provider/index.js'
 
 interface OnboardCtx {
   workDir: string | null
@@ -32,13 +33,15 @@ async function runOnboard(
   userDataPath: string | null,
   prompt: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const tier = resolveTier(userDataPath, 'creative')
   const out = await runTask<string>({
     userDataPath,
+    tierKind: 'creative',
     mockText: MOCK_ONBOARD,
     run: (provider, signal) =>
       generateText(
         provider,
-        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: 4000 },
+        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: tier.maxTokens, effort: tier.effort },
         signal,
       ),
   })

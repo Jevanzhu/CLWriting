@@ -19,6 +19,10 @@ export interface SessionOptions {}
 export type DriverEvent =
   | { type: 'init'; sessionId: string; agents: string[]; tools: string[] }
   | { type: 'text'; text: string; role?: string }
+  /** 生成重试前清正文缓冲（B-1：流式重试防重复产出） */
+  | { type: 'text_reset' }
+  /** 非致命警告（如 max_tokens 截断）——UI toast 提示，不影响生成状态（B-3） */
+  | { type: 'warning'; message: string }
   | { type: 'tool_use'; tool: string; input: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
   | { type: 'usage'; cost: number; tokens: number }

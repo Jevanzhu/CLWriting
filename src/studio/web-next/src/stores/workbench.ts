@@ -46,6 +46,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const healPhase = ref<'drafting' | 'checking' | 'rewriting' | null>(null)
   const healProgress = ref<HealProgress | null>(null)
   const healResult = ref<HealResult | null>(null)
+  /** 非致命警告（如 max_tokens 截断）——UI watch 后 toast。null = 无。 */
+  const warning = ref<string | null>(null)
 
   /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
@@ -75,8 +77,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       running.value = false
     }
     if (e.type === 'text' && typeof e.text === 'string') textOut.value += e.text
-    // 整章重写产出的是完整替换稿，不清缓冲会把多轮正文首尾拼接
-    else if (e.type === 'self_heal_reset') textOut.value = ''
+    // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
+    else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
       healPhase.value = e.phase as 'drafting' | 'checking' | 'rewriting'
     } else if (e.type === 'self_heal_progress') {
@@ -95,6 +97,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
       healPhase.value = null
       healProgress.value = null
+    } else if (e.type === 'warning') {
+      warning.value = e.message as string
     }
   }
 
@@ -104,6 +108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase.value = null
     healProgress.value = null
     healResult.value = null
+    warning.value = null
   }
   function setConnected(v: boolean): void {
     connected.value = v
@@ -117,6 +122,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase,
     healProgress,
     healResult,
+    warning,
     dispatch,
     clear,
     setConnected,

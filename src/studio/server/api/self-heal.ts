@@ -17,15 +17,17 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { evaluateRetry } from '../../../process/retry.js'
 import { getRedItems } from '../../../check/types.js'
 import type { BookConfig } from '../../../format/types.js'
+import type { TokenUsage } from '../../../ai/provider/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { readKind } from '../book-context.js'
 import { checkWithDb, type CheckOutcome } from './check.js'
 import { buildDraftPrompt, saveDraft } from './draft.js'
 import { buildRewritePrompt, draftFileName } from './rewrite.js'
 import { generateTool } from '../../../ai/gen.js'
-import { createProvider, currentProvider } from '../../../ai/provider/index.js'
 import { tryMockTool } from '../../../ai/mock-tool.js'
-import { NO_PROVIDER_MSG } from '../../../ai/runner.js'
+import { runTask } from '../../../ai/runner.js'
+import { resolveTier } from '../../../ai/provider/index.js'
+import { recordAiCall, checkAiCallBudget } from '../../../ai/calls.js'
 import { chapterTool, chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
 import { writerSystem } from '../../../ai/prompts/index.js'
 
@@ -117,7 +119,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   }
   const check = opts.check ?? ((p: string) => checkWithFreshDb(bookRoot, p, config, isShort))
 
-  // ① 首稿
+  // ① 首稿（C-1：预算闸——超限不跑）
+  const budget = checkAiCallBudget(bookRoot, chapter, config)
+  if (!budget.ok) return { outcome: 'failed', error: budget.reason }
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
   const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind))
   if (first.status !== 'ok') return spawnFailure(first)
@@ -165,7 +169,12 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       feedback = `请修复以下红项后重写：\n- ${reds[0]}`
     }
 
-    // ③ 退回重写
+    // ③ 退回重写（C-1：预算闸——超限则 escalate，保留当前稿）
+    const budget2 = checkAiCallBudget(bookRoot, chapter, config)
+    if (!budget2.ok) {
+      const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+      return { outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
+    }
     emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
     emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
     emit(opts, { type: 'self_heal_reset' })
@@ -234,43 +243,54 @@ async function runGenerate(
     return { status: 'error', error: 'AI 产出为空' }
   }
 
-  // 真实 provider + tool_use
-  const conf = currentProvider(opts.userDataPath)
-  if (!conf) return { status: 'error', error: NO_PROVIDER_MSG }
+  // 真实 provider + tool_use —— 走 runTask（统一 resolveProvider 注入 model + 错误打包）
+  const tier = resolveTier(opts.userDataPath, 'creative')
+  const out = await runTask<{ input: unknown; text: string; stopReason: string; usage: TokenUsage }>({
+    userDataPath: opts.userDataPath,
+    tierKind: 'creative',
+    ctrl: state.ctrl,
+    onReset: () => emit(opts, { type: 'self_heal_reset' }),
+    run: async (provider, signal) => {
+      const r = await generateTool(
+        provider,
+        {
+          systemPrompt: writerSystem(kind),
+          messages: [{ role: 'user', content: userPrompt }],
+          maxTokens: tier.maxTokens,
+          effort: tier.effort,
+          tools: [chapterTool(kind)],
+          toolChoice: 'tool',
+          toolName: chapterToolName(kind),
+        },
+        signal,
+        (delta) => emit(opts, { type: 'text', text: delta }),
+      )
+      return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage }
+    },
+  })
 
-  const provider = createProvider(conf)
-  try {
-    const { input, text } = await generateTool(
-      provider,
-      {
-        systemPrompt: writerSystem(kind),
-        messages: [{ role: 'user', content: userPrompt }],
-        maxTokens: 8000,
-        tools: [chapterTool(kind)],
-        toolChoice: 'tool',
-        toolName: chapterToolName(kind),
-      },
-      state.ctrl.signal,
-      (delta) => emit(opts, { type: 'text', text: delta }),
-    )
-
-    if (state.ctrl.signal.aborted) return { status: 'aborted' }
-
-    // tool_use 结构化产出 → 拼装 front matter + 正文
-    const assembled = assembleChapter(input, opts.chapter, kind)
-    if (assembled.ok) {
-      return { status: 'ok', text: assembled.content }
-    }
-
-    // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
-    if (text.trim()) {
-      return { status: 'ok', text: text.trim() }
-    }
-    return { status: 'error', error: 'AI 产出为空' }
-  } catch (e) {
-    if (state.ctrl.signal.aborted) return { status: 'aborted' }
-    return { status: 'error', error: e instanceof Error ? e.message : String(e) }
+  if (!out.ok) {
+    if (out.code === 'ABORTED' || state.ctrl.signal.aborted) return { status: 'aborted' }
+    return { status: 'error', error: out.error }
   }
+  if (state.ctrl.signal.aborted) return { status: 'aborted' }
+
+  // C-2：记账（本次 AI 调用 + token 消耗）
+  recordAiCall(opts.bookRoot, opts.chapter, out.usage)
+
+  // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
+  const { input, text, stopReason } = out.data
+  if (stopReason === 'max_tokens') {
+    emit(opts, { type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
+  }
+
+  // tool_use 结构化产出 → 拼装 front matter + 正文
+  const assembled = assembleChapter(input, opts.chapter, kind)
+  if (assembled.ok) return { status: 'ok', text: assembled.content }
+
+  // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
+  if (text.trim()) return { status: 'ok', text: text.trim() }
+  return { status: 'error', error: 'AI 产出为空' }
 }
 
 function spawnFailure(r: SpawnResult): SelfHealOutcome {

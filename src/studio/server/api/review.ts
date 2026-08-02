@@ -26,6 +26,7 @@ import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
+import { resolveTier } from '../../../ai/provider/index.js'
 import { submitIssues, ISSUES_TOOL_NAME } from '../../../ai/contract/index.js'
 import { reviewSystem } from '../../../ai/prompts/index.js'
 
@@ -178,6 +179,7 @@ async function runLensSpawnLoop(opts: {
   onProgress?: (lens: string, phase: 'start' | 'done') => void
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
   const lenses: string[] = []
+  const tier = resolveTier(opts.userDataPath, 'assistant')
   mkdirSync(opts.outDir, { recursive: true })
 
   // 逐 lens：runTask 统一编排（mock 快路/provider/中断/错误文案），mock 与真实同走 decode
@@ -188,6 +190,7 @@ async function runLensSpawnLoop(opts: {
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
     const out = await runTask<{ input: unknown; text: string }>({
       userDataPath: opts.userDataPath,
+      tierKind: 'assistant',
       mockTool: ISSUES_TOOL_NAME,
       run: (provider, signal) =>
         generateTool(
@@ -195,7 +198,8 @@ async function runLensSpawnLoop(opts: {
           {
             systemPrompt: reviewSystem(lens),
             messages: [{ role: 'user', content: prompt }],
-            maxTokens: 4000,
+            maxTokens: tier.maxTokens,
+            effort: tier.effort,
             tools: [submitIssues()],
             toolChoice: 'tool',
             toolName: ISSUES_TOOL_NAME,

@@ -15,6 +15,7 @@ import type {
   GenRequest,
   GenEvent,
   ModelProvider,
+  ModelCaps,
   TokenUsage,
   ToolDef,
 } from './types.js'
@@ -49,7 +50,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     messages,
     stream: true,
     // o 系列用 max_completion_tokens
-    ...(isOSeries(conf.model) ? { max_completion_tokens: req.maxTokens } : { max_tokens: req.maxTokens }),
+    ...(isOSeries(conf.model ?? '') ? { max_completion_tokens: req.maxTokens } : { max_tokens: req.maxTokens }),
   }
 
   if (req.tools?.length) {
@@ -89,11 +90,12 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
-export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
+export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
     conf,
+    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false

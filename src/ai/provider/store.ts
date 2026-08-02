@@ -14,7 +14,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, ProviderSettings } from './types.js'
+import type { ProviderConf, ProviderSettings, ModelCaps, TierSlot, TierConfig } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
@@ -38,19 +38,35 @@ const FILE = 'providers.json'
 export interface ProviderStore {
   providers: ProviderConf[] // 含明文 apiKey（仅内存）
   currentId: string | null
+  currentModel: string | null // 全局模型选择（方案 A：model 独立于供应商）
+  /** 模型级 caps 缓存：key = `${providerId}/${model}` */
+  modelCaps: Record<string, ModelCaps>
+  /** 任务档位（D 档：创作档/助手档；端点按任务类型取档） */
+  tiers: TierConfig
   vault: Vault | null
   dek: Buffer | null
 }
 
+/** 默认档位配置（首次启动 / 文件无 tiers 字段时） */
+function defaultTiers(model: string | null): TierConfig {
+  return {
+    creative: { model: model ?? '', effort: 'high', maxTokens: 16000 },
+    assistant: null,
+  }
+}
+
 /** 空 store（首次启动 / 文件缺失时） */
 export function emptySettings(): ProviderStore {
-  return { providers: [], currentId: null, vault: null, dek: null }
+  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), vault: null, dek: null }
 }
 
 /** 磁盘文件结构——providers 不含 apiKey，密文统一在 vault.keys */
 interface DiskFormat {
   providers: Array<Omit<ProviderConf, 'apiKey'> & { apiKey?: string }>
   currentId: string | null
+  currentModel?: string | null
+  modelCaps?: Record<string, ModelCaps>
+  tiers?: TierConfig
   vault?: Vault
 }
 
@@ -103,7 +119,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
     needsRewrite = true
   }
 
-  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, vault, dek }
+  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), vault, dek }
 
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
@@ -144,7 +160,7 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
     return { ...p, apiKey: undefined } as Omit<ProviderConf, 'apiKey'>
   })
 
-  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, vault }
+  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, vault }
   const json = JSON.stringify(disk, null, 2) + '\n'
 
   // D7：写前备份（文件已存在时）——同权限 0600
@@ -169,6 +185,41 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   const s = loadProviders(userDataPath)
   if (!s.currentId) return null
   return s.providers.find((p) => p.id === s.currentId) ?? null
+}
+
+/** 全局当前模型（方案 A：model 独立于供应商，工作台选） */
+export function currentModelOf(userDataPath: string): string | null {
+  return loadProviders(userDataPath).currentModel
+}
+
+/** 设置全局当前模型 */
+export function setCurrentModel(userDataPath: string, model: string): void {
+  const s = loadProviders(userDataPath)
+  s.currentModel = model
+  saveProviders(userDataPath, s)
+}
+
+/** 模型级 caps（按 providerId+model 缓存）；未探测 → null */
+export function getModelCaps(userDataPath: string, providerId: string, model: string): ModelCaps | null {
+  return loadProviders(userDataPath).modelCaps[`${providerId}/${model}`] ?? null
+}
+
+/** 写入模型级 caps（选模型探测后调用） */
+export function setModelCaps(userDataPath: string, providerId: string, model: string, caps: ModelCaps): void {
+  const s = loadProviders(userDataPath)
+  s.modelCaps[`${providerId}/${model}`] = caps
+  saveProviders(userDataPath, s)
+}
+
+/** 取档位配置（assistant 未配 / model 为空 → 回落 creative + currentModel） */
+export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant'): TierSlot {
+  if (!userDataPath) return { model: '', effort: 'high', maxTokens: 16000 }
+  const s = loadProviders(userDataPath)
+  const fallback = s.currentModel ?? ''
+  if (kind === 'assistant' && s.tiers.assistant) {
+    return s.tiers.assistant.model ? s.tiers.assistant : { ...s.tiers.assistant, model: fallback }
+  }
+  return s.tiers.creative.model ? s.tiers.creative : { ...s.tiers.creative, model: fallback }
 }
 
 /** 新供应商 ID */

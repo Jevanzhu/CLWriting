@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
 import { reply } from '../http.js'
-import { currentProvider } from '../../../ai/provider/index.js'
+import { currentProvider, resolveTier } from '../../../ai/provider/index.js'
 
 interface ProbeResult {
   available: boolean
@@ -54,6 +54,11 @@ function probeAi(userDataPath: string | null): ProbeResult {
   }
   if (!prov.caps) {
     return { available: false, driver: prov.name, reason: `供应商「${prov.name}」尚未测试连接` }
+  }
+  // D 档：模型从创作档取（含 currentModel 回落），无模型则按钮置灰
+  const tier = resolveTier(userDataPath, 'creative')
+  if (!tier.model) {
+    return { available: false, driver: prov.name, reason: '尚未配置模型档位（请在设置 → AI 中配置）' }
   }
   return { available: true, driver: prov.name }
 }

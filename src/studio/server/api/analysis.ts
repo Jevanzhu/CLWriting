@@ -24,6 +24,7 @@ import type { ChapterMeta } from '../../../format/types.js'
 import { readIronRules, computeFullStats } from '../../../metrics/style.js'
 import { runTask } from '../../../ai/runner.js'
 import { generateTool } from '../../../ai/gen.js'
+import { resolveTier } from '../../../ai/provider/index.js'
 import { submitAnalysis, analysisToolName, type AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { ANALYST_SYSTEM } from '../../../ai/prompts/index.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
@@ -40,8 +41,10 @@ async function runAnalyst(
   kind: ContractKind,
   prompt: string,
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
+  const tier = resolveTier(userDataPath, 'assistant')
   const out = await runTask<{ input: unknown; text: string }>({
     userDataPath,
+    tierKind: 'assistant',
     mockTool: analysisToolName(kind),
     run: (provider, signal) =>
       generateTool(
@@ -49,7 +52,8 @@ async function runAnalyst(
         {
           systemPrompt: ANALYST_SYSTEM,
           messages: [{ role: 'user', content: prompt }],
-          maxTokens: 4000,
+          maxTokens: tier.maxTokens,
+          effort: tier.effort,
           tools: [submitAnalysis(kind)],
           toolChoice: 'tool',
           toolName: analysisToolName(kind),
