@@ -4,7 +4,6 @@
  * - GET  /api/books/:name/files        列可编辑 .md（定稿正文 + 设定 + 大纲）
  * - GET  /api/books/:name/file?file=   读 .md 全文
  * - PUT  /api/books/:name/file?file=   写 .md 全文（编辑器保存）
- * - POST /api/books/:name/revert       回滚到第 N 章/篇（rollbackToChapter）
  *
  * 读写全文（不剥 front matter）：设定里有的 .md 无 front matter（如 总纲.md）。
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
@@ -15,8 +14,6 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from '
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readKind } from '../book-context.js'
-import { rollbackToChapter } from '../../../git/rollback.js'
 
 interface FileCtx {
   workDir: string | null
@@ -88,28 +85,6 @@ export function registerFileRoutes(ctx: FileCtx): void {
     },
   )
 
-  // 回滚到第 N 章/篇（版本回滚；丢弃内容进 git 备份 ref 可找回）
-  route(
-    'POST',
-    '/api/books/:name/revert',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
-      const body = (await readJson(req)) as { chapter?: unknown }
-      const chapter = Number(body.chapter)
-      if (!Number.isFinite(chapter) || chapter < 1) {
-        reply(res, 400, { error: '章号/篇号得是正整数' })
-        return
-      }
-      const kind = readKind(r.bookRoot)
-      const result = rollbackToChapter(r.bookRoot, chapter, kind)
-      if (!result.ok) {
-        reply(res, 400, { error: result.humanMsg })
-        return
-      }
-      reply(res, 200, { ok: true, message: result.humanMsg })
-    },
-  )
 }
 
 /** 取 req URL 的 searchParams */

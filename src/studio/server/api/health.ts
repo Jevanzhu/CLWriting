@@ -1,7 +1,6 @@
 /**
  * 体检 REST 端点（#12.3 + 7.1）。
  *
- * - GET /api/books/:name/health/metrics  成本/审查（aggregateMetrics → MetricsReport）
  * - GET /api/books/:name/health/style     文风（aggregateStyleTrend → StyleTrend）
  *
  * 复用内核聚合函数，直接返结构化对象（不走人话 format）。后端零新增逻辑。
@@ -12,8 +11,6 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
-import { readMetrics } from '../../../metrics/ledger.js'
-import { aggregateMetrics } from '../../../metrics/report.js'
 import { scanLongChapters, scanShortPieces, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
 
 interface HealthCtx {
@@ -22,13 +19,6 @@ interface HealthCtx {
 
 /** 注册体检路由（server 启动时调用一次） */
 export function registerHealthRoutes(ctx: HealthCtx): void {
-  // 成本/审查
-  route('GET', '/api/books/:name/health/metrics', (_req, res, params) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return reply(res, r.status, { error: r.error })
-    reply(res, 200, aggregateMetrics(readMetrics(r.bookRoot), {}))
-  })
-
   // 文风
   route('GET', '/api/books/:name/health/style', (_req, res, params) => {
     const r = resolveBook(ctx.workDir, params['name'])

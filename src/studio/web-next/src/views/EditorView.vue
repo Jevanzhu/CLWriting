@@ -70,7 +70,6 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
   const e = entry.value
   if (!e) return { text: '', cls: '' }
   if (e.saving) return { text: '保存中', cls: 'saving' }
-  if (e.handLocked) return { text: '手写中', cls: 'saving' }
   if (e.error) return { text: '保存失败', cls: 'err' }
   if (e.dirty) return { text: '未保存', cls: 'dirty' }
   if (e.savedAt) return { text: '已保存', cls: 'saved' }
@@ -82,7 +81,6 @@ const saveBtnLabel = computed(() => {
   const e = entry.value
   if (!e) return '保存'
   if (e.saving) return '保存中'
-  if (e.handLocked) return '手写中'
   if (e.error) return '重试'
   return e.dirty ? '保存' : '已保存'
 })
@@ -90,7 +88,7 @@ const saveBtnLabel = computed(() => {
 /** 手动保存（按钮 + ⌘S/Ctrl+S）。 */
 function onSave(): void {
   const e = entry.value
-  if (!e || e.saving || e.handLocked || (!e.dirty && !e.error)) return
+  if (!e || e.saving || (!e.dirty && !e.error)) return
   void doc.save(e.docId, 'manual')
 }
 function onKeydown(e: KeyboardEvent): void {
@@ -361,7 +359,7 @@ onUnmounted(() => {
             <button
               class="save-btn"
               :class="saveStatus.cls"
-              :disabled="entry.saving || entry.handLocked || (!entry.dirty && !entry.error)"
+              :disabled="entry.saving || (!entry.dirty && !entry.error)"
               data-tip="保存（⌘S）"
               data-tip-dir="bottom"
               @click="onSave"

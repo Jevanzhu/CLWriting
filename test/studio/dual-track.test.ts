@@ -61,15 +61,6 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
     expect(d.written.sceneDist['战斗']).toBe(1)
   })
 
-  it('账本：六类概览（悬念 1 条进行中）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/leads`)
-    const d = (await r.json()) as { kind: string; overview: { 类型: string; total: number; 进行中: number }[] }
-    expect(d.kind).toBe('long')
-    const 悬念 = d.overview.find((o) => o.类型 === '悬念')
-    expect(悬念?.total).toBe(1)
-    expect(悬念?.进行中).toBe(1)
-  })
-
   it('设定：角色卡（林远）+ 境界体系', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/settings`)
     const d = (await r.json()) as {
@@ -106,35 +97,6 @@ describe('双轨回归 · 短篇 P1–P4 数据链', () => {
     const d = (await r.json()) as { kind: string; reversals: { 篇号: number }[] }
     expect(d.kind).toBe('short')
     expect(d.reversals).toHaveLength(2)
-  })
-
-  it('篇详情（6.5）：第 1 篇元数据 + 正文 + 清单三段', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/piece/1`)
-    const d = (await r.json()) as {
-      meta: { 核心反转: string }
-      body: string
-      list: {
-        反转线索表: { 核心反转: string; 铺垫点: unknown[] }
-        情绪曲线?: { 强度: number }[]
-        伏笔回收: unknown[]
-      }
-    }
-    expect(d.meta.核心反转).toContain('死者')
-    expect(d.body).toContain('门外没有脚印')
-    expect(d.list.反转线索表.铺垫点.length).toBeGreaterThanOrEqual(2)
-    expect(d.list.情绪曲线?.[1]?.强度).toBe(9)
-  })
-
-  it('账本（短篇分支 7.3）：集子总览聚合（2 篇 + 情绪峰值）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/leads`)
-    const d = (await r.json()) as {
-      kind: string
-      pieces: { 篇号: number; 情绪峰值?: number; 回收率?: string }[]
-      summary: { 总篇数: number }
-    }
-    expect(d.kind).toBe('short')
-    expect(d.summary.总篇数).toBe(2)
-    expect(d.pieces.find((p) => p.篇号 === 1)?.情绪峰值).toBe(9)
   })
 
   it('配置：短篇 book.yaml 读回', async () => {

@@ -1,7 +1,7 @@
 /**
  * mock driver 契约测试(横切 P0):验证 mockDriver 事件序列符合 StudioDriver 契约。
  *
- * 不调任何大模型(纯 mock),验证:init / emit(自定义事件回流)/ dispose / resume。
+ * 不调任何大模型(纯 mock),验证:init / emit(自定义事件回流)/ dispose。
  * 前端用 mock 开发时契约正确性由此保证。
  */
 import { describe, it, expect } from 'vitest'
@@ -48,15 +48,5 @@ describe('mock driver 契约', () => {
     const session = (await mockDriver.startSession('/tmp')) as S
     mockDriver.dispose(session)
     expect(session.closed).toBe(true)
-  })
-
-  it('resume 只恢复活跃 session 且保留 cwd', async () => {
-    const session = (await mockDriver.startSession('/tmp/clwriting-mock-resume')) as S
-    const resumed = await mockDriver.resume(session.id)
-    expect(resumed).toBe(session)
-    expect(resumed.cwd).toBe('/tmp/clwriting-mock-resume')
-
-    mockDriver.dispose(session)
-    await expect(mockDriver.resume(session.id)).rejects.toThrow('无法恢复未知或已关闭的 mock session')
   })
 })

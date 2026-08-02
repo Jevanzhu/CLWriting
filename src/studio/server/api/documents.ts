@@ -13,7 +13,6 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { isHandDraftLocked } from '../../../process/gui-active.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -59,12 +58,6 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
         return
       }
-      // M12 B0.4：hand 占用该草稿时拒绝保存（避免 Studio autosave 覆盖外部手写）
-      if (isHandDraftLocked(r.bookRoot, path)) {
-        reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在外部编辑中，请稍后保存' })
-        return
-      }
-
       const input = parseSaveInput(await readJson(req))
       if (!input) {
         reply(res, 400, {

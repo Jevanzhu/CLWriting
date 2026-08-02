@@ -10,7 +10,6 @@ import { ccDriver } from './cc.js'
 export type {
   Session,
   SessionOptions,
-  ApprovalResponse,
   DriverEvent,
   StudioDriver,
 } from './types.js'

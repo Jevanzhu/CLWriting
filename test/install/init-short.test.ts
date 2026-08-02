@@ -48,7 +48,7 @@ test('init short: 建短篇集布局（篇/ + 共享文风 + 工作区），不�
     expect(existsSync(join(bookRoot, '.git', 'hooks', 'pre-push'))).toBe(true)
     expect(readFileSync(join(bookRoot, '.git', 'hooks', 'pre-push'), 'utf-8')).toContain('Push is blocked by default')
     expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
-    expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(false)
     expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
   } finally {
     rmSync(wd, { recursive: true, force: true })
@@ -123,21 +123,6 @@ test('init short: books.jsonl 登记 kind=short', () => {
     expect(books[0]!.name).toBe('夜语集')
     expect(books[0]!.path).toBe('短篇/夜语集')
     expect(existsSync(join(wd, '短篇', '夜语集'))).toBe(true)
-  } finally {
-    rmSync(wd, { recursive: true, force: true })
-  }
-})
-
-test('init short: AGENTS.md 含短篇集语义文案', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
-  try {
-    const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-
-    const agents = readFileSync(join(r.bookRoot, 'AGENTS.md'), 'utf-8')
-    expect(agents).toContain('短篇集')
-    expect(agents).toContain('篇/')
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }

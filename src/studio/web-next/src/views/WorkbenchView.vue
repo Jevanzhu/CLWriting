@@ -176,8 +176,6 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
       return String(ev.text ?? '')
     case 'tool_use':
       return `[工具] ${ev.tool}${ev.role ? ' (' + ev.role + ')' : ''}`
-    case 'tool_result':
-      return `[结果] ${ev.role ?? ''}`
     case 'role_spawn':
       return `[子角色] ${ev.role}`
     case 'usage':

@@ -59,7 +59,6 @@ export type DetectedState =
   | { state: 4; chapterNum: number; resumePoint: 'pre-commit' | 'post-commit-residue' } // #13 中断点
   | { state: 5; volume: number } // 第几卷写完了
   | { state: 7; nextChapter: number }
-  | { state: 8; pendingChapters: number[] } // M6 #34：待定稿有完成章待批量审稿
 
 /** 路由动作（#15 第 2 节，各态路由去向；AI 执行处出桩标记） */
 export interface RouterAction {
@@ -67,20 +66,16 @@ export interface RouterAction {
   /** 人话（对作者：现在该干什么，零机器味） */
   humanMsg: string
   /** 动作类型（机器侧：状态机/#16#17#18/M2 流程谁来接） */
-  action: RouterActionKind
+  action?: RouterActionKind
   /** 是否需要 AI 介入（M3 桩、M4 真） */
   needsAI: boolean
 }
 
 export type RouterActionKind =
-  | 'git-health' // 态 1 → #16 健康检查修复
   | 'repair' // 态 2 → #18 修复确认
-  | 'rebook' // 态 3 → #18 提议补登
   | 'resume' // 态 4 → #13 中断恢复续跑
   | 'volume-review' // 态 5 → 卷复盘（M3 概要）
   | 'write-new-chapter' // 态 7 → M2 AI 写章流程
-  | 'pending-batch-review' // 态 8 → M6 #35 批量审稿
-  | 'pending-ai' // AI 介入点（M3 桩，M4 真执行）
 
 /**
  * 进门状态判定（#15 第 2 节，按序命中即返回）。
@@ -147,14 +142,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     }
   }
 
-  // #8 待批量审稿（M6 #34）：待定稿有完成章 → 路由批量审稿（插态 4 后、态 5 前）
-  // 长篇/短篇共用；短篇仍跳过卷末/体检，只在有待定稿篇时进入态 8。
-  const pending = detectPendingBatch(bookRoot)
-  if (pending.length > 0) {
-    return { state: 8, pendingChapters: pending }
-  }
-
-  // ── 态 4/8 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
+  // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
   // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 篇/ 目录
   if (config.kind === 'short') {
     return { state: 7, nextChapter: countPieces(join(bookRoot, '篇')) + 1 }
@@ -211,32 +199,6 @@ function detectIncompleteWorkdir(bookRoot: string): number | null {
   return chapterNum > 0 ? chapterNum : null
 }
 
-/**
- * 检测待定稿是否有完成章（态 8，M6 #34）。
- * 扫 工作区/待定稿/ 下 `<编号>-<标题>/` 目录，返回待审章/篇号列表（已排除 .isolated/ 隔离章）。
- * 真相以磁盘目录为准（#33 第 3 节文件即真相）；连写产出待定稿时无审稿.md（审稿是作者硬闸后移），
- * 故只按目录名判定，不要求审稿.md 存在。
- */
-function detectPendingBatch(bookRoot: string): number[] {
-  const pendingDir = join(bookRoot, '工作区', '待定稿')
-  if (!existsSync(pendingDir)) return []
-  let entries: import('node:fs').Dirent[]
-  try {
-    entries = readdirSync(pendingDir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-  const chapters: number[] = []
-  for (const e of entries) {
-    if (!e.isDirectory()) continue
-    if (e.name.startsWith('.')) continue // 跳过 .isolated/ / .auto-batch.json 等
-    // 目录名格式：<章号4位>-<标题>，如 0153-夜袭
-    const m = e.name.match(/^(\d+)-/)
-    if (m) chapters.push(Number(m[1]))
-  }
-  return chapters.sort((a, b) => a - b)
-}
-
 // countPieces 复用 format/pieces.ts 单源(避免两份计数逻辑漂移);签名接收 篇/ 目录路径
 
 /**
@@ -276,7 +238,6 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       return {
         state: 1,
         humanMsg: `进门体检发现 git 有问题，先处理再开写：\n${list}`,
-        action: 'git-health',
         needsAI: false,
       }
     }
@@ -296,7 +257,6 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
       return {
         state: 3,
         humanMsg: `你直接改了下面这些文件，需要同步一下：\n${list}`,
-        action: 'rebook',
         needsAI: true, // 补登内容判断 M4
       }
     }
@@ -329,17 +289,6 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
         humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
         action: 'write-new-chapter',
         needsAI: false, // M2 AI 写稿由 M4 壳调
-      }
-    }
-    case 8: {
-      const chs = detected.pendingChapters
-      const list = chs.map((c) => String(c)).join('、')
-      const unit = kind === 'short' ? '篇' : '章'
-      return {
-        state: 8,
-        humanMsg: `有 ${chs.length} ${unit}待审稿（第 ${list} ${unit}）。逐章过一遍，通过的定稿，不满意的回滚重写。`,
-        action: 'pending-batch-review',
-        needsAI: false, // 审稿是作者硬闸（品味归人，原则 7）
       }
     }
   }

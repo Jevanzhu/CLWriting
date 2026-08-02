@@ -39,8 +39,6 @@ export interface DocEntry {
   error: string | null
   /** 乐观锁冲突未决：外部已修改，等用户选「重载/覆盖」；期间 autosave 跳过（必再冲突）。 */
   conflict: boolean
-  /** hand 手写占用：CLI hand 正在编辑该草稿，保存被服务端拒（409 HAND_LOCKED）；autosave 跳过避免反复 409，manual 重试探锁。 */
-  handLocked: boolean
 }
 
 export const useDocStore = defineStore('doc', () => {
@@ -75,7 +73,6 @@ export const useDocStore = defineStore('doc', () => {
       savedAt: null,
       error: null,
       conflict: false,
-      handLocked: false,
     })
   }
 
@@ -93,7 +90,7 @@ export const useDocStore = defineStore('doc', () => {
     const e = docs.value.get(docId)
     if (!e || e.saving || !e.dirty) return false
     // 冲突未决时 autosave 必再冲突，跳过重试（也避免每 30s 一条错误提示），等用户选重载/覆盖
-    if ((e.conflict || e.handLocked) && origin === 'autosave') return false
+    if (e.conflict && origin === 'autosave') return false
     e.saving = true
     e.error = null
     // 快照本次落盘内容：await 期间的新输入不属于本次保存，成功后不得误清其 dirty
@@ -107,7 +104,6 @@ export const useDocStore = defineStore('doc', () => {
       })
       e.baselineRevision = r.revision
       e.conflict = false
-      e.handLocked = false
       if (e.content === snapshot) e.dirty = false
       e.savedAt = Date.now()
       // 局部更新 tree 字数（避免重拉整树）
@@ -120,9 +116,6 @@ export const useDocStore = defineStore('doc', () => {
       if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {
         e.conflict = true
         e.error = '文件已被外部修改'
-      } else if (err instanceof ApiError && err.code === 'HAND_LOCKED') {
-        e.handLocked = true
-        e.error = '该章正在手写中（保存已暂停）'
       } else {
         e.error = err instanceof Error ? err.message : String(err)
       }

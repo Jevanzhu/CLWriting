@@ -69,10 +69,6 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
       return { id: 'mock', cwd, closed: false }
     },
     async *stream(): AsyncGenerator<DriverEvent> {},
-    respondApproval(): void {},
-    async resume(): Promise<Session> {
-      throw new Error('n/a')
-    },
     dispose(): void {},
     emit(_s, ev): void {
       emitted.push(ev)

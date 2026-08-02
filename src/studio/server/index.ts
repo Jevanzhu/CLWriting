@@ -17,7 +17,6 @@ import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
 import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
-import { registerLeadsRoutes } from './api/leads.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
 import { registerDraftRoutes } from './api/draft.js'
@@ -27,7 +26,6 @@ import { registerOnboardRoutes } from './api/onboard.js'
 import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
 import { registerPrefsRoutes } from './api/prefs.js'
-import { registerPiecesRoutes } from './api/pieces.js'
 import { registerStateRoutes } from './api/state.js'
 import { registerIoRoutes } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
@@ -56,12 +54,10 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerFileRoutes({ workDir })
     registerOverviewRoutes({ workDir })
     registerRhythmRoutes({ workDir })
-    registerLeadsRoutes({ workDir })
     registerSettingsRoutes({ workDir })
     registerDraftRoutes({ workDir })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
-    registerPiecesRoutes({ workDir })
     registerStateRoutes({ workDir })
     registerIoRoutes({ workDir, token })
     registerKnowledgeRoutes({ workDir, token })

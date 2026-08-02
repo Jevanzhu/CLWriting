@@ -157,7 +157,7 @@ test('routeState: 各态路由动作 + needsAI 标记', () => {
   // 态 1 不需 AI、态 2/3 需 AI（M3 桩）、态 4/7 不需 AI
   const root1 = makeGitBook()
   writeFileSync(join(root1, '.git', 'index.lock'), '', 'utf-8')
-  expect(routeState(detectState(root1, DEFAULT_CONFIG)).action).toBe('git-health')
+  expect(routeState(detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
   rmSync(root1, { recursive: true, force: true })
 
   const root7 = makeGitBook()
@@ -198,14 +198,14 @@ test('enter: 干净书 → recap + route 结构正确', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('enter: git 异常且缓存缺失 → 不崩，返回 git-health 路由', () => {
+test('enter: git 异常且缓存缺失 → 不崩，返回态 1 路由', () => {
   const root = makeGitBook()
   writeFileSync(join(root, '.git', 'index.lock'), '', 'utf-8')
 
   const result = enter(root)
   expect(result.recap.state).toBe(1)
   expect(result.recap.currentChapter).toBe(0)
-  expect(result.route.action).toBe('git-health')
+  expect(result.route.state).toBe(1)
   rmSync(root, { recursive: true, force: true })
 })
 

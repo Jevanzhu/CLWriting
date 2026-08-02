@@ -47,17 +47,6 @@ test('cc.emit 多事件按序消费', async () => {
   ccDriver.dispose(session)
 })
 
-test('cc.resume: 仅恢复当前进程内仍活着的 session 并保留 cwd', async () => {
-  const session = await ccDriver.startSession('/tmp/clwriting-cc-resume')
-  const resumed = await ccDriver.resume(session.id)
-  expect(resumed).toBe(session)
-  expect(resumed.cwd).toBe('/tmp/clwriting-cc-resume')
-
-  ccDriver.dispose(session)
-  await expect(ccDriver.resume(session.id)).rejects.toThrow('无法恢复未知或已关闭的 CC session')
-  await expect(ccDriver.resume('cc-missing')).rejects.toThrow('无法恢复未知或已关闭的 CC session')
-})
-
 test('P1-2 registerCtrl: interrupt 可真 abort 生成请求 + isRunning 判在途', async () => {
   const session = await ccDriver.startSession('/tmp')
   const ctrl = new AbortController()

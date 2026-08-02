@@ -45,7 +45,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(bookRoot, '.git'))).toBe(true)
   expect(existsSync(join(bookRoot, '.git', 'hooks', 'pre-push'))).toBe(true)
   expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
-  expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(true)
+  expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(false)
   expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
   // 基础两类恒建
   expect(existsSync(join(bookRoot, '大纲', '悬念'))).toBe(true)

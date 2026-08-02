@@ -137,28 +137,6 @@ test('short 不触发态 5/6: 已有多篇也不判卷末/体检（无长程概�
   }
 })
 
-test('short 态 8: 待定稿有完成篇 → detectState 返回态 8', () => {
-  const root = makeShortBook()
-  try {
-    const pendingDir = join(root, '工作区', '待定稿', '001-雪夜')
-    mkdirSync(pendingDir, { recursive: true })
-    writeFileSync(join(pendingDir, '草稿-1.md'), '---\n篇号: 1\n标题: 雪夜\n---\n正文。\n', 'utf-8')
-    writeFileSync(join(pendingDir, '细纲.md'), '雪夜细纲', 'utf-8')
-
-    const d = detectState(root, SHORT_CONFIG)
-    expect(d.state).toBe(8)
-    if (d.state === 8) {
-      expect(d.pendingChapters).toEqual([1])
-    }
-    const result = enter(root)
-    expect(result.route.state).toBe(8)
-    expect(result.route.humanMsg).toContain('1 篇待审稿')
-    expect(result.route.humanMsg).toContain('第 1 篇')
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
 test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', () => {
   const root = mkdtempSync(join(tmpdir(), '长篇-'))
   try {

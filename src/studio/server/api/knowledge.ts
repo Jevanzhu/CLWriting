@@ -1,13 +1,12 @@
 /**
- * 知识层端点（#8.3）：knowledge 校验 + learn 文风收割闭环。
+ * 知识层端点（#8.3）：learn 文风收割闭环。
  *
- * - POST /api/books/:name/knowledge-check → validateKnowledgeManifest → manifest 校验报告
  * - POST /api/books/:name/learn           → learnFromBook 产候选（规则打分，不涉大模型）
  * - POST /api/books/:name/learn-commit    body {samples, quotes} → commitSamples + commitQuotes 入库
  *
  * learn 候选制（品味归人）：产候选 → 作者勾选 → 入库，不自动入库。
  * learn 仅长篇（learnFromBook 扫 定稿/正文/；短篇无此结构，返错）。
- * knowledge/learn-commit/knowledge-check 均直接调内核函数（不 spawn CLI，非交互）。
+ * 均直接调内核函数（不 spawn CLI，非交互）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -17,26 +16,12 @@ import { readBooks } from '../../../install/books.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes } from '../../../learn/commit.js'
 import type { SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
-import { validateKnowledgeManifest, formatKnowledgeManifestReport } from '../../../knowledge/manifest.js'
-
 interface KnowledgeCtx {
   workDir: string | null
   token: string
 }
 
 export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
-  // knowledge check（直接调用内核函数，不再 spawn CLI）
-  route('POST', '/api/books/:name/knowledge-check', (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    if (!checkToken(req, ctx.token)) return reply(res, 403, { error: 'token 校验失败' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
-    const bookRoot = join(ctx.workDir, entry.path)
-    const report = validateKnowledgeManifest(bookRoot)
-    const stdout = formatKnowledgeManifestReport(report)
-    reply(res, 200, { ok: report.ok, code: report.ok ? 0 : 1, stdout, stderr: '' })
-  })
-
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）
   route('POST', '/api/books/:name/learn', (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })

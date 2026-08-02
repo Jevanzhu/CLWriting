@@ -13,8 +13,6 @@ import { readPieceList } from '../format/manifest.js'
 import { readFile } from '../format/frontmatter.js'
 import { countWords } from '../format/chapters.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
-import type { MetricRecord } from './ledger.js'
-
 export interface ShortPieceIndexEntry {
   num: number
   title: string

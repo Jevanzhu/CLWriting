@@ -13,26 +13,14 @@ export interface Session {
   closed: boolean
 }
 
-export interface SessionOptions {
-  /** 角色系统提示加载目录(.claude/agents/*);省略用书仓库默认 */
-  agentsDir?: string
-}
-
-export interface ApprovalResponse {
-  id: string
-  accept: boolean
-  /** 选择题选项 */
-  choice?: string
-}
+export interface SessionOptions {}
 
 /** driver 事件流(方案 9.2);role?: 区分主 agent vs 子角色产出 */
 export type DriverEvent =
   | { type: 'init'; sessionId: string; agents: string[]; tools: string[] }
   | { type: 'text'; text: string; role?: string }
   | { type: 'tool_use'; tool: string; input: unknown; role?: string }
-  | { type: 'tool_result'; result: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
-  | { type: 'approval_request'; id: string; choices: string[]; detail: string }
   | { type: 'usage'; cost: number; tokens: number }
   | { type: 'error'; kind: string; message: string; recoverable: boolean }
   | { type: 'interrupted'; reason: string }
@@ -58,10 +46,6 @@ export interface StudioDriver {
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
-  /** 审批 / 选择回灌 */
-  respondApproval(session: Session, approval: ApprovalResponse): void
-  /** 续会话 */
-  resume(sessionId: string): Promise<Session>
   /** 结束会话 */
   dispose(session: Session): void
   /** 中断当前生成(推 interrupted;session 保留可再用)。可选,mock 可不实现 */

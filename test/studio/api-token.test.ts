@@ -37,7 +37,8 @@ function rawRequest(
 beforeAll(async () => {
   const workDir = mkdtempSync(join(tmpdir(), 'clwriting-token-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
+  mkdirSync(join(workDir, 't'), { recursive: true })
+  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '{"name":"t","path":"t"}\n')
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -83,10 +84,10 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   })
 
   it('POST 超过 JSON body 上限 → 413', async () => {
-    const body = JSON.stringify({ sourcePath: 'x'.repeat(1024 * 1024 + 1) })
+    const body = JSON.stringify({ format: 'x'.repeat(1024 * 1024 + 1) })
     const r = await rawRequest(
       'POST',
-      '/api/import',
+      '/api/books/t/export',
       {
         origin: baseUrl,
         'content-type': 'application/json',

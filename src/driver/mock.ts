@@ -8,7 +8,6 @@
 import type {
   Session,
   SessionOptions,
-  ApprovalResponse,
   DriverEvent,
   StudioDriver,
 } from './types.js'
@@ -63,18 +62,6 @@ export const mockDriver: StudioDriver = {
       if (session.closed) return
       await new Promise<void>((resolve) => ch.waiters.push(resolve))
     }
-  },
-
-  respondApproval(_session: Session, _approval: ApprovalResponse): void {
-    // mock 不产生 approval
-  },
-
-  async resume(sessionId: string): Promise<Session> {
-    const session = sessions.get(sessionId)
-    if (!session || session.closed || !channels.has(sessionId)) {
-      throw new Error(`无法恢复未知或已关闭的 mock session:${sessionId}`)
-    }
-    return session
   },
 
   dispose(session: Session): void {
