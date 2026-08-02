@@ -558,42 +558,6 @@ const recent = computed(() => wb.log.slice(-200))
   font-size: var(--font-size-s);
   color: var(--text-error);
 }
-.cli-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-}
-.cli-btn {
-  padding: 5px 12px;
-  font-size: var(--font-size-s);
-  font-family: var(--font-monospace);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.cli-btn:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-  border-color: var(--interactive-accent);
-}
-.cli-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.cli-report {
-  margin-top: var(--size-4-2);
-  padding: var(--size-4-2);
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  background: var(--background-primary);
-  border-radius: var(--radius-s);
-  white-space: pre-wrap;
-  max-height: 200px;
-  overflow: auto;
-}
 .draft-card {
   flex: 1;
   min-height: 240px;

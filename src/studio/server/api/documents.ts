@@ -61,7 +61,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       }
       // M12 B0.4：hand 占用该草稿时拒绝保存（避免 Studio autosave 覆盖外部手写）
       if (isHandDraftLocked(r.bookRoot, path)) {
-        reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在手写中（CLI hand 占用）' })
+        reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在外部编辑中，请稍后保存' })
         return
       }
 

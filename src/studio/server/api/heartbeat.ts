@@ -6,7 +6,6 @@
  * GET    /api/books/:name/collab    → isGuiActive → { active, ageMs }（协作徽章）
  *
  * 前端 useHeartbeat mounted + setInterval 调 POST；unmount 调 DELETE。
- * CLI 写命令（finalize/check/confirm）检测 .gui-active 新鲜则轻提示，不阻塞。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
