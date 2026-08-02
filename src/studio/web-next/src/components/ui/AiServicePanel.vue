@@ -10,6 +10,7 @@ import {
   deleteProvider,
   setCurrentProvider,
   testProvider,
+  fetchModels as fetchModelsApi,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
@@ -75,6 +76,28 @@ function cancelEdit(): void {
 
 function selectPreset(protocol: Protocol): void {
   form.value.protocol = protocol
+}
+
+// 模型列表获取（调供应商 /v1/models，中转不支持时 fallback 手输）
+const modelOptions = ref<string[]>([])
+const fetchingModels = ref(false)
+async function fetchModels(): Promise<void> {
+  fetchingModels.value = true
+  try {
+    const body = editId.value
+      ? { id: editId.value }
+      : { protocol: form.value.protocol, baseUrl: form.value.baseUrl, apiKey: form.value.apiKey }
+    if (!editId.value && !form.value.baseUrl.trim()) return ui.toast('请先填写 API 地址', 'error')
+    if (!editId.value && !form.value.apiKey.trim()) return ui.toast('请先填写 API Key', 'error')
+    const res = await fetchModelsApi(body)
+    modelOptions.value = res.models
+    if (res.models.length === 0) ui.toast('模型列表为空', 'error')
+    else ui.toast(`获取到 ${res.models.length} 个模型`, 'success')
+  } catch (e) {
+    ui.toast(`获取失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+  } finally {
+    fetchingModels.value = false
+  }
 }
 
 async function save(): Promise<void> {
@@ -271,7 +294,15 @@ function timeAgo(ts: number | undefined): string {
         </div>
         <div class="form-row">
           <label>模型名</label>
-          <input v-model="form.model" type="text" placeholder="如 gpt-4o / claude-sonnet-5-20251022" class="text-input" />
+          <div class="model-row">
+            <input v-model="form.model" list="model-options" type="text" placeholder="点「获取」拉列表，或手动输入" class="text-input" />
+            <datalist id="model-options">
+              <option v-for="m in modelOptions" :key="m" :value="m" />
+            </datalist>
+            <button type="button" class="mini-btn" :disabled="fetchingModels" @click="fetchModels">
+              {{ fetchingModels ? '...' : '获取' }}
+            </button>
+          </div>
         </div>
         <div class="form-row">
           <label>API Key</label>
@@ -545,6 +576,14 @@ function timeAgo(ts: number | undefined): string {
   outline: none;
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+.model-row {
+  display: flex;
+  gap: var(--size-4-2);
+  align-items: center;
+}
+.model-row .text-input {
+  flex: 1;
 }
 
 .preset-list {

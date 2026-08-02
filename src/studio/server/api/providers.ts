@@ -23,6 +23,7 @@ import {
   type Protocol,
   type AuthStrategy,
 } from '../../../ai/provider/index.js'
+import { listModels } from '../../../ai/provider/models.js'
 
 interface ProvidersCtx {
   userDataPath: string | null
@@ -140,6 +141,34 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
+  // 获取模型列表（新建传 protocol+baseUrl+apiKey；编辑传 id 用已存储凭据）
+  route('POST', '/api/providers/models', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    const body = await readJson(req)
+    let protocol: Protocol
+    let baseUrl: string
+    let apiKey: string
+    if (typeof body['id'] === 'string' && body['id']) {
+      const s = loadProviders(ctx.userDataPath)
+      const p = s.providers.find((x) => x.id === body['id'])
+      if (!p) return reply(res, 404, { error: '供应商不存在' })
+      protocol = p.protocol
+      baseUrl = p.baseUrl
+      apiKey = p.apiKey
+    } else {
+      protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
+      baseUrl = typeof body['baseUrl'] === 'string' ? body['baseUrl'] : ''
+      apiKey = typeof body['apiKey'] === 'string' ? body['apiKey'] : ''
+    }
+    if (!baseUrl || !apiKey) return reply(res, 400, { error: 'API 地址和 Key 必填' })
+    try {
+      const models = await listModels(protocol, baseUrl, apiKey)
+      reply(res, 200, { models })
+    } catch (e) {
+      reply(res, 500, { error: `获取模型列表失败：${e instanceof Error ? e.message : String(e)}` })
+    }
+  })
+
   route('POST', '/api/providers/:id/test', async (_req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''

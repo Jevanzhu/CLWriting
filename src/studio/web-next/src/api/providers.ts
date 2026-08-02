@@ -35,6 +35,14 @@ export async function getProviders(): Promise<{ providers: ProviderConfDto[]; cu
   return apiJson('/api/providers')
 }
 
+export async function fetchModels(body: { protocol: Protocol; baseUrl: string; apiKey: string } | { id: string }): Promise<{ models: string[] }> {
+  return apiJson('/api/providers/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function createProvider(body: {
   name: string
   protocol: Protocol
