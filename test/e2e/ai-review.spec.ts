@@ -16,8 +16,8 @@ test('三审：选章 → 审阅 tab → 三审 → 出 mock 意见', async ({ p
   await page.locator('.right-tabs .right-tab').nth(1).click()
   // 点「三审」按钮
   await page.locator('.rev-run-btn').click()
-  // mock driver 3 lens 串行产 issues → 面板渲染警告项（含「mock 三审」文案）
-  await expect(page.locator('.review-panel .rev-item--yellow').first()).toContainText('mock 三审', {
+  // mock 三审（submit_issues 契约）3 lens 串行产 issues → 面板渲染警告项（含 mock issue 文案）
+  await expect(page.locator('.review-panel .rev-item--yellow').first()).toContainText('mock 问题', {
     timeout: 15_000,
   })
 

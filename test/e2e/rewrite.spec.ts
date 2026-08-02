@@ -6,7 +6,7 @@
  * 顺序敏感：选段（local）在前——不 accept 不落盘，文档保持干净；
  * 整章（whole）置末尾——accept + ⌘S 会把正文（含 fm）整章换成 mock writer 产出（无 fm），
  * 破坏 fixture 文档结构，故放最后避免污染后续 test。
- * mock driver writer role 返 `【mock · writer】…模拟产出…`。
+ * mock writer 产出 = tryMockTool('submit_text') 契约文案（rewrite.ts runTask mock 快路）。
  */
 import { test, expect } from '@playwright/test'
 
@@ -49,7 +49,7 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   await expect(cm).toBeVisible()
 
   // 改写前正文不含 mock 标志
-  await expect(cm).not.toContainText('模拟产出')
+  await expect(cm).not.toContainText('mock 改写后的正文文本')
 
   // 切右栏「审阅」tab（第2个 .right-tab：信息/审阅/机检/分析）
   await page.locator('.right-tabs .right-tab').nth(1).click()
@@ -66,8 +66,8 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   await page.locator('.rewrite-panel .rw-accept').click()
   // diff 清空（result=null）
   await expect(page.locator('.rewrite-panel .rw-diff')).toHaveCount(0)
-  // 编辑器 buffer 已更新为 mock 产出
-  await expect(cm).toContainText('模拟产出')
+  // 编辑器 buffer 已更新为 mock 产出（submit_text 契约文案）
+  await expect(cm).toContainText('mock 改写后的正文文本')
 
   // ⌘S 保存 → 落盘
   await page.keyboard.press('Meta+s')
@@ -77,5 +77,5 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   // reload 留在书内（/book/...），直接重选章——无需再点书卡（原 getByText 命中的是面包屑）
   await page.reload()
   await page.getByText('初入宗门').first().click()
-  await expect(page.locator('.cm-content')).toContainText('模拟产出')
+  await expect(page.locator('.cm-content')).toContainText('mock 改写后的正文文本')
 })

@@ -89,8 +89,8 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
-export function createOpenAIProvider(conf: ProviderConf): ModelProvider {
-  const client = createClient(conf)
+export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
+  const c = client ?? createClient(conf)
 
   return {
     conf,
@@ -107,7 +107,7 @@ export function createOpenAIProvider(conf: ProviderConf): ModelProvider {
       const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
 
       try {
-        const stream = await client.chat.completions.create(toParams(conf, req) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming, { signal })
+        const stream = await c.chat.completions.create(toParams(conf, req) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming, { signal })
 
         for await (const chunk of stream) {
           const usage = chunk.usage

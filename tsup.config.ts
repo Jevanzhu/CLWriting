@@ -7,6 +7,10 @@ export default defineConfig([
     format: ['esm'],
     target: 'node24',
     platform: 'node',
+    // 修正输出漂移（审查 §八⑩ 打包产物）：main entry 必须落 dist/desktop/ 与 package.main
+    // 及 preload.cjs 同目录——此前默认输出到 dist/main.js，dist/desktop/main.js 停留在
+    // f4501c4 的旧薄壳（引用已不存在的旧 chunk），dev:app/打包态跑的是重构前代码。
+    outDir: 'dist/desktop',
     // 不 clean:多 config 数组下,clean 整个 dist/ 会与第二个 config(preload.cjs)构建竞争,
     // 时序不利时删掉刚构建的 preload.cjs → dev:app 报 PRELOAD-ENOENT。
     // 旧 chunk 文件残留可接受(tsup 覆盖同名 main.js/cli.mjs,旧 chunk 不被引用)。

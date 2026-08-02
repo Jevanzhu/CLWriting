@@ -11,8 +11,9 @@ test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) 
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
-  // ribbon「文风收割」→ LearnView 渲染
-  await page.locator('button[data-tip^="文风收割"]').click()
+  // 文风视图 → 「批量收割」按钮进 LearnView（ribbon 原「文风收割」入口已折叠入 StyleView）
+  await page.locator('.rbtn[data-tip^="文风"]').click()
+  await page.locator('button[data-tip^="批量收割"]').click()
   await expect(page.locator('.learn-title')).toHaveText('文风收割')
 
   // 入库按钮初始置灰（pickedCount=0，disabled）

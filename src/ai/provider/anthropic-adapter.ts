@@ -71,8 +71,8 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf): ModelProvider {
-  const client = createClient(conf)
+export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic): ModelProvider {
+  const c = client ?? createClient(conf)
 
   return {
     conf,
@@ -88,7 +88,7 @@ export function createAnthropicProvider(conf: ProviderConf): ModelProvider {
       }
 
       try {
-        const stream = await client.messages.create(toParams(conf, req), { signal })
+        const stream = await c.messages.create(toParams(conf, req), { signal })
 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
