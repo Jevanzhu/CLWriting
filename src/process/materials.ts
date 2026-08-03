@@ -175,8 +175,8 @@ export async function prepareMaterials(
     return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(effectiveScenes, base) }
   }
 
-  // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」
-  const query = opts.query || chapterLeadIds.join(' ') || `第${config.book.title}章`
+  // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」> 书名（兜底召回与本书相关的片段）
+  const query = opts.query || chapterLeadIds.join(' ') || config.book.title
 
   // 召回（失败/空命中 → 降级，不崩）。embedFn 可注入桩（测试），默认调真实 embed
   let hits: RecallHit[] = []

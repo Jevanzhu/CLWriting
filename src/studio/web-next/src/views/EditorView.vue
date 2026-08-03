@@ -244,7 +244,6 @@ async function onTitleCommit(): Promise<void> {
   if (newTitle === current) return
   titleSaving.value = true
   try {
-    const localBody = stripFrontmatter(e.content)
     // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
     const pieceNum = e.path.startsWith('篇/')
       ? Number(parseFmFields(e.content).篇号 ?? 1)
@@ -259,6 +258,8 @@ async function onTitleCommit(): Promise<void> {
       e.path = fresh.path
       e.name = fresh.name
     }
+    // refresh 前抓最新本地正文（含上述 await 期间用户编辑），防 refresh 覆盖丢失正文
+    const localBody = stripFrontmatter(e.content)
     await doc.refresh(ws.activeDocId)
     const refreshed = doc.get(ws.activeDocId)
     if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {

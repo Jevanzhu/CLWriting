@@ -33,6 +33,9 @@ function ts(): string {
   return new Date().toLocaleTimeString('zh-CN')
 }
 
+/** 事件日志上限：SSE 长会话只 push 不裁剪会内存膨胀，超出即丢弃最旧条目。 */
+const MAX_LOG = 500
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
   const log = ref<SseEvent[]>([])
@@ -60,6 +63,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     const e = { ...raw, _ts: ts() } as SseEvent
     log.value.push(e)
+    if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)
     if (e.type === 'role_spawn') {
       // 生成开始（provider 直连路径即以此事件声明生成在途）
       running.value = true
