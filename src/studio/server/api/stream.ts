@@ -65,6 +65,9 @@ async function runWriterSpawn(opts: {
   const out = await runTask<{ text: string; stopReason: string }>({
     userDataPath: opts.userDataPath,
     tierKind: 'creative',
+    task: 'spawn-write',
+    bookRoot: opts.bookRoot,
+    promptText: opts.prompt,
     register: (ctrl) => opts.driver.registerCtrl?.(opts.mainSession, ctrl),
     onReset: () => emit({ type: 'text_reset' }),
     run: async (provider, signal) => {

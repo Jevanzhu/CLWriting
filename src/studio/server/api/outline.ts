@@ -33,12 +33,16 @@ const MOCK_OUTLINE = '## mock 细纲\n\n- 场景：叙事铺陈\n- 情节骨架�
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
+  bookRoot?: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const tier = resolveTier(userDataPath, 'creative')
   const out = await runTask<string>({
     userDataPath,
     tierKind: 'creative',
     mockText: MOCK_OUTLINE,
+    task: 'outline',
+    bookRoot,
+    promptText: prompt,
     run: (provider, signal) =>
       generateText(
         provider,
@@ -67,7 +71,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
 
     // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
-    const result = await runOutline(ctx.userDataPath, prompt)
+    const result = await runOutline(ctx.userDataPath, prompt, bookRoot)
     if (!result.ok) return reply(res, 500, { error: result.error })
 
     const content = result.text

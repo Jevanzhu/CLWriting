@@ -248,6 +248,9 @@ async function runGenerate(
   const out = await runTask<{ input: unknown; text: string; stopReason: string; usage: TokenUsage }>({
     userDataPath: opts.userDataPath,
     tierKind: 'creative',
+    task: 'self-heal',
+    bookRoot: opts.bookRoot,
+    promptText: userPrompt,
     ctrl: state.ctrl,
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
     run: async (provider, signal) => {

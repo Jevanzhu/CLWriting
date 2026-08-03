@@ -40,12 +40,16 @@ async function runAnalyst(
   userDataPath: string | null,
   kind: ContractKind,
   prompt: string,
+  bookRoot?: string,
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
   const tier = resolveTier(userDataPath, 'assistant')
   const out = await runTask<{ input: unknown; text: string }>({
     userDataPath,
     tierKind: 'assistant',
     mockTool: analysisToolName(kind),
+    task: 'analysis',
+    bookRoot,
+    promptText: prompt,
     run: (provider, signal) =>
       generateTool(
         provider,
@@ -136,7 +140,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const { body, chapter } = draft
 
       const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long', bookRoot)
-      const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt)
+      const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
       if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
       const payload = result.payload
 
@@ -183,7 +187,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         `## 正文\n${body}`,
       ].join('\n')
 
-      const result = await runAnalyst(ctx.userDataPath, 'tags', prompt)
+      const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot)
       if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
       const payload = result.payload as Record<string, unknown>
 
@@ -327,7 +331,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
       ].join('\n')
 
-      const result = await runAnalyst(ctx.userDataPath, 'style', prompt)
+      const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot)
       if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
       const payload = result.payload
 

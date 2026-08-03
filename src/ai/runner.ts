@@ -13,6 +13,7 @@
 import { createProvider, loadProviders, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
+import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
 
 /** 未定位到应用数据目录（统一文案） */
 export const NO_USERDATA_MSG = '未定位到应用数据目录'
@@ -35,6 +36,8 @@ export interface TaskOk<T> {
   ctrl: AbortController
   /** 本次生成的 token 用量（run 回调返回值含 usage 字段时自动提取；mock 快路为 null） */
   usage: TokenUsage | null
+  /** 本次调用的唯一标识（贯穿 trace/SSE/记账三路） */
+  runId: string
 }
 
 export type TaskResult<T> = TaskOk<T> | TaskErr
@@ -68,6 +71,14 @@ function extractUsage(data: unknown): TokenUsage | null {
     }
   }
   return null
+}
+
+/** 从 run 回调返回值提取 stopReason（如有 { stopReason: string } 字段） */
+function extractStopReason(data: unknown): string {
+  if (typeof data === 'object' && data !== null && 'stopReason' in data) {
+    return String((data as Record<string, unknown>)['stopReason'])
+  }
+  return 'end_turn'
 }
 
 /**
@@ -116,19 +127,67 @@ export async function runTask<T>(opts: {
   /** 重试前调用（让调用方推 reset 事件清前端缓冲；无产出时调用亦无害） */
   onReset?: () => void
   run: (provider: ModelProvider, signal: AbortSignal) => Promise<T>
+  /** 任务名（trace + 记账用，如 'self-heal' / 'analysis'） */
+  task?: string
+  /** 书库根路径（trace + 记账用） */
+  bookRoot?: string
+  /** prompt 文本（trace 脱敏用；不传则 promptMeta 为空） */
+  promptText?: string
 }): Promise<TaskResult<T>> {
+  const runId = newRunId()
+  const startMs = Date.now()
+  const tierKind = opts.tierKind ?? 'creative'
+  const bookRoot = opts.bookRoot
+  const task = opts.task
+
+  /** trace 落盘（bookRoot + task 两参数齐备才落） */
+  const trace = (p: {
+    model: string
+    attempt: number
+    stopReason: string
+    usage: TokenUsage | null
+    ok: boolean
+    errCode?: string
+  }): void => {
+    if (!bookRoot || !task) return
+    const entry: TraceEntry = {
+      runId,
+      ts: new Date().toISOString(),
+      task,
+      tierKind,
+      model: p.model,
+      attempt: p.attempt,
+      stopReason: p.stopReason,
+      promptMeta: opts.promptText
+        ? promptMeta('', opts.promptText)
+        : { chars: 0, files: [], hash: '' },
+      usage: toTraceUsage(p.usage),
+      durationMs: Date.now() - startMs,
+      ok: p.ok,
+      ...(p.errCode ? { errCode: p.errCode } : {}),
+    }
+    appendTrace(bookRoot, entry)
+  }
+
   // mock 快路（工具型）：tryMockTool 命中即短路，不触 provider
   if (opts.mockTool) {
     const mock = tryMockTool(opts.mockTool)
-    if (mock) return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null }
+    if (mock) {
+      trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null, runId }
+    }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
   if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
-    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null }
+    trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, runId }
   }
 
-  const r = resolveProvider(opts.userDataPath, opts.tierKind ?? 'creative')
-  if (!r.ok) return r
+  const r = resolveProvider(opts.userDataPath, tierKind)
+  if (!r.ok) {
+    trace({ model: '', attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: r.code })
+    return r
+  }
 
   const ctrl = opts.ctrl ?? new AbortController()
   if (opts.register) opts.register(ctrl)
@@ -149,17 +208,26 @@ export async function runTask<T>(opts: {
     for (let attempt = 0; ; attempt++) {
       try {
         const data = await opts.run(r.provider, ctrl.signal)
-        return { ok: true, data, ctrl, usage: extractUsage(data) }
+        const usage = extractUsage(data)
+        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
+        return { ok: true, data, ctrl, usage, runId }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
-        if (ctrl.signal.aborted) return timeoutAbort()
+        if (ctrl.signal.aborted) {
+          trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+          return timeoutAbort()
+        }
         // B-1：可重试（429/5xx）且未超限 → 退避后重试
         if (e instanceof GenError && e.retryable && attempt < MAX_RETRIES) {
           opts.onReset?.()
           await sleep(BACKOFF_MS[attempt]!, ctrl.signal)
-          if (ctrl.signal.aborted) return timeoutAbort()
+          if (ctrl.signal.aborted) {
+            trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+            return timeoutAbort()
+          }
           continue
         }
+        trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'GEN_FAIL' })
         return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
       }
     }

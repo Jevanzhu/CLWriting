@@ -11,13 +11,11 @@
  * 另含 retryable 重试 + max_tokens 截断路径验证（stub 脚本复现）。
  */
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider, type FakeResponse } from './fake-provider.js'
 import { withFakeProvider, tempUserData } from '../studio/fixtures.js'
 import { runTask } from '../../src/ai/runner.js'
-import { generateText, generateTool, GenError } from '../../src/ai/gen.js'
+import { generateText, generateTool } from '../../src/ai/gen.js'
 import { loadProviders, saveProviders } from '../../src/ai/provider/store.js'
 
 let fake: FakeProvider

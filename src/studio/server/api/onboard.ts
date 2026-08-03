@@ -33,12 +33,16 @@ const MOCK_ONBOARD = '## mock 设定\n\n这是 mock 的模拟设定产出。'
 async function runOnboard(
   userDataPath: string | null,
   prompt: string,
+  bookRoot?: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const tier = resolveTier(userDataPath, 'creative')
   const out = await runTask<string>({
     userDataPath,
     tierKind: 'creative',
     mockText: MOCK_ONBOARD,
+    task: 'onboard',
+    bookRoot,
+    promptText: prompt,
     run: (provider, signal) =>
       generateText(
         provider,
@@ -110,7 +114,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
     const prompt = buildOnboardPrompt(step, title, genre, kind, discussionContext)
 
-    const result = await runOnboard(ctx.userDataPath, prompt)
+    const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
     if (!result.ok) return reply(res, 500, { error: result.error })
 
     const content = result.text || '(空产出)'

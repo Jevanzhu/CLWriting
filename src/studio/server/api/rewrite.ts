@@ -37,12 +37,16 @@ interface RewriteCtx {
 async function runRewriter(
   userDataPath: string | null,
   prompt: string,
+  bookRoot?: string,
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
   const tier = resolveTier(userDataPath, 'creative')
   const out = await runTask<{ input: unknown; text: string }>({
     userDataPath,
     tierKind: 'creative',
     mockTool: 'submit_text',
+    task: 'rewrite',
+    bookRoot,
+    promptText: prompt,
     run: (provider, signal) =>
       generateTool(
         provider,
@@ -109,7 +113,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const prompt = append
       ? buildAppendPrompt(original, instruction)
       : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
-    const result = await runRewriter(ctx.userDataPath, prompt)
+    const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
     if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
     const produced = result.produced
     const rewritten =

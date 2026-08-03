@@ -107,6 +107,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         }
         const loopResult = await runLensSpawnLoop({
           userDataPath: ctx.userDataPath,
+          bookRoot,
           packets: built.packet.packets,
           body,
           chapter: chapter.章号,
@@ -175,6 +176,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
  */
 async function runLensSpawnLoop(opts: {
   userDataPath: string | null
+  bookRoot?: string
   packets: Array<{
     lens: string
     title?: string
@@ -201,6 +203,9 @@ async function runLensSpawnLoop(opts: {
       userDataPath: opts.userDataPath,
       tierKind: 'assistant',
       mockTool: ISSUES_TOOL_NAME,
+      task: 'review',
+      bookRoot: opts.bookRoot,
+      promptText: prompt,
       run: (provider, signal) =>
         generateTool(
           provider,
