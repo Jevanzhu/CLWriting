@@ -17,41 +17,23 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { runTask } from '../../../ai/runner.js'
-import { generateText } from '../../../ai/gen.js'
-import { resolveTier } from '../../../ai/provider/index.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 
 interface OnboardCtx {
   workDir: string | null
   userDataPath: string | null
 }
 
-/** mock 快路的固定产出（CLWRITING_DRIVER=mock） */
-const MOCK_ONBOARD = '## mock 设定\n\n这是 mock 的模拟设定产出。'
-
-/** 跑一次 onboard 步骤生成（产物经 runTask 统一编排：mock/provider/中断/错误文案）。 */
+/** 跑一次 onboard 步骤生成（runSpec 统一编排）。 */
 async function runOnboard(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  const tier = resolveTier(userDataPath, 'creative')
-  const out = await runTask<string>({
-    userDataPath,
-    tierKind: 'creative',
-    mockText: MOCK_ONBOARD,
-    task: 'onboard',
-    bookRoot,
-    promptText: prompt,
-    run: (provider, signal) =>
-      generateText(
-        provider,
-        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], effort: tier.effort },
-        signal,
-      ),
-  })
+  const out = await runSpec(ONBOARD_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
   if (!out.ok) return { ok: false, error: out.error }
-  const text = out.data.trim()
+  const text = out.data.text.trim()
   if (!text) return { ok: false, error: 'AI 产出为空' }
   return { ok: true, text }
 }

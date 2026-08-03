@@ -17,19 +17,16 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { evaluateRetry } from '../../../process/retry.js'
 import { getRedItems } from '../../../check/types.js'
 import type { BookConfig } from '../../../format/types.js'
-import type { TokenUsage } from '../../../ai/provider/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { readKind } from '../book-context.js'
 import { checkWithDb, type CheckOutcome } from './check.js'
 import { buildDraftPrompt, saveDraft } from './draft.js'
 import { buildRewritePrompt, draftFileName } from './rewrite.js'
-import { generateTool } from '../../../ai/gen.js'
 import { tryMockTool } from '../../../ai/mock-tool.js'
-import { runTask } from '../../../ai/runner.js'
-import { resolveTier } from '../../../ai/provider/index.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { selfHealSpec } from '../../../ai/tasks/specs.js'
 import { checkAiCallBudget } from '../../../ai/calls.js'
-import { chapterTool, chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
-import { writerSystem } from '../../../ai/prompts/index.js'
+import { chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号） */
 const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项，保持正文连贯与既定情节走向。'
@@ -243,33 +240,15 @@ async function runGenerate(
     return { status: 'error', error: 'AI 产出为空' }
   }
 
-  // 真实 provider + tool_use —— 走 runTask（统一 resolveProvider 注入 model + 错误打包）
-  const tier = resolveTier(opts.userDataPath, 'creative')
-  const out = await runTask<{ input: unknown; text: string; stopReason: string; usage: TokenUsage }>({
+  // 真实 provider + tool_use —— 走 runSpec（统一编排：mock/provider/中断/错误文案）
+  const out = await runSpec(selfHealSpec(kind), {
     userDataPath: opts.userDataPath,
-    tierKind: 'creative',
-    task: 'self-heal',
     bookRoot: opts.bookRoot,
-    promptText: userPrompt,
     chapter: opts.chapter,
+    userPrompt,
     ctrl: state.ctrl,
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
-    run: async (provider, signal) => {
-      const r = await generateTool(
-        provider,
-        {
-          systemPrompt: writerSystem(kind),
-          messages: [{ role: 'user', content: userPrompt }],
-          effort: tier.effort,
-          tools: [chapterTool(kind)],
-          toolChoice: 'tool',
-          toolName: chapterToolName(kind),
-        },
-        signal,
-        (delta) => emit(opts, { type: 'text', text: delta }),
-      )
-      return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage }
-    },
+    onText: (delta) => emit(opts, { type: 'text', text: delta }),
   })
 
   if (!out.ok) {

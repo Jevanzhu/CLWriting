@@ -16,10 +16,8 @@ import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from './self-heal.js'
-import { runTask } from '../../../ai/runner.js'
-import { generate } from '../../../ai/gen.js'
-import { resolveTier } from '../../../ai/provider/index.js'
-import { writerSystem } from '../../../ai/prompts/index.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
 
 interface StreamCtx {
@@ -59,26 +57,13 @@ async function runWriterSpawn(opts: {
   }
 
   const kind = readKind(opts.bookRoot)
-  // writer 用 writerSystem；其他角色 system prompt 为空（prompt 自含任务）
-  const sys = opts.role === 'writer' ? writerSystem(kind) : ''
-  const tier = resolveTier(opts.userDataPath, 'creative')
-  const out = await runTask<{ text: string; stopReason: string }>({
+  const out = await runSpec(streamSpec(opts.role, kind), {
     userDataPath: opts.userDataPath,
-    tierKind: 'creative',
-    task: 'spawn-write',
     bookRoot: opts.bookRoot,
-    promptText: opts.prompt,
+    userPrompt: opts.prompt,
     register: (ctrl) => opts.driver.registerCtrl?.(opts.mainSession, ctrl),
     onReset: () => emit({ type: 'text_reset' }),
-    run: async (provider, signal) => {
-      const r = await generate(
-        provider,
-        { systemPrompt: sys, messages: [{ role: 'user', content: opts.prompt }], effort: tier.effort },
-        signal,
-        (delta) => emit({ type: 'text', text: delta, role: opts.role }),
-      )
-      return { text: r.text, stopReason: r.stopReason, usage: r.usage }
-    },
+    onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
   })
 
   if (out.ok) {

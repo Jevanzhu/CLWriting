@@ -22,11 +22,10 @@ import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
 import { readIronRules, computeFullStats } from '../../../metrics/style.js'
-import { runTask } from '../../../ai/runner.js'
-import { generateTool } from '../../../ai/gen.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { analysisSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
-import { submitAnalysis, analysisToolName, type AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
-import { ANALYST_SYSTEM } from '../../../ai/prompts/index.js'
+import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 
@@ -35,35 +34,14 @@ interface AnalysisCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 analyst 生成（经 runTask 统一编排：mock/provider/中断/错误文案；mock 与真实同走 decode）。 */
+/** 跑一次 analyst 生成（runSpec 统一编排；mock 与真实同走 decode）。 */
 async function runAnalyst(
   userDataPath: string | null,
   kind: ContractKind,
   prompt: string,
   bookRoot?: string,
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
-  const tier = resolveTier(userDataPath, 'assistant')
-  const out = await runTask<{ input: unknown; text: string }>({
-    userDataPath,
-    tierKind: 'assistant',
-    mockTool: analysisToolName(kind),
-    task: 'analysis',
-    bookRoot,
-    promptText: prompt,
-    run: (provider, signal) =>
-      generateTool(
-        provider,
-        {
-          systemPrompt: ANALYST_SYSTEM,
-          messages: [{ role: 'user', content: prompt }],
-          effort: tier.effort,
-          tools: [submitAnalysis(kind)],
-          toolChoice: 'tool',
-          toolName: analysisToolName(kind),
-        },
-        signal,
-      ),
-  })
+  const out = await runSpec(analysisSpec(kind), { userDataPath, bookRoot, userPrompt: prompt })
   if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
   if (out.data.input) return { ok: true, payload: out.data.input }
   return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }

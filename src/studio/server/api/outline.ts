@@ -16,9 +16,8 @@ import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { readKind } from '../book-context.js'
-import { runTask } from '../../../ai/runner.js'
-import { generateText } from '../../../ai/gen.js'
-import { resolveTier } from '../../../ai/provider/index.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
 import { buildSettingsContext } from './settings.js'
 
 interface OutlineCtx {
@@ -26,32 +25,15 @@ interface OutlineCtx {
   userDataPath: string | null
 }
 
-/** mock 快路的固定产出（CLWRITING_DRIVER=mock） */
-const MOCK_OUTLINE = '## mock 细纲\n\n- 场景：叙事铺陈\n- 情节骨架：开篇→发展→章尾钩'
-
-/** 跑一次大纲生成（产物经 runTask 统一编排：mock/provider/中断/错误文案）。 */
+/** 跑一次大纲生成（runSpec 统一编排）。 */
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  const tier = resolveTier(userDataPath, 'creative')
-  const out = await runTask<string>({
-    userDataPath,
-    tierKind: 'creative',
-    mockText: MOCK_OUTLINE,
-    task: 'outline',
-    bookRoot,
-    promptText: prompt,
-    run: (provider, signal) =>
-      generateText(
-        provider,
-        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], effort: tier.effort },
-        signal,
-      ),
-  })
+  const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
   if (!out.ok) return { ok: false, error: out.error }
-  const text = out.data.trim()
+  const text = out.data.text.trim()
   if (!text) return { ok: false, error: 'AI 产出为空' }
   return { ok: true, text }
 }

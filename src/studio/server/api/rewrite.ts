@@ -19,11 +19,8 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
-import { runTask } from '../../../ai/runner.js'
-import { generateTool } from '../../../ai/gen.js'
-import { resolveTier } from '../../../ai/provider/index.js'
-import { submitText } from '../../../ai/contract/index.js'
-import { REWRITER_SYSTEM } from '../../../ai/prompts/index.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
@@ -33,34 +30,13 @@ interface RewriteCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 writer 改写（经 runTask 统一编排：mock/provider/中断/错误文案；mock 与真实同走 decode）。 */
+/** 跑一次 writer 改写（runSpec 统一编排；mock 与真实同走 decode）。 */
 async function runRewriter(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
-  const tier = resolveTier(userDataPath, 'creative')
-  const out = await runTask<{ input: unknown; text: string }>({
-    userDataPath,
-    tierKind: 'creative',
-    mockTool: 'submit_text',
-    task: 'rewrite',
-    bookRoot,
-    promptText: prompt,
-    run: (provider, signal) =>
-      generateTool(
-        provider,
-        {
-          systemPrompt: REWRITER_SYSTEM,
-          messages: [{ role: 'user', content: prompt }],
-          effort: tier.effort,
-          tools: [submitText()],
-          toolChoice: 'tool',
-          toolName: 'submit_text',
-        },
-        signal,
-      ),
-  })
+  const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
   if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
   const { input, text } = out.data
   // tool_use 产出 → input.正文

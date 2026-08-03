@@ -24,11 +24,9 @@ import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
-import { runTask } from '../../../ai/runner.js'
-import { generateTool } from '../../../ai/gen.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { reviewSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
-import { submitIssues, ISSUES_TOOL_NAME } from '../../../ai/contract/index.js'
-import { reviewSystem } from '../../../ai/prompts/index.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -190,36 +188,15 @@ async function runLensSpawnLoop(opts: {
   onProgress?: (lens: string, phase: 'start' | 'done') => void
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
   const lenses: string[] = []
-  const tier = resolveTier(opts.userDataPath, 'assistant')
   mkdirSync(opts.outDir, { recursive: true })
 
-  // 逐 lens：runTask 统一编排（mock 快路/provider/中断/错误文案），mock 与真实同走 decode
+  // 逐 lens：runSpec 统一编排（mock 快路/provider/中断/错误文案），mock 与真实同走 decode
   for (const sub of opts.packets) {
     const lens = sub.lens
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
-    const out = await runTask<{ input: unknown; text: string }>({
-      userDataPath: opts.userDataPath,
-      tierKind: 'assistant',
-      mockTool: ISSUES_TOOL_NAME,
-      task: 'review',
-      bookRoot: opts.bookRoot,
-      promptText: prompt,
-      run: (provider, signal) =>
-        generateTool(
-          provider,
-          {
-            systemPrompt: reviewSystem(lens),
-            messages: [{ role: 'user', content: prompt }],
-            effort: tier.effort,
-            tools: [submitIssues()],
-            toolChoice: 'tool',
-            toolName: ISSUES_TOOL_NAME,
-          },
-          signal,
-        ),
-    })
+    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
     const { input, text } = out.data
     // tool_use 产出 → input.issues；降级用 text
