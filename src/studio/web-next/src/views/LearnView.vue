@@ -124,7 +124,7 @@ async function onCommit(): Promise<void> {
         </div>
       </div>
       <p class="learn-lede">
-        扫描定稿正文，按校对规则打分 + 按场景归类，产出样章 / 金句候选。
+        通读定稿正文，按校对规则打分并按场景归类，生成样章和金句候选。
         作者勾选后才收录到文风样章库——品味归人，不自动收录。
       </p>
     </header>
@@ -145,7 +145,7 @@ async function onCommit(): Promise<void> {
     <EmptyState
       v-if="!learn.hasResult && !learn.loading && !learn.error"
       :icon="GraduationCap"
-      :text="chapterCount > 0 ? `点击「收割候选」扫描 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
+      :text="chapterCount > 0 ? `点击「收割候选」分析 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
       class="learn-empty"
     />
 
@@ -239,7 +239,7 @@ async function onCommit(): Promise<void> {
       <EmptyState
         v-if="!learn.samples.length && !learn.quotes.length"
         :icon="PackageCheck"
-        text="本轮无合格候选——定稿正文打分普遍偏低或无特征短句。"
+        text="这次没有合格候选——定稿正文得分普遍偏低，或缺少有特色的短句。"
       />
     </div>
   </div>

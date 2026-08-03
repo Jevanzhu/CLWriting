@@ -593,7 +593,7 @@ const activeLegend = computed(() => {
             <Search :size="13" />
             <input v-model="searchQuery" placeholder="搜索角色" />
           </div>
-          <button class="tool-btn" data-tip="复位视图与节点" @click="resetView">
+          <button class="tool-btn" data-tip="重置视图" @click="resetView">
             <Crosshair :size="14" /><span>复位</span>
           </button>
         </div>

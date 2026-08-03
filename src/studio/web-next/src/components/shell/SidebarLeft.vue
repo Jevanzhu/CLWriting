@@ -33,7 +33,7 @@ async function onRefresh(): Promise<void> {
       <button
         v-if="ws.leftPanel === 'tree'"
         class="left-tab refresh-tree"
-        data-tip="刷新文件树" data-tip-dir="bottom"
+        data-tip="刷新目录" data-tip-dir="bottom"
         @click="onRefresh()"
       >
         <RefreshCw :size="15" :class="{ spin: refreshing }" />

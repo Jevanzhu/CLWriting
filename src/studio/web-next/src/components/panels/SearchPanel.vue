@@ -75,7 +75,7 @@ async function open(path: string): Promise<void> {
     <div v-if="loading" class="hint">搜索中…</div>
     <div v-else-if="err" class="hint err">{{ err }}</div>
     <template v-else>
-      <div v-if="truncated" class="hint">结果已截断，请缩小范围</div>
+      <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
       <div class="results">
         <div v-for="hit in results" :key="hit.path" class="result" @click="open(hit.path)">

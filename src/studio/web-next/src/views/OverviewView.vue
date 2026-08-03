@@ -293,7 +293,7 @@ function distMax(g: DistGroup): number {
           <div class="panel-head">
             <Flame :size="14" /> <span>写作热力</span>
             <span v-if="heatCells.length" class="head-legend">
-              近 {{ heatCells.length }} 天 · {{ activeDays }} 天有产出
+              近 {{ heatCells.length }} 天 · {{ activeDays }} 天有写作
             </span>
           </div>
           <div v-if="heatCells.length" class="heat-grid">
@@ -435,7 +435,7 @@ function distMax(g: DistGroup): number {
             <span v-for="(t, i) in analysis.style.口癖" :key="i" class="style-tag">{{ t }}</span>
           </div>
         </div>
-        <div v-else class="empty">暂无文风分析，到文风工作台跑一轮验收</div>
+        <div v-else class="empty">暂无文风分析，到文风工作台开始分析</div>
       </section>
     </div>
   </div>

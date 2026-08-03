@@ -181,7 +181,7 @@ onMounted(async () => {
             <Loader2 :size="22" class="spin" />
             <div class="loading-text">
               <span class="loading-title">{{ STEP_LABEL[active] }} 生成中…</span>
-              <span class="loading-hint">AI 阻塞数十秒，请耐心等待</span>
+              <span class="loading-hint">AI 需要数十秒，请耐心等待</span>
             </div>
           </div>
 

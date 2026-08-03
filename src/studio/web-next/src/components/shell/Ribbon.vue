@@ -77,7 +77,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'style' }"
-        data-tip="文风（条目库 / 候选箱 / 基线）"
+        data-tip="文风（条目库 / 候选箱 / 基准）"
         @click="ws.setActiveView('style')"
       >
         <Feather :size="20" />

@@ -71,7 +71,7 @@ export const useLearnStore = defineStore('learn', () => {
     commitMessage.value = null
     try {
       const r = await runLearnCommit(name, { samples: sPicks, quotes: qPicks })
-      commitMessage.value = `已入库 ${r.sampleFiles.length} 篇样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
+      commitMessage.value = `已收录 ${r.sampleFiles.length} 篇样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
       const sSet = new Set(sPicks.map((s) => s.正文))
       const qSet = new Set(qPicks.map((q) => q.正文))
@@ -80,7 +80,7 @@ export const useLearnStore = defineStore('learn', () => {
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
     } catch (e) {
-      commitMessage.value = '入库失败：' + (e instanceof Error ? e.message : String(e))
+      commitMessage.value = '收录失败：' + (e instanceof Error ? e.message : String(e))
     } finally {
       committing.value = false
     }

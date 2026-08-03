@@ -119,7 +119,7 @@ function run(c: Cmd): void {
           ref="inp"
           v-model="q"
           class="palette-input"
-          placeholder="输入命令或章节名…"
+          placeholder="搜索章节或操作…"
           @keydown="onKey"
         />
         <div class="palette-list">

@@ -114,7 +114,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     <div v-else-if="!entries.length" class="empty-state">
       <Clock :size="20" />
       <span>暂无历史版本</span>
-      <span class="empty-sub">保存过几次之后才会生成版本快照</span>
+      <span class="empty-sub">保存过几次之后才会生成历史版本</span>
     </div>
     <template v-else>
       <div class="row current">

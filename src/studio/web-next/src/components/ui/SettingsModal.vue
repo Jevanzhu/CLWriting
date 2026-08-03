@@ -439,10 +439,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                 </div>
 
-                <div class="group-title">知识检索（RAG）</div>
+                <div class="group-title">知识检索</div>
                 <div class="setting-item">
                   <div class="setting-item-info">
-                    <div class="setting-item-name">启用 RAG</div>
+                    <div class="setting-item-name">启用检索</div>
                     <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
                   </div>
                   <div class="setting-item-control">
@@ -455,8 +455,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <template v-if="ragEnabled">
                   <div class="setting-item">
                     <div class="setting-item-info">
-                      <div class="setting-item-name">Embedding 端点</div>
-                      <div class="setting-item-desc">向量嵌入服务的 base URL</div>
+                      <div class="setting-item-name">嵌入服务地址</div>
+                      <div class="setting-item-desc">向量嵌入服务的网址</div>
                     </div>
                     <div class="setting-item-control">
                       <input class="text-input" type="text" placeholder="https://..." :value="ragEndpoint" @change="onRagEndpoint($event)" />
@@ -464,7 +464,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                   <div class="setting-item">
                     <div class="setting-item-info">
-                      <div class="setting-item-name">Embedding 模型</div>
+                      <div class="setting-item-name">嵌入模型</div>
                       <div class="setting-item-desc">向量嵌入模型名称</div>
                     </div>
                     <div class="setting-item-control">

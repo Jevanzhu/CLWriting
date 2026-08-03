@@ -115,7 +115,7 @@ export const useDocStore = defineStore('doc', () => {
     } catch (err) {
       if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {
         e.conflict = true
-        e.error = '文件已被外部修改'
+        e.error = '此文档已在其他地方修改'
       } else {
         e.error = err instanceof Error ? err.message : String(err)
       }
@@ -138,7 +138,7 @@ export const useDocStore = defineStore('doc', () => {
       e.dirty = false
       e.conflict = false
       e.error = null
-      useUiStore().toast('已重载远端内容', 'success')
+      useUiStore().toast('已加载最新版本', 'success')
     } catch (err) {
       useUiStore().toast(err instanceof Error ? err.message : String(err), 'error')
     }
