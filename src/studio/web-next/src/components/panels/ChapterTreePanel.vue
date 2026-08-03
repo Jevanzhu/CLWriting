@@ -558,13 +558,13 @@ watch(
         @drop="onDrop"
       />
     </div>
+    <div v-if="openError" class="hint err">{{ openError }}</div>
     <div v-if="tree.grouped.length" class="tree-legend">
       <span class="lg"><i class="lg-dot c-green"></i>定稿</span>
       <span class="lg"><i class="lg-dot c-yellow"></i>草稿</span>
       <span class="lg"><i class="lg-dot c-red"></i>待修</span>
       <span class="lg"><i class="lg-dot c-gray"></i>其他</span>
     </div>
-    <div v-if="openError" class="hint err">{{ openError }}</div>
     <ContextMenu
       v-if="!isNative"
       :visible="menuVisible"
@@ -587,8 +587,10 @@ watch(
 
 <style scoped>
 .chapter-tree {
-  padding: var(--size-4-1) 0;
+  padding: var(--size-4-1) 0 0;
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .hint {
   padding: 8px var(--size-4-3);
@@ -600,20 +602,28 @@ watch(
 }
 .tree-list {
   padding: 0 var(--size-4-1);
+  flex: 1;
+  min-height: 0;
 }
-/* 色点图例 */
+/* 色点图例（钉在文件树底部，单行） */
 .tree-legend {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px var(--size-4-3);
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 4px var(--size-4-2);
   font-size: var(--font-size-xxs);
+  letter-spacing: 0.02em;
   color: var(--text-faint);
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  white-space: nowrap;
 }
 .lg {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 .lg-dot {
   width: 7px;
