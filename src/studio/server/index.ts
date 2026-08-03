@@ -39,6 +39,7 @@ import { registerForeshadowRoutes } from './api/foreshadows.js'
 import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
+import { registerTraceStatsRoutes } from './api/trace-stats.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
@@ -70,6 +71,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerForeshadowRoutes({ workDir })
     registerStyleRoutes({ workDir })
     registerProvidersRoutes({ userDataPath })
+    registerTraceStatsRoutes({ workDir })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath })
