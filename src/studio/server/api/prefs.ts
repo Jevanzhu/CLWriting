@@ -11,7 +11,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -65,7 +66,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!prefs || typeof prefs !== 'object') return reply(res, 400, { error: 'prefs 必填' })
     try {
       mkdirSync(dirname(r.path), { recursive: true })
-      writeFileSync(r.path, JSON.stringify(prefs, null, 2) + '\n', 'utf8')
+      atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
       reply(res, 500, { error: `写 prefs:${e instanceof Error ? e.message : String(e)}` })
@@ -101,7 +102,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!prefs || typeof prefs !== 'object') return reply(res, 400, { error: 'prefs 必填' })
     try {
       mkdirSync(dirname(r.path), { recursive: true })
-      writeFileSync(r.path, JSON.stringify(prefs, null, 2) + '\n', 'utf8')
+      atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
       reply(res, 500, { error: `写全局偏好:${e instanceof Error ? e.message : String(e)}` })

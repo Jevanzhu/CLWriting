@@ -79,6 +79,26 @@ describe('GUI API 集成链(设定台 P2)', () => {
     ]))
   })
 
+  it('POST /api/books 路径穿越书名 → 400（禁 / \\ . ..）', async () => {
+    const r = await fetch(`${baseUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ name: '../evil' }),
+    })
+    expect(r.status).toBe(400)
+  })
+
+  it('POST 畸形 JSON body → 400 + 提示不合法（readJson 不再吞成 {}）', async () => {
+    const r = await fetch(`${baseUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: '{bad json',
+    })
+    expect(r.status).toBe(400)
+    const d = (await r.json()) as { error: string }
+    expect(d.error).toContain('JSON') // 修复前 readJson 吞成 {} → error 是「书名不能为空」
+  })
+
   it('GET /api/books/:name/settings 设定台读角色 + 境界', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
     const d = (await r.json()) as {

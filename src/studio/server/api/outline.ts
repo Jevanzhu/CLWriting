@@ -8,7 +8,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -74,7 +75,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
     try {
       mkdirSync(outlineDir, { recursive: true })
-      writeFileSync(join(outlineDir, `细纲.md`), content || '(空细纲)', 'utf8')
+      atomicWriteFile(join(outlineDir, `细纲.md`), content || '(空细纲)')
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }

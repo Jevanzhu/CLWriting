@@ -11,7 +11,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -116,7 +117,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      writeFileSync(join(bookRoot, relPath), content, 'utf8')
+      atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }
@@ -136,7 +137,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      writeFileSync(join(bookRoot, relPath), content, 'utf8')
+      atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }

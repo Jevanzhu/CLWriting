@@ -10,7 +10,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename } from 'node:path'
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -85,7 +86,7 @@ export function saveDraft(
   // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
   const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
   mkdirSync(draftDir, { recursive: true })
-  writeFileSync(join(draftDir, draftFile), content, 'utf8')
+  atomicWriteFile(join(draftDir, draftFile), content)
   // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
   invalidateTreeIndex(bookRoot)
   // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，

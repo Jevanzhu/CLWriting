@@ -10,7 +10,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, resolve, relative, isAbsolute, basename } from 'node:path'
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -80,7 +81,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         reply(res, 400, { error: '缺少 content' })
         return
       }
-      writeFileSync(safe, body.content, 'utf-8')
+      atomicWriteFile(safe, body.content)
       reply(res, 200, { ok: true })
     },
   )
