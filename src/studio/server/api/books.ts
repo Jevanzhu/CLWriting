@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks, removeBookEntry } from '../../../install/books.js'
+import { forgetService } from './documents.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
 import { computeProgress, computeLastEdited, computeLatestChapter } from './progress.js'
@@ -138,6 +139,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
     }
     // 移 books.jsonl 登记 + 清活动书指针
     removeBookEntry(ctx.workDir, name)
+    // 清理 service 缓存，防同 path 重建复用旧实例
+    forgetService(bookAbs)
     reply(res, 200, { ok: true, name })
   })
 

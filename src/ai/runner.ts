@@ -45,12 +45,17 @@ const BACKOFF_MS = [1000, 2000, 4000] as const
 /** B-2：整体超时默认上限（档位 timeoutMs 可覆盖） */
 const DEFAULT_TIMEOUT_MS = 600_000 // 10 min
 
-/** 可中断 sleep（abort 到达立即 resolve，不继续等退避） */
+/** 可中断 sleep（abort 到达立即 resolve，不继续等退避）。
+ *  超时 resolve 后主动移除 abort listener，防重试循环累积孤儿 listener。 */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve()
   return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => { clearTimeout(t); resolve() }, { once: true })
+    const onAbort = (): void => { clearTimeout(t); resolve() }
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 

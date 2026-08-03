@@ -144,7 +144,10 @@ export async function generateTool(
     throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false)
   }
   // 模型级 caps.toolChoice=true → 强制工具调用（确保结构化产出）；null/false 则依赖 prompt 引导 + text 兜底
-  const effective = provider.modelCaps?.toolChoice ? { ...req, toolChoice: 'any' as const } : req
+  // 强制工具调用仅在调用方未指定 toolChoice 时生效（保留调用方的 toolName 精确指向）
+  const effective = provider.modelCaps?.toolChoice && !req.toolChoice
+    ? { ...req, toolChoice: 'any' as const }
+    : req
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text

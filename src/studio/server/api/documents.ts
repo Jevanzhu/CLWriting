@@ -41,6 +41,11 @@ export function __clearDocumentServices(): void {
   services.clear()
 }
 
+/** 删书时清理对应 bookRoot 的 service 缓存（防同 path 重建复用旧实例）。 */
+export function forgetService(bookRoot: string): void {
+  services.delete(bookRoot)
+}
+
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── W1：保存内容 ──────────────────────────────
   route(

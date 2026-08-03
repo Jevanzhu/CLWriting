@@ -31,7 +31,7 @@ function createClient(conf: ProviderConf): OpenAI {
 
 /** 判断模型名是否为 o 系列（用 max_completion_tokens 而非 max_tokens） */
 function isOSeries(model: string): boolean {
-  return /^o\d/.test(model) || model.startsWith('o3') || model.startsWith('o4')
+  return /^o\d/.test(model)
 }
 
 /** GenRequest → OpenAI ChatCompletionCreateParamsStreaming */

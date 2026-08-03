@@ -386,7 +386,10 @@ function registerIpc(): void {
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
-    void shell.openPath(resolve(workDir, entry.path))
+    // 路径校验：entry.path 来自 books.jsonl，防 `..` 越出 workDir 打开任意目录
+    const target = resolve(workDir, entry.path)
+    if (relative(workDir, target).startsWith('..')) return
+    void shell.openPath(target)
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   ipcMain.handle('desktop:get-system-fonts', async () => {

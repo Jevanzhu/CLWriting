@@ -688,11 +688,12 @@ export function checkSectionCount(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
-  const byHeading = body.split(/^##\s/m).filter((s) => s.trim().length > 0)
+  // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）
+  const headings = body.match(/^##\s.+$/gm) ?? []
   let sections: number
-  if (byHeading.length >= 2) {
+  if (headings.length >= 2) {
     // 有 ## 标题：按标题数
-    sections = byHeading.length
+    sections = headings.length
   } else {
     items.push({
       checkId: 'section-count-heading-missing',

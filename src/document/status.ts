@@ -1,7 +1,7 @@
 /**
- * 文档级八态派生（W0 §3 裁决 R3）。
+ * 文档级六态派生（W0 §3 裁决 R3）。
  *
- * 状态是文档级投影，权威 = 磁盘 + git（八态状态机语境）；除「published」外不落独立字段，
+ * 状态是文档级投影，权威 = 磁盘 + git（六态状态机语境）；除「published」外不落独立字段，
  * 结构上杜绝账实漂移。清单里的 status 仅为缓存投影，可随时从本模块重建。
  *
  * 性能：collectDirtyFiles 一次 `git status --porcelain` 拿全书脏文件集，deriveStatus 是
@@ -14,7 +14,7 @@ import { readFile, parseFlat } from '../format/frontmatter.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** 文档级八态（W0 §3）。 */
+/** 文档级六态（W0 §3）。 */
 export type DocumentStatus =
   | 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
 
