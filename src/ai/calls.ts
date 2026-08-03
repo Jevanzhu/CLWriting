@@ -1,26 +1,40 @@
 /**
- * 每章 / 篇 AI 调用预算闸（精简版）。
+ * 每章 / 篇 AI 调用预算闸 + 任务维度计量（T5 泛化）。
  *
  * 记账存储在书库 .cache/ai-calls.json；超限阻断自动写章循环烧钱（Q2 甲）。
  * 无目录锁（当前无并行生成场景——文档 §八「不做的事」）；损坏时保守阻断。
  *
- * 记账范围：仅自动写章（self-heal）——预算闸专为防写章循环烧钱设计；
- * 审稿/分析/改写等端点不记账（无 chapter 上下文，且无预算控制需求）。
+ * 数据结构（T5 泛化后）：
+ *   chapter 块 — 预算闸专用，换章重置（仅 self-heal 记，通过 runTask chapter 参数）
+ *   tasks 块   — 按任务类型累计、不重置（runTask 自动记账，7/7 端点覆盖）
  *
- * 与旧版差异（旧版随 P2 清理删除）：去掉目录锁 / limit_override /
- * stale lock 检测 / token 回填重试——YAGNI，需要时再加。
+ * 与旧版差异：去掉目录锁 / limit_override / stale lock 检测（YAGNI）。
+ * 旧格式（flat { chapter, used, ... }）读到即一次性迁移。
  */
 import { existsSync, readFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import type { BookConfig } from '../format/types.js'
 import type { TokenUsage } from './provider/types.js'
 
-/** 磁盘记录格式（单章/篇一条，换章覆盖） */
-interface CallRecord {
-  chapter: number
+/** chapter 块（预算闸专用） */
+interface ChapterUsage {
+  num: number
   used: number
   inputTokens: number
   outputTokens: number
+}
+
+/** task 块（全端点覆盖） */
+interface TaskUsage {
+  used: number
+  inputTokens: number
+  outputTokens: number
+}
+
+/** 磁盘记录格式 */
+interface CallRecord {
+  chapter: ChapterUsage
+  tasks: Record<string, TaskUsage>
 }
 
 const FILE = 'ai-calls.json'
@@ -29,21 +43,58 @@ function budgetPath(bookRoot: string): string {
   return join(bookRoot, '.cache', FILE)
 }
 
-/** 读记录；缺失 / 损坏 → null */
+/**
+ * 读记录；缺失 / 损坏 → null。
+ * 旧格式（flat { chapter: number, used: number, ... }）自动迁移。
+ */
 function readRecord(bookRoot: string): CallRecord | null {
   const fp = budgetPath(bookRoot)
   if (!existsSync(fp)) return null
   try {
-    const raw = JSON.parse(readFileSync(fp, 'utf8')) as CallRecord
-    if (typeof raw.chapter !== 'number' || typeof raw.used !== 'number') return null
+    const raw = JSON.parse(readFileSync(fp, 'utf8')) as Record<string, unknown>
+    // 旧格式检测：raw.chapter 是 number（而非 object）→ 迁移写回
+    if (typeof raw['chapter'] === 'number') {
+      const migrated = migrateOldFormat(raw as unknown as OldFormat)
+      writeRecord(bookRoot, migrated)
+      return migrated
+    }
+    // 新格式
+    const chapter = raw['chapter'] as ChapterUsage | undefined
+    if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') return null
     return {
-      chapter: raw.chapter,
-      used: raw.used,
-      inputTokens: typeof raw.inputTokens === 'number' ? raw.inputTokens : 0,
-      outputTokens: typeof raw.outputTokens === 'number' ? raw.outputTokens : 0,
+      chapter: {
+        num: chapter.num,
+        used: chapter.used,
+        inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
+        outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
+      },
+      tasks: typeof raw['tasks'] === 'object' && raw['tasks'] !== null
+        ? raw['tasks'] as Record<string, TaskUsage>
+        : {},
     }
   } catch {
     return null
+  }
+}
+
+/** 旧格式（flat record） */
+interface OldFormat {
+  chapter: number
+  used: number
+  inputTokens?: number
+  outputTokens?: number
+}
+
+/** 旧格式 → 新格式迁移 */
+function migrateOldFormat(old: OldFormat): CallRecord {
+  return {
+    chapter: {
+      num: old.chapter,
+      used: old.used,
+      inputTokens: old.inputTokens ?? 0,
+      outputTokens: old.outputTokens ?? 0,
+    },
+    tasks: {},
   }
 }
 
@@ -65,31 +116,55 @@ export function checkAiCallBudget(
   const limit = config.budget.calls_per_chapter
   const rec = readRecord(bookRoot)
 
-  if (!rec || rec.chapter !== chapter) {
+  if (!rec || rec.chapter.num !== chapter) {
     // 无记录或已换章 → 计数从零开始
     return { ok: true, used: 0, limit }
   }
-  if (rec.used >= limit) {
+  if (rec.chapter.used >= limit) {
     return {
       ok: false,
-      used: rec.used,
+      used: rec.chapter.used,
       limit,
-      reason: `本章已调用 ${rec.used} 次（上限 ${limit}）。可临时提高 book.yaml 的 budget.calls_per_chapter，或降低重写次数`,
+      reason: `本章已调用 ${rec.chapter.used} 次（上限 ${limit}）。可临时提高 book.yaml 的 budget.calls_per_chapter，或降低重写次数`,
     }
   }
-  return { ok: true, used: rec.used, limit }
+  return { ok: true, used: rec.chapter.used, limit }
 }
 
-/** 记一次 AI 调用（生成成功后调用） */
+/**
+ * 记一次 chapter 维度 AI 调用（预算闸用；换章重置）。
+ *
+ * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
+ */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null): void {
   let rec = readRecord(bookRoot)
-  if (!rec || rec.chapter !== chapter) {
-    rec = { chapter, used: 0, inputTokens: 0, outputTokens: 0 }
+  if (!rec || rec.chapter.num !== chapter) {
+    rec = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
   }
-  rec.used += 1
+  rec.chapter.used += 1
   if (usage) {
-    rec.inputTokens += usage.inputTokens
-    rec.outputTokens += usage.outputTokens
+    rec.chapter.inputTokens += usage.inputTokens
+    rec.chapter.outputTokens += usage.outputTokens
   }
+  writeRecord(bookRoot, rec)
+}
+
+/**
+ * 记一次 task 维度 AI 调用（全端点覆盖；不重置）。
+ *
+ * 由 runTask 末尾自动调用（有 bookRoot + task 时）。
+ */
+export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
+  let rec = readRecord(bookRoot)
+  if (!rec) {
+    rec = { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
+  }
+  const t = rec.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
+  t.used += 1
+  if (usage) {
+    t.inputTokens += usage.inputTokens
+    t.outputTokens += usage.outputTokens
+  }
+  rec.tasks[task] = t
   writeRecord(bookRoot, rec)
 }

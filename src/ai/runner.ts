@@ -14,6 +14,7 @@ import { createProvider, loadProviders, tierFromStore, type ModelProvider, type 
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
+import { recordAiCall, recordTaskUsage } from './calls.js'
 
 /** 未定位到应用数据目录（统一文案） */
 export const NO_USERDATA_MSG = '未定位到应用数据目录'
@@ -133,6 +134,8 @@ export async function runTask<T>(opts: {
   bookRoot?: string
   /** prompt 文本（trace 脱敏用；不传则 promptMeta 为空） */
   promptText?: string
+  /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
+  chapter?: number
 }): Promise<TaskResult<T>> {
   const runId = newRunId()
   const startMs = Date.now()
@@ -209,6 +212,11 @@ export async function runTask<T>(opts: {
       try {
         const data = await opts.run(r.provider, ctrl.signal)
         const usage = extractUsage(data)
+        // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）
+        if (bookRoot) {
+          if (task) recordTaskUsage(bookRoot, task, usage)
+          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, usage)
+        }
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
         return { ok: true, data, ctrl, usage, runId }
       } catch (e) {

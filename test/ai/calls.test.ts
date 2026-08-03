@@ -3,11 +3,11 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { recordAiCall, checkAiCallBudget } from '../../src/ai/calls.js'
+import { recordAiCall, checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 const dirs: string[] = []
@@ -76,5 +76,65 @@ describe('checkAiCallBudget 预算判定', () => {
     const b = checkAiCallBudget(root, 2, CONFIG)
     expect(b.ok).toBe(true)
     if (b.ok) expect(b.used).toBe(0)
+  })
+})
+
+describe('recordTaskUsage 任务维度记账（T5）', () => {
+  it('一次 task 调用 → tasks 块出现对应键', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'analysis', { inputTokens: 100, outputTokens: 200 })
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['analysis']).toBeDefined()
+    expect(rec.tasks['analysis'].used).toBe(1)
+    expect(rec.tasks['analysis'].inputTokens).toBe(100)
+  })
+
+  it('多次同 task → 累计计数', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'review', { inputTokens: 50, outputTokens: 50 })
+    recordTaskUsage(root, 'review', { inputTokens: 30, outputTokens: 70 })
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['review'].used).toBe(2)
+    expect(rec.tasks['review'].inputTokens).toBe(80)
+  })
+
+  it('换章不影响 task 块（不重置）', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'outline', null)
+    recordAiCall(root, 1, null) // 记 chapter 块
+    recordAiCall(root, 2, null) // 换章
+    // task 块应仍在
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['outline'].used).toBe(1)
+  })
+
+  it('多 task 共存', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'analysis', null)
+    recordTaskUsage(root, 'review', null)
+    recordTaskUsage(root, 'outline', null)
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(Object.keys(rec.tasks).sort()).toEqual(['analysis', 'outline', 'review'])
+  })
+})
+
+describe('旧格式迁移（T5）', () => {
+  it('旧 flat 格式自动迁移为新 chapter+tasks 结构', () => {
+    const root = tempBook()
+    // 手写旧格式
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n',
+    )
+    // 读触发迁移（checkAiCallBudget → readRecord）
+    const b = checkAiCallBudget(root, 5, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(2)
+
+    // 再读确认迁移后结构正确
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
+    expect(rec.tasks).toEqual({})
   })
 })

@@ -27,7 +27,7 @@ import { generateTool } from '../../../ai/gen.js'
 import { tryMockTool } from '../../../ai/mock-tool.js'
 import { runTask } from '../../../ai/runner.js'
 import { resolveTier } from '../../../ai/provider/index.js'
-import { recordAiCall, checkAiCallBudget } from '../../../ai/calls.js'
+import { checkAiCallBudget } from '../../../ai/calls.js'
 import { chapterTool, chapterToolName, assembleChapter } from '../../../ai/contract/index.js'
 import { writerSystem } from '../../../ai/prompts/index.js'
 
@@ -251,6 +251,7 @@ async function runGenerate(
     task: 'self-heal',
     bookRoot: opts.bookRoot,
     promptText: userPrompt,
+    chapter: opts.chapter,
     ctrl: state.ctrl,
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
     run: async (provider, signal) => {
@@ -277,8 +278,7 @@ async function runGenerate(
   }
   if (state.ctrl.signal.aborted) return { status: 'aborted' }
 
-  // C-2：记账（本次 AI 调用 + token 消耗）
-  recordAiCall(opts.bookRoot, opts.chapter, out.usage)
+  // C-2：记账已下沉到 runTask（chapter + task 块自动记，避免双记）
 
   // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
   const { input, text, stopReason } = out.data
