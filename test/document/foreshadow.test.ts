@@ -146,6 +146,19 @@ describe('scanForeshadowTrails', () => {
     expect(t.firstHit).toBe(1)
     expect(t.hits[0]!.命中词).toBe('特殊标记')
   })
+
+  test('不补零文件名（1-埋.md）也能扫到足迹（曾因 3-4 位限制漏扫）', () => {
+    writeForeshadow('短名线索', { 重要性: '中', 关联词: '线索词', 埋设章号: '1' })
+    // 直接写不补零文件名（writeChapter helper 会补 4 位零）
+    const dir = join(root, '定稿', '正文', '第一卷')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '1-埋.md'), '---\n章号: 1\n标题: 埋\n---\n线索词出现。\n', 'utf-8')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const t = trails.get('短名线索')!
+    expect(t.hits).toHaveLength(1)
+    expect(t.firstHit).toBe(1)
+  })
 })
 
 describe('migrateLegacyForeshadows', () => {

@@ -292,8 +292,8 @@ function walkChapters(dir: string, texts: Map<number, string>): void {
   }
 }
 
-/** 从文件名提取章号（如 0001-开篇.md → 1） */
+/** 从文件名提取章号（兼容补零与不补零：0001-开篇.md / 1-标题.md → 1） */
 function parseChapterNoFromName(name: string): number | null {
-  const m = name.match(/^(\d{3,4})/)
+  const m = name.match(/^(\d{1,4})/)
   return m ? Number(m[1]) : null
 }

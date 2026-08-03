@@ -5,7 +5,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -50,6 +50,15 @@ function put(docId: string, body: Record<string, unknown>): Promise<{ status: nu
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}/content`,
     { 'content-type': 'application/json', origin: baseUrl, 'x-studio-token': token },
     JSON.stringify(body),
+  )
+}
+
+function patchMeta(docId: string, meta: Record<string, unknown>): Promise<{ status: number; json: unknown }> {
+  return request(
+    'PATCH',
+    `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}`,
+    { 'content-type': 'application/json', 'x-studio-token': token },
+    JSON.stringify({ op: 'meta', ...meta }),
   )
 }
 
@@ -136,5 +145,24 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
       JSON.stringify({ content: 'x', expectedRevision: null, operationId: 'op6', origin: 'manual' }),
     )
     expect(r.status).toBe(403)
+  })
+})
+
+describe('PATCH /documents/:docId meta（章号/篇号）', () => {
+  it('长篇改章号 → 章号变 + 文件名 rename（曾因 numKey 丢弃静默失败）', async () => {
+    const bodyDir = join(workDir, BOOK, '定稿', '正文')
+    mkdirSync(bodyDir, { recursive: true })
+    const oldPath = join(bodyDir, '0001-开篇.md')
+    writeFileSync(oldPath, '---\n章号: 1\n标题: 开篇\n---\n正文。\n', 'utf-8')
+
+    const r = await patchMeta('doc_1', { 章号: 5 })
+    expect(r.status).toBe(200)
+    expect((r.json as { ok: boolean }).ok).toBe(true)
+
+    // 文件名 rename：0001-开篇.md → 0005-开篇.md（修复前章号被挂成篇号 → service 忽略 → 不 rename）
+    expect(existsSync(oldPath)).toBe(false)
+    const newPath = join(bodyDir, '0005-开篇.md')
+    expect(existsSync(newPath)).toBe(true)
+    expect(readFileSync(newPath, 'utf-8')).toMatch(/章号: 5/)
   })
 })

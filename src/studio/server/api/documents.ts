@@ -178,10 +178,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号/篇号' })
           return
         }
-        result = svc.updateChapterMeta(docId, {
-          ...(标题 !== undefined ? { 标题 } : {}),
-          ...(Number.isFinite(numVal) ? { 篇号: numVal } : {}),
-        })
+        // 按 numKey 分流下传：长篇挂 章号、短篇挂 篇号（service 按文档角色读对应键）
+        const metaUpdate: Record<string, unknown> = {}
+        if (标题 !== undefined) metaUpdate['标题'] = 标题
+        if (Number.isFinite(numVal)) metaUpdate[numKey] = numVal
+        result = svc.updateChapterMeta(docId, metaUpdate)
       } else if (body.op === 'fm') {
         const meta = body.meta
         if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {

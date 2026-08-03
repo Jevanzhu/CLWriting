@@ -319,10 +319,23 @@ test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
     编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 5, 动词: '回收', 证据: 'a' }], // 末条"回收"是收尾，但状态仍"进行中"
+    履历: [{ 章号: 5, 动词: '揭晓', 证据: 'a' }], // 末条"揭晓"是悬念收尾，但状态仍"进行中"
     _path: 'p',
   })
   const r = checkLeadsForm(db, root, 10, ['悬念'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 成长线 跃迁/跨层 收尾动词状态闭合（曾因硬编码漏检）', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '跃迁', 证据: 'a' }], // 末条"跃迁"是成长线收尾，但状态仍"进行中"
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['成长线'])
   expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })

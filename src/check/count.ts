@@ -30,9 +30,9 @@ export function checkFrontMatter(
 ): CheckSectionResult {
   const items: CheckItem[] = []
 
-  // 章号 == 文件名前缀
+  // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
   const fileNum = Number(fileName.match(/^(\d+)-/)?.[1])
-  if (fileNum !== chapter.章号) {
+  if (!Number.isNaN(fileNum) && fileNum !== chapter.章号) {
     items.push({
       checkId: 'fm-chapter-mismatch',
       level: 'red',
