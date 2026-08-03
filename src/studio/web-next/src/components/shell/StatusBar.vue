@@ -1,20 +1,17 @@
 <script setup lang="ts">
-// 状态栏：左 CLI 连接态（useHeartbeat serverOnline）；右 主题名。T0.4 接心跳；字数/保存态随 P2 加。
+// 状态栏：左连接态（useHeartbeat serverOnline）；右 主题名。
 import { computed } from 'vue'
 import { useTheme } from '../../composables/useTheme'
 import { serverOnline } from '../../composables/useHeartbeat'
 import { useTreeStore } from '../../stores/tree'
 import { useWordsStore } from '../../stores/words'
-import { useUiStore } from '../../stores/ui'
 defineProps<{ bookName: string }>()
 const { themeName } = useTheme()
 const tree = useTreeStore()
 const words = useWordsStore()
-const ui = useUiStore()
-// aiDriver = 当前供应商名（ai-status 返回）；空 = 未配置
 const connText = computed(() => {
-  if (!serverOnline.value) return '服务连接中断'
-  return ui.aiAvailable && ui.aiDriver ? `${ui.aiDriver} 已连接` : '服务已连接'
+  if (!serverOnline.value) return '无法连接到写作助手'
+  return '写作助手就绪'
 })
 </script>
 

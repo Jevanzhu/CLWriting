@@ -39,7 +39,8 @@ async function run(): Promise<void> {
       ui.toast('导出完成', 'success')
       ui.closeExport()
     } else {
-      ui.toast(r.stderr || r.stdout || '导出失败', 'error')
+      console.error('导出失败:', r.stderr || r.stdout)
+      ui.toast('导出失败，请重试', 'error')
     }
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')

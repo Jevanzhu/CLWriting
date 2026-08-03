@@ -97,7 +97,7 @@ onMounted(async () => {
 <template>
   <div class="onboard">
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 驱动不可用（claude CLI 未就绪），开书对话暂不可用。
+      AI 服务暂不可用，请在设置中检查 AI 配置。
     </div>
 
     <!-- Hero（渐变头，与总览页同语言） -->

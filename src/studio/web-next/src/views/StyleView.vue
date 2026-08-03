@@ -40,7 +40,7 @@ async function load(): Promise<void> {
   try {
     const migration = await style.load(props.bookName)
     if (migration) {
-      ui.toast(`文风库已升级：${migration.migrated}项旧资产迁入条目库`, 'success')
+      ui.toast(`文风库已升级：${migration.migrated}项旧数据迁入条目库`, 'success')
     }
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
@@ -60,15 +60,15 @@ function fmtDate(iso: string): string {
 async function onFreeze(): Promise<void> {
   if (freezing.value) return
   const ok = await ui.ask({
-    title: baseline.value ? '重新冻结基线' : '冻结基线',
-    message: '以当前条目库样章按场景重算文风指纹，覆盖旧基线。机检漂移对照将以新基线为准。',
-    confirmText: '冻结',
+    title: baseline.value ? '重新建立文风基准' : '建立文风基准',
+    message: '以当前样章按场景重新提取你的文风特征，替换之前的基准。后续偏差检测将以新基准为准。',
+    confirmText: '建立',
   })
   if (!ok) return
   freezing.value = true
   try {
     await style.freeze()
-    ui.toast('基线已冻结', 'success')
+    ui.toast('文风基准已建立', 'success')
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
   } finally {
@@ -86,7 +86,7 @@ async function onInjection(v: 'light' | 'heavy'): Promise<void> {
     cfg.style.injection = v
     await putConfig(props.bookName, cfg)
     if (style.config) style.config.injection = v
-    ui.toast('注入强度已保存', 'success')
+    ui.toast('参考强度已保存', 'success')
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
   }
@@ -236,7 +236,7 @@ async function onConfirm(c: StyleCandidateFE): Promise<void> {
   acting.value = c._path
   try {
     await style.confirm(c._path)
-    ui.toast(`已入条目库：${c.类型}`, 'success')
+    ui.toast(`已收录：${c.类型}`, 'success')
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : String(e), 'error')
   } finally {
@@ -280,7 +280,7 @@ async function onAnalyze(): Promise<void> {
     aiResult.value = r.envelope.payload as StylePayload
     if (r.styleCandidates > 0) {
       await style.load(props.bookName)
-      ui.toast(`分析完成：口癖/建议已产出${r.styleCandidates}条候选`, 'success')
+      ui.toast(`分析完成：口癖和建议已生成${r.styleCandidates}条候选`, 'success')
     } else {
       ui.toast('分析完成', 'success')
     }
@@ -319,7 +319,7 @@ function avg(series: number[]): number {
       <section class="panel">
         <div class="panel-head">
           <SlidersHorizontal :size="14" /> <span>定标</span>
-          <span class="head-note">机检阈值与注入方式</span>
+          <span class="head-note">检测标准与参考方式</span>
         </div>
         <div class="anchor-body">
           <div class="anchor-chips">
@@ -334,23 +334,23 @@ function avg(series: number[]): number {
           <div class="anchor-line">
             <Snowflake :size="13" class="al-icon" />
             <template v-if="baseline">
-              <span>基线冻结于 {{ fmtDate(baseline.frozenAt) }} · 覆盖{{ baseline.scenes.length }}个场景</span>
-              <button class="btn-ghost" :disabled="freezing" @click="onFreeze">重新冻结</button>
+              <span>文风基准建立于 {{ fmtDate(baseline.frozenAt) }} · 覆盖{{ baseline.scenes.length }}个场景</span>
+              <button class="btn-ghost" :disabled="freezing" @click="onFreeze">重新建立</button>
             </template>
             <template v-else>
-              <span class="al-faint">未冻结基线——机检漂移暂无对照，收录样章后可冻结</span>
+              <span class="al-faint">尚未建立文风基准——偏差检测暂无对照，收录样章后即可建立</span>
               <button class="btn-ghost" :disabled="freezing || style.kindCounts['样章'] === 0" @click="onFreeze">
-                冻结基线
+                建立基准
               </button>
             </template>
           </div>
           <div class="anchor-line">
-            <span class="al-label">注入强度</span>
+            <span class="al-label">参考强度</span>
             <div class="seg">
               <button class="seg-btn" :class="{ on: injection === 'light' }" @click="onInjection('light')">轻</button>
               <button class="seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>
             </div>
-            <span class="al-faint">{{ injection === 'light' ? '每章注入1段样章参考' : '每章注入3段样章参考' }}</span>
+            <span class="al-faint">{{ injection === 'light' ? '每章带入1段样章参考' : '每章带入3段样章参考' }}</span>
             <button class="btn-ghost rules-toggle" @click="toggleRulesEdit">
               {{ editingRules ? '收起铁律原文' : '编辑铁律原文' }}
             </button>
@@ -361,7 +361,7 @@ function avg(series: number[]): number {
               class="rules-textarea"
               rows="12"
               spellcheck="false"
-              :placeholder="rulesMissing ? '尚无铁律——留空新建。机检阈值、删除分级等纯配置。' : ''"
+              :placeholder="rulesMissing ? '尚无铁律——留空新建。检测标准、删除分级等规则配置。' : ''"
             ></textarea>
             <div class="af-actions">
               <span v-if="rulesDirty" class="al-faint">未保存</span>
@@ -377,7 +377,7 @@ function avg(series: number[]): number {
       <section class="panel">
         <div class="panel-head">
           <LibraryBig :size="14" /> <span>条目库</span>
-          <span class="head-note">{{ style.entries.length }}条 · 注入AI的文风知识</span>
+          <span class="head-note">{{ style.entries.length }}条 · 供AI参考的文风知识</span>
           <span v-if="style.entryErrors > 0" class="head-warn">{{ style.entryErrors }}个文件损坏</span>
           <div class="head-actions">
             <button
@@ -485,7 +485,7 @@ function avg(series: number[]): number {
           <Inbox :size="14" /> <span>候选箱</span>
           <span v-if="pending.length > 0" class="head-count">{{ pending.length }}待确认</span>
           <div class="head-actions">
-            <span class="token-chip free">零token</span>
+            <span class="token-chip free">免费</span>
             <button class="btn-primary" :disabled="harvesting" @click="onHarvest">
               <Sparkles :size="13" :class="{ spin: harvesting }" />
               {{ harvesting ? '收割中…' : '收割' }}
@@ -493,7 +493,7 @@ function avg(series: number[]): number {
           </div>
         </div>
         <p class="panel-hint">
-          收割从你的改稿轨迹和机检漂移里提炼候选；AI语义分析的口癖/建议也会汇入。确认才入库，忽略不再骚扰。
+          收割从你的改稿痕迹和文风偏差中提炼候选；AI深度分析的口癖和建议也会汇入。确认后收录，忽略后不再提醒。
         </p>
 
         <div v-if="pending.length > 0" class="cand-list">
@@ -522,7 +522,7 @@ function avg(series: number[]): number {
                 <X :size="13" /> 忽略
               </button>
               <button class="btn-primary" :disabled="acting === c._path" @click="onConfirm(c)">
-                <Check :size="13" /> 确认入库
+                <Check :size="13" /> 确认收录
               </button>
             </div>
           </div>
@@ -543,7 +543,7 @@ function avg(series: number[]): number {
             <div class="cc-top">
               <span class="kind-badge" :data-kind="c.类型">{{ c.类型 }}</span>
               <span class="cc-text-inline">{{ c.正文 }}</span>
-              <button class="btn-ghost" :disabled="acting === c._path" @click="onConfirm(c)">仍要入库</button>
+              <button class="btn-ghost" :disabled="acting === c._path" @click="onConfirm(c)">仍要收录</button>
             </div>
           </div>
         </div>
@@ -559,8 +559,8 @@ function avg(series: number[]): number {
           <!-- 机检重扫（零 AI） -->
           <div class="accept-block">
             <div class="ab-head">
-              <span class="ab-title">机检重扫</span>
-              <span class="token-chip free">零token</span>
+              <span class="ab-title">规则检测</span>
+              <span class="token-chip free">免费</span>
               <button class="btn-ghost" :disabled="rescanning" @click="onRescan">
                 <RefreshCw :size="12" :class="{ spin: rescanning }" />
                 {{ style.trend ? '重扫' : '扫描' }}
@@ -569,7 +569,7 @@ function avg(series: number[]): number {
             <template v-if="style.trend && style.trend.count > 0">
               <div class="ab-meta">
                 基于{{ style.trend.count }}{{ unit }}定稿 ·
-                {{ style.trend.baseline ? `对照 ${fmtDate(style.trend.baseline.frozenAt)} 基线` : '无基线（仅绝对值）' }}
+                {{ style.trend.baseline ? `对照 ${fmtDate(style.trend.baseline.frozenAt)} 基准` : '无基准（仅检测当前值）' }}
               </div>
               <div class="spark-rows">
                 <div class="spark-row">
@@ -602,17 +602,17 @@ function avg(series: number[]): number {
               <div v-if="style.trend.drifts.length > 0" class="drift-list">
                 <div v-for="(d, i) in style.trend.drifts" :key="i" class="drift-item">{{ d.message }}</div>
               </div>
-              <div v-else class="ab-ok">无漂移信号</div>
+              <div v-else class="ab-ok">未发现文风偏差</div>
             </template>
             <div v-else-if="style.trend" class="ab-empty">尚无定稿正文可扫</div>
-            <div v-else class="ab-empty">点「扫描」按铁律阈值全量核对定稿</div>
+            <div v-else class="ab-empty">点「扫描」按铁律标准检查全部定稿</div>
           </div>
 
           <!-- AI 语义分析（耗 token） -->
           <div class="accept-block">
             <div class="ab-head">
-              <span class="ab-title">AI语义分析</span>
-              <span class="token-chip cost">耗token</span>
+              <span class="ab-title">AI深度分析</span>
+              <span class="token-chip cost">消耗额度</span>
               <button class="btn-ghost" :disabled="aiOff || analyzing" @click="onAnalyze">
                 <RefreshCw :size="12" :class="{ spin: analyzing }" />
                 {{ analyzing ? '分析中…' : '分析' }}
@@ -629,7 +629,7 @@ function avg(series: number[]): number {
               </div>
             </template>
             <div v-else class="ab-empty">
-              {{ aiOff ? 'AI当前不可达' : '读最近定稿做全书文风总结；口癖和建议会自动进候选箱' }}
+              {{ aiOff ? 'AI暂不可用' : '读最近定稿做全书文风总结；口癖和建议会自动进候选箱' }}
             </div>
           </div>
         </div>

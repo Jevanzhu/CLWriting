@@ -124,7 +124,7 @@ async function onSpawn(): Promise<void> {
     const userText = prompt.value.trim()
     const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
     await spawnRole(props.bookName, { role: 'writer', prompt: final })
-    ui.toast('已触发生成', 'info')
+    ui.toast('已开始生成', 'info')
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e)
     ui.toast(err.value, 'error')
@@ -167,10 +167,10 @@ async function onOutline(): Promise<void> {
 const healText = computed(() => {
   const p = wb.healProgress
   if (wb.healPhase === 'rewriting' && p) {
-    return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余红项 ${p.remaining.length} 条）`
+    return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余 ${p.remaining.length} 条待修）`
   }
   if (wb.healPhase === 'drafting') return '正在写稿…'
-  if (wb.healPhase === 'checking') return '机检中…'
+  if (wb.healPhase === 'checking') return '校对中…'
   if (wb.healPhase === 'rewriting') return '正在重写…'
   return ''
 })
@@ -201,35 +201,37 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
     case 'text':
       return String(ev.text ?? '')
     case 'tool_use':
-      return `[工具] ${ev.tool}${ev.role ? ' (' + ev.role + ')' : ''}`
+      return `调用工具 ${ev.tool}${ev.role ? `（${ev.role}）` : ''}`
     case 'role_spawn':
-      return `[子角色] ${ev.role}`
+      return `子角色 ${ev.role} 开始工作`
     case 'usage':
-      return `[用量] tokens=${ev.tokens} cost=${ev.cost}`
+      return `用量：${ev.tokens} tokens${ev.cost ? `（${ev.cost}）` : ''}`
     case 'review-progress':
-      return `[审稿] ${ev.lens} · ${ev.label} (${ev.phase})`
+      return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
     case 'self_heal_phase':
-      return `[自愈] 阶段 ${ev.phase}`
+      return `自检进入「${ev.phase}」阶段`
     case 'self_heal_reset':
-      return '[自愈] 清正文缓冲（新一轮重写）'
+      return '重新写稿（清空上一次草稿）'
     case 'text_reset':
-      return '[重试] 清正文缓冲（流式重试防重复产出）'
+      return '重试写稿（清空上一次草稿）'
     case 'warning':
-      return `[警告] ${ev.message}`
+      return `提示：${ev.message}`
     case 'self_heal_progress':
-      return `[自愈] 第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余红项 ${(ev.remaining as string[] | undefined)?.length ?? 0}`
-    case 'self_heal_result':
-      return `[自愈] 终局 ${ev.outcome}`
+      return `第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余 ${(ev.remaining as string[] | undefined)?.length ?? 0} 条待修`
+    case 'self_heal_result': {
+      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断' }
+      return `自检结果：${m[ev.outcome as string] ?? ev.outcome}`
+    }
     case 'done':
-      return `[完成] reason=${ev.reason} usage=${ev.usage}`
+      return '完成'
     case 'error':
-      return `[错误] ${ev.message}`
+      return `错误：${ev.message}`
     case 'interrupted':
-      return `[中断] ${ev.reason}`
+      return `已中断${ev.reason ? `（${ev.reason}）` : ''}`
     case 'init':
-      return `[init] agents=${(ev.agents as string[] | undefined)?.join(',')}`
+      return '准备就绪'
     default:
-      return `[${ev.type}]`
+      return ev.type
   }
 }
 function evKind(ev: { type: string }): 'text' | 'meta' | 'done' | 'error' {
@@ -245,14 +247,14 @@ const recent = computed(() => wb.log.slice(-200))
   <div class="workbench">
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用供应商。
+      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用服务商。
     </div>
     <!-- 任务档位（只读显示，配置在设置 → AI） -->
     <section v-if="tierCreative" class="card model-bar">
       <span class="model-label">创作档</span>
       <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
       <span v-if="tierCreative.model" class="tier-meta">
-        {{ tierCreative.effort === 'high' ? '深度' : tierCreative.effort === 'medium' ? '平衡' : '快速' }} · {{ tierCreative.maxTokens.toLocaleString() }} tokens
+        {{ tierCreative.effort === 'high' ? '深度' : tierCreative.effort === 'medium' ? '平衡' : '快速' }} · 上限 {{ tierCreative.maxTokens.toLocaleString() }}
       </span>
     </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
@@ -280,7 +282,7 @@ const recent = computed(() => wb.log.slice(-200))
         <div class="adv-block">
           <div class="adv-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
           <div class="stream">
-            <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」触发" size="compact" />
+            <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」开始" size="compact" />
             <div
               v-for="(ev, i) in recent"
               :key="i"
@@ -337,12 +339,12 @@ const recent = computed(() => wb.log.slice(-200))
       <template v-if="healDone">
         <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
           <CircleCheck :size="16" />
-          <span>机检全绿，可以定稿了</span>
+          <span>校对通过，可以定稿了</span>
         </div>
         <div v-else-if="healDone.outcome === 'escalate'" class="heal-row warn">
           <TriangleAlert :size="16" />
           <div class="heal-detail">
-            <div>AI 已重试到上限仍有红项，需要你来定夺</div>
+            <div>AI 已重试到上限仍有待修问题，需要你来定夺</div>
             <ul class="heal-reds">
               <li v-for="(r, i) in healDone.reds ?? []" :key="i">{{ r }}</li>
             </ul>

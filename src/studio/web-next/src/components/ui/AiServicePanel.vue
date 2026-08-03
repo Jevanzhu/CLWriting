@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// AI 服务供应商管理面板（设置页 AI tab 的内容）。
+// AI 服务服务商管理面板（设置页 AI tab 的内容）。
 // 应用级配置，跨书共享，存 userData/providers.json。
 import { ref, onMounted } from 'vue'
 import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil } from 'lucide-vue-next'
@@ -116,7 +116,7 @@ async function save(): Promise<void> {
     }
     editing.value = false
     editId.value = null
-    // P0-2：供应商表已变 → 刷新 AI 可达性（新增后未测连接按钮仍灰，语义正确）
+    // P0-2：服务商表已变 → 刷新 AI 可达性（新增后未测连接按钮仍灰，语义正确）
     void ui.probeAiStatus()
     await refresh()
   } catch (e) {
@@ -125,11 +125,11 @@ async function save(): Promise<void> {
 }
 
 async function remove(p: ProviderConfDto): Promise<void> {
-  if (!confirm(`删除供应商「${p.name}」？`)) return
+  if (!confirm(`删除服务商「${p.name}」？`)) return
   try {
     const r = await deleteProvider(p.id)
     currentId.value = r.currentId
-    // P0-2：删除可能翻转可达性（删除当前供应商 + 无兜底 → 不可达）
+    // P0-2：删除可能翻转可达性（删除当前服务商 + 无兜底 → 不可达）
     void ui.probeAiStatus()
     await refresh()
     ui.toast('已删除', 'success')
@@ -143,7 +143,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
   try {
     await setCurrentProvider(p.id)
     currentId.value = p.id
-    // P0-2：切换当前供应商后工作台/开书按钮应立即可用
+    // P0-2：切换当前服务商后工作台/开书按钮应立即可用
     void ui.probeAiStatus()
     ui.toast(`已启用「${p.name}」`, 'success')
   } catch (e) {
@@ -197,7 +197,6 @@ function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | n
   if (!caps) return null
   if (!caps.connected) return { text: '连接失败', cls: 'bad' }
   const parts = ['已连接']
-  if (caps.streaming) parts.push('流式')
   return { text: parts.join(' · '), cls: 'ok' }
 }
 
@@ -213,18 +212,18 @@ function timeAgo(ts: number | undefined): string {
 
 <template>
   <div class="ai-service-panel">
-    <!-- 供应商列表 -->
+    <!-- 服务商列表 -->
     <template v-if="!editing">
       <div class="group-title">
-        AI 服务供应商
+        AI 服务服务商
         <button class="add-btn" @click="startAdd"><Plus :size="14" />添加</button>
       </div>
 
       <div v-if="loading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
 
       <div v-else-if="providers.length === 0" class="empty">
-        <p>尚未配置任何 AI 服务供应商</p>
-        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加供应商</button>
+        <p>尚未配置任何 AI 服务服务商</p>
+        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加服务商</button>
       </div>
 
       <template v-else>
@@ -268,7 +267,7 @@ function timeAgo(ts: number | undefined): string {
           <!-- caps 徽章 -->
           <div v-if="p.caps" class="caps-row">
             <span class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
-            <span class="probed-at">探测于 {{ timeAgo(p.capsProbedAt) }}</span>
+            <span class="probed-at">上次检查 {{ timeAgo(p.capsProbedAt) }}</span>
           </div>
           <!-- 测试结果详情 -->
           <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
@@ -278,7 +277,7 @@ function timeAgo(ts: number | undefined): string {
             </div>
           </div>
           <div v-if="!p.caps" class="caps-hint">
-            <AlertTriangle :size="12" /> 尚未测试连接——未探测的供应商不能启用
+            <AlertTriangle :size="12" /> 尚未测试连接——未测试的服务商不能启用
           </div>
         </div>
       </template>
@@ -311,7 +310,7 @@ function timeAgo(ts: number | undefined): string {
               <input type="checkbox" v-model="assistantEnabled" @change="toggleAssistant(assistantEnabled)" />
               <span class="tier-name">助手档</span>
             </label>
-            <span class="tier-desc">三审 / 分析 · 不配则回落创作档</span>
+            <span class="tier-desc">三审 / 分析 · 不配则与创作档相同</span>
           </div>
           <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
             <select v-model="tierForm.assistant.model" class="tier-select">
@@ -335,7 +334,7 @@ function timeAgo(ts: number | undefined): string {
 
     <!-- 新增/编辑表单 -->
     <template v-else>
-      <div class="group-title">{{ editId ? '编辑供应商' : '新增供应商' }}</div>
+      <div class="group-title">{{ editId ? '编辑服务商' : '新增服务商' }}</div>
       <div class="form">
         <!-- 协议模板选择 -->
         <div class="form-row">
@@ -448,7 +447,7 @@ function timeAgo(ts: number | undefined): string {
   font-size: var(--font-size-s);
 }
 
-/* ── 供应商卡片 ── */
+/* ── 服务商卡片 ── */
 .provider-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
