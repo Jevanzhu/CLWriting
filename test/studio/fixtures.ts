@@ -9,6 +9,8 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.js'
+import type { ModelCaps } from '../../src/ai/provider/types.js'
 
 export const LONG_BOOK = '长篇测试书'
 export const SHORT_BOOK = '短篇测试集'
@@ -102,4 +104,49 @@ function makeShortBook(root: string): void {
   writeFileSync(join(root, '定稿', '设定', '集子定位.md'), '# 集子定位\n悬疑短篇集，母题：七号公寓。')
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n- 短篇正文纯文本\n')
+}
+
+// ─── fake provider 辅助（T1：非 mock 分支测试） ───────────────────────
+
+/**
+ * 写入指向 fake provider stub 的 providers.json（含 tier 配置 + caps）。
+ *
+ * 测试体内需 delete process.env.CLWRITING_DRIVER 保证走真实 provider 路径。
+ * saveProviders 自动处理 vault 加密，loadProviders 自动解密。
+ *
+ * @param userDataPath 临时应用数据目录
+ * @param fakeUrl      stub server 的 baseUrl（如 http://127.0.0.1:PORT/v1）
+ * @param modelCaps    模型级 caps（toolUse/toolChoice）；缺省 = 全能力
+ */
+export function withFakeProvider(
+  userDataPath: string,
+  fakeUrl: string,
+  modelCaps?: ModelCaps,
+): void {
+  const store: ProviderStore = {
+    providers: [{
+      id: 'fake-prov',
+      name: 'fake',
+      protocol: 'openai',
+      auth: 'bearer',
+      baseUrl: fakeUrl,
+      model: 'fake-model',
+      apiKey: 'sk-fake-key',
+      caps: { connected: true, streaming: true },
+      capsProbedAt: Date.now(),
+    }],
+    currentId: 'fake-prov',
+    currentModel: 'fake-model',
+    modelCaps: modelCaps ? { 'fake-prov/fake-model': modelCaps } : {},
+    tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null },
+    vault: null,
+    dek: null,
+  }
+  saveProviders(userDataPath, store)
+}
+
+/** 造临时 userData 目录 */
+export function tempUserData(): string {
+  const d = mkdtempSync(join(tmpdir(), 'clwriting-ud-'))
+  return d
 }

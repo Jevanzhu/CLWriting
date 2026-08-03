@@ -166,7 +166,11 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelC
             }
             toolAccum.clear()
 
-            pendingStopReason = choice.finish_reason === 'tool_calls' ? 'tool_use' : choice.finish_reason
+            // 统一 stopReason 命名：OpenAI 'length' → 'max_tokens'（与 Anthropic 对齐，generateText 截断检查靠此）
+            pendingStopReason =
+              choice.finish_reason === 'tool_calls' ? 'tool_use'
+              : choice.finish_reason === 'length' ? 'max_tokens'
+              : choice.finish_reason
             // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
             if (usage) {
               const ev = emitDone(
