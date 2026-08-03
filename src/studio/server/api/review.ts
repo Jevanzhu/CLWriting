@@ -14,7 +14,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { currentProvider } from '../../../ai/provider/index.js'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -82,47 +82,56 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const kind: 'long' | 'short' = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
 
       // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
+      const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
       const built = buildReviewPacket({
         checkReport: report,
         body,
         chapter: chapter.章号,
-        workDir: join(bookRoot, '.cache', `review-${docId}`),
+        workDir: reviewOutDir,
         capabilities: { parallel_subagents: false, multiple_calls: true },
         remaining_calls: config.budget.calls_per_chapter,
         high_risk: false,
         kind,
       })
-      if (!built.ok) return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
+      if (!built.ok) {
+        rmSync(reviewOutDir, { recursive: true, force: true })
+        return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
+      }
 
       // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
-      const driver = getDriver('cc')
-      const mainSession = await ensureSession(params['name']!, ctx.workDir!)
-      const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
-        if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+      try {
+        const driver = getDriver('cc')
+        const mainSession = await ensureSession(params['name']!, ctx.workDir!)
+        const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
+          if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+        }
+        const loopResult = await runLensSpawnLoop({
+          userDataPath: ctx.userDataPath,
+          packets: built.packet.packets,
+          body,
+          chapter: chapter.章号,
+          kind,
+          outDir: built.packet.out_dir,
+          onProgress: emitProgress,
+        })
+        if (!loopResult.ok) return reply(res, 500, { ok: false, code: 'LENS_FAIL', error: loopResult.error })
+
+        // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
+        const collected = collectReviewIssues({ packet: built.packet })
+        // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
+        const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
+        writeAnalysis(bookRoot, docId, 'review', {
+          generatedAt: new Date().toISOString(),
+          model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
+          sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
+          payload: { collected, lenses: loopResult.lenses },
+        })
+
+        reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+      } finally {
+        // 三审临时目录用毕即清（防跨审稿累积膨胀）
+        rmSync(reviewOutDir, { recursive: true, force: true })
       }
-      const loopResult = await runLensSpawnLoop({
-        userDataPath: ctx.userDataPath,
-        packets: built.packet.packets,
-        body,
-        chapter: chapter.章号,
-        kind,
-        outDir: built.packet.out_dir,
-        onProgress: emitProgress,
-      })
-      if (!loopResult.ok) return reply(res, 500, { ok: false, code: 'LENS_FAIL', error: loopResult.error })
-
-      // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
-      const collected = collectReviewIssues({ packet: built.packet })
-      // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
-      const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
-      writeAnalysis(bookRoot, docId, 'review', {
-        generatedAt: new Date().toISOString(),
-        model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
-        sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
-        payload: { collected, lenses: loopResult.lenses },
-      })
-
-      reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
     },
   )
 

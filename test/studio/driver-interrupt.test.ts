@@ -58,6 +58,8 @@ test('P1-2 registerCtrl: interrupt 可真 abort 生成请求 + isRunning 判在�
   // interrupt → 真实 abort ctrl（生成循环据此停止拉流）
   ccDriver.interrupt!(session)
   expect(ctrl.signal.aborted).toBe(true)
+  // interrupt 即注销 ctrl：isRunning 立即归 false（SSE sync 快照不假报「生成中」）
+  expect(ccDriver.isRunning!(session)).toBe(false)
   const ev = await firstEvent(ccDriver.stream(session) as AsyncGenerator<DriverEvent>)
   expect(ev.type).toBe('interrupted')
   ccDriver.dispose(session)

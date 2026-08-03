@@ -80,6 +80,8 @@ export const ccDriver: StudioDriver = {
     // 推 interrupted（前端据此清 running；cc 无 driver 层生成可中断）
     const ctrl = sessionCtrl.get(session.id)
     if (ctrl) ctrl.abort()
+    // 中断即注销 ctrl：isRunning 立即归 false（与 dispose 同口径，防 SSE 快照假报「生成中」）
+    sessionCtrl.delete(session.id)
     const ch = channel(session.id)
     ch.terminated = true
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })

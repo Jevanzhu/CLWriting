@@ -10,7 +10,7 @@
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
-import { createProvider, currentProvider, resolveTier, getModelCaps, type ModelProvider, type TokenUsage } from './provider/index.js'
+import { createProvider, loadProviders, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 
@@ -72,16 +72,19 @@ function extractUsage(data: unknown): TokenUsage | null {
 export function resolveProvider(
   userDataPath: string | null,
   tierKind: 'creative' | 'assistant' = 'creative',
-): { ok: true; provider: ModelProvider } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
+): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
-  const conf = currentProvider(userDataPath)
+  // 只 loadProviders 一次（含 vault 解密），后续 conf / tier / caps 全从同一 store 派生
+  // （修前 currentProvider + resolveTier + getModelCaps 各调一次 = 3 次，加 runTask 又调 resolveTier = 4 次）
+  const s = loadProviders(userDataPath)
+  const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null
   if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG }
   // D 档：模型从任务档位取（creative/assistant），档位未配模型时回落 currentModel
-  const tier = resolveTier(userDataPath, tierKind)
+  const tier = tierFromStore(s, tierKind)
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG }
   // 模型级 caps（按 providerId+model 缓存）；null = 未探测，生成时保守降级
-  const modelCaps = getModelCaps(userDataPath, conf.id, tier.model)
-  return { ok: true, provider: createProvider({ ...conf, model: tier.model }, modelCaps) }
+  const modelCaps = s.modelCaps[`${conf.id}/${tier.model}`] ?? null
+  return { ok: true, provider: createProvider({ ...conf, model: tier.model }, modelCaps), tier }
 }
 
 /**
@@ -126,7 +129,8 @@ export async function runTask<T>(opts: {
   if (opts.register) opts.register(ctrl)
 
   // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
-  const tier = resolveTier(opts.userDataPath, opts.tierKind ?? 'creative')
+  // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
+  const tier = r.tier
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let timedOut = false
   const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)

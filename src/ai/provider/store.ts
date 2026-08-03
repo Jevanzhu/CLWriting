@@ -211,15 +211,19 @@ export function setModelCaps(userDataPath: string, providerId: string, model: st
   saveProviders(userDataPath, s)
 }
 
-/** 取档位配置（assistant 未配 / model 为空 → 回落 creative + currentModel） */
-export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant'): TierSlot {
-  if (!userDataPath) return { model: '', effort: 'high', maxTokens: 16000 }
-  const s = loadProviders(userDataPath)
+/** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */
+export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant'): TierSlot {
   const fallback = s.currentModel ?? ''
   if (kind === 'assistant' && s.tiers.assistant) {
     return s.tiers.assistant.model ? s.tiers.assistant : { ...s.tiers.assistant, model: fallback }
   }
   return s.tiers.creative.model ? s.tiers.creative : { ...s.tiers.creative, model: fallback }
+}
+
+/** 取档位配置（assistant 未配 / model 为空 → 回落 creative + currentModel） */
+export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant'): TierSlot {
+  if (!userDataPath) return { model: '', effort: 'high', maxTokens: 16000 }
+  return tierFromStore(loadProviders(userDataPath), kind)
 }
 
 /** 新供应商 ID */

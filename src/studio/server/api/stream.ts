@@ -126,12 +126,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     req.on('close', () => {
       void iter.return(undefined)
     })
+    // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）
+    const safeWrite = (chunk: string): void => {
+      if (!res.writableEnded && !res.destroyed) res.write(chunk)
+    }
     try {
       for await (const ev of iter) {
-        res.write(`data: ${JSON.stringify(ev)}\n\n`)
+        safeWrite(`data: ${JSON.stringify(ev)}\n\n`)
       }
     } catch (e) {
-      res.write(
+      safeWrite(
         `data: ${JSON.stringify({
           type: 'error',
           kind: 'stream',
@@ -140,7 +144,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         })}\n\n`,
       )
     }
-    res.end()
+    if (!res.writableEnded) res.end()
   })
 
   // 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流

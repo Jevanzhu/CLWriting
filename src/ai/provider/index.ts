@@ -32,6 +32,7 @@ export {
   getModelCaps,
   setModelCaps,
   resolveTier,
+  tierFromStore,
   emptySettings,
   newProviderId,
   maskKey,
