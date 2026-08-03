@@ -19,6 +19,7 @@ import {
   type TierSlot,
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
+import { friendlyError } from '../../shared/error'
 
 const ui = useUiStore()
 
@@ -71,7 +72,7 @@ async function refresh(): Promise<void> {
       }
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     loading.value = false
   }
@@ -120,7 +121,7 @@ async function save(): Promise<void> {
     void ui.probeAiStatus()
     await refresh()
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -134,7 +135,7 @@ async function remove(p: ProviderConfDto): Promise<void> {
     await refresh()
     ui.toast('已删除', 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -147,7 +148,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
     void ui.probeAiStatus()
     ui.toast(`已启用「${p.name}」`, 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -162,8 +163,8 @@ async function test(p: ProviderConfDto): Promise<void> {
     if (r.ok && r.caps?.connected) ui.toast(`${p.name} 测试通过`, 'success')
     else ui.toast(r.error ?? '测试失败', 'error')
   } catch (e) {
-    testResults.value.set(p.id, { ok: false, error: e instanceof Error ? e.message : String(e) })
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    testResults.value.set(p.id, { ok: false, error: friendlyError(e) })
+    ui.toast(friendlyError(e), 'error')
   } finally {
     testing.value = null
   }
@@ -187,7 +188,7 @@ async function saveTiers(): Promise<void> {
     ui.toast('档位已保存', 'success')
     await refresh()
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     tierSaving.value = false
   }

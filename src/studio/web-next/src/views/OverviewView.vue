@@ -18,6 +18,7 @@ import {
   type AnalysisOverview,
 } from '../api/analysis'
 import { useWorkspaceStore } from '../stores/workspace'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -37,7 +38,7 @@ async function loadAll(): Promise<void> {
   try {
     data.value = await getOverview(props.bookName)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   } finally {
     loading.value = false
   }

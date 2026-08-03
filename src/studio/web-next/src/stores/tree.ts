@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { getTree } from '../api/books'
 import { getTreeIssues, type TreeIssue } from '../api/tree-issues'
 import type { TreeNode } from '../types/tree'
+import { friendlyError } from '../shared/error'
 
 // 章节树 store：原始磁盘 nodes + groupTree 虚拟分组（写作/大纲/设定/文风）+ byPath 索引。
 // groupTree 规则照旧 web FileTree.groupTree（平价基准）。
@@ -129,7 +130,7 @@ export const useTreeStore = defineStore('tree', () => {
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
       void loadIssues(name)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
     } finally {
       loading.value = false
     }

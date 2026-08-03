@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
 import { countWords, stripFrontmatter } from '../../shared/words'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -61,7 +62,7 @@ async function load(): Promise<void> {
   try {
     entries.value = await listSnapshots(props.bookName, ws.activeDocId)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = friendlyError(e)
     err.value = msg === 'not found' ? '暂无历史数据' : msg
   } finally {
     loading.value = false
@@ -90,7 +91,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
     await load()
   } catch (error) {
-    ui.toast(error instanceof Error ? error.message : String(error), 'error')
+    ui.toast(friendlyError(error), 'error')
   } finally {
     restoring.value = null
   }

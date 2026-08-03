@@ -10,6 +10,7 @@ import {
 } from '../api/onboard'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ui = useUiStore()
@@ -66,7 +67,7 @@ async function gen(): Promise<void> {
     phase.value = 'result'
     ui.toast(`${STEP_LABEL[active.value]} 生成（${r.words} 字）`, 'success')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
     phase.value = 'detail'
   }
@@ -80,7 +81,7 @@ async function save(): Promise<void> {
     ui.toast('已保存', 'success')
     void tree.load(props.bookName)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   } finally {
     saving.value = false

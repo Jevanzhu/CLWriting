@@ -20,6 +20,7 @@ import { useUiStore } from '../stores/ui'
 import { getProviders, type TierSlot } from '../api/providers'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -70,7 +71,7 @@ async function refreshState(): Promise<void> {
   try {
     state.value = await getState(props.bookName)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 watch(
@@ -126,7 +127,7 @@ async function onSpawn(): Promise<void> {
     await spawnRole(props.bookName, { role: 'writer', prompt: final })
     ui.toast('已开始生成', 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }
@@ -135,7 +136,7 @@ async function onInterrupt(): Promise<void> {
     await interrupt(props.bookName)
     ui.toast('已中断', 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 
@@ -146,7 +147,7 @@ async function onAutoWrite(): Promise<void> {
     await autoWrite(props.bookName, chapter.value)
     ui.toast(`第 ${chapter.value} 章已开始全自动写稿`, 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }
@@ -158,7 +159,7 @@ async function onOutline(): Promise<void> {
     await generateOutline(props.bookName, chapter.value)
     ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }
@@ -190,7 +191,7 @@ async function onSaveDraft(): Promise<void> {
     ws.openTab(r.docId)
     ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }

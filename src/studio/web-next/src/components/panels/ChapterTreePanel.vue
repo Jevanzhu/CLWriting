@@ -19,6 +19,7 @@ import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
+import { friendlyError } from '../../shared/error'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
 //   + 右键菜单（五类）+ inline 新建/重命名 + 删除/移动 + 拖拽移动。
@@ -78,7 +79,7 @@ async function onSelect(node: TreeNode): Promise<void> {
     await doc.open(node)
     ws.openTab(node.docId)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 
@@ -295,7 +296,7 @@ async function onSaveMeta(meta: { 标题: string; num: number }): Promise<void> 
       if (fresh) entry.path = fresh.path
     }
   } catch (err) {
-    openError.value = err instanceof Error ? err.message : String(err)
+    openError.value = friendlyError(err)
   }
 }
 
@@ -322,7 +323,7 @@ async function createSingleton(relPath: string, label: string): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 /** TabBar 新建信号分派（按 createKind 路由到 startCreate / createSingleton）。 */
@@ -390,7 +391,7 @@ async function onCreateCommit(value: string): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 function onCreateCancel(): void {
@@ -411,7 +412,7 @@ async function onRenameCommit(path: string, value: string): Promise<void> {
     await renameDoc(props.bookName, node.docId, `${name}.md`)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 function onRenameCancel(): void {
@@ -432,7 +433,7 @@ async function doDelete(node: TreeNode): Promise<void> {
     await deleteDoc(props.bookName, node.docId)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 
@@ -442,7 +443,7 @@ async function doMove(docId: string, toDir: string): Promise<void> {
     await moveDoc(props.bookName, docId, toDir)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 async function onDrop(targetPath: string): Promise<void> {
@@ -470,7 +471,7 @@ async function doCopy(node: TreeNode): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 

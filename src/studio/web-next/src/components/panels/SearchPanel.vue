@@ -4,6 +4,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { search, type SearchHit } from '../../api/search'
+import { friendlyError } from '../../shared/error'
 
 // 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
@@ -41,7 +42,7 @@ async function run(): Promise<void> {
     results.value = r.results
     truncated.value = !!r.truncated
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   } finally {
     loading.value = false
   }

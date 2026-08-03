@@ -7,6 +7,7 @@ import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
 import { apiJson } from '../api/client'
 import { deleteBook } from '../api/shelf'
+import { friendlyError } from '../shared/error'
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
 export function formatWords(n?: number): string {
@@ -103,7 +104,7 @@ export function useShelf(options?: {
       await shelf.load()
       options?.onCreated?.(name)
     } catch (e) {
-      createError.value = e instanceof Error ? e.message : String(e)
+      createError.value = friendlyError(e)
     } finally {
       creating.value = false
     }
@@ -160,7 +161,7 @@ export function useShelf(options?: {
       await shelf.load()
     } catch (e) {
       // 删除失败：保留弹窗 + 显示错误，用户可重试或取消
-      deleteError.value = e instanceof Error ? e.message : String(e)
+      deleteError.value = friendlyError(e)
       await shelf.load()
     } finally {
       deleting.value = false

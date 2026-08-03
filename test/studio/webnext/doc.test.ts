@@ -177,7 +177,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
     expect(ok).toBe(false)
     const e = doc.get('d1')!
     expect(e.conflict).toBe(true)
-    expect(e.error).toBe('文件已被外部修改')
+    expect(e.error).toBe('此文档已在其他地方修改')
   })
 
   it('② 冲突未决时 autosave 跳过（不再发请求）', async () => {

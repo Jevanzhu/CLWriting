@@ -8,6 +8,7 @@ import {
   type ReviewEnvelope,
   type ReviewVerdict,
 } from '../api/review'
+import { friendlyError } from '../shared/error'
 
 /**
  * 三审 store（M12 块1 B1.1）：发起三审 + 存量信封展示。
@@ -33,7 +34,7 @@ export const useReviewStore = defineStore('review', () => {
       envelope.value = env?.envelope ?? null
       stale.value = env?.stale ?? false
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
       collected.value = null
     } finally {
       loading.value = false

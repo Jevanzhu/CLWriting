@@ -10,6 +10,7 @@ import { useUiStore } from '../../stores/ui'
 import { formKindOf, parseFmFields, isBodyKind } from '../../shared/words'
 import { getAnalysisOverview, autotag, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -37,7 +38,7 @@ async function analyzeTags(): Promise<void> {
     await doc.refresh(docId.value)
     ui.toast('标签分析完成', 'success')
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     tagging.value = false
   }

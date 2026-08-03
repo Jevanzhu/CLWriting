@@ -8,6 +8,7 @@ import { useTreeStore } from '../../stores/tree'
 import { getConfig, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
 import type { TreeNode } from '../../types/tree'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -26,7 +27,7 @@ watch(
     try {
       config.value = await getConfig(n)
     } catch (e) {
-      err.value = e instanceof Error ? e.message : String(e)
+      err.value = friendlyError(e)
     }
   },
   { immediate: true },

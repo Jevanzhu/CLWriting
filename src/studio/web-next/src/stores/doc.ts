@@ -18,6 +18,7 @@ import type { TreeNode } from '../types/tree'
  */
 
 import { isBodyKind } from '../shared/words'
+import { friendlyError } from '../shared/error'
 
 /** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/工作区(非草稿) = md（语法高亮）。 */
 function modeOf(path: string): 'text' | 'md' {
@@ -117,7 +118,7 @@ export const useDocStore = defineStore('doc', () => {
         e.conflict = true
         e.error = '此文档已在其他地方修改'
       } else {
-        e.error = err instanceof Error ? err.message : String(err)
+        e.error = friendlyError(err)
       }
       // autosave 失败不弹 toast（编辑器状态条已展示 error，避免周期性刷屏）
       if (origin === 'manual') useUiStore().toast(e.error, 'error')
@@ -140,7 +141,7 @@ export const useDocStore = defineStore('doc', () => {
       e.error = null
       useUiStore().toast('已加载最新版本', 'success')
     } catch (err) {
-      useUiStore().toast(err instanceof Error ? err.message : String(err), 'error')
+      useUiStore().toast(friendlyError(err), 'error')
     }
   }
 
@@ -155,7 +156,7 @@ export const useDocStore = defineStore('doc', () => {
       e.error = null
       await save(docId, 'manual')
     } catch (err) {
-      useUiStore().toast(err instanceof Error ? err.message : String(err), 'error')
+      useUiStore().toast(friendlyError(err), 'error')
     }
   }
 

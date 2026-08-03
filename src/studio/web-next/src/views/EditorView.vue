@@ -16,6 +16,7 @@ import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 import { useNativeMenu } from '../composables/useNativeMenu'
 import EmptyState from '../components/ui/EmptyState.vue'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ docId: string | null }>()
 const doc = useDocStore()
@@ -266,7 +267,7 @@ async function onTitleCommit(): Promise<void> {
       doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
     }
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
   }

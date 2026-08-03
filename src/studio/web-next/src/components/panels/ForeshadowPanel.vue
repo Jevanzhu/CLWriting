@@ -10,6 +10,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseChapterFileName } from '../../shared/words'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -59,7 +60,7 @@ async function load(): Promise<void> {
   try {
     list.value = await getForeshadows(props.bookName)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -88,7 +89,7 @@ async function create(): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 

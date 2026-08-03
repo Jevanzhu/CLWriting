@@ -6,6 +6,7 @@ import { X } from 'lucide-vue-next'
 import { exportBook, type ExportFormat, type ExportPlatform } from '../../api/io'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { friendlyError } from '../../shared/error'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -43,7 +44,7 @@ async function run(): Promise<void> {
       ui.toast('导出失败，请重试', 'error')
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     loading.value = false
   }

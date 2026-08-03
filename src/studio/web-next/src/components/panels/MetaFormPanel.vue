@@ -9,6 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
+import { friendlyError } from '../../shared/error'
 
 type FieldDef = {
   key: string
@@ -184,7 +185,7 @@ async function onSave(): Promise<void> {
     }
     ui.toast('已保存', 'success')
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     saving.value = false
   }

@@ -4,6 +4,7 @@ import { Trash2, RotateCcw, AlertCircle } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
+import { friendlyError } from '../../shared/error'
 
 // 回收站面板：严格仿章节树叶子行样式（dot-slot + label + hover 操作按钮）。
 const props = defineProps<{ bookName: string }>()
@@ -22,7 +23,7 @@ async function load(): Promise<void> {
   try {
     entries.value = await listTrash(props.bookName)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 async function restore(id: string): Promise<void> {
@@ -30,7 +31,7 @@ async function restore(id: string): Promise<void> {
     await restoreTrash(props.bookName, id)
     await Promise.all([load(), tree.load(props.bookName)])
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 async function purge(id: string): Promise<void> {
@@ -45,7 +46,7 @@ async function purge(id: string): Promise<void> {
     await purgeTrash(props.bookName, id)
     await load()
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 

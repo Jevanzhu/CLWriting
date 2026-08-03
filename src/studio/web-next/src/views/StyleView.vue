@@ -27,6 +27,7 @@ import { ApiError } from '../api/client'
 import { runStyleAnalysis, type StylePayload } from '../api/analysis'
 import EmptyState from '../components/ui/EmptyState.vue'
 import type { EntryKindFE, StyleCandidateFE } from '../api/style'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const style = useStyleStore()
@@ -43,7 +44,7 @@ async function load(): Promise<void> {
       ui.toast(`文风库已升级：${migration.migrated}项旧数据迁入条目库`, 'success')
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 onMounted(load)
@@ -70,7 +71,7 @@ async function onFreeze(): Promise<void> {
     await style.freeze()
     ui.toast('文风基准已建立', 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     freezing.value = false
   }
@@ -88,7 +89,7 @@ async function onInjection(v: 'light' | 'heavy'): Promise<void> {
     if (style.config) style.config.injection = v
     ui.toast('参考强度已保存', 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -115,7 +116,7 @@ async function toggleRulesEdit(): Promise<void> {
       rulesText.value = ''
       rulesOrig.value = ''
     } else {
-      ui.toast(e instanceof Error ? e.message : String(e), 'error')
+      ui.toast(friendlyError(e), 'error')
       return
     }
   }
@@ -134,7 +135,7 @@ async function saveRules(): Promise<void> {
     ui.toast('文风铁律已保存', 'success')
     await style.load(props.bookName) // 阈值可能已改，重拉定标数据
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     rulesSaving.value = false
   }
@@ -180,7 +181,7 @@ async function submitAdd(): Promise<void> {
     adding.value = false
     draft.value = { 类型: '手法', 场景: '', 说明: '', 正文: '' }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 async function onRemove(path: string, text: string): Promise<void> {
@@ -195,7 +196,7 @@ async function onRemove(path: string, text: string): Promise<void> {
     await style.remove(path)
     ui.toast('已删除', 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -226,7 +227,7 @@ async function onHarvest(): Promise<void> {
       ui.toast(r.skipped > 0 ? `无新候选（${r.skipped}条重复已跳过）` : '暂无可收割的信号', 'info')
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     harvesting.value = false
   }
@@ -238,7 +239,7 @@ async function onConfirm(c: StyleCandidateFE): Promise<void> {
     await style.confirm(c._path)
     ui.toast(`已收录：${c.类型}`, 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     acting.value = null
   }
@@ -249,7 +250,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
   try {
     await style.ignore(c._path)
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     acting.value = null
   }
@@ -263,7 +264,7 @@ async function onRescan(): Promise<void> {
   try {
     await style.rescan()
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     rescanning.value = false
   }
@@ -285,7 +286,7 @@ async function onAnalyze(): Promise<void> {
       ui.toast('分析完成', 'success')
     }
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   } finally {
     analyzing.value = false
   }

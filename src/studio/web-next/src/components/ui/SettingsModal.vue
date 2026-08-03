@@ -9,6 +9,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
 import AiServicePanel from './AiServicePanel.vue'
+import { friendlyError } from '../../shared/error'
 
 const ui = useUiStore()
 const prefs = usePrefsStore()
@@ -121,7 +122,7 @@ async function saveConfig(mutate: (cfg: BookConfig) => void): Promise<void> {
     await putConfig(name, cfg)
     ui.toast('已保存', 'success')
   } catch (e) {
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
+    ui.toast(friendlyError(e), 'error')
   }
 }
 

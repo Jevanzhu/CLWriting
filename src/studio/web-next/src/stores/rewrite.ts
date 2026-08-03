@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { runRewriteDoc, reportAiVersion, type RewriteResult } from '../api/rewrite'
 import { useDocStore } from './doc'
+import { friendlyError } from '../shared/error'
 
 /**
  * 改写 store（M12 块2 B2.2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
@@ -20,7 +21,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
       const body = append ? { instruction, append: true } : selection ? { instruction, selection } : { instruction }
       result.value = await runRewriteDoc(name, docId, body)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
       result.value = null
     } finally {
       loading.value = false

@@ -11,6 +11,7 @@ import { getSettings, type CharacterCard, type RelationEdge, type DebtEdge } fro
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -286,7 +287,7 @@ async function load(): Promise<void> {
     buildGraph(r.characters, r.characterRelations, [])
     loading.value = false
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     loading.value = false
   }
 }
