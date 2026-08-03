@@ -8,6 +8,7 @@ import {
   onboardAi, onboardSave,
   STEP_LABEL, STEP_PATH, STEP_DESC, type OnboardStep,
 } from '../api/onboard'
+import { getConfig } from '../api/books'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
@@ -24,12 +25,21 @@ const STEP_GROUPS: { label: string; steps: OnboardStep[] }[] = [
   { label: '短篇专属', steps: ['collection-pitch', 'first-outline'] },
 ]
 
-const ALL_STEPS = STEP_GROUPS.flatMap((g) => g.steps)
+// 非成长线书隐藏 realm（境界体系）步骤
+const isGrowthBook = ref(true)
+const visibleStepGroups = computed(() =>
+  STEP_GROUPS.map((g) => ({
+    ...g,
+    steps: g.steps.filter((s) => s !== 'realm' || isGrowthBook.value),
+  })).filter((g) => g.steps.length > 0),
+)
+
+const ALL_STEPS = computed<OnboardStep[]>(() => visibleStepGroups.value.flatMap((g) => g.steps))
 
 const stepIndex = computed(() => {
   const m = new Map<OnboardStep, number>()
   let n = 0
-  for (const g of STEP_GROUPS) for (const s of g.steps) m.set(s, ++n)
+  for (const g of visibleStepGroups.value) for (const s of g.steps) m.set(s, ++n)
   return m
 })
 
@@ -37,8 +47,8 @@ function isGenerated(step: OnboardStep): boolean {
   return tree.byPath.has(STEP_PATH[step])
 }
 
-const generatedCount = computed(() => ALL_STEPS.filter((s) => isGenerated(s)).length)
-const progressPct = computed(() => Math.round((generatedCount.value / ALL_STEPS.length) * 100))
+const generatedCount = computed(() => ALL_STEPS.value.filter((s) => isGenerated(s)).length)
+const progressPct = computed(() => Math.round((generatedCount.value / ALL_STEPS.value.length) * 100))
 
 const active = ref<OnboardStep | null>(null)
 const phase = ref<'detail' | 'loading' | 'result'>('detail')
@@ -89,8 +99,15 @@ async function save(): Promise<void> {
 }
 
 onMounted(async () => {
+  try {
+    const config = await getConfig(props.bookName)
+    const leadsEnabled = (config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
+    isGrowthBook.value = leadsEnabled.includes('成长线')
+  } catch {
+    // config 读取失败 → 默认显示 realm（不阻断）
+  }
   await tree.load(props.bookName)
-  const first = ALL_STEPS.find((s) => !isGenerated(s))
+  const first = ALL_STEPS.value.find((s) => !isGenerated(s))
   if (first) selectStep(first)
 })
 </script>
@@ -122,7 +139,7 @@ onMounted(async () => {
     <div class="ob-layout">
       <!-- 左栏：分组步骤列表 -->
       <nav class="ob-rail">
-        <div v-for="g in STEP_GROUPS" :key="g.label" class="rail-group">
+        <div v-for="g in visibleStepGroups" :key="g.label" class="rail-group">
           <div class="rail-group-label">{{ g.label }}</div>
           <button
             v-for="s in g.steps"

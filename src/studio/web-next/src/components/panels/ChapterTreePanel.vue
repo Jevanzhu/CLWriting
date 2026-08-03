@@ -558,6 +558,12 @@ watch(
         @drop="onDrop"
       />
     </div>
+    <div v-if="tree.grouped.length" class="tree-legend">
+      <span class="lg"><i class="lg-dot c-green"></i>定稿</span>
+      <span class="lg"><i class="lg-dot c-yellow"></i>草稿</span>
+      <span class="lg"><i class="lg-dot c-red"></i>待修</span>
+      <span class="lg"><i class="lg-dot c-gray"></i>其他</span>
+    </div>
     <div v-if="openError" class="hint err">{{ openError }}</div>
     <ContextMenu
       v-if="!isNative"
@@ -595,4 +601,28 @@ watch(
 .tree-list {
   padding: 0 var(--size-4-1);
 }
+/* 色点图例 */
+.tree-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px var(--size-4-3);
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.lg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lg-dot.c-green { background: var(--dv-good); }
+.lg-dot.c-yellow { background: var(--text-warning); }
+.lg-dot.c-red { background: var(--text-error); }
+.lg-dot.c-gray { background: var(--text-faint); }
 </style>
