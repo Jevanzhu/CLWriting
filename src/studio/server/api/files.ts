@@ -1,7 +1,6 @@
 /**
  * 文件读写 + 回滚 REST 端点（#12.3 + 6.2 + 6.3）。
  *
- * - GET  /api/books/:name/files        列可编辑 .md（定稿正文 + 设定 + 大纲）
  * - GET  /api/books/:name/file?file=   读 .md 全文
  * - PUT  /api/books/:name/file?file=   写 .md 全文（编辑器保存）
  *
@@ -10,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, resolve, relative, isAbsolute, basename } from 'node:path'
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
@@ -32,28 +31,6 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
 
 
 export function registerFileRoutes(ctx: FileCtx): void {
-  // 列可编辑 .md
-  route('GET', '/api/books/:name/files', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return reply(res, r.status, { error: r.error })
-    const files: { path: string; mode: 'text' | 'md' }[] = []
-    for (const { dir, mode } of EDIT_DIRS) {
-      const abs = join(r.bookRoot, dir)
-      if (!existsSync(abs)) continue
-      for (const p of walkMd(abs)) {
-        const rel = relative(r.bookRoot, p).split('\\').join('/')
-        // 纯文本正文：工作区草稿-N.md、短篇 篇/N-标题.md；其余 md
-        const fileMode =
-          (dir === '工作区' && /(?:^|\/)草稿-\d+\.md$/.test(rel)) ||
-          dir === '篇'
-            ? 'text'
-            : mode
-        files.push({ path: rel, mode: fileMode })
-      }
-    }
-    reply(res, 200, { files })
-  })
-
   // 读 .md 全文
   route('GET', '/api/books/:name/file', (req: IncomingMessage, res: ServerResponse, params) => {
     const r = resolveBook(ctx.workDir, params['name'])
@@ -91,33 +68,6 @@ export function registerFileRoutes(ctx: FileCtx): void {
 /** 取 req URL 的 searchParams */
 function queryParams(req: IncomingMessage): URLSearchParams {
   return new URL(req.url ?? '/', 'http://localhost').searchParams
-}
-
-/** 递归列目录下所有 .md（排除 ._ / node_modules / .git） */
-function walkMd(dir: string): string[] {
-  const out: string[] = []
-  const walk = (d: string): void => {
-    let entries: string[]
-    try {
-      entries = readdirSync(d)
-    } catch {
-      return
-    }
-    for (const name of entries) {
-      if (name.startsWith('._') || name === 'node_modules' || name === '.git') continue
-      const p = join(d, name)
-      let s
-      try {
-        s = statSync(p)
-      } catch {
-        continue
-      }
-      if (s.isDirectory()) walk(p)
-      else if (name.endsWith('.md')) out.push(p)
-    }
-  }
-  walk(dir)
-  return out
 }
 
 /** 防穿越：file 相对 bookRoot，resolve 后 relative 必须非空、不以 .. 开头、非绝对（跨盘） */

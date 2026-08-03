@@ -14,15 +14,13 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, ProviderSettings, ModelCaps, TierSlot, TierConfig } from './types.js'
+import type { ProviderConf, ModelCaps, TierSlot, TierConfig } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
   openVault,
   sealKey,
   openKey,
-  VAULT_VERSION,
-  VaultVersionError,
   type Vault,
 } from './vault.js'
 
@@ -185,11 +183,6 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   const s = loadProviders(userDataPath)
   if (!s.currentId) return null
   return s.providers.find((p) => p.id === s.currentId) ?? null
-}
-
-/** 全局当前模型（方案 A：model 独立于供应商，工作台选） */
-export function currentModelOf(userDataPath: string): string | null {
-  return loadProviders(userDataPath).currentModel
 }
 
 /** 设置全局当前模型 */

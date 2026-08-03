@@ -5,7 +5,7 @@
  * 探测四项核心能力（连通 / 流式 / tool_use / tool_choice），只发无意义 prompt，
  * 绝不含书稿内容。
  */
-import type { ProviderConf, ProviderCaps, ModelCaps, ProbeResult, ModelProbeResult, ModelProvider, GenEvent } from './types.js'
+import type { ProviderConf, ProviderCaps, ModelCaps, ProbeResult, ModelProbeResult, ModelProvider } from './types.js'
 import { createAnthropicProvider } from './anthropic-adapter.js'
 import { createOpenAIProvider } from './openai-adapter.js'
 import { listModels } from './models.js'

@@ -56,12 +56,10 @@ export function checkGrowth(
 
     // 取该条目的境界体系名（从缓存读 cur_realm 推断体系，或遍历）
     // 简化：遍历所有体系，找到包含 currentRealm 的那个
-    let systemName: string | null = null
     let sequence: string[] | null = null
     if (realmDoc && currentRealm) {
       for (const sys of realmDoc.体系) {
         if (sys.序列.includes(currentRealm)) {
-          systemName = sys.名称
           sequence = sys.序列
           break
         }

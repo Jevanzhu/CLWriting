@@ -8,10 +8,9 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import type { CheckSectionResult, CheckItem } from './types.js'
-import type { ChapterMeta, BookConfig } from '../format/types.js'
-import { validateEnums, countWords } from '../format/chapters.js'
+import type { ChapterMeta } from '../format/types.js'
+import { validateEnums } from '../format/chapters.js'
 
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。

@@ -10,7 +10,7 @@ import {
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
 import type { CheckReport } from '../../src/check/types.js'
-import type { ReviewIssue, ReviewLens } from '../../src/review/contract.js'
+import type { ReviewIssue } from '../../src/review/contract.js'
 
 // 账本变动清单（机检 byproducts → 设定校对账本核对项）
 const reportWithLedger: CheckReport = {

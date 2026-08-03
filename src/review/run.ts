@@ -11,7 +11,7 @@
  * issue 聚合全部留在脚本层（review/contract.ts），主流程不被口头代替三审。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CheckReport } from '../check/types.js'
 import {
@@ -74,9 +74,6 @@ export function lensIssuesFileName(lens: ReviewLens): string {
 
 /** 宿主回写的合审 issues 文件名（合审档位单文件）。 */
 export const COMBINED_ISSUES_FILE = 'issues-combined.json'
-
-/** review run 落盘的执行包文件名。collect 必须读它，不重算档位。 */
-export const REVIEW_PACKET_FILE = 'packet.json'
 
 /**
  * 组装三审执行包（#20/#22）。
@@ -328,25 +325,6 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
     fix: String(o['fix'] ?? ''),
     ...(o['blocking'] === true ? { blocking: true } : {}),
   }
-}
-
-function isReviewTier(tier: string): tier is ReviewTier {
-  return tier === 'full' || tier === 'sequential' || tier === 'combined'
-}
-
-function tierLabel(tier: ReviewTier): string {
-  if (tier === 'full') return '满审'
-  if (tier === 'sequential') return '顺序审'
-  return '合审'
-}
-
-function lensLabel(lens: ReviewLens): string {
-  if (lens === 'reader') return '读者审'
-  if (lens === 'editor') return '编辑审'
-  if (lens === 'continuity') return '设定校对'
-  if (lens === 'hook') return '钩子审'
-  if (lens === 'emotion_peak') return '情绪反转审'
-  return '设定收尾审'
 }
 
 const SEVERITIES: ReadonlySet<string> = new Set(['S1', 'S2', 'S3', 'S4'])

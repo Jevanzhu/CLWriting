@@ -201,10 +201,6 @@ const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
   opening_env_chars: 300,
 }
 
-const BODY_PART_WORDS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
-const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
-const ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '乌云', '风声', '狂风', '雨声', '雨点', '景色', '远山', '树林', '街道', '建筑']
-
 const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTemplate> = {
   generic: {
     platform: 'generic',

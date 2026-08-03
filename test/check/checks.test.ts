@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
-import { syncLead, syncChapter } from '../../src/cache/sync.js'
-import { runAllChecks, hasRed, getRedItems } from '../../src/check/runner.js'
+import { syncLead } from '../../src/cache/sync.js'
+import { hasRed, getRedItems } from '../../src/check/runner.js'
 import { formatReport, formatRedForRewrite } from '../../src/check/report.js'
 import { checkGrowth } from '../../src/check/growth.js'
 import {
@@ -19,18 +19,8 @@ import {
   parseIronRules,
 } from '../../src/check/count.js'
 import { checkLeadsForm } from '../../src/check/leads.js'
-import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { renderStyleRules } from '../../src/install/scaffold.js'
-import type { ChapterMeta, BookConfig, RealmDoc } from '../../src/format/types.js'
-
-function makeFixture(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
-  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
-  createAllTables(db)
-  mkdirSync(join(root, '.cache'), { recursive: true })
-  // 注意：db 路径需在 .cache 下，重建上面这行
-  return { root, db: new DatabaseSync(join(root, '.cache', 'index.db')) }
-}
+import type { ChapterMeta, RealmDoc } from '../../src/format/types.js'
 
 // ── front matter 格式（#10 项 3，红）──────────────
 

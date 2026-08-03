@@ -157,7 +157,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
   route(
     'POST',
     '/api/books/:name/documents/:docId/autotag',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
       if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })

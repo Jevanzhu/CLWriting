@@ -27,7 +27,6 @@ export {
   loadProviders,
   saveProviders,
   currentProvider,
-  currentModelOf,
   setCurrentModel,
   getModelCaps,
   setModelCaps,

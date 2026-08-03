@@ -64,7 +64,7 @@ export interface CheckInput {
  * - short：跳账本/成长线/专名/信息差（长程项），跑通用项（禁词/复读/句式/文风）+ 短篇专属项（身体部位词/「像」/节数/开头零环境）+ 清单形式检
  */
 export function runAllChecks(input: CheckInput): CheckReport {
-  const { config, body, fileName } = input
+  const { config } = input
   const isShort = (config.kind ?? 'long') === 'short'
   return isShort ? runShort(input) : runLong(input)
 }

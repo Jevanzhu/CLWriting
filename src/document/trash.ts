@@ -14,7 +14,7 @@ import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs
 import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
-import { layoutOf, type DocumentRole } from './layout.js'
+import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
 
 /** 回收站条目。 */

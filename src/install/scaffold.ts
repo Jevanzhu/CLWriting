@@ -12,7 +12,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { addEntry } from '../format/style-entry.js'
-import { BASE_LEAD_TYPES, recommendShortChecks } from './data.js'
+import { recommendShortChecks } from './data.js'
 import { addCommit, git } from '../git/exec.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 

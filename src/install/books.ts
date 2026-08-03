@@ -13,12 +13,11 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, join, dirname, basename } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { git } from '../git/exec.js'
-import type { LeadType } from '../format/types.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 

@@ -7,7 +7,7 @@
  * 复用 frontmatter.ts 的 readFile/parseFlat/stringifyFlat 容错骨架，零第三方依赖。
  */
 
-import { readdirSync, statSync, existsSync, renameSync, rmdirSync, mkdirSync } from 'node:fs'
+import { readdirSync, existsSync, renameSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { countWords } from './chapters.js'

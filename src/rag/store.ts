@@ -6,7 +6,6 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
 

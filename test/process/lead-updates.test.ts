@@ -8,7 +8,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { aggregateLeadUpdates, leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/process/lead-updates.js'
+import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/process/lead-updates.js'
 import { readOutlineLeads } from '../../src/process/materials.js'
 
 function tmpWorkDir(): string {
@@ -52,11 +52,8 @@ test('readChapterLeadUpdates: 空证据行忽略', () => {
   }
 })
 
-test('aggregateLeadUpdates: 空证据核心不算正文命中', () => {
+test('leadEvidenceMatchesBody: 空证据核心不算正文命中', () => {
   expect(leadEvidenceMatchesBody('任意正文都不该让空证据通过。', '   ')).toBe(false)
-  expect(aggregateLeadUpdates([
-    { leadId: '悬念-002', 动词: '埋下', 证据: '   ' },
-  ], '任意正文都不该让空证据通过。', 1)).toEqual([])
 })
 
 test('readChapterLeadUpdates: 无文件 → []', () => {

@@ -6,7 +6,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import type { LeadEntry, LeadStatus, LeadType } from './types.js'
+import type { LeadEntry, LeadType } from './types.js'
 
 // ── 账本查询（#4 第 4 节）────────────────────────
 
@@ -21,23 +21,6 @@ export function readLeadHistory(db: DatabaseSync, leadId: string): LeadEntry[] {
     证据: r['evidence'] as string,
     ...(r['backfill'] ? { 回填: true } : {}),
   }))
-}
-
-/** 读某条线当前状态 */
-export function readLeadStatus(
-  db: DatabaseSync,
-  leadId: string,
-): { status: LeadStatus; type: LeadType; title: string; openedAt: number } | null {
-  const row = db.prepare(
-    'SELECT status, type, title, opened_at FROM leads WHERE id = ?',
-  ).get(leadId) as Record<string, unknown> | undefined
-  if (!row) return null
-  return {
-    status: row['status'] as LeadStatus,
-    type: row['type'] as LeadType,
-    title: row['title'] as string,
-    openedAt: row['opened_at'] as number,
-  }
 }
 
 /** "悬太久"候选（进行中的线，按开启章排序） */
@@ -65,24 +48,6 @@ export function readStaleLeads(
   })
 }
 
-// ── 章节查询 ────────────────────────────────────
-
-/** 读某章定位（path + 字数） */
-export function readChapterLocation(
-  db: DatabaseSync,
-  chapterNum: number,
-): { path: string; wordCount: number; title: string } | null {
-  const row = db.prepare(
-    'SELECT path, word_count, title FROM chapters WHERE number = ?',
-  ).get(chapterNum) as Record<string, unknown> | undefined
-  if (!row) return null
-  return {
-    path: row['path'] as string,
-    wordCount: row['word_count'] as number,
-    title: row['title'] as string,
-  }
-}
-
 // ── 摘要查询（#4 第 4 节）────────────────────────
 
 /** 读某章号范围的章摘要 path */
@@ -98,24 +63,6 @@ export function readChapterSummaries(
     ref: r['ref'] as number,
     path: r['path'] as string,
   }))
-}
-
-/** 读卷摘要 path */
-export function readVolumeSummaries(
-  db: DatabaseSync,
-  from?: number,
-  to?: number,
-): { ref: number; path: string }[] {
-  if (from !== undefined && to !== undefined) {
-    const rows = db.prepare(
-      `SELECT ref, path FROM summaries WHERE scope = 'volume' AND ref BETWEEN ? AND ? ORDER BY ref`,
-    ).all(from, to) as Record<string, unknown>[]
-    return rows.map((r) => ({ ref: r['ref'] as number, path: r['path'] as string }))
-  }
-  const rows = db.prepare(
-    `SELECT ref, path FROM summaries WHERE scope = 'volume' ORDER BY ref`,
-  ).all() as Record<string, unknown>[]
-  return rows.map((r) => ({ ref: r['ref'] as number, path: r['path'] as string }))
 }
 
 // ── 成长线语义机检取数（#4 第 4 节）──────────────

@@ -17,10 +17,8 @@ import type {
 interface Channel {
   events: DriverEvent[]
   waiters: Array<() => void>
-  terminated?: boolean
 }
 const channels = new Map<string, Channel>()
-const sessions = new Map<string, Session>()
 /** session → AbortController（interrupt 时 abort，替代 kill 子进程）。cc 无生成时为懒占位，dispose/interrupt 兜底用 */
 const sessionCtrl = new Map<string, AbortController>()
 let sessionSeq = 0
@@ -37,7 +35,6 @@ function channel(id: string): Channel {
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
   ch.events.push(ev)
-  if (ev.type === 'done' || ev.type === 'error') ch.terminated = true
   for (const w of ch.waiters) w()
   ch.waiters = []
 }
@@ -47,7 +44,6 @@ export const ccDriver: StudioDriver = {
     const id = `cc-${Date.now()}-${++sessionSeq}`
     const session: Session = { id, cwd, closed: false }
     channel(id)
-    sessions.set(id, session)
     return session
   },
 
@@ -73,7 +69,6 @@ export const ccDriver: StudioDriver = {
       ch.waiters = []
     }
     channels.delete(session.id)
-    sessions.delete(session.id)
   },
 
   interrupt(session: Session): void {
@@ -82,8 +77,7 @@ export const ccDriver: StudioDriver = {
     if (ctrl) ctrl.abort()
     // 中断即注销 ctrl：isRunning 立即归 false（与 dispose 同口径，防 SSE 快照假报「生成中」）
     sessionCtrl.delete(session.id)
-    const ch = channel(session.id)
-    ch.terminated = true
+    channel(session.id)
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })
   },
 

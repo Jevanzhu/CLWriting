@@ -17,7 +17,6 @@ import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import type { BookConfig } from '../../src/format/types.js'
 
 /** 跑一条 git 命令（fixture 用，stdio pipe 免污染测试输出） */
 export function git(args: string[], cwd: string): string {

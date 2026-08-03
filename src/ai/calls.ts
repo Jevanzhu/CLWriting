@@ -93,18 +93,3 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
   }
   writeRecord(bookRoot, rec)
 }
-
-/** 读当前章消耗统计（UI 展示用） */
-export function getAiCallStats(
-  bookRoot: string,
-  chapter: number,
-): { used: number; inputTokens: number; outputTokens: number } | null {
-  const rec = readRecord(bookRoot)
-  if (!rec || rec.chapter !== chapter) return null
-  return { used: rec.used, inputTokens: rec.inputTokens, outputTokens: rec.outputTokens }
-}
-
-/** 清除调用计数（章节完成或手动重置） */
-export function resetAiCallBudget(bookRoot: string, chapter: number): void {
-  writeRecord(bookRoot, { chapter, used: 0, inputTokens: 0, outputTokens: 0 })
-}

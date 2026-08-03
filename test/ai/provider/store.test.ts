@@ -12,7 +12,6 @@ import {
   loadProviders,
   saveProviders,
   emptySettings,
-  type ProviderStore,
 } from '../../../src/ai/provider/store.js'
 import type { ProviderConf } from '../../../src/ai/provider/types.js'
 

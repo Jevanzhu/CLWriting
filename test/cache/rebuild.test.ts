@@ -4,12 +4,11 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
-import { createAllTables } from '../../src/cache/schema.js'
 import { loadLeadFromCache } from '../../src/cache/sync.js'
 import { writeLead } from '../../src/format/leads.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import type { Lead, BookConfig } from '../../src/format/types.js'
+import type { BookConfig } from '../../src/format/types.js'
 
 /** 造一个完整的书仓库 fixture（含 book.yaml + 账本 + 章节 + 摘要） */
 function makeBookFixture(): string {

@@ -62,19 +62,3 @@ export function readGuiActive(bookRoot: string): GuiActiveRecord | null {
     return null
   }
 }
-
-/** GUI 是否活跃（.gui-active 存在且心跳未过期）。 */
-export function isGuiActive(bookRoot: string): { active: boolean; pid?: number; ageMs?: number } {
-  const rec = readGuiActive(bookRoot)
-  if (!rec) return { active: false }
-  const ageMs = Date.now() - rec.ts
-  return ageMs > STALE_MS ? { active: false, pid: rec.pid, ageMs } : { active: true, pid: rec.pid, ageMs }
-}
-
-/** CLI 写命令前：若 GUI 活跃，打印轻提示（不阻塞，#1.5）。 */
-export function warnIfGuiActive(bookRoot: string): void {
-  const r = isGuiActive(bookRoot)
-  if (r.active) {
-    console.warn(`⚠ GUI 正在编辑此书（PID ${r.pid}）。继续执行 CLI 写命令，注意并发冲突。`)
-  }
-}
