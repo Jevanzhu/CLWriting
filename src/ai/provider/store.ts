@@ -48,7 +48,7 @@ export interface ProviderStore {
 /** 默认档位配置（首次启动 / 文件无 tiers 字段时） */
 function defaultTiers(model: string | null): TierConfig {
   return {
-    creative: { model: model ?? '', effort: 'high', maxTokens: 16000 },
+    creative: { model: model ?? '', effort: 'xhigh' },
     assistant: null,
   }
 }
@@ -215,7 +215,7 @@ export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant'):
 
 /** 取档位配置（assistant 未配 / model 为空 → 回落 creative + currentModel） */
 export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant'): TierSlot {
-  if (!userDataPath) return { model: '', effort: 'high', maxTokens: 16000 }
+  if (!userDataPath) return { model: '', effort: 'xhigh' }
   return tierFromStore(loadProviders(userDataPath), kind)
 }
 

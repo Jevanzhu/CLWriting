@@ -22,7 +22,7 @@ const CONF = {
   caps: null,
 } as ProviderConf
 
-const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 }
+const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
 async function collect(prov: ReturnType<typeof createAnthropicProvider>, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
@@ -218,7 +218,7 @@ describe('OpenAI 适配器', () => {
     if (first && first.type === 'error') expect(first.message).toContain('OpenAI API 500')
   })
 
-  it('o 系列模型用 max_completion_tokens（翻译到 params）', async () => {
+  it('不发 max_tokens（让模型用默认值）', async () => {
     let captured: Record<string, unknown> | null = null
     const client = {
       chat: {
@@ -233,7 +233,7 @@ describe('OpenAI 适配器', () => {
     const conf = { ...CONF, model: 'o4-mini' } as ProviderConf
     await collect(createOpenAIProvider(conf, client), REQ)
     expect(captured).toMatchObject({ model: 'o4-mini' })
-    expect('max_completion_tokens' in (captured ?? {})).toBe(true)
+    expect('max_completion_tokens' in (captured ?? {})).toBe(false)
     expect('max_tokens' in (captured ?? {})).toBe(false)
   })
 })

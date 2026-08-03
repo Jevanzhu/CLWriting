@@ -42,7 +42,7 @@ async function runOnboard(
     run: (provider, signal) =>
       generateText(
         provider,
-        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], maxTokens: tier.maxTokens, effort: tier.effort },
+        { systemPrompt: '', messages: [{ role: 'user', content: prompt }], effort: tier.effort },
         signal,
       ),
   })

@@ -29,11 +29,14 @@ function createClient(conf: ProviderConf): Anthropic {
   })
 }
 
+/** Anthropic API 强制要求 max_tokens（不可省略）——未指定时兜底（对齐当前旗舰模型上限） */
+const MAX_TOKENS = 128000
+
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    max_tokens: req.maxTokens,
+    max_tokens: req.maxTokens ?? MAX_TOKENS,
     system: req.systemPrompt,
     messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
     stream: true,

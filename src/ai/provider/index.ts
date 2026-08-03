@@ -12,6 +12,7 @@ export type {
   ModelCaps,
   TierSlot,
   TierConfig,
+  EffortLevel,
   GenRequest,
   ChatMsg,
   ToolDef,

@@ -17,11 +17,13 @@ export interface ModelCaps {
   toolChoice: boolean
 }
 
-/** 任务档位槽——模型 + 推理深度 + 单次输出上限 */
+/** 推理等级档位（与 reasoning_effort API 参数对齐） */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/** 任务档位槽——模型 + 推理等级 */
 export interface TierSlot {
   model: string
-  effort: 'low' | 'medium' | 'high'
-  maxTokens: number
+  effort: EffortLevel
 }
 
 /** 任务档位配置（应用级，存 providers.json） */

@@ -74,14 +74,6 @@ function openLibraryManager(): void {
       >
         <Share2 :size="20" />
       </button>
-      <button
-        class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'style' }"
-        data-tip="文风（条目库 / 候选箱 / 基准）"
-        @click="ws.setActiveView('style')"
-      >
-        <Feather :size="20" />
-      </button>
       <div class="ribbon-sep" />
       <button
         class="rbtn" data-tip-dir="right"
@@ -98,6 +90,14 @@ function openLibraryManager(): void {
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
+      </button>
+      <button
+        class="rbtn" data-tip-dir="right"
+        :class="{ on: ws.activeView === 'style' }"
+        data-tip="文风（条目库 / 候选箱 / 基准）"
+        @click="ws.setActiveView('style')"
+      >
+        <Feather :size="20" />
       </button>
     </div>
 

@@ -35,7 +35,7 @@ describe('generate', () => {
         { type: 'text', delta: '好' },
         { type: 'done', usage: USAGE, stopReason: 'end_turn' },
       ]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
       (d) => deltas.push(d),
     )
@@ -51,7 +51,7 @@ describe('generate', () => {
         { type: 'tool', name: 'submit_text', input: { 正文: 'x' } },
         { type: 'done', usage: USAGE, stopReason: 'tool_use' },
       ]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(r.toolCalls).toEqual([{ name: 'submit_text', input: { 正文: 'x' } }])
@@ -61,7 +61,7 @@ describe('generate', () => {
     await expect(
       generate(
         provider([{ type: 'error', message: 'boom', retryable: true }]),
-        { systemPrompt: '', messages: [], maxTokens: 100 },
+        { systemPrompt: '', messages: [] },
         signal(),
       ),
     ).rejects.toMatchObject({ name: 'GenError', message: 'boom', retryable: true })
@@ -70,7 +70,7 @@ describe('generate', () => {
   it('无 done 事件正常结束，usage 默认 0', async () => {
     const r = await generate(
       provider([{ type: 'text', delta: 'x' }]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(r.text).toBe('x')
@@ -82,7 +82,7 @@ describe('generateText / generateTool 简化路径', () => {
   it('generateText 只取纯文本', async () => {
     const t = await generateText(
       provider([{ type: 'text', delta: '细纲' }, { type: 'done', usage: USAGE, stopReason: 'end_turn' }]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(t).toBe('细纲')
@@ -99,21 +99,21 @@ describe('generateText / generateTool 简化路径', () => {
       },
     }
     await expect(
-      generateText(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+      generateText(p, { systemPrompt: '', messages: [] }, signal()),
     ).rejects.toMatchObject({ name: 'GenError', retryable: false })
   })
 
   it('generateTool 取第一个 tool 的 input；无 tool 时 input=null 回退 text', async () => {
     const a = await generateTool(
       provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(a.input).toEqual({ 正文: 'y' })
 
     const b = await generateTool(
       provider([{ type: 'text', delta: '自由文本' }, { type: 'done', usage: USAGE, stopReason: 'end_turn' }]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(b.input).toBeNull()
@@ -130,7 +130,7 @@ describe('generateText / generateTool 简化路径', () => {
       },
     }
     await expect(
-      generateTool(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+      generateTool(p, { systemPrompt: '', messages: [] }, signal()),
     ).rejects.toMatchObject({ name: 'GenError', retryable: false })
   })
 
@@ -145,7 +145,7 @@ describe('generateText / generateTool 简化路径', () => {
       },
     }
     await expect(
-      generateTool(p, { systemPrompt: '', messages: [], maxTokens: 100 }, signal()),
+      generateTool(p, { systemPrompt: '', messages: [] }, signal()),
     ).rejects.toMatchObject({ name: 'GenError', retryable: false })
   })
 })
@@ -205,7 +205,7 @@ describe('B-3 stopReason 传递', () => {
   it('generateTool 返回值含 stopReason（max_tokens 截断可检测）', async () => {
     const r = await generateTool(
       provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'max_tokens' }]),
-      { systemPrompt: '', messages: [], maxTokens: 100 },
+      { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(r.stopReason).toBe('max_tokens')

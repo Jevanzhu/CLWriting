@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-1178%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-966%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/AI%20provider-Anthropic%20%2B%20OpenAI-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -26,7 +26,7 @@ AI 负责写和审，脚本负责数和记，作者只做三件事：**确认细
 - [核心能力](#-核心能力)
 - [快速开始](#-快速开始)
 - [工作流](#-工作流)
-- [命令一览](#-命令一览)
+- [作者交互面](#-作者交互面)
 - [技术栈](#%EF%B8%8F-技术栈)
 - [项目状态](#-项目状态)
 
@@ -36,12 +36,12 @@ AI 负责写和审，脚本负责数和记，作者只做三件事：**确认细
 
 CLWriting 不是通用写作编辑器，而是一套面向中文网文生产的创作操作系统。
 
-它把高风险环节拆成可验证的脚本流程：状态机判断当前该做什么，机检挡住形式问题，三审核对读感、结构和设定，git 在后台保证每章 / 每篇都能回滚。
+它把高风险环节拆成可验证的自动化流程：状态机判断当前该做什么，机检挡住形式问题，三审核对读感、结构和设定，git 在后台保证每章 / 每篇都能回滚。作者全程在桌面应用内操作，**零命令行**。
 
 | 轨道 | 适用对象 | 核心目标 | 落点 |
 |---|---|---|---|
 | 长篇 | 连载小说、长线剧情、多账本设定 | 200 万字不崩、不吃书 | `定稿/正文/` |
-| 短篇集 | 单篇故事、反转故事、情绪爆破型短篇 | 一篇一个闭环，一反转撑全篇 | `篇/<篇号>-<标题>/` |
+| 短篇集 | 单篇故事、反转故事、情绪爆破型短篇 | 一篇一个闭环，一反转撑全篇 | `篇/` + `清单/` |
 
 ---
 
@@ -50,17 +50,17 @@ CLWriting 不是通用写作编辑器，而是一套面向中文网文生产的�
 | 能力 | 说明 |
 |---|---|
 | **双轨分流** | `kind: long` / `kind: short` 从仓库布局、状态机、机检、三审到定稿全程分轨。 |
-| **状态机单入口** | `enter` 进门体检，自动判断续写、审稿、定稿、体检、回滚等状态。 |
+| **全自动写章** | 一键：AI 写稿 → 机检 → 报红自动退回重写 → 全绿才交你确认；重试触顶才打扰作者。 |
 | **机检硬闸** | 复读、句式、禁词、文风境界、短篇身体部位词、开头零环境等可量化问题先拦住。 |
 | **三审制** | 长篇：读者审 / 编辑审 / 设定校对；短篇：钩子审 / 情绪反转审 / 设定收尾审。 |
 | **账本防吃书** | 定稿前核对「声明 vs 正文」，账实不符会阻断定稿。 |
-| **自动连写** | `auto` 将长篇多章 / 短篇多篇产出攒进 `待定稿/`，作者回来批量审稿、逐章/逐篇定稿或整批回滚。 |
-| **成本与体检报告** | `record-call` 记录大纲 / 草稿调用和 token，`health --metrics` / `--style` / `--report` 汇总成本、审查和文风漂移。 |
-| **多书工作目录** | `init` / `use` / `list` / `repair` 支持一个工作目录管理多本书。 |
-| **RAG 可选插件** | 纯 `node:sqlite` + 纯 JS 余弦召回；api_key 不进 git。 |
-| **导出 / 迁移** | `export` 输出干净正文，长篇按章、短篇集按篇打包；`import` 从 v0.2 正文轻量迁移，长短篇自动分流。 |
-| **Studio 桌面应用** | Electron + Vue 3 Obsidian 风格 GUI：三栏工作区、章节树、CodeMirror 编辑器、原生右键菜单、右栏信息/审阅/机检/分析面板、专注模式、可拖拽侧栏、JSON 配置持久化（三级架构，对齐 Obsidian）。 |
-| **AI 辅助** | 选段改写（语气/风格调整）、AI 分析（情绪曲线/钩子强度/文风漂移）、上下文速查插入、工作台 AI 写作。 |
+| **伏笔追踪** | 设定伏笔从埋设到回收全程足迹扫描 + 风险提示，杜绝「埋了忘收」。 |
+| **节奏预测** | 字数曲线 + 规划 vs 已写双轨，长篇节奏失衡提前预警。 |
+| **文风系统** | 样章 / 手法 / 反例 / 禁词四类型条目库 + 四源管线（改稿轨迹 / 收割 / 机检 / AI 分析 → 候选箱 → 作者确认 → 条目库）。 |
+| **AI 分析** | 选段改写（语气 / 风格调整）、情绪曲线、钩子强度、文风漂移、上下文速查插入。 |
+| **凭据安全** | API Key 信封加密落盘（HKDF → AES-GCM），脱敏泄漏面收敛，永不进 git。 |
+| **回收站** | 工作区软删 + 恢复缓冲，误删可捞回。 |
+| **导出 / 全文搜索** | 干净导出定稿（剥 front matter）；全仓范围关键词搜索。 |
 
 ---
 
@@ -78,11 +78,14 @@ npm run dev:app
 开发调试：
 
 ```bash
-npm run typecheck          # tsc 双检
-npm run build:all          # 桌面构建 + 前端(Vite)
-npm test                   # 1178 单测
-npm run test:e2e           # Playwright e2e（mock 驱动）
-npx tsx scripts/dev-api.ts # Studio API :7878（配合 dev:web 前端调试）
+npm run typecheck          # tsc --noEmit
+npm run build:all          # 桌面构建 + 前端构建
+npm test                   # 950 单测
+npm run test:e2e           # Playwright e2e（mock 驱动，15 specs）
+npm run dev:api            # Studio API :7878（配合 dev:web 前端调试）
+npm run dev:web            # Vite HMR :5173（配合 dev:api）
+npm run dev:electron       # 构建后起 Electron（非 HMR）
+npm run build:desktop      # electron-builder 打包 dmg
 ```
 
 首次使用：在「设置 → AI」里添加一家 AI 供应商（Anthropic 官方 / Claude 中转 / OpenAI 兼容任选），
@@ -93,7 +96,7 @@ npx tsx scripts/dev-api.ts # Studio API :7878（配合 dev:web 前端调试）
 ## 🔁 工作流
 
 ```text
-建书（GUI 表单：书名 / 题材 / 长短篇）
+建书（GUI 表单：书名 / 题材 / 长篇 or 短篇集）
   → 设定界：大纲（卷纲 / 章纲 / 总纲）+ 角色 + 世界观 + 物品
   → 写作：编辑器写稿；「全自动写章」= AI 写稿 → 机检 → 报红自动重写 → 全绿交你
   → 三审（读者 / 编辑 / 设定）→ 作者裁决
@@ -121,9 +124,6 @@ short:
   opening_env_chars: 220
 ```
 
-内置推荐覆盖悬疑/怪谈、爽文/打脸、情感/治愈、奇幻/科幻/玄幻等常见短篇题材，并写入 `short.profile`
-与目标分布作为平台/栏目画像。`short.strict: true` 可把短篇专属黄项升为硬闸。
-
 调用预算使用同一个 `budget.calls_per_chapter` 字段；长篇解释为每章上限，短篇集解释为每篇上限：
 
 ```yaml
@@ -141,12 +141,16 @@ budget:
 
 | 交互面 | 说明 |
 |---|---|
+| 书架 / 书库 | 多书库管理、最近书库、切换即重启；新建书选长篇 / 短篇集。 |
 | 状态卡 | 每次进书自动体检、判态，用人话告诉你现在该做什么。 |
 | 全自动写章 | 一键：AI 写稿 → 机检 → 报红自动重写 → 全绿才交给你确认。 |
-| 编辑器 | CodeMirror 6 三栏工作区；专注模式；选段改写；AI 分析。 |
-| 章节树 | 文档滑动（灵感/大纲/设定/写作/待定稿），机检红点逐级冒泡。 |
-| 三审 / 批量审稿 | 读者/编辑/设定三视角审稿；待定稿逐章定稿或整批回滚。 |
-| 文风系统 | 样章/金句收割、候选箱、形象对照报告。 |
+| 编辑器 | CodeMirror 6 三栏工作区；专注模式（打字机）；选段改写；AI 分析。 |
+| 章节树 | 文档滑动（灵感 / 大纲 / 设定 / 写作 / 待定稿），机检红点逐级冒泡。 |
+| 三审 / 批量审稿 | 读者 / 编辑 / 设定三视角审稿；待定稿逐章定稿或整批回滚。 |
+| 文风系统 | 四段式 StyleView：条目库 / 候选箱 / 定标基线 / 铁律；样章与金句收割导入。 |
+| 总览 | 进度、节奏、伏笔、文风四区仪表盘。 |
+| 关系图 | 角色 / 世界观 / 伏笔力导向关系图。 |
+| 学习视图 | 收割与候选箱的 AI 味学习入口。 |
 
 服务端直接调用内核模块（不再 spawn 任何 CLI 子进程）。
 
@@ -160,19 +164,21 @@ budget:
 | 语言 | TypeScript strict |
 | 前端 | Vue 3 + Pinia + Vite |
 | 编辑器 | CodeMirror 6 |
-| 桌面壳 | Electron |
-| 存储 | `node:sqlite` |
-| AI 提供者 | Anthropic / OpenAI 双协议适配器（`@anthropic-ai/sdk` + `openai`，baseURL 可指用户端点） |
+| 桌面壳 | Electron（electron-builder 打包，macOS dmg） |
+| 存储 | `node:sqlite`（RAG 向量库）+ JSON 配置 |
+| AI 提供者 | Anthropic / OpenAI 双协议适配器（baseURL 可指用户端点，模型列表自动拉取） |
+| AI 编排 | `runTask` 统一编排层：任务档位（创作 / 助手）、韧性重试、首字节超时、计量闸 |
+| 凭据 | Vault 信封加密（HKDF-SHA256 → AES-256-GCM）+ 原子写 + 备份 |
 | 构建 | tsup（桌面主进程）+ Vite（前端） |
-| 测试 | vitest（1178 单测 + e2e） |
+| 测试 | vitest（950 单测）+ Playwright（15 e2e） |
 
 设计红线：
 
 - 作者数据不被升级覆盖。
 - 书仓库默认安装 `pre-push` 保护，阻止小说正文误推到远端。
-- api_key 不进 git（落本地 `.clwriting/rag.secret`，0600）。
-- `Dev/` 是本地规划资料，不进入正式发布文件。
+- api_key 不进 git（Vault 加密落 `userData/providers.json`，0600）。
 - 定稿走原子 commit，失败则回滚定稿区改动。
+- 应用数据统一在 `userData` 目录（macOS `~/Library/Application Support/CLWriting`），跨 dev / 打包一致。
 
 ---
 
@@ -182,19 +188,19 @@ budget:
 
 | 里程碑 | 状态 | 内容 |
 |---|---|---|
-| M0-M4 | 已完成 | 格式层、缓存、写章机检、状态机、git 隐身、三审、角色分发、知识层。 |
-| M5-M7 | 已完成 | 安装器、多书、自动连写、导出、迁移、RAG 插件。 |
-| M8 | 已完成 | 短篇轨：`kind: short` 布局、精简态机、按篇定稿、清单、机检、三审、题材阈值推荐。 |
-| M9-M10 | 已完成 | Studio Obsidian 风格前端：三栏工作区、章节树、CodeMirror 编辑器、大纲/设定表单、总览/节奏/关系图视图、专注模式、可拖拽侧栏。 |
+| M0-M8 | 已完成 | 格式层、缓存、写章机检、状态机、git 隐身、三审、角色分发、知识层、多书、自动连写、导出、迁移、RAG、短篇轨。 |
+| M9-M10 | 已完成 | Studio Obsidian 风格前端：三栏工作区、章节树、CodeMirror 编辑器、大纲/设定表单、总览/节奏/关系图视图、专注模式。 |
 | M11 | 已完成 | 质量收口：机检红点树冒泡、E2E 全覆盖、评审瑕疵修复。 |
-| M12 | 已完成 | AI 辅助写作线：选段改写、AI 分析（情绪/钩子/文风）、上下文速查、工作台 AI 写作。 |
+| M12 | 已完成 | AI 辅助写作线：选段改写、AI 分析（情绪 / 钩子 / 文风）、上下文速查、工作台 AI 写作。 |
 | W1-W5 | 已完成 | AI 链路重构：provider 双协议抽象、tool_use 契约层、runTask 编排器、review/analysis 直连、**CLI 全退场**。 |
-| UI 打磨 | 持续 | dataviz 色盲安全调色板、全局 tooltip、侧栏 Obsidian 化交互、原生右键菜单、JSON 配置持久化、token 系统贯通。 |
-| Beta 体检体系 | 已落地，继续校准 | 指标 / 文风 / 综合报告、定稿落账、成本采集。 |
+| 强化优化 | 已完成 | 模型解耦 / 韧性重试 / 计量闸 / 任务档位；评审断路三 bug（mockText 守卫 / toolUse 消费 / modelCaps 失效）全修。 |
+| 凭据安全 | 已完成 | Vault 信封加密 + 写入健壮性 + 泄漏面收敛。 |
+| 文风系统 | 已完成 | 条目模型 + 四源管线，StyleView 四段式。 |
+| AI Harness | 规划中 | 内核重整立项（`Dev/Main/Plans/AI-Harness工程-立项方案.md`）。 |
 
-- **145 个测试文件 / 1178 个测试全绿**，`tsc --noEmit` 通过，`build:all` 构建通过。
+- **115 个测试文件 / 950 单测全绿 + 15 个 e2e 全绿**，`tsc --noEmit` 通过，`build:all` 构建通过。
 - 短篇全流程定稿验证已通过；AI 产出经 tool_use 结构化约束，front matter 零漂移。
-- 作者侧全程自然语言：设置里添加供应商 → 测试连接 → 全自动写章/编辑器写作/三审/定稿，零命令行。
+- 作者侧全程自然语言：设置里添加供应商 → 测试连接 → 全自动写章 / 编辑器写作 / 三审 / 定稿，零命令行。
 - 架构红线：**不再 spawn 任何 CLI 子进程**；全部 AI 流量经 provider 直连，确定性操作直接 import 内核模块。
 
 ---

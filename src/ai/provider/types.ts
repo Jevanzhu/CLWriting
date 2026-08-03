@@ -55,11 +55,13 @@ export interface ModelCaps {
   toolChoice: boolean // 强制调用；false 则退回 prompt 引导 + 校验重试
 }
 
-/** 任务档位槽——模型 + 推理深度 + 单次输出上限（Q3 甲：端点按任务类型取档） */
+/** 推理等级档位（与 reasoning_effort API 参数对齐；并非所有模型都支持全部档位） */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/** 任务档位槽——模型 + 推理等级 + 单次输出上限（Q3 甲：端点按任务类型取档） */
 export interface TierSlot {
   model: string
-  effort: 'low' | 'medium' | 'high'
-  maxTokens: number
+  effort: EffortLevel
   /** 整体超时上限 ms（B-2：档位可覆盖默认 10min）；缺省 → runner 默认值 */
   timeoutMs?: number
 }
@@ -81,13 +83,14 @@ export interface TierConfig {
 export interface GenRequest {
   systemPrompt: string
   messages: ChatMsg[]
-  maxTokens: number
+  /** 单次输出上限——缺省则不限制（OpenAI）/ 兜底默认值（Anthropic API 必填） */
+  maxTokens?: number
   tools?: ToolDef[]
   toolChoice?: 'auto' | 'any' | 'tool' // 配合 toolName
   toolName?: string // toolChoice='tool' 时指定
   stopSequences?: string[]
-  /** 推理深度——适配器翻译为对应协议线格式 */
-  effort?: 'low' | 'medium' | 'high'
+  /** 推理等级——适配器翻译为对应协议线格式 */
+  effort?: EffortLevel
 }
 
 export interface ChatMsg {

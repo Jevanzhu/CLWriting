@@ -255,7 +255,7 @@ const recent = computed(() => wb.log.slice(-200))
       <span class="model-label">创作档</span>
       <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
       <span v-if="tierCreative.model" class="tier-meta">
-        {{ tierCreative.effort === 'high' ? '深度' : tierCreative.effort === 'medium' ? '平衡' : '快速' }} · 上限 {{ tierCreative.maxTokens.toLocaleString() }}
+        Effort {{ tierCreative.effort }}
       </span>
     </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->

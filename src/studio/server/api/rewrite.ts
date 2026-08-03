@@ -49,7 +49,6 @@ async function runRewriter(
         {
           systemPrompt: REWRITER_SYSTEM,
           messages: [{ role: 'user', content: prompt }],
-          maxTokens: tier.maxTokens,
           effort: tier.effort,
           tools: [submitText()],
           toolChoice: 'tool',

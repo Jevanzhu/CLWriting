@@ -256,7 +256,6 @@ async function runGenerate(
         {
           systemPrompt: writerSystem(kind),
           messages: [{ role: 'user', content: userPrompt }],
-          maxTokens: tier.maxTokens,
           effort: tier.effort,
           tools: [chapterTool(kind)],
           toolChoice: 'tool',

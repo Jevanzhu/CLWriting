@@ -124,7 +124,7 @@ export async function generateText(
   const r = await generate(provider, req, signal, onText)
   // P1-3：纯文本端点截断检查（与 generateTool 对称）
   if (r.stopReason === 'max_tokens') {
-    throw new GenError(`AI 产出达到长度上限（max_tokens=${req.maxTokens}）被截断。请增大档位 maxTokens 或精简 prompt。`, false)
+    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
   }
   return r.text
 }
@@ -152,7 +152,7 @@ export async function generateTool(
   const tool = r.toolCalls[0]
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   if (!tool && r.stopReason === 'max_tokens') {
-    throw new GenError(`AI 产出达到长度上限（max_tokens=${req.maxTokens}）被截断，结构化结果不完整。请增大档位 maxTokens 或精简 prompt。`, false)
+    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false)
   }
   return {
     input: tool ? tool.input : null,

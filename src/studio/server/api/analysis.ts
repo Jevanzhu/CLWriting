@@ -52,7 +52,6 @@ async function runAnalyst(
         {
           systemPrompt: ANALYST_SYSTEM,
           messages: [{ role: 'user', content: prompt }],
-          maxTokens: tier.maxTokens,
           effort: tier.effort,
           tools: [submitAnalysis(kind)],
           toolChoice: 'tool',

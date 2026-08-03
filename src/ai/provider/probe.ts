@@ -75,7 +75,6 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
         {
           systemPrompt: '你是测试助手。',
           messages: [{ role: 'user', content: '回复「OK」两个字' }],
-          maxTokens: 10,
         },
         ctrl.signal,
       )) {
@@ -124,7 +123,6 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
         {
           systemPrompt: '你必须使用 echo_test 工具来回复。',
           messages: [{ role: 'user', content: '请调用 echo_test 工具，msg 填「hi」' }],
-          maxTokens: 100,
           tools: [TOY_TOOL],
           toolChoice: 'any',
         },
@@ -155,7 +153,6 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
           {
             systemPrompt: '你是测试助手。',
             messages: [{ role: 'user', content: '测试' }],
-            maxTokens: 100,
             tools: [TOY_TOOL],
             toolChoice: 'tool',
             toolName: 'echo_test',

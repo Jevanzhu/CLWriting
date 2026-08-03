@@ -27,6 +27,7 @@ import {
   type Protocol,
   type AuthStrategy,
   type TierSlot,
+  type EffortLevel,
 } from '../../../ai/provider/index.js'
 import { listModels } from '../../../ai/provider/models.js'
 
@@ -313,17 +314,14 @@ function parseProviderInput(
   return { ok: true, name, protocol, auth, baseUrl, apiKey }
 }
 
-/** 解析档位槽输入（模型 + 推理深度 + 单次输出上限） */
+/** 解析档位槽输入（模型 + 推理等级） */
 function parseTierSlot(raw: Record<string, unknown>): { ok: true; slot: TierSlot } | { ok: false; error: string } {
   const model = String(raw['model'] ?? '').trim()
   if (!model) return { ok: false, error: 'model 必填' }
-  const effort = String(raw['effort'] ?? 'high')
-  if (effort !== 'low' && effort !== 'medium' && effort !== 'high') {
-    return { ok: false, error: 'effort 需为 low/medium/high' }
+  const effort = String(raw['effort'] ?? 'xhigh')
+  const VALID = ['low', 'medium', 'high', 'xhigh', 'max']
+  if (!VALID.includes(effort)) {
+    return { ok: false, error: `effort 需为 ${VALID.join('/')}` }
   }
-  const maxTokens = Number(raw['maxTokens'])
-  if (!Number.isInteger(maxTokens) || maxTokens < 1) {
-    return { ok: false, error: 'maxTokens 需为正整数' }
-  }
-  return { ok: true, slot: { model, effort: effort as 'low' | 'medium' | 'high', maxTokens } }
+  return { ok: true, slot: { model, effort: effort as EffortLevel } }
 }

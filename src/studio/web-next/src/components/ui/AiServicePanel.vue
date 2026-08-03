@@ -32,7 +32,7 @@ const testResults = ref<Map<string, TestResult>>(new Map())
 // 任务档位（D 档：创作档/助手档）
 const models = ref<string[]>([])
 const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null }>({
-  creative: { model: '', effort: 'high', maxTokens: 16000 },
+  creative: { model: '', effort: 'xhigh' },
   assistant: null,
 })
 const assistantEnabled = ref(false)
@@ -172,7 +172,7 @@ async function test(p: ProviderConfDto): Promise<void> {
 
 function toggleAssistant(on: boolean): void {
   if (on && !tierForm.value.assistant) {
-    tierForm.value.assistant = { model: tierForm.value.creative.model, effort: 'low', maxTokens: 4000 }
+    tierForm.value.assistant = { model: tierForm.value.creative.model, effort: 'low' }
   }
 }
 
@@ -297,12 +297,12 @@ function timeAgo(ts: number | undefined): string {
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.creative.effort" class="tier-select sm">
-              <option value="high">深度</option>
-              <option value="medium">平衡</option>
-              <option value="low">快速</option>
+              <option value="max">max</option>
+              <option value="xhigh">xhigh</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
             </select>
-            <input v-model.number="tierForm.creative.maxTokens" type="number" min="1000" max="65536" step="1000" class="tier-input" />
-            <span class="tier-unit">tokens</span>
           </div>
         </div>
         <div class="tier-card">
@@ -319,12 +319,12 @@ function timeAgo(ts: number | undefined): string {
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.assistant.effort" class="tier-select sm">
-              <option value="high">深度</option>
-              <option value="medium">平衡</option>
-              <option value="low">快速</option>
+              <option value="max">max</option>
+              <option value="xhigh">xhigh</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
             </select>
-            <input v-model.number="tierForm.assistant.maxTokens" type="number" min="1000" max="65536" step="1000" class="tier-input" />
-            <span class="tier-unit">tokens</span>
           </div>
         </div>
         <button class="save-btn" :disabled="tierSaving" @click="saveTiers">
@@ -761,18 +761,5 @@ function timeAgo(ts: number | undefined): string {
 .tier-select.sm {
   flex: 0 0 auto;
   min-width: 80px;
-}
-.tier-input {
-  width: 90px;
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-}
-.tier-unit {
-  font-size: 11px;
-  color: var(--text-faint);
 }
 </style>

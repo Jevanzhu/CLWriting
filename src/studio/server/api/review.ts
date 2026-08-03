@@ -207,7 +207,6 @@ async function runLensSpawnLoop(opts: {
           {
             systemPrompt: reviewSystem(lens),
             messages: [{ role: 'user', content: prompt }],
-            maxTokens: tier.maxTokens,
             effort: tier.effort,
             tools: [submitIssues()],
             toolChoice: 'tool',

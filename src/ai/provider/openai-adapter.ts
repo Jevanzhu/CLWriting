@@ -49,8 +49,10 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     model: conf.model,
     messages,
     stream: true,
-    // o 系列用 max_completion_tokens
-    ...(isOSeries(conf.model ?? '') ? { max_completion_tokens: req.maxTokens } : { max_tokens: req.maxTokens }),
+  }
+  // max_tokens 可选——缺省则不发，让模型用自己的默认值
+  if (req.maxTokens) {
+    params[isOSeries(conf.model ?? '') ? 'max_completion_tokens' : 'max_tokens'] = req.maxTokens
   }
 
   if (req.tools?.length) {

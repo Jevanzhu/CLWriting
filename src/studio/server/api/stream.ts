@@ -70,7 +70,7 @@ async function runWriterSpawn(opts: {
     run: async (provider, signal) => {
       const r = await generate(
         provider,
-        { systemPrompt: sys, messages: [{ role: 'user', content: opts.prompt }], maxTokens: tier.maxTokens, effort: tier.effort },
+        { systemPrompt: sys, messages: [{ role: 'user', content: opts.prompt }], effort: tier.effort },
         signal,
         (delta) => emit({ type: 'text', text: delta, role: opts.role }),
       )
