@@ -371,9 +371,15 @@ const recent = computed(() => wb.log.slice(-200))
         <span>{{ healText }}</span>
       </div>
       <template v-if="healDone">
+        <!-- W1 终局黄项复查：yellows 空 = 文风已收敛；非空 = 仍剩黄项（建议手改，不 gate） -->
         <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
           <CircleCheck :size="16" />
-          <span>校对通过，可以定稿了</span>
+          <div class="heal-detail">
+            <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
+            <ul v-if="healDone.yellows?.length" class="heal-reds">
+              <li v-for="(y, i) in healDone.yellows" :key="i">{{ y }}</li>
+            </ul>
+          </div>
         </div>
         <div v-else-if="healDone.outcome === 'escalate'" class="heal-row warn">
           <TriangleAlert :size="16" />

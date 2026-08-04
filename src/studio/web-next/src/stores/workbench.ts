@@ -17,6 +17,8 @@ export interface SseEvent {
 export interface HealResult {
   outcome: 'pass' | 'escalate' | 'aborted' | 'failed'
   reds?: string[]
+  /** pass 时终稿黄项复查：仍命中的规则违规（message 列表，空 = 已收敛） */
+  yellows?: string[]
   docId?: string
   path?: string
   error?: string
@@ -95,6 +97,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       healResult.value = {
         outcome: e.outcome as HealResult['outcome'],
         ...(e.reds ? { reds: e.reds as string[] } : {}),
+        ...(e.yellows ? { yellows: e.yellows as string[] } : {}),
         ...(e.docId ? { docId: String(e.docId) } : {}),
         ...(e.path ? { path: String(e.path) } : {}),
         ...(e.error ? { error: String(e.error) } : {}),
