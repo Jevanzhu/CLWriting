@@ -24,6 +24,7 @@ const DEFAULTS = {
   pageWidth: 1020,
   autosaveInterval: 30,
   shelfView: 'grid' as 'grid' | 'list',
+  chatEnabled: false,
 }
 
 /** 旧 localStorage 键（仅迁移用，迁移后停用） */
@@ -64,6 +65,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   const pageWidth = ref(DEFAULTS.pageWidth)
   const autosaveInterval = ref(DEFAULTS.autosaveInterval)
   const shelfView = ref<'grid' | 'list'>(DEFAULTS.shelfView)
+  /** 对话助手开关（默认关闭） */
+  const chatEnabled = ref(DEFAULTS.chatEnabled)
 
   // ── 书级覆盖（prefs.json；null = 用全局）──
   const bookPageWidth = ref<number | null>(null)
@@ -142,6 +145,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.pageWidth === 'number' && p.pageWidth > 0) pageWidth.value = p.pageWidth
     if (typeof p.autosaveInterval === 'number' && p.autosaveInterval > 0) autosaveInterval.value = p.autosaveInterval
     if (p.shelfView === 'grid' || p.shelfView === 'list') shelfView.value = p.shelfView
+    if (typeof p.chatEnabled === 'boolean') chatEnabled.value = p.chatEnabled
   }
 
   /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖） */
@@ -158,6 +162,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       pageWidth: pageWidth.value,
       autosaveInterval: autosaveInterval.value,
       shelfView: shelfView.value,
+      chatEnabled: chatEnabled.value,
     }
   }
 
@@ -261,6 +266,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     shelfView.value = v
     schedulePersist()
   }
+  function setChatEnabled(v: boolean): void {
+    chatEnabled.value = v
+    schedulePersist()
+  }
 
   return {
     theme,
@@ -274,6 +283,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     pageWidth,
     autosaveInterval,
     shelfView,
+    chatEnabled,
     bookPageWidth,
     bookAutosaveInterval,
     effectivePageWidth,
@@ -292,5 +302,6 @@ export const usePrefsStore = defineStore('prefs', () => {
     setPageWidth,
     setAutosaveInterval,
     setShelfView,
+    setChatEnabled,
   }
 })

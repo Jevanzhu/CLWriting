@@ -6,6 +6,7 @@ import SidebarRight from './SidebarRight.vue'
 import TabBar from './TabBar.vue'
 import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
+import ChatDock from './ChatDock.vue'
 import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
 import PromptDialog from '../ui/PromptDialog.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
@@ -16,6 +17,7 @@ import Toast from '../ui/Toast.vue'
 import TooltipHost from '../ui/TooltipHost.vue'
 import { useHotkeys } from '../../composables/useHotkeys'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { usePrefsStore } from '../../stores/prefs'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
 // flex 布局（非旧 web 的 overlay 浮层）；折叠走 width 过渡，专注模式覆盖折叠态。
@@ -23,11 +25,20 @@ import { useWorkspaceStore } from '../../stores/workspace'
 defineProps<{ bookName: string }>()
 
 const ws = useWorkspaceStore()
+const prefs = usePrefsStore()
 useHotkeys()
 
 // 专注模式覆盖：focus 时左右栏视觉收起，退出恢复 leftOpen/rightOpen 原值
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
 const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
+
+/** dock B 当前章号（从编辑器活动文档推断） */
+const dockChapter = computed(() => {
+  const docId = ws.activeDocId
+  if (!docId) return undefined
+  const m = docId.match(/(?:短篇-|草稿-)(\d+)/) ?? docId.match(/(\d+)-/)
+  return m ? Number(m[1]) : undefined
+})
 
 /** 拖拽调整左栏宽度（最小 180px 由 store setLeftWidth 兜底） */
 const leftDragging = ref(false)
@@ -85,6 +96,12 @@ function startResizeLeft(e: MouseEvent): void {
         <div class="ws-view">
           <slot />
         </div>
+        <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板） -->
+        <ChatDock
+          v-if="prefs.chatEnabled && !ws.focusMode"
+          :book-name="bookName"
+          :current-chapter="dockChapter"
+        />
       </main>
       <div class="ws-side ws-right" :class="{ collapsed: !rightVisible }">
         <SidebarRight :book-name="bookName" />

@@ -17,10 +17,12 @@ import {
   type BookState,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
+import { usePrefsStore } from '../stores/prefs'
 import { getProviders, type TierSlot } from '../api/providers'
 import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
+import ChatPanel from '../components/panels/ChatPanel.vue'
 import { friendlyError } from '../shared/error'
 
 /** 规则 ID → 中文标签（与后端 RULE_LABEL 一致） */
@@ -37,6 +39,10 @@ const wb = useWorkbenchStore()
 const ui = useUiStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+const prefs = usePrefsStore()
+
+/** 工作台 tab：写作 / 对话（对话 tab 仅 chatEnabled 时可见） */
+const activeTab = ref<'write' | 'chat'>('write')
 
 const state = ref<BookState | null>(null)
 const prompt = ref('')
@@ -268,6 +274,27 @@ const recent = computed(() => wb.log.slice(-200))
 
 <template>
   <div class="workbench">
+    <!-- 对话 tab 切换（仅 chatEnabled 时显示） -->
+    <div v-if="prefs.chatEnabled" class="wb-tabs">
+      <button
+        class="wb-tab"
+        :class="{ active: activeTab === 'write' }"
+        @click="activeTab = 'write'"
+      >写作</button>
+      <button
+        class="wb-tab"
+        :class="{ active: activeTab === 'chat' }"
+        @click="activeTab = 'chat'"
+      >对话</button>
+    </div>
+
+    <!-- 对话 tab -->
+    <div v-if="prefs.chatEnabled && activeTab === 'chat'" class="wb-chat-wrap">
+      <ChatPanel :book-name="bookName" :current-chapter="chapter" />
+    </div>
+
+    <!-- 写作 tab（默认） -->
+    <template v-else>
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
       AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用服务商。
@@ -416,6 +443,7 @@ const recent = computed(() => wb.log.slice(-200))
     </section>
 
     <div v-if="err" class="err-msg">{{ err }}</div>
+    </template>
   </div>
 </template>
 
@@ -429,6 +457,35 @@ const recent = computed(() => wb.log.slice(-200))
   gap: var(--size-4-3);
   max-width: 820px;
   margin: 0 auto;
+}
+.wb-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+.wb-tab {
+  padding: 4px 12px;
+  font-size: var(--font-size-m);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--dur-fast) var(--ease-out);
+}
+.wb-tab:hover {
+  color: var(--text-default);
+}
+.wb-tab.active {
+  color: var(--text-default);
+  border-bottom-color: var(--interactive-accent);
+}
+.wb-chat-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .card {
   background: var(--background-secondary);

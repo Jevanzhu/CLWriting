@@ -4,11 +4,10 @@
  * 用 fake-provider 跑真实 HTTP 全链路（非 mock 分支）。
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
-import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
-import { createFakeProvider, type FakeProvider, type FakeResponse } from './fake-provider.js'
-import { withFakeProvider, tempUserData, SHORT_BOOK, makeDualTrackWorkdir } from '../studio/fixtures.js'
+import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../src/ai/orchestrate/chat.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
