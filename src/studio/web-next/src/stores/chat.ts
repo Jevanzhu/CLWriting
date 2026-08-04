@@ -45,6 +45,11 @@ export const useChatStore = defineStore('chat', () => {
   /** 分派一条 chat_* SSE 事件 */
   function dispatch(ev: { type: string; [k: string]: unknown }): void {
     switch (ev.type) {
+      case 'sync': {
+        // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
+        running.value = ev['chatRunning'] === true
+        break
+      }
       case 'chat_start': {
         running.value = true
         error.value = null

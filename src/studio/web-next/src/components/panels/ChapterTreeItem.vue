@@ -264,7 +264,7 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--text-error, #e05d5d);
+  background: var(--text-error);
   flex-shrink: 0;
   animation: issue-pulse 1.6s ease-in-out infinite;
 }

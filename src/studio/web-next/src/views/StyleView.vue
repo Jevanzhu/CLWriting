@@ -17,6 +17,7 @@ import {
   Trash2,
   RefreshCw,
   ChevronRight,
+  TriangleAlert,
 } from 'lucide-vue-next'
 import { useStyleStore } from '../stores/style'
 import { useUiStore } from '../stores/ui'
@@ -601,7 +602,7 @@ function avg(series: number[]): number {
                 <span>总结体结尾 {{ style.trend.summaryEndingChapters.length }}{{ unit }}</span>
               </div>
               <div v-if="style.trend.drifts.length > 0" class="drift-list">
-                <div v-for="(d, i) in style.trend.drifts" :key="i" class="drift-item">{{ d.message }}</div>
+                <div v-for="(d, i) in style.trend.drifts" :key="i" class="drift-item"><TriangleAlert :size="11" /> {{ d.message }}</div>
               </div>
               <div v-else class="ab-ok">未发现文风偏差</div>
             </template>
@@ -1223,12 +1224,12 @@ function avg(series: number[]): number {
   gap: 4px;
 }
 .drift-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--font-size-xs);
   color: var(--text-warning);
   line-height: 1.6;
-}
-.drift-item::before {
-  content: '⚠ ';
 }
 .ai-drift {
   font-size: var(--font-size-s);

@@ -374,6 +374,8 @@ function registerIpc(): void {
     if (!entry) return
     // 防路径穿越：relPath 必须落在 bookRoot 内（复刻 DocumentService.resolveSafePath 内含校验）
     const bookRoot = resolve(workDir, entry.path)
+    // 防 books.jsonl 被篡改致 bookRoot 越出 workDir（与 open-book-dir 同口径）
+    if (relative(workDir, bookRoot).startsWith('..')) return
     const absPath = resolve(bookRoot, relPath)
     const rel = relative(bookRoot, absPath)
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return

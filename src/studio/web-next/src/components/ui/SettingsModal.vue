@@ -478,6 +478,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
             <!-- ═══ AI ═══ -->
             <template v-else-if="activeTab === 'ai'">
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">对话助手</div>
+                  <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
+                </div>
+                <div class="setting-item-control">
+                  <label class="switch">
+                    <input type="checkbox" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
               <AiServicePanel />
             </template>
           </div>

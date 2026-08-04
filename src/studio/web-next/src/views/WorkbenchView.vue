@@ -438,7 +438,7 @@ const recent = computed(() => wb.log.slice(-200))
         <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
           存草稿并编辑
         </button>
-        <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+        <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>
       </div>
     </section>
 

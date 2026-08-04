@@ -82,7 +82,9 @@ test('review 打包 short: 读取篇号草稿并把清单核对写入执行包',
       },
       伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
     }
-    writePieceList(join(workDir, '清单.md'), list)
+    // 清单分离到 清单/ 目录，与正文同名（见 layout.ts:67）；草稿场景 basename = 草稿-1.md
+    mkdirSync(join(root, '清单'), { recursive: true })
+    writePieceList(join(root, '清单', '草稿-1.md'), list)
 
     // 机检 → byproducts.pieceListChecks（清单核对条目，payoff 设定收尾审用）
     const outcome = runCheckForDocument(root, join(workDir, '草稿-1.md'))

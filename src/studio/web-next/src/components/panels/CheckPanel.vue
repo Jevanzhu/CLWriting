@@ -160,14 +160,14 @@ async function runCheck(): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .check-clean {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--font-size-s);
-  color: var(--color-green, #4e9d68);
+  color: var(--dv-good);
 }
 .check-group {
   display: flex;
@@ -182,10 +182,10 @@ async function runCheck(): Promise<void> {
   font-weight: 600;
 }
 .group-label--red {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .group-label--yellow {
-  color: var(--text-warning, #c9a23a);
+  color: var(--text-warning);
 }
 .check-item {
   padding: 6px 8px;
@@ -195,11 +195,11 @@ async function runCheck(): Promise<void> {
 }
 .check-item--red {
   background: rgba(224, 93, 93, 0.08);
-  border-left: 2px solid var(--text-error, #e05d5d);
+  border-left: 2px solid var(--text-error);
 }
 .check-item--yellow {
   background: rgba(201, 162, 58, 0.08);
-  border-left: 2px solid var(--text-warning, #c9a23a);
+  border-left: 2px solid var(--text-warning);
 }
 .item-msg {
   color: var(--text-normal);

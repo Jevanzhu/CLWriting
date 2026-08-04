@@ -131,3 +131,12 @@ export async function setTiers(body: { creative: TierSlot; assistant: TierSlot |
     body: JSON.stringify(body),
   })
 }
+
+/** 更新对话档位（单档端点，不碰 creative/assistant/currentModel；null = 清除回落创作档） */
+export async function setChatTier(slot: TierSlot | null): Promise<{ ok: boolean; tiers: TierConfig }> {
+  return apiJson('/api/tiers/chat', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(slot),
+  })
+}

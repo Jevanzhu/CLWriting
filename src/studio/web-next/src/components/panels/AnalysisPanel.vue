@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf, parseFmFields, isBodyKind } from '../../shared/words'
+import { formKindOf, parseFmFields, isBodyKind, stripFrontmatter, mergeFm } from '../../shared/words'
 import { getAnalysisOverview, autotag, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { friendlyError } from '../../shared/error'
@@ -33,9 +33,15 @@ async function analyzeTags(): Promise<void> {
   if (!docId.value || tagging.value) return
   tagging.value = true
   try {
+    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（与 MetaFormPanel.onSave 同口径）
+    const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
     const tags = await autotag(props.bookName, docId.value)
     await updateDocMeta(props.bookName, docId.value, tags)
     await doc.refresh(docId.value)
+    const refreshed = doc.get(docId.value)
+    if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
+      doc.patch(docId.value, mergeFm(refreshed.content, localBody))
+    }
     ui.toast('标签分析完成', 'success')
   } catch (err) {
     ui.toast(friendlyError(err), 'error')

@@ -68,10 +68,10 @@ export interface OnboardAiResult {
   content: string
 }
 
-// POST /onboard-ai {step, discussionContext?}（AI 阻塞数十秒，spawnRole onboard 收 text 落盘 + 返回 content）
+// POST /onboard-ai {step, premise?, discussionContext?}（AI 阻塞数十秒，spawnRole onboard 收 text 落盘 + 返回 content）
 export async function onboardAi(
   name: string,
-  body: { step: OnboardStep; discussionContext?: string },
+  body: { step: OnboardStep; premise?: string; discussionContext?: string },
 ): Promise<OnboardAiResult> {
   return apiJson<OnboardAiResult>(`/api/books/${encodeURIComponent(name)}/onboard-ai`, {
     method: 'POST',

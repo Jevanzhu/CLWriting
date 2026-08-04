@@ -3,18 +3,22 @@
  * 对话助手面板（方案 §3.7.4）。
  *
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
- * 消息气泡 + 工具卡片 + 章节选择器 + 模型/推理等级选择器 + 输入框。
+ * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
 import { ref, computed, nextTick, watch } from 'vue'
-import { Send, BookOpen, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2 } from 'lucide-vue-next'
+import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useWorkbenchStore } from '../../stores/workbench'
 import { sendChat, confirmTool } from '../../api/chat'
+import { interrupt } from '../../api/stream'
+import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 
 const props = defineProps<{
   bookName: string
   /** 当前编辑器章号（章节选择器用） */
   currentChapter?: number
+  /** 隐藏底部输入区（dock 拆分为独立输入框时，对话框只显示消息） */
+  hideComposer?: boolean
 }>()
 
 const chat = useChatStore()
@@ -32,6 +36,10 @@ watch(() => props.currentChapter, (v) => {
 // ── 联合判据：chat 或 workbench 在跑都禁发送 ──────
 
 const busy = computed(() => chat.running || wb.running)
+
+// ── 模型 / 推理等级（对话档，未配则回落创作档）──
+
+const tier = useChatTier()
 
 // ── 发送 ────────────────────────────────────────
 
@@ -71,9 +79,15 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   }
 }
 
-// ── 清空 ────────────────────────────────────────
+// ── 停止 / 清空 ────────────────────────────────
 
-function handleClear(): void {
+async function stopChat(): Promise<void> {
+  try { await interrupt(props.bookName) } catch { /* 忽略 */ }
+}
+
+async function handleClear(): Promise<void> {
+  // 运行中先中断后端，再清前端（防清空后仍冒新消息）
+  if (chat.running) await stopChat()
   chat.clear()
 }
 
@@ -106,39 +120,22 @@ const TOOL_LABELS: Record<string, string> = {
 
 <template>
   <section class="chat-panel">
-    <!-- 顶栏：章节选择器 + 清空 -->
-    <div class="chat-topbar">
-      <label class="chat-chapter">
-        <BookOpen :size="14" />
-        <select v-model.number="selectedChapter" class="chat-chapter-select">
-          <option :value="undefined">不指定章节</option>
-          <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
-        </select>
-      </label>
-      <button
-        v-if="chat.hasMessages"
-        class="chat-clear-btn"
-        title="清空对话"
-        @click="handleClear"
-      >
-        <Trash2 :size="14" />
-      </button>
-    </div>
-
-    <!-- 消息区 -->
+    <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
     <div ref="scrollRef" class="chat-messages">
       <div v-if="!chat.hasMessages && !chat.running" class="chat-empty">
-        问点什么——AI 知道你的角色设定和前文。
+        <MessageSquareText :size="32" class="chat-empty-icon" />
+        <p class="chat-empty-title">和 AI 聊聊你的故事</p>
+        <p class="chat-empty-sub">提问剧情走向、让 AI 机检章节，或直接写下一章</p>
       </div>
 
       <template v-for="(msg, i) in chat.messages" :key="i">
-        <!-- 用户气泡 -->
-        <div v-if="msg.role === 'user'" class="chat-bubble chat-bubble-user">
+        <!-- 用户消息 -->
+        <div v-if="msg.role === 'user'" class="chat-msg chat-msg-user">
           {{ msg.content }}
         </div>
 
-        <!-- 助手气泡 -->
-        <div v-else class="chat-bubble chat-bubble-assistant">
+        <!-- 助手消息 -->
+        <div v-else class="chat-msg chat-msg-assistant">
           <!-- 文本 -->
           <div v-if="msg.content" class="chat-text">{{ msg.content }}</div>
           <div v-else-if="!msg.done && msg.tools.length === 0" class="chat-typing">
@@ -160,12 +157,12 @@ const TOOL_LABELS: Record<string, string> = {
             <div class="chat-tool-head">
               <component :is="TOOL_ICONS[tool.name] ?? PenLine" :size="14" />
               <span class="chat-tool-name">{{ TOOL_LABELS[tool.name] ?? tool.name }}</span>
-              <span v-if="tool.status === 'running'" class="chat-tool-status">
+              <span v-if="tool.status === 'running'" class="chat-tool-badge">
                 <Loader2 :size="12" class="spin" /> 执行中
               </span>
-              <span v-else-if="tool.status === 'ok'" class="chat-tool-status">完成</span>
-              <span v-else-if="tool.status === 'failed'" class="chat-tool-status">失败</span>
-              <span v-else-if="tool.status === 'cancelled'" class="chat-tool-status">已取消</span>
+              <span v-else-if="tool.status === 'ok'" class="chat-tool-badge ok">完成</span>
+              <span v-else-if="tool.status === 'failed'" class="chat-tool-badge bad">失败</span>
+              <span v-else-if="tool.status === 'cancelled'" class="chat-tool-badge bad">已取消</span>
             </div>
 
             <!-- 工具结果摘要 -->
@@ -187,23 +184,80 @@ const TOOL_LABELS: Record<string, string> = {
       </div>
     </div>
 
-    <!-- 输入区 -->
-    <div class="chat-input-area">
-      <textarea
-        v-model="input"
-        class="chat-input"
-        placeholder="输入你的问题…"
-        rows="2"
-        :disabled="busy"
-        @keydown="handleKeydown"
-      />
-      <button
-        class="chat-send-btn"
-        :disabled="!input.trim() || busy"
-        @click="handleSend"
-      >
-        <Send :size="15" />
-      </button>
+    <!-- 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 -->
+    <div v-if="!hideComposer" class="chat-composer">
+      <div class="composer-box">
+        <!-- 主区：章节选择（左下）+ 输入框 -->
+        <div class="composer-main">
+          <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
+            <BookOpen :size="14" />
+            <select v-model.number="selectedChapter" class="chat-select">
+              <option :value="undefined">全书</option>
+              <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
+            </select>
+          </label>
+          <textarea
+            v-model="input"
+            class="chat-input"
+            placeholder="给 AI 发消息…"
+            rows="2"
+            :disabled="busy"
+            @keydown="handleKeydown"
+          />
+        </div>
+
+        <!-- 底栏：快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
+        <div class="composer-footer">
+          <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+          <div class="composer-actions">
+            <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
+              <Cpu :size="12" />
+              <select
+                :value="tier.activeModel"
+                class="chat-select chat-model"
+                :disabled="tier.tierLoading"
+                @change="tier.onModelChange"
+              >
+                <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">{{ tier.activeModel }}</option>
+                <option value="" disabled>选择模型</option>
+                <option v-for="m in tier.models" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </label>
+            <select
+              :value="tier.activeEffort"
+              class="composer-chip chat-effort"
+              :disabled="tier.tierLoading || !tier.activeModel"
+              @change="tier.onEffortChange"
+            >
+              <option v-for="l in EFFORT_LEVELS" :key="l" :value="l">{{ l }}</option>
+            </select>
+            <button
+              v-if="chat.hasMessages"
+              class="composer-clear"
+              title="清空对话"
+              @click="handleClear"
+            >
+              <Trash2 :size="13" />
+            </button>
+            <button
+              v-if="busy"
+              class="chat-stop-btn"
+              title="停止"
+              @click="stopChat"
+            >
+              <Square :size="14" />
+            </button>
+            <button
+              v-else
+              class="chat-send-btn"
+              :disabled="!input.trim()"
+              @click="handleSend"
+            >
+              <Send :size="15" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -216,85 +270,76 @@ const TOOL_LABELS: Record<string, string> = {
   min-height: 0;
 }
 
-/* 顶栏 */
-.chat-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--size-3-2) var(--size-2);
-  flex-shrink: 0;
-}
-.chat-chapter {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  font-size: var(--font-size-s);
-}
-.chat-chapter-select {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  color: var(--text-default);
-  font-size: var(--font-size-s);
-  padding: 1px 4px;
-  outline: none;
-}
-.chat-clear-btn {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 4px;
-  transition: var(--dur-fast) var(--ease-out);
-}
-.chat-clear-btn:hover {
-  color: var(--text-default);
-  background: var(--bg-hover);
-}
-
-/* 消息区 */
+/* ── 消息区 ── */
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: var(--size-2) var(--size-3-2);
+  padding: var(--size-4-3) var(--size-4-5);
   display: flex;
   flex-direction: column;
-  gap: var(--size-2);
+  gap: var(--size-4-3);
   min-height: 0;
 }
 .chat-empty {
-  color: var(--text-faint);
-  font-size: var(--font-size-s);
-  text-align: center;
-  padding: var(--size-5) var(--size-2);
-}
-
-/* 气泡 */
-.chat-bubble {
-  max-width: 88%;
-  padding: var(--size-2) var(--size-3-2);
-  border-radius: 8px;
-  font-size: var(--font-size-m);
-  line-height: 1.6;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-.chat-bubble-user {
-  align-self: flex-end;
-  background: var(--interactive-accent);
-  color: var(--bg-elevated);
-}
-.chat-bubble-assistant {
-  align-self: flex-start;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--size-2);
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-1);
+  color: var(--text-faint);
+  text-align: center;
+  padding: var(--size-4-6);
+}
+.chat-empty-icon {
+  opacity: 0.45;
+  margin-bottom: var(--size-4-1);
+}
+.chat-empty-title {
+  font-size: var(--font-size-m);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.chat-empty-sub {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* ── 消息：无气泡感 ── */
+.chat-msg {
+  max-width: 100%;
+  font-size: var(--font-size-m);
+  line-height: 1.7;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  animation: chat-pop var(--dur-norm) var(--ease-out);
+}
+@keyframes chat-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.chat-msg-user {
+  align-self: flex-end;
+  max-width: 82%;
+  padding: var(--size-4-2) var(--size-4-4);
+  border-radius: var(--radius-l);
+  border-bottom-right-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+.chat-msg-assistant {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
 }
 .chat-typing {
   color: var(--text-muted);
@@ -303,18 +348,19 @@ const TOOL_LABELS: Record<string, string> = {
   padding: 2px 0;
 }
 
-/* 工具卡片 */
+/* ── 工具卡片 ── */
 .chat-tool-card {
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: var(--size-2) var(--size-3-2);
+  border: 1px solid var(--background-modifier-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2) var(--size-4-3);
   font-size: var(--font-size-s);
-  background: var(--bg-elevated);
+  background: var(--background-secondary);
 }
-.tool-pending { border-color: var(--dv-warn); }
-.tool-running { border-color: var(--interactive-accent); }
-.tool-ok { border-color: var(--dv-good); }
-.tool-failed { border-color: var(--dv-bad); }
+.tool-pending { border-left-color: var(--dv-warn); }
+.tool-running { border-left-color: var(--interactive-accent); }
+.tool-ok { border-left-color: var(--dv-good); }
+.tool-failed { border-left-color: var(--dv-bad); }
 
 .chat-tool-head {
   display: flex;
@@ -322,103 +368,263 @@ const TOOL_LABELS: Record<string, string> = {
   gap: 6px;
   font-weight: 500;
 }
-.chat-tool-name { color: var(--text-default); }
-.chat-tool-status {
+.chat-tool-name {
+  color: var(--text-normal);
+}
+.chat-tool-badge {
   margin-left: auto;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
   color: var(--text-muted);
-  font-weight: 400;
+  background: var(--background-modifier-hover);
+}
+.chat-tool-badge.ok {
+  color: var(--dv-good);
+  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
+}
+.chat-tool-badge.bad {
+  color: var(--dv-bad);
+  background: color-mix(in srgb, var(--dv-bad) 12%, transparent);
 }
 .chat-tool-summary {
-  margin-top: 4px;
+  margin-top: var(--size-4-1);
   color: var(--text-muted);
   white-space: pre-wrap;
   line-height: 1.5;
+  font-size: var(--font-size-xs);
 }
 .chat-tool-confirm {
   display: flex;
   justify-content: flex-end;
-  gap: var(--size-2);
-  margin-top: var(--size-2);
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
 }
 .chat-confirm-no,
 .chat-confirm-yes {
-  font-size: var(--font-size-s);
-  padding: 3px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border-default);
+  font-size: var(--font-size-xs);
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
   cursor: pointer;
-  transition: var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-fast) var(--ease-out);
 }
 .chat-confirm-no {
-  background: var(--bg-elevated);
+  background: var(--background-primary);
   color: var(--text-muted);
 }
-.chat-confirm-no:hover { background: var(--bg-hover); }
+.chat-confirm-no:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
 .chat-confirm-yes {
   background: var(--interactive-accent);
-  color: var(--bg-elevated);
-  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+.chat-confirm-yes:hover {
+  filter: brightness(1.1);
 }
 
-/* 错误 */
+/* ── 错误 ── */
 .chat-error-msg {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--dv-bad);
   font-size: var(--font-size-s);
-  padding: var(--size-2);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
 }
 
-/* 输入区 */
-.chat-input-area {
-  display: flex;
-  gap: var(--size-2);
-  padding: var(--size-2) var(--size-3-2) var(--size-3-2);
+/* ── 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 ── */
+.chat-composer {
+  padding: var(--size-4-1) var(--size-4-5) var(--size-4-4);
   flex-shrink: 0;
-  align-items: flex-end;
+}
+.composer-box {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.composer-box:hover {
+  border-color: var(--background-modifier-border-hover);
+}
+.composer-box:focus-within {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 14%, transparent), var(--shadow-s);
+}
+.composer-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) var(--size-4-3) var(--size-4-1);
+}
+.composer-chapter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-top: var(--size-4-1);
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.composer-chapter:hover {
+  border-color: var(--background-modifier-border-hover);
+  color: var(--text-normal);
+}
+.composer-chapter.on {
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  color: var(--text-accent);
 }
 .chat-input {
   flex: 1;
+  min-height: 56px;
   resize: none;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: var(--size-2) var(--size-3-2);
+  border: none;
+  background: transparent;
+  padding: var(--size-4-1) 0;
   font-size: var(--font-size-m);
   font-family: inherit;
-  background: var(--bg-elevated);
-  color: var(--text-default);
+  line-height: 1.6;
+  color: var(--text-normal);
   outline: none;
-  transition: var(--dur-fast) var(--ease-out);
-}
-.chat-input:focus {
-  border-color: var(--interactive-accent);
 }
 .chat-input::placeholder {
   color: var(--text-faint);
+}
+.chat-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-3) var(--size-4-3);
+}
+.composer-hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  user-select: none;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.composer-chip:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.composer-chip.on {
+  color: var(--text-accent);
+}
+.composer-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.composer-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.chat-select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+}
+.chat-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.chat-model {
+  max-width: 140px;
+  text-overflow: ellipsis;
+}
+.chat-effort {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.chat-stop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: none;
+  background: var(--dv-bad);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.chat-stop-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 .chat-send-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
   border: none;
   background: var(--interactive-accent);
-  color: var(--bg-elevated);
+  color: var(--text-on-accent);
   cursor: pointer;
-  transition: var(--dur-fast) var(--ease-out);
-  flex-shrink: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .chat-send-btn:hover:not(:disabled) {
-  opacity: 0.85;
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
 }
 .chat-send-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 

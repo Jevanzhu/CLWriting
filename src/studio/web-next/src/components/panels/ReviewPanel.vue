@@ -252,10 +252,10 @@ function severityLabel(s: string): string {
   gap: 6px;
 }
 .rev-error {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .rev-stale {
-  color: var(--text-warning, #c9a23a);
+  color: var(--text-warning);
 }
 .rev-verdict {
   display: flex;
@@ -278,11 +278,11 @@ function severityLabel(s: string): string {
 }
 .verdict-pass {
   background: rgba(78, 157, 104, 0.15);
-  color: var(--color-green, #4e9d68);
+  color: var(--dv-good);
 }
 .verdict-reject {
   background: rgba(224, 93, 93, 0.15);
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .rev-verdict-actions {
   display: inline-flex;
@@ -302,20 +302,20 @@ function severityLabel(s: string): string {
   color: var(--text-normal);
 }
 .rev-verdict-btn.active {
-  background: var(--color-green, #4e9d68);
+  background: var(--dv-good);
   color: var(--text-on-accent, #fff);
-  border-color: var(--color-green, #4e9d68);
+  border-color: var(--dv-good);
 }
 .rev-verdict-btn.reject.active {
-  background: var(--text-error, #e05d5d);
-  border-color: var(--text-error, #e05d5d);
+  background: var(--text-error);
+  border-color: var(--text-error);
 }
 .rev-clean {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: var(--font-size-s);
-  color: var(--color-green, #4e9d68);
+  color: var(--dv-good);
 }
 .rev-group {
   display: flex;
@@ -330,10 +330,10 @@ function severityLabel(s: string): string {
   font-weight: 600;
 }
 .group-label--red {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .group-label--yellow {
-  color: var(--text-warning, #c9a23a);
+  color: var(--text-warning);
 }
 .rev-item {
   padding: 6px 8px;
@@ -343,11 +343,11 @@ function severityLabel(s: string): string {
 }
 .rev-item--red {
   background: rgba(224, 93, 93, 0.08);
-  border-left: 2px solid var(--text-error, #e05d5d);
+  border-left: 2px solid var(--text-error);
 }
 .rev-item--yellow {
   background: rgba(201, 162, 58, 0.08);
-  border-left: 2px solid var(--text-warning, #c9a23a);
+  border-left: 2px solid var(--text-warning);
 }
 .item-head {
   display: flex;
@@ -363,7 +363,7 @@ function severityLabel(s: string): string {
   border-radius: var(--radius-s);
 }
 .sev-high {
-  background: var(--text-error, #e05d5d);
+  background: var(--text-error);
   color: var(--text-on-accent, #fff);
 }
 .sev-low {

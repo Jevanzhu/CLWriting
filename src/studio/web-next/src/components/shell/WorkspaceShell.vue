@@ -96,9 +96,9 @@ function startResizeLeft(e: MouseEvent): void {
         <div class="ws-view">
           <slot />
         </div>
-        <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板） -->
+        <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock） -->
         <ChatDock
-          v-if="prefs.chatEnabled && !ws.focusMode"
+          v-if="prefs.chatEnabled && !ws.focusMode && ws.activeView !== 'workbench'"
           :book-name="bookName"
           :current-chapter="dockChapter"
         />
@@ -161,6 +161,7 @@ function startResizeLeft(e: MouseEvent): void {
   display: flex;
   flex-direction: column;
   background: var(--background-primary);
+  position: relative; /* ChatDock 漂浮 FAB 的定位基准 */
 }
 .ws-view {
   flex: 1;

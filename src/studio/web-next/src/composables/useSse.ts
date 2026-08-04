@@ -10,6 +10,9 @@ import { useChatStore } from '../stores/chat'
  */
 export function useSse(bookName: WatchSource<string>): void {
   const wb = useWorkbenchStore()
+  // setup 内提前获取 chat store 实例：onmessage 回调不在组件上下文，
+  // 运行时再 useChatStore() 会撞 activePinia 未设置（抛错被 catch 吞掉 → chat 事件丢失）
+  const chat = useChatStore()
   let es: EventSource | null = null
 
   function connect(name: string): void {
@@ -25,12 +28,10 @@ export function useSse(bookName: WatchSource<string>): void {
     es.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)
-        // chat_* 事件分流到 chat store（保持关注点分离）
-        if (typeof data?.type === 'string' && data.type.startsWith('chat_')) {
-          useChatStore().dispatch(data)
-        } else {
-          wb.dispatch(data)
-        }
+        // chat_* → chat store；sync → 同时给 chat（同步运行态防锁死）和 workbench
+        const t = typeof data?.type === 'string' ? data.type : ''
+        if (t === 'sync' || t.startsWith('chat_')) chat.dispatch(data)
+        if (t === 'sync' || !t.startsWith('chat_')) wb.dispatch(data)
       } catch {
         /* 非 JSON 静默丢弃（细案 §2.2） */
       }

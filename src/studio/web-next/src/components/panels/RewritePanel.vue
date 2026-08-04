@@ -186,7 +186,7 @@ function accept(): void {
   gap: 6px;
 }
 .rw-error {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .rw-diff-head {
   display: flex;
@@ -202,10 +202,10 @@ function accept(): void {
   font-weight: 600;
 }
 .stat-add {
-  color: var(--color-green, #4e9d68);
+  color: var(--dv-good);
 }
 .stat-del {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .rw-diff {
   max-height: 320px;
@@ -237,10 +237,10 @@ function accept(): void {
   color: var(--text-faint);
 }
 .diff-add .diff-mark {
-  color: var(--color-green, #4e9d68);
+  color: var(--dv-good);
 }
 .diff-del .diff-mark {
-  color: var(--text-error, #e05d5d);
+  color: var(--text-error);
 }
 .diff-mark--same {
   width: 11px;

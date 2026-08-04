@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { runAllChecks, hasRed } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writePieceList } from '../../src/format/manifest.js'
@@ -123,7 +123,9 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
     反转线索表: { 核心反转: 'x', 铺垫点: [{ 位置: 'a', 内容: 'x' }] },
     伏笔回收: [{ 伏笔: 'y', 回收位置: '', 未回收: true }], // 未回收标记
   }
-  writePieceList(join(pieceDir, '清单.md'), list)
+  // 清单已分离到 清单/ 目录，与正文同名（见 layout.ts:67）
+  mkdirSync(join(tmp, '清单'), { recursive: true })
+  writePieceList(join(tmp, '清单', basename(piecePath)), list)
 
   const ch: ChapterMeta = {
     章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
@@ -151,7 +153,9 @@ test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () 
   mkdirSync(pieceDir, { recursive: true })
   const piecePath = join(pieceDir, '正文.md')
   writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
-  writePieceList(join(pieceDir, '清单.md'), {
+  // 清单已分离到 清单/ 目录，与正文同名（见 layout.ts:67）
+  mkdirSync(join(tmp, '清单'), { recursive: true })
+  writePieceList(join(tmp, '清单', basename(piecePath)), {
     反转线索表: { 核心反转: '待定', 铺垫点: [{ 位置: '开头钩子', 内容: '待补' }] },
     情绪曲线: [{ 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' }],
     伏笔回收: [],

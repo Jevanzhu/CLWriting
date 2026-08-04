@@ -7,7 +7,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
@@ -214,12 +214,11 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkSectionCount(body, short?.section_count))
   sections.push(checkOpeningNoEnv(body, short?.opening_env_chars))
 
-  // 清单形式检（若篇目录有 清单.md，#27 第 5 节 + #28 第 3 节分工）
-  // chapter._path 是正文路径，清单.md 同目录
-  const pieceDir = chapter._path ? join(chapter._path, '..') : null
+  // 清单形式检（#27 第 5 节 + #28 第 3 节分工）
+  // 清单已分离到 清单/ 目录，与正文同名（篇/<篇号>-<标题>.md → 清单/<篇号>-<标题>.md，见 layout.ts:67）
   let pieceList: PieceList | null = null
-  if (pieceDir) {
-    const manifestPath = join(pieceDir, '清单.md')
+  if (chapter._path) {
+    const manifestPath = join(bookRoot, '清单', basename(chapter._path))
     if (existsSync(manifestPath)) {
       const r = readPieceList(manifestPath)
       if (r.ok) {

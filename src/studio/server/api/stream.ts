@@ -106,7 +106,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 连接建立即补发运行态快照:刷新/新标签会错过 init 事件(channel 消费即弃),
     // 无快照则前端 running 假空闲 → 生成中误显「可生成」可再触发 spawn
     res.write(
-      `data: ${JSON.stringify({ type: 'sync', running: driver.isRunning?.(session) ?? false })}\n\n`,
+      `data: ${JSON.stringify({ type: 'sync', running: driver.isRunning?.(session) ?? false, chatRunning: isChatRunning(params['name']!) })}\n\n`,
     )
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）

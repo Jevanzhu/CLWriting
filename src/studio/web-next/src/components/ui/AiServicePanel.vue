@@ -12,6 +12,7 @@ import {
   testProvider,
   fetchModels,
   setTiers,
+  setChatTier,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
@@ -29,13 +30,15 @@ const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
 
-// 任务档位（D 档：创作档/助手档）
+// 任务档位（D 档：创作档/助手档/对话档）
 const models = ref<string[]>([])
-const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null }>({
+const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: TierSlot | null }>({
   creative: { model: '', effort: 'xhigh' },
   assistant: null,
+  chat: null,
 })
 const assistantEnabled = ref(false)
+const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
 
 // 编辑/新增表单
@@ -63,6 +66,8 @@ async function refresh(): Promise<void> {
     tierForm.value.creative = { ...data.tiers.creative }
     tierForm.value.assistant = data.tiers.assistant ? { ...data.tiers.assistant } : null
     assistantEnabled.value = !!data.tiers.assistant
+    tierForm.value.chat = data.tiers.chat ? { ...data.tiers.chat } : null
+    chatTierEnabled.value = !!data.tiers.chat
     if (currentId.value) {
       try {
         const r = await fetchModels({ id: currentId.value })
@@ -176,6 +181,12 @@ function toggleAssistant(on: boolean): void {
   }
 }
 
+function toggleChatTier(on: boolean): void {
+  if (on && !tierForm.value.chat) {
+    tierForm.value.chat = { model: tierForm.value.creative.model, effort: 'low' }
+  }
+}
+
 async function saveTiers(): Promise<void> {
   if (!tierForm.value.creative.model) return ui.toast('创作档模型必选', 'error')
   tierSaving.value = true
@@ -184,6 +195,8 @@ async function saveTiers(): Promise<void> {
       creative: tierForm.value.creative,
       assistant: assistantEnabled.value ? tierForm.value.assistant : null,
     })
+    // 对话档走独立端点（不碰 creative/assistant/currentModel）
+    await setChatTier(chatTierEnabled.value ? tierForm.value.chat : null)
     void ui.probeAiStatus()
     ui.toast('档位已保存', 'success')
     await refresh()
@@ -319,6 +332,28 @@ function timeAgo(ts: number | undefined): string {
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.assistant.effort" class="tier-select sm">
+              <option value="max">max</option>
+              <option value="xhigh">xhigh</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+          </div>
+        </div>
+        <div class="tier-card">
+          <div class="tier-head">
+            <label class="tier-toggle">
+              <input type="checkbox" v-model="chatTierEnabled" @change="toggleChatTier(chatTierEnabled)" />
+              <span class="tier-name">对话档</span>
+            </label>
+            <span class="tier-desc">对话助手 · 不配则与创作档相同</span>
+          </div>
+          <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
+            <select v-model="tierForm.chat.model" class="tier-select">
+              <option value="" disabled>选择模型</option>
+              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <select v-model="tierForm.chat.effort" class="tier-select sm">
               <option value="max">max</option>
               <option value="xhigh">xhigh</option>
               <option value="high">high</option>
@@ -481,8 +516,8 @@ function timeAgo(ts: number | undefined): string {
   flex-shrink: 0;
 }
 .dot.on {
-  background: var(--color-green);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--color-green) 60%, transparent);
+  background: var(--dv-good);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--dv-good) 60%, transparent);
 }
 .dot.off {
   background: var(--text-faint);
@@ -510,7 +545,7 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-normal);
 }
 .mini-btn.danger:hover {
-  color: var(--color-red);
+  color: var(--dv-bad);
 }
 .mini-btn.testing {
   pointer-events: none;
@@ -557,12 +592,12 @@ function timeAgo(ts: number | undefined): string {
   border-radius: 99px;
 }
 .caps-badge.ok {
-  background: color-mix(in srgb, var(--color-green) 14%, transparent);
-  color: var(--color-green);
+  background: color-mix(in srgb, var(--dv-good) 14%, transparent);
+  color: var(--dv-good);
 }
 .caps-badge.bad {
-  background: color-mix(in srgb, var(--color-red) 14%, transparent);
-  color: var(--color-red);
+  background: color-mix(in srgb, var(--dv-bad) 14%, transparent);
+  color: var(--dv-bad);
 }
 .probed-at {
   font-size: 10px;
@@ -588,7 +623,7 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-muted);
 }
 .test-detail.fail {
-  background: color-mix(in srgb, var(--color-red) 6%, transparent);
+  background: color-mix(in srgb, var(--dv-bad) 6%, transparent);
 }
 .detail-line {
   line-height: 1.6;
@@ -597,7 +632,7 @@ function timeAgo(ts: number | undefined): string {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--color-red);
+  color: var(--dv-bad);
 }
 
 /* ── 表单 ── */
