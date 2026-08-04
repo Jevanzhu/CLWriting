@@ -18,6 +18,8 @@ export type RuleLevel = 'red' | 'yellow'
 export interface RuleContext {
   /** 书库根路径（读条目库等书级数据源；内置静态规则可忽略） */
   bookRoot: string
+  /** 章号（情节一致等按章定位的规则用；注入侧 toPrompt 不需要） */
+  chapter?: number
 }
 
 /** 规则违规项（message 即修复指令，可直接作为重写 prompt 条目） */

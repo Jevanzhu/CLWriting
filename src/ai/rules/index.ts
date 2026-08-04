@@ -7,10 +7,24 @@
 import type { WritingRule, RuleViolation, RuleContext } from './types.js'
 import { aiClicheRule } from './builtin.js'
 import { loadAiFlavorRule } from './book-rules.js'
+import { styleConsistencyRule } from './style-rule.js'
+import { settingConsistencyRule } from './setting-rule.js'
+import { plotConsistencyRule } from './plot-rule.js'
 
 export type { WritingRule, RuleViolation, RuleLevel, RuleContext } from './types.js'
 export { aiClicheRule } from './builtin.js'
 export { loadAiFlavorRule } from './book-rules.js'
+export { styleConsistencyRule } from './style-rule.js'
+export { settingConsistencyRule } from './setting-rule.js'
+export { plotConsistencyRule } from './plot-rule.js'
+
+/** 内置静态规则（不依赖 bookRoot 预加载，check/toPrompt 内部实时读） */
+const STATIC_RULES: readonly WritingRule[] = [
+  aiClicheRule,
+  styleConsistencyRule,
+  settingConsistencyRule,
+  plotConsistencyRule,
+]
 
 /**
  * 收集任务适用的全部规则（内置静态 + 书级动态）。
@@ -18,8 +32,8 @@ export { loadAiFlavorRule } from './book-rules.js'
  */
 export function applicableRules(task: string, bookRoot?: string): WritingRule[] {
   const all = bookRoot
-    ? [aiClicheRule, loadAiFlavorRule(bookRoot)]
-    : [aiClicheRule]
+    ? [...STATIC_RULES, loadAiFlavorRule(bookRoot)]
+    : [...STATIC_RULES]
   return all.filter((r) => r.tasks.includes(task))
 }
 
@@ -39,8 +53,9 @@ export function rulesToPrompt(task: string, bookRoot?: string): string {
 /**
  * 跑全部适用规则 check() → 汇总违规项。
  * 违规项 message 可直接作为重写 prompt 条目（B2 多维反馈回流）。
+ * chapter 仅供情节一致等按章定位的规则（A3），不传则跳过此类规则。
  */
-export function collectRuleViolations(body: string, task: string, bookRoot: string): RuleViolation[] {
-  const ctx: RuleContext = { bookRoot }
+export function collectRuleViolations(body: string, task: string, bookRoot: string, chapter?: number): RuleViolation[] {
+  const ctx: RuleContext = { bookRoot, chapter }
   return applicableRules(task, bookRoot).flatMap((r) => r.check(body, ctx))
 }
