@@ -28,7 +28,7 @@ export interface GenResult {
   /** 纯文本产出（tool_use 模式下可能为空） */
   text: string
   /** tool_use 调用（结构化产出） */
-  toolCalls: { name: string; input: unknown }[]
+  toolCalls: { id: string; name: string; input: unknown }[]
   usage: TokenUsage
   stopReason: string
 }
@@ -86,7 +86,7 @@ export async function generate(
   onText?: (delta: string) => void,
 ): Promise<GenResult> {
   let text = ''
-  const toolCalls: { name: string; input: unknown }[] = []
+  const toolCalls: { id: string; name: string; input: unknown }[] = []
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
 
@@ -97,7 +97,7 @@ export async function generate(
         onText?.(ev.delta)
         break
       case 'tool':
-        toolCalls.push({ name: ev.name, input: ev.input })
+        toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
         break
       case 'done':
         usage = ev.usage

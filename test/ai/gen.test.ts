@@ -48,13 +48,13 @@ describe('generate', () => {
   it('tool 事件收集到 toolCalls（规则：先 tool 后 done）', async () => {
     const r = await generate(
       provider([
-        { type: 'tool', name: 'submit_text', input: { 正文: 'x' } },
+        { type: 'tool', id: 't1', name: 'submit_text', input: { 正文: 'x' } },
         { type: 'done', usage: USAGE, stopReason: 'tool_use' },
       ]),
       { systemPrompt: '', messages: [] },
       signal(),
     )
-    expect(r.toolCalls).toEqual([{ name: 'submit_text', input: { 正文: 'x' } }])
+    expect(r.toolCalls).toEqual([{ id: 't1', name: 'submit_text', input: { 正文: 'x' } }])
   })
 
   it('error 事件 → 抛 GenError，retryable 透传', async () => {
@@ -105,7 +105,7 @@ describe('generateText / generateTool 简化路径', () => {
 
   it('generateTool 取第一个 tool 的 input；无 tool 时 input=null 回退 text', async () => {
     const a = await generateTool(
-      provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),
+      provider([{ type: 'tool', id: 't2', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),
       { systemPrompt: '', messages: [] },
       signal(),
     )
@@ -204,7 +204,7 @@ describe('B-2 首字节超时', () => {
 describe('B-3 stopReason 传递', () => {
   it('generateTool 返回值含 stopReason（max_tokens 截断可检测）', async () => {
     const r = await generateTool(
-      provider([{ type: 'tool', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'max_tokens' }]),
+      provider([{ type: 'tool', id: 't3', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'max_tokens' }]),
       { systemPrompt: '', messages: [] },
       signal(),
     )

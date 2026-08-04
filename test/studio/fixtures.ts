@@ -138,7 +138,7 @@ export function withFakeProvider(
     currentId: 'fake-prov',
     currentModel: 'fake-model',
     modelCaps: modelCaps ? { 'fake-prov/fake-model': modelCaps } : {},
-    tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null },
+    tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
     vault: null,
     dek: null,
   }

@@ -16,6 +16,8 @@ import type {
   ModelCaps,
   TokenUsage,
   ToolDef,
+  ChatMsg,
+  ContentBlock as ClwContentBlock,
 } from './types.js'
 import { redactSecret } from './redact.js'
 
@@ -32,13 +34,26 @@ function createClient(conf: ProviderConf): Anthropic {
 /** Anthropic API 强制要求 max_tokens（不可省略）——未指定时兜底（对齐当前旗舰模型上限） */
 const MAX_TOKENS = 128000
 
+/** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射） */
+function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
+  if (typeof m.content === 'string') return { role: m.role, content: m.content }
+  // block 数组 → Anthropic content block
+  const blocks: Anthropic.ContentBlockParam[] = m.content.map((b: ClwContentBlock) => {
+    if (b.type === 'text') return { type: 'text', text: b.text }
+    if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }
+    // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
+    return { type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }
+  })
+  return { role: m.role, content: blocks }
+}
+
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
     max_tokens: req.maxTokens ?? MAX_TOKENS,
     system: req.systemPrompt,
-    messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+    messages: req.messages.map(toAnthropicMessage),
     stream: true,
   }
   // tools
@@ -51,7 +66,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   } else if (req.toolChoice === 'tool' && req.toolName) {
     params['tool_choice'] = { type: 'tool', name: req.toolName, disable_parallel_tool_use: true }
   } else if (req.toolChoice === 'auto') {
-    params['tool_choice'] = { type: 'auto' }
+    params['tool_choice'] = { type: 'auto', disable_parallel_tool_use: true }
   }
   // effort → output_config.effort
   if (req.effort) {
@@ -95,7 +110,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
-        const toolBlocks = new Map<number, { name: string; jsonBuf: string }>()
+        const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
 
         for await (const event of stream) {
           switch (event.type) {
@@ -107,7 +122,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             case 'content_block_start': {
               const block = event.content_block
               if (block.type === 'tool_use') {
-                toolBlocks.set(event.index, { name: block.name, jsonBuf: '' })
+                toolBlocks.set(event.index, { id: block.id ?? '', name: block.name, jsonBuf: '' })
               }
               break
             }
@@ -130,7 +145,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                 } catch {
                   input = { _raw: tb.jsonBuf }
                 }
-                yield { type: 'tool', name: tb.name, input }
+                yield { type: 'tool', id: tb.id, name: tb.name, input }
               }
               break
             }

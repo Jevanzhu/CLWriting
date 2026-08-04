@@ -34,7 +34,7 @@ export interface TraceEntry {
   /** 任务名（如 'self-heal' / 'analysis' / 'outline'） */
   task: string
   /** 任务档位 */
-  tierKind: 'creative' | 'assistant'
+  tierKind: 'creative' | 'assistant' | 'chat'
   /** 模型名 */
   model: string
   /** 第几次尝试（0 = 首次，1+ = 重试） */

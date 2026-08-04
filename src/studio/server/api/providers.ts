@@ -149,7 +149,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
 
     const s = loadProviders(ctx.userDataPath)
-    s.tiers = { creative: creative.slot, assistant }
+    s.tiers = { creative: creative.slot, assistant, chat: s.tiers.chat }
     // 同步 currentModel（兼容 resolveTier 回落逻辑）
     s.currentModel = creative.slot.model || null
     saveProviders(ctx.userDataPath, s)
@@ -171,6 +171,38 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       }
     }
     reply(res, 200, { ok: true, tiers: s.tiers, details: probeDetails })
+  })
+
+  // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
+  // caps 探测改异步不阻塞（结果经后续 GET /providers 刷新）
+  route('PUT', '/api/tiers/chat', async (req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    const body = await readJson(req)
+
+    // null = 清除 chat 档（回落 creative）
+    if (body === null || body === undefined) {
+      const s = loadProviders(ctx.userDataPath)
+      s.tiers = { ...s.tiers, chat: null }
+      saveProviders(ctx.userDataPath, s)
+      return reply(res, 200, { ok: true, tiers: s.tiers })
+    }
+
+    const parsed = parseTierSlot(body as Record<string, unknown>)
+    if (!parsed.ok) return reply(res, 400, { error: parsed.error })
+
+    const s = loadProviders(ctx.userDataPath)
+    s.tiers = { ...s.tiers, chat: parsed.slot }
+    saveProviders(ctx.userDataPath, s)
+
+    // 异步探测 caps（不阻塞响应）
+    const conf = s.providers.find((p) => p.id === s.currentId)
+    if (conf && !getModelCaps(ctx.userDataPath, conf.id, parsed.slot.model)) {
+      probeModelCaps({ ...conf, model: parsed.slot.model })
+        .then((probed) => setModelCaps(ctx.userDataPath!, conf.id, parsed.slot.model, probed.caps))
+        .catch(() => { /* 探测失败不阻塞，后续 GET /providers 刷新 */ })
+    }
+
+    reply(res, 200, { ok: true, tiers: s.tiers })
   })
 
   // 编辑

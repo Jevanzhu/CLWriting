@@ -15,6 +15,7 @@ export type {
   EffortLevel,
   GenRequest,
   ChatMsg,
+  ContentBlock,
   ToolDef,
   GenEvent,
   TokenUsage,

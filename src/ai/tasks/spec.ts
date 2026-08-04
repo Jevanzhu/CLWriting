@@ -26,7 +26,7 @@ export interface TaskSpec {
   /** 任务名（trace/记账用，如 'self-heal'） */
   name: string
   /** 任务档位 */
-  tierKind: 'creative' | 'assistant'
+  tierKind: 'creative' | 'assistant' | 'chat'
   /** 生成模式：'text' → generate（纯文本），'tool' → generateTool（结构化产出） */
   genMode: GenMode
   /** system prompt（A2 后由规则拼接补充） */

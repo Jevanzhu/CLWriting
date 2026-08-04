@@ -30,6 +30,7 @@ export interface TierSlot {
 export interface TierConfig {
   creative: TierSlot
   assistant: TierSlot | null
+  chat: TierSlot | null
 }
 
 export interface ProviderConfDto {

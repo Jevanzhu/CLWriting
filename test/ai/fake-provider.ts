@@ -20,7 +20,7 @@ interface FakeUsage {
 /** 脚本条目 —— 每条对应一次请求的响应 */
 export type FakeResponse =
   | { type: 'text'; content: string; usage?: FakeUsage }
-  | { type: 'tool'; name: string; input: unknown; usage?: FakeUsage }
+  | { type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage }
   | { type: 'error'; status: number; message: string }
   | { type: 'max_tokens'; partial: string; usage?: FakeUsage }
 
@@ -125,7 +125,7 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
             delta: {
               tool_calls: [{
                 index: 0,
-                id: 'call_fake',
+                id: resp.id ?? `call_${callIdx - 1}`,
                 type: 'function',
                 function: { name: resp.name, arguments: JSON.stringify(resp.input) },
               }],

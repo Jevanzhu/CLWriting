@@ -72,6 +72,8 @@ export interface TierConfig {
   creative: TierSlot
   /** 助手档（三审 / 分析 / 检查）；null = 未配，回落 creative */
   assistant: TierSlot | null
+  /** 对话档（对话助手）；null = 未配，回落 creative */
+  chat: TierSlot | null
 }
 
 /**
@@ -95,8 +97,21 @@ export interface GenRequest {
 
 export interface ChatMsg {
   role: 'user' | 'assistant'
-  content: string
+  /**
+   * 纯文本（现有 7 个端点全走这条，零改动）或 content block 数组（含 tool_use/tool_result 往返）。
+   * 适配器入口用 `typeof content === 'string'` 快路，向后兼容。
+   */
+  content: string | ContentBlock[]
 }
+
+/**
+ * Content block——中立表示（Anthropic 风格，表达力更强；OpenAI 侧由适配器展开还原）。
+ * 对话助手 agent 循环的 tool_use/tool_result 往返用。
+ */
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
 
 export interface ToolDef {
   name: string
@@ -107,7 +122,7 @@ export interface ToolDef {
 /** 统一事件流——每次调用返回独立 async iterable */
 export type GenEvent =
   | { type: 'text'; delta: string }
-  | { type: 'tool'; name: string; input: unknown }
+  | { type: 'tool'; id: string; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage; stopReason: string }
   | { type: 'error'; message: string; retryable: boolean }
 

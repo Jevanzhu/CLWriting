@@ -18,6 +18,8 @@ import type {
   ModelCaps,
   TokenUsage,
   ToolDef,
+  ChatMsg,
+  ContentBlock,
 } from './types.js'
 import { redactSecret } from './redact.js'
 
@@ -34,6 +36,54 @@ function isOSeries(model: string): boolean {
   return /^o\d/.test(model)
 }
 
+/**
+ * ChatMsg → OpenAI 线格式 message 列表（纯文本直传；block 数组展开）。
+ *
+ * OpenAI 与 Anthropic 的 tool 往返形状根本不同：
+ * - assistant 的 tool_use → tool_calls 数组（arguments 须 JSON.stringify）
+ * - user 的 tool_result → **独立** role:'tool' 消息（每个 tool_call 一条）
+ * - 同一条 user 含 N 个 tool_result → 展开 N 条 role:'tool'
+ */
+function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
+  if (typeof m.content === 'string') return [{ role: m.role, content: m.content }]
+
+  // block 数组：分离 text/tool_use(tool_calls) 和 tool_result
+  const textParts: string[] = []
+  const toolCalls: Record<string, unknown>[] = []
+  const toolResults: Record<string, unknown>[] = []
+
+  for (const b of m.content as ContentBlock[]) {
+    if (b.type === 'text') {
+      textParts.push(b.text)
+    } else if (b.type === 'tool_use') {
+      toolCalls.push({
+        id: b.id,
+        type: 'function',
+        function: { name: b.name, arguments: JSON.stringify(b.input) },
+      })
+    } else if (b.type === 'tool_result') {
+      toolResults.push({
+        role: 'tool',
+        tool_call_id: b.toolUseId,
+        content: b.content,
+      })
+    }
+  }
+
+  const out: Record<string, unknown>[] = []
+  // assistant 消息：text + tool_calls
+  if (m.role === 'assistant') {
+    const msg: Record<string, unknown> = { role: 'assistant', content: textParts.join('') || null }
+    if (toolCalls.length > 0) msg['tool_calls'] = toolCalls
+    out.push(msg)
+  } else {
+    // user 消息：纯 text 部分作为 user content；tool_result 展开为独立 role:'tool' 消息
+    if (textParts.length > 0) out.push({ role: 'user', content: textParts.join('') })
+    out.push(...toolResults)
+  }
+  return out
+}
+
 /** GenRequest → OpenAI ChatCompletionCreateParamsStreaming */
 function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
   const messages: Record<string, unknown>[] = []
@@ -42,7 +92,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     messages.push({ role: 'system', content: req.systemPrompt })
   }
   for (const m of req.messages) {
-    messages.push({ role: m.role, content: m.content })
+    messages.push(...toOpenAIMessages(m))
   }
 
   const params: Record<string, unknown> = {
@@ -161,7 +211,7 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelC
                 } catch {
                   input = { _raw: acc.argsBuf }
                 }
-                yield { type: 'tool', name: acc.name, input }
+                yield { type: 'tool', id: acc.id, name: acc.name, input }
               }
             }
             toolAccum.clear()

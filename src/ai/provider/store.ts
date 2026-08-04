@@ -50,6 +50,7 @@ function defaultTiers(model: string | null): TierConfig {
   return {
     creative: { model: model ?? '', effort: 'xhigh' },
     assistant: null,
+    chat: null,
   }
 }
 
@@ -205,16 +206,19 @@ export function setModelCaps(userDataPath: string, providerId: string, model: st
 }
 
 /** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */
-export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant'): TierSlot {
+export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant' | 'chat'): TierSlot {
   const fallback = s.currentModel ?? ''
   if (kind === 'assistant' && s.tiers.assistant) {
     return s.tiers.assistant.model ? s.tiers.assistant : { ...s.tiers.assistant, model: fallback }
   }
+  if (kind === 'chat' && s.tiers.chat) {
+    return s.tiers.chat.model ? s.tiers.chat : { ...s.tiers.chat, model: fallback }
+  }
   return s.tiers.creative.model ? s.tiers.creative : { ...s.tiers.creative, model: fallback }
 }
 
-/** 取档位配置（assistant 未配 / model 为空 → 回落 creative + currentModel） */
-export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant'): TierSlot {
+/** 取档位配置（assistant/chat 未配 / model 为空 → 回落 creative + currentModel） */
+export function resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant' | 'chat'): TierSlot {
   if (!userDataPath) return { model: '', effort: 'xhigh' }
   return tierFromStore(loadProviders(userDataPath), kind)
 }

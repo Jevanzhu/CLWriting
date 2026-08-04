@@ -88,7 +88,7 @@ function extractStopReason(data: unknown): string {
  */
 export function resolveProvider(
   userDataPath: string | null,
-  tierKind: 'creative' | 'assistant' = 'creative',
+  tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
 ): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier / caps 全从同一 store 派生
@@ -121,7 +121,7 @@ export async function runTask<T>(opts: {
   mockTool?: string
   mockText?: T
   /** 任务档位（决定取用哪个模型）；缺省 creative */
-  tierKind?: 'creative' | 'assistant'
+  tierKind?: 'creative' | 'assistant' | 'chat'
   /** 外部传入的 ctrl（如 self-heal 的编排级 AbortController）；缺省新建 */
   ctrl?: AbortController
   register?: (ctrl: AbortController) => void
