@@ -16,6 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
+import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
@@ -170,8 +171,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const bookName = params['name']!
-    // 先停自愈编排循环:只 kill 子进程的话编排器会接着起下一轮重写
+    // 先停自愈编排 + 对话编排
     abortSelfHeal(bookName)
+    abortChat(bookName)
     const session = await ensureSession(bookName, ctx.workDir)
     const driver = getDriver('cc')
     if (driver.interrupt) driver.interrupt(session)
@@ -210,5 +212,49 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     })
 
     reply(res, 200, { ok: true, chapter })
+  })
+
+  // 对话助手：fire-and-forget + SSE 回流（与 /spawn 同模式）
+  route('POST', '/api/books/:name/chat', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const bookName = params['name']!
+    if (isChatRunning(bookName)) {
+      return reply(res, 409, { error: '本书正在对话中，请等当前对话结束' })
+    }
+
+    const body = await readJson(req)
+    const message = String(body['message'] ?? '').trim()
+    if (!message) return reply(res, 400, { error: 'message 必填' })
+    const chapter = body['chapter'] !== undefined ? Number(body['chapter']) : undefined
+
+    const mainSession = await ensureSession(bookName, ctx.workDir)
+    const driver = getDriver('cc')
+    void runChat({
+      driver,
+      mainSession,
+      userDataPath: ctx.userDataPath!,
+      bookRoot: join(ctx.workDir, entry.path),
+      bookName,
+      message,
+      ...(chapter !== undefined ? { chapter } : {}),
+    })
+
+    reply(res, 200, { ok: true })
+  })
+
+  // 工具确认：作者点了确认/取消
+  route('POST', '/api/books/:name/chat/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const bookName = params['name']!
+    const body = await readJson(req)
+    const callId = String(body['callId'] ?? '')
+    const ok = Boolean(body['ok'])
+    if (!callId) return reply(res, 400, { error: 'callId 必填' })
+
+    const found = resolveChatConfirm(bookName, callId, ok)
+    if (!found) return reply(res, 404, { error: '未找到待确认的工具调用（已超时或已取消）' })
+    reply(res, 200, { ok: true })
   })
 }

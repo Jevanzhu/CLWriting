@@ -45,6 +45,16 @@ export type DriverEvent =
       error?: string
     }
   | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
+  // 对话助手(chat.ts 经 emit 推主 session)
+  | { type: 'chat_start' }
+  | { type: 'chat_turn'; turn: number }
+  | { type: 'chat_text'; text: string }
+  | { type: 'chat_tool_pending'; callId: string; name: string; input: unknown }
+  | { type: 'chat_tool'; callId: string; name: string; input: unknown }
+  | { type: 'chat_tool_result'; callId: string; summary: string; ok: boolean }
+  | { type: 'chat_reset' }
+  | { type: 'chat_done'; inputTokens?: number; outputTokens?: number }
+  | { type: 'chat_error'; error: string }
 
 /** driver 接口(SSE 基础设施,窄化) */
 export interface StudioDriver {

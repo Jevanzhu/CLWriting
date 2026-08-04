@@ -104,3 +104,19 @@ export function selfHealSpec(kind: 'long' | 'short'): TaskSpec {
     mock: { kind: 'tool', toolName: chapterToolName(kind) },
   }
 }
+
+// ─── 对话（不走 runSpec，编排器持元数据直调 runTask） ──────────────────
+
+/**
+ * 对话助手声明——第 8 条 TaskSpec。
+ *
+ * **执行不走 runSpec**：agent 循环要传累积的 messages 数组（含 tool_use/tool_result block），
+ * 超出 SpecOpts 单发 userPrompt 模型。编排器持此 spec 的 name/tierKind 元数据直调 runTask。
+ * systemPrompt 由编排器在运行时用 chatSystem(ctx) 动态构建，此处留空。
+ */
+export const CHAT_SPEC: TaskSpec = {
+  name: 'chat',
+  tierKind: 'chat',
+  genMode: 'text',
+  systemPrompt: '',
+}
