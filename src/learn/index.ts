@@ -14,12 +14,13 @@
  * - 入库格式复用 #5 writeSample（见 commit.ts）
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
-import { parseIronRules, checkStyleMetrics, checkRepeat } from '../check/count.js'
+import { checkStyleMetrics, checkRepeat } from '../check/count.js'
+import { readIronRules } from '../metrics/style.js'
 import type { IronRules } from '../check/count.js'
 
 /** 样章候选 */
@@ -88,27 +89,8 @@ function scoreByChecks(body: string, rules: IronRules): number {
 }
 
 /**
- * 场景预归类（#38 第 3.1 节，启发式）。
- * 预归是建议、非定论——归类权在作者（候选制）。
- */
-function classifyScene(text: string): string {
-  const dialogueDensity = (text.match(/["「『"]/g) || []).length
-  if (dialogueDensity > 4) return '对话'
-
-  const actionVerbs = ['挥', '砍', '刺', '闪', '跃', '冲', '击', '斩', '射', '抓']
-  if (actionVerbs.filter((v) => text.includes(v)).length > 3) return '战斗'
-
-  const emotionWords = ['泪', '笑', '哭', '痛', '爱', '恨', '思念', '感动', '悲伤', '喜悦']
-  if (emotionWords.filter((w) => text.includes(w)).length > 2) return '抒情'
-
-  const hookWords = ['忽然', '突然', '竟然', '居然', '可是', '但是', '震惊', '惊喜']
-  if (hookWords.filter((w) => text.includes(w)).length > 2) return '爽点高潮'
-
-  return '叙事铺陈'
-}
-
-/**
  * learn 收割主流程（产候选，不自动入库）。
+ * 场景不做启发式预归（词表伪精度已删，S8）——候选一律「通用」，标注权在作者。
  */
 export function learnFromBook(bookRoot: string): LearnResult {
   // 1. 扫描定稿正文
@@ -130,11 +112,8 @@ export function learnFromBook(bookRoot: string): LearnResult {
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   if (cfg.ok && cfg.config.book.title) bookTitle = cfg.config.book.title
 
-  let ironRules: IronRules = {}
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  if (existsSync(ironPath)) {
-    ironRules = parseIronRules(readFileSync(ironPath, 'utf-8'))
-  }
+  // 铁律阈值 + 条目库禁词（S5 收口：统一走 readIronRules）
+  const ironRules: IronRules = readIronRules(bookRoot)
 
   // 3. 读正文
   const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []
@@ -158,7 +137,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
       const score = scoreByChecks(trimmed, ironRules)
       if (score < 60) continue // 低分过滤（避免收割平庸段）
       sampleCandidates.push({
-        场景: classifyScene(trimmed),
+        场景: '通用',
         正文: trimmed,
         出处: `《${bookTitle}》第 ${ch.章号} 章`,
         章号: ch.章号,
@@ -167,17 +146,9 @@ export function learnFromBook(bookRoot: string): LearnResult {
     }
   }
 
-  // 按打分降序，每场景取 top 5
+  // 按打分降序取 top 10（场景不再分桶配额）
   sampleCandidates.sort((a, b) => b.打分 - a.打分)
-  const topSamples: SampleCandidate[] = []
-  const sceneCount = new Map<string, number>()
-  for (const c of sampleCandidates) {
-    const cnt = sceneCount.get(c.场景) ?? 0
-    if (cnt < 5) {
-      topSamples.push(c)
-      sceneCount.set(c.场景, cnt + 1)
-    }
-  }
+  const topSamples: SampleCandidate[] = sampleCandidates.slice(0, 10)
 
   // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
   const quoteCandidates: QuoteCandidate[] = []
@@ -191,7 +162,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
       const hasContrast = /[却而]/.test(s)
       if (hasHook && hasEmotion || (hasContrast && hasEmotion)) {
         quoteCandidates.push({
-          场景: classifyScene(s),
+          场景: '通用',
           正文: s,
           出处: `《${bookTitle}》第 ${ch.章号} 章`,
           章号: ch.章号,
@@ -199,16 +170,8 @@ export function learnFromBook(bookRoot: string): LearnResult {
       }
     }
   }
-  // 每场景取 top 3
-  const topQuotes: QuoteCandidate[] = []
-  const qSceneCount = new Map<string, number>()
-  for (const q of quoteCandidates) {
-    const cnt = qSceneCount.get(q.场景) ?? 0
-    if (cnt < 3) {
-      topQuotes.push(q)
-      qSceneCount.set(q.场景, cnt + 1)
-    }
-  }
+  // 取 top 5（场景不再分桶配额）
+  const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, 5)
 
   // 6. 落候选到 工作区/learn候选/
   const candidateRoot = join(bookRoot, CANDIDATE_DIR)

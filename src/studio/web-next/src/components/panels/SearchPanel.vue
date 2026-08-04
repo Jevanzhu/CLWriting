@@ -4,6 +4,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { search, type SearchHit } from '../../api/search'
+import { friendlyError } from '../../shared/error'
 
 // 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
@@ -41,7 +42,7 @@ async function run(): Promise<void> {
     results.value = r.results
     truncated.value = !!r.truncated
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -75,7 +76,7 @@ async function open(path: string): Promise<void> {
     <div v-if="loading" class="hint">搜索中…</div>
     <div v-else-if="err" class="hint err">{{ err }}</div>
     <template v-else>
-      <div v-if="truncated" class="hint">结果已截断，请缩小范围</div>
+      <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
       <div class="results">
         <div v-for="hit in results" :key="hit.path" class="result" @click="open(hit.path)">

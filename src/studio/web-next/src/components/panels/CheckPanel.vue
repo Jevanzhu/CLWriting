@@ -7,7 +7,7 @@ import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
 const check = useCheckStore()
@@ -18,7 +18,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isCheckable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (isBodyKind(node.value.path)) return true
   // 草稿（工作区/草稿-N.md）也可机检
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
@@ -36,7 +36,7 @@ async function runCheck(): Promise<void> {
     <div class="check-head">
       <div class="check-title-row">
         <ShieldCheck :size="14" />
-        <span class="check-title">本地机检</span>
+        <span class="check-title">本地校对</span>
       </div>
       <button
         class="check-run-btn"
@@ -44,12 +44,12 @@ async function runCheck(): Promise<void> {
         @click="runCheck"
       >
         <RefreshCw :size="13" :class="{ spin: check.loading }" />
-        <span>{{ check.loading ? '检查中…' : '机检' }}</span>
+        <span>{{ check.loading ? '检查中…' : '校对' }}</span>
       </button>
     </div>
 
     <div v-if="!isCheckable" class="check-hint">
-      机检仅适用于正文 / 草稿文档。
+      校对仅适用于正文 / 草稿文档。
     </div>
 
     <div v-else-if="check.error" class="check-error">
@@ -77,7 +77,6 @@ async function runCheck(): Promise<void> {
           class="check-item check-item--red"
         >
           <div class="item-msg">{{ it.message }}</div>
-          <div class="item-id">{{ it.checkId }}</div>
         </div>
       </div>
 
@@ -92,13 +91,12 @@ async function runCheck(): Promise<void> {
           class="check-item check-item--yellow"
         >
           <div class="item-msg">{{ it.message }}</div>
-          <div class="item-id">{{ it.checkId }}</div>
         </div>
       </div>
     </template>
 
     <div v-else class="check-hint">
-      点击「机检」检查当前文档（禁词 / 复读 / 句式 / 字数 / 账本…）。
+      点击「校对」检查当前文档（禁词 / 复读 / 句式 / 字数 / 设定连贯…）。
     </div>
   </section>
 </template>
@@ -205,10 +203,5 @@ async function runCheck(): Promise<void> {
 }
 .item-msg {
   color: var(--text-normal);
-}
-.item-id {
-  margin-top: 2px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
 }
 </style>

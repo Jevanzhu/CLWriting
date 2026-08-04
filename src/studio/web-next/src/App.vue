@@ -2,9 +2,11 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
+import { useAppActions } from './composables/useAppActions'
 
 // 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
 const router = useRouter()
+const { dispatch: dispatchAction } = useAppActions()
 onMounted(() => {
   // 书架独立窗口（win=shelf）：不 redirect，保持书架页
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
@@ -12,6 +14,8 @@ onMounted(() => {
   window.clwritingDesktop?.onNavigate((path) => {
     router.push(path)
   })
+  // 系统菜单 click → 主进程转发 actionKey → dispatch 到 store 动作（与命令面板同源）
+  window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
   if (isShelfWin) return
   // 主窗口启动：initialBook（--book）> lastBook（localStorage）> 默认 /shelf
   let startBook: string | null = getLastInitialBook()

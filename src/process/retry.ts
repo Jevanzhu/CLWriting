@@ -5,7 +5,8 @@
  * 重试到上限 → 升级 ask 作者（人话，不给堆栈）。
  * 黄项不打回——随草稿进三审。
  *
- * M2 的写稿用桩（手工伪造草稿）；真 AI 写稿在 M4。
+ * M2 写好状态机，由 `src/ai/orchestrate/self-heal.ts` 接线进 /auto-write 全自动写章闭环。
+ * （编排器从 api 层迁入 ai/orchestrate 层：解耦 HTTP 语境，api/ 只留端点接线。）
  * 本模块实现「打回判定 + 重试计数 + 超限升级」的控制逻辑。
  */
 
@@ -16,15 +17,15 @@ import { formatRedForRewrite } from '../check/report.js'
 /** 自愈打回状态 */
 export type RetryState =
   | { state: 'pass' } // 无红项，放行进三审
-  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string } // 退回重写
-  | { state: 'escalate'; attempt: number; redFeedback: string } // 超限升级 ask 作者
+  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string } // 退回重写(attempt=即将进行的第几次重写)
+  | { state: 'escalate'; attempt: number; redFeedback: string } // 超限升级 ask 作者(attempt=已重写次数)
 
 /**
  * 自愈打回控制。
  *
  * @param report 机检报告
- * @param attempt 当前重试次数（从 1 起）
- * @param maxAttempts 最大重试次数（book.yaml 可配，默认 3）
+ * @param attempt 已完成的重写次数(首检传 0)
+ * @param maxAttempts 最大重写次数(默认 3)
  */
 export function evaluateRetry(
   report: CheckReport,
@@ -39,7 +40,7 @@ export function evaluateRetry(
   const redFeedback = formatRedForRewrite(report)
   const reds = getRedItems(report)
 
-  // 超过上限 → 升级 ask 作者
+  // 已重写满 maxAttempts 次仍红 → 升级 ask 作者
   if (attempt >= maxAttempts) {
     return {
       state: 'escalate',
@@ -48,10 +49,10 @@ export function evaluateRetry(
     }
   }
 
-  // 退回重写
+  // 退回重写:attempt+1 = 即将进行的第几次重写(供 UI 显示「第 N/M 次」)
   return {
     state: 'retry',
-    attempt,
+    attempt: attempt + 1,
     maxAttempts,
     redFeedback,
   }

@@ -7,9 +7,10 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf, parseFmFields } from '../../shared/words'
+import { formKindOf, parseFmFields, isBodyKind } from '../../shared/words'
 import { getAnalysisOverview, autotag, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -22,7 +23,7 @@ const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (formKindOf(node.value.path) === 'chapter') return true
+  if (isBodyKind(node.value.path)) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
 })
 
@@ -37,7 +38,7 @@ async function analyzeTags(): Promise<void> {
     await doc.refresh(docId.value)
     ui.toast('标签分析完成', 'success')
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     tagging.value = false
   }
@@ -95,8 +96,8 @@ const hooksCoverage = computed(() => {
   return `${t.length}/${total}`
 })
 
-function gotoRhythm(): void {
-  ws.setActiveView('rhythm')
+function gotoOverview(): void {
+  ws.setActiveView('overview')
 }
 </script>
 
@@ -125,7 +126,7 @@ function gotoRhythm(): void {
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><span>全书速览</span></div>
-        <button class="ap-ov-link" @click="gotoRhythm">详情 →</button>
+        <button class="ap-ov-link" @click="gotoOverview">详情 →</button>
       </div>
       <div class="ap-ov-row">
         <span class="ap-ov-label">体验分</span>
@@ -240,7 +241,7 @@ function gotoRhythm(): void {
   transition: color var(--dur-fast) var(--ease-out);
 }
 .ap-ov-link:hover {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
 }
 .ap-ov-row {
   display: flex;

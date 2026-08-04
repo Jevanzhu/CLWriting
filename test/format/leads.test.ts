@@ -57,13 +57,13 @@ function makeTmpBook(): string {
   return mkdtempSync(join(tmpdir(), '北境往事-'))
 }
 
-test('readLead + writeLead: 伏笔往返不丢字段', () => {
+test('readLead + writeLead: 悬念往返不丢字段', () => {
   const dir = makeTmpBook()
-  const fp = join(dir, '伏笔-031-灭门真凶.md')
+  const fp = join(dir, '悬念-031-灭门真凶.md')
   const lead: Lead = {
-    编号: '伏笔-031',
+    编号: '悬念-031',
     标题: '灭门真凶',
-    类型: '伏笔',
+    类型: '悬念',
     状态: '已收尾',
     开启章: 12,
     履历: [
@@ -75,7 +75,7 @@ test('readLead + writeLead: 伏笔往返不丢字段', () => {
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (r.ok) {
-    expect(r.lead.编号).toBe('伏笔-031')
+    expect(r.lead.编号).toBe('悬念-031')
     expect(r.lead.状态).toBe('已收尾')
     expect(r.lead.开启章).toBe(12)
     expect(r.lead.履历).toHaveLength(2)
@@ -86,13 +86,13 @@ test('readLead + writeLead: 伏笔往返不丢字段', () => {
 
 test('readLead: 未知字段容错保留', () => {
   const dir = makeTmpBook()
-  const fp = join(dir, '伏笔-031.md')
+  const fp = join(dir, '悬念-031.md')
   // 手工写一个含未知字段的文件
   writeFileSync(fp, [
     '---',
-    '编号: 伏笔-031',
+    '编号: 悬念-031',
     '标题: 灭门真凶',
-    '类型: 伏笔',
+    '类型: 悬念',
     '状态: 进行中',
     '开启章: 12',
     '自定义备注: 作者手写的备注',
@@ -181,19 +181,19 @@ test('readLead: 坏文件返回错误不崩', () => {
 
 test('readLeadDir: 扫描目录、容错跳过坏文件', () => {
   const dir = makeTmpBook()
-  const 伏笔dir = join(dir, '伏笔')
-  mkdirSync(伏笔dir)
+  const 悬念dir = join(dir, '悬念')
+  mkdirSync(悬念dir)
 
   // 写两个好的、一个坏的
-  writeLead(join(伏笔dir, '伏笔-001-a.md'), {
-    编号: '伏笔-001', 标题: 'a', 类型: '伏笔', 状态: '进行中', 开启章: 1, 履历: [],
+  writeLead(join(悬念dir, '悬念-001-a.md'), {
+    编号: '悬念-001', 标题: 'a', 类型: '悬念', 状态: '进行中', 开启章: 1, 履历: [],
   })
-  writeLead(join(伏笔dir, '伏笔-002-b.md'), {
-    编号: '伏笔-002', 标题: 'b', 类型: '伏笔', 状态: '进行中', 开启章: 5, 履历: [],
+  writeLead(join(悬念dir, '悬念-002-b.md'), {
+    编号: '悬念-002', 标题: 'b', 类型: '悬念', 状态: '进行中', 开启章: 5, 履历: [],
   })
-  writeFileSync(join(伏笔dir, '伏笔-099-坏.md'), '坏的', 'utf-8')
+  writeFileSync(join(悬念dir, '悬念-099-坏.md'), '坏的', 'utf-8')
 
-  const { leads, errors } = readLeadDir(伏笔dir)
+  const { leads, errors } = readLeadDir(悬念dir)
   expect(leads).toHaveLength(2)
   expect(errors).toHaveLength(1)
   rmSync(dir, { recursive: true, force: true })
@@ -230,7 +230,7 @@ test('readLeadDir: 目录不存在返回空（未启用类）', () => {
 // ── 文件名解析 ─────────────────────────────────
 
 test('parseLeadFileName', () => {
-  expect(parseLeadFileName('伏笔-031-灭门真凶.md')).toEqual({ 编号: '伏笔-031', 标题: '灭门真凶' })
+  expect(parseLeadFileName('悬念-031-灭门真凶.md')).toEqual({ 编号: '悬念-031', 标题: '灭门真凶' })
   expect(parseLeadFileName('成长线-003-林晚修为.md')).toEqual({ 编号: '成长线-003', 标题: '林晚修为' })
   expect(parseLeadFileName('乱七八糟.md')).toBeNull()
 })

@@ -3,7 +3,9 @@
  * workspace store 测试：单文档打开/切换（旧文档 dirty 自动保存）
  * + localStorage 持久化恢复 + validate 失效清空 + 新建信号。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+// flush：让 setBook 的异步 loadBookPrefs + debounce 500ms persist 落定
+const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
 
 // doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)
@@ -13,6 +15,22 @@ const { docGet, docSave } = vi.hoisted(() => ({
 }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: () => ({ get: docGet, save: docSave }),
+}))
+
+// prefs API mock：内存 Map 模拟书级 prefs 持久化（配置重构后 localStorage → API）
+const { bookPrefs } = vi.hoisted(() => ({
+  bookPrefs: new Map<string, Record<string, unknown>>(),
+}))
+vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
+  getBookPrefs: vi.fn(async (name: string) => ({ ...(bookPrefs.get(name) ?? {}) })),
+  putBookPrefs: vi.fn(async (name: string, data: Record<string, unknown>) => {
+    bookPrefs.set(name, { ...data })
+  }),
+  usePrefsStore: () => ({
+    bookPageWidth: null,
+    bookAutosaveInterval: null,
+    apply: () => {},
+  }),
 }))
 
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
@@ -41,10 +59,15 @@ const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 
 beforeEach(() => {
+  vi.useFakeTimers()
   localStorageMock.clear()
+  bookPrefs.clear()
   setActivePinia(createPinia())
   docGet.mockReturnValue(undefined)
   docSave.mockReset()
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('workspace · 单文档打开切换', () => {
@@ -96,27 +119,32 @@ describe('workspace · 单文档打开切换', () => {
 })
 
 describe('workspace · 持久化与恢复', () => {
-  it('openTab 后新实例 setBook 同书 → 恢复 activeDocId', () => {
+  it('openTab 后新实例 setBook 同书 → 恢复 activeDocId', async () => {
     const ws = useWorkspaceStore()
     ws.setBook(BOOK)
+    await flush()
     ws.openTab('d1')
+    await flush() // 等 debounce persist 写回 prefs
     // 模拟刷新：新 pinia 实例
     setActivePinia(createPinia())
     const ws2 = useWorkspaceStore()
     ws2.setBook(BOOK)
+    await flush()
     expect(ws2.activeDocId).toBe('d1')
   })
 
-  it('setBook 无记录 → 空', () => {
+  it('setBook 无记录 → 空', async () => {
     const ws = useWorkspaceStore()
     ws.setBook('其他书')
+    await flush()
     expect(ws.activeDocId).toBeNull()
   })
 
-  it('localStorage 损坏 → 降级空', () => {
+  it('localStorage 损坏 → 降级空', async () => {
     localStorage.setItem('clw2.workspace.bad', '{not json')
     const ws = useWorkspaceStore()
     ws.setBook('bad')
+    await flush()
     expect(ws.activeDocId).toBeNull()
   })
 })

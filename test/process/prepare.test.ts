@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter, syncSummary } from '../../src/cache/sync.js'
 import { prepare, estimateTokens } from '../../src/process/prepare.js'
+import { addEntry } from '../../src/format/style-entry.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -26,7 +27,7 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
     情绪定位: '铺垫', _wordCount: 3000, _path: 'p150',
   })
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '焦痕' }], _path: 'p',
   })
 
@@ -52,7 +53,7 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
 
 test('prepare: 刚需段全在（近况/账本/铁律）', () => {
   const { root, db } = makeBookWithMaterial()
-  const r = prepare(db, DEFAULT_CONFIG, root, ['伏笔-031'])
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   const titles = r.sections.filter((s) => s.essential).map((s) => s.title)
   expect(titles).toContain('近况')
   expect(titles).toContain('本章推进的账本')
@@ -63,7 +64,7 @@ test('prepare: 刚需段全在（近况/账本/铁律）', () => {
 
 test('prepare: 无裁剪时 trimmed=false', () => {
   const { root, db } = makeBookWithMaterial()
-  const r = prepare(db, DEFAULT_CONFIG, root, ['伏笔-031'])
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   expect(r.trimmed).toBe(false)
   expect(r.text).not.toContain('因预算裁剪')
   db.close()
@@ -74,7 +75,7 @@ test('prepare: 超预算按优先级裁剪（弹性#4→#3→#2→#1），刚需
   const { root, db } = makeBookWithMaterial()
   // 设极小预算（100 token），逼裁剪
   const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 100 } }
-  const r = prepare(db, cfg, root, ['伏笔-031'])
+  const r = prepare(db, cfg, root, ['悬念-031'])
 
   expect(r.trimmed).toBe(true)
   expect(r.text).toContain('因预算裁剪')
@@ -201,6 +202,139 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
   const style = r.sections.find((s) => s.title === '文风样章')
   expect(style).toBeDefined() // 降档保留，未整段删
   expect(style!.content.length).toBeLessThan(1500) // 降档后仅 1 段（≈1000 字），非 heavy 全量 3 段
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('prepare S5: 条目库存在 → 文风便宜段必带 + 条目样章弹性段，铁律不注入', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 建条目库（迁移后形态）：禁词/手法/样章——条目库存在即走新路
+  addEntry(root, { 类型: '禁词', 场景: '通用', 来源: '导入', 正文: '强行和解' })
+  addEntry(root, { 类型: '手法', 场景: '通用', 来源: '收割', 正文: '对话不用提示语' })
+  addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 说明: '学它的停顿', 正文: '刀光没入雪雾。' })
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'], undefined, '战斗')
+  const style = r.sections.find((s) => s.title === '文风')
+  expect(style?.essential).toBe(true)
+  expect(style?.content).toContain('禁用：强行和解')
+  expect(style?.content).toContain('- 对话不用提示语')
+  // 铁律全文不再注入（纯配置不给 AI）
+  expect(r.sections.find((s) => s.title === '文风铁律')).toBeUndefined()
+  // 样章从条目库出，格式与旧样章注入一致（说明=技法指令行）
+  const sample = r.sections.find((s) => s.title === '文风样章')
+  expect(sample?.flexibleRank).toBe(2)
+  expect(sample?.content).toBe('技法指令：学它的停顿\n刀光没入雪雾。')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── C1 前章正文结尾（flexibleRank=1.5）──────────────
+
+/** 建前章（149章）定稿正文，返回正文末尾预期片段 */
+function makePrevChapterFinal(root: string, words = 3000): string {
+  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
+  const body = '前章正文段落。'.repeat(Math.ceil(words / 6))
+  writeFileSync(
+    join(root, '定稿', '正文', '第一卷', '149-前章.md'),
+    `---\n章号: 149\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n${body}`,
+    'utf-8',
+  )
+  return body
+}
+
+test('C1: 有前章定稿正文 → 「前章正文结尾」段出现，flexibleRank=1.5', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root)
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.essential).toBe(false)
+  expect(sec!.flexibleRank).toBe(1.5)
+  // 内容以【第149章正文结尾】开头
+  expect(sec!.content).toContain('【第149章正文结尾】')
+  // 全量版取末尾约 1500 字（段落边界截断后 ≤ 1500 + 前缀）
+  const bodyText = sec!.content.split('\n').slice(1).join('\n')
+  expect(bodyText.length).toBeLessThanOrEqual(1500)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
+  const { root, db } = makeBookWithMaterial()
+  // makeBookWithMaterial 的 currentChapter=150，prev=149；149 正文/草稿皆缺
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  expect(r.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
+  // 第 1 章场景：prevChapterNo=0，不进段
+  const root2 = mkdtempSync(join(tmpdir(), '第一章-'))
+  mkdirSync(join(root2, '.cache'), { recursive: true })
+  const db2 = new DatabaseSync(join(root2, '.cache', 'index.db'))
+  createAllTables(db2)
+  syncChapter(db2, {
+    章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 1000, _path: 'p1',
+  })
+  const r2 = prepare(db2, DEFAULT_CONFIG, root2, [])
+  expect(r2.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
+  db.close()
+  db2.close()
+  rmSync(root, { recursive: true, force: true })
+  rmSync(root2, { recursive: true, force: true })
+})
+
+test('C1: 草稿兜底——无定稿、有草稿 → 段出现', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 不建定稿；建 工作区/草稿-149.md
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  const draftBody = '草稿里的前章结尾正文。'.repeat(200)
+  writeFileSync(
+    join(root, '工作区', '草稿-149.md'),
+    `---\n章号: 149\n标题: 前章\n---\n${draftBody}`,
+    'utf-8',
+  )
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.flexibleRank).toBe(1.5)
+  // 草稿正文被取到
+  expect(sec!.content).toContain('草稿里的前章结尾正文')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: flexibleRank 1.5 排序——裁剪先于 rank1(近章结尾)、后于 rank2(文风样章)', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root)
+  // 极小预算 → 全弹性段降档 + 移除
+  const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 50 } }
+  const r = prepare(db, cfg, root, ['悬念-031'])
+  expect(r.trimmed).toBe(true)
+  // 移除阶段按 flexibleRank 降序：rank2 → rank1.5 → rank1（只看移除记录，降档记录因各段降档空间不同不可靠）
+  const removals = r.trimLog.filter((l) => l.includes('移除'))
+  const idx2 = removals.findIndex((l) => l.includes('文风样章'))
+  const idx15 = removals.findIndex((l) => l.includes('前章正文结尾'))
+  const idx1 = removals.findIndex((l) => l.includes('近章结尾'))
+  expect(idx2).toBeGreaterThanOrEqual(0)
+  expect(idx15).toBeGreaterThanOrEqual(0)
+  expect(idx1).toBeGreaterThanOrEqual(0)
+  expect(idx2).toBeLessThan(idx15) // rank2 先砍
+  expect(idx15).toBeLessThan(idx1) // rank1.5 先于 rank1 砍
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: 降档版 degradedContent = 末尾 500 字', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root, 3000)
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.degradedContent).toBeDefined()
+  // 降档版以【第149章正文结尾】开头
+  expect(sec!.degradedContent).toContain('【第149章正文结尾】')
+  // 降档正文 ≤ 500 字
+  const degBody = sec!.degradedContent!.split('\n').slice(1).join('\n')
+  expect(degBody.length).toBeLessThanOrEqual(500)
+  // 降档版比全量短
+  expect(sec!.degradedContent!.length).toBeLessThan(sec!.content.length)
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

@@ -13,8 +13,6 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readManifest } from '../../../document/manifest.js'
-import { isHandDraftLocked } from '../../../process/gui-active.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -43,6 +41,11 @@ export function __clearDocumentServices(): void {
   services.clear()
 }
 
+/** 删书时清理对应 bookRoot 的 service 缓存（防同 path 重建复用旧实例）。 */
+export function forgetService(bookRoot: string): void {
+  services.delete(bookRoot)
+}
+
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── W1：保存内容 ──────────────────────────────
   route(
@@ -53,17 +56,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
 
       const docId = params['docId'] ?? ''
-      const entry = readManifest(join(r.bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!entry) {
+      const svc = getOrCreateService(r.bookRoot)
+      // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
+      const path = svc.resolvePath(docId)
+      if (!path) {
         reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
         return
       }
-      // M12 B0.4：hand 占用该草稿时拒绝保存（避免 Studio autosave 覆盖外部手写）
-      if (isHandDraftLocked(r.bookRoot, entry.path)) {
-        reply(res, 409, { ok: false, code: 'HAND_LOCKED', error: '该章正在手写中（CLI hand 占用）' })
-        return
-      }
-
       const input = parseSaveInput(await readJson(req))
       if (!input) {
         reply(res, 400, {
@@ -74,8 +73,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
 
-      const svc = getOrCreateService(r.bookRoot)
-      const outcome = await svc.save(docId, entry.path, input)
+      const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
@@ -88,10 +86,12 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
   route(
     'GET',
     '/api/books/:name/tree',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+    async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
-      const index = getBookTreeIndex(r.bookRoot)
+      // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
+      const refresh = new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh') === '1'
+      const index = getBookTreeIndex(r.bookRoot, refresh)
       reply(res, 200, {
         ok: true,
         nodes: index.nodes,
@@ -176,15 +176,18 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         result = await svc.moveDocument({ docId, toDir: body.toDir })
       } else if (body.op === 'meta') {
         const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
-        const 章号 = Number(body.章号)
-        if (标题 === undefined && !Number.isFinite(章号)) {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
+        // 章号/篇号：接口兼容（长篇用 章号，短篇用 篇号；前端按文档类型传其一）
+        const numKey = typeof body.篇号 === 'number' || typeof body.篇号 === 'string' ? '篇号' : '章号'
+        const numVal = Number(numKey === '篇号' ? body.篇号 : body.章号)
+        if (标题 === undefined && !Number.isFinite(numVal)) {
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号/篇号' })
           return
         }
-        result = svc.updateChapterMeta(docId, {
-          ...(标题 !== undefined ? { 标题 } : {}),
-          ...(Number.isFinite(章号) ? { 章号 } : {}),
-        })
+        // 按 numKey 分流下传：长篇挂 章号、短篇挂 篇号（service 按文档角色读对应键）
+        const metaUpdate: Record<string, unknown> = {}
+        if (标题 !== undefined) metaUpdate['标题'] = 标题
+        if (Number.isFinite(numVal)) metaUpdate[numKey] = numVal
+        result = svc.updateChapterMeta(docId, metaUpdate)
       } else if (body.op === 'fm') {
         const meta = body.meta
         if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {

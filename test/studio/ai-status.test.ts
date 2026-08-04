@@ -1,6 +1,6 @@
 /**
  * G4-a + G6：AI 可达性探测端点 + editor 端点不受 AI 可达影响。
- * CLWRITING_DRIVER=mock → available:true；连续请求命中缓存。
+ * CLWRITING_DRIVER=mock → available:true；连续请求一致（P0-2 起无缓存，每次实时重算）。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -59,21 +59,19 @@ afterAll(async () => {
 })
 
 describe('G4-a：GET /api/ai-status（mock 模式）', () => {
-  it('mock 驱动 → available:true driver:mock', async () => {
+  it('mock 驱动 → available:true', async () => {
     const r = await get('/api/ai-status')
     expect(r.status).toBe(200)
-    const j = r.json as { available: boolean; driver: string }
+    const j = r.json as { available: boolean }
     expect(j.available).toBe(true)
-    expect(j.driver).toBe('mock')
   })
 
-  it('连续请求一致（缓存透明）', async () => {
+  it('连续请求一致（无缓存，结果稳定）', async () => {
     const r1 = await get('/api/ai-status')
     const r2 = await get('/api/ai-status')
-    const j1 = r1.json as { available: boolean; driver: string }
-    const j2 = r2.json as { available: boolean; driver: string }
+    const j1 = r1.json as { available: boolean }
+    const j2 = r2.json as { available: boolean }
     expect(j1.available).toBe(j2.available)
-    expect(j1.driver).toBe(j2.driver)
   })
 })
 

@@ -80,11 +80,11 @@ export function missingDraftReason(draftPath: string): string {
 /**
  * 定稿文件名规则（kind 分支）：
  * - long：定稿/正文/<章号>-<标题>.md（扁平）
- * - short：篇/<篇号3位>-<标题>/正文.md（子路径）
+ * - short：篇/<篇号3位>-<标题>.md（扁平，清单另放 清单/ 同名文件）
  */
 export function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
   if (isShort) {
-    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}/正文.md`
+    return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}.md`
   }
   return `${chapter.章号}-${chapter.标题}.md`
 }

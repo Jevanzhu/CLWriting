@@ -25,12 +25,12 @@ test('cc.emit: 往 session 事件流推自定义事件（review 逐角进度）'
   ccDriver.dispose(session)
 })
 
-test('cc.interrupt: 推 interrupted + session 保留可再 spawn', async () => {
+test('cc.interrupt: 推 interrupted + session 保留可用', async () => {
   const session = await ccDriver.startSession('/tmp')
   ccDriver.interrupt!(session)
   const ev = await firstEvent(ccDriver.stream(session) as AsyncGenerator<DriverEvent>)
   expect(ev.type).toBe('interrupted')
-  expect(session.closed).toBe(false) // session 未关，可再 spawnRole
+  expect(session.closed).toBe(false) // session 未关，可再 emit / 复用流
   ccDriver.dispose(session)
 })
 
@@ -47,13 +47,29 @@ test('cc.emit 多事件按序消费', async () => {
   ccDriver.dispose(session)
 })
 
-test('cc.resume: 仅恢复当前进程内仍活着的 session 并保留 cwd', async () => {
-  const session = await ccDriver.startSession('/tmp/clwriting-cc-resume')
-  const resumed = await ccDriver.resume(session.id)
-  expect(resumed).toBe(session)
-  expect(resumed.cwd).toBe('/tmp/clwriting-cc-resume')
-
+test('P1-2 registerCtrl: interrupt 可真 abort 生成请求 + isRunning 判在途', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  // 登记后：isRunning 判在途（SSE 新连接 sync 快照依据）
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  // 请求未中断前 signal 存活
+  expect(ctrl.signal.aborted).toBe(false)
+  // interrupt → 真实 abort ctrl（生成循环据此停止拉流）
+  ccDriver.interrupt!(session)
+  expect(ctrl.signal.aborted).toBe(true)
+  // interrupt 即注销 ctrl：isRunning 立即归 false（SSE sync 快照不假报「生成中」）
+  expect(ccDriver.isRunning!(session)).toBe(false)
+  const ev = await firstEvent(ccDriver.stream(session) as AsyncGenerator<DriverEvent>)
+  expect(ev.type).toBe('interrupted')
   ccDriver.dispose(session)
-  await expect(ccDriver.resume(session.id)).rejects.toThrow('无法恢复未知或已关闭的 CC session')
-  await expect(ccDriver.resume('cc-missing')).rejects.toThrow('无法恢复未知或已关闭的 CC session')
+})
+
+test('P1-2 dispose: session 关闭时 abort 已登记 ctrl', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  ccDriver.dispose(session)
+  expect(ctrl.signal.aborted).toBe(true)
+  expect(ccDriver.isRunning!(session)).toBe(false)
 })

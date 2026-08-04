@@ -22,7 +22,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     '  volume_size: 40',
     '',
     'leads:',
-    '  enabled: [局线, 设定线, 成长线]',
+    '  enabled: [布局线, 设定线, 成长线]',
     '  thresholds:',
     '    成长线: 50',
     '',
@@ -49,7 +49,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     expect(r.config.book.title).toBe('北境往事')
     expect(r.config.book.genre).toBe('玄幻')
     expect(r.config.book.volume_size).toBe(40)
-    expect(r.config.leads.enabled).toEqual(['局线', '设定线', '成长线'])
+    expect(r.config.leads.enabled).toEqual(['布局线', '设定线', '成长线'])
     expect(r.config.leads.thresholds?.['成长线']).toBe(50)
     expect(r.config.budget.calls_per_chapter).toBe(8)
     expect(r.config.auto.confirm_outline).toBe(false)
@@ -85,15 +85,15 @@ test('writeBookConfig + readBookConfig 往返', () => {
   const cfg = {
     ...DEFAULT_CONFIG,
     book: { title: '雪落长安', genre: '历史' },
-    leads: { enabled: ['局线'], thresholds: { 局线: 20 } },
+    leads: { enabled: ['布局线'], thresholds: { 布局线: 20 } },
   }
   writeBookConfig(fp, cfg)
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
   if (r.ok) {
     expect(r.config.book.title).toBe('雪落长安')
-    expect(r.config.leads.enabled).toEqual(['局线'])
-    expect(r.config.leads.thresholds?.['局线']).toBe(20)
+    expect(r.config.leads.enabled).toEqual(['布局线'])
+    expect(r.config.leads.thresholds?.['布局线']).toBe(20)
   }
   rmSync(dir, { recursive: true, force: true })
 })

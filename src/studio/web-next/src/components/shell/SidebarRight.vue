@@ -11,10 +11,11 @@ import ReviewPanel from '../panels/ReviewPanel.vue'
 import RewritePanel from '../panels/RewritePanel.vue'
 import AnalysisPanel from '../panels/AnalysisPanel.vue'
 import HistoryPanel from '../panels/HistoryPanel.vue'
+import ForeshadowPanel from '../panels/ForeshadowPanel.vue'
 import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -30,7 +31,7 @@ const showOutlineForm = computed(() => {
 const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info }[] = [
   { key: 'info', label: '信息', icon: Info },
   { key: 'review', label: '审阅', icon: FileSearch },
-  { key: 'check', label: '机检', icon: CheckSquare },
+  { key: 'check', label: '校对', icon: CheckSquare },
 ]
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。 */
 const FORM_TITLE: Record<string, string> = {
@@ -50,7 +51,7 @@ const isReviewable = computed(() => {
   if (!ws.activeDocId) return false
   const node = tree.byDocId.get(ws.activeDocId)
   if (!node) return false
-  if (formKindOf(node.path) === 'chapter') return true
+  if (isBodyKind(node.path)) return true
   return /^工作区\/草稿-\d+\.md$/.test(node.path)
 })
 </script>
@@ -87,6 +88,9 @@ const isReviewable = computed(() => {
             <WritingInfoPanel :book-name="bookName" />
             <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
           </div>
+        </CollapseSection>
+        <CollapseSection title="伏笔追踪">
+          <ForeshadowPanel :book-name="bookName" />
         </CollapseSection>
         <CollapseSection v-if="isReviewable" title="AI 分析">
           <AnalysisPanel :book-name="bookName" />

@@ -1,60 +1,64 @@
 /**
  * AI 可达性探测端点（G4-a，降级体验）。
  *
- * GET /api/ai-status → { available, driver, reason? }
+ * GET /api/ai-status → { available, reason? }
  *
- * 探测：spawnSync('claude', ['--version'])；CLWRITING_DRIVER=mock 永可达。
- * 缓存 60s 避免每请求 spawn。光验 CLI 存在，不深探凭证（首次真调失败靠端点错误兜底）。
+ * 新架构：探 provider 配置（providers.json 是否有已配置且已探测的当前供应商）。
+ * mock 模式永可达；CLWRITING_E2E_AI_DOWN=1 模拟不可达。
+ *
+ * P0-2：不再缓存——每次实时探测。currentProvider 只是一次 providers.json 读，
+ * 代价可忽略；缓存会让「供应商刚配置好」落在 10s 旧结果上，按钮仍置灰。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { spawnSync } from 'node:child_process'
 import { route } from '../router.js'
 import { reply } from '../http.js'
+import { currentProvider, resolveTier } from '../../../ai/provider/index.js'
 
 interface ProbeResult {
   available: boolean
-  driver: string
+  driver: string // 当前供应商名（供状态栏显示；空 = 未配置）
   reason?: string
 }
 
-let cache: { result: ProbeResult; ts: number } | null = null
-const CACHE_TTL = 60000
+interface AiStatusCtx {
+  userDataPath: string | null
+}
 
-export function registerAiStatusRoutes(): void {
+export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
   route('GET', '/api/ai-status', (_req: IncomingMessage, res: ServerResponse) => {
-    // e2e AI-DOWN：跳缓存直接探（保证 spec 设 env 立即生效）
+    // e2e AI-DOWN：跳全部逻辑直接判定
     if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
-      reply(res, 200, probeAi())
+      reply(res, 200, probeAi(null))
       return
     }
-    const now = Date.now()
-    if (cache && now - cache.ts < CACHE_TTL) {
-      reply(res, 200, cache.result)
-      return
-    }
-    const result = probeAi()
-    cache = { result, ts: now }
-    reply(res, 200, result)
+    // 每次实时探测（P0-2：无缓存，供应商增改/测试/切换后立即可达）
+    reply(res, 200, probeAi(ctx.userDataPath))
   })
 }
 
-/** 探测 claude CLI 可调用性（spawnSync --version；ENOENT→未找到） */
-function probeAi(): ProbeResult {
-  // e2e 专用短路：模拟 AI 不可达（T1.7 降级体验测）
+/** 探测 AI 可达性：有已配置的当前供应商即可达 */
+function probeAi(userDataPath: string | null): ProbeResult {
+  // e2e 专用短路：模拟 AI 不可达
   if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
-    return { available: false, driver: 'mock', reason: 'e2e: AI 不可达模拟' }
+    return { available: false, driver: '', reason: 'e2e: AI 不可达模拟' }
   }
   if (process.env.CLWRITING_DRIVER === 'mock') {
     return { available: true, driver: 'mock' }
   }
-  try {
-    const r = spawnSync('claude', ['--version'], { timeout: 5000, encoding: 'utf-8' })
-    if (r.status === 0) return { available: true, driver: 'cc' }
-    if (r.error) {
-      return { available: false, driver: 'cc', reason: 'claude CLI 未找到（请确认已安装并在 PATH）' }
-    }
-    return { available: false, driver: 'cc', reason: `claude CLI 异常（退出码 ${r.status}）` }
-  } catch {
-    return { available: false, driver: 'cc', reason: 'claude CLI 探测失败' }
+  if (!userDataPath) {
+    return { available: false, driver: '', reason: '未定位到应用数据目录' }
   }
+  const prov = currentProvider(userDataPath)
+  if (!prov) {
+    return { available: false, driver: '', reason: '未配置 AI 服务供应商（请在设置页添加）' }
+  }
+  if (!prov.caps) {
+    return { available: false, driver: prov.name, reason: `供应商「${prov.name}」尚未测试连接` }
+  }
+  // D 档：模型从创作档取（含 currentModel 回落），无模型则按钮置灰
+  const tier = resolveTier(userDataPath, 'creative')
+  if (!tier.model) {
+    return { available: false, driver: prov.name, reason: '尚未配置模型档位（请在设置 → AI 中配置）' }
+  }
+  return { available: true, driver: prov.name }
 }

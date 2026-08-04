@@ -6,11 +6,11 @@
  */
 
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
-import { detectState, enter } from '../../src/state/state.js'
+import { detectState } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
 
@@ -33,11 +33,10 @@ function makeShortBook(): string {
   return root
 }
 
-/** 造一篇定稿（篇/<篇号3位>-<标题>/正文.md + pc: commit）。 */
+/** 造一篇定稿（篇/<篇号3位>-<标题>.md + pc: commit）。 */
 function finalizePiece(root: string, num: number, title: string): void {
-  const dir = join(root, '篇', `${String(num).padStart(3, '0')}-${title}`)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, '正文.md'), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
+  mkdirSync(join(root, '篇'), { recursive: true })
+  writeFileSync(join(root, '篇', `${String(num).padStart(3, '0')}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
   execSync(`git add -A && git commit -m "pc:${String(num).padStart(3, '0')} ${title}"`, { cwd: root, stdio: 'pipe' })
 }
 
@@ -46,7 +45,7 @@ test('short 态 3: 篇/ 有未 commit 改动 → 态 3（看 篇/，不看 定�
   try {
     // 改已定稿篇的正文（未 commit）→ 态 3 手改
     finalizePiece(root, 1, '雪夜')
-    writeFileSync(join(root, '篇', '001-雪夜', '正文.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
+    writeFileSync(join(root, '篇', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
 
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(3)
@@ -138,28 +137,6 @@ test('short 不触发态 5/6: 已有多篇也不判卷末/体检（无长程概�
   }
 })
 
-test('short 态 8: 待定稿有完成篇 → detectState 返回态 8', () => {
-  const root = makeShortBook()
-  try {
-    const pendingDir = join(root, '工作区', '待定稿', '001-雪夜')
-    mkdirSync(pendingDir, { recursive: true })
-    writeFileSync(join(pendingDir, '草稿-1.md'), '---\n篇号: 1\n标题: 雪夜\n---\n正文。\n', 'utf-8')
-    writeFileSync(join(pendingDir, '细纲.md'), '雪夜细纲', 'utf-8')
-
-    const d = detectState(root, SHORT_CONFIG)
-    expect(d.state).toBe(8)
-    if (d.state === 8) {
-      expect(d.pendingChapters).toEqual([1])
-    }
-    const result = enter(root)
-    expect(result.route.state).toBe(8)
-    expect(result.route.humanMsg).toContain('1 篇待审稿')
-    expect(result.route.humanMsg).toContain('第 1 篇')
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
 test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', () => {
   const root = mkdtempSync(join(tmpdir(), '长篇-'))
   try {
@@ -167,7 +144,7 @@ test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', ()
     execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
     mkdirSync(join(root, '定稿', '正文'), { recursive: true })
-    mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
+    mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })
     mkdirSync(join(root, '.cache'), { recursive: true })
     execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })

@@ -105,10 +105,13 @@ export async function getAnalysisOverview(name: string): Promise<AnalysisOvervie
 }
 
 // POST /analyze-style —— 全书文风分析（全文 stats + 最近 10 章采样 → AI）。
-export async function runStyleAnalysis(name: string): Promise<EnvelopeFE> {
-  const r = await apiJson<{ ok: true; envelope: EnvelopeFE }>(
+// 完成时后端把口癖/建议转为候选（源3），styleCandidates 为新落候选数。
+export async function runStyleAnalysis(
+  name: string,
+): Promise<{ envelope: EnvelopeFE; styleCandidates: number }> {
+  const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
     `/api/books/${encodeURIComponent(name)}/analyze-style`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
   )
-  return r.envelope
+  return { envelope: r.envelope, styleCandidates: r.styleCandidates ?? 0 }
 }

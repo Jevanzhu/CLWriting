@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // 书架全屏页（独立窗口或主窗口路由）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
 // 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本页只保留全屏布局 + IPC 跳转。
-import { onMounted, computed } from 'vue'
+import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../composables/useShelf'
+import { useNativeMenu } from '../composables/useNativeMenu'
 import { useTheme } from '../composables/useTheme'
+import ContextMenu, { type MenuItem } from '../components/ui/ContextMenu.vue'
 import BookCard from '../components/ui/BookCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 
@@ -14,10 +16,36 @@ const { theme, toggle } = useTheme()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 const {
   shelf, groups, latestBook, viewMode, setView,
-  showCreate, newName, creating, createError, createBook,
+  showCreate, newName, newKind, creating, createError, createBook,
+  batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
+  confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
 } = useShelf({
   onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
 })
+
+// 右键菜单：桌面端原生 Menu，浏览器回退 ContextMenu
+const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
+
+function onCardContextmenu(e: MouseEvent, name: string): void {
+  const items: MenuItem[] = [
+    { key: 'open', label: '打开' },
+    { key: 'sep1', label: '', separator: true },
+    { key: 'folder', label: '打开所在文件夹', disabled: !hasDesktop },
+    { key: 'sep2', label: '', separator: true },
+    { key: 'delete', label: '删除…', danger: true },
+  ]
+  popup(items, e.clientX, e.clientY, (key) => {
+    if (key === 'open') openBook(name)
+    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name)
+    else if (key === 'delete') requestDelete([name])
+  })
+}
+
+// 卡片点击：批量模式 toggle 选中，否则打开书
+function handleCardClick(name: string): void {
+  if (batchMode.value) toggleSelect(name)
+  else openBook(name)
+}
 
 // Awwwards 冲击面：hero 数据条展示创作概况
 const totalWords = computed(() => shelf.books.reduce((s, b) => s + (b.words ?? 0), 0))
@@ -28,7 +56,19 @@ const lastEdited = computed(() => {
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
 
-onMounted(() => shelf.load())
+// Esc：确认弹窗 → 建书 → 批量模式（逐级收）
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    if (confirmTarget.value) cancelDelete()
+    else if (showCreate.value) showCreate.value = false
+    else if (batchMode.value) exitBatch()
+  }
+}
+onMounted(() => {
+  shelf.load()
+  window.addEventListener('keydown', onKeydown)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 function openBook(name: string): void {
   // 记住最近打开的书（主窗口启动直进工作区用）
@@ -49,10 +89,17 @@ function openBook(name: string): void {
 
 <template>
   <div class="shelf" :class="{ 'has-traffic': hasDesktop }">
+    <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
+    <div class="ambient">
+      <div class="glow glow-tr"></div>
+      <div class="glow glow-bl"></div>
+    </div>
+
     <header class="shelf-titlebar" />
     <main class="shelf-main">
       <header class="shelf-head">
         <div class="head-left">
+          <div class="head-mark"><BookOpen :size="24" /></div>
           <h1 class="head-title">书架</h1>
           <p v-if="shelf.books.length" class="head-sub">
             <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span><span class="sub-num">{{ formatWords(totalWords) }}</span><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
@@ -60,40 +107,58 @@ function openBook(name: string): void {
           <p v-else class="head-sub">开启你的长篇之旅</p>
         </div>
         <div class="shelf-actions">
-          <div class="view-toggle">
+          <template v-if="!batchMode">
+            <div class="view-toggle">
+              <button
+                class="toggle-btn"
+                :class="{ active: viewMode === 'grid' }"
+                data-tip="网格视图"
+                @click="setView('grid')"
+              >
+                <LayoutGrid :size="15" />
+              </button>
+              <button
+                class="toggle-btn"
+                :class="{ active: viewMode === 'list' }"
+                data-tip="列表视图"
+                @click="setView('list')"
+              >
+                <List :size="15" />
+              </button>
+            </div>
             <button
-              class="toggle-btn"
-              :class="{ active: viewMode === 'grid' }"
-              data-tip="网格视图"
-              @click="setView('grid')"
+              v-if="shelf.books.length"
+              class="btn batch-enter"
+              data-tip="批量管理"
+              @click="enterBatch"
             >
-              <LayoutGrid :size="15" />
+              <CheckSquare :size="14" /> 管理
             </button>
             <button
-              class="toggle-btn"
-              :class="{ active: viewMode === 'list' }"
-              data-tip="列表视图"
-              @click="setView('list')"
+              class="btn icon"
+              :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
+              @click="toggle($event)"
             >
-              <List :size="15" />
+              <Moon v-if="theme === 'light'" :size="16" />
+              <Sun v-else :size="16" />
             </button>
-          </div>
-          <button
-            class="btn icon"
-            :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
-            @click="toggle($event)"
-          >
-            <Moon v-if="theme === 'light'" :size="16" />
-            <Sun v-else :size="16" />
-          </button>
-          <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
+            <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
+          </template>
+          <template v-else>
+            <span class="batch-count-inline">已选 {{ selected.size }} 本</span>
+            <button class="btn" :disabled="!shelf.books.length" @click="selectAll">全选</button>
+            <button class="btn danger" :disabled="selected.size === 0" @click="requestDelete([...selected])">
+              <Trash2 :size="14" /> 删除<span v-if="selected.size" class="del-num">({{ selected.size }})</span>
+            </button>
+            <button class="btn" @click="exitBatch">完成</button>
+          </template>
         </div>
       </header>
       <div v-if="shelf.loading" class="shelf-status">加载中…</div>
       <div v-else-if="shelf.error" class="shelf-status err">{{ shelf.error }}</div>
       <div v-else-if="shelf.workDirMissing" class="shelf-status">
         <p>未打开书库。</p>
-        <p class="sub">{{ shelf.hint ?? '请用 clwriting studio --dir &lt;书库目录&gt; 指定书库。' }}</p>
+        <p class="sub">{{ shelf.hint ?? '请在设置中指定书库目录。' }}</p>
       </div>
       <EmptyState
         v-else-if="!shelf.books.length"
@@ -106,7 +171,7 @@ function openBook(name: string): void {
       </EmptyState>
       <template v-else>
         <section
-          v-if="latestBook && viewMode === 'grid'"
+          v-if="latestBook && viewMode === 'grid' && !batchMode"
           class="hero-card"
           @mousemove="onCardMove"
           @click="openBook(latestBook.name)"
@@ -135,7 +200,7 @@ function openBook(name: string): void {
           </div>
         </section>
         <section
-          v-else-if="latestBook"
+          v-else-if="latestBook && !batchMode"
           class="hero-list"
           @mousemove="onCardMove"
           @click="openBook(latestBook.name)"
@@ -162,8 +227,11 @@ function openBook(name: string): void {
               :book="b"
               variant="grid"
               :index="i"
+              :batch-mode="batchMode"
+              :selected="selected.has(b.name)"
               @move="onCardMove"
-              @click="openBook"
+              @click="handleCardClick"
+              @contextmenu="onCardContextmenu($event, b.name)"
             />
           </div>
           <div v-else class="book-list">
@@ -178,8 +246,11 @@ function openBook(name: string): void {
               :key="b.name"
               :book="b"
               variant="list"
+              :batch-mode="batchMode"
+              :selected="selected.has(b.name)"
               @move="onCardMove"
-              @click="openBook"
+              @click="handleCardClick"
+              @contextmenu="onCardContextmenu($event, b.name)"
             />
           </div>
         </section>
@@ -190,10 +261,18 @@ function openBook(name: string): void {
     <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
       <div class="modal">
         <h2>新建书</h2>
+        <div class="kind-picker">
+          <button type="button" :class="['kind-btn', { active: newKind === 'long' }]" @click="newKind = 'long'">
+            长篇
+          </button>
+          <button type="button" :class="['kind-btn', { active: newKind === 'short' }]" @click="newKind = 'short'">
+            短篇
+          </button>
+        </div>
         <input
           v-model="newName"
           class="input"
-          placeholder="书名（用作目录名）"
+          placeholder="书名"
           @keyup.enter="createBook"
         />
         <div v-if="createError" class="err">{{ createError }}</div>
@@ -205,14 +284,57 @@ function openBook(name: string): void {
         </div>
       </div>
     </div>
+
   </div>
+
+  <!-- 右键菜单（浏览器回退；桌面端走原生 Menu） -->
+  <ContextMenu
+    v-if="!isNative"
+    :visible="menuVisible"
+    :x="menuX"
+    :y="menuY"
+    :items="menuItems"
+    @select="onPopupSelect"
+    @close="onPopupClose"
+  />
+
+  <!-- 删除确认弹窗 -->
+  <Teleport to="body">
+    <div v-if="confirmTarget" class="confirm-overlay" @click.self="cancelDelete">
+      <div class="confirm-dialog">
+        <div class="confirm-head">
+          <Trash2 :size="22" class="confirm-icon-danger" />
+          <h3>确认删除</h3>
+        </div>
+        <p class="confirm-text">
+          将永久删除以下 {{ confirmTarget.length }} 本书及其全部内容（含定稿、大纲、设定），不可恢复：
+        </p>
+        <div v-if="deleteError" class="confirm-err">{{ deleteError }}</div>
+        <div class="confirm-names">
+          <span v-for="n in confirmTarget" :key="n" class="confirm-name">{{ n }}</span>
+        </div>
+        <div class="confirm-actions">
+          <button class="btn" @click="cancelDelete" :disabled="deleting">取消</button>
+          <button class="btn danger" @click="confirmDelete" :disabled="deleting">
+            {{ deleting ? '删除中…' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .shelf {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+      var(--background-primary));
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
      子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改 */
   --font-size-2xl: 20px;
@@ -244,10 +366,12 @@ function openBook(name: string): void {
 }
 /* 顶部 titlebar：纯窗口拖动区（桌面版可拖动整窗），不放内容。*/
 .shelf-titlebar {
+  position: relative;
+  z-index: 1;
   height: var(--size-tabbar);
   flex-shrink: 0;
   border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
+  background: transparent;
 }
 .shelf.has-traffic .shelf-titlebar {
   -webkit-app-region: drag;
@@ -259,6 +383,23 @@ function openBook(name: string): void {
   justify-content: space-between;
   gap: var(--size-4-4);
   margin-bottom: var(--size-4-7);
+  animation: fade-up 0.5s var(--ease-out) both;
+}
+/* 品牌徽标（与 Welcome/Library 同语言） */
+.head-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--size-4-2);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
+    var(--shadow-m),
+    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .head-left {
   display: flex;
@@ -269,10 +410,14 @@ function openBook(name: string): void {
 .head-title {
   margin: 0;
   font-size: var(--font-size-2xl);
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  color: var(--text-normal);
+  background: linear-gradient(135deg, var(--text-accent), var(--text-normal) 75%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .head-sub {
   margin: 0;
@@ -292,6 +437,8 @@ function openBook(name: string): void {
   opacity: 0.6;
 }
 .shelf-main {
+  position: relative;
+  z-index: 1;
   flex: 1;
   width: 100%;
   max-width: 1080px;
@@ -333,6 +480,10 @@ function openBook(name: string): void {
   box-shadow: var(--shadow-s);
 }
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 6px 14px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -340,6 +491,7 @@ function openBook(name: string): void {
   color: var(--text-normal);
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn.icon {
   padding: 6px;
@@ -625,6 +777,33 @@ function openBook(name: string): void {
   margin: 0 0 var(--size-4-3);
   font-size: var(--font-size-l);
 }
+.kind-picker {
+  display: flex;
+  gap: 3px;
+  margin-bottom: var(--size-4-2);
+  padding: 3px;
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.kind-btn {
+  flex: 1;
+  padding: 6px var(--size-4-2);
+  border: none;
+  border-radius: calc(var(--radius-s) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-m);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.kind-btn.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: 500;
+}
+.kind-btn:not(.active):hover {
+  color: var(--text-normal);
+}
 .input {
   width: 100%;
   padding: 8px var(--size-4-2);
@@ -659,5 +838,150 @@ function openBook(name: string): void {
     transform: none;
     transition: none;
   }
+}
+
+/* ══ 环境氛围层（与 Welcome 同语言）══ */
+.ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: opacity, transform;
+}
+.glow-tr {
+  top: -18%;
+  right: -8%;
+  width: 50vw;
+  height: 50vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
+  animation: shelf-breathe 18s var(--ease-std) infinite;
+}
+.glow-bl {
+  bottom: -22%;
+  left: -12%;
+  width: 42vw;
+  height: 42vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
+  animation: shelf-breathe 24s var(--ease-std) infinite reverse;
+}
+@keyframes shelf-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.1); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── 批量模式：header 内联 ── */
+.batch-count-inline {
+  font-size: var(--font-size-s);
+  color: var(--text-accent);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* 管理按钮：带文字标签 */
+.btn.batch-enter {
+  font-size: var(--font-size-s);
+  gap: 5px;
+}
+.del-num {
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
+/* ── 危险按钮 ── */
+.btn.danger {
+  background: var(--text-error);
+  border-color: var(--text-error);
+  color: #fff;
+}
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* ── 删除确认弹窗 ── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 300;
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
+.confirm-dialog {
+  width: 380px;
+  max-width: 90vw;
+  padding: var(--size-4-5);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-3);
+}
+.confirm-icon-danger {
+  color: var(--text-error);
+  flex-shrink: 0;
+}
+.confirm-head h3 {
+  margin: 0;
+  font-size: var(--font-size-l);
+  font-weight: 600;
+}
+.confirm-text {
+  margin: 0 0 var(--size-4-3);
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.confirm-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--size-4-4);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+}
+.confirm-name {
+  font-size: var(--font-size-xs);
+  color: var(--text-normal);
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+.confirm-err {
+  margin: 0 0 var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+  color: var(--text-error);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 </style>

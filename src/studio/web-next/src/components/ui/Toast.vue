@@ -36,7 +36,7 @@ const ui = useUiStore()
   animation: clw-appear var(--dur-norm) var(--ease-out);
 }
 .toast.success {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .toast.error {
   color: var(--text-error);

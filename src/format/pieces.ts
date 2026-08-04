@@ -1,12 +1,13 @@
 /**
  * 短篇正文元数据读写 —— 依据 M8 #27。
  *
- * 短篇落点：篇/<篇号>-<标题>/正文.md，含 front matter（篇号/标题/目标情绪/核心反转）+ 正文。
+ * 短篇落点：篇/<篇号>-<标题>.md，含 front matter（篇号/标题/目标情绪/核心反转）+ 正文。
+ * 清单分离到 清单/<篇号>-<标题>.md（与正文同文件名、不同目录，互不混放）。
  * 与长篇 chapters.ts 分轨：短篇目标函数是单篇情绪爆破，字段集不重合（无钩子类型/情绪定位）。
  * 复用 frontmatter.ts 的 readFile/parseFlat/stringifyFlat 容错骨架，零第三方依赖。
  */
 
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, existsSync, renameSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { countWords } from './chapters.js'
@@ -68,37 +69,36 @@ export function writePiece(filePath: string, p: PieceMeta, body: string): void {
   writeFile(filePath, stringifyFlat(pieceToMap(p)), body)
 }
 
-/** 从文件名/目录名提取篇号 + 标题（篇/001-标题/正文.md 或 001-标题 → 篇号 1，标题「标题」） */
+/** 从文件名提取篇号 + 标题（篇/001-标题.md → 篇号 1，标题「标题」） */
 export function parsePieceFileName(fileName: string): { 篇号: number; 标题: string } | null {
-  // 归一化：去 .md 后缀 + 按 / 切段，取倒数第二段（篇目录名）或末段
+  // 归一化：去 .md 后缀 + 按 / 切段，取末段（文件名 = 篇号-标题）
   const norm = fileName.replace(/\.md$/, '').replace(/\\/g, '/')
   const segs = norm.split('/').filter(Boolean)
-  const dirSeg = segs.length > 1 ? segs[segs.length - 2]! : segs[0]!
-  const m = dirSeg.match(/^(\d+)-(.+)$/)
+  const fileSeg = segs[segs.length - 1]!
+  const m = fileSeg.match(/^(\d+)-(.+)$/)
   if (!m) return null
   return { 篇号: Number(m[1]!), 标题: m[2]! }
 }
 
 /**
  * 扫描 篇/ 目录，读所有已定稿篇正文（容错）。
- * 每个子目录 篇/<篇号>-<标题>/ 读 正文.md。
+ * 每个 .md 文件 篇/<篇号>-<标题>.md 读正文。
  */
 export function readPieceDir(
   dirPath: string,
 ): { pieces: PieceMeta[]; errors: ParseError[] } {
   const pieces: PieceMeta[] = []
   const errors: ParseError[] = []
-  let dirs: string[]
+  let files: string[]
   try {
-    dirs = readdirSync(dirPath).filter((d) => !d.startsWith('.') && !d.startsWith('._'))
+    files = readdirSync(dirPath, { withFileTypes: true })
+      .filter((e) => e.isFile() && /^\d+-.*\.md$/.test(e.name) && !e.name.startsWith('._'))
+      .map((e) => e.name)
   } catch {
     return { pieces, errors }
   }
-  for (const d of dirs) {
-    const dp = join(dirPath, d)
-    if (!statSync(dp).isDirectory()) continue
-    const fp = join(dp, '正文.md')
-    const r = readPiece(fp)
+  for (const f of files) {
+    const r = readPiece(join(dirPath, f))
     if (r.ok) pieces.push(r.piece)
     else errors.push(r.error)
   }
@@ -106,16 +106,68 @@ export function readPieceDir(
 }
 
 /**
- * 扫 篇/ 目录下格式合法的篇子目录数（<篇号>-<标题>/）。
- * 与 state.ts countPieces 同口径：只计 `^\d+-` 目录名，不计散文件/隐藏项。
+ * 扫 篇/ 目录下格式合法的篇文件数（<篇号>-<标题>.md）。
+ * 与 state.ts countPieces 同口径：只计 `^\d+-*.md` 文件名，不计散文件/隐藏项。
  * state.ts 复用本函数作单源（避免两份计数逻辑漂移）。
  */
 export function countPieces(篇Root: string): number {
   try {
     return readdirSync(篇Root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && /^\d+-/.test(e.name))
+      .filter((e) => e.isFile() && /^\d+-.*\.md$/.test(e.name))
       .length
   } catch {
     return 0
   }
+}
+
+/**
+ * 迁移旧短篇目录结构（篇/N-T/正文.md + 篇/N-T/清单.md → 篇/N-T.md + 清单/N-T.md）。
+ * 幂等：无旧结构（无 篇/N-T/ 子目录）则 no-op。server 启动时对每本书库调用一次。
+ */
+export function migratePieceLayout(bookRoot: string): { migrated: number; errors: string[] } {
+  const piecesDir = join(bookRoot, '篇')
+  if (!existsSync(piecesDir)) return { migrated: 0, errors: [] }
+  let oldDirs: string[]
+  try {
+    oldDirs = readdirSync(piecesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && /^\d+-/.test(e.name))
+      .map((e) => e.name)
+  } catch {
+    return { migrated: 0, errors: [] }
+  }
+  if (oldDirs.length === 0) return { migrated: 0, errors: [] }
+
+  const 清单Dir = join(bookRoot, '清单')
+  let migrated = 0
+  const errors: string[] = []
+  for (const dirName of oldDirs) {
+    const oldDir = join(piecesDir, dirName)
+    const oldBody = join(oldDir, '正文.md')
+    if (!existsSync(oldBody)) continue // 无正文.md 的目录跳过（非旧结构）
+    // 搬正文：篇/N-T/正文.md → 篇/N-T.md
+    try {
+      renameSync(oldBody, join(piecesDir, `${dirName}.md`))
+      migrated++
+    } catch (e) {
+      errors.push(`${dirName}: ${e instanceof Error ? e.message : String(e)}`)
+      continue
+    }
+    // 搬清单：篇/N-T/清单.md → 清单/N-T.md
+    const oldList = join(oldDir, '清单.md')
+    if (existsSync(oldList)) {
+      mkdirSync(清单Dir, { recursive: true })
+      try {
+        renameSync(oldList, join(清单Dir, `${dirName}.md`))
+      } catch {
+        // 清单搬运失败不阻断（附属数据，非致命）
+      }
+    }
+    // 删空目录（残留其他文件则保留）
+    try {
+      rmdirSync(oldDir)
+    } catch {
+      // 目录非空，保留
+    }
+  }
+  return { migrated, errors }
 }

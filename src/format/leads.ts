@@ -1,7 +1,7 @@
 /**
- * 账本七类容错读写 —— 依据 #3 账本格式 spec。
+ * 账本六类容错读写 —— 依据 #3 账本格式 spec。
  *
- * 文件组织（#3 第 2 节）：大纲/{七类}/<编号>-<标题>.md
+ * 文件组织（#3 第 2 节）：大纲/{六类}/<编号>-<标题>.md
  * 格式：平铺 front matter（通用字段 + 各类特化） + 履历段（markdown 列表）
  *
  * 容错（#3 第 8 节）：未知字段保留、回写不重排、坏文件返回结构化错误不崩。
@@ -22,26 +22,24 @@ import type {
   ParseError,
 } from './types.js'
 
-/** 账本七类的中文目录名（#3 第 2 节） */
+/** 账本六类的中文目录名（#3 第 2 节；伏笔已独立为设定伏笔系统） */
 export const LEAD_TYPES: readonly LeadType[] = [
-  '伏笔',
   '悬念',
   '感情线',
-  '局线',
+  '布局线',
   '设定线',
   '成长线',
-  '关系债',
+  '关系线',
 ] as const
 
 /** #3 第 5 节动词表：每类的合法动词（机检用，M2） */
 export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; drop: string[] }> = {
-  伏笔: { open: ['埋下'], resolve: ['回收'], drop: ['放弃'] },
   悬念: { open: ['设下'], resolve: ['揭晓'], drop: ['放弃'] },
   感情线: { open: ['开启'], resolve: ['修成'], drop: ['无疾'] },
-  局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
+  布局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
   设定线: { open: ['树立'], resolve: ['固化'], drop: ['倾覆'] },
   成长线: { open: ['起步'], resolve: ['突破', '跨层', '跃迁'], drop: ['瓶颈'] },
-  关系债: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
+  关系线: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
 }
 
 // ── 履历段解析（#3 第 4 节）──────────────────────
@@ -108,7 +106,7 @@ function bodyBeforeHistory(body: string): string {
 /** 已知 front matter 字段（用于区分已知 vs 未知/容错保留） */
 const KNOWN_FM_KEYS = new Set([
   '编号', '标题', '类型', '状态', '开启章',
-  '境界体系', '当前境界', '父局线', '欠方', '债主',
+  '境界体系', '当前境界', '父布局线', '欠方', '债主',
 ])
 
 /** 读取一个账本 md → Lead 内存模型（容错） */
@@ -137,7 +135,7 @@ export function readLead(
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
-    类型: (map.get('类型') as LeadType) ?? '伏笔',
+    类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number(map.get('开启章') ?? 0),
     履历: parseHistory(r.body),
@@ -150,7 +148,7 @@ export function readLead(
   // 特化字段（仅当存在时赋值）
   if (map.has('境界体系')) lead.境界体系 = String(map.get('境界体系'))
   if (map.has('当前境界')) lead.当前境界 = String(map.get('当前境界'))
-  if (map.has('父局线')) lead.父局线 = String(map.get('父局线'))
+  if (map.has('父布局线')) lead.父布局线 = String(map.get('父布局线'))
   if (map.has('欠方')) lead.欠方 = String(map.get('欠方'))
   if (map.has('债主')) lead.债主 = String(map.get('债主'))
 
@@ -171,7 +169,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
   }
   if (lead.境界体系 !== undefined) knownVal['境界体系'] = lead.境界体系
   if (lead.当前境界 !== undefined) knownVal['当前境界'] = lead.当前境界
-  if (lead.父局线 !== undefined) knownVal['父局线'] = lead.父局线
+  if (lead.父布局线 !== undefined) knownVal['父布局线'] = lead.父布局线
   if (lead.欠方 !== undefined) knownVal['欠方'] = lead.欠方
   if (lead.债主 !== undefined) knownVal['债主'] = lead.债主
 
@@ -189,7 +187,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
   }
 
   // #2 原始顺序未覆盖的已知字段（内存新增）按 #3 第 3 节标准顺序追加
-  for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父局线', '欠方', '债主']) {
+  for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父布局线', '欠方', '债主']) {
     if (key in knownVal && !emitted.has(key)) {
       map.set(key, knownVal[key])
       emitted.add(key)
@@ -243,7 +241,7 @@ export function readLeadDir(
     if (!statSync(fp).isFile()) continue
     const parsedName = parseLeadFileName(f)
     if (parsedName === null) {
-      errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 伏笔-031-灭门真凶.md' })
+      errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 悬念-031-灭门真凶.md' })
       continue
     }
     const r = readLead(fp)
@@ -263,7 +261,7 @@ export function readLeadDir(
 /** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md） */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {
   const base = basename(fileName, '.md')
-  // 编号格式：类型-三位序号（如 伏笔-031），标题在编号之后
+  // 编号格式：类型-三位序号（如 悬念-031），标题在编号之后
   const m = base.match(/^(.+?-\d{3})-(.+)$/)
   if (!m) return null
   return { 编号: m[1]!, 标题: m[2]! }

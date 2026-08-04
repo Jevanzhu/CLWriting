@@ -7,7 +7,7 @@
  * --shelf-list-cols
  */
 <script setup lang="ts">
-import { ArrowRight } from 'lucide-vue-next'
+import { ArrowRight, CheckCircle2, Circle } from 'lucide-vue-next'
 import { formatWords, formatRelative } from '../../composables/useShelf'
 import type { BookEntry } from '../../api/shelf'
 
@@ -16,11 +16,16 @@ defineProps<{
   variant: 'grid' | 'list'
   /** grid 模式入场动画延迟（序号 × 40ms）；不传则无延迟 */
   index?: number
+  /** 批量管理模式：显示 checkbox，click 切换选中而非打开 */
+  batchMode?: boolean
+  /** 批量模式下是否选中 */
+  selected?: boolean
 }>()
 
 defineEmits<{
   click: [name: string]
   move: [e: MouseEvent]
+  contextmenu: [e: MouseEvent]
 }>()
 </script>
 
@@ -29,12 +34,17 @@ defineEmits<{
   <button
     v-if="variant === 'grid'"
     class="book-card"
+    :class="{ batch: batchMode, selected }"
     :style="index !== undefined ? { animationDelay: (index * 40) + 'ms' } : undefined"
     @mousemove="$emit('move', $event)"
     @click="$emit('click', book.name)"
+    @contextmenu.prevent="$emit('contextmenu', $event)"
   >
+    <!-- 批量模式 checkmark（左上角） -->
+    <CheckCircle2 v-if="batchMode && selected" :size="20" class="batch-check active" />
+    <Circle v-else-if="batchMode" :size="20" class="batch-check" />
     <h3 class="book-title">{{ book.title ?? book.name }}</h3>
-    <ArrowRight :size="15" class="card-arrow" />
+    <ArrowRight v-if="!batchMode" :size="15" class="card-arrow" />
     <div class="card-foot">
       <div class="card-stats">
         <span>{{ book.chapters ?? 0 }} {{ book.kind === 'short' ? '篇' : '章' }}</span>
@@ -48,9 +58,13 @@ defineEmits<{
   <button
     v-else
     class="list-row"
+    :class="{ batch: batchMode, selected }"
     @mousemove="$emit('move', $event)"
     @click="$emit('click', book.name)"
+    @contextmenu.prevent="$emit('contextmenu', $event)"
   >
+    <CheckCircle2 v-if="batchMode && selected" :size="16" class="batch-check-sm active" />
+    <Circle v-else-if="batchMode" :size="16" class="batch-check-sm" />
     <div class="col-name">
       <span class="list-name">{{ book.title ?? book.name }}</span>
       <span v-if="book.latestChapter" class="list-recent">{{ book.latestChapter }}</span>
@@ -58,11 +72,44 @@ defineEmits<{
     <span class="col-num">{{ book.chapters ?? 0 }} {{ book.kind === 'short' ? '篇' : '章' }}</span>
     <span class="col-num">{{ book.kind === 'short' ? '—' : formatWords(book.words) }}</span>
     <span class="col-edited">{{ book.lastEdited ? formatRelative(book.lastEdited) : '—' }}</span>
-    <ArrowRight :size="15" class="list-arrow" />
+    <ArrowRight v-if="!batchMode" :size="15" class="list-arrow" />
   </button>
 </template>
 
 <style scoped>
+/* ── 批量模式 ── */
+.batch-check {
+  position: absolute;
+  top: var(--shelf-card-pad, var(--size-4-3));
+  left: var(--shelf-card-pad, var(--size-4-3));
+  z-index: 1;
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.batch-check.active {
+  color: var(--text-accent);
+}
+.batch-check-sm {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.batch-check-sm.active {
+  color: var(--text-accent);
+}
+/* 批量模式下卡片/行选中态：accent 边框 */
+.book-card.selected,
+.list-row.selected {
+  border-color: var(--text-accent);
+  box-shadow: 0 0 0 1px var(--text-accent), var(--shadow-s);
+}
+/* 批量模式下标题右移避让 checkmark */
+.book-card.batch .book-title {
+  padding-left: 28px;
+}
+.list-row.batch .col-name {
+  padding-left: 2px;
+}
+
 /* ── grid 卡片 ── */
 .book-card {
   position: relative;

@@ -43,10 +43,17 @@ function openDir(): void {
 
 <template>
   <div class="library" :class="{ 'has-traffic': hasDesktop }">
+    <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
+    <div class="ambient">
+      <div class="glow glow-tr"></div>
+      <div class="glow glow-bl"></div>
+    </div>
+
     <header class="lib-titlebar" />
     <main class="lib-main">
       <header class="lib-head">
         <div class="head-left">
+          <div class="head-mark"><Database :size="24" /></div>
           <h1 class="head-title">书库</h1>
           <p class="head-sub">管理你的创作书库</p>
         </div>
@@ -101,53 +108,124 @@ function openDir(): void {
 
 <style scoped>
 .library {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--background-primary);
+  overflow: hidden;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+      var(--background-primary));
 }
-/* 顶部 titlebar：窗口拖动区（桌面版），避让 macOS 交通灯 */
+
+/* ══ 环境氛围层（与 Welcome 同语言）══ */
+.ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: opacity, transform;
+}
+.glow-tr {
+  top: -18%;
+  right: -8%;
+  width: 50vw;
+  height: 50vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
+  animation: lib-breathe 18s var(--ease-std) infinite;
+}
+.glow-bl {
+  bottom: -22%;
+  left: -12%;
+  width: 42vw;
+  height: 42vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
+  animation: lib-breathe 24s var(--ease-std) infinite reverse;
+}
+@keyframes lib-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.1); }
+}
+
+/* titlebar（拖动区，避让交通灯） */
 .lib-titlebar {
+  position: relative;
+  z-index: 1;
   height: var(--size-tabbar);
   flex-shrink: 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
 }
 .library.has-traffic .lib-titlebar {
   -webkit-app-region: drag;
 }
+
+/* 主体 */
 .lib-main {
+  position: relative;
+  z-index: 1;
   flex: 1;
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: var(--size-4-8) var(--size-4-6) var(--size-4-10);
+  padding: var(--size-4-8) var(--size-4-6) var(--size-4-12);
 }
+
+/* head：徽标 + 渐变标题 + tagline */
 .lib-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--size-4-4);
-  margin-bottom: var(--size-4-6);
+  margin-bottom: var(--size-4-7);
+  animation: fade-up 0.5s var(--ease-out) both;
 }
 .head-left {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-1);
 }
+.head-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--size-4-2);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
+    var(--shadow-m),
+    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
 .head-title {
   margin: 0;
   font-size: var(--font-size-2xl);
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  color: var(--text-normal);
+  /* 渐变标题：accent → normal */
+  background: linear-gradient(135deg, var(--text-accent), var(--text-normal) 75%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .head-sub {
   margin: 0;
   font-size: var(--font-size-s);
   color: var(--text-muted);
 }
+
+/* 按钮（玻璃质感 + 主按钮签名渐变） */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -155,24 +233,32 @@ function openDir(): void {
   padding: 7px 14px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  background: var(--interactive-normal);
+  background: color-mix(in srgb, var(--background-primary) 72%, transparent);
+  backdrop-filter: blur(8px);
   color: var(--text-normal);
   font-size: var(--font-size-m);
   cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 .btn.icon {
   padding: 7px;
 }
 .btn:hover:not(:disabled) {
   background: var(--interactive-hover);
+  border-color: var(--background-modifier-border-hover);
 }
 .btn.primary {
-  background: var(--interactive-accent);
-  border-color: var(--interactive-accent);
+  background: linear-gradient(135deg, var(--interactive-accent), var(--interactive-accent-hover));
+  border-color: transparent;
   color: var(--text-on-accent);
+  box-shadow:
+    var(--shadow-s),
+    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 24%, transparent);
 }
 .btn.primary:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
+  box-shadow:
+    var(--shadow-m),
+    0 0 20px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 .lib-status {
   padding: var(--size-4-10) 0;
@@ -180,27 +266,29 @@ function openDir(): void {
   color: var(--text-muted);
 }
 
-/* 当前书库卡片：图标 + 路径 + 打开目录 */
+/* 当前书库卡片：玻璃质感 */
 .current-card {
   display: flex;
   align-items: center;
   gap: var(--size-4-3);
   padding: var(--size-4-4);
   margin-bottom: var(--size-4-6);
-  border-radius: var(--radius-m);
-  background: linear-gradient(135deg, var(--background-secondary-alt), var(--background-secondary));
+  border-radius: var(--radius-l);
+  background: color-mix(in srgb, var(--background-primary) 72%, transparent);
+  backdrop-filter: blur(10px);
   border: 1px solid var(--background-modifier-border);
   box-shadow: var(--shadow-s);
+  animation: fade-up 0.5s var(--ease-out) 60ms both;
 }
 .cur-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
   color: var(--text-accent);
 }
 .cur-info {
@@ -226,11 +314,12 @@ function openDir(): void {
   font-family: var(--font-monospace, ui-monospace, monospace);
 }
 
-/* 最近列表 */
+/* 最近列表：书脊意象（左 3px 竖条 hover/active 亮起） */
 .recent-section {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-3);
+  animation: fade-up 0.5s var(--ease-out) 120ms both;
 }
 .section-title {
   margin: 0;
@@ -269,18 +358,23 @@ function openDir(): void {
   width: 100%;
   padding: var(--size-4-3) var(--size-4-4);
   border: none;
-  border-radius: var(--radius-s);
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
   background: transparent;
   color: var(--text-normal);
   cursor: pointer;
   text-align: left;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 .recent-item:hover {
   background: var(--background-modifier-hover);
+  border-left-color: var(--interactive-accent);
 }
 .recent-item.active {
-  background: color-mix(in srgb, var(--text-accent) 8%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  border-left-color: var(--interactive-accent);
 }
 .item-info {
   flex: 1;
@@ -314,5 +408,11 @@ function openDir(): void {
 }
 .recent-item:hover .item-arrow {
   opacity: 1;
+}
+
+/* 入场动画 */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 </style>

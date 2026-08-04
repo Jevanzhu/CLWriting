@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { getTree } from '../api/books'
 import { getTreeIssues, type TreeIssue } from '../api/tree-issues'
 import type { TreeNode } from '../types/tree'
+import { friendlyError } from '../shared/error'
 
 // 章节树 store：原始磁盘 nodes + groupTree 虚拟分组（写作/大纲/设定/文风）+ byPath 索引。
 // groupTree 规则照旧 web FileTree.groupTree（平价基准）。
@@ -12,7 +13,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 虚拟分组：写作（正文卷章+草稿）/ 大纲（+摘要）/ 设定（提升根级）/ 文风。 */
+  /** 虚拟分组：写作（正文卷章+短篇篇+草稿）/ 大纲 / 设定（提升根级）/ 文风。 */
   const grouped = computed(() => groupTree(raw.value))
 
   /** path → node 索引（在 grouped 上建，含虚拟组）。 */
@@ -117,17 +118,19 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  async function load(name: string): Promise<void> {
+  /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
+   *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
+  async function load(name: string, refresh = false): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const r = await getTree(name)
+      const r = await getTree(name, refresh)
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
       void loadIssues(name)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
     } finally {
       loading.value = false
     }
@@ -153,10 +156,10 @@ export const useTreeStore = defineStore('tree', () => {
 })
 
 /** 虚拟分组 transform：真实磁盘节点 → 写作功能分组（移植旧 FileTree.groupTree）。
- *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 工作区草稿(status=draft)
- *  大纲：真实根目录 + 摘要并入；总纲置顶
+ *  写作（虚拟 path='写作'）：定稿/正文 真实卷/章 + 短篇 篇/ + 工作区草稿(status=draft)
+ *  大纲：真实根目录（总纲/卷纲/章纲）；总纲置顶
  *  设定：定稿/设定 提升根级
- *  文风：真实根目录原样
+ *  文风撤出树（机检/收割幕后资产，见 SettingsModal「文风铁律」）；不在写作树暴露。
  *  工作区（除草稿）不进树；根级散文件（book.yaml/AGENTS.md/.gitignore）自动过滤。 */
 function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const find = (ns: TreeNode[], path: string): TreeNode | undefined => ns.find((n) => n.path === path)
@@ -166,29 +169,45 @@ function groupTree(rawNodes: TreeNode[]): TreeNode[] {
   const dingao = find(rawNodes, '定稿')
   const dagang = find(rawNodes, '大纲')
   const work = find(rawNodes, '工作区')
-  const style = find(rawNodes, '文风')
+  const pian = find(rawNodes, '篇') // 短篇集正文目录
   const zhengwen = child(dingao, '定稿/正文')
   const shezhi = child(dingao, '定稿/设定')
-  const zhaiyao = child(dingao, '定稿/摘要')
 
   // 草稿：工作区下 status=draft 的叶子，抽到「写作」区
   const drafts = (work?.children ?? []).filter((c) => !c.isDirectory && c.status === 'draft')
 
   const groups: TreeNode[] = []
-  // 1. 写作（虚拟）：正文真实子树 + 草稿
-  const writeChildren = [...(zhengwen?.children ?? []), ...drafts]
+  // 1. 写作（虚拟）：长篇正文卷章 + 短篇篇 + 草稿
+  const writeChildren = [...(zhengwen?.children ?? []), ...(pian?.children ?? []), ...drafts]
   if (writeChildren.length) {
     groups.push({ path: '写作', name: '写作', isDirectory: true, role: 'note', children: writeChildren })
   }
-  // 2. 大纲（总纲置顶 + 摘要次之）；关系债为派生数据（角色卡关系派生），不进编辑树
+  // 线索类（基础悬念/感情线 + 扩展布局线/设定线/成长线）拆出为独立「布线」根级大类；
+  // 关系线为派生数据（角色卡关系派生），不进编辑树。
+  const LEAD_NAMES = new Set(['悬念', '感情线', '布局线', '设定线', '成长线'])
+  const LEAD_ORDER = ['悬念', '感情线', '布局线', '设定线', '成长线']
+  // 2. 大纲：纲领类（总纲/卷纲/章纲）；线索类已拆到「布线」组
   if (dagang) {
-    const zonggang = dagang.children.find((c) => !c.isDirectory && c.name === '总纲')
-    const rest = dagang.children.filter((c) => c !== zonggang && c.name !== '关系债')
-    groups.push({ ...dagang, children: [zonggang, zhaiyao, ...rest].filter(Boolean) as TreeNode[] })
+    const kept = dagang.children.filter((c) => c.name !== '关系线' && !LEAD_NAMES.has(c.name))
+    const outlineRank = (name: string): number => {
+      const i = ['总纲', '卷纲', '章纲'].indexOf(name)
+      return i === -1 ? 4 : i
+    }
+    kept.sort((a, b) => outlineRank(a.name) - outlineRank(b.name))
+    if (kept.length) groups.push({ ...dagang, children: kept })
   }
-  // 3. 设定（提升根级）
-  if (shezhi) groups.push(shezhi)
-  // 4. 文风
-  if (style) groups.push(style)
+  // 3. 布线（虚拟根级大类）：线索类从大纲目录提取，单独成组（与写作/大纲/设定同级）
+  const leads = (dagang?.children ?? []).filter((c) => LEAD_NAMES.has(c.name))
+  if (leads.length) {
+    leads.sort((a, b) => LEAD_ORDER.indexOf(a.name) - LEAD_ORDER.indexOf(b.name))
+    groups.push({ path: '布线', name: '布线', isDirectory: true, role: 'note', children: leads })
+  }
+  // 4. 设定（提升根级）：名册.md 仅作机检「新专名候选」比对源（check/count.ts 直读路径），
+  //  作者无编辑面、与角色/ 目录分工重叠，撤出写作树（对标文风：幕后资产不暴露给作者）。
+  if (shezhi) {
+    const filtered = shezhi.children.filter((c) => c.path !== '定稿/设定/名册.md')
+    groups.push({ ...shezhi, children: filtered })
+  }
+  // 文风撤出写作树（机检/收割幕后资产，编辑入口在 SettingsModal「文风铁律」）。
   return groups
 }

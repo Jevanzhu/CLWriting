@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runCheck, type CheckReport, type CheckItem } from '../api/check'
+import { friendlyError } from '../shared/error'
 
 /**
  * 机检 store（M12 块3）：当前文档的机检报告。
@@ -30,7 +31,7 @@ export const useCheckStore = defineStore('check', () => {
       hasRed.value = r.hasRed
       lastDocId.value = docId
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
       report.value = null
       hasRed.value = false
     } finally {

@@ -4,7 +4,7 @@
  * 覆盖 5b9c888 审阅修复的两条主线：
  *   ① 保存竞态——save 快照对比，await 期间新输入不误清 dirty
  *   ② 冲突死锁——409 置 conflict + autosave 跳过 + 重载/覆盖两条出路
- * 以及乐观锁主链路（正式 PUT / legacy 盲写 / 前置守卫）。
+ * 以及乐观锁主链路（正式/legacy 统一 PUT / 前置守卫）。
  *
  * 复用根 vitest（node 环境）；shared/revision 真实跑 WebCrypto 以验证对拍口径。
  */
@@ -14,7 +14,6 @@ import { createPinia, setActivePinia } from 'pinia'
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: vi.fn(),
   saveContent: vi.fn(),
-  putFileBlind: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   // doc.ts 仅用 instanceof + err.code + err.message，mock 同结构即可
@@ -31,7 +30,7 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
 
-import { getContent, saveContent, putFileBlind } from '../../../src/studio/web-next/src/api/documents'
+import { getContent, saveContent } from '../../../src/studio/web-next/src/api/documents'
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
@@ -70,14 +69,13 @@ describe('doc store · open / patch', () => {
     expect(e.content).toBe('正文')
     expect(e.dirty).toBe(false)
     expect(e.baselineRevision).toMatch(/^sha256:[0-9a-f]+$/)
-    expect(e.legacy).toBe(false)
   })
 
-  it('open legacy：baselineRevision=null + legacy=true', async () => {
+  it('open legacy：同样算 baselineRevision（与正式文档一致）', async () => {
     const doc = await openDoc('legacy:设定/旧.md', '设定/旧.md', 'x')
     const e = doc.get('legacy:设定/旧.md')!
-    expect(e.legacy).toBe(true)
-    expect(e.baselineRevision).toBeNull()
+    // legacy 文档不再特殊：统一算基线 revision（保存走正常乐观锁路径）
+    expect(e.baselineRevision).toMatch(/^sha256:[0-9a-f]+$/)
   })
 
   it('patch：内容变 → dirty；内容不变 → 不标', async () => {
@@ -98,7 +96,6 @@ describe('doc store · save 前置守卫', () => {
     const opened = await openDoc('d1', '定稿/正文/第1章.md', 'a')
     expect(await opened.save('d1')).toBe(false) // 非 dirty
     expect(saveContent).not.toHaveBeenCalled()
-    expect(putFileBlind).not.toHaveBeenCalled()
   })
 
   it('saving 中 → 不重入', async () => {
@@ -134,17 +131,24 @@ describe('doc store · save 成功', () => {
     expect(e.dirty).toBe(false)
     expect(e.baselineRevision).toBe('sha256:new')
     expect(e.savedAt).toBeTypeOf('number')
-    expect(putFileBlind).not.toHaveBeenCalled()
   })
 
-  it('legacy：降级 putFileBlind 盲写，不走 saveContent', async () => {
+  it('legacy：同样走 saveContent 乐观锁（不再降级盲写）', async () => {
     const doc = await openDoc('legacy:设定/x.md', '设定/x.md', 'a')
+    const oldBase = doc.get('legacy:设定/x.md')!.baselineRevision
     doc.patch('legacy:设定/x.md', 'b')
-    putFileBlind.mockResolvedValueOnce({ ok: true })
+    saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
     const ok = await doc.save('legacy:设定/x.md')
     expect(ok).toBe(true)
-    expect(putFileBlind).toHaveBeenCalledWith(BOOK, '设定/x.md', 'b')
-    expect(saveContent).not.toHaveBeenCalled()
+    expect(saveContent).toHaveBeenCalledWith(
+      BOOK,
+      'legacy:设定/x.md',
+      expect.objectContaining({
+        content: 'b',
+        expectedRevision: oldBase,
+        origin: 'manual',
+      }),
+    )
   })
 })
 
@@ -173,7 +177,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
     expect(ok).toBe(false)
     const e = doc.get('d1')!
     expect(e.conflict).toBe(true)
-    expect(e.error).toBe('文件已被外部修改')
+    expect(e.error).toBe('此文档已在其他地方修改')
   })
 
   it('② 冲突未决时 autosave 跳过（不再发请求）', async () => {

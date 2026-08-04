@@ -1,72 +1,98 @@
 <script setup lang="ts">
-// 工作台写作模式（细案 T3.2）：状态卡（/state）+ spawn/interrupt + 事件流（workbench.log）。
-// rebook/hand/cli 任务列表/草稿保存留后续（T3.2 扩展 / T3.3）。
-import { ref, watch, computed } from 'vue'
-import { Activity } from 'lucide-vue-next'
+// 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
+// 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（M4 去机器味：作者看文章，调试功能全保留）。
+import { ref, watch, computed, onMounted } from 'vue'
+import { Activity, CircleCheck, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
+import { useWorkspaceStore } from '../stores/workspace'
+import { useTreeStore } from '../stores/tree'
 import {
   getState,
   spawnRole,
   interrupt,
-  runCli,
   saveDraft,
+  autoWrite,
+  getDraftPrompt,
+  generateOutline,
   type BookState,
-  type CliResult,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
+import { getProviders, type TierSlot } from '../api/providers'
+import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
+import CollapseSection from '../components/ui/CollapseSection.vue'
+import { friendlyError } from '../shared/error'
+
+/** 规则 ID → 中文标签（与后端 RULE_LABEL 一致） */
+const RULE_LABEL: Record<string, string> = {
+  'ai-cliche': 'AI高频套话',
+  'ai-flavor-words': 'AI味词',
+  'style-consistency': '文风偏离',
+  'setting-consistency': '设定偏离',
+  'plot-consistency': '情节偏离',
+}
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
 const ui = useUiStore()
+const ws = useWorkspaceStore()
+const tree = useTreeStore()
 
 const state = ref<BookState | null>(null)
 const prompt = ref('')
 const err = ref<string | null>(null)
 
-// cli 八阶段（细案 §2.1 step 枚举）：确定性 CLI 步骤，POST /cli {step}
-const CLI_STEPS = ['prepare', 'confirm', 'check', 'finalize', 'enter', 'hand', 'rebook'] as const
-// 八阶段英文值 → 中文标签（值传 API 不变；英文值作 title 保留可调试性）
-const STEP_LABELS: Record<string, string> = {
-  prepare: '备料',
-  confirm: '确认',
-  check: '机检',
-  finalize: '定稿',
-  enter: '入书',
-  hand: '手写',
-  rebook: '重开',
+// 任务档位信息（只读显示，配置在设置 → AI）
+const tierCreative = ref<TierSlot | null>(null)
+
+async function loadTier(): Promise<void> {
+  try {
+    const data = await getProviders()
+    tierCreative.value = data.tiers?.creative ?? null
+  } catch {
+    /* 静默——档位显示不阻断主流程 */
+  }
 }
-// 态机 action（机器侧命令标识）→ 中文动作标签，避免对作者暴露 write-new-chapter 等英文。
-// 新增 action 需同步补映射；未命中 fallback 原值兜底。
-const ACTION_LABELS: Record<string, string> = {
-  'git-health': '修复 git 问题',
-  repair: '修复源文件',
-  rebook: '补登手改',
-  resume: '续写断点',
-  'volume-review': '卷复盘',
-  'health-check-periodic': '定期体检',
-  'write-new-chapter': '开写新章',
-  'write-new-chapter-hand': '手写起草',
-  'pending-batch-review': '批量审稿',
-  'pending-ai': 'AI 介入',
+
+// B3：规则命中统计（高频违规，供作者自查常见问题）
+const ruleHits = ref<RuleHitEntry[]>([])
+async function loadRuleHits(): Promise<void> {
+  try {
+    const data = await getTraceStats(props.bookName)
+    ruleHits.value = data.ruleHits ?? []
+  } catch {
+    ruleHits.value = []
+  }
 }
-const cliRunning = ref<string | null>(null)
-const cliReport = ref('')
+
+// 态机 action → 可执行操作（每个建议动作都有 UI 按钮）。
+// CLI 确定性步骤（hand/rebook/health/review-batch/enter）随 CLI 退场：对应 action 不再有按钮，
+// 状态卡只展示 humanMsg；写章统一走「自动写章」或编辑器。
+const ACTION_RUNS: Record<string, { label: string; run: () => void | Promise<void> }> = {
+  'write-new-chapter':      { label: '开写新章', run: onSpawn },
+  'volume-review':          { label: '卷复盘', run: onSpawn },
+}
 const draftSaved = ref<{ path?: string; words: number } | null>(null)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 const draftWords = computed(() => wb.textOut.length)
-// 建议动作中文标签（映射 action 枚举；未命中兜底原值）
-const actionLabel = computed(() => {
+// 当前建议操作（resume 续写；post-commit-residue 幂等清理无按钮，靠 humanMsg 提示）
+const currentAction = computed<{ label: string; run: () => void | Promise<void> } | null>(() => {
   const a = state.value?.action
-  return a ? (ACTION_LABELS[a] ?? a) : ''
+  if (!a) return null
+  if (a === 'resume') {
+    return { label: '续写', run: onSpawn }
+  }
+  // repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）
+  if (a === 'repair') return null
+  return ACTION_RUNS[a] ?? null
 })
 
 async function refreshState(): Promise<void> {
   try {
     state.value = await getState(props.bookName)
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 watch(
@@ -74,6 +100,10 @@ watch(
   () => refreshState(),
   { immediate: true },
 )
+onMounted(() => {
+  void loadTier()
+  void loadRuleHits()
+})
 // 生成结束（running false 跳变）刷新状态卡
 watch(
   () => wb.running,
@@ -81,14 +111,45 @@ watch(
     if (prev && !r) void refreshState()
   },
 )
+// P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
+// tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
+watch(
+  () => wb.healResult,
+  async (r) => {
+    if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
+    if (!r.docId) return
+    try {
+      await tree.load(props.bookName)
+      ws.openTab(r.docId)
+      ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
+    } catch {
+      /* 树刷新/打开失败不阻断（草稿已落盘，作者可从文章树手动找） */
+    }
+  },
+)
+
+// B-3：max_tokens 截断等非致命警告 → toast 提示
+watch(
+  () => wb.warning,
+  (msg) => {
+    if (!msg) return
+    ui.toast(msg, 'error')
+    wb.warning = null
+  },
+)
 
 async function onSpawn(): Promise<void> {
   err.value = null
   try {
-    await spawnRole(props.bookName, { role: 'writer', prompt: prompt.value || undefined })
-    ui.toast('已触发生成', 'info')
+    // P0-3：先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
+    // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
+    const { prompt: ctx } = await getDraftPrompt(props.bookName, chapter.value)
+    const userText = prompt.value.trim()
+    const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
+    await spawnRole(props.bookName, { role: 'writer', prompt: final })
+    ui.toast('已开始生成', 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }
@@ -97,40 +158,62 @@ async function onInterrupt(): Promise<void> {
     await interrupt(props.bookName)
     ui.toast('已中断', 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
   }
 }
 
-// CLI 八阶段步骤：prepare/confirm/check/finalize/enter/hand/rebook
-async function onCli(step: string): Promise<void> {
-  cliRunning.value = step
-  cliReport.value = ''
+// 全自动写章：AI 写稿→机检→红则自动重写→全绿或触顶交作者。进度经 SSE self_heal_* 事件回流。
+async function onAutoWrite(): Promise<void> {
   err.value = null
   try {
-    const r: CliResult = await runCli(props.bookName, { step, chapter: chapter.value, yes: true })
-    cliReport.value = r.stdout || r.stderr || `(exit ${r.code})`
-    ui.toast(`${STEP_LABELS[step] ?? step} 完成`, r.ok ? 'success' : 'error')
-    void refreshState()
+    await autoWrite(props.bookName, chapter.value)
+    ui.toast(`第 ${chapter.value} 章已开始全自动写稿`, 'info')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
-  } finally {
-    cliRunning.value = null
   }
 }
 
-// 草稿保存：done 后把生成正文 textOut 存为当前章草稿
+// P1-3：AI 生成本章细纲（工作区/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
+async function onOutline(): Promise<void> {
+  err.value = null
+  try {
+    await generateOutline(props.bookName, chapter.value)
+    ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
+  } catch (e) {
+    err.value = friendlyError(e)
+    ui.toast(err.value, 'error')
+  }
+}
+
+// 自愈进度人话（阶段 + 第 N/M 次重写 + 剩余红项数）
+const healText = computed(() => {
+  const p = wb.healProgress
+  if (wb.healPhase === 'rewriting' && p) {
+    return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余 ${p.remaining.length} 条待修）`
+  }
+  if (wb.healPhase === 'drafting') return '正在写稿…'
+  if (wb.healPhase === 'checking') return '校对中…'
+  if (wb.healPhase === 'rewriting') return '正在重写…'
+  return ''
+})
+const healDone = computed(() => wb.healResult)
+
+// 存草稿并编辑（M3）：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
 async function onSaveDraft(): Promise<void> {
   if (!wb.textOut.trim()) {
     ui.toast('无正文可存', 'error')
     return
   }
   try {
-    await saveDraft(props.bookName, chapter.value, wb.textOut)
+    const r = await saveDraft(props.bookName, chapter.value, wb.textOut)
     draftSaved.value = { words: wb.textOut.length }
-    ui.toast(`第 ${chapter.value} 章草稿已存`, 'success')
+    // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
+    await tree.load(props.bookName)
+    ws.openTab(r.docId)
+    ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
 }
@@ -141,25 +224,37 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
     case 'text':
       return String(ev.text ?? '')
     case 'tool_use':
-      return `[工具] ${ev.tool}${ev.role ? ' (' + ev.role + ')' : ''}`
-    case 'tool_result':
-      return `[结果] ${ev.role ?? ''}`
+      return `调用工具 ${ev.tool}${ev.role ? `（${ev.role}）` : ''}`
     case 'role_spawn':
-      return `[子角色] ${ev.role}`
+      return `子角色 ${ev.role} 开始工作`
     case 'usage':
-      return `[用量] tokens=${ev.tokens} cost=${ev.cost}`
+      return `用量：${ev.tokens} tokens${ev.cost ? `（${ev.cost}）` : ''}`
     case 'review-progress':
-      return `[审稿] ${ev.lens} · ${ev.label} (${ev.phase})`
+      return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
+    case 'self_heal_phase':
+      return `自检进入「${ev.phase}」阶段`
+    case 'self_heal_reset':
+      return '重新写稿（清空上一次草稿）'
+    case 'text_reset':
+      return '重试写稿（清空上一次草稿）'
+    case 'warning':
+      return `提示：${ev.message}`
+    case 'self_heal_progress':
+      return `第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余 ${(ev.remaining as string[] | undefined)?.length ?? 0} 条待修`
+    case 'self_heal_result': {
+      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断' }
+      return `自检结果：${m[ev.outcome as string] ?? ev.outcome}`
+    }
     case 'done':
-      return `[完成] reason=${ev.reason} usage=${ev.usage}`
+      return '完成'
     case 'error':
-      return `[错误] ${ev.message}`
+      return `错误：${ev.message}`
     case 'interrupted':
-      return `[中断] ${ev.reason}`
+      return `已中断${ev.reason ? `（${ev.reason}）` : ''}`
     case 'init':
-      return `[init] agents=${(ev.agents as string[] | undefined)?.join(',')}`
+      return '准备就绪'
     default:
-      return `[${ev.type}]`
+      return ev.type
   }
 }
 function evKind(ev: { type: string }): 'text' | 'meta' | 'done' | 'error' {
@@ -175,21 +270,65 @@ const recent = computed(() => wb.log.slice(-200))
   <div class="workbench">
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 驱动不可用（claude CLI 未就绪），写作功能暂不可用。请确认 claude CLI 已安装并在 PATH。
+      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用服务商。
     </div>
-    <!-- 状态卡 -->
+    <!-- 任务档位（只读显示，配置在设置 → AI） -->
+    <section v-if="tierCreative" class="card model-bar">
+      <span class="model-label">创作档</span>
+      <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
+      <span v-if="tierCreative.model" class="tier-meta">
+        Effort {{ tierCreative.effort }}
+      </span>
+    </section>
+    <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
     <section class="card">
       <div class="card-head">
-        <span class="state-tag">
-          <span v-if="state?.state" class="state-num">态 {{ state.state }}</span>
-          {{ state?.stateName ?? '未知' }}
-        </span>
+        <span class="state-tag">{{ state?.stateName ?? '未知' }}</span>
         <span class="conn" :class="{ on: wb.connected }">
           {{ wb.connected ? '已连接' : '连接中' }}
         </span>
       </div>
       <p class="human-msg">{{ state?.humanMsg ?? '读取状态中…' }}</p>
-      <p v-if="actionLabel" class="action">建议：{{ actionLabel }}</p>
+      <div v-if="currentAction" class="action-row">
+        <span class="action-hint">建议下一步</span>
+        <button
+          class="btn mini primary"
+          :disabled="wb.running"
+          @click="currentAction.run"
+        >{{ currentAction.label }}</button>
+      </div>
+    </section>
+
+    <!-- 高级（流程可见：事件流 + 规则命中） -->
+    <section class="card">
+      <CollapseSection title="高级" :default-open="false">
+        <div class="adv-block">
+          <div class="adv-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
+          <div class="stream">
+            <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」开始" size="compact" />
+            <div
+              v-for="(ev, i) in recent"
+              :key="i"
+              class="ev"
+              :class="evKind(ev)"
+            >
+              <span class="ev-ts">{{ ev._ts }}</span>
+              <span class="ev-text">{{ evLabel(ev) }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="adv-block">
+          <div class="adv-head"><span>规则命中</span><span class="muted">{{ ruleHits.length }} 条</span></div>
+          <div v-if="!ruleHits.length" class="muted">暂无规则命中（自动写章重写时统计）</div>
+          <div v-for="h in ruleHits" :key="h.ruleId" class="hit">
+            <div class="hit-head">
+              <span class="hit-id">{{ RULE_LABEL[h.ruleId] ?? h.ruleId }}</span>
+              <span class="hit-count">{{ h.hits }} 次</span>
+            </div>
+            <div v-if="h.recentMessages[0]" class="hit-msg">{{ h.recentMessages[0] }}</div>
+          </div>
+        </div>
+      </CollapseSection>
     </section>
 
     <!-- 触发生成 -->
@@ -204,55 +343,76 @@ const recent = computed(() => wb.log.slice(-200))
         />
         <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
         <button v-else class="btn danger" @click="onInterrupt">中断</button>
-      </div>
-    </section>
-
-    <!-- 事件流 -->
-    <section class="card stream-card">
-      <div class="card-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
-      <div class="stream">
-        <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」触发" size="compact" />
-        <div
-          v-for="(ev, i) in recent"
-          :key="i"
-          class="ev"
-          :class="evKind(ev)"
-        >
-          <span class="ev-ts">{{ ev._ts }}</span>
-          <span class="ev-text">{{ evLabel(ev) }}</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- CLI 八阶段任务 -->
-    <section class="card">
-      <div class="card-head"><span>八阶段任务（第 {{ chapter }} 章）</span></div>
-      <div class="cli-grid">
         <button
-          v-for="step in CLI_STEPS"
-          :key="step"
-          class="cli-btn"
-          :title="step"
-          :disabled="!!cliRunning"
-          @click="onCli(step)"
+          class="btn"
+          :disabled="wb.running || ui.aiAvailable === false"
+          title="AI 生成本章细纲（写稿前的语境准备，全自动写章可读）"
+          @click="onOutline"
         >
-          {{ cliRunning === step ? `${STEP_LABELS[step] ?? step}…` : STEP_LABELS[step] ?? step }}
+          生成细纲
+        </button>
+        <button
+          v-if="!wb.running"
+          class="btn auto"
+          :disabled="ui.aiAvailable === false"
+          title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
+          @click="onAutoWrite"
+        >
+          <Sparkles :size="14" />
+          全自动写章
         </button>
       </div>
-      <pre v-if="cliReport" class="cli-report">{{ cliReport }}</pre>
     </section>
 
-    <!-- 草稿保存 -->
-    <section class="card">
+    <!-- 全自动写章：进度 + 终局（红项只在重试触顶后才流到作者） -->
+    <section v-if="healText || healDone" class="card heal-card">
+      <div v-if="healText" class="heal-row running">
+        <span class="heal-dot" />
+        <span>{{ healText }}</span>
+      </div>
+      <template v-if="healDone">
+        <!-- W1 终局黄项复查：yellows 空 = 文风已收敛；非空 = 仍剩黄项（建议手改，不 gate） -->
+        <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
+          <CircleCheck :size="16" />
+          <div class="heal-detail">
+            <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
+            <ul v-if="healDone.yellows?.length" class="heal-reds">
+              <li v-for="(y, i) in healDone.yellows" :key="i">{{ y }}</li>
+            </ul>
+          </div>
+        </div>
+        <div v-else-if="healDone.outcome === 'escalate'" class="heal-row warn">
+          <TriangleAlert :size="16" />
+          <div class="heal-detail">
+            <div>AI 已重试到上限仍有待修问题，需要你来定夺</div>
+            <ul class="heal-reds">
+              <li v-for="(r, i) in healDone.reds ?? []" :key="i">{{ r }}</li>
+            </ul>
+          </div>
+        </div>
+        <div v-else-if="healDone.outcome === 'aborted'" class="heal-row">
+          <span>已中断，草稿保留最后一次产出</span>
+        </div>
+        <div v-else class="heal-row warn">
+          <TriangleAlert :size="16" />
+          <span>{{ healDone.error ?? '写稿失败' }}</span>
+        </div>
+      </template>
+    </section>
+
+    <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
+    <section class="card draft-card">
       <div class="card-head">
         <span>生成正文</span>
         <span class="muted">{{ draftWords }} 字</span>
       </div>
-      <pre class="draft-preview">{{ wb.textOut || '（无正文）' }}</pre>
-      <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
-        存为第 {{ chapter }} 章草稿
-      </button>
-      <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+      <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
+      <div class="draft-actions">
+        <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
+          存草稿并编辑
+        </button>
+        <span v-if="draftSaved" class="muted">✓ {{ draftSaved.words }} 字已存</span>
+      </div>
     </section>
 
     <div v-if="err" class="err-msg">{{ err }}</div>
@@ -289,18 +449,12 @@ const recent = computed(() => wb.log.slice(-200))
 .state-tag {
   color: var(--text-accent);
 }
-.state-num {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  margin-right: 6px;
-  font-variant-numeric: tabular-nums;
-}
 .conn {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .conn.on {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .human-msg {
   font-size: var(--font-size-m);
@@ -308,10 +462,56 @@ const recent = computed(() => wb.log.slice(-200))
   line-height: 1.7;
   white-space: pre-wrap;
 }
-.action {
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
   margin-top: var(--size-4-2);
+}
+.action-hint {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
+}
+.btn.mini {
+  height: 28px;
+  padding: 0 12px;
+  font-size: var(--font-size-s);
+}
+.model-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+}
+.model-label {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.model-select {
+  flex: 1;
+  height: 30px;
+  font-size: var(--font-size-s);
+  padding: 0 var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+  font-family: var(--font-monospace);
+}
+.model-select:focus {
+  border-color: var(--interactive-accent);
+}
+.tier-model {
+  font-family: var(--font-monospace);
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+}
+.tier-meta {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 .spawn-row {
   display: flex;
@@ -353,19 +553,95 @@ const recent = computed(() => wb.log.slice(-200))
   color: var(--text-error);
   border-color: var(--text-error);
 }
+/* 全自动写章：与「生成」同排的次级强调（accent 描边不抢主按钮） */
+.btn.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+.btn.auto:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+.btn.auto:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.heal-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+.heal-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+}
+.heal-row.ok {
+  color: var(--text-accent);
+}
+.heal-row.warn {
+  color: var(--text-error);
+}
+.heal-row.running {
+  color: var(--text-muted);
+}
+.heal-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  animation: heal-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes heal-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.heal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.heal-reds {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+.heal-reds li {
+  margin: 2px 0;
+}
 .muted {
   font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
 }
-.stream-card {
-  flex: 1;
-  min-height: 200px;
+.adv-block {
+  margin-bottom: var(--size-4-3);
+}
+.adv-block:last-child {
+  margin-bottom: 0;
+}
+.adv-head {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-2);
 }
 .stream {
-  flex: 1;
+  max-height: 240px;
   overflow: auto;
   font-family: var(--font-monospace);
   font-size: var(--font-size-s);
@@ -380,7 +656,7 @@ const recent = computed(() => wb.log.slice(-200))
   white-space: pre-wrap;
 }
 .ev.done {
-  color: var(--text-success);
+  color: var(--dv-good);
 }
 .ev.error {
   color: var(--text-error);
@@ -392,47 +668,46 @@ const recent = computed(() => wb.log.slice(-200))
 .ev-text {
   word-break: break-all;
 }
+.hit {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-weak);
+  font-size: var(--font-size-s);
+}
+.hit:first-of-type {
+  border-top: none;
+}
+.hit-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+}
+.hit-id {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.hit-count {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.hit-msg {
+  margin-top: 2px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  word-break: break-all;
+}
 .err-msg {
   font-size: var(--font-size-s);
   color: var(--text-error);
 }
-.cli-grid {
+.draft-card {
+  flex: 1;
+  min-height: 240px;
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-}
-.cli-btn {
-  padding: 5px 12px;
-  font-size: var(--font-size-s);
-  font-family: var(--font-monospace);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.cli-btn:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-  border-color: var(--interactive-accent);
-}
-.cli-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.cli-report {
-  margin-top: var(--size-4-2);
-  padding: var(--size-4-2);
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  background: var(--background-primary);
-  border-radius: var(--radius-s);
-  white-space: pre-wrap;
-  max-height: 200px;
-  overflow: auto;
+  flex-direction: column;
 }
 .draft-preview {
+  flex: 1;
+  min-height: 120px;
   margin: var(--size-4-2) 0;
   padding: var(--size-4-3);
   font-family: var(--prose-font);
@@ -442,8 +717,12 @@ const recent = computed(() => wb.log.slice(-200))
   background: var(--background-primary);
   border-radius: var(--radius-s);
   white-space: pre-wrap;
-  max-height: 300px;
   overflow: auto;
+}
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
 }
 .ai-warn {
   padding: 8px 12px;

@@ -1,23 +1,22 @@
 /**
- * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读写）。
+ * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读）。
  *
- * GET /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系债子图
- * PUT /api/books/:name/settings/character  body {file, 姓名, 身份?, 目标?, 境界?, 正文}
- *   → 写回 定稿/设定/角色/<名>.md（front matter + 正文，防穿越）→ {ok, file}
+ * GET  /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
+ * GET  /api/books/:name/completion-names → 角色姓名 + 物品名称（编辑器补全用）
  *
  * P2 知识层:角色卡 front matter 约定(姓名/身份/目标/境界)+ 正文(性格/外貌/履历自由描述)。
- * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系债从账本。
+ * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系线从账本。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative } from 'node:path'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { readRealmDoc, writeRealmDoc } from '../../../format/realms.js'
+import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { readFile, parseFlat, stringifyFlat, writeFile } from '../../../format/frontmatter.js'
+import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -86,67 +85,6 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       items: readFmNames(join(setDir, '物品'), '名称'),
     })
   })
-
-  // P2 角色卡写回(防穿越:file 必须在 定稿/设定/角色/ 下)
-  route('PUT', '/api/books/:name/settings/character', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const body = await readJson(req)
-    const file = normalizeProjectPath(String(body['file'] ?? ''))
-    // 防穿越:必须在 定稿/设定/角色/ 下,不含 ..,以 .md 结尾
-    if (!validateCharacterFile(file)) {
-      return reply(res, 400, { error: 'file 必须为 定稿/设定/角色/<名>.md' })
-    }
-    const 姓名 = String(body['姓名'] ?? '').trim()
-    if (!姓名) return reply(res, 400, { error: '姓名必填' })
-    const bookRoot = join(ctx.workDir, entry.path)
-    const fp = join(bookRoot, file)
-    const map = new Map<string, unknown>()
-    map.set('姓名', 姓名)
-    if (body['身份']) map.set('身份', String(body['身份']))
-    if (body['目标']) map.set('目标', String(body['目标']))
-    if (body['境界']) map.set('境界', String(body['境界']))
-    if (body['关系']) map.set('关系', String(body['关系']))
-    const 正文 = String(body['正文'] ?? '').trim()
-    try {
-      writeFile(fp, stringifyFlat(map), 正文)
-    } catch (e) {
-      return reply(res, 500, { error: `写回失败:${e instanceof Error ? e.message : String(e)}` })
-    }
-    reply(res, 200, { ok: true, file })
-  })
-
-  // P2 境界体系写回(固定路径 定稿/设定/境界体系.md,无 file 参数故无穿越风险)
-  route('PUT', '/api/books/:name/settings/realm', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const body = await readJson(req)
-    const 体系Raw = Array.isArray(body['体系']) ? (body['体系'] as unknown[]) : []
-    // 规范化:名称必填,序列 string[](跳过缺名/非对象项)
-    const 体系: RealmSystem[] = 体系Raw.flatMap((s): RealmSystem[] => {
-      if (!s || typeof s !== 'object') return []
-      const rec = s as Record<string, unknown>
-      const 名称 = String(rec['名称'] ?? '').trim()
-      if (!名称) return []
-      return [
-        {
-          名称,
-          序列: Array.isArray(rec['序列']) ? (rec['序列'] as unknown[]).map(String).filter((x) => x.trim() !== '') : [],
-        },
-      ]
-    })
-    const 正文 = String(body['正文'] ?? '').trim()
-    const bookRoot = join(ctx.workDir, entry.path)
-    const fp = join(bookRoot, '定稿', '设定', '境界体系.md')
-    try {
-      writeRealmDoc(fp, { 体系, _path: fp, ...(正文 ? { 正文 } : {}) })
-    } catch (e) {
-      return reply(res, 500, { error: `写回失败:${e instanceof Error ? e.message : String(e)}` })
-    }
-    reply(res, 200, { ok: true })
-  })
 }
 
 function settingsLong(bookRoot: string): unknown {
@@ -164,8 +102,8 @@ function settingsLong(bookRoot: string): unknown {
   const characters = readCharacterCards(join(setDir, '角色'), bookRoot)
   const timeline = scanFreeMd(join(setDir, '时间线'))
 
-  // 关系债子图（账本关系债类）
-  const { leads } = readLeadDir(join(bookRoot, '大纲', '关系债'))
+  // 关系线子图（账本关系线类）
+  const { leads } = readLeadDir(join(bookRoot, '大纲', '关系线'))
   const debtGraph = leads
     .filter((l) => l.欠方 || l.债主)
     .map((l) => ({ 编号: l.编号, 标题: l.标题, 状态: l.状态, 欠方: l.欠方 ?? '', 债主: l.债主 ?? '' }))

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -19,7 +19,7 @@ import {
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../../src/format/chapters.js'
 import { writeSample } from '../../src/format/style.js'
-import { parseIronRules, type IronRules } from '../../src/check/count.js'
+import { parseIronRules } from '../../src/check/count.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const TAG_RULES = parseIronRules('对话标签占比: 50%')
@@ -319,17 +319,17 @@ function makeShortBook(pieceCount: number): string {
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short' })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
+  mkdirSync(join(root, '篇'), { recursive: true })
   for (let n = 1; n <= pieceCount; n++) {
-    const dir = join(root, '篇', `${String(n).padStart(3, '0')}-短篇${n}`)
-    mkdirSync(dir, { recursive: true })
+    const name = `${String(n).padStart(3, '0')}-短篇${n}.md`
     const fm = `篇号: ${n}\n标题: 短篇${n}`
     const body = '「你来了。」他说。\n雪落无声。\n刀光闪过。'
-    writeFileSync(join(dir, '正文.md'), `---\n${fm}\n---\n${body}`, 'utf-8')
+    writeFileSync(join(root, '篇', name), `---\n${fm}\n---\n${body}`, 'utf-8')
   }
   return root
 }
 
-test('scanShortPieces: 扫 篇 下各目录的正文.md', () => {
+test('scanShortPieces: 扫 篇/*.md 逐篇算指纹', () => {
   const root = makeShortBook(3)
   const samples = scanShortPieces(root)
   expect(samples).toHaveLength(3)

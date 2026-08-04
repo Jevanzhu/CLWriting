@@ -1,6 +1,6 @@
 /**
  * POST /api/books/:name/documents/:docId/review 三审直读端点集成测（M12 块1 B0.2）。
- * mock driver 下验证全链路：机检 → buildReviewPacket → spawnRole×3 → collectReviewIssues → 落信封。
+ * mock driver 下验证全链路：机检 → buildReviewPacket → generateTool(submit_issues)×3 → collectReviewIssues → 落信封。
  *（mock driver 样本文本非 issues JSON，collected.ok 可能 false；B1.4 改 mock 按 role 返 JSON 后才断言意见。）
  */
 import http from 'node:http'
@@ -68,7 +68,7 @@ beforeAll(async () => {
   )
   bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '大纲', '伏笔'), { recursive: true })
+  mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),

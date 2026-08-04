@@ -8,7 +8,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { writeFileSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -38,7 +38,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     if (!config || typeof config !== 'object') return reply(res, 400, { error: 'config 必填' })
     try {
       const yaml = stringifyBookConfig(config)
-      writeFileSync(join(ctx.workDir, entry.path, 'book.yaml'), yaml, 'utf8')
+      atomicWriteFile(join(ctx.workDir, entry.path, 'book.yaml'), yaml)
     } catch (e) {
       return reply(res, 500, { error: `写 book.yaml:${e instanceof Error ? e.message : String(e)}` })
     }

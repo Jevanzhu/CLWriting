@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 文档编辑视图：单行路径式顶栏（面包屑→标题合为一条，720px 居中对齐正文）+ CM6 正文。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PenLine, Loader2 } from 'lucide-vue-next'
+import { PenLine, Loader2, Save, Check } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -10,12 +10,13 @@ import { useRewriteStore } from '../stores/rewrite'
 import { updateChapterMetaDoc } from '../api/documents'
 import { getConfig } from '../api/books'
 import { usePrefsStore } from '../stores/prefs'
-import { stripFrontmatter, mergeFm, parseFmFields, formKindOf } from '../shared/words'
+import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 import { useNativeMenu } from '../composables/useNativeMenu'
 import EmptyState from '../components/ui/EmptyState.vue'
+import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ docId: string | null }>()
 const doc = useDocStore()
@@ -70,12 +71,33 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
   const e = entry.value
   if (!e) return { text: '', cls: '' }
   if (e.saving) return { text: '保存中', cls: 'saving' }
-  if (e.handLocked) return { text: '手写中', cls: 'saving' }
   if (e.error) return { text: '保存失败', cls: 'err' }
   if (e.dirty) return { text: '未保存', cls: 'dirty' }
   if (e.savedAt) return { text: '已保存', cls: 'saved' }
   return { text: '', cls: '' }
 })
+
+/** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。 */
+const saveBtnLabel = computed(() => {
+  const e = entry.value
+  if (!e) return '保存'
+  if (e.saving) return '保存中'
+  if (e.error) return '重试'
+  return e.dirty ? '保存' : '已保存'
+})
+
+/** 手动保存（按钮 + ⌘S/Ctrl+S）。 */
+function onSave(): void {
+  const e = entry.value
+  if (!e || e.saving || (!e.dirty && !e.error)) return
+  void doc.save(e.docId, 'manual')
+}
+function onKeydown(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault()
+    onSave()
+  }
+}
 
 const aiActions = [
   { key: 'expand', label: '扩写', instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
@@ -84,15 +106,17 @@ const aiActions = [
   { key: 'continue', label: '续写', instruction: '保留原文不变，在后面续写200-500字，延续当前风格和情节' },
 ] as const
 
-async function runAiAssist(instruction: string): Promise<void> {
+async function runAiAssist(action: { key: string; instruction: string }): Promise<void> {
   const sel = ws.editorGetSelection?.() ?? ''
-  if (!sel) {
+  // M2 续写解选区：无选区的续写走 append（空白页/卡壳时刻）；其余动作仍需选区靶点
+  const isAppend = action.key === 'continue' && !sel
+  if (!sel && !isAppend) {
     ui.toast('请先选中要操作的文字', 'info')
     return
   }
   if (!ws.activeDocId || !doc.bookName) return
   ws.setRightTab('review')
-  await rewrite.run(doc.bookName, ws.activeDocId, instruction, sel)
+  await rewrite.run(doc.bookName, ws.activeDocId, action.instruction, sel, isAppend)
 }
 type CmHostExposed = {
   insertText: (t: string) => void
@@ -153,10 +177,10 @@ async function onCtxSelect(key: string): Promise<void> {
     case 'redo': cmHost.value?.redoAction(); break
     case 'selectAll': cmHost.value?.selectAll(); break
     case 'find': cmHost.value?.openSearch(); break
-    case 'ai-expand': void runAiAssist(aiActions[0].instruction); break
-    case 'ai-condense': void runAiAssist(aiActions[1].instruction); break
-    case 'ai-polish': void runAiAssist(aiActions[2].instruction); break
-    case 'ai-continue': void runAiAssist(aiActions[3].instruction); break
+    case 'ai-expand': void runAiAssist(aiActions[0]); break
+    case 'ai-condense': void runAiAssist(aiActions[1]); break
+    case 'ai-polish': void runAiAssist(aiActions[2]); break
+    case 'ai-continue': void runAiAssist(aiActions[3]); break
   }
 }
 
@@ -202,7 +226,7 @@ function onBodyChange(next: string): void {
   doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
 }
 
-const isChapter = computed(() => entry.value?.path.startsWith('定稿/正文/') ?? false)
+const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
 watch(
   () => entry.value?.content,
@@ -221,21 +245,29 @@ async function onTitleCommit(): Promise<void> {
   if (newTitle === current) return
   titleSaving.value = true
   try {
-    const localBody = stripFrontmatter(e.content)
-    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, { 标题: newTitle })
+    // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
+    const pieceNum = e.path.startsWith('篇/')
+      ? Number(parseFmFields(e.content).篇号 ?? 1)
+      : undefined
+    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
+      标题: newTitle,
+      ...(e.path.startsWith('篇/') && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
+    })
     await tree.load(doc.bookName!)
     const fresh = tree.byDocId.get(ws.activeDocId)
     if (fresh) {
       e.path = fresh.path
       e.name = fresh.name
     }
+    // refresh 前抓最新本地正文（含上述 await 期间用户编辑），防 refresh 覆盖丢失正文
+    const localBody = stripFrontmatter(e.content)
     await doc.refresh(ws.activeDocId)
     const refreshed = doc.get(ws.activeDocId)
     if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
       doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
     }
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
   }
@@ -267,11 +299,13 @@ function startTimer(): void {
 onMounted(() => {
   startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
+  window.addEventListener('keydown', onKeydown)
 })
 watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -301,13 +335,10 @@ onUnmounted(() => {
           />
           <span v-else class="bar-title">{{ entry.name }}</span>
         </div>
-        <!-- 右：状态 · 字数 · 保存 · AI 按钮 -->
+        <!-- 右：字数 · 状态 · 冲突 · AI · 保存（最右） -->
         <div class="bar-right">
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
-          <span v-if="saveStatus.text" class="save-status" :class="saveStatus.cls">
-            <span class="save-dot" />
-          </span>
           <template v-if="entry.conflict">
             <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载</button>
             <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
@@ -318,13 +349,28 @@ onUnmounted(() => {
               :key="a.key"
               class="ai-btn"
               :disabled="aiOff || rewrite.loading"
-              :data-tip="aiOff ? 'AI 不可达' : a.label"
+              :data-tip="aiOff ? 'AI 暂不可用' : a.label"
               data-tip-dir="bottom"
-              @click="runAiAssist(a.instruction)"
+              @click="runAiAssist(a)"
             >
               {{ a.label }}
             </button>
             <Loader2 v-if="rewrite.loading" :size="12" class="ai-btn-spin" />
+          </div>
+          <div class="save-group">
+            <button
+              class="save-btn"
+              :class="saveStatus.cls"
+              :disabled="entry.saving || (!entry.dirty && !entry.error)"
+              data-tip="保存（⌘S）"
+              data-tip-dir="bottom"
+              @click="onSave"
+            >
+              <Loader2 v-if="entry.saving" :size="12" class="save-btn-spin" />
+              <Check v-else-if="entry.savedAt && !entry.dirty" :size="12" />
+              <Save v-else :size="12" />
+              <span>{{ saveBtnLabel }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -537,8 +583,8 @@ onUnmounted(() => {
   border-radius: var(--radius-s);
 }
 .doc-status.st-good {
-  color: var(--text-success);
-  background: color-mix(in srgb, var(--text-success) 12%, transparent);
+  color: var(--dv-good);
+  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
 }
 .doc-status.st-bad {
   color: var(--text-error);
@@ -552,26 +598,57 @@ onUnmounted(() => {
   color: var(--text-faint);
   background: var(--background-modifier-hover);
 }
-.save-status {
+/* 保存按钮：与 AI 按钮同款 pill（同 padding/字号/圆角），置于最右；所有状态都有
+   底色框（idle 灰 / dirty 实色翠绿 / saving·saved 绿软底 / err 红软底），
+   padding/高度/框样式跨状态一致 → 形状规格统一。 */
+.save-btn {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.save-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
+/* dirty：实色翠绿——主操作态，与 AI 实色 pill 同形态、换绿色相 */
+.save-btn.dirty {
+  background: var(--dv-good);
+  color: var(--text-on-accent);
 }
-.save-status.saved .save-dot { background: var(--dv-good); }
-.save-status.dirty .save-dot { background: var(--text-warning); }
-.save-status.err .save-dot { background: var(--text-error); }
-.save-status.saving .save-dot {
-  background: var(--text-accent);
-  animation: save-pulse 1s var(--ease-std) infinite;
+.save-btn.dirty:hover {
+  background: color-mix(in srgb, var(--dv-good) 88%, white);
 }
-@keyframes save-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+/* saving：翠绿软底 + 转圈（进行中，保持操作色相） */
+.save-btn.saving {
+  background: color-mix(in srgb, var(--dv-good) 22%, transparent);
+  color: var(--dv-good);
+}
+/* saved：淡翠绿软底 + ✓（完成态；保留框，与其他状态边缘对齐） */
+.save-btn.saved {
+  background: color-mix(in srgb, var(--dv-good) 14%, transparent);
+  color: var(--dv-good);
+}
+/* err：红软底——可点重试 */
+.save-btn.err {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 14%, transparent);
+}
+.save-btn.err:hover {
+  background: color-mix(in srgb, var(--text-error) 22%, transparent);
+}
+.save-btn:hover:not(:disabled):not(.dirty):not(.err) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.save-btn:disabled {
+  cursor: default;
+}
+.save-btn-spin {
+  animation: ai-btn-rot 0.9s linear infinite;
 }
 .conflict-btn {
   font-size: var(--font-size-xs);
@@ -590,6 +667,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--size-4-1);
+  padding-left: var(--size-4-3);
+  border-left: 1px solid var(--background-modifier-border);
+}
+/* 保存按钮组：与 ai-group 对称（border-left + 同款 padding-left），分隔线两侧间距一致 */
+.save-group {
+  display: flex;
+  align-items: center;
   padding-left: var(--size-4-3);
   border-left: 1px solid var(--background-modifier-border);
 }

@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { startServer } from '../studio/server/index.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { getFonts as getSystemFontList } from 'font-list'
 import {
   parseStore,
@@ -41,6 +42,13 @@ import {
 import type { WorkDirStore } from './workdir-store.js'
 
 const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
+
+// userData 强制统一到定值（大写 CLWriting）。
+// Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
+// （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
+// 侥幸同目录，Linux 上会分裂成两个目录导致配置不互通。见 src/fs/user-data-path.ts。
+// 必须在 app.getPath('userData') 首次调用（如下方 stateFile）之前执行。
+app.setPath('userData', defaultUserDataPath())
 
 /** 前端静态目录：打包后 asar 内 / 开发项目根 dist/web */
 function resolveStaticDir(): string {
@@ -259,26 +267,16 @@ function openLibraryWindow(): void {
 }
 
 async function bootstrap(): Promise<void> {
-  // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd) > 弹选择器
+  // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
+  // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
   let workDir: string | null = null
   if (store.current && existsSync(store.current)) {
     workDir = store.current
   } else {
     workDir = findWorkDir(process.cwd())
-    if (!workDir) {
-      // 无持久化（或失效）、cwd 也没定位到 → 弹选择器
-      const picked = await pickLibrary()
-      if (picked) {
-        saveCurrent(picked)
-        workDir = picked
-      }
-    }
   }
-
-  if (!workDir) {
-    console.warn('⚠ 未定位到工作目录，书架将为空（请在书架页点「打开书库」选择）。')
-  }
+  const needsWelcome = !workDir
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起内嵌 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
@@ -320,8 +318,17 @@ async function bootstrap(): Promise<void> {
   mainWindow.on('close', () => {
     saveWinState()
   })
+  // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
+  // （与书架窗口 desktop:open-book 主动 close 行为对齐）
+  mainWindow.on('focus', () => {
+    if (libraryWindow && !libraryWindow.isDestroyed()) {
+      libraryWindow.close()
+    }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
+    // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
+    app.quit()
   })
   // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
@@ -332,8 +339,8 @@ async function bootstrap(): Promise<void> {
   if (devUi) {
     await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
-  await mainWindow.loadURL(appUrl)
-  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}`)
+  await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
+  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────
@@ -379,7 +386,10 @@ function registerIpc(): void {
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
-    void shell.openPath(resolve(workDir, entry.path))
+    // 路径校验：entry.path 来自 books.jsonl，防 `..` 越出 workDir 打开任意目录
+    const target = resolve(workDir, entry.path)
+    if (relative(workDir, target).startsWith('..')) return
+    void shell.openPath(target)
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   ipcMain.handle('desktop:get-system-fonts', async () => {
@@ -418,13 +428,18 @@ function registerIpc(): void {
   ipcMain.on('desktop:context-menu', (event, specs: unknown[]) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
-    let selected: string | null = null
+    let sent = false
+    function sendOnce(key: string | null): void {
+      if (sent) return
+      sent = true
+      event.sender.send('desktop:context-menu-select', key)
+    }
     function build(s: Record<string, unknown>): MenuItemConstructorOptions {
       if (s.separator) return { type: 'separator' }
       const item: MenuItemConstructorOptions = {
         label: (s.label as string) ?? '',
         enabled: s.disabled !== true,
-        click: () => { selected = s.key as string },
+        click: () => { sendOnce(s.key as string) },
       }
       if (s.accelerator) item.accelerator = s.accelerator as string
       const sub = s.submenu
@@ -432,9 +447,16 @@ function registerIpc(): void {
       return item
     }
     const menu = Menu.buildFromTemplate(specs.map((s) => build(s as Record<string, unknown>)))
-    menu.popup({ window: win })
-    // macOS: popup 阻塞，菜单已关闭；发送选择结果（null=取消）
-    event.sender.send('desktop:context-menu-select', selected)
+    // popup 非阻塞：菜单关闭走 callback，点选走 click。macOS 下 NSMenu 先关
+    // 菜单再派发 action，click 可能晚于 callback —— 故 callback 里延后一拍
+    // 才补发 null（取消），给 click 抢先 sendOnce 的机会。渲染侧是
+    // ipcRenderer.once，只认第一条消息，抢先发 null 会吞掉整个菜单动作。
+    menu.popup({
+      window: win,
+      callback: () => {
+        setTimeout(() => sendOnce(null), 0)
+      },
+    })
   })
 }
 
@@ -442,10 +464,21 @@ function registerIpc(): void {
 
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
+  /** 业务菜单项 click → 发 actionKey 给当前聚焦窗口（前端 useAppActions.dispatch 消费）。
+   *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。 */
+  function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
+    return {
+      click: () =>
+        BrowserWindow.getFocusedWindow()?.webContents.send('desktop:menu-action', key),
+    }
+  }
   const macAppMenu: MenuItemConstructorOptions = {
     label: app.name,
     submenu: [
       { role: 'about' },
+      { type: 'separator' },
+      // macOS 肌肉记忆：偏好设置置于 app 菜单
+      { label: '偏好设置…', accelerator: 'CmdOrCtrl+,', ...action('settings') },
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -461,11 +494,13 @@ function buildMenu(): void {
     {
       label: '文件',
       submenu: [
+        { label: '新建书…', accelerator: 'CmdOrCtrl+N', ...action('new-book') },
         {
           label: '打开书库目录…',
           accelerator: 'CmdOrCtrl+O',
           click: () => void openLibraryAction(),
         },
+        { label: '导出…', accelerator: 'CmdOrCtrl+E', ...action('export') },
         { type: 'separator' },
         isMac ? { role: 'close' as const } : { role: 'quit' as const },
       ],
@@ -485,9 +520,16 @@ function buildMenu(): void {
     {
       label: '视图',
       submenu: [
+        { label: '切换左栏', accelerator: 'CmdOrCtrl+B', ...action('toggle-left') },
+        { label: '切换右栏', accelerator: 'CmdOrCtrl+Shift+B', ...action('toggle-right') },
+        { label: '专注模式', accelerator: 'CmdOrCtrl+Shift+F', ...action('focus') },
+        { type: 'separator' },
+        { label: '切换亮/暗主题', ...action('theme') },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        // 开发者工具仅 dev 显示（打包后隐藏）
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -496,6 +538,26 @@ function buildMenu(): void {
         { role: 'togglefullscreen' },
       ],
     },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
+        { label: '书架', click: () => openShelfWindow() },
+        { label: '书库管理', click: () => openLibraryWindow() },
+      ],
+    },
+    // macOS 的「关于」在 app 菜单；非 mac 单独「帮助」菜单承载
+    ...(isMac
+      ? []
+      : [
+          {
+            label: '帮助',
+            submenu: [{ role: 'about' as const }],
+          } as MenuItemConstructorOptions,
+        ]),
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

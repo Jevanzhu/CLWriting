@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -8,6 +8,7 @@ import {
   parsePieceFileName,
   readPieceDir,
   countPieces,
+  migratePieceLayout,
 } from '../../src/format/pieces.js'
 import type { PieceMeta } from '../../src/format/types.js'
 
@@ -60,33 +61,61 @@ test('readPiece: 未知字段进 _raw 容错保留', () => {
 
 // ── parsePieceFileName ───────────────────────────
 
-test('parsePieceFileName: 子路径取目录名段', () => {
-  expect(parsePieceFileName('篇/001-雪夜来客/正文.md')).toEqual({ 篇号: 1, 标题: '雪夜来客' })
+test('parsePieceFileName: 从文件名提取篇号+标题', () => {
+  expect(parsePieceFileName('篇/001-雪夜来客.md')).toEqual({ 篇号: 1, 标题: '雪夜来客' })
   expect(parsePieceFileName('001-雪夜来客')).toEqual({ 篇号: 1, 标题: '雪夜来客' })
-  expect(parsePieceFileName('无篇号目录/正文.md')).toBeNull()
+  expect(parsePieceFileName('无篇号.md')).toBeNull()
 })
 
 // ── readPieceDir + countPieces ───────────────────
 
-test('readPieceDir: 扫 篇/ 子目录读正文', () => {
+test('readPieceDir: 扫 篇/*.md 读正文', () => {
   const 篇Root = join(tmp, '篇')
-  mkdirSync(join(篇Root, '001-雪夜来客'), { recursive: true })
-  mkdirSync(join(篇Root, '002-暗河'), { recursive: true })
-  writePiece(join(篇Root, '001-雪夜来客', '正文.md'), { 篇号: 1, 标题: '雪夜来客' }, '正文一')
-  writePiece(join(篇Root, '002-暗河', '正文.md'), { 篇号: 2, 标题: '暗河' }, '正文二')
+  mkdirSync(篇Root, { recursive: true })
+  writePiece(join(篇Root, '001-雪夜来客.md'), { 篇号: 1, 标题: '雪夜来客' }, '正文一')
+  writePiece(join(篇Root, '002-暗河.md'), { 篇号: 2, 标题: '暗河' }, '正文二')
 
   const r = readPieceDir(篇Root)
   expect(r.pieces).toHaveLength(2)
   expect(r.pieces.map((p) => p.篇号).sort((a, b) => a - b)).toEqual([1, 2])
 })
 
-test('countPieces: 只计 篇号-标题 格式目录', () => {
+test('countPieces: 只计 篇号-标题.md 格式文件', () => {
   const 篇Root = join(tmp, '篇')
-  mkdirSync(join(篇Root, '001-标题'), { recursive: true })
-  mkdirSync(join(篇Root, '002-标题'), { recursive: true })
-  mkdirSync(join(篇Root, '散文件目录'), { recursive: true }) // 不计：无篇号前缀
+  mkdirSync(篇Root, { recursive: true })
+  writeFileSync(join(篇Root, '001-标题.md'), '', 'utf-8')
+  writeFileSync(join(篇Root, '002-标题.md'), '', 'utf-8')
+  writeFileSync(join(篇Root, '散文件.md'), '', 'utf-8') // 不计：无篇号前缀
   mkdirSync(join(篇Root, '.隐藏'), { recursive: true }) // 不计
 
   expect(countPieces(篇Root)).toBe(2)
   expect(countPieces(join(tmp, '不存在'))).toBe(0)
+})
+
+// ── migratePieceLayout ───────────────────────────
+
+test('migratePieceLayout: 旧目录结构 → 新文件结构', () => {
+  // 创建旧结构
+  mkdirSync(join(tmp, '篇', '001-旧案'), { recursive: true })
+  writePiece(join(tmp, '篇', '001-旧案', '正文.md'), { 篇号: 1, 标题: '旧案' }, '正文')
+  writeFileSync(join(tmp, '篇', '001-旧案', '清单.md'), '## 清单', 'utf-8')
+
+  const result = migratePieceLayout(tmp)
+  expect(result.migrated).toBe(1)
+  expect(result.errors).toHaveLength(0)
+
+  // 新结构存在
+  expect(existsSync(join(tmp, '篇', '001-旧案.md'))).toBe(true)
+  expect(existsSync(join(tmp, '清单', '001-旧案.md'))).toBe(true)
+  // 旧目录已删
+  expect(existsSync(join(tmp, '篇', '001-旧案'))).toBe(false)
+})
+
+test('migratePieceLayout: 无旧结构则 no-op', () => {
+  mkdirSync(join(tmp, '篇'), { recursive: true })
+  writePiece(join(tmp, '篇', '001-已有.md'), { 篇号: 1, 标题: '已有' }, '正文')
+
+  const result = migratePieceLayout(tmp)
+  expect(result.migrated).toBe(0)
+  expect(existsSync(join(tmp, '篇', '001-已有.md'))).toBe(true)
 })

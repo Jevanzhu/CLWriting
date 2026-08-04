@@ -1,6 +1,6 @@
 /**
  * POST /api/books/:name/documents/:docId/rewrite 改写直读端点集成测（M12 块2 B2.1）。
- * mock driver（writer role）下验证：local 选段改写 / whole 整章改写 → diff 有变化。
+ * mock driver（writer role）下验证：local 选段改写 / whole 整章改写 / append 续写（M2）→ diff 有变化。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { appendRewritten, buildAppendPrompt } from '../../src/studio/server/api/rewrite.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -124,8 +125,46 @@ describe('POST /documents/:docId/rewrite 改写直读（M12 B2.1）', () => {
     expect(j.diff.length).toBeGreaterThan(0)
   })
 
+  it('append 续写（无 selection + append:true）→ 200 + 原文全保留 + diff 纯新增', async () => {
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, {
+      instruction: '继续写下去',
+      append: true,
+    })
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; mode: string; original: string; rewritten: string; diff: { type: string }[] }
+    expect(j.ok).toBe(true)
+    expect(j.mode).toBe('append')
+    // 原文（去尾换行）完整保留在开头，续写只追加
+    expect(j.rewritten.startsWith(j.original.replace(/\n+$/, ''))).toBe(true)
+    expect(j.rewritten.length).toBeGreaterThan(j.original.length)
+    expect(j.diff.some((d) => d.type === 'add')).toBe(true)
+    expect(j.diff.some((d) => d.type === 'del')).toBe(false)
+  })
+
   it('缺 instruction → 400', async () => {
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, { selection: 'x' })
     expect(r.status).toBe(400)
+  })
+})
+
+describe('append 纯函数（M2 续写解选区）', () => {
+  it('appendRewritten：原文去尾换行 + 空行 + 续写', () => {
+    expect(appendRewritten('第一段。\n', '第二段。')).toBe('第一段。\n\n第二段。')
+    expect(appendRewritten('第一段。', '第二段。')).toBe('第一段。\n\n第二段。')
+  })
+
+  it('appendRewritten：空白页直接用续写（无前导空行）', () => {
+    expect(appendRewritten('', '开篇文字。')).toBe('开篇文字。')
+  })
+
+  it('buildAppendPrompt：全文作语境 + 明示只输出续写部分', () => {
+    const p = buildAppendPrompt('他推门进来。', '续写200字')
+    expect(p).toContain('他推门进来。')
+    expect(p).toContain('续写200字')
+    expect(p).toContain('只输出续写部分')
+  })
+
+  it('buildAppendPrompt：空白页语境给从头开写提示', () => {
+    expect(buildAppendPrompt('', '开写')).toContain('本章尚无正文')
   })
 })

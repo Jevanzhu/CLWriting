@@ -17,7 +17,6 @@ import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import type { BookConfig } from '../../src/format/types.js'
 
 /** 跑一条 git 命令（fixture 用，stdio pipe 免污染测试输出） */
 export function git(args: string[], cwd: string): string {
@@ -44,7 +43,6 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
 
   // 目录骨架（母本第 5 节数据形态）
-  mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
   mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
   mkdirSync(join(root, '大纲', '感情线'), { recursive: true })
   mkdirSync(join(root, '定稿', '正文'), { recursive: true })
@@ -54,8 +52,8 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
 
   // 1 条账本（基础类，恒启用）
   writeFileSync(
-    join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
-    '---\n编号: 伏笔-031\n标题: 灭门真凶\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
+    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
     'utf-8',
   )
 
@@ -64,9 +62,9 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
     const db = new DatabaseSync(join(root, '.cache', 'index.db'))
     createAllTables(db)
     syncLead(db, {
-      编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+      编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
       履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }],
-      _path: join(root, '大纲', '伏笔', '伏笔-031-灭门真凶.md'),
+      _path: join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
     })
     db.close()
   }

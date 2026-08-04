@@ -7,25 +7,25 @@
  */
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
+import { readBooks } from '../../install/books.js'
+import { migratePieceLayout } from '../../format/pieces.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
 import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
-import { registerLeadsRoutes } from './api/leads.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
-import { registerCliRoutes } from './api/cli.js'
 import { registerReviewRoutes } from './api/review.js'
 import { registerOnboardRoutes } from './api/onboard.js'
 import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
 import { registerPrefsRoutes } from './api/prefs.js'
-import { registerPiecesRoutes } from './api/pieces.js'
 import { registerStateRoutes } from './api/state.js'
 import { registerIoRoutes } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
@@ -35,7 +35,11 @@ import { registerSnapshotRoutes } from './api/snapshots.js'
 import { registerSearchRoutes } from './api/search.js'
 import { registerCheckRoutes } from './api/check.js'
 import { registerAnalysisRoutes } from './api/analysis.js'
+import { registerForeshadowRoutes } from './api/foreshadows.js'
+import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
+import { registerProvidersRoutes } from './api/providers.js'
+import { registerTraceStatsRoutes } from './api/trace-stats.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
@@ -43,7 +47,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
   const routes = createRouteTable()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
-    registerAiStatusRoutes()
+    registerAiStatusRoutes({ userDataPath })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token })
@@ -51,13 +55,10 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerFileRoutes({ workDir })
     registerOverviewRoutes({ workDir })
     registerRhythmRoutes({ workDir })
-    registerLeadsRoutes({ workDir })
     registerSettingsRoutes({ workDir })
     registerDraftRoutes({ workDir })
-    registerCliRoutes({ workDir })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
-    registerPiecesRoutes({ workDir })
     registerStateRoutes({ workDir })
     registerIoRoutes({ workDir, token })
     registerKnowledgeRoutes({ workDir, token })
@@ -66,14 +67,18 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerSnapshotRoutes({ workDir })
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir })
-    registerAnalysisRoutes({ workDir })
+    registerAnalysisRoutes({ workDir, userDataPath })
+    registerForeshadowRoutes({ workDir })
+    registerStyleRoutes({ workDir })
+    registerProvidersRoutes({ userDataPath })
+    registerTraceStatsRoutes({ workDir })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
-    registerStreamRoutes({ workDir })
-    registerOutlineRoutes({ workDir })
-    registerReviewRoutes({ workDir })
-    registerOnboardRoutes({ workDir })
-    registerRewriteRoutes({ workDir })
+    registerStreamRoutes({ workDir, userDataPath })
+    registerOutlineRoutes({ workDir, userDataPath })
+    registerReviewRoutes({ workDir, userDataPath })
+    registerOnboardRoutes({ workDir, userDataPath })
+    registerRewriteRoutes({ workDir, userDataPath })
   })
   return routes
 }
@@ -92,6 +97,12 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
+  // 迁移旧短篇目录结构（篇/N-T/正文.md → 篇/N-T.md + 清单/N-T.md；幂等，无旧结构 no-op）
+  if (opts.workDir) {
+    for (const book of readBooks(opts.workDir)) {
+      migratePieceLayout(join(opts.workDir, book.path))
+    }
+  }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
@@ -158,6 +169,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add(`http://127.0.0.1:${opts.port}`)
     allowedOrigins.add(`http://localhost:${opts.port}`)
   }
+  // keep-alive 治理:Node 默认 keepAliveTimeout=5s,客户端连接池缓存的连接超过 5s 被服务端关掉,
+  // 客户端复用已 FIN 的 socket 写入 → EPIPE(长生成后 POST 大草稿体时偶发)。
+  // 拉长到 30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout(Node v19+ 硬约束)。
+  server.keepAliveTimeout = 30_000
+  server.headersTimeout = 35_000
   server.listen(opts.port, host)
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {

@@ -1,213 +1,140 @@
-import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+/**
+ * 预算闸单测（C 档计量接回）。
+ *
+ * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
+ */
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import {
-  aiCallBudgetPath,
-  checkAiCallBudget,
-  clearAiCallBudget,
-  getAiCallBudgetState,
-  recordAiCall,
-  setAiCallTokens,
-  setAiCallLimitOverride,
-} from '../../src/ai/calls.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { recordAiCall, checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 
-function makeWorkDir(): string {
-  return mkdtempSync(join(tmpdir(), '北境调用-'))
+const dirs: string[] = []
+function tempBook(): string {
+  const d = mkdtempSync(join(tmpdir(), 'clwriting-calls-'))
+  dirs.push(d)
+  return d
 }
-
-function configWithLimit(limit: number): BookConfig {
-  return { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, calls_per_chapter: limit } }
-}
-
-test('调用预算: 无记录视为本章 0 次', () => {
-  const workDir = makeWorkDir()
-  const state = getAiCallBudgetState(workDir, 12, DEFAULT_CONFIG)
-  expect(state.ok).toBe(true)
-  if (state.ok) {
-    expect(state.used).toBe(0)
-    expect(state.limit).toBe(8)
-    expect(state.remaining).toBe(8)
-  }
-  rmSync(workDir, { recursive: true, force: true })
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-test('调用预算: 续跑继承已用次数，未超放行并记录留痕', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
+const CONFIG = { budget: { calls_per_chapter: 3 } } as unknown as BookConfig
 
-  const r1 = recordAiCall({ workDir, chapter: 12, config, step: 'outline', at: '2026-06-18T00:00:00.000Z' })
-  expect(r1.ok).toBe(true)
-  const r2 = recordAiCall({ workDir, chapter: 12, config, step: 'draft', calls: 3, at: '2026-06-18T00:01:00.000Z' })
-  expect(r2.ok).toBe(true)
+describe('recordAiCall 记账', () => {
+  it('一次生成后落账', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(1)
+  })
 
-  const decision = checkAiCallBudget({ workDir, chapter: 12, config, plannedCalls: 3, label: '满审' })
-  expect(decision.ok).toBe(true)
-  if (decision.ok) {
-    expect(decision.used).toBe(4)
-    expect(decision.projected).toBe(7)
-    expect(decision.remaining).toBe(1)
-  }
+  it('多次调用累计计数', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
+    recordAiCall(root, 1, { inputTokens: 50, outputTokens: 150 })
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(2)
+  })
 
-  const state = getAiCallBudgetState(workDir, 12, config)
-  expect(state.ok).toBe(true)
-  if (state.ok) {
-    expect(state.record?.entries).toHaveLength(2)
-  }
-  rmSync(workDir, { recursive: true, force: true })
+  it('usage 为 null 时只计数', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, null)
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(1)
+  })
 })
 
-test('调用预算: 将超上限时拒绝并给决策提示', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(4)
-  recordAiCall({ workDir, chapter: 3, config, step: 'outline', calls: 1 })
-  recordAiCall({ workDir, chapter: 3, config, step: 'draft', calls: 3 })
+describe('checkAiCallBudget 预算判定', () => {
+  it('未超限 → ok=true', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(1)
+  })
 
-  const decision = checkAiCallBudget({ workDir, chapter: 3, config, plannedCalls: 1, label: '设定校对' })
-  expect(decision.ok).toBe(false)
-  if (!decision.ok) {
-    expect(decision.reason).toContain('超过每章上限 4')
-    expect(decision.reason).toContain('降低 best-of-N')
-  }
-  rmSync(workDir, { recursive: true, force: true })
+  it('达到上限 → ok=false + reason 含上限值', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, null)
+    recordAiCall(root, 1, null)
+    recordAiCall(root, 1, null)
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(false)
+    if (!b.ok) expect(b.reason).toContain('3')
+  })
+
+  it('换章 → 计数重置为 0', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, null)
+    recordAiCall(root, 1, null)
+    recordAiCall(root, 1, null)
+    const b = checkAiCallBudget(root, 2, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(0)
+  })
 })
 
-test('调用预算 short: 将超上限时按篇提示', () => {
-  const workDir = makeWorkDir()
-  const config: BookConfig = { ...configWithLimit(4), kind: 'short' }
-  recordAiCall({ workDir, chapter: 3, config, step: 'outline', calls: 1 })
-  recordAiCall({ workDir, chapter: 3, config, step: 'draft', calls: 3 })
+describe('recordTaskUsage 任务维度记账（T5）', () => {
+  it('一次 task 调用 → tasks 块出现对应键', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'analysis', { inputTokens: 100, outputTokens: 200 })
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['analysis']).toBeDefined()
+    expect(rec.tasks['analysis'].used).toBe(1)
+    expect(rec.tasks['analysis'].inputTokens).toBe(100)
+  })
 
-  const decision = checkAiCallBudget({ workDir, chapter: 3, config, plannedCalls: 1, label: '短篇满审' })
-  expect(decision.ok).toBe(false)
-  if (!decision.ok) {
-    expect(decision.reason).toContain('本篇已调用 AI 4 次')
-    expect(decision.reason).toContain('超过每篇上限 4')
-    expect(decision.reason).not.toContain('每章上限')
-  }
-  rmSync(workDir, { recursive: true, force: true })
+  it('多次同 task → 累计计数', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'review', { inputTokens: 50, outputTokens: 50 })
+    recordTaskUsage(root, 'review', { inputTokens: 30, outputTokens: 70 })
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['review'].used).toBe(2)
+    expect(rec.tasks['review'].inputTokens).toBe(80)
+  })
+
+  it('换章不影响 task 块（不重置）', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'outline', null)
+    recordAiCall(root, 1, null) // 记 chapter 块
+    recordAiCall(root, 2, null) // 换章
+    // task 块应仍在
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.tasks['outline'].used).toBe(1)
+  })
+
+  it('多 task 共存', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'analysis', null)
+    recordTaskUsage(root, 'review', null)
+    recordTaskUsage(root, 'outline', null)
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(Object.keys(rec.tasks).sort()).toEqual(['analysis', 'outline', 'review'])
+  })
 })
 
-test('调用预算: recordAiCall 拒绝非正 calls，避免写出不可读计数', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  const record = recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 0 })
-  expect(record.ok).toBe(false)
-  if (!record.ok) expect(record.reason).toContain('正整数')
-  expect(existsSync(aiCallBudgetPath(workDir))).toBe(false)
-  rmSync(workDir, { recursive: true, force: true })
-})
+describe('旧格式迁移（T5）', () => {
+  it('旧 flat 格式自动迁移为新 chapter+tasks 结构', () => {
+    const root = tempBook()
+    // 手写旧格式
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n',
+    )
+    // 读触发迁移（checkAiCallBudget → readRecord）
+    const b = checkAiCallBudget(root, 5, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(2)
 
-test('调用预算: 损坏文件保守阻断，不静默归零', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  writeFileSync(aiCallBudgetPath(workDir), '{broken', 'utf-8')
-
-  const state = getAiCallBudgetState(workDir, 8, config)
-  expect(state.ok).toBe(false)
-  if (!state.ok) {
-    expect(state.used).toBe(8)
-    expect(state.reason).toContain('按已达上限处理')
-  }
-  const record = recordAiCall({ workDir, chapter: 8, config, step: 'outline' })
-  expect(record.ok).toBe(false)
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-test('调用预算: 章节不匹配时阻断，避免工作区残留串章', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  recordAiCall({ workDir, chapter: 5, config, step: 'outline' })
-
-  const decision = checkAiCallBudget({ workDir, chapter: 6, config, plannedCalls: 1, label: '细纲' })
-  expect(decision.ok).toBe(false)
-  if (!decision.ok) {
-    expect(decision.reason).toContain('属于第 5 章')
-  }
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-test('调用预算: 本章临时提额只写机器域记录，clear 会删除', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(4)
-  recordAiCall({ workDir, chapter: 9, config, step: 'outline', calls: 4 })
-
-  const before = checkAiCallBudget({ workDir, chapter: 9, config, plannedCalls: 1, label: '满审' })
-  expect(before.ok).toBe(false)
-
-  const override = setAiCallLimitOverride(workDir, 9, config, 6)
-  expect(override.ok).toBe(true)
-  const after = checkAiCallBudget({ workDir, chapter: 9, config, plannedCalls: 1, label: '满审' })
-  expect(after.ok).toBe(true)
-
-  clearAiCallBudget(workDir)
-  expect(existsSync(aiCallBudgetPath(workDir))).toBe(false)
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-test('recordAiCall: tokens 可选透传进 entry，缺省不写字段', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  // outline 不带 tokens
-  recordAiCall({ workDir, chapter: 1, config, step: 'outline', at: 't1' })
-  // draft 带 tokens
-  recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 2, tokens: 1800, at: 't2' })
-
-  const state = getAiCallBudgetState(workDir, 1, config)
-  expect(state.ok).toBe(true)
-  if (state.ok && state.record) {
-    const [outline, draft] = state.record.entries
-    expect(outline!.step).toBe('outline')
-    expect(outline!.tokens).toBeUndefined() // 缺省不写
-    expect(draft!.step).toBe('draft')
-    expect(draft!.tokens).toBe(1800)
-  }
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-test('recordAiCall: tokens 持久化往返（写盘 → 重读 normalizeEntry 保留 tokens）', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  recordAiCall({ workDir, chapter: 7, config, step: 'draft', calls: 1, tokens: 4096, at: 't' })
-
-  // 重新读盘（normalizeRecord → normalizeEntry）
-  const reRead = getAiCallBudgetState(workDir, 7, config)
-  expect(reRead.ok).toBe(true)
-  if (reRead.ok && reRead.record) {
-    expect(reRead.record.entries[0]!.tokens).toBe(4096)
-  }
-
-  // 非法 tokens（字符串）被 normalizeEntry 容错丢弃，不阻断读取
-  const raw = JSON.parse(readFileSync(aiCallBudgetPath(workDir), 'utf-8')) as { entries: { tokens: unknown }[] }
-  raw.entries[0]!.tokens = 'bad'
-  writeFileSync(aiCallBudgetPath(workDir), JSON.stringify(raw), 'utf-8')
-  const afterBad = getAiCallBudgetState(workDir, 7, config)
-  expect(afterBad.ok).toBe(true)
-  if (afterBad.ok && afterBad.record) {
-    expect(afterBad.record.entries[0]!.tokens).toBeUndefined()
-  }
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-test('setAiCallTokens: 事后回填最近一次 step 的 token，不增加调用次数', () => {
-  const workDir = makeWorkDir()
-  const config = configWithLimit(8)
-  recordAiCall({ workDir, chapter: 1, config, step: 'outline', at: 't1' })
-  recordAiCall({ workDir, chapter: 1, config, step: 'draft', calls: 2, at: 't2' })
-
-  const updated = setAiCallTokens({ workDir, chapter: 1, config, step: 'draft', tokens: 3600, at: 't3' })
-
-  expect(updated.ok).toBe(true)
-  const state = getAiCallBudgetState(workDir, 1, config)
-  expect(state.ok).toBe(true)
-  if (state.ok && state.record) {
-    expect(state.record.used).toBe(3)
-    expect(state.record.entries).toHaveLength(2)
-    expect(state.record.entries[0]!.tokens).toBeUndefined()
-    expect(state.record.entries[1]!.tokens).toBe(3600)
-    expect(state.record.updated_at).toBe('t3')
-  }
-  rmSync(workDir, { recursive: true, force: true })
+    // 再读确认迁移后结构正确
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
+    expect(rec.tasks).toEqual({})
+  })
 })

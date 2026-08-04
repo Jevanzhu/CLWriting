@@ -13,7 +13,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
-import { readLeadHistory, readLeadStatus } from '../cli/read.js'
+import { readLeadHistory } from '../format/read.js'
+import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 
 /**
  * 账本形式三检。
@@ -169,11 +170,14 @@ export function extractEvidenceCore(evidence: string): string {
 
 /**
  * 状态闭合校验（#3 第 5 节）：
- * 末条动词是收尾类（回收/揭晓/修成/收网/固化/突破/清算）→ 状态须「已收尾」
- * 末条动词是放弃类（放弃/无疾/被破/倾覆/瓶颈/化解）→ 状态须「已放弃」
+ * 末条动词是收尾类 → 状态须「已收尾」
+ * 末条动词是放弃类 → 状态须「已放弃」
+ *
+ * 动词集合单源派生自 LEAD_VERBS，避免硬编码漂移
+ * （曾因硬编码漏掉成长线「跨层/跃迁」导致状态闭合误判）。
  */
-const RESOLVE_VERBS = new Set(['回收', '揭晓', '修成', '收网', '固化', '突破', '清算'])
-const DROP_VERBS = new Set(['放弃', '无疾', '被破', '倾覆', '瓶颈', '化解'])
+const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
+const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
 
 function checkStatusClosure(lastVerb: string, status: string): boolean {
   if (RESOLVE_VERBS.has(lastVerb) && status !== '已收尾') return true

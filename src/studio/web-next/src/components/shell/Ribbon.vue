@@ -4,11 +4,10 @@ import {
   Search,
   Trash2,
   LayoutGrid,
-  BarChart3,
   Share2,
   Wrench,
   Compass,
-  GraduationCap,
+  Feather,
   Download,
   BookOpen,
   Library,
@@ -62,18 +61,10 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'overview' }"
-        data-tip="总览（书况 / 进度 / 卷纲 / 热力）"
+        data-tip="总览（进度 / 节奏 / 伏笔 / 文风）"
         @click="ws.setActiveView('overview')"
       >
         <LayoutGrid :size="20" />
-      </button>
-      <button
-        class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'rhythm' }"
-        data-tip="节奏（规划 vs 已写）"
-        @click="ws.setActiveView('rhythm')"
-      >
-        <BarChart3 :size="20" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -102,11 +93,11 @@ function openLibraryManager(): void {
       </button>
       <button
         class="rbtn" data-tip-dir="right"
-        :class="{ on: ws.activeView === 'learn' }"
-        data-tip="文风收割（样章/金句候选入库）"
-        @click="ws.setActiveView('learn')"
+        :class="{ on: ws.activeView === 'style' }"
+        data-tip="文风（条目库 / 候选箱 / 基准）"
+        @click="ws.setActiveView('style')"
       >
-        <GraduationCap :size="20" />
+        <Feather :size="20" />
       </button>
     </div>
 

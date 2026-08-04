@@ -24,7 +24,7 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
     status: lead.状态,
     opened_at: lead.开启章,
     cur_realm: lead.当前境界 ?? null,
-    parent_id: lead.父局线 ?? null,
+    parent_id: lead.父布局线 ?? null,
     debtor: lead.欠方 ?? null,
     creditor: lead.债主 ?? null,
     path: lead._path ?? '',
@@ -77,7 +77,7 @@ export function loadLeadFromCache(
     _path: row['path'] as string,
   }
   if (row['cur_realm']) lead.当前境界 = row['cur_realm'] as string
-  if (row['parent_id']) lead.父局线 = row['parent_id'] as string
+  if (row['parent_id']) lead.父布局线 = row['parent_id'] as string
   if (row['debtor']) lead.欠方 = row['debtor'] as string
   if (row['creditor']) lead.债主 = row['creditor'] as string
 

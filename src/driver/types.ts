@@ -1,9 +1,9 @@
 /**
  * driver 抽象层类型(方案第 9 节)。
  *
- * driver 不编排,只「起会话 + 单步生成 + 事件流」。编排权在 GUI。
- * 架构红线:driver 唯一职责 = 驱动 CC(批2 spawn claude)/ mock(批1);
- * GUI 后端不直连大模型(见 memory gui-不直连大模型)。
+ * driver 不编排,只「起会话 + 事件流」。编排权在 GUI / 各端点。
+ * driver 唯一职责:cc / mock = SSE 基础设施(会话 + 事件总线);
+ * 结构化产出走 gen.ts generateTool/generateText(不经 driver)。
  */
 
 /** 一个 book 一个 driver session(切书:dispose 旧 + startSession 新) */
@@ -13,52 +13,53 @@ export interface Session {
   closed: boolean
 }
 
-export interface SessionOptions {
-  /** 角色系统提示加载目录(.claude/agents/*);省略用书仓库默认 */
-  agentsDir?: string
-}
-
-export interface ApprovalResponse {
-  id: string
-  accept: boolean
-  /** 选择题选项 */
-  choice?: string
-}
+export interface SessionOptions {}
 
 /** driver 事件流(方案 9.2);role?: 区分主 agent vs 子角色产出 */
 export type DriverEvent =
   | { type: 'init'; sessionId: string; agents: string[]; tools: string[] }
   | { type: 'text'; text: string; role?: string }
+  /** 生成重试前清正文缓冲（B-1：流式重试防重复产出） */
+  | { type: 'text_reset' }
+  /** 非致命警告（如 max_tokens 截断）——UI toast 提示，不影响生成状态（B-3） */
+  | { type: 'warning'; message: string }
   | { type: 'tool_use'; tool: string; input: unknown; role?: string }
-  | { type: 'tool_result'; result: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
-  | { type: 'approval_request'; id: string; choices: string[]; detail: string }
   | { type: 'usage'; cost: number; tokens: number }
   | { type: 'error'; kind: string; message: string; recoverable: boolean }
   | { type: 'interrupted'; reason: string }
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
+  // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
+  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting'; attempt?: number }
+  /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
+  | { type: 'self_heal_reset' }
+  | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[] }
+  | {
+      type: 'self_heal_result'
+      outcome: 'pass' | 'escalate' | 'aborted' | 'failed'
+      reds?: string[]
+      /** pass 时终稿黄项复查：仍命中的规则违规（message 列表，空 = 已收敛） */
+      yellows?: string[]
+      docId?: string
+      path?: string
+      error?: string
+    }
   | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
 
-/** driver 接口(B 编排:单步生成器,窄化) */
+/** driver 接口(SSE 基础设施,窄化) */
 export interface StudioDriver {
   /** 起会话(带项目上下文;不注入 SKILL.md) */
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
-  /** 主操作:以角色系统提示起单步生成(B 默认,干净上下文) */
-  spawnRole(session: Session, role: string, prompt: string): void
-  /** 辅:软触发主 agent 编排(仅 outline 等多源合成,--resume 续主 session) */
-  send(session: Session, prompt: string): void
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
-  /** 审批 / 选择回灌 */
-  respondApproval(session: Session, approval: ApprovalResponse): void
-  /** 续会话 */
-  resume(sessionId: string): Promise<Session>
   /** 结束会话 */
   dispose(session: Session): void
-  /** 中断当前生成(kill 子进程 + 推 interrupted;session 保留可再 spawn)。可选,mock 可不实现 */
+  /** 中断当前生成(推 interrupted;session 保留可再用)。可选,mock 可不实现 */
   interrupt?(session: Session): void
-  /** 当前是否有存活的生成子进程(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
+  /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
-  /** 往 session 事件流推自定义事件(编排层回推进度,如 review 逐角)。可选 */
+  /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。可选,mock 可不实现 */
+  registerCtrl?(session: Session, ctrl: AbortController): void
+  /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */
   emit?(session: Session, ev: DriverEvent): void
 }

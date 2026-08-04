@@ -1,7 +1,7 @@
 /**
  * 备料 + 输入预算闸 —— 阶段 3（母本第 6.3 节，依据 #12 输入预算闸 spec）。
  *
- * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风铁律 + 文风样章 + 近章结尾。
+ * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风（条目库/铁律）+ 文风样章 + 近章结尾 + 前章正文结尾。
  *
  * 预算闸（#12）：
  * 1. 源头限流——账本只取本章细纲声明推进的条目 + 少数悬太久（不取全部 open）
@@ -13,9 +13,14 @@ import type { DatabaseSync } from 'node:sqlite'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { assembleStatus, formatStatus } from './assemble.js'
-import { readLeadHistory, readChapterSummaries } from '../cli/read.js'
+import { readLeadHistory, readChapterSummaries } from '../format/read.js'
+import { readChapterDir } from '../format/chapters.js'
+import { readFile } from '../format/frontmatter.js'
 import { readSamplesByScene } from '../format/style.js'
-import type { BookConfig, LeadType, StyleSample } from '../format/types.js'
+import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
+import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
+import type { BookConfig, StyleSample } from '../format/types.js'
+import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -25,7 +30,7 @@ export interface MaterialSection {
   content: string
   /** 刚需（永不裁剪）还是弹性（可降档/裁剪） */
   essential: boolean
-  /** 弹性优先级（#12 第 4 节，数字越大越先砍：4=非本章预警, 3=远期摘要, 2=文风样章, 1=近章结尾） */
+  /** 弹性优先级（#12 第 4 节，数字越大越先砍：5=RAG召回, 4=非本章预警, 3=远期摘要, 2=文风样章, 1.5=前章正文结尾, 1=近章结尾摘要） */
   flexibleRank?: number
   /** 降档版内容（减量保留，#12 第 4 节"按序降档"）；裁剪时先降档、仍超再整段移除 */
   degradedContent?: string
@@ -48,6 +53,19 @@ export interface PrepareResult {
 /** token 粗估（#12 第 5 节：中文约 0.6 token/字） */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length * 0.6)
+}
+
+/**
+ * 取正文末尾至多 maxChars 字，按段落边界（`\n\n`）截断，不切半句。
+ * C1 前章正文结尾段用——1500 字全量 / 500 字降档。
+ */
+function tailByParagraph(body: string, maxChars: number): string {
+  const trimmed = body.trimEnd()
+  if (trimmed.length <= maxChars) return trimmed
+  const tail = trimmed.slice(-maxChars)
+  // 跳到首个段落边界之后，避免切半句；无边界则原样返回（极长段罕见）
+  const boundary = tail.indexOf('\n\n')
+  return boundary === -1 ? tail : tail.slice(boundary + 2)
 }
 
 /**
@@ -101,14 +119,30 @@ export function prepare(
     })
   }
 
-  // #3 文风铁律（刚需——#12 含反和解标准段）
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  if (existsSync(ironPath)) {
-    sections.push({
-      title: '文风铁律',
-      content: readFileSync(ironPath, 'utf-8').trim(),
-      essential: true,
-    })
+  // #3 文风（S5 预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
+  // 未迁移书（无条目库）→ 旧行为：铁律全文刚需注入
+  const entriesDir = join(bookRoot, ENTRIES_DIR)
+  const hasEntryLib = existsSync(entriesDir)
+  const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
+  const entryLib = hasEntryLib ? readEntries(entriesDir).entries : []
+  if (hasEntryLib) {
+    const ess = buildStyleEssentials(entryLib, scenes)
+    if (ess) {
+      sections.push({
+        title: '文风',
+        content: ess,
+        essential: true,
+      })
+    }
+  } else {
+    const ironPath = join(bookRoot, '文风', '文风铁律.md')
+    if (existsSync(ironPath)) {
+      sections.push({
+        title: '文风铁律',
+        content: readFileSync(ironPath, 'utf-8').trim(),
+        essential: true,
+      })
+    }
   }
 
   // ── 弹性段（#12 第 4 节：可裁剪，按优先级）──────
@@ -133,33 +167,101 @@ export function prepare(
     }
   }
 
+  // 弹性#1.5 前章正文结尾（C1：衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
+  // 来源：前一章定稿优先、草稿兜底（工作区/草稿-<章号>.md）；都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
+  // flexibleRank=1.5：比近章结尾摘要（rank 1）先砍、比文风样章（rank 2）后砍；降档=末尾 500 字
+  const prevChapterNo = snapshot.currentChapter - 1
+  if (prevChapterNo >= 1) {
+    let prevBody: string | null = null
+    // 定稿优先：readChapterDir 递归扫描 定稿/正文/<卷>/
+    const finalDir = join(bookRoot, '定稿', '正文')
+    if (existsSync(finalDir)) {
+      const prev = readChapterDir(finalDir).chapters.find((c) => c.章号 === prevChapterNo)
+      if (prev?._path) {
+        const r = readFile(prev._path)
+        if (r.ok) prevBody = r.body
+      }
+    }
+    // 草稿兜底：工作区/草稿-<章号>.md
+    if (prevBody === null) {
+      const draftPath = join(bookRoot, '工作区', `草稿-${prevChapterNo}.md`)
+      if (existsSync(draftPath)) {
+        const r = readFile(draftPath)
+        if (r.ok) prevBody = r.body
+      }
+    }
+    if (prevBody !== null) {
+      const full = tailByParagraph(prevBody, 1500)
+      if (full.length > 0) {
+        sections.push({
+          title: '前章正文结尾',
+          content: `【第${prevChapterNo}章正文结尾】\n${full}`,
+          essential: false,
+          flexibleRank: 1.5,
+          degradedContent: `【第${prevChapterNo}章正文结尾】\n${tailByParagraph(prevBody, 500)}`,
+        })
+      }
+    }
+  }
+
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
-  // G2 跨场景：主场景优先、次场景补，总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
-  const sampleDir = join(bookRoot, '文风', '样章库')
-  const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
-  const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+  // 条目库路（S5）：pickSampleEntries 保持 G2 跨场景语义（每场景 1 条保代表 + 主场景补满）；
+  // 未迁移书走旧样章库。总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
   const maxTotal = config.style.injection === 'heavy' ? 3 : 1
-  // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
-  const picked: StyleSample[] = []
-  for (const samples of perScene) {
-    if (samples.length > 0) picked.push(samples[0]!)
-  }
-  for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
-    picked.push(perScene[0]![i]!)
-  }
-  const injected = picked.slice(0, maxTotal)
-  if (injected.length > 0) {
-    const parts = injected.map((s) => {
+  let sampleParts: string[] = []
+  if (hasEntryLib) {
+    sampleParts = pickSampleEntries(entryLib, scenes, maxTotal).map(sampleEntryText)
+  } else {
+    const sampleDir = join(bookRoot, '文风', '样章库')
+    const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+    // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
+    const picked: StyleSample[] = []
+    for (const samples of perScene) {
+      if (samples.length > 0) picked.push(samples[0]!)
+    }
+    for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
+      picked.push(perScene[0]![i]!)
+    }
+    sampleParts = picked.slice(0, maxTotal).map((s) => {
       if (!s.技法指令) return s.正文
       return `技法指令：${s.技法指令}\n${s.正文}`
     })
+  }
+  if (sampleParts.length > 0) {
     sections.push({
       title: '文风样章',
-      content: parts.join('\n\n'),
+      content: sampleParts.join('\n\n'),
       essential: false,
       flexibleRank: 2,
-      degradedContent: parts.slice(0, 1).join('\n\n'),
+      degradedContent: sampleParts.slice(0, 1).join('\n\n'),
     })
+  }
+
+  // 弹性#2b 伏笔提醒（足迹扫描驱动，flexibleRank=2）
+  // 未回收 + 高风险（红/黄）的伏笔——写作时提醒 AI 别忘记回收（替代账本 staleLeads 伏笔部分）
+  const fsEntries = readForeshadows(bookRoot)
+  if (fsEntries.length > 0) {
+    const fsTrails = scanForeshadowTrails(bookRoot, fsEntries)
+    const staleFs = fsEntries
+      .filter((f) => f.状态 === '未回收')
+      .flatMap((f) => {
+        const t = fsTrails.get(f.标题)
+        return t && (t.risk === '红' || t.risk === '黄') ? [{ f, t }] : []
+      })
+    if (staleFs.length > 0) {
+      const fsLines = staleFs.map(({ f, t }) => {
+        const kws = f.关联词.length > 0 ? f.关联词.slice(0, 3).join('/') : f.标题
+        const last = t.lastHit !== null ? `，末次提及 ch.${t.lastHit}` : ''
+        return `[${f.重要性}] ${f.标题}（${kws}）悬置 ${t.staleSpan} 章${last}`
+      })
+      sections.push({
+        title: '伏笔提醒（高风险未回收）',
+        content: fsLines.join('\n'),
+        essential: false,
+        flexibleRank: 2,
+        degradedContent: staleFs.map(({ f }) => `[${f.重要性}] ${f.标题}`).join('\n'),
+      })
+    }
   }
 
   // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）

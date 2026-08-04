@@ -14,9 +14,6 @@ import type { StyleSample, SampleSource, ParseError } from './types.js'
 
 const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法指令'])
 
-/** #5 第 5 节：基础场景集 */
-export const BASE_SCENES = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] as const
-
 /** 读取一个样章 md → StyleSample（容错） */
 export function readSample(
   filePath: string,

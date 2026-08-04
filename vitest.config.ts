@@ -2,9 +2,6 @@ import { defineConfig } from 'vitest/config'
 import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 
-const webVueRouter = fileURLToPath(
-  new URL('./src/studio/web/node_modules/vue-router', import.meta.url),
-)
 const rootPinia = fileURLToPath(new URL('./node_modules/pinia', import.meta.url))
 const rootVue = fileURLToPath(new URL('./node_modules/vue', import.meta.url))
 const rootVueReactivity = fileURLToPath(
@@ -24,7 +21,6 @@ export default defineConfig({
   resolve: {
     alias: {
       pinia: rootPinia,
-      'vue-router': webVueRouter,
       vue: rootVue,
       '@vue/reactivity': rootVueReactivity,
       '@vue/runtime-core': rootVueRuntimeCore,

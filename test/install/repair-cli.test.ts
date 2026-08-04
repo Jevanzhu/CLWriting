@@ -1,75 +1,48 @@
-import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { test, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
-import { repairCommand } from '../../src/cli/repair.js'
-import { readBooks } from '../../src/install/books.js'
+import { repairBooks, readBooks, findWorkDir } from '../../src/install/books.js'
 import { doInit } from '../../src/install/init.js'
 
-const ORIG_CWD = process.cwd()
-
-beforeEach(() => {
-  process.chdir(ORIG_CWD)
-})
-
-afterEach(() => {
-  process.chdir(ORIG_CWD)
-})
-
-function cleanupTempDir(root: string): void {
-  process.chdir(ORIG_CWD)
-  rmSync(root, { recursive: true, force: true })
-}
-
-function gitInitBook(root: string, name: string): void {
-  execSync('git init', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
-  execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
-  writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nbook:\n  title: ${name}\n`, 'utf-8')
-  execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
-}
-
-test('repair CLI: 删 books.jsonl 后 repair 重建（端到端门面）', () => {
+/** repairBooks：删 books.jsonl 后重建登记（核心自愈链路）。 */
+test('repairBooks: 删 books.jsonl 后重建登记，含原 init 建的书', () => {
   const wd = mkdtempSync(join(tmpdir(), 'repcli-'))
   doInit({ workDir: wd, name: '门面测书', genre: '玄幻' })
   // 删 books.jsonl 模拟登记丢失
   rmSync(join(wd, '.clwriting', 'books.jsonl'), { force: true })
   expect(existsSync(join(wd, '.clwriting', 'books.jsonl'))).toBe(false)
 
-  // chdir 到工作目录跑 repair（门面用 findWorkDir(cwd) 定位）
-  process.chdir(wd)
-  repairCommand([])
+  const result = repairBooks(wd)
 
+  expect(result.rebuilt.some((b) => b.name === '门面测书')).toBe(true)
   // repair 后 books.jsonl 应重建，含原 init 建的书
   expect(existsSync(join(wd, '.clwriting', 'books.jsonl'))).toBe(true)
   const books = readBooks(wd)
   expect(books.some((b) => b.name === '门面测书')).toBe(true)
 
-  cleanupTempDir(wd)
+  rmSync(wd, { recursive: true, force: true })
 })
 
-test('repair CLI: 无工作目录时退出非零（不在 .clwriting/ 下）', () => {
+/** 非工作目录定位：不在 .clwriting/ 下 → findWorkDir 找不到。 */
+test('repair: 非工作目录下 findWorkDir 定位不到', () => {
   // 注意：empty 建在项目下而非 tmpdir()——findWorkDir 向上找 .clwriting/，
   // 若 empty 在 /tmp 子树会命中环境里的 /tmp/.clwriting 污染源导致测试失败。
-  // 项目祖先链无 .clwriting（已验证），且本测试不调 doInit，不受项目是 git 仓库影响。
-  const empty = mkdtempSync(join(ORIG_CWD, '.vitest-repair-empty-'))
-  process.chdir(empty)
-  // 门面 console.error + process.exit(1)；测试期望它抛（exit 被测试运行时转抛）
-  expect(() => repairCommand([])).toThrow()
-  process.chdir(ORIG_CWD)
+  const ORIG_CWD = process.cwd()
+  const empty = join(ORIG_CWD, '.vitest-repair-empty-2')
+  rmSync(empty, { recursive: true, force: true })
+  mkdirSync(empty, { recursive: true })
+  expect(findWorkDir(empty)).toBeNull()
   rmSync(empty, { recursive: true, force: true })
 })
 
-test('repair CLI: 登记完好时报「无需修复」', () => {
+/** 登记完好 → 无变动，不改写。 */
+test('repairBooks: 登记完好时无变动', () => {
   const wd = mkdtempSync(join(tmpdir(), 'repcli3-'))
   doInit({ workDir: wd, name: '完好书', genre: '玄幻' })
-  process.chdir(wd)
-  // 登记有效，repair 应报完好不改动
   const before = readBooks(wd)
-  repairCommand([])
-  const after = readBooks(wd)
-  expect(after).toEqual(before)
-  cleanupTempDir(wd)
+  const result = repairBooks(wd)
+  expect(result.changed).toBe(false)
+  expect(result.rebuilt).toEqual(before)
+  rmSync(wd, { recursive: true, force: true })
 })

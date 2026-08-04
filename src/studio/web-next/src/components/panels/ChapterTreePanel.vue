@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
@@ -14,11 +14,12 @@ import {
   deleteDoc,
   updateChapterMetaDoc,
 } from '../../api/documents'
-import { parseChapterFileName } from '../../shared/words'
+import { parseChapterFileName, isBodyKind } from '../../shared/words'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
+import { friendlyError } from '../../shared/error'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
 //   + 右键菜单（五类）+ inline 新建/重命名 + 删除/移动 + 拖拽移动。
@@ -44,15 +45,21 @@ const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, on
 
 // --- inline 新建/重命名 ---
 type Creating = {
-  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc'
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc'
   renderDir: string
   fsDir: string
   seed: string
 } | null
 const creating = ref<Creating>(null)
 const renamePath = ref<string | null>(null)
-// 块2.2 章节信息弹窗：编辑 章号/标题（落 fm + 文件名同步 rename）
-const metaEditing = ref<{ docId: string; 章号: number | null; 标题: string } | null>(null)
+// 块2.2 篇章信息弹窗：编辑 标题 + 章号|篇号（落 fm + 路径同步 rename；长篇改文件名 / 短篇改篇目录名）
+// isPiece 标记短篇正文（用「篇号」标签，3 位补零）
+const metaEditing = ref<{
+  docId: string
+  标题: string
+  num: number | null
+  isPiece: boolean
+} | null>(null)
 
 // --- 拖拽 ---
 const draggedPath = ref<string | null>(null)
@@ -72,7 +79,7 @@ async function onSelect(node: TreeNode): Promise<void> {
     await doc.open(node)
     ws.openTab(node.docId)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 
@@ -165,6 +172,9 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
   if (node.isDirectory && p === '定稿/设定/物品') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-item', label: '物品' }] }]
   }
+  if (node.isDirectory && p === '定稿/设定/伏笔') {
+    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-foreshadow', label: '伏笔' }] }]
+  }
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('定稿/设定/'))) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
   }
@@ -184,6 +194,9 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
       })
     }
     items.push({ key: 'copy', label: '创建副本' })
+  } else if (isBodyKind(node.path) && node.path.startsWith('篇/')) {
+    // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平）
+    items.push({ key: 'meta', label: '篇章信息…' })
   }
   items.push({ key: 'sep-a', label: '', separator: true })
   items.push({ key: 'copy-path', label: '复制路径' })
@@ -238,14 +251,18 @@ function onMenuSelect(key: string): void {
   else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path)
   else if (key === 'new-character') startCreate('character', node.path, node.path)
   else if (key === 'new-item') startCreate('item', node.path, node.path)
+  else if (key === 'new-foreshadow') startCreate('foreshadow', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
   else if (key === 'meta') {
+    const isPiece = isBodyKind(node.path) && node.path.startsWith('篇/')
+    // 短篇/长篇均从文件名提取编号+标题（短篇 篇/N-标题.md，长篇 定稿/正文/N-标题.md）
     const m = parseChapterFileName(node.path)
     metaEditing.value = {
       docId: node.docId ?? '',
-      章号: m?.章号 ?? null,
       标题: m?.标题 ?? node.name,
+      num: m?.章号 ?? null,
+      isPiece,
     }
   } else if (key === 'copy') void doCopy(node)
   else if (key === 'copy-path') void onCopyPath(node)
@@ -260,22 +277,26 @@ async function onCopyPath(node: TreeNode): Promise<void> {
   }
 }
 
-// --- 章节信息（块2.2）---
-async function onSaveMeta(meta: { 标题: string; 章号: number }): Promise<void> {
+// --- 篇章信息（块2.2）---
+// 长篇传 { 标题, 章号 }；短篇传 { 标题, 篇号 }（后端按文档角色区分落 fm 字段 + 路径 rename）
+async function onSaveMeta(meta: { 标题: string; num: number }): Promise<void> {
   const e = metaEditing.value
   if (!e) return
   metaEditing.value = null
   try {
-    await updateChapterMetaDoc(props.bookName, e.docId, meta)
+    const payload = e.isPiece
+      ? { 标题: meta.标题, 篇号: meta.num }
+      : { 标题: meta.标题, 章号: meta.num }
+    await updateChapterMetaDoc(props.bookName, e.docId, payload)
     await tree.load(props.bookName)
-    // 文件名可能变（rename）→ 同步 doc entry.path
+    // 路径可能变（长篇文件名 / 短篇篇目录名）→ 同步 doc entry.path
     const entry = doc.get(e.docId)
     if (entry) {
       const fresh = tree.byDocId.get(e.docId)
       if (fresh) entry.path = fresh.path
     }
   } catch (err) {
-    openError.value = err instanceof Error ? err.message : String(err)
+    openError.value = friendlyError(err)
   }
 }
 
@@ -302,7 +323,7 @@ async function createSingleton(relPath: string, label: string): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 /** TabBar 新建信号分派（按 createKind 路由到 startCreate / createSingleton）。 */
@@ -318,6 +339,8 @@ function dispatchCreate(kind: CreateKind): void {
       return startCreate('character', '定稿/设定', '定稿/设定/角色')
     case 'item':
       return startCreate('item', '定稿/设定', '定稿/设定/物品')
+    case 'foreshadow':
+      return startCreate('foreshadow', '定稿/设定', '定稿/设定/伏笔')
     case 'synopsis':
       return void createSingleton('大纲/总纲.md', '总纲')
     case 'worldview':
@@ -325,7 +348,7 @@ function dispatchCreate(kind: CreateKind): void {
   }
 }
 function startCreate(
-  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc',
+  kind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc',
   renderDir: string,
   fsDir: string,
 ): void {
@@ -368,7 +391,7 @@ async function onCreateCommit(value: string): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 function onCreateCancel(): void {
@@ -389,7 +412,7 @@ async function onRenameCommit(path: string, value: string): Promise<void> {
     await renameDoc(props.bookName, node.docId, `${name}.md`)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 function onRenameCancel(): void {
@@ -410,7 +433,7 @@ async function doDelete(node: TreeNode): Promise<void> {
     await deleteDoc(props.bookName, node.docId)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 
@@ -420,7 +443,7 @@ async function doMove(docId: string, toDir: string): Promise<void> {
     await moveDoc(props.bookName, docId, toDir)
     await tree.load(props.bookName)
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 async function onDrop(targetPath: string): Promise<void> {
@@ -448,7 +471,7 @@ async function doCopy(node: TreeNode): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = friendlyError(e)
   }
 }
 
@@ -471,7 +494,7 @@ watch(
   () => props.bookName,
   async (name) => {
     if (!name) return
-    await tree.load(name)
+    await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
     // 首次打开（无持久化展开状态）→ 全展开
     if (ws.treeExpanded.length <= 1) {
       ws.treeExpanded = collectAllDirs(tree.grouped)
@@ -481,6 +504,20 @@ watch(
   },
   { immediate: true },
 )
+
+// 窗口回前台 → 重扫盘。外部编辑器 / CLI / AI 写的文件不经 invalidateTreeIndex，
+// 服务端树缓存不会自己失效；切回 app 是「想看到最新状态」的最强信号。
+// 节流 2s：避免频繁切窗口时反复触发全盘扫描（buildTree 含 git status + 字数统计）。
+let lastRefresh = 0
+function onWindowFocus(): void {
+  if (!props.bookName) return
+  const now = performance.now()
+  if (now - lastRefresh < 2000) return
+  lastRefresh = now
+  void tree.load(props.bookName, true)
+}
+onMounted(() => window.addEventListener('focus', onWindowFocus))
+onUnmounted(() => window.removeEventListener('focus', onWindowFocus))
 
 // TabBar 新建信号 → 监听 createTick 按 createKind 分派（首次 tick=0 不触发，跳过初始）
 watch(
@@ -522,6 +559,12 @@ watch(
       />
     </div>
     <div v-if="openError" class="hint err">{{ openError }}</div>
+    <div v-if="tree.grouped.length" class="tree-legend">
+      <span class="lg"><i class="lg-dot c-green"></i>定稿</span>
+      <span class="lg"><i class="lg-dot c-yellow"></i>草稿</span>
+      <span class="lg"><i class="lg-dot c-red"></i>待修</span>
+      <span class="lg"><i class="lg-dot c-gray"></i>其他</span>
+    </div>
     <ContextMenu
       v-if="!isNative"
       :visible="menuVisible"
@@ -533,8 +576,9 @@ watch(
     />
     <ChapterMetaDialog
       :model-value="!!metaEditing"
-      :章号="metaEditing?.章号 ?? null"
+      :num="metaEditing?.num ?? null"
       :标题="metaEditing?.标题 ?? ''"
+      :is-piece="metaEditing?.isPiece ?? false"
       @update:model-value="(v: boolean) => { if (!v) metaEditing = null }"
       @save="onSaveMeta"
     />
@@ -543,8 +587,10 @@ watch(
 
 <style scoped>
 .chapter-tree {
-  padding: var(--size-4-1) 0;
+  padding: var(--size-4-1) 0 0;
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .hint {
   padding: 8px var(--size-4-3);
@@ -556,5 +602,37 @@ watch(
 }
 .tree-list {
   padding: 0 var(--size-4-1);
+  flex: 1;
+  min-height: 0;
 }
+/* 色点图例（钉在文件树底部，单行） */
+.tree-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 4px var(--size-4-2);
+  font-size: var(--font-size-xxs);
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  white-space: nowrap;
+}
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lg-dot.c-green { background: var(--dv-good); }
+.lg-dot.c-yellow { background: var(--text-warning); }
+.lg-dot.c-red { background: var(--text-error); }
+.lg-dot.c-gray { background: var(--text-faint); }
 </style>

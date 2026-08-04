@@ -16,6 +16,8 @@ async function gotoBook(page: Page): Promise<void> {
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
+  // 确保回到章节树面板（上个 test 可能切到回收站等，leftPanel 持久化）
+  await page.locator('.rbtn[data-tip*="章节树"]').click()
 }
 
 /** 右键某树项（按 label 文本匹配 .tree-item） */
@@ -66,12 +68,15 @@ test('软删 → 回收站还原', async ({ page }) => {
   // ConfirmPrompt 确认（替代原 window.confirm 自动 accept）
   await page.locator('.cp-modal').getByRole('button', { name: '删除' }).click()
   await expect(page.locator('.tree-list')).not.toContainText('玉佩之秘')
-  // 回收站还原
-  await page.locator('.left-tab[data-tip="回收站"]').click()
+  // 回收站还原（入口在 Ribbon，非旧 left-tab）
+  await page.locator('.rbtn[data-tip="回收站"]').click()
   await expect(page.locator('.trash-panel')).toContainText('玉佩之秘')
-  await page.getByRole('button', { name: '恢复' }).click()
+  // hover 行让操作按钮显形（opacity:0 默认隐藏），再点恢复
+  const trashRow = page.locator('.trash-panel .tree-item').filter({ hasText: '玉佩之秘' })
+  await trashRow.hover()
+  await trashRow.locator('.action-btn[data-tip="恢复"]').click()
   // 切回树，章回来
-  await page.locator('.left-tab[data-tip="章节树"]').click()
+  await page.locator('.rbtn[data-tip*="章节树"]').click()
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
 })
 

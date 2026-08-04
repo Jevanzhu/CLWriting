@@ -3,25 +3,39 @@
  *
  * POST /api/books/:name/onboard-ai  body {step}
  *   长篇 step: synopsis|characters|world|realm|volume|leads-seed|style-sample|style-rules|style-quotes
- *   → 组 prompt(title/genre/kind)→ spawnRole('onboard', prompt)禁工具 → 收 text → 落盘
+ *   → 组 prompt(title/genre/kind)→ generateText → 落盘
  *   → {ok, step, path, words, content}
  *
- * 各步独立 spawnRole(避 GLM send spawn Agent 卡死,C.2a 教训)。role='onboard'
- * 无 agents/onboard.md → readRolePrompt 返空 → 纯 prompt 驱动(任务+设定规范自含)。
+ * 各步独立生成。prompt 自含任务说明（system prompt 为空），纯文本产出。
  * realm 仅成长线书(leads enabled 含「成长线」)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { getDriver } from '../../../driver/index.js'
-import type { DriverEvent } from '../../../driver/types.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 
 interface OnboardCtx {
   workDir: string | null
+  userDataPath: string | null
+}
+
+/** 跑一次 onboard 步骤生成（runSpec 统一编排）。 */
+async function runOnboard(
+  userDataPath: string | null,
+  prompt: string,
+  bookRoot?: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const out = await runSpec(ONBOARD_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
+  if (!out.ok) return { ok: false, error: out.error }
+  const text = out.data.text.trim()
+  if (!text) return { ok: false, error: 'AI 产出为空' }
+  return { ok: true, text }
 }
 
 type OnboardStep =
@@ -82,30 +96,14 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
     const prompt = buildOnboardPrompt(step, title, genre, kind, discussionContext)
 
-    const driver = getDriver('cc')
-    const session = await driver.startSession(ctx.workDir)
-    driver.spawnRole(session, 'onboard', prompt)
-    let text = ''
-    try {
-      for await (const ev of driver.stream(session) as AsyncGenerator<DriverEvent>) {
-        if (ev.type === 'text') text += String(ev.text ?? '')
-        else if (ev.type === 'done') break
-        else if (ev.type === 'error') {
-          driver.dispose(session)
-          return reply(res, 500, { error: `driver:${ev.message}` })
-        }
-      }
-    } catch (e) {
-      driver.dispose(session)
-      return reply(res, 500, { error: `stream:${e instanceof Error ? e.message : String(e)}` })
-    }
-    driver.dispose(session)
+    const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
+    if (!result.ok) return reply(res, 500, { error: result.error })
 
-    const content = text.trim() || '(空产出)'
+    const content = result.text || '(空产出)'
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      writeFileSync(join(bookRoot, relPath), content, 'utf8')
+      atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }
@@ -125,7 +123,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      writeFileSync(join(bookRoot, relPath), content, 'utf8')
+      atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
       return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
     }
@@ -147,7 +145,7 @@ function buildOnboardPrompt(
     : ''
   const common = `${discuss}\n\n## 设定规范(防臆造)\n- 据「${genre}」题材内生推导,不臆造与题材冲突的设定\n- 留余地(后续卷/章可展开),不过度填死${
     discussionContext ? '\n- 优先据「既有讨论」整理,讨论未覆盖处再据题材推导' : ''
-  }\n\n## 输出\n直接输出 markdown 全文,不要读文件、不要用任何工具。`
+  }\n\n## 输出\n直接输出 markdown 全文。`
   switch (step) {
     case 'synopsis':
       return `## 任务\n为这部${genre}小说《${title}》生成总纲。\n\n${ctx}\n\n## 要求\n产出总纲,含:核心(一句话主线)、主角(姓名/身份/驱动/初始处境)、世界观(力量体系/核心势力/规则)、主线(明线成长 + 暗线探秘)、反转靶心(全书最大反转)、卷目(第一卷定位)。${common}`
@@ -160,7 +158,7 @@ function buildOnboardPrompt(
     case 'volume':
       return `## 任务\n为这部${genre}小说《${title}》生成第一卷卷纲。\n\n${ctx}\n\n## 要求\n产出第一卷卷纲,含:本卷主线阶段、核心冲突、关键角色登场顺序、章数预估(30-50 章)、卷末钩子(勾向第二卷)。若已有总纲则据其推导。${common}`
     case 'leads-seed':
-      return `## 任务\n为这部${genre}小说《${title}》生成账本种子(各类初始线)。\n\n${ctx}\n\n## 要求\n产出账本种子汇总,基础三类各 1-2 条(伏笔/悬念/感情线),据题材酌加扩展线。每条格式:\n### <类型> <编号> <标题>\n- 开启章: 1  状态: 进行中\n- 线索: 一句话内容\n- 预期回收: 第 N 章\n留余地,不过度填死。${common}`
+      return `## 任务\n为这部${genre}小说《${title}》生成账本种子(各类初始线)。\n\n${ctx}\n\n## 要求\n产出账本种子汇总,基础两类各 1-2 条(悬念/感情线),据题材酌加扩展线。每条格式:\n### <类型> <编号> <标题>\n- 开启章: 1  状态: 进行中\n- 线索: 一句话内容\n- 预期回收: 第 N 章\n留余地,不过度填死。${common}`
     case 'style-sample':
       return `## 任务\n为这部${genre}小说《${title}》生成文风样章(5 场景 few-shot)。\n\n${ctx}\n\n## 要求\n产出 5 个场景样章,每场景 200-400 字,体现题材典型笔法。每场景一段:\n### 场景:战斗\n<样章>\n### 场景:对话\n<样章>\n### 场景:抒情\n<样章>\n### 场景:铺陈\n<样章>\n### 场景:爽点\n<样章>\n供写章时文风对齐。${common}`
     case 'style-rules':

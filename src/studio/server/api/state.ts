@@ -39,6 +39,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
         action: r.route.action,
         nextChapter,
         kind: r.kind,
+        // 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位（前端据此分流按钮）
+        resumePoint: d.state === 4 ? d.resumePoint : undefined,
       })
     } catch (e) {
       reply(res, 500, { error: e instanceof Error ? e.message : String(e) })

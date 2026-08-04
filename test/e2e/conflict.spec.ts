@@ -35,14 +35,14 @@ async function provokeConflict(page: import('@playwright/test').Page, chapter: s
   await cm.click()
   await page.keyboard.type('本地改动')
   await page.keyboard.press('Meta+s')
-  await expect(page.locator('.save-state')).toContainText('外部修改', { timeout: 5_000 })
+  await expect(page.locator('.conflict-btn').first()).toBeVisible({ timeout: 5_000 })
 }
 
 test('冲突 → 重载远端（丢本地取远端）', async ({ page }) => {
   await openChapter(page, '初入宗门')
   await provokeConflict(page, CHAPTER_1(), '林远踏入宗门')
 
-  await page.getByRole('button', { name: '重载远端' }).click()
+  await page.locator('.conflict-btn').first().click()
 
   // cm 内容变远端（含【外部改写】，不含本地改动）
   const cm = page.locator('.cm-content')
@@ -54,10 +54,10 @@ test('冲突 → 覆盖远端（丢远端写本地）', async ({ page }) => {
   await openChapter(page, '玉佩之秘')
   await provokeConflict(page, CHAPTER_2(), '玉佩突然爆发灵光')
 
-  await page.getByRole('button', { name: '覆盖远端' }).click()
+  await page.locator('.conflict-btn.danger').click()
 
   // 保存回正常态
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
   // 磁盘变本地内容（含本地改动，不含【外部改写】）
   const disk = readFileSync(CHAPTER_2(), 'utf-8')
   expect(disk).toContain('本地改动')

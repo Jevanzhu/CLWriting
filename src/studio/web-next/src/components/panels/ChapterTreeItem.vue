@@ -16,7 +16,7 @@ const props = defineProps<{
   activePath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
-  creatingKind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'volume' | 'doc' | null
+  creatingKind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc' | null
   creatingSeed: string
   /** inline 重命名输入框：path 命中则替代 label。 */
   renamePath: string | null
@@ -134,7 +134,7 @@ watch(
       <span
         v-if="tree.issuePaths.has(node.path)"
         class="issue-dot"
-        data-tip="有机检红项或审稿驳回"
+        data-tip="有校对红项或审稿驳回"
       ></span>
     </div>
 
@@ -236,7 +236,7 @@ watch(
   cursor: grab;
 }
 .dot-green {
-  background: var(--text-success);
+  background: var(--dv-good);
 }
 .dot-red {
   background: var(--text-error);

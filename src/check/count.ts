@@ -8,10 +8,9 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import type { CheckSectionResult, CheckItem } from './types.js'
-import type { ChapterMeta, BookConfig } from '../format/types.js'
-import { validateEnums, countWords } from '../format/chapters.js'
+import type { ChapterMeta } from '../format/types.js'
+import { validateEnums } from '../format/chapters.js'
 
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。
@@ -30,9 +29,9 @@ export function checkFrontMatter(
 ): CheckSectionResult {
   const items: CheckItem[] = []
 
-  // 章号 == 文件名前缀
+  // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
   const fileNum = Number(fileName.match(/^(\d+)-/)?.[1])
-  if (fileNum !== chapter.章号) {
+  if (!Number.isNaN(fileNum) && fileNum !== chapter.章号) {
     items.push({
       checkId: 'fm-chapter-mismatch',
       level: 'red',
@@ -570,7 +569,7 @@ export function checkPieceFrontMatter(
   fileName: string,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 篇号 == 文件名前缀（篇/001-标题/正文.md → 取 001）
+  // 篇号 == 文件名前缀（篇/001-标题.md → 取 001）
   const fileNum = Number(fileName.match(/(\d+)-/)?.[1])
   if (!Number.isNaN(fileNum) && fileNum !== piece.篇号) {
     items.push({
@@ -689,11 +688,12 @@ export function checkSectionCount(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
-  const byHeading = body.split(/^##\s/m).filter((s) => s.trim().length > 0)
+  // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）
+  const headings = body.match(/^##\s.+$/gm) ?? []
   let sections: number
-  if (byHeading.length >= 2) {
+  if (headings.length >= 2) {
     // 有 ## 标题：按标题数
-    sections = byHeading.length
+    sections = headings.length
   } else {
     items.push({
       checkId: 'section-count-heading-missing',

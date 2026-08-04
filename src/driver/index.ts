@@ -1,7 +1,7 @@
 /**
- * driver 入口:按 host 选 driver + 管理 bookId → session 映射。
+ * driver 入口：按 host 选 driver + 管理 bookId → session 映射。
  *
- * 批1:永远 mock(cc 批2 接)。架构红线:不直连大模型。
+ * mock = 假事件流（e2e / 前端开发）；cc = provider 直连（无 CLI）。
  */
 import type { Session, StudioDriver } from './types.js'
 import { mockDriver } from './mock.js'
@@ -10,7 +10,6 @@ import { ccDriver } from './cc.js'
 export type {
   Session,
   SessionOptions,
-  ApprovalResponse,
   DriverEvent,
   StudioDriver,
 } from './types.js'
@@ -18,7 +17,7 @@ export type {
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()
 
-/** 取 driver:env CLWRITING_DRIVER=mock → mock(e2e);host='mock' → mock(开发/debug);其余 → cc(真 claude CLI) */
+/** 取 driver:env CLWRITING_DRIVER=mock → mock(e2e);host='mock' → mock(开发/debug);其余 → cc(provider 直连) */
 export function getDriver(host: string): StudioDriver {
   if (process.env.CLWRITING_DRIVER === 'mock') return mockDriver
   return host === 'mock' ? mockDriver : ccDriver

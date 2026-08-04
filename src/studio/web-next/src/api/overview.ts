@@ -25,6 +25,8 @@ export interface OverviewResult {
   state: { state: number; name: string; detail: { error?: string } & Record<string, unknown> }
   volumes: { name: string; path: string }[]
   timeline: { date: string; count: number }[]
+  recentChapter: { 章号: number; 标题: string; path: string } | null
+  streak: number
 }
 
 export async function getOverview(name: string): Promise<OverviewResult> {

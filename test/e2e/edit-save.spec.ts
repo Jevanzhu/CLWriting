@@ -36,7 +36,7 @@ test('选章编辑 → ⌘S 保存 → 字数增加', async ({ page }) => {
   await page.keyboard.press('Meta+s')
 
   // 保存成功反馈（save-state 持久显「已保存」，比 toast 稳）
-  await expect(page.locator('.save-state')).toContainText('已保存', { timeout: 5_000 })
+  await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
   // 全书字数增加（updateWordCount 已局部刷新）
   const after = parseTotalWords(await words.textContent())
   expect(after).toBeGreaterThan(before)

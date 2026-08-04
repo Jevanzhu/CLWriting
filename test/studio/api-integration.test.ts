@@ -79,6 +79,26 @@ describe('GUI API 集成链(设定台 P2)', () => {
     ]))
   })
 
+  it('POST /api/books 路径穿越书名 → 400（禁 / \\ . ..）', async () => {
+    const r = await fetch(`${baseUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ name: '../evil' }),
+    })
+    expect(r.status).toBe(400)
+  })
+
+  it('POST 畸形 JSON body → 400 + 提示不合法（readJson 不再吞成 {}）', async () => {
+    const r = await fetch(`${baseUrl}/api/books`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: '{bad json',
+    })
+    expect(r.status).toBe(400)
+    const d = (await r.json()) as { error: string }
+    expect(d.error).toContain('JSON') // 修复前 readJson 吞成 {} → error 是「书名不能为空」
+  })
+
   it('GET /api/books/:name/settings 设定台读角色 + 境界', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
     const d = (await r.json()) as {
@@ -91,62 +111,6 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(林远?.境界).toBe('练气')
     expect(d.realm?.体系[0]?.名称).toBe('修真')
     expect(d.realm?.体系[0]?.序列).toEqual(['炼气', '筑基', '金丹'])
-  })
-
-  it('PUT /settings/character 角色卡写回 + 再读验证', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
-      body: JSON.stringify({
-        file: '定稿/设定/角色/林远.md',
-        姓名: '林远',
-        身份: '内门弟子',
-        目标: '查清旧案',
-        境界: '筑基',
-        正文: '性格沉稳,升级了。',
-      }),
-    })
-    const putD = (await r.json()) as { ok: boolean }
-    expect(putD.ok).toBe(true)
-    const r2 = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
-    const d2 = (await r2.json()) as { characters: { 姓名: string; 境界: string; 身份: string }[] }
-    const 林远 = d2.characters.find((c) => c.姓名 === '林远')!
-    expect(林远.境界).toBe('筑基')
-    expect(林远.身份).toBe('内门弟子')
-  })
-
-  it('PUT /settings/character 防穿越:拒绝非法 file(大纲/总纲.md)', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
-      body: JSON.stringify({ file: '大纲/总纲.md', 姓名: 'X' }),
-    })
-    expect(r.status).toBe(400)
-  })
-
-  it('PUT /settings/character 防穿越:拒绝 .. 穿越', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/character`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
-      body: JSON.stringify({ file: '定稿/设定/角色/../../../etc/passwd.md', 姓名: 'X' }),
-    })
-    expect(r.status).toBe(400)
-  })
-
-  it('PUT /settings/realm 境界写回 + 再读验证', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings/realm`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
-      body: JSON.stringify({
-        体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹', '元婴'] }],
-        正文: '新增元婴境',
-      }),
-    })
-    const putD = (await r.json()) as { ok: boolean }
-    expect(putD.ok).toBe(true)
-    const r2 = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
-    const d2 = (await r2.json()) as { realm: { 体系: { 序列: string[] }[] } | null }
-    expect(d2.realm?.体系[0]?.序列).toContain('元婴')
   })
 
   it('GET /api/books/:name/config 配置读回(kind + title)', async () => {

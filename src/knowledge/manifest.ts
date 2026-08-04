@@ -80,14 +80,6 @@ export function validateKnowledgeManifest(projectRoot: string): KnowledgeManifes
   return { ok: issues.length === 0, manifest, issues }
 }
 
-export function formatKnowledgeManifestReport(report: KnowledgeManifestReport): string {
-  if (report.ok) {
-    const count = report.manifest?.entries.length ?? 0
-    return `✓ 知识层 manifest 校验通过（${count} 个条目）。`
-  }
-  return ['✗ 知识层 manifest 校验失败：', ...report.issues.map((issue) => `· ${issue.path}: ${issue.message}`)].join('\n')
-}
-
 export function hashFileSha256(filePath: string): string {
   return 'sha256:' + createHash('sha256').update(readFileSync(filePath)).digest('hex')
 }

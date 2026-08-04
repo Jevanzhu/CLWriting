@@ -33,7 +33,9 @@ describe('buildDraftPrompt(kind 分支)', () => {
   it('短篇:篇 front matter + 8k-20k 字单篇闭合', () => {
     const p = buildDraftPrompt(root, 1, 'short')
     expect(p).toContain('短篇')
-    expect(p).toContain('篇号: 1')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
+    expect(p).toContain('只输出第 1 篇正文')
+    expect(p).not.toContain('篇号:')
     expect(p).toContain('目标情绪')
     expect(p).toContain('核心反转')
     expect(p).toContain('8000-20000 字')
@@ -44,7 +46,9 @@ describe('buildDraftPrompt(kind 分支)', () => {
   it('长篇:章 front matter + 2k-4k 字章尾留钩', () => {
     const p = buildDraftPrompt(root, 5, 'long')
     expect(p).toContain('长篇')
-    expect(p).toContain('章号: 5')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
+    expect(p).toContain('只输出第 5 章正文')
+    expect(p).not.toContain('章号:')
     expect(p).toContain('钩子类型')
     expect(p).toContain('2000-4000 字')
     expect(p).toContain('章尾留钩')
@@ -79,9 +83,9 @@ describe('buildOutlinePrompt(kind 分支)', () => {
   })
 
   it('短篇:有前篇时注入前篇摘要(避重复主题/情绪)', () => {
-    mkdirSync(join(root, '篇', '001-旧案'), { recursive: true })
+    mkdirSync(join(root, '篇'), { recursive: true })
     writeFileSync(
-      join(root, '篇', '001-旧案', '正文.md'),
+      join(root, '篇', '001-旧案.md'),
       '---\n篇号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
     )
     const p = buildOutlinePrompt(root, 2, 'short')

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { runRewriteDoc, type RewriteResult } from '../api/rewrite'
+import { runRewriteDoc, reportAiVersion, type RewriteResult } from '../api/rewrite'
 import { useDocStore } from './doc'
+import { friendlyError } from '../shared/error'
 
 /**
  * 改写 store（M12 块2 B2.2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
@@ -12,23 +13,26 @@ export const useRewriteStore = defineStore('rewrite', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function run(name: string, docId: string, instruction: string, selection: string): Promise<void> {
+  async function run(name: string, docId: string, instruction: string, selection: string, append = false): Promise<void> {
     loading.value = true
     error.value = null
     try {
-      const body = selection ? { instruction, selection } : { instruction }
+      // append（M2 续写解选区）：无选区纯追加；否则有选区 local / 无选区 whole
+      const body = append ? { instruction, append: true } : selection ? { instruction, selection } : { instruction }
       result.value = await runRewriteDoc(name, docId, body)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
       result.value = null
     } finally {
       loading.value = false
     }
   }
 
-  /** 接受改写 → rewritten 写入 doc content（dirty）；作者 ⌘S 走标准保存。 */
-  function accept(docId: string): void {
+  /** 接受改写 → rewritten 写入 doc content（dirty）；作者 ⌘S 走标准保存。
+   *  接受瞬间上报 AI 版进改稿轨迹（文风S2，fire-and-forget，失败静默）。 */
+  function accept(name: string, docId: string): void {
     if (!result.value) return
+    void reportAiVersion(name, docId, result.value.rewritten).catch(() => {})
     useDocStore().patch(docId, result.value.rewritten)
     result.value = null
   }

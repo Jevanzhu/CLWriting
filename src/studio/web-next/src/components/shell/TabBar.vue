@@ -115,6 +115,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         <div class="dd-sep">设定</div>
         <button class="dd-item" @click="pick('character')">角色</button>
         <button class="dd-item" @click="pick('item')">物品</button>
+        <button class="dd-item" @click="pick('foreshadow')">伏笔</button>
         <button class="dd-item" @click="pick('worldview')">{{ hasWorldview ? '打开世界观' : '新建世界观' }}</button>
       </div>
     </Teleport>

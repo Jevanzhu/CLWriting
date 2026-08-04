@@ -25,12 +25,14 @@ export type GitResult =
  * 执行一条 git 命令（统一收口，#16 第 3 节）。
  * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败按退出码 → 人话，不把作者丢给 git 报错。
+ * opts.input：喂 stdin（hash-object --stdin 等内容写入场景用）。
  */
-export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8' }): GitResult {
+export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; input?: string }): GitResult {
   const r = spawnSync('git', args, {
     cwd,
     stdio: 'pipe',
     encoding: opts?.encoding ?? 'utf-8',
+    ...(opts?.input !== undefined ? { input: opts.input } : {}),
   })
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 

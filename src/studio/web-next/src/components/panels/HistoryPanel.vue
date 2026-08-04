@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
 import { countWords, stripFrontmatter } from '../../shared/words'
+import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
@@ -61,7 +62,7 @@ async function load(): Promise<void> {
   try {
     entries.value = await listSnapshots(props.bookName, ws.activeDocId)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = friendlyError(e)
     err.value = msg === 'not found' ? '暂无历史数据' : msg
   } finally {
     loading.value = false
@@ -76,10 +77,6 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
-  if (cur.baselineRevision === null) {
-    ui.toast('该文档未登记，无法恢复', 'error')
-    return
-  }
   const ok = await ui.ask({
     title: `恢复到 ${fmtTime(e.time)} 的版本`,
     message: `当前正文将被这个版本覆盖。当前内容会自动留一份底，恢复后仍可退回。`,
@@ -94,7 +91,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
     await load()
   } catch (error) {
-    ui.toast(error instanceof Error ? error.message : String(error), 'error')
+    ui.toast(friendlyError(error), 'error')
   } finally {
     restoring.value = null
   }
@@ -118,7 +115,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     <div v-else-if="!entries.length" class="empty-state">
       <Clock :size="20" />
       <span>暂无历史版本</span>
-      <span class="empty-sub">保存过几次之后才会生成版本快照</span>
+      <span class="empty-sub">保存过几次之后才会生成历史版本</span>
     </div>
     <template v-else>
       <div class="row current">
@@ -245,7 +242,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   opacity: 1;
 }
 .restore-btn:hover {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
   background: var(--background-modifier-hover);
 }
 .restore-btn:disabled {

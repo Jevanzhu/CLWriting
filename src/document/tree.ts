@@ -1,7 +1,7 @@
 /**
  * 书库文件树扫描 + 构建 + 内存缓存（W2A §6·§9）。
  *
- * 混合模型：目录扫描派生（无 docId），叶子文档合并清单（docId）+ 八态派生（status）。
+ * 混合模型：目录扫描派生（无 docId），叶子文档合并清单（docId）+ 六态派生（status）。
  * 卷级分层：定稿/正文/<卷>/ 真实磁盘目录，按 localeCompare(zh-Hans-CN) 排序（§6.2，不引入 order）。
  * 工作区内部目录不进树（W0 §9 注：.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）。
  *
@@ -29,7 +29,7 @@ export interface TreeNode {
   children: TreeNode[]
   /** 叶子文档：清单登记的稳定 ID；无清单 → legacyId(path) 运行期临时 ID。 */
   docId?: string
-  /** 叶子文档：八态派生（status.ts）。目录无。 */
+  /** 叶子文档：六态派生（status.ts）。目录无。 */
   status?: DocumentStatus
   /** 叶子文档：正文字数（countWords 剥 fm 后码点数；仅 chapter/piece-body/draft）。目录无。 */
   wordCount?: number
@@ -100,7 +100,7 @@ function stripMd(name: string): string {
 }
 
 /**
- * 扫描 + 合并清单 + 八态派生 + 卷纲关联 → 可展示树。
+ * 扫描 + 合并清单 + 六态派生 + 卷纲关联 → 可展示树。
  * - 叶子 docId：清单 entry.id；无清单 → legacyId(path)（旧书首次结构性操作时升级落盘）。
  * - 叶子 status：deriveStatusFull（git 判脏 + frontmatter 已发布）。
  * - 卷目录 volumeOutlinePath：定稿/正文/<卷>/ ↔ 大纲/卷纲/<卷>.md 同名 stem 关联（§6.2）。
@@ -190,9 +190,11 @@ function matchVolumeName(path: string): string | null {
 let globalRevision = 0
 const indexes = new Map<string, BookTreeIndex>()
 
-/** 读树缓存；无则重建并缓存。revision 进程级递增（即使跨 invalidate 也单调）。 */
-export function getBookTreeIndex(bookRoot: string): BookTreeIndex {
-  const cached = indexes.get(bookRoot)
+/** 读树缓存；无则重建并缓存。revision 进程级递增（即使跨 invalidate 也单调）。
+ *  force=true 丢弃缓存重扫——外部编辑器/CLI 直接改盘不经 invalidateTreeIndex，
+ *  前端显式刷新需要这条通路，否则外部改动永远刷不出来。 */
+export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex {
+  const cached = force ? undefined : indexes.get(bookRoot)
   if (cached) return cached
   const index: BookTreeIndex = {
     bookRoot,

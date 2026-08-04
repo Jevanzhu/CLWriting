@@ -22,7 +22,7 @@ describe('layout / roleOf 按路径判 role', () => {
 
   it('大纲区：卷纲 / 账本 / 普通大纲', () => {
     expect(roleOf('大纲/卷纲/第一卷.md')).toBe('volume-outline')
-    expect(roleOf('大纲/伏笔/001-玉佩.md')).toBe('ledger')
+    expect(roleOf('大纲/悬念/001-玉佩.md')).toBe('ledger')
     expect(roleOf('大纲/悬念/001-凶手.md')).toBe('ledger')
     expect(roleOf('大纲/总纲.md')).toBe('outline')
   })
@@ -43,9 +43,8 @@ describe('layout / roleOf 按路径判 role', () => {
   })
 
   it('短篇篇包', () => {
-    expect(roleOf('篇/001-雨夜/正文.md')).toBe('piece-body')
-    expect(roleOf('篇/001-雨夜/清单.md')).toBe('piece-manifest')
-    expect(roleOf('篇/001-雨夜/其他.md')).toBe('note')
+    expect(roleOf('篇/001-雨夜.md')).toBe('piece-body')
+    expect(roleOf('清单/001-雨夜.md')).toBe('piece-manifest')
   })
 
   it('反斜杠与前导 ./ 容错', () => {
@@ -69,7 +68,7 @@ describe('layout / capabilitiesOf 系统文档与只读', () => {
   })
 
   it('账本 ledger：可写不可删', () => {
-    const c = capabilitiesOf('ledger', '大纲/伏笔/001-玉佩.md')
+    const c = capabilitiesOf('ledger', '大纲/悬念/001-玉佩.md')
     expect(c.write).toBe(true)
     expect(c.trash).toBe(false)
   })
@@ -101,7 +100,7 @@ describe('layout / layoutOf 组合', () => {
   })
 
   it('账本 → ledger + trash=false', () => {
-    const info = layoutOf('大纲/伏笔/001-玉佩.md')
+    const info = layoutOf('大纲/悬念/001-玉佩.md')
     expect(info.role).toBe('ledger')
     expect(info.capabilities.trash).toBe(false)
     expect(info.capabilities.write).toBe(true)

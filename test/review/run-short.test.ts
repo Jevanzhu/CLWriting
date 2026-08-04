@@ -1,18 +1,16 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   buildReviewPacket,
   collectReviewIssues,
-  renderReviewVerdict,
   lensIssuesFileName,
   COMBINED_ISSUES_FILE,
-  readReviewPacket,
   type ReviewExecutionPacket,
 } from '../../src/review/run.js'
-import { reviewCommand } from '../../src/cli/review.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { runCheckForDocument } from '../../src/studio/server/api/check.js'
 import { writePiece } from '../../src/format/pieces.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
@@ -60,7 +58,7 @@ test('buildReviewPacket short: 满审产短篇三视角分包', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
-test('review run short: 读取篇号草稿并把清单核对写入执行包', () => {
+test('review 打包 short: 读取篇号草稿并把清单核对写入执行包', () => {
   const root = mkdtempSync(join(tmpdir(), 'review-short-cli-'))
   const workDir = join(root, '工作区')
   try {
@@ -86,26 +84,27 @@ test('review run short: 读取篇号草稿并把清单核对写入执行包', ()
     }
     writePieceList(join(workDir, '清单.md'), list)
 
-    const out: string[] = []
-    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
-    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => out.push(a.map(String).join(' ')))
-    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit ${code ?? ''}`)
-    }) as typeof process.exit)
-    try {
-      reviewCommand(['run', root, '--chapter=1', '--single'])
-    } finally {
-      log.mockRestore()
-      err.mockRestore()
-      exit.mockRestore()
-    }
+    // 机检 → byproducts.pieceListChecks（清单核对条目，payoff 设定收尾审用）
+    const outcome = runCheckForDocument(root, join(workDir, '草稿-1.md'))
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
 
-    expect(out.join('\n')).toContain('第 1 篇')
-    const loaded = readReviewPacket(workDir)
-    expect(loaded.ok).toBe(true)
-    if (!loaded.ok) return
-    expect(loaded.packet.packets[0]?.lens).toBe('payoff')
-    expect(loaded.packet.packets[0]?.list_checks).toEqual([
+    // 打包执行包
+    const built = buildReviewPacket({
+      checkReport: outcome.report,
+      body: outcome.body,
+      chapter: outcome.chapter.章号,
+      workDir,
+      capabilities: { parallel_subagents: false, multiple_calls: true },
+      remaining_calls: 8,
+      high_risk: false,
+      kind: 'short',
+    })
+    expect(built.ok).toBe(true)
+    if (!built.ok) return
+    // 清单核对恒挂在 payoff（设定收尾审）分项上
+    const payoff = built.packet.packets.find((p) => p.lens === 'payoff')
+    expect(payoff?.list_checks).toEqual([
       { type: 'reversal', subject: '来客就是死者', location: '开头', detail: '门外没有脚印' },
       { type: 'reversal', subject: '来客就是死者', location: '中段', detail: '镜中没有影子' },
       { type: 'reversal', subject: '来客就是死者', location: '尾声', detail: '钟表倒走' },
@@ -181,31 +180,5 @@ test('collectReviewIssues short 合审: 单包覆盖三视角不缺', () => {
   const collected = collectReviewIssues({ packet })
   expect(collected.ok).toBe(true)
   expect(collected.missing_lenses).toHaveLength(0) // 合审单包覆盖三视角
-  rmSync(workDir, { recursive: true, force: true })
-})
-
-// ── renderReviewVerdict short: 清单核对阻断专列 ────
-
-test('renderReviewVerdict short: reversal blocker 渲染清单核对阻断专列', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
-  const packet = makeShortFullPacket(workDir)
-  mkdirSync(packet.out_dir, { recursive: true })
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('hook')), '[]', 'utf-8')
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('payoff')), '[]', 'utf-8')
-  const emotionIssues: ReviewIssue[] = [
-    {
-      lens: 'emotion_peak', severity: 'S2', category: 'reversal',
-      location: '反转段', evidence: ['无铺垫'], issue: '反转不成立', fix: '补铺垫',
-    },
-  ]
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('emotion_peak')), JSON.stringify(emotionIssues), 'utf-8')
-
-  const collected = collectReviewIssues({ packet })
-  expect(collected.ok).toBe(true)
-  const text = renderReviewVerdict(collected)
-  expect(text).toContain('# 审稿单 · 第 1 篇')
-  expect(text).toContain('- 视角：钩子审 / 情绪反转审 / 设定收尾审')
-  expect(text).not.toContain('设定校对 / 钩子审')
-  expect(text).toContain('清单核对阻断')
   rmSync(workDir, { recursive: true, force: true })
 })

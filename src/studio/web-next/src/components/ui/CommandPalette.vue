@@ -3,20 +3,18 @@
 // 模糊搜索 + ↑↓ 选 / 回车执行 / Esc 关。
 import { ref, computed, watch, nextTick } from 'vue'
 import { CornerDownLeft } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
 import { useUiStore } from '../../stores/ui'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
-import { useTheme } from '../../composables/useTheme'
+import { useAppActions } from '../../composables/useAppActions'
 import type { TreeNode } from '../../types/tree'
 
 const ui = useUiStore()
 const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
-const router = useRouter()
-const { toggle: toggleTheme } = useTheme()
+const { actions: appActions } = useAppActions()
 
 interface Cmd {
   id: string
@@ -40,12 +38,10 @@ const cmds = computed<Cmd[]>(() => {
       })
     }
   }
-  list.push({ id: 'act:theme', label: '切换亮/暗主题', group: 'action', run: () => toggleTheme() })
-  list.push({ id: 'act:left', label: '切换左栏', group: 'action', run: () => ws.toggleLeft() })
-  list.push({ id: 'act:right', label: '切换右栏', group: 'action', run: () => ws.toggleRight() })
-  list.push({ id: 'act:focus', label: '切换专注模式', group: 'action', run: () => ws.toggleFocus() })
-  list.push({ id: 'act:settings', label: '打开设置', group: 'action', run: () => ui.openSettings() })
-  list.push({ id: 'act:shelf', label: '返回书架', group: 'action', run: () => router.push('/shelf') })
+  // 应用动作复用 useAppActions 单源（与系统菜单同源）
+  for (const a of appActions) {
+    list.push({ id: 'act:' + a.id, label: a.label, group: 'action', run: a.run })
+  }
   return list
 })
 
@@ -123,7 +119,7 @@ function run(c: Cmd): void {
           ref="inp"
           v-model="q"
           class="palette-input"
-          placeholder="输入命令或章节名…"
+          placeholder="搜索章节或操作…"
           @keydown="onKey"
         />
         <div class="palette-list">
@@ -238,7 +234,7 @@ function run(c: Cmd): void {
   flex-shrink: 0;
 }
 .palette-item.sel .pi-enter {
-  color: var(--interactive-accent);
+  color: var(--text-accent);
 }
 .palette-empty {
   padding: var(--size-4-3);

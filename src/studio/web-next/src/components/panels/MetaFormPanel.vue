@@ -9,6 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
+import { friendlyError } from '../../shared/error'
 
 type FieldDef = {
   key: string
@@ -20,17 +21,23 @@ type FieldDef = {
 
 const TITLE: Record<string, string> = {
   chapter: '章节',
+  'piece-body': '短篇',
   'chapter-outline': '章纲',
   'volume-outline': '卷纲',
   synopsis: '总纲',
   character: '角色',
   worldview: '世界观',
   item: '物品',
+  foreshadow: '伏笔',
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
   // 章节（定稿/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
   chapter: [
+    { key: '字数目标', label: '字数目标', type: 'number' },
+  ],
+  'piece-body': [
+    // 目标情绪/核心反转走上方「短篇标签」只读展示（AI 判定 → fm）；此处仅可编辑的字数目标
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'chapter-outline': [
@@ -82,6 +89,14 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '持有者', label: '持有者', type: 'text' },
     { key: '备注', label: '备注', type: 'textarea' },
   ],
+  foreshadow: [
+    { key: '标题', label: '标题', type: 'text' },
+    { key: '状态', label: '状态', type: 'select', options: ['未回收', '已回收', '已废弃'] },
+    { key: '重要性', label: '重要性', type: 'select', options: ['高', '中', '低'] },
+    { key: '关联词', label: '关联词', type: 'text', placeholder: '逗号分隔，如：玉佩,祖父遗物' },
+    { key: '埋设章号', label: '埋设章号', type: 'number' },
+    { key: '回收章号', label: '回收章号', type: 'number' },
+  ],
 }
 
 const props = defineProps<{ bookName: string }>()
@@ -109,19 +124,27 @@ watch(
   { immediate: true },
 )
 
-// ── 章节标签（AI 判定 → fm，只读展示；钩子/情绪/场景）──
-const TAG_FIELDS = [
-  { key: '时间锚点', label: '时间锚点' },
-  { key: '钩子类型', label: '钩子类型' },
-  { key: '钩子强弱', label: '钩子强弱' },
-  { key: '情绪定位', label: '情绪定位' },
-  { key: '场景', label: '场景' },
-] as const
+// ── 正文标签（AI 判定 → fm，只读展示）──
+// 长篇 chapter：钩子/情绪/场景；短篇 piece-body：目标情绪/核心反转
+const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> = {
+  chapter: [
+    { key: '时间锚点', label: '时间锚点' },
+    { key: '钩子类型', label: '钩子类型' },
+    { key: '钩子强弱', label: '钩子强弱' },
+    { key: '情绪定位', label: '情绪定位' },
+    { key: '场景', label: '场景' },
+  ],
+  'piece-body': [
+    { key: '目标情绪', label: '目标情绪' },
+    { key: '核心反转', label: '核心反转' },
+  ],
+}
+const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
   const parsed = parseFmFields(entry.value.content)
   const out: Record<string, string> = {}
-  for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  for (const f of tagFields.value) out[f.key] = parsed[f.key] ?? ''
   return out
 })
 
@@ -162,7 +185,7 @@ async function onSave(): Promise<void> {
     }
     ui.toast('已保存', 'success')
   } catch (err) {
-    ui.toast(err instanceof Error ? err.message : String(err), 'error')
+    ui.toast(friendlyError(err), 'error')
   } finally {
     saving.value = false
   }
@@ -173,11 +196,11 @@ async function onSave(): Promise<void> {
   <div class="meta-form-panel">
     <div v-if="!entry" class="side-hint">未打开文档</div>
     <div v-else class="info-card">
-      <!-- 章节标签（chapter 才有，只读展示） -->
-      <div v-if="kind === 'chapter'" class="tag-block">
-        <div class="card-title"><Tag :size="14" />章节标签</div>
-        <div class="tag-grid">
-          <div v-for="f in TAG_FIELDS" :key="f.key" class="tag-cell">
+      <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景，短篇 piece-body 目标情绪/核心反转） -->
+      <div v-if="tagFields.length" class="tag-block">
+        <div class="card-title"><Tag :size="14" />{{ kind === 'piece-body' ? '短篇标签' : '章节标签' }}<span class="ai-tag">AI 判定</span></div>
+        <div class="tag-grid" :class="{ 'single-col': tagFields.length <= 2 }">
+          <div v-for="f in tagFields" :key="f.key" class="tag-cell">
             <span class="tag-cell-label">{{ f.label }}</span>
             <span v-if="tagValues[f.key]" class="tag-cell-val">{{ tagValues[f.key] }}</span>
             <span v-else class="tag-cell-empty">—</span>
@@ -238,6 +261,12 @@ async function onSave(): Promise<void> {
   font-weight: 600;
   color: var(--text-normal);
 }
+.ai-tag {
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-left: 2px;
+}
 /* 章节标签区（卡片内分块，border-bottom 分隔） */
 .tag-block {
   padding-bottom: var(--size-4-3);
@@ -286,6 +315,10 @@ select.field-input {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--size-4-2) var(--size-4-3);
+}
+/* 短篇标签（≤2 项）单列展示 */
+.tag-grid.single-col {
+  grid-template-columns: 1fr;
 }
 .tag-cell {
   display: flex;

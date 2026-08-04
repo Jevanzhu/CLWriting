@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
-import { syncLead, syncChapter } from '../../src/cache/sync.js'
-import { runAllChecks, hasRed, getRedItems } from '../../src/check/runner.js'
+import { syncLead } from '../../src/cache/sync.js'
+import { hasRed, getRedItems } from '../../src/check/runner.js'
 import { formatReport, formatRedForRewrite } from '../../src/check/report.js'
 import { checkGrowth } from '../../src/check/growth.js'
 import {
@@ -19,18 +19,8 @@ import {
   parseIronRules,
 } from '../../src/check/count.js'
 import { checkLeadsForm } from '../../src/check/leads.js'
-import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { renderStyleRules } from '../../src/install/scaffold.js'
-import type { ChapterMeta, BookConfig, RealmDoc } from '../../src/format/types.js'
-
-function makeFixture(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
-  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
-  createAllTables(db)
-  mkdirSync(join(root, '.cache'), { recursive: true })
-  // 注意：db 路径需在 .cache 下，重建上面这行
-  return { root, db: new DatabaseSync(join(root, '.cache', 'index.db')) }
-}
+import type { ChapterMeta, RealmDoc } from '../../src/format/types.js'
 
 // ── front matter 格式（#10 项 3，红）──────────────
 
@@ -266,10 +256,10 @@ test('checkLeadsForm: 引文命中正文 → 无红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 12, ['伏笔'])
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -279,10 +269,10 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
   syncLead(db, {
-    编号: '伏笔-031', 标题: '灭门真凶', 类型: '伏笔', 状态: '进行中', 开启章: 12,
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 12, ['伏笔'])
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -291,10 +281,10 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
 test('checkLeadsForm: 履历声称未来章 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 99, 动词: '埋下', 证据: 'xx' }], _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 10, ['伏笔'])
+  const r = checkLeadsForm(db, root, 10, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-chapter-future')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -303,13 +293,13 @@ test('checkLeadsForm: 履历声称未来章 → 红', () => {
 test('checkLeadsForm: 履历章号乱序 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [
       { 章号: 20, 动词: '埋下', 证据: 'a' },
       { 章号: 10, 动词: '推进', 证据: 'b' }, // 乱序：10 < 20
     ], _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 30, ['伏笔'])
+  const r = checkLeadsForm(db, root, 30, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-chapter-disorder')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -318,11 +308,24 @@ test('checkLeadsForm: 履历章号乱序 → 红', () => {
 test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 5, 动词: '回收', 证据: 'a' }], // 末条"回收"是收尾，但状态仍"进行中"
+    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '揭晓', 证据: 'a' }], // 末条"揭晓"是悬念收尾，但状态仍"进行中"
     _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 10, ['伏笔'])
+  const r = checkLeadsForm(db, root, 10, ['悬念'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 成长线 跃迁/跨层 收尾动词状态闭合（曾因硬编码漏检）', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '跃迁', 证据: 'a' }], // 末条"跃迁"是成长线收尾，但状态仍"进行中"
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['成长线'])
   expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -332,13 +335,13 @@ test('checkLeadsForm: 两端闭合——声明了没做 / 做了没声明', () =
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
-    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
   })
-  // declared = [悬念-001]（声明推进但没写），actual = [伏笔-031]（写了没声明）
-  const r = checkLeadsForm(db, root, 10, ['伏笔', '悬念'], ['悬念-001'], ['伏笔-031'])
+  // declared = [悬念-001]（声明推进但没写），actual = [悬念-031]（写了没声明）
+  const r = checkLeadsForm(db, root, 10, ['悬念'], ['悬念-001'], ['悬念-031'])
   expect(r.items.some((i) => i.checkId === 'lead-declared-not-done' && i.leadId === '悬念-001')).toBe(true)
-  expect(r.items.some((i) => i.checkId === 'lead-done-not-declared' && i.leadId === '伏笔-031')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'lead-done-not-declared' && i.leadId === '悬念-031')).toBe(true)
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
@@ -347,10 +350,10 @@ test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
-    编号: '伏笔-031', 标题: 'x', 类型: '伏笔', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
   })
-  const r = checkLeadsForm(db, root, 10, ['伏笔'], ['伏笔-031'], ['伏笔-031'])
+  const r = checkLeadsForm(db, root, 10, ['悬念'], ['悬念-031'], ['悬念-031'])
   expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -376,7 +379,7 @@ test('parseIronRules + checkStyleMetrics: 单句超长 / 对话提示语 → 黄
   expect(r.items.some((i) => i.checkId === 'style-dialogue-tag')).toBe(true)
 })
 
-test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ 含 deslop 段', () => {
+test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ S5 纯配置瘦身', () => {
   const iron = renderStyleRules('玄幻')
   // 机检激活：parseIronRules 从 scaffold 铁律解析出全部可量化阈值（修复「骨架阈值睡着」）
   const rules = parseIronRules(iron)
@@ -385,14 +388,12 @@ test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ 含 deslo
   expect(rules.maxDialogueTagRatio).toBe(0.5)
   expect(rules.maxParallelStreak).toBe(3)
   expect(rules.avoidSummaryEnding).toBe(true)
-  // deslop 软约束段（吸收点 2.5）：替换库 + 删除上限分级 + 需复核
-  expect(iron).toContain('AI 味替换参考')
-  expect(iron).toContain('深吸一口气')
+  // S5 瘦身：纯配置双段（阈值 + 删除分级）；禁词知识归条目库，不再在铁律
+  expect(iron).toContain('可量化约束')
   expect(iron).toContain('轻度 ≤15%')
   expect(iron).toContain('[需复核]')
-  // 保留 import.test.ts 依赖的两个锚点标题
-  expect(iron).toContain('反和解段')
-  expect(iron).toContain('可量化约束')
+  expect(iron).not.toContain('反和解段')
+  expect(iron).not.toContain('AI 味替换参考')
 })
 
 test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () => {

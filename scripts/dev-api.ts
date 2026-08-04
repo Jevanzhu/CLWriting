@@ -13,19 +13,10 @@
  */
 import { startServer } from '../src/studio/server/index.js'
 import { findWorkDir } from '../src/install/books.js'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { defaultUserDataPath } from '../src/fs/user-data-path.js'
 import process from 'node:process'
 
 const PORT = 7878
-
-/** 跨平台 APP 数据目录（与 Electron app.getPath('userData') 一致） */
-function defaultUserDataPath(): string {
-  const p = process.platform
-  if (p === 'darwin') return join(homedir(), 'Library', 'Application Support', 'clwriting')
-  if (p === 'win32') return join(homedir(), 'AppData', 'Roaming', 'clwriting')
-  return join(homedir(), '.config', 'clwriting')
-}
 
 // --dir 参数
 const dirIdx = process.argv.indexOf('--dir')

@@ -46,8 +46,8 @@ export function readJson(
       }
       try {
         resolve(data.trim() === '' ? {} : JSON.parse(data))
-      } catch {
-        resolve({})
+      } catch (e) {
+        reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`))
       }
     })
     req.on('error', (e) => reject(e))

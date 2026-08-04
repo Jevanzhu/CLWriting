@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { listBooks, type BookEntry } from '../api/shelf'
+import { friendlyError } from '../shared/error'
 
 export const useShelfStore = defineStore('shelf', () => {
   const books = ref<BookEntry[]>([])
@@ -18,7 +19,7 @@ export const useShelfStore = defineStore('shelf', () => {
       workDirMissing.value = !r.workDir
       hint.value = r.hint ?? null
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      error.value = friendlyError(e)
     } finally {
       loading.value = false
     }

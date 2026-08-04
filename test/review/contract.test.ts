@@ -13,7 +13,7 @@ test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入�
     sections: [],
     byproducts: {
       leadChanges: [
-        { leadId: '伏笔-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
+        { leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
       ],
     },
   }
@@ -26,7 +26,7 @@ test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入�
   expect(tasks[1]!.ledger_checks).toHaveLength(0)
   expect(tasks[2]!.title).toBe('设定校对')
   expect(tasks[2]!.ledger_checks).toEqual([
-    { lead_id: '伏笔-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
+    { lead_id: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
   ])
   expect(tasks[2]!.output_contract).toEqual({ json_only: true, evidence_required: true, no_score: true })
 })

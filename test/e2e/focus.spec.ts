@@ -12,7 +12,7 @@ test('专注模式：侧栏隐藏 + 退出还原', async ({ page }) => {
   // 初始侧栏展开
   await expect(page.locator('.ws-left')).not.toHaveClass(/collapsed/)
   // 点 Focus（ViewHeader 唯一 action-btn）
-  const focusBtn = page.locator('.view-header .action-btn')
+  const focusBtn = page.locator('[data-tip*="专注"]')
   await focusBtn.click()
   await expect(page.locator('.ws-left')).toHaveClass(/collapsed/)
   await expect(page.locator('.ws-right')).toHaveClass(/collapsed/)

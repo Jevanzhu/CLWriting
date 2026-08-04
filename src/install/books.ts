@@ -9,16 +9,15 @@
  *   1. 显式 [书目录] 参数（最高，覆盖一切；保留既有用法）
  *   2. cwd 是书仓库（有 book.yaml + .git）→ cwd（兼容书仓库内直接跑）
  *   3. .clwriting/active → 读活动书 → 查 books.jsonl 取 path → 工作目录/path
- *   4. 都不是 → 人话报错「还没选书，先 clwriting use <书> 或 init」
+ *   4. 都不是 → 人话报错「还没选书，请在书库入口启用或新建一本」
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, join, dirname, basename } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { git } from '../git/exec.js'
-import type { LeadType } from '../format/types.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 
@@ -102,6 +101,19 @@ export function appendBook(
   books.push(entry)
   writeBooks(workDir, books)
   return { ok: true }
+}
+
+/**
+ * 从 books.jsonl 移除一本书的登记（不改文件系统）。
+ * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
+ */
+export function removeBookEntry(workDir: string, name: string): void {
+  const books = readBooks(workDir).filter((b) => b.name !== name)
+  writeBooks(workDir, books)
+  // 活动书被删 → 清指针（下次进书架会提示选书）
+  if (readActive(workDir) === name) {
+    atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+  }
 }
 
 // ── 活动书指针（#32 第 3 节）──────────────────────
@@ -200,7 +212,7 @@ export function resolveBookRoot(
   // 4. 都不是
   return {
     ok: false,
-    reason: '还没选书。先 clwriting use <书名> 选一本，或者在工作目录里 clwriting init 建一本。',
+    reason: '还没选书。请在书库入口启用一本书，或在工作目录下新建一本。',
   }
 }
 
