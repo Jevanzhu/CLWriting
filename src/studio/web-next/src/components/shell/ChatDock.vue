@@ -9,7 +9,7 @@ import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Squar
 import ChatPanel from '../panels/ChatPanel.vue'
 import { useChatStore } from '../../stores/chat'
 import { useWorkbenchStore } from '../../stores/workbench'
-import { sendChat } from '../../api/chat'
+import { sendChat, clearChatHistory } from '../../api/chat'
 import { interrupt } from '../../api/stream'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 
@@ -98,6 +98,7 @@ async function handleSend(): Promise<void> {
       ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
     })
   } catch (e) {
+    chat.popUser()
     chat.error = e instanceof Error ? e.message : String(e)
   }
 }
@@ -109,13 +110,20 @@ function handleKeydown(e: KeyboardEvent): void {
   }
 }
 
+/** 章节选择器：空值→undefined（全书），否则转数字 */
+function onChapterChange(e: Event): void {
+  const v = (e.target as HTMLSelectElement).value
+  selectedChapter.value = v === '' ? undefined : Number(v)
+}
+
 async function stopChat(): Promise<void> {
   try { await interrupt(props.bookName) } catch { /* 忽略 */ }
 }
 
 async function handleClear(): Promise<void> {
-  // 运行中先中断后端，再清前端（防清空后仍冒新消息）
+  // 运行中先中断后端，再清前后端（防清空后仍冒新消息）
   if (chat.running) await stopChat()
+  try { await clearChatHistory(props.bookName) } catch { /* 忽略 */ }
   chat.clear()
 }
 </script>
@@ -135,15 +143,8 @@ async function handleClear(): Promise<void> {
     <div v-if="fabOpen" class="chat-stack">
       <div class="chat-composer">
         <div class="composer-box">
-          <!-- 主区：章节选择（左下）+ 输入框 -->
+          <!-- 主区：输入框 -->
           <div class="composer-main">
-            <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
-              <BookOpen :size="14" />
-              <select v-model.number="selectedChapter" class="chat-select">
-                <option :value="undefined">全书</option>
-                <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
-              </select>
-            </label>
             <textarea
               v-model="input"
               class="chat-input"
@@ -154,9 +155,18 @@ async function handleClear(): Promise<void> {
             />
           </div>
 
-          <!-- 底栏：快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
+          <!-- 底栏：章节选择+快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
           <div class="composer-footer">
-            <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+            <div class="composer-foot-left">
+              <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
+                <BookOpen :size="14" />
+                <select :value="selectedChapter" class="chat-select" @change="onChapterChange">
+                  <option value="">全书</option>
+                  <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
+                </select>
+              </label>
+              <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+            </div>
             <div class="composer-actions">
               <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
                 <select
@@ -406,7 +416,6 @@ async function handleClear(): Promise<void> {
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  margin-top: var(--size-4-1);
   padding: 3px 11px;
   border-radius: 999px;
   background: var(--background-secondary);
@@ -451,6 +460,12 @@ async function handleClear(): Promise<void> {
   justify-content: space-between;
   gap: var(--size-4-2);
   padding: 2px 12px 6px;
+}
+.composer-foot-left {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-4);
+  min-width: 0;
 }
 .composer-hint {
   font-size: var(--font-size-xxs);

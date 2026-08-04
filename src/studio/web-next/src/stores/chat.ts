@@ -139,6 +139,12 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push({ role: 'user', content: text, done: true, tools: [] })
   }
 
+  /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */
+  function popUser(): void {
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.role === 'user') messages.value.pop()
+  }
+
   /** 清空对话 */
   function clear(): void {
     messages.value = []
@@ -153,6 +159,7 @@ export const useChatStore = defineStore('chat', () => {
     hasMessages,
     dispatch,
     pushUser,
+    popUser,
     clear,
   }
 })

@@ -9,7 +9,6 @@
 import type { ChatMsg, ToolDef } from '../provider/types.js'
 import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
-import { resolveTier } from '../provider/index.js'
 import { generate, generateTool, GenError } from '../gen.js'
 import { rulesToPrompt } from '../rules/index.js'
 
@@ -82,7 +81,6 @@ export async function runSpec(
   spec: TaskSpec,
   opts: SpecOpts,
 ): Promise<TaskResult<SpecOutput>> {
-  const tier = resolveTier(opts.userDataPath, spec.tierKind)
   // A2：按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
   const systemPrompt = (opts.systemPromptOverride ?? spec.systemPrompt) + rulesToPrompt(spec.name, opts.bookRoot)
   const tool = opts.toolOverride ?? spec.tool
@@ -101,7 +99,7 @@ export async function runSpec(
     onReset: opts.onReset,
     ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
     ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } as unknown as SpecOutput } : {}),
-    run: async (provider, signal) => {
+    run: async (provider, signal, tier) => {
       if (spec.genMode === 'tool' && tool) {
         const r = await generateTool(
           provider,

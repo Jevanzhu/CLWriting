@@ -1,5 +1,5 @@
 /**
- * W2A T2 —— 文档级八态派生（src/document/status.ts）单测。
+ * W2A T2 —— 文档级六态派生（src/document/status.ts）单测。
  * 覆盖：collectDirtyFiles（干净/脏/非 git 仓库降级）、deriveStatus（archived/draft/idea/revision/final）、
  * readPublished（有/无字段/无 frontmatter）、deriveStatusFull（published 合成 + revision 优先）。
  */

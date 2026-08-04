@@ -127,7 +127,7 @@ export async function runTask<T>(opts: {
   register?: (ctrl: AbortController) => void
   /** 重试前调用（让调用方推 reset 事件清前端缓冲；无产出时调用亦无害） */
   onReset?: () => void
-  run: (provider: ModelProvider, signal: AbortSignal) => Promise<T>
+  run: (provider: ModelProvider, signal: AbortSignal, tier: TierSlot) => Promise<T>
   /** 任务名（trace + 记账用，如 'self-heal' / 'analysis'） */
   task?: string
   /** 书库根路径（trace + 记账用） */
@@ -210,7 +210,7 @@ export async function runTask<T>(opts: {
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        const data = await opts.run(r.provider, ctrl.signal)
+        const data = await opts.run(r.provider, ctrl.signal, r.tier)
         const usage = extractUsage(data)
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）
         if (bookRoot) {

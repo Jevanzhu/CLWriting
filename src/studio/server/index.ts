@@ -151,11 +151,19 @@ export function startServer(opts: StudioServerOptions): http.Server {
 
     // API 优先
     if (req.url?.startsWith('/api/')) {
-      const matched = await dispatch(req, res, routes)
-      if (matched || res.headersSent) return
-      res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ error: 'not found' }))
-      return
+      try {
+        const matched = await dispatch(req, res, routes)
+        if (matched || res.headersSent) return
+        res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      } catch (e) {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: '服务器内部错误', detail: e instanceof Error ? e.message : String(e) }))
+        }
+        return
+      }
     }
 
     // 静态托管前端

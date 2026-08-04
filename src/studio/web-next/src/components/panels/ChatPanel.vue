@@ -9,7 +9,7 @@ import { ref, computed, nextTick, watch } from 'vue'
 import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useWorkbenchStore } from '../../stores/workbench'
-import { sendChat, confirmTool } from '../../api/chat'
+import { sendChat, confirmTool, clearChatHistory } from '../../api/chat'
 import { interrupt } from '../../api/stream'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 
@@ -58,6 +58,7 @@ async function handleSend(): Promise<void> {
       ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
     })
   } catch (e) {
+    chat.popUser()
     chat.error = e instanceof Error ? e.message : String(e)
   }
 }
@@ -67,6 +68,12 @@ function handleKeydown(e: KeyboardEvent): void {
     e.preventDefault()
     void handleSend()
   }
+}
+
+/** 章节选择器：空值→undefined（全书），否则转数字 */
+function onChapterChange(e: Event): void {
+  const v = (e.target as HTMLSelectElement).value
+  selectedChapter.value = v === '' ? undefined : Number(v)
 }
 
 // ── 工具确认 ────────────────────────────────────
@@ -86,8 +93,9 @@ async function stopChat(): Promise<void> {
 }
 
 async function handleClear(): Promise<void> {
-  // 运行中先中断后端，再清前端（防清空后仍冒新消息）
+  // 运行中先中断后端，再清前后端（防清空后仍冒新消息）
   if (chat.running) await stopChat()
+  try { await clearChatHistory(props.bookName) } catch { /* 忽略 */ }
   chat.clear()
 }
 
@@ -102,19 +110,21 @@ function scrollToBottom(): void {
 watch(() => chat.messages.length, () => {
   void nextTick(scrollToBottom)
 })
+// 流式文本追加（chat_text）时 length 不变，补监末条 content 滚动
+watch(() => chat.messages.at(-1)?.content, () => {
+  void nextTick(scrollToBottom)
+})
 
 // ── 工具图标映射 ─────────────────────────────────
 
 const TOOL_ICONS: Record<string, typeof PenLine> = {
   write_chapter: PenLine,
   check_chapter: ShieldCheck,
-  review_chapter: ShieldCheck,
 }
 
 const TOOL_LABELS: Record<string, string> = {
   write_chapter: '自动写章',
   check_chapter: '机检',
-  review_chapter: '审稿',
 }
 </script>
 
@@ -187,15 +197,8 @@ const TOOL_LABELS: Record<string, string> = {
     <!-- 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 -->
     <div v-if="!hideComposer" class="chat-composer">
       <div class="composer-box">
-        <!-- 主区：章节选择（左下）+ 输入框 -->
+        <!-- 主区：输入框 -->
         <div class="composer-main">
-          <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
-            <BookOpen :size="14" />
-            <select v-model.number="selectedChapter" class="chat-select">
-              <option :value="undefined">全书</option>
-              <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
-            </select>
-          </label>
           <textarea
             v-model="input"
             class="chat-input"
@@ -206,9 +209,18 @@ const TOOL_LABELS: Record<string, string> = {
           />
         </div>
 
-        <!-- 底栏：快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
+        <!-- 底栏：章节选择+快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
         <div class="composer-footer">
-          <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+          <div class="composer-foot-left">
+            <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
+              <BookOpen :size="14" />
+              <select :value="selectedChapter" class="chat-select" @change="onChapterChange">
+                <option value="">全书</option>
+                <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
+              </select>
+            </label>
+            <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+          </div>
           <div class="composer-actions">
             <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
               <Cpu :size="12" />
@@ -472,7 +484,6 @@ const TOOL_LABELS: Record<string, string> = {
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  margin-top: var(--size-4-1);
   padding: 3px 11px;
   border-radius: 999px;
   background: var(--background-secondary);
@@ -516,6 +527,12 @@ const TOOL_LABELS: Record<string, string> = {
   justify-content: space-between;
   gap: var(--size-4-2);
   padding: var(--size-4-1) var(--size-4-3) var(--size-4-3);
+}
+.composer-foot-left {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-4);
+  min-width: 0;
 }
 .composer-hint {
   font-size: var(--font-size-xxs);

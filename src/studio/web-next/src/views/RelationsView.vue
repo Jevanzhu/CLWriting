@@ -3,7 +3,7 @@
 // 主角居中，其余角色按 BFS 跳数分环；二环挂在各自父节点的角度扇区内——
 // 位置本身即语义（谁是核心、谁因谁而来），且确定性布局每次打开都一致。
 // 右侧详情卡跟随选中节点。数据源 #7.5 settings（parseRelations 派生自角色卡「关系」）。
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   Search, Crosshair, ArrowUpRight, Users,
 } from 'lucide-vue-next'
@@ -528,6 +528,13 @@ function onPanUp(): void {
   window.removeEventListener('mousemove', onPanMove)
   window.removeEventListener('mouseup', onPanUp)
 }
+// 兜底：拖拽中切 view/卸载时移除残留 window 监听（正常由 onNodeUp/onPanUp 在 mouseup 清理）
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onNodeMove)
+  window.removeEventListener('mouseup', onNodeUp)
+  window.removeEventListener('mousemove', onPanMove)
+  window.removeEventListener('mouseup', onPanUp)
+})
 function resetView(): void {
   // 视图回到贴合内容，同时把拖歪的节点全部收回原位
   for (const n of nodes.value) {

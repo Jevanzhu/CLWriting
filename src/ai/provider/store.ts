@@ -12,7 +12,8 @@
  *
  * 写入健壮性（原子写/备份/损坏不静默）属于 S5，本文件仅做 chmod 0600。
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, renameSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync } from 'node:fs'
+import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelCaps, TierSlot, TierConfig } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
@@ -173,10 +174,13 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
     }
   }
 
-  // D5+D8：原子写——临时文件(创建即 0600) → rename 原子替换，杜绝半写与权限窗口
-  const tmp = join(dirname(fp), `${FILE}.tmp`)
-  writeFileSync(tmp, json, { encoding: 'utf8', mode: 0o600 })
-  renameSync(tmp, fp)
+  // D5+D8：原子写（atomicWriteFile: PID+UUID tmp 防冲突 + fsync 落盘）→ chmod 0600 收敛凭据权限
+  atomicWriteFile(fp, json, { fsync: true })
+  try {
+    chmodSync(fp, 0o600)
+  } catch {
+    // Windows / 某些 FS 不支持 chmod
+  }
 }
 
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */

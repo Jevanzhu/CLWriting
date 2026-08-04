@@ -8,8 +8,9 @@
  * Envelope = { 生成时间, 模型, 正文 hash, 载荷 }；正文变更（strip fm 后）
  * hash 不匹配 → 面板标「已过期」，提示可重新分析。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { createHash } from 'node:crypto'
 import { splitFrontMatter } from '../format/frontmatter.js'
 
@@ -68,8 +69,7 @@ export function writeAnalysis(
     }
   }
   raw[kind] = envelope
-  mkdirSync(dirname(fp), { recursive: true })
-  writeFileSync(fp, JSON.stringify(raw, null, 2), 'utf-8')
+  atomicWriteFile(fp, JSON.stringify(raw, null, 2))
 }
 
 /** 读全书级某 kind 信封（项目/分析/__book__.json；无文件/无 kind/损坏 → null）。 */
@@ -101,8 +101,7 @@ export function writeBookAnalysis(
     }
   }
   raw[kind] = envelope
-  mkdirSync(dirname(fp), { recursive: true })
-  writeFileSync(fp, JSON.stringify(raw, null, 2), 'utf-8')
+  atomicWriteFile(fp, JSON.stringify(raw, null, 2))
 }
 
 /** 算源正文 hash（strip fm 后 sha256）。调用方组装信封时用。 */

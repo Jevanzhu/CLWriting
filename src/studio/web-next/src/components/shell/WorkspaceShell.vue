@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import Ribbon from './Ribbon.vue'
 import SidebarLeft from './SidebarLeft.vue'
 import SidebarRight from './SidebarRight.vue'
@@ -18,6 +18,7 @@ import TooltipHost from '../ui/TooltipHost.vue'
 import { useHotkeys } from '../../composables/useHotkeys'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { usePrefsStore } from '../../stores/prefs'
+import { useTreeStore } from '../../stores/tree'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
 // flex 布局（非旧 web 的 overlay 浮层）；折叠走 width 过渡，专注模式覆盖折叠态。
@@ -26,17 +27,21 @@ defineProps<{ bookName: string }>()
 
 const ws = useWorkspaceStore()
 const prefs = usePrefsStore()
+const tree = useTreeStore()
 useHotkeys()
 
 // 专注模式覆盖：focus 时左右栏视觉收起，退出恢复 leftOpen/rightOpen 原值
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
 const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
 
-/** dock B 当前章号（从编辑器活动文档推断） */
+/** dock B 当前章号：从活动文档树节点 path 的文件名首部数字推断（如 0001.md → 1） */
 const dockChapter = computed(() => {
   const docId = ws.activeDocId
   if (!docId) return undefined
-  const m = docId.match(/(?:短篇-|草稿-)(\d+)/) ?? docId.match(/(\d+)-/)
+  const node = tree.byDocId.get(docId)
+  if (!node) return undefined
+  const basename = node.path.split('/').pop() ?? ''
+  const m = basename.match(/^(\d+)/)
   return m ? Number(m[1]) : undefined
 })
 
@@ -55,6 +60,7 @@ function onLeftMouseDown(e: MouseEvent): void {
     startResizeLeft(e)
   }
 }
+let resizeCleanup: (() => void) | null = null
 function startResizeLeft(e: MouseEvent): void {
   e.preventDefault()
   const startX = e.clientX
@@ -69,12 +75,16 @@ function startResizeLeft(e: MouseEvent): void {
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
     leftDragging.value = false
+    resizeCleanup = null
   }
   document.addEventListener('mousemove', onMove)
   document.addEventListener('mouseup', onUp)
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
+  resizeCleanup = onUp
 }
+// 兜底：拖拽中卸载时清理残留 document 监听（正常由 onUp 在 mouseup 清理）
+onUnmounted(() => resizeCleanup?.())
 </script>
 
 <template>

@@ -15,6 +15,7 @@
 import {
   app,
   BrowserWindow,
+  session,
   screen,
   ipcMain,
   dialog,
@@ -42,6 +43,16 @@ import {
 import type { WorkDirStore } from './workdir-store.js'
 
 const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
+
+/** 生产模式 CSP：限定所有资源走本地 origin，防渲染层注入外部脚本/样式 */
+const CLW_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'", // CodeMirror / Vue 动态样式注入
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'", // 只连本地 server（SSE + fetch）
+].join('; ')
 
 // userData 强制统一到定值（大写 CLWriting）。
 // Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
@@ -334,6 +345,9 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     console.error('PRELOAD-ERROR', p, err.message)
   })
+  // 纵深防御：禁止页面导航外部 URL + 禁止弹新窗口（contextIsolation+sandbox 已降险，此为兜底）
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault())
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   // dev 模式:本地 dev:web(5173)+dev:api(7878) 不经系统代理
   // 防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流 / EventSource 反复重连
   if (devUi) {
@@ -567,6 +581,17 @@ function buildMenu(): void {
 // ── 生命周期 ──────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
+  if (!process.env.CLW_DEV_UI) {
+    session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
+      cb({
+        responseHeaders: {
+          ..._d.responseHeaders,
+          'Content-Security-Policy': [CLW_CSP],
+        },
+      })
+    })
+  }
   registerIpc()
   buildMenu()
   bootstrap().catch((e) => {

@@ -8,7 +8,13 @@ import { getProviders, setChatTier, fetchModels, type TierSlot, type EffortLevel
 
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
+// 模块级单例：ChatPanel + ChatDock 共享，避免重复 getProviders/fetchModels（P2-N）
+let _instance: ReturnType<typeof _createChatTier> | null = null
 export function useChatTier() {
+  if (!_instance) _instance = _createChatTier()
+  return _instance
+}
+function _createChatTier() {
   const models = ref<string[]>([])
   const chatTier = ref<TierSlot | null>(null)
   const creativeTier = ref<TierSlot | null>(null)

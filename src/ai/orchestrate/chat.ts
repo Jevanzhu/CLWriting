@@ -18,7 +18,6 @@ import type { DriverEvent, Session, StudioDriver } from '../../driver/types.js'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
 import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
-import { resolveTier } from '../provider/index.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
 import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
 import { isSelfHealRunning, runSelfHeal, type SelfHealOutcome } from './self-heal.js'
@@ -82,9 +81,28 @@ export function resolveChatConfirm(bookName: string, callId: string, ok: boolean
   return true
 }
 
-// ── 内存级对话历史（per-book） ────────────────────
+// ── 内存级对话历史（per-book，LRU 上限防多书累积） ────
 
 const histories = new Map<string, ChatMsg[]>()
+const MAX_HISTORY_BOOKS = 8
+
+function getHistory(bookName: string): ChatMsg[] {
+  const h = histories.get(bookName)
+  if (h) return h
+  if (histories.size >= MAX_HISTORY_BOOKS) {
+    // 删最旧（Map 保留插入顺序）
+    const oldest = histories.keys().next().value
+    if (oldest !== undefined) histories.delete(oldest)
+  }
+  const fresh: ChatMsg[] = []
+  histories.set(bookName, fresh)
+  return fresh
+}
+
+/** 清空本书对话历史（前端"清空对话"时调） */
+export function clearChatHistory(bookName: string): void {
+  histories.delete(bookName)
+}
 
 // ── 等确认 ────────────────────────────────────────
 
@@ -144,9 +162,6 @@ async function executeChatTool(
         const outcome = runCheckForDocument(opts.bookRoot, draftPath)
         return formatCheckResult(outcome)
       }
-      case 'review_chapter': {
-        return { ok: false, summary: '审稿功能尚未接入对话工具，请使用右栏审稿面板。' }
-      }
       default:
         return { ok: false, summary: `未知工具：${call.name}` }
     }
@@ -202,13 +217,12 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   running.set(opts.bookName, state)
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
 
-  const history = histories.get(opts.bookName) ?? []
+  const history = getHistory(opts.bookName)
   const baseLen = history.length
   history.push({ role: 'user', content: opts.message })
 
   const ctx = buildChatContext(opts.bookRoot, opts.chapter)
   const sys = chatSystem(ctx)
-  const tier = resolveTier(opts.userDataPath, 'chat')
 
   emit(opts, { type: 'chat_start' })
 
@@ -236,7 +250,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         ctrl: state.ctrl,
         register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
         onReset: () => emit(opts, { type: 'chat_reset' }),
-        run: async (provider, signal) => {
+        run: async (provider, signal, tier) => {
           const r = await generate(
             provider,
             {

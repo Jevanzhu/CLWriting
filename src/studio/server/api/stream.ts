@@ -16,7 +16,7 @@ import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
-import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../../ai/orchestrate/chat.js'
+import { runChat, isChatRunning, abortChat, resolveChatConfirm, clearChatHistory } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
@@ -187,6 +187,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const bookName = params['name']!
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
     // 并发保护:check 阶段无子进程 → isRunning 假空闲 → 前端可再触发,两个编排器会互相覆写草稿
     if (isSelfHealRunning(bookName)) {
       return reply(res, 409, { error: '本书正在全自动写章,先等它跑完或中断' })
@@ -220,6 +221,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const bookName = params['name']!
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
     if (isChatRunning(bookName)) {
       return reply(res, 409, { error: '本书正在对话中，请等当前对话结束' })
     }
@@ -255,6 +257,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     const found = resolveChatConfirm(bookName, callId, ok)
     if (!found) return reply(res, 404, { error: '未找到待确认的工具调用（已超时或已取消）' })
+    reply(res, 200, { ok: true })
+  })
+
+  // 清空本书对话历史（前端"清空对话"时调）
+  route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
+    clearChatHistory(params['name']!)
     reply(res, 200, { ok: true })
   })
 }
