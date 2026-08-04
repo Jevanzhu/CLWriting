@@ -22,6 +22,7 @@ import { writeSnapshot } from '../../../document/snapshot.js'
 import { legacyId } from '../../../document/stable-id.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
+import { recordAuthorSignal } from '../../../ai/author-signal.js'
 
 interface DraftCtx {
   workDir: string | null
@@ -101,7 +102,11 @@ export function saveDraft(
   }
   const finalDocId = docId ?? legacyId(relPath)
   // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
-  if (opts?.recordAi !== false) recordAiVersion(bookRoot, finalDocId, content)
+  if (opts?.recordAi !== false) {
+    // B5 作者信号：先对比上一版（AI 产出）删掉的片段 → 规则命中统计，再记录当前版
+    recordAuthorSignal(bookRoot, finalDocId, content, 'self-heal')
+    recordAiVersion(bookRoot, finalDocId, content)
+  }
   return { relPath, docId: finalDocId, words: content.length, snapshotted: snapshotId !== null }
 }
 
