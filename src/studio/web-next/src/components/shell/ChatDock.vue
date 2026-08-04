@@ -4,7 +4,7 @@
  * 「对话」按钮未开时在输入框上方 6px；打开时融入对话框头部左上角（胶囊标签）。
  * 输入框为 Codex 风格（与工作台对话一致）：章节左下 + 模型/推理等级/清空/发送右下。
  */
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Square } from 'lucide-vue-next'
 import ChatPanel from '../panels/ChatPanel.vue'
 import { useChatStore } from '../../stores/chat'
@@ -110,11 +110,27 @@ function handleKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** 章节选择器：空值→undefined（全书），否则转数字 */
-function onChapterChange(e: Event): void {
-  const v = (e.target as HTMLSelectElement).value
-  selectedChapter.value = v === '' ? undefined : Number(v)
+/** 章节下拉菜单（自定义浮层，替代原生 select 以掌控定位） */
+const chapterMenuOpen = ref(false)
+const chapterWrapRef = ref<HTMLElement | null>(null)
+
+function toggleChapterMenu(): void {
+  chapterMenuOpen.value = !chapterMenuOpen.value
 }
+
+function selectChapter(ch: number | undefined): void {
+  selectedChapter.value = ch
+  chapterMenuOpen.value = false
+}
+
+function onDocClick(e: MouseEvent): void {
+  if (chapterMenuOpen.value && chapterWrapRef.value && !chapterWrapRef.value.contains(e.target as Node)) {
+    chapterMenuOpen.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 async function stopChat(): Promise<void> {
   try { await interrupt(props.bookName) } catch { /* 忽略 */ }
@@ -158,13 +174,17 @@ async function handleClear(): Promise<void> {
           <!-- 底栏：章节选择+快捷键提示（左）+ 模型/推理等级/清空/发送（右） -->
           <div class="composer-footer">
             <div class="composer-foot-left">
-              <label class="composer-chapter" :class="{ on: selectedChapter !== undefined }">
-                <BookOpen :size="14" />
-                <select :value="selectedChapter" class="chat-select" @change="onChapterChange">
-                  <option value="">全书</option>
-                  <option v-if="currentChapter" :value="currentChapter">第 {{ currentChapter }} 章</option>
-                </select>
-              </label>
+              <div ref="chapterWrapRef" class="composer-chapter-wrap">
+                <button type="button" class="composer-chapter" :class="{ on: selectedChapter !== undefined }" @click="toggleChapterMenu">
+                  <BookOpen :size="14" />
+                  <span>{{ selectedChapter !== undefined ? `第 ${selectedChapter} 章` : '全书' }}</span>
+                  <ChevronDown :size="10" />
+                </button>
+                <div v-if="chapterMenuOpen" class="chapter-menu">
+                  <button type="button" class="chapter-menu-item" :class="{ active: selectedChapter === undefined }" @click="selectChapter(undefined)">全书</button>
+                  <button v-if="currentChapter" type="button" class="chapter-menu-item" :class="{ active: selectedChapter === currentChapter }" @click="selectChapter(currentChapter)">第 {{ currentChapter }} 章</button>
+                </div>
+              </div>
               <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
             </div>
             <div class="composer-actions">
@@ -259,7 +279,7 @@ async function handleClear(): Promise<void> {
   pointer-events: auto;
 }
 
-/* ── FAB：初版 accent 实心圆钮，70% 透明（与输入框/对话框同透明度） ── */
+/* ── FAB：accent 实心圆钮，55% 透明 ── */
 .fab {
   position: absolute;
   left: 16px;
@@ -268,7 +288,7 @@ async function handleClear(): Promise<void> {
   height: 48px;
   border-radius: 50%;
   border: none;
-  background: color-mix(in srgb, var(--interactive-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
   color: var(--text-on-accent);
@@ -285,13 +305,13 @@ async function handleClear(): Promise<void> {
 .fab:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-l);
-  background: color-mix(in srgb, var(--interactive-accent-hover) 70%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent-hover) 55%, transparent);
 }
 .fab:active {
   transform: translateY(0) scale(0.96);
 }
 .fab.on {
-  background: color-mix(in srgb, var(--background-modifier-active-hover) 70%, transparent);
+  background: color-mix(in srgb, var(--background-modifier-active-hover) 55%, transparent);
   color: var(--text-normal);
 }
 
@@ -411,6 +431,9 @@ async function handleClear(): Promise<void> {
   gap: var(--size-4-2);
   padding: var(--size-4-3) var(--size-4-3) var(--size-4-1);
 }
+.composer-chapter-wrap {
+  position: relative;
+}
 .composer-chapter {
   display: inline-flex;
   align-items: center;
@@ -422,6 +445,7 @@ async function handleClear(): Promise<void> {
   border: 1px solid var(--background-modifier-border);
   color: var(--text-muted);
   font-size: var(--font-size-xs);
+  font-family: inherit;
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -432,6 +456,56 @@ async function handleClear(): Promise<void> {
 .composer-chapter.on {
   border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
   color: var(--text-accent);
+}
+/* 章节自定义下拉菜单（向上弹出，与 composer-box 玻璃风格一致） */
+.chapter-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  min-width: 100%;
+  border-radius: var(--radius-l);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: var(--shadow-m);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  animation: chapter-menu-in var(--dur-fast) var(--ease-out);
+}
+@keyframes chapter-menu-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.chapter-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.chapter-menu-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.chapter-menu-item.active {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  font-weight: 600;
 }
 .chat-input {
   flex: 1;
@@ -464,7 +538,7 @@ async function handleClear(): Promise<void> {
 .composer-foot-left {
   display: flex;
   align-items: center;
-  gap: var(--size-4-4);
+  gap: var(--size-4-6);
   min-width: 0;
 }
 .composer-hint {
