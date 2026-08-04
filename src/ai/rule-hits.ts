@@ -1,0 +1,76 @@
+/**
+ * 规则命中统计（B3）—— 按书记录「哪条规则最常被违反」。
+ *
+ * 写入书库 .cache/rule-hits.json（独立于 ai-trace：规则违规是确定性检测，
+ * 不是 AI 调用日志，分开存更干净）。
+ *
+ * 用途：
+ * - B3 统计：trace-stats 聚合透出（工作台可见高频违规）
+ * - B4 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
+ */
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import type { RuleViolation } from './rules/index.js'
+
+const FILE = 'rule-hits.json'
+/** 每条规则保留最近命中 message 数（B4 前置注入参考） */
+const RECENT_LIMIT = 5
+
+/** 单条规则的命中统计 */
+export interface RuleHitEntry {
+  /** 规则 ID */
+  ruleId: string
+  /** 累计命中次数 */
+  hits: number
+  /** 最后命中时间（ISO） */
+  lastHit: string
+  /** 最近命中 message（修复指令，供 B4 前置注入参考） */
+  recentMessages: string[]
+}
+
+type RuleHitsMap = Record<string, RuleHitEntry>
+
+function hitsPath(bookRoot: string): string {
+  return join(bookRoot, '.cache', FILE)
+}
+
+function readHits(bookRoot: string): RuleHitsMap {
+  try {
+    const raw = readFileSync(hitsPath(bookRoot), 'utf-8')
+    const parsed = JSON.parse(raw) as RuleHitsMap
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。 */
+export function recordRuleHits(bookRoot: string, violations: RuleViolation[]): void {
+  if (!violations.length) return
+  const hits = readHits(bookRoot)
+  const now = new Date().toISOString()
+  for (const v of violations) {
+    const entry = hits[v.ruleId] ?? { ruleId: v.ruleId, hits: 0, lastHit: '', recentMessages: [] }
+    entry.hits++
+    entry.lastHit = now
+    entry.recentMessages = [v.message, ...entry.recentMessages].slice(0, RECENT_LIMIT)
+    hits[v.ruleId] = entry
+  }
+  try {
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    writeFileSync(hitsPath(bookRoot), JSON.stringify(hits, null, 2), 'utf-8')
+  } catch {
+    // 统计是旁路，不影响主流程
+  }
+}
+
+/** 读规则命中统计（按 hits 降序） */
+export function readRuleHits(bookRoot: string): RuleHitEntry[] {
+  return Object.values(readHits(bookRoot)).sort((a, b) => b.hits - a.hits)
+}
+
+/** 取 Top-N 高频违规（B4 前置注入用）。无命中 / 文件不存在 → 空数组。 */
+export function topRuleHits(bookRoot: string, n: number): RuleHitEntry[] {
+  if (!existsSync(hitsPath(bookRoot))) return []
+  return readRuleHits(bookRoot).slice(0, n)
+}

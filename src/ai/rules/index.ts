@@ -10,6 +10,7 @@ import { loadAiFlavorRule } from './book-rules.js'
 import { styleConsistencyRule } from './style-rule.js'
 import { settingConsistencyRule } from './setting-rule.js'
 import { plotConsistencyRule } from './plot-rule.js'
+import { topRuleHits } from '../rule-hits.js'
 
 export type { WritingRule, RuleViolation, RuleLevel, RuleContext } from './types.js'
 export { aiClicheRule } from './builtin.js'
@@ -25,6 +26,15 @@ const STATIC_RULES: readonly WritingRule[] = [
   settingConsistencyRule,
   plotConsistencyRule,
 ]
+
+/** 规则 ID → 中文标签（B4 前置注入用） */
+const RULE_LABEL: Record<string, string> = {
+  'ai-cliche': 'AI高频套话',
+  'ai-flavor-words': 'AI味词',
+  'style-consistency': '文风偏离',
+  'setting-consistency': '设定偏离',
+  'plot-consistency': '情节偏离',
+}
 
 /**
  * 收集任务适用的全部规则（内置静态 + 书级动态）。
@@ -47,7 +57,23 @@ export function rulesToPrompt(task: string, bookRoot?: string): string {
   const lines = rules
     .map((r) => r.toPrompt(ctx))
     .filter((t): t is string => t != null)
-  return lines.length ? '\n\n## 写作约束\n' + lines.map((l) => `- ${l}`).join('\n') : ''
+  const constraintText = lines.length ? '\n\n## 写作约束\n' + lines.map((l) => `- ${l}`).join('\n') : ''
+
+  // B4：高频违规前置注入（读该书 Top-N 命中生成预防指令；无统计零注入，行为同现状）
+  const preventionText = bookRoot ? buildPreventionText(bookRoot) : ''
+  return constraintText + preventionText
+}
+
+/** B4 前置注入：Top-3 高频违规 → 预防指令（无命中返回空串） */
+function buildPreventionText(bookRoot: string): string {
+  const top = topRuleHits(bookRoot, 3)
+  if (!top.length) return ''
+  const items = top.map((h) => {
+    const label = RULE_LABEL[h.ruleId] ?? h.ruleId
+    const hint = h.recentMessages[0] ?? '初稿即注意'
+    return `- ${label} 已被检出 ${h.hits} 次——${hint}`
+  })
+  return '\n\n## 本书近期常见问题（规则命中提示）\n' + items.join('\n')
 }
 
 /**

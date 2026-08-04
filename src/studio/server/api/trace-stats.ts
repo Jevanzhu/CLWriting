@@ -1,9 +1,9 @@
 /**
- * Trace 指标聚合只读端点（AI Harness T3）。
+ * Trace 指标聚合只读端点（AI Harness T3 + B3 规则命中统计）。
  *
- * GET /api/books/:name/trace-stats → { total, byTask }
+ * GET /api/books/:name/trace-stats → { total, byTask, ruleHits }
  *
- * 薄接线——逻辑全在 metrics/trace-stats.ts。为第二波 UI 展示预留数据口。
+ * 薄接线——逻辑全在 trace-stats.ts / rule-hits.ts。B3 顺带透出规则命中统计。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -11,6 +11,7 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { aggregateTrace } from '../../../ai/trace-stats.js'
+import { readRuleHits } from '../../../ai/rule-hits.js'
 
 interface TraceStatsCtx {
   workDir: string | null
@@ -24,6 +25,7 @@ export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
 
     const bookRoot = join(ctx.workDir, entry.path)
     const stats = aggregateTrace(bookRoot)
-    reply(res, 200, stats)
+    // B3：规则命中统计（按 hits 降序）
+    reply(res, 200, { ...stats, ruleHits: readRuleHits(bookRoot) })
   })
 }
