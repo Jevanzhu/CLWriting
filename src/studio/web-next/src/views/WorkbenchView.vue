@@ -18,9 +18,19 @@ import {
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import { getProviders, type TierSlot } from '../api/providers'
+import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
 import { friendlyError } from '../shared/error'
+
+/** 规则 ID → 中文标签（与后端 RULE_LABEL 一致） */
+const RULE_LABEL: Record<string, string> = {
+  'ai-cliche': 'AI高频套话',
+  'ai-flavor-words': 'AI味词',
+  'style-consistency': '文风偏离',
+  'setting-consistency': '设定偏离',
+  'plot-consistency': '情节偏离',
+}
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -41,6 +51,17 @@ async function loadTier(): Promise<void> {
     tierCreative.value = data.tiers?.creative ?? null
   } catch {
     /* 静默——档位显示不阻断主流程 */
+  }
+}
+
+// B3：规则命中统计（高频违规，供作者自查常见问题）
+const ruleHits = ref<RuleHitEntry[]>([])
+async function loadRuleHits(): Promise<void> {
+  try {
+    const data = await getTraceStats(props.bookName)
+    ruleHits.value = data.ruleHits ?? []
+  } catch {
+    ruleHits.value = []
   }
 }
 
@@ -81,6 +102,7 @@ watch(
 )
 onMounted(() => {
   void loadTier()
+  void loadRuleHits()
 })
 // 生成结束（running false 跳变）刷新状态卡
 watch(
@@ -277,7 +299,7 @@ const recent = computed(() => wb.log.slice(-200))
       </div>
     </section>
 
-    <!-- 高级（流程可见：事件流） -->
+    <!-- 高级（流程可见：事件流 + 规则命中） -->
     <section class="card">
       <CollapseSection title="高级" :default-open="false">
         <div class="adv-block">
@@ -293,6 +315,17 @@ const recent = computed(() => wb.log.slice(-200))
               <span class="ev-ts">{{ ev._ts }}</span>
               <span class="ev-text">{{ evLabel(ev) }}</span>
             </div>
+          </div>
+        </div>
+        <div class="adv-block">
+          <div class="adv-head"><span>规则命中</span><span class="muted">{{ ruleHits.length }} 条</span></div>
+          <div v-if="!ruleHits.length" class="muted">暂无规则命中（自动写章重写时统计）</div>
+          <div v-for="h in ruleHits" :key="h.ruleId" class="hit">
+            <div class="hit-head">
+              <span class="hit-id">{{ RULE_LABEL[h.ruleId] ?? h.ruleId }}</span>
+              <span class="hit-count">{{ h.hits }} 次</span>
+            </div>
+            <div v-if="h.recentMessages[0]" class="hit-msg">{{ h.recentMessages[0] }}</div>
           </div>
         </div>
       </CollapseSection>
@@ -627,6 +660,33 @@ const recent = computed(() => wb.log.slice(-200))
   margin-right: var(--size-4-2);
 }
 .ev-text {
+  word-break: break-all;
+}
+.hit {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-weak);
+  font-size: var(--font-size-s);
+}
+.hit:first-of-type {
+  border-top: none;
+}
+.hit-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+}
+.hit-id {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.hit-count {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.hit-msg {
+  margin-top: 2px;
+  color: var(--text-muted);
+  line-height: 1.5;
   word-break: break-all;
 }
 .err-msg {
