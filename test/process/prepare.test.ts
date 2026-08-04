@@ -226,3 +226,115 @@ test('prepare S5: 条目库存在 → 文风便宜段必带 + 条目样章弹性
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── C1 前章正文结尾（flexibleRank=1.5）──────────────
+
+/** 建前章（149章）定稿正文，返回正文末尾预期片段 */
+function makePrevChapterFinal(root: string, words = 3000): string {
+  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
+  const body = '前章正文段落。'.repeat(Math.ceil(words / 6))
+  writeFileSync(
+    join(root, '定稿', '正文', '第一卷', '149-前章.md'),
+    `---\n章号: 149\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n${body}`,
+    'utf-8',
+  )
+  return body
+}
+
+test('C1: 有前章定稿正文 → 「前章正文结尾」段出现，flexibleRank=1.5', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root)
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.essential).toBe(false)
+  expect(sec!.flexibleRank).toBe(1.5)
+  // 内容以【第149章正文结尾】开头
+  expect(sec!.content).toContain('【第149章正文结尾】')
+  // 全量版取末尾约 1500 字（段落边界截断后 ≤ 1500 + 前缀）
+  const bodyText = sec!.content.split('\n').slice(1).join('\n')
+  expect(bodyText.length).toBeLessThanOrEqual(1500)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
+  const { root, db } = makeBookWithMaterial()
+  // makeBookWithMaterial 的 currentChapter=150，prev=149；149 正文/草稿皆缺
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  expect(r.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
+  // 第 1 章场景：prevChapterNo=0，不进段
+  const root2 = mkdtempSync(join(tmpdir(), '第一章-'))
+  mkdirSync(join(root2, '.cache'), { recursive: true })
+  const db2 = new DatabaseSync(join(root2, '.cache', 'index.db'))
+  createAllTables(db2)
+  syncChapter(db2, {
+    章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 1000, _path: 'p1',
+  })
+  const r2 = prepare(db2, DEFAULT_CONFIG, root2, [])
+  expect(r2.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
+  db.close()
+  db2.close()
+  rmSync(root, { recursive: true, force: true })
+  rmSync(root2, { recursive: true, force: true })
+})
+
+test('C1: 草稿兜底——无定稿、有草稿 → 段出现', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 不建定稿；建 工作区/草稿-149.md
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  const draftBody = '草稿里的前章结尾正文。'.repeat(200)
+  writeFileSync(
+    join(root, '工作区', '草稿-149.md'),
+    `---\n章号: 149\n标题: 前章\n---\n${draftBody}`,
+    'utf-8',
+  )
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.flexibleRank).toBe(1.5)
+  // 草稿正文被取到
+  expect(sec!.content).toContain('草稿里的前章结尾正文')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: flexibleRank 1.5 排序——裁剪先于 rank1(近章结尾)、后于 rank2(文风样章)', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root)
+  // 极小预算 → 全弹性段降档 + 移除
+  const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 50 } }
+  const r = prepare(db, cfg, root, ['悬念-031'])
+  expect(r.trimmed).toBe(true)
+  // 移除阶段按 flexibleRank 降序：rank2 → rank1.5 → rank1（只看移除记录，降档记录因各段降档空间不同不可靠）
+  const removals = r.trimLog.filter((l) => l.includes('移除'))
+  const idx2 = removals.findIndex((l) => l.includes('文风样章'))
+  const idx15 = removals.findIndex((l) => l.includes('前章正文结尾'))
+  const idx1 = removals.findIndex((l) => l.includes('近章结尾'))
+  expect(idx2).toBeGreaterThanOrEqual(0)
+  expect(idx15).toBeGreaterThanOrEqual(0)
+  expect(idx1).toBeGreaterThanOrEqual(0)
+  expect(idx2).toBeLessThan(idx15) // rank2 先砍
+  expect(idx15).toBeLessThan(idx1) // rank1.5 先于 rank1 砍
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('C1: 降档版 degradedContent = 末尾 500 字', () => {
+  const { root, db } = makeBookWithMaterial()
+  makePrevChapterFinal(root, 3000)
+  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  const sec = r.sections.find((s) => s.title === '前章正文结尾')
+  expect(sec).toBeDefined()
+  expect(sec!.degradedContent).toBeDefined()
+  // 降档版以【第149章正文结尾】开头
+  expect(sec!.degradedContent).toContain('【第149章正文结尾】')
+  // 降档正文 ≤ 500 字
+  const degBody = sec!.degradedContent!.split('\n').slice(1).join('\n')
+  expect(degBody.length).toBeLessThanOrEqual(500)
+  // 降档版比全量短
+  expect(sec!.degradedContent!.length).toBeLessThan(sec!.content.length)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
