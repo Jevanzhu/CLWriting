@@ -31,9 +31,10 @@ import { checkAiCallBudget } from '../calls.js'
 import { chapterToolName, assembleChapter } from '../contract/index.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
+import { splitFrontMatter } from '../../format/frontmatter.js'
 
-/** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号） */
-const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项，保持正文连贯与既定情节走向。'
+/** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
+const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项；[必须] 为硬性错误必须修，[建议] 为文风黄项不强制但建议采纳。保持正文连贯与既定情节走向。'
 
 export interface SelfHealOpts {
   /** 进度 emit 目标：只 emit，不在其上生成 */
@@ -58,7 +59,7 @@ export interface SelfHealOpts {
 }
 
 export type SelfHealOutcome =
-  | { outcome: 'pass'; docId: string; path: string; attempts: number }
+  | { outcome: 'pass'; docId: string; path: string; attempts: number; yellows: string[] }
   | { outcome: 'escalate'; reds: string[]; docId: string; path: string; attempts: number }
   | { outcome: 'aborted' }
   | { outcome: 'failed'; error: string }
@@ -145,7 +146,10 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
-        return { outcome: 'pass', docId: final.docId, path: final.relPath, attempts: attempt }
+        // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
+        // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
+        const yellows = ruleYellows(current, bookRoot, chapterNo)
+        return { outcome: 'pass', docId: final.docId, path: final.relPath, attempts: attempt, yellows }
       }
       if (st.state === 'escalate') {
         const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
@@ -181,10 +185,14 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'self_heal_reset' })
 
     // B2：黄项修复指令（规则违规，提示不卡——不计入 evaluateRetry 全绿判定）
-    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
+    const ruleViolations = collectRuleViolations(ruleBody(current), 'self-heal', bookRoot, chapterNo)
     // B3：规则命中统计（供工作台高频违规面板 + B4 前置注入）
     recordRuleHits(bookRoot, ruleViolations)
-    const allIssues = [...feedbackToIssues(feedback), ...ruleViolations.map((v) => v.message)]
+    // 红项 [必须] / 黄项 [建议]：AI 能区分硬性错误与文风建议（优先级不同取舍）
+    const allIssues = [
+      ...feedbackToIssues(feedback).map((s) => `[必须] ${s}`),
+      ...ruleViolations.map((v) => `[建议] ${v.message}`),
+    ]
 
     const prompt = buildRewritePrompt(
       'whole',
@@ -318,6 +326,17 @@ function feedbackToIssues(feedback: string): string[] {
   return items.length > 0 ? items : [feedback.trim()]
 }
 
+/** 规则检验只查正文（剥离 front matter，避免 fm 短行污染文风指纹） */
+function ruleBody(content: string): string {
+  const split = splitFrontMatter(content)
+  return split ? split.body : content
+}
+
+/** 终局黄项复查：对终稿正文跑规则 → 违规 message 列表（W1 收敛可见性） */
+function ruleYellows(content: string, bookRoot: string, chapter: number): string[] {
+  return collectRuleViolations(ruleBody(content), 'self-heal', bookRoot, chapter).map((v) => v.message)
+}
+
 function emit(opts: SelfHealOpts, ev: DriverEvent): void {
   opts.driver.emit?.(opts.mainSession, ev)
 }
@@ -325,7 +344,7 @@ function emit(opts: SelfHealOpts, ev: DriverEvent): void {
 function emitResult(opts: SelfHealOpts, result: SelfHealOutcome): void {
   const ev: DriverEvent =
     result.outcome === 'pass'
-      ? { type: 'self_heal_result', outcome: 'pass', docId: result.docId, path: result.path }
+      ? { type: 'self_heal_result', outcome: 'pass', yellows: result.yellows, docId: result.docId, path: result.path }
       : result.outcome === 'escalate'
         ? { type: 'self_heal_result', outcome: 'escalate', reds: result.reds, docId: result.docId, path: result.path }
         : result.outcome === 'aborted'

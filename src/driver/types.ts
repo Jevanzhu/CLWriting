@@ -38,6 +38,8 @@ export type DriverEvent =
       type: 'self_heal_result'
       outcome: 'pass' | 'escalate' | 'aborted' | 'failed'
       reds?: string[]
+      /** pass 时终稿黄项复查：仍命中的规则违规（message 列表，空 = 已收敛） */
+      yellows?: string[]
       docId?: string
       path?: string
       error?: string
