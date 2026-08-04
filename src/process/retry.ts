@@ -5,8 +5,8 @@
  * 重试到上限 → 升级 ask 作者（人话，不给堆栈）。
  * 黄项不打回——随草稿进三审。
  *
- * M2 写好状态机，由 `src/studio/server/api/self-heal.ts` 接线进 /auto-write 全自动写章闭环。
- * （编排器落在 api 层而非 process 层：它要用 driver/check/save，而 process 层无 studio 依赖先例。）
+ * M2 写好状态机，由 `src/ai/orchestrate/self-heal.ts` 接线进 /auto-write 全自动写章闭环。
+ * （编排器从 api 层迁入 ai/orchestrate 层：解耦 HTTP 语境，api/ 只留端点接线。）
  * 本模块实现「打回判定 + 重试计数 + 超限升级」的控制逻辑。
  */
 

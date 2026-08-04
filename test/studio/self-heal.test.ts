@@ -14,7 +14,7 @@ import {
   isSelfHealRunning,
   abortSelfHeal,
   type SelfHealOpts,
-} from '../../src/studio/server/api/self-heal.js'
+} from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
