@@ -11,6 +11,7 @@ import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
 import { resolveTier } from '../provider/index.js'
 import { generate, generateTool, GenError } from '../gen.js'
+import { rulesToPrompt } from '../rules/index.js'
 
 /** 任务生成模式 */
 type GenMode = 'text' | 'tool'
@@ -82,7 +83,8 @@ export async function runSpec(
   opts: SpecOpts,
 ): Promise<TaskResult<SpecOutput>> {
   const tier = resolveTier(opts.userDataPath, spec.tierKind)
-  const systemPrompt = opts.systemPromptOverride ?? spec.systemPrompt
+  // A2：按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
+  const systemPrompt = (opts.systemPromptOverride ?? spec.systemPrompt) + rulesToPrompt(spec.name, opts.bookRoot)
   const tool = opts.toolOverride ?? spec.tool
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]
