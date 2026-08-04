@@ -29,6 +29,7 @@ import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
 import { checkAiCallBudget } from '../calls.js'
 import { chapterToolName, assembleChapter } from '../contract/index.js'
+import { collectRuleViolations } from '../rules/index.js'
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号） */
 const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项，保持正文连贯与既定情节走向。'
@@ -178,12 +179,16 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
     emit(opts, { type: 'self_heal_reset' })
 
+    // B2：黄项修复指令（规则违规，提示不卡——不计入 evaluateRetry 全绿判定）
+    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
+    const allIssues = [...feedbackToIssues(feedback), ...ruleViolations.map((v) => v.message)]
+
     const prompt = buildRewritePrompt(
       'whole',
       current,
       '',
       REWRITE_INSTRUCTION,
-      feedbackToIssues(feedback),
+      allIssues,
       chapterNo,
       kind,
     )

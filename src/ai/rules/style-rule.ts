@@ -13,6 +13,7 @@
  */
 import type { WritingRule, RuleViolation } from './types.js'
 import { readBaseline, readIronRules, computeFullStats } from '../../metrics/style.js'
+import { styleRemedy } from './style-remedy.js'
 
 /** 偏离阈值：偏离超此比例报黄（40%） */
 const DEVIATION_THRESHOLD = 0.4
@@ -37,21 +38,22 @@ function deviationPct(cur: number, ref: number): number {
   return Math.abs(cur - ref) / Math.abs(ref)
 }
 
-/** 构建数值维偏离 message（格式：维名 当前值 偏离基线 基线值（偏高/偏低 XX%），建议...） */
-function dimMessage(dim: NumericDim): string {
+/** 构建数值维偏离 message（格式：维名 当前值 偏离基线 基线值（偏高/偏低 XX%），{证据修复建议}） */
+function dimMessage(dim: NumericDim, body: string): string {
   const dev = deviationPct(dim.current, dim.ref)
   const direction = dim.current > dim.ref ? '偏高' : '偏低'
   const devStr = Number.isFinite(dev) ? `${Math.round(dev * 100)}%` : '新增'
-  return `${dim.name} ${dim.fmt(dim.current)} 偏离基线 ${dim.fmt(dim.ref)}（${direction} ${devStr}），${dim.advice}`
+  const remedy = styleRemedy(dim.name, dim.current, dim.ref, body, dim.advice)
+  return `${dim.name} ${dim.fmt(dim.current)} 偏离基线 ${dim.fmt(dim.ref)}（${direction} ${devStr}），${remedy}`
 }
 
 /** 检查单个数值维，偏离超阈值则推一条违规 */
-function checkDim(dim: NumericDim, violations: RuleViolation[]): void {
+function checkDim(dim: NumericDim, violations: RuleViolation[], body: string): void {
   if (deviationPct(dim.current, dim.ref) > DEVIATION_THRESHOLD) {
     violations.push({
       ruleId: 'style-consistency',
       level: 'yellow',
-      message: dimMessage(dim),
+      message: dimMessage(dim, body),
     })
   }
 }
@@ -89,13 +91,14 @@ export const styleConsistencyRule: WritingRule = {
       { name: '句长方差', current: stats.sentenceLenVariance, ref: ref.sentenceLenVariance, fmt: (v) => v.toFixed(1), advice: '建议调整句式节奏' },
       { name: '复读率', current: stats.repeatRate, ref: ref.repeatRate, fmt: pct, advice: '建议替换重复句式' },
     ]
-    for (const dim of dims) checkDim(dim, violations)
+    for (const dim of dims) checkDim(dim, violations, body)
 
     // 对话标签占比保护：无对话行时跳过（无对话不该报风格偏离）
     if (stats._dialogueLines > 0) {
       checkDim(
         { name: '对话标签占比', current: stats.dialogueTagRatio, ref: ref.dialogueTagRatio, fmt: pct, advice: '建议调整对话标签写法' },
         violations,
+        body,
       )
     }
 
@@ -104,7 +107,7 @@ export const styleConsistencyRule: WritingRule = {
       violations.push({
         ruleId: 'style-consistency',
         level: 'yellow',
-        message: '结尾总结体 正文命中但基线未命中，建议删除结尾的总结性语句',
+        message: `结尾总结体 正文命中但基线未命中，${styleRemedy('结尾总结体', 1, 0, body)}`,
       })
     }
 

@@ -161,6 +161,21 @@ test('先红后绿：1 次重写且 prompt 带红项明细 → pass', async () =
   expect(evTypes(emitted)).toContain('self_heal_reset')
 })
 
+test('B2：黄项修复指令（规则违规）拼入重写 prompt', async () => {
+  const seq: CheckOutcome[] = [redOutcome('命中禁词「顿时」'), greenOutcome()]
+  let i = 0
+  const { opts, prompts } = setup(
+    [`${FM}初稿值得一提的是`, `${FM}改好的稿`],
+    () => seq[i++] ?? greenOutcome(),
+  )
+  await runSelfHeal(opts)
+
+  expect(prompts).toHaveLength(2)
+  // 黄项修复指令（ai-cliche 规则检出「值得一提的是」）出现在重写 prompt 中
+  expect(prompts[1]).toContain('AI高频套话')
+  expect(prompts[1]).toContain('值得一提的是')
+})
+
 test('重写 original 传含 front matter 的草稿全文', async () => {
   const seq: CheckOutcome[] = [redOutcome(), greenOutcome()]
   let i = 0
