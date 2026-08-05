@@ -15,6 +15,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
+import { finalizeRevision } from '../../../document/finalize.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
@@ -98,6 +99,22 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         revision: index.revision,
         validatedAt: index.validatedAt,
       })
+    },
+  )
+
+  // ── 定稿确认（P1：revision → final，git commit 锁定版本）────────
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/finalize',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const outcome = finalizeRevision(r.bookRoot, params['docId'] ?? '')
+      if (!outcome.ok) {
+        const status = outcome.code === 'NOT_FOUND' ? 404 : 400
+        return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
+      }
+      reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
     },
   )
 

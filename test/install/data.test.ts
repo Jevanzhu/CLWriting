@@ -6,6 +6,10 @@ import {
   recommendShortChecks,
   sanitizeLeadsEnabled,
 } from '../../src/install/data.js'
+import { readBooks } from '../../src/install/books.js'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 test('BASE_LEAD_TYPES 恒为两类、EXTENDED 四类', () => {
   expect(BASE_LEAD_TYPES).toEqual(['悬念', '感情线'])
@@ -116,4 +120,28 @@ test('recommendShortChecks: 未命中题材回落通用默认', () => {
     section_count: 5,
     opening_env_chars: 300,
   })
+})
+
+// ── readBooks 路径净化（NP0-B）─────────────────────
+
+test('readBooks: 拒绝 books.jsonl 中越出 workDir 的路径条目', () => {
+  // books.jsonl 的 path 被信任用于 join(workDir, path) + rmSync recursive，
+  // 须净化掉绝对路径与父级穿越段，防 DELETE 端点递归删除外部目录
+  const root = mkdtempSync(join(tmpdir(), 'books-'))
+  mkdirSync(join(root, '.clwriting'), { recursive: true })
+  writeFileSync(
+    join(root, '.clwriting', 'books.jsonl'),
+    [
+      JSON.stringify({ name: 'safe', path: '长篇/safe', kind: 'long' }),
+      JSON.stringify({ name: 'evil1', path: '../../../tmp/evil', kind: 'long' }),
+      JSON.stringify({ name: 'evil2', path: '/etc/passwd', kind: 'long' }),
+      JSON.stringify({ name: 'evil3', path: '长篇/../../evil', kind: 'long' }),
+    ].join('\n') + '\n',
+    'utf-8',
+  )
+  const books = readBooks(root)
+  // 仅 safe 通过净化，3 个穿越条目被拒
+  expect(books).toHaveLength(1)
+  expect(books[0]!.name).toBe('safe')
+  rmSync(root, { recursive: true, force: true })
 })

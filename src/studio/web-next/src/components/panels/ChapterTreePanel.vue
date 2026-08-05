@@ -185,6 +185,10 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
   const items: MenuItem[] = [{ key: 'rename', label: '重命名' }]
   if (node.path.startsWith('定稿/正文/')) {
     items.push({ key: 'meta', label: '章节信息…' })
+    // 定稿确认：仅 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）
+    if (node.status === 'revision') {
+      items.push({ key: 'finalize', label: '定稿' })
+    }
     const targets = moveToTargets(node)
     if (targets.length) {
       items.push({
@@ -254,6 +258,9 @@ function onMenuSelect(key: string): void {
   else if (key === 'new-foreshadow') startCreate('foreshadow', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
+  else if (key === 'finalize') {
+    if (node.docId) void doc.finalize(node.docId)
+  }
   else if (key === 'meta') {
     const isPiece = isBodyKind(node.path) && node.path.startsWith('篇/')
     // 短篇/长篇均从文件名提取编号+标题（短篇 篇/N-标题.md，长篇 定稿/正文/N-标题.md）
@@ -400,6 +407,8 @@ function onCreateCancel(): void {
 
 // --- 重命名 ---
 async function onRenameCommit(path: string, value: string): Promise<void> {
+  // 守卫：Enter 提交后设 renamePath=null → input 卸载触发 blur 二次 emit，此时跳过防重复 renameDoc API
+  if (renamePath.value !== path) return
   const name = sanitizeName(value)
   if (!name) {
     renamePath.value = null

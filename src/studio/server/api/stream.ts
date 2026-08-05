@@ -78,6 +78,16 @@ async function runWriterSpawn(opts: {
   }
 }
 
+/** fire-and-forget 兜底：编排器 try 外同步异常推 SSE error（防 unhandled rejection 崩进程致全部 SSE 断连） */
+function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): void {
+  driver.emit?.(session, {
+    type: 'error',
+    kind: 'provider',
+    message: e instanceof Error ? e.message : String(e),
+    recoverable: false,
+  })
+}
+
 export function registerStreamRoutes(ctx: StreamCtx): void {
   // SSE 订阅 driver 事件流
   route('GET', '/api/books/:name/stream', async (req: IncomingMessage, res: ServerResponse, params) => {
@@ -160,7 +170,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       bookRoot: join(ctx.workDir, entry.path),
       prompt,
       role,
-    })
+    }).catch((e) => emitSpawnError(driver, mainSession, e))
 
     reply(res, 200, { ok: true, role })
   })
@@ -210,7 +220,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       bookRoot: join(ctx.workDir, entry.path),
       bookName,
       chapter,
-    })
+    }).catch((e) => emitSpawnError(driver, mainSession, e))
 
     reply(res, 200, { ok: true, chapter })
   })
@@ -241,7 +251,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       bookName,
       message,
       ...(chapter !== undefined ? { chapter } : {}),
-    })
+    }).catch((e) => emitSpawnError(driver, mainSession, e))
 
     reply(res, 200, { ok: true })
   })

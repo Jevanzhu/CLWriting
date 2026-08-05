@@ -155,3 +155,22 @@ test('exportBook: 定稿目录存在但无章节文件 → ok:false', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── 路径穿越净化（K1）──────────────────────────────
+
+test('exportBook: 书名含路径分隔符 → 文件名净化不越出导出目录', () => {
+  // bookTitle 来自 book.yaml（不可信），含 ../ 时须净化，防 join 后上跳到导出目录外
+  const root = makeLongBook('../evil')
+  writeLongChapter(root, 1, '安全标题', '正文内容。')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    // 路径分隔符被替换为 _，文件路径不含 ../ 穿越
+    expect(r.files.every((f) => !f.includes('../'))).toBe(true)
+    // 净化后文件确实落在导出目录内（../evil → .._evil）
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-.._evil.md'), 'utf-8')
+    expect(merged).toContain('安全标题')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

@@ -14,7 +14,7 @@
 
 import process from 'node:process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { resolve, join, dirname, basename } from 'node:path'
+import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { git } from '../git/exec.js'
@@ -61,6 +61,10 @@ export function readBooks(workDir: string): BookEntry[] {
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>
       if (typeof obj['name'] === 'string' && typeof obj['path'] === 'string') {
+        // 路径安全：拒绝对路径与父级穿越段（防 books.jsonl 篡改后 join(workDir,path) 越出 workDir，
+        // DELETE 端点 rmSync recursive 可递归删除外部目录 —— NP0-B）
+        const relPath = obj['path']
+        if (isAbsolute(relPath) || relPath.split(/[\\/]/).includes('..')) continue
         const entry = {
           ...obj,
           name: obj['name'],

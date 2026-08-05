@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getContent, saveContent } from '../api/documents'
+import { getContent, saveContent, finalizeDoc } from '../api/documents'
 import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
@@ -174,5 +174,35 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh }
+  /** 定稿确认（revision → final）：git commit 锁定当前版本。成功后刷新树（状态变 final）。 */
+  async function finalize(docId: string): Promise<boolean> {
+    if (!bookName.value) return false
+    try {
+      const r = await finalizeDoc(bookName.value, docId)
+      if (r.ok) {
+        // 定稿后 git 干净 → 树节点 status 变 final；重拉树刷新状态标签
+        void useTreeStore().load(bookName.value, true)
+        const e = docs.value.get(docId)
+        if (e) e.savedAt = Date.now()
+        useUiStore().toast(r.skipped ? '已是定稿' : '已定稿', 'success')
+        return true
+      }
+      return false
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NOT_DRAFT_REGION') {
+        useUiStore().toast('仅定稿区文档可定稿', 'error')
+      } else {
+        useUiStore().toast(friendlyError(err), 'error')
+      }
+      return false
+    }
+  }
+
+  /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。 */
+  async function flushDirty(): Promise<void> {
+    const dirty = [...docs.value.values()].filter((e) => e.dirty && !e.saving && !e.conflict)
+    await Promise.all(dirty.map((e) => save(e.docId, 'autosave')))
+  }
+
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty }
 })

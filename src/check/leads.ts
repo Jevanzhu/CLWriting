@@ -95,7 +95,7 @@ export function checkLeadsForm(
     if (history.length > 0) {
       const lastEntry = history[history.length - 1]!
       const status = lead['status'] as string
-      const statusMismatch = checkStatusClosure(lastEntry.动词, status)
+      const statusMismatch = checkStatusClosure(lastEntry.动词, status, lead['type'] as string)
       if (statusMismatch) {
         items.push({
           checkId: 'lead-status-open',
@@ -141,15 +141,27 @@ export function checkLeadsForm(
   return { name: '账本形式三检', items }
 }
 
-/** 找某章的正文文件（定稿/正文/<章号>-*.md，章号补零与否均匹配） */
+/** 找某章的正文文件（定稿/正文/<章号>-*.md，章号补零与否均匹配）。
+ *  递归扫描含卷子目录（定稿/正文/第一卷/...）—— scaffold 默认即卷布局，
+ *  非递归会让引文命中检查在默认布局下整体跳过（防吃书核心环节失效）。 */
 function findChapterFile(正文dir: string, chapter: number): string | null {
+  return findChapterFileRecursive(正文dir, chapter)
+}
+
+function findChapterFileRecursive(dir: string, chapter: number): string | null {
   try {
-    const files = readdirSync(正文dir)
-    // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
-    const match = files.find(
-      (f) => f.endsWith('.md') && !f.startsWith('._') && Number(f.match(/^(\d+)-/)?.[1]) === chapter,
-    )
-    return match ? join(正文dir, match) : null
+    const entries = readdirSync(dir, { withFileTypes: true })
+    for (const e of entries) {
+      if (e.name.startsWith('._')) continue
+      if (e.isDirectory()) {
+        const found = findChapterFileRecursive(join(dir, e.name), chapter)
+        if (found) return found
+      } else if (e.isFile() && e.name.endsWith('.md')) {
+        // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
+        if (Number(e.name.match(/^(\d+)-/)?.[1]) === chapter) return join(dir, e.name)
+      }
+    }
+    return null
   } catch {
     return null
   }
@@ -175,11 +187,24 @@ export function extractEvidenceCore(evidence: string): string {
  *
  * 动词集合单源派生自 LEAD_VERBS，避免硬编码漂移
  * （曾因硬编码漏掉成长线「跨层/跃迁」导致状态闭合误判）。
+ *
+ * 成长线特判：resolve 动词（突破/跨层/跃迁）是**常态化升级动词**，
+ * 主角修炼期每次升级都用，不代表线已收尾——只有作者显式标「已收尾」
+ * 才算闭合。否则卷末阶段性突破会被误报「状态此刻应已收尾」。
+ * 其余类 resolve 动词（揭晓/修成/收网…）语义单一，维持原约束。
  */
 const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
 const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
+const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 
-function checkStatusClosure(lastVerb: string, status: string): boolean {
+function checkStatusClosure(lastVerb: string, status: string, leadType?: string): boolean {
+  // 成长线的 resolve 动词（突破/跨层/跃迁）是常态化升级，末条「进行中」合理；
+  // 但若作者显式标「已收尾/已放弃」，仍要求动词匹配（防作者标错状态）。
+  if (leadType === '成长线' && GROWTH_RESOLVE_VERBS.has(lastVerb)) {
+    if (status === '已收尾') return false
+    if (status === '已放弃') return true
+    return false
+  }
   if (RESOLVE_VERBS.has(lastVerb) && status !== '已收尾') return true
   if (DROP_VERBS.has(lastVerb) && status !== '已放弃') return true
   return false

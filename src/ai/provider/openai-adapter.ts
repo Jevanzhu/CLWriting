@@ -181,8 +181,8 @@ export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelC
 
           const delta = choice.delta
 
-          // 文本增量
-          if (delta.content) {
+          // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
+          if (delta?.content) {
             yield { type: 'text', delta: delta.content }
           }
 

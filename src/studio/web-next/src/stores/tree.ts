@@ -87,6 +87,7 @@ export const useTreeStore = defineStore('tree', () => {
   /**
    * 冒泡后的「有 issue」path 集合（叶子自身命中 + 目录子树命中均纳入）。
    * 后序 DFS：任一子树命中 → 父 path 入集合，供 ChapterTreeItem 行尾红点渲染。
+   * 定稿态（final/published）已被后端 tree-issues 跳过，前端无需再过滤。
    */
   const issuePaths = computed<Set<string>>(() => {
     const map = issues.value

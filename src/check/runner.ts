@@ -54,6 +54,12 @@ export interface CheckInput {
   leakKeywords?: string[] // 信息差关键词（#10 项 11，默认空，数据源待定）
   /** 短篇严格模式：把短篇专属黄项提升为红项，用于真实生产硬闸 */
   strictShort?: boolean
+  /**
+   * 全书最高已定稿章号（可选）。账本「凭空声称未来章」#1 检查的参照基准：
+   * 默认取当前章自身章号；多章循环检查（树红点聚合）时须传全书最高值，
+   * 否则高章履历规划会被单章低章号误判为「未来章」（T9b 修复）。
+   */
+  maxWrittenChapter?: number
 }
 
 /**
@@ -78,8 +84,9 @@ function runLong(input: CheckInput): CheckReport {
   }
   const sections: CheckSectionResult[] = []
 
-  // 当前章号
-  const currentChapter = chapter.章号
+  // 当前章号：默认取本章自身章号；调用方传了全书最高章号时用它作基准
+  // （账本「未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）
+  const currentChapter = input.maxWrittenChapter ?? chapter.章号
 
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
   const enabledTypes = ['悬念', '感情线', ...config.leads.enabled]

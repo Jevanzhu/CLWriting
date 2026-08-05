@@ -66,6 +66,12 @@ function purifyBody(body: string): string {
     .trim()
 }
 
+/** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录。
+ *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化。 */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/]/g, '_')
+}
+
 export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, format = 'both', platform = 'generic' } = options
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
@@ -120,7 +126,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     const mergedContent = purified
       .map((unit) => `# ${unit.title}\n\n${unit.body}`)
       .join('\n\n---\n\n')
-    const fileName = `${kind === 'short' ? '全篇集' : '全本'}-${bookTitle}.md`
+    const fileName = `${kind === 'short' ? '全篇集' : '全本'}-${sanitizeFileName(bookTitle)}.md`
     writeFileSync(join(exportDir, fileName), mergedContent, 'utf-8')
     files.push(`工作区/导出/${fileName}`)
   }
@@ -132,14 +138,14 @@ export function exportBook(options: ExportOptions): ExportResult {
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
       const width = kind === 'short' ? 3 : 4
-      const fileName = `${String(unit.num).padStart(width, '0')}-${unit.title}.md`
+      const fileName = `${String(unit.num).padStart(width, '0')}-${sanitizeFileName(unit.title)}.md`
       writeFileSync(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`, 'utf-8')
       files.push(`工作区/导出/${splitName}/${fileName}`)
     }
   }
 
   if (kind === 'short') {
-    const submissionName = `投稿视图-${bookTitle}.md`
+    const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}.md`
     const entries = scanShortCollection(bookRoot)
     writeFileSync(
       join(exportDir, submissionName),

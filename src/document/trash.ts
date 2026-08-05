@@ -9,9 +9,12 @@
  *
  * .trash-manifest.jsonl：每行一 TrashEntry，容错解析（同 manifest.ts 风格，非法行跳过）。
  * git 入账（软删 git 跟踪文件 → rebook）走既有 state.ts，本模块只管 .trash 缓冲（W0 §8）。
+ *
+ * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
+ * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
 import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, relative, isAbsolute } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { type DocumentRole } from './layout.js'
@@ -100,8 +103,11 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
 
-  const origAbs = join(bookRoot, entry.originalPath)
-  const trashAbs = join(bookRoot, entry.trashedPath)
+  const origAbs = safePathWithin(bookRoot, entry.originalPath)
+  const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
+  if (!origAbs || !trashAbs) {
+    return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
+  }
   if (!existsSync(trashAbs)) return { ok: false, code: 'NOT_FOUND', reason: '回收站文件已丢失' }
   if (existsSync(origAbs)) {
     return {
@@ -138,13 +144,23 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
   try {
-    const trashAbs = join(bookRoot, entry.trashedPath)
+    const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
+    if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
     if (existsSync(trashAbs)) rmSync(trashAbs, { force: true })
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `永久删失败：${errMsg(e)}` }
   }
   writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
   return { ok: true, id }
+}
+
+/** 路径安全：rel 须相对 bookRoot 且不越出（防 trash-manifest 篡改后 restore/purge 越出书仓库）。
+ *  返回绝对路径或 null（非法）。 */
+function safePathWithin(bookRoot: string, rel: string): string | null {
+  if (isAbsolute(rel)) return null
+  const abs = join(bookRoot, rel)
+  if (relative(bookRoot, abs).startsWith('..')) return null
+  return abs
 }
 
 function errMsg(e: unknown): string {

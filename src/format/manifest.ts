@@ -8,7 +8,8 @@
  * 容错（对齐 #3 第 8 节）：缺段/缺字段不崩，未知段进 _raw。
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { PieceList, ReversalLead, PayoffEntry, SetupPoint, EmotionCurvePoint, ParseError } from './types.js'
 
 /** 清单.md 段标题 */
@@ -224,5 +225,5 @@ export function stringifyPieceList(list: PieceList): string {
 
 /** 写入清单.md */
 export function writePieceList(filePath: string, list: PieceList): void {
-  writeFileSync(filePath, stringifyPieceList(list), 'utf-8')
+  atomicWriteFile(filePath, stringifyPieceList(list))
 }

@@ -32,14 +32,24 @@ export const LEAD_TYPES: readonly LeadType[] = [
   '关系线',
 ] as const
 
-/** #3 第 5 节动词表：每类的合法动词（机检用，M2） */
-export const LEAD_VERBS: Record<LeadType, { open: string[]; resolve: string[]; drop: string[] }> = {
-  悬念: { open: ['设下'], resolve: ['揭晓'], drop: ['放弃'] },
-  感情线: { open: ['开启'], resolve: ['修成'], drop: ['无疾'] },
-  布局线: { open: ['布局'], resolve: ['收网'], drop: ['被破'] },
-  设定线: { open: ['树立'], resolve: ['固化'], drop: ['倾覆'] },
-  成长线: { open: ['起步'], resolve: ['突破', '跨层', '跃迁'], drop: ['瓶颈'] },
-  关系线: { open: ['结下'], resolve: ['清算'], drop: ['化解'] },
+/** #3 第 5 节动词表：每类合法动词（机检用，M2）。
+ *  open 开端 → advance 进行中推进（不收尾）→ resolve 收尾 / drop 放弃。
+ *  advance 语义：线仍在「进行中」，仅推进不闭合（悬疑递进/成长稳进等），
+ *  不触发状态闭合校验（只有 resolve/drop 才要求状态翻转）。 */
+export interface LeadVerbSet {
+  open: string[]
+  advance: string[]
+  resolve: string[]
+  drop: string[]
+}
+
+export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
+  悬念: { open: ['设下'], advance: ['递进'], resolve: ['揭晓'], drop: ['放弃'] },
+  感情线: { open: ['开启'], advance: ['推进'], resolve: ['修成'], drop: ['无疾'] },
+  布局线: { open: ['布局'], advance: ['推进'], resolve: ['收网'], drop: ['被破'] },
+  设定线: { open: ['树立'], advance: ['推进'], resolve: ['固化'], drop: ['倾覆'] },
+  成长线: { open: ['起步'], advance: ['稳进', '实战', '磨砺'], resolve: ['突破', '跨层', '跃迁'], drop: ['瓶颈'] },
+  关系线: { open: ['结下'], advance: ['推进'], resolve: ['清算'], drop: ['化解'] },
 }
 
 // ── 履历段解析（#3 第 4 节）──────────────────────
@@ -65,8 +75,8 @@ export function parseHistory(body: string): LeadEntry[] {
     }
     if (!inHistory) continue
 
-    // 匹配：- 第012章 埋下：证据...（可能含 回填 标记）
-    const m = line.match(/^\s*-\s*第(\d+)章\s+(.+?)：(.+)$/)
+    // 匹配：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢；可能含 回填 标记）
+    const m = line.match(/^\s*-\s*第(\d+)章\s+(.+?)[：:](.+)$/)
     if (m) {
       const 章号 = Number(m[1])
       const 动词 = m[2]!.trim()

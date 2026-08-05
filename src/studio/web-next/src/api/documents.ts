@@ -156,6 +156,19 @@ export async function deleteDoc(name: string, docId: string): Promise<{ ok: true
   )
 }
 
+// POST /documents/:docId/finalize —— 定稿确认（revision → final，git commit 锁定版本）。
+export interface FinalizeOk {
+  ok: true
+  status: 'final'
+  skipped: boolean
+}
+export async function finalizeDoc(name: string, docId: string): Promise<FinalizeOk> {
+  return apiJson<FinalizeOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/finalize`,
+    { method: 'POST' },
+  )
+}
+
 // --- 回收站 ---
 export interface TrashEntry {
   id: string

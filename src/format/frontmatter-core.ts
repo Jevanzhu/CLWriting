@@ -9,9 +9,11 @@
 export function splitFrontMatter(
   content: string,
 ): { fmRaw: string; body: string } | null {
+  // 去 UTF-8 BOM：带 BOM 的文件 startsWith('---') 失败 → frontmatter 整段丢失（章号/枚举/机检 fm 项全失效）
+  const src = content.replace(/^﻿/, '')
   // 首行必须是 ---
-  if (!content.startsWith('---')) return null
-  const lines = content.split('\n')
+  if (!src.startsWith('---')) return null
+  const lines = src.split('\n')
   // 找闭合 ---
   let endIdx = -1
   for (let i = 1; i < lines.length; i++) {

@@ -225,6 +225,9 @@ function openShelfWindow(): void {
       preload: join(here, 'preload.cjs'),
     },
   })
+  // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（同 mainWindow 兜底，防 CSP 被 XSS 绕过后子窗口被导航到外部）
+  shelfWindow.webContents.on('will-navigate', (e) => e.preventDefault())
+  shelfWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`)
   shelfWindow.on('closed', () => {
     shelfWindow = null
@@ -268,6 +271,9 @@ function openLibraryWindow(): void {
       preload: join(here, 'preload.cjs'),
     },
   })
+  // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（同 mainWindow 兜底）
+  libraryWindow.webContents.on('will-navigate', (e) => e.preventDefault())
+  libraryWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   libraryWindow.loadURL(`${appUrl}/library?win=library`)
   libraryWindow.on('closed', () => {
     libraryWindow = null

@@ -42,12 +42,14 @@ export function parseValue(raw: string): unknown {
   return unquote(trimmed)
 }
 
-/** 去掉值两端可选的引号（作者可能写 `标题: "灭门真凶"`） */
+/** 去掉值两端可选的引号（作者可能写 `标题: "灭门真凶"`）。
+ *  双引号包裹时反转义 \"（与 stringifyValue 的 replace(/"/g, '\\"') 对称，
+ *  防含引号值每次保存多累积一个反斜杠 → 内容渐进腐化）。 */
 function unquote(s: string): string {
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
+  if (s.startsWith('"') && s.endsWith('"')) {
+    return s.slice(1, -1).replace(/\\"/g, '"')
+  }
+  if (s.startsWith("'") && s.endsWith("'")) {
     return s.slice(1, -1)
   }
   return s

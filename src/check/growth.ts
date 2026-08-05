@@ -19,6 +19,7 @@ import type { RealmDoc } from '../format/types.js'
 const GROWTH_TRANSITION_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 const GROWTH_VALID_VERBS = new Set<string>([
   ...LEAD_VERBS.成长线.open,
+  ...LEAD_VERBS.成长线.advance,
   ...LEAD_VERBS.成长线.resolve,
   ...LEAD_VERBS.成长线.drop,
 ])

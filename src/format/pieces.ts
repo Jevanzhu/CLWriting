@@ -144,9 +144,14 @@ export function migratePieceLayout(bookRoot: string): { migrated: number; errors
     const oldDir = join(piecesDir, dirName)
     const oldBody = join(oldDir, '正文.md')
     if (!existsSync(oldBody)) continue // 无正文.md 的目录跳过（非旧结构）
-    // 搬正文：篇/N-T/正文.md → 篇/N-T.md
+    // 搬正文：篇/N-T/正文.md → 篇/N-T.md（目标已存在则跳过，防 POSIX rename 原子覆盖丢文件）
+    const newBody = join(piecesDir, `${dirName}.md`)
+    if (existsSync(newBody)) {
+      errors.push(`${dirName}: 目标 ${dirName}.md 已存在，跳过迁移`)
+      continue
+    }
     try {
-      renameSync(oldBody, join(piecesDir, `${dirName}.md`))
+      renameSync(oldBody, newBody)
       migrated++
     } catch (e) {
       errors.push(`${dirName}: ${e instanceof Error ? e.message : String(e)}`)
@@ -156,10 +161,15 @@ export function migratePieceLayout(bookRoot: string): { migrated: number; errors
     const oldList = join(oldDir, '清单.md')
     if (existsSync(oldList)) {
       mkdirSync(清单Dir, { recursive: true })
-      try {
-        renameSync(oldList, join(清单Dir, `${dirName}.md`))
-      } catch {
-        // 清单搬运失败不阻断（附属数据，非致命）
+      const newList = join(清单Dir, `${dirName}.md`)
+      if (existsSync(newList)) {
+        errors.push(`${dirName}: 清单目标已存在，跳过`)
+      } else {
+        try {
+          renameSync(oldList, newList)
+        } catch {
+          // 清单搬运失败不阻断（附属数据，非致命）
+        }
       }
     }
     // 删空目录（残留其他文件则保留）

@@ -20,7 +20,7 @@ import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
 import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
-import { isSelfHealRunning, runSelfHeal, type SelfHealOutcome } from './self-heal.js'
+import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../studio/server/api/check.js'
 
 // ── 常量 ──────────────────────────────────────────
@@ -124,6 +124,7 @@ function emit(opts: ChatOpts, ev: DriverEvent): void {
 async function executeChatTool(
   call: { id: string; name: string; input: unknown },
   opts: ChatOpts,
+  ctrl: AbortSignal,
 ): Promise<{ ok: boolean; summary: string }> {
   const input = call.input as Record<string, unknown>
   try {
@@ -136,18 +137,25 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
-        const r: SelfHealOutcome = await runSelfHeal({
-          driver: opts.driver,
-          mainSession: opts.mainSession,
-          userDataPath: opts.userDataPath,
-          cwd: opts.bookRoot,
-          bookRoot: opts.bookRoot,
-          bookName: opts.bookName,
-          chapter,
-        })
-        return {
-          ok: r.outcome === 'pass',
-          summary: formatHealResult(r),
+        // chat 中断时同步中断 self-heal（abortChat 只 abort chat ctrl，self-heal 独立 ctrl 须显式桥接）
+        const onAbort = (): void => { abortSelfHeal(opts.bookName) }
+        ctrl.addEventListener('abort', onAbort)
+        try {
+          const r: SelfHealOutcome = await runSelfHeal({
+            driver: opts.driver,
+            mainSession: opts.mainSession,
+            userDataPath: opts.userDataPath,
+            cwd: opts.bookRoot,
+            bookRoot: opts.bookRoot,
+            bookName: opts.bookName,
+            chapter,
+          })
+          return {
+            ok: r.outcome === 'pass',
+            summary: formatHealResult(r),
+          }
+        } finally {
+          ctrl.removeEventListener('abort', onAbort)
         }
       }
       case 'check_chapter': {
@@ -313,7 +321,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
           }
         }
         emit(opts, { type: 'chat_tool', callId: call.id, name: call.name, input: call.input })
-        const r = await executeChatTool(call, opts)
+        const r = await executeChatTool(call, opts, state.ctrl.signal)
         results.push({ type: 'tool_result', toolUseId: call.id, content: r.summary, isError: !r.ok })
         emit(opts, { type: 'chat_tool_result', callId: call.id, summary: r.summary, ok: r.ok })
       }

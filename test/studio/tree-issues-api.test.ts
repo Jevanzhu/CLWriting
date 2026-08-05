@@ -4,6 +4,7 @@
  * rebuild 一次循环 checkWithDb 的正确性在此一并覆盖（runCheckForDocument 重构零回归）。
  */
 import http from 'node:http'
+import { execSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -95,6 +96,13 @@ beforeAll(async () => {
   upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '定稿/正文/0002-净章.md', parentId: null })
   writeManifest(manifestPath, m)
 
+  // tree-issues 后端跳过定稿态（final/published）；git init + add（不 commit）让文件
+  // 处于 staged → dirty → revision 态，使聚合逻辑可被测试覆盖
+  // 注意：git init 必须在 bookRoot（= collectDirtyFiles 的 cwd）， porcelain 路径才与
+  // deriveStatus 的 relPath 对齐（都相对 bookRoot）
+  execSync('git init', { cwd: bookRoot })
+  execSync('git add -A', { cwd: bookRoot })
+
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -151,5 +159,125 @@ describe('GET /tree-issues 树红点聚合（T9b）', () => {
     expect(j.issues[verdictDocId]).toBeUndefined()
     // 0001 仍 fm red（不受 verdict 影响）
     expect(j.issues[redDocId]).toBeDefined()
+  })
+})
+
+// ── T9b 修复回归：多章定稿 + 高章伏笔规划不应误报「凭空声称未来章」─────────
+// 场景：全书已定稿 3 章，伏笔履历规划到第 3 章（证据均命中对应章正文）。
+// 修复前：checkWithDb 用单章章号作 currentChapter → 检查 0001(章1) 时把第2/3章履历
+// 判为「未来章」→ 树红点误报。修复后：currentChapter 用全书最高章号 3 → 不报。
+const FUTURE_BOOK = '多章伏笔规划书'
+let futureBookRoot = ''
+let futureCh1DocId = ''
+
+describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () => {
+  beforeAll(async () => {
+    // 复用同一 workDir（server 已按其启动），books.jsonl 追加第二本书
+    const booksFile = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(
+      booksFile,
+      JSON.stringify({ name: FUTURE_BOOK, path: FUTURE_BOOK, kind: 'long' }) + '\n',
+      // 追加模式
+      { flag: 'a' },
+    )
+    futureBookRoot = join(workDir, FUTURE_BOOK)
+    mkdirSync(join(futureBookRoot, '定稿', '正文'), { recursive: true })
+    mkdirSync(join(futureBookRoot, '大纲', '悬念'), { recursive: true })
+    mkdirSync(join(futureBookRoot, '项目'), { recursive: true })
+    writeFileSync(
+      join(futureBookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 多章伏笔规划书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\nbudget:\n  calls_per_chapter: 8\n',
+      'utf8',
+    )
+    // 三章定稿，证据词命中各自正文
+    writeFileSync(
+      join(futureBookRoot, '定稿', '正文', '0001-开篇.md'),
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
+      'utf8',
+    )
+    writeFileSync(
+      join(futureBookRoot, '定稿', '正文', '0002-灵脉.md'),
+      '---\n章号: 2\n标题: 灵脉\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n灵脉井古灵纹共鸣。\n',
+      'utf8',
+    )
+    writeFileSync(
+      join(futureBookRoot, '定稿', '正文', '0003-旧约.md'),
+      '---\n章号: 3\n标题: 旧约\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n旧籍封印松动迹象。\n',
+      'utf8',
+    )
+    // 悬念伏笔：规划 1→2→3 章，证据均命中正文
+    writeFileSync(
+      join(futureBookRoot, '大纲', '悬念', '悬念-001-灵脉之谜.md'),
+      `---
+编号: 悬念-001
+标题: 灵脉之谜
+类型: 悬念
+状态: 进行中
+开启章: 1
+---
+
+## 履历
+
+- 第01章 设下：天脉异象惊动宗门
+- 第02章 递进：灵脉井古灵纹共鸣
+- 第03章 递进：旧籍封印松动迹象
+`,
+      'utf8',
+    )
+    const manifestPath = join(futureBookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    futureCh1DocId = generateDocId()
+    upsertEntry(m, { id: futureCh1DocId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null })
+    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '定稿/正文/0002-灵脉.md', parentId: null })
+    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '定稿/正文/0003-旧约.md', parentId: null })
+    writeManifest(manifestPath, m)
+  })
+
+  afterAll(async () => {
+    if (futureBookRoot) rmSync(futureBookRoot, { recursive: true, force: true })
+  })
+
+  it('已定稿到第3章时，规划到第3章的伏笔不计入树红点', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(FUTURE_BOOK)}/tree-issues`)
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; issues: Record<string, unknown> }
+    // 修复后：0001 章不再因履历第2/3章被误报 lead-chapter-future → 无红
+    expect(j.issues[futureCh1DocId]).toBeUndefined()
+  })
+
+  it('单章 check 端点同样以全书最高章号为基准（不误报 future）', async () => {
+    const u = new URL(baseUrl)
+    const result = await new Promise<{ status: number; json: unknown }>((resolve, reject) => {
+      const req = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent(FUTURE_BOOK)}/documents/${encodeURIComponent(futureCh1DocId)}/check`,
+          method: 'POST',
+          headers: { 'x-studio-token': token },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (c) => (data += c.toString('utf-8')))
+          res.on('end', () => {
+            let json: unknown = null
+            try {
+              json = JSON.parse(data)
+            } catch {
+              /* 非 JSON */
+            }
+            resolve({ status: res.statusCode ?? 0, json })
+          })
+        },
+      )
+      req.on('error', reject)
+      req.end()
+    })
+    expect(result.status).toBe(200)
+    const j = result.json as { ok: boolean; hasRed: boolean; report: { sections: { items: { checkId: string }[] }[] } }
+    expect(j.ok).toBe(true)
+    expect(j.hasRed).toBe(false)
+    const futureLeads = j.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'lead-chapter-future')
+    expect(futureLeads).toHaveLength(0)
   })
 })

@@ -26,7 +26,9 @@ const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
 // 切书：同步 doc 缓存 + 载入持久化 tabs
-watch(bookName, (n) => {
+watch(bookName, async (n) => {
+  // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
+  await doc.flushDirty()
   doc.setBook(n)
   ws.setBook(n)
 }, { immediate: true })

@@ -278,6 +278,36 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+// NP0-A 回归：scaffold 默认建「定稿/正文/第一卷/」卷子目录，findChapterFile 须递归扫描，
+// 否则引文命中检查在默认布局下整体跳过（防吃书核心环节静默失效）。
+test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出 → 红（NP0-A 回归）', () => {
+  const { root, db } = makeLeadsBook()
+  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(root, '定稿', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
+  syncLead(db, {
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
+  expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 卷子目录布局下引文命中正文 → 无红', () => {
+  const { root, db } = makeLeadsBook()
+  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(root, '定稿', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  syncLead(db, {
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
+  expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('checkLeadsForm: 履历声称未来章 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
@@ -318,15 +348,45 @@ test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('checkLeadsForm: 成长线 跃迁/跨层 收尾动词状态闭合（曾因硬编码漏检）', () => {
+test('checkLeadsForm: 成长线 resolve 动词（突破/跃迁）末条 + 状态进行中 → 不报（阶段性升级合理）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
     编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 5, 动词: '跃迁', 证据: 'a' }], // 末条"跃迁"是成长线收尾，但状态仍"进行中"
+    履历: [{ 章号: 5, 动词: '跃迁', 证据: 'a' }], // 成长线跃迁是常态化升级，进行中合理
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['成长线'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(false)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 成长线 resolve 末条 + 状态已放弃 → 报（状态与动词矛盾）', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '成长线-002', 标题: 'x', 类型: '成长线', 状态: '已放弃', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '突破', 证据: 'a' }], // 突破 ≠ 放弃，状态标错
     _path: 'p',
   })
   const r = checkLeadsForm(db, root, 10, ['成长线'])
   expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('checkLeadsForm: 成长线 advance 动词（稳进/实战）合法 → 无黄项', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '成长线-003', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    履历: [
+      { 章号: 1, 动词: '起步', 证据: 'a' },
+      { 章号: 2, 动词: '稳进', 证据: 'a' },
+      { 章号: 3, 动词: '实战', 证据: 'a' },
+    ],
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['成长线'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(false)
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 文档编辑视图：单行路径式顶栏（面包屑→标题合为一条，720px 居中对齐正文）+ CM6 正文。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PenLine, Loader2, Save, Check } from 'lucide-vue-next'
+import { PenLine, Loader2, Save, Check, Lock } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
@@ -91,6 +91,25 @@ function onSave(): void {
   const e = entry.value
   if (!e || e.saving || (!e.dirty && !e.error)) return
   void doc.save(e.docId, 'manual')
+}
+
+// 定稿确认：仅定稿区 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）
+const isFinalizable = computed(() => {
+  if (!props.docId) return false
+  const node = tree.byDocId.get(props.docId)
+  if (!node || node.isDirectory) return false
+  if (!node.path.startsWith('定稿/')) return false // 仅定稿区（草稿/设定/大纲不参与）
+  return node.status === 'revision'
+})
+const finalizing = ref(false)
+async function onFinalize(): Promise<void> {
+  if (!props.docId || finalizing.value) return
+  finalizing.value = true
+  try {
+    await doc.finalize(props.docId)
+  } finally {
+    finalizing.value = false
+  }
 }
 function onKeydown(e: KeyboardEvent): void {
   if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
@@ -357,6 +376,18 @@ onUnmounted(() => {
             </button>
             <Loader2 v-if="rewrite.loading" :size="12" class="ai-btn-spin" />
           </div>
+          <button
+            v-if="isFinalizable"
+            class="finalize-btn"
+            :disabled="finalizing || entry.saving"
+            data-tip="定稿（锁定当前版本，git 提交）"
+            data-tip-dir="bottom"
+            @click="onFinalize"
+          >
+            <Loader2 v-if="finalizing" :size="12" class="save-btn-spin" />
+            <Lock v-else :size="12" />
+            <span>{{ finalizing ? '定稿中…' : '定稿' }}</span>
+          </button>
           <div class="save-group">
             <button
               class="save-btn"
@@ -613,6 +644,28 @@ onUnmounted(() => {
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+/* 定稿按钮：revision 态提示色，与「保存」（写文件）对偶——定稿=锁定版本 */
+.finalize-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  margin-right: 4px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.finalize-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.finalize-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 /* dirty：实色翠绿——主操作态，与 AI 实色 pill 同形态、换绿色相 */
 .save-btn.dirty {
