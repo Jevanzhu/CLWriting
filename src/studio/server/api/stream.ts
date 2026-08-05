@@ -26,6 +26,10 @@ interface StreamCtx {
   userDataPath: string | null
 }
 
+// P2-2：per-book SSE 连接计数（防多标签页耗尽 FD）
+const sseConnections = new Map<string, number>()
+const MAX_SSE_PER_BOOK = 5
+
 /**
  * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
  * text 增量经 driver.emit 推 SSE。替代旧 driver.spawnRole 路径。
@@ -91,6 +95,15 @@ function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): voi
 export function registerStreamRoutes(ctx: StreamCtx): void {
   // SSE 订阅 driver 事件流
   route('GET', '/api/books/:name/stream', async (req: IncomingMessage, res: ServerResponse, params) => {
+    // P2-2：per-book 连接数限制
+    const sseName = params['name']!
+    const conns = sseConnections.get(sseName) ?? 0
+    if (conns >= MAX_SSE_PER_BOOK) {
+      res.writeHead(429)
+      res.end('too many connections')
+      return
+    }
+    sseConnections.set(sseName, conns + 1)
     if (!ctx.workDir) {
       res.writeHead(400)
       res.end('no workdir')
@@ -126,6 +139,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 前端断开 → 中止迭代 + 中断 AI 编排（防继续烧 token）
     req.on('close', () => {
       clearInterval(heartbeat)
+      const c = sseConnections.get(sseName)
+      if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
       void iter.return(undefined)
       const name = params['name']!
       if (isSelfHealRunning(name)) abortSelfHeal(name)
@@ -165,6 +180,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
     if (!prompt.trim()) {
       return reply(res, 400, { error: 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）' })
+    }
+    if (prompt.length > 100_000) {
+      return reply(res, 400, { error: 'prompt 过长（上限 10 万字符）' })
     }
 
     const mainSession = await ensureSession(params['name']!, ctx.workDir)
@@ -250,6 +268,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const body = await readJson(req)
     const message = String(body['message'] ?? '').trim()
     if (!message) return reply(res, 400, { error: 'message 必填' })
+    if (message.length > 50_000) return reply(res, 400, { error: '消息过长（上限 5 万字符）' })
     const chapter = body['chapter'] !== undefined ? Number(body['chapter']) : undefined
 
     const mainSession = await ensureSession(bookName, ctx.workDir)

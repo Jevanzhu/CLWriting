@@ -209,8 +209,11 @@ watch(
   () => ws.pendingInsert,
   (text) => {
     if (!text) return
-    if (cmHost.value) cmHost.value.insertText(text)
-    ws.consumeInsert()
+    // P2-21：仅插入成功才消费，防无编辑器时文本静默丢失
+    if (cmHost.value) {
+      cmHost.value.insertText(text)
+      ws.consumeInsert()
+    }
   },
 )
 
@@ -218,6 +221,7 @@ const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
 // 当前书类型（长篇/短篇），顶栏 pill 展示；切书时重新拉取 book.yaml
 const bookKind = ref<'long' | 'short' | null>(null)
+let kindReqId = 0
 watch(
   () => doc.bookName,
   async (name) => {
@@ -225,10 +229,13 @@ watch(
       bookKind.value = null
       return
     }
+    const reqId = ++kindReqId
     try {
       const cfg = await getConfig(name)
+      if (reqId !== kindReqId) return // P2-19：丢弃过期结果
       bookKind.value = cfg.kind === 'short' ? 'short' : 'long'
     } catch {
+      if (reqId !== kindReqId) return
       bookKind.value = null
     }
   },
@@ -265,8 +272,9 @@ async function onTitleCommit(): Promise<void> {
   titleSaving.value = true
   try {
     // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
+    // P2：fm 缺篇号时从文件名提取（防 fallback 1 覆盖真实篇号）
     const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).篇号 ?? 1)
+      ? Number(parseFmFields(e.content).篇号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,
