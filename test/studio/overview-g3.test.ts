@@ -54,10 +54,10 @@ beforeAll(async () => {
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: G3测试书\n  genre: 玄幻\nhost: cc\n',
   )
-  // 定稿章让 rebuild 有内容可扫
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  // 写作/正文 章 让 rebuild 有内容可扫（v2 结构）
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(
-    join(bookRoot, '定稿', '正文', '0001-开篇.md'),
+    join(bookRoot, '写作', '正文', '0001-开篇.md'),
     '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一二三\n',
     'utf8',
   )

@@ -34,7 +34,7 @@ describe('buildIndex + recall（桩 embed）', () => {
 
   beforeEach(() => {
     bookRoot = join(tmpdir(), `rag-index-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
 
     // 写 2 章
     for (const n of [1, 2]) {
@@ -43,7 +43,7 @@ describe('buildIndex + recall（桩 embed）', () => {
         _path: '', _wordCount: 100,
       }
       writeChapter(
-        join(bookRoot, '定稿', '正文', `${n}-第${n}章.md`),
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
         meta,
         `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
       )
@@ -103,7 +103,7 @@ describe('buildIndex + recall（桩 embed）', () => {
       _path: '', _wordCount: 100,
     }
     writeChapter(
-      join(bookRoot, '定稿', '正文', '1-第1章.md'),
+      join(bookRoot, '写作', '正文', '1-第1章.md'),
       meta,
       '第1章的正文段落内容已经重写，这是一个完全不同的追逃场景，旧向量不能继续使用。',
     )
@@ -156,7 +156,7 @@ describe('buildIndex + recall（桩 embed）', () => {
       _path: '', _wordCount: 100,
     }
     writeChapter(
-      join(bookRoot, '定稿', '正文', '1-第1章.md'),
+      join(bookRoot, '写作', '正文', '1-第1章.md'),
       meta,
       '第1章的正文段落内容已经重写，这是一个完全不同的追逃场景，旧向量不能继续使用。',
     )

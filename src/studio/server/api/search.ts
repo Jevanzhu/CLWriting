@@ -19,14 +19,14 @@ interface SearchCtx {
 }
 
 /** 可搜目录全集（相对 bookRoot） */
-const ALL_DIRS = ['定稿/正文', '定稿/设定', '大纲', '工作区']
+const ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']
 
 /** scope → 可搜目录（相对 bookRoot） */
 const SCOPE_DIRS: Record<string, string[]> = {
   all: ALL_DIRS,
-  定稿: ['定稿/正文', '定稿/设定'],
-  正文: ['定稿/正文'],
-  设定: ['定稿/设定'],
+  定稿: ['写作/正文', '设定'],
+  正文: ['写作/正文'],
+  设定: ['设定'],
   大纲: ['大纲'],
   工作区: ['工作区'],
 }

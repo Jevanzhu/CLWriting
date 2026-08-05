@@ -16,8 +16,8 @@ import { legacyId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
 
 const BOOK = 'legacy历史测试书'
-/** 磁盘上的旧文件路径（模拟稳定 ID 上线前就存在的文件）。 */
-const LEGACY_CHAPTER = '定稿/正文/0099-旧章.md'
+/** 磁盘上的旧文件路径（v2 结构：写作/正文/；模拟稳定 ID 上线前就存在的文件）。 */
+const LEGACY_CHAPTER = '写作/正文/0099-旧章.md'
 /** 前端运行期为该旧文件算的临时 docId：legacy:<sha256(path)[:16]>。 */
 const DOCID = legacyId(LEGACY_CHAPTER)
 
@@ -67,7 +67,7 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: legacy历史测试书\n  genre: 玄幻\nhost: cc\n',

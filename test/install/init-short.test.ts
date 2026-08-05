@@ -1,7 +1,7 @@
 /**
  * init --kind short 短篇集布局测试 —— M8 #25 第 3/4 节。
  *
- * 验收：短篇集建 篇/ + 共享文风/ + 工作区/；不建 定稿/ 大纲/ 卷纲/ 设定；
+ * 验收：短篇集建 写作/正文/ + 大纲/清单/ + 共享文风/ + 工作区/；不建 定稿/ 布线/ 设定/；
  * book.yaml 含 kind: short、无 leads/growth；books.jsonl 登记 kind=short。
  */
 
@@ -18,7 +18,7 @@ const ORIG_CWD = process.cwd()
 beforeEach(() => { process.chdir(ORIG_CWD) })
 afterEach(() => { process.chdir(ORIG_CWD) })
 
-test('init short: 建短篇集布局（篇/ + 共享文风 + 工作区），不建长程载重', () => {
+test('init short: 建短篇集布局（写作/正文/ + 大纲/清单/ + 共享文风 + 工作区），不建长程载重', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
@@ -26,9 +26,12 @@ test('init short: 建短篇集布局（篇/ + 共享文风 + 工作区），不�
     if (!r.ok) return
     const bookRoot = r.bookRoot
 
-    // 核心差异：篇/ 存在（空，不预建篇）
-    expect(existsSync(join(bookRoot, '篇'))).toBe(true)
-    expect(readdirSync(join(bookRoot, '篇'))).toHaveLength(0)
+    // 核心差异：写作/正文/ 存在（空，不预建篇）
+    expect(existsSync(join(bookRoot, '写作', '正文'))).toBe(true)
+    expect(readdirSync(join(bookRoot, '写作', '正文'))).toHaveLength(0)
+
+    // 大纲/清单/（短篇清单：反转线索表/情绪曲线/伏笔回收）
+    expect(existsSync(join(bookRoot, '大纲', '清单'))).toBe(true)
 
     // 整集共享文风（条目库 + 文风铁律；样章库/金句库已退场，S8）
     expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)
@@ -39,9 +42,10 @@ test('init short: 建短篇集布局（篇/ + 共享文风 + 工作区），不�
     // 工作区（临时区）
     expect(existsSync(join(bookRoot, '工作区'))).toBe(true)
 
-    // 不建长程载重
+    // 不建长程载重：无 定稿/、无 布线/、无 设定/（短篇无长程载重）
     expect(existsSync(join(bookRoot, '定稿'))).toBe(false)
-    expect(existsSync(join(bookRoot, '大纲'))).toBe(false)
+    expect(existsSync(join(bookRoot, '布线'))).toBe(false)
+    expect(existsSync(join(bookRoot, '设定'))).toBe(false)
 
     // 独立 git + book.yaml + AGENTS.md + .gitignore
     expect(existsSync(join(bookRoot, '.git'))).toBe(true)

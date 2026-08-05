@@ -43,8 +43,8 @@ describe('A3 settingConsistencyRule（设定一致规则）', () => {
 
     beforeAll(() => {
       bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-setting-'))
-      // 建 定稿/设定/角色/角色-001.md，front matter 含 姓名:林远
-      const roleDir = join(bookRoot, '定稿', '设定', '角色')
+      // 建 设定/角色/角色-001.md，front matter 含 姓名:林远
+      const roleDir = join(bookRoot, '设定', '角色')
       mkdirSync(roleDir, { recursive: true })
       writeFileSync(
         join(roleDir, '角色-001.md'),

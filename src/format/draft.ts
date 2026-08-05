@@ -2,7 +2,7 @@
  * 草稿读取共享模块（W2B B2.0）。
  *
  * 原 cli/finalize.ts + cli/check.ts + cli/review.ts 三份重复 readDraft 合并到此。
- * 读 工作区/草稿-N.md → ChapterMeta + body，供 finalize/check/review/hand 共用。
+ * 读 写作/草稿/草稿-N.md → ChapterMeta + body，供 finalize/check/review/hand 共用。
  * 长篇 readChapter（章节 frontmatter 完整校验）；短篇 readPiece 映射 ChapterMeta（章号字段承载篇号）。
  */
 import { existsSync, readdirSync } from 'node:fs'
@@ -17,7 +17,7 @@ export type ReadDraftResult =
   | { ok: false; reason: string }
 
 /**
- * 读草稿（工作区/草稿-N.md）→ ChapterMeta + body。
+ * 读草稿（写作/草稿/草稿-N.md）→ ChapterMeta + body。
  * - 长篇：readChapter（章节 front matter：章号/标题/钩子/情绪）
  * - 短篇：readPiece 映射 ChapterMeta（章号=篇号；目标情绪/核心反转带进 _raw）
  */
@@ -79,8 +79,8 @@ export function missingDraftReason(draftPath: string): string {
 
 /**
  * 定稿文件名规则（kind 分支）：
- * - long：定稿/正文/<章号>-<标题>.md（扁平）
- * - short：篇/<篇号3位>-<标题>.md（扁平，清单另放 清单/ 同名文件）
+ * - long：写作/正文/<章号>-<标题>.md（扁平）
+ * - short：写作/正文/<篇号3位>-<标题>.md（扁平，清单另放 大纲/清单/ 同名文件）
  */
 export function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
   if (isShort) {

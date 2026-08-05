@@ -35,5 +35,5 @@ test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) 
 
   // 入库 → 成功提示
   await commitBtn.click()
-  await expect(page.locator('.banner.ok')).toContainText('已入库', { timeout: 10_000 })
+  await expect(page.locator('.banner.ok')).toContainText('已收录', { timeout: 10_000 })
 })

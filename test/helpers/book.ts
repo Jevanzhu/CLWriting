@@ -42,17 +42,17 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
   // book.yaml
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
 
-  // 目录骨架（母本第 5 节数据形态）
-  mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
-  mkdirSync(join(root, '大纲', '感情线'), { recursive: true })
-  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
+  // 目录骨架（母本第 5 节数据形态，v2：正文在 写作/正文，线索在 布线/）
+  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
+  mkdirSync(join(root, '布线', '感情线'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '.cache'), { recursive: true }) // 缓存目录常建（测试可直接建 db）
 
   // 1 条账本（基础类，恒启用）
   writeFileSync(
-    join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+    join(root, '布线', '悬念', '悬念-031-灭门真凶.md'),
     '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
     'utf-8',
   )
@@ -64,7 +64,7 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
     syncLead(db, {
       编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
       履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }],
-      _path: join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'),
+      _path: join(root, '布线', '悬念', '悬念-031-灭门真凶.md'),
     })
     db.close()
   }
@@ -92,7 +92,7 @@ export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean
     const title = `第${i}章`
     // 正文（含 #7 front matter）
     writeFileSync(
-      join(root, '定稿', '正文', `${chNo}-${title}.md`),
+      join(root, '写作', '正文', `${chNo}-${title}.md`),
       `---\n章号: ${i}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${i}章的正文内容。\n`,
       'utf-8',
     )
@@ -118,9 +118,11 @@ export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean
  */
 export function stageIncompleteChapter(root: string, chapterNum: number): void {
   const workDir = join(root, '工作区')
-  const outline = join(workDir, '细纲.md')
+  const draftDir = join(root, '写作', '草稿')
+  mkdirSync(draftDir, { recursive: true })
+  const outline = join(draftDir, '细纲.md')
   writeFileSync(outline, `第${chapterNum}章细纲`, 'utf-8')
-  writeFileSync(join(workDir, '草稿-1.md'), `第${chapterNum}章草稿`, 'utf-8')
+  writeFileSync(join(draftDir, `草稿-${chapterNum}.md`), `第${chapterNum}章草稿`, 'utf-8')
   // .confirm.json（机器域，模拟已确认细纲但未定稿）
   writeFileSync(
     join(workDir, '.confirm.json'),

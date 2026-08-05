@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
 import { readBooks } from '../../install/books.js'
 import { migratePieceLayout } from '../../format/pieces.js'
+import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
@@ -101,6 +102,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       migratePieceLayout(join(opts.workDir, book.path))
+      migrateLayoutV2(join(opts.workDir, book.path))
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

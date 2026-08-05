@@ -4,8 +4,8 @@
  * 从 md 真源全量重建 .cache/index.db（幂等：删了能从零建回，逐字段等价）。
  *
  * 扫描顺序（#4 第 5 节）：
- * #1 大纲/{已启用类}/*.md → leads + lead_history
- * #2 定稿/正文/*.md → chapters
+ * #1 布线/{已启用类}/*.md → leads + lead_history（关系线仍在 大纲/）
+ * #2 写作/正文/*.md → chapters
  * #3 定稿/摘要/ → summaries
  * #4 写 meta（重建戳 + 健康报告）
  *
@@ -73,10 +73,10 @@ export function rebuild(
     createAllTables(db)
     clearAllTables(db) // 幂等：清空旧数据
 
-    // #1 扫描账本（大纲/{已启用类}/）
-    const outlineDir = join(bookRoot, '大纲')
+    // #1 扫描账本（布线/{已启用类}/，关系线仍在 大纲/）
     for (const typeName of enabledTypes) {
-      const typeDir = join(outlineDir, typeName)
+      const leadRoot = typeName === '关系线' ? join(bookRoot, '大纲') : join(bookRoot, '布线')
+      const typeDir = join(leadRoot, typeName)
       if (!existsSync(typeDir)) continue // 未启用类目录不存在，跳过
       const { leads, errors: errs } = readLeadDir(typeDir)
       for (const lead of leads) {
@@ -86,8 +86,8 @@ export function rebuild(
       errors.push(...errs)
     }
 
-    // #2 扫描章节（定稿/正文/，递归含 <卷>/ 子目录）
-    const textDir = join(bookRoot, '定稿', '正文')
+    // #2 扫描章节（写作/正文/，递归含 <卷>/ 子目录）
+    const textDir = join(bookRoot, '写作', '正文')
     if (existsSync(textDir)) {
       const walkChapters = (dir: string): void => {
         let entries: string[]

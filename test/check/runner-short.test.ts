@@ -28,7 +28,7 @@ test('runAllChecks short: 不传 db 不崩', () => {
     config: shortConfig(),
     chapter: ch,
     body: '他推开门，血溅了一地。',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   expect(r.sections.length).toBeGreaterThan(0)
   // 短篇无账本变动清单
@@ -44,7 +44,7 @@ test('runAllChecks short: 不含账本/成长线 section', () => {
     config: shortConfig(),
     chapter: ch,
     body: '正文',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   const names = r.sections.map((s) => s.name)
   expect(names).not.toContain('账本形式')
@@ -60,7 +60,7 @@ test('runAllChecks short: 含禁词/复读/句式 + 短篇专属项', () => {
     config: shortConfig(),
     chapter: ch,
     body: '正文内容',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
     bannedWords: ['禁词x'],
   })
   const names = r.sections.map((s) => s.name)
@@ -89,7 +89,7 @@ test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () =
     config: shortConfig(),
     chapter: ch,
     body: '全场倒吸凉气，仿佛时间静止。',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   const red = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')
   expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('倒吸凉气'))).toBe(true)
@@ -105,7 +105,7 @@ test('runAllChecks short: 篇号文件名不一致 → 红项', () => {
     config: shortConfig(),
     chapter: ch,
     body: '正文',
-    fileName: '篇/001-雪夜/正文.md', // 文件名 001 但章号 2
+    fileName: '001-雪夜.md', // 文件名 001 但章号 2
   })
   expect(hasRed(r)).toBe(true)
 })
@@ -113,9 +113,8 @@ test('runAllChecks short: 篇号文件名不一致 → 红项', () => {
 // ── 清单形式检接入（同目录有 清单.md）────────────
 
 test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
-  const pieceDir = join(tmp, '篇', '001-雪夜')
-  mkdirSync(pieceDir, { recursive: true })
-  const piecePath = join(pieceDir, '正文.md')
+  const piecePath = join(tmp, '写作', '正文', '001-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
   writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
 
   // 铺垫点仅 1 处（<3）→ manifest-setup-short 触发；核心反转占位「待补」不算缺
@@ -123,9 +122,9 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
     反转线索表: { 核心反转: 'x', 铺垫点: [{ 位置: 'a', 内容: 'x' }] },
     伏笔回收: [{ 伏笔: 'y', 回收位置: '', 未回收: true }], // 未回收标记
   }
-  // 清单已分离到 清单/ 目录，与正文同名（见 layout.ts:67）
-  mkdirSync(join(tmp, '清单'), { recursive: true })
-  writePieceList(join(tmp, '清单', basename(piecePath)), list)
+  // 清单已分离到 大纲/清单/ 目录，与正文同名（见 runner.ts:228）
+  mkdirSync(join(tmp, '大纲', '清单'), { recursive: true })
+  writePieceList(join(tmp, '大纲', '清单', basename(piecePath)), list)
 
   const ch: ChapterMeta = {
     章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
@@ -136,7 +135,7 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
     config: shortConfig(),
     chapter: ch,
     body: '正文',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   const names = r.sections.map((s) => s.name)
   expect(names).toContain('清单形式检')
@@ -149,13 +148,12 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
 })
 
 test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () => {
-  const pieceDir = join(tmp, '篇', '001-雪夜')
-  mkdirSync(pieceDir, { recursive: true })
-  const piecePath = join(pieceDir, '正文.md')
+  const piecePath = join(tmp, '写作', '正文', '001-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
   writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
-  // 清单已分离到 清单/ 目录，与正文同名（见 layout.ts:67）
-  mkdirSync(join(tmp, '清单'), { recursive: true })
-  writePieceList(join(tmp, '清单', basename(piecePath)), {
+  // 清单已分离到 大纲/清单/ 目录，与正文同名（见 runner.ts:228）
+  mkdirSync(join(tmp, '大纲', '清单'), { recursive: true })
+  writePieceList(join(tmp, '大纲', '清单', basename(piecePath)), {
     反转线索表: { 核心反转: '待定', 铺垫点: [{ 位置: '开头钩子', 内容: '待补' }] },
     情绪曲线: [{ 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' }],
     伏笔回收: [],
@@ -170,7 +168,7 @@ test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () 
     config: shortConfig(),
     chapter: ch,
     body: '正文',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
     strictShort: true,
   })
   expect(hasRed(r)).toBe(true)
@@ -187,7 +185,7 @@ test('runAllChecks short: book.yaml short.strict 同样启用严格模式', () =
     config: { ...shortConfig(), short: { strict: true } },
     chapter: ch,
     body: '正文',
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   expect(hasRed(r)).toBe(true)
   expect(r.sections.flatMap((s) => s.items).some((i) => i.checkId === 'piece-word-short' && i.level === 'red')).toBe(true)
@@ -217,7 +215,7 @@ test('runAllChecks short: book.yaml short 阈值覆盖短篇专属机检', () =>
     },
     chapter: ch,
     body,
-    fileName: '篇/001-雪夜/正文.md',
+    fileName: '001-雪夜.md',
   })
   const items = r.sections.flatMap((s) => s.items)
   expect(items.some((i) => i.checkId === 'piece-word-short')).toBe(false)

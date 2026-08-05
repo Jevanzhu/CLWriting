@@ -19,8 +19,8 @@ const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undef
 const isCheckable = computed(() => {
   if (!node.value) return false
   if (isBodyKind(node.value.path)) return true
-  // 草稿（工作区/草稿-N.md）也可机检
-  return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
+  // 草稿（写作/草稿/草稿-N.md）也可机检
+  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
 })
 
 async function runCheck(): Promise<void> {

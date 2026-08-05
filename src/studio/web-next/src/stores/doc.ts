@@ -20,10 +20,10 @@ import type { TreeNode } from '../types/tree'
 import { isBodyKind } from '../shared/words'
 import { friendlyError } from '../shared/error'
 
-/** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/工作区(非草稿) = md（语法高亮）。 */
+/** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/其他 = md（语法高亮）。 */
 function modeOf(path: string): 'text' | 'md' {
   if (isBodyKind(path)) return 'text'
-  if (/(?:^|\/)草稿-\d+\.md$/.test(path)) return 'text'
+  if (/^写作\/草稿\/草稿-\d+\.md$/.test(path)) return 'text'
   return 'md'
 }
 
@@ -31,6 +31,8 @@ export interface DocEntry {
   docId: string
   path: string
   name: string
+  /** 文档角色（v2 后端 buildTree 标注；短篇正文 role='piece-body'，与 path 无区分）。 */
+  role: string
   mode: 'text' | 'md'
   content: string
   baselineRevision: `sha256:${string}`
@@ -66,6 +68,7 @@ export const useDocStore = defineStore('doc', () => {
       docId: node.docId,
       path: node.path,
       name: node.name,
+      role: node.role,
       mode: modeOf(node.path),
       content,
       baselineRevision: await sha256Revision(content),

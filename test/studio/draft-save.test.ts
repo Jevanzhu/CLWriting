@@ -17,11 +17,11 @@ import { legacyId, generateDocId } from '../../src/document/stable-id.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 let root = ''
-const REL = '工作区/草稿-42.md'
+const REL = '写作/草稿/草稿-42.md'
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-draft-m1-'))
-  mkdirSync(join(root, '工作区'), { recursive: true })
+  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
 })
 
 afterEach(() => {
@@ -83,7 +83,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
   })
 
   it('短篇固定名 草稿-1.md 同样受保护', () => {
-    const shortRel = '工作区/草稿-1.md'
+    const shortRel = '写作/草稿/草稿-1.md'
     writeFileSync(join(root, shortRel), '第1篇草稿', 'utf8')
     const id = snapshotBeforeOverwrite(root, shortRel, '第2篇草稿盖过来')
     expect(id).not.toBeNull()
@@ -140,8 +140,8 @@ describe('POST /draft-save 响应契约（M3）', () => {
     const r = await postDraft({ chapter: 2, content: '第一版生成正文。' })
     expect(r.status).toBe(200)
     expect(r.json['ok']).toBe(true)
-    expect(r.json['path']).toBe('工作区/草稿-2.md')
-    expect(r.json['docId']).toBe(legacyId('工作区/草稿-2.md'))
+    expect(r.json['path']).toBe('写作/草稿/草稿-2.md')
+    expect(r.json['docId']).toBe(legacyId('写作/草稿/草稿-2.md'))
     expect(r.json['snapshotted']).toBe(false)
   })
 
@@ -159,7 +159,7 @@ describe('POST /draft-save 响应契约（M3）', () => {
     mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
     const m = readManifest(manifestPath)
     const realId = generateDocId()
-    upsertEntry(m, { id: realId, nodeType: 'document', path: '工作区/草稿-3.md', parentId: null })
+    upsertEntry(m, { id: realId, nodeType: 'document', path: '写作/草稿/草稿-3.md', parentId: null })
     writeManifest(manifestPath, m)
     const r = await postDraft({ chapter: 3, content: '登记过的草稿内容。' })
     expect(r.status).toBe(200)

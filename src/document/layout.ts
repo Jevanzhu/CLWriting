@@ -4,12 +4,12 @@
  * W1 只在保存链路用 write capability（CAPABILITY_DENIED 拒绝写只读文档）；
  * 全字段 capabilities 为 W2A 结构性操作铺路，W1 仅校验 write。
  *
- * 目录角色表见 W0-1 §9：
- * - 定稿/正文 → chapter；定稿/设定 → setting；定稿/摘要 → note（脚本产物，只读）
- * - 大纲/卷纲 → volume-outline；大纲/<七类账本> → ledger；大纲/ 其他 → outline
- * - 文风 → style；简介.md → introduction；工作区/草稿-N.md|细纲.md → draft
+ * 目录角色表（v2 结构）：
+ * - 写作/正文 → chapter（短篇书由 tree.ts 按 kind 覆盖为 piece-body）；写作/草稿 → draft
+ * - 大纲/卷纲 → volume-outline；大纲/清单 → piece-manifest；大纲/ 其他 → outline
+ * - 布线/<线索> → ledger；设定/ → setting
+ * - 文风 → style；简介.md → introduction；工作区/ → note（运行时资产，不进树）
  * - 素材 → material；笔记 → note；废稿 → discard；未匹配 → note（自由文档，全开）
- * - 短篇：篇/<篇号>-<标题>.md → piece-body；清单/<篇号>-<标题>.md → piece-manifest
  *
  * 系统文档（账本 ledger / 篇清单 piece-manifest）trash=false（W0-1 §2）。
  * 工作区内部目录（.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）
@@ -61,29 +61,33 @@ function norm(p: string): string {
   return p.replace(/^\.\//, '').replace(/\\/g, '/')
 }
 
-/** 按路径判 role（W0-1 §9）。relPath 是书仓库相对路径。 */
+/** 按路径判 role（v2 目录结构）。relPath 是书仓库相对路径。
+ *  正文统一：写作/正文/ → chapter（短篇书的正文由 tree.ts 按书级 kind 覆盖为 piece-body）。 */
 export function roleOf(relPath: string): DocumentRole {
   const p = norm(relPath)
-  // 短篇正文（篇/<篇号>-<标题>.md）；清单分离到 清单/ 同名文件
-  if (p.startsWith('篇/')) return 'piece-body'
-  if (p.startsWith('清单/')) return 'piece-manifest'
-  // 长篇
-  if (p.startsWith('定稿/正文/')) return 'chapter'
-  if (p.startsWith('定稿/设定/')) return 'setting'
-  if (p.startsWith('定稿/摘要/')) return 'note' // 脚本产物，只读呈现
+  // 正文（长篇章 / 短篇章，路径统一；tree.ts 按 kind 覆盖 piece-body）
+  if (p.startsWith('写作/正文/')) return 'chapter'
+  // 草稿（从工作区迁出）
+  if (p.startsWith('写作/草稿/')) return 'draft'
+  // 短篇清单（规划性质，放大纲区）
+  if (p.startsWith('大纲/清单/')) return 'piece-manifest'
+  // 设定（从 定稿/设定 提升根级）
+  if (p.startsWith('设定/')) return 'setting'
+  // 布线（线索，从大纲拆出）
+  if (p.startsWith('布线/')) return 'ledger'
+  // 大纲
   if (p.startsWith('大纲/卷纲/')) return 'volume-outline'
   if (p.startsWith('大纲/')) {
     const top = p.slice('大纲/'.length).split('/')[0] ?? ''
-    if (LEDGER_DIRS.has(top)) return 'ledger'
+    if (LEDGER_DIRS.has(top)) return 'ledger' // 关系线保留在大纲（派生数据）
     return 'outline'
   }
+  // 摘要（脚本产物，保留原位）
+  if (p.startsWith('定稿/摘要/')) return 'note'
   if (p.startsWith('文风/')) return 'style'
   if (p === '简介.md') return 'introduction'
-  if (p.startsWith('工作区/')) {
-    const name = p.slice('工作区/'.length)
-    if (name === '细纲.md' || /^草稿-\d+\.md$/.test(name)) return 'draft'
-    return 'note'
-  }
+  // 工作区：运行时资产区（.trash/.journal/.snapshots，不进树）
+  if (p.startsWith('工作区/')) return 'note'
   if (p.startsWith('素材/')) return 'material'
   if (p.startsWith('笔记/')) return 'note'
   if (p.startsWith('废稿/')) return 'discard'

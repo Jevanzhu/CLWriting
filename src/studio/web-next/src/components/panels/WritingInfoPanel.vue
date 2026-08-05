@@ -36,9 +36,9 @@ watch(
 const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
 const volumeWords = computed(() => {
   if (!node.value) return 0
-  const m = node.value.path.match(/^定稿\/正文\/([^/]+)\//)
+  const m = node.value.path.match(/^写作\/正文\/([^/]+)\//)
   if (!m) return 0
-  const volPrefix = `定稿/正文/${m[1]}/`
+  const volPrefix = `写作/正文/${m[1]}/`
   let sum = 0
   const walk = (ns: TreeNode[]) => {
     for (const n of ns) {

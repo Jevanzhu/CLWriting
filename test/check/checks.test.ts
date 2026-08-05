@@ -242,11 +242,11 @@ test('hasRed + getRedItems', () => {
 
 // ── 账本形式三检（#10 项 1，红）────────────────────
 
-/** 造一个最小书仓库（含 .cache + 定稿/正文/），供 checkLeadsForm 测试 */
+/** 造一个最小书仓库（含 .cache + 写作/正文/），供 checkLeadsForm 测试 */
 function makeLeadsBook(): { root: string; db: DatabaseSync } {
   const root = mkdtempSync(join(tmpdir(), '账本-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
-  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   return { root, db }
@@ -254,7 +254,7 @@ function makeLeadsBook(): { root: string; db: DatabaseSync } {
 
 test('checkLeadsForm: 引文命中正文 → 无红', () => {
   const { root, db } = makeLeadsBook()
-  writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
@@ -267,7 +267,7 @@ test('checkLeadsForm: 引文命中正文 → 无红', () => {
 
 test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   const { root, db } = makeLeadsBook()
-  writeFileSync(join(root, '定稿', '正文', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
@@ -278,12 +278,12 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// NP0-A 回归：scaffold 默认建「定稿/正文/第一卷/」卷子目录，findChapterFile 须递归扫描，
+// NP0-A 回归：scaffold 默认建「写作/正文/第一卷/」卷子目录，findChapterFile 须递归扫描，
 // 否则引文命中检查在默认布局下整体跳过（防吃书核心环节静默失效）。
 test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出 → 红（NP0-A 回归）', () => {
   const { root, db } = makeLeadsBook()
-  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(root, '定稿', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
+  mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
@@ -296,8 +296,8 @@ test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出
 
 test('checkLeadsForm: 卷子目录布局下引文命中正文 → 无红', () => {
   const { root, db } = makeLeadsBook()
-  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(root, '定稿', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
     履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
@@ -393,7 +393,7 @@ test('checkLeadsForm: 成长线 advance 动词（稳进/实战）合法 → 无�
 
 test('checkLeadsForm: 两端闭合——声明了没做 / 做了没声明', () => {
   const { root, db } = makeLeadsBook()
-  writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
@@ -408,7 +408,7 @@ test('checkLeadsForm: 两端闭合——声明了没做 / 做了没声明', () =
 
 test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
   const { root, db } = makeLeadsBook()
-  writeFileSync(join(root, '定稿', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
     编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
     履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',

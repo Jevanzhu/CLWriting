@@ -12,10 +12,10 @@ const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 
-// 设定区叶子（递归 定稿/设定 组）
+// 设定区叶子（递归 设定 组）
 const settings = computed<TreeNode[]>(() => {
   const out: TreeNode[] = []
-  const shezhi = tree.grouped.find((n) => n.path === '定稿/设定')
+  const shezhi = tree.grouped.find((n) => n.path === '设定')
   const walk = (ns: TreeNode[]): void => {
     for (const n of ns) {
       if (!n.isDirectory) out.push(n)

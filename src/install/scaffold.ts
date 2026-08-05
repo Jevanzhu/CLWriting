@@ -72,7 +72,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   // .gitignore（工作区/临时区/缓存/RAG 向量库不进 git）
   writeFileSync(
     join(bookRoot, '.gitignore'),
-    ['工作区/', '.cache/', '.rag.db', ''].join('\n'),
+    ['工作区/', '写作/草稿/', '.cache/', '.rag.db', ''].join('\n'),
     'utf-8',
   )
 
@@ -134,21 +134,20 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
     scaffoldShortDirectories(bookRoot, opts)
     return
   }
-  // 定稿区
-  for (const d of ['定稿/正文', '定稿/摘要/章摘要', '定稿/摘要/卷摘要', '定稿/设定/角色', '定稿/设定/物品', '定稿/设定/时间线']) {
+  // 写作区：正文（预置第一卷）+ 草稿
+  mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '草稿'), { recursive: true })
+  // 设定
+  for (const d of ['设定/角色', '设定/物品', '设定/伏笔']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
-  // §17 决策①：长篇预置第一卷空目录（开箱引导卷结构；空目录 git 不跟踪，tree.ts fs 扫描本地可见）
-  mkdirSync(join(bookRoot, '定稿', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(bookRoot, '定稿', '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
-  writeFileSync(join(bookRoot, '定稿', '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
-  writeFileSync(join(bookRoot, '定稿', '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
+  writeFileSync(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
+  writeFileSync(join(bookRoot, '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
+  writeFileSync(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
 
-  // 大纲：基础两类恒建 + 扩展类按启用（伏笔已独立为 定稿/设定/伏笔/）
-  mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
-  mkdirSync(join(bookRoot, '大纲', '感情线'), { recursive: true })
+  // 大纲：卷纲/章纲/总纲（线索拆到 布线/）
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
-  // §17 决策①：第一卷卷纲范例（与 定稿/正文/第一卷/ 同名关联，树行显「✓卷纲」）
+  // §17 决策①：第一卷卷纲范例（与 写作/正文/第一卷/ 同名关联，树行显「✓卷纲」）
   writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), renderVolumeOutlineExample(), 'utf-8')
   // 块3.1：章纲目录 + 第一章范例（结构化 fm，引导 ChapterMeta 字段录入）
   mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
@@ -171,8 +170,11 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
     'utf-8',
   )
   writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n', 'utf-8')
+  // 布线：基础两类恒建 + 扩展类按启用
+  mkdirSync(join(bookRoot, '布线', '悬念'), { recursive: true })
+  mkdirSync(join(bookRoot, '布线', '感情线'), { recursive: true })
   for (const lead of opts.leadsEnabled) {
-    mkdirSync(join(bookRoot, '大纲', lead), { recursive: true })
+    mkdirSync(join(bookRoot, '布线', lead), { recursive: true })
   }
 
   // 文风冷启动占位（O2）：五场景空目录 + 文风铁律骨架
@@ -188,11 +190,11 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
  * 不建 定稿/、大纲/、卷纲、设定、growth——短篇无长程载重。
  */
 function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): void {
-  // 篇/：多篇正文并存，替代长篇 定稿/正文/；建空（第一篇走单篇流程创建，#27）
-  mkdirSync(join(bookRoot, '篇'), { recursive: true })
+  // 写作/正文/：多篇正文并存（短篇章，扁平，默认不用卷级）
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
 
-  // 清单/：短篇清单（反转线索表/情绪曲线/伏笔回收），与正文分离存放
-  mkdirSync(join(bookRoot, '清单'), { recursive: true })
+  // 大纲/清单/：短篇清单（反转线索表/情绪曲线/伏笔回收），规划性质
+  mkdirSync(join(bookRoot, '大纲', '清单'), { recursive: true })
 
   // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
   scaffoldSharedStyle(bookRoot, _opts.genre)
@@ -227,7 +229,7 @@ export function renderVolumeOutlineExample(): string {
   return [
     '# 第一卷 卷纲',
     '',
-    '> 本卷主线规划。与 `定稿/正文/第一卷/` 卷目录同名关联（树行显「✓卷纲」）。',
+    '> 本卷主线规划。与 `写作/正文/第一卷/` 卷目录同名关联（树行显「✓卷纲」）。',
     '> 可手改（文件即真相）；AI 生成卷纲时会覆盖此处占位。',
     '',
     '## 本卷主线阶段',

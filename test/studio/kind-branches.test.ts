@@ -20,9 +20,9 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-kind-'))
   mkdirSync(join(root, '大纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/清虚门/玉佩/旧案反转')
-  mkdirSync(join(root, '工作区'), { recursive: true })
-  writeFileSync(join(root, '工作区', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
-  writeFileSync(join(root, '工作区', '本章写作材料.md'), '# 备料\n境界:练气')
+  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
+  writeFileSync(join(root, '写作', '草稿', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
+  writeFileSync(join(root, '写作', '草稿', '本章写作材料.md'), '# 备料\n境界:练气')
 })
 
 afterEach(() => {
@@ -83,9 +83,9 @@ describe('buildOutlinePrompt(kind 分支)', () => {
   })
 
   it('短篇:有前篇时注入前篇摘要(避重复主题/情绪)', () => {
-    mkdirSync(join(root, '篇'), { recursive: true })
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
     writeFileSync(
-      join(root, '篇', '001-旧案.md'),
+      join(root, '写作', '正文', '001-旧案.md'),
       '---\n篇号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
     )
     const p = buildOutlinePrompt(root, 2, 'short')

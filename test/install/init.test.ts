@@ -47,22 +47,23 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
   expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(false)
   expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
-  // 基础两类恒建
-  expect(existsSync(join(bookRoot, '大纲', '悬念'))).toBe(true)
-  expect(existsSync(join(bookRoot, '大纲', '感情线'))).toBe(true)
+  // 基础两类恒建（线索拆到 布线/）
+  expect(existsSync(join(bookRoot, '布线', '悬念'))).toBe(true)
+  expect(existsSync(join(bookRoot, '布线', '感情线'))).toBe(true)
   // 扩展类按 leadsEnabled 建
-  expect(existsSync(join(bookRoot, '大纲', '成长线'))).toBe(true)
-  expect(existsSync(join(bookRoot, '大纲', '设定线'))).toBe(true)
-  expect(existsSync(join(bookRoot, '大纲', '布局线'))).toBe(false) // 未启用不建
+  expect(existsSync(join(bookRoot, '布线', '成长线'))).toBe(true)
+  expect(existsSync(join(bookRoot, '布线', '设定线'))).toBe(true)
+  expect(existsSync(join(bookRoot, '布线', '布局线'))).toBe(false) // 未启用不建
   // 文风冷启动（条目库 + 铁律；样章库已退场，S8）
   expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)
   expect(existsSync(join(bookRoot, '文风', '文风铁律.md'))).toBe(true)
-  // 定稿区
-  expect(existsSync(join(bookRoot, '定稿', '正文'))).toBe(true)
+  // 写作区：正文（预置第一卷）+ 草稿
+  expect(existsSync(join(bookRoot, '写作', '正文'))).toBe(true)
   // §17 决策①：长篇预置第一卷空目录 + 第一卷卷纲范例（开箱引导卷结构）
-  expect(existsSync(join(bookRoot, '定稿', '正文', '第一卷'))).toBe(true)
+  expect(existsSync(join(bookRoot, '写作', '正文', '第一卷'))).toBe(true)
+  expect(existsSync(join(bookRoot, '写作', '草稿'))).toBe(true)
   expect(existsSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'))).toBe(true)
-  const realms = readRealmDoc(join(bookRoot, '定稿', '设定', '境界体系.md'))
+  const realms = readRealmDoc(join(bookRoot, '设定', '境界体系.md'))
   expect(realms.ok).toBe(true)
   if (realms.ok) {
     expect(realms.doc.体系[0]?.序列).toContain('炼气一层')

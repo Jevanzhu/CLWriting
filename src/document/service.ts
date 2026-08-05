@@ -378,7 +378,7 @@ export class DocumentService {
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
     // piece-body 写「篇号」字段；chapter 写「章号」字段（接口按文档角色传其一）
-    if (isPieceBody(path)) {
+    if (isPieceBody(path, this.bookRoot)) {
       if (meta.篇号 !== undefined) map.set('篇号', meta.篇号)
     } else if (meta.章号 !== undefined) {
       map.set('章号', meta.章号)
@@ -391,7 +391,7 @@ export class DocumentService {
     const 标题 = String(map.get('标题') ?? '')
     invalidateTreeIndex(this.bookRoot)
 
-    if (isPieceBody(path)) {
+    if (isPieceBody(path, this.bookRoot)) {
       // 短篇：rename 文件名（篇/<篇号3位>-<标题>.md）+ 同步清单同名文件
       const 篇号 = map.get('篇号')
       const numPrefix =
@@ -420,8 +420,8 @@ export class DocumentService {
   /** 短篇清单同步重命名（清单/Old.md → 清单/New.md）：
    *  正文已 rename，清单同名文件跟随。清单不存在时静默跳过（不阻断正文 rename）。 */
   private syncRenamePieceList(oldBodyRel: string, newName: string): void {
-    const oldListRel = `清单/${basename(oldBodyRel)}`
-    const newListRel = `清单/${newName}`
+    const oldListRel = `大纲/清单/${basename(oldBodyRel)}`
+    const newListRel = `大纲/清单/${newName}`
     const oldSafe = this.resolveSafePath(oldListRel)
     const newSafe = this.resolveSafePath(newListRel)
     if (!oldSafe || !newSafe) return
@@ -656,9 +656,11 @@ function bodyOf(raw: string): string {
   return s ? s.body : raw
 }
 
-/** 短篇正文（篇/<篇号>-<标题>.md）——标题编辑联动文件名 rename + 清单同步。 */
-function isPieceBody(relPath: string): boolean {
-  return roleOf(relPath) === 'piece-body'
+/** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */
+function isPieceBody(relPath: string, bookRoot: string): boolean {
+  if (roleOf(relPath) !== 'chapter') return false
+  const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
+  return cfg.ok ? (cfg.config.kind ?? 'long') === 'short' : false
 }
 
 /** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */

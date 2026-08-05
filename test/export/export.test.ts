@@ -6,7 +6,7 @@ import { exportBook } from '../../src/export/index.js'
 
 // ── 辅助 fixture ────────────────────────────────
 
-/** 造一个最小长篇书库（book.yaml + 空的 定稿/正文/） */
+/** 造一个最小长篇书库（book.yaml + 空的 写作/正文/） */
 function makeLongBook(title: string): string {
   const root = mkdtempSync(join(tmpdir(), 'export-long-'))
   writeFileSync(
@@ -14,14 +14,14 @@ function makeLongBook(title: string): string {
     ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),
     'utf-8',
   )
-  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   return root
 }
 
 /** 写一章长篇定稿（front matter + 正文） */
 function writeLongChapter(root: string, num: number, title: string, body: string): void {
   writeFileSync(
-    join(root, '定稿', '正文', `${num}-${title}.md`),
+    join(root, '写作', '正文', `${num}-${title}.md`),
     `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
     'utf-8',
   )
@@ -100,9 +100,9 @@ test('exportBook: 短篇分支产全篇集 + 分篇 + 投稿视图', () => {
     ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇集', '  genre: 悬疑'].join('\n'),
     'utf-8',
   )
-  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
-    join(root, '篇', '1-雪夜.md'),
+    join(root, '写作', '正文', '1-雪夜.md'),
     '---\n篇号: 1\n标题: 雪夜\n---\n雪夜的正文。',
     'utf-8',
   )

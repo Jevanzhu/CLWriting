@@ -22,7 +22,7 @@ describe('DocumentService / 保存协议主路径', () => {
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
 
   it('新建保存（expectedRevision=null，文件不存在）→ ok + 落盘', async () => {
-    const r = await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'hello',
       expectedRevision: null,
       operationId: 'op1',
@@ -31,27 +31,27 @@ describe('DocumentService / 保存协议主路径', () => {
     expect(r.ok).toBe(true)
     expect(r.superseded).toBe(false)
     if (r.ok) expect(r.revision).toMatch(/^sha256:/)
-    expect(readFileSync(join(bookRoot, '定稿/正文/0001-开篇.md'), 'utf-8')).toBe('hello')
+    expect(readFileSync(join(bookRoot, '写作/正文/0001-开篇.md'), 'utf-8')).toBe('hello')
   })
 
   it('覆盖保存（expectedRevision=当前）→ ok + 新 revision', async () => {
-    const r1 = await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    const r1 = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
     if (!r1.ok) throw new Error('prereq')
-    const r2 = await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    const r2 = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'world', expectedRevision: r1.revision, operationId: 'op2', origin: 'manual',
     })
     expect(r2.ok).toBe(true)
     if (r2.ok) expect(r2.revision).not.toBe(r1.revision)
-    expect(readFileSync(join(bookRoot, '定稿/正文/0001-开篇.md'), 'utf-8')).toBe('world')
+    expect(readFileSync(join(bookRoot, '写作/正文/0001-开篇.md'), 'utf-8')).toBe('world')
   })
 
   it('expectedRevision=null 撞已有文件 → REVISION_CONFLICT', async () => {
-    await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'a', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
-    const r = await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'b', expectedRevision: null, operationId: 'op2', origin: 'manual',
     })
     expect(r.ok).toBe(false)
@@ -59,10 +59,10 @@ describe('DocumentService / 保存协议主路径', () => {
   })
 
   it('expectedRevision 不符磁盘 → REVISION_CONFLICT', async () => {
-    await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'a', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
-    const r = await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: 'b', expectedRevision: 'sha256:deadbeef', operationId: 'op2', origin: 'manual',
     })
     expect(r.ok).toBe(false)
@@ -87,13 +87,13 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('save settled 记今日字数 delta（E4：新建 + 修改累加，strip fm 口径）', async () => {
     // 新建 save（expectedRevision null）→ delta = 新内容正文字数（fm 已剥）
-    const r0 = await svc.save('doc_w', '定稿/正文/0001-初稿.md', {
+    const r0 = await svc.save('doc_w', '写作/正文/0001-初稿.md', {
       content: '---\n标题: x\n---\n你好世界', expectedRevision: null, operationId: 'op-d1', origin: 'manual',
     })
     if (!r0.ok) throw new Error('prereq r0')
     expect(readTodayDelta(bookRoot, todayDate())).toBe(4) // 「你好世界」4 字
     // 修改 save → delta = 新旧差（新增「再见」2 字）
-    const r1 = await svc.save('doc_w', '定稿/正文/0001-初稿.md', {
+    const r1 = await svc.save('doc_w', '写作/正文/0001-初稿.md', {
       content: '---\n标题: x\n---\n你好世界再见', expectedRevision: r0.revision, operationId: 'op-d2', origin: 'manual',
     })
     expect(r1.ok).toBe(true)
@@ -112,7 +112,7 @@ describe('DocumentService / journal 与崩溃恢复', () => {
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
 
   it('保存成功后 journal pending+settled 成对，recover 无未结算', async () => {
-    await svc.save('doc_1', '定稿/正文/0001.md', {
+    await svc.save('doc_1', '写作/正文/0001.md', {
       content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
     expect(svc.recover()).toEqual([])
@@ -148,20 +148,20 @@ describe('DocumentService / freeze + 串行', () => {
 
   it('freeze 后 save 排队不执行，unfreeze 后落盘', async () => {
     svc.freeze('doc_1')
-    const p = svc.save('doc_1', '定稿/正文/0001.md', {
+    const p = svc.save('doc_1', '写作/正文/0001.md', {
       content: 'frozen', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
     await delay(15)
-    expect(existsSync(join(bookRoot, '定稿/正文/0001.md'))).toBe(false)
+    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(false)
     svc.unfreeze('doc_1')
     const r = await p
     expect(r.ok).toBe(true)
-    expect(readFileSync(join(bookRoot, '定稿/正文/0001.md'), 'utf-8')).toBe('frozen')
+    expect(readFileSync(join(bookRoot, '写作/正文/0001.md'), 'utf-8')).toBe('frozen')
   })
 
   it('同 doc 并发保存串行，内容最终为最后一次', async () => {
     const ps = ['一', '二', '三'].map((c, i) =>
-      svc.save('doc_1', '定稿/正文/0001.md', {
+      svc.save('doc_1', '写作/正文/0001.md', {
         content: c, expectedRevision: null, operationId: `op${i}`, origin: 'manual',
       }),
     )
@@ -170,19 +170,19 @@ describe('DocumentService / freeze + 串行', () => {
     const oks = results.filter((r) => r.ok)
     expect(oks.length).toBe(1)
     // 最终落盘内容是串行里最后一个成功的（第一个）
-    expect(readFileSync(join(bookRoot, '定稿/正文/0001.md'), 'utf-8')).toBe('一')
+    expect(readFileSync(join(bookRoot, '写作/正文/0001.md'), 'utf-8')).toBe('一')
   })
 
   it('不同 doc 并发保存互不阻塞', async () => {
     const t0 = Date.now()
     await Promise.all([
-      svc.save('doc_a', '定稿/正文/0001.md', { content: 'a', expectedRevision: null, operationId: 'opa', origin: 'manual' }),
-      svc.save('doc_b', '定稿/正文/0002.md', { content: 'b', expectedRevision: null, operationId: 'opb', origin: 'manual' }),
+      svc.save('doc_a', '写作/正文/0001.md', { content: 'a', expectedRevision: null, operationId: 'opa', origin: 'manual' }),
+      svc.save('doc_b', '写作/正文/0002.md', { content: 'b', expectedRevision: null, operationId: 'opb', origin: 'manual' }),
     ])
     // 两个独立 doc 并行，应在 ~一次 IO 时间内完成
     expect(Date.now() - t0).toBeLessThan(1000)
-    expect(existsSync(join(bookRoot, '定稿/正文/0001.md'))).toBe(true)
-    expect(existsSync(join(bookRoot, '定稿/正文/0002.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '写作/正文/0002.md'))).toBe(true)
   })
 })
 
@@ -198,11 +198,11 @@ describe('DocumentService / snapshot 触发', () => {
 
   it('改已存在定稿章（chapter）→ 建修改前快照', async () => {
     // 先建一个定稿章
-    const f = join(bookRoot, '定稿/正文/0001-开篇.md')
+    const f = join(bookRoot, '写作/正文/0001-开篇.md')
     mkdirSync(dirname(f), { recursive: true })
     writeFileSync(f, '原文', 'utf-8')
     const base = hashFile(f) as `sha256:${string}`
-    await svc.save('doc_1', '定稿/正文/0001-开篇.md', {
+    await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: '改后', expectedRevision: base, operationId: 'op1', origin: 'manual',
     })
     const snapDir = join(bookRoot, '工作区', '.snapshots', 'doc_1')

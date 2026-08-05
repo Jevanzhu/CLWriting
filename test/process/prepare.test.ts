@@ -231,10 +231,10 @@ test('prepare S5: 条目库存在 → 文风便宜段必带 + 条目样章弹性
 
 /** 建前章（149章）定稿正文，返回正文末尾预期片段 */
 function makePrevChapterFinal(root: string, words = 3000): string {
-  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   const body = '前章正文段落。'.repeat(Math.ceil(words / 6))
   writeFileSync(
-    join(root, '定稿', '正文', '第一卷', '149-前章.md'),
+    join(root, '写作', '正文', '第一卷', '149-前章.md'),
     `---\n章号: 149\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n${body}`,
     'utf-8',
   )
@@ -282,11 +282,11 @@ test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
 
 test('C1: 草稿兜底——无定稿、有草稿 → 段出现', () => {
   const { root, db } = makeBookWithMaterial()
-  // 不建定稿；建 工作区/草稿-149.md
-  mkdirSync(join(root, '工作区'), { recursive: true })
+  // 不建定稿；建 写作/草稿/草稿-149.md
+  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
   const draftBody = '草稿里的前章结尾正文。'.repeat(200)
   writeFileSync(
-    join(root, '工作区', '草稿-149.md'),
+    join(root, '写作', '草稿', '草稿-149.md'),
     `---\n章号: 149\n标题: 前章\n---\n${draftBody}`,
     'utf-8',
   )

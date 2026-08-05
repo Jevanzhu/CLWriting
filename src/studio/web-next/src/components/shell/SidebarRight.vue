@@ -33,15 +33,17 @@ const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info
   { key: 'review', label: '审阅', icon: FileSearch },
   { key: 'check', label: '校对', icon: CheckSquare },
 ]
-/** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。 */
+/** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。
+ *  短篇正文（role=piece-body）与长篇同 path（写作/正文/），按 role 取「短篇」标题。 */
 const FORM_TITLE: Record<string, string> = {
-  chapter: '章节', 'chapter-outline': '章纲', 'volume-outline': '卷纲',
+  chapter: '章节', 'piece-body': '短篇', 'chapter-outline': '章纲', 'volume-outline': '卷纲',
   synopsis: '总纲', character: '角色', worldview: '世界观', item: '物品',
 }
 const formSectionTitle = computed(() => {
   if (!ws.activeDocId) return '信息'
   const node = tree.byDocId.get(ws.activeDocId)
-  const k = node ? formKindOf(node.path) : null
+  if (!node) return '信息'
+  const k = node.role === 'piece-body' ? 'piece-body' : formKindOf(node.path)
   return k ? `${FORM_TITLE[k] ?? '文档'}信息` : '信息'
 })
 /** 折叠区标题：有表单 → "章节信息"/"章纲信息"…；无表单 → "写作信息" */
@@ -52,7 +54,7 @@ const isReviewable = computed(() => {
   const node = tree.byDocId.get(ws.activeDocId)
   if (!node) return false
   if (isBodyKind(node.path)) return true
-  return /^工作区\/草稿-\d+\.md$/.test(node.path)
+  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.path)
 })
 </script>
 

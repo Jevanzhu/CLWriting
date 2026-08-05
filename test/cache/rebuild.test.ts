@@ -23,8 +23,8 @@ function makeBookFixture(): string {
   }
   writeBookConfig(join(root, 'book.yaml'), cfg)
 
-  // 大纲/悬念/（基础类）— 2 个条目
-  const 悬念dir = join(root, '大纲', '悬念')
+  // 布线/悬念/（基础类）— 2 个条目
+  const 悬念dir = join(root, '布线', '悬念')
   mkdirSync(悬念dir, { recursive: true })
   writeLead(join(悬念dir, '悬念-031-灭门真凶.md'), {
     编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '已收尾', 开启章: 12,
@@ -38,8 +38,8 @@ function makeBookFixture(): string {
     履历: [{ 章号: 5, 动词: '埋下', 证据: '玄阶令牌' }],
   })
 
-  // 大纲/成长线/（book.yaml 启用的扩展类）— 1 个条目
-  const 成长dir = join(root, '大纲', '成长线')
+  // 布线/成长线/（book.yaml 启用的扩展类）— 1 个条目
+  const 成长dir = join(root, '布线', '成长线')
   mkdirSync(成长dir, { recursive: true })
   writeLead(join(成长dir, '成长线-003-林晚修为.md'), {
     编号: '成长线-003', 标题: '林晚修为', 类型: '成长线', 状态: '进行中', 开启章: 3,
@@ -50,10 +50,10 @@ function makeBookFixture(): string {
     ],
   })
 
-  // 大纲/布局线/（未启用 → 目录不存在，重建跳过）
+  // 布线/布局线/（未启用 → 目录不存在，重建跳过）
 
-  // 定稿/正文/— 1 章
-  const 正文dir = join(root, '定稿', '正文')
+  // 写作/正文/— 1 章
+  const 正文dir = join(root, '写作', '正文')
   mkdirSync(正文dir, { recursive: true })
   writeFileSync(
     join(正文dir, '152-北境的雪.md'),
@@ -135,7 +135,7 @@ test('rebuild: 按 book.yaml 启用类扫描（未启用类不扫）', () => {
   const cachePath = join(root, '.cache', 'index.db')
 
   // 在未启用的 布局线 目录放一个条目（book.yaml 只启用了 成长线）
-  const 布局线dir = join(root, '大纲', '布局线')
+  const 布局线dir = join(root, '布线', '布局线')
   mkdirSync(布局线dir, { recursive: true })
   writeLead(join(布局线dir, '布局线-001-暗流.md'), {
     编号: '布局线-001', 标题: '暗流', 类型: '布局线', 状态: '进行中', 开启章: 10,
@@ -159,7 +159,7 @@ test('rebuild: 容错（坏文件跳过、计入 errors、不中断）', () => {
   const cachePath = join(root, '.cache', 'index.db')
 
   // 在悬念目录加一个坏文件
-  writeFileSync(join(root, '大纲', '悬念', '悬念-099-坏.md'), '坏的裸文件', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '悬念-099-坏.md'), '坏的裸文件', 'utf-8')
 
   const result = rebuild(root, cachePath)
   expect(result.errors.length).toBeGreaterThanOrEqual(1)

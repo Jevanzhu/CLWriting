@@ -69,12 +69,12 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
 }
 
 /**
- * 扫 `定稿/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
+ * 扫 `写作/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
  * 短篇无章号概念（篇号承载于 ChapterMeta.章号，但短篇不走账本检查）→ 返回 undefined。
  */
 function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undefined {
   if (isShort) return undefined
-  const bodyDir = join(bookRoot, '定稿', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return undefined
   const { chapters } = readChapterDir(bodyDir)
   let max = 0
@@ -104,7 +104,7 @@ export function checkWithDb(
   try {
     const workDir = dirname(absPath)
     // 全书最高已定稿章号：调用方传入则用（树红点聚合已扫过全书，避免重复扫描）；
-    // 未传（单章 check 端点）时扫描一次 定稿/正文 取最大章号。
+    // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     const maxChapter = maxWrittenChapter ?? maxWrittenChapterOf(bookRoot, isShort)
     const declaredLeadIds = isShort ? undefined : readOutlineLeads(workDir)
@@ -198,7 +198,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         const pathToDocId = new Map<string, string>()
         for (const [docId, m] of manifest) pathToDocId.set(m.path, docId)
         const issues: Record<string, { hasRed: boolean; verdictRejected: boolean }> = {}
-        const bodyDir = join(bookRoot, '定稿', '正文')
+        const bodyDir = join(bookRoot, '写作', '正文')
         if (existsSync(bodyDir)) {
           const { chapters } = readChapterDir(bodyDir)
           // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：

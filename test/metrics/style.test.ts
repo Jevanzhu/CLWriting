@@ -76,7 +76,7 @@ test('computeFullStats: 形容词堆叠去重命中数', () => {
 
 test('readChapterBody: 正确剥 front matter 取正文', () => {
   const root = mkdtempSync(join(tmpdir(), 'style-body-'))
-  const dir = join(root, '定稿', '正文')
+  const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   const ch: ChapterMeta = { 章号: 1, 标题: '一', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
   const fp = join(dir, '1-一.md')
@@ -94,7 +94,7 @@ function makeLongBookWithDrift(total: number, driftStart: number): string {
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
-  const dir = join(root, '定稿', '正文')
+  const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   for (let n = 1; n <= total; n++) {
     const ch: ChapterMeta = { 章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
@@ -174,7 +174,7 @@ test('formatStyleReport: 含全角括号（…）的行与不含的行标记列�
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'),
     '单句上限字数: 4\n形容词连续堆叠上限: 2\n对话标签占比: 50%\n排比连续数: 2\n结尾总结体: 禁止', 'utf-8')
-  const dir = join(root, '定稿', '正文')
+  const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   const ch1: ChapterMeta = { 章号: 1, 标题: '甲', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
   writeChapter(join(dir, '1-甲.md'), ch1, '这是一个超过四个字的句子。')
@@ -319,12 +319,12 @@ function makeShortBook(pieceCount: number): string {
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short' })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
-  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (let n = 1; n <= pieceCount; n++) {
     const name = `${String(n).padStart(3, '0')}-短篇${n}.md`
     const fm = `篇号: ${n}\n标题: 短篇${n}`
     const body = '「你来了。」他说。\n雪落无声。\n刀光闪过。'
-    writeFileSync(join(root, '篇', name), `---\n${fm}\n---\n${body}`, 'utf-8')
+    writeFileSync(join(root, '写作', '正文', name), `---\n${fm}\n---\n${body}`, 'utf-8')
   }
   return root
 }
@@ -365,7 +365,7 @@ test('综合: 先冻结基线 → 重扫报告含基线对照', () => {
   freezeBaseline(root)
   // 加一章定稿正文（用长篇格式，仅为验证基线读取）
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
-  const dir = join(root, '定稿', '正文')
+  const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   const ch: ChapterMeta = { 章号: 1, 标题: '一', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
   writeChapter(join(dir, '1-一.md'), ch, '「来了。」他说。\n雪落。')

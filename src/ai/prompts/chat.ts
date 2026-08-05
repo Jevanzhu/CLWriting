@@ -53,7 +53,7 @@ export function buildChatContext(bookRoot: string, chapter?: number): ChatContex
 
   if (chapter !== undefined && chapter >= 1) {
     // 尝试读取章节正文前 2000 字
-    const draftPath = join(bookRoot, '工作区', `草稿-${chapter}.md`)
+    const draftPath = join(bookRoot, '写作', '草稿', `草稿-${chapter}.md`)
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')

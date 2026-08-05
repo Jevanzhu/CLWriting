@@ -98,7 +98,7 @@ function runLong(input: CheckInput): CheckReport {
 
   // #10 项 2 成长线语义（红）—— 仅启用成长线时
   if (config.leads.enabled.includes('成长线')) {
-    const realmPath = join(bookRoot, '定稿', '设定', '境界体系.md')
+    const realmPath = join(bookRoot, '设定', '境界体系.md')
     let realmDoc: RealmDoc | null = null
     if (existsSync(realmPath)) {
       const r = readRealmDoc(realmPath)
@@ -135,7 +135,7 @@ function runLong(input: CheckInput): CheckReport {
   sections.push(checkStyleMetrics(body, ironRules))
 
   // #10 项 10 新专名候选（黄）
-  const rosterPath = join(bookRoot, '定稿', '设定', '名册.md')
+  const rosterPath = join(bookRoot, '设定', '名册.md')
   sections.push(checkNewNames(body, rosterPath))
 
   // #10 项 11 信息差泄密候选（黄）
@@ -222,10 +222,10 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkOpeningNoEnv(body, short?.opening_env_chars))
 
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）
-  // 清单已分离到 清单/ 目录，与正文同名（篇/<篇号>-<标题>.md → 清单/<篇号>-<标题>.md，见 layout.ts:67）
+  // 清单已分离到 大纲/清单/ 目录，与正文同名（写作/正文/<篇号>-<标题>.md → 大纲/清单/<篇号>-<标题>.md，见 layout.ts:67）
   let pieceList: PieceList | null = null
   if (chapter._path) {
-    const manifestPath = join(bookRoot, '清单', basename(chapter._path))
+    const manifestPath = join(bookRoot, '大纲', '清单', basename(chapter._path))
     if (existsSync(manifestPath)) {
       const r = readPieceList(manifestPath)
       if (r.ok) {

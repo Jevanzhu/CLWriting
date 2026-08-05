@@ -120,10 +120,10 @@ describe('W2A documents API', () => {
     const j = r.json as { ok: boolean; nodes: unknown[]; revision: number }
     expect(j.ok).toBe(true)
     expect(j.revision).toBeGreaterThan(0)
-    const vol = findInTree(j.nodes, '定稿/正文/第一卷') as { volumeOutlinePath?: string } | null
+    const vol = findInTree(j.nodes, '写作/正文/第一卷') as { volumeOutlinePath?: string } | null
     expect(vol).not.toBeNull()
     expect(vol!.volumeOutlinePath).toBe('大纲/卷纲/第一卷.md')
-    const chapter = findInTree(j.nodes, '定稿/正文/第一卷/0001-开篇.md') as { docId?: string; status?: string } | null
+    const chapter = findInTree(j.nodes, '写作/正文/第一卷/0001-开篇.md') as { docId?: string; status?: string } | null
     expect(chapter).not.toBeNull()
     expect(chapter!.docId).toBe('doc_ch01')
     expect(chapter!.status).toBe('final')
@@ -160,7 +160,7 @@ describe('W2A documents API', () => {
       'POST',
       docPath(),
       auth(),
-      JSON.stringify({ relPath: '定稿/正文/第一卷/0001-开篇.md', content: 'x' }),
+      JSON.stringify({ relPath: '写作/正文/第一卷/0001-开篇.md', content: 'x' }),
     )
     expect(r.status).toBe(409)
     expect((r.json as { code: string }).code).toBe('ALREADY_EXISTS')

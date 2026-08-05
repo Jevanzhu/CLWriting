@@ -2,7 +2,7 @@
  * T1.2 写作保存（M11 E1）：左栏选章 → .cm-content 键入 → ⌘S → 保存成功 + 全书字数增加。
  *
  * 关键回路（细案 §6 风险点）：CodeMirror 6 输入 + 乐观锁保存 + tree 字数局部更新。
- * - 章节在「写作」组默认展开层（groupTree：定稿/正文 章节直挂写作组）
+ * - 章节在「写作」组默认展开层（groupTree：写作/正文 章节直挂写作组）
  * - save 成功 → doc.ts 调 tree.updateWordCount → StatusBar 全书字数重算
  * - manual save 成功 → EditorView save-state 显「已保存」
  */

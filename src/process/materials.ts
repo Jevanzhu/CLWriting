@@ -32,7 +32,7 @@ function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
   const lines: string[] = []
   for (const hit of hits) {
     // 命中位置：第 X 章 offset[a,b]
-    // 原文精准读取：从 定稿/正文/<章号>-<标题>.md 取正文后按偏移切片
+    // 原文精准读取：从 写作/正文/<章号>-<标题>.md 取正文后按偏移切片
     const body = readChapterBodyByNumber(bookRoot, hit.章号)
     if (body === null) continue
     const frag = body.slice(hit.start_offset, hit.end_offset)
@@ -47,7 +47,7 @@ function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
  * 兼容两种命名：<章号>-<标题>.md（原始章号）与 <章号4位补零>-<标题>.md（commit msg 口径）。
  */
 function readChapterBodyByNumber(bookRoot: string, chapter: number): string | null {
-  const bodyDir = join(bookRoot, '定稿', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
   const padded = String(chapter).padStart(4, '0')
   const candidates = [`${chapter}-`, `${padded}-`]

@@ -582,7 +582,7 @@ const activeLegend = computed(() => {
     </div>
     <div v-else-if="isShort" class="state-block">短篇集无角色关系图。</div>
     <div v-else-if="!nodeCount" class="state-block">
-      无角色数据。先在「定稿 / 设定 / 角色」建角色卡。
+      无角色数据。先在「设定 / 角色」建角色卡。
     </div>
     <div v-else class="rel">
       <!-- 顶部工具栏 -->

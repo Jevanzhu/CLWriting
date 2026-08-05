@@ -78,25 +78,27 @@ export function parseFmFields(content: string): Record<string, string> {
   return out
 }
 
-/** 文档路径 → 结构化表单类型（右栏按此切表单）。非表单文档 → null。 */
+/** 文档路径 → 结构化表单类型（右栏按此切表单）。非表单文档 → null。
+ *  短篇正文（写作/正文/xxx.md）与长篇正文路径相同，path 无法区分：
+ *  统一返回 'chapter'；短篇表单（piece-body）由调用方按 node.role 判定。 */
 export function formKindOf(
   path: string,
 ):
   | 'chapter' | 'piece-body' | 'chapter-outline' | 'volume-outline' | 'synopsis'
   | 'character' | 'worldview' | 'item' | 'foreshadow' | null {
-  if (path.startsWith('定稿/正文/')) return 'chapter'
-  if (path.startsWith('篇/') && path.endsWith('.md')) return 'piece-body'
+  if (path.startsWith('写作/正文/')) return 'chapter'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
   if (path === '大纲/总纲.md') return 'synopsis'
-  if (path.startsWith('定稿/设定/角色/')) return 'character'
-  if (path === '定稿/设定/世界观.md') return 'worldview'
-  if (path.startsWith('定稿/设定/物品/')) return 'item'
-  if (path.startsWith('定稿/设定/伏笔/')) return 'foreshadow'
+  if (path.startsWith('设定/角色/')) return 'character'
+  if (path === '设定/世界观.md') return 'worldview'
+  if (path.startsWith('设定/物品/')) return 'item'
+  if (path.startsWith('设定/伏笔/')) return 'foreshadow'
   return null
 }
 
-/** 是否正文文档（长篇 chapter / 短篇 piece-body）—— 统一标题可编辑 + 可分析/review/check 判定。 */
+/** 是否正文文档（长篇 chapter / 短篇 piece-body）—— 统一标题可编辑 + 可分析/review/check 判定。
+ *  仅按路径判定（v2：写作/正文/ 前缀）；短篇正文与长篇路径相同，由 node.role 补充。 */
 export function isBodyKind(path: string): boolean {
-  return path.startsWith('定稿/正文/') || (path.startsWith('篇/') && path.endsWith('.md'))
+  return path.startsWith('写作/正文/')
 }

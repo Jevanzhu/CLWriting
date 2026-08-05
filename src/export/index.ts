@@ -77,7 +77,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const unitLabel = kind === 'short' ? '篇' : '章'
-  const bodyDir = kind === 'short' ? join(bookRoot, '篇') : join(bookRoot, '定稿', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
 
   // 1. 扫描定稿正文（长篇复用 readChapterDir；短篇复用 readPieceDir）
   if (!existsSync(bodyDir)) {

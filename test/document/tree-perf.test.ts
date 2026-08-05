@@ -28,13 +28,13 @@ beforeAll(() => {
   const lines = ['{"version":1,"type":"header"}']
   for (let v = 1; v <= VOL; v++) {
     const vol = `卷${v}`
-    mkdirSync(join(root, '定稿', '正文', vol), { recursive: true })
+    mkdirSync(join(root, '写作', '正文', vol), { recursive: true })
     mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
     writeFileSync(join(root, '大纲', '卷纲', `${vol}.md`), `# ${vol} 卷纲\n`, 'utf-8')
     for (let c = 1; c <= CH; c++) {
       const n = (v - 1) * CH + c
       const ch = String(n).padStart(4, '0')
-      const rel = `定稿/正文/${vol}/${ch}-章${n}.md`
+      const rel = `写作/正文/${vol}/${ch}-章${n}.md`
       writeFileSync(
         join(root, ...rel.split('/')),
         `---\n章号: ${n}\n标题: 章${n}\n---\n第${n}章正文。`,
@@ -57,11 +57,11 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
-/** 只数 定稿/正文/ 下的章（性能验证针对正文扫描规模；卷纲/清单不计）。 */
+/** 只数 写作/正文/ 下的章（性能验证针对正文扫描规模；卷纲/清单不计）。 */
 function countChapters(ns: TreeNode[]): number {
   let c = 0
   for (const n of ns) {
-    if (!n.isDirectory && n.path.startsWith('定稿/正文/')) c++
+    if (!n.isDirectory && n.path.startsWith('写作/正文/')) c++
     else if (n.isDirectory) c += countChapters(n.children)
   }
   return c

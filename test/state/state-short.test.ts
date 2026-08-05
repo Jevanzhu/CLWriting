@@ -2,7 +2,7 @@
  * 短篇精简态机测试 —— M8 #25/#26。
  *
  * 验收：短篇（kind:short）走精简态机（态 1-4 + 7），有待定稿篇时进态 8，不判态 5/6；
- * 态 3 手改看 篇/；态 4 续跑用 pc: 前缀；态 7 篇号 = 扫 篇/ 子目录数 + 1。
+ * 态 3 手改看 写作/正文/；态 4 续跑用 pc: 前缀；态 7 篇号 = 扫 写作/正文/ 子目录数 + 1。
  */
 
 import { test, expect } from 'vitest'
@@ -16,13 +16,13 @@ import type { BookConfig } from '../../src/format/types.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
-/** 建一个干净短篇集仓库（git + book.yaml kind:short + 篇/ + 文风/ + 工作区/ + 初始 commit）。 */
+/** 建一个干净短篇集仓库（git + book.yaml kind:short + 写作/正文/ + 文风/ + 工作区/ + 初始 commit）。 */
 function makeShortBook(): string {
   const root = mkdtempSync(join(tmpdir(), '夜语集-'))
   execSync('git init', { cwd: root, stdio: 'pipe' })
   execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
-  mkdirSync(join(root, '篇'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (const s of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
     mkdirSync(join(root, '文风', '样章库', s), { recursive: true })
   }
@@ -33,24 +33,24 @@ function makeShortBook(): string {
   return root
 }
 
-/** 造一篇定稿（篇/<篇号3位>-<标题>.md + pc: commit）。 */
+/** 造一篇定稿（写作/正文/<篇号3位>-<标题>.md + pc: commit）。 */
 function finalizePiece(root: string, num: number, title: string): void {
-  mkdirSync(join(root, '篇'), { recursive: true })
-  writeFileSync(join(root, '篇', `${String(num).padStart(3, '0')}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', `${String(num).padStart(3, '0')}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
   execSync(`git add -A && git commit -m "pc:${String(num).padStart(3, '0')} ${title}"`, { cwd: root, stdio: 'pipe' })
 }
 
-test('short 态 3: 篇/ 有未 commit 改动 → 态 3（看 篇/，不看 定稿//大纲/）', () => {
+test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/正文/，不看 设定/大纲/）', () => {
   const root = makeShortBook()
   try {
     // 改已定稿篇的正文（未 commit）→ 态 3 手改
     finalizePiece(root, 1, '雪夜')
-    writeFileSync(join(root, '篇', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
+    writeFileSync(join(root, '写作', '正文', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n\n改过的正文。\n', 'utf-8')
 
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(3)
     if (d.state === 3) {
-      expect(d.handEdits.some((p) => p.startsWith('篇/'))).toBe(true)
+      expect(d.handEdits.some((p) => p.startsWith('写作/正文/'))).toBe(true)
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -102,14 +102,14 @@ test('short 态 7: 空短篇集（无篇）→ 起草第 1 篇（篇号 = 0 + 1�
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
-      expect(d.nextChapter).toBe(1) // 篇/ 空 → 第 1 篇
+      expect(d.nextChapter).toBe(1) // 写作/正文/ 空 → 第 1 篇
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('short 态 7: 已有 2 篇定稿 → 起草第 3 篇（篇号 = 扫 篇/ 数 + 1）', () => {
+test('short 态 7: 已有 2 篇定稿 → 起草第 3 篇（篇号 = 扫 写作/正文/ 数 + 1）', () => {
   const root = makeShortBook()
   try {
     finalizePiece(root, 1, '雪夜')
@@ -118,7 +118,7 @@ test('short 态 7: 已有 2 篇定稿 → 起草第 3 篇（篇号 = 扫 篇/ �
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
-      expect(d.nextChapter).toBe(3) // 篇/ 有 2 篇 → 第 3 篇
+      expect(d.nextChapter).toBe(3) // 写作/正文/ 有 2 篇 → 第 3 篇
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -143,8 +143,8 @@ test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', ()
     execSync('git init', { cwd: root, stdio: 'pipe' })
     execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
-    mkdirSync(join(root, '定稿', '正文'), { recursive: true })
-    mkdirSync(join(root, '大纲', '悬念'), { recursive: true })
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    mkdirSync(join(root, '布线', '悬念'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })
     mkdirSync(join(root, '.cache'), { recursive: true })
     execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })

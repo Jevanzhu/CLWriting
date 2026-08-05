@@ -12,7 +12,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 
 const BOOK = '快照测试书'
-const CHAPTER = '定稿/正文/0001-开篇.md'
+const CHAPTER = '写作/正文/0001-开篇.md'
 let workDir = ''
 let server: http.Server | undefined
 let baseUrl = ''

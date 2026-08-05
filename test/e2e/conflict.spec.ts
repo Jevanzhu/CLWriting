@@ -14,7 +14,7 @@ import { join } from 'node:path'
 
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 function chapterPath(file: string): string {
-  return join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '定稿', '正文', file)
+  return join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '写作', '正文', file)
 }
 const CHAPTER_1 = (): string => chapterPath('0001-初入宗门.md')
 const CHAPTER_2 = (): string => chapterPath('0002-玉佩之秘.md')

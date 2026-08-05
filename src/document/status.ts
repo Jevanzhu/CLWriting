@@ -43,22 +43,26 @@ export function collectDirtyFiles(bookRoot: string): Set<string> {
 /**
  * 派生单文件 status（纯函数，不判 published）。
  * - archived：废稿/ 前缀
- * - draft：工作区/草稿-N.md 或 工作区/待定稿/ 队列（§3）
- * - idea：工作区仅细纲/卡片（无草稿）
- * - revision：定稿区文件在脏集（未 rebook 的手改，态 3 文档视图）
- * - final：定稿区文件干净（默认良好态）
+ * - draft：写作/草稿/草稿-N.md 或 工作区/待定稿/ 队列（§3）
+ * - idea：草稿区仅细纲/卡片（无草稿）
+ * - revision：正文/设定等区文件在脏集（未 rebook 的手改，态 3 文档视图）
+ * - final：正文/设定等区文件干净（默认良好态）
  *
  * published 由 readPublished 单独查（避免对所有 final 文件读 frontmatter）。
  */
 export function deriveStatus(relPath: string, dirtyFiles: Set<string>): DocumentStatus {
   if (relPath.startsWith('废稿/')) return 'archived'
+  if (relPath.startsWith('写作/草稿/')) {
+    const name = relPath.slice('写作/草稿/'.length)
+    if (/^草稿-\d+\.md$/.test(name)) return 'draft'
+    return 'idea' // 细纲.md 等
+  }
   if (relPath.startsWith('工作区/')) {
     const name = relPath.slice('工作区/'.length)
-    if (/^草稿-\d+\.md$/.test(name)) return 'draft'
     if (name.startsWith('待定稿/')) return 'draft'
     return 'idea'
   }
-  // 定稿区 / 大纲 / 设定 等：git 判脏
+  // 正文 / 大纲 / 设定 / 布线 等：git 判脏
   return dirtyFiles.has(relPath) ? 'revision' : 'final'
 }
 

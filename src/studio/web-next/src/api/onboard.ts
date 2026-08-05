@@ -33,16 +33,16 @@ export const STEP_LABEL: Record<OnboardStep, string> = {
 /** 各步落盘路径（与后端 STEP_PATH 对齐，用于「已生成」判定）。 */
 export const STEP_PATH: Record<OnboardStep, string> = {
   synopsis: '大纲/总纲.md',
-  characters: '定稿/设定/名册.md',
-  world: '定稿/设定/世界观.md',
-  realm: '定稿/设定/境界体系.md',
+  characters: '设定/名册.md',
+  world: '设定/世界观.md',
+  realm: '设定/境界体系.md',
   volume: '大纲/卷纲/卷纲_第1卷.md',
   'leads-seed': '大纲/账本种子.md',
   'style-sample': '文风/样章库.md',
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
-  'collection-pitch': '定稿/设定/集子定位.md',
-  'first-outline': '工作区/首篇细纲.md',
+  'collection-pitch': '设定/集子定位.md',
+  'first-outline': '写作/草稿/首篇细纲.md',
 }
 
 /** 各步描述（面向作者：这个步骤会生成什么内容）。 */

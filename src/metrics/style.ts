@@ -137,9 +137,9 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
   }
 }
 
-/** 长篇重扫：扫 定稿/正文/ 逐章算指纹 */
+/** 长篇重扫：扫 写作/正文/ 逐章算指纹 */
 export function scanLongChapters(bookRoot: string): ChapterSample[] {
-  const textDir = join(bookRoot, '定稿', '正文')
+  const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const { chapters } = readChapterDir(textDir)
   const samples: ChapterSample[] = []
@@ -151,9 +151,9 @@ export function scanLongChapters(bookRoot: string): ChapterSample[] {
   return samples.sort((a, b) => a.num - b.num)
 }
 
-/** 短篇重扫：扫 篇/*.md 逐篇算指纹（按篇号排序） */
+/** 短篇重扫：扫 写作/正文/*.md 逐篇算指纹（按篇号排序） */
 export function scanShortPieces(bookRoot: string): ChapterSample[] {
-  const piecesDir = join(bookRoot, '篇')
+  const piecesDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const samples: ChapterSample[] = []
   if (!existsSync(piecesDir)) return samples

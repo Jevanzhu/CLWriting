@@ -1,5 +1,5 @@
 /**
- * outline 端点(C.2a):组多源 prompt → generateText → 工作区/细纲.md。
+ * outline 端点(C.2a):组多源 prompt → generateText → 写作/草稿/细纲.md。
  *
  * POST /api/books/:name/outline  body {chapter}
  *   → 组 prompt(总纲 + 前章摘要)→ generateText → 落盘 → {ok, path, words}
@@ -57,8 +57,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     if (!result.ok) return reply(res, 500, { error: result.error })
 
     const content = result.text
-    const outlineDir = join(bookRoot, '工作区')
-    const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
+    const outlineDir = join(bookRoot, '写作', '草稿')
+    const relPath = `写作/草稿/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
     try {
       mkdirSync(outlineDir, { recursive: true })
       atomicWriteFile(join(outlineDir, `细纲.md`), content || '(空细纲)')
@@ -77,7 +77,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   if (kind === 'short') {
     const parts: string[] = [`## 任务\n为第 ${chapter} 篇生成篇纲(短篇,单篇 8000-20000 字完整开合)。`]
     if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
-    const { pieces } = readPieceDir(join(bookRoot, '篇'))
+    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
     const recent = pieces
       .filter((p) => p.篇号 < chapter)
       .sort((a, b) => b.篇号 - a.篇号)
@@ -101,7 +101,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   const parts: string[] = [`## 任务\n为第 ${chapter} 章生成细纲。`]
   if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
 
-  const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   const recent = chapters
     .filter((c) => c.章号 < chapter)
     .sort((a, b) => b.章号 - a.章号)

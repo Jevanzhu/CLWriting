@@ -49,10 +49,10 @@ export interface CharacterCard {
   正文: string
 }
 
-/** 校验角色卡文件路径(防穿越:必须在 定稿/设定/角色/ 下,不含 ..,以 .md 结尾) */
+/** 校验角色卡文件路径(防穿越:必须在 设定/角色/ 下,不含 ..,以 .md 结尾) */
 export function validateCharacterFile(file: string): boolean {
   const f = normalizeProjectPath(file)
-  return f.startsWith('定稿/设定/角色/') && !f.includes('..') && f.endsWith('.md')
+  return f.startsWith('设定/角色/') && !f.includes('..') && f.endsWith('.md')
 }
 
 function normalizeProjectPath(file: string): string {
@@ -79,7 +79,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const setDir = join(ctx.workDir, entry.path, '定稿', '设定')
+    const setDir = join(ctx.workDir, entry.path, '设定')
     reply(res, 200, {
       characters: readFmNames(join(setDir, '角色'), '姓名'),
       items: readFmNames(join(setDir, '物品'), '名称'),
@@ -88,7 +88,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
 }
 
 function settingsLong(bookRoot: string): unknown {
-  const setDir = join(bookRoot, '定稿', '设定')
+  const setDir = join(bookRoot, '设定')
 
   // 境界体系（强结构化）
   let realm: { 体系: RealmSystem[]; 正文?: string } | null = null
@@ -174,7 +174,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
 /** 组设定上下文(角色卡摘要 + 境界体系)供 outline/draft prompt 注入(RAG 第一刀:全注入,设定量可控) */
 export function buildSettingsContext(bookRoot: string): string {
   const parts: string[] = []
-  const chars = readCharacterCards(join(bookRoot, '定稿', '设定', '角色'), bookRoot)
+  const chars = readCharacterCards(join(bookRoot, '设定', '角色'), bookRoot)
   if (chars.length) {
     parts.push(
       '## 角色设定(供参考,保持人物一致)',
@@ -186,7 +186,7 @@ export function buildSettingsContext(bookRoot: string): string {
         .join('\n'),
     )
   }
-  const rr = readRealmDoc(join(bookRoot, '定稿', '设定', '境界体系.md'))
+  const rr = readRealmDoc(join(bookRoot, '设定', '境界体系.md'))
   if (rr.ok && rr.doc.体系.length) {
     parts.push(
       '## 境界体系(成长线机检依据)',

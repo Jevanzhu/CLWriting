@@ -19,17 +19,17 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-/** 造一章正文（定稿/正文/第一卷/0001-标题.md） */
+/** 造一章正文（写作/正文/第一卷/0001-标题.md） */
 function writeChapter(章号: number, title: string, body: string): void {
-  const dir = join(root, '定稿', '正文', '第一卷')
+  const dir = join(root, '写作', '正文', '第一卷')
   mkdirSync(dir, { recursive: true })
   const name = `${String(章号).padStart(4, '0')}-${title}.md`
   writeFileSync(join(dir, name), `---\n章号: ${章号}\n标题: ${title}\n---\n${body}\n`, 'utf-8')
 }
 
-/** 造一个设定伏笔（定稿/设定/伏笔/标题.md） */
+/** 造一个设定伏笔（设定/伏笔/标题.md） */
 function writeForeshadow(title: string, fm: Record<string, string> = {}, body = ''): void {
-  const dir = join(root, '定稿', '设定', '伏笔')
+  const dir = join(root, '设定', '伏笔')
   mkdirSync(dir, { recursive: true })
   const fmLines = Object.entries({ 标题: title, ...fm }).map(([k, v]) => `${k}: ${v}`).join('\n')
   writeFileSync(join(dir, `${title}.md`), `---\n${fmLines}\n---\n${body}\n`, 'utf-8')
@@ -54,7 +54,7 @@ describe('readForeshadows', () => {
     expect(list[0]!.状态).toBe('未回收')
     expect(list[0]!.重要性).toBe('高')
     expect(list[0]!.埋设章号).toBe(3)
-    expect(list[0]!.file).toBe('定稿/设定/伏笔/神秘玉佩.md')
+    expect(list[0]!.file).toBe('设定/伏笔/神秘玉佩.md')
   })
 
   test('缺字段 → 默认值', () => {
@@ -150,7 +150,7 @@ describe('scanForeshadowTrails', () => {
   test('不补零文件名（1-埋.md）也能扫到足迹（曾因 3-4 位限制漏扫）', () => {
     writeForeshadow('短名线索', { 重要性: '中', 关联词: '线索词', 埋设章号: '1' })
     // 直接写不补零文件名（writeChapter helper 会补 4 位零）
-    const dir = join(root, '定稿', '正文', '第一卷')
+    const dir = join(root, '写作', '正文', '第一卷')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, '1-埋.md'), '---\n章号: 1\n标题: 埋\n---\n线索词出现。\n', 'utf-8')
 
@@ -202,5 +202,28 @@ describe('migrateLegacyForeshadows', () => {
     migrateLegacyForeshadows(root)
     const r2 = migrateLegacyForeshadows(root)
     expect(r2.migrated).toBe(0)
+  })
+
+  // N3 回归：同名标题伏笔迁移时文件名带编号兜底，防互相覆盖丢数据
+  test('同名标题伏笔不覆盖（编号兜底文件名）', () => {
+    const oldDir = join(root, '大纲', '伏笔')
+    mkdirSync(oldDir, { recursive: true })
+    writeFileSync(
+      join(oldDir, '伏笔-031-密室.md'),
+      '---\n编号: 伏笔-031\n标题: 密室\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：锁\n',
+      'utf-8',
+    )
+    writeFileSync(
+      join(oldDir, '伏笔-052-密室.md'),
+      '---\n编号: 伏笔-052\n标题: 密室\n类型: 伏笔\n状态: 进行中\n开启章: 5\n---\n\n## 履历\n\n- 第005章 埋下：钥匙\n',
+      'utf-8',
+    )
+
+    const r = migrateLegacyForeshadows(root)
+    expect(r.migrated).toBe(2)
+    // 两条都迁出来了，没有互相覆盖
+    const list = readForeshadows(root)
+    expect(list).toHaveLength(2)
+    expect(list.map((e) => e.埋设章号).sort()).toEqual([1, 5])
   })
 })

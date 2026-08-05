@@ -1,7 +1,7 @@
 /**
  * 章节元数据读写 —— 依据 #7 章节元数据 spec。
  *
- * 格式：定稿/正文/<章号>-<标题>.md，含 front matter（章号/标题/钩子/情绪）+ 正文。
+ * 格式：写作/正文/<章号>-<标题>.md，含 front matter（章号/标题/钩子/情绪）+ 正文。
  * 字数不入 front matter（机检算的派生，#7 第 2 节）。
  */
 
@@ -102,7 +102,7 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
-/** 扫描目录读所有章节（容错，递归子目录——支持 定稿/正文/<卷>/ 结构） */
+/** 扫描目录读所有章节（容错，递归子目录——支持 写作/正文/<卷>/ 结构） */
 export function readChapterDir(
   dirPath: string,
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {

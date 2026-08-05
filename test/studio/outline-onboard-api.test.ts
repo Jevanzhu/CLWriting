@@ -68,7 +68,7 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
@@ -100,7 +100,7 @@ describe('POST /outline（大纲生成）', () => {
     expect(body.words).toBeGreaterThan(0)
     // 落盘验证
     const bookRoot = join(workDir, BOOK)
-    expect(existsSync(join(bookRoot, '工作区', '细纲.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '写作', '草稿', '细纲.md'))).toBe(true)
   })
 
   it('非 mock 环境 + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {

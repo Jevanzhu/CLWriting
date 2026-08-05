@@ -21,7 +21,7 @@ const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undef
 const isReviewable = computed(() => {
   if (!node.value) return false
   if (formKindOf(node.value.path) !== null) return true
-  return /^工作区\/草稿-\d+\.md$/.test(node.value.path)
+  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)
 

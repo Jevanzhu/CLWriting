@@ -107,7 +107,7 @@ export async function buildIndex(
     return { ok: false, chunkCount: 0, chapterCount: 0, error: 'RAG 未完整配置（缺 endpoint/model）' }
   }
 
-  const bodyDir = join(bookRoot, '定稿', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
   }
@@ -251,7 +251,7 @@ export async function recall(
     const chunks = readAllChunks(db)
     if (chunks.length === 0) return []
 
-    const bodyDir = join(bookRoot, '定稿', '正文')
+    const bodyDir = join(bookRoot, '写作', '正文')
     const { chapters } = readChapterDir(bodyDir)
     const chapterNumbers = new Set(chunks.map((c) => c.章号))
     const fingerprintIssue = validateIndexedChapterFingerprints(

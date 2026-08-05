@@ -1,12 +1,12 @@
 /**
- * draft 落盘端点(C.1 + 短篇轮1):driver writer 产出 → 工作区/草稿-<N>.md。
+ * draft 落盘端点(C.1 + 短篇轮1):driver writer 产出 → 写作/草稿/草稿-<N>.md。
  *
  * POST /api/books/:name/draft-save  body {chapter, content}
- *   → 长篇 工作区/草稿-<chapter>.md;短篇 工作区/草稿-1.md(候选序号)→ {ok, path, words}
+ *   → 长篇 写作/草稿/草稿-<chapter>.md;短篇 写作/草稿/草稿-1.md(候选序号)→ {ok, path, words}
  * GET  /api/books/:name/draft-prompt?chapter=N
  *   → 组 prompt(长篇:细纲+备料+章 front matter;短篇:细纲+篇 front matter)→ {prompt}
  *
- * 工作区是 driver 落盘区(非手编);前端收集 driver text 流(done 后)调此落盘。
+ * 草稿区是 driver 落盘区(非手编);前端收集 driver text 流(done 后)调此落盘。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename } from 'node:path'
@@ -80,10 +80,10 @@ export function saveDraft(
   opts?: { recordAi?: boolean; snapshotOrigin?: string },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const kind = readKind(bookRoot)
-  const draftDir = join(bookRoot, '工作区')
+  const draftDir = join(bookRoot, '写作', '草稿')
   // 长篇 草稿-<章号>.md(review --chapter=N 推导);短篇 草稿-1.md(候选序号)
   const draftFile = kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
-  const relPath = `工作区/${draftFile}`
+  const relPath = `写作/草稿/${draftFile}`
   // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
   const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
   mkdirSync(draftDir, { recursive: true })
@@ -155,8 +155,8 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
 
 /** 组 draft prompt:细纲 + 备料 + 要求(方案 6.6,长短篇 front matter 分支)*/
 export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
-  const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
-  const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
+  const outline = readSafe(join(bookRoot, '写作', '草稿', '细纲.md'))
+  const materials = readSafe(join(bookRoot, '写作', '草稿', '本章写作材料.md'))
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 篇正文(短篇,8000-20000 字,单篇完整开合:铺垫→反转→收尾,目标情绪落地)。`,

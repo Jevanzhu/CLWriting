@@ -27,7 +27,7 @@ const showResolved = ref(false)
 const currentChapNo = computed<number | null>(() => {
   if (!ws.activeDocId) return null
   const entry = doc.get(ws.activeDocId)
-  if (!entry || !entry.path.startsWith('定稿/正文/')) return null
+  if (!entry || !entry.path.startsWith('写作/正文/')) return null
   return parseChapterFileName(entry.path)?.章号 ?? null
 })
 
@@ -80,7 +80,7 @@ async function create(): Promise<void> {
   let i = 2
   while (existing.has(name)) name = `新伏笔${i++}`
   try {
-    const r = await createDoc(props.bookName, { relPath: `定稿/设定/伏笔/${name}.md` })
+    const r = await createDoc(props.bookName, { relPath: `设定/伏笔/${name}.md` })
     await tree.load(props.bookName)
     await load()
     const fresh = tree.byPath.get(r.path)

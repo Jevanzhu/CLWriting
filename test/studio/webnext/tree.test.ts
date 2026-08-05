@@ -1,8 +1,9 @@
 /**
- * tree store 测试（T4.4 第二批）：groupTree 虚拟分组（移植旧 FileTree，平价基准）
+ * tree store 测试（T4.4 第二批）：groupTree 分组（v2 直透）
  * + byPath/byDocId 索引 + load 错误态。
  *
- * groupTree 规则：写作(虚拟:正文卷章+草稿) / 大纲(总纲置顶) / 设定提升；文风撤出（幕后资产）。
+ * groupTree 规则（v2）：后端已返回最终目录树（写作/大纲/设定/布线），
+ * 前端仅过滤根级散文件 + 设定/名册.md（幕后资产）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -31,25 +32,27 @@ function dir(path: string, children: TreeNode[]): TreeNode {
   return { path, name: path.split('/').pop()!, isDirectory: true, children } as TreeNode
 }
 
-/** 模拟一套完整书库 raw nodes（覆盖分组各区域）。 */
+/** 模拟一套完整书库 raw nodes（v2 目录树，后端 buildTree 返回结构）。 */
 function sampleRaw(): TreeNode[] {
   return [
-    dir('定稿', [
-      dir('定稿/正文', [
-        dir('定稿/正文/第一卷', [
-          leaf('定稿/正文/第一卷/第1章-x.md', 'doc1'),
-          leaf('定稿/正文/第一卷/第2章-x.md', 'doc2'),
+    dir('写作', [
+      dir('写作/正文', [
+        dir('写作/正文/第一卷', [
+          leaf('写作/正文/第一卷/第1章-x.md', 'doc1'),
+          leaf('写作/正文/第一卷/第2章-x.md', 'doc2'),
         ]),
       ]),
-      dir('定稿/设定', [leaf('定稿/设定/人物.md', 'doc3')]),
-      dir('定稿/摘要', [leaf('定稿/摘要/摘要.md', 'doc4')]),
+      dir('写作/草稿', [leaf('写作/草稿/草稿-1.md', 'doc7', 'draft')]),
     ]),
     dir('大纲', [leaf('大纲/总纲.md', 'doc5'), leaf('大纲/分卷纲.md', 'doc6')]),
-    dir('工作区', [
-      leaf('工作区/草稿-1.md', 'doc7', 'draft'),
-      leaf('工作区/notes.md', 'doc8'),
+    dir('设定', [leaf('设定/人物.md', 'doc3'), leaf('设定/名册.md', 'doc-mingce')]),
+    dir('布线', [
+      dir('布线/悬念', [leaf('布线/悬念/悬念-001-x.md', 'doc10')]),
     ]),
-    dir('文风', [leaf('文风/风格.md', 'doc9')]),
+    // 根级散文件（后端未过滤，前端应过滤）
+    leaf('book.yaml', ''),
+    leaf('AGENTS.md', ''),
+    leaf('.gitignore', ''),
   ]
 }
 
@@ -66,7 +69,7 @@ describe('tree · load', () => {
     expect(tree.loading).toBe(false)
     expect(tree.error).toBeNull()
     expect(tree.revision).toBe('r1')
-    expect(tree.raw).toHaveLength(4)
+    expect(tree.raw).toHaveLength(7)
   })
 
   it('getTree 失败 → error 记录', async () => {
@@ -78,7 +81,7 @@ describe('tree · load', () => {
   })
 })
 
-describe('tree · groupTree 虚拟分组（平价基准）', () => {
+describe('tree · groupTree 分组（v2 直透）', () => {
   async function setup() {
     getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
@@ -86,82 +89,60 @@ describe('tree · groupTree 虚拟分组（平价基准）', () => {
     return tree
   }
 
-  it('写作（虚拟）：正文卷子树 + 工作区草稿', async () => {
+  it('写作：真实根目录直透（卷/章 + 草稿）+ 名册过滤', async () => {
     const tree = await setup()
     const write = tree.grouped.find((g) => g.path === '写作')!
     expect(write).toBeTruthy()
-    expect(write.children.some((c) => c.path === '定稿/正文/第一卷')).toBe(true)
-    // 草稿 doc7 抽到写作区
-    expect(write.children.some((c) => c.docId === 'doc7')).toBe(true)
+    expect(write.children.some((c) => c.path === '写作/正文')).toBe(true)
+    expect(write.children.some((c) => c.path === '写作/草稿')).toBe(true)
   })
 
-  it('大纲：纲领类(总纲/卷纲/章纲)；线索已拆到布线组', async () => {
+  it('大纲：真实根目录直透（含总纲）', async () => {
     const tree = await setup()
     const dagang = tree.grouped.find((g) => g.path === '大纲')!
-    expect(dagang.children[0].name).toBe('总纲')
-    expect(dagang.children[1]?.name).toBe('分卷纲')
+    expect(dagang).toBeTruthy()
+    expect(dagang.children.some((c) => c.path === '大纲/总纲.md')).toBe(true)
+    expect(dagang.children.some((c) => c.path === '大纲/分卷纲.md')).toBe(true)
   })
 
-  it('布线（虚拟大类）：线索类从大纲拆出单独成组', async () => {
-    getTree.mockResolvedValue({
-      ok: true,
-      nodes: [
-        dir('大纲', [
-          leaf('大纲/总纲.md', 'd1'),
-          dir('大纲/卷纲', [leaf('大纲/卷纲/第一卷.md', 'd4')]),
-          dir('大纲/悬念', [leaf('大纲/悬念/悬念-001-x.md', 'd2')]),
-          dir('大纲/布局线', [leaf('大纲/布局线/布局线-001-x.md', 'd3')]),
-        ]),
-      ],
-      revision: 'r1',
-      validatedAt: '',
-    })
-    const tree = useTreeStore()
-    await tree.load(BOOK)
+  it('布线：真实根目录直透（不再从大纲抽线索）', async () => {
+    const tree = await setup()
     const bx = tree.grouped.find((g) => g.path === '布线')!
     expect(bx).toBeTruthy()
-    expect(bx.children.map((c) => c.name)).toEqual(['悬念', '布局线'])
-    // 线索已从大纲组移除，大纲只剩纲领类
-    const dg = tree.grouped.find((g) => g.path === '大纲')!
-    expect(dg.children.map((c) => c.name)).toEqual(['总纲', '卷纲'])
+    expect(bx.children.some((c) => c.path === '布线/悬念')).toBe(true)
   })
 
-  it('设定提升到根级', async () => {
+  it('设定提升根级 + 名册.md 撤出（幕后资产）', async () => {
     const tree = await setup()
-    expect(tree.grouped.some((g) => g.path === '定稿/设定')).toBe(true)
+    const shezhi = tree.grouped.find((g) => g.path === '设定')!
+    expect(shezhi).toBeTruthy()
+    expect(shezhi.children.some((c) => c.path === '设定/人物.md')).toBe(true)
+    expect(JSON.stringify(tree.grouped)).not.toContain('设定/名册.md')
   })
 
-  it('文风撤出树（幕后资产，不进编辑树）', async () => {
+  it('根级散文件（book.yaml/AGENTS.md/.gitignore）过滤', async () => {
     const tree = await setup()
-    expect(tree.grouped.some((g) => g.path === '文风')).toBe(false)
-  })
-
-  it('工作区非草稿文件不进树', async () => {
-    const tree = await setup()
-    expect(JSON.stringify(tree.grouped)).not.toContain('doc8')
-  })
-
-  it('定稿原始根不再独立出现（被拆解到各组）', async () => {
-    const tree = await setup()
-    expect(tree.grouped.some((g) => g.path === '定稿')).toBe(false)
+    expect(tree.grouped.some((g) => g.path === 'book.yaml')).toBe(false)
+    expect(tree.grouped.some((g) => g.path === 'AGENTS.md')).toBe(false)
+    expect(tree.grouped.some((g) => g.path === '.gitignore')).toBe(false)
   })
 })
 
 describe('tree · 索引', () => {
-  it('byPath 含虚拟组 + 真实节点', async () => {
+  it('byPath 含真实目录 + 叶子', async () => {
     getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.byPath.has('写作')).toBe(true)
-    expect(tree.byPath.has('定稿/正文/第一卷/第1章-x.md')).toBe(true)
+    expect(tree.byPath.has('写作/正文/第一卷/第1章-x.md')).toBe(true)
   })
 
-  it('byDocId 索引叶子（含被抽到写作的草稿）', async () => {
+  it('byDocId 索引叶子', async () => {
     getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
-    expect(tree.byDocId.get('doc1')?.path).toBe('定稿/正文/第一卷/第1章-x.md')
-    expect(tree.byDocId.get('doc7')?.path).toBe('工作区/草稿-1.md')
+    expect(tree.byDocId.get('doc1')?.path).toBe('写作/正文/第一卷/第1章-x.md')
+    expect(tree.byDocId.get('doc7')?.path).toBe('写作/草稿/草稿-1.md')
   })
 })
 
@@ -171,17 +152,17 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
   }
   function rawWords(): TreeNode[] {
     return [
-      dir('定稿', [
-        dir('定稿/正文', [
-          dir('定稿/正文/第一卷', [
-            wleaf('定稿/正文/第一卷/第1章-x.md', 'chapter', 1000),
-            wleaf('定稿/正文/第一卷/第2章-x.md', 'chapter', 2000),
+      dir('写作', [
+        dir('写作/正文', [
+          dir('写作/正文/第一卷', [
+            wleaf('写作/正文/第一卷/第1章-x.md', 'chapter', 1000),
+            wleaf('写作/正文/第一卷/第2章-x.md', 'chapter', 2000),
           ]),
         ]),
-        // 设定非正文，不算字数
-        dir('定稿/设定', [wleaf('定稿/设定/人物.md', 'setting', 500)]),
+        dir('写作/草稿', [wleaf('写作/草稿/草稿-1.md', 'draft', 300)]),
       ]),
-      dir('工作区', [wleaf('工作区/草稿-1.md', 'draft', 300)]),
+      // 设定非正文，不算字数
+      dir('设定', [wleaf('设定/人物.md', 'setting', 500)]),
     ]
   }
 
@@ -206,7 +187,7 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.totalWords).toBe(3300)
-    tree.updateWordCount('定稿/正文/第一卷/第1章-x.md', 1500) // 1000 → 1500
+    tree.updateWordCount('写作/正文/第一卷/第1章-x.md', 1500) // 1000 → 1500
     expect(tree.totalWords).toBe(3800)
   })
 })

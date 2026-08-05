@@ -16,7 +16,7 @@ function stripMd(fileName: string): string {
   return last.endsWith('.md') ? last.slice(0, -3) : last
 }
 
-/** 从文件名提取章号（定稿/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。 */
+/** 从文件名提取章号（写作/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。 */
 export function parseChapterFileName(
   fileName: string,
 ): { 章号: number; 标题: string } | null {

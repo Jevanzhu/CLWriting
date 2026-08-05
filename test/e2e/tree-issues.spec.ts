@@ -11,12 +11,12 @@ import { test, expect } from '@playwright/test'
 test('树红点：verdict 驳回 → 冒泡亮；通过 → 灭', async ({ page }) => {
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
-  // 选 0002「玉佩之秘」并打开
-  await page.getByText('玉佩之秘').first().click()
+  // 选 0002「玉佩之秘」并打开（限定树行，避免误点 tab 标题等全局文本）
+  const row0002 = page.locator('.tree-item', { hasText: '玉佩之秘' }).first()
+  await row0002.click()
   await expect(page.locator('.cm-content')).toBeVisible()
 
   // 定位 0002 树行 + 写作组行（冒泡目标）
-  const row0002 = page.locator('.tree-item', { hasText: '玉佩之秘' }).first()
   const writeGroup = page.locator('.tree-item', { hasText: '写作' }).first()
   // 初始：0002 机检 clean、无 verdict → 行尾无红点
   await expect(row0002.locator('.issue-dot')).toHaveCount(0)

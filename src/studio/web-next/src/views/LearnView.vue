@@ -24,7 +24,7 @@ function tierOf(score: number): 'a' | 'b' | 'c' {
 
 // 定稿正文章节数（引导提示用）
 const chapterCount = computed(
-  () => [...tree.byDocId.values()].filter((n) => n.path.startsWith('定稿/正文/')).length,
+  () => [...tree.byDocId.values()].filter((n) => n.path.startsWith('写作/正文/')).length,
 )
 
 // ── 筛选 ──

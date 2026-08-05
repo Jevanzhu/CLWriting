@@ -3,7 +3,7 @@
  *
  * GET /api/books/:name/foreshadows → 伏笔列表（结构化 fm + 足迹 + 风险）
  *
- * 数据源：定稿/设定/伏笔/*.md，front matter（标题/状态/埋设章号/回收章号/重要性/关联词）。
+ * 数据源：设定/伏笔/*.md，front matter（标题/状态/埋设章号/回收章号/重要性/关联词）。
  * 足迹扫描由 document/foreshadow.ts 完成（本地正文 grep，零 AI）。
  * CRUD 复用 documents 端点（伏笔就是 md 文件）。
  */

@@ -30,7 +30,7 @@ const aiOff = computed(() => ui.aiAvailable === false)
 const isReviewable = computed(() => {
   if (!entry.value) return false
   if (formKindOf(entry.value.path) !== null) return true
-  return /^工作区\/草稿-\d+\.md$/.test(entry.value.path)
+  return /^写作\/草稿\/草稿-\d+\.md$/.test(entry.value.path)
 })
 
 // 面包屑：文档路径到父目录（末级=文件名=标题，不重复）
@@ -98,7 +98,7 @@ const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
-  if (!node.path.startsWith('定稿/')) return false // 仅定稿区（草稿/设定/大纲不参与）
+  if (!node.path.startsWith('写作/正文/')) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
   return node.status === 'revision'
 })
 const finalizing = ref(false)
@@ -265,12 +265,12 @@ async function onTitleCommit(): Promise<void> {
   titleSaving.value = true
   try {
     // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
-    const pieceNum = e.path.startsWith('篇/')
+    const pieceNum = e.role === 'piece-body'
       ? Number(parseFmFields(e.content).篇号 ?? 1)
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,
-      ...(e.path.startsWith('篇/') && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
+      ...(e.role === 'piece-body' && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
     })
     await tree.load(doc.bookName!)
     const fresh = tree.byDocId.get(ws.activeDocId)

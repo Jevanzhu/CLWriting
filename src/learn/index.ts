@@ -94,7 +94,7 @@ function scoreByChecks(body: string, rules: IronRules): number {
  */
 export function learnFromBook(bookRoot: string): LearnResult {
   // 1. 扫描定稿正文
-  const bodyDir = join(bookRoot, '定稿', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
     return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: '没有定稿正文可收割。' }
   }

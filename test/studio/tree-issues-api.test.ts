@@ -64,7 +64,7 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   // leads.enabled: [] 关闭账本/成长线长程项，隔离出禁词 red 这一确定红源
   writeFileSync(
@@ -78,13 +78,13 @@ beforeAll(async () => {
   writeFileSync(join(bookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf8')
   // 0001：正文含禁词「玉佩」→ checkBannedWords 报 banned-word（红）
   writeFileSync(
-    join(bookRoot, '定稿', '正文', '0001-红章.md'),
+    join(bookRoot, '写作', '正文', '0001-红章.md'),
     '---\n章号: 1\n标题: 红章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，玉佩发光。\n',
     'utf8',
   )
   // 0002：fm 干净（章号 2 == 文件名 0002），无机检 red
   writeFileSync(
-    join(bookRoot, '定稿', '正文', '0002-净章.md'),
+    join(bookRoot, '写作', '正文', '0002-净章.md'),
     '---\n章号: 2\n标题: 净章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n宗门震动，长老惊叹。\n',
     'utf8',
   )
@@ -92,8 +92,8 @@ beforeAll(async () => {
   const m = readManifest(manifestPath)
   redDocId = generateDocId()
   verdictDocId = generateDocId()
-  upsertEntry(m, { id: redDocId, nodeType: 'document', path: '定稿/正文/0001-红章.md', parentId: null })
-  upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '定稿/正文/0002-净章.md', parentId: null })
+  upsertEntry(m, { id: redDocId, nodeType: 'document', path: '写作/正文/0001-红章.md', parentId: null })
+  upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '写作/正文/0002-净章.md', parentId: null })
   writeManifest(manifestPath, m)
 
   // tree-issues 后端跳过定稿态（final/published）；git init + add（不 commit）让文件
@@ -181,8 +181,8 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
       { flag: 'a' },
     )
     futureBookRoot = join(workDir, FUTURE_BOOK)
-    mkdirSync(join(futureBookRoot, '定稿', '正文'), { recursive: true })
-    mkdirSync(join(futureBookRoot, '大纲', '悬念'), { recursive: true })
+    mkdirSync(join(futureBookRoot, '写作', '正文'), { recursive: true })
+    mkdirSync(join(futureBookRoot, '布线', '悬念'), { recursive: true })
     mkdirSync(join(futureBookRoot, '项目'), { recursive: true })
     writeFileSync(
       join(futureBookRoot, 'book.yaml'),
@@ -191,23 +191,23 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
     )
     // 三章定稿，证据词命中各自正文
     writeFileSync(
-      join(futureBookRoot, '定稿', '正文', '0001-开篇.md'),
+      join(futureBookRoot, '写作', '正文', '0001-开篇.md'),
       '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
       'utf8',
     )
     writeFileSync(
-      join(futureBookRoot, '定稿', '正文', '0002-灵脉.md'),
+      join(futureBookRoot, '写作', '正文', '0002-灵脉.md'),
       '---\n章号: 2\n标题: 灵脉\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n灵脉井古灵纹共鸣。\n',
       'utf8',
     )
     writeFileSync(
-      join(futureBookRoot, '定稿', '正文', '0003-旧约.md'),
+      join(futureBookRoot, '写作', '正文', '0003-旧约.md'),
       '---\n章号: 3\n标题: 旧约\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n旧籍封印松动迹象。\n',
       'utf8',
     )
-    // 悬念伏笔：规划 1→2→3 章，证据均命中正文
+    // 悬念伏笔：规划 1→2→3 章，证据均命中正文（v2 布线/悬念/）
     writeFileSync(
-      join(futureBookRoot, '大纲', '悬念', '悬念-001-灵脉之谜.md'),
+      join(futureBookRoot, '布线', '悬念', '悬念-001-灵脉之谜.md'),
       `---
 编号: 悬念-001
 标题: 灵脉之谜
@@ -227,9 +227,9 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
     const manifestPath = join(futureBookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     futureCh1DocId = generateDocId()
-    upsertEntry(m, { id: futureCh1DocId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null })
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '定稿/正文/0002-灵脉.md', parentId: null })
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '定稿/正文/0003-旧约.md', parentId: null })
+    upsertEntry(m, { id: futureCh1DocId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
+    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0002-灵脉.md', parentId: null })
+    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0003-旧约.md', parentId: null })
     writeManifest(manifestPath, m)
   })
 

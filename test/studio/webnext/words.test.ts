@@ -3,7 +3,7 @@
  * 编辑区剥离 fm 的核心保证：stripFrontmatter / mergeFm 往返一致（fm 不丢不重，body 不被改写）。
  */
 import { describe, it, expect } from 'vitest'
-import { stripFrontmatter, mergeFm, formKindOf } from '../../../src/studio/web-next/src/shared/words'
+import { stripFrontmatter, mergeFm, formKindOf, isBodyKind } from '../../../src/studio/web-next/src/shared/words'
 
 describe('mergeFm（stripFrontmatter 的逆）', () => {
   it('有 fm：保留 fm 头，拼接新 body', () => {
@@ -38,19 +38,43 @@ describe('mergeFm（stripFrontmatter 的逆）', () => {
 })
 
 describe('formKindOf（含 chapter）', () => {
-  it('定稿/正文 → chapter（fm 走右栏表单 + 顶部标题可编辑）', () => {
-    expect(formKindOf('定稿/正文/第一卷/0001-开篇.md')).toBe('chapter')
+  it('写作/正文 → chapter（fm 走右栏表单 + 顶部标题可编辑）', () => {
+    expect(formKindOf('写作/正文/第一卷/0001-开篇.md')).toBe('chapter')
   })
   it('大纲/章纲 → chapter-outline', () => {
     expect(formKindOf('大纲/章纲/0001-开篇.md')).toBe('chapter-outline')
   })
-  it('定稿/设定/角色 → character', () => {
-    expect(formKindOf('定稿/设定/角色/林远.md')).toBe('character')
+  it('设定/角色 → character', () => {
+    expect(formKindOf('设定/角色/林远.md')).toBe('character')
+  })
+  it('设定/世界观 → worldview', () => {
+    expect(formKindOf('设定/世界观.md')).toBe('worldview')
+  })
+  it('设定/物品 → item', () => {
+    expect(formKindOf('设定/物品/玉佩.md')).toBe('item')
+  })
+  it('设定/伏笔 → foreshadow', () => {
+    expect(formKindOf('设定/伏笔/玉佩埋设.md')).toBe('foreshadow')
+  })
+  it('短篇正文（写作/正文/001-x.md）path 视为 chapter；piece-body 由 role 判定', () => {
+    // 短篇正文与长篇路径相同（写作/正文/），formKindOf 无法区分 → 返回 chapter
+    expect(formKindOf('写作/正文/001-开篇.md')).toBe('chapter')
   })
   it('大纲/关系线（派生数据，移出编辑树）→ null（不进表单）', () => {
     expect(formKindOf('大纲/关系线/关系线-001-师徒债.md')).toBeNull()
   })
   it('非表单文档 → null', () => {
     expect(formKindOf('笔记/随便.md')).toBeNull()
+  })
+})
+
+describe('isBodyKind（v2 正文判定）', () => {
+  it('写作/正文/ 前缀为正文（含短篇）', () => {
+    expect(isBodyKind('写作/正文/第一卷/0001-开篇.md')).toBe(true)
+    expect(isBodyKind('写作/正文/001-开篇.md')).toBe(true)
+  })
+  it('非正文 → false', () => {
+    expect(isBodyKind('大纲/章纲/x.md')).toBe(false)
+    expect(isBodyKind('设定/角色/x.md')).toBe(false)
   })
 })

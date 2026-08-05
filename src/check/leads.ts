@@ -40,7 +40,7 @@ export function checkLeadsForm(
     `SELECT id, type, title, status FROM leads WHERE type IN (${placeholders})`,
   ).all(...enabledTypes) as Record<string, unknown>[]
 
-  const 正文dir = join(bookRoot, '定稿', '正文')
+  const 正文dir = join(bookRoot, '写作', '正文')
 
   for (const lead of leads) {
     const id = lead['id'] as string
@@ -141,8 +141,8 @@ export function checkLeadsForm(
   return { name: '账本形式三检', items }
 }
 
-/** 找某章的正文文件（定稿/正文/<章号>-*.md，章号补零与否均匹配）。
- *  递归扫描含卷子目录（定稿/正文/第一卷/...）—— scaffold 默认即卷布局，
+/** 找某章的正文文件（写作/正文/<章号>-*.md，章号补零与否均匹配）。
+ *  递归扫描含卷子目录（写作/正文/第一卷/...）—— scaffold 默认即卷布局，
  *  非递归会让引文命中检查在默认布局下整体跳过（防吃书核心环节失效）。 */
 function findChapterFile(正文dir: string, chapter: number): string | null {
   return findChapterFileRecursive(正文dir, chapter)

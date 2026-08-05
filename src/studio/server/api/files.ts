@@ -21,11 +21,11 @@ interface FileCtx {
 
 /** 可编辑目录（相对 bookRoot）+ 编辑模式（正文纯文本 / 设定 MD） */
 const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
-  { dir: '定稿/正文', mode: 'text' },
-  { dir: '定稿/设定', mode: 'md' },
+  { dir: '写作/正文', mode: 'text' },
+  { dir: '设定', mode: 'md' },
   { dir: '大纲', mode: 'md' },
-  { dir: '工作区', mode: 'md' }, // 2.5:草稿/细纲/审稿可见可改(改写针对草稿)
-  { dir: '篇', mode: 'md' }, // 短篇集正文（篇/N-标题.md 纯文本）；清单分离到 清单/（系统文档，不进可编辑列表）
+  { dir: '写作/草稿', mode: 'md' }, // 草稿/细纲可见可改(改写针对草稿)
+  { dir: '布线', mode: 'md' }, // 线索账本（设定伏笔在 设定/ 下）
   { dir: '文风', mode: 'md' }, // 文风铁律/样章库/金句库（撤出编辑树；SettingsModal「文风铁律」复用 /file 读写）
 ]
 

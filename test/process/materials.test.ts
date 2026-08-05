@@ -51,13 +51,13 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
   })
 
   // 写 1 章定稿正文（供 RAG 建索引 + 召回后精准读取切片）
-  mkdirSync(join(root, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const meta: ChapterMeta = {
     章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
     情绪定位: '铺垫', _path: '', _wordCount: 100,
   }
   writeChapter(
-    join(root, '定稿', '正文', '1-前章.md'),
+    join(root, '写作', '正文', '1-前章.md'),
     meta,
     '主角挥剑斩向暗影，剑光如匹练，映出密室深处的古卷。这是战斗场景的详细描写。',
   )
@@ -112,8 +112,8 @@ test('prepareMaterials: 透传 sampleScene 给文风样章', async () => {
 test('G1: 未传 sampleScene → 从细纲 front matter 解析场景', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    // 细纲在 工作区/细纲.md，front matter 声明本章场景为「对话」（OQ1）
-    const wd = join(root, '工作区')
+    // 细纲在 写作/草稿/细纲.md，front matter 声明本章场景为「对话」（OQ1）
+    const wd = join(root, '写作', '草稿')
     mkdirSync(wd, { recursive: true })
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 对话\n---\n本章主角与对手长谈。', 'utf-8')
 
@@ -136,7 +136,7 @@ test('G1: 细纲无场景声明 → 回落默认「战斗」（不误注入对�
   try {
     // 细纲无 front matter 场景字段 → readOutlineScene 返回 undefined → prepare 回落「战斗」
     // makeBook 只有「对话」样章、无「战斗」样章 → 文风样章段缺席（逐字节不变红线）
-    const wd = join(root, '工作区')
+    const wd = join(root, '写作', '草稿')
     mkdirSync(wd, { recursive: true })
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n本章无场景声明。', 'utf-8')
 
@@ -155,7 +155,7 @@ test('G3: 细纲声明场景但无样章 → styleNote 留痕（提示去 learn 
   const { root, workDir, db } = makeBook()
   try {
     // makeBook 只有「对话」样章；细纲声明「抒情」→ 查无样章 → 留痕
-    const wd = join(root, '工作区')
+    const wd = join(root, '写作', '草稿')
     mkdirSync(wd, { recursive: true })
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 抒情\n---\n本章抒情。', 'utf-8')
 
@@ -175,7 +175,7 @@ test('G3: 细纲声明场景但无样章 → styleNote 留痕（提示去 learn 
 test('G3: 细纲声明场景且有样章 → 无 styleNote 留痕', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    const wd = join(root, '工作区')
+    const wd = join(root, '写作', '草稿')
     mkdirSync(wd, { recursive: true })
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n场景: 对话\n---\n本章对话。', 'utf-8')
 
@@ -193,7 +193,7 @@ test('G3: 细纲声明场景且有样章 → 无 styleNote 留痕', async () => 
 test('G3: 无场景声明（冷启动）→ 无 styleNote（逐字节红线）', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    const wd = join(root, '工作区')
+    const wd = join(root, '写作', '草稿')
     mkdirSync(wd, { recursive: true })
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n无场景声明。', 'utf-8')
 

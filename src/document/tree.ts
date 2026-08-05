@@ -16,6 +16,7 @@ import { collectDirtyFiles, deriveStatusFull, type DocumentStatus } from './stat
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
+import { readBookConfig } from '../format/yaml.js'
 
 /** 树节点（扫描派生）。 */
 export interface TreeNode {
@@ -46,8 +47,9 @@ export interface BookTreeIndex {
   validatedAt: string
 }
 
-/** 全局跳过目录（任何层级都不扫：运行时 / 版本库 / 依赖 / 系统垃圾）。 */
-const SKIP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '.DS_Store'])
+/** 全局跳过目录（任何层级都不扫：运行时 / 版本库 / 依赖 / 系统垃圾 / 幕后资产）。
+ *  v2：工作区（运行时资产）、文风（幕后）、定稿（仅剩摘要/脚本产物）、项目（元数据）不进树。 */
+const SKIP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '.DS_Store', '工作区', '文风', '定稿', '项目'])
 /** 工作区/ 下跳过的内部资产（W0 §9 注）——目录与文件名混合，按名匹配。 */
 const SKIP_WORKDIR_ENTRIES = new Set([
   '.trash', '.journal', '.snapshots', '待定稿', '.confirm.json', '.ai-calls.json',
@@ -105,6 +107,12 @@ function stripMd(name: string): string {
  * - 叶子 status：deriveStatusFull（git 判脏 + frontmatter 已发布）。
  * - 卷目录 volumeOutlinePath：定稿/正文/<卷>/ ↔ 大纲/卷纲/<卷>.md 同名 stem 关联（§6.2）。
  */
+/** 读 book.yaml kind（缺省 long；读取失败容错 long）。 */
+function readBookKind(bookRoot: string): 'long' | 'short' {
+  const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
+  return cfg.ok ? (cfg.config.kind ?? 'long') : 'long'
+}
+
 export function buildTree(bookRoot: string): TreeNode[] {
   const nodes = scanBookTree(bookRoot)
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -114,7 +122,8 @@ export function buildTree(bookRoot: string): TreeNode[] {
   }
   const dirty = collectDirtyFiles(bookRoot)
   const volumeStems = collectVolumeOutlineStems(bookRoot)
-  annotate(nodes, bookRoot, entryByPath, dirty, volumeStems)
+  const kind = readBookKind(bookRoot)
+  annotate(nodes, bookRoot, entryByPath, dirty, volumeStems, kind)
   return nodes
 }
 
@@ -138,9 +147,14 @@ function annotate(
   entryByPath: Map<string, ManifestEntry>,
   dirty: Set<string>,
   volumeStems: Set<string>,
+  kind: 'long' | 'short',
 ): void {
   for (const n of nodes) {
     if (!n.isDirectory) {
+      // 短篇书：写作/正文/ 下的正文标 piece-body（篇=章，路径统一，role 按 kind 区分）
+      if (kind === 'short' && n.role === 'chapter') {
+        n.role = 'piece-body'
+      }
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
       n.status = deriveStatusFull(bookRoot, n.path, dirty)
@@ -154,7 +168,7 @@ function annotate(
       }
     }
     if (n.children.length > 0) {
-      annotate(n.children, bookRoot, entryByPath, dirty, volumeStems)
+      annotate(n.children, bookRoot, entryByPath, dirty, volumeStems, kind)
     }
   }
 }
@@ -175,9 +189,9 @@ function countWordsOf(bookRoot: string, rel: string): number {
   }
 }
 
-/** 定稿/正文/<卷> → <卷>（卷目录名，直接子级）；正文根或更深层（卷里的章）→ null。 */
+/** 写作/正文/<卷> → <卷>（卷目录名，直接子级）；正文根或更深层（卷里的章）→ null。 */
 function matchVolumeName(path: string): string | null {
-  const prefix = '定稿/正文/'
+  const prefix = '写作/正文/'
   if (!path.startsWith(prefix)) return null
   const rest = path.slice(prefix.length)
   if (rest === '' || rest.includes('/')) return null

@@ -5,7 +5,7 @@
  * - POST /api/books/:name/learn-commit    body {samples, quotes} → commitSamples + commitQuotes 入库
  *
  * learn 候选制（品味归人）：产候选 → 作者勾选 → 入库，不自动入库。
- * learn 仅长篇（learnFromBook 扫 定稿/正文/；短篇无此结构，返错）。
+ * learn 仅长篇（learnFromBook 扫 写作/正文/；短篇无此结构，返错）。
  * 均直接调内核函数（不 spawn CLI，非交互）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'

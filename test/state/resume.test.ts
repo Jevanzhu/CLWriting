@@ -40,7 +40,7 @@ test('态4: 草稿+确认无 commit → pre-commit 续写', () => {
 
 test('addCommit: 原子 add+commit，返回 hash', () => {
   const root = makeGitBook()
-  writeFileSync(join(root, '大纲', '悬念', '悬念-002.md'),
+  writeFileSync(join(root, '布线', '悬念', '悬念-002.md'),
     '---\n编号: 悬念-002\n标题: 测试\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：证据\n', 'utf-8')
   const r = addCommit(root, 'fix:0001 测试提交')
   expect(r.ok).toBe(true)

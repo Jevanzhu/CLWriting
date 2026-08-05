@@ -64,7 +64,7 @@ beforeEach(() => {
 
 describe('doc store · open / patch', () => {
   it('open 正式文档：读内容 + 算基线 revision + dirty 初始 false', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章-x.md', '正文')
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '正文')
     const e = doc.get('d1')!
     expect(e.content).toBe('正文')
     expect(e.dirty).toBe(false)
@@ -79,7 +79,7 @@ describe('doc store · open / patch', () => {
   })
 
   it('patch：内容变 → dirty；内容不变 → 不标', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'a')
     expect(doc.get('d1')!.dirty).toBe(false)
     doc.patch('d1', 'b')
@@ -93,13 +93,13 @@ describe('doc store · save 前置守卫', () => {
     const doc = useDocStore()
     doc.setBook(BOOK)
     expect(await doc.save('不存在')).toBe(false)
-    const opened = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const opened = await openDoc('d1', '写作/正文/第1章.md', 'a')
     expect(await opened.save('d1')).toBe(false) // 非 dirty
     expect(saveContent).not.toHaveBeenCalled()
   })
 
   it('saving 中 → 不重入', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
     let resolve!: (v: unknown) => void
     saveContent.mockReturnValueOnce(new Promise((r) => (resolve = r)))
@@ -112,7 +112,7 @@ describe('doc store · save 前置守卫', () => {
 
 describe('doc store · save 成功', () => {
   it('正式文档：乐观锁 PUT + baseline 更新 + dirty 清', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     const oldBase = doc.get('d1')!.baselineRevision
     doc.patch('d1', 'b')
     saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
@@ -154,7 +154,7 @@ describe('doc store · save 成功', () => {
 
 describe('doc store · 5b9c888 审阅修复', () => {
   it('① 保存竞态：await 期间新输入，成功后 dirty 不误清', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
     let resolveSave!: (v: unknown) => void
     saveContent.mockReturnValueOnce(new Promise((r) => (resolveSave = r)))
@@ -170,7 +170,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 
   it('② 409 冲突：conflict 置位 + error 提示', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
     saveContent.mockRejectedValueOnce(new ApiError('REVISION_CONFLICT', '版本冲突'))
     const ok = await doc.save('d1')
@@ -181,7 +181,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 
   it('② 冲突未决时 autosave 跳过（不再发请求）', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
     saveContent.mockRejectedValueOnce(new ApiError('REVISION_CONFLICT', 'x'))
     await doc.save('d1') // 触发冲突
@@ -191,7 +191,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 
   it('② 冲突出路①重载：丢弃本地修改，取远端最新', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', '本地改')
     const e = doc.get('d1')!
     e.conflict = true
@@ -203,7 +203,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 
   it('② 冲突出路②覆盖：取远端基线后写本地内容', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', '本地覆盖')
     const e = doc.get('d1')!
     e.conflict = true
@@ -222,7 +222,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 
   it('非冲突错误：记录 error，不置 conflict', async () => {
-    const doc = await openDoc('d1', '定稿/正文/第1章.md', 'a')
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
     saveContent.mockRejectedValueOnce(new Error('网络断了'))
     const ok = await doc.save('d1')

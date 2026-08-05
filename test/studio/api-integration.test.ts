@@ -34,13 +34,13 @@ beforeAll(async () => {
     'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
   )
   writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/旧案反转')
-  mkdirSync(join(bookRoot, '定稿', '设定', '角色'), { recursive: true })
+  mkdirSync(join(bookRoot, '设定', '角色'), { recursive: true })
   writeFileSync(
-    join(bookRoot, '定稿', '设定', '角色', '林远.md'),
+    join(bookRoot, '设定', '角色', '林远.md'),
     '---\n姓名: 林远\n身份: 弟子\n目标: 旧案\n境界: 练气\n---\n性格沉稳。',
   )
   writeFileSync(
-    join(bookRoot, '定稿', '设定', '境界体系.md'),
+    join(bookRoot, '设定', '境界体系.md'),
     '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基, 金丹]\n---\n境界说明',
   )
 
@@ -155,10 +155,10 @@ describe('GUI API 集成链(设定台 P2)', () => {
     ).toBe(true)
   })
 
-  it('GET /search?scope=设定 限定范围（只搜定稿/设定/）', async () => {
+  it('GET /search?scope=设定 限定范围（只搜设定/）', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}&scope=${encodeURIComponent('设定')}`)
     const d = (await r.json()) as { results: { path: string }[] }
     expect(d.results.length).toBeGreaterThan(0)
-    expect(d.results.every((it) => it.path.startsWith('定稿/设定/'))).toBe(true)
+    expect(d.results.every((it) => it.path.startsWith('设定/'))).toBe(true)
   })
 })

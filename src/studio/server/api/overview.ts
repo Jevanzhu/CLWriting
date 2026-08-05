@@ -106,16 +106,16 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
 }
 
 /**
- * 写作热力（#7.2）：定稿文件 mtime 按日聚合（长篇 定稿正文，短篇 篇正文）。
+ * 写作热力（#7.2）：已定稿文件 mtime 按日聚合（写作/正文）。
  * 返日期-计数列表供总览页日历热力图。mtime 反映定稿落盘时间（够用，git commit 时间更准但贵）。
  */
 function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: string; count: number }[] {
   const files: string[] = []
   if (kind === 'short') {
-    const { pieces } = readPieceDir(join(bookRoot, '篇'))
+    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
     for (const p of pieces) if (p._path) files.push(p._path)
   } else {
-    const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+    const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
     for (const c of chapters) if (c._path) files.push(c._path)
   }
   const byDay = new Map<string, number>()
@@ -136,7 +136,7 @@ function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: stri
 
 /** 最近一章（按章号最大）—— 供总览页"继续写作"入口 */
 function getRecentChapter(bookRoot: string): { 章号: number; 标题: string; path: string } | null {
-  const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   if (chapters.length === 0) return null
   const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))
   const last = sorted[0]

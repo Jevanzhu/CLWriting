@@ -107,7 +107,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
   const isShort = kind === 'short'
-  const draftPath = join(bookRoot, '工作区', draftFileName(chapter, kind))
+  const draftPath = join(bookRoot, '写作', '草稿', draftFileName(chapter, kind))
 
   // 前端：running=true + 清空旧正文
   emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })

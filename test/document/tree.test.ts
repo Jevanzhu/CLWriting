@@ -16,12 +16,12 @@ import {
   type TreeNode,
 } from '../../src/document/tree.js'
 
-/** 造书：定稿/正文/第一卷/0001 + 大纲/卷纲/第一卷 + 工作区/.journal + 工作区/待定稿（应跳过）。 */
+/** 造书：写作/正文/第一卷/0001 + 大纲/卷纲/第一卷 + 工作区/.journal + 工作区/待定稿（应跳过）。 */
 function makeBook(): string {
   const root = mkdtempSync(join(tmpdir(), 'w2a-tree-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
-  mkdirSync(join(root, '定稿', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(root, '定稿', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+  mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '# 第一卷纲', 'utf-8')
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true }) // 应跳过
@@ -57,27 +57,27 @@ test('scanBookTree: 跳过 .git/.cache/工作区内部目录（.journal/待定�
   expect(paths.some((p) => p.includes('.git'))).toBe(false)
   expect(paths.some((p) => p.includes('.journal'))).toBe(false)
   expect(paths.some((p) => p.includes('待定稿'))).toBe(false)
-  expect(paths).toContain('定稿/正文/第一卷/0001-开篇.md')
+  expect(paths).toContain('写作/正文/第一卷/0001-开篇.md')
   expect(paths).toContain('大纲/卷纲/第一卷.md')
   rmSync(root, { recursive: true, force: true })
 })
 
 test('buildTree: 叶子挂 docId（无清单→legacy:）+ status（git 干净→final）+ name 去 .md', () => {
   const root = makeBook()
-  const chapter = findNode(buildTree(root), '定稿/正文/第一卷/0001-开篇.md')
+  const chapter = findNode(buildTree(root), '写作/正文/第一卷/0001-开篇.md')
   expect(chapter).not.toBeNull()
   expect(chapter!.docId).toMatch(/^legacy:/)
   expect(chapter!.status).toBe('final')
   expect(chapter!.role).toBe('chapter')
   expect(chapter!.name).toBe('0001-开篇') // 展示名去 .md
-  expect(chapter!.path).toBe('定稿/正文/第一卷/0001-开篇.md') // path 带 .md
+  expect(chapter!.path).toBe('写作/正文/第一卷/0001-开篇.md') // path 带 .md
   rmSync(root, { recursive: true, force: true })
 })
 
 test('buildTree: 叶子 wordCount（正文 chapter 剥 fm 算字数；非正文 role 无）', () => {
   const root = makeBook()
   const nodes = buildTree(root)
-  const chapter = findNode(nodes, '定稿/正文/第一卷/0001-开篇.md')
+  const chapter = findNode(nodes, '写作/正文/第一卷/0001-开篇.md')
   expect(chapter!.wordCount).toBe(2) // fm 后正文「正文」2 字
   const outline = findNode(nodes, '大纲/卷纲/第一卷.md')
   expect(outline!.wordCount).toBeUndefined() // 卷纲非正文 role，不算字数
@@ -86,7 +86,7 @@ test('buildTree: 叶子 wordCount（正文 chapter 剥 fm 算字数；非正文 
 
 test('buildTree: 卷目录关联卷纲（同名 stem）', () => {
   const root = makeBook()
-  const vol = findNode(buildTree(root), '定稿/正文/第一卷')
+  const vol = findNode(buildTree(root), '写作/正文/第一卷')
   expect(vol).not.toBeNull()
   expect(vol!.isDirectory).toBe(true)
   expect(vol!.volumeOutlinePath).toBe('大纲/卷纲/第一卷.md')
@@ -95,9 +95,9 @@ test('buildTree: 卷目录关联卷纲（同名 stem）', () => {
 
 test('buildTree: 卷目录无对应卷纲 → volumeOutlinePath undefined', () => {
   const root = makeBook()
-  mkdirSync(join(root, '定稿', '正文', '第二卷'), { recursive: true })
-  writeFileSync(join(root, '定稿', '正文', '第二卷', '0050-惊蛰.md'), '---\n章号: 50\n---\n正文', 'utf-8')
-  const vol2 = findNode(buildTree(root), '定稿/正文/第二卷')
+  mkdirSync(join(root, '写作', '正文', '第二卷'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第二卷', '0050-惊蛰.md'), '---\n章号: 50\n---\n正文', 'utf-8')
+  const vol2 = findNode(buildTree(root), '写作/正文/第二卷')
   expect(vol2).not.toBeNull()
   expect(vol2!.volumeOutlinePath).toBeUndefined()
   rmSync(root, { recursive: true, force: true })
@@ -105,8 +105,8 @@ test('buildTree: 卷目录无对应卷纲 → volumeOutlinePath undefined', () =
 
 test('排序：同级目录优先于文件（第一卷 目录排在 0099-平铺 文件前）', () => {
   const root = makeBook()
-  writeFileSync(join(root, '定稿', '正文', '0099-平铺.md'), '---\n章号: 99\n---\n正文', 'utf-8')
-  const bodyDir = findNode(buildTree(root), '定稿/正文')!
+  writeFileSync(join(root, '写作', '正文', '0099-平铺.md'), '---\n章号: 99\n---\n正文', 'utf-8')
+  const bodyDir = findNode(buildTree(root), '写作/正文')!
   const names = bodyDir.children.map((c) => ({ name: c.name, dir: c.isDirectory }))
   const volIdx = names.findIndex((c) => c.name === '第一卷')
   const fileIdx = names.findIndex((c) => c.name === '0099-平铺')
@@ -134,16 +134,16 @@ test('getBookTreeIndex: 缓存同引用；invalidate 后重建 + revision 递增
 test('getBookTreeIndex(force): 外部直接写盘的文件——缓存刷不出，force 重扫刷得出', () => {
   const root = makeBook()
   const idx1 = getBookTreeIndex(root)
-  expect(collectPaths(idx1.nodes)).not.toContain('定稿/设定/伏笔/神秘印记.md')
+  expect(collectPaths(idx1.nodes)).not.toContain('设定/伏笔/神秘印记.md')
 
   // 外部编辑器 / CLI / AI 直接落盘：不经 DocumentService，缓存不会失效
-  mkdirSync(join(root, '定稿', '设定', '伏笔'), { recursive: true })
-  writeFileSync(join(root, '定稿', '设定', '伏笔', '神秘印记.md'), '---\n标题: 神秘印记\n---\n正文', 'utf-8')
+  mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
+  writeFileSync(join(root, '设定', '伏笔', '神秘印记.md'), '---\n标题: 神秘印记\n---\n正文', 'utf-8')
 
   const stale = getBookTreeIndex(root)
   expect(stale).toBe(idx1) // 缓存命中 → 新文件看不见（前端「刷新」也刷不出）
   const fresh = getBookTreeIndex(root, true)
-  expect(collectPaths(fresh.nodes)).toContain('定稿/设定/伏笔/神秘印记.md')
+  expect(collectPaths(fresh.nodes)).toContain('设定/伏笔/神秘印记.md')
   expect(fresh.revision).toBeGreaterThan(idx1.revision)
   expect(getBookTreeIndex(root)).toBe(fresh) // force 的结果回写缓存
   rmSync(root, { recursive: true, force: true })
@@ -156,10 +156,10 @@ test('buildTree: 有清单时叶子挂正式 docId（清单 path 带 .md 对齐�
     join(root, '项目', '文档清单.jsonl'),
     [
       '{"version":1,"type":"header"}',
-      '{"id":"doc_01ABC","nodeType":"document","path":"定稿/正文/第一卷/0001-开篇.md","parentId":null,"status":"final"}',
+      '{"id":"doc_01ABC","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null,"status":"final"}',
     ].join('\n') + '\n',
   )
-  const chapter = findNode(buildTree(root), '定稿/正文/第一卷/0001-开篇.md')
+  const chapter = findNode(buildTree(root), '写作/正文/第一卷/0001-开篇.md')
   expect(chapter!.docId).toBe('doc_01ABC') // 清单命中正式 ID（非 legacy）
   rmSync(root, { recursive: true, force: true })
 })

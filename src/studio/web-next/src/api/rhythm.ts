@@ -1,7 +1,7 @@
 import { apiJson } from './client'
 
 // 节奏双轨（块4）：GET /rhythm → 长篇(written/planned 双轨) / 短篇(篇长+目标情绪)。
-// written=定稿/正文 已写实际；planned=大纲/章纲 规划（字数目标合计）。
+// written=写作/正文 已写实际；planned=大纲/章纲 规划（字数目标合计）。
 
 export interface RhythmDist {
   [key: string]: number

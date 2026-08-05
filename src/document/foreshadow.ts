@@ -1,7 +1,7 @@
 /**
  * 伏笔足迹扫描 —— 本地正文 grep，零 AI 成本（伏笔系统整合 T2）。
  *
- * 对每个设定伏笔的「关联词」在 定稿/正文/*.md 中做文本搜索，
+ * 对每个设定伏笔的「关联词」在 写作/正文/*.md 中做文本搜索，
  * 发现首次命中（=埋设点）、末次命中（=最近提及），计算悬置跨度与风险等级。
  *
  * 设计决策（伏笔系统整合.md）：
@@ -17,9 +17,9 @@ import { readLead } from '../format/leads.js'
 
 // ── 伏笔条目（fm 数据）──────────────────────────
 
-/** 设定伏笔条目（从 定稿/设定/伏笔/*.md 的 fm 读取） */
+/** 设定伏笔条目（从 设定/伏笔/*.md 的 fm 读取） */
 export interface ForeshadowEntry {
-  /** 相对路径（定稿/设定/伏笔/xxx.md） */
+  /** 相对路径（设定/伏笔/xxx.md） */
   file: string
   标题: string
   状态: string // 未回收 / 已回收 / 已废弃
@@ -53,7 +53,7 @@ export interface MigrateResult {
 }
 
 /**
- * 一次性迁移：大纲/伏笔/*.md → 定稿/设定/伏笔/*.md（账本伏笔类已删，旧数据自动转设定伏笔）。
+ * 一次性迁移：大纲/伏笔/*.md → 设定/伏笔/*.md（账本伏笔类已删，旧数据自动转设定伏笔）。
  *
  * 幂等：旧目录不存在或空 → no-op。迁移后旧文件删除，下次调用自动跳过。
  * fm 映射：标题→标题；状态（进行中→未回收/已收尾→已回收/已放弃→已废弃）；
@@ -71,7 +71,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
   }
   if (files.length === 0) return { migrated: 0, skipped: 0, details: [] }
 
-  const newDir = join(bookRoot, '定稿', '设定', '伏笔')
+  const newDir = join(bookRoot, '设定', '伏笔')
   mkdirSync(newDir, { recursive: true })
 
   const result: MigrateResult = { migrated: 0, skipped: 0, details: [] }
@@ -104,7 +104,8 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       '',
     ].join('\n')
 
-    writeFileSync(join(newDir, `${title}.md`), fm, 'utf-8')
+    // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据（N3）
+    writeFileSync(join(newDir, `${lead.编号}-${title}.md`), fm, 'utf-8')
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
@@ -113,7 +114,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 }
 
 /**
- * 读设定伏笔列表（定稿/设定/伏笔/*.md 的 fm）。
+ * 读设定伏笔列表（设定/伏笔/*.md 的 fm）。
  * 首次调用时自动迁移旧账本伏笔（大纲/伏笔/ → 设定/伏笔/，一次性，幂等）。
  * 容错：目录不存在或单个文件解析失败 → 跳过不崩。
  */
@@ -121,7 +122,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
   // 一次性自动迁移（无旧数据时 no-op）
   migrateLegacyForeshadows(bookRoot)
 
-  const dir = join(bookRoot, '定稿', '设定', '伏笔')
+  const dir = join(bookRoot, '设定', '伏笔')
   if (!existsSync(dir)) return []
 
   let files: string[]
@@ -143,7 +144,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
     const 关联词raw = String(map.get('关联词') ?? '')
     items.push({
-      file: `定稿/设定/伏笔/${f}`,
+      file: `设定/伏笔/${f}`,
       标题: String(map.get('标题') ?? f.replace(/\.md$/, '')),
       状态: String(map.get('状态') ?? '未回收'),
       埋设章号: parsePositiveInt(map.get('埋设章号')),
@@ -255,10 +256,10 @@ export function scanForeshadowTrails(
 
 // ── 章节正文收集 ─────────────────────────────────
 
-/** 收集 定稿/正文/ 下所有章节 md（递归含卷子目录）的 { 章号 → 正文（去 fm） } */
+/** 收集 写作/正文/ 下所有章节 md（递归含卷子目录）的 { 章号 → 正文（去 fm） } */
 function collectChapterTexts(bookRoot: string): Map<number, string> {
   const texts = new Map<number, string>()
-  const textDir = join(bookRoot, '定稿', '正文')
+  const textDir = join(bookRoot, '写作', '正文')
   if (!existsSync(textDir)) return texts
   walkChapters(textDir, texts)
   return texts

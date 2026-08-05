@@ -2,7 +2,7 @@
  * 短篇集级索引与重复风险体检。
  *
  * 目标：短篇主链已按单篇闭环，本模块只做整集层面的轻量扫描。
- * 数据来自已定稿 `篇/<篇号>-<标题>.md` 与 `清单/<篇号>-<标题>.md`，
+ * 数据来自已定稿 `写作/正文/<篇号>-<标题>.md` 与 `大纲/清单/<篇号>-<标题>.md`，
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
  */
 
@@ -241,8 +241,8 @@ const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTempl
 
 /** 扫描短篇集索引。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
-  const piecesDir = join(bookRoot, '篇')
-  const 清单Dir = join(bookRoot, '清单')
+  const piecesDir = join(bookRoot, '写作', '正文')
+  const 清单Dir = join(bookRoot, '大纲', '清单')
   if (!existsSync(piecesDir)) return []
   let names: string[]
   try {

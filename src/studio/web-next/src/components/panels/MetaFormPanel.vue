@@ -32,7 +32,7 @@ const TITLE: Record<string, string> = {
 }
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
-  // 章节（定稿/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
+  // 章节（写作/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
   chapter: [
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
@@ -105,7 +105,13 @@ const ws = useWorkspaceStore()
 const ui = useUiStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
-const kind = computed(() => (entry.value ? formKindOf(entry.value.path) : null))
+// 短篇正文（role=piece-body）与长篇正文 path 相同（写作/正文/），
+// formKindOf 按 path 返回 'chapter'；短篇表单由 role 覆写为 'piece-body'。
+const kind = computed(() => {
+  if (!entry.value) return null
+  if (entry.value.role === 'piece-body') return 'piece-body'
+  return formKindOf(entry.value.path)
+})
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
 
 const fields = ref<Record<string, string>>({})

@@ -3,7 +3,7 @@
  *
  * GET /api/books/:name/rhythm → 长篇(wordCurve + written/planned 双轨分布) / 短篇(篇长+目标情绪)
  *
- * 双轨数据源：readChapterDir 读 定稿/正文（已写实际）+ 大纲/章纲（块3.1 录入规划）。
+ * 双轨数据源：readChapterDir 读 写作/正文（已写实际）+ 大纲/章纲（块3.1 录入规划）。
  * planned.targetWords 求和自 ChapterMeta.字数目标。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -39,7 +39,7 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
 }
 
 function rhythmLong(bookRoot: string): unknown {
-  const { chapters: written } = readChapterDir(join(bookRoot, '定稿', '正文'))
+  const { chapters: written } = readChapterDir(join(bookRoot, '写作', '正文'))
   const { chapters: planned } = readChapterDir(join(bookRoot, '大纲', '章纲'))
   const sorted = written.slice().sort((a, b) => a.章号 - b.章号)
   const wordCurve = sorted.map((c) => ({ 章号: c.章号, 标题: c.标题, 字数: c._wordCount ?? 0 }))
@@ -49,7 +49,7 @@ function rhythmLong(bookRoot: string): unknown {
     kind: 'long' as const,
     wordCurve,
     avgWords,
-    // 已写节奏（定稿/正文）
+    // 已写节奏（写作/正文）
     written: {
       count: written.length,
       hookTypeDist: countDist(written.map((c) => c.钩子类型), HOOK_TYPES),
@@ -74,7 +74,7 @@ function rhythmLong(bookRoot: string): unknown {
 }
 
 function rhythmShort(bookRoot: string): unknown {
-  const { pieces } = readPieceDir(join(bookRoot, '篇'))
+  const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
   const sorted = pieces.slice().sort((a, b) => a.篇号 - b.篇号)
   return {
     kind: 'short' as const,

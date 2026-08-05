@@ -21,7 +21,7 @@ const dropY = ref(0)
 const caretRef = ref<HTMLElement | null>(null)
 // 总纲/世界观为全书唯一单文件：存在则菜单文案改「打开」
 const hasSynopsis = computed(() => !!tree.byPath.get('大纲/总纲.md'))
-const hasWorldview = computed(() => !!tree.byPath.get('定稿/设定/世界观.md'))
+const hasWorldview = computed(() => !!tree.byPath.get('设定/世界观.md'))
 
 function toggleDropdown(): void {
   if (dropdownOpen.value) {

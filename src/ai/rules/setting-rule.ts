@@ -1,12 +1,12 @@
 /**
  * 设定一致规则（A3）——正文专名须与书库设定一致。
  *
- * 数据源：定稿/设定/ 下三处——
- * - 角色卡：定稿/设定/角色/*.md（front matter「姓名」字段）
- * - 物品卡：定稿/设定/物品/*.md（front matter「名称」字段）
- * - 名册：  定稿/设定/名册.md（自由文本，全文 includes 粗匹配）
+ * 数据源：设定/ 下三处——
+ * - 角色卡：设定/角色/*.md（front matter「姓名」字段）
+ * - 物品卡：设定/物品/*.md（front matter「名称」字段）
+ * - 名册：  设定/名册.md（自由文本，全文 includes 粗匹配）
  *
- * 定稿/设定/ 目录不存在（短篇集/新书）→ toPrompt 返回 null + check 返回空。
+ * 设定/ 目录不存在（短篇集/新书）→ toPrompt 返回 null + check 返回空。
  *
  * 规则层只做确定性字面匹配（不调 AI）——引号内 2-4 字中文片段不在已知名称
  * 集合或名册全文中即报黄。语义判断（别名/化名/代称）留给审稿 AI。
@@ -17,7 +17,7 @@ import { readFile, parseFlat } from '../../format/frontmatter.js'
 import type { WritingRule, RuleViolation } from './types.js'
 
 /** 设定子目录/文件相对路径 */
-const SETTING_DIR = join('定稿', '设定')
+const SETTING_DIR = '设定'
 const ROLE_DIR = join(SETTING_DIR, '角色')
 const ITEM_DIR = join(SETTING_DIR, '物品')
 const ROSTER_FILE = join(SETTING_DIR, '名册.md')
@@ -35,7 +35,7 @@ interface SettingData {
 
 /**
  * 加载书库设定数据。
- * 定稿/设定/ 目录不存在（短篇集/新书）→ 返回空数据。
+ * 设定/ 目录不存在（短篇集/新书）→ 返回空数据。
  */
 function loadSettingData(bookRoot: string): SettingData {
   const data: SettingData = { names: new Set(), rosterText: null }

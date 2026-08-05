@@ -106,7 +106,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
     const j = r.json as { ok: boolean; revision: string; superseded: boolean }
     expect(j.ok).toBe(true)
     expect(j.revision).toMatch(/^sha256:/)
-    expect(readFileSync(join(workDir, BOOK, '定稿/正文/0001-开篇.md'), 'utf-8')).toBe('你好')
+    expect(readFileSync(join(workDir, BOOK, '写作/正文/0001-开篇.md'), 'utf-8')).toBe('你好')
   })
 
   it('expectedRevision 不符磁盘 → 409', async () => {
@@ -150,7 +150,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
 
 describe('PATCH /documents/:docId meta（章号/篇号）', () => {
   it('长篇改章号 → 章号变 + 文件名 rename（曾因 numKey 丢弃静默失败）', async () => {
-    const bodyDir = join(workDir, BOOK, '定稿', '正文')
+    const bodyDir = join(workDir, BOOK, '写作', '正文')
     mkdirSync(bodyDir, { recursive: true })
     const oldPath = join(bodyDir, '0001-开篇.md')
     writeFileSync(oldPath, '---\n章号: 1\n标题: 开篇\n---\n正文。\n', 'utf-8')

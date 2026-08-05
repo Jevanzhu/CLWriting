@@ -1,7 +1,7 @@
 /**
  * GET /rhythm 双轨端点集成测（块4 节奏预测）：
- * 启动 studio server + 临时长篇书（定稿/正文 2 章 + 大纲/章纲 3 章含字数目标），
- * 验证 written 读定稿、planned 读章纲、targetWords 求和、分布含未写章。
+ * 启动 studio server + 临时长篇书（写作/正文 2 章 + 大纲/章纲 3 章含字数目标），
+ * 验证 written 读正文、planned 读章纲、targetWords 求和、分布含未写章。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -54,15 +54,15 @@ beforeAll(async () => {
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 节奏测试书\n  genre: 玄幻\nhost: cc\n',
   )
-  // 定稿/正文（已写 2 章）
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  // 写作/正文（v2 结构，已写 2 章）
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(
-    join(bookRoot, '定稿', '正文', '0001-开篇.md'),
+    join(bookRoot, '写作', '正文', '0001-开篇.md'),
     '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n\n正文一二三\n',
     'utf8',
   )
   writeFileSync(
-    join(bookRoot, '定稿', '正文', '0002-转折.md'),
+    join(bookRoot, '写作', '正文', '0002-转折.md'),
     '---\n章号: 2\n标题: 转折\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 小爽\n场景: 战斗\n---\n\n正文四五六七八\n',
     'utf8',
   )
@@ -96,7 +96,7 @@ afterAll(async () => {
 })
 
 describe('GET /rhythm 双轨（块4 节奏预测）', () => {
-  it('长篇双轨：written 读定稿、planned 读章纲', async () => {
+  it('长篇双轨：written 读正文、planned 读章纲', async () => {
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
     expect(r.status).toBe(200)
     const j = r.json as {
@@ -115,7 +115,7 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
     expect(j.planned.targetWords).toBe(3000 + 3500 + 2800)
   })
 
-  it('written 分布按定稿章统计', async () => {
+  it('written 分布按正文章统计', async () => {
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/rhythm`)
     const j = r.json as { written: { hookTypeDist: Record<string, number>; sceneDist: Record<string, number> } }
     expect(j.written.hookTypeDist['悬念钩']).toBe(1)
@@ -161,7 +161,7 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
     expect(ch1.情绪定位).toBe('铺垫') // 一致 → 单值（非「铺垫→铺垫」）
     expect(ch1.情绪定位偏差).toBe(false)
     expect(ch1.钩子类型偏差).toBe(false)
-    // 章 2 定稿情绪(小爽) ≠ 章纲(大爽) → 偏差；钩子/场景一致
+    // 章 2 正文情绪(小爽) ≠ 章纲(大爽) → 偏差；钩子/场景一致
     const ch2 = d[1]!
     expect(ch2.状态).toBe('对比')
     expect(ch2.情绪定位).toBe('大爽→小爽')

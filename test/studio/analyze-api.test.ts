@@ -68,14 +68,14 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 分析测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     'utf8',
   )
-  const chapterPath = join(bookRoot, '定稿', '正文', '0001-开篇.md')
+  const chapterPath = join(bookRoot, '写作', '正文', '0001-开篇.md')
   writeFileSync(
     chapterPath,
     '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门，一切由此开始。\n',
@@ -84,7 +84,7 @@ beforeAll(async () => {
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   docId = generateDocId()
-  upsertEntry(m, { id: docId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null })
+  upsertEntry(m, { id: docId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
   writeManifest(manifestPath, m)
 
   server = startServer({ port: 0, workDir })
@@ -133,7 +133,7 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
 
   it('改正文 → GET stale=true（过期标注）', async () => {
     writeFileSync(
-      join(workDir, BOOK, '定稿', '正文', '0001-开篇.md'),
+      join(workDir, BOOK, '写作', '正文', '0001-开篇.md'),
       '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，剧情已被作者改动。\n',
       'utf8',
     )

@@ -206,7 +206,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
       // 先收集 allChapters（遍历 manifest 正文档档）
       for (const [id, me] of manifest.entries) {
-        if (me.nodeType !== 'document' || !me.path.startsWith('定稿/正文/')) continue
+        if (me.nodeType !== 'document' || !me.path.startsWith('写作/正文/')) continue
         const filename = me.path.split('/').pop() ?? ''
         const numMatch = filename.match(/^(\d+)-/)
         if (!numMatch) continue
@@ -219,7 +219,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         for (const file of files) {
           const docId = file.replace(/\.json$/, '')
           const me = manifest.entries.get(docId)
-          if (!me || !me.path.startsWith('定稿/正文/')) continue
+          if (!me || !me.path.startsWith('写作/正文/')) continue
           // 从文件名 NN-标题.md 提取章号/标题
           const filename = me.path.split('/').pop() ?? ''
           const numMatch = filename.match(/^(\d+)-/)
@@ -272,7 +272,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const bookRoot = join(ctx.workDir, entry.path)
 
       // 读所有定稿正文章节（按章号排序）
-      const { chapters } = readChapterDir(join(bookRoot, '定稿', '正文'))
+      const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
       const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
       if (!sorted.length) return reply(res, 400, { ok: false, code: 'NO_CHAPTERS', error: '无定稿正文章节' })
 

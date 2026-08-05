@@ -14,7 +14,7 @@ import {
   deleteDoc,
   updateChapterMetaDoc,
 } from '../../api/documents'
-import { parseChapterFileName, isBodyKind } from '../../shared/words'
+import { parseChapterFileName } from '../../shared/words'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import ChapterTreeItem from './ChapterTreeItem.vue'
@@ -92,7 +92,7 @@ function sanitizeName(value: string): string | null {
 
 // --- 卷/章号辅助（移植旧 FileTree）---
 function isVolumeDir(p: string): boolean {
-  const prefix = '定稿/正文/'
+  const prefix = '写作/正文/'
   if (!p.startsWith(prefix)) return false
   const rest = p.slice(prefix.length)
   return rest !== '' && !rest.includes('/')
@@ -105,7 +105,7 @@ function nextChapterNo(): number {
   let max = 0
   const walk = (ns: TreeNode[]): void => {
     for (const n of ns) {
-      if (!n.isDirectory && n.path.startsWith('定稿/正文/')) {
+      if (!n.isDirectory && n.path.startsWith('写作/正文/')) {
         const no = extractChapterNo(n.name)
         if (no && no > max) max = no
       }
@@ -115,15 +115,18 @@ function nextChapterNo(): number {
   walk(tree.grouped)
   return max + 1
 }
-function lastVolumePath(): string | null {
+/** 正文根目录节点（v2：写作/正文）。 */
+function writeRoot(): TreeNode | undefined {
   const writeGroup = tree.grouped.find((n) => n.path === '写作')
-  const vols = (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))
+  return writeGroup?.children.find((c) => c.path === '写作/正文')
+}
+function lastVolumePath(): string | null {
+  const vols = (writeRoot()?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))
   return vols.length ? (vols[vols.length - 1]?.path ?? null) : null
 }
 /** 正文现有卷数（用于卷纲编号推断：N = 卷数 + 1）。 */
 function volumeCount(): number {
-  const writeGroup = tree.grouped.find((n) => n.path === '写作')
-  return (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path)).length
+  return (writeRoot()?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path)).length
 }
 function collectAncestors(ns: TreeNode[], target: string, acc: string[] = []): string[] | null {
   for (const n of ns) {
@@ -137,9 +140,8 @@ function collectAncestors(ns: TreeNode[], target: string, acc: string[] = []): s
 }
 function moveToTargets(node: TreeNode): { label: string; dir: string }[] {
   const parent = node.path.slice(0, node.path.lastIndexOf('/'))
-  const targets: { label: string; dir: string }[] = [{ label: '正文根', dir: '定稿/正文' }]
-  const writeGroup = tree.grouped.find((n) => n.path === '写作')
-  for (const v of (writeGroup?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))) {
+  const targets: { label: string; dir: string }[] = [{ label: '正文根', dir: '写作/正文' }]
+  for (const v of (writeRoot()?.children ?? []).filter((n) => n.isDirectory && isVolumeDir(n.path))) {
     targets.push({ label: v.name, dir: v.path })
   }
   return targets.filter((t) => t.dir !== parent)
@@ -151,7 +153,7 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
   if (node.isDirectory && isVolumeDir(p)) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter', label: '章节' }] }]
   }
-  if (p === '定稿/正文' || p === '写作') {
+  if (p === '写作/正文' || p === '写作') {
     return [
       {
         key: 'new',
@@ -166,16 +168,16 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
   if (node.isDirectory && p === '大纲/章纲') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter-outline', label: '章纲' }] }]
   }
-  if (node.isDirectory && p === '定稿/设定/角色') {
+  if (node.isDirectory && p === '设定/角色') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-character', label: '角色' }] }]
   }
-  if (node.isDirectory && p === '定稿/设定/物品') {
+  if (node.isDirectory && p === '设定/物品') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-item', label: '物品' }] }]
   }
-  if (node.isDirectory && p === '定稿/设定/伏笔') {
+  if (node.isDirectory && p === '设定/伏笔') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-foreshadow', label: '伏笔' }] }]
   }
-  if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('定稿/设定/'))) {
+  if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('设定/'))) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
   }
   if (!node.isDirectory) return buildLeafMenu(node)
@@ -183,7 +185,10 @@ function buildMenuItems(node: TreeNode): MenuItem[] {
 }
 function buildLeafMenu(node: TreeNode): MenuItem[] {
   const items: MenuItem[] = [{ key: 'rename', label: '重命名' }]
-  if (node.path.startsWith('定稿/正文/')) {
+  if (node.role === 'piece-body') {
+    // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平；path 与长篇同为 写作/正文/）
+    items.push({ key: 'meta', label: '篇章信息…' })
+  } else if (node.path.startsWith('写作/正文/')) {
     items.push({ key: 'meta', label: '章节信息…' })
     // 定稿确认：仅 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）
     if (node.status === 'revision') {
@@ -198,9 +203,6 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
       })
     }
     items.push({ key: 'copy', label: '创建副本' })
-  } else if (isBodyKind(node.path) && node.path.startsWith('篇/')) {
-    // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平）
-    items.push({ key: 'meta', label: '篇章信息…' })
   }
   items.push({ key: 'sep-a', label: '', separator: true })
   items.push({ key: 'copy-path', label: '复制路径' })
@@ -239,10 +241,10 @@ function onBlankContextMenu(e: MouseEvent): void {
 
 // --- 菜单动作分发 ---
 function onMenuSelect(key: string): void {
-  if (key === 'new-volume') return startCreate('volume', '写作', '定稿/正文')
+  if (key === 'new-volume') return startCreate('volume', '写作', '写作/正文')
   if (key === 'new-chapter-root') {
     const vol = lastVolumePath()
-    return startCreate('chapter', vol ?? '写作', vol ?? '定稿/正文')
+    return startCreate('chapter', vol ?? '写作', vol ?? '写作/正文')
   }
   if (key.startsWith('move:')) {
     const node = menuNode.value
@@ -262,8 +264,8 @@ function onMenuSelect(key: string): void {
     if (node.docId) void doc.finalize(node.docId)
   }
   else if (key === 'meta') {
-    const isPiece = isBodyKind(node.path) && node.path.startsWith('篇/')
-    // 短篇/长篇均从文件名提取编号+标题（短篇 篇/N-标题.md，长篇 定稿/正文/N-标题.md）
+    const isPiece = node.role === 'piece-body'
+    // 短篇/长篇均从文件名提取编号+标题（短篇 写作/正文/N-标题.md，长篇 写作/正文/[卷/]N-标题.md）
     const m = parseChapterFileName(node.path)
     metaEditing.value = {
       docId: node.docId ?? '',
@@ -310,7 +312,7 @@ async function onSaveMeta(meta: { 标题: string; num: number }): Promise<void> 
 // --- 新建 ---
 function onNewChapter(): void {
   const vol = lastVolumePath()
-  startCreate('chapter', vol ?? '写作', vol ?? '定稿/正文')
+  startCreate('chapter', vol ?? '写作', vol ?? '写作/正文')
 }
 /** 单文件类型（总纲/世界观）：固定路径，检测存在性，不走 inline 命名。 */
 async function createSingleton(relPath: string, label: string): Promise<void> {
@@ -343,15 +345,15 @@ function dispatchCreate(kind: CreateKind): void {
     case 'volume-outline':
       return startCreate('volume-outline', '大纲', '大纲/卷纲')
     case 'character':
-      return startCreate('character', '定稿/设定', '定稿/设定/角色')
+      return startCreate('character', '设定', '设定/角色')
     case 'item':
-      return startCreate('item', '定稿/设定', '定稿/设定/物品')
+      return startCreate('item', '设定', '设定/物品')
     case 'foreshadow':
-      return startCreate('foreshadow', '定稿/设定', '定稿/设定/伏笔')
+      return startCreate('foreshadow', '设定', '设定/伏笔')
     case 'synopsis':
       return void createSingleton('大纲/总纲.md', '总纲')
     case 'worldview':
-      return void createSingleton('定稿/设定/世界观.md', '世界观')
+      return void createSingleton('设定/世界观.md', '世界观')
   }
 }
 function startCreate(
@@ -470,7 +472,7 @@ async function doCopy(node: TreeNode): Promise<void> {
   const parsed = parseChapterFileName(node.path)
   const title = parsed?.标题 ?? node.name
   const no = String(nextChapterNo()).padStart(4, '0')
-  const relPath = `定稿/正文/${no}-${title} 副本.md`
+  const relPath = `写作/正文/${no}-${title} 副本.md`
   try {
     const r = await copyDoc(props.bookName, node.docId, relPath)
     await tree.load(props.bookName)

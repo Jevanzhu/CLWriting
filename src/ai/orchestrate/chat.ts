@@ -163,7 +163,7 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
-        const draftPath = join(opts.bookRoot, '工作区', `草稿-${chapter}.md`)
+        const draftPath = join(opts.bookRoot, '写作', '草稿', `草稿-${chapter}.md`)
         if (!existsSync(draftPath)) {
           return { ok: false, summary: `第${chapter}章草稿不存在。` }
         }

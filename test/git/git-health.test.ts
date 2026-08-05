@@ -44,7 +44,7 @@ test('gitHealthCheck: 配置 remote → 只报安全提醒，不阻断 clean', (
 test('gitHealthCheck: 半提交（staged 残留）→ halfCommit 命中出人话', () => {
   const root = makeGitBook()
   // 改文件后 git add 但不 commit → staged 残留
-  writeFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'), '改了内容', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '悬念-031-灭门真凶.md'), '改了内容', 'utf-8')
   mustGit(['add', '-A'], root)
 
   const report = gitHealthCheck(root)
@@ -61,11 +61,11 @@ test('gitHealthCheck: 合并冲突（MERGE_HEAD + 冲突标记）→ mergeConfli
   const baseBranch = mustGit(['rev-parse', '--abbrev-ref', 'HEAD'], root).trim()
   // 制造一个冲突：两边改同一行
   mustGit(['checkout', '-b', 'feature'], root)
-  writeFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'), 'feature 分支改的', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '悬念-031-灭门真凶.md'), 'feature 分支改的', 'utf-8')
   mustGit(['add', '-A'], root)
   mustGit(['commit', '-m', 'feature 改'], root)
   mustGit(['checkout', baseBranch], root)
-  writeFileSync(join(root, '大纲', '悬念', '悬念-031-灭门真凶.md'), '主干改的', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '悬念-031-灭门真凶.md'), '主干改的', 'utf-8')
   mustGit(['add', '-A'], root)
   mustGit(['commit', '-m', '主干改'], root)
   // 合并 feature，产生冲突
@@ -101,8 +101,8 @@ test('gitHealthCheck: 僵死锁（index.lock 存在无活跃进程）→ staleLo
 test('gitHealthCheck: 网盘副本残留（文件 2.md）→ cloudCopy 命中', () => {
   const root = makeGitBook()
   // 模拟 Dropbox/OneDrive 风格冲突副本 + AppleDouble
-  writeFileSync(join(root, '定稿', '正文', '悬念-031-灭门真凶 2.md'), '副本内容', 'utf-8')
-  writeFileSync(join(root, '大纲', '悬念', '._悬念-031.md'), 'AppleDouble', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '悬念-031-灭门真凶 2.md'), '副本内容', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '._悬念-031.md'), 'AppleDouble', 'utf-8')
 
   const report = gitHealthCheck(root)
   expect(report.clean).toBe(false)
@@ -126,10 +126,10 @@ test('gitHealthCheck: .cache 内 AppleDouble 副本不阻断写作', () => {
 test('gitHealthCheck: 多异常同时存在 → 全部入 issues', () => {
   const root = makeGitBook()
   // 半提交 + 锁 + 网盘副本
-  writeFileSync(join(root, '大纲', '悬念', '悬念-099.md'), '新增', 'utf-8')
+  writeFileSync(join(root, '布线', '悬念', '悬念-099.md'), '新增', 'utf-8')
   mustGit(['add', '-A'], root)
   writeFileSync(join(root, '.git', 'index.lock'), '', 'utf-8')
-  writeFileSync(join(root, '定稿', '正文', '某章 2.md'), '副本', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '某章 2.md'), '副本', 'utf-8')
 
   const report = gitHealthCheck(root)
   expect(report.clean).toBe(false)

@@ -13,13 +13,14 @@ import { readChapter } from '../format/chapters.js'
 import { readManifest } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { collectDirtyFiles } from './status.js'
+import { roleOf } from './layout.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
   | { ok: false; code: 'NOT_FOUND' | 'NOT_DRAFT_REGION' | 'GIT_FAIL'; error: string }
 
 /**
- * 定稿确认：对 `定稿/` 区一个 revision 态文件做 git commit → 回 final。
+ * 定稿确认：对正文/设定等区一个 revision 态文件做 git commit → 回 final。
  *
  * @param bookRoot 书仓库根
  * @param docId 目标文档 id
@@ -31,9 +32,10 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
-  // 定稿区校验：只处理 定稿/ 前缀正文（草稿入卷属 P2，不在本阶段）
-  if (!relPath.startsWith('定稿/')) {
-    return { ok: false, code: 'NOT_DRAFT_REGION', error: '仅定稿区文档可定稿（草稿入卷功能开发中）' }
+  // 定稿区校验：草稿（写作/草稿/）不可定稿（草稿入卷属 P2，不在本阶段）
+  const role = roleOf(relPath)
+  if (role === 'draft') {
+    return { ok: false, code: 'NOT_DRAFT_REGION', error: '仅正文/设定等定稿区文档可定稿（草稿入卷功能开发中）' }
   }
 
   // 从正文 frontmatter 取章号 + 标题（commit message 用）；解析失败从文件名推断
