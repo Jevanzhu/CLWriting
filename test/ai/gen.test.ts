@@ -167,7 +167,7 @@ describe('B-2 首字节超时', () => {
       },
     }
     const iter = withFirstByteTimeout(slow, 10) // 10ms 超时
-    await expect(iter.next()).rejects.toThrow('首字节超时')
+    await expect(iter.next()).rejects.toThrow('响应超时')
   })
 
   it('首字节在超时前到达 → 正常产出（超时取消）', async () => {
@@ -196,7 +196,7 @@ describe('B-2 首字节超时', () => {
       },
     }
     const iter = withFirstByteTimeout(slow, 10)
-    await expect(iter.next()).rejects.toThrow('首字节超时')
+    await expect(iter.next()).rejects.toThrow('响应超时')
     expect(returnCalled).toBe(true)
   })
 })

@@ -33,42 +33,37 @@ export interface GenResult {
   stopReason: string
 }
 
-/** B-2：首字节超时——首个事件前若超过此时限无响应，抛可重试 GenError */
+/** B-2：chunk 超时——每个事件前若超过此时限无数据，抛可重试 GenError */
 const FIRST_BYTE_TIMEOUT_MS = 60_000
 
-/** 包装 async iterable，在首个事件前加超时（B-2：网络挂起 → 快速失败可重试） */
+/**
+ * 包装 async iterable，对每个 chunk 加超时（B-2：首字节网络挂起 → 快速失败可重试；
+ * P3-8：流中途挂起同样超时，防 provider 发部分数据后静默卡死靠 runner 10min 兜底）。
+ */
 export async function* withFirstByteTimeout(
   source: AsyncIterable<GenEvent>,
   timeoutMs: number,
 ): AsyncGenerator<GenEvent> {
   const it = source[Symbol.asyncIterator]()
-  let firstByteReceived = false
   while (true) {
     const next = it.next()
-    if (!firstByteReceived) {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const timeout = new Promise<IteratorResult<GenEvent>>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new GenError(`首字节超时（${timeoutMs / 1000}s 无响应），服务可能不可达`, true)),
-          timeoutMs,
-        )
-      })
-      try {
-        const result = await Promise.race([next, timeout])
-        if (result.done) { await it.return?.(); return }
-        firstByteReceived = true
-        yield result.value
-      } catch (e) {
-        // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）
-        await it.return?.()
-        throw e
-      } finally {
-        if (timer) clearTimeout(timer)
-      }
-    } else {
-      const result = await next
-      if (result.done) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true)),
+        timeoutMs,
+      )
+    })
+    try {
+      const result = await Promise.race([next, timeout])
+      if (result.done) { await it.return?.(); return }
       yield result.value
+    } catch (e) {
+      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）
+      await it.return?.()
+      throw e
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   }
 }

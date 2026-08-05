@@ -224,7 +224,7 @@ function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   }
 }
 
-/** 第一卷卷纲范例（§17 决策①，与 定稿/正文/第一卷/ 同名关联，开箱引导卷结构）。 */
+/** 第一卷卷纲范例（§17 决策①，与 写作/正文/第一卷/ 同名关联，开箱引导卷结构）。 */
 export function renderVolumeOutlineExample(): string {
   return [
     '# 第一卷 卷纲',

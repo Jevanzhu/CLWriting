@@ -2,7 +2,7 @@
  * 书库文件树扫描 + 构建 + 内存缓存（W2A §6·§9）。
  *
  * 混合模型：目录扫描派生（无 docId），叶子文档合并清单（docId）+ 六态派生（status）。
- * 卷级分层：定稿/正文/<卷>/ 真实磁盘目录，按 localeCompare(zh-Hans-CN) 排序（§6.2，不引入 order）。
+ * 卷级分层：写作/正文/<卷>/ 真实磁盘目录，按 localeCompare(zh-Hans-CN) 排序（§6.2，不引入 order）。
  * 工作区内部目录不进树（W0 §9 注：.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）。
  *
  * BookTreeIndex 进程内缓存：跨请求共享，结构性 mutation 后 invalidateTreeIndex 失效。

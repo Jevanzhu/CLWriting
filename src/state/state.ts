@@ -112,7 +112,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     return { state: 2, parseErrors: rebuildResult.errors }
   }
 
-  // #3 未入账手改（#18 第 3 节）：定稿区/账本区有未 commit 改动
+  // #3 未入账手改（#18 第 3 节）：正文/设定/布线 有未 commit 改动
   // porcelain 格式：XY<空格>path，XY 是 2 字符状态码（" M"=worktree改、"M?"=staged等），path 从第 3 字符起。
   // 手改目录按 kind 适配（M8 #25）：short 看 写作/正文/，long 看 写作/正文/ + 设定/ + 大纲/ + 布线/
   const dirty = statusPorcelain(bookRoot)
@@ -422,7 +422,12 @@ export interface EnterResult {
  */
 export function enter(bookRoot: string): EnterResult {
   const cfgPath = join(bookRoot, 'book.yaml')
-  const { config } = readBookConfig(cfgPath)
+  const cfgResult = readBookConfig(cfgPath)
+  // P3-2：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
+  if (!cfgResult.ok) {
+    console.warn(`[state] book.yaml 解析降级: ${cfgResult.error.message}`)
+  }
+  const { config } = cfgResult
   const detected = detectState(bookRoot, config)
   const route = routeState(detected, config.kind ?? 'long')
   const recap = buildRecap(bookRoot, config, detected)

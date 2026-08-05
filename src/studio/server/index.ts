@@ -165,8 +165,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
         return
       } catch (e) {
         if (!res.headersSent) {
+          // P3-9：不向客户端泄漏 detail（含文件路径等），仅 console.error 留诊断
+          console.error('[api] unhandled error:', e)
           res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ error: '服务器内部错误', detail: e instanceof Error ? e.message : String(e) }))
+          res.end(JSON.stringify({ error: '服务器内部错误' }))
         }
         return
       }

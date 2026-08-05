@@ -1,8 +1,8 @@
 /**
  * 短篇正文元数据读写 —— 依据 M8 #27。
  *
- * 短篇落点：篇/<篇号>-<标题>.md，含 front matter（篇号/标题/目标情绪/核心反转）+ 正文。
- * 清单分离到 清单/<篇号>-<标题>.md（与正文同文件名、不同目录，互不混放）。
+ * 短篇落点：写作/正文/<篇号>-<标题>.md，含 front matter（篇号/标题/目标情绪/核心反转）+ 正文。
+ * 清单分离到 大纲/清单/<篇号>-<标题>.md（与正文同文件名、不同目录，互不混放）。
  * 与长篇 chapters.ts 分轨：短篇目标函数是单篇情绪爆破，字段集不重合（无钩子类型/情绪定位）。
  * 复用 frontmatter.ts 的 readFile/parseFlat/stringifyFlat 容错骨架，零第三方依赖。
  */
@@ -81,8 +81,8 @@ export function parsePieceFileName(fileName: string): { 篇号: number; 标题: 
 }
 
 /**
- * 扫描 篇/ 目录，读所有已定稿篇正文（容错）。
- * 每个 .md 文件 篇/<篇号>-<标题>.md 读正文。
+ * 扫描 写作/正文/ 目录，读所有已定稿篇正文（容错）。
+ * 每个 .md 文件 写作/正文/<篇号>-<标题>.md 读正文。
  */
 export function readPieceDir(
   dirPath: string,
@@ -106,7 +106,7 @@ export function readPieceDir(
 }
 
 /**
- * 扫 篇/ 目录下格式合法的篇文件数（<篇号>-<标题>.md）。
+ * 扫 写作/正文/ 目录下格式合法的篇文件数（<篇号>-<标题>.md）。
  * 与 state.ts countPieces 同口径：只计 `^\d+-*.md` 文件名，不计散文件/隐藏项。
  * state.ts 复用本函数作单源（避免两份计数逻辑漂移）。
  */

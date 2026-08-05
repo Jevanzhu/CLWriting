@@ -193,7 +193,7 @@ export const useDocStore = defineStore('doc', () => {
       return false
     } catch (err) {
       if (err instanceof ApiError && err.code === 'NOT_DRAFT_REGION') {
-        useUiStore().toast('仅定稿区文档可定稿', 'error')
+        useUiStore().toast('仅正文/设定文档可定稿', 'error')
       } else {
         useUiStore().toast(friendlyError(err), 'error')
       }

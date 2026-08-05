@@ -1,7 +1,7 @@
 /**
  * 定稿确认（P1：改稿确认，revision → final）。
  *
- * 作者在 app 里编辑定稿区文件 → 保存（git 变脏 → revision 态）
+ * 作者在 app 里编辑正文/设定文件 → 保存（git 变脏 → revision 态）
  * → 点「定稿」→ git add + commit 精确提交该文件 → git 干净 → 派生回 final。
  *
  * 复用 git/exec.addCommit（commit 消息沿用 `ch:<章号> <标题>` 约定，
@@ -32,10 +32,10 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
-  // 定稿区校验：草稿（写作/草稿/）不可定稿（草稿入卷属 P2，不在本阶段）
+  // 草稿校验：草稿（写作/草稿/）不可定稿（草稿入卷属 P2，不在本阶段）
   const role = roleOf(relPath)
   if (role === 'draft') {
-    return { ok: false, code: 'NOT_DRAFT_REGION', error: '仅正文/设定等定稿区文档可定稿（草稿入卷功能开发中）' }
+    return { ok: false, code: 'NOT_DRAFT_REGION', error: '仅正文/设定等文档可定稿（草稿入卷功能开发中）' }
   }
 
   // 从正文 frontmatter 取章号 + 标题（commit message 用）；解析失败从文件名推断

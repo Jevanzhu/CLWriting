@@ -93,7 +93,7 @@ function onSave(): void {
   void doc.save(e.docId, 'manual')
 }
 
-// 定稿确认：仅定稿区 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）
+// 定稿确认：revision 态正文/设定可定稿（final 已定稿不显；草稿入卷属 P2）
 const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)

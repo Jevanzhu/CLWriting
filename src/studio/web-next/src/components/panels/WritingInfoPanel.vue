@@ -42,7 +42,7 @@ const volumeWords = computed(() => {
   let sum = 0
   const walk = (ns: TreeNode[]) => {
     for (const n of ns) {
-      if (!n.isDirectory && n.role === 'chapter' && n.path.startsWith(volPrefix)) sum += n.wordCount ?? 0
+      if (!n.isDirectory && (n.role === 'chapter' || n.role === 'piece-body') && n.path.startsWith(volPrefix)) sum += n.wordCount ?? 0
       if (n.children.length) walk(n.children)
     }
   }
