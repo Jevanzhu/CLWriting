@@ -17,7 +17,7 @@
  * 幂等：v2 结构已存在 → no-op。server 启动时对每本书库调用一次。
  * 与 migratePieceLayout 同模式：renameSync 原子、目标存在跳过、返回 { migrated, errors }。
  */
-import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync } from 'node:fs'
+import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { readManifest, writeManifest } from '../document/manifest.js'
 
@@ -126,7 +126,13 @@ function moveTree(
     for (const name of readdirSync(oldPath)) {
       const src = join(oldPath, name)
       const dst = join(newPath, name)
-      if (existsSync(dst)) continue // 幂等：同名跳过
+      if (existsSync(dst)) {
+        // 同名子目录 → 递归合并内部文件（D5）；同名文件 → 幂等跳过
+        if (statSync(src).isDirectory() && statSync(dst).isDirectory()) {
+          count += moveTree(bookRoot, `${oldRel}/${name}`, `${newRel}/${name}`, errors)
+        }
+        continue
+      }
       try {
         renameSync(src, dst)
         count++

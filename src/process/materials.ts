@@ -51,13 +51,24 @@ function readChapterBodyByNumber(bookRoot: string, chapter: number): string | nu
   if (!existsSync(bodyDir)) return null
   const padded = String(chapter).padStart(4, '0')
   const candidates = [`${chapter}-`, `${padded}-`]
-  for (const f of readdirSync(bodyDir)) {
-    if (!f.endsWith('.md') || f.startsWith('._')) continue
-    if (candidates.some((p) => f.startsWith(p))) {
-      const r = readFile(join(bodyDir, f))
-      if (r.ok) return r.body
+  return findChapterBodyRecursive(bodyDir, candidates)
+}
+
+/** 递归扫描正文目录（含卷子目录），按文件名前缀匹配章号取正文。
+ *  v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏（D1）。 */
+function findChapterBodyRecursive(dir: string, candidates: string[]): string | null {
+  try {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith('._')) continue
+      if (e.isDirectory()) {
+        const found = findChapterBodyRecursive(join(dir, e.name), candidates)
+        if (found) return found
+      } else if (e.isFile() && e.name.endsWith('.md') && candidates.some((p) => e.name.startsWith(p))) {
+        const r = readFile(join(dir, e.name))
+        if (r.ok) return r.body
+      }
     }
-  }
+  } catch { /* 目录不存在或不可读 → null */ }
   return null
 }
 

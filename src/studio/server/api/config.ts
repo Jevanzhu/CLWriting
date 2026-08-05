@@ -36,6 +36,10 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     const body = await readJson(req)
     const config = body['config'] as BookConfig | undefined
     if (!config || typeof config !== 'object') return reply(res, 400, { error: 'config 必填' })
+    // 结构校验（K6）：防畸形 config 写出损坏的 book.yaml
+    if (typeof config.book?.title !== 'string' || !config.book.title.trim()) {
+      return reply(res, 400, { error: 'config.book.title 必填且须为非空字符串' })
+    }
     try {
       const yaml = stringifyBookConfig(config)
       atomicWriteFile(join(ctx.workDir, entry.path, 'book.yaml'), yaml)

@@ -101,8 +101,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 迁移旧短篇目录结构（篇/N-T/正文.md → 篇/N-T.md + 清单/N-T.md；幂等，无旧结构 no-op）
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
-      migratePieceLayout(join(opts.workDir, book.path))
-      migrateLayoutV2(join(opts.workDir, book.path))
+      const bookPath = join(opts.workDir, book.path)
+      migratePieceLayout(bookPath)
+      const v2Result = migrateLayoutV2(bookPath)
+      if (v2Result.errors.length > 0) {
+        console.error(`[migrate-layout-v2] ${book.path}: ${v2Result.errors.length} 个错误\n${v2Result.errors.join('\n')}`)
+      }
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

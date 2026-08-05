@@ -227,6 +227,8 @@ export async function runTask<T>(opts: {
         }
         // B-1：可重试（429/5xx）且未超限 → 退避后重试
         if (e instanceof GenError && e.retryable && attempt < MAX_RETRIES) {
+          // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
+          trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'RETRYABLE' })
           opts.onReset?.()
           await sleep(BACKOFF_MS[attempt]!, ctrl.signal)
           if (ctrl.signal.aborted) {

@@ -211,6 +211,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
     const mainSession = await ensureSession(bookName, ctx.workDir)
+    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
+    if (isSelfHealRunning(bookName)) {
+      return reply(res, 409, { error: '本书正在全自动写章，先等它跑完或中断' })
+    }
     const driver = getDriver('cc')
     void runSelfHeal({
       driver,
@@ -242,6 +246,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapter = body['chapter'] !== undefined ? Number(body['chapter']) : undefined
 
     const mainSession = await ensureSession(bookName, ctx.workDir)
+    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
+    if (isChatRunning(bookName)) {
+      return reply(res, 409, { error: '本书正在对话中，请等当前对话结束' })
+    }
     const driver = getDriver('cc')
     void runChat({
       driver,
@@ -272,6 +280,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 清空本书对话历史（前端"清空对话"时调）
   route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     clearChatHistory(params['name']!)
     reply(res, 200, { ok: true })
   })

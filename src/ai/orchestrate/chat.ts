@@ -282,9 +282,8 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       const { text, toolCalls, stopReason } = out.data
 
-      // max_tokens → 工具入参可能被截断，绝不执行
+      // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）
       if (stopReason === 'max_tokens') {
-        history.push({ role: 'assistant', content: text })
         histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }

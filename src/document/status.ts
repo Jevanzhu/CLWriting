@@ -34,6 +34,10 @@ export function collectDirtyFiles(bookRoot: string): Set<string> {
     // porcelain 固定宽度：2 状态码 + 1 空格 + path（行首空格是状态码的一部分，不动）
     if (line.length < 4) continue
     let p = line.slice(3)
+    // rename/copy 行含 ` -> ` 分隔符，取新路径（P1-6B）
+    if ((line[0] === 'R' || line[0] === 'C') && p.includes(' -> ')) {
+      p = p.split(' -> ')[1] ?? p
+    }
     if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
     if (p) set.add(p)
   }

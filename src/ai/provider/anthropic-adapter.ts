@@ -97,6 +97,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
       let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens（P2-3）
+      let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
       // 去重：某些上游发重复 message_delta（cc-switch issue 记录的故障）
       // done 幂等，重复到达时忽略
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
@@ -150,23 +151,25 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               break
             }
             case 'message_delta': {
+              // 缓存 stop_reason（即使无 usage 也不丢）——N6
+              if (event.delta?.stop_reason) pendingStopReason = event.delta.stop_reason
               // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）
               if (event.usage) {
                 const usage: TokenUsage = {
                   inputTokens: event.usage.input_tokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? 0,
                 }
-                const ev = emitDone(usage, event.delta?.stop_reason ?? 'end_turn')
+                const ev = emitDone(usage, pendingStopReason ?? 'end_turn')
                 if (ev) yield ev
               }
-              break
+              break;
             }
           }
         }
 
         // 兜底：某些端点可能不推 message_delta usage → 用 message_start 缓存的 input_tokens
         if (!doneEmitted) {
-          const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, 'end_turn')
+          const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, pendingStopReason ?? 'end_turn')
           if (ev) yield ev
         }
       } catch (e) {

@@ -32,7 +32,7 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
-import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter } from '../format/frontmatter.js'
+import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
@@ -384,7 +384,8 @@ export class DocumentService {
       map.set('章号', meta.章号)
     }
     try {
-      writeDoc(abs, stringifyFlat(map), r.body)
+      // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
+      atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), r.body), { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }

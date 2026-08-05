@@ -86,7 +86,7 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
   let cutIdx = 0
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i]!
-    if (m.role === 'user' && typeof m.content === 'string') {
+    if (m.role === 'user') {
       turnBoundaries++
       if (turnBoundaries >= maxTurns) {
         cutIdx = i

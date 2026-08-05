@@ -11,7 +11,7 @@
  * 信封落盘与展示解耦：AI 不可达时存量照常展示，仅「重新分析」置灰（无开关、置灰不隐藏）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, relative, isAbsolute } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
@@ -28,6 +28,14 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
+
+/** 校验 manifest 路径不越出 bookRoot（D3 defense-in-depth） */
+function safeManifestPath(bookRoot: string, rel: string): string | null {
+  if (isAbsolute(rel)) return null
+  const abs = join(bookRoot, rel)
+  if (relative(bookRoot, abs).startsWith('..')) return null
+  return abs
+}
 
 interface AnalysisCtx {
   workDir: string | null
@@ -77,7 +85,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!env) return reply(res, 404, { ok: false, code: 'NO_ENVELOPE', error: '无存量分析' })
 
       // stale：当前正文 hash 与信封 sourceHash 不符 → 过期
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
       let stale = false
       if (existsSync(absPath)) {
         try {
@@ -108,7 +117,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const docId = params['docId'] ?? ''
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       const config = readBookConfig(join(bookRoot, 'book.yaml')).config
@@ -147,7 +157,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const docId = params['docId'] ?? ''
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       const config = readBookConfig(join(bookRoot, 'book.yaml')).config
