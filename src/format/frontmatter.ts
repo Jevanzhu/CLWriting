@@ -29,7 +29,8 @@ export function parseValue(raw: string): unknown {
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
     const inner = trimmed.slice(1, -1).trim()
     if (inner === '') return []
-    return inner.split(',').map((s) => s.trim())
+    // K17：逗号分割时跳过引号内的逗号（如 [科幻, "悬疑,推理"]）
+    return inner.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((s) => s.trim())
   }
 
   // 纯整数（不含小数点、e 等；开启章等字段）

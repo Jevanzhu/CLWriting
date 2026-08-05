@@ -58,8 +58,8 @@ test('evaluateRetry: 已重写 3 次仍红 → escalate（maxAttempts=3 恰好�
 
 test('formatRetryState: 三态人话', () => {
   expect(formatRetryState({ state: 'pass' })).toContain('通过')
-  const retry = formatRetryState({ state: 'retry', attempt: 1, maxAttempts: 3, redFeedback: '修复x' })
+  const retry = formatRetryState({ state: 'retry', attempt: 1, maxAttempts: 3, redFeedback: '修复x', redIssues: ['修复x'] })
   expect(retry).toContain('重写')
-  const escalate = formatRetryState({ state: 'escalate', attempt: 3, redFeedback: '需作者' })
+  const escalate = formatRetryState({ state: 'escalate', attempt: 3, redFeedback: '需作者', redIssues: ['需作者'] })
   expect(escalate).toContain('作者介入')
 })

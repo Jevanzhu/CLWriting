@@ -461,7 +461,7 @@ const recent = computed(() => wb.log.slice(-200))
 .wb-tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--background-modifier-border);
   flex-shrink: 0;
 }
 .wb-tab {
@@ -475,10 +475,10 @@ const recent = computed(() => wb.log.slice(-200))
   transition: var(--dur-fast) var(--ease-out);
 }
 .wb-tab:hover {
-  color: var(--text-default);
+  color: var(--text-normal);
 }
 .wb-tab.active {
-  color: var(--text-default);
+  color: var(--text-normal);
   border-bottom-color: var(--interactive-accent);
 }
 .wb-chat-wrap {
@@ -727,7 +727,7 @@ const recent = computed(() => wb.log.slice(-200))
 }
 .hit {
   padding: 6px 0;
-  border-top: 1px solid var(--border-weak);
+  border-top: 1px solid var(--background-modifier-border);
   font-size: var(--font-size-s);
 }
 .hit:first-of-type {

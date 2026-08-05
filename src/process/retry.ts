@@ -17,8 +17,8 @@ import { formatRedForRewrite } from '../check/report.js'
 /** 自愈打回状态 */
 export type RetryState =
   | { state: 'pass' } // 无红项，放行进三审
-  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string } // 退回重写(attempt=即将进行的第几次重写)
-  | { state: 'escalate'; attempt: number; redFeedback: string } // 超限升级 ask 作者(attempt=已重写次数)
+  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string; redIssues: string[] } // 退回重写(attempt=即将进行的第几次重写)
+  | { state: 'escalate'; attempt: number; redFeedback: string; redIssues: string[] } // 超限升级 ask 作者(attempt=已重写次数)
 
 /**
  * 自愈打回控制。
@@ -39,6 +39,7 @@ export function evaluateRetry(
 
   const redFeedback = formatRedForRewrite(report)
   const reds = getRedItems(report)
+  const redIssues = reds.map((r) => r.message) // K13：结构化数组，消除字符串往返解析
 
   // 已重写满 maxAttempts 次仍红 → 升级 ask 作者
   if (attempt >= maxAttempts) {
@@ -46,6 +47,7 @@ export function evaluateRetry(
       state: 'escalate',
       attempt,
       redFeedback: `已重试 ${attempt} 次仍有 ${reds.length} 条红项，需作者介入：\n${redFeedback}`,
+      redIssues,
     }
   }
 
@@ -55,6 +57,7 @@ export function evaluateRetry(
     attempt: attempt + 1,
     maxAttempts,
     redFeedback,
+    redIssues,
   }
 }
 

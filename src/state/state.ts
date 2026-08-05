@@ -34,10 +34,10 @@ function volumeSizeOf(config: BookConfig): number {
   return typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? size : DEFAULT_VOLUME_SIZE
 }
 
-/** 状态枚举（#15 第 2 节顺序）+ 态 8 待批量审稿（M6 #34）+ 态 5 卷末；CLI 退场无态 6 */
-export type BookState = 1 | 2 | 3 | 4 | 5 | 7 | 8
+/** 状态枚举（#15 第 2 节顺序）+ 态 5 卷末；CLI 退场无态 6/8（M6 #34 未接入主流程） */
+export type BookState = 1 | 2 | 3 | 4 | 5 | 7
 
-/** 态名（人话，#15 第 2 节表）+ 态 8（M6 #34） */
+/** 态名（人话，#15 第 2 节表） */
 export const STATE_NAMES: Record<BookState, string> = {
   1: 'git 健康检查',
   2: '源文件解析失败',
@@ -45,7 +45,6 @@ export const STATE_NAMES: Record<BookState, string> = {
   4: '工作区未完成',
   5: '卷末',
   7: '起草新章',
-  8: '待批量审稿',
 }
 
 /**

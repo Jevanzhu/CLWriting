@@ -226,10 +226,10 @@ function accept(): void {
   word-break: break-all;
 }
 .diff-add {
-  background: rgba(78, 157, 104, 0.1);
+  background: color-mix(in srgb, var(--text-success) 10%, transparent);
 }
 .diff-del {
-  background: rgba(224, 93, 93, 0.1);
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
 }
 .diff-mark {
   flex-shrink: 0;

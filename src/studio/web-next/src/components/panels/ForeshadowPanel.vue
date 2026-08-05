@@ -273,7 +273,7 @@ watch(() => props.bookName, load, { immediate: true })
 .fs-pri {
   font-size: var(--font-size-xxs);
   padding: 1px 4px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-s);
 }
 .p-高 { color: var(--text-error); background: color-mix(in srgb, var(--text-error) 10%, transparent); }
 .p-中 { color: var(--text-warning); background: color-mix(in srgb, var(--text-warning) 10%, transparent); }

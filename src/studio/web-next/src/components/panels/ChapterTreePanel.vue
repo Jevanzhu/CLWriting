@@ -188,6 +188,10 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
   if (node.role === 'piece-body') {
     // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平；path 与长篇同为 写作/正文/）
     items.push({ key: 'meta', label: '篇章信息…' })
+    // 定稿确认：与长篇章一致，仅 revision 态可定稿（D4）
+    if (node.status === 'revision') {
+      items.push({ key: 'finalize', label: '定稿' })
+    }
   } else if (node.path.startsWith('写作/正文/')) {
     items.push({ key: 'meta', label: '章节信息…' })
     // 定稿确认：仅 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）

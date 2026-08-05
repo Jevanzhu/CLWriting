@@ -194,11 +194,11 @@ async function runCheck(): Promise<void> {
   line-height: 1.5;
 }
 .check-item--red {
-  background: rgba(224, 93, 93, 0.08);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
   border-left: 2px solid var(--text-error);
 }
 .check-item--yellow {
-  background: rgba(201, 162, 58, 0.08);
+  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
   border-left: 2px solid var(--text-warning);
 }
 .item-msg {

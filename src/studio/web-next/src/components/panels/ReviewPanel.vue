@@ -277,11 +277,11 @@ function severityLabel(s: string): string {
   color: var(--text-muted);
 }
 .verdict-pass {
-  background: rgba(78, 157, 104, 0.15);
+  background: color-mix(in srgb, var(--text-success) 15%, transparent);
   color: var(--dv-good);
 }
 .verdict-reject {
-  background: rgba(224, 93, 93, 0.15);
+  background: color-mix(in srgb, var(--text-error) 15%, transparent);
   color: var(--text-error);
 }
 .rev-verdict-actions {
@@ -342,11 +342,11 @@ function severityLabel(s: string): string {
   line-height: 1.5;
 }
 .rev-item--red {
-  background: rgba(224, 93, 93, 0.08);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
   border-left: 2px solid var(--text-error);
 }
 .rev-item--yellow {
-  background: rgba(201, 162, 58, 0.08);
+  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
   border-left: 2px solid var(--text-warning);
 }
 .item-head {

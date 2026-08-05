@@ -137,8 +137,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
     const outcome = check(draftPath)
 
-    let feedback: string
     let reds: string[]
+    let redIssues: string[] // K13：结构化红项数组（消除字符串往返）
     let chapterNo = chapter
 
     if (outcome.ok) {
@@ -161,17 +161,17 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
           attempts: attempt,
         }
       }
-      feedback = st.redFeedback
+      redIssues = st.redIssues
       reds = redMessages(outcome)
     } else {
       // tool_use 契约下 fm 漂移不应出现；但保留降级处理
       if (outcome.code !== 'NOT_CHAPTER') return { outcome: 'failed', error: outcome.error }
       reds = [`草稿格式不合规：${outcome.error}`]
+      redIssues = reds
       if (attempt >= maxAttempts) {
         const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
         return { outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
-      feedback = `请修复以下红项后重写：\n- ${reds[0]}`
     }
 
     // ③ 退回重写（C-1：预算闸——超限则 escalate，保留当前稿）
@@ -190,7 +190,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     recordRuleHits(bookRoot, ruleViolations)
     // 红项 [必须] / 黄项 [建议]：AI 能区分硬性错误与文风建议（优先级不同取舍）
     const allIssues = [
-      ...feedbackToIssues(feedback).map((s) => `[必须] ${s}`),
+      ...redIssues.map((s) => `[必须] ${s}`),
       ...ruleViolations.map((v) => `[建议] ${v.message}`),
     ]
 
@@ -314,16 +314,6 @@ function checkWithFreshDb(
 
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
   return getRedItems(outcome.report).map((i) => i.message)
-}
-
-function feedbackToIssues(feedback: string): string[] {
-  const items = feedback
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith('- '))
-    .map((l) => l.slice(2).trim())
-    .filter(Boolean)
-  return items.length > 0 ? items : [feedback.trim()]
 }
 
 /** 规则检验只查正文（剥离 front matter，避免 fm 短行污染文风指纹） */
