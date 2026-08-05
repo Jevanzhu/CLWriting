@@ -73,3 +73,21 @@ test('P1-2 dispose: session 关闭时 abort 已登记 ctrl', async () => {
   expect(ctrl.signal.aborted).toBe(true)
   expect(ccDriver.isRunning!(session)).toBe(false)
 })
+
+test('P2-6 回归: 同一 ctrl 重复登记幂等，不 abort 自己（chat 多轮循环每轮注册）', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  // 第一轮登记
+  ccDriver.registerCtrl!(session, ctrl)
+  expect(ctrl.signal.aborted).toBe(false)
+  // 第二轮（模拟 chat 下一轮循环）——同引用，不得自 abort
+  ccDriver.registerCtrl!(session, ctrl)
+  expect(ctrl.signal.aborted).toBe(false)
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  // 换新 ctrl 时旧的才被 abort（P2-6 原意图仍保留）
+  const ctrl2 = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl2)
+  expect(ctrl.signal.aborted).toBe(true)
+  expect(ctrl2.signal.aborted).toBe(false)
+  ccDriver.dispose(session)
+})

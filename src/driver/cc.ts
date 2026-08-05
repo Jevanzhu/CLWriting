@@ -83,8 +83,10 @@ export const ccDriver: StudioDriver = {
 
   // P1-2：编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效
   registerCtrl(session: Session, ctrl: AbortController): void {
-    // P2-6：覆盖前先 abort 旧的（防并发时前者变不可中断僵尸）
+    // 同一 ctrl 重复登记（chat/self-heal 多轮循环每轮都注册同一个）→ 幂等跳过，不自 abort
     const old = sessionCtrl.get(session.id)
+    if (old === ctrl) return
+    // P2-6：换新 ctrl 时先 abort 旧的（防并发时前者变不可中断僵尸）
     if (old && !old.signal.aborted) old.abort()
     sessionCtrl.set(session.id, ctrl)
   },
