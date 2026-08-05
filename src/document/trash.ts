@@ -13,7 +13,7 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, realpathSync } from 'node:fs'
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
@@ -160,6 +160,13 @@ function safePathWithin(bookRoot: string, rel: string): string | null {
   if (isAbsolute(rel)) return null
   const abs = join(bookRoot, rel)
   if (relative(bookRoot, abs).startsWith('..')) return null
+  // P2：symlink 防御——realpath 仍须在 bookRoot 内（两边都 realpath 防 macOS /var → /private/var 前缀差异）
+  try {
+    if (existsSync(abs)) {
+      const realRoot = realpathSync(bookRoot)
+      if (relative(realRoot, realpathSync(abs)).startsWith('..')) return null
+    }
+  } catch { /* lstat 失败 → 放行（后续操作兜底） */ }
   return abs
 }
 

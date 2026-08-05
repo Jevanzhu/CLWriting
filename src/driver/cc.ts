@@ -83,6 +83,9 @@ export const ccDriver: StudioDriver = {
 
   // P1-2：编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效
   registerCtrl(session: Session, ctrl: AbortController): void {
+    // P2-6：覆盖前先 abort 旧的（防并发时前者变不可中断僵尸）
+    const old = sessionCtrl.get(session.id)
+    if (old && !old.signal.aborted) old.abort()
     sessionCtrl.set(session.id, ctrl)
   },
 

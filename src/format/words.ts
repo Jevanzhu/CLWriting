@@ -7,7 +7,7 @@
 
 /** 计算正文字数（中文按字符计，#7 第 2 节）：剥 markdown 标记后按字符计。frontmatter 由调用方先剥。 */
 export function countWords(body: string): number {
-  return body.replace(/[#>*_`~\-\[\]()!\s]/g, '').length
+  return [...body.replace(/[#>*_`~\-\[\]()!\s]/g, '')].length
 }
 
 /** 去目录 + 去 .md 扩展（替代 node:path.basename，零 Node 依赖）。 */

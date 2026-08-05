@@ -68,6 +68,7 @@ export function rebuild(
 
   // 建库（如果 db 文件不存在，DatabaseSync 会创建）
   const db = new DatabaseSync(cachePath)
+  db.exec('PRAGMA busy_timeout = 5000') // P2-5：并发 rebuild 等 5s 而非立即 SQLITE_BUSY
   db.exec('BEGIN') // 原子重建
   try {
     createAllTables(db)

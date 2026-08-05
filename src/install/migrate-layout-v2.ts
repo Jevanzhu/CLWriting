@@ -55,6 +55,7 @@ function migratePath(oldPath: string): string {
   if (oldPath.startsWith('篇/')) return '写作/正文/' + oldPath.slice('篇/'.length)
   if (oldPath.startsWith('清单/')) return '大纲/清单/' + oldPath.slice('清单/'.length)
   if (oldPath.startsWith('定稿/设定/')) return '设定/' + oldPath.slice('定稿/设定/'.length)
+  if (oldPath.startsWith('大纲/伏笔/')) return '设定/伏笔/' + oldPath.slice('大纲/伏笔/'.length) // P2：伏笔迁移路径同步
   if (/^工作区\/(草稿-\d+|细纲)\.md$/.test(oldPath)) return '写作/草稿/' + oldPath.slice('工作区/'.length)
   for (const lead of LEADS_TO_MOVE) {
     const prefix = `大纲/${lead}/`

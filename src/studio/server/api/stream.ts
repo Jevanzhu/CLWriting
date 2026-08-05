@@ -121,9 +121,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
     const iter = driver.stream(session) as AsyncGenerator<DriverEvent>
-    // 前端断开 → 中止迭代(释放 mock waiter)
+    // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
+    const heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
+    // 前端断开 → 中止迭代 + 中断 AI 编排（防继续烧 token）
     req.on('close', () => {
+      clearInterval(heartbeat)
       void iter.return(undefined)
+      const name = params['name']!
+      if (isSelfHealRunning(name)) abortSelfHeal(name)
+      if (isChatRunning(name)) abortChat(name)
     })
     // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）
     const safeWrite = (chunk: string): void => {
@@ -143,6 +149,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         })}\n\n`,
       )
     }
+    clearInterval(heartbeat)
     if (!res.writableEnded) res.end()
   })
 
@@ -281,7 +288,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   // 清空本书对话历史（前端"清空对话"时调）
   route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    clearChatHistory(params['name']!)
+    const bookName = params['name']!
+    if (isChatRunning(bookName)) return reply(res, 409, { error: '对话进行中，请先停止再清空' })
+    clearChatHistory(bookName)
     reply(res, 200, { ok: true })
   })
 }
