@@ -127,6 +127,8 @@ export async function runTask<T>(opts: {
   register?: (ctrl: AbortController) => void
   /** 重试前调用（让调用方推 reset 事件清前端缓冲；无产出时调用亦无害） */
   onReset?: () => void
+  /** 重试回调（429/5xx 等可重试错误退避前触发）——调用方推 warning 告知前端「AI 响应异常，即将重试」 */
+  onRetry?: (attempt: number, error: string) => void
   run: (provider: ModelProvider, signal: AbortSignal, tier: TierSlot) => Promise<T>
   /** 任务名（trace + 记账用，如 'self-heal' / 'analysis'） */
   task?: string
@@ -229,6 +231,8 @@ export async function runTask<T>(opts: {
         if (e instanceof GenError && e.retryable && attempt < MAX_RETRIES) {
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'RETRYABLE' })
+          // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
+          opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
           await sleep(BACKOFF_MS[attempt]!, ctrl.signal)
           if (ctrl.signal.aborted) {

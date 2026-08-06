@@ -51,6 +51,8 @@ export interface SpecOpts {
   register?: (ctrl: AbortController) => void
   /** 重试前回调（推 reset 事件清前端缓冲） */
   onReset?: () => void
+  /** 重试回调（可重试错误退避前触发）——推 warning 告知前端「AI 响应异常，重试中」 */
+  onRetry?: (attempt: number, error: string) => void
   /** 文本增量回调（SSE 逐字转发） */
   onText?: (delta: string) => void
   /** 覆盖 spec.systemPrompt（动态场景如 stream 的 role 切换） */
@@ -97,6 +99,7 @@ export async function runSpec(
     ctrl: opts.ctrl,
     register: opts.register,
     onReset: opts.onReset,
+    onRetry: opts.onRetry,
     ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
     ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } as unknown as SpecOutput } : {}),
     run: async (provider, signal, tier) => {

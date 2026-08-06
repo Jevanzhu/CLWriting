@@ -267,6 +267,12 @@ async function runGenerate(
     ctrl: state.ctrl,
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
     onText: (delta) => emit(opts, { type: 'text', text: delta }),
+    // Bug C：provider 重试（429/5xx）时推 warning——前端可见「响应异常，重试中」，不再静默卡死
+    onRetry: (attempt, error) =>
+      emit(opts, {
+        type: 'warning',
+        message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…`,
+      }),
   })
 
   if (!out.ok) {

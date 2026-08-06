@@ -176,4 +176,43 @@ describe('runTask B-1 指数退避重试', () => {
     expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
     expect(calls).toBe(1) // 不重试
   })
+
+  it('Bug C 回归: 可重试错误时 onRetry 回调触发（带 attempt 编号 + 错误文案）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const retries: Array<{ attempt: number; error: string }> = []
+    const out = await runTask<string>({
+      userDataPath: ud,
+      onRetry: (attempt, error) => retries.push({ attempt, error }),
+      run: () => {
+        calls++
+        if (calls < 3) throw new GenError('429 limit', true)
+        return Promise.resolve('ok')
+      },
+    })
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.data).toBe('ok')
+    expect(calls).toBe(3)
+    // 两次重试，attempt 从 0 计数，错误文案透传
+    expect(retries).toEqual([
+      { attempt: 0, error: '429 limit' },
+      { attempt: 1, error: '429 limit' },
+    ])
+  }, 10_000)
+
+  it('Bug C 回归: 成功无重试时不触发 onRetry', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let triggered = false
+    const out = await runTask<string>({
+      userDataPath: ud,
+      onRetry: () => {
+        triggered = true
+      },
+      run: () => Promise.resolve('ok'),
+    })
+    expect(out.ok).toBe(true)
+    expect(triggered).toBe(false)
+  })
 })
