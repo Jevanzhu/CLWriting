@@ -14,7 +14,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 虚拟分组：写作（正文卷章+短篇篇+草稿）/ 大纲 / 设定（提升根级）/ 文风。 */
+  /** 虚拟分组：写作（正文卷章+短篇篇）/ 大纲 / 设定（提升根级）/ 文风。 */
   const grouped = computed(() => groupTree(raw.value))
 
   /** path → node 索引（在 grouped 上建，含虚拟组）。 */
@@ -56,12 +56,12 @@ export const useTreeStore = defineStore('tree', () => {
     return sum
   }
 
-  const WORD_ALL = new Set(['chapter', 'piece-body', 'draft'])
+  const WORD_ALL = new Set(['chapter', 'piece-body'])
   const WORD_FINAL = new Set(['chapter', 'piece-body'])
 
-  /** 全书已写字数（chapter+piece-body+draft，含草稿）。 */
+  /** 全书已写字数（chapter+piece-body）。 */
   const totalWords = computed(() => sumWords(raw.value, WORD_ALL))
-  /** 全书已定稿字数（chapter+piece-body，不含草稿）。 */
+  /** 全书已定稿字数（chapter+piece-body）。 */
   const finalizedWords = computed(() => sumWords(raw.value, WORD_FINAL))
 
   /** save 后局部更新某叶子字数（避免重拉整树）。 */

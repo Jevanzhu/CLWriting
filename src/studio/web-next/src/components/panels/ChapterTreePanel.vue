@@ -490,18 +490,18 @@ async function doCopy(node: TreeNode): Promise<void> {
   }
 }
 
-/** 收集所有目录路径（首次打开全展开用） */
-function collectAllDirs(nodes: TreeNode[]): string[] {
+/** 默认展开：一级目录 + 写作/正文（正文是作者主战场，二级也展开） */
+function defaultExpandedDirs(nodes: TreeNode[]): string[] {
   const dirs: string[] = []
-  function walk(ns: TreeNode[]): void {
-    for (const n of ns) {
-      if (n.isDirectory) {
-        dirs.push(n.path)
-        walk(n.children)
+  for (const n of nodes) {
+    if (!n.isDirectory) continue
+    dirs.push(n.path)
+    if (n.path === '写作') {
+      for (const c of n.children) {
+        if (c.isDirectory && c.path === '写作/正文') dirs.push(c.path)
       }
     }
   }
-  walk(nodes)
   return dirs
 }
 
@@ -510,9 +510,9 @@ watch(
   async (name) => {
     if (!name) return
     await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
-    // 首次打开（无持久化展开状态）→ 全展开
+    // 首次打开（无持久化展开状态）→ 一级目录 + 写作/正文
     if (ws.treeExpanded.length <= 1) {
-      ws.treeExpanded = collectAllDirs(tree.grouped)
+      ws.treeExpanded = defaultExpandedDirs(tree.grouped)
     }
     // 今日基线：tree.load 后 totalWords 已就绪（§5.4），不阻塞树渲染
     void words.ensureBaseline(name)

@@ -23,8 +23,7 @@ const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (isBodyKind(node.value.path)) return true
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
+  return isBodyKind(node.value.path)
 })
 
 // ── 章节标签分析（AI → fm；展示在 MetaFormPanel 章节信息）──

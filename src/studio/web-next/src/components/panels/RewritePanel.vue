@@ -8,7 +8,7 @@ import { useRewriteStore } from '../../stores/rewrite'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isBodyKind } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
 const rewrite = useRewriteStore()
@@ -21,7 +21,7 @@ const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undef
 const isReviewable = computed(() => {
   if (!node.value) return false
   if (formKindOf(node.value.path) !== null) return true
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
+  return isBodyKind(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)
 

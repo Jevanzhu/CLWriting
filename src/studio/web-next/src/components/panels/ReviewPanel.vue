@@ -20,8 +20,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isReviewable = computed(() => {
   if (!node.value) return false
-  if (isBodyKind(node.value.path)) return true
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
+  return isBodyKind(node.value.path)
 })
 const aiOff = computed(() => ui.aiAvailable === false)
 

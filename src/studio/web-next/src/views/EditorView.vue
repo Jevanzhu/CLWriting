@@ -30,7 +30,7 @@ const aiOff = computed(() => ui.aiAvailable === false)
 const isReviewable = computed(() => {
   if (!entry.value) return false
   if (formKindOf(entry.value.path) !== null) return true
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(entry.value.path)
+  return isBodyKind(entry.value.path)
 })
 
 // 面包屑：文档路径到父目录（末级=文件名=标题，不重复）
@@ -547,6 +547,9 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-normal);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;

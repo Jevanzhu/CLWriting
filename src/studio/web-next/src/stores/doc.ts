@@ -20,10 +20,9 @@ import type { TreeNode } from '../types/tree'
 import { isBodyKind } from '../shared/words'
 import { friendlyError } from '../shared/error'
 
-/** 编辑模式：正文/草稿 = text（纯文本不高亮），设定/大纲/其他 = md（语法高亮）。 */
+/** 编辑模式：正文 = text（纯文本不高亮），设定/大纲/其他 = md（语法高亮）。 */
 function modeOf(path: string): 'text' | 'md' {
   if (isBodyKind(path)) return 'text'
-  if (/^写作\/草稿\/草稿-\d+\.md$/.test(path)) return 'text'
   return 'md'
 }
 

@@ -48,13 +48,12 @@ const formSectionTitle = computed(() => {
 })
 /** 折叠区标题：有表单 → "章节信息"/"章纲信息"…；无表单 → "写作信息" */
 const sectionTitle = computed(() => (showOutlineForm.value ? formSectionTitle.value : '写作信息'))
-/** 正文/草稿才显示 AI 分析区（与 AnalysisPanel 内部 isReviewable 一致）。 */
+/** 正文才显示 AI 分析区（与 AnalysisPanel 内部 isReviewable 一致）。 */
 const isReviewable = computed(() => {
   if (!ws.activeDocId) return false
   const node = tree.byDocId.get(ws.activeDocId)
   if (!node) return false
-  if (isBodyKind(node.path)) return true
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.path)
+  return isBodyKind(node.path)
 })
 </script>
 

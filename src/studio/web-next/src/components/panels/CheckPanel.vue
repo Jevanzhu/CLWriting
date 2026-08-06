@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 机检面板（M12 块3 B3.2）：本地规则检查，无 AI 依赖，断网可用。
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
-// 仅对正文章节 / 草稿启用（章纲/设定/卷纲等机检无意义）。
+// 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
 import { computed } from 'vue'
 import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 'lucide-vue-next'
 import { useCheckStore } from '../../stores/check'
@@ -18,9 +18,7 @@ const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
 const isCheckable = computed(() => {
   if (!node.value) return false
-  if (isBodyKind(node.value.path)) return true
-  // 草稿（写作/草稿/草稿-N.md）也可机检
-  return /^写作\/草稿\/草稿-\d+\.md$/.test(node.value.path)
+  return isBodyKind(node.value.path)
 })
 
 async function runCheck(): Promise<void> {
