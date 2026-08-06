@@ -15,6 +15,14 @@ import {
   updateChapterMetaDoc,
 } from '../../api/documents'
 import { parseChapterFileName } from '../../shared/words'
+import {
+  chapterTemplate,
+  chapterOutlineTemplate,
+  volumeOutlineTemplate,
+  characterTemplate,
+  itemTemplate,
+  foreshadowTemplate,
+} from '../../shared/templates'
 import ContextMenu, { type MenuItem } from '../ui/ContextMenu.vue'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import ChapterTreeItem from './ChapterTreeItem.vue'
@@ -148,25 +156,54 @@ function moveToTargets(node: TreeNode): { label: string; dir: string }[] {
 }
 
 // --- 菜单生成（五类，移植旧 FileTree.buildMenuItems）---
+/** 正文区新建选项（卷/章节） */
+const NEW_BODY: MenuItem[] = [
+  { key: 'new-volume', label: '卷' },
+  { key: 'new-chapter-root', label: '章节' },
+]
+/** 大纲区新建选项（章纲/卷纲/总纲） */
+const NEW_OUTLINE: MenuItem[] = [
+  { key: 'new-chapter-outline', label: '章纲' },
+  { key: 'new-volume-outline', label: '卷纲' },
+  { key: 'new-synopsis', label: '总纲' },
+]
+/** 设定区新建选项（角色/物品/世界观/伏笔） */
+const NEW_SETTINGS: MenuItem[] = [
+  { key: 'new-character', label: '角色' },
+  { key: 'new-item', label: '物品' },
+  { key: 'new-worldview', label: '世界观' },
+  { key: 'new-foreshadow', label: '伏笔' },
+]
+/** 空白处全量新建选项（正文/大纲/设定三组用分隔线隔开，不搞子菜单嵌套） */
+const NEW_BLANK: MenuItem[] = [
+  ...NEW_BODY,
+  { key: 'sep-1', label: '', separator: true },
+  ...NEW_OUTLINE,
+  { key: 'sep-2', label: '', separator: true },
+  ...NEW_SETTINGS,
+]
+
 function buildMenuItems(node: TreeNode): MenuItem[] {
   const p = node.path
   if (node.isDirectory && isVolumeDir(p)) {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter', label: '章节' }] }]
   }
   if (p === '写作/正文' || p === '写作') {
-    return [
-      {
-        key: 'new',
-        label: '新建',
-        submenu: [
-          { key: 'new-volume', label: '卷' },
-          { key: 'new-chapter-root', label: '章节' },
-        ],
-      },
-    ]
+    return [{ key: 'new', label: '新建', submenu: NEW_BODY }]
+  }
+  // 大纲根：章纲/卷纲/总纲（单例总纲只在根/空白处提供，不进具体子目录）
+  if (node.isDirectory && p === '大纲') {
+    return [{ key: 'new', label: '新建', submenu: NEW_OUTLINE }]
   }
   if (node.isDirectory && p === '大纲/章纲') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter-outline', label: '章纲' }] }]
+  }
+  if (node.isDirectory && p === '大纲/卷纲') {
+    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-volume-outline', label: '卷纲' }] }]
+  }
+  // 设定根：角色/物品/世界观/伏笔（单例世界观只在根/空白处提供）
+  if (node.isDirectory && p === '设定') {
+    return [{ key: 'new', label: '新建', submenu: NEW_SETTINGS }]
   }
   if (node.isDirectory && p === '设定/角色') {
     return [{ key: 'new', label: '新建', submenu: [{ key: 'new-character', label: '角色' }] }]
@@ -226,21 +263,7 @@ function onBlankContextMenu(e: MouseEvent): void {
   if ((e.target as HTMLElement).closest('.tree-item')) return
   e.preventDefault()
   menuNode.value = null
-  popup(
-    [
-      {
-        key: 'new',
-        label: '新建',
-        submenu: [
-          { key: 'new-volume', label: '卷' },
-          { key: 'new-chapter-root', label: '章节' },
-        ],
-      },
-    ],
-    e.clientX,
-    e.clientY,
-    onMenuSelect,
-  )
+  popup([{ key: 'new', label: '新建', submenu: NEW_BLANK }], e.clientX, e.clientY, onMenuSelect)
 }
 
 // --- 菜单动作分发 ---
@@ -250,6 +273,9 @@ function onMenuSelect(key: string): void {
     const vol = lastVolumePath()
     return startCreate('chapter', vol ?? '写作', vol ?? '写作/正文')
   }
+  // 单例新建（总纲/世界观）：不依赖右键目标，空白处也可触发 → 放 menuNode 判断前
+  if (key === 'new-synopsis') return void createSingleton('大纲/总纲.md', '总纲')
+  if (key === 'new-worldview') return void createSingleton('设定/世界观.md', '世界观')
   if (key.startsWith('move:')) {
     const node = menuNode.value
     if (node?.docId) void doMove(node.docId, key.slice('move:'.length))
@@ -258,7 +284,9 @@ function onMenuSelect(key: string): void {
   const node = menuNode.value
   if (!node) return
   if (key === 'new-chapter') startCreate('chapter', node.path, node.path)
-  else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path)
+  // 章纲/卷纲：大纲根右键落标准子目录；子目录右键就地建（对齐 dispatchCreate 固定 fsDir）
+  else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path === '大纲' ? '大纲/章纲' : node.path)
+  else if (key === 'new-volume-outline') startCreate('volume-outline', node.path, node.path === '大纲' ? '大纲/卷纲' : node.path)
   else if (key === 'new-character') startCreate('character', node.path, node.path)
   else if (key === 'new-item') startCreate('item', node.path, node.path)
   else if (key === 'new-foreshadow') startCreate('foreshadow', node.path, node.path)
@@ -395,8 +423,10 @@ async function onCreateCommit(value: string): Promise<void> {
     c.kind === 'volume'
       ? `${c.fsDir}/${name}/${nextChapterNo()}-未命名.md`
       : `${c.fsDir}/${name}.md`
+  // 按类型给初始模板（C5，降低空白页阻力）；volume=建卷即建首章，首章空正文即可
+  const content = buildCreateContent(c.kind, name, c.seed, relPath)
   try {
-    const r = await createDoc(props.bookName, { relPath })
+    const r = await createDoc(props.bookName, { relPath, ...(content ? { content } : {}) })
     await tree.load(props.bookName)
     const fresh = tree.byPath.get(r.path)
     if (fresh?.docId) {
@@ -405,6 +435,39 @@ async function onCreateCommit(value: string): Promise<void> {
     }
   } catch (e) {
     openError.value = friendlyError(e)
+  }
+}
+
+/** 按新建类型组装初始模板内容（无模板类型返回 undefined → 后端默认空 front matter）。 */
+function buildCreateContent(
+  kind: Exclude<Creating, null>['kind'],
+  name: string,
+  seed: string,
+  _relPath: string,
+): string | undefined {
+  switch (kind) {
+    case 'chapter': {
+      const no = extractChapterNo(`${nextChapterNo()}-${name}`) ?? extractChapterNo(seed) ?? 1
+      return chapterTemplate(no, name)
+    }
+    case 'chapter-outline': {
+      const no = extractChapterNo(seed) ?? 1
+      return chapterOutlineTemplate(no, name)
+    }
+    case 'volume-outline': {
+      const m = seed.match(/第(\d+)卷/)
+      const vol = m ? Number(m[1]) : volumeCount() + 1
+      return volumeOutlineTemplate(vol)
+    }
+    case 'character':
+      return characterTemplate(name)
+    case 'item':
+      return itemTemplate(name)
+    case 'foreshadow':
+      return foreshadowTemplate(nextChapterNo())
+    // volume / doc：建卷自带首章（空正文）；通用文档无模板
+    default:
+      return undefined
   }
 }
 function onCreateCancel(): void {
