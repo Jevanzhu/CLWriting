@@ -504,7 +504,7 @@ function distMax(g: DistGroup): number {
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--interactive-accent) 30%, transparent));
 }
 .ring-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 1px; }
-.rl-num { font-size: 24px; font-weight: 700; color: var(--text-normal); }
+.rl-num { font-size: var(--font-size-2xl); font-weight: 700; color: var(--text-normal); }
 .rl-pct { font-size: var(--font-size-m); color: var(--text-faint); }
 
 /* KPI stat tiles */
@@ -517,7 +517,7 @@ function distMax(g: DistGroup): number {
 }
 .kpi-val { display: block; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-normal); line-height: 1.1; }
 .kpi-hero .kpi-val { color: var(--text-accent); }
-.kpi-unit { font-size: 13px; font-weight: 500; color: var(--text-muted); margin-left: 3px; }
+.kpi-unit { font-size: var(--font-size-m); font-weight: 500; color: var(--text-muted); margin-left: 3px; }
 .kpi-label { display: block; font-size: var(--font-size-xs); color: var(--text-muted); margin-top: 5px; }
 
 /* 底部 */

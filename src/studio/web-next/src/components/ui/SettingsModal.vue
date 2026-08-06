@@ -621,7 +621,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 /* ── 分组标题 ── */
 .group-title {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -673,7 +673,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 /* 配置归属标签（::after 由 data-tab-scope 驱动，非 .sub 项才显示） */
 .settings-content[data-tab-scope] .setting-item:not(.sub) .setting-item-name::after {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 99px;
@@ -701,7 +701,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .scope-btn {
   margin-left: 8px;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   border: 1px solid var(--background-modifier-border);
   border-radius: 99px;

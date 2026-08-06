@@ -426,7 +426,7 @@ function timeAgo(ts: number | undefined): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -440,7 +440,7 @@ function timeAgo(ts: number | undefined): string {
   align-items: center;
   gap: 4px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   border: 1px solid var(--background-modifier-border);
   border-radius: 99px;
@@ -562,7 +562,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .tag {
   padding: 1px 7px;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   border-radius: 99px;
   background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
@@ -574,7 +574,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .key {
   font-family: var(--font-monospace);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 
@@ -586,7 +586,7 @@ function timeAgo(ts: number | undefined): string {
   margin-top: 6px;
 }
 .caps-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 99px;
@@ -600,7 +600,7 @@ function timeAgo(ts: number | undefined): string {
   color: var(--dv-bad);
 }
 .probed-at {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
 }
 
@@ -609,7 +609,7 @@ function timeAgo(ts: number | undefined): string {
   align-items: center;
   gap: 5px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-orange, var(--text-muted));
 }
 
@@ -619,7 +619,7 @@ function timeAgo(ts: number | undefined): string {
   padding: 6px 10px;
   border-radius: var(--radius-s);
   background: var(--background-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .test-detail.fail {
@@ -696,7 +696,7 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-normal);
 }
 .preset-hint {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 
@@ -765,7 +765,7 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-normal);
 }
 .tier-desc {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .tier-toggle {

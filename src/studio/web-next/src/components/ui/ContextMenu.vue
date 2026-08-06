@@ -175,9 +175,9 @@ function onSelect(key: string): void {
   width: 100%;
   text-align: left;
   padding: 4px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-m);
   line-height: 18px;
-  color: #1d1d1f;
+  color: var(--text-normal);
   background: transparent;
   border: none;
   border-radius: 5px;
@@ -185,21 +185,21 @@ function onSelect(key: string): void {
   transition: background var(--dur-fast) var(--ease-out);
 }
 [data-theme='dark'] .cm-item {
-  color: #e5e5e7;
+  color: var(--text-normal);
 }
 .cm-item:hover {
-  background: #0a84ff;
-  color: #fff;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 .cm-item.danger {
-  color: #d63031;
+  color: var(--text-error);
 }
 [data-theme='dark'] .cm-item.danger {
-  color: #ff6b6b;
+  color: var(--text-error);
 }
 .cm-item.danger:hover {
-  background: #d63031;
-  color: #fff;
+  background: var(--text-error);
+  color: var(--text-on-accent);
 }
 .cm-item.disabled {
   opacity: 0.35;
@@ -215,7 +215,7 @@ function onSelect(key: string): void {
 .cm-shortcut {
   flex-shrink: 0;
   opacity: 0.42;
-  font-size: 12px;
+  font-size: var(--font-size-s);
   font-variant-numeric: tabular-nums;
 }
 .cm-item:hover .cm-shortcut {
@@ -237,7 +237,7 @@ function onSelect(key: string): void {
   gap: 16px;
 }
 .cm-caret {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   opacity: 0.4;
 }
 .cm-submenu {

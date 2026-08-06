@@ -746,7 +746,7 @@ function avg(series: number[]): number {
 
 /* ══ token 徽标（零 token / 耗 token 区分同名打架）══ */
 .token-chip {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   padding: 1px 7px;
   border-radius: 99px;
   font-weight: 600;
@@ -985,7 +985,7 @@ function avg(series: number[]): number {
 
 /* 类型徽标（样章紫/手法绿/反例橙/禁词红） */
 .kind-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 99px;
@@ -1082,7 +1082,7 @@ function avg(series: number[]): number {
   border-color: color-mix(in srgb, var(--text-accent) 25%, var(--background-modifier-border));
 }
 .cc-side-label {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   color: var(--text-faint);
   margin-bottom: 4px;

@@ -244,7 +244,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 }
 .dd-sep {
   padding: 7px 10px 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
   letter-spacing: 0.04em;
   user-select: none;

@@ -180,7 +180,7 @@ async function onAutoWrite(): Promise<void> {
   }
 }
 
-// P1-3：AI 生成本章细纲（写作/草稿/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
+// P1-3：AI 生成本章细纲（工作区/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
 async function onOutline(): Promise<void> {
   err.value = null
   try {
@@ -567,7 +567,7 @@ const recent = computed(() => wb.log.slice(-200))
   color: var(--text-normal);
 }
 .tier-meta {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
 .spawn-row {
