@@ -44,3 +44,24 @@ export async function restoreSnapshot(
     },
   )
 }
+
+/** 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数。 */
+export interface VersionStats {
+  snapshotBytes: number
+  snapshotCount: number
+  pinnedCount: number
+  finalizedDocs: number
+}
+
+// GET /api/books/:name/version-stats → 版本历史 tab 统计
+export async function getVersionStats(name: string): Promise<VersionStats> {
+  const r = await apiJson<{ ok: true } & VersionStats>(
+    `/api/books/${encodeURIComponent(name)}/version-stats`,
+  )
+  return {
+    snapshotBytes: r.snapshotBytes,
+    snapshotCount: r.snapshotCount,
+    pinnedCount: r.pinnedCount,
+    finalizedDocs: r.finalizedDocs,
+  }
+}

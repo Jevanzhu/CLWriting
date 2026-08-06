@@ -64,4 +64,10 @@ describe('关系类型规范化 normalizeRelationType', () => {
     expect(normalizeRelationType('宿敌')).toBe('仇敌')
     expect(normalizeRelationType('挚友')).toBe('挚友')
   })
+  it('AI 产出的完整短语会被压平（跳过规范化的原因）', () => {
+    // 这些是 AI 梳理产出的典型完整短语，经规范化后细节丢失
+    expect(normalizeRelationType('旧时婚约')).toBe('夫妻')
+    expect(normalizeRelationType('授业恩师')).toBe('师徒')
+    expect(normalizeRelationType('同门师兄')).toBe('师徒')
+  })
 })

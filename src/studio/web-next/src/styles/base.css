@@ -155,3 +155,24 @@ button:disabled {
     animation: none !important;
   }
 }
+
+/* ── 紧凑模式（prefs.compact 挂 <html>.compact）──
+   只收窄高频间距：树行高 / 树分组间距 / 侧栏内边距。组件级可叠加细化，
+   首期骨架，后续按需扩展选择器覆盖范围。
+   注意：树组件样式是 scoped（具体性 .tree-item[data-v] 高于裸类），
+   紧凑覆盖需加 !important 保证生效。 */
+html.compact .tree-item {
+  height: 22px !important;
+}
+html.compact .tree-item.group-head {
+  margin-top: 6px !important;
+}
+html.compact .left-body {
+  padding-top: var(--size-4-1);
+}
+html.compact .tree-list {
+  padding-top: var(--size-4-1);
+}
+html.compact .settings-content {
+  padding: var(--size-4-3) var(--size-4-4);
+}

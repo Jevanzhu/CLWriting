@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// AI 服务服务商管理面板（设置页 AI tab 的内容）。
+// AI 服务服务商管理面板（设置页「服务商」tab 的内容）。
 // 应用级配置，跨书共享，存 userData/providers.json。
 import { ref, onMounted } from 'vue'
 import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil } from 'lucide-vue-next'
@@ -104,6 +104,15 @@ function cancelEdit(): void {
 
 function selectPreset(protocol: Protocol): void {
   form.value.protocol = protocol
+}
+
+/** 空状态快捷填充：官方 API 预设（打开新增表单并预填常见地址） */
+function quickFill(protocol: Protocol): void {
+  startAdd()
+  form.value.protocol = protocol
+  form.value.baseUrl = protocol === 'anthropic'
+    ? 'https://api.anthropic.com'
+    : 'https://api.openai.com/v1'
 }
 
 async function save(): Promise<void> {
@@ -242,8 +251,12 @@ function timeAgo(ts: number | undefined): string {
       <div v-if="loading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
 
       <div v-else-if="providers.length === 0" class="empty">
-        <p>尚未配置任何 AI 服务服务商</p>
-        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加服务商</button>
+        <p>尚未配置任何 AI 服务商</p>
+        <div class="preset-quick">
+          <button class="preset-quick-btn" @click="quickFill('anthropic')">Anthropic 官方</button>
+          <button class="preset-quick-btn" @click="quickFill('openai')">OpenAI 官方</button>
+        </div>
+        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />自定义服务商</button>
       </div>
 
       <template v-else>
@@ -282,6 +295,7 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="provider-meta">
             <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
+            <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
           <!-- caps 徽章 -->
@@ -424,7 +438,7 @@ function timeAgo(ts: number | undefined): string {
 
 <style scoped>
 .ai-service-panel {
-  max-width: 560px;
+  max-width: 680px;
 }
 
 /* ── 分组标题 ── */
@@ -476,6 +490,26 @@ function timeAgo(ts: number | undefined): string {
 }
 .add-btn-lg:hover {
   background: var(--background-modifier-hover);
+}
+
+/* ── 空状态快捷预设 ── */
+.preset-quick {
+  display: flex;
+  gap: 8px;
+}
+.preset-quick-btn {
+  padding: 6px 14px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.preset-quick-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
 }
 
 /* ── 空状态 ── */
@@ -582,6 +616,15 @@ function timeAgo(ts: number | undefined): string {
   font-family: var(--font-monospace);
   font-size: var(--font-size-xs);
   color: var(--text-faint);
+}
+.base-url {
+  font-family: var(--font-monospace);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── caps 徽章 ── */

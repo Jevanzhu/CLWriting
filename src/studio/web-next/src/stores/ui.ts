@@ -10,6 +10,10 @@ export interface ToastItem {
 }
 let seq = 0
 
+/** 探测失败后的重试间隔（ms）。dev 启动竞态：api 慢于 web 就绪时，启动探测失败，
+ *  不永久卡「AI 服务未连接」——按间隔重试直到成功。 */
+const AI_PROBE_RETRY_MS = 5000
+
 export const useUiStore = defineStore('ui', () => {
   const paletteOpen = ref(false)
   const settingsOpen = ref(false)
@@ -112,15 +116,27 @@ export const useUiStore = defineStore('ui', () => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
     }, 1800)
   }
-  /** G4：探测 AI 可达性（启动调一次；失败容错 false） */
+  /** G4：探测 AI 可达性（启动调一次；失败自动重试，重试成功即停）。 */
+  let probeTimer: ReturnType<typeof setTimeout> | null = null
   async function probeAiStatus(): Promise<void> {
     try {
       const s = await getAiStatus()
       aiAvailable.value = s.available
       aiDriver.value = s.driver
+      if (probeTimer) {
+        clearTimeout(probeTimer)
+        probeTimer = null
+      }
     } catch {
       aiAvailable.value = false
       aiDriver.value = ''
+      // API 不可达：定时重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
+      if (!probeTimer) {
+        probeTimer = setTimeout(() => {
+          probeTimer = null
+          void probeAiStatus()
+        }, AI_PROBE_RETRY_MS)
+      }
     }
   }
 

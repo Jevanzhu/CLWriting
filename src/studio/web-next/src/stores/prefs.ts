@@ -25,6 +25,7 @@ const DEFAULTS = {
   autosaveInterval: 30,
   shelfView: 'grid' as 'grid' | 'list',
   chatEnabled: false,
+  compact: false,
 }
 
 /** 旧 localStorage 键（仅迁移用，迁移后停用） */
@@ -67,6 +68,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   const shelfView = ref<'grid' | 'list'>(DEFAULTS.shelfView)
   /** 对话助手开关（默认关闭） */
   const chatEnabled = ref(DEFAULTS.chatEnabled)
+  /** 紧凑模式：收窄侧栏间距 / 减小列表行高（默认关闭） */
+  const compact = ref(DEFAULTS.compact)
 
   // ── 书级覆盖（prefs.json；null = 用全局）──
   const bookPageWidth = ref<number | null>(null)
@@ -97,6 +100,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
 
     applyTheme()
+    applyCompact()
     apply()
   }
 
@@ -146,6 +150,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.autosaveInterval === 'number' && p.autosaveInterval > 0) autosaveInterval.value = p.autosaveInterval
     if (p.shelfView === 'grid' || p.shelfView === 'list') shelfView.value = p.shelfView
     if (typeof p.chatEnabled === 'boolean') chatEnabled.value = p.chatEnabled
+    if (typeof p.compact === 'boolean') compact.value = p.compact
   }
 
   /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖） */
@@ -163,6 +168,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       autosaveInterval: autosaveInterval.value,
       shelfView: shelfView.value,
       chatEnabled: chatEnabled.value,
+      compact: compact.value,
     }
   }
 
@@ -197,6 +203,11 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
+  }
+
+  /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */
+  function applyCompact(): void {
+    document.documentElement.classList.toggle('compact', compact.value)
   }
 
   // ── setter ──
@@ -270,6 +281,11 @@ export const usePrefsStore = defineStore('prefs', () => {
     chatEnabled.value = v
     schedulePersist()
   }
+  function setCompact(v: boolean): void {
+    compact.value = v
+    applyCompact()
+    schedulePersist()
+  }
 
   return {
     theme,
@@ -284,6 +300,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     autosaveInterval,
     shelfView,
     chatEnabled,
+    compact,
     bookPageWidth,
     bookAutosaveInterval,
     effectivePageWidth,
@@ -291,6 +308,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     init,
     apply,
     applyTheme,
+    applyCompact,
     setThemeValue,
     setSize,
     setLh,
@@ -303,5 +321,6 @@ export const usePrefsStore = defineStore('prefs', () => {
     setAutosaveInterval,
     setShelfView,
     setChatEnabled,
+    setCompact,
   }
 })

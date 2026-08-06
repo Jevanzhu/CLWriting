@@ -43,6 +43,8 @@ export interface GlobalPrefs {
   pageWidth?: number
   autosaveInterval?: number
   shelfView?: 'grid' | 'list'
+  chatEnabled?: boolean
+  compact?: boolean
   [k: string]: unknown
 }
 

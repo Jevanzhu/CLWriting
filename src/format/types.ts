@@ -280,6 +280,10 @@ export interface BookConfig {
   auto: {
     confirm_outline: boolean
     batch_size: number
+    /** 关系图自动 AI 梳理（缺省 true） */
+    relation_auto_mine?: boolean
+    /** 自动梳理的章节增量阈值（缺省 3） */
+    relation_mine_threshold?: number
   }
   growth: {
     realm_span_max?: number // 跃迁跨度上限（O1，#6）

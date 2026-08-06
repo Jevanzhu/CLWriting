@@ -16,6 +16,7 @@ export interface RelationEdge {
   from: string
   to: string
   type: string
+  note?: string
 }
 
 /** 债务子图边（块5 D2）：欠方 → 债主（来自 大纲/关系线） */
@@ -32,6 +33,8 @@ export interface SettingsResult {
   characters: CharacterCard[]
   characterRelations: RelationEdge[]
   debtGraph: DebtEdge[]
+  /** 关系缓存新鲜度（用于自动触发判断） */
+  relationCache?: { chapterCount: number | null; currentChapters: number }
 }
 
 export async function getSettings(name: string): Promise<SettingsResult> {

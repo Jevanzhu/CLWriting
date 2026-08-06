@@ -101,7 +101,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     const bookRoot = join(ctx.workDir, entry.path)
     const cachePath = join(bookRoot, RELATION_CACHE)
     if (!force && existsSync(cachePath)) {
-      return reply(res, 200, { ok: true, cached: true, relations: readMinedRelations(bookRoot) })
+      return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
     }
     const context = buildMineContext(bookRoot)
     if (!context.trim()) return reply(res, 400, { error: '没有可梳理的材料（名册/角色卡/正文均空）' })
@@ -116,7 +116,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (!relations.length) return reply(res, 200, { ok: true, cached: true, relations: [] })
     try {
       mkdirSync(dirname(cachePath), { recursive: true })
-      atomicWriteFile(cachePath, JSON.stringify({ relations }, null, 2))
+      atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
     } catch (e) {
       return reply(res, 500, { error: `落盘缓存失败:${e instanceof Error ? e.message : String(e)}` })
     }
@@ -146,42 +146,58 @@ function settingsLong(bookRoot: string): unknown {
     .map((l) => ({ 编号: l.编号, 标题: l.标题, 状态: l.状态, 欠方: l.欠方 ?? '', 债主: l.债主 ?? '' }))
 
   // 角色关系：AI 梳理缓存（.clwriting/relations.json，优先）+ 角色卡 front matter「关系」字段（补充）
-  const mined = readMinedRelations(bookRoot) // [{from,to,type,note?}]
+  const relCache = readRelationCache(bookRoot)
+  const mined = relCache.relations
   const seen = new Set<string>()
-  const pushEdge = (from: string, to: string, type: string): void => {
-    if (!from || !to || from === to) return
-    const k = from < to ? `${from} ${to}` : `${to} ${from}`
-    if (seen.has(k)) return
+  const characterRelations: { from: string; to: string; type: string; note?: string }[] = []
+  // AI 梳理数据：type 已是完整短语（prompt 要求），不规范化，原样使用 + 传 note
+  for (const e of mined) {
+    if (!e.from || !e.to || e.from === e.to) continue
+    const k = e.from < e.to ? `${e.from} ${e.to}` : `${e.to} ${e.from}`
+    if (seen.has(k)) continue
     seen.add(k)
-    characterRelations.push({ from, to, type: normalizeRelationType(type) })
+    characterRelations.push({ from: e.from, to: e.to, type: e.type, note: e.note })
   }
-  const characterRelations: { from: string; to: string; type: string }[] = []
-  for (const e of mined) pushEdge(e.from, e.to, e.type)
+  // 角色卡手填数据：自由文本简写需归一化（师→师徒），无 note
   for (const c of characters) {
-    for (const r of parseRelations(c.关系)) pushEdge(c.姓名, r.to, r.type)
+    for (const r of parseRelations(c.关系)) {
+      if (!c.姓名 || !r.to || c.姓名 === r.to) continue
+      const k = c.姓名 < r.to ? `${c.姓名} ${r.to}` : `${r.to} ${c.姓名}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      characterRelations.push({ from: c.姓名, to: r.to, type: normalizeRelationType(r.type) })
+    }
   }
 
-  return { kind: 'long' as const, realm, characters, timeline, debtGraph, characterRelations }
+  return {
+    kind: 'long' as const, realm, characters, timeline, debtGraph, characterRelations,
+    relationCache: { chapterCount: relCache.chapterCount, currentChapters: countChapters(bookRoot) },
+  }
 }
 
 /** AI 关系梳理缓存的相对路径（.clwriting/relations.json）。 */
 const RELATION_CACHE = '.clwriting/relations.json'
 
-/** 读 AI 关系梳理缓存（不存在/损坏 → 空数组）。 */
-function readMinedRelations(bookRoot: string): { from: string; to: string; type: string; note?: string }[] {
+/** 读 AI 关系梳理缓存（不存在/损坏 → 空）。返回 relations 数组 + 梳理时的章节数（新鲜度判断用）。 */
+function readRelationCache(bookRoot: string): {
+  relations: { from: string; to: string; type: string; note?: string }[]
+  chapterCount: number | null
+} {
   try {
     const p = join(bookRoot, RELATION_CACHE)
-    if (!existsSync(p)) return []
+    if (!existsSync(p)) return { relations: [], chapterCount: null }
     const d = JSON.parse(readFileSync(p, 'utf8'))
-    if (!Array.isArray(d?.relations)) return []
-    return d.relations.filter(
+    if (!Array.isArray(d?.relations)) return { relations: [], chapterCount: null }
+    const relations = d.relations.filter(
       (e: unknown): e is { from: string; to: string; type: string; note?: string } =>
         !!e && typeof (e as { from?: unknown }).from === 'string' &&
         typeof (e as { to?: unknown }).to === 'string' &&
         typeof (e as { type?: unknown }).type === 'string',
     )
+    const chapterCount = typeof d.chapterCount === 'number' ? d.chapterCount : null
+    return { relations, chapterCount }
   } catch {
-    return []
+    return { relations: [], chapterCount: null }
   }
 }
 
@@ -236,6 +252,13 @@ function listMdRecursive(dir: string): string[] {
   }
   out.sort()
   return out
+}
+
+/** 统计正文章节数（写作/正文/ 下的 .md 文件数，用于关系缓存新鲜度判断）。 */
+function countChapters(bookRoot: string): number {
+  const proseDir = join(bookRoot, '写作', '正文')
+  if (!existsSync(proseDir)) return 0
+  return listMdRecursive(proseDir).length
 }
 
 /** 解析角色卡「关系」字段 → 关系边：「林远(师徒);赵衡(仇敌)」→ [{to:林远,type:师徒}]（#7.5） */

@@ -2,12 +2,13 @@
 // 设置弹窗（Obsidian 风格：左侧分类导航 + 右侧列表项）。
 // 分类：外观 / 编辑器 / 备份 / 书籍 / AI。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { X, Palette, Type, History, BookOpen, Sparkles } from 'lucide-vue-next'
+import { X, Palette, Type, History, BookOpen, Sparkles, Server } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
+import { getVersionStats, type VersionStats } from '../../api/snapshots'
 import AiServicePanel from './AiServicePanel.vue'
 import { friendlyError } from '../../shared/error'
 
@@ -16,11 +17,21 @@ const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
 const ws = useWorkspaceStore()
 
-type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'history'
+type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'providers' | 'history'
 const activeTab = ref<Tab>('appearance')
+/** 顶栏副标题：当前 tab 的一句话说明 */
+const TAB_SUBTITLES: Record<Tab, string> = {
+  appearance: '主题、字体与界面显示',
+  editor: '编辑区排版与自动保存',
+  book: '本书信息与写作目标',
+  ai: 'AI 写作行为与预算',
+  providers: 'AI 服务服务商与档位',
+  history: '版本保留与定稿档案',
+}
+const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
-/** 当前 tab 的配置归属：外观/编辑器/AI → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：外观/编辑器/AI/服务商 → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
 const tabScope = computed<'global' | 'book'>(() =>
   activeTab.value === 'history' || activeTab.value === 'book' ? 'book' : 'global',
 )
@@ -91,6 +102,38 @@ const snapCount = ref(SNAPSHOT_DEFAULTS.maxCount)
 const ragEnabled = ref(false)
 const ragEndpoint = ref('')
 const ragModel = ref('')
+// 新增设置项（改动 15-20）：书名/题材可编辑、每卷章数、工作流模式、文风注入、调用预算、自动写作
+const bookTitle = ref('')
+const bookGenre = ref('')
+const bookKind = ref<'long' | 'short'>('long')
+const volumeSize = ref<number | null>(null)
+const workflow = ref<'free' | 'assist' | 'strict'>('free')
+const styleInjection = ref<'light' | 'heavy'>('light')
+const callsPerChapter = ref(10)
+const autoConfirmOutline = ref(false)
+const batchSize = ref(1)
+const relationAutoMine = ref(true)
+const relationMineThreshold = ref(3)
+// 版本历史统计（改动 10b）
+const versionStats = ref<VersionStats | null>(null)
+
+/** 字节数人性化（预览：2.3 MB / 480 KB）。 */
+function formatBytes(n: number): string {
+  if (!n) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function loadVersionStats(): Promise<void> {
+  const name = ws.bookName
+  if (!name) return
+  try {
+    versionStats.value = await getVersionStats(name)
+  } catch {
+    versionStats.value = null
+  }
+}
 
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
@@ -98,6 +141,17 @@ watch(
     if (!open || !name) return
     try {
       const cfg = await getConfig(name)
+      bookTitle.value = cfg.book?.title ?? ''
+      bookGenre.value = cfg.book?.genre ?? ''
+      bookKind.value = cfg.kind ?? 'long'
+      volumeSize.value = cfg.book?.volume_size ?? null
+      workflow.value = cfg.workflow ?? 'free'
+      styleInjection.value = cfg.style?.injection ?? 'light'
+      callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
+      autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
+      batchSize.value = cfg.auto?.batch_size ?? 1
+      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? true
+      relationMineThreshold.value = cfg.auto?.relation_mine_threshold ?? 3
       targetWords.value = cfg.book?.target_words ?? null
       chapterTargetWords.value = cfg.book?.chapter_target_words ?? null
       snapDays.value = cfg.snapshots?.max_days ?? SNAPSHOT_DEFAULTS.maxDays
@@ -105,6 +159,7 @@ watch(
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''
       ragModel.value = cfg.rag?.model ?? ''
+      void loadVersionStats()
     } catch {
       /* 读不到就用默认值展示 */
     }
@@ -152,6 +207,79 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
   })
 }
 
+// ── 新增设置项 handler（改动 15-20）──
+function onBookTitleChange(): void {
+  void saveConfig((c) => {
+    if (!c.book) c.book = {}
+    c.book.title = bookTitle.value
+  })
+}
+function onBookGenreChange(): void {
+  void saveConfig((c) => {
+    if (!c.book) c.book = {}
+    c.book.genre = bookGenre.value
+  })
+}
+function onVolumeSizeInput(e: Event): void {
+  const raw = Number((e.target as HTMLInputElement).value)
+  volumeSize.value = Number.isFinite(raw) && raw >= 5 ? Math.round(raw) : null
+  void saveConfig((c) => {
+    if (!c.book) c.book = {}
+    c.book.volume_size = volumeSize.value ?? undefined
+  })
+}
+function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
+  workflow.value = mode
+  void saveConfig((c) => {
+    c.workflow = mode
+  })
+}
+function setStyleInjection(mode: 'light' | 'heavy'): void {
+  styleInjection.value = mode
+  void saveConfig((c) => {
+    if (!c.style) c.style = { injection: 'light' }
+    c.style.injection = mode
+  })
+}
+function onCallsInput(e: Event): void {
+  const raw = Number((e.target as HTMLInputElement).value)
+  callsPerChapter.value = Math.min(50, Math.max(1, Math.round(raw)))
+  void saveConfig((c) => {
+    if (!c.budget) c.budget = { calls_per_chapter: 10 }
+    c.budget.calls_per_chapter = callsPerChapter.value
+  })
+}
+function onAutoConfirmToggle(e: Event): void {
+  autoConfirmOutline.value = (e.target as HTMLInputElement).checked
+  void saveConfig((c) => {
+    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
+    c.auto.confirm_outline = autoConfirmOutline.value
+  })
+}
+function onBatchSizeInput(e: Event): void {
+  const raw = Number((e.target as HTMLInputElement).value)
+  batchSize.value = Math.min(20, Math.max(1, Math.round(raw)))
+  void saveConfig((c) => {
+    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
+    c.auto.batch_size = batchSize.value
+  })
+}
+function onRelationAutoMineToggle(e: Event): void {
+  relationAutoMine.value = (e.target as HTMLInputElement).checked
+  void saveConfig((c) => {
+    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
+    c.auto.relation_auto_mine = relationAutoMine.value
+  })
+}
+function onMineThresholdInput(e: Event): void {
+  const raw = Number((e.target as HTMLInputElement).value)
+  relationMineThreshold.value = Math.min(20, Math.max(1, Math.round(raw)))
+  void saveConfig((c) => {
+    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
+    c.auto.relation_mine_threshold = relationMineThreshold.value
+  })
+}
+
 // AI 配置操作（RAG 保留在 book.yaml，即时保存）
 function onRagToggle(e: Event): void {
   ragEnabled.value = (e.target as HTMLInputElement).checked
@@ -160,19 +288,20 @@ function onRagToggle(e: Event): void {
     c.rag.enabled = ragEnabled.value
   })
 }
-function onRagEndpoint(e: Event): void {
-  ragEndpoint.value = (e.target as HTMLInputElement).value
-  void saveConfig((c) => {
-    if (!c.rag) c.rag = {}
-    c.rag.endpoint = ragEndpoint.value || undefined
-  })
-}
-function onRagModel(e: Event): void {
-  ragModel.value = (e.target as HTMLInputElement).value
-  void saveConfig((c) => {
-    if (!c.rag) c.rag = {}
-    c.rag.model = ragModel.value || undefined
-  })
+/** RAG 地址/模型显式保存：只提交已打开弹窗时缓冲的 v-model 值（弃用原即时保存 onRagEndpoint/onRagModel） */
+async function saveRagConfig(): Promise<void> {
+  const name = ws.bookName
+  if (!name) return
+  try {
+    const cfg = await getConfig(name)
+    if (!cfg.rag) cfg.rag = {}
+    cfg.rag.endpoint = ragEndpoint.value || undefined
+    cfg.rag.model = ragModel.value || undefined
+    await putConfig(name, cfg)
+    ui.toast('检索设置已保存', 'success')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
 }
 
 /** range 配套数字输入：clamp 到范围后调 setter */
@@ -211,7 +340,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <div v-if="ui.settingsOpen" class="modal-mask" @click.self="ui.closeSettings">
       <div class="settings-modal">
         <div class="modal-head">
-          <span class="modal-title">设置</span>
+          <div class="modal-heading">
+            <span class="modal-title">设置</span>
+            <span class="modal-subtitle">{{ tabSubtitle }}</span>
+          </div>
           <button class="close-btn" data-tip="关闭（Esc）" @click="ui.closeSettings"><X :size="18" /></button>
         </div>
         <div class="settings-split">
@@ -229,6 +361,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
               <Sparkles :size="16" /><span>AI</span>
             </button>
+            <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
+              <Server :size="16" /><span>服务商</span>
+            </button>
             <button :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
               <History :size="16" /><span>版本历史</span>
             </button>
@@ -236,6 +371,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
           <!-- 右侧设置内容 -->
           <div class="settings-content" :data-tab-scope="tabScope">
+            <transition name="tab-fade" mode="out-in">
+              <div :key="activeTab" class="tab-pane">
             <!-- ═══ 外观 ═══ -->
             <template v-if="activeTab === 'appearance'">
               <div class="setting-item">
@@ -257,14 +394,38 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item-control">
                   <div class="font-pair">
-                    <select class="font-select" :value="prefs.uiFontCn" @change="prefs.setUiFontCn(selValue($event))">
+                    <select class="font-select" :value="prefs.uiFontCn" :style="{ fontFamily: prefs.uiFontCn || 'inherit' }" @change="prefs.setUiFontCn(selValue($event))">
                       <option value="">中文 · 默认</option>
                       <option v-for="f in chineseFonts" :key="'cn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
                     </select>
-                    <select class="font-select" :value="prefs.uiFontEn" @change="prefs.setUiFontEn(selValue($event))">
+                    <select class="font-select" :value="prefs.uiFontEn" :style="{ fontFamily: prefs.uiFontEn || 'inherit' }" @change="prefs.setUiFontEn(selValue($event))">
                       <option value="">英文 · 默认</option>
                       <option v-for="f in englishFonts" :key="'en-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
                     </select>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">紧凑模式</div>
+                  <div class="setting-item-desc">收窄侧栏间距，列表显示更多内容</div>
+                </div>
+                <div class="setting-item-control">
+                  <label class="switch">
+                    <input type="checkbox" aria-label="紧凑模式" :checked="prefs.compact" @change="prefs.setCompact(($event.target as HTMLInputElement).checked)" />
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">书架视图</div>
+                  <div class="setting-item-desc">书架的显示方式</div>
+                </div>
+                <div class="setting-item-control">
+                  <div class="seg">
+                    <button :class="{ on: prefs.shelfView === 'grid' }" @click="prefs.setShelfView('grid')">网格</button>
+                    <button :class="{ on: prefs.shelfView === 'list' }" @click="prefs.setShelfView('list')">列表</button>
                   </div>
                 </div>
               </div>
@@ -280,11 +441,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item-control">
                   <div class="font-pair">
-                    <select class="font-select" :value="prefs.proseFontCn" @change="prefs.setProseFontCn(selValue($event))">
+                    <select class="font-select" :value="prefs.proseFontCn" :style="{ fontFamily: prefs.proseFontCn || 'inherit' }" @change="prefs.setProseFontCn(selValue($event))">
                       <option value="">中文 · 默认</option>
                       <option v-for="f in chineseFonts" :key="'pcn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
                     </select>
-                    <select class="font-select" :value="prefs.proseFontEn" @change="prefs.setProseFontEn(selValue($event))">
+                    <select class="font-select" :value="prefs.proseFontEn" :style="{ fontFamily: prefs.proseFontEn || 'inherit' }" @change="prefs.setProseFontEn(selValue($event))">
                       <option value="">英文 · 默认</option>
                       <option v-for="f in englishFonts" :key="'pen-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
                     </select>
@@ -371,6 +532,47 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item">
                   <div class="setting-item-info">
+                    <div class="setting-item-name">书名</div>
+                    <div class="setting-item-desc">显示在书架和标题栏</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input v-model="bookTitle" class="text-input" type="text" placeholder="书名" @change="onBookTitleChange" />
+                  </div>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">题材</div>
+                    <div class="setting-item-desc">影响 AI 写作风格和检查规则</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input v-model="bookGenre" class="text-input" type="text" placeholder="题材" @change="onBookGenreChange" />
+                  </div>
+                </div>
+                <div v-if="bookKind !== 'short'" class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">每卷章数</div>
+                    <div class="setting-item-desc">每卷容纳的章节数量，影响节奏预测</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input class="num-input" type="number" min="5" max="100" step="1" placeholder="未设" :value="volumeSize ?? ''" @change="onVolumeSizeInput($event)" />
+                    <span class="val-suffix">章</span>
+                  </div>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">写作模式</div>
+                    <div class="setting-item-desc">控制 AI 辅助的门禁强度</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <div class="seg">
+                      <button :class="{ on: workflow === 'free' }" @click="setWorkflow('free')">自由</button>
+                      <button :class="{ on: workflow === 'assist' }" @click="setWorkflow('assist')">辅助</button>
+                      <button :class="{ on: workflow === 'strict' }" @click="setWorkflow('strict')">严格</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-item-info">
                     <div class="setting-item-name">目标字数</div>
                     <div class="setting-item-desc">全书完稿目标，用于进度追踪</div>
                   </div>
@@ -410,12 +612,85 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item-control">
                   <label class="switch">
-                    <input type="checkbox" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
+                    <input type="checkbox" aria-label="对话助手" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
                     <span class="switch-slider"></span>
                   </label>
                 </div>
               </div>
-              <AiServicePanel />
+
+              <div class="group-title">写作风格</div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">文风注入</div>
+                  <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
+                </div>
+                <div class="setting-item-control">
+                  <div class="seg">
+                    <button :class="{ on: styleInjection === 'light' }" @click="setStyleInjection('light')">轻</button>
+                    <button :class="{ on: styleInjection === 'heavy' }" @click="setStyleInjection('heavy')">重</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="group-title">AI 预算</div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">单章调用上限</div>
+                  <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
+                </div>
+                <div class="setting-item-control">
+                  <input class="num-input" type="number" min="1" max="50" step="1" :value="callsPerChapter" @change="onCallsInput($event)" />
+                  <span class="val-suffix">次</span>
+                </div>
+              </div>
+
+              <div class="group-title">自动写作</div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">自动确认细纲</div>
+                  <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
+                </div>
+                <div class="setting-item-control">
+                  <label class="switch">
+                    <input type="checkbox" aria-label="自动确认细纲" :checked="autoConfirmOutline" @change="onAutoConfirmToggle($event)" />
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">批量写作章数</div>
+                  <div class="setting-item-desc">一次自动写作流程连续写的章数</div>
+                </div>
+                <div class="setting-item-control">
+                  <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
+                  <span class="val-suffix">章</span>
+                </div>
+              </div>
+
+              <div class="group-title">关系图</div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">自动梳理</div>
+                  <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
+                </div>
+                <div class="setting-item-control">
+                  <label class="switch">
+                    <input type="checkbox" aria-label="关系图自动梳理" :checked="relationAutoMine" @change="onRelationAutoMineToggle($event)" />
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">章节增量阈值</div>
+                  <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
+                </div>
+                <div class="setting-item-control">
+                  <input class="num-input" type="number" min="1" max="20" step="1" :value="relationMineThreshold" @change="onMineThresholdInput($event)" />
+                  <span class="val-suffix">章</span>
+                </div>
+              </div>
 
               <div class="group-title">知识检索</div>
               <div class="setting-item">
@@ -425,7 +700,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item-control">
                   <label class="switch">
-                    <input type="checkbox" :checked="ragEnabled" @change="onRagToggle($event)" />
+                    <input type="checkbox" aria-label="启用知识检索" :checked="ragEnabled" @change="onRagToggle($event)" />
                     <span class="switch-slider"></span>
                   </label>
                 </div>
@@ -437,7 +712,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <div class="setting-item-desc">向量嵌入服务的网址</div>
                   </div>
                   <div class="setting-item-control">
-                    <input class="text-input" type="text" placeholder="https://..." :value="ragEndpoint" @change="onRagEndpoint($event)" />
+                    <input v-model="ragEndpoint" class="text-input" type="text" placeholder="https://..." />
                   </div>
                 </div>
                 <div class="setting-item">
@@ -446,10 +721,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <div class="setting-item-desc">向量嵌入模型名称</div>
                   </div>
                   <div class="setting-item-control">
-                    <input class="text-input" type="text" placeholder="如 text-embedding-3-small" :value="ragModel" @change="onRagModel($event)" />
+                    <input v-model="ragModel" class="text-input" type="text" placeholder="如 text-embedding-3-small" />
                   </div>
                 </div>
+                <div class="rag-save-row">
+                  <button class="save-btn" @click="saveRagConfig">保存检索设置</button>
+                </div>
               </template>
+            </template>
+
+            <!-- ═══ 服务商 ═══ -->
+            <template v-else-if="activeTab === 'providers'">
+              <AiServicePanel />
             </template>
 
             <!-- ═══ 版本历史 ═══ -->
@@ -490,8 +773,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <span class="val-suffix">个</span>
                   </div>
                 </div>
+
+                <div class="group-title">定稿版本</div>
+                <template v-if="versionStats">
+                  <div class="setting-item">
+                    <div class="setting-item-info">
+                      <div class="setting-item-name">已定稿章节</div>
+                      <div class="setting-item-desc">文档清单中有定稿基线的章节</div>
+                    </div>
+                    <div class="setting-item-control">
+                      <span class="backup-summary">{{ versionStats.finalizedDocs }} 章</span>
+                    </div>
+                  </div>
+                  <div class="setting-item">
+                    <div class="setting-item-info">
+                      <div class="setting-item-name">定稿版本总数</div>
+                      <div class="setting-item-desc">永久保留，不自动清理</div>
+                    </div>
+                    <div class="setting-item-control">
+                      <span class="backup-summary">{{ versionStats.pinnedCount }} 个</span>
+                    </div>
+                  </div>
+                  <div class="setting-item">
+                    <div class="setting-item-info">
+                      <div class="setting-item-name">当前快照占用</div>
+                      <div class="setting-item-desc">编辑快照（非定稿）占用的磁盘空间</div>
+                    </div>
+                    <div class="setting-item-control">
+                      <span class="backup-summary">{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="stats-hint">统计数据加载中…</div>
               </template>
             </template>
+              </div>
+            </transition>
           </div>
         </div>
       </div>
@@ -534,11 +851,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border-bottom: 1px solid var(--background-modifier-border);
   flex-shrink: 0;
 }
+.modal-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
 .modal-title {
-  font-size: var(--font-size-l);
+  font-size: var(--font-size-xl);
   font-weight: 700;
   color: var(--text-normal);
   letter-spacing: -0.01em;
+}
+.modal-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .close-btn {
   display: flex;
@@ -570,17 +900,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   width: 184px;
   flex-shrink: 0;
   border-right: 1px solid var(--background-modifier-border);
-  padding: var(--size-4-3);
+  padding: var(--size-4-4) var(--size-4-3);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  background: var(--background-secondary);
+  gap: 2px;
 }
 .settings-nav button {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 9px 14px;
   border: none;
   border-radius: var(--radius-m);
   background: transparent;
@@ -591,21 +921,63 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+.settings-nav button svg {
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
 .settings-nav button:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+.settings-nav button:hover svg {
+  color: var(--text-muted);
+}
 .settings-nav button.active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--text-accent);
   font-weight: 600;
+}
+.settings-nav button.active svg {
+  color: var(--text-accent);
+}
+/* 激活项左侧指示条 */
+.settings-nav button.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 2px 2px 0;
+  background: var(--interactive-accent);
 }
 
 /* ── 右侧内容 ── */
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--size-4-5) var(--size-4-6);
+  padding: var(--size-4-8) var(--size-4-8);
+}
+.tab-pane {
+  min-height: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  padding-bottom: var(--size-4-8);
+}
+
+/* tab 切换过渡：淡入 + 轻微上移（mode=out-in 避免重叠） */
+.tab-fade-enter-active,
+.tab-fade-leave-active {
+  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+}
+.tab-fade-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.tab-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* ── 空状态 ── */
@@ -619,45 +991,59 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-size: var(--font-size-s);
 }
 
-/* ── 分组标题 ── */
+/* ── 分组标题（底线分隔式，替代纯间距）── */
 .group-title {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-xxs);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
-  padding: var(--size-4-4) 0 var(--size-4-1);
+  padding: 0 0 var(--size-4-2);
+  margin-top: var(--size-4-8);
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 .group-title:first-child {
-  padding-top: 0;
+  margin-top: 0;
 }
 
 /* ── 书籍 banner ── */
 .book-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-accent);
   padding: var(--size-4-3) var(--size-4-4);
-  margin-bottom: var(--size-4-2);
-  border: 1px solid color-mix(in srgb, var(--text-accent) 20%, transparent);
+  margin-bottom: var(--size-4-3);
+  border: 1px solid color-mix(in srgb, var(--text-accent) 22%, transparent);
   border-radius: var(--radius-m);
   background: color-mix(in srgb, var(--text-accent) 6%, transparent);
 }
+.book-banner svg {
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-accent) 14%, transparent);
+}
+.book-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* ── 设置项 ── */
+/* ── 设置项（大间距、呼吸感）── */
 .setting-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--size-4-4);
-  padding: var(--size-4-3) var(--size-4-1);
-  border-bottom: 1px solid var(--background-modifier-border);
+  gap: var(--size-4-5);
+  padding: var(--size-4-4) var(--size-4-3);
+  border-radius: var(--radius-s);
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.setting-item:last-child {
-  border-bottom: none;
+.setting-item:hover {
+  background: color-mix(in srgb, var(--text-normal) 2.5%, transparent);
 }
 .setting-item-info {
   flex: 1;
@@ -774,27 +1160,69 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+.stats-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  padding: var(--size-4-3) 0;
+}
 
-/* ── range slider ── */
+/* ── range slider（跨平台统一，替代 accent-color）── */
 .setting-item input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 168px;
-  height: 4px;
-  accent-color: var(--interactive-accent);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
   cursor: pointer;
+  outline: none;
+}
+.setting-item input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  border: 2px solid var(--background-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.setting-item input[type='range']::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+.setting-item input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  border: 2px solid var(--background-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+}
+.setting-item input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+.setting-item input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
 }
 
 /* ── segmented control ── */
 .seg {
   display: inline-flex;
+  padding: 2px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  overflow: hidden;
   background: var(--background-secondary);
+  gap: 2px;
 }
 .seg button {
-  padding: 6px 18px;
+  padding: 5px 16px;
   font-size: var(--font-size-s);
   border: none;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -802,11 +1230,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .seg button:hover:not(.on) {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 .seg button.on {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: var(--background-primary);
+  color: var(--text-normal);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 /* ── number / text input ── */
@@ -832,6 +1262,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   outline: none;
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+/* ── RAG 显式保存行 ── */
+.rag-save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--size-4-3) 0;
+}
+.save-btn {
+  padding: 7px 18px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+.save-btn:hover {
+  filter: brightness(1.1);
 }
 
 /* ── link button ── */
@@ -908,5 +1358,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .switch input:checked + .switch-slider::before {
   transform: translateX(16px);
+}
+.switch-slider {
+  box-shadow: inset 0 0 0 1px transparent;
+}
+/* hover 反馈：未选中时轨道轻微提亮 */
+.switch:hover input:not(:checked) + .switch-slider {
+  background: color-mix(in srgb, var(--background-modifier-border-active) 80%, var(--interactive-accent) 20%);
+}
+/* 选中态 hover：轨道加深一档 */
+.switch:hover input:checked + .switch-slider {
+  background: var(--interactive-accent-hover);
 }
 </style>

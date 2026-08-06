@@ -8,6 +8,7 @@ import {
   Search, Crosshair, ArrowUpRight, Users, Sparkles,
 } from 'lucide-vue-next'
 import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
+import { getConfig } from '../api/books'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -38,7 +39,7 @@ interface SimNode {
   file?: string
   card?: CharacterCard
 }
-interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt' }
+interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
 
 // 画布基准（实际可视区由 fitView 按内容包围盒定，节点少时不会空旷）
 const W = 820
@@ -96,7 +97,7 @@ function buildGraph(characters: CharacterCard[], rels: RelationEdge[], debts: De
     const k = pairKey(r.from, r.to, 'relation')
     if (seen.has(k)) continue
     seen.add(k)
-    valid.push({ from: r.from, to: r.to, type: r.type, kind: 'relation' })
+    valid.push({ from: r.from, to: r.to, type: r.type, kind: 'relation', note: r.note })
     ensure(r.from, byId.has(r.from) ? byId.get(r.from)!.hasCard : false)
     ensure(r.to, byId.has(r.to) ? byId.get(r.to)!.hasCard : false)
   }
@@ -288,6 +289,8 @@ async function load(): Promise<void> {
     isShort.value = false
     buildGraph(r.characters, r.characterRelations, r.debtGraph)
     loading.value = false
+    // 自动梳理：章节增量达阈值时触发
+    void maybeAutoMine(r.relationCache)
   } catch (e) {
     err.value = friendlyError(e)
     loading.value = false
@@ -297,6 +300,10 @@ onMounted(load)
 
 // ── AI 关系梳理（读名册/角色卡/正文，AI 提炼关系边）──
 const mining = ref(false)
+/** 显示孤立角色（有卡但零关系边） */
+const showOrphans = ref(false)
+/** 被图例 chip 过滤掉的语义色集合 */
+const hiddenColors = ref<Set<string>>(new Set())
 async function onMine(): Promise<void> {
   if (mining.value) return
   mining.value = true
@@ -315,6 +322,29 @@ async function onMine(): Promise<void> {
   } finally {
     mining.value = false
   }
+}
+
+/** 自动梳理：打开关系图时，若章节增量达阈值则触发。 */
+async function maybeAutoMine(cache?: { chapterCount: number | null; currentChapters: number }): Promise<void> {
+  if (mining.value || !cache) return
+  try {
+    const cfg = await getConfig(props.bookName)
+    if (!(cfg.auto?.relation_auto_mine ?? true)) return
+    const threshold = cfg.auto?.relation_mine_threshold ?? 3
+    const last = cache.chapterCount ?? 0
+    if (cache.currentChapters - last < threshold) return
+    await onMine()
+  } catch {
+    /* config 读不到就不自动触发 */
+  }
+}
+
+/** 图例 chip toggle：隐藏/恢复某类语义色的边。 */
+function toggleColor(color: string): void {
+  const s = new Set(hiddenColors.value)
+  if (s.has(color)) s.delete(color)
+  else s.add(color)
+  hiddenColors.value = s
 }
 
 // ── 节点视觉编码 ──────────────────────────────
@@ -372,8 +402,11 @@ function nodeY(id: string): number {
 /** 债务边的弓形高度：同一对角色往往既有关系边又有债务边，直线会完全重合。 */
 const DEBT_BOW = 26
 /** 边几何：关系边走直线，债务边走弧线；顺带给出标签落点。 */
-const edgeGeoms = computed(() =>
-  edges.value.map((e) => {
+const edgeGeoms = computed(() => {
+  const visIds = new Set(visibleNodes.value.map((n) => n.id))
+  return edges.value
+    .filter((e) => visIds.has(e.from) && visIds.has(e.to) && !hiddenColors.value.has(edgeColor(e)))
+    .map((e) => {
     const x1 = nodeX(e.from)
     const y1 = nodeY(e.from)
     const x2 = nodeX(e.to)
@@ -391,8 +424,8 @@ const edgeGeoms = computed(() =>
       mx: (x1 + x2) / 2 + ox / 2,
       my: (y1 + y2) / 2 + oy / 2,
     }
-  }),
-)
+  })
+})
 
 // 焦点 = 悬停（临时探索）优先，否则选中（详情卡所指）
 const focusId = computed(() => hoverId.value ?? selectedId.value)
@@ -406,23 +439,54 @@ const neighbors = computed<Set<string>>(() => {
   }
   return s
 })
+
+// ── 三层筛选：孤立过滤 → 图例类型过滤 → 搜索聚焦 ──
+/** 搜索匹配节点 + 其一阶邻居（搜索即聚焦到子图） */
+const searchNeighbors = computed<Set<string>>(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return new Set()
+  const s = new Set<string>()
+  for (const n of nodes.value) {
+    if (n.id.toLowerCase().includes(q)) {
+      s.add(n.id)
+      for (const e of edges.value) {
+        if (e.from === n.id) s.add(e.to)
+        if (e.to === n.id) s.add(e.from)
+      }
+    }
+  }
+  return s
+})
+/** 图例过滤后仍可见的边（用于计算有效 degree / 孤立判定） */
+const effectiveEdges = computed(() =>
+  edges.value.filter((e) => !hiddenColors.value.has(edgeColor(e))),
+)
+/** 可见节点：默认隐藏孤立（含因图例过滤变孤立的），搜索时只留匹配+邻居 */
+const visibleNodes = computed(() => {
+  const visEdgeIds = new Set(effectiveEdges.value.flatMap((e) => [e.from, e.to]))
+  let ns = nodes.value
+  if (!showOrphans.value) {
+    ns = ns.filter((n) => n.isCenter || visEdgeIds.has(n.id))
+  }
+  if (searchQuery.value.trim()) {
+    ns = ns.filter((n) => searchNeighbors.value.has(n.id))
+  }
+  return ns
+})
+const hiddenCount = computed(() => nodes.value.length - visibleNodes.value.length)
+
 function isDim(id: string): boolean {
-  // 搜索时：非匹配项 dim（边保持显示）
-  if (searchQuery.value) return !id.toLowerCase().includes(searchQuery.value.toLowerCase())
   // 只有主动 hover 才压暗他人。选中态不压暗——否则一进来默认选中主角，
-  // 不与主角相连的关系（苏婉—萧寒、赵长老—血魔）当场消失，全局图先天残缺。
+  // 不与主角相连的关系当场消失，全局图先天残缺。
+  // 搜索/图例过滤由 visibleNodes 直接隐藏，不再走 dim。
   return hoverId.value !== null && !neighbors.value.has(id)
 }
 function edgeDim(e: SimEdge): boolean {
-  if (searchQuery.value) return false
   const h = hoverId.value
   return h !== null && e.from !== h && e.to !== h
 }
 /** 高亮 + 显标签：hover 或选中都算（标签只给焦点邻边，避免全图标签打架）。 */
 function edgeActive(e: SimEdge): boolean {
-  const q = searchQuery.value.trim().toLowerCase()
-  // 搜索态下高亮跟着匹配项走，否则会出现「搜 A 却在高亮 B 的边」
-  if (q) return e.from.toLowerCase().includes(q) || e.to.toLowerCase().includes(q)
   return focusId.value !== null && (e.from === focusId.value || e.to === focusId.value)
 }
 
@@ -432,10 +496,10 @@ const selectedCard = computed(() => selectedNode.value?.card ?? null)
 const selectedRelations = computed(() => {
   const id = selectedId.value
   if (!id) return []
-  const out: { other: string; type: string; kind: 'relation' | 'debt'; hasCard: boolean }[] = []
+  const out: { other: string; type: string; kind: 'relation' | 'debt'; hasCard: boolean; note?: string }[] = []
   for (const e of edges.value) {
-    if (e.from === id) out.push({ other: e.to, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.to)?.hasCard ?? false })
-    else if (e.to === id) out.push({ other: e.from, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.from)?.hasCard ?? false })
+    if (e.from === id) out.push({ other: e.to, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.to)?.hasCard ?? false, note: e.note })
+    else if (e.to === id) out.push({ other: e.from, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.from)?.hasCard ?? false, note: e.note })
   }
   return out
 })
@@ -614,10 +678,13 @@ const activeLegend = computed(() => {
         <div class="rel-bar-left">
           <h2 class="rel-title">关系网络</h2>
           <span class="rel-count">
-            <span class="kc">{{ nodeCount }}</span> 角色
+            <span class="kc">{{ visibleNodes.length }}</span><template v-if="hiddenCount > 0">/{{ nodeCount }}</template> 角色
             <span class="sep">·</span>
             <span class="kc">{{ edgeCount }}</span> 关系
             <template v-if="debtCount"><span class="sep">·</span><span class="kc">{{ debtCount }}</span> 债务</template>
+            <button v-if="hiddenCount > 0" class="show-all-btn" @click="showOrphans = !showOrphans">
+              {{ showOrphans ? '收起' : `+${hiddenCount}无关系` }}
+            </button>
           </span>
         </div>
         <div class="rel-bar-right">
@@ -661,17 +728,17 @@ const activeLegend = computed(() => {
                   :style="{ stroke: edgeColor(g.e) }"
                 />
                 <text
-                  v-if="edgeActive(g.e)"
                   :x="g.mx" :y="g.my"
-                  class="edge-label" :style="{ fill: edgeColor(g.e) }"
+                  class="edge-label" :class="{ active: edgeActive(g.e) }"
+                  :style="{ fill: edgeColor(g.e) }"
                   text-anchor="middle" dy="0.32em"
-                >{{ g.e.type }}</text>
+                >{{ g.e.type }}<title v-if="g.e.note">{{ g.e.note }}</title></text>
               </g>
             </g>
             <!-- 节点：胶囊内嵌角色名（名字即节点） -->
             <g class="nodes" :style="{ '--rel-cx': `${CX}px`, '--rel-cy': `${CY}px` }">
               <g
-                v-for="n in nodes"
+                v-for="n in visibleNodes"
                 :key="n.id"
                 class="node-g"
                 :class="{
@@ -713,7 +780,11 @@ const activeLegend = computed(() => {
           </svg>
           <!-- 图例：压成一行 chips，浮在图底部，不再占据竖向空间 -->
           <div class="legend">
-            <span v-for="l in activeLegend" :key="l.label" class="lg">
+            <span
+              v-for="l in activeLegend" :key="l.label"
+              class="lg clickable" :class="{ off: hiddenColors.has(l.color) }"
+              @click="toggleColor(l.color)"
+            >
               <i class="lg-line" :style="{ background: l.color }"></i>{{ l.label }}
             </span>
             <span v-if="debtCount" class="lg">
@@ -747,8 +818,11 @@ const activeLegend = computed(() => {
                   :class="{ debt: r.kind === 'debt' }"
                   @click="selectNode(r.other)"
                 >
-                  <span class="dc-rel-name">{{ r.other }}</span>
-                  <span class="dc-rel-type" :style="{ color: relColor(r) }">{{ r.type }}</span>
+                  <div class="dc-rel-row">
+                    <span class="dc-rel-name">{{ r.other }}</span>
+                    <span class="dc-rel-type" :style="{ color: relColor(r) }">{{ r.type }}</span>
+                  </div>
+                  <span v-if="r.note" class="dc-rel-note">{{ r.note }}</span>
                 </li>
               </ul>
             </div>
@@ -809,6 +883,21 @@ const activeLegend = computed(() => {
 .rel-count .sep {
   margin: 0 4px;
   color: var(--text-faint);
+}
+.show-all-btn {
+  margin-left: var(--size-4-2);
+  padding: 1px 7px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-size-xxs);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.show-all-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .rel-bar-right {
   display: flex;
@@ -901,6 +990,17 @@ const activeLegend = computed(() => {
   align-items: center;
   gap: 5px;
 }
+.lg.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.lg.clickable:hover {
+  opacity: 0.7;
+}
+.lg.clickable.off {
+  opacity: 0.3;
+}
 .lg-pill {
   display: inline-block;
   border-radius: 99px;
@@ -970,6 +1070,11 @@ const activeLegend = computed(() => {
   stroke: var(--background-primary);
   stroke-width: 3.5;
   pointer-events: none;
+  opacity: 0.45;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.edge-label.active {
+  opacity: 1;
 }
 
 /* 节点：--nc 由 inline style 注入（身份语义色），描边式胶囊；中心角色实心 */
@@ -1147,12 +1252,22 @@ const activeLegend = computed(() => {
 }
 .dc-rel li {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
   padding: 5px 8px;
   border-radius: var(--radius-s);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
+}
+.dc-rel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dc-rel-note {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  line-height: 1.4;
 }
 .dc-rel li:hover {
   background: var(--background-modifier-hover);
