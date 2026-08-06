@@ -1,85 +1,68 @@
 /**
- * W2A T2 —— 文档级六态派生（src/document/status.ts）单测。
- * 覆盖：collectDirtyFiles（干净/脏/非 git 仓库降级）、deriveStatus（archived/draft/idea/revision/final）、
+ * 去 git 自管版本系统 —— 文档级六态派生（src/document/status.ts）单测。
+ * 覆盖：deriveStatus（archived/draft/idea/revision/final，指纹比对）、
  * readPublished（有/无字段/无 frontmatter）、deriveStatusFull（published 合成 + revision 优先）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
-import { collectDirtyFiles, collectFileStatuses, deriveStatus, deriveStatusFull, readPublished } from '../../src/document/status.js'
+import { deriveStatus, deriveStatusFull, readPublished } from '../../src/document/status.js'
+import type { ManifestEntry } from '../../src/document/manifest.js'
 
-/** 造一本干净长篇书：git init + commit 一章定稿（ch: 前缀，态 4 干净）。 */
-function makeCleanBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-status-'))
-  execSync('git init', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.email t@t.com', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.name t', { cwd: root, stdio: 'pipe' })
-  execSync('git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
-  execSync('git add -A && git commit -m "ch:0001 开篇"', { cwd: root, stdio: 'pipe' })
-  return root
+/** 造一个 manifest entry（定稿基线字段可配）。 */
+function entry(finRev?: string): ManifestEntry {
+  return {
+    id: 'doc_1',
+    nodeType: 'document',
+    path: '写作/正文/0001-开篇.md',
+    parentId: null,
+    ...(finRev ? { finalizedRevision: finRev } : {}),
+  }
 }
 
-test('collectDirtyFiles: 干净工作树 → 空集', () => {
-  const root = makeCleanBook()
-  expect(collectDirtyFiles(root).size).toBe(0)
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('collectDirtyFiles: 改文件后 → 集合含该相对 path', () => {
-  const root = makeCleanBook()
-  writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '改了', 'utf-8')
-  const dirty = collectDirtyFiles(root)
-  expect(dirty.has('写作/正文/0001-开篇.md')).toBe(true)
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('collectDirtyFiles: 非 git 目录 → 空集降级（不崩）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-nogit-'))
-  expect(collectDirtyFiles(root).size).toBe(0)
-  rmSync(root, { recursive: true, force: true })
-})
-
 test('deriveStatus: 废稿 → archived', () => {
-  expect(deriveStatus('废稿/旧版.md', new Set(), new Set())).toBe('archived')
+  expect(deriveStatus('废稿/旧版.md', null, null)).toBe('archived')
 })
 
-test('deriveStatus: 正文区 untracked → draft；工作区待定稿 → draft；工作区卡片 → idea', () => {
-  const empty = new Set<string>()
-  // 正文区 untracked（新建未定稿草稿）→ draft
-  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(['写作/正文/0001-开篇.md']), empty)).toBe('draft')
-  // 工作区/待定稿 → draft
-  expect(deriveStatus('工作区/待定稿/0001-开篇/草稿-1.md', empty, empty)).toBe('draft')
-  // 工作区卡片 → idea
-  expect(deriveStatus('工作区/卡片.md', empty, empty)).toBe('idea')
+test('deriveStatus: 工作区/待定稿 → draft；工作区卡片 → idea', () => {
+  expect(deriveStatus('工作区/待定稿/0001-开篇/草稿-1.md', null, null)).toBe('draft')
+  expect(deriveStatus('工作区/卡片.md', null, null)).toBe('idea')
 })
 
-test('deriveStatus: 正文区 modified → revision；干净 → final', () => {
-  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(), new Set(['写作/正文/0001-开篇.md']))).toBe('revision')
-  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(), new Set())).toBe('final')
+test('deriveStatus: 从未定稿 → draft；定稿后改动 → revision；定稿且一致 → final', () => {
+  // 无 entry（磁盘手建未登记）→ draft
+  expect(deriveStatus('写作/正文/0001-开篇.md', null, 'sha256:bbb')).toBe('draft')
+  // 有 entry 但无定稿基线 → draft
+  expect(deriveStatus('写作/正文/0001-开篇.md', entry(), 'sha256:bbb')).toBe('draft')
+  // 定稿基线 + 当前指纹不同 → revision
+  expect(deriveStatus('写作/正文/0001-开篇.md', entry('sha256:aaa'), 'sha256:bbb')).toBe('revision')
+  // 定稿基线 + 当前指纹一致 → final
+  expect(deriveStatus('写作/正文/0001-开篇.md', entry('sha256:aaa'), 'sha256:aaa')).toBe('final')
+})
+
+test('deriveStatus: 文件不存在（currentRevision=null）→ 有基线时 final', () => {
+  // 文件不存在但基线存在：文件被删场景，按 final 处理（不存在无法比对，不误报 revision）
+  expect(deriveStatus('写作/正文/0001-开篇.md', entry('sha256:aaa'), null)).toBe('final')
 })
 
 test('readPublished: 已发布: true → true；无字段 → false；无 frontmatter → false', () => {
-  const root = makeCleanBook()
-  // 新建带已发布 + commit（干净）
-  writeFileSync(join(root, '写作', '正文', '0002-迷雾.md'), '---\n章号: 2\n标题: 迷雾\n已发布: true\n---\n正文', 'utf-8')
-  expect(readPublished(root, '写作/正文/0002-迷雾.md')).toBe(true)
-  expect(readPublished(root, '写作/正文/0001-开篇.md')).toBe(false) // 无字段
+  const root = mkdtempSync(join(tmpdir(), 'w2a-status-'))
+  writeFileSync(join(root, '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
+  expect(readPublished(root, '0002-迷雾.md')).toBe(true)
+  writeFileSync(join(root, '0001-开篇.md'), '---\n章号: 1\n---\n正文', 'utf-8')
+  expect(readPublished(root, '0001-开篇.md')).toBe(false) // 无字段
+  writeFileSync(join(root, '裸文件.md'), '正文', 'utf-8')
+  expect(readPublished(root, '裸文件.md')).toBe(false) // 无 frontmatter
   rmSync(root, { recursive: true, force: true })
 })
 
 test('deriveStatusFull: final + 已发布 → published；revision 优先于 published', () => {
-  const root = makeCleanBook()
-  // 0002 已发布 + commit 干净 → published
-  writeFileSync(join(root, '写作', '正文', '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
-  execSync('git add -A && git commit -m "ch:0002 迷雾"', { cwd: root, stdio: 'pipe' })
-  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', new Set(), new Set())).toBe('published')
-  // 0002 改脏（即使已发布）→ revision
-  writeFileSync(join(root, '写作', '正文', '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n改脏了', 'utf-8')
-  const { untracked, modified } = collectFileStatuses(root)
-  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', untracked, modified)).toBe('revision')
+  const root = mkdtempSync(join(tmpdir(), 'w2a-pub-'))
+  writeFileSync(join(root, '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
+  // final + 已发布 → published
+  expect(deriveStatusFull(root, '0002-迷雾.md', entry('sha256:aaa'), 'sha256:aaa')).toBe('published')
+  // revision（指纹不同）优先于 published
+  expect(deriveStatusFull(root, '0002-迷雾.md', entry('sha256:aaa'), 'sha256:bbb')).toBe('revision')
   rmSync(root, { recursive: true, force: true })
 })

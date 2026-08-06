@@ -47,13 +47,12 @@ test('init short: 建短篇集布局（写作/正文/ + 大纲/清单/ + 共享�
     expect(existsSync(join(bookRoot, '布线'))).toBe(false)
     expect(existsSync(join(bookRoot, '设定'))).toBe(false)
 
-    // 独立 git + book.yaml + AGENTS.md + .gitignore
-    expect(existsSync(join(bookRoot, '.git'))).toBe(true)
-    expect(existsSync(join(bookRoot, '.git', 'hooks', 'pre-push'))).toBe(true)
-    expect(readFileSync(join(bookRoot, '.git', 'hooks', 'pre-push'), 'utf-8')).toContain('Push is blocked by default')
+    // book.yaml + 初始 manifest（去 git 自管版本系统：不再 git init / 写 gitignore）
+    expect(existsSync(join(bookRoot, '.git'))).toBe(false)
+    expect(existsSync(join(bookRoot, '.gitignore'))).toBe(false)
     expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
+    expect(existsSync(join(bookRoot, '项目', '文档清单.jsonl'))).toBe(true)
     expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(false)
-    expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }

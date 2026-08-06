@@ -17,6 +17,9 @@ import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { generateDocId } from '../../src/document/stable-id.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 /** 跑一条 git 命令（fixture 用，stdio pipe 免污染测试输出） */
 export function git(args: string[], cwd: string): string {
@@ -77,25 +80,38 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
 }
 
 /**
- * 造一个写了 N 章并逐章定稿 commit 的书仓库（回滚「回到第 N 章」测试用）。
- * 每章一个 `ch:<补零章号>` commit（对齐 #16 第 4 节 commit msg 规范，回滚靠它定位）。
+ * 造一个写了 N 章并逐章定稿的书仓库（态 5 卷末 / 态 7 下一章测试用）。
+ * 每章：正文（含 #7 front matter）+ 登记 manifest 定稿基线（去 git 后正文 = final）。
+ * 保留 `ch:<补零章号>` commit msg（对齐 #16 第 4 节 commit msg 规范；git 侧仅作历史留痕）。
  *
  * @param n 已定稿的章数（1..n）
- * @returns 书仓库根；定稿区有 n 章正文 + n 个 ch: commit（commitEach=false 时为单个 ch: commit）
+ * @returns 书仓库根；正文区有 n 章定稿 + n 个 ch: commit（commitEach=false 时为单个 ch: commit）
  */
 export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean }): string {
   const root = makeGitBook()
   const commitEach = opts?.commitEach ?? true
 
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  mkdirSync(join(root, '项目'), { recursive: true })
+
   for (let i = 1; i <= n; i++) {
     const chNo = String(i).padStart(4, '0')
     const title = `第${i}章`
+    const rel = `写作/正文/${chNo}-${title}.md`
     // 正文（含 #7 front matter）
+    const abs = join(root, rel)
     writeFileSync(
-      join(root, '写作', '正文', `${chNo}-${title}.md`),
+      abs,
       `---\n章号: ${i}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n第${i}章的正文内容。\n`,
       'utf-8',
     )
+    // 定稿基线 = 当前指纹（去 git 后正文 = final，不误判态 4 草稿）
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+      finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
     if (commitEach) {
       // commit（#16 第 4 节前缀 + 章号，回滚按 ch:<章号> 反查）
       git(['add', '-A'], root)
@@ -113,17 +129,22 @@ export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean
 }
 
 /**
- * 在已有书仓库里「定稿一章但不 commit」（造态 4「工作区未完成」的中断场景）。
- * 写草稿 + 细纲 + .confirm.json，但不 commit —— 模拟 finalize 步骤 1-2 中断。
+ * 在已有书仓库里「写一章但不定稿」（造态 4「工作区未完成」的中断场景）。
+ * 写正文区草稿（含 front matter，避免 rebuild 收 ParseError）+ 细纲 + .confirm.json，不 finalize —— 模拟写作中断。
+ * 去 git 后草稿直接落正文区（无 manifest 基线 = 未定稿）。
  */
 export function stageIncompleteChapter(root: string, chapterNum: number): void {
   const workDir = join(root, '工作区')
-  const draftDir = join(root, '写作', '草稿')
-  mkdirSync(draftDir, { recursive: true })
+  const bodyDir = join(root, '写作', '正文')
+  mkdirSync(bodyDir, { recursive: true })
   mkdirSync(workDir, { recursive: true })
   const outline = join(workDir, '细纲.md')
   writeFileSync(outline, `第${chapterNum}章细纲`, 'utf-8')
-  writeFileSync(join(draftDir, `草稿-${chapterNum}.md`), `第${chapterNum}章草稿`, 'utf-8')
+  writeFileSync(
+    join(bodyDir, `000${chapterNum}-草稿.md`),
+    `---\n章号: ${chapterNum}\n标题: 草稿\n---\n\n第${chapterNum}章草稿`,
+    'utf-8',
+  )
   // .confirm.json（机器域，模拟已确认细纲但未定稿）
   writeFileSync(
     join(workDir, '.confirm.json'),

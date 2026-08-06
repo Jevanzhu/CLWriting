@@ -21,14 +21,14 @@ function sh(cmd: string, cwd: string): string {
 
 // ── 态 4 续跑：中断点判定（#13 第 5 节）──────────────
 
-test('态4: 草稿+确认无 commit → pre-commit 续写', () => {
+test('态4: 草稿未定稿 → pre-finalize 续写', () => {
   const root = makeGitBook()
-  stageIncompleteChapter(root, 1) // 草稿+细纲+.confirm，无 ch:0001 commit
+  stageIncompleteChapter(root, 1) // 正文区草稿+细纲+.confirm，未定稿
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(4)
   if (d.state === 4) {
-    expect(d.resumePoint).toBe('pre-commit')
+    expect(d.resumePoint).toBe('pre-finalize')
     const r = routeState(d)
     expect(r.humanMsg).toContain('接着干')
     expect(r.humanMsg).toContain('续写')

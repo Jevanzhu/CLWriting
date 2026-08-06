@@ -9,18 +9,18 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
 import { detectState } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { generateDocId } from '../../src/document/stable-id.js'
+import { computeRevision } from '../../src/document/revision.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
-/** 建一个干净短篇集仓库（git + book.yaml kind:short + 写作/正文/ + 文风/ + 工作区/ + 初始 commit）。 */
+/** 建一个干净短篇集仓库（book.yaml kind:short + 写作/正文/ + 文风/ + 工作区/）。去 git。 */
 function makeShortBook(): string {
   const root = mkdtempSync(join(tmpdir(), '夜语集-'))
-  execSync('git init', { cwd: root, stdio: 'pipe' })
-  execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (const s of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
@@ -29,15 +29,23 @@ function makeShortBook(): string {
   mkdirSync(join(root, '文风', '金句库'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n', 'utf-8')
   mkdirSync(join(root, '工作区'), { recursive: true })
-  execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
   return root
 }
 
-/** 造一篇定稿（写作/正文/<篇号3位>-<标题>.md + pc: commit）。 */
+/** 造一篇定稿（正文 + manifest finalizedRevision 基线）。 */
 function finalizePiece(root: string, num: number, title: string): void {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', `${String(num).padStart(3, '0')}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
-  execSync(`git add -A && git commit -m "pc:${String(num).padStart(3, '0')} ${title}"`, { cwd: root, stdio: 'pipe' })
+  const rel = `写作/正文/${String(num).padStart(3, '0')}-${title}.md`
+  const abs = join(root, rel)
+  writeFileSync(abs, `---\n章号: ${num}\n标题: ${title}\n---\n\n第${num}篇正文。\n`, 'utf-8')
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  mkdirSync(join(root, '项目'), { recursive: true })
+  const m = readManifest(manifestPath)
+  upsertEntry(m, {
+    id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+    finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+  })
+  writeManifest(manifestPath, m)
 }
 
 test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/正文/，不看 设定/大纲/）', () => {
@@ -57,30 +65,30 @@ test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/�
   }
 })
 
-test('short 态 4: 工作区有半截篇（草稿+.confirm）但无对应 pc: commit → 态 4 pre-commit', () => {
+test('short 态 4: 工作区有半截篇（正文草稿+细纲+.confirm）但未定稿 → 态 4 pre-finalize', () => {
   const root = makeShortBook()
   try {
     const workDir = join(root, '工作区')
     writeFileSync(join(workDir, '细纲.md'), '第2篇细纲', 'utf-8')
-    writeFileSync(join(workDir, '草稿-2.md'), '第2篇草稿', 'utf-8')
+    writeFileSync(join(root, '写作', '正文', '002-草稿.md'), '第2篇草稿', 'utf-8')
     writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
 
     const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)
     if (d.state === 4) {
       expect(d.chapterNum).toBe(2)
-      expect(d.resumePoint).toBe('pre-commit') // 无 pc:002 commit
+      expect(d.resumePoint).toBe('pre-finalize') // 无 finalizedRevision 基线
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('short 态 4: 工作区半截篇 + 已有 pc: commit → 态 4 post-commit-residue', () => {
+test('short 态 4: 工作区半截篇 + 已定稿 → 态 4 post-finalize-residue', () => {
   const root = makeShortBook()
   try {
-    finalizePiece(root, 2, '旧伞') // 第 2 篇已定稿（pc:002 存在）
-    // 工作区残留第 2 篇的草稿/.confirm（post-commit residue）
+    finalizePiece(root, 2, '旧伞') // 第 2 篇已定稿（manifest 基线存在）
+    // 工作区残留第 2 篇的草稿/.confirm（post-finalize residue）；正文保持定稿内容不动
     const workDir = join(root, '工作区')
     writeFileSync(join(workDir, '细纲.md'), '第2篇细纲', 'utf-8')
     writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
@@ -89,7 +97,7 @@ test('short 态 4: 工作区半截篇 + 已有 pc: commit → 态 4 post-commit-
     expect(d.state).toBe(4)
     if (d.state === 4) {
       expect(d.chapterNum).toBe(2)
-      expect(d.resumePoint).toBe('post-commit-residue') // pc:002 已存在
+      expect(d.resumePoint).toBe('post-finalize-residue') // 基线已存在
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -140,14 +148,11 @@ test('short 不触发态 5/6: 已有多篇也不判卷末/体检（无长程概�
 test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', () => {
   const root = mkdtempSync(join(tmpdir(), '长篇-'))
   try {
-    execSync('git init', { cwd: root, stdio: 'pipe' })
-    execSync('git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     mkdirSync(join(root, '布线', '悬念'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })
     mkdirSync(join(root, '.cache'), { recursive: true })
-    execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
 
     // 长篇空书 → 态 7（走长篇分支，不进 short 的 countPieces）
     const d = detectState(root, DEFAULT_CONFIG)

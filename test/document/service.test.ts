@@ -205,7 +205,7 @@ describe('DocumentService / snapshot 触发', () => {
     await svc.save('doc_1', '写作/正文/0001-开篇.md', {
       content: '改后', expectedRevision: base, operationId: 'op1', origin: 'manual',
     })
-    const snapDir = join(bookRoot, '工作区', '.snapshots', 'doc_1')
+    const snapDir = join(bookRoot, '工作区', '.版本', 'doc_1')
     expect(existsSync(snapDir)).toBe(true)
   })
 
@@ -213,7 +213,7 @@ describe('DocumentService / snapshot 触发', () => {
     await svc.save('doc_1', '素材/灵感.md', {
       content: '新', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
-    const snapDir = join(bookRoot, '工作区', '.snapshots', 'doc_1')
+    const snapDir = join(bookRoot, '工作区', '.版本', 'doc_1')
     expect(existsSync(snapDir)).toBe(false)
   })
 })

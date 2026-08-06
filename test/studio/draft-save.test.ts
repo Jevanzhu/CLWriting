@@ -30,7 +30,7 @@ afterEach(() => {
 
 /** 列指定 docId 目录下的快照文件 */
 function snapshotFiles(docId: string): string[] {
-  const dir = join(root, '工作区', '.snapshots', docId)
+  const dir = join(root, '工作区', '.版本', docId)
   if (!existsSync(dir)) return []
   return readdirSync(dir).filter((f) => f.endsWith('.md'))
 }
@@ -43,7 +43,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     // 未登记清单 → 文件名派生键
     const files = snapshotFiles('0042-测试章')
     expect(files).toHaveLength(1)
-    const snap = readFileSync(join(root, '工作区', '.snapshots', '0042-测试章', files[0]!), 'utf8')
+    const snap = readFileSync(join(root, '工作区', '.版本', '0042-测试章', files[0]!), 'utf8')
     expect(snap).toContain('旧稿：他把烟摁灭。')
     expect(snap).toContain('来源: draft-overwrite')
     expect(snap).not.toContain('新稿')
@@ -57,7 +57,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
 
   it('目标文件不存在（首次生成）→ 不留', () => {
     expect(snapshotBeforeOverwrite(root, REL, '首稿')).toBeNull()
-    expect(existsSync(join(root, '工作区', '.snapshots'))).toBe(false)
+    expect(existsSync(join(root, '工作区', '.版本'))).toBe(false)
   })
 
   it('清单已登记 → 快照落真 docId 目录（与编辑器历史同目录可恢复）', () => {
@@ -89,7 +89,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     expect(id).not.toBeNull()
     const files = snapshotFiles('001-短篇')
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.snapshots', '001-短篇', files[0]!), 'utf8')).toContain('第1篇草稿')
+    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1篇草稿')
   })
 })
 
@@ -151,7 +151,7 @@ describe('POST /draft-save 响应契约（M3）', () => {
     expect(r.status).toBe(200)
     expect(r.json['snapshotted']).toBe(true)
     // 快照真实落盘
-    const snapDir = join(workDir, BOOK, '工作区', '.snapshots')
+    const snapDir = join(workDir, BOOK, '工作区', '.版本')
     expect(existsSync(snapDir)).toBe(true)
   })
 

@@ -62,12 +62,12 @@ test('scanBookTree: 跳过 .git/.cache/工作区内部目录（.journal/待定�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('buildTree: 叶子挂 docId（无清单→legacy:）+ status（git 干净→final）+ name 去 .md', () => {
+test('buildTree: 叶子挂 docId（无清单→legacy:）+ status（无 entry→draft）+ name 去 .md', () => {
   const root = makeBook()
   const chapter = findNode(buildTree(root), '写作/正文/第一卷/0001-开篇.md')
   expect(chapter).not.toBeNull()
   expect(chapter!.docId).toMatch(/^legacy:/)
-  expect(chapter!.status).toBe('final')
+  expect(chapter!.status).toBe('draft') // 无 manifest entry → 从未定稿 → draft
   expect(chapter!.role).toBe('chapter')
   expect(chapter!.name).toBe('0001-开篇') // 展示名去 .md
   expect(chapter!.path).toBe('写作/正文/第一卷/0001-开篇.md') // path 带 .md

@@ -85,7 +85,7 @@ test('moveDocument: 跨卷移动，文件名不变（章号稳定 §11）+ 清�
   expect(m).toContain('写作/正文/第二卷/0001-开篇.md')
   expect(m).not.toContain('写作/正文/第一卷/0001-开篇.md')
   // snapshot 留底
-  const snapDir = join(root, '工作区', '.snapshots', 'doc_ch01')
+  const snapDir = join(root, '工作区', '.版本', 'doc_ch01')
   expect(existsSync(snapDir)).toBe(true)
   expect(readdirSync(snapDir).length).toBeGreaterThan(0)
   rmSync(root, { recursive: true, force: true })

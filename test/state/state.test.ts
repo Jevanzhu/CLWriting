@@ -6,38 +6,29 @@
  */
 
 import { test, expect } from 'vitest'
-import { rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { execSync } from 'node:child_process'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
 import { detectState, routeState, enter } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { git } from '../../src/git/exec.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { generateDocId } from '../../src/document/stable-id.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 const FAST_CHAPTER_FIXTURE = { commitEach: false }
 
-function sh(cmd: string, cwd: string): void {
-  execSync(cmd, { cwd, stdio: 'pipe' })
-}
+// ── 态 1: 健康检查（journal 崩溃 + 网盘副本）──────────────────
 
-function mustGit(args: string[], cwd: string): void {
-  const r = git(args, cwd)
-  if (!r.ok) throw new Error(r.humanMsg)
-}
-
-// ── 态 1: git 健康检查 ──────────────────────────────
-
-test('detectState: git 有问题 → 态 1（体检优先）', () => {
+test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
   const root = makeGitBook()
-  // 造半提交（staged 残留）
-  writeFileSync(join(root, '布线', '悬念', '悬念-031-灭门真凶.md'), '改了', 'utf-8')
-  sh('git add -A', root)
+  // 造 Dropbox 风格冲突副本（纯 fs，不依赖 git）
+  writeFileSync(join(root, '写作', '正文', '某章 2.md'), '副本内容', 'utf-8')
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {
     expect(d.issues.length).toBeGreaterThan(0)
-    expect(d.issues.some((i) => i.kind === 'halfCommit')).toBe(true)
+    expect(d.issues.some((i) => i.kind === 'cloudCopy')).toBe(true)
   }
   rmSync(root, { recursive: true, force: true })
 })
@@ -48,7 +39,6 @@ test('detectState: 源文件解析失败 → 态 2', () => {
   const root = makeGitBook()
   // 写一个坏账本文件（裸文件无 front matter，rebuild 会收 ParseError）
   writeFileSync(join(root, '布线', '悬念', '悬念-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
-  sh('git add -A && git commit -m "加坏文件"', root)
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(2)
@@ -60,19 +50,34 @@ test('detectState: 源文件解析失败 → 态 2', () => {
 
 // ── 态 3: 未入账手改 ────────────────────────────────
 
-test('detectState: 定稿区有未 commit 手改 → 态 3', () => {
+test('detectState: 已定稿文件有手改 → 态 3', () => {
   const root = makeGitBook()
-  // 手改账本正文（保留合法 front matter，只改履历内容——真实手改场景）
+  // 造一章定稿（登记 manifest + 设基线）+ 手改正文
+  const bodyPath = join(root, '写作', '正文', '0001-开篇.md')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
-    join(root, '布线', '悬念', '悬念-031-灭门真凶.md'),
-    '---\n编号: 悬念-031\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：作者手改的证据\n',
+    bodyPath,
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
     'utf-8',
   )
+  // 定稿基线 = 当前指纹
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  mkdirSync(join(root, '项目'), { recursive: true })
+  const m = readManifest(manifestPath)
+  const docId = generateDocId()
+  upsertEntry(m, {
+    id: docId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null,
+    finalizedRevision: computeRevision(bodyPath), finalizedAt: new Date().toISOString(),
+  })
+  writeManifest(manifestPath, m)
+
+  // 手改正文（指纹 ≠ 基线）→ 态 3
+  writeFileSync(bodyPath, '---\n章号: 1\n标题: 开篇\n---\n\n作者手改的正文。\n', 'utf-8')
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(3)
   if (d.state === 3) {
-    expect(d.handEdits.some((f) => f.includes('悬念-031'))).toBe(true)
+    expect(d.handEdits.some((f) => f.includes('0001-开篇'))).toBe(true)
   }
   rmSync(root, { recursive: true, force: true })
 })
@@ -138,13 +143,13 @@ test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-// ── 判定顺序：git 异常优先 ────────────────────────
+// ── 判定顺序：健康异常优先 ────────────────────────
 
-test('detectState: git 异常优先（git 坏 + 工作区未完成 → 先报态 1）', () => {
+test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → 先报态 1）', () => {
   const root = makeGitBook()
   stageIncompleteChapter(root, 1) // 工作区未完成（态 4）
-  // 再造 git 问题（态 1）
-  writeFileSync(join(root, '.git', 'index.lock'), '', 'utf-8')
+  // 再造健康问题（态 1）
+  writeFileSync(join(root, '写作', '正文', '冲突副本 2.md'), '副本', 'utf-8')
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1) // 态 1 优先于态 4
@@ -156,7 +161,7 @@ test('detectState: git 异常优先（git 坏 + 工作区未完成 → 先报态
 test('routeState: 各态路由动作 + needsAI 标记', () => {
   // 态 1 不需 AI、态 2/3 需 AI（M3 桩）、态 4/7 不需 AI
   const root1 = makeGitBook()
-  writeFileSync(join(root1, '.git', 'index.lock'), '', 'utf-8')
+  writeFileSync(join(root1, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
   expect(routeState(detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
   rmSync(root1, { recursive: true, force: true })
 
@@ -198,9 +203,9 @@ test('enter: 干净书 → recap + route 结构正确', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('enter: git 异常且缓存缺失 → 不崩，返回态 1 路由', () => {
+test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () => {
   const root = makeGitBook()
-  writeFileSync(join(root, '.git', 'index.lock'), '', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
 
   const result = enter(root)
   expect(result.recap.state).toBe(1)
@@ -214,28 +219,5 @@ test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
   const { recap, route } = enter(root)
   expect(recap.state).toBe(5)
   expect(route.action).toBe('volume-review')
-  rmSync(root, { recursive: true, force: true })
-})
-
-// ── 确认复述（#15 第 4 节，兜底闭环前置）────────────
-
-test('enter: 定稿带 Confirmed trailer → 确认复述带哈希', () => {
-  const root = makeGitBookWithChapters(1)
-  // 手动给最后 commit 加 trailer（模拟 finalize 的 Confirmed 留痕）
-  mustGit([
-    'commit',
-    '--amend',
-    '-m',
-    'ch:0001 第一章\n\nConfirmed: 2026-06-17T10:00 mode=manual hash=sha256:abc123',
-    '--no-edit',
-  ], root)
-
-  const { recap } = enter(root)
-  expect(recap.lastConfirm).toBeDefined()
-  if (recap.lastConfirm) {
-    expect(recap.lastConfirm.chapter).toBe(1)
-    expect(recap.lastConfirm.hash).toBe('sha256:abc123')
-    expect(recap.lastConfirm.mode).toBe('manual')
-  }
   rmSync(root, { recursive: true, force: true })
 })

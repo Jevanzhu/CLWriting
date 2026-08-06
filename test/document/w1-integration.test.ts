@@ -87,7 +87,7 @@ describe('W1 / 清单与快照策略', () => {
     await svc.save('doc_r', '素材/r.md', {
       content: '恢复版', expectedRevision: base, operationId: 'op1', origin: 'restore',
     })
-    const snapDir = join(bookRoot, '工作区', '.snapshots', 'doc_r')
+    const snapDir = join(bookRoot, '工作区', '.版本', 'doc_r')
     expect(existsSync(snapDir)).toBe(true)
     const snaps = readdirSync(snapDir).filter((n) => n.endsWith('.md'))
     expect(snaps.length).toBe(1)

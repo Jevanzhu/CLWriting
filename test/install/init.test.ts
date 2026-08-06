@@ -40,13 +40,14 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(existsSync(join(wd, '.clwriting'))).toBe(true)
   expect(existsSync(join(wd, '.clwriting', 'roles'))).toBe(false)
 
-  // 书仓库层：独立 git + book.yaml + 6.2 目录 + 初始 commit
+  // 书仓库层：book.yaml + 6.2 目录 + 初始 manifest（去 git 自管版本系统）
   const bookRoot = r.bookRoot
-  expect(existsSync(join(bookRoot, '.git'))).toBe(true)
-  expect(existsSync(join(bookRoot, '.git', 'hooks', 'pre-push'))).toBe(true)
+  expect(existsSync(join(bookRoot, '.git'))).toBe(false) // 不再 git init
+  expect(existsSync(join(bookRoot, '.gitignore'))).toBe(false) // 不再写 gitignore
   expect(existsSync(join(bookRoot, 'book.yaml'))).toBe(true)
   expect(existsSync(join(bookRoot, 'AGENTS.md'))).toBe(false)
-  expect(existsSync(join(bookRoot, '.gitignore'))).toBe(true)
+  // 初始文档清单（去 git 后状态机/定稿的账本基座）
+  expect(existsSync(join(bookRoot, '项目', '文档清单.jsonl'))).toBe(true)
   // 基础两类恒建（线索拆到 布线/）
   expect(existsSync(join(bookRoot, '布线', '悬念'))).toBe(true)
   expect(existsSync(join(bookRoot, '布线', '感情线'))).toBe(true)
@@ -77,12 +78,9 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   expect(cfg.book.genre).toBe('玄幻')
   expect(cfg.leads.enabled).toEqual(['成长线', '设定线'])
 
-  // 初始 commit 存在（git 有 HEAD）
-  const head = git(['rev-parse', 'HEAD'], bookRoot).trim()
-  expect(head.length).toBe(40)
-  const pushHook = readFileSync(join(bookRoot, '.git', 'hooks', 'pre-push'), 'utf-8')
-  expect(pushHook).toContain('CLWRITING_ALLOW_BOOK_PUSH=1')
-  expect(pushHook).toContain('Push is blocked by default')
+  // 初始 manifest 为空（新建书无 document，模板文件由树扫盘派生 draft）
+  const head = readFileSync(join(bookRoot, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(head).toContain('"type":"header"')
 
   // books.jsonl 登记 + 设为活动书
   const books = readBooks(wd)

@@ -4,7 +4,6 @@
  * rebuild 一次循环 checkWithDb 的正确性在此一并覆盖（runCheckForDocument 重构零回归）。
  */
 import http from 'node:http'
-import { execSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,6 +12,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { computeRevision } from '../../src/document/revision.js'
 import { writeAnalysis } from '../../src/document/analysis.js'
 
 const BOOK = '树红点测试书'
@@ -92,16 +92,14 @@ beforeAll(async () => {
   const m = readManifest(manifestPath)
   redDocId = generateDocId()
   verdictDocId = generateDocId()
-  upsertEntry(m, { id: redDocId, nodeType: 'document', path: '写作/正文/0001-红章.md', parentId: null })
-  upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '写作/正文/0002-净章.md', parentId: null })
+  // 0001/0002 登记定稿基线但内容已改（基线 ≠ 当前指纹）→ revision 态，聚合逻辑覆盖「定稿后改动」场景
+  //（去 git 不再用 git init + staged 制造 dirty；基线存在也触发幂等闸跳过 migrateFinalizedRevisions）
+  upsertEntry(m, { id: redDocId, nodeType: 'document', path: '写作/正文/0001-红章.md', parentId: null, finalizedRevision: 'sha256:baseline-v0', finalizedAt: '2026-07-25T00:00:00Z' })
+  upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '写作/正文/0002-净章.md', parentId: null, finalizedRevision: 'sha256:baseline-v0', finalizedAt: '2026-07-25T00:00:00Z' })
   writeManifest(manifestPath, m)
 
-  // tree-issues 后端跳过定稿态（final/published）；git init + add（不 commit）让文件
-  // 处于 staged → dirty → revision 态，使聚合逻辑可被测试覆盖
-  // 注意：git init 必须在 bookRoot（= collectDirtyFiles 的 cwd）， porcelain 路径才与
-  // deriveStatus 的 relPath 对齐（都相对 bookRoot）
-  execSync('git init', { cwd: bookRoot })
-  execSync('git add -A', { cwd: bookRoot })
+  // tree-issues 后端跳过定稿态（final/published）；无 finalizedRevision → 树红点聚合仍机检
+  //（去 git：不再用 git init + staged 制造 dirty；draft 态即被聚合覆盖）
 
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
@@ -227,9 +225,18 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
     const manifestPath = join(futureBookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     futureCh1DocId = generateDocId()
-    upsertEntry(m, { id: futureCh1DocId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0002-灵脉.md', parentId: null })
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0003-旧约.md', parentId: null })
+    // 三章登记定稿基线（语义 = 已定稿到第 3 章）→ maxWrittenChapterOf 基准 = 3
+    const chPaths = ['写作/正文/0001-开篇.md', '写作/正文/0002-灵脉.md', '写作/正文/0003-旧约.md']
+    for (const p of chPaths) {
+      upsertEntry(m, {
+        id: p === '写作/正文/0001-开篇.md' ? futureCh1DocId : generateDocId(),
+        nodeType: 'document',
+        path: p,
+        parentId: null,
+        finalizedRevision: computeRevision(join(futureBookRoot, p)),
+        finalizedAt: new Date().toISOString(),
+      })
+    }
     writeManifest(manifestPath, m)
   })
 
