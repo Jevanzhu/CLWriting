@@ -16,13 +16,13 @@ const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
 const ws = useWorkspaceStore()
 
-type Tab = 'appearance' | 'editor' | 'backup' | 'book' | 'ai'
+type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'history'
 const activeTab = ref<Tab>('appearance')
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
-/** 当前 tab 的配置归属：外观/编辑器/AI → 全局（跨书共享）；备份/书籍 → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：外观/编辑器/AI → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
 const tabScope = computed<'global' | 'book'>(() =>
-  activeTab.value === 'backup' || activeTab.value === 'book' ? 'book' : 'global',
+  activeTab.value === 'history' || activeTab.value === 'book' ? 'book' : 'global',
 )
 
 // ── 系统字体（桌面版 IPC）──
@@ -112,15 +112,15 @@ watch(
   { immediate: true },
 )
 
-/** 通用：读 → 改 → 写 book.yaml */
-async function saveConfig(mutate: (cfg: BookConfig) => void): Promise<void> {
+/** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。 */
+async function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
   const name = ws.bookName
   if (!name) return
   try {
     const cfg = await getConfig(name)
     mutate(cfg)
     await putConfig(name, cfg)
-    ui.toast('已保存', 'success')
+    if (!silent) ui.toast('已保存', 'success')
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
   }
@@ -223,14 +223,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <button :class="{ active: activeTab === 'editor' }" @click="activeTab = 'editor'">
               <Type :size="16" /><span>编辑器</span>
             </button>
-            <button :class="{ active: activeTab === 'backup' }" @click="activeTab = 'backup'">
-              <History :size="16" /><span>备份</span>
-            </button>
             <button :class="{ active: activeTab === 'book' }" @click="activeTab = 'book'">
               <BookOpen :size="16" /><span>书籍</span>
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
               <Sparkles :size="16" /><span>AI</span>
+            </button>
+            <button :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+              <History :size="16" /><span>版本历史</span>
             </button>
           </nav>
 
@@ -358,47 +358,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </div>
             </template>
 
-            <!-- ═══ 备份 ═══ -->
-            <template v-else-if="activeTab === 'backup'">
-              <div v-if="!hasBook" class="empty-tab">
-                <History :size="28" />
-                <p>请先打开一本书</p>
-              </div>
-              <template v-else>
-                <div class="book-banner">
-                  <BookOpen :size="16" />
-                  <span>{{ ws.bookName }}</span>
-                </div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">版本保留</div>
-                    <div class="setting-item-desc">每章历史版本的保留规则</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <span class="backup-summary">{{ snapDays }} 天 · {{ snapCount }} 个</span>
-                  </div>
-                </div>
-                <div class="setting-item sub">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">保留天数</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <input class="num-input" type="number" min="1" max="365" :value="snapDays" @change="onSnapInput('days', $event)" />
-                    <span class="val-suffix">天</span>
-                  </div>
-                </div>
-                <div class="setting-item sub">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">保留数量</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <input class="num-input" type="number" min="1" max="200" :value="snapCount" @change="onSnapInput('count', $event)" />
-                    <span class="val-suffix">个</span>
-                  </div>
-                </div>
-              </template>
-            </template>
-
             <!-- ═══ 书籍 ═══ -->
             <template v-else-if="activeTab === 'book'">
               <div v-if="!hasBook" class="empty-tab">
@@ -439,40 +398,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <button class="link-btn" @click="openBookDir">打开</button>
                   </div>
                 </div>
-
-                <div class="group-title">知识检索</div>
-                <div class="setting-item">
-                  <div class="setting-item-info">
-                    <div class="setting-item-name">启用检索</div>
-                    <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
-                  </div>
-                  <div class="setting-item-control">
-                    <label class="switch">
-                      <input type="checkbox" :checked="ragEnabled" @change="onRagToggle($event)" />
-                      <span class="switch-slider"></span>
-                    </label>
-                  </div>
-                </div>
-                <template v-if="ragEnabled">
-                  <div class="setting-item">
-                    <div class="setting-item-info">
-                      <div class="setting-item-name">嵌入服务地址</div>
-                      <div class="setting-item-desc">向量嵌入服务的网址</div>
-                    </div>
-                    <div class="setting-item-control">
-                      <input class="text-input" type="text" placeholder="https://..." :value="ragEndpoint" @change="onRagEndpoint($event)" />
-                    </div>
-                  </div>
-                  <div class="setting-item">
-                    <div class="setting-item-info">
-                      <div class="setting-item-name">嵌入模型</div>
-                      <div class="setting-item-desc">向量嵌入模型名称</div>
-                    </div>
-                    <div class="setting-item-control">
-                      <input class="text-input" type="text" placeholder="如 text-embedding-3-small" :value="ragModel" @change="onRagModel($event)" />
-                    </div>
-                  </div>
-                </template>
               </template>
             </template>
 
@@ -491,6 +416,81 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
               <AiServicePanel />
+
+              <div class="group-title">知识检索</div>
+              <div class="setting-item">
+                <div class="setting-item-info">
+                  <div class="setting-item-name">启用检索</div>
+                  <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
+                </div>
+                <div class="setting-item-control">
+                  <label class="switch">
+                    <input type="checkbox" :checked="ragEnabled" @change="onRagToggle($event)" />
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <template v-if="ragEnabled">
+                <div class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">嵌入服务地址</div>
+                    <div class="setting-item-desc">向量嵌入服务的网址</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input class="text-input" type="text" placeholder="https://..." :value="ragEndpoint" @change="onRagEndpoint($event)" />
+                  </div>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">嵌入模型</div>
+                    <div class="setting-item-desc">向量嵌入模型名称</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input class="text-input" type="text" placeholder="如 text-embedding-3-small" :value="ragModel" @change="onRagModel($event)" />
+                  </div>
+                </div>
+              </template>
+            </template>
+
+            <!-- ═══ 版本历史 ═══ -->
+            <template v-else-if="activeTab === 'history'">
+              <div v-if="!hasBook" class="empty-tab">
+                <History :size="28" />
+                <p>请先打开一本书</p>
+              </div>
+              <template v-else>
+                <div class="book-banner">
+                  <BookOpen :size="16" />
+                  <span>{{ ws.bookName }}</span>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">版本保留</div>
+                    <div class="setting-item-desc">每章历史版本的保留规则</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <span class="backup-summary">{{ snapDays }} 天 · {{ snapCount }} 个</span>
+                  </div>
+                </div>
+                <div class="setting-item sub">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">保留天数</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input class="num-input" type="number" min="1" max="365" :value="snapDays" @change="onSnapInput('days', $event)" />
+                    <span class="val-suffix">天</span>
+                  </div>
+                </div>
+                <div class="setting-item sub">
+                  <div class="setting-item-info">
+                    <div class="setting-item-name">保留数量</div>
+                  </div>
+                  <div class="setting-item-control">
+                    <input class="num-input" type="number" min="1" max="200" :value="snapCount" @change="onSnapInput('count', $event)" />
+                    <span class="val-suffix">个</span>
+                  </div>
+                </div>
+              </template>
             </template>
           </div>
         </div>

@@ -31,6 +31,7 @@ const ORIGIN_LABEL: Record<string, string> = {
   manual: '保存前',
   restore: '恢复前',
   'external-merge': '外部修改合并前',
+  finalize: '定稿',
 }
 
 /** 时间人话：今天只给时分，昨天带「昨天」，更早给月日。 */
@@ -126,6 +127,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
         <div class="meta">
           <span class="time">{{ fmtTime(e.time) }}</span>
           <span class="origin">{{ ORIGIN_LABEL[e.origin] ?? e.origin }}</span>
+          <span v-if="e.pinned" class="pinned-badge">里程碑</span>
         </div>
         <div class="right">
           <span class="words">
@@ -206,6 +208,16 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 定稿里程碑标记（pinned 版本，永久保留） */
+.pinned-badge {
+  font-size: var(--font-size-xs);
+  color: var(--text-accent);
+  border: 1px solid var(--text-accent);
+  border-radius: var(--radius-s);
+  padding: 0 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .right {
   display: flex;

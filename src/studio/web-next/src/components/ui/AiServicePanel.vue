@@ -131,7 +131,13 @@ async function save(): Promise<void> {
 }
 
 async function remove(p: ProviderConfDto): Promise<void> {
-  if (!confirm(`删除服务商「${p.name}」？`)) return
+  const ok = await ui.ask({
+    title: '删除服务商',
+    message: `确认删除「${p.name}」？删除后不可恢复。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
   try {
     const r = await deleteProvider(p.id)
     currentId.value = r.currentId

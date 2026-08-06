@@ -1,6 +1,6 @@
 import { apiJson } from './client'
 
-/** 版本列表项（后端 SnapshotEntry）。 */
+/** 版本列表项（后端 VersionEntry）。 */
 export interface SnapshotEntry {
   id: string
   /** 毫秒时间戳 */
@@ -8,6 +8,8 @@ export interface SnapshotEntry {
   origin: string
   reason: string
   words: number
+  /** 永久保留标记（定稿里程碑，不被清理） */
+  pinned: boolean
 }
 
 // GET /documents/:docId/snapshots → 版本列表（新的在前）
