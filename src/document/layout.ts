@@ -5,7 +5,7 @@
  * 全字段 capabilities 为 W2A 结构性操作铺路，W1 仅校验 write。
  *
  * 目录角色表（v2 结构）：
- * - 写作/正文 → chapter（短篇书由 tree.ts 按 kind 覆盖为 piece-body）；写作/草稿 → draft
+ * - 写作/正文 → chapter（短篇书由 tree.ts 按 kind 覆盖为 piece-body）
  * - 大纲/卷纲 → volume-outline；大纲/清单 → piece-manifest；大纲/ 其他 → outline
  * - 布线/<线索> → ledger；设定/ → setting
  * - 文风 → style；简介.md → introduction；工作区/ → note（运行时资产，不进树）
@@ -67,8 +67,6 @@ export function roleOf(relPath: string): DocumentRole {
   const p = norm(relPath)
   // 正文（长篇章 / 短篇章，路径统一；tree.ts 按 kind 覆盖 piece-body）
   if (p.startsWith('写作/正文/')) return 'chapter'
-  // 草稿（从工作区迁出）
-  if (p.startsWith('写作/草稿/')) return 'draft'
   // 短篇清单（规划性质，放大纲区）
   if (p.startsWith('大纲/清单/')) return 'piece-manifest'
   // 设定（从 定稿/设定 提升根级）

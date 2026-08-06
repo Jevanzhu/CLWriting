@@ -19,55 +19,74 @@ export type DocumentStatus =
   | 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
 
 /**
- * 一次 git status --porcelain 拿工作树脏文件 path 集（相对 bookRoot，正斜杠）。
- * git 不可用（非仓库 / 命令失败）→ 空集降级（派生回退 final，宁放行不误报）。
- *
- * porcelain 行格式 `XY <path>`（X/Y 各一字符状态码），path 从 slice(3) 取；
- * 含特殊字符时 git 给 path 加引号，此处去引号。renamed（R）行格式特殊，第一版按 slice(3)
- * 取目标段（源段信息丢失但不影响「脏」判定——rename 本身就是脏）。
+ * 文件状态集（git porcelain 解析）：untracked = 新文件（draft），modified = tracked+dirty（revision）。
  */
-export function collectDirtyFiles(bookRoot: string): Set<string> {
-  const out = statusPorcelain(bookRoot)
-  const set = new Set<string>()
-  if (!out) return set
+export interface FileStatuses {
+  /** git untracked（?? 前缀）——正文区新文件 → draft 状态 */
+  untracked: Set<string>
+  /** git tracked+modified（非 ?? 前缀）——已跟踪但有变更 → revision 状态 */
+  modified: Set<string>
+}
+
+/**
+ * 一次 git status --porcelain -uall 拿 untracked/modified 双集（相对 bookRoot，正斜杠）。
+ * -uall 展开 untracked 目录为具体文件路径（正文区新建卷目录里的草稿不漏报）。
+ * git 不可用（非仓库 / 命令失败）→ 双空集降级（派生回退 final，宁放行不误报）。
+ */
+export function collectFileStatuses(bookRoot: string): FileStatuses {
+  const out = statusPorcelain(bookRoot, true)
+  const untracked = new Set<string>()
+  const modified = new Set<string>()
+  if (!out) return { untracked, modified }
   for (const line of out.split('\n')) {
-    // porcelain 固定宽度：2 状态码 + 1 空格 + path（行首空格是状态码的一部分，不动）
     if (line.length < 4) continue
+    const isUntracked = line[0] === '?' && line[1] === '?'
     let p = line.slice(3)
-    // rename/copy 行含 ` -> ` 分隔符，取新路径（P1-6B）
     if ((line[0] === 'R' || line[0] === 'C') && p.includes(' -> ')) {
       p = p.split(' -> ')[1] ?? p
     }
     if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
-    if (p) set.add(p)
+    if (p) {
+      if (isUntracked) untracked.add(p)
+      else modified.add(p)
+    }
   }
-  return set
+  return { untracked, modified }
+}
+
+/**
+ * 向后兼容：untracked+modified 合并为一个脏文件集。
+ * 新代码应优先用 collectFileStatuses 区分 untracked/modified。
+ */
+export function collectDirtyFiles(bookRoot: string): Set<string> {
+  const { untracked, modified } = collectFileStatuses(bookRoot)
+  return new Set([...untracked, ...modified])
 }
 
 /**
  * 派生单文件 status（纯函数，不判 published）。
  * - archived：废稿/ 前缀
- * - draft：写作/草稿/草稿-N.md 或 工作区/待定稿/ 队列（§3）
- * - idea：草稿区仅细纲/卡片（无草稿）
- * - revision：正文/设定等区文件在脏集（未 rebook 的手改，态 3 文档视图）
+ * - draft：正文区 git untracked（新建未定稿的草稿）
+ * - revision：正文/设定等区 git modified（已跟踪但有手改）
  * - final：正文/设定等区文件干净（默认良好态）
  *
  * published 由 readPublished 单独查（避免对所有 final 文件读 frontmatter）。
  */
-export function deriveStatus(relPath: string, dirtyFiles: Set<string>): DocumentStatus {
+export function deriveStatus(
+  relPath: string,
+  untracked: Set<string>,
+  modified: Set<string>,
+): DocumentStatus {
   if (relPath.startsWith('废稿/')) return 'archived'
-  if (relPath.startsWith('写作/草稿/')) {
-    const name = relPath.slice('写作/草稿/'.length)
-    if (/^草稿-\d+\.md$/.test(name)) return 'draft'
-    return 'idea' // 细纲.md 等
-  }
   if (relPath.startsWith('工作区/')) {
     const name = relPath.slice('工作区/'.length)
     if (name.startsWith('待定稿/')) return 'draft'
     return 'idea'
   }
-  // 正文 / 大纲 / 设定 / 布线 等：git 判脏
-  return dirtyFiles.has(relPath) ? 'revision' : 'final'
+  // 正文 / 大纲 / 设定 / 布线 等：untracked → draft；modified → revision；clean → final
+  if (untracked.has(relPath)) return 'draft'
+  if (modified.has(relPath)) return 'revision'
+  return 'final'
 }
 
 /**
@@ -92,9 +111,10 @@ export function readPublished(bookRoot: string, relPath: string): boolean {
 export function deriveStatusFull(
   bookRoot: string,
   relPath: string,
-  dirtyFiles: Set<string>,
+  untracked: Set<string>,
+  modified: Set<string>,
 ): DocumentStatus {
-  const s = deriveStatus(relPath, dirtyFiles)
+  const s = deriveStatus(relPath, untracked, modified)
   if (s === 'final' && readPublished(bookRoot, relPath)) return 'published'
   return s
 }

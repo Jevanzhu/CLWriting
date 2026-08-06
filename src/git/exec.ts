@@ -60,9 +60,11 @@ function humanizeGitError(args: string[], stderr?: string): string {
  *  注意：只去末尾换行，**不动行首空格**——porcelain 是固定宽度格式（XY<空格>path），
  *  XY 中 X 状态码可能是空格（如 " M"=worktree改），行首 trim 会吃掉它破坏对齐。
  *  调用方按 .slice(3) 取 path。 */
-export function statusPorcelain(cwd: string): string {
+export function statusPorcelain(cwd: string, untrackedAll = false): string {
   // -c core.quotepath=false：非 ASCII 路径（中文目录/文件名）原样输出，免八进制转义
-  const r = git(['-c', 'core.quotepath=false', 'status', '--porcelain'], cwd)
+  const args = ['-c', 'core.quotepath=false', 'status', '--porcelain']
+  if (untrackedAll) args.push('-uall')
+  const r = git(args, cwd)
   return r.ok ? r.stdout.replace(/\n+$/, '') : ''
 }
 

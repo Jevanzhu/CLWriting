@@ -13,7 +13,6 @@ import { readChapter } from '../format/chapters.js'
 import { readManifest } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { collectDirtyFiles } from './status.js'
-import { roleOf } from './layout.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -31,12 +30,6 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
-
-  // 草稿校验：草稿（写作/草稿/）不可定稿（草稿入卷属 P2，不在本阶段）
-  const role = roleOf(relPath)
-  if (role === 'draft') {
-    return { ok: false, code: 'NOT_DRAFT_REGION', error: '仅正文/设定等文档可定稿（草稿入卷功能开发中）' }
-  }
 
   // 从正文 frontmatter 取章号 + 标题（commit message 用）；解析失败从文件名推断
   const absPath = join(bookRoot, relPath)

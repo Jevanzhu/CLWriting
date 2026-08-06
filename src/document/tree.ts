@@ -12,7 +12,7 @@ import { readdirSync, readFileSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
-import { collectDirtyFiles, deriveStatusFull, type DocumentStatus } from './status.js'
+import { collectFileStatuses, deriveStatusFull, type DocumentStatus, type FileStatuses } from './status.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
@@ -90,9 +90,19 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
   return nodes
 }
 
-/** 排序：目录优先于文件，同类型按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）。 */
+/** 根级目录展示序（作者工作流优先：写作 → 大纲 → 布线 → 设定）。 */
+const ROOT_ORDER = ['写作', '大纲', '布线', '设定']
+
+/** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
+ *  其余层级按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）。 */
 function compareNode(a: TreeNode, b: TreeNode): number {
   if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+  const ar = ROOT_ORDER.indexOf(a.path)
+  const br = ROOT_ORDER.indexOf(b.path)
+  if (ar !== -1 || br !== -1) {
+    if (ar !== -1 && br !== -1) return ar - br
+    return ar !== -1 ? -1 : 1
+  }
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
 }
 
@@ -120,10 +130,10 @@ export function buildTree(bookRoot: string): TreeNode[] {
   for (const e of manifest.entries.values()) {
     if (e.nodeType === 'document') entryByPath.set(e.path, e)
   }
-  const dirty = collectDirtyFiles(bookRoot)
+  const statuses = collectFileStatuses(bookRoot)
   const volumeStems = collectVolumeOutlineStems(bookRoot)
   const kind = readBookKind(bookRoot)
-  annotate(nodes, bookRoot, entryByPath, dirty, volumeStems, kind)
+  annotate(nodes, bookRoot, entryByPath, statuses, volumeStems, kind)
   return nodes
 }
 
@@ -145,7 +155,7 @@ function annotate(
   nodes: TreeNode[],
   bookRoot: string,
   entryByPath: Map<string, ManifestEntry>,
-  dirty: Set<string>,
+  statuses: FileStatuses,
   volumeStems: Set<string>,
   kind: 'long' | 'short',
 ): void {
@@ -157,7 +167,7 @@ function annotate(
       }
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
-      n.status = deriveStatusFull(bookRoot, n.path, dirty)
+      n.status = deriveStatusFull(bookRoot, n.path, statuses.untracked, statuses.modified)
       if (isCountedRole(n.role)) {
         n.wordCount = countWordsOf(bookRoot, n.path)
       }
@@ -168,14 +178,14 @@ function annotate(
       }
     }
     if (n.children.length > 0) {
-      annotate(n.children, bookRoot, entryByPath, dirty, volumeStems, kind)
+      annotate(n.children, bookRoot, entryByPath, statuses, volumeStems, kind)
     }
   }
 }
 
 /** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body / 工作区草稿 draft。 */
 function isCountedRole(role: DocumentRole): boolean {
-  return role === 'chapter' || role === 'piece-body' || role === 'draft'
+  return role === 'chapter' || role === 'piece-body'
 }
 
 /** 读文档剥 frontmatter 后 countWords（读失败 → 0 容错）。 */
