@@ -375,6 +375,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <div :key="activeTab" class="tab-pane">
             <!-- ═══ 外观 ═══ -->
             <template v-if="activeTab === 'appearance'">
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">主题</div>
@@ -429,12 +430,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                 </div>
               </div>
+              </section>
             </template>
 
             <!-- ═══ 编辑器 ═══ -->
             <template v-else-if="activeTab === 'editor'">
-              <div v-if="hasDesktop" class="group-title">字体</div>
-              <div v-if="hasDesktop" class="setting-item">
+              <section v-if="hasDesktop" class="cfg-card">
+              <div class="cfg-card-head">字体</div>
+              <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">编辑器字体</div>
                   <div class="setting-item-desc">正文编辑区文字</div>
@@ -453,7 +456,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">排版</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">排版</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">正文字号</div>
@@ -488,7 +494,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">纸张</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">纸张</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">纸张宽度</div>
@@ -517,6 +526,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <span class="val-suffix">s</span>
                 </div>
               </div>
+              </section>
             </template>
 
             <!-- ═══ 书籍 ═══ -->
@@ -530,6 +540,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <BookOpen :size="16" />
                   <span>{{ ws.bookName }}</span>
                 </div>
+                <section class="cfg-card">
                 <div class="setting-item">
                   <div class="setting-item-info">
                     <div class="setting-item-name">书名</div>
@@ -600,11 +611,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                     <button class="link-btn" @click="openBookDir">打开</button>
                   </div>
                 </div>
+                </section>
               </template>
             </template>
 
             <!-- ═══ AI ═══ -->
             <template v-else-if="activeTab === 'ai'">
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">对话助手</div>
@@ -618,7 +631,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">写作风格</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">写作风格</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">文风注入</div>
@@ -632,7 +648,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">AI 预算</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">AI 预算</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">单章调用上限</div>
@@ -644,7 +663,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">自动写作</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">自动写作</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">自动确认细纲</div>
@@ -668,7 +690,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">关系图</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">关系图</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">自动梳理</div>
@@ -692,7 +717,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
 
-              <div class="group-title">知识检索</div>
+              </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">知识检索</div>
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">启用检索</div>
@@ -728,6 +756,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <button class="save-btn" @click="saveRagConfig">保存检索设置</button>
                 </div>
               </template>
+              </section>
             </template>
 
             <!-- ═══ 服务商 ═══ -->
@@ -746,6 +775,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <BookOpen :size="16" />
                   <span>{{ ws.bookName }}</span>
                 </div>
+                <section class="cfg-card">
                 <div class="setting-item">
                   <div class="setting-item-info">
                     <div class="setting-item-name">版本保留</div>
@@ -774,7 +804,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                 </div>
 
-                <div class="group-title">定稿版本</div>
+                </section>
+
+              <section class="cfg-card">
+              <div class="cfg-card-head">定稿版本</div>
                 <template v-if="versionStats">
                   <div class="setting-item">
                     <div class="setting-item-info">
@@ -806,6 +839,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </template>
                 <div v-else class="stats-hint">统计数据加载中…</div>
               </template>
+              </section>
             </template>
               </div>
             </transition>
@@ -991,19 +1025,47 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-size: var(--font-size-s);
 }
 
-/* ── 分组标题（底线分隔式，替代纯间距）── */
-.group-title {
+/* ── 卡片容器 ── */
+.cfg-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: var(--size-4-4);
+}
+.cfg-card:last-child {
+  margin-bottom: 0;
+}
+.cfg-card-head {
   font-size: var(--font-size-xxs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
-  padding: 0 0 var(--size-4-2);
-  margin-top: var(--size-4-8);
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding: var(--size-4-3) var(--size-4-4) var(--size-4-1);
 }
-.group-title:first-child {
-  margin-top: 0;
+
+/* 卡片内设置项：去掉圆角 + 缩进分割线 */
+.cfg-card .setting-item {
+  position: relative;
+  padding: var(--size-4-3) var(--size-4-4);
+  border-radius: 0;
+  gap: var(--size-4-4);
+}
+.cfg-card .setting-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: var(--size-4-4);
+  right: var(--size-4-4);
+  height: 1px;
+  background: var(--background-modifier-border);
+}
+.cfg-card .setting-item:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+}
+/* 卡片内 sub 项更大缩进 */
+.cfg-card .setting-item.sub {
+  padding-left: var(--size-4-8);
 }
 
 /* ── 书籍 banner ── */
