@@ -156,23 +156,23 @@ function moveToTargets(node: TreeNode): { label: string; dir: string }[] {
 }
 
 // --- 菜单生成（五类，移植旧 FileTree.buildMenuItems）---
-/** 正文区新建选项（卷/章节） */
+/** 正文区新建选项（卷/章节）—— label 带「新建」自解释，直接摊开不分层 */
 const NEW_BODY: MenuItem[] = [
-  { key: 'new-volume', label: '卷' },
-  { key: 'new-chapter-root', label: '章节' },
+  { key: 'new-volume', label: '新建卷' },
+  { key: 'new-chapter-root', label: '新建章节' },
 ]
 /** 大纲区新建选项（章纲/卷纲/总纲） */
 const NEW_OUTLINE: MenuItem[] = [
-  { key: 'new-chapter-outline', label: '章纲' },
-  { key: 'new-volume-outline', label: '卷纲' },
-  { key: 'new-synopsis', label: '总纲' },
+  { key: 'new-chapter-outline', label: '新建章纲' },
+  { key: 'new-volume-outline', label: '新建卷纲' },
+  { key: 'new-synopsis', label: '新建总纲' },
 ]
 /** 设定区新建选项（角色/物品/世界观/伏笔） */
 const NEW_SETTINGS: MenuItem[] = [
-  { key: 'new-character', label: '角色' },
-  { key: 'new-item', label: '物品' },
-  { key: 'new-worldview', label: '世界观' },
-  { key: 'new-foreshadow', label: '伏笔' },
+  { key: 'new-character', label: '新建角色' },
+  { key: 'new-item', label: '新建物品' },
+  { key: 'new-worldview', label: '新建世界观' },
+  { key: 'new-foreshadow', label: '新建伏笔' },
 ]
 /** 空白处全量新建选项（正文/大纲/设定三组用分隔线隔开，不搞子菜单嵌套） */
 const NEW_BLANK: MenuItem[] = [
@@ -185,37 +185,38 @@ const NEW_BLANK: MenuItem[] = [
 
 function buildMenuItems(node: TreeNode): MenuItem[] {
   const p = node.path
+  // 正文区/大纲区/设定区：新建项直接摊开在顶层（不包「新建 ▸」子菜单——选项少，多一级是噪音）
   if (node.isDirectory && isVolumeDir(p)) {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter', label: '章节' }] }]
+    return [{ key: 'new-chapter', label: '新建章节' }]
   }
   if (p === '写作/正文' || p === '写作') {
-    return [{ key: 'new', label: '新建', submenu: NEW_BODY }]
+    return NEW_BODY
   }
   // 大纲根：章纲/卷纲/总纲（单例总纲只在根/空白处提供，不进具体子目录）
   if (node.isDirectory && p === '大纲') {
-    return [{ key: 'new', label: '新建', submenu: NEW_OUTLINE }]
+    return NEW_OUTLINE
   }
   if (node.isDirectory && p === '大纲/章纲') {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-chapter-outline', label: '章纲' }] }]
+    return [{ key: 'new-chapter-outline', label: '新建章纲' }]
   }
   if (node.isDirectory && p === '大纲/卷纲') {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-volume-outline', label: '卷纲' }] }]
+    return [{ key: 'new-volume-outline', label: '新建卷纲' }]
   }
   // 设定根：角色/物品/世界观/伏笔（单例世界观只在根/空白处提供）
   if (node.isDirectory && p === '设定') {
-    return [{ key: 'new', label: '新建', submenu: NEW_SETTINGS }]
+    return NEW_SETTINGS
   }
   if (node.isDirectory && p === '设定/角色') {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-character', label: '角色' }] }]
+    return [{ key: 'new-character', label: '新建角色' }]
   }
   if (node.isDirectory && p === '设定/物品') {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-item', label: '物品' }] }]
+    return [{ key: 'new-item', label: '新建物品' }]
   }
   if (node.isDirectory && p === '设定/伏笔') {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-foreshadow', label: '伏笔' }] }]
+    return [{ key: 'new-foreshadow', label: '新建伏笔' }]
   }
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('设定/'))) {
-    return [{ key: 'new', label: '新建', submenu: [{ key: 'new-doc', label: '文档' }] }]
+    return [{ key: 'new-doc', label: '新建文档' }]
   }
   if (!node.isDirectory) return buildLeafMenu(node)
   return []
