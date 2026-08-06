@@ -69,10 +69,10 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   // 母本 6.2 目录：定稿 / 大纲 / 文风 / 工作区
   scaffoldDirectories(bookRoot, opts)
 
-  // .gitignore（工作区/临时区/缓存/RAG 向量库不进 git）
+  // .gitignore（工作区/缓存/RAG 向量库不进 git）
   writeFileSync(
     join(bookRoot, '.gitignore'),
-    ['工作区/', '写作/草稿/', '.cache/', '.rag.db', ''].join('\n'),
+    ['工作区/', '.cache/', '.rag.db', ''].join('\n'),
     'utf-8',
   )
 
@@ -134,9 +134,8 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
     scaffoldShortDirectories(bookRoot, opts)
     return
   }
-  // 写作区：正文（预置第一卷）+ 草稿
+  // 写作区：正文（预置第一卷）
   mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
-  mkdirSync(join(bookRoot, '写作', '草稿'), { recursive: true })
   // 设定
   for (const d of ['设定/角色', '设定/物品', '设定/伏笔']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })

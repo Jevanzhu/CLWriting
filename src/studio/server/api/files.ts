@@ -24,7 +24,6 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
   { dir: '写作/正文', mode: 'text' },
   { dir: '设定', mode: 'md' },
   { dir: '大纲', mode: 'md' },
-  { dir: '写作/草稿', mode: 'md' }, // 草稿/细纲可见可改(改写针对草稿)
   { dir: '布线', mode: 'md' }, // 线索账本（设定伏笔在 设定/ 下）
   { dir: '文风', mode: 'md' }, // 文风铁律/样章库/金句库（撤出编辑树；SettingsModal「文风铁律」复用 /file 读写）
 ]
