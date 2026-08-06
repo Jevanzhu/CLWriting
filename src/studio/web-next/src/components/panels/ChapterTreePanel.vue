@@ -263,19 +263,55 @@ function onBlankContextMenu(e: MouseEvent): void {
   if ((e.target as HTMLElement).closest('.tree-item')) return
   e.preventDefault()
   menuNode.value = null
-  popup([{ key: 'new', label: '新建', submenu: NEW_BLANK }], e.clientX, e.clientY, onMenuSelect)
+  // 空白处 = 「还没想好建在哪」：8 种新建选项直接摊开在顶层（NEW_BLANK 已按正文/大纲/设定三组分隔），
+  // 不缩进「新建」子菜单——空白处就一个动作，多一级点击是噪音
+  popup(NEW_BLANK, e.clientX, e.clientY, onMenuSelect)
 }
 
 // --- 菜单动作分发 ---
+/** 新建类 key → 标准落盘目录（空白处 / 找不到右键目录时用）。正文/卷原地建不在此表（依赖右键目标或正文区惯例）。 */
+const NEW_DEFAULT_DIRS: Record<string, { renderDir: string; fsDir: string }> = {
+  'new-chapter-outline': { renderDir: '大纲', fsDir: '大纲/章纲' },
+  'new-volume-outline': { renderDir: '大纲', fsDir: '大纲/卷纲' },
+  'new-character': { renderDir: '设定', fsDir: '设定/角色' },
+  'new-item': { renderDir: '设定', fsDir: '设定/物品' },
+  'new-foreshadow': { renderDir: '设定', fsDir: '设定/伏笔' },
+}
+/** 新建类 key → startCreate kind（与 NEW_* 菜单常量的 key 一一对应）。 */
+const NEW_KIND_BY_KEY: Record<string, 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow'> = {
+  'new-chapter-outline': 'chapter-outline',
+  'new-volume-outline': 'volume-outline',
+  'new-character': 'character',
+  'new-item': 'item',
+  'new-foreshadow': 'foreshadow',
+}
+
 function onMenuSelect(key: string): void {
+  // ── 不依赖右键目标的动作（空白处/节点右键均可触发）──
   if (key === 'new-volume') return startCreate('volume', '写作', '写作/正文')
   if (key === 'new-chapter-root') {
     const vol = lastVolumePath()
     return startCreate('chapter', vol ?? '写作', vol ?? '写作/正文')
   }
-  // 单例新建（总纲/世界观）：不依赖右键目标，空白处也可触发 → 放 menuNode 判断前
   if (key === 'new-synopsis') return void createSingleton('大纲/总纲.md', '总纲')
   if (key === 'new-worldview') return void createSingleton('设定/世界观.md', '世界观')
+  // 章纲/卷纲/角色/物品/伏笔：子目录右键就地建；空白处落到标准目录（对齐 dispatchCreate）
+  const def = NEW_DEFAULT_DIRS[key]
+  if (def) {
+    const kind = NEW_KIND_BY_KEY[key]!
+    const node = menuNode.value
+    if (node && node.isDirectory && !node.path.startsWith('写作/')) {
+      // 子目录右键：章纲/卷纲在大纲根落标准子目录，其余就地建
+      const fsDir =
+        key === 'new-chapter-outline' || key === 'new-volume-outline'
+          ? node.path === '大纲'
+            ? def.fsDir
+            : node.path
+          : node.path
+      return startCreate(kind, node.path, fsDir)
+    }
+    return startCreate(kind, def.renderDir, def.fsDir)
+  }
   if (key.startsWith('move:')) {
     const node = menuNode.value
     if (node?.docId) void doMove(node.docId, key.slice('move:'.length))
@@ -284,12 +320,6 @@ function onMenuSelect(key: string): void {
   const node = menuNode.value
   if (!node) return
   if (key === 'new-chapter') startCreate('chapter', node.path, node.path)
-  // 章纲/卷纲：大纲根右键落标准子目录；子目录右键就地建（对齐 dispatchCreate 固定 fsDir）
-  else if (key === 'new-chapter-outline') startCreate('chapter-outline', node.path, node.path === '大纲' ? '大纲/章纲' : node.path)
-  else if (key === 'new-volume-outline') startCreate('volume-outline', node.path, node.path === '大纲' ? '大纲/卷纲' : node.path)
-  else if (key === 'new-character') startCreate('character', node.path, node.path)
-  else if (key === 'new-item') startCreate('item', node.path, node.path)
-  else if (key === 'new-foreshadow') startCreate('foreshadow', node.path, node.path)
   else if (key === 'new-doc') startCreate('doc', node.path, node.path)
   else if (key === 'rename') renamePath.value = node.path
   else if (key === 'finalize') {
