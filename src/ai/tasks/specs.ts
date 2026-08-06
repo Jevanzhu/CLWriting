@@ -15,6 +15,7 @@ import {
   chapterTool,
   chapterToolName,
 } from '../contract/index.js'
+import { submitRelations, RELATIONS_TOOL_NAME } from '../contract/relations.js'
 import { submitAnalysis, analysisToolName, type AnalysisKind } from '../contract/analysis.js'
 import { submitIssues, ISSUES_TOOL_NAME } from '../contract/review.js'
 
@@ -119,4 +120,27 @@ export const CHAT_SPEC: TaskSpec = {
   tierKind: 'chat',
   genMode: 'text',
   systemPrompt: '',
+}
+
+// ─── 关系图梳理（工具型，submit_relations） ───────────────────────────
+
+/** 关系图梳理（submit_relations 工具，AI 通读材料提炼关系边） */
+export const RELATION_MINE_SPEC: TaskSpec = {
+  name: 'relation-mine',
+  tierKind: 'assistant',
+  genMode: 'tool',
+  systemPrompt: `你是资深网文关系分析师。通读提供的角色名册、角色卡与正文节选,提炼角色之间的关系网络。
+
+## 要求
+- 只提取材料中**有依据**的关系,不臆造;依据不足的关系不输出。
+- 关系类型用**完整有区分度的短语**(师徒/仇敌/旧时婚约/挚友/道侣/血契/主仆…),**不用单字**(师/敌/友)。
+- 书名/材料之外的角色不输出;姓名须与材料一致。
+- 特有关系按材料原义命名(如「旧约」「暗棋」),若材料已给全称/说明则用全称。
+- 覆盖主角与其他角色的主要关系,以及材料中展开的次要关系(含正文透露的隐含关系)。
+- note 可写一句话依据(哪段材料/什么事实)。
+
+## 输出
+通过 submit_relations 工具提交关系数组,不要作为普通文本输出。`,
+  tool: { def: submitRelations(), name: RELATIONS_TOOL_NAME },
+  mock: { kind: 'tool', toolName: RELATIONS_TOOL_NAME },
 }

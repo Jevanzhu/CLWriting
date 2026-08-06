@@ -5,18 +5,20 @@
 // 右侧详情卡跟随选中节点。数据源 #7.5 settings（parseRelations 派生自角色卡「关系」）。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  Search, Crosshair, ArrowUpRight, Users,
+  Search, Crosshair, ArrowUpRight, Users, Sparkles,
 } from 'lucide-vue-next'
-import { getSettings, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
+import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
+import { useUiStore } from '../stores/ui'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+const ui = useUiStore()
 
 interface SimNode {
   id: string
@@ -284,7 +286,7 @@ async function load(): Promise<void> {
       return
     }
     isShort.value = false
-    buildGraph(r.characters, r.characterRelations, [])
+    buildGraph(r.characters, r.characterRelations, r.debtGraph)
     loading.value = false
   } catch (e) {
     err.value = friendlyError(e)
@@ -292,6 +294,28 @@ async function load(): Promise<void> {
   }
 }
 onMounted(load)
+
+// ── AI 关系梳理（读名册/角色卡/正文，AI 提炼关系边）──
+const mining = ref(false)
+async function onMine(): Promise<void> {
+  if (mining.value) return
+  mining.value = true
+  err.value = null
+  try {
+    const r = await mineRelations(props.bookName, true)
+    if (r.ok && r.relations.length) {
+      ui.toast(`AI 已梳理 ${r.relations.length} 条关系`, 'success')
+      await load()
+    } else {
+      ui.toast('AI 未梳理到关系（材料不足或产出为空）', 'info')
+    }
+  } catch (e) {
+    err.value = friendlyError(e)
+    ui.toast(err.value, 'error')
+  } finally {
+    mining.value = false
+  }
+}
 
 // ── 节点视觉编码 ──────────────────────────────
 // 尺寸三级（主角 > 有卡角色 > 仅被提及），度数不再做连续映射：
@@ -322,9 +346,9 @@ function nodeRx(node: SimNode): number {
  */
 function semanticColor(t: string): string {
   if (/敌|仇|恨|魔/.test(t)) return 'var(--cat-1)'
-  if (/师|徒|长|父|母|养/.test(t)) return 'var(--cat-4)'
+  if (/师|徒|长|父|母|养|亲子/.test(t)) return 'var(--cat-4)'
   if (/情|爱|恋|妻|夫|婚/.test(t)) return 'var(--cat-5)'
-  if (/兄|弟|姐|妹|友|同/.test(t)) return 'var(--cat-3)'
+  if (/兄|弟|姐|妹|友|同|手足/.test(t)) return 'var(--cat-3)'
   if (/主|仆|属|下|臣/.test(t)) return 'var(--cat-2)'
   return 'var(--text-muted)'
 }
@@ -604,6 +628,9 @@ const activeLegend = computed(() => {
           <button class="tool-btn" data-tip="重置视图" @click="resetView">
             <Crosshair :size="14" /><span>复位</span>
           </button>
+          <button class="tool-btn mine" :disabled="mining" @click="onMine">
+            <Sparkles :size="14" /><span>{{ mining ? '梳理中…' : 'AI 梳理' }}</span>
+          </button>
         </div>
       </header>
 
@@ -826,6 +853,19 @@ const activeLegend = computed(() => {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
   border-color: var(--background-modifier-border-hover);
+}
+/* AI 梳理按钮：强调色，区别于普通工具按钮 */
+.tool-btn.mine {
+  color: var(--text-accent);
+}
+.tool-btn.mine:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  border-color: var(--interactive-accent);
+  color: var(--text-accent);
+}
+.tool-btn.mine:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ── 主体双栏 ── */

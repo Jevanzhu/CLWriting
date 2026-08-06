@@ -38,6 +38,15 @@ export async function getSettings(name: string): Promise<SettingsResult> {
   return apiJson<SettingsResult>(`/api/books/${encodeURIComponent(name)}/settings`)
 }
 
+/** AI 关系梳理：触发 AI 通读材料提炼关系边，落盘缓存。force=true 强制重梳理。 */
+export async function mineRelations(name: string, force = false): Promise<{ ok: boolean; cached: boolean; relations: { from: string; to: string; type: string; note?: string }[] }> {
+  return apiJson(`/api/books/${encodeURIComponent(name)}/relations/mine`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
+  })
+}
+
 /** 补全名称列表（编辑器补全用；轻量端点：角色姓名 + 物品名称，只读 fm 不拉正文） */
 export interface CompletionNames {
   characters: string[]

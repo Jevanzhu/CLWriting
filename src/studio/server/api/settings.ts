@@ -8,19 +8,23 @@
  * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系线从账本。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, basename, relative } from 'node:path'
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { join, basename, relative, dirname } from 'node:path'
+import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply } from '../http.js'
+import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
+import { atomicWriteFile } from '../../../fs/atomic.js'
+import { runSpec } from '../../../ai/tasks/spec.js'
+import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
   workDir: string | null
+  userDataPath: string | null
 }
 
 /** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文） */
@@ -85,6 +89,39 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       items: readFmNames(join(setDir, '物品'), '名称'),
     })
   })
+
+  // AI 关系梳理：通读名册/角色卡/正文，提炼关系边 → 落盘 .clwriting/relations.json
+  route('POST', '/api/books/:name/relations/mine', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
+    const body = (await readJson(req).catch(() => ({}))) as { force?: boolean }
+    const force = body?.force === true
+    const bookRoot = join(ctx.workDir, entry.path)
+    const cachePath = join(bookRoot, RELATION_CACHE)
+    if (!force && existsSync(cachePath)) {
+      return reply(res, 200, { ok: true, cached: true, relations: readMinedRelations(bookRoot) })
+    }
+    const context = buildMineContext(bookRoot)
+    if (!context.trim()) return reply(res, 400, { error: '没有可梳理的材料（名册/角色卡/正文均空）' })
+    const out = await runSpec(RELATION_MINE_SPEC, {
+      userDataPath: ctx.userDataPath,
+      bookRoot,
+      userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
+    })
+    if (!out.ok) return reply(res, 500, { error: `AI 梳理失败:${out.error}` })
+    const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
+    const relations = input?.relations ?? []
+    if (!relations.length) return reply(res, 200, { ok: true, cached: true, relations: [] })
+    try {
+      mkdirSync(dirname(cachePath), { recursive: true })
+      atomicWriteFile(cachePath, JSON.stringify({ relations }, null, 2))
+    } catch (e) {
+      return reply(res, 500, { error: `落盘缓存失败:${e instanceof Error ? e.message : String(e)}` })
+    }
+    reply(res, 200, { ok: true, cached: false, relations })
+  })
 }
 
 function settingsLong(bookRoot: string): unknown {
@@ -108,26 +145,135 @@ function settingsLong(bookRoot: string): unknown {
     .filter((l) => l.欠方 || l.债主)
     .map((l) => ({ 编号: l.编号, 标题: l.标题, 状态: l.状态, 欠方: l.欠方 ?? '', 债主: l.债主 ?? '' }))
 
-  // 角色关系（角色卡 front matter「关系」字段 → 关系边，#7.5）
+  // 角色关系：AI 梳理缓存（.clwriting/relations.json，优先）+ 角色卡 front matter「关系」字段（补充）
+  const mined = readMinedRelations(bookRoot) // [{from,to,type,note?}]
+  const seen = new Set<string>()
+  const pushEdge = (from: string, to: string, type: string): void => {
+    if (!from || !to || from === to) return
+    const k = from < to ? `${from} ${to}` : `${to} ${from}`
+    if (seen.has(k)) return
+    seen.add(k)
+    characterRelations.push({ from, to, type: normalizeRelationType(type) })
+  }
   const characterRelations: { from: string; to: string; type: string }[] = []
+  for (const e of mined) pushEdge(e.from, e.to, e.type)
   for (const c of characters) {
-    for (const r of parseRelations(c.关系)) {
-      characterRelations.push({ from: c.姓名, to: r.to, type: r.type })
-    }
+    for (const r of parseRelations(c.关系)) pushEdge(c.姓名, r.to, r.type)
   }
 
   return { kind: 'long' as const, realm, characters, timeline, debtGraph, characterRelations }
+}
+
+/** AI 关系梳理缓存的相对路径（.clwriting/relations.json）。 */
+const RELATION_CACHE = '.clwriting/relations.json'
+
+/** 读 AI 关系梳理缓存（不存在/损坏 → 空数组）。 */
+function readMinedRelations(bookRoot: string): { from: string; to: string; type: string; note?: string }[] {
+  try {
+    const p = join(bookRoot, RELATION_CACHE)
+    if (!existsSync(p)) return []
+    const d = JSON.parse(readFileSync(p, 'utf8'))
+    if (!Array.isArray(d?.relations)) return []
+    return d.relations.filter(
+      (e: unknown): e is { from: string; to: string; type: string; note?: string } =>
+        !!e && typeof (e as { from?: unknown }).from === 'string' &&
+        typeof (e as { to?: unknown }).to === 'string' &&
+        typeof (e as { type?: unknown }).type === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+/** 组关系梳理输入材料：名册 + 角色卡摘要 + 已写正文节选（防超长，正文截断）。 */
+function buildMineContext(bookRoot: string): string {
+  const parts: string[] = []
+  // 名册
+  const rosterPath = join(bookRoot, '设定', '名册.md')
+  if (existsSync(rosterPath)) {
+    const t = readFileSync(rosterPath, 'utf8').trim()
+    if (t) parts.push(`## 角色名册\n${t}`)
+  }
+  // 角色卡摘要（姓名/身份/目标/关系 + 正文前 300 字）
+  const chars = readCharacterCards(join(bookRoot, '设定', '角色'), bookRoot)
+  if (chars.length) {
+    parts.push(
+      '## 角色卡',
+      chars
+        .map((c) => {
+          const meta = [c.身份, c.目标].filter(Boolean).join('/')
+          const body = c.正文.replace(/\s+/g, ' ').slice(0, 300)
+          return `### ${c.姓名}${meta ? `(${meta})` : ''}\n${body}${c.正文.length > 300 ? '…' : ''}`
+        })
+        .join('\n\n'),
+    )
+  }
+  // 已写正文节选（正文目录，每章前 200 字，最多 8 章）
+  const proseDir = join(bookRoot, '写作', '正文')
+  if (existsSync(proseDir)) {
+    const files = listMdRecursive(proseDir).slice(0, 8)
+    if (files.length) {
+      const excerpts = files.map((f) => {
+        const rel = relative(bookRoot, f)
+        const t = readFileSync(f, 'utf8').replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+        return `### ${rel}\n${t}`
+      })
+      parts.push('## 已写正文节选\n' + excerpts.join('\n\n'))
+    }
+  }
+  return parts.join('\n\n')
+}
+
+/** 递归列出 md 文件（排序稳定）。 */
+function listMdRecursive(dir: string): string[] {
+  const out: string[] = []
+  if (!existsSync(dir)) return out
+  for (const f of readdirSync(dir, { recursive: true })) {
+    if (typeof f !== 'string') continue
+    if (!f.endsWith('.md') || f.startsWith('._')) continue
+    const fp = join(dir, f)
+    if (existsSync(fp)) out.push(fp)
+  }
+  out.sort()
+  return out
 }
 
 /** 解析角色卡「关系」字段 → 关系边：「林远(师徒);赵衡(仇敌)」→ [{to:林远,type:师徒}]（#7.5） */
 export function parseRelations(raw: string): { to: string; type: string }[] {
   if (!raw) return []
   const out: { to: string; type: string }[] = []
-  for (const part of raw.split(/[;；]/)) {
-    const m = part.trim().match(/^(.+?)\((.+?)\)$/)
+  for (const part of raw.split(/[;；,，]/)) {
+    const seg = part.trim()
+    if (!seg) continue
+    // 新格式「对象=类型」(等号,无歧义) 优先；旧格式「对象(类型)」(括号,兼容历史数据)
+    const m = seg.match(/^(.+?)=(.+)$/) ?? seg.match(/^(.+?)[(（](.+?)[)）]$/)
     if (m) out.push({ to: m[1]!.trim(), type: m[2]!.trim() })
   }
   return out
+}
+
+/** 关系类型规范表：关键词 → 标准短语（关系图标签用）。
+ *  角色卡「关系」是自由文本，写法因书因人而异（师/师父/师徒/授业…）；
+ *  此表把常见简写/同义词统一到完整短语，避免标签过简、换书也一致。
+ *  按顺序匹配，先命中先用；都不中 → 保留原文（「暗棋」「血契」等自定义关系原样显示）。
+ *  扩展：新别名补进对应类的正则即可。详见 Dev/Main/Plans/关系类型规范.md。 */
+const RELATION_NORM: { label: string; test: RegExp }[] = [
+  { label: '仇敌', test: /敌|仇|恨|怨/ },
+  { label: '主仆', test: /主|仆|属|臣|奴|侍|麾下/ },
+  { label: '师徒', test: /师|徒|弟子|传人|授业|同门/ },
+  { label: '恋人', test: /恋|情人|爱人|红颜|相思/ },
+  { label: '夫妻', test: /妻|夫|婚|配偶|嫁|娶|妾/ },
+  { label: '手足', test: /兄|弟|姐|妹|同胞|手足/ },
+  { label: '亲子', test: /父|母|爹|娘|双亲|亲子/ },
+  { label: '挚友', test: /友|知交|故交|知己/ },
+  { label: '同僚', test: /同僚|同袍|搭档|伙伴|战友|同窗/ },
+]
+
+/** 规范化关系类型（自由文本 → 标准短语）；无匹配则保留原文。 */
+export function normalizeRelationType(raw: string): string {
+  const t = raw.trim()
+  for (const r of RELATION_NORM) if (r.test.test(t)) return r.label
+  return t
 }
 
 /** 角色卡结构化读(P2):front matter 姓名/身份/目标/境界 + 正文;无 front matter 降级(姓名=文件名,正文=全文) */
