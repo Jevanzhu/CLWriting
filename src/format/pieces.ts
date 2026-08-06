@@ -110,10 +110,11 @@ export function readPieceDir(
  * 与 state.ts countPieces 同口径：只计 `^\d+-*.md` 文件名，不计散文件/隐藏项。
  * state.ts 复用本函数作单源（避免两份计数逻辑漂移）。
  */
-export function countPieces(篇Root: string): number {
+export function countPieces(篇Root: string, excludeNames?: Set<string>): number {
   try {
     return readdirSync(篇Root, { withFileTypes: true })
       .filter((e) => e.isFile() && /^\d+-.*\.md$/.test(e.name))
+      .filter((e) => !excludeNames?.has(e.name))
       .length
   } catch {
     return 0

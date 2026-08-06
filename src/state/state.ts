@@ -15,15 +15,16 @@
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 cli revert 单独触发。
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { gitHealthCheck, statusPorcelain, lastCommitMsg, findChapterCommit } from '../git/exec.js'
+import { gitHealthCheck, lastCommitMsg, findChapterCommit } from '../git/exec.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { hashFile } from '../fs/hash.js'
 import { assembleStatus } from '../process/assemble.js'
 import { countPieces } from '../format/pieces.js'
+import { collectFileStatuses } from '../document/status.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
@@ -112,26 +113,18 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     return { state: 2, parseErrors: rebuildResult.errors }
   }
 
-  // #3 未入账手改（#18 第 3 节）：正文/设定/布线 有未 commit 改动
-  // porcelain 格式：XY<空格>path，XY 是 2 字符状态码（" M"=worktree改、"M?"=staged等），path 从第 3 字符起。
-  // 手改目录按 kind 适配（M8 #25）：short 看 写作/正文/，long 看 写作/正文/ + 设定/ + 大纲/ + 布线/
-  const dirty = statusPorcelain(bookRoot)
-  if (dirty) {
-    const handEditPrefixes = config.kind === 'short' ? ['写作/正文/'] : ['写作/正文/', '设定/', '大纲/', '布线/']
-    const handEdits = dirty
-      .split('\n')
-      .filter((l) => l.length > 3) // 有效行（XY + 至少 1 字符 path）
-      .map((l) => l.slice(3)) // 去 XY+空格，剩 path
-      .filter((path) => handEditPrefixes.some((p) => path.startsWith(p)))
-    if (handEdits.length > 0) {
-      return { state: 3, handEdits }
-    }
+  // #3 未入账手改（#18 第 3 节）：正文/设定/布线 有 tracked+modified 改动
+  // untracked 不算手改（新草稿是正常写作流程，不是偷改定稿）
+  const statuses = collectFileStatuses(bookRoot)
+  const handEditPrefixes = config.kind === 'short' ? ['写作/正文/'] : ['写作/正文/', '设定/', '大纲/', '布线/']
+  const handEdits = [...statuses.modified]
+    .filter((path) => handEditPrefixes.some((p) => path.startsWith(p)))
+  if (handEdits.length > 0) {
+    return { state: 3, handEdits }
   }
 
-  // #4 工作区未完成（#13 第 5 节中断恢复）：有草稿/细纲/.confirm 但无对应定稿 commit
-  // 按 #13 第 5 节判中断点：无对应 commit = pre-commit（续写）；有对应 commit = post-commit-residue（幂等清理）
-  // 前缀按 kind（M8 #26）：long → ch:，short → pc:
-  const incomplete = detectIncompleteWorkdir(bookRoot)
+  // #4 工作区未完成（#13 第 5 节中断恢复）：有 .confirm/细纲/untracked草稿 但无对应定稿 commit
+  const incomplete = detectIncompleteWorkdir(bookRoot, statuses.untracked)
   if (incomplete) {
     const alreadyCommitted = findChapterCommit(bookRoot, incomplete, config.kind ?? 'long') !== null
     return {
@@ -144,7 +137,8 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
   // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 写作/正文/ 目录
   if (config.kind === 'short') {
-    return { state: 7, nextChapter: countPieces(join(bookRoot, '写作', '正文')) + 1 }
+    const excludeNames = untrackedPieceNames(statuses.untracked)
+    return { state: 7, nextChapter: countPieces(join(bookRoot, '写作', '正文'), excludeNames) + 1 }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -169,17 +163,15 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   return { state: 7, nextChapter: currentChapter + 1 }
 }
 
-/** 检测草稿区/工作区是否有未完成章节（态 4，#13 第 5 节中断判定） */
-function detectIncompleteWorkdir(bookRoot: string): number | null {
+/** 检测工作区/正文区是否有未完成章节（态 4，#13 第 5 节中断判定）。
+ *  信号：工作区 .confirm.json / 细纲.md，或正文区 untracked 草稿文件。 */
+function detectIncompleteWorkdir(bookRoot: string, untracked: Set<string>): number | null {
   const workDir = join(bookRoot, '工作区')
-  const draftDir = join(bookRoot, '写作', '草稿')
-  // .confirm.json 仍在 工作区/（运行时资产）
   const hasConfirm = existsSync(join(workDir, '.confirm.json'))
-  // 草稿/细纲迁到 写作/草稿/
-  const hasDraft = existsSync(join(draftDir, '细纲.md')) || existsDraft(draftDir)
-  if (!hasConfirm && !hasDraft) return null
+  const hasOutline = existsSync(join(workDir, '细纲.md'))
+  const untrackedChapter = [...untracked].find((p) => p.startsWith('写作/正文/') && p.endsWith('.md'))
+  if (!hasConfirm && !hasOutline && !untrackedChapter) return null
 
-  // 从 .confirm.json 取章号；没确认记录则从草稿文件名取
   let chapterNum = 0
   if (hasConfirm) {
     try {
@@ -189,17 +181,30 @@ function detectIncompleteWorkdir(bookRoot: string): number | null {
       // 坏的 .confirm.json 不影响判定（当无章号）
     }
   }
-  if (chapterNum === 0) {
-    // 草稿-N.md 取 N（在 写作/草稿/ 下）
-    if (existsSync(draftDir)) {
-      const draft = readdirSync(draftDir).find((f) => /^草稿-\d+\.md$/.test(f))
-      if (draft) {
-        const m = draft.match(/草稿-(\d+)/)
-        chapterNum = m ? Number(m[1]) : 0
-      }
+  if (chapterNum === 0 && untrackedChapter) {
+    // 从草稿 frontmatter 取章号；解析失败从文件名数字取
+    try {
+      const raw = readFileSync(join(bookRoot, untrackedChapter), 'utf-8')
+      const m = raw.match(/章号:\s*(\d+)/)
+      if (m) chapterNum = Number(m[1])
+    } catch {
+      // 读失败忽略
+    }
+    if (chapterNum === 0) {
+      const m = untrackedChapter.match(/(\d+)/)
+      if (m) chapterNum = Number(m[1])
     }
   }
   return chapterNum > 0 ? chapterNum : null
+}
+
+/** 正文区 untracked 文件名集合（用于 countPieces 排除草稿——未定稿不计入"已写"）。 */
+function untrackedPieceNames(untracked: Set<string>): Set<string> {
+  return new Set(
+    [...untracked]
+      .filter((p) => p.startsWith('写作/正文/'))
+      .map((p) => p.slice('写作/正文/'.length)),
+  )
 }
 
 // countPieces 复用 format/pieces.ts 单源(避免两份计数逻辑漂移);签名接收 写作/正文/ 目录路径
@@ -218,15 +223,6 @@ function readBatchPause(bookRoot: string): { atChapter: number; reason: string; 
     return { atChapter: p.at_chapter, reason: p.reason, detail: String(p.detail ?? '') }
   } catch {
     return undefined
-  }
-}
-
-/** 工作区是否有任何草稿文件 */
-function existsDraft(workDir: string): boolean {
-  try {
-    return readdirSync(workDir).some((f) => /^草稿-\d+\.md$/.test(f))
-  } catch {
-    return false
   }
 }
 
@@ -356,8 +352,10 @@ function readRecapSnapshot(
   detected: DetectedState,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
   // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 写作/正文/ 作为已定稿篇数。
+  // 排除 untracked（草稿未定稿，不计入"已写"篇数）
   if (config.kind === 'short') {
-    return { currentChapter: countPieces(join(bookRoot, '写作', '正文')), currentVolume: 1 }
+    const { untracked } = collectFileStatuses(bookRoot)
+    return { currentChapter: countPieces(join(bookRoot, '写作', '正文'), untrackedPieceNames(untracked)), currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined
@@ -398,7 +396,7 @@ function parseLastConfirm(bookRoot: string): StatusRecap['lastConfirm'] {
   // verified：当前工作区细纲哈希是否与 trailer 一致；无细纲文件则无法复核。
   // 复用 gate/confirm.ts 的 hashFile（原始字节哈希），与 doConfirm 写入算法保持单源一致
   let verified: boolean | null = null
-  const outline = join(bookRoot, '写作', '草稿', '细纲.md')
+  const outline = join(bookRoot, '工作区', '细纲.md')
   if (chapter > 0 && existsSync(outline)) {
     verified = hashFile(outline) === hash
   }

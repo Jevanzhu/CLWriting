@@ -11,7 +11,7 @@
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, dirname, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { route } from '../router.js'
@@ -26,7 +26,7 @@ import { runAllChecks, hasRed } from '../../../check/runner.js'
 import { readOutlineLeads } from '../../../process/materials.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../../process/lead-updates.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { collectDirtyFiles, deriveStatusFull } from '../../../document/status.js'
+import { collectFileStatuses, deriveStatusFull } from '../../../document/status.js'
 import type { CheckReport } from '../../../check/types.js'
 import type { ChapterMeta, BookConfig } from '../../../format/types.js'
 
@@ -76,9 +76,14 @@ function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undef
   if (isShort) return undefined
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return undefined
+  // 排除 untracked（草稿未定稿，不算"已写"基准——防账本「未来章」检查误判）
+  const { untracked } = collectFileStatuses(bookRoot)
   const { chapters } = readChapterDir(bodyDir)
   let max = 0
   for (const ch of chapters) {
+    if (!ch._path) continue
+    const rel = relative(bookRoot, ch._path)
+    if (untracked.has(rel)) continue
     if (ch.章号 > max) max = ch.章号
   }
   return max > 0 ? max : undefined
@@ -102,15 +107,14 @@ export function checkWithDb(
   const draft = readDraft(absPath, isShort)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
-    const workDir = dirname(absPath)
     // 全书最高已定稿章号：调用方传入则用（树红点聚合已扫过全书，避免重复扫描）；
     // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     const maxChapter = maxWrittenChapter ?? maxWrittenChapterOf(bookRoot, isShort)
-    const declaredLeadIds = isShort ? undefined : readOutlineLeads(workDir)
+    const declaredLeadIds = isShort ? undefined : readOutlineLeads(bookRoot)
     const actualLeadIds = isShort
       ? undefined
-      : readChapterLeadUpdates(workDir)
+      : readChapterLeadUpdates(bookRoot)
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
     const report: CheckReport = runAllChecks({
@@ -203,7 +207,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           const { chapters } = readChapterDir(bodyDir)
           // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
           // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
-          const dirtyFiles = collectDirtyFiles(bookRoot)
+          const statuses = collectFileStatuses(bookRoot)
           // 全书最高已定稿章号：循环前扫一次，传给每章 checkWithDb 作「未来章」基准
           // （避免每章内部重复扫描的 O(N²)；T9b 修复）
           let maxChapter = 0
@@ -213,7 +217,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
             if (!ch._path) continue
             const relPath = relative(bookRoot, ch._path)
             // 定稿态跳过——不在树上打扰已确认的章节
-            const st = deriveStatusFull(bookRoot, relPath, dirtyFiles)
+            const st = deriveStatusFull(bookRoot, relPath, statuses.untracked, statuses.modified)
             if (st === 'final' || st === 'published') continue
             const docId = pathToDocId.get(relPath)
             if (!docId) continue
