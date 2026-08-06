@@ -13,6 +13,7 @@ import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './r
 import { readBooks } from '../../install/books.js'
 import { migratePieceLayout } from '../../format/pieces.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
+import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
@@ -106,6 +107,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
       const v2Result = migrateLayoutV2(bookPath)
       if (v2Result.errors.length > 0) {
         console.error(`[migrate-layout-v2] ${book.path}: ${v2Result.errors.length} 个错误\n${v2Result.errors.join('\n')}`)
+      }
+      const v3Result = migrateLayoutV3(bookPath)
+      if (v3Result.errors.length > 0) {
+        console.error(`[migrate-layout-v3] ${book.path}: ${v3Result.errors.length} 个错误\n${v3Result.errors.join('\n')}`)
       }
     }
   }
