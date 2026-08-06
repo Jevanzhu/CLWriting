@@ -28,8 +28,8 @@ export interface ChapterLeadUpdate {
  *
  * 行格式：`- <编号> <动词>：<证据>`（冒号支持全角/半角；非列表行忽略）。
  */
-export function readChapterLeadUpdates(workDir: string): ChapterLeadUpdate[] {
-  const p = join(workDir, '账本推进.md')
+export function readChapterLeadUpdates(bookRoot: string): ChapterLeadUpdate[] {
+  const p = join(bookRoot, '工作区', '账本推进.md')
   if (!existsSync(p)) return []
   const text = readFileSync(p, 'utf-8')
   const out: ChapterLeadUpdate[] = []

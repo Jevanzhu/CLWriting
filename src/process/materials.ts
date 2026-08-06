@@ -117,8 +117,8 @@ function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: strin
  * 单值 `场景: 对话` → ['对话']；多值 `场景: [战斗, 对话]` → ['战斗','对话']（首为主场景）。
  * 缺省/无细纲/无 front matter → [] → prepare 回落默认「战斗」（逐字节不变红线）。
  */
-function readOutlineScenes(workDir: string): string[] {
-  const outlinePath = join(workDir, '细纲.md')
+function readOutlineScenes(bookRoot: string): string[] {
+  const outlinePath = join(bookRoot, '工作区', '细纲.md')
   if (!existsSync(outlinePath)) return []
   const r = readFile(outlinePath)
   if (!r.ok) return [] // 无 front matter → 安全回落
@@ -137,8 +137,8 @@ function readOutlineScenes(workDir: string): string[] {
  * 单值 `推进: 成长线-001` → ['成长线-001']；多值 `推进: [成长线-001, 设定线-001]` → [...]。
  * 缺省/无细纲/无 front matter → []（无声明，两端闭合左侧空）。
  */
-export function readOutlineLeads(workDir: string): string[] {
-  const outlinePath = join(workDir, '细纲.md')
+export function readOutlineLeads(bookRoot: string): string[] {
+  const outlinePath = join(bookRoot, '工作区', '细纲.md')
   if (!existsSync(outlinePath)) return []
   const r = readFile(outlinePath)
   if (!r.ok) return []
@@ -164,7 +164,7 @@ export async function prepareMaterials(
 ): Promise<PrepareMaterialsResult> {
   const { bookRoot, workDir, chapterLeadIds } = opts
   // 文风样章场景（G1/G2）：显式入参优先，否则从细纲 front matter 推导（OQ1）；空 → undefined → prepare 回落「战斗」
-  const outlineScenes = readOutlineScenes(workDir)
+  const outlineScenes = readOutlineScenes(bookRoot)
   const sampleScene = opts.sampleScene ?? (outlineScenes.length > 0 ? outlineScenes : undefined)
   // G3 留痕判定用：实际生效的场景（空 = 无声明，不留痕）
   const effectiveScenes = sampleScene === undefined ? [] : Array.isArray(sampleScene) ? sampleScene : [sampleScene]

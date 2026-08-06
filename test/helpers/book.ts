@@ -120,7 +120,8 @@ export function stageIncompleteChapter(root: string, chapterNum: number): void {
   const workDir = join(root, '工作区')
   const draftDir = join(root, '写作', '草稿')
   mkdirSync(draftDir, { recursive: true })
-  const outline = join(draftDir, '细纲.md')
+  mkdirSync(workDir, { recursive: true })
+  const outline = join(workDir, '细纲.md')
   writeFileSync(outline, `第${chapterNum}章细纲`, 'utf-8')
   writeFileSync(join(draftDir, `草稿-${chapterNum}.md`), `第${chapterNum}章草稿`, 'utf-8')
   // .confirm.json（机器域，模拟已确认细纲但未定稿）

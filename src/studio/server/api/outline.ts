@@ -1,5 +1,5 @@
 /**
- * outline 端点(C.2a):组多源 prompt → generateText → 写作/草稿/细纲.md。
+ * outline 端点(C.2a):组多源 prompt → generateText → 工作区/细纲.md。
  *
  * POST /api/books/:name/outline  body {chapter}
  *   → 组 prompt(总纲 + 前章摘要)→ generateText → 落盘 → {ok, path, words}
@@ -57,8 +57,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     if (!result.ok) return reply(res, 500, { error: result.error })
 
     const content = result.text
-    const outlineDir = join(bookRoot, '写作', '草稿')
-    const relPath = `写作/草稿/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
+    const outlineDir = join(bookRoot, '工作区')
+    const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
     try {
       mkdirSync(outlineDir, { recursive: true })
       atomicWriteFile(join(outlineDir, `细纲.md`), content || '(空细纲)')

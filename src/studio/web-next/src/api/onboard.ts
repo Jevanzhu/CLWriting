@@ -42,7 +42,7 @@ export const STEP_PATH: Record<OnboardStep, string> = {
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
   'collection-pitch': '设定/集子定位.md',
-  'first-outline': '写作/草稿/首篇细纲.md',
+  'first-outline': '大纲/首篇细纲.md',
 }
 
 /** 各步描述（面向作者：这个步骤会生成什么内容）。 */
