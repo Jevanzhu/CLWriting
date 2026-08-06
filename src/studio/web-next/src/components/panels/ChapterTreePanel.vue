@@ -50,6 +50,8 @@ const activePath = computed<string | null>(
 // --- 菜单状态 ---
 const menuNode = ref<TreeNode | null>(null)
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
+/** 桌面版才有「打开所在文件夹」（Electron shell.showItemInFolder 跨平台；浏览器版隐藏） */
+const hasShowInFolder = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop?.showInFolder)
 
 // --- inline 新建/重命名 ---
 type Creating = {
@@ -183,40 +185,46 @@ const NEW_BLANK: MenuItem[] = [
   ...NEW_SETTINGS,
 ]
 
+/** 目录右键菜单：新建项在前，文件操作（打开所在文件夹）分隔线隔开在后（桌面版）。 */
+function dirMenu(items: MenuItem[]): MenuItem[] {
+  if (!hasShowInFolder) return items
+  return [...items, { key: 'sep-reveal', label: '', separator: true }, { key: 'reveal-in-folder', label: '打开所在文件夹' }]
+}
+
 function buildMenuItems(node: TreeNode): MenuItem[] {
   const p = node.path
   // 正文区/大纲区/设定区：新建项直接摊开在顶层（不包「新建 ▸」子菜单——选项少，多一级是噪音）
   if (node.isDirectory && isVolumeDir(p)) {
-    return [{ key: 'new-chapter', label: '新建章节' }]
+    return dirMenu([{ key: 'new-chapter', label: '新建章节' }])
   }
   if (p === '写作/正文' || p === '写作') {
-    return NEW_BODY
+    return dirMenu(NEW_BODY)
   }
   // 大纲根：章纲/卷纲/总纲（单例总纲只在根/空白处提供，不进具体子目录）
   if (node.isDirectory && p === '大纲') {
-    return NEW_OUTLINE
+    return dirMenu(NEW_OUTLINE)
   }
   if (node.isDirectory && p === '大纲/章纲') {
-    return [{ key: 'new-chapter-outline', label: '新建章纲' }]
+    return dirMenu([{ key: 'new-chapter-outline', label: '新建章纲' }])
   }
   if (node.isDirectory && p === '大纲/卷纲') {
-    return [{ key: 'new-volume-outline', label: '新建卷纲' }]
+    return dirMenu([{ key: 'new-volume-outline', label: '新建卷纲' }])
   }
   // 设定根：角色/物品/世界观/伏笔（单例世界观只在根/空白处提供）
   if (node.isDirectory && p === '设定') {
-    return NEW_SETTINGS
+    return dirMenu(NEW_SETTINGS)
   }
   if (node.isDirectory && p === '设定/角色') {
-    return [{ key: 'new-character', label: '新建角色' }]
+    return dirMenu([{ key: 'new-character', label: '新建角色' }])
   }
   if (node.isDirectory && p === '设定/物品') {
-    return [{ key: 'new-item', label: '新建物品' }]
+    return dirMenu([{ key: 'new-item', label: '新建物品' }])
   }
   if (node.isDirectory && p === '设定/伏笔') {
-    return [{ key: 'new-foreshadow', label: '新建伏笔' }]
+    return dirMenu([{ key: 'new-foreshadow', label: '新建伏笔' }])
   }
   if (node.isDirectory && (p.startsWith('大纲/') || p.startsWith('设定/'))) {
-    return [{ key: 'new-doc', label: '新建文档' }]
+    return dirMenu([{ key: 'new-doc', label: '新建文档' }])
   }
   if (!node.isDirectory) return buildLeafMenu(node)
   return []
@@ -247,6 +255,10 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
     items.push({ key: 'copy', label: '创建副本' })
   }
   items.push({ key: 'sep-a', label: '', separator: true })
+  // 桌面版在系统文件管理器中显示文件所在文件夹（浏览器版无此 API 隐藏）
+  if (hasShowInFolder) {
+    items.push({ key: 'reveal-in-folder', label: '打开所在文件夹' })
+  }
   items.push({ key: 'copy-path', label: '复制路径' })
   items.push({ key: 'sep-b', label: '', separator: true })
   items.push({ key: 'delete', label: '删除', danger: true })
@@ -338,7 +350,19 @@ function onMenuSelect(key: string): void {
     }
   } else if (key === 'copy') void doCopy(node)
   else if (key === 'copy-path') void onCopyPath(node)
+  else if (key === 'reveal-in-folder') void onRevealInFolder(node)
   else if (key === 'delete') void doDelete(node)
+}
+
+/** 桌面版：在系统文件管理器中打开文件所在文件夹（shell.showItemInFolder 跨平台，传入 node.path）。 */
+async function onRevealInFolder(node: TreeNode): Promise<void> {
+  const show = window.clwritingDesktop?.showInFolder
+  if (!show) return
+  try {
+    await show(props.bookName, node.path)
+  } catch {
+    /* 桌面 IPC 异常静默 */
+  }
 }
 
 async function onCopyPath(node: TreeNode): Promise<void> {
