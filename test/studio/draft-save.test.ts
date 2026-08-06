@@ -17,11 +17,11 @@ import { legacyId, generateDocId } from '../../src/document/stable-id.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 let root = ''
-const REL = '写作/草稿/草稿-42.md'
+const REL = '写作/正文/0042-测试章.md'
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-draft-m1-'))
-  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
 })
 
 afterEach(() => {
@@ -41,9 +41,9 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     const id = snapshotBeforeOverwrite(root, REL, '新稿：重生成的内容。')
     expect(id).not.toBeNull()
     // 未登记清单 → 文件名派生键
-    const files = snapshotFiles('草稿-42')
+    const files = snapshotFiles('0042-测试章')
     expect(files).toHaveLength(1)
-    const snap = readFileSync(join(root, '工作区', '.snapshots', '草稿-42', files[0]!), 'utf8')
+    const snap = readFileSync(join(root, '工作区', '.snapshots', '0042-测试章', files[0]!), 'utf8')
     expect(snap).toContain('旧稿：他把烟摁灭。')
     expect(snap).toContain('来源: draft-overwrite')
     expect(snap).not.toContain('新稿')
@@ -52,7 +52,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
   it('内容相同 → 不留', () => {
     writeFileSync(join(root, REL), '同一份内容', 'utf8')
     expect(snapshotBeforeOverwrite(root, REL, '同一份内容')).toBeNull()
-    expect(snapshotFiles('草稿-42')).toHaveLength(0)
+    expect(snapshotFiles('0042-测试章')).toHaveLength(0)
   })
 
   it('目标文件不存在（首次生成）→ 不留', () => {
@@ -71,7 +71,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     const id = snapshotBeforeOverwrite(root, REL, '新稿')
     expect(id).not.toBeNull()
     expect(snapshotFiles('doc-abc123')).toHaveLength(1)
-    expect(snapshotFiles('草稿-42')).toHaveLength(0)
+    expect(snapshotFiles('0042-测试章')).toHaveLength(0)
   })
 
   it('连续覆写 → 每次都留（force 绕节流）', () => {
@@ -79,17 +79,17 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     expect(snapshotBeforeOverwrite(root, REL, '版本2')).not.toBeNull()
     writeFileSync(join(root, REL), '版本2', 'utf8')
     expect(snapshotBeforeOverwrite(root, REL, '版本3')).not.toBeNull()
-    expect(snapshotFiles('草稿-42')).toHaveLength(2)
+    expect(snapshotFiles('0042-测试章')).toHaveLength(2)
   })
 
-  it('短篇固定名 草稿-1.md 同样受保护', () => {
-    const shortRel = '写作/草稿/草稿-1.md'
+  it('短篇固定名 001-标题.md 同样受保护', () => {
+    const shortRel = '写作/正文/001-短篇.md'
     writeFileSync(join(root, shortRel), '第1篇草稿', 'utf8')
     const id = snapshotBeforeOverwrite(root, shortRel, '第2篇草稿盖过来')
     expect(id).not.toBeNull()
-    const files = snapshotFiles('草稿-1')
+    const files = snapshotFiles('001-短篇')
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.snapshots', '草稿-1', files[0]!), 'utf8')).toContain('第1篇草稿')
+    expect(readFileSync(join(root, '工作区', '.snapshots', '001-短篇', files[0]!), 'utf8')).toContain('第1篇草稿')
   })
 })
 
@@ -140,8 +140,9 @@ describe('POST /draft-save 响应契约（M3）', () => {
     const r = await postDraft({ chapter: 2, content: '第一版生成正文。' })
     expect(r.status).toBe(200)
     expect(r.json['ok']).toBe(true)
-    expect(r.json['path']).toBe('写作/草稿/草稿-2.md')
-    expect(r.json['docId']).toBe(legacyId('写作/草稿/草稿-2.md'))
+    // 无 frontmatter → resolveDraftPath 用默认标题「第2章」+ 默认卷「第一卷」
+    expect(r.json['path']).toBe('写作/正文/第一卷/2-第2章.md')
+    expect(r.json['docId']).toBe(legacyId('写作/正文/第一卷/2-第2章.md'))
     expect(r.json['snapshotted']).toBe(false)
   })
 
@@ -149,7 +150,7 @@ describe('POST /draft-save 响应契约（M3）', () => {
     const r = await postDraft({ chapter: 2, content: '第二版生成正文，盖掉第一版。' })
     expect(r.status).toBe(200)
     expect(r.json['snapshotted']).toBe(true)
-    // 快照真实落盘（legacyId 派生失败时 basename 兜底 → 目录名 草稿-2）
+    // 快照真实落盘
     const snapDir = join(workDir, BOOK, '工作区', '.snapshots')
     expect(existsSync(snapDir)).toBe(true)
   })
@@ -159,7 +160,8 @@ describe('POST /draft-save 响应契约（M3）', () => {
     mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
     const m = readManifest(manifestPath)
     const realId = generateDocId()
-    upsertEntry(m, { id: realId, nodeType: 'document', path: '写作/草稿/草稿-3.md', parentId: null })
+    // 登记正文区路径（draft-save 走 resolveDraftPath，长篇默认卷 第一卷）
+    upsertEntry(m, { id: realId, nodeType: 'document', path: '写作/正文/第一卷/3-第3章.md', parentId: null })
     writeManifest(manifestPath, m)
     const r = await postDraft({ chapter: 3, content: '登记过的草稿内容。' })
     expect(r.status).toBe(200)

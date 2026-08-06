@@ -73,8 +73,8 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(bookRoot, '定稿', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+  mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
+  writeFileSync(join(bookRoot, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), '# 第一卷纲', 'utf-8')
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
@@ -83,7 +83,7 @@ beforeAll(async () => {
     join(bookRoot, '项目', '文档清单.jsonl'),
     [
       '{"version":1,"type":"header"}',
-      '{"id":"doc_ch01","nodeType":"document","path":"定稿/正文/第一卷/0001-开篇.md","parentId":null,"status":"final"}',
+      '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null,"status":"final"}',
     ].join('\n') + '\n',
   )
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 文件树测试书\n  genre: 玄幻\nhost: cc\n')
@@ -134,14 +134,14 @@ describe('W2A documents API', () => {
       'POST',
       docPath(),
       auth(),
-      JSON.stringify({ relPath: '定稿/正文/第一卷/0002-迷雾.md', content: '---\n章号: 2\n---\n迷雾' }),
+      JSON.stringify({ relPath: '写作/正文/第一卷/0002-迷雾.md', content: '---\n章号: 2\n---\n迷雾' }),
     )
     expect(r.status).toBe(201)
     const j = r.json as { ok: boolean; docId: string; path: string }
     expect(j.ok).toBe(true)
     expect(j.docId).toMatch(/^doc_/)
-    expect(j.path).toBe('定稿/正文/第一卷/0002-迷雾.md')
-    expect(existsSync(join(workDir, BOOK, '定稿', '正文', '第一卷', '0002-迷雾.md'))).toBe(true)
+    expect(j.path).toBe('写作/正文/第一卷/0002-迷雾.md')
+    expect(existsSync(join(workDir, BOOK, '写作', '正文', '第一卷', '0002-迷雾.md'))).toBe(true)
   })
 
   it('POST /documents 只读位置（定稿/摘要）→ 403 CAPABILITY_DENIED', async () => {
@@ -167,18 +167,18 @@ describe('W2A documents API', () => {
   })
 
   it('PATCH move 跨卷，章号不变', async () => {
-    mkdirSync(join(workDir, BOOK, '定稿', '正文', '第二卷'), { recursive: true })
+    mkdirSync(join(workDir, BOOK, '写作', '正文', '第二卷'), { recursive: true })
     const r = await request(
       'PATCH',
       docPath('doc_ch01'),
       auth(),
-      JSON.stringify({ op: 'move', toDir: '定稿/正文/第二卷' }),
+      JSON.stringify({ op: 'move', toDir: '写作/正文/第二卷' }),
     )
     expect(r.status).toBe(200)
     const j = r.json as { ok: boolean; path: string }
     expect(j.ok).toBe(true)
-    expect(j.path).toBe('定稿/正文/第二卷/0001-开篇.md')
-    expect(existsSync(join(workDir, BOOK, '定稿', '正文', '第二卷', '0001-开篇.md'))).toBe(true)
+    expect(j.path).toBe('写作/正文/第二卷/0001-开篇.md')
+    expect(existsSync(join(workDir, BOOK, '写作', '正文', '第二卷', '0001-开篇.md'))).toBe(true)
   })
 
   it('PATCH 未登记 docId → 404 NOT_FOUND', async () => {
@@ -186,7 +186,7 @@ describe('W2A documents API', () => {
       'PATCH',
       docPath('doc_unknown'),
       auth(),
-      JSON.stringify({ op: 'move', toDir: '定稿/正文/第二卷' }),
+      JSON.stringify({ op: 'move', toDir: '写作/正文/第二卷' }),
     )
     expect(r.status).toBe(404)
     expect((r.json as { code: string }).code).toBe('NOT_FOUND')

@@ -36,7 +36,7 @@ beforeAll(async () => {
     JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
   )
   bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '草稿'), { recursive: true })
+  mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 文风测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
@@ -119,7 +119,8 @@ describe('收割 + 候选箱端点（源1 闭环）', () => {
     '巷口的馄饨摊还亮着一盏昏灯，老板娘往锅里下了最后一把面，蒸汽腾起来，糊住了她半张脸。他数出六个铜板放在案上，没说话。'
 
   it('harvest：轨迹 AI 版 vs 作者重写 → 样章候选落箱；重复收割走查重闸', async () => {
-    const rel = '写作/草稿/草稿-2.md'
+    const rel = '写作/正文/第一卷/0002-草稿.md'
+    mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
     writeFileSync(join(bookRoot, rel), AUTHOR_TEXT, 'utf8')
     expect(recordAiVersion(bookRoot, legacyId(rel), AI_TEXT)).not.toBeNull()
 

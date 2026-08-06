@@ -21,7 +21,6 @@ let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 let ch1DocId = '' // 写作/正文/0001
-let draftDocId = '' // 写作/草稿/草稿-1.md
 
 function postFinalize(docId: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
@@ -62,7 +61,6 @@ beforeAll(async () => {
   )
   bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '写作', '草稿'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
@@ -75,7 +73,6 @@ beforeAll(async () => {
     '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
     'utf8',
   )
-  writeFileSync(join(bookRoot, '写作', '草稿', '草稿-1.md'), '工作区草稿\n', 'utf8')
   execSync('git init', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git config user.email t@t.com', { cwd: bookRoot, stdio: 'pipe' })
   execSync('git config user.name t', { cwd: bookRoot, stdio: 'pipe' })
@@ -85,9 +82,7 @@ beforeAll(async () => {
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   ch1DocId = generateDocId()
-  draftDocId = generateDocId()
   upsertEntry(m, { id: ch1DocId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
-  upsertEntry(m, { id: draftDocId, nodeType: 'document', path: '写作/草稿/草稿-1.md', parentId: null })
   writeManifest(manifestPath, m)
 
   server = startServer({ port: 0, workDir })
@@ -130,11 +125,5 @@ describe('POST /documents/:docId/finalize（P1 定稿确认）', () => {
     const r = await postFinalize('doc_unknown')
     expect(r.status).toBe(404)
     expect((r.json as { code: string }).code).toBe('NOT_FOUND')
-  })
-
-  it('非定稿区（工作区草稿）→ 400 NOT_DRAFT_REGION', async () => {
-    const r = await postFinalize(draftDocId)
-    expect(r.status).toBe(400)
-    expect((r.json as { code: string }).code).toBe('NOT_DRAFT_REGION')
   })
 })

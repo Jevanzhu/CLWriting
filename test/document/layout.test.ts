@@ -32,11 +32,9 @@ describe('layout / roleOf 按路径判 role', () => {
     expect(roleOf('大纲/清单/001-雨夜.md')).toBe('piece-manifest')
   })
 
-  it('文风 / 简介 / 草稿 / 工作区', () => {
+  it('文风 / 简介 / 工作区', () => {
     expect(roleOf('文风/样章.md')).toBe('style')
     expect(roleOf('简介.md')).toBe('introduction')
-    expect(roleOf('写作/草稿/草稿-1.md')).toBe('draft')
-    expect(roleOf('写作/草稿/细纲.md')).toBe('draft')
     // 工作区是运行时资产区 → note
     expect(roleOf('工作区/.journal/doc.jsonl')).toBe('note')
   })

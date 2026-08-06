@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
-import { collectDirtyFiles, deriveStatus, deriveStatusFull, readPublished } from '../../src/document/status.js'
+import { collectDirtyFiles, collectFileStatuses, deriveStatus, deriveStatusFull, readPublished } from '../../src/document/status.js'
 
 /** 造一本干净长篇书：git init + commit 一章定稿（ch: 前缀，态 4 干净）。 */
 function makeCleanBook(): string {
@@ -44,20 +44,22 @@ test('collectDirtyFiles: 非 git 目录 → 空集降级（不崩）', () => {
 })
 
 test('deriveStatus: 废稿 → archived', () => {
-  expect(deriveStatus('废稿/旧版.md', new Set())).toBe('archived')
+  expect(deriveStatus('废稿/旧版.md', new Set(), new Set())).toBe('archived')
 })
 
-test('deriveStatus: 工作区草稿/待定稿 → draft；仅细纲 → idea', () => {
+test('deriveStatus: 正文区 untracked → draft；工作区待定稿 → draft；工作区卡片 → idea', () => {
   const empty = new Set<string>()
-  expect(deriveStatus('写作/草稿/草稿-1.md', empty)).toBe('draft')
-  expect(deriveStatus('工作区/待定稿/0001-开篇/草稿-1.md', empty)).toBe('draft')
-  expect(deriveStatus('写作/草稿/细纲.md', empty)).toBe('idea')
-  expect(deriveStatus('工作区/卡片.md', empty)).toBe('idea')
+  // 正文区 untracked（新建未定稿草稿）→ draft
+  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(['写作/正文/0001-开篇.md']), empty)).toBe('draft')
+  // 工作区/待定稿 → draft
+  expect(deriveStatus('工作区/待定稿/0001-开篇/草稿-1.md', empty, empty)).toBe('draft')
+  // 工作区卡片 → idea
+  expect(deriveStatus('工作区/卡片.md', empty, empty)).toBe('idea')
 })
 
-test('deriveStatus: 定稿区 git 脏 → revision；干净 → final', () => {
-  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(['写作/正文/0001-开篇.md']))).toBe('revision')
-  expect(deriveStatus('写作/正文/0001-开篇.md', new Set())).toBe('final')
+test('deriveStatus: 正文区 modified → revision；干净 → final', () => {
+  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(), new Set(['写作/正文/0001-开篇.md']))).toBe('revision')
+  expect(deriveStatus('写作/正文/0001-开篇.md', new Set(), new Set())).toBe('final')
 })
 
 test('readPublished: 已发布: true → true；无字段 → false；无 frontmatter → false', () => {
@@ -74,9 +76,10 @@ test('deriveStatusFull: final + 已发布 → published；revision 优先于 pub
   // 0002 已发布 + commit 干净 → published
   writeFileSync(join(root, '写作', '正文', '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
   execSync('git add -A && git commit -m "ch:0002 迷雾"', { cwd: root, stdio: 'pipe' })
-  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', new Set())).toBe('published')
+  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', new Set(), new Set())).toBe('published')
   // 0002 改脏（即使已发布）→ revision
   writeFileSync(join(root, '写作', '正文', '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n改脏了', 'utf-8')
-  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', collectDirtyFiles(root))).toBe('revision')
+  const { untracked, modified } = collectFileStatuses(root)
+  expect(deriveStatusFull(root, '写作/正文/0002-迷雾.md', untracked, modified)).toBe('revision')
   rmSync(root, { recursive: true, force: true })
 })

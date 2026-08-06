@@ -98,9 +98,9 @@ describe('POST /outline（大纲生成）', () => {
     const body = r.json as { ok: boolean; words: number; path: string }
     expect(body.ok).toBe(true)
     expect(body.words).toBeGreaterThan(0)
-    // 落盘验证
+    // 落盘验证（细纲路径：工作区/细纲.md）
     const bookRoot = join(workDir, BOOK)
-    expect(existsSync(join(bookRoot, '写作', '草稿', '细纲.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '工作区', '细纲.md'))).toBe(true)
   })
 
   it('非 mock 环境 + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {

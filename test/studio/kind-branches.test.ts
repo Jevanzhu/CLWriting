@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { buildDraftPrompt } from '../../src/studio/server/api/draft.js'
 import { buildOutlinePrompt } from '../../src/studio/server/api/outline.js'
 import { lensToRole } from '../../src/studio/server/api/review.js'
-import { buildRewritePrompt, draftFileName } from '../../src/studio/server/api/rewrite.js'
+import { buildRewritePrompt } from '../../src/studio/server/api/rewrite.js'
 
 let root = ''
 
@@ -25,9 +25,11 @@ beforeEach(() => {
     join(root, '大纲', '章纲', '0001-夜战.md'),
     '---\n章号: 1\n标题: 夜战\n钩子类型: 悬念钩\n情绪定位: 压抑\n---\n## 情节\n夜战场景 / 章尾钩:玉佩认主异象',
   )
-  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
-  writeFileSync(join(root, '写作', '草稿', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
-  writeFileSync(join(root, '写作', '草稿', '本章写作材料.md'), '# 备料\n境界:练气')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  writeFileSync(join(root, '工作区', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
+  writeFileSync(join(root, '工作区', '本章写作材料.md'), '# 备料\n境界:练气')
   mkdirSync(join(root, '设定'), { recursive: true })
   writeFileSync(join(root, '设定', '世界观.md'), '# 世界观\n仙侠世界:清虚门/练气→筑基→金丹')
 })
@@ -140,17 +142,6 @@ describe('lensToRole(镜头 → 角色文件映射)', () => {
     expect(lensToRole('reader')).toBe('reader-review')
     expect(lensToRole('editor')).toBe('editor-review')
     expect(lensToRole('continuity')).toBe('continuity-review')
-  })
-})
-
-describe('draftFileName(kind 分支)', () => {
-  it('短篇:候选序号 草稿-1.md(与篇号无关)', () => {
-    expect(draftFileName(1, 'short')).toBe('草稿-1.md')
-    expect(draftFileName(5, 'short')).toBe('草稿-1.md')
-  })
-  it('长篇:草稿-<章号>.md', () => {
-    expect(draftFileName(1, 'long')).toBe('草稿-1.md')
-    expect(draftFileName(5, 'long')).toBe('草稿-5.md')
   })
 })
 

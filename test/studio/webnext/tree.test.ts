@@ -32,7 +32,7 @@ function dir(path: string, children: TreeNode[]): TreeNode {
   return { path, name: path.split('/').pop()!, isDirectory: true, children } as TreeNode
 }
 
-/** 模拟一套完整书库 raw nodes（v2 目录树，后端 buildTree 返回结构）。 */
+/** 模拟一套完整书库 raw nodes（v3 目录树，草稿落正文区靠 status 区分）。 */
 function sampleRaw(): TreeNode[] {
   return [
     dir('写作', [
@@ -41,8 +41,8 @@ function sampleRaw(): TreeNode[] {
           leaf('写作/正文/第一卷/第1章-x.md', 'doc1'),
           leaf('写作/正文/第一卷/第2章-x.md', 'doc2'),
         ]),
+        leaf('写作/正文/第3章-x.md', 'doc7', 'draft'),
       ]),
-      dir('写作/草稿', [leaf('写作/草稿/草稿-1.md', 'doc7', 'draft')]),
     ]),
     dir('大纲', [leaf('大纲/总纲.md', 'doc5'), leaf('大纲/分卷纲.md', 'doc6')]),
     dir('设定', [leaf('设定/人物.md', 'doc3'), leaf('设定/名册.md', 'doc-mingce')]),
@@ -89,12 +89,12 @@ describe('tree · groupTree 分组（v2 直透）', () => {
     return tree
   }
 
-  it('写作：真实根目录直透（卷/章 + 草稿）+ 名册过滤', async () => {
+  it('写作：真实根目录直透（卷/章 + 正文区草稿）+ 名册过滤', async () => {
     const tree = await setup()
     const write = tree.grouped.find((g) => g.path === '写作')!
     expect(write).toBeTruthy()
     expect(write.children.some((c) => c.path === '写作/正文')).toBe(true)
-    expect(write.children.some((c) => c.path === '写作/草稿')).toBe(true)
+    expect(write.children.some((c) => c.path === '写作/草稿')).toBe(false)
   })
 
   it('大纲：真实根目录直透（含总纲）', async () => {
@@ -142,7 +142,7 @@ describe('tree · 索引', () => {
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.byDocId.get('doc1')?.path).toBe('写作/正文/第一卷/第1章-x.md')
-    expect(tree.byDocId.get('doc7')?.path).toBe('写作/草稿/草稿-1.md')
+    expect(tree.byDocId.get('doc7')?.path).toBe('写作/正文/第3章-x.md')
   })
 })
 
@@ -158,20 +158,20 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
             wleaf('写作/正文/第一卷/第1章-x.md', 'chapter', 1000),
             wleaf('写作/正文/第一卷/第2章-x.md', 'chapter', 2000),
           ]),
+          wleaf('写作/正文/第3章-x.md', 'draft', 300),
         ]),
-        dir('写作/草稿', [wleaf('写作/草稿/草稿-1.md', 'draft', 300)]),
       ]),
       // 设定非正文，不算字数
       dir('设定', [wleaf('设定/人物.md', 'setting', 500)]),
     ]
   }
 
-  it('totalWords: chapter+draft 求和（含草稿；非正文 role 排除）', async () => {
+  it('totalWords: chapter 求和（draft 不再计入；非正文 role 排除）', async () => {
     getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
-    // 1000 + 2000（chapter）+ 300（draft）= 3300；setting 500 不算
-    expect(tree.totalWords).toBe(3300)
+    // 1000 + 2000（chapter）= 3000；draft 300 与 setting 500 不算
+    expect(tree.totalWords).toBe(3000)
   })
 
   it('finalizedWords: chapter 求和（不含草稿 draft）', async () => {
@@ -186,8 +186,8 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
     getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
-    expect(tree.totalWords).toBe(3300)
+    expect(tree.totalWords).toBe(3000)
     tree.updateWordCount('写作/正文/第一卷/第1章-x.md', 1500) // 1000 → 1500
-    expect(tree.totalWords).toBe(3800)
+    expect(tree.totalWords).toBe(3500)
   })
 })

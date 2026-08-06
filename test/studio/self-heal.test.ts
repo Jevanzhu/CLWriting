@@ -55,10 +55,12 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
       recordAi: opts?.recordAi !== false,
       ...(opts?.snapshotOrigin ? { origin: opts.snapshotOrigin } : {}),
     })
-    const dir = join(bookRoot, '工作区')
+    // 草稿直接写正文区（与 saveDraft 真实路径一致）
+    const dir = join(bookRoot, '写作', '正文')
+    const relPath = '写作/正文/1-测试篇.md'
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, '草稿-1.md'), content, 'utf8')
-    return { relPath: '工作区/草稿-1.md', docId: 'doc-短篇-1', words: content.length, snapshotted: false }
+    writeFileSync(join(bookRoot, relPath), content, 'utf8')
+    return { relPath, docId: 'doc-短篇-1', words: content.length, snapshotted: false }
   }
 }
 
@@ -223,7 +225,7 @@ test('落盘：草稿文件内容 = 最后一次产出', async () => {
   const { opts, bookRoot } = setup([`${FM}初稿`, `${FM}终稿正文`], () => seq[i++] ?? greenOutcome())
   await runSelfHeal(opts)
 
-  const draft = join(bookRoot, '工作区', '草稿-1.md')
+  const draft = join(bookRoot, '写作', '正文', '1-测试篇.md')
   expect(existsSync(draft)).toBe(true)
   expect(readFileSync(draft, 'utf8')).toBe(`${FM}终稿正文`)
 })

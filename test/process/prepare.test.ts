@@ -280,26 +280,6 @@ test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
   rmSync(root2, { recursive: true, force: true })
 })
 
-test('C1: 草稿兜底——无定稿、有草稿 → 段出现', () => {
-  const { root, db } = makeBookWithMaterial()
-  // 不建定稿；建 写作/草稿/草稿-149.md
-  mkdirSync(join(root, '写作', '草稿'), { recursive: true })
-  const draftBody = '草稿里的前章结尾正文。'.repeat(200)
-  writeFileSync(
-    join(root, '写作', '草稿', '草稿-149.md'),
-    `---\n章号: 149\n标题: 前章\n---\n${draftBody}`,
-    'utf-8',
-  )
-  const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
-  const sec = r.sections.find((s) => s.title === '前章正文结尾')
-  expect(sec).toBeDefined()
-  expect(sec!.flexibleRank).toBe(1.5)
-  // 草稿正文被取到
-  expect(sec!.content).toContain('草稿里的前章结尾正文')
-  db.close()
-  rmSync(root, { recursive: true, force: true })
-})
-
 test('C1: flexibleRank 1.5 排序——裁剪先于 rank1(近章结尾)、后于 rank2(文风样章)', () => {
   const { root, db } = makeBookWithMaterial()
   makePrevChapterFinal(root)
