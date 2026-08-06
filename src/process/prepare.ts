@@ -168,25 +168,17 @@ export function prepare(
   }
 
   // 弹性#1.5 前章正文结尾（C1：衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
-  // 来源：前一章定稿优先、草稿兜底（写作/草稿/草稿-<章号>.md）；都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
+  // 来源：readChapterDir 递归扫描 写作/正文/（含 untracked 草稿）；都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
   // flexibleRank=1.5：比近章结尾摘要（rank 1）先砍、比文风样章（rank 2）后砍；降档=末尾 500 字
   const prevChapterNo = snapshot.currentChapter - 1
   if (prevChapterNo >= 1) {
     let prevBody: string | null = null
-    // 定稿优先：readChapterDir 递归扫描 写作/正文/<卷>/
+    // 正文区扫描（含 untracked 草稿——草稿取消独立目录后，前章草稿也在正文区）
     const finalDir = join(bookRoot, '写作', '正文')
     if (existsSync(finalDir)) {
       const prev = readChapterDir(finalDir).chapters.find((c) => c.章号 === prevChapterNo)
       if (prev?._path) {
         const r = readFile(prev._path)
-        if (r.ok) prevBody = r.body
-      }
-    }
-    // 草稿兜底：写作/草稿/草稿-<章号>.md
-    if (prevBody === null) {
-      const draftPath = join(bookRoot, '写作', '草稿', `草稿-${prevChapterNo}.md`)
-      if (existsSync(draftPath)) {
-        const r = readFile(draftPath)
         if (r.ok) prevBody = r.body
       }
     }

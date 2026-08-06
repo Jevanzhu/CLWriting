@@ -1,15 +1,15 @@
 /**
- * draft 落盘端点(C.1 + 短篇轮1):driver writer 产出 → 写作/草稿/草稿-<N>.md。
+ * draft 落盘端点：driver writer 产出 → 正文区（resolveDraftPath 按章号定位文件）。
  *
  * POST /api/books/:name/draft-save  body {chapter, content}
- *   → 长篇 写作/草稿/草稿-<chapter>.md;短篇 写作/草稿/草稿-1.md(候选序号)→ {ok, path, words}
+ *   → 写作/正文/[<卷>/]<章号>-<标题>.md（已有同章号则覆盖）→ {ok, path, words}
  * GET  /api/books/:name/draft-prompt?chapter=N
  *   → 组 prompt(长篇:细纲+备料+章 front matter;短篇:细纲+篇 front matter)→ {prompt}
  *
- * 草稿区是 driver 落盘区(非手编);前端收集 driver text 流(done 后)调此落盘。
+ * 草稿直接写正文区，draft/final 同路径，靠 git 状态区分（untracked=draft，commit=final）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, basename } from 'node:path'
+import { join, basename, dirname } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
@@ -17,6 +17,7 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import { resolveDraftPath } from '../../../format/draft.js'
 import { buildSettingsContext } from './settings.js'
 import { readManifest } from '../../../document/manifest.js'
 import { writeSnapshot } from '../../../document/snapshot.js'
@@ -81,14 +82,13 @@ export function saveDraft(
   opts?: { recordAi?: boolean; snapshotOrigin?: string },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const kind = readKind(bookRoot)
-  const draftDir = join(bookRoot, '写作', '草稿')
-  // 长篇 草稿-<章号>.md(review --chapter=N 推导);短篇 草稿-1.md(候选序号)
-  const draftFile = kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
-  const relPath = `写作/草稿/${draftFile}`
-  // M1 覆写留底：已有草稿且内容不同 → force 快照（作者手改不静默丢失）
+  // 草稿直接写正文区（resolveDraftPath 按章号定位/创建正式文件路径）
+  const { relPath } = resolveDraftPath(bookRoot, chapter, kind, content)
+  const absPath = join(bookRoot, relPath)
+  // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
   const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
-  mkdirSync(draftDir, { recursive: true })
-  atomicWriteFile(join(draftDir, draftFile), content)
+  mkdirSync(dirname(absPath), { recursive: true })
+  atomicWriteFile(absPath, content)
   // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
   invalidateTreeIndex(bookRoot)
   // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
@@ -156,8 +156,8 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
 
 /** 组 draft prompt:细纲 + 备料 + 章纲 + 世界观 + 要求(方案 6.6,长短篇 front matter 分支)*/
 export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
-  const outline = readSafe(join(bookRoot, '写作', '草稿', '细纲.md'))
-  const materials = readSafe(join(bookRoot, '写作', '草稿', '本章写作材料.md'))
+  const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
+  const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
   const chapterOutline = readChapterOutline(bookRoot, chapter)
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))

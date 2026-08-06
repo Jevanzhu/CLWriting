@@ -183,11 +183,6 @@ export function appendRewritten(original: string, produced: string): string {
   return base ? `${base}\n\n${produced}` : produced
 }
 
-/** 草稿文件名:长篇 草稿-<章号>.md;短篇 草稿-1.md(候选) */
-export function draftFileName(chapter: number, kind: 'long' | 'short'): string {
-  return kind === 'short' ? '草稿-1.md' : `草稿-${chapter}.md`
-}
-
 /** 行级 LCS diff → DiffLine[](export 供测试)*/
 export function lineDiff(a: string, b: string): DiffLine[] {
   const la = a.split('\n')

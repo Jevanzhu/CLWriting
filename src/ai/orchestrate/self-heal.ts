@@ -23,7 +23,7 @@ import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 import { readKind } from '../../studio/server/book-context.js'
 import { checkWithDb, type CheckOutcome } from '../../studio/server/api/check.js'
 import { buildDraftPrompt, saveDraft } from '../../studio/server/api/draft.js'
-import { buildRewritePrompt, draftFileName } from '../../studio/server/api/rewrite.js'
+import { buildRewritePrompt } from '../../studio/server/api/rewrite.js'
 import { tryMockTool } from '../mock-tool.js'
 import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
@@ -107,7 +107,6 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
   const isShort = kind === 'short'
-  const draftPath = join(bookRoot, '写作', '草稿', draftFileName(chapter, kind))
 
   // 前端：running=true + 清空旧正文
   emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
@@ -128,7 +127,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind))
   if (first.status !== 'ok') return spawnFailure(first)
   let current = first.text
-  save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+  const firstDraft = save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+  const draftPath = join(bookRoot, firstDraft.relPath)
 
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
