@@ -10,7 +10,7 @@
  * 定稿/设定/            →    设定/
  *
  * 保留原位（不迁移）：
- * - 运行时资产：工作区/.trash、.journal、.snapshots、待定稿（路径硬编码在 service/trash）
+ * - 运行时资产：工作区/.trash、.journal、.版本、待定稿（路径硬编码在 service/trash）
  * - 关系线：大纲/关系线/（派生数据，tree skip）
  * - 定稿/摘要/：脚本产物，tree skip
  *
@@ -155,7 +155,7 @@ function moveTree(
 
 /**
  * 工作区草稿搬迁：草稿-N.md + 细纲.md → 写作/草稿/。
- * 不碰运行时资产（.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）。
+ * 不碰运行时资产（.trash/.journal/.版本/待定稿/.confirm.json/.ai-calls.json）。
  */
 function moveDrafts(bookRoot: string, errors: string[]): number {
   const workdir = join(bookRoot, '工作区')

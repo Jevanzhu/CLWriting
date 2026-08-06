@@ -62,7 +62,7 @@ export function snapshotBeforeOverwrite(
   }
   if (!docId) docId = basename(relPath, '.md')
   try {
-    return writeSnapshot(join(bookRoot, '工作区', '.snapshots'), docId, old, { origin }, { force: true })
+    return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, { force: true })
   } catch {
     return null
   }

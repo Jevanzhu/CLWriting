@@ -1,81 +1,42 @@
 /**
- * 文档级六态派生（W0 §3 裁决 R3）。
+ * 文档级六态派生（去 git 自管版本系统）。
  *
- * 状态是文档级投影，权威 = 磁盘 + git（六态状态机语境）；除「published」外不落独立字段，
- * 结构上杜绝账实漂移。清单里的 status 仅为缓存投影，可随时从本模块重建。
+ * 状态是文档级投影，权威 = 磁盘内容指纹 + manifest 定稿基线（去 git 方案）。
+ * 核心三态只回答一个问题：**当前内容 与 最后一次定稿内容 是否一致**。
+ * - 从未定稿过（无 finalizedRevision）→ draft
+ * - 定稿过但内容不同 → revision
+ * - 定稿过且内容一致 → final
  *
- * 性能：collectDirtyFiles 一次 `git status --porcelain` 拿全书脏文件集，deriveStatus 是
- * 纯函数查表，避免逐文件调 git。tree.ts buildTree 调一次 collectDirtyFiles 后逐节点派生。
+ * （idea = 工作区笔记，published = frontmatter `已发布` 字段，archived = 废稿目录——
+ * 三者不依赖定稿基线，路径判定即可。）
  *
- * 0 运行时依赖：复用 src/git/exec.ts（spawnSync）+ src/format/frontmatter.ts（容错解析）。
+ * 0 运行时依赖：复用 src/format/frontmatter.ts（容错解析）+ src/document/manifest.ts（基线）。
+ * 不调用任何外部进程（git/shell）——纯内容 + 账本推导。
  */
-import { statusPorcelain } from '../git/exec.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ManifestEntry } from './manifest.js'
 
 /** 文档级六态（W0 §3）。 */
 export type DocumentStatus =
   | 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
 
 /**
- * 文件状态集（git porcelain 解析）：untracked = 新文件（draft），modified = tracked+dirty（revision）。
- */
-export interface FileStatuses {
-  /** git untracked（?? 前缀）——正文区新文件 → draft 状态 */
-  untracked: Set<string>
-  /** git tracked+modified（非 ?? 前缀）——已跟踪但有变更 → revision 状态 */
-  modified: Set<string>
-}
-
-/**
- * 一次 git status --porcelain -uall 拿 untracked/modified 双集（相对 bookRoot，正斜杠）。
- * -uall 展开 untracked 目录为具体文件路径（正文区新建卷目录里的草稿不漏报）。
- * git 不可用（非仓库 / 命令失败）→ 双空集降级（派生回退 final，宁放行不误报）。
- */
-export function collectFileStatuses(bookRoot: string): FileStatuses {
-  const out = statusPorcelain(bookRoot, true)
-  const untracked = new Set<string>()
-  const modified = new Set<string>()
-  if (!out) return { untracked, modified }
-  for (const line of out.split('\n')) {
-    if (line.length < 4) continue
-    const isUntracked = line[0] === '?' && line[1] === '?'
-    let p = line.slice(3)
-    if ((line[0] === 'R' || line[0] === 'C') && p.includes(' -> ')) {
-      p = p.split(' -> ')[1] ?? p
-    }
-    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
-    if (p) {
-      if (isUntracked) untracked.add(p)
-      else modified.add(p)
-    }
-  }
-  return { untracked, modified }
-}
-
-/**
- * 向后兼容：untracked+modified 合并为一个脏文件集。
- * 新代码应优先用 collectFileStatuses 区分 untracked/modified。
- */
-export function collectDirtyFiles(bookRoot: string): Set<string> {
-  const { untracked, modified } = collectFileStatuses(bookRoot)
-  return new Set([...untracked, ...modified])
-}
-
-/**
  * 派生单文件 status（纯函数，不判 published）。
  * - archived：废稿/ 前缀
- * - draft：正文区 git untracked（新建未定稿的草稿）
- * - revision：正文/设定等区 git modified（已跟踪但有手改）
- * - final：正文/设定等区文件干净（默认良好态）
+ * - draft：正文区从未定稿（无 finalizedRevision）或 工作区/待定稿
+ * - revision：定稿基线存在但当前指纹不同（定稿后有改动）
+ * - final：当前指纹 == 定稿基线（干净）
  *
- * published 由 readPublished 单独查（避免对所有 final 文件读 frontmatter）。
+ * @param entry 文档清单条目（null = 未登记/磁盘手建文件）
+ * @param currentRevision 文件实时字节指纹；文件不存在 = null
+ * @returns 六态之一
  */
 export function deriveStatus(
   relPath: string,
-  untracked: Set<string>,
-  modified: Set<string>,
+  entry: ManifestEntry | null,
+  currentRevision: string | null,
 ): DocumentStatus {
   if (relPath.startsWith('废稿/')) return 'archived'
   if (relPath.startsWith('工作区/')) {
@@ -83,10 +44,10 @@ export function deriveStatus(
     if (name.startsWith('待定稿/')) return 'draft'
     return 'idea'
   }
-  // 正文 / 大纲 / 设定 / 布线 等：untracked → draft；modified → revision；clean → final
-  if (untracked.has(relPath)) return 'draft'
-  if (modified.has(relPath)) return 'revision'
-  return 'final'
+  const finRev = entry?.finalizedRevision
+  if (!finRev) return 'draft' // 从未定稿 → 草稿
+  if (currentRevision && finRev !== currentRevision) return 'revision' // 定稿后有改动
+  return 'final' // 定稿且干净
 }
 
 /**
@@ -111,10 +72,10 @@ export function readPublished(bookRoot: string, relPath: string): boolean {
 export function deriveStatusFull(
   bookRoot: string,
   relPath: string,
-  untracked: Set<string>,
-  modified: Set<string>,
+  entry: ManifestEntry | null,
+  currentRevision: string | null,
 ): DocumentStatus {
-  const s = deriveStatus(relPath, untracked, modified)
+  const s = deriveStatus(relPath, entry, currentRevision)
   if (s === 'final' && readPublished(bookRoot, relPath)) return 'published'
   return s
 }

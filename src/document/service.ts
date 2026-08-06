@@ -138,7 +138,7 @@ export class DocumentService {
     this.bookRoot = opts.bookRoot
     this.queue = opts.queue ?? new SaveQueue<SaveResult>()
     this.journalDir = join(this.bookRoot, '工作区', '.journal')
-    this.snapshotsDir = join(this.bookRoot, '工作区', '.snapshots')
+    this.snapshotsDir = join(this.bookRoot, '工作区', '.版本')
     this.manifestPath = join(this.bookRoot, '项目', '文档清单.jsonl')
   }
 

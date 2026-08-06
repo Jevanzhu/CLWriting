@@ -3,16 +3,17 @@
  *
  * 混合模型：目录扫描派生（无 docId），叶子文档合并清单（docId）+ 六态派生（status）。
  * 卷级分层：写作/正文/<卷>/ 真实磁盘目录，按 localeCompare(zh-Hans-CN) 排序（§6.2，不引入 order）。
- * 工作区内部目录不进树（W0 §9 注：.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）。
+ * 工作区内部目录不进树（W0 §9 注：.trash/.journal/.版本/待定稿/.confirm.json/.ai-calls.json）。
  *
  * BookTreeIndex 进程内缓存：跨请求共享，结构性 mutation 后 invalidateTreeIndex 失效。
  * watcher 不做（0 依赖红线）——外部编辑器改动靠前端手动刷新触发 rescan。
  */
-import { readdirSync, readFileSync, type Dirent } from 'node:fs'
+import { readdirSync, readFileSync, existsSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
-import { collectFileStatuses, deriveStatusFull, type DocumentStatus, type FileStatuses } from './status.js'
+import { deriveStatusFull, type DocumentStatus } from './status.js'
+import { computeRevision } from './revision.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
@@ -52,7 +53,7 @@ export interface BookTreeIndex {
 const SKIP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '.DS_Store', '工作区', '文风', '定稿', '项目'])
 /** 工作区/ 下跳过的内部资产（W0 §9 注）——目录与文件名混合，按名匹配。 */
 const SKIP_WORKDIR_ENTRIES = new Set([
-  '.trash', '.journal', '.snapshots', '待定稿', '.confirm.json', '.ai-calls.json',
+  '.trash', '.journal', '.版本', '.snapshots', '待定稿', '.confirm.json', '.ai-calls.json',
 ])
 
 /** 扫描书库 → 嵌套 TreeNode（目录优先 + localeCompare zh-Hans-CN 排序）。 */
@@ -130,10 +131,9 @@ export function buildTree(bookRoot: string): TreeNode[] {
   for (const e of manifest.entries.values()) {
     if (e.nodeType === 'document') entryByPath.set(e.path, e)
   }
-  const statuses = collectFileStatuses(bookRoot)
   const volumeStems = collectVolumeOutlineStems(bookRoot)
   const kind = readBookKind(bookRoot)
-  annotate(nodes, bookRoot, entryByPath, statuses, volumeStems, kind)
+  annotate(nodes, bookRoot, entryByPath, volumeStems, kind)
   return nodes
 }
 
@@ -155,7 +155,6 @@ function annotate(
   nodes: TreeNode[],
   bookRoot: string,
   entryByPath: Map<string, ManifestEntry>,
-  statuses: FileStatuses,
   volumeStems: Set<string>,
   kind: 'long' | 'short',
 ): void {
@@ -167,7 +166,10 @@ function annotate(
       }
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
-      n.status = deriveStatusFull(bookRoot, n.path, statuses.untracked, statuses.modified)
+      // 状态：实时算文件指纹 + manifest 定稿基线比对（无 git 依赖）
+      const abs = join(bookRoot, n.path)
+      const rev = existsSync(abs) ? computeRevision(abs) : null
+      n.status = deriveStatusFull(bookRoot, n.path, entry ?? null, rev)
       if (isCountedRole(n.role)) {
         n.wordCount = countWordsOf(bookRoot, n.path)
       }
@@ -178,7 +180,7 @@ function annotate(
       }
     }
     if (n.children.length > 0) {
-      annotate(n.children, bookRoot, entryByPath, statuses, volumeStems, kind)
+      annotate(n.children, bookRoot, entryByPath, volumeStems, kind)
     }
   }
 }

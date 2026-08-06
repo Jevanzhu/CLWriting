@@ -26,7 +26,8 @@ import { runAllChecks, hasRed } from '../../../check/runner.js'
 import { readOutlineLeads } from '../../../process/materials.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../../process/lead-updates.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { collectFileStatuses, deriveStatusFull } from '../../../document/status.js'
+import { deriveStatusFull } from '../../../document/status.js'
+import { computeRevision } from '../../../document/revision.js'
 import type { CheckReport } from '../../../check/types.js'
 import type { ChapterMeta, BookConfig } from '../../../format/types.js'
 
@@ -71,19 +72,24 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
 /**
  * 扫 `写作/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
  * 短篇无章号概念（篇号承载于 ChapterMeta.章号，但短篇不走账本检查）→ 返回 undefined。
+ * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  */
 function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undefined {
   if (isShort) return undefined
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return undefined
-  // 排除 untracked（草稿未定稿，不算"已写"基准——防账本「未来章」检查误判）
-  const { untracked } = collectFileStatuses(bookRoot)
+  // 排除未定稿（无 finalizedRevision）的草稿——不算"已写"基准（防账本「未来章」检查误判）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const finalized = new Set<string>()
+  for (const e of manifest.entries.values()) {
+    if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(e.path)
+  }
   const { chapters } = readChapterDir(bodyDir)
   let max = 0
   for (const ch of chapters) {
     if (!ch._path) continue
     const rel = relative(bookRoot, ch._path)
-    if (untracked.has(rel)) continue
+    if (!finalized.has(rel)) continue
     if (ch.章号 > max) max = ch.章号
   }
   return max > 0 ? max : undefined
@@ -207,7 +213,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           const { chapters } = readChapterDir(bodyDir)
           // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
           // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
-          const statuses = collectFileStatuses(bookRoot)
+          const entryByPath = new Map<string, import('../../../document/manifest.js').ManifestEntry>()
+          for (const m of manifest.values()) entryByPath.set(m.path, m)
           // 全书最高已定稿章号：循环前扫一次，传给每章 checkWithDb 作「未来章」基准
           // （避免每章内部重复扫描的 O(N²)；T9b 修复）
           let maxChapter = 0
@@ -217,7 +224,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
             if (!ch._path) continue
             const relPath = relative(bookRoot, ch._path)
             // 定稿态跳过——不在树上打扰已确认的章节
-            const st = deriveStatusFull(bookRoot, relPath, statuses.untracked, statuses.modified)
+            const entry = entryByPath.get(relPath) ?? null
+            const rev = existsSync(join(bookRoot, relPath)) ? computeRevision(join(bookRoot, relPath)) : null
+            const st = deriveStatusFull(bookRoot, relPath, entry, rev)
             if (st === 'final' || st === 'published') continue
             const docId = pathToDocId.get(relPath)
             if (!docId) continue

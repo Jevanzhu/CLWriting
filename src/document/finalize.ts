@@ -1,25 +1,28 @@
 /**
- * 定稿确认（P1：改稿确认，revision → final）。
+ * 定稿确认（去 git 版本系统版本）。
  *
- * 作者在 app 里编辑正文/设定文件 → 保存（git 变脏 → revision 态）
- * → 点「定稿」→ git add + commit 精确提交该文件 → git 干净 → 派生回 final。
+ * 作者在 app 里编辑正文/设定文件 → 保存（内容 ≠ 定稿基线 → revision 态）
+ * → 点「定稿」→ 写定稿版本（工作区/.版本/，pinned 永久保留）+ manifest 更新 finalizedRevision
+ * → 当前指纹 == 基线 → 派生回 final。
  *
- * 复用 git/exec.addCommit（commit 消息沿用 `ch:<章号> <标题>` 约定，
- * findChapterCommit 依赖此前缀反查定稿 commit）。
+ * 不再依赖 git：不 add/commit，纯内容指纹 + 账本。幂等：当前指纹 == 已记录基线 → skipped。
  */
 import { join } from 'node:path'
-import { addCommit } from '../git/exec.js'
+import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
-import { readManifest } from './manifest.js'
+import { readManifest, writeManifest } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
-import { collectDirtyFiles } from './status.js'
+import { computeRevision } from './revision.js'
+import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
+import { countWords } from '../format/words.js'
+import { splitFrontMatter } from '../format/frontmatter.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
-  | { ok: false; code: 'NOT_FOUND' | 'NOT_DRAFT_REGION' | 'GIT_FAIL'; error: string }
+  | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; error: string }
 
 /**
- * 定稿确认：对正文/设定等区一个 revision 态文件做 git commit → 回 final。
+ * 定稿确认：写 pinned 定稿版本 + manifest 更新定稿基线 → 回 final。
  *
  * @param bookRoot 书仓库根
  * @param docId 目标文档 id
@@ -31,23 +34,49 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
-  // 从正文 frontmatter 取章号 + 标题（commit message 用）；解析失败从文件名推断
   const absPath = join(bookRoot, relPath)
-  const rd = readChapter(absPath)
-  const chapterNo = rd.ok ? rd.chapter.章号 : inferChapterFromName(relPath)
-  const title = rd.ok && rd.chapter.标题 ? rd.chapter.标题 : basenameNoExt(relPath)
-  const msg = `ch:${String(chapterNo).padStart(4, '0')} ${title}`
+  if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文件不存在' }
 
-  // 幂等：git 干净（已定稿）→ skipped，不重复 commit（避免 addCommit 报 nothing to commit）
-  if (!collectDirtyFiles(bookRoot).has(relPath)) {
+  // 当前内容指纹
+  const currentRev = computeRevision(absPath)
+
+  // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
+  const manifest = readManifest(manifestPath)
+  const entry = manifest.entries.get(docId)
+  if (entry?.finalizedRevision === currentRev) {
     return { ok: true, status: 'final', skipped: true }
   }
 
-  // 精确 commit 该文件（只定稿当前章，不连带其他脏文件）
-  const c = addCommit(bookRoot, msg, [relPath])
-  if (!c.ok) return { ok: false, code: 'GIT_FAIL', error: c.humanMsg }
+  // 章号 + 标题（版本元信息用）；解析失败从文件名推断
+  const rd = readChapter(absPath)
+  const chapterNo = rd.ok ? rd.chapter.章号 : inferChapterFromName(relPath)
+  const title = rd.ok && rd.chapter.标题 ? rd.chapter.标题 : basenameNoExt(relPath)
 
-  // 树缓存失效（前端重拉树能看到 final 态）
+  // ① 写定稿版本（永久保留，pinned）
+  try {
+    const content = readFileSync(absPath, 'utf-8')
+    const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
+    const split = splitFrontMatter(content)
+    writeVersion(versionsDir, docId, content, {
+      origin: 'finalize',
+      reason: `定稿 ch:${String(chapterNo).padStart(4, '0')} ${title}`,
+      baseRevision: currentRev,
+      words: countWords(split ? split.body : content),
+      pinned: true,
+    })
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${e instanceof Error ? e.message : String(e)}` }
+  }
+
+  // ② manifest 更新定稿基线（entry 无则补建——旧书未登记首次定稿时落盘）
+  if (!entry) {
+    manifest.entries.set(docId, { id: docId, nodeType: 'document', path: relPath, parentId: null })
+  }
+  const next = manifest.entries.get(docId)!
+  next.finalizedRevision = currentRev
+  next.finalizedAt = new Date().toISOString()
+  writeManifest(manifestPath, manifest)
+
   invalidateTreeIndex(bookRoot)
   return { ok: true, status: 'final', skipped: false }
 }

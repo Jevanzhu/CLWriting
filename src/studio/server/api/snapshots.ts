@@ -38,7 +38,7 @@ function resolveDoc(
   // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
   const relPath = getOrCreateService(bookRoot).resolvePath(docId)
   if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404 }
-  return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.snapshots') }
+  return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.版本') }
 }
 
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {

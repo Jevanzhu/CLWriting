@@ -20,6 +20,11 @@ export interface ManifestEntry {
   /** 文档状态投影（folder 无）；可从磁盘 + git 重建。 */
   status?: string
   tags?: string[]
+  // ── 定稿基线（去 git 版本系统用）──────────────
+  /** 最后一次定稿的内容指纹（`sha256:xxx`）；无/不存在 = 从未定稿。 */
+  finalizedRevision?: string
+  /** 最后一次定稿时间（ISO 时间戳）。 */
+  finalizedAt?: string
 }
 
 /** 清单：version + 按 id 幂等合并的条目集。 */
@@ -76,6 +81,8 @@ function parseEntry(obj: RawLine): ManifestEntry {
   }
   if (typeof obj.order === 'number') entry.order = obj.order
   if (typeof obj.status === 'string') entry.status = obj.status
+  if (typeof obj.finalizedRevision === 'string') entry.finalizedRevision = obj.finalizedRevision
+  if (typeof obj.finalizedAt === 'string') entry.finalizedAt = obj.finalizedAt
   if (Array.isArray(obj.tags)) {
     const tags = obj.tags.filter((t): t is string => typeof t === 'string')
     if (tags.length > 0) entry.tags = tags

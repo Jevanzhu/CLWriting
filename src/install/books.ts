@@ -7,7 +7,7 @@
  *
  * 解析链优先级（#32 第 4 节）：
  *   1. 显式 [书目录] 参数（最高，覆盖一切；保留既有用法）
- *   2. cwd 是书仓库（有 book.yaml + .git）→ cwd（兼容书仓库内直接跑）
+ *   2. cwd 是书仓库（有 book.yaml）→ cwd（兼容书仓库内直接跑）
  *   3. .clwriting/active → 读活动书 → 查 books.jsonl 取 path → 工作目录/path
  *   4. 都不是 → 人话报错「还没选书，请在书库入口启用或新建一本」
  */
@@ -17,7 +17,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { git } from '../git/exec.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 
@@ -156,9 +155,9 @@ export function findWorkDir(startDir: string): string | null {
 
 // ── 书仓库判定 ────────────────────────────────────
 
-/** cwd 是书仓库：有 book.yaml 且有 .git（区别于工作目录——工作目录无 book.yaml、非 git）。 */
+/** cwd 是书仓库：有 book.yaml（去 git：不再要求 .git——书库身份由 book.yaml 唯一判定）。 */
 export function isBookRepo(dir: string): boolean {
-  return existsSync(join(dir, 'book.yaml')) && existsSync(join(dir, '.git'))
+  return existsSync(join(dir, 'book.yaml'))
 }
 
 // ── resolveBookRoot 解析链（#32 第 4 节，统一入口）──
@@ -246,7 +245,7 @@ export interface RepairResult {
 
 /**
  * 自愈 books.jsonl（#32 第 6 节）。
- * - 缺失/损坏 → 扫描工作目录直接子目录 + 长篇/短篇 子目录（有 book.yaml + .git）→ 重建登记
+ * - 缺失/损坏 → 扫描工作目录直接子目录 + 长篇/短篇 子目录（有 book.yaml）→ 重建登记
  * - 已有登记：检查 path 是否在磁盘存在，不存在的标 missing（提示重关联）
  *
  * 真源是磁盘上的书仓库本身；books.jsonl 是「可从扫描重建的派生登记」（类比 .cache）。
@@ -371,18 +370,13 @@ function detectBookKind(dir: string): 'long' | 'short' {
   return 'long'
 }
 
-/** 从 git 首 commit 时间兜底 created_at（无则 undefined）。 */
+/** 从 book.yaml 文件 mtime 兜底 created_at（去 git：不再依赖 git log；无则 undefined）。 */
 function detectBookCreatedAt(dir: string): string | undefined {
   try {
-    const r = execGit(['log', '--reverse', '--format=%aI', '--max-count=1'], dir)
-    if (r) return r
+    const st = statSync(join(dir, 'book.yaml'))
+    if (st.isFile()) return new Date(st.mtimeMs).toISOString()
   } catch {
-    // 无 git 历史忽略
+    // 无 book.yaml 忽略
   }
   return undefined
-}
-
-function execGit(args: string[], cwd: string): string | null {
-  const r = git(args, cwd)
-  return r.ok ? r.stdout.trim() || null : null
 }

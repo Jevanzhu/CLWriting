@@ -8,12 +8,12 @@
  * 不装角色壳、不登记 books.jsonl（那些是 doInit 编排层的事）。
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { addEntry } from '../format/style-entry.js'
 import { recommendShortChecks } from './data.js'
-import { addCommit, git } from '../git/exec.js'
+import { writeManifest } from '../document/manifest.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 书仓库 scaffold 入参（init 和 import 共用）。 */
@@ -31,20 +31,13 @@ export interface BookScaffoldOpts {
 }
 
 /**
- * 建书仓库骨架（独立 git + book.yaml + 6.2 目录 + 文风冷启动 + 初始 commit）。
+ * 建书仓库骨架（book.yaml + 6.2 目录 + 文风冷启动 + 初始 manifest）。
  *
- * 产物：book.yaml、.gitignore、AGENTS.md、定稿/大纲/文风/工作区 全套目录、
- * `git commit -m "init"` 作为 HEAD（让 enter/状态机有 HEAD 可判）。
+ * 产物：book.yaml、AGENTS.md、定稿/大纲/文风/工作区 全套目录、
+ * 初始文档清单（去 git：不再 git init——状态机/定稿由 fingerprint + manifest 自管）。
  */
 export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void {
   mkdirSync(bookRoot, { recursive: true })
-
-  // git init + 身份（隔离，不污染全局 config）
-  mustGit(bookRoot, ['init'])
-  mustGit(bookRoot, ['config', 'user.email', 'author@clwriting.local'])
-  mustGit(bookRoot, ['config', 'user.name', 'author'])
-  mustGit(bookRoot, ['config', 'commit.gpgsign', 'false'])
-  installBookPushGuard(bookRoot)
 
   // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）
   const config: BookConfig = opts.kind === 'short'
@@ -69,63 +62,13 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   // 母本 6.2 目录：定稿 / 大纲 / 文风 / 工作区
   scaffoldDirectories(bookRoot, opts)
 
-  // .gitignore（工作区/缓存/RAG 向量库不进 git）
-  writeFileSync(
-    join(bookRoot, '.gitignore'),
-    ['工作区/', '.cache/', '.rag.db', ''].join('\n'),
-    'utf-8',
-  )
+  // 初始文档清单（去 git：新建书即有清单，状态机/定稿自管的账本基座）
+  writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), { version: 1, entries: new Map() })
 
   // 简介（GUI 新增 5.1，落 简介.md；CLI init 无，仅 GUI 建书时写）
   if (opts.brief && opts.brief.trim()) {
     writeFileSync(join(bookRoot, '简介.md'), opts.brief.trim(), 'utf-8')
   }
-
-  // 初始 commit（让 enter/状态机有 HEAD 可判，避开态 3 误判）
-  const commit = addCommit(bookRoot, 'init')
-  if (!commit.ok) throw new Error(commit.humanMsg)
-}
-
-function mustGit(cwd: string, args: string[]): void {
-  const r = git(args, cwd)
-  if (!r.ok) throw new Error(r.humanMsg)
-}
-
-/**
- * 书仓库默认禁止推送。
- *
- * 书仓库存的是作者正文、账本、大纲等私有创作资料；CLWriting 的默认安全模型是
- * 「本地 git 用来回滚，不等于远端备份」。如果作者明确要自行远程备份，需要显式设置
- * CLWRITING_ALLOW_BOOK_PUSH=1，这能避免误把小说正文推到 GitHub。
- */
-export function installBookPushGuard(bookRoot: string): void {
-  const hooksDir = join(bookRoot, '.git', 'hooks')
-  if (!existsSync(hooksDir)) return
-  const hookPath = join(hooksDir, 'pre-push')
-  writeFileSync(hookPath, renderBookPushGuardHook(), 'utf-8')
-  try {
-    chmodSync(hookPath, 0o755)
-  } catch {
-    // Windows 权限位不稳定；Git for Windows 仍会按 hook 文件内容执行。
-  }
-}
-
-export function renderBookPushGuardHook(): string {
-  return [
-    '#!/bin/sh',
-    'if [ "$CLWRITING_ALLOW_BOOK_PUSH" = "1" ]; then',
-    '  exit 0',
-    'fi',
-    'cat >&2 <<\'MSG\'',
-    'CLWriting safety guard: this book repository contains private novel text.',
-    'Push is blocked by default so drafts/final text are not sent to a remote.',
-    '',
-    'If you intentionally want to push this book repository, rerun with:',
-    '  CLWRITING_ALLOW_BOOK_PUSH=1 git push',
-    'MSG',
-    'exit 1',
-    '',
-  ].join('\n')
 }
 
 /** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（M8 #25）。 */

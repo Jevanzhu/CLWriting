@@ -14,6 +14,8 @@ import { readBooks } from '../../install/books.js'
 import { migratePieceLayout } from '../../format/pieces.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
+import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
+import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
@@ -112,6 +114,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
       if (v3Result.errors.length > 0) {
         console.error(`[migrate-layout-v3] ${book.path}: ${v3Result.errors.length} 个错误\n${v3Result.errors.join('\n')}`)
       }
+      // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
+      migrateVersionsDir(bookPath)
+      // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
+      migrateFinalizedRevisions(bookPath)
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

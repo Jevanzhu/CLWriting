@@ -236,7 +236,7 @@ function listRemotes(bookRoot: string): string[] {
 }
 
 /** 扫描网盘副本残留（#16 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */
-function scanCloudCopies(bookRoot: string): string[] {
+export function scanCloudCopies(bookRoot: string): string[] {
   const copies: string[] = []
   const patterns = [
     /^\._[^/]+$/, // AppleDouble ._*

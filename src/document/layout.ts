@@ -12,7 +12,7 @@
  * - 素材 → material；笔记 → note；废稿 → discard；未匹配 → note（自由文档，全开）
  *
  * 系统文档（账本 ledger / 篇清单 piece-manifest）trash=false（W0-1 §2）。
- * 工作区内部目录（.trash/.journal/.snapshots/待定稿/.confirm.json/.ai-calls.json）
+ * 工作区内部目录（.trash/.journal/.版本/待定稿/.confirm.json/.ai-calls.json）
  * 不进文档树（§9），由扫描层 skip，本模块不判 role。
  */
 import { LEAD_TYPES } from '../format/leads.js'
@@ -84,7 +84,7 @@ export function roleOf(relPath: string): DocumentRole {
   if (p.startsWith('定稿/摘要/')) return 'note'
   if (p.startsWith('文风/')) return 'style'
   if (p === '简介.md') return 'introduction'
-  // 工作区：运行时资产区（.trash/.journal/.snapshots，不进树）
+  // 工作区：运行时资产区（.trash/.journal/.版本，不进树）
   if (p.startsWith('工作区/')) return 'note'
   if (p.startsWith('素材/')) return 'material'
   if (p.startsWith('笔记/')) return 'note'
