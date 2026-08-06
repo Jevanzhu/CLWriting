@@ -20,9 +20,16 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-kind-'))
   mkdirSync(join(root, '大纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/清虚门/玉佩/旧案反转')
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(
+    join(root, '大纲', '章纲', '0001-夜战.md'),
+    '---\n章号: 1\n标题: 夜战\n钩子类型: 悬念钩\n情绪定位: 压抑\n---\n## 情节\n夜战场景 / 章尾钩:玉佩认主异象',
+  )
   mkdirSync(join(root, '写作', '草稿'), { recursive: true })
   writeFileSync(join(root, '写作', '草稿', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
   writeFileSync(join(root, '写作', '草稿', '本章写作材料.md'), '# 备料\n境界:练气')
+  mkdirSync(join(root, '设定'), { recursive: true })
+  writeFileSync(join(root, '设定', '世界观.md'), '# 世界观\n仙侠世界:清虚门/练气→筑基→金丹')
 })
 
 afterEach(() => {
@@ -63,6 +70,27 @@ describe('buildDraftPrompt(kind 分支)', () => {
     const p = buildDraftPrompt(root, 1, 'long')
     expect(p).toContain('本章细纲')
     expect(p).toContain('备料')
+  })
+
+  it('Bug B 回归: 长篇注入本章章纲(情节依据) + 世界观(防跑题)', () => {
+    const p = buildDraftPrompt(root, 1, 'long')
+    expect(p).toContain('本章章纲')
+    expect(p).toContain('夜战') // 章纲内容
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门') // 世界观内容
+    expect(p).toContain('人物与境界须与世界观一致')
+  })
+
+  it('Bug B 回归: 章纲不存在时不崩(空),世界观仍注入', () => {
+    const p = buildDraftPrompt(root, 99, 'long')
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门')
+  })
+
+  it('Bug B 回归: 短篇也注入世界观(防跑题)', () => {
+    const p = buildDraftPrompt(root, 1, 'short')
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门')
   })
 })
 

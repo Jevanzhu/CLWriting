@@ -4,6 +4,9 @@
  * 架构红线：mock 不调任何大模型（纯定时器模拟流式产出）。
  * 只做 SSE 基础设施：会话 + 事件总线（stream / emit / dispose）。
  * AI 生成不再经 driver——mock 链路由各端点自带 mock 快路径（tryMockTool / 文本模拟流）。
+ *
+ * 事件总线为广播式：每 stream 消费者独立队列，emit 复制推给所有活跃消费者；
+ * 无消费者时事件暂存 pre，首个新消费者接管（与 cc driver 同构，多 SSE 连接各自完整消费）。
  */
 import type {
   Session,
@@ -12,20 +15,26 @@ import type {
   StudioDriver,
 } from './types.js'
 
-/** 每 session 一个事件总线(push 到队列,stream 排空 / 等) */
-interface MockChannel {
-  events: DriverEvent[]
-  waiters: Array<() => void>
+/** 每 session 一个事件总线（广播到所有消费者） */
+interface Consumer {
+  queue: DriverEvent[]
+  notify: (() => void) | null
+}
+interface Channel {
+  consumers: Set<Consumer>
+  /** 无消费者期间 emit 的暂存事件；首个新消费者接管 */
+  pre: DriverEvent[]
+  preTaken: boolean
 }
 
-const channels = new Map<string, MockChannel>()
+const channels = new Map<string, Channel>()
 const sessions = new Map<string, Session>()
 let sessionSeq = 0
 
-function channel(id: string): MockChannel {
+function channel(id: string): Channel {
   let ch = channels.get(id)
   if (!ch) {
-    ch = { events: [], waiters: [] }
+    ch = { consumers: new Set(), pre: [], preTaken: false }
     channels.set(id, ch)
   }
   return ch
@@ -33,9 +42,20 @@ function channel(id: string): MockChannel {
 
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
-  ch.events.push(ev)
-  for (const w of ch.waiters) w()
-  ch.waiters = []
+  if (ch.consumers.size === 0) {
+    // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
+    // （SSE 有 sync 快照兜底，重连不重放历史）
+    if (!ch.preTaken) ch.pre.push(ev)
+    return
+  }
+  for (const c of ch.consumers) {
+    c.queue.push(ev)
+    if (c.notify) {
+      const n = c.notify
+      c.notify = null
+      n()
+    }
+  }
 }
 
 export const mockDriver: StudioDriver = {
@@ -55,12 +75,26 @@ export const mockDriver: StudioDriver = {
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
     const ch = channel(session.id)
-    while (!session.closed) {
-      while (ch.events.length) {
-        yield ch.events.shift() as DriverEvent
+    const consumer: Consumer = { queue: [], notify: null }
+    ch.consumers.add(consumer)
+    // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
+    if (!ch.preTaken && ch.pre.length > 0) {
+      consumer.queue.push(...ch.pre)
+      ch.pre.length = 0
+      ch.preTaken = true
+    }
+    try {
+      while (!session.closed) {
+        while (consumer.queue.length) {
+          yield consumer.queue.shift() as DriverEvent
+        }
+        if (session.closed) return
+        await new Promise<void>((resolve) => {
+          consumer.notify = resolve
+        })
       }
-      if (session.closed) return
-      await new Promise<void>((resolve) => ch.waiters.push(resolve))
+    } finally {
+      ch.consumers.delete(consumer)
     }
   },
 
@@ -68,11 +102,16 @@ export const mockDriver: StudioDriver = {
     session.closed = true
     const ch = channels.get(session.id)
     if (ch) {
-      for (const w of ch.waiters) w()
-      ch.waiters = []
+      for (const c of ch.consumers) {
+        if (c.notify) {
+          const n = c.notify
+          c.notify = null
+          n()
+        }
+      }
+      channels.delete(session.id)
+      sessions.delete(session.id)
     }
-    channels.delete(session.id)
-    sessions.delete(session.id)
   },
 
   emit(session: Session, ev: DriverEvent): void {

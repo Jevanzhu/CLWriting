@@ -5,6 +5,10 @@
  * AI 生成不再经 driver——/spawn 手动写稿 + outline + onboard 走 gen.ts generateText，
  * 结构化产出（submit_chapter 等）走 gen.ts generateTool（self-heal / rewrite / review / analysis），
  * 各自把 text / 进度经 driver.emit 回流 /stream。
+ *
+ * 事件总线为广播式：每 stream 消费者独立队列，emit 复制推给所有活跃消费者；
+ * 无消费者时事件暂存 pre，首个新消费者接管（兼容「emit 在 stream 前」时序）。
+ * 多 SSE 连接（前端 + 调试）各自完整消费，事件不被单消费者 shift 分散（Bug A 修复）。
  */
 import type {
   Session,
@@ -13,10 +17,18 @@ import type {
   StudioDriver,
 } from './types.js'
 
-/** 每 session 一个事件总线 */
+/** 单个 stream 消费者：独立队列 + 挂起等待句柄 */
+interface Consumer {
+  queue: DriverEvent[]
+  notify: (() => void) | null
+}
+/** 每 session 一个事件总线（广播到所有消费者） */
 interface Channel {
-  events: DriverEvent[]
-  waiters: Array<() => void>
+  consumers: Set<Consumer>
+  /** 无消费者期间 emit 的暂存事件；首个新消费者接管 */
+  pre: DriverEvent[]
+  /** pre 是否已被某个消费者接管（防多消费者重放历史） */
+  preTaken: boolean
 }
 const channels = new Map<string, Channel>()
 /** session → AbortController（interrupt 时 abort，替代 kill 子进程）。cc 无生成时为懒占位，dispose/interrupt 兜底用 */
@@ -26,7 +38,7 @@ let sessionSeq = 0
 function channel(id: string): Channel {
   let ch = channels.get(id)
   if (!ch) {
-    ch = { events: [], waiters: [] }
+    ch = { consumers: new Set(), pre: [], preTaken: false }
     channels.set(id, ch)
   }
   return ch
@@ -34,9 +46,21 @@ function channel(id: string): Channel {
 
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
-  ch.events.push(ev)
-  for (const w of ch.waiters) w()
-  ch.waiters = []
+  if (ch.consumers.size === 0) {
+    // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
+    // （SSE 有 sync 快照兜底，重连不重放历史）
+    if (!ch.preTaken) ch.pre.push(ev)
+    return
+  }
+  // 广播：复制事件到每个活跃消费者队列，唤醒其挂起等待
+  for (const c of ch.consumers) {
+    c.queue.push(ev)
+    if (c.notify) {
+      const n = c.notify
+      c.notify = null
+      n()
+    }
+  }
 }
 
 export const ccDriver: StudioDriver = {
@@ -49,12 +73,27 @@ export const ccDriver: StudioDriver = {
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
     const ch = channel(session.id)
-    while (!session.closed) {
-      while (ch.events.length) {
-        yield ch.events.shift() as DriverEvent
+    const consumer: Consumer = { queue: [], notify: null }
+    ch.consumers.add(consumer)
+    // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
+    if (!ch.preTaken && ch.pre.length > 0) {
+      consumer.queue.push(...ch.pre)
+      ch.pre.length = 0
+      ch.preTaken = true
+    }
+    try {
+      while (!session.closed) {
+        while (consumer.queue.length) {
+          yield consumer.queue.shift() as DriverEvent
+        }
+        if (session.closed) return
+        await new Promise<void>((resolve) => {
+          consumer.notify = resolve
+        })
       }
-      if (session.closed) return
-      await new Promise<void>((resolve) => ch.waiters.push(resolve))
+    } finally {
+      // 消费者断开（iter.return / 异常）即从广播组移除，不影响其他消费者
+      ch.consumers.delete(consumer)
     }
   },
 
@@ -63,12 +102,18 @@ export const ccDriver: StudioDriver = {
     const ctrl = sessionCtrl.get(session.id)
     if (ctrl) ctrl.abort()
     sessionCtrl.delete(session.id)
+    // 唤醒所有消费等待，令其检查 session.closed 退出
     const ch = channels.get(session.id)
     if (ch) {
-      for (const w of ch.waiters) w()
-      ch.waiters = []
+      for (const c of ch.consumers) {
+        if (c.notify) {
+          const n = c.notify
+          c.notify = null
+          n()
+        }
+      }
+      channels.delete(session.id)
     }
-    channels.delete(session.id)
   },
 
   interrupt(session: Session): void {

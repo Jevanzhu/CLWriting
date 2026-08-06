@@ -16,6 +16,7 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
+import { readChapterDir } from '../../../format/chapters.js'
 import { buildSettingsContext } from './settings.js'
 import { readManifest } from '../../../document/manifest.js'
 import { writeSnapshot } from '../../../document/snapshot.js'
@@ -153,15 +154,19 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
   })
 }
 
-/** 组 draft prompt:细纲 + 备料 + 要求(方案 6.6,长短篇 front matter 分支)*/
+/** 组 draft prompt:细纲 + 备料 + 章纲 + 世界观 + 要求(方案 6.6,长短篇 front matter 分支)*/
 export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const outline = readSafe(join(bookRoot, '写作', '草稿', '细纲.md'))
   const materials = readSafe(join(bookRoot, '写作', '草稿', '本章写作材料.md'))
+  // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
+  const chapterOutline = readChapterOutline(bookRoot, chapter)
+  const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 篇正文(短篇,8000-20000 字,单篇完整开合:铺垫→反转→收尾,目标情绪落地)。`,
     ]
     if (outline) parts.push(`## 本篇细纲(已确认)\n${outline}`)
+    if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
@@ -170,16 +175,26 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     return parts.join('\n\n')
   }
   const parts: string[] = [
-    `## 任务\n按细纲与备料写第 ${chapter} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。`,
+    `## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。`,
   ]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
+  if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
+  if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
   const settingsCtx = buildSettingsContext(bookRoot)
   if (settingsCtx) parts.push(settingsCtx)
   parts.push(
-    `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
+    `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
   return parts.join('\n\n')
+}
+
+/** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据 */
+function readChapterOutline(bookRoot: string, chapter: number): string {
+  const { chapters } = readChapterDir(join(bookRoot, '大纲', '章纲'))
+  const hit = chapters.find((c) => c.章号 === chapter)
+  if (!hit?._path) return ''
+  return readSafe(hit._path)
 }
 
 function readSafe(fp: string): string {

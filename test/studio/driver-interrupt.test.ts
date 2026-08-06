@@ -91,3 +91,41 @@ test('P2-6 回归: 同一 ctrl 重复登记幂等，不 abort 自己（chat 多�
   expect(ctrl2.signal.aborted).toBe(false)
   ccDriver.dispose(session)
 })
+
+test('Bug A 回归: cc 多消费者广播——前端 + 调试 curl 双 SSE 连接都收到全部事件', async () => {
+  const session = await ccDriver.startSession('/tmp')
+
+  // 两个并发消费者
+  const done1 = new Promise<DriverEvent[]>((resolve) => {
+    const out: DriverEvent[] = []
+    void (async () => {
+      for await (const ev of ccDriver.stream(session)) {
+        out.push(ev)
+        if (ev.type === 'done') resolve(out)
+      }
+    })()
+  })
+  const done2 = new Promise<DriverEvent[]>((resolve) => {
+    const out: DriverEvent[] = []
+    void (async () => {
+      for await (const ev of ccDriver.stream(session)) {
+        out.push(ev)
+        if (ev.type === 'done') resolve(out)
+      }
+    })()
+  })
+
+  // emit 一串事件（模拟 self-heal 闭环）
+  ccDriver.emit!(session, { type: 'self_heal_phase', phase: 'drafting', attempt: 1 })
+  ccDriver.emit!(session, { type: 'self_heal_phase', phase: 'checking', attempt: 0 })
+  ccDriver.emit!(session, { type: 'done', cost: 0, usage: 0, reason: 'success' })
+
+  const [e1, e2] = await Promise.all([done1, done2])
+  ccDriver.dispose(session)
+
+  // 两个消费者都收到完整序列
+  const types1 = e1.map((e) => e.type)
+  const types2 = e2.map((e) => e.type)
+  expect(types1).toEqual(['self_heal_phase', 'self_heal_phase', 'done'])
+  expect(types2).toEqual(['self_heal_phase', 'self_heal_phase', 'done'])
+})

@@ -35,18 +35,88 @@ describe('mock driver 契约', () => {
   it('emit → 自定义事件进流(编排层回推 self-heal 等事件)', async () => {
     const session = (await mockDriver.startSession('/tmp')) as S
     await collect(session, (ev) => ev.type === 'init') // 排空 init
+    // 消费者在线时 emit → 事件进流（Bug A 修复后：emit 需有活跃消费者才送达）
+    const gen = mockDriver.stream(session) as AsyncGenerator<DriverEvent>
+    const firstEv = gen.next()
     mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'drafting', attempt: 1 })
     mockDriver.emit?.(session, { type: 'done', cost: 0, usage: 0, reason: 'success' })
-    const events = await collect(session, (ev) => ev.type === 'done')
+    const e1 = await firstEv
+    const e2 = await gen.next()
     mockDriver.dispose(session)
-    const types = events.map((e) => e.type)
-    expect(types[0]).toBe('self_heal_phase')
-    expect(types.at(-1)).toBe('done')
+    expect((e1.value as { type: string }).type).toBe('self_heal_phase')
+    expect((e2.value as { type: string }).type).toBe('done')
   })
 
   it('dispose 后 session.closed = true', async () => {
     const session = (await mockDriver.startSession('/tmp')) as S
     mockDriver.dispose(session)
     expect(session.closed).toBe(true)
+  })
+
+  it('Bug A 回归: 多消费者广播——每个 SSE 连接都收到全部事件(不被单消费者 shift 分散)', async () => {
+    const session = (await mockDriver.startSession('/tmp')) as S
+    // 排空 startSession 的 init
+    await collect(session, (ev) => ev.type === 'init')
+
+    // 两个并发消费者模拟 前端 + 调试 curl 双 SSE 连接
+    const done1 = new Promise<DriverEvent[]>((resolve) => {
+      const out: DriverEvent[] = []
+      void (async () => {
+        for await (const ev of mockDriver.stream(session)) {
+          out.push(ev)
+          if (ev.type === 'done') resolve(out)
+        }
+      })()
+    })
+    const done2 = new Promise<DriverEvent[]>((resolve) => {
+      const out: DriverEvent[] = []
+      void (async () => {
+        for await (const ev of mockDriver.stream(session)) {
+          out.push(ev)
+          if (ev.type === 'done') resolve(out)
+        }
+      })()
+    })
+
+    // emit 一串事件（模拟 self-heal 闭环）
+    mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'drafting', attempt: 1 })
+    mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'checking', attempt: 0 })
+    mockDriver.emit?.(session, { type: 'done', cost: 0, usage: 0, reason: 'success' })
+
+    const [e1, e2] = await Promise.all([done1, done2])
+    mockDriver.dispose(session)
+
+    // 两个消费者都必须收到完整序列(不被分散)
+    const types1 = e1.map((e) => e.type)
+    const types2 = e2.map((e) => e.type)
+    expect(types1).toEqual(['self_heal_phase', 'self_heal_phase', 'done'])
+    expect(types2).toEqual(['self_heal_phase', 'self_heal_phase', 'done'])
+  })
+
+  it('Bug A 回归: 中间加入的消费者只收后续事件,不重放历史', async () => {
+    const session = (await mockDriver.startSession('/tmp')) as S
+    await collect(session, (ev) => ev.type === 'init')
+
+    // 先发两个事件
+    mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'drafting', attempt: 1 })
+    mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'checking', attempt: 0 })
+
+    // 中间加入的消费者
+    const done = new Promise<DriverEvent[]>((resolve) => {
+      const out: DriverEvent[] = []
+      void (async () => {
+        for await (const ev of mockDriver.stream(session)) {
+          out.push(ev)
+          if (ev.type === 'done') resolve(out)
+        }
+      })()
+    })
+
+    mockDriver.emit?.(session, { type: 'done', cost: 0, usage: 0, reason: 'success' })
+    const events = await done
+    mockDriver.dispose(session)
+
+    // 只收到加入后的 done,不重放靠前的 drafting/checking
+    expect(events.map((e) => e.type)).toEqual(['done'])
   })
 })
