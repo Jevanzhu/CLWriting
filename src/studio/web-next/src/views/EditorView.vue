@@ -408,17 +408,9 @@ onUnmounted(() => {
     </div>
     <div class="doc-body">
       <div class="doc-page">
-        <!-- 标题居中 -->
+        <!-- 标题居中（只读展示，编辑入口在顶栏） -->
         <div class="page-title-area">
-          <input
-            v-if="isChapter"
-            v-model="titleModel"
-            class="page-title editable"
-            placeholder="未命名"
-            @blur="onTitleCommit"
-            @keydown.enter.prevent="onTitleCommit"
-          />
-          <span v-else class="page-title">{{ entry.name }}</span>
+          <span class="page-title">{{ isChapter ? (titleModel || '未命名') : entry.name }}</span>
         </div>
         <!-- 正文编辑器 -->
         <div class="page-editor" @contextmenu.prevent="onContextMenu">
