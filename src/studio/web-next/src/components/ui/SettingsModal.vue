@@ -167,18 +167,24 @@ watch(
   { immediate: true },
 )
 
-/** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。 */
-async function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
+/** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。
+ * P1-10：串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
+ * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。 */
+let saveChain: Promise<void> = Promise.resolve()
+function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
   const name = ws.bookName
-  if (!name) return
-  try {
-    const cfg = await getConfig(name)
-    mutate(cfg)
-    await putConfig(name, cfg)
-    if (!silent) ui.toast('已保存', 'success')
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
-  }
+  if (!name) return Promise.resolve()
+  saveChain = saveChain.then(async () => {
+    try {
+      const cfg = await getConfig(name)
+      mutate(cfg)
+      await putConfig(name, cfg)
+      if (!silent) ui.toast('已保存', 'success')
+    } catch (e) {
+      ui.toast(friendlyError(e), 'error')
+    }
+  })
+  return saveChain
 }
 
 function onTargetWordsInput(e: Event): void {
@@ -435,8 +441,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
             <!-- ═══ 编辑器 ═══ -->
             <template v-else-if="activeTab === 'editor'">
-              <section v-if="hasDesktop" class="cfg-card">
               <div class="cfg-card-head">字体</div>
+              <section v-if="hasDesktop" class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">编辑器字体</div>
@@ -458,8 +464,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
               </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">排版</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">正文字号</div>
@@ -496,8 +502,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
               </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">纸张</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">纸张宽度</div>
@@ -594,8 +600,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </div>
                 <div class="setting-item">
                   <div class="setting-item-info">
-                    <div class="setting-item-name">每章字数</div>
-                    <div class="setting-item-desc">新建章节的默认字数目标；单章可单独覆盖</div>
+                    <div class="setting-item-name">{{ bookKind === 'short' ? '每篇字数' : '每章字数' }}</div>
+                    <div class="setting-item-desc">{{ bookKind === 'short' ? '新建篇的默认字数目标；单篇可单独覆盖' : '新建章节的默认字数目标；单章可单独覆盖' }}</div>
                   </div>
                   <div class="setting-item-control">
                     <input class="num-input" type="number" min="0" step="100" placeholder="未设" :value="chapterTargetWords ?? ''" @change="onChapterTargetInput($event)" />
@@ -633,8 +639,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
               </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">写作风格</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">文风注入</div>
@@ -650,8 +656,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
               </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">AI 预算</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">单章调用上限</div>
@@ -665,8 +671,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
               </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">自动写作</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">自动确认细纲</div>
@@ -681,19 +687,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="setting-item">
                 <div class="setting-item-info">
-                  <div class="setting-item-name">批量写作章数</div>
-                  <div class="setting-item-desc">一次自动写作流程连续写的章数</div>
+                  <div class="setting-item-name">{{ bookKind === 'short' ? '批量写作篇数' : '批量写作章数' }}</div>
+                  <div class="setting-item-desc">{{ bookKind === 'short' ? '一次自动写作流程连续写的篇数' : '一次自动写作流程连续写的章数' }}</div>
                 </div>
                 <div class="setting-item-control">
                   <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
-                  <span class="val-suffix">章</span>
+                  <span class="val-suffix">{{ bookKind === 'short' ? '篇' : '章' }}</span>
                 </div>
               </div>
 
               </section>
 
-              <section class="cfg-card">
+              <template v-if="bookKind !== 'short'">
               <div class="cfg-card-head">关系图</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">自动梳理</div>
@@ -718,9 +725,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </div>
 
               </section>
+              </template>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">知识检索</div>
+              <section class="cfg-card">
               <div class="setting-item">
                 <div class="setting-item-info">
                   <div class="setting-item-name">启用检索</div>
@@ -806,16 +814,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
                 </section>
 
-              <section class="cfg-card">
               <div class="cfg-card-head">定稿版本</div>
+              <section class="cfg-card">
                 <template v-if="versionStats">
                   <div class="setting-item">
                     <div class="setting-item-info">
-                      <div class="setting-item-name">已定稿章节</div>
-                      <div class="setting-item-desc">文档清单中有定稿基线的章节</div>
+                      <div class="setting-item-name">{{ bookKind === 'short' ? '已定稿篇数' : '已定稿章节' }}</div>
+                      <div class="setting-item-desc">{{ bookKind === 'short' ? '文档清单中有定稿基线的篇' : '文档清单中有定稿基线的章节' }}</div>
                     </div>
                     <div class="setting-item-control">
-                      <span class="backup-summary">{{ versionStats.finalizedDocs }} 章</span>
+                      <span class="backup-summary">{{ versionStats.finalizedDocs }} {{ bookKind === 'short' ? '篇' : '章' }}</span>
                     </div>
                   </div>
                   <div class="setting-item">
@@ -838,8 +846,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   </div>
                 </template>
                 <div v-else class="stats-hint">统计数据加载中…</div>
-              </template>
               </section>
+              </template>
             </template>
               </div>
             </transition>
@@ -1036,12 +1044,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   margin-bottom: 0;
 }
 .cfg-card-head {
-  font-size: var(--font-size-xxs);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding: var(--size-4-3) var(--size-4-4) var(--size-4-1);
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 var(--size-4-1);
+  margin-top: var(--size-4-5);
+  margin-bottom: var(--size-4-2);
+}
+.cfg-card-head:first-child {
+  margin-top: 0;
 }
 
 /* 卡片内设置项：去掉圆角 + 缩进分割线 */
@@ -1066,6 +1077,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 /* 卡片内 sub 项更大缩进 */
 .cfg-card .setting-item.sub {
   padding-left: var(--size-4-8);
+}
+/* 卡片内非 setting-item 元素对齐 padding */
+.cfg-card .rag-save-row,
+.cfg-card .stats-hint {
+  padding-left: var(--size-4-4);
+  padding-right: var(--size-4-4);
 }
 
 /* ── 书籍 banner ── */

@@ -89,6 +89,13 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
           .join('\n')}`,
       )
     }
+    // 连续故事：有对应篇号的章纲 → 注入上下文（短篇 prompt 风格不变，增加章纲参考）
+    const { chapters: coChapters } = readChapterDir(join(bookRoot, '大纲', '章纲'))
+    const coHit = coChapters.find((c) => c.章号 === chapter)
+    if (coHit?._path) {
+      const co = readSafe(coHit._path)
+      if (co) parts.push(`## 本章章纲(情节走向参考)\n${co}`)
+    }
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(

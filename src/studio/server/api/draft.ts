@@ -130,7 +130,8 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     try {
       saved = saveDraft(bookRoot, chapter, content)
     } catch (e) {
-      return reply(res, 500, { error: `落盘失败:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 落盘失败:', e)
+      return reply(res, 500, { error: '落盘失败' })
     }
     reply(res, 200, {
       ok: true,
@@ -166,6 +167,8 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
       `## 任务\n写第 ${chapter} 篇正文(短篇,8000-20000 字,单篇完整开合:铺垫→反转→收尾,目标情绪落地)。`,
     ]
     if (outline) parts.push(`## 本篇细纲(已确认)\n${outline}`)
+    if (chapterOutline) parts.push(`## 本篇章纲(情节走向依据)\n${chapterOutline}`)
+    if (materials) parts.push(`## 备料\n${materials}`)
     if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)

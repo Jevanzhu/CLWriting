@@ -49,6 +49,8 @@ export interface RhythmShort {
   wordCurve: { 篇号: number; 标题: string; 字数: number }[]
   emotionDist: RhythmDist
   reversals: { 篇号: number; 标题: string; 核心反转: string }[]
+  /** 连续故事节奏分布（有钩子字段时返回，独立短篇无） */
+  written?: RhythmTrack
 }
 
 export type RhythmResult = RhythmLong | RhythmShort

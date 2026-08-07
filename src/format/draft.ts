@@ -35,9 +35,12 @@ export function readDraft(draftPath: string, isShort: boolean): ReadDraftResult 
     const chapter: ChapterMeta = {
       章号: piece.piece.篇号,
       标题: piece.piece.标题,
-      钩子类型: '悬念钩',
-      钩子强弱: '中',
-      情绪定位: '铺垫',
+      // 连续故事有真值则用真值，独立短篇 fallback dummy
+      钩子类型: piece.piece.钩子类型 ?? '悬念钩',
+      钩子强弱: piece.piece.钩子强弱 ?? '中',
+      情绪定位: piece.piece.情绪定位 ?? '铺垫',
+      ...(piece.piece.场景 ? { 场景: piece.piece.场景 } : {}),
+      ...(piece.piece.字数目标 ? { 字数目标: piece.piece.字数目标 } : {}),
       ...(Object.keys(raw).length > 0 ? { _raw: raw } : {}),
       _path: piece.piece._path,
     }

@@ -76,6 +76,8 @@ function rhythmLong(bookRoot: string): unknown {
 function rhythmShort(bookRoot: string): unknown {
   const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
   const sorted = pieces.slice().sort((a, b) => a.篇号 - b.篇号)
+  // 连续故事：有钩子字段 → 附带节奏分布数据（独立短篇无钩子字段 → 不附带）
+  const hasHookData = pieces.some((p) => p.钩子类型 || p.情绪定位 || p.场景)
   return {
     kind: 'short' as const,
     wordCurve: sorted.map((p) => ({ 篇号: p.篇号, 标题: p.标题, 字数: p._wordCount ?? 0 })),
@@ -83,6 +85,17 @@ function rhythmShort(bookRoot: string): unknown {
     reversals: pieces
       .filter((p) => p.核心反转)
       .map((p) => ({ 篇号: p.篇号, 标题: p.标题, 核心反转: p.核心反转! })),
+    ...(hasHookData
+      ? {
+          written: {
+            count: pieces.length,
+            hookTypeDist: countDist(pieces.map((p) => p.钩子类型), HOOK_TYPES),
+            hookLevelDist: countDist(pieces.map((p) => p.钩子强弱), HOOK_LEVELS),
+            emotionDist: countDist(pieces.map((p) => p.情绪定位), EMOTIONS),
+            sceneDist: countDist(pieces.map((p) => p.场景), SCENE_TYPES),
+          },
+        }
+      : {}),
   }
 }
 

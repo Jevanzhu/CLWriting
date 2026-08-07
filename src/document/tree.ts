@@ -91,8 +91,8 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
   return nodes
 }
 
-/** 根级目录展示序（作者工作流优先：写作 → 大纲 → 布线 → 设定）。 */
-const ROOT_ORDER = ['写作', '大纲', '布线', '设定']
+/** 根级目录展示序（作者工作流优先：写作 → 大纲 → 设定 → 布线）。 */
+const ROOT_ORDER = ['写作', '大纲', '设定', '布线']
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
  *  其余层级按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）。 */

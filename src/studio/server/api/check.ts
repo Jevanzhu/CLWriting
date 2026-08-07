@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply } from '../http.js'
+import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readBooks } from '../../../install/books.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readAnalysis } from '../../../document/analysis.js'
@@ -47,9 +48,11 @@ export type CheckOutcome =
 export function runCheckForDocument(bookRoot: string, absPath: string): CheckOutcome {
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const isShort = (config.kind ?? 'long') === 'short'
+  // rebuild 条件：长篇恒走；短篇有布线才走（连续故事用账本检查）
+  const hasWiring = existsSync(join(bookRoot, '布线'))
 
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  if (!isShort) {
+  if (!isShort || hasWiring) {
     const rebuilt = rebuild(bookRoot, cachePath)
     if (rebuilt.errors.length > 0) {
       return {
@@ -61,7 +64,7 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
     }
   }
 
-  const db = isShort ? null : new DatabaseSync(cachePath)
+  const db = (!isShort || hasWiring) ? new DatabaseSync(cachePath) : null
   try {
     return checkWithDb(bookRoot, absPath, db, config, isShort)
   } finally {
@@ -117,12 +120,14 @@ export function checkWithDb(
     // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     const maxChapter = maxWrittenChapter ?? maxWrittenChapterOf(bookRoot, isShort)
-    const declaredLeadIds = isShort ? undefined : readOutlineLeads(bookRoot)
-    const actualLeadIds = isShort
-      ? undefined
-      : readChapterLeadUpdates(bookRoot)
+    // 账本数据：长篇恒组装；短篇有布线才组装（连续故事用账本检查）
+    const useLeads = !isShort || existsSync(join(bookRoot, '布线'))
+    const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot) : undefined
+    const actualLeadIds = useLeads
+      ? readChapterLeadUpdates(bookRoot)
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
+      : undefined
     const report: CheckReport = runAllChecks({
       ...(db ? { db } : {}),
       bookRoot,
@@ -160,7 +165,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       const outcome = runCheckForDocument(bookRoot, absPath)
@@ -190,10 +196,11 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const bookRoot = join(ctx.workDir, entry.path)
       const config = readBookConfig(join(bookRoot, 'book.yaml')).config
       const isShort = (config.kind ?? 'long') === 'short'
+      const hasWiring = existsSync(join(bookRoot, '布线'))
       const cachePath = join(bookRoot, '.cache', 'index.db')
       let db: DatabaseSync | null = null
       let rebuildFailed = false
-      if (!isShort) {
+      if (!isShort || hasWiring) {
         const rebuilt = rebuild(bookRoot, cachePath)
         if (rebuilt.errors.length > 0) {
           // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict

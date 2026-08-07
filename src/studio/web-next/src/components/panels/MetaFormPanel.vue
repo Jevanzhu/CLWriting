@@ -2,14 +2,15 @@
 // 结构化元数据表单（块3.1）：按当前文档 path 切字段集（章纲/卷纲/总纲），
 // 解析 fm 填值 → 编辑 → 保存落 fm（op=fm，不联动文件名）+ 静默刷新 doc content。
 import { ref, computed, watch } from 'vue'
-import { Tag } from 'lucide-vue-next'
+import { Tag, Plus, Trash2 } from 'lucide-vue-next'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
-import { updateDocMeta } from '../../api/documents'
+import { updateDocMeta, putContent } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { parsePieceListBody, stringifyPieceList, emptyPieceList } from '../../../../../format/piece-list-core'
 
 type FieldDef = {
   key: string
@@ -22,6 +23,7 @@ type FieldDef = {
 const TITLE: Record<string, string> = {
   chapter: '章节',
   'piece-body': '短篇',
+  'piece-manifest': '清单',
   'chapter-outline': '章纲',
   'volume-outline': '卷纲',
   synopsis: '总纲',
@@ -37,7 +39,13 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'piece-body': [
-    // 目标情绪/核心反转走上方「短篇标签」只读展示（AI 判定 → fm）；此处仅可编辑的字数目标
+    // 目标情绪/核心反转（短篇目标函数）+ 钩子/情绪/场景（连续故事可选，对齐 chapter-outline）
+    { key: '目标情绪', label: '目标情绪', type: 'text' },
+    { key: '核心反转', label: '核心反转', type: 'text' },
+    { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
+    { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
+    { key: '情绪定位', label: '情绪定位', type: 'select', options: ['', '压抑', '铺垫', '小爽', '大爽', '转折'] },
+    { key: '场景', label: '场景', type: 'select', options: ['', '战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'chapter-outline': [
@@ -113,13 +121,33 @@ const kind = computed(() => {
   return formKindOf(entry.value.path)
 })
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
+/** 是否清单文件（大纲/清单/）—— 数据在正文（三段 markdown），不走 fm 表单 */
+const isManifest = computed(() => kind.value === 'piece-manifest')
 
 const fields = ref<Record<string, string>>({})
+// ── 清单表单数据（大纲/清单/：反转线索表 + 情绪曲线 + 伏笔回收）──
+// 清单.md 无 front matter，数据在正文；可变数组（铺垫点/情绪曲线/伏笔回收）用原生响应式数组承载，
+// 编辑直接改数组元素（对象属性也响应式），保存时 stringifyPieceList 回写。
+const manifestData = ref(emptyPieceList())
+const manifestReset = () => { manifestData.value = emptyPieceList() }
+const addSetup = () => manifestData.value.反转线索表.铺垫点.push({ 位置: '', 内容: '' })
+const removeSetup = (i: number) => manifestData.value.反转线索表.铺垫点.splice(i, 1)
+const addCurve = () => manifestData.value.情绪曲线!.push({ 段落: '', 情绪: '', 强度: 1 })
+const removeCurve = (i: number) => manifestData.value.情绪曲线!.splice(i, 1)
+const addPayoff = () => manifestData.value.伏笔回收.push({ 伏笔: '', 回收位置: '' })
+const removePayoff = (i: number) => manifestData.value.伏笔回收.splice(i, 1)
+
 watch(
   entry,
   (e) => {
     if (!e || !kind.value) {
       fields.value = {}
+      manifestReset()
+      return
+    }
+    // 清单：解析正文三段 → 填充表单（缺段容错）
+    if (isManifest.value) {
+      manifestData.value = { ...parsePieceListBody(stripFrontmatter(e.content)) }
       return
     }
     const parsed = parseFmFields(e.content)
@@ -131,7 +159,7 @@ watch(
 )
 
 // ── 正文标签（AI 判定 → fm，只读展示）──
-// 长篇 chapter：钩子/情绪/场景；短篇 piece-body：目标情绪/核心反转
+// 长篇 chapter：钩子/情绪/场景（AI 判定只读）；短篇 piece-body 标签已移入 FIELD_DEFS 可编辑
 const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> = {
   chapter: [
     { key: '时间锚点', label: '时间锚点' },
@@ -139,10 +167,6 @@ const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> 
     { key: '钩子强弱', label: '钩子强弱' },
     { key: '情绪定位', label: '情绪定位' },
     { key: '场景', label: '场景' },
-  ],
-  'piece-body': [
-    { key: '目标情绪', label: '目标情绪' },
-    { key: '核心反转', label: '核心反转' },
   ],
 }
 const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
@@ -174,6 +198,14 @@ async function onSave(): Promise<void> {
   if (!entry.value || !ws.activeDocId || !kind.value) return
   saving.value = true
   try {
+    // 清单：三段 markdown 全文回写（/file PUT，不走 fm/乐观锁）——清单无 fm，正文即全部数据
+    if (isManifest.value) {
+      const content = stringifyPieceList(manifestData.value)
+      await putContent(props.bookName, entry.value.path, content)
+      await doc.refresh(ws.activeDocId)
+      ui.toast('已保存', 'success')
+      return
+    }
     const meta: Record<string, unknown> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) {
       const v = fields.value[f.key] ?? ''
@@ -213,26 +245,84 @@ async function onSave(): Promise<void> {
           </div>
         </div>
       </div>
+      <!-- 清单表单（大纲/清单/：反转线索表 + 情绪曲线 + 伏笔回收，三段 markdown 动态行） -->
+      <template v-if="isManifest">
+        <!-- 反转线索表 -->
+        <div class="manifest-block">
+          <div class="manifest-title">反转线索表</div>
+          <div class="field">
+            <label class="field-label">核心反转</label>
+            <input v-model="manifestData.反转线索表.核心反转" type="text" class="field-input" placeholder="一句话反转，铺垫→反转→收尾" />
+          </div>
+          <div class="manifest-sub">
+            <span class="field-label">铺垫点（≥3，反转可回溯）</span>
+            <button class="icon-btn" title="新增铺垫点" @click="addSetup"><Plus :size="13" /></button>
+          </div>
+          <div v-for="(p, i) in manifestData.反转线索表.铺垫点" :key="i" class="dynamic-row">
+            <input v-model="p.位置" type="text" class="field-input row-pos" placeholder="位置" />
+            <input v-model="p.内容" type="text" class="field-input" placeholder="铺垫内容" />
+            <button class="icon-btn danger" title="删除" @click="removeSetup(i)"><Trash2 :size="13" /></button>
+          </div>
+          <div v-if="!manifestData.反转线索表.铺垫点.length" class="row-empty">暂无铺垫点</div>
+        </div>
+
+        <!-- 情绪曲线 -->
+        <div class="manifest-block">
+          <div class="manifest-title">情绪曲线</div>
+          <div class="manifest-sub">
+            <span class="field-label">曲线点（段落/情绪/强度）</span>
+            <button class="icon-btn" title="新增曲线点" @click="addCurve"><Plus :size="13" /></button>
+          </div>
+          <div v-for="(c, i) in manifestData.情绪曲线" :key="i" class="dynamic-row">
+            <input v-model="c.段落" type="text" class="field-input row-pos" placeholder="段落" />
+            <input v-model="c.情绪" type="text" class="field-input" placeholder="情绪" />
+            <input v-model.number="c.强度" type="number" min="1" max="10" class="field-input row-int" placeholder="1-10" />
+            <button class="icon-btn danger" title="删除" @click="removeCurve(i)"><Trash2 :size="13" /></button>
+          </div>
+          <div v-if="!manifestData.情绪曲线!.length" class="row-empty">暂无曲线点</div>
+        </div>
+
+        <!-- 伏笔回收 -->
+        <div class="manifest-block">
+          <div class="manifest-title">伏笔回收</div>
+          <div class="manifest-sub">
+            <span class="field-label">伏笔条目（未回收=弃坑）</span>
+            <button class="icon-btn" title="新增伏笔" @click="addPayoff"><Plus :size="13" /></button>
+          </div>
+          <div v-for="(e, i) in manifestData.伏笔回收" :key="i" class="dynamic-row">
+            <input v-model="e.伏笔" type="text" class="field-input row-pos" placeholder="伏笔" />
+            <input v-model="e.回收位置" type="text" class="field-input" placeholder="回收位置（未回收留空）" :disabled="e.未回收" />
+            <label class="unres-chk" title="未回收（弃坑）">
+              <input v-model="e.未回收" type="checkbox" /> 未回收
+            </label>
+            <button class="icon-btn danger" title="删除" @click="removePayoff(i)"><Trash2 :size="13" /></button>
+          </div>
+          <div v-if="!manifestData.伏笔回收.length" class="row-empty">暂无伏笔</div>
+        </div>
+      </template>
+
       <!-- 设定字段（可编辑） -->
-      <div v-for="f in defs" :key="f.key" class="field">
-        <label class="field-label">{{ f.label }}</label>
-        <select v-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
-          <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt || '（未选）' }}</option>
-        </select>
-        <textarea
-          v-else-if="f.type === 'textarea'"
-          v-model="fields[f.key]"
-          class="field-input area"
-          rows="3"
-        />
-        <input
-          v-else
-          v-model="fields[f.key]"
-          :type="f.type"
-          :placeholder="f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder"
-          class="field-input"
-        />
-      </div>
+      <template v-else>
+        <div v-for="f in defs" :key="f.key" class="field">
+          <label class="field-label">{{ f.label }}</label>
+          <select v-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
+            <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt || '（未选）' }}</option>
+          </select>
+          <textarea
+            v-else-if="f.type === 'textarea'"
+            v-model="fields[f.key]"
+            class="field-input area"
+            rows="3"
+          />
+          <input
+            v-else
+            v-model="fields[f.key]"
+            :type="f.type"
+            :placeholder="f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder"
+            class="field-input"
+          />
+        </div>
+      </template>
       <button class="save-btn" :disabled="saving" @click="onSave">
         {{ saving ? '保存中…' : '保存' }}
       </button>
@@ -315,6 +405,77 @@ async function onSave(): Promise<void> {
 }
 select.field-input {
   cursor: pointer;
+}
+/* ── 清单表单（三段 markdown 动态行）── */
+.manifest-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding-bottom: var(--size-4-3);
+  border-bottom: 1px dashed var(--background-modifier-border);
+}
+.manifest-block:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.manifest-title {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.manifest-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dynamic-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dynamic-row .field-input {
+  flex: 1;
+}
+.dynamic-row .row-pos {
+  flex: 0 0 76px;
+}
+.dynamic-row .row-int {
+  flex: 0 0 52px;
+}
+.row-empty {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+.unres-chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.icon-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.icon-btn.danger:hover {
+  color: var(--text-error, #e5484d);
+  border-color: var(--text-error, #e5484d);
 }
 /* 章节标签网格 */
 .tag-grid {

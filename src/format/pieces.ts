@@ -11,10 +11,13 @@ import { readdirSync, existsSync, renameSync, rmdirSync, mkdirSync } from 'node:
 import { join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { countWords } from './chapters.js'
-import type { PieceMeta, ParseError } from './types.js'
+import type { PieceMeta, HookType, HookLevel, Emotion, SceneType, ParseError } from './types.js'
 
 /** 短篇正文 front matter 已知字段（区分已知 vs 未知容错保留） */
-const KNOWN_FM_KEYS = new Set(['篇号', '标题', '目标情绪', '核心反转'])
+const KNOWN_FM_KEYS = new Set([
+  '篇号', '标题', '目标情绪', '核心反转',
+  '钩子类型', '钩子强弱', '情绪定位', '场景', '字数目标',
+])
 
 /** 读取短篇正文 md → PieceMeta（容错） */
 export function readPiece(
@@ -45,6 +48,13 @@ export function readPiece(
   }
   if (map.has('目标情绪')) piece.目标情绪 = String(map.get('目标情绪'))
   if (map.has('核心反转')) piece.核心反转 = String(map.get('核心反转'))
+  // 连续故事可选字段（对齐 ChapterMeta）
+  if (map.has('钩子类型')) piece.钩子类型 = String(map.get('钩子类型')) as HookType
+  if (map.has('钩子强弱')) piece.钩子强弱 = String(map.get('钩子强弱')) as HookLevel
+  if (map.has('情绪定位')) piece.情绪定位 = String(map.get('情绪定位')) as Emotion
+  if (map.has('场景')) piece.场景 = String(map.get('场景')) as SceneType
+  const wc = map.get('字数目标')
+  if (typeof wc === 'number') piece.字数目标 = wc
 
   return { ok: true, piece }
 }
@@ -56,6 +66,12 @@ function pieceToMap(p: PieceMeta): Map<string, unknown> {
   map.set('标题', p.标题)
   if (p.目标情绪) map.set('目标情绪', p.目标情绪)
   if (p.核心反转) map.set('核心反转', p.核心反转)
+  // 连续故事可选字段（对齐 ChapterMeta）
+  if (p.钩子类型) map.set('钩子类型', p.钩子类型)
+  if (p.钩子强弱) map.set('钩子强弱', p.钩子强弱)
+  if (p.情绪定位) map.set('情绪定位', p.情绪定位)
+  if (p.场景) map.set('场景', p.场景)
+  if (p.字数目标) map.set('字数目标', p.字数目标)
   if (p._raw) {
     for (const [k, v] of Object.entries(p._raw)) {
       if (!map.has(k)) map.set(k, v)

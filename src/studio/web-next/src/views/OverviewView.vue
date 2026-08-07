@@ -8,25 +8,43 @@ import { ref, computed, onMounted } from 'vue'
 import {
   Flame, AlertTriangle,
   Feather, ArrowUpRight,
-  TrendingUp, BarChart3,
+  TrendingUp, BarChart3, PenLine,
 } from 'lucide-vue-next'
 import { getOverview, type OverviewResult } from '../api/overview'
 import { getForeshadows, type Foreshadow } from '../api/foreshadows'
-import { getRhythm, type RhythmLong, type RhythmDist } from '../api/rhythm'
+import { getRhythm, type RhythmDist, type RhythmResult } from '../api/rhythm'
 import {
   getAnalysisOverview,
   type AnalysisOverview,
 } from '../api/analysis'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
+const tree = useTreeStore()
+
+/** 继续写作：跳到最近一章/篇（path → docId → openTab）。 */
+function continueWriting(): void {
+  const rc = data.value?.recentChapter
+  if (!rc) return
+  const node = tree.byPath.get(rc.path)
+  if (node?.docId) {
+    ws.openTab(node.docId)
+  } else {
+    // 树未命中（树未加载/缓存旧）→ 重拉后再打开
+    void tree.load(props.bookName, true).then(() => {
+      const n = tree.byPath.get(rc.path)
+      if (n?.docId) ws.openTab(n.docId)
+    })
+  }
+}
 
 // ── 数据 refs ─────────────────────────────────
 const data = ref<OverviewResult | null>(null)
 const foreshadows = ref<Foreshadow[]>([])
-const rhythmData = ref<RhythmLong | null>(null)
+const rhythmData = ref<RhythmResult | null>(null)
 const analysis = ref<AnalysisOverview | null>(null)
 const loading = ref(true)
 const err = ref<string | null>(null)
@@ -52,7 +70,7 @@ async function loadFs(): Promise<void> {
 async function loadRhythm(): Promise<void> {
   try {
     const r = await getRhythm(props.bookName)
-    rhythmData.value = r.kind === 'long' ? r : null
+    rhythmData.value = r
   } catch { rhythmData.value = null }
 }
 async function loadAnalysis(): Promise<void> {
@@ -143,6 +161,22 @@ const fsStats = computed(() => {
   }
 })
 
+// ══ 短篇画像缺口 ══
+const shortProfile = computed(() => data.value?.shortProfile)
+/** 情绪缺口：target_emotions vs 已写篇的目标情绪分布 */
+const emotionGap = computed(() => {
+  const profile = shortProfile.value
+  if (!profile?.targetEmotions?.length) return null
+  const dist = rhythmData.value?.kind === 'short' ? rhythmData.value.emotionDist : {}
+  return profile.targetEmotions.map((e) => ({
+    emotion: e,
+    count: (dist as Record<string, number>)[e] ?? 0,
+    missing: ((dist as Record<string, number>)[e] ?? 0) === 0,
+  }))
+})
+/** 跨篇母题 */
+const seriesMotifs = computed(() => shortProfile.value?.seriesMotifs ?? [])
+
 
 // ══ ④⑤ 节奏派生（原 RhythmView）══════════════
 // 枚举顺序与服务端 rhythm.ts 一致（稳定渲染）
@@ -156,13 +190,26 @@ const CHART_H = 180
 const PAD_BOTTOM = 24 // 章号标签
 const PAD_LEFT = 38   // Y 轴刻度标签
 const DRAW_W = CHART_W - PAD_LEFT
-const maxWords = computed(() =>
-  Math.max(1, ...(rhythmData.value?.wordCurve ?? []).map((p) => p.字数)),
-)
+/** 字数曲线点（长短篇统一：长篇章号 / 短篇篇号 → no）。 */
+const curve = computed<{ no: number; 标题: string; 字数: number }[]>(() => {
+  const d = rhythmData.value
+  if (!d) return []
+  const isShort = d.kind === 'short'
+  return d.wordCurve.map((p) => ({
+    no: isShort ? (p as { 篇号: number }).篇号 : (p as { 章号: number }).章号,
+    标题: p.标题,
+    字数: p.字数,
+  }))
+})
+const curveAvg = computed(() => {
+  const c = curve.value
+  return c.length ? Math.round(c.reduce((s, p) => s + p.字数, 0) / c.length) : 0
+})
+const maxWords = computed(() => Math.max(1, ...curve.value.map((p) => p.字数)))
 const Y_TICKS = [0.25, 0.5, 0.75]
 /** X 轴标签步长：控制在 ~20 个标签内。超 40 章就整排隐藏会让长篇横轴彻底失去参照。 */
 const tickStep = computed(() => {
-  const n = rhythmData.value?.wordCurve.length ?? 0
+  const n = curve.value.length
   return Math.max(1, Math.ceil(n / 20))
 })
 /** 字数简写：≥1万→X.X万，≥1千→X.Xk，其余原值 */
@@ -182,24 +229,24 @@ function barY(字数: number): number {
   return CHART_H - PAD_BOTTOM - h
 }
 const avgY = computed(() => {
-  const d = rhythmData.value
-  return d ? barY(d.avgWords) : 0
+  const c = curve.value
+  return c.length ? barY(curveAvg.value) : 0
 })
 /** 面积路径 d（底→各点→底→闭合）*/
 const wordAreaD = computed(() => {
-  const curve = rhythmData.value?.wordCurve ?? []
-  if (!curve.length) return ''
-  const n = curve.length
+  const pts = curve.value
+  if (!pts.length) return ''
+  const n = pts.length
   const baseY = CHART_H - PAD_BOTTOM
-  const pts = curve.map((p, i) => `${ptX(i, n)},${barY(p.字数)}`).join(' L ')
-  return `M ${ptX(0, n)},${baseY} L ${pts} L ${ptX(n - 1, n)},${baseY} Z`
+  const ptsStr = pts.map((p, i) => `${ptX(i, n)},${barY(p.字数)}`).join(' L ')
+  return `M ${ptX(0, n)},${baseY} L ${ptsStr} L ${ptX(n - 1, n)},${baseY} Z`
 })
 /** 折线路径 d */
 const wordLineD = computed(() => {
-  const curve = rhythmData.value?.wordCurve ?? []
-  if (!curve.length) return ''
-  const n = curve.length
-  return curve.map((p, i) => `${i === 0 ? 'M' : 'L'} ${ptX(i, n)},${barY(p.字数)}`).join(' ')
+  const pts = curve.value
+  if (!pts.length) return ''
+  const n = pts.length
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${ptX(i, n)},${barY(p.字数)}`).join(' ')
 })
 
 // ── 分布对比组 ──
@@ -207,10 +254,19 @@ interface DistGroup { title: string; keys: string[]; written: RhythmDist; planne
 const distGroups = computed<DistGroup[]>(() => {
   const d = rhythmData.value
   if (!d) return []
+  if (d.kind === 'long') {
+    return [
+      { title: '钩子类型', keys: HOOK_TYPES, written: d.written.hookTypeDist, planned: d.planned.hookTypeDist },
+      { title: '情绪定位', keys: EMOTIONS, written: d.written.emotionDist, planned: d.planned.emotionDist },
+      { title: '场景分布', keys: SCENE_TYPES, written: d.written.sceneDist, planned: d.planned.sceneDist },
+    ]
+  }
+  // 短篇：有 written（连续故事）才显示节奏分布（独立短篇无 written → 空）
+  if (!d.written) return []
   return [
-    { title: '钩子类型', keys: HOOK_TYPES, written: d.written.hookTypeDist, planned: d.planned.hookTypeDist },
-    { title: '情绪定位', keys: EMOTIONS, written: d.written.emotionDist, planned: d.planned.emotionDist },
-    { title: '场景分布', keys: SCENE_TYPES, written: d.written.sceneDist, planned: d.planned.sceneDist },
+    { title: '钩子类型', keys: HOOK_TYPES, written: d.written.hookTypeDist, planned: {} },
+    { title: '情绪定位', keys: EMOTIONS, written: d.written.emotionDist, planned: {} },
+    { title: '场景分布', keys: SCENE_TYPES, written: d.written.sceneDist, planned: {} },
   ]
 })
 function distMax(g: DistGroup): number {
@@ -240,15 +296,21 @@ function distMax(g: DistGroup): number {
             </div>
             <h1 class="hero-title">{{ title }}</h1>
           </div>
-          <div v-if="hasTarget" class="hero-ring">
-            <svg viewBox="0 0 110 110" class="ring-svg">
-              <circle cx="55" cy="55" :r="RING_R" class="ring-track" />
-              <circle cx="55" cy="55" :r="RING_R" class="ring-prog"
-                :stroke-dasharray="C" :stroke-dashoffset="ringOffset" />
-            </svg>
-            <div class="ring-label">
-              <span class="rl-num">{{ percentFmt }}</span>
-              <span class="rl-pct">%</span>
+          <div class="hero-right">
+            <button v-if="data?.recentChapter" class="btn-continue" @click="continueWriting">
+              <PenLine :size="13" />
+              <span>继续写作 · 第{{ data.recentChapter.no }}{{ kind === 'long' ? '章' : '篇' }}</span>
+            </button>
+            <div v-if="hasTarget" class="hero-ring">
+              <svg viewBox="0 0 110 110" class="ring-svg">
+                <circle cx="55" cy="55" :r="RING_R" class="ring-track" />
+                <circle cx="55" cy="55" :r="RING_R" class="ring-prog"
+                  :stroke-dasharray="C" :stroke-dashoffset="ringOffset" />
+              </svg>
+              <div class="ring-label">
+                <span class="rl-num">{{ percentFmt }}</span>
+                <span class="rl-pct">%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -304,12 +366,12 @@ function distMax(g: DistGroup): number {
               class="heat-cell"
               :class="{ 'is-empty': t.count === 0 }"
               :style="t.count ? { opacity: 0.25 + 0.75 * (t.count / maxCount) } : undefined"
-              :title="t.count ? `${t.date} · ${t.count} 章` : `${t.date} · 未定稿`"
+              :title="t.count ? `${t.date} · ${t.count} ${kind === 'long' ? '章' : '篇'}` : `${t.date} · 未${kind === 'long' ? '定稿' : '定稿'}`"
             ></span>
           </div>
           <div v-else class="heat-empty">
             <Flame :size="24" />
-            <span>写一章定稿后亮起</span>
+            <span>{{ kind === 'long' ? '写一章定稿后亮起' : '写一篇定稿后亮起' }}</span>
           </div>
         </section>
 
@@ -340,12 +402,12 @@ function distMax(g: DistGroup): number {
       </div>
 
       <!-- ── ③ 字数曲线（面积图）─────────────────── -->
-      <section v-if="kind === 'long' && rhythmData" class="panel">
+      <section v-if="rhythmData && curve.length" class="panel">
         <div class="panel-head">
           <TrendingUp :size="14" /> <span>字数曲线</span>
-          <span class="head-legend">{{ rhythmData.wordCurve.length }} 章 · 均篇 {{ rhythmData.avgWords.toLocaleString() }} 字</span>
+          <span class="head-legend">{{ curve.length }} {{ kind === 'long' ? '章' : '篇' }} · 均{{ kind === 'long' ? '章' : '篇' }} {{ curveAvg.toLocaleString() }} 字</span>
         </div>
-        <div v-if="!rhythmData.wordCurve.length" class="empty">尚无已写章节</div>
+        <div v-if="!curve.length" class="empty">{{ kind === 'long' ? '尚无已写章节' : '尚无已写篇目' }}</div>
         <svg
           v-else
           class="chart-svg"
@@ -369,38 +431,64 @@ function distMax(g: DistGroup): number {
           <path :d="wordAreaD" fill="url(#wordAreaGrad)" />
           <!-- 均篇参考线 -->
           <line :x1="PAD_LEFT" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
-          <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均篇 {{ fmtWords(rhythmData.avgWords) }}</text>
+          <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均{{ kind === 'long' ? '章' : '篇' }} {{ fmtWords(curveAvg) }}</text>
           <!-- 折线 -->
           <path :d="wordLineD" class="word-line" />
           <!-- 端点 -->
           <circle
-            v-for="(p, i) in rhythmData.wordCurve"
-            :key="p.章号"
-            :cx="ptX(i, rhythmData.wordCurve.length)"
+            v-for="(p, i) in curve"
+            :key="p.no"
+            :cx="ptX(i, curve.length)"
             :cy="barY(p.字数)"
             r="2.5"
             class="word-dot"
           >
-            <title>第{{ p.章号 }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
+            <title>第{{ p.no }}{{ kind === 'long' ? '章' : '篇' }} {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
           </circle>
-          <!-- X 轴章号（按 tickStep 降采样，长篇也保留横轴参照）-->
-          <template v-for="(p, i) in rhythmData.wordCurve" :key="'wl'+p.章号">
+          <!-- X 轴编号（按 tickStep 降采样，长篇也保留横轴参照）-->
+          <template v-for="(p, i) in curve" :key="'wl'+p.no">
             <text
               v-if="i % tickStep === 0"
-              :x="ptX(i, rhythmData.wordCurve.length)"
+              :x="ptX(i, curve.length)"
               :y="CHART_H - 8"
               class="axis-label-x"
               text-anchor="middle"
-            >{{ p.章号 }}</text>
+            >{{ p.no }}</text>
           </template>
         </svg>
       </section>
 
+      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 跨篇母题）── -->
+      <section v-if="emotionGap || seriesMotifs.length" class="panel">
+        <div class="panel-head">
+          <BarChart3 :size="14" /> <span>画像缺口</span>
+          <span v-if="emotionGap" class="head-legend">{{ emotionGap.filter((g) => !g.missing).length }}/{{ emotionGap.length }} 情绪已覆盖</span>
+        </div>
+        <!-- 情绪覆盖 -->
+        <div v-if="emotionGap" class="gap-rows">
+          <div v-for="g in emotionGap" :key="g.emotion" class="gap-row" :class="{ 'is-missing': g.missing }">
+            <span class="gap-label">{{ g.emotion }}</span>
+            <div class="gap-bar">
+              <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
+            </div>
+            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 篇</span>
+          </div>
+        </div>
+        <!-- 跨篇母题 -->
+        <div v-if="seriesMotifs.length" class="motif-section">
+          <span class="motif-label">跨篇母题</span>
+          <div class="motif-tags">
+            <span v-for="m in seriesMotifs" :key="m" class="motif-tag">{{ m }}</span>
+          </div>
+        </div>
+      </section>
+
       <!-- ── ④ 节奏分布（emphasis：已写=accent，规划=灰）── -->
-      <section v-if="kind === 'long' && rhythmData" class="panel">
+      <section v-if="distGroups.length" class="panel">
         <div class="panel-head">
           <BarChart3 :size="14" /> <span>节奏分布</span>
-          <span class="head-legend">柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span>
+          <span v-if="rhythmData?.kind === 'long'" class="head-legend">柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span>
+          <span v-else class="head-legend">柱 已写 · {{ rhythmData?.written?.count ?? 0 }} 篇</span>
         </div>
         <div class="dist-grid">
           <div v-for="g in distGroups" :key="g.title" class="dist-group">
@@ -482,6 +570,17 @@ function distMax(g: DistGroup): number {
   overflow: hidden;
 }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.hero-left { display: flex; flex-direction: column; gap: 4px; }
+.hero-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.btn-continue {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 14px; border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius-m); background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--text-accent); font-size: var(--font-size-s); font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.btn-continue:hover { background: color-mix(in srgb, var(--interactive-accent) 20%, transparent); border-color: var(--interactive-accent-hover); }
 .hero-tags { display: flex; gap: 6px; margin-bottom: 8px; }
 .htag {
   display: inline-flex; align-items: center; gap: 3px;
@@ -560,6 +659,20 @@ function distMax(g: DistGroup): number {
 .word-dot { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; }
 .avg-line { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.6; }
 .avg-text { fill: var(--text-faint); font-size: var(--font-size-xxs); }
+
+/* ══ 短篇画像缺口 ══ */
+.gap-rows { display: flex; flex-direction: column; gap: 8px; }
+.gap-row { display: grid; grid-template-columns: 72px 1fr 44px; align-items: center; gap: var(--size-4-2); }
+.gap-label { font-size: var(--font-size-xs); color: var(--text-muted); }
+.gap-bar { position: relative; height: 8px; background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent); border-radius: 4px; }
+.gap-fill { height: 100%; background: var(--interactive-accent); border-radius: 4px; transition: width var(--dur-slow) var(--ease-out); }
+.gap-row.is-missing .gap-fill { background: var(--text-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--text-warning) 40%, transparent); }
+.gap-count { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+.gap-count.is-zero { color: var(--text-warning); font-weight: 600; }
+.motif-section { margin-top: 14px; display: flex; align-items: center; gap: var(--size-4-2); }
+.motif-label { font-size: var(--font-size-xs); color: var(--text-faint); flex-shrink: 0; }
+.motif-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.motif-tag { font-size: var(--font-size-xs); padding: 1px 10px; border-radius: 8px; background: color-mix(in srgb, var(--interactive-accent) 10%, transparent); color: var(--text-accent); }
 
 /* ══ ④ 节奏分布 ══ */
 .dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }

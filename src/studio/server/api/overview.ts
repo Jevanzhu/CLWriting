@@ -13,6 +13,7 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
@@ -60,6 +61,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     }
 
     const timeline = computeTimeline(bookRoot, kind)
+    const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
     reply(res, 200, {
       identity: {
         name: entry.name,
@@ -74,8 +76,9 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       state,
       volumes: kind === 'short' ? [] : listVolumes(bookRoot),
       timeline,
-      recentChapter: kind === 'long' ? getRecentChapter(bookRoot) : null,
+      recentChapter: getRecentDoc(bookRoot, kind),
       streak: computeStreak(timeline),
+      ...(shortProfile ? { shortProfile } : {}),
     })
   })
 }
@@ -135,13 +138,21 @@ function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: stri
 }
 
 /** 最近一章（按章号最大）—— 供总览页"继续写作"入口 */
-function getRecentChapter(bookRoot: string): { 章号: number; 标题: string; path: string } | null {
+function getRecentDoc(bookRoot: string, kind: 'long' | 'short'): { no: number; 标题: string; path: string } | null {
+  if (kind === 'short') {
+    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
+    if (pieces.length === 0) return null
+    const sorted = [...pieces].sort((a, b) => (b.篇号 ?? 0) - (a.篇号 ?? 0))
+    const last = sorted[0]
+    if (!last?._path) return null
+    return { no: last.篇号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
+  }
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   if (chapters.length === 0) return null
   const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))
   const last = sorted[0]
   if (!last?._path) return null
-  return { 章号: last.章号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
+  return { no: last.章号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
 }
 
 /** 连续写作天数：从 timeline 末尾往前数连续有产出的天数（允许今天还没写 → 从昨天起算） */
@@ -162,4 +173,26 @@ function computeStreak(timeline: { date: string; count: number }[]): number {
     } else break
   }
   return streak
+}
+
+/** 短篇画像（从 book.yaml.short 提取，总览页缺口分析用） */
+function extractShortProfile(config: BookConfig): {
+  targetEmotions?: string[]
+  targetReversalTypes?: string[]
+  targetEndingFlavors?: string[]
+  seriesMotifs?: string[]
+} | undefined {
+  const s = config.short
+  if (!s) return undefined
+  const out: {
+    targetEmotions?: string[]
+    targetReversalTypes?: string[]
+    targetEndingFlavors?: string[]
+    seriesMotifs?: string[]
+  } = {}
+  if (s.target_emotions?.length) out.targetEmotions = s.target_emotions
+  if (s.target_reversal_types?.length) out.targetReversalTypes = s.target_reversal_types
+  if (s.target_ending_flavors?.length) out.targetEndingFlavors = s.target_ending_flavors
+  if (s.series_motifs?.length) out.seriesMotifs = s.series_motifs
+  return Object.keys(out).length > 0 ? out : undefined
 }
