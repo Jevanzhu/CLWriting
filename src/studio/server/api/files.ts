@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, resolve, relative, isAbsolute, basename } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
@@ -69,13 +69,23 @@ function queryParams(req: IncomingMessage): URLSearchParams {
   return new URL(req.url ?? '/', 'http://localhost').searchParams
 }
 
-/** 防穿越：file 相对 bookRoot，resolve 后 relative 必须非空、不以 .. 开头、非绝对（跨盘） */
+/** 防穿越：file 相对 bookRoot，resolve 后 relative 必须非空、不以 .. 开头、非绝对（跨盘）。
+ *  symlink 二次校验（与其他 3 套 safePath 实现一致）：文件存在时解析 realpath，防符号链接指向 bookRoot 外。 */
 function safePath(bookRoot: string, file: string): string | null {
   if (!file || file.includes('\0')) return null
   const root = resolve(bookRoot)
   const abs = resolve(root, file)
   const rel = relative(root, abs)
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
+  // symlink 防御：文件存在时 realpath 仍须在 root 内（两边都 realpath 防 macOS /var → /private/var 前缀差异）
+  if (existsSync(abs)) {
+    try {
+      const realRoot = realpathSync(root)
+      if (relative(realRoot, realpathSync(abs)).startsWith('..')) return null
+    } catch {
+      return null
+    }
+  }
   return abs
 }
 

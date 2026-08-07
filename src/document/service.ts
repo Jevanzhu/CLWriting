@@ -378,7 +378,9 @@ export class DocumentService {
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
     // piece-body 写「篇号」字段；chapter 写「章号」字段（接口按文档角色传其一）
-    if (isPieceBody(path, this.bookRoot)) {
+    // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
+    const isPiece = isPieceBody(path, this.bookRoot)
+    if (isPiece) {
       if (meta.篇号 !== undefined) map.set('篇号', meta.篇号)
     } else if (meta.章号 !== undefined) {
       map.set('章号', meta.章号)
@@ -392,7 +394,7 @@ export class DocumentService {
     const 标题 = String(map.get('标题') ?? '')
     invalidateTreeIndex(this.bookRoot)
 
-    if (isPieceBody(path, this.bookRoot)) {
+    if (isPiece) {
       // 短篇：rename 文件名（篇/<篇号3位>-<标题>.md）+ 同步清单同名文件
       const 篇号 = map.get('篇号')
       const numPrefix =

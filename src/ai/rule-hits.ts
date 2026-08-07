@@ -11,7 +11,7 @@
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import type { RuleViolation } from './rules/index.js'
+import type { RuleViolation } from './rules/types.js'
 
 const FILE = 'rule-hits.json'
 /** 每条规则保留最近命中 message 数（B4 前置注入参考） */

@@ -145,6 +145,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       const c = sseConnections.get(sseName)
       if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
       void iter.return(undefined)
+      // 仅最后一条连接断开时才中断 AI 编排（多标签同书：关一个 tab 不应杀其他 tab 的生成）
+      const remaining = c !== undefined ? Math.max(0, c - 1) : 0
+      if (remaining > 0) return
       const name = params['name']!
       if (isSelfHealRunning(name)) abortSelfHeal(name)
       if (isChatRunning(name)) abortChat(name)
