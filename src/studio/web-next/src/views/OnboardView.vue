@@ -41,11 +41,16 @@ const STEP_GROUPS: { label: string; steps: OnboardStep[] }[] = [
 
 // 非成长线书隐藏 realm（境界体系）步骤
 const isGrowthBook = ref(true)
+// 短篇集：无卷纲/线索种子（精简布局），隐藏「大纲规划」组；长篇隐藏「短篇专属」组
+const isShort = ref(false)
 const visibleStepGroups = computed(() =>
-  STEP_GROUPS.map((g) => ({
-    ...g,
-    steps: g.steps.filter((s) => s !== 'realm' || isGrowthBook.value),
-  })).filter((g) => g.steps.length > 0),
+  STEP_GROUPS
+    .filter((g) => (isShort.value ? g.label !== '大纲规划' : g.label !== '短篇专属'))
+    .map((g) => ({
+      ...g,
+      steps: g.steps.filter((s) => s !== 'realm' || isGrowthBook.value),
+    }))
+    .filter((g) => g.steps.length > 0),
 )
 
 const ALL_STEPS = computed<OnboardStep[]>(() => visibleStepGroups.value.flatMap((g) => g.steps))
@@ -115,6 +120,7 @@ async function save(): Promise<void> {
 onMounted(async () => {
   try {
     const config = await getConfig(props.bookName)
+    isShort.value = (config.kind ?? 'long') === 'short'
     const leadsEnabled = (config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
     isGrowthBook.value = leadsEnabled.includes('成长线')
   } catch {

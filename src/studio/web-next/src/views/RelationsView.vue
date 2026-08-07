@@ -317,16 +317,17 @@ async function onMine(): Promise<void> {
       ui.toast('AI 未梳理到关系（材料不足或产出为空）', 'info')
     }
   } catch (e) {
-    err.value = friendlyError(e)
-    ui.toast(err.value, 'error')
+    // 梳理失败只 toast，不覆盖 err——图主体已渲染成功，页面不应变「载入失败」
+    ui.toast(friendlyError(e), 'error')
   } finally {
     mining.value = false
   }
 }
 
-/** 自动梳理：打开关系图时，若章节增量达阈值则触发。 */
+/** 自动梳理：打开关系图时，若章节增量达阈值则触发。AI 不可用时不触发（避免失败 toast）。 */
 async function maybeAutoMine(cache?: { chapterCount: number | null; currentChapters: number }): Promise<void> {
   if (mining.value || !cache) return
+  if (ui.aiAvailable === false) return
   try {
     const cfg = await getConfig(props.bookName)
     if (!(cfg.auto?.relation_auto_mine ?? true)) return
