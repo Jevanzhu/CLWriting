@@ -76,7 +76,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       state,
       volumes: kind === 'short' ? [] : listVolumes(bookRoot),
       timeline,
-      recentChapter: getRecentDoc(bookRoot, kind),
+      recentDoc: getRecentDoc(bookRoot, kind),
       streak: computeStreak(timeline),
       ...(shortProfile ? { shortProfile } : {}),
     })

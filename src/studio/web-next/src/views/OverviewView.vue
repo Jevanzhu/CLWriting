@@ -27,7 +27,7 @@ const tree = useTreeStore()
 
 /** 继续写作：跳到最近一章/篇（path → docId → openTab）。 */
 function continueWriting(): void {
-  const rc = data.value?.recentChapter
+  const rc = data.value?.recentDoc
   if (!rc) return
   const node = tree.byPath.get(rc.path)
   if (node?.docId) {
@@ -170,8 +170,8 @@ const emotionGap = computed(() => {
   const dist = rhythmData.value?.kind === 'short' ? rhythmData.value.emotionDist : {}
   return profile.targetEmotions.map((e) => ({
     emotion: e,
-    count: (dist as Record<string, number>)[e] ?? 0,
-    missing: ((dist as Record<string, number>)[e] ?? 0) === 0,
+    count: dist[e] ?? 0,
+    missing: (dist[e] ?? 0) === 0,
   }))
 })
 /** 跨篇母题 */
@@ -194,12 +194,10 @@ const DRAW_W = CHART_W - PAD_LEFT
 const curve = computed<{ no: number; 标题: string; 字数: number }[]>(() => {
   const d = rhythmData.value
   if (!d) return []
-  const isShort = d.kind === 'short'
-  return d.wordCurve.map((p) => ({
-    no: isShort ? (p as { 篇号: number }).篇号 : (p as { 章号: number }).章号,
-    标题: p.标题,
-    字数: p.字数,
-  }))
+  // 类型守卫（P2-20）：按 d.kind 收窄 wordCurve 元素形状（长篇章号 / 短篇篇号），替代 as 断言
+  return d.kind === 'short'
+    ? d.wordCurve.map((p) => ({ no: p.篇号, 标题: p.标题, 字数: p.字数 }))
+    : d.wordCurve.map((p) => ({ no: p.章号, 标题: p.标题, 字数: p.字数 }))
 })
 const curveAvg = computed(() => {
   const c = curve.value
@@ -297,9 +295,9 @@ function distMax(g: DistGroup): number {
             <h1 class="hero-title">{{ title }}</h1>
           </div>
           <div class="hero-right">
-            <button v-if="data?.recentChapter" class="btn-continue" @click="continueWriting">
+            <button v-if="data?.recentDoc" class="btn-continue" @click="continueWriting">
               <PenLine :size="13" />
-              <span>继续写作 · 第{{ data.recentChapter.no }}{{ kind === 'long' ? '章' : '篇' }}</span>
+              <span>继续写作 · 第{{ data.recentDoc.no }}{{ kind === 'long' ? '章' : '篇' }}</span>
             </button>
             <div v-if="hasTarget" class="hero-ring">
               <svg viewBox="0 0 110 110" class="ring-svg">

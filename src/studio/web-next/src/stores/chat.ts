@@ -48,6 +48,20 @@ export const useChatStore = defineStore('chat', () => {
       case 'sync': {
         // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
         running.value = ev['chatRunning'] === true
+        // P2-9：重连时后端只补发 chatRunning，不重发 chat_turn——若旧 currentIdx 已随回合结束失效，
+        // 找到最后一个未 done 的 assistant 气泡重建索引（否则 chat_text 追加到错误气泡或被静默丢弃）
+        if (running.value && (currentIdx < 0 || messages.value[currentIdx]?.done)) {
+          // 反向找最后一个未 done 的 assistant 气泡（lib=ES2022 无 findLastIndex，手写循环）
+          let lastUndone = -1
+          for (let i = messages.value.length - 1; i >= 0; i--) {
+            const m = messages.value[i]
+            if (m && m.role === 'assistant' && !m.done) {
+              lastUndone = i
+              break
+            }
+          }
+          currentIdx = lastUndone
+        }
         break
       }
       case 'chat_start': {
@@ -104,6 +118,9 @@ export const useChatStore = defineStore('chat', () => {
         if (currentIdx >= 0) {
           messages.value[currentIdx]!.done = true
         }
+        // P2-9：回合结束即失效 currentIdx——SSE 断线重连后 sync 不会重发 chat_turn，
+        // 旧索引指向已 done 气泡会让后续 chat_text 追加错误位置
+        currentIdx = -1
         break
       }
       case 'chat_error': {

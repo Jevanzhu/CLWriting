@@ -3,16 +3,21 @@
  * ChatPanel 与 ChatDock 输入框共用：读对话档（未配回落创作档），切换即持久化。
  * 后端：PUT /api/tiers/chat 单档端点。
  */
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { getProviders, setChatTier, fetchModels, type TierSlot, type EffortLevel } from '../api/providers'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
 // 模块级单例：ChatPanel + ChatDock 共享，避免重复 getProviders/fetchModels（P2-N）
-let _instance: ReturnType<typeof _createChatTier> | null = null
+let _instance: { tier: ReturnType<typeof _createChatTier>; loaded: boolean } | null = null
 export function useChatTier() {
-  if (!_instance) _instance = _createChatTier()
-  return _instance
+  if (!_instance) {
+    const tier = _createChatTier()
+    _instance = { tier, loaded: false }
+    // P2-10：模块单例首次创建即加载（不绑 onMounted——那是组件生命周期，单例命令首次调用组件）
+    void tier.refresh()
+  }
+  return _instance.tier
 }
 function _createChatTier() {
   const models = ref<string[]>([])
@@ -25,7 +30,7 @@ function _createChatTier() {
   /** 当前生效推理等级 */
   const activeEffort = computed(() => chatTier.value?.effort || creativeTier.value?.effort || 'low')
 
-  async function loadTier(): Promise<void> {
+  async function refresh(): Promise<void> {
     tierLoading.value = true
     try {
       const data = await getProviders()
@@ -67,8 +72,6 @@ function _createChatTier() {
     if (activeModel.value) void applyTier(activeModel.value, el)
   }
 
-  onMounted(loadTier)
-
   // reactive 包裹：模板里 tier.models / tier.activeModel 等嵌套 ref 自动解包
   return reactive({
     models,
@@ -79,5 +82,6 @@ function _createChatTier() {
     applyTier,
     onModelChange,
     onEffortChange,
+    refresh,
   })
 }

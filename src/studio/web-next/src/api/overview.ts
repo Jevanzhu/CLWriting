@@ -32,7 +32,7 @@ export interface OverviewResult {
   state: { state: number; name: string; detail: { error?: string } & Record<string, unknown> }
   volumes: { name: string; path: string }[]
   timeline: { date: string; count: number }[]
-  recentChapter: { no: number; 标题: string; path: string } | null
+  recentDoc: { no: number; 标题: string; path: string } | null
   streak: number
   /** 短篇画像（book.yaml.short 配置，总览页缺口分析用） */
   shortProfile?: ShortProfile
