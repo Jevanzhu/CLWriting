@@ -153,7 +153,8 @@ async function executeChatTool(
             chapter,
           })
           return {
-            ok: r.outcome === 'pass',
+            // B-P1-6：escalate 时章已生成落盘，不应标记 isError（ok=false 会让 AI 误判失败重复写章）
+            ok: r.outcome === 'pass' || r.outcome === 'escalate',
             summary: formatHealResult(r),
           }
         } finally {
@@ -184,11 +185,12 @@ async function executeChatTool(
 function formatHealResult(r: SelfHealOutcome): string {
   switch (r.outcome) {
     case 'pass':
+      // B-P1-2：用 r.chapter（章号）而非 r.docId（稳定 ID，如 legacy:9f8e7d6c）
       return r.yellows.length > 0
-        ? `第${r.docId}章已生成，机检全绿。仍有 ${r.yellows.length} 条文风建议未采纳。`
-        : `第${r.docId}章已生成，机检全绿。`
+        ? `第${r.chapter}章已生成，机检全绿。仍有 ${r.yellows.length} 条文风建议未采纳。`
+        : `第${r.chapter}章已生成，机检全绿。`
     case 'escalate':
-      return `第${r.docId}章已生成但有 ${r.reds.length} 个红项未能自动修复，需要手动处理。`
+      return `第${r.chapter}章已生成但有 ${r.reds.length} 个红项未能自动修复，需要手动处理。`
     case 'aborted':
       return '写章已中断。'
     case 'failed':

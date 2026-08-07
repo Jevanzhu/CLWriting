@@ -59,8 +59,9 @@ export interface SelfHealOpts {
 }
 
 export type SelfHealOutcome =
-  | { outcome: 'pass'; docId: string; path: string; attempts: number; yellows: string[] }
-  | { outcome: 'escalate'; reds: string[]; docId: string; path: string; attempts: number }
+  // B-P1-2：pass/escalate 补 chapter（章号），供 chat.ts formatHealResult 显示正确的"第N章"
+  | { outcome: 'pass'; chapter: number; docId: string; path: string; attempts: number; yellows: string[] }
+  | { outcome: 'escalate'; chapter: number; reds: string[]; docId: string; path: string; attempts: number }
   | { outcome: 'aborted' }
   | { outcome: 'failed'; error: string }
 
@@ -149,12 +150,14 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
         // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
         const yellows = ruleYellows(current, bookRoot, chapterNo)
-        return { outcome: 'pass', docId: final.docId, path: final.relPath, attempts: attempt, yellows }
+        // B-P1-2：透传章号（opts.chapter），formatHealResult 显示"第N章"而非 docId
+        return { outcome: 'pass', chapter: opts.chapter, docId: final.docId, path: final.relPath, attempts: attempt, yellows }
       }
       if (st.state === 'escalate') {
         const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
         return {
           outcome: 'escalate',
+          chapter: opts.chapter, // B-P1-2：透传章号
           reds: redMessages(outcome),
           docId: final.docId,
           path: final.relPath,
@@ -170,7 +173,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       redIssues = reds
       if (attempt >= maxAttempts) {
         const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
-        return { outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
+        return { outcome: 'escalate', chapter: opts.chapter, reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
     }
 
@@ -178,7 +181,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     const budget2 = checkAiCallBudget(bookRoot, chapter, config)
     if (!budget2.ok) {
       const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
-      return { outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
+      return { outcome: 'escalate', chapter: opts.chapter, reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
     emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
     emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })

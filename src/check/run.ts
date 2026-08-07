@@ -169,11 +169,9 @@ export function collectTreeIssues(
       // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
       const entryByPath = new Map<string, import('../document/manifest.js').ManifestEntry>()
       for (const m of manifest.values()) entryByPath.set(m.path, m)
-      // 全书最高章号：循环前扫一次，传给每章 checkWithDb 作「未来章」基准
-      // （避免每章内部重复扫描的 O(N²)；T9b 修复）
-      let maxChapter = 0
-      for (const c of chapters) if (c.章号 > maxChapter) maxChapter = c.章号
-      const maxWritten = isShort ? undefined : maxChapter > 0 ? maxChapter : undefined
+      // B-P1-1：统一用 maxWrittenChapterOf（仅计已定稿章），与单章 checkWithDb 端点一致。
+      // 旧实现遍历所有 chapters（含未定稿草稿），导致树红点聚合与单章机检的"最高已写章号"基准不一致。
+      const maxWritten = maxWrittenChapterOf(bookRoot, isShort)
       for (const ch of chapters) {
         if (!ch._path) continue
         const relPath = relative(bookRoot, ch._path)
