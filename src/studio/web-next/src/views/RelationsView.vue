@@ -521,12 +521,9 @@ let downY = 0
 function svgPoint(evt: { clientX: number; clientY: number }): { x: number; y: number } {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
-  const pt = svg.createSVGPoint()
-  pt.x = evt.clientX
-  pt.y = evt.clientY
   const m = svg.getScreenCTM()
   if (!m) return { x: 0, y: 0 }
-  const p = pt.matrixTransform(m.inverse())
+  const p = new DOMPoint(evt.clientX, evt.clientY).matrixTransform(m.inverse())
   return { x: p.x, y: p.y }
 }
 function onNodeDown(node: SimNode, evt: MouseEvent): void {

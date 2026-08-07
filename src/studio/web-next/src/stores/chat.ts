@@ -107,9 +107,10 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'chat_reset': {
-        // 只清当前回合的文本（重试防拼接）
+        // 重试防拼接：清当前回合的文本和工具卡片（旧工具结果不残留）
         if (currentIdx >= 0) {
           messages.value[currentIdx]!.content = ''
+          messages.value[currentIdx]!.tools = []
         }
         break
       }
