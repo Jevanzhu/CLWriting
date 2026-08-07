@@ -7,9 +7,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChatMsg } from '../provider/types.js'
-import { buildSettingsContext } from '../../studio/server/api/settings.js'
+import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
-import { readKind } from '../../studio/server/book-context.js'
+import { readKind } from '../../format/kind.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -88,7 +88,7 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
   let cutIdx = 0
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i]!
-    if (m.role === 'user') {
+    if (m.role === 'user' && typeof m.content === 'string') {
       turnBoundaries++
       if (turnBoundaries >= maxTurns) {
         cutIdx = i

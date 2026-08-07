@@ -1,14 +1,14 @@
 /**
- * P2 角色卡结构化读 + 防穿越校验单测。
+ * 角色卡结构化读 + RAG 注入单测。
  *
  * readCharacterCards:有 front matter 解析结构化字段;无 front matter 降级(兼容旧自由 MD)。
- * validateCharacterFile:PUT 写回防穿越(必须在 设定/角色/ 下,不含 ..,以 .md 结尾)。
+ * buildSettingsContext:角色 + 境界体系 → RAG 上下文注入。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readCharacterCards, validateCharacterFile, buildSettingsContext } from '../../src/studio/server/api/settings.js'
+import { readCharacterCards, buildSettingsContext } from '../../src/process/settings-context.js'
 
 let root = ''
 
@@ -62,30 +62,6 @@ describe('readCharacterCards(P2 结构化读)', () => {
     writeFileSync(join(root, '设定', '角色', 'a.md'), '---\n姓名: A\n---\na')
     writeFileSync(join(root, '设定', '角色', 'b.md'), '---\n姓名: B\n---\nb')
     expect(readCharacterCards(join(root, '设定', '角色'), root)).toHaveLength(2)
-  })
-})
-
-describe('validateCharacterFile(防穿越)', () => {
-  it('合法:设定/角色/<名>.md', () => {
-    expect(validateCharacterFile('设定/角色/林远.md')).toBe(true)
-  })
-  it('合法:去前导斜杠', () => {
-    expect(validateCharacterFile('/设定/角色/林远.md')).toBe(true)
-  })
-  it('合法:Windows 路径分隔符归一化', () => {
-    expect(validateCharacterFile('设定\\角色\\林远.md')).toBe(true)
-  })
-  it('非法:不在角色目录', () => {
-    expect(validateCharacterFile('设定/境界体系.md')).toBe(false)
-    expect(validateCharacterFile('大纲/总纲.md')).toBe(false)
-    expect(validateCharacterFile('写作/正文/1.md')).toBe(false)
-  })
-  it('非法:目录穿越 ..', () => {
-    expect(validateCharacterFile('设定/角色/../../../etc/passwd.md')).toBe(false)
-    expect(validateCharacterFile('设定/../../角色/x.md')).toBe(false)
-  })
-  it('非法:非 .md 后缀', () => {
-    expect(validateCharacterFile('设定/角色/林远.txt')).toBe(false)
   })
 })
 

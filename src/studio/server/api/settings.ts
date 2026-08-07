@@ -42,26 +42,10 @@ function readFmNames(dir: string, field: string): string[] {
   return names
 }
 
-/** 角色卡(P2 结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
-export interface CharacterCard {
-  file: string // 相对 bookRoot
-  姓名: string
-  身份: string
-  目标: string
-  境界: string
-  关系: string // 原始（如 "林远(师徒);赵衡(仇敌)"）
-  正文: string
-}
+/** 角色卡读取 + 设定上下文注入已下沉 src/process/settings-context.ts（P1-8 架构治理） */
+import { readCharacterCards } from '../../../process/settings-context.js'
 
-/** 校验角色卡文件路径(防穿越:必须在 设定/角色/ 下,不含 ..,以 .md 结尾) */
-export function validateCharacterFile(file: string): boolean {
-  const f = normalizeProjectPath(file)
-  return f.startsWith('设定/角色/') && !f.includes('..') && f.endsWith('.md')
-}
-
-function normalizeProjectPath(file: string): string {
-  return file.replace(/\\/g, '/').replace(/^\/+/, '')
-}
+export type { CharacterCard } from '../../../process/settings-context.js'
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
   route('GET', '/api/books/:name/settings', (_req: IncomingMessage, res: ServerResponse, params) => {
@@ -118,7 +102,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       mkdirSync(dirname(cachePath), { recursive: true })
       atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
     } catch (e) {
-      return reply(res, 500, { error: `落盘缓存失败:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 落盘缓存失败:', e)
+      return reply(res, 500, { error: '落盘缓存失败' })
     }
     reply(res, 200, { ok: true, cached: false, relations })
   })
@@ -297,72 +282,6 @@ export function normalizeRelationType(raw: string): string {
   const t = raw.trim()
   for (const r of RELATION_NORM) if (r.test.test(t)) return r.label
   return t
-}
-
-/** 角色卡结构化读(P2):front matter 姓名/身份/目标/境界 + 正文;无 front matter 降级(姓名=文件名,正文=全文) */
-export function readCharacterCards(dirPath: string, bookRoot: string): CharacterCard[] {
-  const out: CharacterCard[] = []
-  if (!existsSync(dirPath)) return out
-  let files: string[]
-  try {
-    files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
-  } catch {
-    return out
-  }
-  for (const f of files) {
-    const fp = join(dirPath, f)
-    const r = readFile(fp)
-    if (r.ok) {
-      const map = parseFlat(r.fmRaw)
-      out.push({
-        file: normalizeProjectPath(relative(bookRoot, fp)),
-        姓名: String(map.get('姓名') ?? basename(f, '.md')),
-        身份: String(map.get('身份') ?? ''),
-        目标: String(map.get('目标') ?? ''),
-        境界: String(map.get('境界') ?? ''),
-        关系: String(map.get('关系') ?? ''),
-        正文: r.body.trim(),
-      })
-    } else {
-      // 降级:无 front matter(旧自由 MD),姓名=文件名,正文=全文
-      const text = readFileSync(fp, 'utf8')
-      out.push({
-        file: normalizeProjectPath(relative(bookRoot, fp)),
-        姓名: basename(f, '.md'),
-        身份: '',
-        目标: '',
-        境界: '',
-        关系: '',
-        正文: text.trim(),
-      })
-    }
-  }
-  return out
-}
-
-/** 组设定上下文(角色卡摘要 + 境界体系)供 outline/draft prompt 注入(RAG 第一刀:全注入,设定量可控) */
-export function buildSettingsContext(bookRoot: string): string {
-  const parts: string[] = []
-  const chars = readCharacterCards(join(bookRoot, '设定', '角色'), bookRoot)
-  if (chars.length) {
-    parts.push(
-      '## 角色设定(供参考,保持人物一致)',
-      chars
-        .map((c) => {
-          const meta = [c.身份, c.目标, c.境界].filter(Boolean).join('/')
-          return `- ${c.姓名}${meta ? `(${meta})` : ''}`
-        })
-        .join('\n'),
-    )
-  }
-  const rr = readRealmDoc(join(bookRoot, '设定', '境界体系.md'))
-  if (rr.ok && rr.doc.体系.length) {
-    parts.push(
-      '## 境界体系(成长线机检依据)',
-      rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
-    )
-  }
-  return parts.join('\n\n')
 }
 
 /** 自由 MD 卡片扫描(时间线用):标题（首行 # 或文件名）+ 摘要（正文前 120 字） */

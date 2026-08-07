@@ -118,7 +118,8 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   }
 
   if (req.effort) {
-    params['reasoning_effort'] = req.effort
+    // P1-4：OpenAI 官方 reasoning_effort 仅接受 low|medium|high，xhigh 降级为 high
+    params['reasoning_effort'] = req.effort === 'xhigh' ? 'high' : req.effort
   }
 
   if (req.stopSequences?.length) {

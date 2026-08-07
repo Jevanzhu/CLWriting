@@ -131,10 +131,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
     }
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
+    // P1-2 sink 校验：防 path 被篡改为 "." 致 rmSync 删整个书库
+    if (bookAbs === ctx.workDir) {
+      reply(res, 400, { error: '书路径非法' })
+      return
+    }
     try {
       rmSync(bookAbs, { recursive: true, force: true })
     } catch (e) {
-      reply(res, 500, { error: `删除目录失败：${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 删除目录失败:', e)
+      reply(res, 500, { error: '删除目录失败' })
       return
     }
     // 移 books.jsonl 登记 + 清活动书指针

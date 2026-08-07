@@ -17,6 +17,7 @@ import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
+import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
@@ -61,7 +62,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const docId = params['docId'] ?? ''
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
@@ -155,7 +157,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const existing = readAnalysis(bookRoot, docId, 'review')
       const payload = (existing?.payload as { collected?: unknown; lenses?: string[]; verdict?: unknown } | undefined) ?? {}
       payload.verdict = { approved, at: new Date().toISOString() }
-      const absPath = join(bookRoot, m.path)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
       writeAnalysis(bookRoot, docId, 'review', {
         generatedAt: existing?.generatedAt ?? new Date().toISOString(),
         model: 'author',

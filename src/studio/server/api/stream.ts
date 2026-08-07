@@ -103,7 +103,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       res.end('too many connections')
       return
     }
-    sseConnections.set(sseName, conns + 1)
     if (!ctx.workDir) {
       res.writeHead(400)
       res.end('no workdir')
@@ -115,6 +114,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       res.end('no book')
       return
     }
+    // 校验通过后才递增连接计数（P1-1：防 early return 路径泄漏计数器致 DoS）
+    sseConnections.set(sseName, conns + 1)
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
     const session = await ensureSession(params['name']!, ctx.workDir)
     const driver = getDriver('cc')

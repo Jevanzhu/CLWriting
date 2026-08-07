@@ -11,7 +11,7 @@
  * 信封落盘与展示解耦：AI 不可达时存量照常展示，仅「重新分析」置灰（无开关、置灰不隐藏）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, relative, isAbsolute } from 'node:path'
+import { join } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
@@ -28,14 +28,7 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
-
-/** 校验 manifest 路径不越出 bookRoot（D3 defense-in-depth） */
-function safeManifestPath(bookRoot: string, rel: string): string | null {
-  if (isAbsolute(rel)) return null
-  const abs = join(bookRoot, rel)
-  if (relative(bookRoot, abs).startsWith('..')) return null
-  return abs
-}
+import { safeManifestPath } from '../../../fs/safe-path.js'
 
 interface AnalysisCtx {
   workDir: string | null

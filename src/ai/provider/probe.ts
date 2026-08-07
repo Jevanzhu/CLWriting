@@ -9,6 +9,7 @@ import type { ProviderConf, ProviderCaps, ModelCaps, ProbeResult, ModelProbeResu
 import { createAnthropicProvider } from './anthropic-adapter.js'
 import { createOpenAIProvider } from './openai-adapter.js'
 import { listModels } from './models.js'
+import { redactSecret } from './redact.js'
 
 /** 玩具工具——诱导模型调用以探测 tool_use 支持 */
 const TOY_TOOL = {
@@ -55,7 +56,7 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
     caps.connected = true
     details.push('连通 + 认证通过')
   } catch (e) {
-    details.push(`连通失败：${e instanceof Error ? e.message : String(e)}`)
+    details.push(`连通失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
     return { caps, details }
   }
   if (!models.length) {

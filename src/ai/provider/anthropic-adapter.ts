@@ -31,8 +31,8 @@ function createClient(conf: ProviderConf): Anthropic {
   })
 }
 
-/** Anthropic API 强制要求 max_tokens（不可省略）——未指定时兜底（对齐当前旗舰模型上限） */
-const MAX_TOKENS = 128000
+/** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值（P1-5：128000 对旧模型 400） */
+const MAX_TOKENS = 8192
 
 /** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射） */
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {

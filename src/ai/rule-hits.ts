@@ -8,8 +8,9 @@
  * - B3 统计：trace-stats 聚合透出（工作台可见高频违规）
  * - B4 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { RuleViolation } from './rules/index.js'
 
 const FILE = 'rule-hits.json'
@@ -58,7 +59,7 @@ export function recordRuleHits(bookRoot: string, violations: RuleViolation[]): v
   }
   try {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
-    writeFileSync(hitsPath(bookRoot), JSON.stringify(hits, null, 2), 'utf-8')
+    atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
   } catch {
     // 统计是旁路，不影响主流程
   }
