@@ -9,7 +9,8 @@
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
-import { readKind } from '../studio/server/book-context.js'
+// B-P1-3：消除 install 层对 studio 层的反向依赖，改读内核 format/kind
+import { readKind } from '../format/kind.js'
 import { readManifest, writeManifest } from '../document/manifest.js'
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {

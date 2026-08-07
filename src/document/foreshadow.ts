@@ -10,10 +10,11 @@
  * - 风险阈值按重要性：高=30 章 / 中=60 章 / 低=100 章
  */
 
-import { readdirSync, statSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { readdirSync, statSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 
 // ── 伏笔条目（fm 数据）──────────────────────────
 
@@ -105,7 +106,8 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     ].join('\n')
 
     // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据（N3）
-    writeFileSync(join(newDir, `${lead.编号}-${title}.md`), fm, 'utf-8')
+    // B-P1-5：改原子写，避免迁移过程中断留下半截目标文件
+    atomicWriteFile(join(newDir, `${lead.编号}-${title}.md`), fm)
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
