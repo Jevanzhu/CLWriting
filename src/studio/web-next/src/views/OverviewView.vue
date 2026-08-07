@@ -8,7 +8,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   Flame, AlertTriangle,
   Feather, ArrowUpRight,
-  TrendingUp, BarChart3, PenLine,
+  TrendingUp, BarChart3, PenLine, Info,
 } from 'lucide-vue-next'
 import { getOverview, type OverviewResult } from '../api/overview'
 import { getForeshadows, type Foreshadow } from '../api/foreshadows'
@@ -176,6 +176,20 @@ const emotionGap = computed(() => {
 })
 /** 跨篇母题 */
 const seriesMotifs = computed(() => shortProfile.value?.seriesMotifs ?? [])
+
+/** 反转类型缺口：target_reversal_types vs 已写篇核心反转归类（派生自 rhythm） */
+const reversalGap = computed(() => {
+  const profile = shortProfile.value
+  if (!profile?.targetReversalTypes?.length) return null
+  const d = rhythmData.value
+  if (d?.kind !== 'short') return null
+  return d.reversalGap
+})
+/** 未归类篇数（规则未命中 / 池外类型） */
+const reversalUnrecognized = computed(() => {
+  const d = rhythmData.value
+  return d?.kind === 'short' ? (d.reversalUnrecognized ?? 0) : 0
+})
 
 
 // ══ ④⑤ 节奏派生（原 RhythmView）══════════════
@@ -456,11 +470,12 @@ function distMax(g: DistGroup): number {
         </svg>
       </section>
 
-      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 跨篇母题）── -->
-      <section v-if="emotionGap || seriesMotifs.length" class="panel">
+      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 反转覆盖 + 跨篇母题）── -->
+      <section v-if="emotionGap || reversalGap || seriesMotifs.length" class="panel">
         <div class="panel-head">
           <BarChart3 :size="14" /> <span>画像缺口</span>
           <span v-if="emotionGap" class="head-legend">{{ emotionGap.filter((g) => !g.missing).length }}/{{ emotionGap.length }} 情绪已覆盖</span>
+          <span v-if="reversalGap" class="head-legend">{{ reversalGap.filter((g) => !g.missing).length }}/{{ reversalGap.length }} 反转已覆盖</span>
         </div>
         <!-- 情绪覆盖 -->
         <div v-if="emotionGap" class="gap-rows">
@@ -470,6 +485,19 @@ function distMax(g: DistGroup): number {
               <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
             </div>
             <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 篇</span>
+          </div>
+        </div>
+        <!-- 反转类型覆盖 -->
+        <div v-if="reversalGap" class="gap-rows">
+          <div v-for="g in reversalGap" :key="g.type" class="gap-row" :class="{ 'is-missing': g.missing }">
+            <span class="gap-label">{{ g.type }}</span>
+            <div class="gap-bar">
+              <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
+            </div>
+            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 篇</span>
+          </div>
+          <div v-if="reversalUnrecognized > 0" class="gap-unrecognized">
+            <Info :size="12" /> {{ reversalUnrecognized }} 篇未归类（规则未命中 / 池外类型）
           </div>
         </div>
         <!-- 跨篇母题 -->
@@ -667,6 +695,7 @@ function distMax(g: DistGroup): number {
 .gap-row.is-missing .gap-fill { background: var(--text-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--text-warning) 40%, transparent); }
 .gap-count { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
 .gap-count.is-zero { color: var(--text-warning); font-weight: 600; }
+.gap-unrecognized { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-xxs); color: var(--text-faint); margin-top: 2px; }
 .motif-section { margin-top: 14px; display: flex; align-items: center; gap: var(--size-4-2); }
 .motif-label { font-size: var(--font-size-xs); color: var(--text-faint); flex-shrink: 0; }
 .motif-tags { display: flex; flex-wrap: wrap; gap: 4px; }

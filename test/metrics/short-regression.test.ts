@@ -31,7 +31,9 @@ describe('短篇真实样本回归集', () => {
     const collection = analyzeShortCollection(entries, cfg.short)
     expect(collection.platform.profile).toBe('多题材短篇回归')
     expect(collection.planning.emotions.length).toBeGreaterThanOrEqual(3)
-    expect(collection.platform.targetGaps).toContain('反转 死者反转')
+    // 共享 classifyReversal 修复「死」识别后，死者反转已被覆盖（按门铃篇）；缺口改为身份/现实层
+    expect(collection.platform.targetGaps).toContain('反转 身份反转')
+    expect(collection.platform.targetGaps).toContain('反转 现实层反转')
 
     const submission = formatShortSubmissionView(entries, cfg.short, cfg.book.title, 'xiaohongshu')
     expect(submission).toContain('# 投稿视图-短篇回归集-小红书故事号')

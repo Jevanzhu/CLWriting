@@ -12,6 +12,7 @@ import { readPiece } from '../format/pieces.js'
 import { readPieceList } from '../format/manifest.js'
 import { readFile } from '../format/frontmatter.js'
 import { countWords } from '../format/chapters.js'
+import { classifyReversal } from '../format/reversal-types.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
 export interface ShortPieceIndexEntry {
   num: number
@@ -625,19 +626,6 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
     map.set(key, group)
   }
   return map
-}
-
-function classifyReversal(text: string): string {
-  const t = normalize(text)
-  if (!t) return '未知'
-  if (/死者|尸体|亡者|鬼|幽灵/.test(t)) return '死者反转'
-  if (/凶手|真凶|杀手|犯人/.test(t)) return '真凶反转'
-  if (/自己|本人|主角|我/.test(t)) return '自我反转'
-  if (/亲人|父亲|母亲|哥哥|姐姐|弟弟|妹妹|妻子|丈夫|恋人/.test(t)) return '亲密关系反转'
-  if (/身份|卧底|替身|冒名|伪装|假扮/.test(t)) return '身份反转'
-  if (/时间|循环|未来|过去|记忆/.test(t)) return '时间/记忆反转'
-  if (/梦|幻觉|剧本|游戏|实验/.test(t)) return '现实层反转'
-  return '其他反转'
 }
 
 function extractObject(text: string): string {

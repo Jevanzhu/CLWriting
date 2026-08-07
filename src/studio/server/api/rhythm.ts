@@ -14,7 +14,8 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
-import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta } from '../../../format/types.js'
+import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
+import { classifyReversal } from '../../../format/reversal-types.js'
 
 interface RhythmCtx {
   workDir: string | null
@@ -34,7 +35,7 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
 
     const bookRoot = join(ctx.workDir, entry.path)
     const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-    reply(res, 200, config.kind === 'short' ? rhythmShort(bookRoot) : rhythmLong(bookRoot))
+    reply(res, 200, config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot))
   })
 }
 
@@ -73,7 +74,7 @@ function rhythmLong(bookRoot: string): unknown {
   }
 }
 
-function rhythmShort(bookRoot: string): unknown {
+function rhythmShort(bookRoot: string, config: BookConfig): unknown {
   const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
   const sorted = pieces.slice().sort((a, b) => a.篇号 - b.篇号)
   // 连续故事：有钩子字段 → 附带节奏分布数据（独立短篇无钩子字段 → 不附带）
@@ -82,6 +83,8 @@ function rhythmShort(bookRoot: string): unknown {
     kind: 'short' as const,
     wordCurve: sorted.map((p) => ({ 篇号: p.篇号, 标题: p.标题, 字数: p._wordCount ?? 0 })),
     emotionDist: countDynamic(pieces.map((p) => p.目标情绪)),
+    reversalGap: buildReversalGap(pieces, config),
+    reversalUnrecognized: countUnrecognized(pieces, config),
     reversals: pieces
       .filter((p) => p.核心反转)
       .map((p) => ({ 篇号: p.篇号, 标题: p.标题, 核心反转: p.核心反转! })),
@@ -97,6 +100,49 @@ function rhythmShort(bookRoot: string): unknown {
         }
       : {}),
   }
+}
+
+/**
+ * 反转类型覆盖缺口（#阶段6 反转缺口）：画像目标池 vs 已写篇的核心反转归类。
+ * 归类走本地关键词规则（format/reversal-types，派生数据不落盘）。
+ * 只统计画像池内的类型；未识别篇数单独透出（reversalUnrecognized）。
+ */
+function buildReversalGap(
+  pieces: { 核心反转?: string }[],
+  config: BookConfig,
+): {
+  type: string
+  count: number
+  missing: boolean
+}[] {
+  const targets = config.short?.target_reversal_types ?? []
+  if (targets.length === 0) return []
+  const counts = new Map<string, number>()
+  for (const p of pieces) {
+    if (!p.核心反转) continue
+    const hit = classifyReversal(p.核心反转!)
+    if (hit && targets.includes(hit)) {
+      counts.set(hit, (counts.get(hit) ?? 0) + 1)
+    }
+  }
+  return targets.map((type) => ({
+    type,
+    count: counts.get(type) ?? 0,
+    missing: (counts.get(type) ?? 0) === 0,
+  }))
+}
+
+/** 未归类篇数：核心反转存在但分类未命中画像池（规则覆盖不到 / 池外类型） */
+function countUnrecognized(pieces: { 核心反转?: string }[], config: BookConfig): number {
+  const targets = config.short?.target_reversal_types ?? []
+  if (targets.length === 0) return 0
+  let n = 0
+  for (const p of pieces) {
+    if (!p.核心反转) continue
+    const hit = classifyReversal(p.核心反转!)
+    if (!hit || !targets.includes(hit)) n++
+  }
+  return n
 }
 
 /** 固定枚举分布（按枚举顺序，缺项补 0） */

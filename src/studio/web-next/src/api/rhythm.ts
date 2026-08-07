@@ -48,6 +48,10 @@ export interface RhythmShort {
   kind: 'short'
   wordCurve: { 篇号: number; 标题: string; 字数: number }[]
   emotionDist: RhythmDist
+  /** 反转类型覆盖缺口（画像池 vs 已写篇；派生不落盘） */
+  reversalGap: { type: string; count: number; missing: boolean }[]
+  /** 核心反转存在但未归类到画像池的篇数（规则未命中 / 池外类型） */
+  reversalUnrecognized: number
   reversals: { 篇号: number; 标题: string; 核心反转: string }[]
   /** 连续故事节奏分布（有钩子字段时返回，独立短篇无） */
   written?: RhythmTrack
