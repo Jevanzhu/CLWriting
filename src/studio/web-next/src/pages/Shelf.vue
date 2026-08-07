@@ -489,7 +489,7 @@ function openBook(name: string): void {
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
   color: var(--text-normal);
-  font-size: 13px;
+  font-size: var(--font-size-m);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -524,7 +524,7 @@ function openBook(name: string): void {
 }
 .sub {
   margin-top: var(--size-4-2);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   color: var(--text-faint);
 }
 /* 继续写作 hero 卡：横跨整宽，最近编辑书的快捷入口 + 字数进度可视化 */
@@ -826,7 +826,7 @@ function openBook(name: string): void {
 }
 .err {
   color: var(--text-error);
-  font-size: 12px;
+  font-size: var(--font-size-s);
   margin-top: var(--size-4-2);
 }
 @media (prefers-reduced-motion: reduce) {
