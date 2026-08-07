@@ -15,10 +15,10 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
-import { readKind } from '../book-context.js'
+import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
-import { buildSettingsContext } from './settings.js'
+import { buildSettingsContext } from '../../../process/settings-context.js'
 
 interface OutlineCtx {
   workDir: string | null

@@ -8,8 +8,8 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/process/lead-updates.js'
-import { readOutlineLeads } from '../../src/process/materials.js'
+import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/check/lead-updates.js'
+import { readOutlineLeads } from '../../src/check/outline-leads.js'
 
 function tmpWorkDir(): string {
   return mkdtempSync(join(tmpdir(), 'lead-updates-'))

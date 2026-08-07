@@ -21,9 +21,9 @@ import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
 import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
-import { runCheckForDocument, type CheckOutcome } from '../../studio/server/api/check.js'
+import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
-import { readKind } from '../../studio/server/book-context.js'
+import { readKind } from '../../format/kind.js'
 
 // ── 常量 ──────────────────────────────────────────
 

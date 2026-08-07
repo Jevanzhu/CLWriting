@@ -1,5 +1,6 @@
 /**
  * 账本推进声明解析 —— 账本 CLI 接缝修复（兑现层）。
+ * （P1-8 架构下沉：从 src/process/lead-updates.ts 移入 check 域，机检账本数据源归位）
  *
  * `工作区/账本推进.md` 是 AI 写完正文后声明的「本章实际写入的履历行」，与履历段同构
  * （去掉「第N章」——章号隐含为当前定稿章号）：
@@ -14,7 +15,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { extractEvidenceCore } from '../check/leads.js'
+import { extractEvidenceCore } from './leads.js'
 
 /** 本章一条账本推进声明（章号在落盘时由定稿章号补齐） */
 export interface ChapterLeadUpdate {
@@ -52,4 +53,3 @@ export function leadEvidenceMatchesBody(body: string, evidence: string): boolean
   const core = extractEvidenceCore(evidence).trim()
   return core.length > 0 && body.includes(core)
 }
-
