@@ -28,6 +28,8 @@ const fabOpen = ref(false)
 const chatOpen = ref(false)
 const input = ref('')
 const busy = computed(() => chat.running || wb.running)
+// F-P1-2：本地发送锁，防 HTTP-SSE 窗口期重复发送（busy 由 SSE chat_start 设置，有窗口期）
+const sending = ref(false)
 
 /** 发送目标的章节选择（默认跟随当前编辑器章） */
 const selectedChapter = ref<number | undefined>(props.currentChapter)
@@ -88,10 +90,11 @@ function onExpandChat(): void {
 /** 独立输入框发送 → 推入对话并自动展开对话框看回复 */
 async function handleSend(): Promise<void> {
   const text = input.value.trim()
-  if (!text || busy.value) return
+  if (!text || busy.value || sending.value) return
   input.value = ''
   chat.pushUser(text)
   chatOpen.value = true
+  sending.value = true
   try {
     await sendChat(props.bookName, {
       message: text,
@@ -100,6 +103,8 @@ async function handleSend(): Promise<void> {
   } catch (e) {
     chat.popUser()
     chat.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    sending.value = false
   }
 }
 

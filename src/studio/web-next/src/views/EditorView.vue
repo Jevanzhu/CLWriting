@@ -111,13 +111,6 @@ async function onFinalize(): Promise<void> {
     finalizing.value = false
   }
 }
-function onKeydown(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
-    e.preventDefault()
-    onSave()
-  }
-}
-
 const aiActions = [
   { key: 'expand', label: '扩写', instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
   { key: 'condense', label: '缩写', instruction: '压缩选中段落，去掉冗余对话和描写，保留核心信息和情节走向' },
@@ -326,13 +319,11 @@ function startTimer(): void {
 onMounted(() => {
   startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
-  window.addEventListener('keydown', onKeydown)
 })
 watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)
-  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 

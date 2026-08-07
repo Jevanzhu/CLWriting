@@ -95,6 +95,7 @@ const targetFmt = computed(() => {
   return t ? (t >= 10000 ? (t / 10000).toFixed(0) + '万' : t.toLocaleString()) : null
 })
 const hasTarget = computed(() => !!targetFmt.value)
+// F-P1-6：Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
 const days = computed(() => {
   const c = data.value?.identity.created_at
   if (!c) return 0

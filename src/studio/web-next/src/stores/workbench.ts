@@ -23,6 +23,9 @@ export interface HealResult {
   path?: string
   error?: string
 }
+/** F-P1-4：SSE 事件字段白名单（拒绝非预期值） */
+const HEAL_PHASES = ['drafting', 'checking', 'rewriting'] as const
+const HEAL_OUTCOMES = ['pass', 'escalate', 'aborted', 'failed'] as const
 
 /** 全自动写章进度（self_heal_progress：第 attempt/maxAttempts 次重写 + 剩余红项）。 */
 export interface HealProgress {
@@ -86,7 +89,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
-      healPhase.value = e.phase as 'drafting' | 'checking' | 'rewriting'
+      // F-P1-4：白名单校验（防 SSE 非预期值致 UI 渲染异常）
+      if (HEAL_PHASES.includes(e.phase as typeof HEAL_PHASES[number])) {
+        healPhase.value = e.phase as typeof HEAL_PHASES[number]
+      }
     } else if (e.type === 'self_heal_progress') {
       healProgress.value = {
         attempt: Number(e.attempt ?? 0),
@@ -94,16 +100,19 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         remaining: (e.remaining as string[] | undefined) ?? [],
       }
     } else if (e.type === 'self_heal_result') {
-      healResult.value = {
-        outcome: e.outcome as HealResult['outcome'],
-        ...(e.reds ? { reds: e.reds as string[] } : {}),
-        ...(e.yellows ? { yellows: e.yellows as string[] } : {}),
-        ...(e.docId ? { docId: String(e.docId) } : {}),
-        ...(e.path ? { path: String(e.path) } : {}),
-        ...(e.error ? { error: String(e.error) } : {}),
+      const oc = e.outcome as string
+      if (HEAL_OUTCOMES.includes(oc as typeof HEAL_OUTCOMES[number])) {
+        healResult.value = {
+          outcome: oc as HealResult['outcome'],
+          ...(e.reds ? { reds: e.reds as string[] } : {}),
+          ...(e.yellows ? { yellows: e.yellows as string[] } : {}),
+          ...(e.docId ? { docId: String(e.docId) } : {}),
+          ...(e.path ? { path: String(e.path) } : {}),
+          ...(e.error ? { error: String(e.error) } : {}),
+        }
+        healPhase.value = null
+        healProgress.value = null
       }
-      healPhase.value = null
-      healProgress.value = null
     } else if (e.type === 'warning') {
       warning.value = e.message as string
     }

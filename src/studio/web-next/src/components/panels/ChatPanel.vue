@@ -36,6 +36,8 @@ watch(() => props.currentChapter, (v) => {
 // ── 联合判据：chat 或 workbench 在跑都禁发送 ──────
 
 const busy = computed(() => chat.running || wb.running)
+// F-P1-2：本地发送锁，防 HTTP-SSE 窗口期重复发送（busy 由 SSE chat_start 设置，有窗口期）
+const sending = ref(false)
 
 // ── 模型 / 推理等级（对话档，未配则回落创作档）──
 
@@ -47,11 +49,12 @@ const scrollRef = ref<HTMLElement | null>(null)
 
 async function handleSend(): Promise<void> {
   const text = input.value.trim()
-  if (!text || busy.value) return
+  if (!text || busy.value || sending.value) return
   input.value = ''
   chat.pushUser(text)
   await nextTick()
   scrollToBottom()
+  sending.value = true
   try {
     await sendChat(props.bookName, {
       message: text,
@@ -60,6 +63,8 @@ async function handleSend(): Promise<void> {
   } catch (e) {
     chat.popUser()
     chat.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    sending.value = false
   }
 }
 

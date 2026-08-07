@@ -15,7 +15,7 @@ import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codem
 import { autocompletion, startCompletion, completionKeymap, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
 import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
-import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
   EditorView,
   crosshairCursor,
@@ -194,24 +194,32 @@ watch(
   },
 )
 
-// 外部 modelValue 变（切文档）→ 同步；仅当差异时，避免光标跳
+// 外部 modelValue 变（切文档 / doc.refresh / SSE sync）→ 同步；仅当差异时，避免光标跳
+// F-P1-3：addToHistory.of(false) 标记为外部同步，不清空 undo 历史（标题提交后 ⌘Z 仍可回退）
 watch(
   () => props.modelValue,
   (v) => {
     if (view && v !== view.state.doc.toString()) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: v },
+        annotations: Transaction.addToHistory.of(false),
+      })
     }
   },
 )
 
 // 补全名称列表（从设定 API 加载：角色名 + 物品名；@ / Cmd+I 触发用）
+// F-P1-5：请求序号防竞态（快速切书时旧请求晚于新请求 resolve 不覆盖）
 const ws = useWorkspaceStore()
+let compReqId = 0
 watch(
   () => ws.bookName,
   async (name) => {
     if (!name || props.readonly) { completionEntries.value = []; return }
+    const myId = ++compReqId
     try {
       const r = await getCompletionNames(name)
+      if (myId !== compReqId) return // 旧请求，丢弃
       completionEntries.value = [
         ...r.characters.map((n) => ({ label: n, detail: '角色' })),
         ...r.items.map((n) => ({ label: n, detail: '物品' })),
