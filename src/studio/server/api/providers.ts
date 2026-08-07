@@ -30,6 +30,7 @@ import {
   type EffortLevel,
 } from '../../../ai/provider/index.js'
 import { listModels } from '../../../ai/provider/models.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface ProvidersCtx {
   userDataPath: string | null
@@ -119,8 +120,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         details = probed.details
         setModelCaps(ctx.userDataPath, conf.id, model, caps)
       } catch (e) {
-        // 探测失败不阻塞选模型——生成时降级（modelCaps=null）
-        details = [`模型能力探测失败：${e instanceof Error ? e.message : String(e)}`]
+        // 探测失败不阻塞选模型——生成时降级（modelCaps=null）；P2-4：错误脱敏
+        details = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
       }
     }
     reply(res, 200, { ok: true, model, modelCaps: caps, details })
@@ -165,7 +166,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
             const probed = await probeModelCaps({ ...conf, model })
             setModelCaps(ctx.userDataPath, conf.id, model, probed.caps)
           } catch (e) {
-            probeDetails[model] = [`模型能力探测失败：${e instanceof Error ? e.message : String(e)}`]
+            // P2-4：错误脱敏
+            probeDetails[model] = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
           }
         }
       }
@@ -295,7 +297,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       const models = await listModels(protocol, baseUrl, apiKey)
       reply(res, 200, { models })
     } catch (e) {
-      reply(res, 500, { error: `获取模型列表失败：${e instanceof Error ? e.message : String(e)}` })
+      // P2-4：错误脱敏
+      reply(res, 500, { error: `获取模型列表失败：${redactSecret(e instanceof Error ? e.message : String(e))}` })
     }
   })
 
@@ -314,7 +317,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       saveProviders(ctx.userDataPath, s)
       reply(res, 200, { ok: true, caps, details })
     } catch (e) {
-      reply(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
+      // P2-4：错误脱敏
+      reply(res, 500, { ok: false, error: redactSecret(e instanceof Error ? e.message : String(e)) })
     }
   })
 }

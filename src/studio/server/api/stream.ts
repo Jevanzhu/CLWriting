@@ -20,6 +20,7 @@ import { runChat, isChatRunning, abortChat, resolveChatConfirm, clearChatHistory
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface StreamCtx {
   workDir: string | null
@@ -87,7 +88,8 @@ function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): voi
   driver.emit?.(session, {
     type: 'error',
     kind: 'provider',
-    message: e instanceof Error ? e.message : String(e),
+    // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
+    message: redactSecret(e instanceof Error ? e.message : String(e)),
     recoverable: false,
   })
 }
@@ -160,7 +162,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         `data: ${JSON.stringify({
           type: 'error',
           kind: 'stream',
-          message: e instanceof Error ? e.message : String(e),
+          message: redactSecret(e instanceof Error ? e.message : String(e)),
           recoverable: false,
         })}\n\n`,
       )

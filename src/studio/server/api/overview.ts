@@ -18,6 +18,7 @@ import { readChapterDir } from '../../../format/chapters.js'
 import { readPieceDir } from '../../../format/pieces.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgress } from './progress.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OverviewCtx {
   workDir: string | null
@@ -54,7 +55,8 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         state = {
           state: 0,
           name: '状态机判定失败',
-          detail: { error: e instanceof Error ? e.message : String(e) },
+          // P2-4：API 错误脱敏
+          detail: { error: redactSecret(e instanceof Error ? e.message : String(e)) },
         }
       }
       stateCache = { bookRoot, result: state, ts: now }

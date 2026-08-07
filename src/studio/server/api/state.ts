@@ -13,6 +13,7 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { enter, STATE_NAMES } from '../../../state/state.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface StateCtx {
   workDir: string | null
@@ -43,7 +44,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
         resumePoint: d.state === 4 ? d.resumePoint : undefined,
       })
     } catch (e) {
-      reply(res, 500, { error: e instanceof Error ? e.message : String(e) })
+      // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
+      reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
     }
   })
 }

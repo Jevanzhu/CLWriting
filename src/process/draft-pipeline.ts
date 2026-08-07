@@ -72,7 +72,8 @@ export function saveDraft(
   // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
   const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
   mkdirSync(dirname(absPath), { recursive: true })
-  atomicWriteFile(absPath, content)
+  // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
+  atomicWriteFile(absPath, content, { fsync: true })
   // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
   invalidateTreeIndex(bookRoot)
   // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，

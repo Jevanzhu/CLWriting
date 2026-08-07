@@ -96,7 +96,8 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   }
 
   const params: Record<string, unknown> = {
-    model: conf.model,
+    // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
+    model: conf.model ?? '',
     messages,
     stream: true,
   }

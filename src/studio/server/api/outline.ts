@@ -19,6 +19,7 @@ import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
 import { buildSettingsContext } from '../../../process/settings-context.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OutlineCtx {
   workDir: string | null
@@ -63,7 +64,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       mkdirSync(outlineDir, { recursive: true })
       atomicWriteFile(join(outlineDir, `细纲.md`), content || '(空细纲)')
     } catch (e) {
-      return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
+      // P2-4：API 错误脱敏
+      return reply(res, 500, { error: `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}` })
     }
     reply(res, 200, { ok: true, path: relPath, words: content.length })
   })

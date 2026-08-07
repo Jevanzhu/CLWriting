@@ -39,6 +39,7 @@ import {
 import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidates } from '../../../process/style-harvest.js'
 import { readKind } from '../book-context.js'
+import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
 interface StyleCtx {
@@ -213,7 +214,8 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       const b = freezeBaseline(bookRoot)
       reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
     } catch (e) {
-      reply(res, 400, { ok: false, code: 'NO_SAMPLES', error: e instanceof Error ? e.message : String(e) })
+      // P2-4：API 错误脱敏
+      reply(res, 400, { ok: false, code: 'NO_SAMPLES', error: redactSecret(e instanceof Error ? e.message : String(e)) })
     }
   })
 }
