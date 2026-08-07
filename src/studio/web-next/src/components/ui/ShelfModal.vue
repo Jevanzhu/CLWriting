@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.shelfOpen" class="shelf-mask" @click.self="ui.closeShelf">
-      <div class="shelf-modal">
+      <div class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库">
         <header class="modal-head">
           <div class="head-left">
             <h2 class="head-title">书架</h2>
@@ -125,7 +125,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <Sun v-else :size="16" />
               </button>
               <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
-              <button class="close-btn" data-tip="关闭（Esc）" data-tip-dir="bottom" @click="ui.closeShelf">
+              <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" @click="ui.closeShelf">
                 <X :size="18" />
               </button>
             </template>

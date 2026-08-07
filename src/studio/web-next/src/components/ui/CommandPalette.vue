@@ -114,7 +114,7 @@ function run(c: Cmd): void {
 <template>
   <Teleport to="body">
     <div v-if="ui.paletteOpen" class="palette-mask" @click="ui.closePalette">
-      <div class="palette" @click.stop>
+      <div class="palette" role="dialog" aria-modal="true" aria-label="命令面板" @click.stop>
         <input
           ref="inp"
           v-model="q"

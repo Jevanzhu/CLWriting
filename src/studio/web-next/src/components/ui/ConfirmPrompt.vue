@@ -7,7 +7,7 @@ const ui = useUiStore()
 
 <template>
   <div v-if="ui.confirmState" class="cp-mask" @click.self="ui.resolveConfirm(false)">
-    <div class="cp-modal" role="dialog" aria-modal="true">
+    <div class="cp-modal" role="dialog" aria-modal="true" aria-label="确认">
       <div class="cp-title">{{ ui.confirmState.title }}</div>
       <div class="cp-body">{{ ui.confirmState.message }}</div>
       <div class="cp-actions">

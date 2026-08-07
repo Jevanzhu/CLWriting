@@ -576,21 +576,21 @@ function avg(series: number[]): number {
               <div class="spark-rows">
                 <div class="spark-row">
                   <span class="sr-label">对话标签占比</span>
-                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none">
+                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" role="img" aria-label="趋势图">
                     <polyline :points="sparkPoints(style.trend.dialogueTagSeries)" />
                   </svg>
                   <span class="sr-val">均值{{ Math.round(avg(style.trend.dialogueTagSeries) * 100) }}%</span>
                 </div>
                 <div class="spark-row">
                   <span class="sr-label">句长方差</span>
-                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none">
+                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" role="img" aria-label="趋势图">
                     <polyline :points="sparkPoints(style.trend.varianceSeries)" />
                   </svg>
                   <span class="sr-val">均值{{ Math.round(avg(style.trend.varianceSeries)) }}</span>
                 </div>
                 <div class="spark-row">
                   <span class="sr-label">复读率</span>
-                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none">
+                  <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" role="img" aria-label="趋势图">
                     <polyline :points="sparkPoints(style.trend.repeatSeries)" />
                   </svg>
                   <span class="sr-val">均值{{ Math.round(avg(style.trend.repeatSeries) * 100) }}%</span>

@@ -82,28 +82,30 @@ function onSelect(key: string): void {
       <div
         ref="menuEl"
         class="cm-menu"
+        role="menu"
         :class="{ 'flip-x': flipX, 'flip-y': flipY }"
         :style="{ '--cm-x': x + 'px', '--cm-y': y + 'px' }"
         @click.stop
         @contextmenu.prevent.stop
       >
         <template v-for="(item, i) in items" :key="item.key || `sep-${i}`">
-          <div v-if="item.separator" class="cm-sep"></div>
+          <div v-if="item.separator" class="cm-sep" role="separator"></div>
           <div
             v-else-if="item.submenu"
             class="cm-sub-wrap"
             @mouseenter="openSub = item.key"
             @mouseleave="openSub = null"
           >
-            <button class="cm-item cm-has-sub">
+            <button class="cm-item cm-has-sub" role="menuitem">
               <span class="cm-label">{{ item.label }}</span>
               <span class="cm-caret">▸</span>
             </button>
-            <div v-if="openSub === item.key" class="cm-submenu">
+            <div v-if="openSub === item.key" class="cm-submenu" role="menu">
               <button
                 v-for="sub in item.submenu"
                 :key="sub.key"
                 class="cm-item"
+                role="menuitem"
                 :class="{ danger: sub.danger, disabled: sub.disabled }"
                 @click="!sub.disabled && onSelect(sub.key)"
               >
@@ -115,6 +117,7 @@ function onSelect(key: string): void {
           <button
             v-else
             class="cm-item"
+            role="menuitem"
             :class="{ danger: item.danger, disabled: item.disabled }"
             @click="!item.disabled && onSelect(item.key)"
           >

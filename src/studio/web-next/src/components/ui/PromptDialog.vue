@@ -34,7 +34,7 @@ function onKeydown(e: KeyboardEvent): void {
 
 <template>
   <div v-if="ui.promptState" class="pd-mask" @click.self="ui.resolvePrompt(null)">
-    <div class="pd-modal" role="dialog" aria-modal="true">
+    <div class="pd-modal" role="dialog" aria-modal="true" aria-label="输入">
       <div class="pd-title">{{ ui.promptState.title }}</div>
       <div class="pd-body">{{ ui.promptState.message }}</div>
       <input

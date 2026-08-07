@@ -315,7 +315,7 @@ function distMax(g: DistGroup): number {
               <span>继续写作 · 第{{ data.recentDoc.no }}{{ kind === 'long' ? '章' : '篇' }}</span>
             </button>
             <div v-if="hasTarget" class="hero-ring">
-              <svg viewBox="0 0 110 110" class="ring-svg">
+              <svg viewBox="0 0 110 110" class="ring-svg" role="img" aria-label="字数完成进度">
                 <circle cx="55" cy="55" :r="RING_R" class="ring-track" />
                 <circle cx="55" cy="55" :r="RING_R" class="ring-prog"
                   :stroke-dasharray="C" :stroke-dashoffset="ringOffset" />
@@ -426,6 +426,8 @@ function distMax(g: DistGroup): number {
           class="chart-svg"
           :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
           preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="字数曲线"
         >
           <defs>
             <linearGradient id="wordAreaGrad" x1="0" y1="0" x2="0" y2="1">

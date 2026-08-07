@@ -344,13 +344,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.settingsOpen" class="modal-mask" @click.self="ui.closeSettings">
-      <div class="settings-modal">
+      <div class="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
         <div class="modal-head">
           <div class="modal-heading">
             <span class="modal-title">设置</span>
             <span class="modal-subtitle">{{ tabSubtitle }}</span>
           </div>
-          <button class="close-btn" data-tip="关闭（Esc）" @click="ui.closeSettings"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" @click="ui.closeSettings"><X :size="18" /></button>
         </div>
         <div class="settings-split">
           <!-- 左侧分类导航 -->

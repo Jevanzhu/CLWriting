@@ -711,6 +711,8 @@ const activeLegend = computed(() => {
             class="graph"
             :viewBox="viewBoxStr"
             preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="关系图"
             @wheel.prevent="onWheel"
             @mousedown="onBgDown"
           >
