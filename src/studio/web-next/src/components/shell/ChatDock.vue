@@ -4,14 +4,12 @@
  * 「对话」按钮未开时在输入框上方 6px；打开时融入对话框头部左上角（胶囊标签）。
  * 输入框为 Codex 风格（与工作台对话一致）：章节左下 + 模型/推理等级/清空/发送右下。
  */
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Square } from 'lucide-vue-next'
 import ChatPanel from '../panels/ChatPanel.vue'
 import { useChatStore } from '../../stores/chat'
-import { useWorkbenchStore } from '../../stores/workbench'
-import { sendChat, clearChatHistory } from '../../api/chat'
-import { interrupt } from '../../api/stream'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
+import { useChatComposer } from '../../composables/useChatComposer'
 
 const props = defineProps<{
   bookName: string
@@ -19,23 +17,25 @@ const props = defineProps<{
 }>()
 
 const chat = useChatStore()
-const wb = useWorkbenchStore()
 const tier = useChatTier()
 
 /** 输入框是否展开 */
 const fabOpen = ref(false)
 /** 对话框是否打开 */
 const chatOpen = ref(false)
-const input = ref('')
-const busy = computed(() => chat.running || wb.running)
-// F-P1-2：本地发送锁，防 HTTP-SSE 窗口期重复发送（busy 由 SSE chat_start 设置，有窗口期）
-const sending = ref(false)
 
-/** 发送目标的章节选择（默认跟随当前编辑器章） */
-const selectedChapter = ref<number | undefined>(props.currentChapter)
-watch(() => props.currentChapter, (v) => {
-  if (v !== undefined) selectedChapter.value = v
-})
+// ── 发送/停止/清空/章节选择（共享 composable）────
+
+const {
+  input, sending, busy, selectedChapter,
+  chapterMenuOpen, chapterWrapRef,
+  handleSend, handleKeydown, stopChat, handleClear,
+  toggleChapterMenu, selectChapter,
+} = useChatComposer(
+  () => props.bookName,
+  () => props.currentChapter,
+  () => { chatOpen.value = true },
+)
 
 // ── 模型/推理等级下拉宽度贴合当前选中项 ──
 
@@ -85,67 +85,6 @@ function onFab(): void {
 /** 「对话」按钮 toggle 对话框 */
 function onExpandChat(): void {
   chatOpen.value = !chatOpen.value
-}
-
-/** 独立输入框发送 → 推入对话并自动展开对话框看回复 */
-async function handleSend(): Promise<void> {
-  const text = input.value.trim()
-  if (!text || busy.value || sending.value) return
-  input.value = ''
-  chat.pushUser(text)
-  chatOpen.value = true
-  sending.value = true
-  try {
-    await sendChat(props.bookName, {
-      message: text,
-      ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
-    })
-  } catch (e) {
-    chat.popUser()
-    chat.error = e instanceof Error ? e.message : String(e)
-  } finally {
-    sending.value = false
-  }
-}
-
-function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    void handleSend()
-  }
-}
-
-/** 章节下拉菜单（自定义浮层，替代原生 select 以掌控定位） */
-const chapterMenuOpen = ref(false)
-const chapterWrapRef = ref<HTMLElement | null>(null)
-
-function toggleChapterMenu(): void {
-  chapterMenuOpen.value = !chapterMenuOpen.value
-}
-
-function selectChapter(ch: number | undefined): void {
-  selectedChapter.value = ch
-  chapterMenuOpen.value = false
-}
-
-function onDocClick(e: MouseEvent): void {
-  if (chapterMenuOpen.value && chapterWrapRef.value && !chapterWrapRef.value.contains(e.target as Node)) {
-    chapterMenuOpen.value = false
-  }
-}
-
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
-
-async function stopChat(): Promise<void> {
-  try { await interrupt(props.bookName) } catch { /* 忽略 */ }
-}
-
-async function handleClear(): Promise<void> {
-  // 运行中先中断后端，再清前后端（防清空后仍冒新消息）
-  if (chat.running) await stopChat()
-  try { await clearChatHistory(props.bookName) } catch { /* 忽略 */ }
-  chat.clear()
 }
 </script>
 

@@ -5,13 +5,12 @@
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
-import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, watch } from 'vue'
 import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
-import { useWorkbenchStore } from '../../stores/workbench'
-import { sendChat, confirmTool, clearChatHistory } from '../../api/chat'
-import { interrupt } from '../../api/stream'
+import { confirmTool } from '../../api/chat'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
+import { useChatComposer } from '../../composables/useChatComposer'
 
 const props = defineProps<{
   bookName: string
@@ -22,80 +21,28 @@ const props = defineProps<{
 }>()
 
 const chat = useChatStore()
-const wb = useWorkbenchStore()
 
-// ── 输入 ────────────────────────────────────────
-
-const input = ref('')
-const selectedChapter = ref<number | undefined>(props.currentChapter)
-
-watch(() => props.currentChapter, (v) => {
-  if (v !== undefined) selectedChapter.value = v
-})
-
-// ── 联合判据：chat 或 workbench 在跑都禁发送 ──────
-
-const busy = computed(() => chat.running || wb.running)
-// F-P1-2：本地发送锁，防 HTTP-SSE 窗口期重复发送（busy 由 SSE chat_start 设置，有窗口期）
-const sending = ref(false)
-
-// ── 模型 / 推理等级（对话档，未配则回落创作档）──
-
-const tier = useChatTier()
-
-// ── 发送 ────────────────────────────────────────
+// ── 滚动（ChatPanel 独有）────────────────────────
 
 const scrollRef = ref<HTMLElement | null>(null)
-
-async function handleSend(): Promise<void> {
-  const text = input.value.trim()
-  if (!text || busy.value || sending.value) return
-  input.value = ''
-  chat.pushUser(text)
-  await nextTick()
-  scrollToBottom()
-  sending.value = true
-  try {
-    await sendChat(props.bookName, {
-      message: text,
-      ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
-    })
-  } catch (e) {
-    chat.popUser()
-    chat.error = e instanceof Error ? e.message : String(e)
-  } finally {
-    sending.value = false
-  }
+function scrollToBottom(): void {
+  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
 }
 
-function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    void handleSend()
-  }
-}
+// ── 发送/停止/清空/章节选择（共享 composable）────
 
-/** 章节下拉菜单（自定义浮层，替代原生 select 以掌控定位） */
-const chapterMenuOpen = ref(false)
-const chapterWrapRef = ref<HTMLElement | null>(null)
+const {
+  input, sending, busy, selectedChapter,
+  chapterMenuOpen, chapterWrapRef,
+  handleSend, handleKeydown, stopChat, handleClear,
+  toggleChapterMenu, selectChapter,
+} = useChatComposer(
+  () => props.bookName,
+  () => props.currentChapter,
+  async () => { await nextTick(); scrollToBottom() },
+)
 
-function toggleChapterMenu(): void {
-  chapterMenuOpen.value = !chapterMenuOpen.value
-}
-
-function selectChapter(ch: number | undefined): void {
-  selectedChapter.value = ch
-  chapterMenuOpen.value = false
-}
-
-function onDocClick(e: MouseEvent): void {
-  if (chapterMenuOpen.value && chapterWrapRef.value && !chapterWrapRef.value.contains(e.target as Node)) {
-    chapterMenuOpen.value = false
-  }
-}
-
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+const tier = useChatTier()
 
 // ── 工具确认 ────────────────────────────────────
 
@@ -107,34 +54,10 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   }
 }
 
-// ── 停止 / 清空 ────────────────────────────────
+// ── 消息流滚动跟随 ──────────────────────────────
 
-async function stopChat(): Promise<void> {
-  try { await interrupt(props.bookName) } catch { /* 忽略 */ }
-}
-
-async function handleClear(): Promise<void> {
-  // 运行中先中断后端，再清前后端（防清空后仍冒新消息）
-  if (chat.running) await stopChat()
-  try { await clearChatHistory(props.bookName) } catch { /* 忽略 */ }
-  chat.clear()
-}
-
-// ── 滚动 ────────────────────────────────────────
-
-function scrollToBottom(): void {
-  if (scrollRef.value) {
-    scrollRef.value.scrollTop = scrollRef.value.scrollHeight
-  }
-}
-
-watch(() => chat.messages.length, () => {
-  void nextTick(scrollToBottom)
-})
-// 流式文本追加（chat_text）时 length 不变，补监末条 content 滚动
-watch(() => chat.messages.at(-1)?.content, () => {
-  void nextTick(scrollToBottom)
-})
+watch(() => chat.messages.length, () => void nextTick(scrollToBottom))
+watch(() => chat.messages.at(-1)?.content, () => void nextTick(scrollToBottom))
 
 // ── 工具图标映射 ─────────────────────────────────
 
