@@ -31,8 +31,11 @@ export type CheckOutcome =
  * 三审端点 B0.2 复用：buildReviewPacket 的 checkReport 输入由此产出（byproducts.leadChanges 供账本核对）。
  */
 export function runCheckForDocument(bookRoot: string, absPath: string): CheckOutcome {
-  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-  const isShort = (config.kind ?? 'long') === 'short'
+  // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
+  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
+  const config = cfgResult.config
+  const isShort = config.kind === 'short'
   // rebuild 条件：长篇恒走；短篇有布线才走（连续故事用账本检查）
   const hasWiring = existsSync(join(bookRoot, '布线'))
 
@@ -141,8 +144,11 @@ export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
 ): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean } {
-  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-  const isShort = (config.kind ?? 'long') === 'short'
+  // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
+  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
+  const config = cfgResult.config
+  const isShort = config.kind === 'short'
   const hasWiring = existsSync(join(bookRoot, '布线'))
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | null = null

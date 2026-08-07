@@ -45,7 +45,10 @@ function readHits(bookRoot: string): RuleHitsMap {
   }
 }
 
-/** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。 */
+/** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
+ *  并发安全：本函数全程同步 I/O（readFileSync → mutate → atomicWriteFile），
+ *  Node.js 单线程事件循环保证同步段不会交叉，read-modify-write 天然原子。
+ *  若将来改为异步 I/O（fs.promises），需加 per-bookRoot 写锁防交叉覆盖。 */
 export function recordRuleHits(bookRoot: string, violations: RuleViolation[]): void {
   if (!violations.length) return
   const hits = readHits(bookRoot)
