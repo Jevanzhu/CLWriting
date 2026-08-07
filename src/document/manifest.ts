@@ -106,5 +106,5 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
   for (const e of manifest.entries.values()) {
     lines.push(JSON.stringify(e))
   }
-  atomicWriteFile(filePath, lines.join('\n') + '\n')
+  atomicWriteFile(filePath, lines.join('\n') + '\n', { fsync: true })
 }

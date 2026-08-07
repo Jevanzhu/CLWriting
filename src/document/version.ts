@@ -120,7 +120,7 @@ export function writeVersion(
   if (meta.pinned) front.push('永久: true')
   front.push('---', '')
   const file = join(versionsDir, docId, `${id}.md`)
-  atomicWriteFile(file, front.join('\n') + content)
+  atomicWriteFile(file, front.join('\n') + content, { fsync: true })
   pruneVersions(versionsDir, docId, policy)
   return id
 }

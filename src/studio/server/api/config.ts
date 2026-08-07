@@ -44,7 +44,8 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       const yaml = stringifyBookConfig(config)
       atomicWriteFile(join(ctx.workDir, entry.path, 'book.yaml'), yaml)
     } catch (e) {
-      return reply(res, 500, { error: `写 book.yaml:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 写 book.yaml:', e)
+      return reply(res, 500, { error: '写 book.yaml 失败' })
     }
     reply(res, 200, { ok: true })
   })

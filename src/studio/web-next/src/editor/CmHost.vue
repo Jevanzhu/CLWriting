@@ -152,6 +152,9 @@ function typewriterExt(on: boolean): Extension {
   })
 }
 const typewriterConf = new Compartment()
+// P1-9：mode/readonly 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
+const modeConf = new Compartment()
+const readonlyConf = new Compartment()
 
 onMounted(() => {
   if (!el.value) return
@@ -161,8 +164,8 @@ onMounted(() => {
       editorSetup,
       editorTheme,
       EditorView.lineWrapping,
-      EditorState.readOnly.of(props.readonly ?? false),
-      ...(props.mode === 'md' ? [markdown()] : []),
+      readonlyConf.of(EditorState.readOnly.of(props.readonly ?? false)),
+      modeConf.of(props.mode === 'md' ? [markdown()] : []),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
         if (u.selectionSet || u.focusChanged) emit('selectionChange')
@@ -172,6 +175,24 @@ onMounted(() => {
     parent: el.value,
   })
 })
+
+// mode 切换（text ↔ md）：动态重配扩展
+watch(
+  () => props.mode,
+  (m) => {
+    if (!view) return
+    view.dispatch({ effects: modeConf.reconfigure(m === 'md' ? [markdown()] : []) })
+  },
+)
+
+// readonly 切换：动态重配
+watch(
+  () => props.readonly,
+  (r) => {
+    if (!view) return
+    view.dispatch({ effects: readonlyConf.reconfigure(EditorState.readOnly.of(r ?? false)) })
+  },
+)
 
 // 外部 modelValue 变（切文档）→ 同步；仅当差异时，避免光标跳
 watch(

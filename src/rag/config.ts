@@ -9,7 +9,7 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { readBookConfig, stringifyBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
@@ -61,6 +61,8 @@ export function writeApiKey(workDir: string, key: string): void {
   mkdirSync(clwritingDir, { recursive: true })
   ensureRagSecretGitignore(workDir)
   writeFileSync(join(clwritingDir, RAG_SECRET_FILE), key + '\n', 'utf-8')
+  // P2-3：限制文件权限（对比 vault.ts 已做 chmod 0600）
+  chmodSync(join(clwritingDir, RAG_SECRET_FILE), 0o600)
 }
 
 /** 给 rag.secret 加显式忽略兜底，避免工作目录被误放进 git 后泄露 key。 */

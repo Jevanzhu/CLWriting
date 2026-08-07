@@ -146,7 +146,8 @@ export function joinFrontMatter(fmText: string, body: string): string {
 
 // ── 读取/写入文件（容错入口）────────────────────
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 
 /** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩） */
 export function readFile(
@@ -177,7 +178,7 @@ export function readFile(
 
 /** 写入 front matter + 正文到文件 */
 export function writeFile(filePath: string, fmText: string, body: string): void {
-  writeFileSync(filePath, joinFrontMatter(fmText, body), 'utf-8')
+  atomicWriteFile(filePath, joinFrontMatter(fmText, body))
 }
 
 // ── 境界体系嵌套解析（#6 第 2 节）────────────────

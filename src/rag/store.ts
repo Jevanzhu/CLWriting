@@ -45,6 +45,9 @@ export function bufferToFloat32(blob: Uint8Array): Float32Array {
 export function openRagDb(bookRoot: string): DatabaseSync {
   const dbPath = join(bookRoot, '.rag.db')
   const db = new DatabaseSync(dbPath)
+  // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
+  db.exec('PRAGMA journal_mode = WAL')
+  db.exec('PRAGMA busy_timeout = 5000')
   createRagTables(db)
   return db
 }

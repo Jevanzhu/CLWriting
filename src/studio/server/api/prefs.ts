@@ -69,7 +69,8 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
-      reply(res, 500, { error: `写 prefs:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 写 prefs:', e)
+      reply(res, 500, { error: '写 prefs 失败' })
     }
   })
 
@@ -105,7 +106,8 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
-      reply(res, 500, { error: `写全局偏好:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 写全局偏好:', e)
+      reply(res, 500, { error: '写全局偏好失败' })
     }
   })
 }

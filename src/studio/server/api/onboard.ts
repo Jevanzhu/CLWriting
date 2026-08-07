@@ -107,7 +107,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
       atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
-      return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 落盘:', e)
+      return reply(res, 500, { error: '落盘失败' })
     }
     reply(res, 200, { ok: true, step, path: relPath, words: content.length, content })
   })
@@ -127,7 +128,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
       atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
-      return reply(res, 500, { error: `落盘:${e instanceof Error ? e.message : String(e)}` })
+      console.error('[api] 落盘:', e)
+      return reply(res, 500, { error: '落盘失败' })
     }
     reply(res, 200, { ok: true, step, path: relPath, words: content.length })
   })
