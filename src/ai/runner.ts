@@ -136,6 +136,8 @@ export async function runTask<T>(opts: {
   bookRoot?: string
   /** prompt 文本（trace 脱敏用；不传则 promptMeta 为空） */
   promptText?: string
+  /** system prompt 文本（B-P2-2：trace hash 纳入 system prompt，防同 user prompt 不同规则状态 hash 冲突） */
+  systemPrompt?: string
   /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
   chapter?: number
 }): Promise<TaskResult<T>> {
@@ -164,7 +166,7 @@ export async function runTask<T>(opts: {
       attempt: p.attempt,
       stopReason: p.stopReason,
       promptMeta: opts.promptText
-        ? promptMeta('', opts.promptText)
+        ? promptMeta(opts.systemPrompt ?? '', opts.promptText)
         : { chars: 0, files: [], hash: '' },
       usage: toTraceUsage(p.usage),
       durationMs: Date.now() - startMs,
