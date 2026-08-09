@@ -2,7 +2,7 @@
  * contract/chapter.ts 契约层单测（审查 §七：ai/contract 零单测）。
  *
  * assembleChapter：AI 结构化字段 → 宿主拼装 front matter + 正文。
- * 重点守卫：fm 由宿主拼装（章号/篇号宿主填）、正文纯文本透传、空正文拒收。
+ * 重点守卫：fm 由宿主拼装（章号宿主填）、正文纯文本透传、空正文拒收。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -56,11 +56,11 @@ describe('assembleChapter 长篇', () => {
 })
 
 describe('assembleChapter 短篇', () => {
-  it('篇号宿主填 + 目标情绪/核心反转', () => {
+  it('章号宿主填 + 目标情绪/核心反转', () => {
     const r = assembleChapter({ 标题: '雨夜', 目标情绪: '温暖', 核心反转: '一切都在细节里', 正文: '短文正文' }, 2, 'short')
     expect(r.ok).toBe(true)
     if (r.ok) {
-      expect(r.content.startsWith('---\n篇号: 2')).toBe(true)
+      expect(r.content.startsWith('---\n章号: 2')).toBe(true)
       expect(r.content).toContain('目标情绪: 温暖')
       expect(r.content).toContain('核心反转: 一切都在细节里')
     }

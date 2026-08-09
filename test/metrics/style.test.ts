@@ -322,14 +322,14 @@ function makeShortBook(pieceCount: number): string {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (let n = 1; n <= pieceCount; n++) {
     const name = `${String(n).padStart(3, '0')}-短篇${n}.md`
-    const fm = `篇号: ${n}\n标题: 短篇${n}`
+    const fm = `章号: ${n}\n标题: 短篇${n}`
     const body = '「你来了。」他说。\n雪落无声。\n刀光闪过。'
     writeFileSync(join(root, '写作', '正文', name), `---\n${fm}\n---\n${body}`, 'utf-8')
   }
   return root
 }
 
-test('scanShortPieces: 扫 篇/*.md 逐篇算指纹', () => {
+test('scanShortPieces: 扫 写作/正文/*.md 逐章算指纹', () => {
   const root = makeShortBook(3)
   const samples = scanShortPieces(root)
   expect(samples).toHaveLength(3)
@@ -352,7 +352,7 @@ test('短篇: ≥5 篇可做趋势判定', () => {
   const root = makeShortBook(6)
   const samples = scanShortPieces(root)
   const trend = aggregateStyleTrend(samples, 'short', null, { driftWindow: 5 })
-  // 6 篇 ≥ 5，进入趋势判定（是否有漂移取决于内容，这里只验证不再降级提示）
+  // 6 章 ≥ 5，进入趋势判定（是否有漂移取决于内容，这里只验证不再降级提示）
   const out = formatStyleReport(trend)
   expect(out).not.toContain('仅报明细')
   rmSync(root, { recursive: true, force: true })

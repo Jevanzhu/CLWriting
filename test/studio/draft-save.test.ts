@@ -84,12 +84,12 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
 
   it('短篇固定名 001-标题.md 同样受保护', () => {
     const shortRel = '写作/正文/001-短篇.md'
-    writeFileSync(join(root, shortRel), '第1篇草稿', 'utf8')
-    const id = snapshotBeforeOverwrite(root, shortRel, '第2篇草稿盖过来')
+    writeFileSync(join(root, shortRel), '第1章草稿', 'utf8')
+    const id = snapshotBeforeOverwrite(root, shortRel, '第2章草稿盖过来')
     expect(id).not.toBeNull()
     const files = snapshotFiles('001-短篇')
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1篇草稿')
+    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1章草稿')
   })
 })
 

@@ -20,7 +20,7 @@ export function computeProgress(bookRoot: string, kind: 'long' | 'short'): { cha
     try {
       n = readdirSync(piecesDir).filter((x) => !x.startsWith('.')).length
     } catch {
-      // 无篇目录
+      // 无章目录
     }
     return { chapters: n, words: 0 }
   }
@@ -62,7 +62,7 @@ export function computeLastEdited(bookRoot: string, kind: 'long' | 'short'): str
   return latest > 0 ? new Date(latest).toISOString() : null
 }
 
-/** 最近章节/篇标题：按已定稿文件 mtime 最新取其标题（hero 卡"继续写作"用）；无定稿返回 null */
+/** 最近章节标题：按已定稿文件 mtime 最新取其标题（hero 卡"继续写作"用）；无定稿返回 null */
 export function computeLatestChapter(bookRoot: string, kind: 'long' | 'short'): string | null {
   const items =
     kind === 'short'

@@ -43,7 +43,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   const config: BookConfig = opts.kind === 'short'
     ? {
         ...DEFAULT_CONFIG,
-        // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
+        // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
         workflow: 'free', // W0 §2 决策 1：新书默认自由模式
@@ -128,20 +128,20 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
 
 /**
  * 短篇集目录布局（M8 #25 第 3 节）：一仓库一短篇集。
- * 建 `篇/`（正文）+ `清单/`（清单分离，与正文不混放）+ 整集共享 `文风/` + `工作区/`。
- * 不建 定稿/、大纲/、卷纲、设定、growth——短篇无长程载重。
+ * 建 写作/正文/（正文章）+ 大纲/章纲/（章纲，与正文不混放）+ 整集共享 文风/ + 工作区/。
+ * 不建 定稿/、卷纲、设定、growth——短篇无长程载重。
  */
 function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): void {
-  // 写作/正文/：多篇正文并存（短篇章，扁平，默认不用卷级）
+  // 写作/正文/：多章正文并存（短篇章，扁平，默认不用卷级）
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
 
-  // 大纲/清单/：短篇清单（反转线索表/情绪曲线/伏笔回收），规划性质
-  mkdirSync(join(bookRoot, '大纲', '清单'), { recursive: true })
+  // 大纲/章纲/：短篇章纲（反转线索表/情绪曲线/伏笔回收），规划性质
+  mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
 
   // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
   scaffoldSharedStyle(bookRoot, _opts.genre)
 
-  // 工作区/：临时区（当前在写的篇，态 4 续跑粒度=篇）
+  // 工作区/：临时区（当前在写的章，态 4 续跑粒度=章）
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
 }
 

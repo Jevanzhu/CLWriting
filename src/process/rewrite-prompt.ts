@@ -30,7 +30,7 @@ export function buildRewritePrompt(
       '只改写选中段落,不动其他;保持正文纯文本(段落+空行,禁 MD 标题/格式)。',
     ].join('\n')
   }
-  const unit = kind === 'short' ? '篇' : '章'
+  const unit = '章'
   const parts = [
     '## 任务',
     `按指令${reviewIssues.length ? ' / 审稿意见' : ''}重写第 ${chapter} ${unit}正文。`,
@@ -48,7 +48,7 @@ export function buildRewritePrompt(
     '',
     '## 要求',
     kind === 'short'
-      ? '按指令重写整篇正文(8000-20000 字,单篇完整开合:铺垫→反转→收尾)。'
+      ? '按指令重写整章正文(8000-20000 字,单章完整开合:铺垫→反转→收尾)。'
       : '按指令重写整章正文(2000-4000 字,单章一主场景,章尾留钩)。',
   )
   return parts.join('\n')

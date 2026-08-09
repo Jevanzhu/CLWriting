@@ -11,7 +11,7 @@ import {
 const FIXTURE_ROOT = fileURLToPath(new URL('../fixtures/short-regression/短篇回归集', import.meta.url))
 
 describe('短篇真实样本回归集', () => {
-  it('固定 5 篇样本能跑 scan → analyze → submission 链路', () => {
+  it('固定 5 章样本能跑 scan → analyze → submission 链路', () => {
     const cfg = readBookConfig(join(FIXTURE_ROOT, 'book.yaml')).config
     const entries = scanShortCollection(FIXTURE_ROOT)
 

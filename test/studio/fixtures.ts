@@ -4,7 +4,7 @@
  * 供 dual-track 回归测 + e2e 复用（mkdtemp 临时目录，内容在代码里，灵活可控）。
  * 内容是测试小说数据（无敏感；不涉 api_key）。覆盖各 API 端点所需结构：
  * - 长篇：book.yaml + 大纲/总纲 + 布线/悬念 + 写作/正文(2章) + 设定(角色/境界) + 文风铁律
- * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/清单 + 设定/集子定位 + 文风铁律
+ * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 设定/集子定位 + 文风铁律
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -97,7 +97,7 @@ function makeShortBook(root: string): void {
   mkdirSync(join(root, '大纲', '清单'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '001-雨夜门铃.md'),
-    '---\n篇号: 1\n标题: 雨夜门铃\n目标情绪: 惊悚\n核心反转: 来客是三年前的死者\n---\n## 开头钩子\n\n门外没有脚印。\n\n## 反转\n\n来客笑了，他是死者。',
+    '---\n章号: 1\n标题: 雨夜门铃\n目标情绪: 惊悚\n核心反转: 来客是三年前的死者\n---\n## 开头钩子\n\n门外没有脚印。\n\n## 反转\n\n来客笑了，他是死者。',
   )
   writeFileSync(
     join(root, '大纲', '清单', '001-雨夜门铃.md'),
@@ -105,7 +105,7 @@ function makeShortBook(root: string): void {
   )
   writeFileSync(
     join(root, '写作', '正文', '002-红伞.md'),
-    '---\n篇号: 2\n标题: 红伞\n目标情绪: 后怕\n核心反转: 红伞内侧写着主角名字\n---\n## 开头\n\n红伞靠在墙边滴水。\n\n## 反转\n\n伞内侧写着主角的名字。',
+    '---\n章号: 2\n标题: 红伞\n目标情绪: 后怕\n核心反转: 红伞内侧写着主角名字\n---\n## 开头\n\n红伞靠在墙边滴水。\n\n## 反转\n\n伞内侧写着主角的名字。',
   )
   writeFileSync(
     join(root, '大纲', '清单', '002-红伞.md'),

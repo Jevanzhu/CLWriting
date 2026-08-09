@@ -160,7 +160,7 @@ function annotate(
 ): void {
   for (const n of nodes) {
     if (!n.isDirectory) {
-      // 短篇书：写作/正文/ 下的正文标 piece-body（篇=章，路径统一，role 按 kind 区分）
+      // 短篇书：写作/正文/ 下的正文标 piece-body（短篇章与长篇章同路径，role 按 kind 区分）
       if (kind === 'short' && n.role === 'chapter') {
         n.role = 'piece-body'
       }

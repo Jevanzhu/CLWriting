@@ -4,7 +4,7 @@
  * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖）。
  * 搬完后更新文档清单路径，尝试删空 `写作/草稿/` 目录。
  *
- * 细纲/本章写作材料/首篇细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
+ * 细纲/本章写作材料/首章细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
  */
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -36,15 +36,16 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       }
       continue
     }
-    if (name === '首篇细纲.md') {
-      // 持久化规划 → 大纲/
-      const dst = join(bookRoot, '大纲', name)
+    if (name === '首篇细纲.md' || name === '首章细纲.md') {
+      // 持久化规划 → 大纲/（统一文件名为 首章细纲.md）
+      const dstName = '首章细纲.md'
+      const dst = join(bookRoot, '大纲', dstName)
       if (!existsSync(dst)) {
         try {
           mkdirSync(dirname(dst), { recursive: true })
           renameSync(srcAbs, dst)
           migrated++
-          pathRemap.set(`写作/草稿/${name}`, `大纲/${name}`)
+          pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
         } catch (e) { errors.push(`${name}: ${e}`) }
       }
       continue

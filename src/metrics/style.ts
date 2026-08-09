@@ -33,7 +33,7 @@ export interface StyleBaseline {
   overall: FullStyleStats
 }
 
-/** 单章/篇文风采样 */
+/** 单章文风采样 */
 export interface ChapterSample {
   num: number
   title: string
@@ -151,7 +151,7 @@ export function scanLongChapters(bookRoot: string): ChapterSample[] {
   return samples.sort((a, b) => a.num - b.num)
 }
 
-/** 短篇重扫：扫 写作/正文/*.md 逐篇算指纹（按篇号排序） */
+/** 短篇重扫：扫 写作/正文/*.md 逐章算指纹（按章号排序） */
 export function scanShortPieces(bookRoot: string): ChapterSample[] {
   const piecesDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
@@ -170,7 +170,7 @@ export function scanShortPieces(bookRoot: string): ChapterSample[] {
     if (!existsSync(bodyPath)) continue
     const r = readFile(bodyPath)
     if (!r.ok) continue
-    // 篇号从文件名前缀取（NNN-标题）
+    // 章号从文件名前缀取（NNN-标题）
     const numMatch = name.match(/^(\d+)/)
     const num = numMatch ? Number(numMatch[1]) : 0
     // 标题从 front matter 取，缺则用文件名（去 .md）
@@ -184,7 +184,7 @@ export function scanShortPieces(bookRoot: string): ChapterSample[] {
 /**
  * 跨章聚合 + 漂移判定。
  * 漂移判定原则（只报趋势不下判决）：单点偶发不报，连续/趋势才报。
- * 短篇 < SHORT_TREND_MIN 篇 → 不做趋势判定（诚实降级，文风方案 §4.5）。
+ * 短篇 < SHORT_TREND_MIN 章 → 不做趋势判定（诚实降级，文风方案 §4.5）。
  */
 export function aggregateStyleTrend(
   samples: ChapterSample[],
@@ -361,9 +361,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 /** 重扫报告 → 人话表格（文风方案 §4.4 输出形态） */
 export function formatStyleReport(trend: StyleTrend): string {
   if (trend.count === 0) {
-    return '尚无已定稿正文可重扫。写完并定稿一章/篇后再看（health --style）。\n'
+    return '尚无已定稿正文可重扫。写完并定稿一章后再看（health --style）。\n'
   }
-  const unit = trend.kind === 'short' ? '篇' : '章'
+  const unit = '章'
   const lines: string[] = []
   const baselineStr = trend.baseline
     ? `基线来自 ${trend.baseline.frozenFrom}`
@@ -409,7 +409,7 @@ export function formatStyleReport(trend: StyleTrend): string {
   // 短篇小样本提示
   if (trend.kind === 'short' && trend.count < SHORT_TREND_MIN) {
     lines.push('')
-    lines.push(`（短篇 ${trend.count} 篇 < ${SHORT_TREND_MIN}，仅报明细不做趋势判定）`)
+    lines.push(`（短篇 ${trend.count} 章 < ${SHORT_TREND_MIN}，仅报明细不做趋势判定）`)
   }
 
   lines.push('')

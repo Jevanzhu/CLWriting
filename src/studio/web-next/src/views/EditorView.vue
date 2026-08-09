@@ -264,14 +264,14 @@ async function onTitleCommit(): Promise<void> {
   if (newTitle === current) return
   titleSaving.value = true
   try {
-    // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
-    // P2：fm 缺篇号时从文件名提取（防 fallback 1 覆盖真实篇号）
+    // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
+    // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
     const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).篇号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
+      ? Number(parseFmFields(e.content).章号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,
-      ...(e.role === 'piece-body' && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
+      ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
     await tree.load(doc.bookName!)
     const fresh = tree.byDocId.get(ws.activeDocId)

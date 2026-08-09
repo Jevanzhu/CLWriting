@@ -323,7 +323,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     lines.push(`  chapter_target_words: ${cfg.book.chapter_target_words}`)
   }
 
-  // leads 段：长篇恒输出（账本类）；短篇无（账本降级单篇清单 #27）
+  // leads 段：长篇恒输出（账本类）；短篇无（账本降级单章章纲 #27）
   if (!isShort) {
     lines.push('', 'leads:', `  enabled: ${stringifyValue(cfg.leads.enabled)}`)
     if (cfg.leads.thresholds) {

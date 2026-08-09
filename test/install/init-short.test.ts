@@ -18,7 +18,7 @@ const ORIG_CWD = process.cwd()
 beforeEach(() => { process.chdir(ORIG_CWD) })
 afterEach(() => { process.chdir(ORIG_CWD) })
 
-test('init short: 建短篇集布局（写作/正文/ + 大纲/清单/ + 共享文风 + 工作区），不建长程载重', () => {
+test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 共享文风 + 工作区），不建长程载重', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
@@ -30,8 +30,8 @@ test('init short: 建短篇集布局（写作/正文/ + 大纲/清单/ + 共享�
     expect(existsSync(join(bookRoot, '写作', '正文'))).toBe(true)
     expect(readdirSync(join(bookRoot, '写作', '正文'))).toHaveLength(0)
 
-    // 大纲/清单/（短篇清单：反转线索表/情绪曲线/伏笔回收）
-    expect(existsSync(join(bookRoot, '大纲', '清单'))).toBe(true)
+    // 大纲/章纲/（短篇章纲：反转线索表/情绪曲线/伏笔回收）
+    expect(existsSync(join(bookRoot, '大纲', '章纲'))).toBe(true)
 
     // 整集共享文风（条目库 + 文风铁律；样章库/金句库已退场，S8）
     expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)

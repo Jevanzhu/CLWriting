@@ -155,8 +155,8 @@ function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">{{ bookKind === 'short' ? '每篇字数' : '每章字数' }}</div>
-          <div class="setting-item-desc">{{ bookKind === 'short' ? '新建篇的默认字数目标；单篇可单独覆盖' : '新建章节的默认字数目标；单章可单独覆盖' }}</div>
+          <div class="setting-item-name">每章字数</div>
+          <div class="setting-item-desc">新建章节的默认字数目标；单章可单独覆盖</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="0" step="100" placeholder="未设" :value="chapterTargetWords ?? ''" @change="onChapterTargetInput($event)" />

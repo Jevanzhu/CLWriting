@@ -137,7 +137,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
-  // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 写作/正文/ 目录
+  // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，章号扫 写作/正文/ 目录
   if (config.kind === 'short') {
     const excludeNames = unfinishedPieceNames(bookRoot)
     return { state: 7, nextChapter: countPieces(join(bookRoot, '写作', '正文'), excludeNames) + 1 }
@@ -389,7 +389,7 @@ function readBatchPause(bookRoot: string): { atChapter: number; reason: string; 
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
  * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，M3 出人话不真执行。
  */
-export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long'): RouterAction {
+export function routeState(detected: DetectedState): RouterAction {
   switch (detected.state) {
     case 1: {
       const list = detected.issues.map((i) => `· ${i.humanMsg}（${i.fix}）`).join('\n')
@@ -420,11 +420,11 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
     }
     case 4: {
       // 中断点：pre-finalize = 续写（草稿还在没定稿）；post-finalize-residue = 定稿了但工作区没收尾（幂等清理）
-      const unit = kind === 'short' ? '篇' : '章'
+      // 短篇/长篇统一用「章」作为正文单位
       const msg =
         detected.resumePoint === 'pre-finalize'
-          ? `第 ${detected.chapterNum} ${unit}写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
-          : `第 ${detected.chapterNum} ${unit}其实已定稿，但草稿区没收尾（草稿/细纲残留），清理一下就好。`
+          ? `第 ${detected.chapterNum} 章写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
+          : `第 ${detected.chapterNum} 章其实已定稿，但草稿区没收尾（草稿/细纲残留），清理一下就好。`
       return {
         state: 4,
         humanMsg: msg,
@@ -440,11 +440,10 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
         needsAI: true, // 卷复盘深度 M4
       }
     case 7: {
-      const unit = kind === 'short' ? '篇' : '章'
       // CLI 退场后写章收敛为单一入口（全自动/编辑器），不再分「手写起草」动作
       return {
         state: 7,
-        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
+        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} 章。`,
         action: 'write-new-chapter',
         needsAI: false, // M2 AI 写稿由 M4 壳调
       }
@@ -502,8 +501,8 @@ function readRecapSnapshot(
   config: BookConfig,
   detected: DetectedState,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
-  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 写作/正文/ 作为已定稿篇数。
-  // 排除未定稿草稿（未定稿不计入"已写"篇数）
+  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 写作/正文/ 作为已定稿章数。
+  // 排除未定稿草稿（未定稿不计入"已写"章数）
   if (config.kind === 'short') {
     return { currentChapter: countPieces(join(bookRoot, '写作', '正文'), unfinishedPieceNames(bookRoot)), currentVolume: 1 }
   }
@@ -537,7 +536,7 @@ export interface EnterResult {
   recap: StatusRecap
   detected: DetectedState
   route: RouterAction
-  /** 长短篇（M8，CLI 文案按 kind 出「章/篇」） */
+  /** 长短篇（M8，正文单位统一为「章」） */
   kind: 'long' | 'short'
 }
 
@@ -554,7 +553,7 @@ export function enter(bookRoot: string): EnterResult {
   }
   const { config } = cfgResult
   const detected = detectState(bookRoot, config)
-  const route = routeState(detected, config.kind ?? 'long')
+  const route = routeState(detected)
   const recap = buildRecap(bookRoot, config, detected)
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }

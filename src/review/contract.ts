@@ -24,7 +24,7 @@ export type ReviewCategory =
   | 'strand'
   | 'ledger'
   | 'safety'
-  // 短篇单篇爆破力维（M8 #28 第 4 节）
+  // 短篇单章爆破力维（M8 #28 第 4 节）
   | 'hook'
   | 'emotion_peak'
   | 'reversal'
@@ -38,7 +38,7 @@ export interface LedgerCheck {
 }
 
 /**
- * 单篇清单核对条目（M8 #28 第 3 节，设定收尾审的清单驱动核对对象）。
+ * 单章清单核对条目（M8 #28 第 3 节，设定收尾审的清单驱动核对对象）。
  *
  * 长篇 ledger_checks 承接机检 byproducts.leadChanges；
  * 短篇无账本，设定收尾审对 清单.md（反转线索表 + 伏笔回收）逐条核对。
@@ -130,7 +130,7 @@ export type ReviewTierDecision =
 
 export const REVIEW_LENSES: ReviewLens[] = ['reader', 'editor', 'continuity']
 
-/** 短篇三视角（M8 #28 第 2 节，单篇爆破力）：钩子审 / 情绪反转审 / 设定收尾审 */
+/** 短篇三视角（M8 #28 第 2 节，单章爆破力）：钩子审 / 情绪反转审 / 设定收尾审 */
 export const REVIEW_LENSES_SHORT: ReviewLens[] = ['hook', 'emotion_peak', 'payoff']
 
 const SEVERITY_RANK: Record<ReviewSeverity, number> = {
@@ -185,12 +185,12 @@ export function buildReviewTasks(report: CheckReport, kind: 'long' | 'short' = '
 }
 
 /**
- * 短篇三审任务书（M8 #28 第 2 节，维度重写为单篇爆破力）。
+ * 短篇三审任务书（M8 #28 第 2 节，维度重写为单章爆破力）。
  *
  * 三视角围绕「开篇抓人 / 情绪反转到位 / 伏笔收尾不崩」重组，非长篇三视角映射：
- * - 钩子审（hook）：开篇钩子 / 黄金 300 字 / 单篇追读牵引 / 表达流畅
+ * - 钩子审（hook）：开篇钩子 / 黄金 300 字 / 单章追读牵引 / 表达流畅
  * - 情绪反转审（emotion_peak）：情绪曲线达峰 / 反转信息差成立 / 反转铺垫可回溯 / 人物动机服务反转
- * - 设定收尾审（payoff）：伏笔回收闭合 / 反转线索表清单核对（恒跑）/ 单篇设定自洽 / 因果逻辑
+ * - 设定收尾审（payoff）：伏笔回收闭合 / 反转线索表清单核对（恒跑）/ 单章设定自洽 / 因果逻辑
  *
  * 设定收尾审承接 清单.md（反转线索表 + 伏笔回收）的清单驱动核对（替代长篇 ledger_checks）。
  */
@@ -204,7 +204,7 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
       lens: 'hook',
       title: '钩子审',
       must_run: true,
-      focus: ['开篇钩子', '黄金 300 字直入冲突', '单篇追读牵引', '表达流畅'],
+      focus: ['开篇钩子', '黄金 300 字直入冲突', '单章追读牵引', '表达流畅'],
       ledger_checks: [],
       output_contract: baseOutputContract(),
     },
@@ -220,7 +220,7 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
       lens: 'payoff',
       title: '设定收尾审',
       must_run: true,
-      focus: ['伏笔回收闭合（弃坑报红）', '反转线索表清单核对', '单篇设定自洽', '因果逻辑'],
+      focus: ['伏笔回收闭合（弃坑报红）', '反转线索表清单核对', '单章设定自洽', '因果逻辑'],
       ledger_checks: [],
       ...(listChecks.length > 0 ? { list_checks: listChecks } : {}),
       output_contract: baseOutputContract(),

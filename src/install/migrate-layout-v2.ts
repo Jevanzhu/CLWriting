@@ -3,8 +3,8 @@
  *
  * 旧（v1）                    v2
  * 定稿/正文/            →    写作/正文/      （含卷子目录整体搬迁）
- * 篇/（短篇集正文）      →    写作/正文/      （短篇的"篇"即正文，与长篇章同目录）
- * 清单/                 →    大纲/清单/
+ * 篇/（短篇集旧正文目录） →    写作/正文/      （短篇正文统一为"章"，与长篇章同目录）
+ * 清单/                 →    大纲/章纲/
  * 工作区/草稿-N.md      →    写作/草稿/
  * 大纲/{5类线索}/       →    布线/{5类线索}/
  * 定稿/设定/            →    设定/
@@ -33,8 +33,10 @@ export function migrateLayoutV2(bookRoot: string): { migrated: number; errors: s
   migrated += moveTree(bookRoot, '定稿/正文', '写作/正文', errors)
   // 2. 短篇正文：篇/ → 写作/正文/（短篇的"篇"即正文，与长篇章同目录，由 kind 区分语义）
   migrated += moveTree(bookRoot, '篇', '写作/正文', errors)
-  // 3. 短篇清单：清单/ → 大纲/清单/（规划性质，对齐长篇"规划在大纲区"）
-  migrated += moveTree(bookRoot, '清单', '大纲/清单', errors)
+  // 3. 短篇章纲：清单/ → 大纲/章纲/（规划性质，对齐长篇"规划在大纲区"）
+  migrated += moveTree(bookRoot, '清单', '大纲/章纲', errors)
+  // 3b. 已迁移到 大纲/清单/ 的短篇书 → 大纲/章纲/（篇→章 统一）
+  migrated += moveTree(bookRoot, '大纲/清单', '大纲/章纲', errors)
   // 4. 工作区草稿 → 写作/草稿/（只搬草稿文件，不碰运行时资产）
   migrated += moveDrafts(bookRoot, errors)
   // 5. 线索：大纲/{5类} → 布线/{5类}
@@ -53,7 +55,8 @@ export function migrateLayoutV2(bookRoot: string): { migrated: number; errors: s
 function migratePath(oldPath: string): string {
   if (oldPath.startsWith('定稿/正文/')) return '写作/正文/' + oldPath.slice('定稿/正文/'.length)
   if (oldPath.startsWith('篇/')) return '写作/正文/' + oldPath.slice('篇/'.length)
-  if (oldPath.startsWith('清单/')) return '大纲/清单/' + oldPath.slice('清单/'.length)
+  if (oldPath.startsWith('清单/')) return '大纲/章纲/' + oldPath.slice('清单/'.length)
+  if (oldPath.startsWith('大纲/清单/')) return '大纲/章纲/' + oldPath.slice('大纲/清单/'.length)
   if (oldPath.startsWith('定稿/设定/')) return '设定/' + oldPath.slice('定稿/设定/'.length)
   if (oldPath.startsWith('大纲/伏笔/')) return '设定/伏笔/' + oldPath.slice('大纲/伏笔/'.length) // P2：伏笔迁移路径同步
   if (/^工作区\/(草稿-\d+|细纲)\.md$/.test(oldPath)) return '写作/草稿/' + oldPath.slice('工作区/'.length)

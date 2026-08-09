@@ -4,7 +4,7 @@
  * 只存身份/排序/状态/标签投影，不存正文/标题。行序无语义，按 id 幂等合并。
  * - 读：jsonl 解析，header 取 version，entry 按 id 存 Map（后写覆盖）；非法行跳过降级。
  * - 写：原子重写整文件（追加 + 重写，atomicWriteFile）。
- * - order：章/篇由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
+ * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -15,7 +15,7 @@ export interface ManifestEntry {
   nodeType: 'document' | 'folder'
   path: string
   parentId: string | null
-  /** 排序值；编号派生文档（章/篇）省略此字段（order 与编号不双真相）。 */
+  /** 排序值；编号派生文档（章）省略此字段（order 与编号不双真相）。 */
   order?: number
   /** 文档状态投影（folder 无）；可从磁盘 + git 重建。 */
   status?: string

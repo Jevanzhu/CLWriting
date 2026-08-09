@@ -558,24 +558,24 @@ export function checkInfoLeak(
 
 // ── 短篇专属机检项（M8 #27 第 5.3 节，新增）──────────
 //
-// 短篇目标函数是单篇情绪爆破，4 项专属软约束（吸收点 7.1）：
+// 短篇目标函数是单章情绪爆破，4 项专属软约束（吸收点 7.1）：
 // 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
 // 全部零 token 脚本判定，黄项只报不拦（ask 不 deny）。
 
 /** 短篇正文 front matter 检查（#27 第 6 节，🔴 红）。
- *  篇号必填、标题非空。与长篇 checkFrontMatter 分轨（短篇无钩子/情绪定位枚举）。 */
+ *  章号必填、标题非空。与长篇 checkFrontMatter 分轨（短篇无钩子/情绪定位枚举）。 */
 export function checkPieceFrontMatter(
-  piece: { 篇号: number; 标题: string },
+  piece: { 章号: number; 标题: string },
   fileName: string,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 篇号 == 文件名前缀（篇/001-标题.md → 取 001）
+  // 章号 == 文件名前缀（001-标题.md → 取 001）
   const fileNum = Number(fileName.match(/(?:^|\/)(\d+)-/)?.[1])
-  if (!Number.isNaN(fileNum) && fileNum !== piece.篇号) {
+  if (!Number.isNaN(fileNum) && fileNum !== piece.章号) {
     items.push({
       checkId: 'fm-piece-mismatch',
       level: 'red',
-      message: `篇号「${piece.篇号}」与文件名「${fileName}」前缀不一致`,
+      message: `章号「${piece.章号}」与文件名「${fileName}」前缀不一致`,
     })
   }
   if (!piece.标题) {

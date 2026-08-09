@@ -1,8 +1,8 @@
 /**
  * 短篇集级索引与重复风险体检。
  *
- * 目标：短篇主链已按单篇闭环，本模块只做整集层面的轻量扫描。
- * 数据来自已定稿 `写作/正文/<篇号>-<标题>.md` 与 `大纲/清单/<篇号>-<标题>.md`，
+ * 目标：短篇主链已按单章闭环，本模块只做整集层面的轻量扫描。
+ * 数据来自已定稿 `写作/正文/<章号>-<标题>.md` 与 `大纲/章纲/<章号>-<标题>.md`，
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
  */
 
@@ -243,7 +243,7 @@ const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTempl
 /** 扫描短篇集索引。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const piecesDir = join(bookRoot, '写作', '正文')
-  const 清单Dir = join(bookRoot, '大纲', '清单')
+  const 章纲Dir = join(bookRoot, '大纲', '章纲')
   if (!existsSync(piecesDir)) return []
   let names: string[]
   try {
@@ -262,11 +262,11 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     const piece = readPiece(bodyPath)
     if (!piece.ok) continue
     const file = readFile(bodyPath)
-    const list = readListIfExists(join(清单Dir, name))
+    const list = readListIfExists(join(章纲Dir, name))
     const coreReversal = firstReal(piece.piece.核心反转, list?.反转线索表.核心反转)
     const body = file.ok ? file.body : ''
     entries.push({
-      num: piece.piece.篇号,
+      num: piece.piece.章号,
       title: piece.piece.标题,
       wordCount: file.ok ? countWords(body) : 0,
       targetEmotion: cleanValue(piece.piece.目标情绪),
@@ -319,9 +319,9 @@ export function formatShortSubmissionView(
   lines.push(`- 标题风格：${template.titleStyle}`)
   lines.push(`- 简介长度：${template.introLength}`)
   lines.push(`- 卖点字段：${template.sellingPoints.join(' / ')}`)
-  lines.push(`- 篇数：${items.length}`)
+  lines.push(`- 章数：${items.length}`)
   lines.push('')
-  lines.push('| 篇号 | 标题 | 字数 | 情绪 | 反转类型 | 结尾味道 | 一句卖点 |')
+  lines.push('| 章号 | 标题 | 字数 | 情绪 | 反转类型 | 结尾味道 | 一句卖点 |')
   lines.push('| --- | --- | ---: | --- | --- | --- | --- |')
   for (const item of items) {
     lines.push(`| ${String(item.num).padStart(3, '0')} | ${escapeTable(item.title)} | ${item.words} | ${escapeTable(item.targetEmotion)} | ${escapeTable(item.reversalType)} | ${escapeTable(item.endingFlavor)} | ${escapeTable(item.pitch)} |`)
@@ -467,9 +467,9 @@ function analyzePlatformProfile(
   const planning = analyzePlanningView(entries)
   const avgWords = avg(entries.map((entry) => entry.wordCount))
   const weakReversals = entries.filter((entry) => entry.reversalQuality.grade === '弱').length
-  if (entries.length > 0 && avgWords > (config.word_max ?? 20000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆篇或压缩铺陈。`)
+  if (entries.length > 0 && avgWords > (config.word_max ?? 20000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆章或压缩铺陈。`)
   if (entries.length > 0 && avgWords < (config.word_min ?? 8000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 低于画像下限，反转前因后果可能偏薄。`)
-  if (weakReversals > 0) notes.push(`${weakReversals} 篇反转质量偏弱，优先补铺垫/回收/峰值。`)
+  if (weakReversals > 0) notes.push(`${weakReversals} 章反转质量偏弱，优先补铺垫/回收/峰值。`)
   if (notes.length === 0) notes.push('当前样本与画像约束基本贴合，可继续观察分布重复。')
   return {
     profile,
@@ -501,7 +501,7 @@ function profileEmphasis(profile: string): string {
   if (/爽|打脸|复仇|逆袭/.test(profile)) return '快开局、连续爽点、反转后即时清算'
   if (/情感|治愈|言情|余韵/.test(profile)) return '情绪递进、关系真相、余韵闭合'
   if (/设定|科幻|奇观|玄幻|奇幻/.test(profile)) return '规则亮相、设定反转、物件闭环'
-  return '单篇闭环、一反转撑全篇、避免相邻篇同质'
+  return '单章闭环、一反转撑全章、避免相邻章同质'
 }
 
 function analyzePlanningView(entries: ShortPieceIndexEntry[]): ShortPlanningView {
@@ -575,7 +575,7 @@ function recentRepeatRisks(
   return [{
     kind: 'recent-repeat',
     field,
-    message: `最近 3 篇${label}都为「${values[0]}」`,
+    message: `最近 3 章${label}都为「${values[0]}」`,
     pieces: recent.map((entry) => entry.num),
   }]
 }

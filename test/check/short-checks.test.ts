@@ -12,13 +12,13 @@ import type { PieceList } from '../../src/format/types.js'
 
 // ── checkPieceFrontMatter ────────────────────────
 
-test('checkPieceFrontMatter: 篇号文件名一致通过', () => {
-  const r = checkPieceFrontMatter({ 篇号: 1, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
+test('checkPieceFrontMatter: 章号文件名一致通过', () => {
+  const r = checkPieceFrontMatter({ 章号: 1, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
   expect(r.items).toHaveLength(0)
 })
 
-test('checkPieceFrontMatter: 篇号不一致报红', () => {
-  const r = checkPieceFrontMatter({ 篇号: 2, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
+test('checkPieceFrontMatter: 章号不一致报红', () => {
+  const r = checkPieceFrontMatter({ 章号: 2, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
   expect(r.items).toHaveLength(1)
   expect(r.items[0]!.level).toBe('red')
 })

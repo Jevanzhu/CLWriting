@@ -85,16 +85,16 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
 })
 
 describe('双轨回归 · 短篇 P1–P4 数据链', () => {
-  it('总览：短篇身份 + 篇数(2)', async () => {
+  it('总览：短篇身份 + 章数(2)', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/overview`)
     const d = (await r.json()) as { identity: { kind: string }; progress: { chapters: number } }
     expect(d.identity.kind).toBe('short')
     expect(d.progress.chapters).toBe(2)
   })
 
-  it('节奏：核心反转 2 篇', async () => {
+  it('节奏：核心反转 2 章', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/rhythm`)
-    const d = (await r.json()) as { kind: string; reversals: { 篇号: number }[] }
+    const d = (await r.json()) as { kind: string; reversals: { 章号: number }[] }
     expect(d.kind).toBe('short')
     expect(d.reversals).toHaveLength(2)
   })

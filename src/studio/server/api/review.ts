@@ -198,7 +198,7 @@ async function runLensSpawnLoop(opts: {
     const lens = sub.lens
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
-    const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter, opts.kind)
+    const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
     const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
     const { input, text } = out.data
@@ -217,10 +217,9 @@ function buildLensPrompt(
   sub: { title?: string; focus?: string[]; ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }> },
   draftBody: string,
   chapter: number,
-  kind: 'long' | 'short',
 ): string {
-  const unit = kind === 'short' ? '篇' : '章'
-  const parts: string[] = [`## 任务\n你是第 ${chapter} ${unit}的${LENS_LABEL[lens] ?? lens}审稿员,按视角审正文,只报问题。`]
+  // 短篇/长篇统一用「章」作为正文单位
+  const parts: string[] = [`## 任务\n你是第 ${chapter} 章的${LENS_LABEL[lens] ?? lens}审稿员,按视角审正文,只报问题。`]
   if (sub.focus?.length) parts.push(`## 焦点\n${sub.focus.map((f) => `- ${f}`).join('\n')}`)
   if (lens === 'continuity') {
     const checks = sub.ledger_checks ?? []

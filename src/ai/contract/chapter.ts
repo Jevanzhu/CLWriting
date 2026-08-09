@@ -46,7 +46,7 @@ export function submitChapterLong(): ToolDef {
   }
 }
 
-/** 短篇写作工具——定义篇 front matter 结构化字段 + 正文 */
+/** 短篇写作工具——定义短篇 front matter 结构化字段 + 正文 */
 export function submitChapterShort(): ToolDef {
   return {
     name: 'submit_piece',
@@ -54,10 +54,10 @@ export function submitChapterShort(): ToolDef {
     input_schema: {
       type: 'object',
       properties: {
-        标题: { type: 'string', description: '本篇标题' },
+        标题: { type: 'string', description: '本章标题' },
         目标情绪: {
           type: 'string',
-          description: '本篇要落地的核心情绪（如：恐惧/温暖/震撼/悲伤/释然）',
+          description: '本章要落地的核心情绪（如：恐惧/温暖/震撼/悲伤/释然）',
         },
         核心反转: {
           type: 'string',
@@ -103,7 +103,7 @@ export function chapterToolName(kind: 'long' | 'short'): string {
 
 /**
  * 从 tool_use 结构化产出拼装完整 markdown（front matter + 正文）。
- * 章号/篇号由宿主填入（AI 不产出），front matter 由宿主组装（AI 不手写）。
+ * 章号由宿主填入（AI 不产出），front matter 由宿主组装（AI 不手写）。
  */
 export function assembleChapter(
   input: unknown,
@@ -120,11 +120,7 @@ export function assembleChapter(
   // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析，P2-8）
   const fmVal = (v: unknown): string => String(v ?? '').trim().replace(/[\r\n]+/g, ' ')
   const lines: string[] = []
-  if (kind === 'short') {
-    lines.push(`篇号: ${chapter}`)
-  } else {
-    lines.push(`章号: ${chapter}`)
-  }
+  lines.push(`章号: ${chapter}`)
   const 标题 = fmVal(o['标题'])
   if (标题) lines.push(`标题: ${标题}`)
   if (kind === 'short') {

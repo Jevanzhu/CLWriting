@@ -197,9 +197,9 @@ function runShort(input: CheckInput): CheckReport {
   const sections: CheckSectionResult[] = []
   const short = input.config.short
 
-  // front matter（短篇口径：篇号 + 标题，无钩子/情绪枚举）
-  // 短篇复用 ChapterMeta 内存模型（章号字段承载篇号），按短篇字段校验
-  sections.push(checkPieceFrontMatter({ 篇号: chapter.章号, 标题: chapter.标题 }, fileName))
+  // front matter（短篇口径：章号 + 标题，无钩子/情绪枚举）
+  // 短篇复用 ChapterMeta 内存模型（章号承载），按短篇字段校验
+  sections.push(checkPieceFrontMatter({ 章号: chapter.章号, 标题: chapter.标题 }, fileName))
 
   const ironRules = readIronRules(bookRoot)
 
@@ -222,10 +222,10 @@ function runShort(input: CheckInput): CheckReport {
   sections.push(checkOpeningNoEnv(body, short?.opening_env_chars))
 
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）
-  // 清单已分离到 大纲/清单/ 目录，与正文同名（写作/正文/<篇号>-<标题>.md → 大纲/清单/<篇号>-<标题>.md，见 layout.ts:67）
+  // 章纲已分离到 大纲/章纲/ 目录，与正文同名（写作/正文/<章号>-<标题>.md → 大纲/章纲/<章号>-<标题>.md，见 layout.ts:67）
   let pieceList: PieceList | null = null
   if (chapter._path) {
-    const manifestPath = join(bookRoot, '大纲', '清单', basename(chapter._path))
+    const manifestPath = join(bookRoot, '大纲', '章纲', basename(chapter._path))
     if (existsSync(manifestPath)) {
       const r = readPieceList(manifestPath)
       if (r.ok) {

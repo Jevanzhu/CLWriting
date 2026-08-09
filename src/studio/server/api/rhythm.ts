@@ -1,7 +1,7 @@
 /**
  * 章节节奏 REST 端点（#7.4 双轨：规划 vs 已写，块4 节奏预测）。
  *
- * GET /api/books/:name/rhythm → 长篇(wordCurve + written/planned 双轨分布) / 短篇(篇长+目标情绪)
+ * GET /api/books/:name/rhythm → 长篇(wordCurve + written/planned 双轨分布) / 短篇(章长+目标情绪)
  *
  * 双轨数据源：readChapterDir 读 写作/正文（已写实际）+ 大纲/章纲（块3.1 录入规划）。
  * planned.targetWords 求和自 ChapterMeta.字数目标。
@@ -76,18 +76,18 @@ function rhythmLong(bookRoot: string): unknown {
 
 function rhythmShort(bookRoot: string, config: BookConfig): unknown {
   const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-  const sorted = pieces.slice().sort((a, b) => a.篇号 - b.篇号)
+  const sorted = pieces.slice().sort((a, b) => a.章号 - b.章号)
   // 连续故事：有钩子字段 → 附带节奏分布数据（独立短篇无钩子字段 → 不附带）
   const hasHookData = pieces.some((p) => p.钩子类型 || p.情绪定位 || p.场景)
   return {
     kind: 'short' as const,
-    wordCurve: sorted.map((p) => ({ 篇号: p.篇号, 标题: p.标题, 字数: p._wordCount ?? 0 })),
+    wordCurve: sorted.map((p) => ({ 章号: p.章号, 标题: p.标题, 字数: p._wordCount ?? 0 })),
     emotionDist: countDynamic(pieces.map((p) => p.目标情绪)),
     reversalGap: buildReversalGap(pieces, config),
     reversalUnrecognized: countUnrecognized(pieces, config),
     reversals: pieces
       .filter((p) => p.核心反转)
-      .map((p) => ({ 篇号: p.篇号, 标题: p.标题, 核心反转: p.核心反转! })),
+      .map((p) => ({ 章号: p.章号, 标题: p.标题, 核心反转: p.核心反转! })),
     ...(hasHookData
       ? {
           written: {
@@ -103,9 +103,9 @@ function rhythmShort(bookRoot: string, config: BookConfig): unknown {
 }
 
 /**
- * 反转类型覆盖缺口（#阶段6 反转缺口）：画像目标池 vs 已写篇的核心反转归类。
+ * 反转类型覆盖缺口（#阶段6 反转缺口）：画像目标池 vs 已写章的核心反转归类。
  * 归类走本地关键词规则（format/reversal-types，派生数据不落盘）。
- * 只统计画像池内的类型；未识别篇数单独透出（reversalUnrecognized）。
+ * 只统计画像池内的类型；未识别章数单独透出（reversalUnrecognized）。
  */
 function buildReversalGap(
   pieces: { 核心反转?: string }[],
@@ -132,7 +132,7 @@ function buildReversalGap(
   }))
 }
 
-/** 未归类篇数：核心反转存在但分类未命中画像池（规则覆盖不到 / 池外类型） */
+/** 未归类章数：核心反转存在但分类未命中画像池（规则覆盖不到 / 池外类型） */
 function countUnrecognized(pieces: { 核心反转?: string }[], config: BookConfig): number {
   const targets = config.short?.target_reversal_types ?? []
   if (targets.length === 0) return 0

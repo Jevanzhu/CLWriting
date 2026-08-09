@@ -20,7 +20,7 @@ describe('layout / roleOf 按路径判 role', () => {
   it('大纲区：卷纲 / 普通大纲（线索拆到 布线/）', () => {
     expect(roleOf('大纲/卷纲/第一卷.md')).toBe('volume-outline')
     expect(roleOf('大纲/总纲.md')).toBe('outline')
-    expect(roleOf('大纲/章纲/0001-开篇.md')).toBe('outline')
+    expect(roleOf('大纲/其他.md')).toBe('outline')
   })
 
   it('布线区：线索 → ledger', () => {
@@ -28,8 +28,8 @@ describe('layout / roleOf 按路径判 role', () => {
     expect(roleOf('布线/感情线/001-初遇.md')).toBe('ledger')
   })
 
-  it('短篇清单（大纲/清单/ → piece-manifest）', () => {
-    expect(roleOf('大纲/清单/001-雨夜.md')).toBe('piece-manifest')
+  it('短篇章纲（大纲/章纲/ → piece-manifest）', () => {
+    expect(roleOf('大纲/章纲/001-雨夜.md')).toBe('piece-manifest')
   })
 
   it('文风 / 简介 / 工作区', () => {
@@ -72,8 +72,8 @@ describe('layout / capabilitiesOf 系统文档与只读', () => {
     expect(c.trash).toBe(false)
   })
 
-  it('篇清单 piece-manifest：不可删', () => {
-    const c = capabilitiesOf('piece-manifest', '大纲/清单/001-雨夜.md')
+  it('章纲 piece-manifest：不可删', () => {
+    const c = capabilitiesOf('piece-manifest', '大纲/章纲/001-雨夜.md')
     expect(c.trash).toBe(false)
     expect(c.write).toBe(true)
   })

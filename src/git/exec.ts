@@ -103,10 +103,10 @@ export function addCommit(
 }
 
 /**
- * 按定稿 commit 前缀反查某单元（章/篇）定稿 commit 的 SHA（#16 第 5 节回滚定位）。
+ * 按定稿 commit 前缀反查某章定稿 commit 的 SHA（#16 第 5 节回滚定位）。
  * 只搜当前分支历史，不用 --all——避免命中备份 ref（回收/回到N-*）上的旧 commit 导致定位错乱。
  *
- * 前缀按 kind（M8 #26）：long → `ch:<4 位补零章号>`；short → `pc:<3 位补零篇号>`。
+ * 前缀按 kind（M8 #26）：long → `ch:<4 位补零章号>`；short → `pc:<3 位补零章号>`。
  * 默认 long（向后兼容现有调用）。
  */
 export function findChapterCommit(

@@ -144,10 +144,10 @@ function getRecentDoc(bookRoot: string, kind: 'long' | 'short'): { no: number; �
   if (kind === 'short') {
     const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
     if (pieces.length === 0) return null
-    const sorted = [...pieces].sort((a, b) => (b.篇号 ?? 0) - (a.篇号 ?? 0))
+    const sorted = [...pieces].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))
     const last = sorted[0]
     if (!last?._path) return null
-    return { no: last.篇号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
+    return { no: last.章号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
   }
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   if (chapters.length === 0) return null

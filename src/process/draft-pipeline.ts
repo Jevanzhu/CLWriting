@@ -122,16 +122,16 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   if (kind === 'short') {
     const parts: string[] = [
-      `## 任务\n写第 ${chapter} 篇正文(短篇,8000-20000 字,单篇完整开合:铺垫→反转→收尾,目标情绪落地)。`,
+      `## 任务\n写第 ${chapter} 章正文(短篇,8000-20000 字,单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
     ]
-    if (outline) parts.push(`## 本篇细纲(已确认)\n${outline}`)
-    if (chapterOutline) parts.push(`## 本篇章纲(情节走向依据)\n${chapterOutline}`)
+    if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
+    if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
     if (materials) parts.push(`## 备料\n${materials}`)
     if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
-      `## 要求\n只输出第 ${chapter} 篇正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单篇闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
+      `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
     return parts.join('\n\n')
   }

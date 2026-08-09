@@ -84,7 +84,7 @@ test('recommendShortChecks: 悬疑/怪谈使用更紧开头与较短篇幅', () 
   })
 })
 
-test('recommendShortChecks: 爽文打脸压缩起篇窗口', () => {
+test('recommendShortChecks: 爽文打脸压缩开篇窗口', () => {
   expect(recommendShortChecks('都市打脸爽文')).toMatchObject({
     profile: '快节奏爽点',
     target_emotions: ['爽感', '愤怒', '扬眉吐气', '痛快'],

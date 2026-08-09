@@ -120,7 +120,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
-      const prompt = buildAnalystPrompt(kind, body, chapter, isShort ? 'short' : 'long', bookRoot)
+      const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
       const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
       if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
       const payload = result.payload
@@ -160,11 +160,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
-      const unit = isShort ? '篇' : '章'
       const prompt = [
         '[kind:tags]',
         '',
-        `## 任务\n对第 ${chapter.章号} ${unit}正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
+        `## 任务\n对第 ${chapter.章号} 章正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
         '',
         `## 正文\n${body}`,
       ].join('\n')
@@ -344,14 +343,12 @@ function buildAnalystPrompt(
   kind: AnalysisKind,
   body: string,
   chapter: ChapterMeta,
-  bookKind: 'long' | 'short',
   bookRoot: string,
 ): string {
-  const unit = bookKind === 'short' ? '篇' : '章'
   const parts: string[] = [
     `[kind:${kind}]`,
     '',
-    `## 任务\n对第 ${chapter.章号} ${unit}正文做${ANALYSIS_LABEL[kind]}分析，只读不改稿。`,
+    `## 任务\n对第 ${chapter.章号} 章正文做${ANALYSIS_LABEL[kind]}分析，只读不改稿。`,
   ]
   // 各 kind 附「规则版为底」（章纲 fm 声明 / 本地 stats），AI 据此补识别/评价
   if (kind === 'emotion') {

@@ -2,7 +2,7 @@
  * 草稿/正文读取共享模块。
  *
  * 读正文区文件 → ChapterMeta + body，供 finalize/check/review/chat 共用。
- * 长篇 readChapter（章节 frontmatter 完整校验）；短篇 readPiece 映射 ChapterMeta（章号字段承载篇号）。
+ * 长篇 readChapter（章节 frontmatter 完整校验）；短篇 readPiece 映射 ChapterMeta。
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { relative, join } from 'node:path'
@@ -18,7 +18,7 @@ export type ReadDraftResult =
 /**
  * 读正文区文件 → ChapterMeta + body。
  * - 长篇：readChapter（章节 front matter：章号/标题/钩子/情绪）
- * - 短篇：readPiece 映射 ChapterMeta（章号=篇号；目标情绪/核心反转带进 _raw）
+ * - 短篇：readPiece 映射 ChapterMeta（目标情绪/核心反转带进 _raw）
  */
 export function readDraft(draftPath: string, isShort: boolean): ReadDraftResult {
   if (!existsSync(draftPath)) {
@@ -33,7 +33,7 @@ export function readDraft(draftPath: string, isShort: boolean): ReadDraftResult 
     if (piece.piece.目标情绪) raw['目标情绪'] = piece.piece.目标情绪
     if (piece.piece.核心反转) raw['核心反转'] = piece.piece.核心反转
     const chapter: ChapterMeta = {
-      章号: piece.piece.篇号,
+      章号: piece.piece.章号,
       标题: piece.piece.标题,
       // 连续故事有真值则用真值，独立短篇 fallback dummy
       钩子类型: piece.piece.钩子类型 ?? '悬念钩',
@@ -57,7 +57,7 @@ export function readDraft(draftPath: string, isShort: boolean): ReadDraftResult 
 export function draftParseReason(message: string, isShort: boolean): string {
   if (message.includes('front matter')) {
     if (isShort) {
-      return `${message}。草稿必须以短篇 front matter 开头，至少包含：篇号、标题、目标情绪、核心反转。`
+      return `${message}。草稿必须以短篇 front matter 开头，至少包含：章号、标题、目标情绪、核心反转。`
     }
     return `${message}。草稿必须以章节 front matter 开头，至少包含：章号、标题、钩子类型、钩子强弱、情绪定位。`
   }
@@ -67,7 +67,7 @@ export function draftParseReason(message: string, isShort: boolean): string {
 /**
  * 定稿文件名规则（kind 分支）：
  * - long：写作/正文/<章号>-<标题>.md（扁平）
- * - short：写作/正文/<篇号3位>-<标题>.md（扁平，清单另放 大纲/清单/ 同名文件）
+ * - short：写作/正文/<章号3位>-<标题>.md（扁平，章纲另放 大纲/章纲/ 同名文件）
  */
 export function finalChapterFileName(chapter: ChapterMeta, isShort: boolean): string {
   if (isShort) {
@@ -95,7 +95,7 @@ export function resolveDraftPath(
   // 1. 已有同章号 → 覆盖
   if (existsSync(bodyDir)) {
     if (isShort) {
-      const hit = readPieceDir(bodyDir).pieces.find((p) => p.篇号 === chapter)
+      const hit = readPieceDir(bodyDir).pieces.find((p) => p.章号 === chapter)
       if (hit?._path) return { relPath: slashRelative(bookRoot, hit._path), existed: true }
     } else {
       const hit = readChapterDir(bodyDir).chapters.find((c) => c.章号 === chapter)
@@ -104,7 +104,7 @@ export function resolveDraftPath(
   }
 
   // 2. 新章 → 生成正式文件路径
-  const title = extractTitleFromContent(content) ?? (isShort ? `第${chapter}篇` : `第${chapter}章`)
+  const title = extractTitleFromContent(content) ?? `第${chapter}章`
   const fileName = isShort
     ? `${String(chapter).padStart(3, '0')}-${title}.md`
     : `${chapter}-${title}.md`

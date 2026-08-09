@@ -181,12 +181,12 @@ async function saveRagConfig(): Promise<void> {
     </div>
     <div class="setting-item">
       <div class="setting-item-info">
-        <div class="setting-item-name">{{ bookKind === 'short' ? '批量写作篇数' : '批量写作章数' }}</div>
-        <div class="setting-item-desc">{{ bookKind === 'short' ? '一次自动写作流程连续写的篇数' : '一次自动写作流程连续写的章数' }}</div>
+        <div class="setting-item-name">批量写作章数</div>
+        <div class="setting-item-desc">一次自动写作流程连续写的章数</div>
       </div>
       <div class="setting-item-control">
         <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
-        <span class="val-suffix">{{ bookKind === 'short' ? '篇' : '章' }}</span>
+        <span class="val-suffix">章</span>
       </div>
     </div>
   </section>

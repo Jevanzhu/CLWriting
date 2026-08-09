@@ -15,6 +15,7 @@ import { migratePieceLayout } from '../../format/pieces.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
+import { migrateChapterUnify } from '../../install/migrate-chapter-unify.js'
 import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
@@ -118,6 +119,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateVersionsDir(bookPath)
       // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
       migrateFinalizedRevisions(bookPath)
+      // 短篇「篇→章」统一迁移：fm 字段 篇号→章号 + 目录 大纲/清单/→大纲/章纲/（幂等）
+      const unifyResult = migrateChapterUnify(bookPath)
+      if (unifyResult.errors.length > 0) {
+        console.error(`[migrate-chapter-unify] ${book.path}: ${unifyResult.errors.length} 个错误\n${unifyResult.errors.join('\n')}`)
+      }
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

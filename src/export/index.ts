@@ -39,10 +39,10 @@ export interface ExportResult {
   ok: boolean
   /** 导出的文件列表（相对书仓库的路径） */
   files: string[]
-  /** 导出的章/篇数量 */
+  /** 导出的章数 */
   chapterCount: number
   /** 导出对象单位 */
-  unit: '章' | '篇'
+  unit: '章'
   /** 错误信息 */
   error?: string
 }
@@ -76,25 +76,24 @@ export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, format = 'both', platform = 'generic' } = options
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
-  const unitLabel = kind === 'short' ? '篇' : '章'
   const bodyDir = join(bookRoot, '写作', '正文')
 
   // 1. 扫描定稿正文（长篇复用 readChapterDir；短篇复用 readPieceDir）
   if (!existsSync(bodyDir)) {
-    return { ok: false, files: [], chapterCount: 0, unit: unitLabel, error: `没有定稿${unitLabel === '篇' ? '短篇' : '正文'}可导出。` }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
   const { units, errors } = kind === 'short'
     ? readShortExportUnits(bodyDir)
     : readLongExportUnits(bodyDir)
   if (errors.length > 0) {
     const msgs = errors.map((e) => `${e.file}: ${e.message}`).join('; ')
-    return { ok: false, files: [], chapterCount: 0, unit: unitLabel, error: `${unitLabel}解析失败：${msgs}` }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${msgs}` }
   }
   if (units.length === 0) {
-    return { ok: false, files: [], chapterCount: 0, unit: unitLabel, error: `没有定稿${unitLabel === '篇' ? '短篇' : '正文'}可导出。` }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
 
-  // 2. 按章/篇号数值排序（不依赖文件名字符串序）
+  // 2. 按章号数值排序（不依赖文件名字符串序）
   units.sort((a, b) => a.num - b.num)
 
   // 3. 读正文并净化（复用 readFile 取 body；readChapter 只返 meta 不够）
@@ -102,7 +101,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   for (const unit of units) {
     const r = readFile(unit.path)
     if (!r.ok) {
-      return { ok: false, files: [], chapterCount: 0, unit: unitLabel, error: `读取 ${unit.path} 失败：${r.error.message}` }
+      return { ok: false, files: [], chapterCount: 0, unit: '章', error: `读取 ${unit.path} 失败：${r.error.message}` }
     }
     purified.push({ num: unit.num, title: unit.title, body: purifyBody(r.body) })
   }
@@ -121,19 +120,19 @@ export function exportBook(options: ExportOptions): ExportResult {
   const doMerged = format === 'merged' || format === 'both'
   const doSplit = format === 'split' || format === 'both'
 
-  // 6. 单文件合并：长篇 全本-<书名>.md；短篇 全篇集-<集名>.md
+  // 6. 单文件合并：全本-<书名>.md
   if (doMerged) {
     const mergedContent = purified
       .map((unit) => `# ${unit.title}\n\n${unit.body}`)
       .join('\n\n---\n\n')
-    const fileName = `${kind === 'short' ? '全篇集' : '全本'}-${sanitizeFileName(bookTitle)}.md`
+    const fileName = `全本-${sanitizeFileName(bookTitle)}.md`
     writeFileSync(join(exportDir, fileName), mergedContent, 'utf-8')
     files.push(`工作区/导出/${fileName}`)
   }
 
-  // 7. 分章/分篇导出：工作区/导出/分章|分篇/<序号>-<标题>.md
+  // 7. 分章导出：工作区/导出/分章/<序号>-<标题>.md
   if (doSplit) {
-    const splitName = kind === 'short' ? '分篇' : '分章'
+    const splitName = '分章'
     const splitDir = join(exportDir, splitName)
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
@@ -155,7 +154,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     files.push(`工作区/导出/${submissionName}`)
   }
 
-  return { ok: true, files, chapterCount: units.length, unit: unitLabel }
+  return { ok: true, files, chapterCount: units.length, unit: '章' }
 }
 
 function readLongExportUnits(bodyDir: string): { units: ExportUnit[]; errors: ReturnType<typeof readChapterDir>['errors'] } {
@@ -169,7 +168,7 @@ function readLongExportUnits(bodyDir: string): { units: ExportUnit[]; errors: Re
 function readShortExportUnits(bodyDir: string): { units: ExportUnit[]; errors: ReturnType<typeof readPieceDir>['errors'] } {
   const { pieces, errors } = readPieceDir(bodyDir)
   return {
-    units: pieces.flatMap((piece) => piece._path ? [{ num: piece.篇号, title: piece.标题, path: piece._path }] : []),
+    units: pieces.flatMap((piece) => piece._path ? [{ num: piece.章号, title: piece.标题, path: piece._path }] : []),
     errors,
   }
 }

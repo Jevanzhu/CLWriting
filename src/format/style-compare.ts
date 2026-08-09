@@ -86,7 +86,7 @@ export interface CompareResult {
 }
 
 /**
- * 整篇比对：段落全局贪心配对（相似度降序，一一配对）；
+ * 整章比对：段落全局贪心配对（相似度降序，一一配对）；
  * 配不上的作者段 sim=0 → gap（大改/新写正是样章候选信号）。
  */
 export function compareVersions(aiText: string, authorText: string): CompareResult {

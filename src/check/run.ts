@@ -62,7 +62,7 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
 
 /**
  * 扫 `写作/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
- * 短篇无章号概念（篇号承载于 ChapterMeta.章号，但短篇不走账本检查）→ 返回 undefined。
+ * 短篇不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  */
 function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undefined {

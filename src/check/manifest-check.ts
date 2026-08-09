@@ -47,7 +47,7 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
     items.push({
       checkId: 'emotion-curve-short',
       level: 'yellow',
-      message: `情绪曲线有效段仅 ${realCurve.length} 段（<5），无法核对单篇情绪爆破`,
+      message: `情绪曲线有效段仅 ${realCurve.length} 段（<5），无法核对单章情绪爆破`,
     })
   }
   const invalidStrength = curve.filter((p) => !Number.isFinite(p.强度) || p.强度 < 1 || p.强度 > 10)
@@ -69,7 +69,7 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
     items.push({
       checkId: 'emotion-curve-peak-low',
       level: 'yellow',
-      message: '情绪曲线最高强度低于 8/10，单篇爆破力可能不足',
+      message: '情绪曲线最高强度低于 8/10，单章爆破力可能不足',
     })
   }
 

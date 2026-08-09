@@ -58,7 +58,7 @@ test('buildReviewPacket short: 满审产短篇三视角分包', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
-test('review 打包 short: 读取篇号草稿并把清单核对写入执行包', () => {
+test('review 打包 short: 读取章号草稿并把清单核对写入执行包', () => {
   const root = mkdtempSync(join(tmpdir(), 'review-short-cli-'))
   const workDir = join(root, '写作', '草稿')
   try {
@@ -68,7 +68,7 @@ test('review 打包 short: 读取篇号草稿并把清单核对写入执行包',
     writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n', 'utf-8')
     writePiece(
       join(workDir, '草稿-1.md'),
-      { 篇号: 1, 标题: '雪夜来客', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
+      { 章号: 1, 标题: '雪夜来客', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
       ['第一节。', '第二节。', '第三节。', '第四节。', '第五节。'].join('\n\n'),
     )
     const list: PieceList = {
@@ -82,9 +82,9 @@ test('review 打包 short: 读取篇号草稿并把清单核对写入执行包',
       },
       伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
     }
-    // 清单分离到 大纲/清单/ 目录，与正文同名（见 runner.ts:228）；草稿场景 basename = 草稿-1.md
-    mkdirSync(join(root, '大纲', '清单'), { recursive: true })
-    writePieceList(join(root, '大纲', '清单', '草稿-1.md'), list)
+    // 章纲分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）；草稿场景 basename = 草稿-1.md
+    mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+    writePieceList(join(root, '大纲', '章纲', '草稿-1.md'), list)
 
     // 机检 → byproducts.pieceListChecks（清单核对条目，payoff 设定收尾审用）
     const outcome = runCheckForDocument(root, join(workDir, '草稿-1.md'))

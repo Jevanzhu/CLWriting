@@ -4,7 +4,7 @@ export interface BookEntry {
   name: string
   title?: string
   kind?: string
-  /** 章数（长篇）/ 篇数（短篇），书架卡进度展示 */
+  /** 章数，书架卡进度展示 */
   chapters?: number
   /** 定稿字数（长篇；短篇缺省 0） */
   words?: number
@@ -12,7 +12,7 @@ export interface BookEntry {
   lastEdited?: string | null
   /** 目标字数（book.yaml target_words，hero 卡进度条用） */
   targetWords?: number
-  /** 最近章节/篇标题（hero 卡"继续写作"用） */
+  /** 最近章节标题（hero 卡"继续写作"用） */
   latestChapter?: string
 }
 

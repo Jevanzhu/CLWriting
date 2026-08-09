@@ -116,11 +116,11 @@ export async function moveDoc(
   )
 }
 
-// PATCH /documents/:docId op=meta（块2.2：更新章节/短篇元数据 标题/章号|篇号；写 fm + 路径同步 rename）。
+// PATCH /documents/:docId op=meta（块2.2：更新章节/短篇元数据 标题/章号；写 fm + 路径同步 rename）。
 export async function updateChapterMetaDoc(
   name: string,
   docId: string,
-  meta: { 标题?: string; 章号?: number; 篇号?: number },
+  meta: { 标题?: string; 章号?: number },
 ): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,

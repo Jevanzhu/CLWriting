@@ -74,7 +74,7 @@ test('短篇书库：篇/ → 写作/正文/（篇即章）', () => {
   const r = migrateLayoutV2(tmp)
   expect(r.errors).toEqual([])
   expect(has('写作/正文/001-雪夜.md')).toBe(true)
-  expect(has('大纲/清单/001-雪夜.md')).toBe(true)
+  expect(has('大纲/章纲/001-雪夜.md')).toBe(true)
   // 文风保留原位（幕后资产）
   expect(has('文风/铁律.md')).toBe(true)
 })
