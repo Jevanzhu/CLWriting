@@ -8,7 +8,6 @@
 import { join, basename, dirname } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { readKind } from '../format/kind.js'
 import { readChapterDir } from '../format/chapters.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { buildSettingsContext } from './settings-context.js'
@@ -65,9 +64,7 @@ export function saveDraft(
   content: string,
   opts?: { recordAi?: boolean; snapshotOrigin?: string },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
-  const kind = readKind(bookRoot)
-  // 草稿直接写正文区（resolveDraftPath 按章号定位/创建正式文件路径）
-  const { relPath } = resolveDraftPath(bookRoot, chapter, kind, content)
+  const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
   // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
   const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)

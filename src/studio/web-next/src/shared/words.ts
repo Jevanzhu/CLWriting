@@ -84,13 +84,12 @@ export function parseFmFields(content: string): Record<string, string> {
 export function formKindOf(
   path: string,
 ):
-  | 'chapter' | 'piece-body' | 'piece-manifest'
+  | 'chapter' | 'piece-body'
   | 'chapter-outline' | 'volume-outline' | 'synopsis'
   | 'character' | 'worldview' | 'item' | 'foreshadow' | null {
   if (path.startsWith('写作/正文/')) return 'chapter'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'
-  if (path.startsWith('大纲/清单/')) return 'piece-manifest'
   if (path === '大纲/总纲.md') return 'synopsis'
   if (path.startsWith('设定/角色/')) return 'character'
   if (path === '设定/世界观.md') return 'worldview'

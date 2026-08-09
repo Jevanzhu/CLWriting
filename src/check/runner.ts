@@ -24,7 +24,6 @@ import {
   checkStyleMetrics,
   checkInfoLeak,
   parseIronRules,
-  checkPieceFrontMatter,
   checkPieceWordCount,
   checkBodyParts,
   checkSimile,
@@ -65,52 +64,49 @@ export interface CheckInput {
 /**
  * 跑全套机检（#10 第 2 节 11 项）→ CheckReport。
  *
- * 按 `config.kind` 分支（M8 #27 第 5 节，H2 合并设计）：
- * - long（缺省）：长篇 11 项（账本/成长线/db 强依赖），行为逐字节不变
- * - short：跳账本/成长线/专名/信息差（长程项），跑通用项（禁词/复读/句式/文风）+ 短篇专属项（身体部位词/「像」/节数/开头零环境）+ 清单形式检
+ * 长短篇统一链路，按数据存在性条件开关：
+ * - 有布线（账本/成长线）：账本形式三检 + 成长线 + 专名/信息差（db 强依赖）
+ * - 有 config.short：短篇专属项（身体部位词/「像」/节数/开头零环境）+ 清单形式检
+ * - 通用项（禁词/复读/句式/文风/字数）恒跑
  */
 export function runAllChecks(input: CheckInput): CheckReport {
-  const { config } = input
-  const isShort = (config.kind ?? 'long') === 'short'
-  return isShort ? runShort(input) : runLong(input)
-}
-
-/** 长篇机检（#10 第 2 节 11 项，db 强依赖，行为逐字节不变） */
-function runLong(input: CheckInput): CheckReport {
   const { db, bookRoot, config, chapter, body, fileName } = input
-  if (!db) {
-    // 长篇必须带 db（账本/成长线项强依赖）；防御性兜底
-    throw new Error('runAllChecks: 长篇机检需要 db（缓存 index.db）')
-  }
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  const short = config.short
   const sections: CheckSectionResult[] = []
 
   // 当前章号：默认取本章自身章号；调用方传了全书最高章号时用它作基准
   // （账本「未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）
   const currentChapter = input.maxWrittenChapter ?? chapter.章号
-
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
   const enabledTypes = ['悬念', '感情线', ...config.leads.enabled]
 
-  // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
-  sections.push(
-    checkLeadsForm(db, bookRoot, currentChapter, enabledTypes, input.declaredLeadIds, input.actualLeadIds),
-  )
-
-  // #10 项 2 成长线语义（红）—— 仅启用成长线时
-  if (config.leads.enabled.includes('成长线')) {
-    const realmPath = join(bookRoot, '设定', '境界体系.md')
-    let realmDoc: RealmDoc | null = null
-    if (existsSync(realmPath)) {
-      const r = readRealmDoc(realmPath)
-      if (r.ok) realmDoc = r.doc
+  // 有布线 → 账本类检查（db 强依赖；无布线 = 独立短篇，跳过）
+  if (hasWiring) {
+    if (!db) {
+      throw new Error('runAllChecks: 有布线（账本/成长线）机检需要 db（缓存 index.db）')
     }
-    const growthIds = (db.prepare(
-      `SELECT id FROM leads WHERE type = '成长线'`,
-    ).all() as { id: string }[]).map((r) => r.id)
-    sections.push(checkGrowth(db, realmDoc, growthIds, config.growth.realm_span_max ?? 2))
+    // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
+    sections.push(
+      checkLeadsForm(db, bookRoot, currentChapter, enabledTypes, input.declaredLeadIds, input.actualLeadIds),
+    )
+
+    // #10 项 2 成长线语义（红）—— 仅启用成长线时
+    if (config.leads.enabled.includes('成长线')) {
+      const realmPath = join(bookRoot, '设定', '境界体系.md')
+      let realmDoc: RealmDoc | null = null
+      if (existsSync(realmPath)) {
+        const r = readRealmDoc(realmPath)
+        if (r.ok) realmDoc = r.doc
+      }
+      const growthIds = (db.prepare(
+        `SELECT id FROM leads WHERE type = '成长线'`,
+      ).all() as { id: string }[]).map((r) => r.id)
+      sections.push(checkGrowth(db, realmDoc, growthIds, config.growth.realm_span_max ?? 2))
+    }
   }
 
-  // #10 项 3 front matter 格式（红）
+  // #10 项 3 front matter 格式（红）（长短统一 ChapterMeta 口径）
   sections.push(checkFrontMatter(chapter, fileName))
 
   // 文风铁律（禁词红项 + 可量化黄项）
@@ -119,8 +115,12 @@ function runLong(input: CheckInput): CheckReport {
   // #10 项 4 禁词（红）
   sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
 
-  // #10 项 5 字数（黄）
-  sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0))
+  // 字数（黄）：有 config.short 用短篇阈值；否则用细纲目标
+  if (short) {
+    sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short.word_min, short.word_max))
+  } else {
+    sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0))
+  }
 
   // #10 项 6 复读（黄）
   sections.push(checkRepeat(body))
@@ -134,17 +134,44 @@ function runLong(input: CheckInput): CheckReport {
   // #10 项 9 文风可量化（黄）—— 读 文风铁律.md 的可量化硬约束阈值（#5 第 8 节）
   sections.push(checkStyleMetrics(body, ironRules))
 
-  // #10 项 10 新专名候选（黄）
-  const rosterPath = join(bookRoot, '设定', '名册.md')
-  sections.push(checkNewNames(body, rosterPath))
+  // 有布线 → #10 项 10 新专名候选（黄）+ #10 项 11 信息差泄密候选（黄）
+  if (hasWiring) {
+    const rosterPath = join(bookRoot, '设定', '名册.md')
+    sections.push(checkNewNames(body, rosterPath))
+    sections.push(checkInfoLeak(body, input.leakKeywords ?? []))
+  }
 
-  // #10 项 11 信息差泄密候选（黄）
-  sections.push(checkInfoLeak(body, input.leakKeywords ?? []))
+  // 短篇专属项（#27 第 5.3 节，有 config.short 才跑）
+  if (short) {
+    sections.push(checkBodyParts(body, short.body_part_threshold))
+    sections.push(checkSimile(body, short.simile_threshold))
+    sections.push(checkSectionCount(body, short.section_count))
+    sections.push(checkOpeningNoEnv(body, short.opening_env_chars))
+  }
 
-  // 顺带产出（#10 第 2 节末）：账本变动清单 + 信息差候选 + 新专名候选 → 供阶段 6 三审
-  const byproducts = collectByproducts(sections, db, currentChapter, enabledTypes)
+  // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
+  let pieceList: PieceList | null = null
+  if (short && chapter._path) {
+    const manifestPath = join(bookRoot, '大纲', '章纲', basename(chapter._path))
+    if (existsSync(manifestPath)) {
+      const r = readPieceList(manifestPath)
+      if (r.ok) {
+        pieceList = r.list
+        sections.push(checkPieceListForm(r.list))
+      }
+    }
+  }
 
-  return { sections, byproducts }
+  let byproducts: CheckReport['byproducts'] = {}
+  if (hasWiring) {
+    byproducts = collectByproducts(sections, db!, currentChapter, enabledTypes)
+  }
+  if (short && pieceList) {
+    byproducts = { ...byproducts, pieceListChecks: collectPieceListChecks(pieceList) }
+  }
+  const report: CheckReport = { sections, byproducts }
+  if (input.strictShort || config.short?.strict) promoteStrictShort(report)
+  return report
 }
 
 /** 收集机检顺带产出（#10 第 2 节末）：本章账本变动清单 + 信息差/新专名候选。 */
@@ -183,63 +210,6 @@ function collectByproducts(
 
 /** 导出 hasRed/getRedItems 方便调用方 */
 export { hasRed, getRedItems }
-
-/**
- * 短篇机检（M8 #27 第 5 节）。
- *
- * 关闭长程项（账本形式三检/成长线/专名/信息差——短篇无长程载重），
- * 保留通用项（禁词/复读/句式/文风可量化），新增短篇专属项（身体部位词/「像」/节数/开头零环境），
- * 加跑清单形式检（反转线索 ≥3 铺垫、伏笔回收闭合）。
- * 零 db 依赖（短篇无缓存章表）。
- */
-function runShort(input: CheckInput): CheckReport {
-  const { bookRoot, chapter, body, fileName } = input
-  const sections: CheckSectionResult[] = []
-  const short = input.config.short
-
-  // front matter（短篇口径：章号 + 标题，无钩子/情绪枚举）
-  // 短篇复用 ChapterMeta 内存模型（章号承载），按短篇字段校验
-  sections.push(checkPieceFrontMatter({ 章号: chapter.章号, 标题: chapter.标题 }, fileName))
-
-  const ironRules = readIronRules(bookRoot)
-
-  // 禁词（长短通用）
-  sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
-
-  // 短篇字数（8000–20000，#27 第 5.2 节）
-  sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short?.word_min, short?.word_max))
-
-  // 复读 / 句式 / 文风可量化（长短通用）
-  sections.push(checkRepeat(body))
-  sections.push(checkSentenceLength(body))
-
-  sections.push(checkStyleMetrics(body, ironRules))
-
-  // 短篇专属项（#27 第 5.3 节，吸收点 7.1）
-  sections.push(checkBodyParts(body, short?.body_part_threshold))
-  sections.push(checkSimile(body, short?.simile_threshold))
-  sections.push(checkSectionCount(body, short?.section_count))
-  sections.push(checkOpeningNoEnv(body, short?.opening_env_chars))
-
-  // 清单形式检（#27 第 5 节 + #28 第 3 节分工）
-  // 章纲已分离到 大纲/章纲/ 目录，与正文同名（写作/正文/<章号>-<标题>.md → 大纲/章纲/<章号>-<标题>.md，见 layout.ts:67）
-  let pieceList: PieceList | null = null
-  if (chapter._path) {
-    const manifestPath = join(bookRoot, '大纲', '章纲', basename(chapter._path))
-    if (existsSync(manifestPath)) {
-      const r = readPieceList(manifestPath)
-      if (r.ok) {
-        pieceList = r.list
-        sections.push(checkPieceListForm(r.list))
-      }
-    }
-  }
-
-  // 短篇无长程账本；清单条目作为设定收尾审的核对输入。
-  const report: CheckReport = { sections, byproducts: { pieceListChecks: pieceList ? collectPieceListChecks(pieceList) : [] } }
-  if (input.strictShort || input.config.short?.strict) promoteStrictShort(report)
-  return report
-}
 
 const STRICT_SHORT_CHECK_IDS = new Set([
   'piece-word-short',

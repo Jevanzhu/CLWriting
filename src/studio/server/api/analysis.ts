@@ -16,7 +16,6 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
 import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -114,9 +113,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-      const isShort = (config.kind ?? 'long') === 'short'
-      const draft = readDraft(absPath, isShort)
+      const draft = readDraft(absPath)
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
@@ -154,9 +151,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-      const isShort = (config.kind ?? 'long') === 'short'
-      const draft = readDraft(absPath, isShort)
+      const draft = readDraft(absPath)
       if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
       const { body, chapter } = draft
 
@@ -279,8 +274,6 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
       if (!sorted.length) return reply(res, 400, { ok: false, code: 'NO_CHAPTERS', error: '无定稿正文章节' })
 
-      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-      const isShort = (config.kind ?? 'long') === 'short'
 
       // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
       const rules = readIronRules(bookRoot)
@@ -289,7 +282,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const recentBodies: string[] = []
       for (const ch of sorted) {
         if (!ch._path) continue
-        const draft = readDraft(ch._path, isShort)
+        const draft = readDraft(ch._path)
         if (!draft.ok) continue
         allBodies.push(draft.body)
         if (recent.includes(ch)) {

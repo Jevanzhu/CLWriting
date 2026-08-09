@@ -562,28 +562,6 @@ export function checkInfoLeak(
 // 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
 // 全部零 token 脚本判定，黄项只报不拦（ask 不 deny）。
 
-/** 短篇正文 front matter 检查（#27 第 6 节，🔴 红）。
- *  章号必填、标题非空。与长篇 checkFrontMatter 分轨（短篇无钩子/情绪定位枚举）。 */
-export function checkPieceFrontMatter(
-  piece: { 章号: number; 标题: string },
-  fileName: string,
-): CheckSectionResult {
-  const items: CheckItem[] = []
-  // 章号 == 文件名前缀（001-标题.md → 取 001）
-  const fileNum = Number(fileName.match(/(?:^|\/)(\d+)-/)?.[1])
-  if (!Number.isNaN(fileNum) && fileNum !== piece.章号) {
-    items.push({
-      checkId: 'fm-piece-mismatch',
-      level: 'red',
-      message: `章号「${piece.章号}」与文件名「${fileName}」前缀不一致`,
-    })
-  }
-  if (!piece.标题) {
-    items.push({ checkId: 'fm-piece-title', level: 'red', message: '缺少标题' })
-  }
-  return { name: '短篇 front matter', items }
-}
-
 /** 短篇字数阈值（#27 第 5.2 节，🟡 黄）。
  *  总字数 8000–20000（工单第 0 节）；阈值待 beta 校准，本期定方向。 */
 export function checkPieceWordCount(

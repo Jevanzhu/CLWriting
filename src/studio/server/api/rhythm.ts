@@ -13,7 +13,6 @@ import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { readPieceDir } from '../../../format/pieces.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
 import { classifyReversal } from '../../../format/reversal-types.js'
 
@@ -75,27 +74,27 @@ function rhythmLong(bookRoot: string): unknown {
 }
 
 function rhythmShort(bookRoot: string, config: BookConfig): unknown {
-  const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-  const sorted = pieces.slice().sort((a, b) => a.章号 - b.章号)
+  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+  const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
   // 连续故事：有钩子字段 → 附带节奏分布数据（独立短篇无钩子字段 → 不附带）
-  const hasHookData = pieces.some((p) => p.钩子类型 || p.情绪定位 || p.场景)
+  const hasHookData = chapters.some((c) => c.钩子类型 || c.情绪定位 || c.场景)
   return {
     kind: 'short' as const,
-    wordCurve: sorted.map((p) => ({ 章号: p.章号, 标题: p.标题, 字数: p._wordCount ?? 0 })),
-    emotionDist: countDynamic(pieces.map((p) => p.目标情绪)),
-    reversalGap: buildReversalGap(pieces, config),
-    reversalUnrecognized: countUnrecognized(pieces, config),
-    reversals: pieces
-      .filter((p) => p.核心反转)
-      .map((p) => ({ 章号: p.章号, 标题: p.标题, 核心反转: p.核心反转! })),
+    wordCurve: sorted.map((c) => ({ 章号: c.章号, 标题: c.标题, 字数: c._wordCount ?? 0 })),
+    emotionDist: countDynamic(chapters.map((c) => c.目标情绪)),
+    reversalGap: buildReversalGap(chapters, config),
+    reversalUnrecognized: countUnrecognized(chapters, config),
+    reversals: chapters
+      .filter((c) => c.核心反转)
+      .map((c) => ({ 章号: c.章号, 标题: c.标题, 核心反转: c.核心反转! })),
     ...(hasHookData
       ? {
           written: {
-            count: pieces.length,
-            hookTypeDist: countDist(pieces.map((p) => p.钩子类型), HOOK_TYPES),
-            hookLevelDist: countDist(pieces.map((p) => p.钩子强弱), HOOK_LEVELS),
-            emotionDist: countDist(pieces.map((p) => p.情绪定位), EMOTIONS),
-            sceneDist: countDist(pieces.map((p) => p.场景), SCENE_TYPES),
+            count: chapters.length,
+            hookTypeDist: countDist(chapters.map((c) => c.钩子类型), HOOK_TYPES),
+            hookLevelDist: countDist(chapters.map((c) => c.钩子强弱), HOOK_LEVELS),
+            emotionDist: countDist(chapters.map((c) => c.情绪定位), EMOTIONS),
+            sceneDist: countDist(chapters.map((c) => c.场景), SCENE_TYPES),
           },
         }
       : {}),

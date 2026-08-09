@@ -23,7 +23,6 @@ import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
-import { readKind } from '../../format/kind.js'
 
 // ── 常量 ──────────────────────────────────────────
 
@@ -166,7 +165,7 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
-        const draftRel = resolveDraftPath(opts.bookRoot, chapter, readKind(opts.bookRoot)).relPath
+        const draftRel = resolveDraftPath(opts.bookRoot, chapter).relPath
         const draftPath = join(opts.bookRoot, draftRel)
         if (!existsSync(draftPath)) {
           return { ok: false, summary: `第${chapter}章草稿不存在。` }

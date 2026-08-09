@@ -9,8 +9,6 @@
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
-// B-P1-3：消除 install 层对 studio 层的反向依赖，改读内核 format/kind
-import { readKind } from '../format/kind.js'
 import { readManifest, writeManifest } from '../document/manifest.js'
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {
@@ -19,7 +17,6 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
 
   let migrated = 0
   const errors: string[] = []
-  const kind = readKind(bookRoot)
   const pathRemap = new Map<string, string>() // 旧 path → 新 path（manifest 更新用）
 
   for (const name of readdirSync(draftDir)) {
@@ -56,7 +53,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined
     try { content = readFileSync(srcAbs, 'utf-8') } catch { /* 读失败用 undefined */ }
-    const { relPath: dstRel } = resolveDraftPath(bookRoot, chapterNum, kind, content)
+    const { relPath: dstRel } = resolveDraftPath(bookRoot, chapterNum, content)
     const dstAbs = join(bookRoot, dstRel)
     if (existsSync(dstAbs)) {
       // 目标已存在（同章号已有定稿/草稿）→ 旧稿移回收站，不覆盖也不残留草稿区

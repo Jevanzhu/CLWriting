@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writePiece } from '../../src/format/pieces.js'
+import { writeChapter } from '../../src/format/chapters.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import {
   analyzeShortCollection,
@@ -18,10 +18,15 @@ function makePiece(root: string, num: number, title: string, opts: {
   ending: string
 }): void {
   const name = `${String(num).padStart(3, '0')}-${title}.md`
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writePiece(join(root, '写作', '正文', name), {
+  // 短篇正文进卷结构：写作/正文/<卷>/（resolveDraftPath 统一 inferVolumeDir）
+  const bodyDir = join(root, '写作', '正文', '第一卷')
+  mkdirSync(bodyDir, { recursive: true })
+  writeChapter(join(bodyDir, name), {
     章号: num,
     标题: title,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '压抑',
     目标情绪: opts.emotion,
     核心反转: opts.reversal,
   }, `正文 ${title}`)
@@ -101,10 +106,13 @@ test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
 test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评分', () => {
   const root = mkdtempSync(join(tmpdir(), 'short-index-weak-'))
   try {
-    mkdirSync(join(root, '写作', '正文'), { recursive: true })
-    writePiece(join(root, '写作', '正文', '001-薄反转.md'), {
+    mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+    writeChapter(join(root, '写作', '正文', '第一卷', '001-薄反转.md'), {
       章号: 1,
       标题: '薄反转',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '压抑',
       目标情绪: '惊悚',
       核心反转: '待补',
     }, '很短的正文')

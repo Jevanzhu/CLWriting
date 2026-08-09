@@ -79,7 +79,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const { report, chapter, body } = outcome
 
       const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-      const kind: 'long' | 'short' = (config.kind ?? 'long') === 'short' ? 'short' : 'long'
+      const hasWiring = existsSync(join(bookRoot, '布线'))
+      const hasShort = config.kind === 'short'
 
       // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
       const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
@@ -91,7 +92,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         capabilities: { parallel_subagents: false, multiple_calls: true },
         remaining_calls: config.budget.calls_per_chapter,
         high_risk: false,
-        kind,
+        hasWiring,
+        hasShort,
       })
       if (!built.ok) {
         rmSync(reviewOutDir, { recursive: true, force: true })
@@ -111,7 +113,6 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           packets: built.packet.packets,
           body,
           chapter: chapter.章号,
-          kind,
           outDir: built.packet.out_dir,
           onProgress: emitProgress,
         })
@@ -186,7 +187,6 @@ async function runLensSpawnLoop(opts: {
   }>
   body: string
   chapter: number
-  kind: 'long' | 'short'
   outDir: string
   onProgress?: (lens: string, phase: 'start' | 'done') => void
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {

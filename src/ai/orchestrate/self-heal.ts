@@ -11,6 +11,7 @@
  * - AbortSignal 贯穿到 provider（interrupt 时 abort 请求）
  */
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
@@ -107,19 +108,19 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const maxAttempts = opts.maxAttempts ?? 3
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
-  const isShort = kind === 'short'
 
   // 前端：running=true + 清空旧正文
   emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
 
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-  if (!isShort) {
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  if (hasWiring) {
     const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
     if (rebuilt.errors.length > 0) {
       return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
     }
   }
-  const check = opts.check ?? ((p: string) => checkWithFreshDb(bookRoot, p, config, isShort))
+  const check = opts.check ?? ((p: string) => checkWithFreshDb(bookRoot, p, config))
 
   // ① 首稿（C-1：预算闸——超限不跑）
   const budget = checkAiCallBudget(bookRoot, chapter, config)
@@ -248,7 +249,7 @@ async function runGenerate(
 
   // mock 快路（审查 §六：六条 AI 路径唯独 self-heal 缺失 → 补齐，e2e 可覆盖全自动写章）。
   // emit 模拟增量（前端/测试能见推进），终稿走 assembleChapter（与真实同 decode）。
-  const mock = tryMockTool(chapterToolName(kind))
+  const mock = tryMockTool(chapterToolName())
   if (mock) {
     const body = String((mock.input as { 正文?: string })['正文'] ?? '')
     if (body) {
@@ -256,7 +257,7 @@ async function runGenerate(
         emit(opts, { type: 'text', text: body.slice(i, i + 12) })
       }
     }
-    const assembled = assembleChapter(mock.input, opts.chapter, kind)
+    const assembled = assembleChapter(mock.input, opts.chapter)
     if (assembled.ok) return { status: 'ok', text: assembled.content }
     return { status: 'error', error: 'AI 产出为空' }
   }
@@ -293,7 +294,7 @@ async function runGenerate(
   }
 
   // tool_use 结构化产出 → 拼装 front matter + 正文
-  const assembled = assembleChapter(input, opts.chapter, kind)
+  const assembled = assembleChapter(input, opts.chapter)
   if (assembled.ok) return { status: 'ok', text: assembled.content }
 
   // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
@@ -311,11 +312,11 @@ function checkWithFreshDb(
   bookRoot: string,
   draftPath: string,
   config: BookConfig,
-  isShort: boolean,
 ): CheckOutcome {
-  const db = isShort ? null : new DatabaseSync(join(bookRoot, '.cache', 'index.db'))
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  const db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
   try {
-    return checkWithDb(bookRoot, draftPath, db, config, isShort)
+    return checkWithDb(bookRoot, draftPath, db, config)
   } finally {
     if (db) db.close()
   }

@@ -16,7 +16,8 @@ afterEach(() => {
 })
 
 function shortConfig(): BookConfig {
-  return { ...DEFAULT_CONFIG, kind: 'short' }
+  // 短篇专属机检由 config.short 存在性驱动（重构后统一）；阈值缺省走 count.ts 默认
+  return { ...DEFAULT_CONFIG, kind: 'short', short: {} }
 }
 
 // ── 短篇机检不依赖 db（零 db 依赖）──────────────

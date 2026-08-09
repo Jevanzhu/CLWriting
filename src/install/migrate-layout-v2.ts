@@ -15,7 +15,7 @@
  * - 定稿/摘要/：脚本产物，tree skip
  *
  * 幂等：v2 结构已存在 → no-op。server 启动时对每本书库调用一次。
- * 与 migratePieceLayout 同模式：renameSync 原子、目标存在跳过、返回 { migrated, errors }。
+ * 同模式：renameSync 原子、目标存在跳过、返回 { migrated, errors }。
  */
 import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'

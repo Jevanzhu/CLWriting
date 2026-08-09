@@ -13,7 +13,6 @@ const ws = useWorkspaceStore()
 const prefs = usePrefsStore()
 const saveConfig = inject(SAVE_CONFIG_KEY)!
 
-const bookKind = ref<'long' | 'short'>('long')
 const styleInjection = ref<'light' | 'heavy'>('light')
 const callsPerChapter = ref(10)
 const autoConfirmOutline = ref(false)
@@ -31,7 +30,6 @@ watch(
     if (!open || !name) return
     try {
       const cfg = await getConfig(name)
-      bookKind.value = cfg.kind ?? 'long'
       styleInjection.value = cfg.style?.injection ?? 'light'
       callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
       autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
@@ -191,8 +189,7 @@ async function saveRagConfig(): Promise<void> {
     </div>
   </section>
 
-  <template v-if="bookKind !== 'short'">
-    <div class="cfg-card-head">关系图</div>
+  <div class="cfg-card-head">关系图</div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
@@ -217,7 +214,6 @@ async function saveRagConfig(): Promise<void> {
         </div>
       </div>
     </section>
-  </template>
 
   <div class="cfg-card-head">知识检索</div>
   <section class="cfg-card">

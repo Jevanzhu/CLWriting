@@ -11,16 +11,22 @@ import {
 } from '../../src/review/run.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { runCheckForDocument } from '../../src/studio/server/api/check.js'
-import { writePiece } from '../../src/format/pieces.js'
+import { writeChapter } from '../../src/format/chapters.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { ReviewIssue } from '../../src/review/contract.js'
 import type { BookConfig, PieceList } from '../../src/format/types.js'
 
 const emptyReport: CheckReport = { sections: [], byproducts: {} }
-const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
+// short 段需至少一个字段，writeBookConfig 才会落盘 → 机检跑短篇专属项 + 清单形式检
+const SHORT_CONFIG: BookConfig = {
+  ...DEFAULT_CONFIG,
+  kind: 'short',
+  short: { profile: '悬疑' },
+  book: { title: '夜语集', genre: '悬疑' },
+}
 
-/** 造短篇满审 packet（短篇三视角） */
+/** 造短篇满审 packet（基础二视角 + 短篇三视角） */
 function makeShortFullPacket(workDir: string): ReviewExecutionPacket {
   const built = buildReviewPacket({
     checkReport: emptyReport,
@@ -30,7 +36,8 @@ function makeShortFullPacket(workDir: string): ReviewExecutionPacket {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
-    kind: 'short',
+    hasWiring: false,
+    hasShort: true,
   })
   if (!built.ok) throw new Error('short packet build failed')
   return built.packet
@@ -38,7 +45,7 @@ function makeShortFullPacket(workDir: string): ReviewExecutionPacket {
 
 // ── buildReviewPacket short: 三视角分包 ──────────
 
-test('buildReviewPacket short: 满审产短篇三视角分包', () => {
+test('buildReviewPacket short: 满审产 reader/editor + 短篇三视角分包', () => {
   const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
   const built = buildReviewPacket({
     checkReport: emptyReport,
@@ -48,13 +55,15 @@ test('buildReviewPacket short: 满审产短篇三视角分包', () => {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
-    kind: 'short',
+    hasWiring: false,
+    hasShort: true,
   })
   expect(built.ok).toBe(true)
   if (!built.ok) return
   const { packet } = built
-  expect(packet.lenses_run).toEqual(['hook', 'emotion_peak', 'payoff'])
-  expect(packet.packets.map((p) => p.lens)).toEqual(['hook', 'emotion_peak', 'payoff'])
+  // 新语义：短篇也是基础二视角 + 短篇三视角（视角合一）
+  expect(packet.lenses_run).toEqual(['reader', 'editor', 'hook', 'emotion_peak', 'payoff'])
+  expect(packet.packets.map((p) => p.lens)).toEqual(['reader', 'editor', 'hook', 'emotion_peak', 'payoff'])
   rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -66,9 +75,9 @@ test('review 打包 short: 读取章号草稿并把清单核对写入执行包',
     mkdirSync(workDir, { recursive: true })
     mkdirSync(join(root, '文风'), { recursive: true })
     writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n', 'utf-8')
-    writePiece(
+    writeChapter(
       join(workDir, '草稿-1.md'),
-      { 章号: 1, 标题: '雪夜来客', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
+      { 章号: 1, 标题: '雪夜来客', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '压抑', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
       ['第一节。', '第二节。', '第三节。', '第四节。', '第五节。'].join('\n\n'),
     )
     const list: PieceList = {
@@ -100,7 +109,8 @@ test('review 打包 short: 读取章号草稿并把清单核对写入执行包',
       capabilities: { parallel_subagents: false, multiple_calls: true },
       remaining_calls: 8,
       high_risk: false,
-      kind: 'short',
+      hasWiring: false,
+      hasShort: true,
     })
     expect(built.ok).toBe(true)
     if (!built.ok) return
@@ -124,7 +134,9 @@ test('collectReviewIssues short: reversal issue 不被丢弃进 bad_entries', ()
   const packet = makeShortFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
 
-  // 钩子审 / 设定收尾审：无问题
+  // 基础二视角（reader/editor）+ 钩子审 / 设定收尾审：无问题
+  writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
   writeFileSync(join(packet.out_dir, lensIssuesFileName('hook')), '[]', 'utf-8')
   writeFileSync(join(packet.out_dir, lensIssuesFileName('payoff')), '[]', 'utf-8')
   // 情绪反转审：反转无铺垫 → reversal blocker（关键：category='reversal' 必须过白名单）
@@ -162,7 +174,8 @@ test('collectReviewIssues short 合审: 单包覆盖三视角不缺', () => {
     capabilities: { parallel_subagents: false, multiple_calls: false },
     remaining_calls: 1,
     high_risk: false,
-    kind: 'short',
+    hasWiring: false,
+    hasShort: true,
   })
   expect(built.ok).toBe(true)
   if (!built.ok) return

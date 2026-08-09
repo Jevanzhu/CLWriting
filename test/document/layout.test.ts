@@ -28,8 +28,8 @@ describe('layout / roleOf 按路径判 role', () => {
     expect(roleOf('布线/感情线/001-初遇.md')).toBe('ledger')
   })
 
-  it('短篇章纲（大纲/章纲/ → piece-manifest）', () => {
-    expect(roleOf('大纲/章纲/001-雨夜.md')).toBe('piece-manifest')
+  it('短篇章纲（大纲/章纲/ → chapter-outline）', () => {
+    expect(roleOf('大纲/章纲/001-雨夜.md')).toBe('chapter-outline')
   })
 
   it('文风 / 简介 / 工作区', () => {
@@ -72,8 +72,8 @@ describe('layout / capabilitiesOf 系统文档与只读', () => {
     expect(c.trash).toBe(false)
   })
 
-  it('章纲 piece-manifest：不可删', () => {
-    const c = capabilitiesOf('piece-manifest', '大纲/章纲/001-雨夜.md')
+  it('章纲 chapter-outline：不可删', () => {
+    const c = capabilitiesOf('chapter-outline', '大纲/章纲/001-雨夜.md')
     expect(c.trash).toBe(false)
     expect(c.write).toBe(true)
   })

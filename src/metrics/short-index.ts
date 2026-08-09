@@ -2,13 +2,13 @@
  * 短篇集级索引与重复风险体检。
  *
  * 目标：短篇主链已按单章闭环，本模块只做整集层面的轻量扫描。
- * 数据来自已定稿 `写作/正文/<章号>-<标题>.md` 与 `大纲/章纲/<章号>-<标题>.md`，
+ * 数据来自已定稿 `写作/正文/`（卷结构，递归）与 `大纲/章纲/<章号>-<标题>.md`，
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
  */
 
-import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { readPiece } from '../format/pieces.js'
+import { existsSync } from 'node:fs'
+import { join, basename } from 'node:path'
+import { readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 import { readFile } from '../format/frontmatter.js'
 import { countWords } from '../format/chapters.js'
@@ -240,36 +240,27 @@ const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTempl
   },
 }
 
-/** 扫描短篇集索引。 */
+/** 扫描短篇集索引。正文走 readChapterDir（递归卷结构），章纲按正文文件名匹配 `大纲/章纲/` 顶层。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
-  const piecesDir = join(bookRoot, '写作', '正文')
+  const bodyDir = join(bookRoot, '写作', '正文')
   const 章纲Dir = join(bookRoot, '大纲', '章纲')
-  if (!existsSync(piecesDir)) return []
-  let names: string[]
-  try {
-    names = readdirSync(piecesDir)
-  } catch {
-    return []
-  }
+  if (!existsSync(bodyDir)) return []
 
+  const { chapters } = readChapterDir(bodyDir)
   const entries: ShortPieceIndexEntry[] = []
-  for (const name of names) {
-    if (name.startsWith('._')) continue
-    if (!/^\d+-.*\.md$/.test(name)) continue
-    const bodyPath = join(piecesDir, name)
-    if (!existsSync(bodyPath)) continue
-
-    const piece = readPiece(bodyPath)
-    if (!piece.ok) continue
+  for (const ch of chapters) {
+    if (!ch._path) continue
+    const bodyPath = ch._path
+    const name = basename(bodyPath)
     const file = readFile(bodyPath)
     const list = readListIfExists(join(章纲Dir, name))
-    const coreReversal = firstReal(piece.piece.核心反转, list?.反转线索表.核心反转)
+    const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
     const body = file.ok ? file.body : ''
     entries.push({
-      num: piece.piece.章号,
-      title: piece.piece.标题,
+      num: ch.章号,
+      title: ch.标题,
       wordCount: file.ok ? countWords(body) : 0,
-      targetEmotion: cleanValue(piece.piece.目标情绪),
+      targetEmotion: cleanValue(ch.目标情绪),
       coreReversal,
       reversalType: classifyReversal(coreReversal),
       structureObjects: collectStructureObjects(list),

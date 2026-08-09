@@ -7,8 +7,8 @@
  */
 import type { ToolDef } from '../provider/types.js'
 
-/** 长篇章节写作工具——定义 front matter 结构化字段 + 正文 */
-export function submitChapterLong(): ToolDef {
+/** 章节写作工具——定义 front matter 结构化字段 + 正文 */
+export function submitChapter(): ToolDef {
   return {
     name: 'submit_chapter',
     description: '提交章节草稿。把标题、钩子属性、情绪定位、场景和正文一次性提交。',
@@ -36,25 +36,6 @@ export function submitChapterLong(): ToolDef {
           enum: ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'],
           description: '本章主场景',
         },
-        正文: {
-          type: 'string',
-          description: '正文全文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表）',
-        },
-      },
-      required: ['标题', '钩子类型', '情绪定位', '正文'],
-    },
-  }
-}
-
-/** 短篇写作工具——定义短篇 front matter 结构化字段 + 正文 */
-export function submitChapterShort(): ToolDef {
-  return {
-    name: 'submit_piece',
-    description: '提交短篇草稿。把标题、目标情绪、核心反转和正文一次性提交。',
-    input_schema: {
-      type: 'object',
-      properties: {
-        标题: { type: 'string', description: '本章标题' },
         目标情绪: {
           type: 'string',
           description: '本章要落地的核心情绪（如：恐惧/温暖/震撼/悲伤/释然）',
@@ -68,7 +49,7 @@ export function submitChapterShort(): ToolDef {
           description: '正文全文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表）',
         },
       },
-      required: ['标题', '目标情绪', '核心反转', '正文'],
+      required: ['标题', '钩子类型', '情绪定位', '正文'],
     },
   }
 }
@@ -91,14 +72,14 @@ export function submitText(): ToolDef {
   }
 }
 
-/** 按 kind 选写稿工具 */
-export function chapterTool(kind: 'long' | 'short'): ToolDef {
-  return kind === 'short' ? submitChapterShort() : submitChapterLong()
+/** 写稿工具（长短篇统一） */
+export function chapterTool(): ToolDef {
+  return submitChapter()
 }
 
 /** 写稿工具名（配合 tool_choice: 'tool'） */
-export function chapterToolName(kind: 'long' | 'short'): string {
-  return kind === 'short' ? 'submit_piece' : 'submit_chapter'
+export function chapterToolName(): string {
+  return 'submit_chapter'
 }
 
 /**
@@ -108,7 +89,6 @@ export function chapterToolName(kind: 'long' | 'short'): string {
 export function assembleChapter(
   input: unknown,
   chapter: number,
-  kind: 'long' | 'short',
 ): { ok: true; content: string } | { ok: false; error: string } {
   if (!input || typeof input !== 'object') {
     return { ok: false, error: '产出为空或非对象' }
@@ -123,21 +103,18 @@ export function assembleChapter(
   lines.push(`章号: ${chapter}`)
   const 标题 = fmVal(o['标题'])
   if (标题) lines.push(`标题: ${标题}`)
-  if (kind === 'short') {
-    const 目标情绪 = fmVal(o['目标情绪'])
-    if (目标情绪) lines.push(`目标情绪: ${目标情绪}`)
-    const 核心反转 = fmVal(o['核心反转'])
-    if (核心反转) lines.push(`核心反转: ${核心反转}`)
-  } else {
-    const 钩子类型 = fmVal(o['钩子类型'])
-    if (钩子类型) lines.push(`钩子类型: ${钩子类型}`)
-    const 钩子强弱 = fmVal(o['钩子强弱'])
-    if (钩子强弱) lines.push(`钩子强弱: ${钩子强弱}`)
-    const 情绪定位 = fmVal(o['情绪定位'])
-    if (情绪定位) lines.push(`情绪定位: ${情绪定位}`)
-    const 场景 = fmVal(o['场景'])
-    if (场景) lines.push(`场景: ${场景}`)
-  }
+  const 钩子类型 = fmVal(o['钩子类型'])
+  if (钩子类型) lines.push(`钩子类型: ${钩子类型}`)
+  const 钩子强弱 = fmVal(o['钩子强弱'])
+  if (钩子强弱) lines.push(`钩子强弱: ${钩子强弱}`)
+  const 情绪定位 = fmVal(o['情绪定位'])
+  if (情绪定位) lines.push(`情绪定位: ${情绪定位}`)
+  const 场景 = fmVal(o['场景'])
+  if (场景) lines.push(`场景: ${场景}`)
+  const 目标情绪 = fmVal(o['目标情绪'])
+  if (目标情绪) lines.push(`目标情绪: ${目标情绪}`)
+  const 核心反转 = fmVal(o['核心反转'])
+  if (核心反转) lines.push(`核心反转: ${核心反转}`)
 
   const fmText = lines.join('\n')
   return { ok: true, content: `---\n${fmText}\n---\n${正文}` }

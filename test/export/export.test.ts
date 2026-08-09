@@ -83,9 +83,9 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
     expect(merged.indexOf('第一章')).toBeLessThan(merged.indexOf('第二章'))
     expect(merged).toContain('---') // 章间分隔线
 
-    // split：按章号数值排序 + 4 位补零文件名
-    expect(r.files.some((f) => f.includes('分章/0001-第一章.md'))).toBe(true)
-    expect(r.files.some((f) => f.includes('分章/0002-第二章.md'))).toBe(true)
+    // split：按章号数值排序 + 3 位补零文件名（长短统一）
+    expect(r.files.some((f) => f.includes('分章/001-第一章.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/002-第二章.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

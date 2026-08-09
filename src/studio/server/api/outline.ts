@@ -14,7 +14,6 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { readPieceDir } from '../../../format/pieces.js'
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
@@ -79,15 +78,15 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   if (kind === 'short') {
     const parts: string[] = [`## 任务\n为第 ${chapter} 章生成章纲(短篇,单章 8000-20000 字完整开合)。`]
     if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
-    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-    const recent = pieces
-      .filter((p) => p.章号 < chapter)
+    const { chapters: recentChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+    const recent = recentChapters
+      .filter((c) => c.章号 < chapter)
       .sort((a, b) => b.章号 - a.章号)
       .slice(0, 3)
     if (recent.length) {
       parts.push(
         `## 前章(近 ${recent.length} 章,避重复主题/情绪)\n${recent
-          .map((p) => `- 第${p.章号}章 ${p.标题}(${p.目标情绪 ?? '?'}/${p.核心反转 ?? '?'})`)
+          .map((c) => `- 第${c.章号}章 ${c.标题}(${c.目标情绪 ?? '?'}/${c.核心反转 ?? '?'})`)
           .join('\n')}`,
       )
     }

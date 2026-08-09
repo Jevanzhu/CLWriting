@@ -21,8 +21,7 @@ import {
   type DocSignals,
 } from '../format/style-candidate.js'
 import {
-  scanLongChapters,
-  scanShortPieces,
+  scanChapters,
   aggregateStyleTrend,
   readBaseline,
 } from '../metrics/style.js'
@@ -76,7 +75,7 @@ export function harvestStyleCandidates(
   }
 
   // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
-  const samples = kind === 'short' ? scanShortPieces(bookRoot) : scanLongChapters(bookRoot)
+  const samples = scanChapters(bookRoot)
   const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
   candidates.push(...mapDriftsToCandidates(trend.drifts, today))
 

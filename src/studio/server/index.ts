@@ -11,11 +11,9 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
 import { readBooks } from '../../install/books.js'
-import { migratePieceLayout } from '../../format/pieces.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
-import { migrateChapterUnify } from '../../install/migrate-chapter-unify.js'
 import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
@@ -102,11 +100,10 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
-  // 迁移旧短篇目录结构（篇/N-T/正文.md → 篇/N-T.md + 清单/N-T.md；幂等，无旧结构 no-op）
+  // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       const bookPath = join(opts.workDir, book.path)
-      migratePieceLayout(bookPath)
       const v2Result = migrateLayoutV2(bookPath)
       if (v2Result.errors.length > 0) {
         console.error(`[migrate-layout-v2] ${book.path}: ${v2Result.errors.length} 个错误\n${v2Result.errors.join('\n')}`)
@@ -119,11 +116,6 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateVersionsDir(bookPath)
       // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
       migrateFinalizedRevisions(bookPath)
-      // 短篇「篇→章」统一迁移：fm 字段 篇号→章号 + 目录 大纲/清单/→大纲/章纲/（幂等）
-      const unifyResult = migrateChapterUnify(bookPath)
-      if (unifyResult.errors.length > 0) {
-        console.error(`[migrate-chapter-unify] ${book.path}: ${unifyResult.errors.length} 个错误\n${unifyResult.errors.join('\n')}`)
-      }
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

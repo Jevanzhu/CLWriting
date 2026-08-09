@@ -13,7 +13,6 @@ import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
@@ -55,10 +54,6 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (!entry) return reply(res, 404, { error: `没有这本书:${name}` })
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (config.kind === 'short') {
-      return reply(res, 200, { kind: 'short' as const, hint: '短篇无设定层(单篇内闭合)' })
-    }
     reply(res, 200, settingsLong(bookRoot))
   })
 

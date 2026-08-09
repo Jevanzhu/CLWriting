@@ -43,16 +43,15 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const bookRoot = join(ctx.workDir!, b.path)
       try {
         const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-        const kind = config.kind === 'short' ? 'short' : 'long'
-        const prog = computeProgress(bookRoot, kind)
+        const prog = computeProgress(bookRoot)
         return {
           ...b,
           title: config.book.title,
           chapters: prog.chapters,
           words: prog.words,
-          lastEdited: computeLastEdited(bookRoot, kind),
+          lastEdited: computeLastEdited(bookRoot),
           targetWords: config.book.target_words,
-          latestChapter: computeLatestChapter(bookRoot, kind),
+          latestChapter: computeLatestChapter(bookRoot),
         }
       } catch {
         // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）

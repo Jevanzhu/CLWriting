@@ -97,19 +97,20 @@ export function buildReviewPacket(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
-  /** 长短篇（M8 #28）：缺省 long；short 用短篇三视角 + 清单核对 */
-  kind?: 'long' | 'short'
+  /** 有布线（账本/成长线）→ continuity 视角；有 config.short → 短篇三视角 */
+  hasWiring: boolean
+  hasShort: boolean
 }): { ok: true; packet: ReviewExecutionPacket; decision: ReviewTierDecision } | { ok: false; reason: string } {
-  const kind = input.kind ?? 'long'
+  const tasks = buildReviewTasks(input.checkReport, { hasWiring: input.hasWiring, hasShort: input.hasShort })
+  const lenses = tasks.map((t) => t.lens)
   const decision = selectReviewTier({
     capabilities: input.capabilities,
     remaining_calls: input.remaining_calls,
     high_risk: input.high_risk,
-    kind,
+    lenses,
   })
   if (!decision.ok) return { ok: false, reason: decision.reason }
 
-  const tasks = buildReviewTasks(input.checkReport, kind)
   const outDir = join(input.workDir, '三审')
 
   // 合审：三视角合并成单个分包（宿主单次调用覆盖三视角）

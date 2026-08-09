@@ -18,7 +18,7 @@ const ORIG_CWD = process.cwd()
 beforeEach(() => { process.chdir(ORIG_CWD) })
 afterEach(() => { process.chdir(ORIG_CWD) })
 
-test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 共享文风 + 工作区），不建长程载重', () => {
+test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 设定/ + 共享文风 + 工作区），不建长程载重', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
@@ -30,8 +30,16 @@ test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 共享�
     expect(existsSync(join(bookRoot, '写作', '正文'))).toBe(true)
     expect(readdirSync(join(bookRoot, '写作', '正文'))).toHaveLength(0)
 
-    // 大纲/章纲/（短篇章纲：反转线索表/情绪曲线/伏笔回收）
+    // 大纲/章纲/（短篇章纲：反转线索表/情绪曲线/伏笔回收；预置结构化范例）
     expect(existsSync(join(bookRoot, '大纲', '章纲'))).toBe(true)
+    expect(readdirSync(join(bookRoot, '大纲', '章纲'))).toContain('0001-开篇.md')
+
+    // 设定/（对齐长篇：角色/物品/伏笔 + 世界观/名册，供关系图/机检复用）
+    expect(existsSync(join(bookRoot, '设定', '角色'))).toBe(true)
+    expect(existsSync(join(bookRoot, '设定', '物品'))).toBe(true)
+    expect(existsSync(join(bookRoot, '设定', '伏笔'))).toBe(true)
+    expect(existsSync(join(bookRoot, '设定', '世界观.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '设定', '名册.md'))).toBe(true)
 
     // 整集共享文风（条目库 + 文风铁律；样章库/金句库已退场，S8）
     expect(existsSync(join(bookRoot, '文风', '条目', '禁词'))).toBe(true)
@@ -42,10 +50,9 @@ test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 共享�
     // 工作区（临时区）
     expect(existsSync(join(bookRoot, '工作区'))).toBe(true)
 
-    // 不建长程载重：无 定稿/、无 布线/、无 设定/（短篇无长程载重）
+    // 不建长程载重：无 定稿/、无 布线/（短篇无账本/成长线）
     expect(existsSync(join(bookRoot, '定稿'))).toBe(false)
     expect(existsSync(join(bookRoot, '布线'))).toBe(false)
-    expect(existsSync(join(bookRoot, '设定'))).toBe(false)
 
     // book.yaml + 初始 manifest（去 git 自管版本系统：不再 git init / 写 gitignore）
     expect(existsSync(join(bookRoot, '.git'))).toBe(false)

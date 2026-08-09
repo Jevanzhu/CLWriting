@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
-import { readFile, parseFlat } from '../format/frontmatter.js'
+import { readFile } from '../format/frontmatter.js'
 import { parseIronRules, computeStyleMetrics, type IronRules, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 
@@ -137,8 +137,8 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
   }
 }
 
-/** 长篇重扫：扫 写作/正文/ 逐章算指纹 */
-export function scanLongChapters(bookRoot: string): ChapterSample[] {
+/** 重扫：扫 写作/正文/（递归卷目录）逐章算指纹，按章号排序 */
+export function scanChapters(bookRoot: string): ChapterSample[] {
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const { chapters } = readChapterDir(textDir)
@@ -147,36 +147,6 @@ export function scanLongChapters(bookRoot: string): ChapterSample[] {
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
-  }
-  return samples.sort((a, b) => a.num - b.num)
-}
-
-/** 短篇重扫：扫 写作/正文/*.md 逐章算指纹（按章号排序） */
-export function scanShortPieces(bookRoot: string): ChapterSample[] {
-  const piecesDir = join(bookRoot, '写作', '正文')
-  const rules = readIronRules(bookRoot)
-  const samples: ChapterSample[] = []
-  if (!existsSync(piecesDir)) return samples
-  let entries: string[]
-  try {
-    entries = readdirSync(piecesDir)
-  } catch {
-    return samples
-  }
-  for (const name of entries) {
-    if (name.startsWith('._')) continue
-    if (!/^\d+-.*\.md$/.test(name)) continue
-    const bodyPath = join(piecesDir, name)
-    if (!existsSync(bodyPath)) continue
-    const r = readFile(bodyPath)
-    if (!r.ok) continue
-    // 章号从文件名前缀取（NNN-标题）
-    const numMatch = name.match(/^(\d+)/)
-    const num = numMatch ? Number(numMatch[1]) : 0
-    // 标题从 front matter 取，缺则用文件名（去 .md）
-    const fm = parseFlat(r.fmRaw)
-    const title = String(fm.get('标题') ?? name.replace(/\.md$/, ''))
-    samples.push({ num, title, stats: computeFullStats(r.body, rules) })
   }
   return samples.sort((a, b) => a.num - b.num)
 }

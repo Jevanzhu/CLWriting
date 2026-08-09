@@ -14,7 +14,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
-import { readPieceDir } from '../format/pieces.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import {
@@ -78,17 +77,18 @@ export function exportBook(options: ExportOptions): ExportResult {
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const bodyDir = join(bookRoot, '写作', '正文')
 
-  // 1. 扫描定稿正文（长篇复用 readChapterDir；短篇复用 readPieceDir）
+  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构）
   if (!existsSync(bodyDir)) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
-  const { units, errors } = kind === 'short'
-    ? readShortExportUnits(bodyDir)
-    : readLongExportUnits(bodyDir)
+  const { chapters, errors } = readChapterDir(bodyDir)
   if (errors.length > 0) {
     const msgs = errors.map((e) => `${e.file}: ${e.message}`).join('; ')
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${msgs}` }
   }
+  const units: ExportUnit[] = chapters.flatMap((ch) =>
+    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
+  )
   if (units.length === 0) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
@@ -136,8 +136,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     const splitDir = join(exportDir, splitName)
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
-      const width = kind === 'short' ? 3 : 4
-      const fileName = `${String(unit.num).padStart(width, '0')}-${sanitizeFileName(unit.title)}.md`
+      const fileName = `${String(unit.num).padStart(3, '0')}-${sanitizeFileName(unit.title)}.md`
       writeFileSync(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`, 'utf-8')
       files.push(`工作区/导出/${splitName}/${fileName}`)
     }
@@ -155,20 +154,4 @@ export function exportBook(options: ExportOptions): ExportResult {
   }
 
   return { ok: true, files, chapterCount: units.length, unit: '章' }
-}
-
-function readLongExportUnits(bodyDir: string): { units: ExportUnit[]; errors: ReturnType<typeof readChapterDir>['errors'] } {
-  const { chapters, errors } = readChapterDir(bodyDir)
-  return {
-    units: chapters.flatMap((ch) => ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : []),
-    errors,
-  }
-}
-
-function readShortExportUnits(bodyDir: string): { units: ExportUnit[]; errors: ReturnType<typeof readPieceDir>['errors'] } {
-  const { pieces, errors } = readPieceDir(bodyDir)
-  return {
-    units: pieces.flatMap((piece) => piece._path ? [{ num: piece.章号, title: piece.标题, path: piece._path }] : []),
-    errors,
-  }
 }

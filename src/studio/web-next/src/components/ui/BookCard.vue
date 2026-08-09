@@ -48,7 +48,7 @@ defineEmits<{
     <div class="card-foot">
       <div class="card-stats">
         <span>{{ book.chapters ?? 0 }} 章</span>
-        <span v-if="book.kind !== 'short'">{{ formatWords(book.words) }}</span>
+        <span>{{ formatWords(book.words) }}</span>
       </div>
       <span v-if="book.lastEdited" class="book-time">{{ formatRelative(book.lastEdited) }}</span>
     </div>
@@ -70,7 +70,7 @@ defineEmits<{
       <span v-if="book.latestChapter" class="list-recent">{{ book.latestChapter }}</span>
     </div>
     <span class="col-num">{{ book.chapters ?? 0 }} 章</span>
-    <span class="col-num">{{ book.kind === 'short' ? '—' : formatWords(book.words) }}</span>
+    <span class="col-num">{{ formatWords(book.words) }}</span>
     <span class="col-edited">{{ book.lastEdited ? formatRelative(book.lastEdited) : '—' }}</span>
     <ArrowRight v-if="!batchMode" :size="15" class="list-arrow" />
   </button>
