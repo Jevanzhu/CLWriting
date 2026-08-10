@@ -11,8 +11,9 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -126,7 +127,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       .map((unit) => `# ${unit.title}\n\n${unit.body}`)
       .join('\n\n---\n\n')
     const fileName = `全本-${sanitizeFileName(bookTitle)}.md`
-    writeFileSync(join(exportDir, fileName), mergedContent, 'utf-8')
+    atomicWriteFile(join(exportDir, fileName), mergedContent)
     files.push(`工作区/导出/${fileName}`)
   }
 
@@ -137,7 +138,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
       const fileName = `${String(unit.num).padStart(3, '0')}-${sanitizeFileName(unit.title)}.md`
-      writeFileSync(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`, 'utf-8')
+      atomicWriteFile(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`)
       files.push(`工作区/导出/${splitName}/${fileName}`)
     }
   }
@@ -145,10 +146,9 @@ export function exportBook(options: ExportOptions): ExportResult {
   if (kind === 'short') {
     const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}.md`
     const entries = scanShortCollection(bookRoot)
-    writeFileSync(
+    atomicWriteFile(
       join(exportDir, submissionName),
       formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),
-      'utf-8',
     )
     files.push(`工作区/导出/${submissionName}`)
   }

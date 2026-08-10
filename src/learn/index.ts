@@ -14,9 +14,10 @@
  * - 入库格式复用 #5 writeSample（见 commit.ts）
  */
 
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
@@ -185,7 +186,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
   topSamples.forEach((c, i) => {
     const fileName = `${c.场景}-候选-${String(i + 1).padStart(2, '0')}.md`
     const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
-    writeFileSync(join(sampleDir, fileName), `---\n${fm}\n---\n\n${c.正文}`, 'utf-8')
+    atomicWriteFile(join(sampleDir, fileName), `---\n${fm}\n---\n\n${c.正文}`)
   })
 
   // 金句候选：金句/<场景>.md（逐条列表）
@@ -199,7 +200,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
   }
   for (const [scene, quotes] of quotesByScene) {
     const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
-    writeFileSync(join(quoteDir, `${scene}.md`), content, 'utf-8')
+    atomicWriteFile(join(quoteDir, `${scene}.md`), content)
   }
 
   return {

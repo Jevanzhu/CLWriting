@@ -9,9 +9,10 @@
  * 纯 node:sqlite + 文件读，零模型（health 不耗模型契约）。
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { readFile } from '../format/frontmatter.js'
@@ -322,7 +323,7 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 
   const p = baselinePath(bookRoot)
   mkdirSync(dirname(p), { recursive: true })
-  writeFileSync(p, JSON.stringify(baseline, null, 2), 'utf-8')
+  atomicWriteFile(p, JSON.stringify(baseline, null, 2))
   return baseline
 }
 

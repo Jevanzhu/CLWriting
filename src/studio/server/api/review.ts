@@ -14,9 +14,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { currentProvider } from '../../../ai/provider/index.js'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
+import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -205,7 +206,7 @@ async function runLensSpawnLoop(opts: {
     // tool_use 产出 → input.issues；降级用 text
     const issues = (input as { issues?: unknown[] })?.issues
     const issuesJson = issues ? JSON.stringify(issues) : text.trim()
-    writeFileSync(join(opts.outDir, `issues-${lens}.json`), issuesJson, 'utf8')
+    atomicWriteFile(join(opts.outDir, `issues-${lens}.json`), issuesJson)
     opts.onProgress?.(lens, 'done')
   }
   return { ok: true, lenses }
