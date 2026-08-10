@@ -334,7 +334,8 @@ export function persistCandidates(
   bookRoot: string,
   candidates: StyleCandidate[],
 ): { created: string[]; skipped: number } {
-  const key = (kind: string, text: string): string => `${kind} ${text}`
+  // 查重 key：SOH 分隔符（正文/类型不会含 → 防碰撞），避免 NUL 使文件被工具链当二进制
+  const key = (kind: string, text: string): string => `${kind}${text}`
   const existing = new Set<string>()
   for (const c of readCandidates(join(bookRoot, CANDIDATES_DIR)).candidates) {
     existing.add(key(c.类型, c.正文))

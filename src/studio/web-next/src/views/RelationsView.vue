@@ -58,7 +58,6 @@ const nodes = ref<SimNode[]>([])
 const edges = ref<SimEdge[]>([])
 const loading = ref(true)
 const err = ref<string | null>(null)
-const isShort = ref(false)
 const hoverId = ref<string | null>(null)
 const selectedId = ref<string | null>(null)
 const searchQuery = ref('')
@@ -281,12 +280,6 @@ async function load(): Promise<void> {
   err.value = null
   try {
     const r = await getSettings(props.bookName)
-    if (r.kind !== 'long') {
-      isShort.value = true
-      loading.value = false
-      return
-    }
-    isShort.value = false
     buildGraph(r.characters, r.characterRelations, r.debtGraph)
     loading.value = false
     // 自动梳理：章节增量达阈值时触发
@@ -666,7 +659,6 @@ const activeLegend = computed(() => {
       关系图载入失败：{{ err }}
       <button class="btn" @click="load">重试</button>
     </div>
-    <div v-else-if="isShort" class="state-block">短篇集无角色关系图。</div>
     <div v-else-if="!nodeCount" class="state-block">
       无角色数据。先在「设定 / 角色」建角色卡。
     </div>

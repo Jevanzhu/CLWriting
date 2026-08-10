@@ -94,15 +94,15 @@ export function analysisSpec(kind: AnalysisKind): TaskSpec {
   }
 }
 
-/** 写稿 self-heal（submit_chapter/piece 工具，kind 决定 tool/system） */
+/** 写稿 self-heal（submit_chapter 工具，kind 只决定 system prompt） */
 export function selfHealSpec(kind: 'long' | 'short'): TaskSpec {
   return {
     name: 'self-heal',
     tierKind: 'creative',
     genMode: 'tool',
     systemPrompt: writerSystem(kind),
-    tool: { def: chapterTool(kind), name: chapterToolName(kind) },
-    mock: { kind: 'tool', toolName: chapterToolName(kind) },
+    tool: { def: chapterTool(), name: chapterToolName() },
+    mock: { kind: 'tool', toolName: chapterToolName() },
   }
 }
 

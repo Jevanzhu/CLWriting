@@ -39,16 +39,17 @@ afterEach(() => {
 })
 
 describe('buildDraftPrompt(kind 分支)', () => {
-  it('短篇:篇 front matter + 8k-20k 字单篇闭合', () => {
+  it('短篇:章 front matter + 8k-20k 字单章闭合', () => {
     const p = buildDraftPrompt(root, 1, 'short')
     expect(p).toContain('短篇')
     // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
-    expect(p).toContain('只输出第 1 篇正文')
+    expect(p).toContain('只输出第 1 章正文')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
     expect(p).not.toContain('篇号:')
     expect(p).toContain('目标情绪')
     expect(p).toContain('核心反转')
     expect(p).toContain('8000-20000 字')
-    expect(p).toContain('单篇完整开合')
+    expect(p).toContain('单章完整开合')
     expect(p).not.toContain('章尾留钩')
   })
 
@@ -61,11 +62,11 @@ describe('buildDraftPrompt(kind 分支)', () => {
     expect(p).toContain('钩子类型')
     expect(p).toContain('2000-4000 字')
     expect(p).toContain('章尾留钩')
-    expect(p).not.toContain('单篇闭合')
+    expect(p).not.toContain('单章闭合')
   })
 
-  it('短篇 prompt 注入本篇细纲', () => {
-    expect(buildDraftPrompt(root, 1, 'short')).toContain('本篇细纲')
+  it('短篇 prompt 注入本章细纲', () => {
+    expect(buildDraftPrompt(root, 1, 'short')).toContain('本章细纲')
   })
 
   it('长篇 prompt 注入本章细纲 + 备料', () => {
@@ -97,9 +98,9 @@ describe('buildDraftPrompt(kind 分支)', () => {
 })
 
 describe('buildOutlinePrompt(kind 分支)', () => {
-  it('短篇:篇纲 + 目标情绪/核心反转/单篇开合', () => {
+  it('短篇:章纲 + 目标情绪/核心反转/单章开合', () => {
     const p = buildOutlinePrompt(root, 2, 'short')
-    expect(p).toContain('篇纲')
+    expect(p).toContain('章纲')
     expect(p).toContain('目标情绪')
     expect(p).toContain('核心反转')
     expect(p).toContain('8000-20000')
@@ -112,15 +113,15 @@ describe('buildOutlinePrompt(kind 分支)', () => {
     expect(p).toContain('章尾钩')
   })
 
-  it('短篇:有前篇时注入前篇摘要(避重复主题/情绪)', () => {
+  it('短篇:有前章时注入前章摘要(避重复主题/情绪)', () => {
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     writeFileSync(
       join(root, '写作', '正文', '001-旧案.md'),
-      '---\n篇号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
+      '---\n章号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
     )
     const p = buildOutlinePrompt(root, 2, 'short')
-    expect(p).toContain('前篇')
-    expect(p).toContain('第1篇')
+    expect(p).toContain('前章')
+    expect(p).toContain('第1章')
     expect(p).toContain('震撼')
   })
 
@@ -146,11 +147,11 @@ describe('lensToRole(镜头 → 角色文件映射)', () => {
 })
 
 describe('buildRewritePrompt(kind 分支)', () => {
-  it('whole 短篇:第N篇 + 8k-20k 字单篇开合', () => {
-    const p = buildRewritePrompt('whole', '原篇正文', '', '更紧张', [], 3, 'short')
-    expect(p).toContain('第 3 篇')
+  it('whole 短篇:第N章 + 8k-20k 字单章开合', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'short')
+    expect(p).toContain('第 3 章')
     expect(p).toContain('8000-20000 字')
-    expect(p).toContain('单篇完整开合')
+    expect(p).toContain('单章完整开合')
   })
   it('whole 长篇:第N章 + 2k-4k 字单章钩', () => {
     const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'long')

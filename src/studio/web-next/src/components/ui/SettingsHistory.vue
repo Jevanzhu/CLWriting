@@ -111,11 +111,11 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
       <template v-if="versionStats">
         <div class="setting-item">
           <div class="setting-item-info">
-            <div class="setting-item-name">{{ bookKind === 'short' ? '已定稿篇数' : '已定稿章节' }}</div>
-            <div class="setting-item-desc">{{ bookKind === 'short' ? '文档清单中有定稿基线的篇' : '文档清单中有定稿基线的章节' }}</div>
+            <div class="setting-item-name">已定稿章节</div>
+            <div class="setting-item-desc">文档清单中有定稿基线的章节</div>
           </div>
           <div class="setting-item-control">
-            <span class="backup-summary">{{ versionStats.finalizedDocs }} {{ bookKind === 'short' ? '篇' : '章' }}</span>
+            <span class="backup-summary">{{ versionStats.finalizedDocs }} 章</span>
           </div>
         </div>
         <div class="setting-item">

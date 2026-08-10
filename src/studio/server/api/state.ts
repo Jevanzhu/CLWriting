@@ -29,7 +29,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
     const bookRoot = join(ctx.workDir, entry.path)
     try {
       const r = enter(bookRoot)
-      // 下一个该写的章/篇号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter
+      // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter
       const d = r.detected
       const nextChapter =
         d.state === 7 ? d.nextChapter : d.state === 4 ? d.chapterNum : r.recap.nextChapter

@@ -41,14 +41,18 @@ const STEP_GROUPS: { label: string; steps: OnboardStep[] }[] = [
 
 // 非成长线书隐藏 realm（境界体系）步骤
 const isGrowthBook = ref(true)
-// 短篇集：无卷纲/线索种子（精简布局），隐藏「大纲规划」组；长篇隐藏「短篇专属」组
+// 短篇集：无卷纲（精简布局），隐藏「卷纲」步骤；线索种子/角色/世界观保留（短篇也有设定层/布线）
 const isShort = ref(false)
 const visibleStepGroups = computed(() =>
   STEP_GROUPS
-    .filter((g) => (isShort.value ? g.label !== '大纲规划' : g.label !== '短篇专属'))
+    // 短篇显示「短篇专属」组；长篇隐藏之
+    .filter((g) => (isShort.value ? true : g.label !== '短篇专属'))
     .map((g) => ({
       ...g,
-      steps: g.steps.filter((s) => s !== 'realm' || isGrowthBook.value),
+      steps: g.steps
+        // 短篇无卷纲（默认一卷），隐藏卷纲步骤；线索种子/角色/世界观放开
+        .filter((s) => !(isShort.value && s === 'volume'))
+        .filter((s) => s !== 'realm' || isGrowthBook.value),
     }))
     .filter((g) => g.steps.length > 0),
 )

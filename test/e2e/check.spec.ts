@@ -21,4 +21,9 @@ test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({
   await expect(page.locator('.check-panel .check-clean, .check-panel .check-group').first()).toBeVisible({
     timeout: 15_000,
   })
+  // 弱断言加强（P1-T5）：有分组时必须真的产出条目，否则只是「区域可见」形同虚设
+  const groupCount = await page.locator('.check-group').count()
+  if (groupCount > 0) {
+    await expect(page.locator('.check-item').first()).toBeVisible()
+  }
 })

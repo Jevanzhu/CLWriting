@@ -2,7 +2,6 @@ import { test, expect } from 'vitest'
 import {
   buildReviewTasks,
   isBlockingIssue,
-  REVIEW_LENSES_SHORT,
   selectReviewTier,
   type ReviewIssue,
   type PieceListCheck,
@@ -13,11 +12,13 @@ const emptyReport: CheckReport = { sections: [], byproducts: {} }
 
 // ── buildReviewTasks short 分支 ──────────────────
 
-test('buildReviewTasks short: 产短篇三视角', () => {
-  const tasks = buildReviewTasks(emptyReport, 'short')
-  expect(tasks.map((t) => t.lens)).toEqual(['hook', 'emotion_peak', 'payoff'])
-  expect(tasks.map((t) => t.title)).toEqual(['钩子审', '情绪反转审', '设定收尾审'])
-  // 三视角 must_run 全 true（满审不被降级稀释）
+test('buildReviewTasks short: reader/editor 恒跑 + 短篇三视角', () => {
+  const tasks = buildReviewTasks(emptyReport, { hasWiring: false, hasShort: true })
+  // 新语义：基础二视角恒跑，hasShort 追加短篇三视角（长文篇视角合一）
+  expect(tasks.map((t) => t.lens)).toEqual(['reader', 'editor', 'hook', 'emotion_peak', 'payoff'])
+  // 短篇三视角标题
+  expect(tasks.slice(2).map((t) => t.title)).toEqual(['钩子审', '情绪反转审', '设定收尾审'])
+  // 全部视角 must_run 全 true（满审不被降级稀释）
   expect(tasks.every((t) => t.must_run)).toBe(true)
 })
 
@@ -32,7 +33,7 @@ test('buildReviewTasks short: 清单核对条目进设定收尾审', () => {
     { type: 'payoff', subject: '半枚玉佩', location: '', detail: '' },
   ]
   const report: CheckReport = { sections: [], byproducts: { pieceListChecks: listChecks } as never }
-  const tasks = buildReviewTasks(report, 'short')
+  const tasks = buildReviewTasks(report, { hasWiring: false, hasShort: true })
   const payoff = tasks.find((t) => t.lens === 'payoff')!
   expect(payoff.list_checks).toHaveLength(2)
   expect(payoff.list_checks![0]!.type).toBe('reversal')
@@ -41,10 +42,16 @@ test('buildReviewTasks short: 清单核对条目进设定收尾审', () => {
   expect(hook.list_checks).toBeUndefined()
 })
 
-// ── REVIEW_LENSES_SHORT 常量 ─────────────────────
+// ── 短篇三视角（原 REVIEW_LENSES_SHORT 常量已删，lenses 由 buildReviewTasks 按 hasShort 决定）─
 
-test('REVIEW_LENSES_SHORT: 短篇三视角常量', () => {
-  expect(REVIEW_LENSES_SHORT).toEqual(['hook', 'emotion_peak', 'payoff'])
+test('短篇三视角：hasShort 时 buildReviewTasks 补 hook/emotion_peak/payoff', () => {
+  const lenses = buildReviewTasks(emptyReport, { hasWiring: false, hasShort: true }).map((t) => t.lens)
+  expect(lenses).toContain('hook')
+  expect(lenses).toContain('emotion_peak')
+  expect(lenses).toContain('payoff')
+  // 无 hasShort（纯长篇）不含短篇视角
+  const longLenses = buildReviewTasks(emptyReport).map((t) => t.lens)
+  expect(longLenses).not.toContain('hook')
 })
 
 // ── isBlockingIssue 短篇 category ────────────────
@@ -77,7 +84,7 @@ test('selectReviewTier short: 满审 lenses_run = 短篇三视角', () => {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
-    kind: 'short',
+    lenses: ['hook', 'emotion_peak', 'payoff'],
   })
   expect(d.ok).toBe(true)
   if (!d.ok) return
@@ -89,6 +96,7 @@ test('selectReviewTier long（缺省）: lenses_run = 长篇三视角', () => {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
+    lenses: ['reader', 'editor', 'continuity'],
   })
   expect(d.ok).toBe(true)
   if (!d.ok) return

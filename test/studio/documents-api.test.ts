@@ -148,7 +148,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
   })
 })
 
-describe('PATCH /documents/:docId meta（章号/篇号）', () => {
+describe('PATCH /documents/:docId meta（章号）', () => {
   it('长篇改章号 → 章号变 + 文件名 rename（曾因 numKey 丢弃静默失败）', async () => {
     const bodyDir = join(workDir, BOOK, '写作', '正文')
     mkdirSync(bodyDir, { recursive: true })
@@ -159,7 +159,7 @@ describe('PATCH /documents/:docId meta（章号/篇号）', () => {
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)
 
-    // 文件名 rename：0001-开篇.md → 0005-开篇.md（修复前章号被挂成篇号 → service 忽略 → 不 rename）
+    // 文件名 rename：0001-开篇.md → 0005-开篇.md（修复前章号被忽略 → service 不 rename → 不 rename）
     expect(existsSync(oldPath)).toBe(false)
     const newPath = join(bodyDir, '0005-开篇.md')
     expect(existsSync(newPath)).toBe(true)

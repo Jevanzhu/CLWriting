@@ -28,7 +28,7 @@ import { findUnsettled } from '../document/journal.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
-import { countPieces } from '../format/pieces.js'
+import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import type { BookConfig, ParseError } from '../format/types.js'
@@ -95,11 +95,11 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // 全量重建一次（#2#3 都要用它的结果；幂等，删了能建回）
-  // 短篇跳过 rebuild：短篇不依赖 index.db（态7 分支 + readRecapSnapshot 短篇分支都直扫 写作/正文/ 目录），
-  // rebuild 扫的是长篇结构（布线/账本 + 写作/正文），对短篇是纯浪费；态2 解析错误检测对短篇无意义（真相源是 写作/正文/）。
+  // 无布线（短篇）跳过 rebuild：无布线书不依赖 index.db 长程账本（态7 分支直接扫 写作/正文/ 目录），
+  // rebuild 扫的是长篇结构（布线/账本 + 写作/正文），对无布线书是纯浪费；态2 解析错误检测对此类书无意义（真相源是 写作/正文/）。
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let rebuildResult: { leadCount: number; chapterCount: number; summaryCount: number; errors: ParseError[] }
-  if (config.kind === 'short') {
+  if (!existsSync(join(bookRoot, '布线'))) {
     rebuildResult = { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [] }
   } else {
     // rebuild 仅在 db 层故障(磁盘满/权限/损坏)抛异常;catch 后降级态2,不崩整个 enter
@@ -120,7 +120,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // #3 未入账手改：定稿基线存在但当前指纹不同（manifest 指纹比对，不依赖 git）
-  const handEdits = detectHandEdits(bookRoot, config)
+  const handEdits = detectHandEdits(bookRoot)
   if (handEdits.length > 0) {
     return { state: 3, handEdits }
   }
@@ -136,11 +136,13 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
     }
   }
 
-  // ── 态 4 之后按 kind 分叉（M8 #25/#26，H2 合并设计）──
-  // 短篇分支：无态 5（无卷）/6（无体检）；直接落态 7 写作主态，篇号扫 写作/正文/ 目录
-  if (config.kind === 'short') {
+  // ── 态 4 之后按布线存在性分叉（无布线的短篇书：无态 5（无卷）/6（无体检）；直接落态 7 写作主态）──
+  if (!existsSync(join(bookRoot, '布线'))) {
     const excludeNames = unfinishedPieceNames(bookRoot)
-    return { state: 7, nextChapter: countPieces(join(bookRoot, '写作', '正文'), excludeNames) + 1 }
+    return {
+      state: 7,
+      nextChapter: readChapterDir(join(bookRoot, '写作', '正文')).chapters.length - excludeNames.size + 1,
+    }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -214,9 +216,9 @@ function healthCheck(bookRoot: string): HealthIssue[] {
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */
-function detectHandEdits(bookRoot: string, config: BookConfig): string[] {
+function detectHandEdits(bookRoot: string): string[] {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  const handEditPrefixes = config.kind === 'short' ? ['写作/正文/'] : ['写作/正文/', '设定/', '大纲/', '布线/']
+  const handEditPrefixes = ['写作/正文/', '设定/', '大纲/', '布线/']
   const out: string[] = []
   for (const entry of manifest.entries.values()) {
     if (entry.nodeType !== 'document') continue
@@ -336,7 +338,7 @@ function chapterFromRelPath(relPath: string): number {
   return m ? Number(m[1]) : 0
 }
 
-/** 正文区未定稿文件名集合（用于 countPieces 排除草稿——未定稿不计入"已写"）。 */
+/** 正文区未定稿文件名集合（用于排除草稿——未定稿不计入"已写"）。 */
 function unfinishedPieceNames(bookRoot: string): Set<string> {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const finalized = new Set<string>()
@@ -359,7 +361,7 @@ function unfinishedPieceNames(bookRoot: string): Set<string> {
       const st = statSyncSafe(fp)
       if (st === null) continue
       if (st.isDirectory()) walk(fp)
-      else if (name.endsWith('.md')) {
+      else if (name.endsWith('.md') && /^\d+-/.test(name)) {
         const rel = relativePath(bookRoot, fp)
         if (!finalized.has(rel)) out.add(rel.slice('写作/正文/'.length))
       }
@@ -369,7 +371,7 @@ function unfinishedPieceNames(bookRoot: string): Set<string> {
   return out
 }
 
-// countPieces 复用 format/pieces.ts 单源(避免两份计数逻辑漂移);签名接收 写作/正文/ 目录路径
+// 已定稿章数 = readChapterDir 章数 − 未定稿文件数（排除草稿后再计"已写"，见态 7 分支与 readRecapSnapshot）
 
 /** 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。 */
 function readBatchPause(bookRoot: string): { atChapter: number; reason: string; detail: string } | undefined {
@@ -389,7 +391,7 @@ function readBatchPause(bookRoot: string): { atChapter: number; reason: string; 
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
  * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，M3 出人话不真执行。
  */
-export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'long'): RouterAction {
+export function routeState(detected: DetectedState): RouterAction {
   switch (detected.state) {
     case 1: {
       const list = detected.issues.map((i) => `· ${i.humanMsg}（${i.fix}）`).join('\n')
@@ -420,11 +422,11 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
     }
     case 4: {
       // 中断点：pre-finalize = 续写（草稿还在没定稿）；post-finalize-residue = 定稿了但工作区没收尾（幂等清理）
-      const unit = kind === 'short' ? '篇' : '章'
+      // 短篇/长篇统一用「章」作为正文单位
       const msg =
         detected.resumePoint === 'pre-finalize'
-          ? `第 ${detected.chapterNum} ${unit}写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
-          : `第 ${detected.chapterNum} ${unit}其实已定稿，但草稿区没收尾（草稿/细纲残留），清理一下就好。`
+          ? `第 ${detected.chapterNum} 章写到一半（工作区有草稿/细纲没定稿），接着干——从断点续写到定稿。`
+          : `第 ${detected.chapterNum} 章其实已定稿，但草稿区没收尾（草稿/细纲残留），清理一下就好。`
       return {
         state: 4,
         humanMsg: msg,
@@ -440,11 +442,10 @@ export function routeState(detected: DetectedState, kind: 'long' | 'short' = 'lo
         needsAI: true, // 卷复盘深度 M4
       }
     case 7: {
-      const unit = kind === 'short' ? '篇' : '章'
       // CLI 退场后写章收敛为单一入口（全自动/编辑器），不再分「手写起草」动作
       return {
         state: 7,
-        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} ${unit}。`,
+        humanMsg: `一切就绪，开始写第 ${detected.nextChapter} 章。`,
         action: 'write-new-chapter',
         needsAI: false, // M2 AI 写稿由 M4 壳调
       }
@@ -502,10 +503,11 @@ function readRecapSnapshot(
   config: BookConfig,
   detected: DetectedState,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
-  // 短篇不读缓存章统计（无长程账本缓存，M8 #26）；直接扫 写作/正文/ 作为已定稿篇数。
-  // 排除未定稿草稿（未定稿不计入"已写"篇数）
-  if (config.kind === 'short') {
-    return { currentChapter: countPieces(join(bookRoot, '写作', '正文'), unfinishedPieceNames(bookRoot)), currentVolume: 1 }
+  // 无布线书不读缓存章统计（无长程账本缓存）；直接扫 写作/正文/ 作为已定稿章数。
+  // 排除未定稿草稿（未定稿不计入"已写"章数）
+  if (!existsSync(join(bookRoot, '布线'))) {
+    const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot).size, currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined
@@ -537,7 +539,7 @@ export interface EnterResult {
   recap: StatusRecap
   detected: DetectedState
   route: RouterAction
-  /** 长短篇（M8，CLI 文案按 kind 出「章/篇」） */
+  /** 长短篇（M8，正文单位统一为「章」） */
   kind: 'long' | 'short'
 }
 
@@ -554,7 +556,7 @@ export function enter(bookRoot: string): EnterResult {
   }
   const { config } = cfgResult
   const detected = detectState(bookRoot, config)
-  const route = routeState(detected, config.kind ?? 'long')
+  const route = routeState(detected)
   const recap = buildRecap(bookRoot, config, detected)
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }

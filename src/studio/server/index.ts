@@ -10,8 +10,8 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
+import { safeTokenCompare } from './http.js'
 import { readBooks } from '../../install/books.js'
-import { migratePieceLayout } from '../../format/pieces.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
@@ -101,11 +101,10 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
-  // 迁移旧短篇目录结构（篇/N-T/正文.md → 篇/N-T.md + 清单/N-T.md；幂等，无旧结构 no-op）
+  // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       const bookPath = join(opts.workDir, book.path)
-      migratePieceLayout(bookPath)
       const v2Result = migrateLayoutV2(bookPath)
       if (v2Result.errors.length > 0) {
         console.error(`[migrate-layout-v2] ${book.path}: ${v2Result.errors.length} 个错误\n${v2Result.errors.join('\n')}`)
@@ -152,15 +151,15 @@ export function startServer(opts: StudioServerOptions): http.Server {
       res.end()
       return
     }
-    // 写端点(POST/PUT/DELETE)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
-    const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE'
+    // 写端点(POST/PUT/DELETE/PATCH)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
+    const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH'
     if (isWrite && !isAllowedOrigin(req)) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'forbidden origin' }))
       return
     }
     // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
-    if (isWrite && req.headers['x-studio-token'] !== studioToken) {
+    if (isWrite && !safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'invalid or missing studio token' }))
       return

@@ -4,13 +4,11 @@
  * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖）。
  * 搬完后更新文档清单路径，尝试删空 `写作/草稿/` 目录。
  *
- * 细纲/本章写作材料/首篇细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
+ * 细纲/本章写作材料/首章细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
  */
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
-// B-P1-3：消除 install 层对 studio 层的反向依赖，改读内核 format/kind
-import { readKind } from '../format/kind.js'
 import { readManifest, writeManifest } from '../document/manifest.js'
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {
@@ -19,7 +17,6 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
 
   let migrated = 0
   const errors: string[] = []
-  const kind = readKind(bookRoot)
   const pathRemap = new Map<string, string>() // 旧 path → 新 path（manifest 更新用）
 
   for (const name of readdirSync(draftDir)) {
@@ -36,15 +33,16 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       }
       continue
     }
-    if (name === '首篇细纲.md') {
-      // 持久化规划 → 大纲/
-      const dst = join(bookRoot, '大纲', name)
+    if (name === '首篇细纲.md' || name === '首章细纲.md') {
+      // 持久化规划 → 大纲/（统一文件名为 首章细纲.md）
+      const dstName = '首章细纲.md'
+      const dst = join(bookRoot, '大纲', dstName)
       if (!existsSync(dst)) {
         try {
           mkdirSync(dirname(dst), { recursive: true })
           renameSync(srcAbs, dst)
           migrated++
-          pathRemap.set(`写作/草稿/${name}`, `大纲/${name}`)
+          pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
         } catch (e) { errors.push(`${name}: ${e}`) }
       }
       continue
@@ -55,7 +53,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined
     try { content = readFileSync(srcAbs, 'utf-8') } catch { /* 读失败用 undefined */ }
-    const { relPath: dstRel } = resolveDraftPath(bookRoot, chapterNum, kind, content)
+    const { relPath: dstRel } = resolveDraftPath(bookRoot, chapterNum, content)
     const dstAbs = join(bookRoot, dstRel)
     if (existsSync(dstAbs)) {
       // 目标已存在（同章号已有定稿/草稿）→ 旧稿移回收站，不覆盖也不残留草稿区

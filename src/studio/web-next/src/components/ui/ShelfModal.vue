@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // 书架浮层（仿设置 modal）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
 // 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本组件只保留浮层布局 + 关闭逻辑。
-import { onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { X, BookOpen, ArrowRight, LayoutGrid, List, Sun, Moon, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../../composables/useShelf'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import { useUiStore } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import BookCard from './BookCard.vue'
 
@@ -29,6 +30,8 @@ const {
 // 右键菜单：桌面端原生 Menu，浏览器回退 ContextMenu
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 
 function onCardContextmenu(e: MouseEvent, name: string): void {
   const items: MenuItem[] = [
@@ -81,7 +84,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.shelfOpen" class="shelf-mask" @click.self="ui.closeShelf">
-      <div class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库">
+      <div ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
         <header class="modal-head">
           <div class="head-left">
             <h2 class="head-title">书架</h2>
@@ -170,7 +173,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <span class="progress-text">{{ formatWords(latestBook.words) }} / {{ formatWords(latestBook.targetWords) }}</span>
               </div>
               <div class="hero-foot">
-                <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+                <span>{{ latestBook.chapters ?? 0 }} 章</span>
                 <span v-if="latestBook.lastEdited" class="hero-time">{{ formatRelative(latestBook.lastEdited) }}</span>
               </div>
             </section>
@@ -184,7 +187,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <span class="hero-list-name">{{ latestBook.title ?? latestBook.name }}</span>
               <span v-if="latestBook.latestChapter" class="hero-list-recent">最近 · {{ latestBook.latestChapter }}</span>
               <span class="hero-list-meta">
-                <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+                <span>{{ latestBook.chapters ?? 0 }} 章</span>
                 <span v-if="latestBook.lastEdited">{{ formatRelative(latestBook.lastEdited) }}</span>
               </span>
               <ArrowRight :size="15" class="hero-list-arrow" />

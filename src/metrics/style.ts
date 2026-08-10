@@ -9,13 +9,15 @@
  * 纯 node:sqlite + 文件读，零模型（health 不耗模型契约）。
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
-import { readFile, parseFlat } from '../format/frontmatter.js'
-import { parseIronRules, computeStyleMetrics, type IronRules, type StyleStats } from '../check/count.js'
+import { readFile } from '../format/frontmatter.js'
+import { parseIronRules, type IronRules } from '../format/iron-rules.js'
+import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
@@ -33,7 +35,7 @@ export interface StyleBaseline {
   overall: FullStyleStats
 }
 
-/** 单章/篇文风采样 */
+/** 单章文风采样 */
 export interface ChapterSample {
   num: number
   title: string
@@ -137,8 +139,8 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
   }
 }
 
-/** 长篇重扫：扫 写作/正文/ 逐章算指纹 */
-export function scanLongChapters(bookRoot: string): ChapterSample[] {
+/** 重扫：扫 写作/正文/（递归卷目录）逐章算指纹，按章号排序 */
+export function scanChapters(bookRoot: string): ChapterSample[] {
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const { chapters } = readChapterDir(textDir)
@@ -151,40 +153,10 @@ export function scanLongChapters(bookRoot: string): ChapterSample[] {
   return samples.sort((a, b) => a.num - b.num)
 }
 
-/** 短篇重扫：扫 写作/正文/*.md 逐篇算指纹（按篇号排序） */
-export function scanShortPieces(bookRoot: string): ChapterSample[] {
-  const piecesDir = join(bookRoot, '写作', '正文')
-  const rules = readIronRules(bookRoot)
-  const samples: ChapterSample[] = []
-  if (!existsSync(piecesDir)) return samples
-  let entries: string[]
-  try {
-    entries = readdirSync(piecesDir)
-  } catch {
-    return samples
-  }
-  for (const name of entries) {
-    if (name.startsWith('._')) continue
-    if (!/^\d+-.*\.md$/.test(name)) continue
-    const bodyPath = join(piecesDir, name)
-    if (!existsSync(bodyPath)) continue
-    const r = readFile(bodyPath)
-    if (!r.ok) continue
-    // 篇号从文件名前缀取（NNN-标题）
-    const numMatch = name.match(/^(\d+)/)
-    const num = numMatch ? Number(numMatch[1]) : 0
-    // 标题从 front matter 取，缺则用文件名（去 .md）
-    const fm = parseFlat(r.fmRaw)
-    const title = String(fm.get('标题') ?? name.replace(/\.md$/, ''))
-    samples.push({ num, title, stats: computeFullStats(r.body, rules) })
-  }
-  return samples.sort((a, b) => a.num - b.num)
-}
-
 /**
  * 跨章聚合 + 漂移判定。
  * 漂移判定原则（只报趋势不下判决）：单点偶发不报，连续/趋势才报。
- * 短篇 < SHORT_TREND_MIN 篇 → 不做趋势判定（诚实降级，文风方案 §4.5）。
+ * 短篇 < SHORT_TREND_MIN 章 → 不做趋势判定（诚实降级，文风方案 §4.5）。
  */
 export function aggregateStyleTrend(
   samples: ChapterSample[],
@@ -352,7 +324,7 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 
   const p = baselinePath(bookRoot)
   mkdirSync(dirname(p), { recursive: true })
-  writeFileSync(p, JSON.stringify(baseline, null, 2), 'utf-8')
+  atomicWriteFile(p, JSON.stringify(baseline, null, 2))
   return baseline
 }
 
@@ -361,9 +333,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 /** 重扫报告 → 人话表格（文风方案 §4.4 输出形态） */
 export function formatStyleReport(trend: StyleTrend): string {
   if (trend.count === 0) {
-    return '尚无已定稿正文可重扫。写完并定稿一章/篇后再看（health --style）。\n'
+    return '尚无已定稿正文可重扫。写完并定稿一章后再看（health --style）。\n'
   }
-  const unit = trend.kind === 'short' ? '篇' : '章'
+  const unit = '章'
   const lines: string[] = []
   const baselineStr = trend.baseline
     ? `基线来自 ${trend.baseline.frozenFrom}`
@@ -409,7 +381,7 @@ export function formatStyleReport(trend: StyleTrend): string {
   // 短篇小样本提示
   if (trend.kind === 'short' && trend.count < SHORT_TREND_MIN) {
     lines.push('')
-    lines.push(`（短篇 ${trend.count} 篇 < ${SHORT_TREND_MIN}，仅报明细不做趋势判定）`)
+    lines.push(`（短篇 ${trend.count} 章 < ${SHORT_TREND_MIN}，仅报明细不做趋势判定）`)
   }
 
   lines.push('')

@@ -9,8 +9,9 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { readBookConfig, stringifyBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
 
@@ -60,7 +61,7 @@ export function writeApiKey(workDir: string, key: string): void {
   const clwritingDir = join(workDir, '.clwriting')
   mkdirSync(clwritingDir, { recursive: true })
   ensureRagSecretGitignore(workDir)
-  writeFileSync(join(clwritingDir, RAG_SECRET_FILE), key + '\n', 'utf-8')
+  atomicWriteFile(join(clwritingDir, RAG_SECRET_FILE), key + '\n')
   // P2-3：限制文件权限（对比 vault.ts 已做 chmod 0600）
   chmodSync(join(clwritingDir, RAG_SECRET_FILE), 0o600)
 }
@@ -73,7 +74,7 @@ function ensureRagSecretGitignore(workDir: string): void {
   const lines = existing.split(/\r?\n/)
   if (lines.includes(RAG_SECRET_FILE)) return
   const prefix = existing === '' || existing.endsWith('\n') ? existing : existing + '\n'
-  writeFileSync(ignorePath, prefix + RAG_SECRET_FILE + '\n', 'utf-8')
+  atomicWriteFile(ignorePath, prefix + RAG_SECRET_FILE + '\n')
 }
 
 /**
@@ -112,7 +113,7 @@ export function enableRag(
   }
 
   // 2. 写回 book.yaml（非密段；key 绝不在此）
-  writeFileSync(join(bookRoot, 'book.yaml'), stringifyBookConfig(config), 'utf-8')
+  atomicWriteFile(join(bookRoot, 'book.yaml'), stringifyBookConfig(config))
 
   // 3. key 落 gitignore 区（绝不写 book.yaml）
   if (opts.apiKey) {

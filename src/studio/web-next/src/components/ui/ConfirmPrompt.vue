@@ -1,13 +1,17 @@
 <script setup lang="ts">
 // 通用确认弹窗（命令式）：由 ui.ask() 驱动，替代原生 confirm()。
 // 二选一（确认/取消）+ danger 档（确认钮警示色）；与 ConfirmDialog（dirty-tab 三选一）分工。
+import { ref } from 'vue'
 import { useUiStore } from '../../stores/ui'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 const ui = useUiStore()
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 </script>
 
 <template>
   <div v-if="ui.confirmState" class="cp-mask" @click.self="ui.resolveConfirm(false)">
-    <div class="cp-modal" role="dialog" aria-modal="true" aria-label="确认">
+    <div ref="modalRef" class="cp-modal" role="dialog" aria-modal="true" aria-label="确认" tabindex="-1">
       <div class="cp-title">{{ ui.confirmState.title }}</div>
       <div class="cp-body">{{ ui.confirmState.message }}</div>
       <div class="cp-actions">

@@ -11,7 +11,7 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../book-context.js'
-import { scanLongChapters, scanShortPieces, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
+import { scanChapters, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
 
 interface HealthCtx {
   workDir: string | null
@@ -24,7 +24,7 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return reply(res, r.status, { error: r.error })
     const kind = readKind(r.bookRoot)
-    const samples = kind === 'short' ? scanShortPieces(r.bookRoot) : scanLongChapters(r.bookRoot)
+    const samples = scanChapters(r.bookRoot)
     reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
   })
 }

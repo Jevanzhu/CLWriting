@@ -65,40 +65,6 @@ export interface Lead {
 /** 钩子类型（#7 第 3 节，追读力 5 类） */
 export type HookType = '危机钩' | '悬念钩' | '渴望钩' | '情绪钩' | '选择钩'
 
-// ── 短篇正文元数据（M8 #27，单篇爆破力目标函数）──
-
-/**
- * 短篇正文 front matter（M8 #27 第 6 节 + 短篇对齐扩展）。
- *
- * 独立短篇：目标情绪 + 核心反转（单篇情绪爆破力）。
- * 连续故事：可选钩子类型/钩子强弱/情绪定位/场景/字数目标（对齐长篇 ChapterMeta 追读力字段）。
- * 功能可选原则：连续故事填了钩子字段 → 启用节奏分析；独立短篇不填 → 无感知。
- * 落点：写作/正文/<篇号>-<标题>.md。
- */
-export interface PieceMeta {
-  篇号: number
-  标题: string
-  /** 目标情绪（P1 拍板，情绪是短篇目标函数） */
-  目标情绪?: string
-  /** 核心反转（P1 拍板，一反转撑全篇） */
-  核心反转?: string
-  // ── 连续故事可选（对齐 ChapterMeta，独立短篇不用）──
-  /** 钩子类型（连续故事追读力，有则启用节奏分析） */
-  钩子类型?: HookType
-  /** 钩子强弱（连续故事追读力） */
-  钩子强弱?: HookLevel
-  /** 情绪定位（连续故事节奏曲线） */
-  情绪定位?: Emotion
-  /** 场景类型（连续故事场景分布） */
-  场景?: SceneType
-  /** 字数目标（连续故事规划用） */
-  字数目标?: number
-  _raw?: Record<string, string>
-  _path?: string
-  /** 机检算的字数派生（不入 front matter） */
-  _wordCount?: number
-}
-
 // ── 单篇清单（M8 #27，账本降级：反转线索表 + 伏笔回收）──
 
 /** 反转线索表的铺垫点（结构物件三现，吸收点 7.4） */
@@ -113,7 +79,7 @@ export interface ReversalLead {
   铺垫点: SetupPoint[]
 }
 
-/** 伏笔回收条目（单篇内闭合，弃坑 = 阻断） */
+/** 伏笔回收条目（单章内闭合，弃坑 = 阻断） */
 export interface PayoffEntry {
   伏笔: string
   回收位置: string
@@ -132,8 +98,8 @@ export interface EmotionCurvePoint {
 
 /**
  * 单篇清单（M8 #27 第 4 节）。
- * 范围限单篇、写完即归档；复用账本格式骨架降级，无跨篇长程线。
- * 落点：大纲/清单/<篇号>-<标题>.md。
+ * 范围限单章、写完即归档；复用账本格式骨架降级，无跨章长程线。
+ * 落点：大纲/章纲/<章号>-<标题>.md。
  */
 export interface PieceList {
   反转线索表: ReversalLead
@@ -162,6 +128,9 @@ export interface ChapterMeta {
   场景?: SceneType // 可选（#7.4 节奏页场景分布）
   时间锚点?: string // 可选（#7 第 2 节）
   字数目标?: number // 可选（块4：规划字数，章纲录入；定稿章可保留规划值）
+  // 以下为通用可选字段（长短篇均可用，非"短篇专属"）
+  目标情绪?: string // 读者体验目标（惊悚/温暖/心酸…）
+  核心反转?: string // 本章核心反转点（有反转的章才填）
   _raw?: Record<string, string>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）

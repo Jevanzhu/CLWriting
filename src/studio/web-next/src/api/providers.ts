@@ -63,7 +63,7 @@ export async function fetchModels(body: { protocol: Protocol; baseUrl: string; a
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, 30_000) // 拉模型列表可能慢，30s 超时
 }
 
 export async function createProvider(body: {
@@ -110,7 +110,7 @@ export interface TestResult {
 }
 
 export async function testProvider(id: string): Promise<TestResult> {
-  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, { method: 'POST' })
+  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, { method: 'POST' }, 60_000) // 探测可能慢，60s 超时
 }
 
 /** 设置全局当前模型（方案 A：model 独立于供应商，工作台选择）。

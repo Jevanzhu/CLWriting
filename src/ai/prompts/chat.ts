@@ -9,7 +9,6 @@ import { join } from 'node:path'
 import type { ChatMsg } from '../provider/types.js'
 import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
-import { readKind } from '../../format/kind.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -55,7 +54,7 @@ export function buildChatContext(bookRoot: string, chapter?: number): ChatContex
 
   if (chapter !== undefined && chapter >= 1) {
     // 尝试读取章节正文前 2000 字
-    const draftPath = join(bookRoot, resolveDraftPath(bookRoot, chapter, readKind(bookRoot)).relPath)
+    const draftPath = join(bookRoot, resolveDraftPath(bookRoot, chapter).relPath)
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')

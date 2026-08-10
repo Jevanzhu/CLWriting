@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writePiece } from '../../src/format/pieces.js'
+import { writeChapter } from '../../src/format/chapters.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import {
   analyzeShortCollection,
@@ -18,10 +18,15 @@ function makePiece(root: string, num: number, title: string, opts: {
   ending: string
 }): void {
   const name = `${String(num).padStart(3, '0')}-${title}.md`
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writePiece(join(root, '写作', '正文', name), {
-    篇号: num,
+  // 短篇正文进卷结构：写作/正文/<卷>/（resolveDraftPath 统一 inferVolumeDir）
+  const bodyDir = join(root, '写作', '正文', '第一卷')
+  mkdirSync(bodyDir, { recursive: true })
+  writeChapter(join(bodyDir, name), {
+    章号: num,
     标题: title,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '压抑',
     目标情绪: opts.emotion,
     核心反转: opts.reversal,
   }, `正文 ${title}`)
@@ -43,8 +48,8 @@ function makePiece(root: string, num: number, title: string, opts: {
     ],
     伏笔回收: [{ 伏笔: opts.object, 回收位置: '结尾' }],
   }
-  mkdirSync(join(root, '大纲', '清单'), { recursive: true })
-  writePieceList(join(root, '大纲', '清单', name), list)
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writePieceList(join(root, '大纲', '章纲', name), list)
 }
 
 test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
@@ -88,9 +93,9 @@ test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
     }
     const report = analyzeShortCollection(scanShortCollection(root))
     const messages = report.risks.map((r) => r.message).join('\n')
-    expect(messages).toContain('最近 3 篇目标情绪都为「惊悚」')
-    expect(messages).toContain('最近 3 篇反转类型都为「死者反转」')
-    expect(messages).toContain('最近 3 篇结尾味道都为「后怕」')
+    expect(messages).toContain('最近 3 章目标情绪都为「惊悚」')
+    expect(messages).toContain('最近 3 章反转类型都为「死者反转」')
+    expect(messages).toContain('最近 3 章结尾味道都为「后怕」')
     expect(messages).toContain('核心反转重复')
     expect(messages).toContain('结构物件/伏笔「门外没有脚印」重复出现')
   } finally {
@@ -101,15 +106,18 @@ test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
 test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评分', () => {
   const root = mkdtempSync(join(tmpdir(), 'short-index-weak-'))
   try {
-    mkdirSync(join(root, '写作', '正文'), { recursive: true })
-    writePiece(join(root, '写作', '正文', '001-薄反转.md'), {
-      篇号: 1,
+    mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+    writeChapter(join(root, '写作', '正文', '第一卷', '001-薄反转.md'), {
+      章号: 1,
       标题: '薄反转',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '压抑',
       目标情绪: '惊悚',
       核心反转: '待补',
     }, '很短的正文')
-    mkdirSync(join(root, '大纲', '清单'), { recursive: true })
-    writePieceList(join(root, '大纲', '清单', '001-薄反转.md'), {
+    mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+    writePieceList(join(root, '大纲', '章纲', '001-薄反转.md'), {
       反转线索表: {
         核心反转: '待补',
         铺垫点: [{ 位置: '开头', 内容: '脚印' }],

@@ -365,10 +365,10 @@ export class DocumentService {
     return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName }))
   }
 
-  /** 更新章节元数据（标题/篇号）。
+  /** 更新章节元数据（标题/章号）。
    *  - 长篇 chapter：写 fm + 文件名同步 rename（章号4位-标题.md，docId 不变）。
-   *  - 短篇 piece-body：写 fm + 文件名同步 rename（篇号3位-标题.md，docId 不变）+ 清单同名跟随。 */
-  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number; 篇号?: number }): MoveResult {
+   *  - 短篇 piece-body：写 fm + 文件名同步 rename（章号3位-标题.md，docId 不变）+ 章纲同名跟随。 */
+  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): MoveResult {
     const path = this.lookupPathByDocId(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
@@ -377,14 +377,10 @@ export class DocumentService {
     if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
-    // piece-body 写「篇号」字段；chapter 写「章号」字段（接口按文档角色传其一）
+    // piece-body / chapter 统一写「章号」字段
     // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
     const isPiece = isPieceBody(path, this.bookRoot)
-    if (isPiece) {
-      if (meta.篇号 !== undefined) map.set('篇号', meta.篇号)
-    } else if (meta.章号 !== undefined) {
-      map.set('章号', meta.章号)
-    }
+    if (meta.章号 !== undefined) map.set('章号', meta.章号)
     try {
       // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
       atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), r.body), { fsync: true })
@@ -395,11 +391,11 @@ export class DocumentService {
     invalidateTreeIndex(this.bookRoot)
 
     if (isPiece) {
-      // 短篇：rename 文件名（篇/<篇号3位>-<标题>.md）+ 同步清单同名文件
-      const 篇号 = map.get('篇号')
+      // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
+      const 章号 = map.get('章号')
       const numPrefix =
-        typeof 篇号 === 'number'
-          ? `${String(篇号).padStart(3, '0')}-`
+        typeof 章号 === 'number'
+          ? `${String(章号).padStart(3, '0')}-`
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
       const newName = `${numPrefix}${标题}.md`
       if (basename(path) !== newName) {
@@ -420,11 +416,11 @@ export class DocumentService {
     return { ok: true, docId, path }
   }
 
-  /** 短篇清单同步重命名（清单/Old.md → 清单/New.md）：
-   *  正文已 rename，清单同名文件跟随。清单不存在时静默跳过（不阻断正文 rename）。 */
+  /** 短篇章纲同步重命名（章纲/Old.md → 章纲/New.md）：
+   *  正文已 rename，章纲同名文件跟随。章纲不存在时静默跳过（不阻断正文 rename）。 */
   private syncRenamePieceList(oldBodyRel: string, newName: string): void {
-    const oldListRel = `大纲/清单/${basename(oldBodyRel)}`
-    const newListRel = `大纲/清单/${newName}`
+    const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
+    const newListRel = `大纲/章纲/${newName}`
     const oldSafe = this.resolveSafePath(oldListRel)
     const newSafe = this.resolveSafePath(newListRel)
     if (!oldSafe || !newSafe) return

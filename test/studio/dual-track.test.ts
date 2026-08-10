@@ -39,7 +39,7 @@ describe('双轨回归 · 书架', () => {
 })
 
 describe('双轨回归 · 长篇八阶段数据链', () => {
-  it('总览：身份 + 进度(2章) + 状态机 + 卷结构', async () => {
+  it('总览：身份 + 进度(3章) + 状态机 + 卷结构', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/overview`)
     const d = (await r.json()) as {
       identity: { title: string; kind: string }
@@ -47,16 +47,16 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
       state: { state: number }
     }
     expect(d.identity.title).toBe('长篇测试书')
-    expect(d.progress.chapters).toBe(2)
+    expect(d.progress.chapters).toBe(3)
     expect(typeof d.state.state).toBe('number')
   })
 
-  it('节奏：字数曲线 2 章 + 钩子/情绪分布', async () => {
+  it('节奏：字数曲线 3 章 + 钩子/情绪分布', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/rhythm`)
     const d = (await r.json()) as { kind: string; wordCurve: unknown[]; written: { hookTypeDist: Record<string, number>; sceneDist: Record<string, number> } }
     expect(d.kind).toBe('long')
-    expect(d.wordCurve).toHaveLength(2)
-    expect(d.written.hookTypeDist['悬念钩']).toBe(1)
+    expect(d.wordCurve).toHaveLength(3)
+    expect(d.written.hookTypeDist['悬念钩']).toBe(2) // 0001 + 0003
     expect(d.written.sceneDist['对话']).toBe(1)
     expect(d.written.sceneDist['战斗']).toBe(1)
   })
@@ -85,16 +85,16 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
 })
 
 describe('双轨回归 · 短篇 P1–P4 数据链', () => {
-  it('总览：短篇身份 + 篇数(2)', async () => {
+  it('总览：短篇身份 + 章数(2)', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/overview`)
     const d = (await r.json()) as { identity: { kind: string }; progress: { chapters: number } }
     expect(d.identity.kind).toBe('short')
     expect(d.progress.chapters).toBe(2)
   })
 
-  it('节奏：核心反转 2 篇', async () => {
+  it('节奏：核心反转 2 章', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(SHORT_BOOK)}/rhythm`)
-    const d = (await r.json()) as { kind: string; reversals: { 篇号: number }[] }
+    const d = (await r.json()) as { kind: string; reversals: { 章号: number }[] }
     expect(d.kind).toBe('short')
     expect(d.reversals).toHaveLength(2)
   })

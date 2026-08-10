@@ -1,14 +1,14 @@
 <script setup lang="ts">
-// 篇章信息弹窗（块2.2）：编辑 章号|篇号 / 标题，落 frontmatter + 路径同步 rename。
-// 长篇 chapter 用「章号」标签、短篇 piece-body 用「篇号」标签（同一弹窗，numLabel 切换）。
+// 篇章信息弹窗（块2.2）：编辑 章号 / 标题，落 frontmatter + 路径同步 rename。
+// 长/短篇统一用「章号」作正文编号字段（无「篇号」概念）。
 import { ref, watch } from 'vue'
 
 const props = defineProps<{
   modelValue: boolean
-  /** 章号|篇号 当前值（null = 空） */
+  /** 章号 当前值（null = 空） */
   num: number | null
   标题: string
-  /** 短篇正文 → 标签「篇号」、标题「篇章信息」；否则「章号」/「章节信息」 */
+  /** 短篇正文 → 标题「篇章信息」；否则「章节信息」（字段统一为 章号） */
   isPiece?: boolean
 }>()
 const emit = defineEmits<{
@@ -35,7 +35,7 @@ function onSave(): void {
   emit('save', { 标题: titleInput.value.trim() || '未命名', num: n })
   emit('update:modelValue', false)
 }
-const numLabel = () => (props.isPiece ? '篇号' : '章号')
+const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
 </script>
 

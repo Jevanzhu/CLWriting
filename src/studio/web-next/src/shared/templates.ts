@@ -22,9 +22,17 @@ export function chapterTemplate(章号: number, 标题: string): string {
   ].join('\n')
 }
 
-/** 章纲：场景/情节要点/章尾钩 结构（前端 inline 命名时章号已定）。 */
+/** 章纲：结构化 fm + 场景/情节要点/章尾钩 结构（前端 inline 命名时章号已定） */
 export function chapterOutlineTemplate(章号: number, 标题: string): string {
   return [
+    '---',
+    `章号: ${章号}`,
+    `标题: ${标题}`,
+    '钩子类型: 悬念钩',
+    '钩子强弱: 中',
+    '情绪定位: 铺垫',
+    '---',
+    '',
     `## 第${章号}章 ${标题}`,
     '',
     '### 场景',

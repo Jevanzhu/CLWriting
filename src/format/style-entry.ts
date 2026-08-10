@@ -160,7 +160,8 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
 export function addEntry(bookRoot: string, e: StyleEntry): string {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const seq = nextEntrySeq(entriesDir, e.类型, e.场景)
-  const fileName = `${e.场景}-${String(seq).padStart(3, '0')}.md`
+  // 场景字段净化路径分隔符，防 frontmatter 篡改越出目录
+  const fileName = `${e.场景.replace(/[\\/]/g, '_')}-${String(seq).padStart(3, '0')}.md`
   const dir = join(entriesDir, e.类型)
   mkdirSync(dir, { recursive: true })
   writeEntry(join(dir, fileName), e)

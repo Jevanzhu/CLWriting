@@ -34,6 +34,8 @@ test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只�
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
+    hasWiring: true,
+    hasShort: false,
   })
   expect(built.ok).toBe(true)
   if (!built.ok) return
@@ -64,6 +66,8 @@ test('buildReviewPacket: 合审档位 → 单分包但账本清单不丢', () =>
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 1,
     high_risk: false,
+    hasWiring: true,
+    hasShort: false,
   })
   expect(built.ok).toBe(true)
   if (!built.ok) return
@@ -88,6 +92,8 @@ test('buildReviewPacket: 高风险章预算不足 → 拒绝（禁止降级）',
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 2,
     high_risk: true,
+    hasWiring: true,
+    hasShort: false,
   })
   expect(built.ok).toBe(false)
   if (!built.ok) expect(built.reason).toContain('高风险章')
@@ -106,6 +112,8 @@ function makeFullPacket(workDir: string): ReviewExecutionPacket {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 8,
     high_risk: false,
+    hasWiring: true,
+    hasShort: false,
   })
   if (!built.ok) throw new Error('packet build failed')
   return built.packet
@@ -184,6 +192,8 @@ test('collectReviewIssues: 合审单文件回收三视角', () => {
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 1,
     high_risk: false,
+    hasWiring: true,
+    hasShort: false,
   })
   if (!built.ok) throw new Error('build failed')
   mkdirSync(built.packet.out_dir, { recursive: true })

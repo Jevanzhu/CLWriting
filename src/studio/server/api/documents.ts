@@ -193,17 +193,15 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         result = await svc.moveDocument({ docId, toDir: body.toDir })
       } else if (body.op === 'meta') {
         const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
-        // 章号/篇号：接口兼容（长篇用 章号，短篇用 篇号；前端按文档类型传其一）
-        const numKey = typeof body.篇号 === 'number' || typeof body.篇号 === 'string' ? '篇号' : '章号'
-        const numVal = Number(numKey === '篇号' ? body.篇号 : body.章号)
+        // 章号：长篇/短篇统一用 章号
+        const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
         if (标题 === undefined && !Number.isFinite(numVal)) {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号/篇号' })
+          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
           return
         }
-        // 按 numKey 分流下传：长篇挂 章号、短篇挂 篇号（service 按文档角色读对应键）
         const metaUpdate: Record<string, unknown> = {}
         if (标题 !== undefined) metaUpdate['标题'] = 标题
-        if (Number.isFinite(numVal)) metaUpdate[numKey] = numVal
+        if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
         result = svc.updateChapterMeta(docId, metaUpdate)
       } else if (body.op === 'fm') {
         const meta = body.meta

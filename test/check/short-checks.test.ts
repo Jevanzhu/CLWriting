@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import {
-  checkPieceFrontMatter,
+  checkFrontMatter,
   checkPieceWordCount,
   checkBodyParts,
   checkSimile,
@@ -10,15 +10,15 @@ import {
 import { checkPieceListForm } from '../../src/check/manifest-check.js'
 import type { PieceList } from '../../src/format/types.js'
 
-// ── checkPieceFrontMatter ────────────────────────
+// ── checkFrontMatter ────────────────────────────
 
-test('checkPieceFrontMatter: 篇号文件名一致通过', () => {
-  const r = checkPieceFrontMatter({ 篇号: 1, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
+test('checkFrontMatter: 章号文件名一致通过', () => {
+  const r = checkFrontMatter({ 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }, '第一卷/001-雪夜.md')
   expect(r.items).toHaveLength(0)
 })
 
-test('checkPieceFrontMatter: 篇号不一致报红', () => {
-  const r = checkPieceFrontMatter({ 篇号: 2, 标题: '雪夜' }, '篇/001-雪夜/正文.md')
+test('checkFrontMatter: 章号不一致报红', () => {
+  const r = checkFrontMatter({ 章号: 2, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }, '第一卷/001-雪夜.md')
   expect(r.items).toHaveLength(1)
   expect(r.items[0]!.level).toBe('red')
 })

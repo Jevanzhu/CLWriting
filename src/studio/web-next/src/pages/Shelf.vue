@@ -193,7 +193,7 @@ function openBook(name: string): void {
             </span>
           </div>
           <div class="hero-foot">
-            <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+            <span>{{ latestBook.chapters ?? 0 }} 章</span>
             <span v-if="latestBook.lastEdited" class="hero-time"
               ><span class="dot">·</span>{{ formatRelative(latestBook.lastEdited) }}</span
             >
@@ -209,7 +209,7 @@ function openBook(name: string): void {
           <span class="hero-list-name">{{ latestBook.title ?? latestBook.name }}</span>
           <span v-if="latestBook.latestChapter" class="hero-list-recent">最近 · {{ latestBook.latestChapter }}</span>
           <span class="hero-list-meta">
-            <span>{{ latestBook.chapters ?? 0 }} {{ latestBook.kind === 'short' ? '篇' : '章' }}</span>
+            <span>{{ latestBook.chapters ?? 0 }} 章</span>
             <span v-if="latestBook.lastEdited">{{ formatRelative(latestBook.lastEdited) }}</span>
           </span>
           <ArrowRight :size="15" class="hero-list-arrow" />

@@ -76,7 +76,7 @@ export function classifyReversal(text: string): ReversalTypeName {
   return '其他反转'
 }
 
-/** 从清单反转线索表提取文本（供上层分类；缺核心反转返回空串） */
+/** 从章纲反转线索表提取文本（供上层分类；缺核心反转返回空串） */
 export function reversalText(lead: ReversalLead): string {
   return lead.核心反转?.trim() ?? ''
 }

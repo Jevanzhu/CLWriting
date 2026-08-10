@@ -14,7 +14,6 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { readPieceDir } from '../../../format/pieces.js'
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
@@ -71,27 +70,27 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** 组 outline prompt:长篇(总纲+前章+章细纲)/短篇(总纲+前篇+篇纲)分支 */
+/** 组 outline prompt:长篇(总纲+前章+章细纲)/短篇(总纲+前章+章纲)分支 */
 export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const synopsis = readSafe(join(bookRoot, '大纲', '总纲.md'))
 
-  // 短篇:单篇闭合,前篇避重复主题/情绪,篇纲要目标情绪+核心反转+开合骨架
+  // 短篇:单章闭合,前章避重复主题/情绪,章纲要目标情绪+核心反转+开合骨架
   if (kind === 'short') {
-    const parts: string[] = [`## 任务\n为第 ${chapter} 篇生成篇纲(短篇,单篇 8000-20000 字完整开合)。`]
+    const parts: string[] = [`## 任务\n为第 ${chapter} 章生成章纲(短篇,单章 8000-20000 字完整开合)。`]
     if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
-    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-    const recent = pieces
-      .filter((p) => p.篇号 < chapter)
-      .sort((a, b) => b.篇号 - a.篇号)
+    const { chapters: recentChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+    const recent = recentChapters
+      .filter((c) => c.章号 < chapter)
+      .sort((a, b) => b.章号 - a.章号)
       .slice(0, 3)
     if (recent.length) {
       parts.push(
-        `## 前篇(近 ${recent.length} 篇,避重复主题/情绪)\n${recent
-          .map((p) => `- 第${p.篇号}篇 ${p.标题}(${p.目标情绪 ?? '?'}/${p.核心反转 ?? '?'})`)
+        `## 前章(近 ${recent.length} 章,避重复主题/情绪)\n${recent
+          .map((c) => `- 第${c.章号}章 ${c.标题}(${c.目标情绪 ?? '?'}/${c.核心反转 ?? '?'})`)
           .join('\n')}`,
       )
     }
-    // 连续故事：有对应篇号的章纲 → 注入上下文（短篇 prompt 风格不变，增加章纲参考）
+    // 连续故事：有对应章号的章纲 → 注入上下文（短篇 prompt 风格不变，增加章纲参考）
     const { chapters: coChapters } = readChapterDir(join(bookRoot, '大纲', '章纲'))
     const coHit = coChapters.find((c) => c.章号 === chapter)
     if (coHit?._path) {
@@ -101,7 +100,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
-      `## 要求\n产出第 ${chapter} 篇篇纲:① 目标情绪(本篇要落地的核心情绪);② 核心反转(单篇反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单篇闭合不烂尾)。直接输出篇纲 markdown。`,
+      `## 要求\n产出第 ${chapter} 章章纲:① 目标情绪(本章要落地的核心情绪);② 核心反转(单章反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单章闭合不烂尾)。直接输出章纲 markdown。`,
     )
     return parts.join('\n\n')
   }

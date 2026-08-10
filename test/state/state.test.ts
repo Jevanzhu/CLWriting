@@ -176,17 +176,17 @@ test('routeState: 态 7 统一写章入口（CLI 退场，不再分手写/严格
   // 自由 / 严格 / 缺省 config → 一律 write-new-chapter（写章收敛到全自动/编辑器）
   const rootFree = makeGitBook()
   const freeCfg = { ...DEFAULT_CONFIG, workflow: 'free' as const }
-  expect(routeState(detectState(rootFree, freeCfg), 'long').action).toBe('write-new-chapter')
+  expect(routeState(detectState(rootFree, freeCfg)).action).toBe('write-new-chapter')
   rmSync(rootFree, { recursive: true, force: true })
 
   const rootStrict = makeGitBook()
   const strictCfg = { ...DEFAULT_CONFIG, workflow: 'strict' as const }
-  expect(routeState(detectState(rootStrict, strictCfg), 'long').action).toBe('write-new-chapter')
+  expect(routeState(detectState(rootStrict, strictCfg)).action).toBe('write-new-chapter')
   rmSync(rootStrict, { recursive: true, force: true })
 
   // 无 config（旧调用兼容）→ AI 流程
   const root7 = makeGitBook()
-  expect(routeState(detectState(root7, DEFAULT_CONFIG), 'long').action).toBe('write-new-chapter')
+  expect(routeState(detectState(root7, DEFAULT_CONFIG)).action).toBe('write-new-chapter')
   rmSync(root7, { recursive: true, force: true })
 })
 

@@ -45,6 +45,8 @@ export interface DocEntry {
 
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
+  /** 加载中文档的防并发锁（同一 docId 不重复发起请求） */
+  const loading = new Set<string>()
   const bookName = ref<string | null>(null)
 
   /** 切书：清空缓存（不同书的 docId 不通用）。 */
@@ -58,25 +60,30 @@ export const useDocStore = defineStore('doc', () => {
     return docs.value.get(docId)
   }
 
-  /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开则不重读。 */
+  /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。 */
   async function open(node: TreeNode): Promise<void> {
     if (!node.docId) throw new Error('节点无 docId')
-    if (docs.value.has(node.docId)) return
-    const content = await getContent(bookName.value!, node.path)
-    docs.value.set(node.docId, {
-      docId: node.docId,
-      path: node.path,
-      name: node.name,
-      role: node.role,
-      mode: modeOf(node.path),
-      content,
-      baselineRevision: await sha256Revision(content),
-      dirty: false,
-      saving: false,
-      savedAt: null,
-      error: null,
-      conflict: false,
-    })
+    if (docs.value.has(node.docId) || loading.has(node.docId)) return
+    loading.add(node.docId)
+    try {
+      const content = await getContent(bookName.value!, node.path)
+      docs.value.set(node.docId, {
+        docId: node.docId,
+        path: node.path,
+        name: node.name,
+        role: node.role,
+        mode: modeOf(node.path),
+        content,
+        baselineRevision: await sha256Revision(content),
+        dirty: false,
+        saving: false,
+        savedAt: null,
+        error: null,
+        conflict: false,
+      })
+    } finally {
+      loading.delete(node.docId)
+    }
   }
 
   /** 编辑器内容变更 → 标 dirty。 */

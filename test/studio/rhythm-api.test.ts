@@ -84,7 +84,7 @@ beforeAll(async () => {
     '---\n章号: 3\n标题: 未写\n钩子类型: 渴望钩\n钩子强弱: 中\n情绪定位: 小爽\n场景: 对话\n字数目标: 2800\n---\n\n章纲正文\n',
     'utf8',
   )
-  // 短篇书（反转缺口）：3 篇含核心反转，画像池 5 类
+  // 短篇书（反转缺口）：3 章含核心反转，画像池 5 类
   const shortRoot = join(workDir, SHORT_BOOK)
   mkdirSync(shortRoot, { recursive: true })
   writeFileSync(
@@ -95,17 +95,17 @@ beforeAll(async () => {
   mkdirSync(join(shortRoot, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(shortRoot, '写作', '正文', '001-雨夜门铃.md'),
-    '---\n篇号: 1\n标题: 雨夜门铃\n核心反转: 按门铃的来客就是三年前死在七号公寓的人\n---\n\n正文\n',
+    '---\n章号: 1\n标题: 雨夜门铃\n核心反转: 按门铃的来客就是三年前死在七号公寓的人\n---\n\n正文\n',
     'utf8',
   )
   writeFileSync(
     join(shortRoot, '写作', '正文', '002-中奖彩票.md'),
-    '---\n篇号: 2\n标题: 中奖彩票\n核心反转: 主角不是中奖者而是替真正中奖者设局的调查员\n---\n\n正文\n',
+    '---\n章号: 2\n标题: 中奖彩票\n核心反转: 主角不是中奖者而是替真正中奖者设局的调查员\n---\n\n正文\n',
     'utf8',
   )
   writeFileSync(
     join(shortRoot, '写作', '正文', '003-循环.md'),
-    '---\n篇号: 3\n标题: 循环\n核心反转: 主角以为困在循环里，每次醒来都是自己删除记忆后的重试\n---\n\n正文\n',
+    '---\n章号: 3\n标题: 循环\n核心反转: 主角以为困在循环里，每次醒来都是自己删除记忆后的重试\n---\n\n正文\n',
     'utf8',
   )
   server = startServer({ port: 0, workDir })
@@ -201,7 +201,7 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
     expect(ch3.字数).toBe('2800')
   })
 
-  it('短篇反转缺口：target 池 vs 已写篇归类（死者/真凶/时间记忆覆盖，身份/现实层缺失）', async () => {
+  it('短篇反转缺口：target 池 vs 已写章归类（死者/真凶/时间记忆覆盖，身份/现实层缺失）', async () => {
     const r = await get(`/api/books/${encodeURIComponent(SHORT_BOOK)}/rhythm`)
     expect(r.status).toBe(200)
     const j = r.json as {
@@ -210,7 +210,7 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
       reversalUnrecognized: number
     }
     expect(j.kind).toBe('short')
-    // 3 篇核心反转：死者/真凶/时间记忆 各 1；身份/现实层 缺
+    // 3 章核心反转：死者/真凶/时间记忆 各 1；身份/现实层 缺
     const gap = j.reversalGap
     expect(gap).toHaveLength(5)
     const byType = new Map(gap.map((g) => [g.type, g]))
@@ -219,7 +219,7 @@ describe('GET /rhythm 双轨（块4 节奏预测）', () => {
     expect(byType.get('时间/记忆反转')?.count).toBe(1)
     expect(byType.get('身份反转')?.missing).toBe(true)
     expect(byType.get('现实层反转')?.missing).toBe(true)
-    // 3 篇全部归类到池内 → 无未识别
+    // 3 章全部归类到池内 → 无未识别
     expect(j.reversalUnrecognized).toBe(0)
   })
 })

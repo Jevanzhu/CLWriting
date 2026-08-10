@@ -1,6 +1,6 @@
 import { apiJson } from './client'
 
-// 节奏双轨（块4）：GET /rhythm → 长篇(written/planned 双轨) / 短篇(篇长+目标情绪)。
+// 节奏双轨（块4）：GET /rhythm → 长篇(written/planned 双轨) / 短篇(章长+目标情绪)。
 // written=写作/正文 已写实际；planned=大纲/章纲 规划（字数目标合计）。
 
 export interface RhythmDist {
@@ -46,13 +46,13 @@ export interface RhythmLong {
 
 export interface RhythmShort {
   kind: 'short'
-  wordCurve: { 篇号: number; 标题: string; 字数: number }[]
+  wordCurve: { 章号: number; 标题: string; 字数: number }[]
   emotionDist: RhythmDist
-  /** 反转类型覆盖缺口（画像池 vs 已写篇；派生不落盘） */
+  /** 反转类型覆盖缺口（画像池 vs 已写章；派生不落盘） */
   reversalGap: { type: string; count: number; missing: boolean }[]
-  /** 核心反转存在但未归类到画像池的篇数（规则未命中 / 池外类型） */
+  /** 核心反转存在但未归类到画像池的章数（规则未命中 / 池外类型） */
   reversalUnrecognized: number
-  reversals: { 篇号: number; 标题: string; 核心反转: string }[]
+  reversals: { 章号: number; 标题: string; 核心反转: string }[]
   /** 连续故事节奏分布（有钩子字段时返回，独立短篇无） */
   written?: RhythmTrack
 }

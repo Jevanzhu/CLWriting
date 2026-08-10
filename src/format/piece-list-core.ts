@@ -1,7 +1,7 @@
 /**
- * 单篇清单（清单.md）纯解析/回写 —— 零 Node 依赖，服务端与浏览器共用。
+ * 单章章纲（章纲.md）纯解析/回写 —— 零 Node 依赖，服务端与浏览器共用。
  *
- * 清单数据存在正文（无 front matter），三段式 markdown：
+ * 章纲数据存在正文（无 front matter），三段式 markdown：
  *   ## 反转线索表（- 核心反转：… / - [位置] 内容）
  *   ## 情绪曲线（- [段落] 情绪 强度/10[: 说明]）
  *   ## 伏笔回收（- 伏笔 → 回收于 位置 / - 伏笔（未回收））
@@ -12,12 +12,12 @@
  */
 import type { PieceList, ReversalLead, PayoffEntry, SetupPoint, EmotionCurvePoint } from './types.js'
 
-/** 清单.md 段标题 */
+/** 章纲.md 段标题 */
 const SECTION_REVERSAL = '反转线索表'
 const SECTION_EMOTION = '情绪曲线'
 const SECTION_PAYOFF = '伏笔回收'
 
-/** 默认空清单（导入/冷启动占位，不臆造反转线索——吸收点 7.5 负向约束） */
+/** 默认空章纲（导入/冷启动占位，不臆造反转线索——吸收点 7.5 负向约束） */
 export function emptyPieceList(): PieceList {
   return {
     反转线索表: { 核心反转: '', 铺垫点: [] },
@@ -128,8 +128,8 @@ function parsePayoffSection(lines: string[], startIdx: number): { entries: Payof
 }
 
 /**
- * 从清单.md 正文解析 PieceList。
- * body 是 front matter 之后的正文（清单.md 通常无 front matter，全文即正文）。
+ * 从章纲.md 正文解析 PieceList。
+ * body 是 front matter 之后的正文（章纲.md 通常无 front matter，全文即正文）。
  */
 export function parsePieceListBody(body: string): PieceList {
   const lines = body.split('\n')

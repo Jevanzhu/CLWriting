@@ -15,7 +15,6 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
-import { readPieceDir } from '../../../format/pieces.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgress } from './progress.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
@@ -62,7 +61,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       stateCache = { bookRoot, result: state, ts: now }
     }
 
-    const timeline = computeTimeline(bookRoot, kind)
+    const timeline = computeTimeline(bookRoot)
     const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
     reply(res, 200, {
       identity: {
@@ -74,11 +73,11 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         genre: config.book.genre,
         host: config.host ?? 'cc',
       },
-      progress: withTarget(computeProgress(bookRoot, kind), config.book.target_words),
+      progress: withTarget(computeProgress(bookRoot), config.book.target_words),
       state,
-      volumes: kind === 'short' ? [] : listVolumes(bookRoot),
+      volumes: listVolumes(bookRoot),
       timeline,
-      recentDoc: getRecentDoc(bookRoot, kind),
+      recentDoc: getRecentDoc(bookRoot),
       streak: computeStreak(timeline),
       ...(shortProfile ? { shortProfile } : {}),
     })
@@ -114,15 +113,10 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
  * 写作热力（#7.2）：已定稿文件 mtime 按日聚合（写作/正文）。
  * 返日期-计数列表供总览页日历热力图。mtime 反映定稿落盘时间（够用，git commit 时间更准但贵）。
  */
-function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: string; count: number }[] {
+function computeTimeline(bookRoot: string): { date: string; count: number }[] {
   const files: string[] = []
-  if (kind === 'short') {
-    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-    for (const p of pieces) if (p._path) files.push(p._path)
-  } else {
-    const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-    for (const c of chapters) if (c._path) files.push(c._path)
-  }
+  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+  for (const c of chapters) if (c._path) files.push(c._path)
   const byDay = new Map<string, number>()
   for (const fp of files) {
     let mtime: Date
@@ -140,15 +134,7 @@ function computeTimeline(bookRoot: string, kind: 'long' | 'short'): { date: stri
 }
 
 /** 最近一章（按章号最大）—— 供总览页"继续写作"入口 */
-function getRecentDoc(bookRoot: string, kind: 'long' | 'short'): { no: number; 标题: string; path: string } | null {
-  if (kind === 'short') {
-    const { pieces } = readPieceDir(join(bookRoot, '写作', '正文'))
-    if (pieces.length === 0) return null
-    const sorted = [...pieces].sort((a, b) => (b.篇号 ?? 0) - (a.篇号 ?? 0))
-    const last = sorted[0]
-    if (!last?._path) return null
-    return { no: last.篇号, 标题: last.标题, path: relative(bookRoot, last._path).replace(/\\/g, '/') }
-  }
+function getRecentDoc(bookRoot: string): { no: number; 标题: string; path: string } | null {
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   if (chapters.length === 0) return null
   const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))

@@ -81,8 +81,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
     if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-    const isShort = readKind(bookRoot) === 'short'
-    const draft = readDraft(absPath, isShort)
+    const draft = readDraft(absPath)
     if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
     const original = draft.body
     // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
@@ -94,7 +93,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 
     const prompt = append
       ? buildAppendPrompt(original, instruction)
-      : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, isShort ? 'short' : 'long')
+      : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
     const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
     if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
     const produced = result.produced

@@ -7,9 +7,12 @@ import { exportBook, type ExportFormat, type ExportPlatform } from '../../api/io
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 
 const FORMATS: { v: ExportFormat; label: string; hint: string }[] = [
   { v: 'merged', label: '合并', hint: '全书一个文件' },
@@ -61,7 +64,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.exportOpen" class="modal-mask" @click.self="ui.closeExport">
-      <div class="export-modal" role="dialog" aria-modal="true" aria-label="导出">
+      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1">
         <div class="modal-head">
           <span>导出定稿</span>
           <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" @click="ui.closeExport"><X :size="18" /></button>

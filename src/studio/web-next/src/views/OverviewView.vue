@@ -25,7 +25,7 @@ const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
 
-/** 继续写作：跳到最近一章/篇（path → docId → openTab）。 */
+/** 继续写作：跳到最近一章（path → docId → openTab）。 */
 function continueWriting(): void {
   const rc = data.value?.recentDoc
   if (!rc) return
@@ -164,7 +164,7 @@ const fsStats = computed(() => {
 
 // ══ 短篇画像缺口 ══
 const shortProfile = computed(() => data.value?.shortProfile)
-/** 情绪缺口：target_emotions vs 已写篇的目标情绪分布 */
+/** 情绪缺口：target_emotions vs 已写章的目标情绪分布 */
 const emotionGap = computed(() => {
   const profile = shortProfile.value
   if (!profile?.targetEmotions?.length) return null
@@ -175,10 +175,10 @@ const emotionGap = computed(() => {
     missing: (dist[e] ?? 0) === 0,
   }))
 })
-/** 跨篇母题 */
+/** 跨章母题 */
 const seriesMotifs = computed(() => shortProfile.value?.seriesMotifs ?? [])
 
-/** 反转类型缺口：target_reversal_types vs 已写篇核心反转归类（派生自 rhythm） */
+/** 反转类型缺口：target_reversal_types vs 已写章核心反转归类（派生自 rhythm） */
 const reversalGap = computed(() => {
   const profile = shortProfile.value
   if (!profile?.targetReversalTypes?.length) return null
@@ -186,7 +186,7 @@ const reversalGap = computed(() => {
   if (d?.kind !== 'short') return null
   return d.reversalGap
 })
-/** 未归类篇数（规则未命中 / 池外类型） */
+/** 未归类章数（规则未命中 / 池外类型） */
 const reversalUnrecognized = computed(() => {
   const d = rhythmData.value
   return d?.kind === 'short' ? (d.reversalUnrecognized ?? 0) : 0
@@ -205,14 +205,12 @@ const CHART_H = 180
 const PAD_BOTTOM = 24 // 章号标签
 const PAD_LEFT = 38   // Y 轴刻度标签
 const DRAW_W = CHART_W - PAD_LEFT
-/** 字数曲线点（长短篇统一：长篇章号 / 短篇篇号 → no）。 */
+/** 字数曲线点（长短篇统一：章号 → no）。 */
 const curve = computed<{ no: number; 标题: string; 字数: number }[]>(() => {
   const d = rhythmData.value
   if (!d) return []
-  // 类型守卫（P2-20）：按 d.kind 收窄 wordCurve 元素形状（长篇章号 / 短篇篇号），替代 as 断言
-  return d.kind === 'short'
-    ? d.wordCurve.map((p) => ({ no: p.篇号, 标题: p.标题, 字数: p.字数 }))
-    : d.wordCurve.map((p) => ({ no: p.章号, 标题: p.标题, 字数: p.字数 }))
+  // 长短篇 wordCurve 均用 章号（短篇已统一），无需按 kind 分支
+  return d.wordCurve.map((p) => ({ no: p.章号, 标题: p.标题, 字数: p.字数 }))
 })
 const curveAvg = computed(() => {
   const c = curve.value
@@ -312,7 +310,7 @@ function distMax(g: DistGroup): number {
           <div class="hero-right">
             <button v-if="data?.recentDoc" class="btn-continue" @click="continueWriting">
               <PenLine :size="13" />
-              <span>继续写作 · 第{{ data.recentDoc.no }}{{ kind === 'long' ? '章' : '篇' }}</span>
+              <span>继续写作 · 第{{ data.recentDoc.no }}章</span>
             </button>
             <div v-if="hasTarget" class="hero-ring">
               <svg viewBox="0 0 110 110" class="ring-svg" role="img" aria-label="字数完成进度">
@@ -334,8 +332,8 @@ function distMax(g: DistGroup): number {
             <span class="kpi-label">总字数</span>
           </div>
           <div class="kpi">
-            <span class="kpi-val">{{ chapters }}<small class="kpi-unit">{{ kind === 'long' ? '章' : '篇' }}</small></span>
-            <span class="kpi-label">{{ kind === 'long' ? '章节' : '篇数' }}</span>
+            <span class="kpi-val">{{ chapters }}<small class="kpi-unit">章</small></span>
+            <span class="kpi-label">章节</span>
           </div>
           <div class="kpi">
             <span class="kpi-val">{{ avgWordsFmt }}</span>
@@ -379,12 +377,12 @@ function distMax(g: DistGroup): number {
               class="heat-cell"
               :class="{ 'is-empty': t.count === 0 }"
               :style="t.count ? { opacity: 0.25 + 0.75 * (t.count / maxCount) } : undefined"
-              :title="t.count ? `${t.date} · ${t.count} ${kind === 'long' ? '章' : '篇'}` : `${t.date} · 未${kind === 'long' ? '定稿' : '定稿'}`"
+              :title="t.count ? `${t.date} · ${t.count} 章` : `${t.date} · 未定稿`"
             ></span>
           </div>
           <div v-else class="heat-empty">
             <Flame :size="24" />
-            <span>{{ kind === 'long' ? '写一章定稿后亮起' : '写一篇定稿后亮起' }}</span>
+            <span>写一章定稿后亮起</span>
           </div>
         </section>
 
@@ -418,9 +416,9 @@ function distMax(g: DistGroup): number {
       <section v-if="rhythmData && curve.length" class="panel">
         <div class="panel-head">
           <TrendingUp :size="14" /> <span>字数曲线</span>
-          <span class="head-legend">{{ curve.length }} {{ kind === 'long' ? '章' : '篇' }} · 均{{ kind === 'long' ? '章' : '篇' }} {{ curveAvg.toLocaleString() }} 字</span>
+          <span class="head-legend">{{ curve.length }} 章 · 均章 {{ curveAvg.toLocaleString() }} 字</span>
         </div>
-        <div v-if="!curve.length" class="empty">{{ kind === 'long' ? '尚无已写章节' : '尚无已写篇目' }}</div>
+        <div v-if="!curve.length" class="empty">尚无已写章节</div>
         <svg
           v-else
           class="chart-svg"
@@ -444,9 +442,9 @@ function distMax(g: DistGroup): number {
           <line :x1="PAD_LEFT" :x2="CHART_W" :y1="CHART_H - PAD_BOTTOM" :y2="CHART_H - PAD_BOTTOM" class="axis-baseline" />
           <!-- 面积填充 -->
           <path :d="wordAreaD" fill="url(#wordAreaGrad)" />
-          <!-- 均篇参考线 -->
+          <!-- 均章参考线 -->
           <line :x1="PAD_LEFT" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
-          <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均{{ kind === 'long' ? '章' : '篇' }} {{ fmtWords(curveAvg) }}</text>
+          <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均章 {{ fmtWords(curveAvg) }}</text>
           <!-- 折线 -->
           <path :d="wordLineD" class="word-line" />
           <!-- 端点 -->
@@ -458,7 +456,7 @@ function distMax(g: DistGroup): number {
             r="2.5"
             class="word-dot"
           >
-            <title>第{{ p.no }}{{ kind === 'long' ? '章' : '篇' }} {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
+            <title>第{{ p.no }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
           </circle>
           <!-- X 轴编号（按 tickStep 降采样，长篇也保留横轴参照）-->
           <template v-for="(p, i) in curve" :key="'wl'+p.no">
@@ -473,7 +471,7 @@ function distMax(g: DistGroup): number {
         </svg>
       </section>
 
-      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 反转覆盖 + 跨篇母题）── -->
+      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 反转覆盖 + 跨章母题）── -->
       <section v-if="emotionGap || reversalGap || seriesMotifs.length" class="panel">
         <div class="panel-head">
           <BarChart3 :size="14" /> <span>画像缺口</span>
@@ -487,7 +485,7 @@ function distMax(g: DistGroup): number {
             <div class="gap-bar">
               <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
             </div>
-            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 篇</span>
+            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 章</span>
           </div>
         </div>
         <!-- 反转类型覆盖 -->
@@ -497,15 +495,15 @@ function distMax(g: DistGroup): number {
             <div class="gap-bar">
               <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
             </div>
-            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 篇</span>
+            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 章</span>
           </div>
           <div v-if="reversalUnrecognized > 0" class="gap-unrecognized">
-            <Info :size="12" /> {{ reversalUnrecognized }} 篇未归类（规则未命中 / 池外类型）
+            <Info :size="12" /> {{ reversalUnrecognized }} 章未归类（规则未命中 / 池外类型）
           </div>
         </div>
-        <!-- 跨篇母题 -->
+        <!-- 跨章母题 -->
         <div v-if="seriesMotifs.length" class="motif-section">
-          <span class="motif-label">跨篇母题</span>
+          <span class="motif-label">跨章母题</span>
           <div class="motif-tags">
             <span v-for="m in seriesMotifs" :key="m" class="motif-tag">{{ m }}</span>
           </div>
@@ -517,7 +515,7 @@ function distMax(g: DistGroup): number {
         <div class="panel-head">
           <BarChart3 :size="14" /> <span>节奏分布</span>
           <span v-if="rhythmData?.kind === 'long'" class="head-legend">柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span>
-          <span v-else class="head-legend">柱 已写 · {{ rhythmData?.written?.count ?? 0 }} 篇</span>
+          <span v-else class="head-legend">柱 已写 · {{ rhythmData?.written?.count ?? 0 }} 章</span>
         </div>
         <div class="dist-grid">
           <div v-for="g in distGroups" :key="g.title" class="dist-group">

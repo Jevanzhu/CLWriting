@@ -6,7 +6,7 @@ const ui = useUiStore()
 
 <template>
   <Teleport to="body">
-    <div class="toast-wrap">
+    <div class="toast-wrap" role="status" aria-live="polite">
       <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind">
         {{ t.msg }}
       </div>

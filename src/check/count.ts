@@ -11,6 +11,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
+// P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
+import type { IronRules } from '../format/iron-rules.js'
 
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。
@@ -218,38 +220,7 @@ export function checkImagery(
   return { name: '高频意象', items }
 }
 
-/** 文风铁律可量化阈值（#5 第 8 节「## 可量化硬约束」段） */
-export interface IronRules {
-  /** 单句上限字数 */
-  maxSentenceLen?: number
-  /** 形容词连续堆叠上限 */
-  maxAdjStack?: number
-  /** 对话提示语占对话行比例上限，0-1 */
-  maxDialogueTagRatio?: number
-  /** 连续同构排比句式上限 */
-  maxParallelStreak?: number
-  /** 是否检查结尾总结体 */
-  avoidSummaryEnding?: boolean
-  /** 文风铁律里的反和解/硬禁词清单，命中即红 */
-  bannedWords?: string[]
-}
-
-/** 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。 */
-export function parseIronRules(text: string): IronRules {
-  const rules: IronRules = {}
-  const lenM = text.match(/单句上限字数[:：]\s*(\d+)/)
-  if (lenM) rules.maxSentenceLen = Number(lenM[1])
-  const stackM = text.match(/形容词连续堆叠上限[:：]\s*(\d+)/)
-  if (stackM) rules.maxAdjStack = Number(stackM[1])
-  const tagRatioM = text.match(/对话标签占比[:：]\s*(\d+(?:\.\d+)?%?)/)
-  if (tagRatioM) rules.maxDialogueTagRatio = parseRatio(tagRatioM[1]!)
-  const parallelM = text.match(/排比连续数[:：]\s*(\d+)/)
-  if (parallelM) rules.maxParallelStreak = Number(parallelM[1])
-  if (/结尾总结体[:：]\s*(禁止|避免|少用)/.test(text)) rules.avoidSummaryEnding = true
-  const bannedWords = parseAntiReconciliationWords(text)
-  if (bannedWords.length > 0) rules.bannedWords = bannedWords
-  return rules
-}
+/** 文风铁律可量化阈值 + parseIronRules 已下沉 format/iron-rules.ts（P2-A1 消循环依赖），此处仅用类型。 */
 
 /**
  * 文风机检纯统计（文风方案 §4.2，体检报告重扫用）。
@@ -444,84 +415,12 @@ export function checkStyleMetrics(
   return { name: '文风可量化', items }
 }
 
-function parseRatio(raw: string): number {
-  const text = raw.trim()
-  const n = Number(text.replace('%', ''))
-  if (!Number.isFinite(n)) return 0
-  return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
-}
-
 function adjStackRegex(maxAdjStack: number): RegExp {
   return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
 }
 
 function summaryEndingRegex(): RegExp {
   return /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
-}
-
-function parseAntiReconciliationWords(text: string): string[] {
-  const sections = [
-    extractSection(text, /反和解/),
-    extractSection(text, /硬禁词|禁词清单/),
-  ].filter((section) => section.length > 0)
-  if (sections.length === 0) return []
-
-  const words: string[] = []
-  for (const section of sections) {
-    for (const rawLine of section.split('\n')) {
-      words.push(...parseBannedWordsLine(rawLine))
-    }
-  }
-  return [...new Set(words)]
-}
-
-function parseBannedWordsLine(rawLine: string): string[] {
-  const line = rawLine.trim()
-  if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
-
-  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
-  if (quoted.length > 0) return quoted
-
-  let cleaned = line
-    .replace(/^[-*+]\s*/, '')
-    .replace(/^\d+[.)、]\s*/, '')
-    .replace(/[（(].*?[）)]/g, '')
-    .trim()
-
-  const colon = cleaned.match(/^([^:：]{1,24})[:：]\s*(.+)$/)
-  if (colon) {
-    const label = colon[1]!.trim()
-    const value = colon[2]!.trim()
-    if (!/(禁止|禁用|不要|不得|避免|少用|硬禁词|禁词|禁句|套话|反和解|清单|词表|不可出现)/.test(label)) {
-      return []
-    }
-    cleaned = value
-  } else {
-    cleaned = cleaned.replace(/^(禁止|禁用|不要|不得|避免|少用)\s+/, '').trim()
-  }
-
-  if (!cleaned) return []
-  return cleaned
-    .split(/[、，,\/／；;]/)
-    .map((part) => part.trim())
-    .filter((word) => word.length >= 2 && word.length <= 24 && !/待/.test(word))
-}
-
-function extractSection(text: string, headingRe: RegExp): string {
-  const lines = text.split('\n')
-  const out: string[] = []
-  let inSection = false
-  for (const line of lines) {
-    if (/^#{1,6}\s+/.test(line)) {
-      if (inSection) break
-      if (headingRe.test(line)) {
-        inSection = true
-        continue
-      }
-    }
-    if (inSection) out.push(line)
-  }
-  return out.join('\n').trim()
 }
 
 /**
@@ -558,31 +457,9 @@ export function checkInfoLeak(
 
 // ── 短篇专属机检项（M8 #27 第 5.3 节，新增）──────────
 //
-// 短篇目标函数是单篇情绪爆破，4 项专属软约束（吸收点 7.1）：
+// 短篇目标函数是单章情绪爆破，4 项专属软约束（吸收点 7.1）：
 // 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
 // 全部零 token 脚本判定，黄项只报不拦（ask 不 deny）。
-
-/** 短篇正文 front matter 检查（#27 第 6 节，🔴 红）。
- *  篇号必填、标题非空。与长篇 checkFrontMatter 分轨（短篇无钩子/情绪定位枚举）。 */
-export function checkPieceFrontMatter(
-  piece: { 篇号: number; 标题: string },
-  fileName: string,
-): CheckSectionResult {
-  const items: CheckItem[] = []
-  // 篇号 == 文件名前缀（篇/001-标题.md → 取 001）
-  const fileNum = Number(fileName.match(/(?:^|\/)(\d+)-/)?.[1])
-  if (!Number.isNaN(fileNum) && fileNum !== piece.篇号) {
-    items.push({
-      checkId: 'fm-piece-mismatch',
-      level: 'red',
-      message: `篇号「${piece.篇号}」与文件名「${fileName}」前缀不一致`,
-    })
-  }
-  if (!piece.标题) {
-    items.push({ checkId: 'fm-piece-title', level: 'red', message: '缺少标题' })
-  }
-  return { name: '短篇 front matter', items }
-}
 
 /** 短篇字数阈值（#27 第 5.2 节，🟡 黄）。
  *  总字数 8000–20000（工单第 0 节）；阈值待 beta 校准，本期定方向。 */

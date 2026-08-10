@@ -17,7 +17,6 @@ import { computeRevision } from './revision.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
-import { readBookConfig } from '../format/yaml.js'
 
 /** 树节点（扫描派生）。 */
 export interface TreeNode {
@@ -118,12 +117,6 @@ function stripMd(name: string): string {
  * - 叶子 status：deriveStatusFull（git 判脏 + frontmatter 已发布）。
  * - 卷目录 volumeOutlinePath：定稿/正文/<卷>/ ↔ 大纲/卷纲/<卷>.md 同名 stem 关联（§6.2）。
  */
-/** 读 book.yaml kind（缺省 long；读取失败容错 long）。 */
-function readBookKind(bookRoot: string): 'long' | 'short' {
-  const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-  return cfg.ok ? (cfg.config.kind ?? 'long') : 'long'
-}
-
 export function buildTree(bookRoot: string): TreeNode[] {
   const nodes = scanBookTree(bookRoot)
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -132,8 +125,7 @@ export function buildTree(bookRoot: string): TreeNode[] {
     if (e.nodeType === 'document') entryByPath.set(e.path, e)
   }
   const volumeStems = collectVolumeOutlineStems(bookRoot)
-  const kind = readBookKind(bookRoot)
-  annotate(nodes, bookRoot, entryByPath, volumeStems, kind)
+  annotate(nodes, bookRoot, entryByPath, volumeStems)
   return nodes
 }
 
@@ -156,14 +148,9 @@ function annotate(
   bookRoot: string,
   entryByPath: Map<string, ManifestEntry>,
   volumeStems: Set<string>,
-  kind: 'long' | 'short',
 ): void {
   for (const n of nodes) {
     if (!n.isDirectory) {
-      // 短篇书：写作/正文/ 下的正文标 piece-body（篇=章，路径统一，role 按 kind 区分）
-      if (kind === 'short' && n.role === 'chapter') {
-        n.role = 'piece-body'
-      }
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
       // 状态：实时算文件指纹 + manifest 定稿基线比对（无 git 依赖）
@@ -180,7 +167,7 @@ function annotate(
       }
     }
     if (n.children.length > 0) {
-      annotate(n.children, bookRoot, entryByPath, volumeStems, kind)
+      annotate(n.children, bookRoot, entryByPath, volumeStems)
     }
   }
 }

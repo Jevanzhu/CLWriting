@@ -35,12 +35,11 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
   const config = cfgResult.config
-  const isShort = config.kind === 'short'
-  // rebuild 条件：长篇恒走；短篇有布线才走（连续故事用账本检查）
+  // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
   const hasWiring = existsSync(join(bookRoot, '布线'))
 
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  if (!isShort || hasWiring) {
+  if (hasWiring) {
     const rebuilt = rebuild(bookRoot, cachePath)
     if (rebuilt.errors.length > 0) {
       return {
@@ -52,9 +51,9 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
     }
   }
 
-  const db = (!isShort || hasWiring) ? new DatabaseSync(cachePath) : null
+  const db = hasWiring ? new DatabaseSync(cachePath) : null
   try {
-    return checkWithDb(bookRoot, absPath, db, config, isShort)
+    return checkWithDb(bookRoot, absPath, db, config)
   } finally {
     if (db) db.close()
   }
@@ -62,11 +61,10 @@ export function runCheckForDocument(bookRoot: string, absPath: string): CheckOut
 
 /**
  * 扫 `写作/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
- * 短篇无章号概念（篇号承载于 ChapterMeta.章号，但短篇不走账本检查）→ 返回 undefined。
+ * 无布线不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  */
-function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undefined {
-  if (isShort) return undefined
+function maxWrittenChapterOf(bookRoot: string): number | undefined {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return undefined
   // 排除未定稿（无 finalizedRevision）的草稿——不算"已写"基准（防账本「未来章」检查误判）
@@ -87,7 +85,7 @@ function maxWrittenChapterOf(bookRoot: string, isShort: boolean): number | undef
 }
 
 /**
- * 对单文档跑机检（复用外部 db；长篇 db 必填、短篇传 null）。
+ * 对单文档跑机检（复用外部 db；有布线 db 必填、无布线传 null）。
  *
  * T9b 树红点聚合 rebuild 一次后循环调此（避免每章 rebuild 的 O(N²)）；
  * 机检端点经 runCheckForDocument（rebuild + 调此）间接复用。
@@ -98,18 +96,21 @@ export function checkWithDb(
   absPath: string,
   db: DatabaseSync | null,
   config: BookConfig,
-  isShort: boolean,
   maxWrittenChapter?: number,
 ): CheckOutcome {
-  const draft = readDraft(absPath, isShort)
+  const draft = readDraft(absPath)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
+    const hasWiring = existsSync(join(bookRoot, '布线'))
     // 全书最高已定稿章号：调用方传入则用（树红点聚合已扫过全书，避免重复扫描）；
     // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
-    const maxChapter = maxWrittenChapter ?? maxWrittenChapterOf(bookRoot, isShort)
-    // 账本数据：长篇恒组装；短篇有布线才组装（连续故事用账本检查）
-    const useLeads = !isShort || existsSync(join(bookRoot, '布线'))
+    // 优化：无布线时账本检查不运行，跳过全书扫描
+    const maxChapter = hasWiring
+      ? (maxWrittenChapter ?? maxWrittenChapterOf(bookRoot))
+      : maxWrittenChapter
+    // 账本数据：有布线才组装（连续故事用账本检查）
+    const useLeads = hasWiring
     const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot) : undefined
     const actualLeadIds = useLeads
       ? readChapterLeadUpdates(bookRoot)
@@ -122,7 +123,7 @@ export function checkWithDb(
       config,
       chapter: draft.chapter,
       body: draft.body,
-      fileName: finalChapterFileName(draft.chapter, isShort),
+      fileName: finalChapterFileName(draft.chapter),
       declaredLeadIds,
       actualLeadIds,
       maxWrittenChapter: maxChapter,
@@ -148,12 +149,11 @@ export function collectTreeIssues(
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
   const config = cfgResult.config
-  const isShort = config.kind === 'short'
   const hasWiring = existsSync(join(bookRoot, '布线'))
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | null = null
   let rebuildFailed = false
-  if (!isShort || hasWiring) {
+  if (hasWiring) {
     const rebuilt = rebuild(bookRoot, cachePath)
     if (rebuilt.errors.length > 0) {
       // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
@@ -177,7 +177,7 @@ export function collectTreeIssues(
       for (const m of manifest.values()) entryByPath.set(m.path, m)
       // B-P1-1：统一用 maxWrittenChapterOf（仅计已定稿章），与单章 checkWithDb 端点一致。
       // 旧实现遍历所有 chapters（含未定稿草稿），导致树红点聚合与单章机检的"最高已写章号"基准不一致。
-      const maxWritten = maxWrittenChapterOf(bookRoot, isShort)
+      const maxWritten = maxWrittenChapterOf(bookRoot)
       for (const ch of chapters) {
         if (!ch._path) continue
         const relPath = relative(bookRoot, ch._path)
@@ -190,7 +190,7 @@ export function collectTreeIssues(
         if (!docId) continue
         let hasRed = false
         if (!rebuildFailed) {
-          const outcome = checkWithDb(bookRoot, ch._path, db, config, isShort, maxWritten)
+          const outcome = checkWithDb(bookRoot, ch._path, db, config, maxWritten)
           hasRed = outcome.ok ? outcome.hasRed : false
         }
         const verdict = readReviewVerdict(docId)

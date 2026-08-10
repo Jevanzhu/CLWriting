@@ -24,7 +24,7 @@ export type ReviewCategory =
   | 'strand'
   | 'ledger'
   | 'safety'
-  // 短篇单篇爆破力维（M8 #28 第 4 节）
+  // 短篇单章爆破力维（M8 #28 第 4 节）
   | 'hook'
   | 'emotion_peak'
   | 'reversal'
@@ -38,7 +38,7 @@ export interface LedgerCheck {
 }
 
 /**
- * 单篇清单核对条目（M8 #28 第 3 节，设定收尾审的清单驱动核对对象）。
+ * 单章清单核对条目（M8 #28 第 3 节，设定收尾审的清单驱动核对对象）。
  *
  * 长篇 ledger_checks 承接机检 byproducts.leadChanges；
  * 短篇无账本，设定收尾审对 清单.md（反转线索表 + 伏笔回收）逐条核对。
@@ -128,11 +128,6 @@ export type ReviewTierDecision =
       reason: string
     }
 
-export const REVIEW_LENSES: ReviewLens[] = ['reader', 'editor', 'continuity']
-
-/** 短篇三视角（M8 #28 第 2 节，单篇爆破力）：钩子审 / 情绪反转审 / 设定收尾审 */
-export const REVIEW_LENSES_SHORT: ReviewLens[] = ['hook', 'emotion_peak', 'payoff']
-
 const SEVERITY_RANK: Record<ReviewSeverity, number> = {
   S1: 4,
   S2: 3,
@@ -143,20 +138,16 @@ const SEVERITY_RANK: Record<ReviewSeverity, number> = {
 /**
  * 从机检 byproducts 生成三审任务书。设定校对的账本核对恒跑。
  *
- * 按 kind 分支（M8 #28）：
- * - long（缺省）：长篇三视角（读者审/编辑审/设定校对），账本清单驱动，行为逐字节不变
- * - short：短篇三视角（钩子审/情绪反转审/设定收尾审），清单驱动核对
+ * 长短篇统一按数据存在性条件化：
+ * - 基础：reader + editor（恒跑）
+ * - 有布线：+ continuity（设定校对，账本清单驱动）
+ * - 有 config.short：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
  */
-export function buildReviewTasks(report: CheckReport, kind: 'long' | 'short' = 'long'): ReviewTask[] {
-  if (kind === 'short') return buildShortReviewTasks(report)
-  const ledgerChecks = (report.byproducts?.leadChanges ?? []).map((change) => ({
-    lead_id: change.leadId,
-    chapter: change.chapter,
-    verb: change.verb,
-    evidence: change.evidence,
-  }))
-
-  return [
+export function buildReviewTasks(
+  report: CheckReport,
+  opts: { hasWiring: boolean; hasShort: boolean } = { hasWiring: true, hasShort: false },
+): ReviewTask[] {
+  const tasks: ReviewTask[] = [
     {
       lens: 'reader',
       title: '读者审',
@@ -173,24 +164,39 @@ export function buildReviewTasks(report: CheckReport, kind: 'long' | 'short' = '
       ledger_checks: [],
       output_contract: baseOutputContract(),
     },
-    {
+  ]
+
+  if (opts.hasWiring) {
+    const ledgerChecks = (report.byproducts?.leadChanges ?? []).map((change) => ({
+      lead_id: change.leadId,
+      chapter: change.chapter,
+      verb: change.verb,
+      evidence: change.evidence,
+    }))
+    tasks.push({
       lens: 'continuity',
       title: '设定校对',
       must_run: true,
       focus: ['设定连续', '时间线', '多线承接', '账本属实核对'],
       ledger_checks: ledgerChecks,
       output_contract: baseOutputContract(),
-    },
-  ]
+    })
+  }
+
+  if (opts.hasShort) {
+    tasks.push(...buildShortReviewTasks(report))
+  }
+
+  return tasks
 }
 
 /**
- * 短篇三审任务书（M8 #28 第 2 节，维度重写为单篇爆破力）。
+ * 短篇三审任务书（M8 #28 第 2 节，维度重写为单章爆破力）。
  *
  * 三视角围绕「开篇抓人 / 情绪反转到位 / 伏笔收尾不崩」重组，非长篇三视角映射：
- * - 钩子审（hook）：开篇钩子 / 黄金 300 字 / 单篇追读牵引 / 表达流畅
+ * - 钩子审（hook）：开篇钩子 / 黄金 300 字 / 单章追读牵引 / 表达流畅
  * - 情绪反转审（emotion_peak）：情绪曲线达峰 / 反转信息差成立 / 反转铺垫可回溯 / 人物动机服务反转
- * - 设定收尾审（payoff）：伏笔回收闭合 / 反转线索表清单核对（恒跑）/ 单篇设定自洽 / 因果逻辑
+ * - 设定收尾审（payoff）：伏笔回收闭合 / 反转线索表清单核对（恒跑）/ 单章设定自洽 / 因果逻辑
  *
  * 设定收尾审承接 清单.md（反转线索表 + 伏笔回收）的清单驱动核对（替代长篇 ledger_checks）。
  */
@@ -204,7 +210,7 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
       lens: 'hook',
       title: '钩子审',
       must_run: true,
-      focus: ['开篇钩子', '黄金 300 字直入冲突', '单篇追读牵引', '表达流畅'],
+      focus: ['开篇钩子', '黄金 300 字直入冲突', '单章追读牵引', '表达流畅'],
       ledger_checks: [],
       output_contract: baseOutputContract(),
     },
@@ -220,7 +226,7 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
       lens: 'payoff',
       title: '设定收尾审',
       must_run: true,
-      focus: ['伏笔回收闭合（弃坑报红）', '反转线索表清单核对', '单篇设定自洽', '因果逻辑'],
+      focus: ['伏笔回收闭合（弃坑报红）', '反转线索表清单核对', '单章设定自洽', '因果逻辑'],
       ledger_checks: [],
       ...(listChecks.length > 0 ? { list_checks: listChecks } : {}),
       output_contract: baseOutputContract(),
@@ -228,17 +234,16 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
   ]
 }
 
-/** 按 M4 #22 选择能诚实执行的最高审查档。kind 决定 lenses_run（长短三视角不同）。 */
+/** 按 M4 #22 选择能诚实执行的最高审查档。lenses 决定 lenses_run（长短混合视角）。 */
 export function selectReviewTier(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
-  /** 长短篇（M8 #28）：缺省 long；short 时 lenses_run 用短篇三视角 */
-  kind?: 'long' | 'short'
+  /** 本次审查实际运行的视角（长短篇由 buildReviewTasks 条件化决定） */
+  lenses: ReviewLens[]
 }): ReviewTierDecision {
   const remaining = Math.max(0, Math.floor(input.remaining_calls))
-  // lenses_run 按 kind 选（M8 #28，长短三视角不同）
-  const lensesRun = input.kind === 'short' ? REVIEW_LENSES_SHORT : REVIEW_LENSES
+  const lensesRun = input.lenses
 
   if (input.high_risk) {
     if (!input.capabilities.parallel_subagents) {

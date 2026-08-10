@@ -33,7 +33,7 @@ export function getLastInitialBook(): string | null {
   return initialBook
 }
 
-/** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。*/
+/** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。init.signal 透传，调用方可用于取消。*/
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
@@ -41,16 +41,38 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return fetch(path, { ...init, method, headers })
 }
 
-/** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（reason > error > code > HTTP 状态）。*/
-export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await apiFetch(path, init)
-  const data = (await r.json().catch(() => ({}))) as T & {
-    error?: string
-    reason?: string
-    code?: string
+/** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（reason > error > code > HTTP 状态）。
+ *  可选 timeoutMs：超时后 abort 并抛 ApiError(408)。未传则无超时（向后兼容）。*/
+export async function apiJson<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs?: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const controller = timeoutMs ? new AbortController() : undefined
+  if (controller) {
+    timer = setTimeout(() => controller!.abort(), timeoutMs)
+    // 外部 signal 联动：外部 abort → 内部也 abort
+    init?.signal?.addEventListener('abort', () => controller!.abort(), { once: true })
   }
-  if (!r.ok) {
-    throw new ApiError(data.reason ?? data.error ?? data.code ?? `HTTP ${r.status}`, r.status, data.code)
+  try {
+    const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })
+    const data = (await r.json().catch(() => ({}))) as T & {
+      error?: string
+      reason?: string
+      code?: string
+    }
+    if (!r.ok) {
+      throw new ApiError(data.reason ?? data.error ?? data.code ?? `HTTP ${r.status}`, r.status, data.code)
+    }
+    return data
+  } catch (e) {
+    // 超时 abort 抛友好错误
+    if (e instanceof DOMException && e.name === 'AbortError' && timer) {
+      throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
+    }
+    throw e
+  } finally {
+    if (timer) clearTimeout(timer)
   }
-  return data
 }

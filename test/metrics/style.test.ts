@@ -7,19 +7,19 @@ import {
   computeSentenceLenVariance,
   computeRepeatRate,
   readChapterBody,
-  scanLongChapters,
-  scanShortPieces,
+  scanChapters,
   aggregateStyleTrend,
   formatStyleReport,
   freezeBaseline,
   readBaseline,
   baselinePath,
   width,
+  type ChapterSample,
 } from '../../src/metrics/style.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../../src/format/chapters.js'
 import { writeSample } from '../../src/format/style.js'
-import { parseIronRules } from '../../src/check/count.js'
+import { parseIronRules } from '../../src/format/iron-rules.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const TAG_RULES = parseIronRules('对话标签占比: 50%')
@@ -111,18 +111,18 @@ function makeLongBookWithDrift(total: number, driftStart: number): string {
   return root
 }
 
-test('scanLongChapters: 逐章采样，按章号排序', () => {
+test('scanChapters: 逐章采样，按章号排序', () => {
   const root = makeLongBookWithDrift(5, 999) // 无漂移
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   expect(samples).toHaveLength(5)
-  expect(samples.map((s) => s.num)).toEqual([1, 2, 3, 4, 5])
+  expect(samples.map((s: ChapterSample) => s.num)).toEqual([1, 2, 3, 4, 5])
   rmSync(root, { recursive: true, force: true })
 })
 
 test('aggregateStyleTrend: 后段对话标签拉高 → 识别漂移信号', () => {
   // 10 章，后 5 章漂移（窗口 5，便于测试不造 50 章）
   const root = makeLongBookWithDrift(10, 6)
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null, { driftWindow: 5 })
   // 后 5 章（6-10）对话标签占比 100% > 50%，连续 5 章超阈 → 应报漂移
   expect(trend.drifts.length).toBeGreaterThan(0)
@@ -132,7 +132,7 @@ test('aggregateStyleTrend: 后段对话标签拉高 → 识别漂移信号', () 
 
 test('aggregateStyleTrend: 无漂移的正常章 → 不报漂移', () => {
   const root = makeLongBookWithDrift(10, 999)
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null, { driftWindow: 5 })
   expect(trend.drifts.filter((d) => d.message.includes('对话标签'))).toHaveLength(0)
   rmSync(root, { recursive: true, force: true })
@@ -140,7 +140,7 @@ test('aggregateStyleTrend: 无漂移的正常章 → 不报漂移', () => {
 
 test('aggregateStyleTrend: 基线存在时漂移阈值用基线对照值', () => {
   const root = makeLongBookWithDrift(10, 6)
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   // 基线对话标签占比很低 → 阈值被抬高到 max(0.2*1.3, 0.5)=0.5，后段 100% 仍超
   const baseline = {
     version: 1, frozenAt: 't', frozenFrom: 'test',
@@ -159,7 +159,7 @@ test('formatStyleReport: 空样本 → 友好提示', () => {
 
 test('formatStyleReport: 无基线 → 标注"仅绝对值"', () => {
   const root = makeLongBookWithDrift(6, 999)
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null)
   const out = formatStyleReport(trend)
   expect(out).toContain('无基线')
@@ -180,7 +180,7 @@ test('formatStyleReport: 含全角括号（…）的行与不含的行标记列�
   writeChapter(join(dir, '1-甲.md'), ch1, '这是一个超过四个字的句子。')
   const ch2: ChapterMeta = { 章号: 2, 标题: '乙', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
   writeChapter(join(dir, '2-乙.md'), ch2, '雪落。')
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const out = formatStyleReport(aggregateStyleTrend(samples, 'long', null))
 
   // 取出 6 个指标行，验证 ⚠/✓ 标记的起始显示列一致（按显示宽度，非字符数）。
@@ -227,7 +227,7 @@ test('width: 全角标点/全角ASCII/全角符号算 2 宽（#2 核心断言）
 
 test('aggregateStyleTrend: 对话标签漂移的 drift.metric === "dialogueTag"（#3 参数化不贴错标签）', () => {
   const root = makeLongBookWithDrift(10, 6)
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null, { driftWindow: 5 })
   const tagDrift = trend.drifts.find((d) => d.message.includes('对话标签'))
   expect(tagDrift).toBeDefined()
@@ -322,25 +322,25 @@ function makeShortBook(pieceCount: number): string {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (let n = 1; n <= pieceCount; n++) {
     const name = `${String(n).padStart(3, '0')}-短篇${n}.md`
-    const fm = `篇号: ${n}\n标题: 短篇${n}`
+    const fm = `章号: ${n}\n标题: 短篇${n}`
     const body = '「你来了。」他说。\n雪落无声。\n刀光闪过。'
     writeFileSync(join(root, '写作', '正文', name), `---\n${fm}\n---\n${body}`, 'utf-8')
   }
   return root
 }
 
-test('scanShortPieces: 扫 篇/*.md 逐篇算指纹', () => {
+test('scanChapters: 短篇正文扁平放置也能扫到并逐篇算指纹', () => {
   const root = makeShortBook(3)
-  const samples = scanShortPieces(root)
+  const samples = scanChapters(root)
   expect(samples).toHaveLength(3)
-  expect(samples.map((s) => s.num)).toEqual([1, 2, 3])
+  expect(samples.map((s: ChapterSample) => s.num)).toEqual([1, 2, 3])
   expect(samples[0]!.title).toBe('短篇1')
   rmSync(root, { recursive: true, force: true })
 })
 
 test('短篇: <5 篇只报明细，不做趋势判定（无漂移信号）', () => {
   const root = makeShortBook(3)
-  const samples = scanShortPieces(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'short', null)
   expect(trend.drifts).toHaveLength(0) // 小样本不判定
   const out = formatStyleReport(trend)
@@ -350,9 +350,9 @@ test('短篇: <5 篇只报明细，不做趋势判定（无漂移信号）', () 
 
 test('短篇: ≥5 篇可做趋势判定', () => {
   const root = makeShortBook(6)
-  const samples = scanShortPieces(root)
+  const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'short', null, { driftWindow: 5 })
-  // 6 篇 ≥ 5，进入趋势判定（是否有漂移取决于内容，这里只验证不再降级提示）
+  // 6 章 ≥ 5，进入趋势判定（是否有漂移取决于内容，这里只验证不再降级提示）
   const out = formatStyleReport(trend)
   expect(out).not.toContain('仅报明细')
   rmSync(root, { recursive: true, force: true })
@@ -369,7 +369,7 @@ test('综合: 先冻结基线 → 重扫报告含基线对照', () => {
   mkdirSync(dir, { recursive: true })
   const ch: ChapterMeta = { 章号: 1, 标题: '一', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
   writeChapter(join(dir, '1-一.md'), ch, '「来了。」他说。\n雪落。')
-  const samples = scanLongChapters(root)
+  const samples = scanChapters(root)
   const baseline = readBaseline(root)
   const trend = aggregateStyleTrend(samples, 'long', baseline)
   const out = formatStyleReport(trend)

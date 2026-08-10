@@ -36,6 +36,7 @@ test('selectReviewTier: 宿主支持并行且预算足够时默认满审', () =>
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 3,
     high_risk: false,
+    lenses: ['reader', 'editor', 'continuity'],
   })
 
   expect(decision).toMatchObject({
@@ -54,6 +55,7 @@ test('selectReviewTier: 无并行能力但可多次调用时诚实降级为顺�
     capabilities: { parallel_subagents: false, multiple_calls: true },
     remaining_calls: 5,
     high_risk: false,
+    lenses: ['reader', 'editor', 'continuity'],
   })
 
   expect(decision.ok).toBe(true)
@@ -73,6 +75,7 @@ test('selectReviewTier: 普通章预算紧时可合审，高风险章必须停�
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 1,
     high_risk: false,
+    lenses: ['reader', 'editor', 'continuity'],
   })
   expect(normal.ok).toBe(true)
   if (normal.ok) {
@@ -86,6 +89,7 @@ test('selectReviewTier: 普通章预算紧时可合审，高风险章必须停�
     capabilities: { parallel_subagents: true, multiple_calls: true },
     remaining_calls: 2,
     high_risk: true,
+    lenses: ['reader', 'editor', 'continuity'],
   })
   expect(highRisk.ok).toBe(false)
   if (!highRisk.ok) {

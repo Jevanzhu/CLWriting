@@ -16,7 +16,8 @@ afterEach(() => {
 })
 
 function shortConfig(): BookConfig {
-  return { ...DEFAULT_CONFIG, kind: 'short' }
+  // 短篇专属机检由 config.short 存在性驱动（重构后统一）；阈值缺省走 count.ts 默认
+  return { ...DEFAULT_CONFIG, kind: 'short', short: {} }
 }
 
 // ── 短篇机检不依赖 db（零 db 依赖）──────────────
@@ -96,9 +97,9 @@ test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () =
   expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('时间静止'))).toBe(true)
 })
 
-// ── 篇号文件名不一致报红（短篇 front matter）──────
+// ── 章号文件名不一致报红（短篇 front matter）──────
 
-test('runAllChecks short: 篇号文件名不一致 → 红项', () => {
+test('runAllChecks short: 章号文件名不一致 → 红项', () => {
   const ch: ChapterMeta = { 章号: 2, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
   const r = runAllChecks({
     bookRoot: tmp,
@@ -115,16 +116,16 @@ test('runAllChecks short: 篇号文件名不一致 → 红项', () => {
 test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
   const piecePath = join(tmp, '写作', '正文', '001-雪夜.md')
   mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
-  writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
+  writeFileSync(piecePath, '---\n章号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
 
   // 铺垫点仅 1 处（<3）→ manifest-setup-short 触发；核心反转占位「待补」不算缺
   const list: PieceList = {
     反转线索表: { 核心反转: 'x', 铺垫点: [{ 位置: 'a', 内容: 'x' }] },
     伏笔回收: [{ 伏笔: 'y', 回收位置: '', 未回收: true }], // 未回收标记
   }
-  // 清单已分离到 大纲/清单/ 目录，与正文同名（见 runner.ts:228）
-  mkdirSync(join(tmp, '大纲', '清单'), { recursive: true })
-  writePieceList(join(tmp, '大纲', '清单', basename(piecePath)), list)
+  // 章纲已分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）
+  mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
+  writePieceList(join(tmp, '大纲', '章纲', basename(piecePath)), list)
 
   const ch: ChapterMeta = {
     章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
@@ -150,10 +151,10 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
 test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () => {
   const piecePath = join(tmp, '写作', '正文', '001-雪夜.md')
   mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
-  writeFileSync(piecePath, '---\n篇号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
-  // 清单已分离到 大纲/清单/ 目录，与正文同名（见 runner.ts:228）
-  mkdirSync(join(tmp, '大纲', '清单'), { recursive: true })
-  writePieceList(join(tmp, '大纲', '清单', basename(piecePath)), {
+  writeFileSync(piecePath, '---\n章号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
+  // 章纲已分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）
+  mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
+  writePieceList(join(tmp, '大纲', '章纲', basename(piecePath)), {
     反转线索表: { 核心反转: '待定', 铺垫点: [{ 位置: '开头钩子', 内容: '待补' }] },
     情绪曲线: [{ 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' }],
     伏笔回收: [],

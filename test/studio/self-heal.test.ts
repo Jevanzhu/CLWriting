@@ -23,7 +23,7 @@ import type { saveDraft } from '../../src/studio/server/api/draft.js'
 const BOOK = SHORT_BOOK
 const META: ChapterMeta = {
   章号: 1,
-  标题: '测试篇',
+  标题: '测试章',
   钩子类型: '悬念钩',
   钩子强弱: '中',
   情绪定位: '铺垫',
@@ -57,7 +57,7 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
     })
     // 草稿直接写正文区（与 saveDraft 真实路径一致）
     const dir = join(bookRoot, '写作', '正文')
-    const relPath = '写作/正文/1-测试篇.md'
+    const relPath = '写作/正文/1-测试章.md'
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(bookRoot, relPath), content, 'utf8')
     return { relPath, docId: 'doc-短篇-1', words: content.length, snapshotted: false }
@@ -92,7 +92,7 @@ function makeGenFn(texts: string[]): { genFn: NonNullable<SelfHealOpts['genFn']>
   return { genFn, prompts }
 }
 
-const FM = '---\n篇号: 1\n标题: 测试篇\n---\n'
+const FM = '---\n章号: 1\n标题: 测试章\n---\n'
 
 interface Setup {
   opts: SelfHealOpts
@@ -184,7 +184,7 @@ test('重写 original 传含 front matter 的草稿全文', async () => {
   const { opts, prompts } = setup([`${FM}初稿正文`, `${FM}二稿`], () => seq[i++] ?? greenOutcome())
   await runSelfHeal(opts)
 
-  expect(prompts[1]).toContain('篇号: 1')
+  expect(prompts[1]).toContain('章号: 1')
   expect(prompts[1]).toContain('初稿正文')
 })
 
@@ -225,14 +225,14 @@ test('落盘：草稿文件内容 = 最后一次产出', async () => {
   const { opts, bookRoot } = setup([`${FM}初稿`, `${FM}终稿正文`], () => seq[i++] ?? greenOutcome())
   await runSelfHeal(opts)
 
-  const draft = join(bookRoot, '写作', '正文', '1-测试篇.md')
+  const draft = join(bookRoot, '写作', '正文', '1-测试章.md')
   expect(existsSync(draft)).toBe(true)
   expect(readFileSync(draft, 'utf8')).toBe(`${FM}终稿正文`)
 })
 
 test('fm 不合规（NOT_CHAPTER）当红项回灌，不是直接失败', async () => {
   const seq: CheckOutcome[] = [
-    { ok: false, code: 'NOT_CHAPTER', error: '缺 front matter 字段：篇号' },
+    { ok: false, code: 'NOT_CHAPTER', error: '缺 front matter 字段：章号' },
     greenOutcome(),
   ]
   let i = 0
@@ -242,7 +242,7 @@ test('fm 不合规（NOT_CHAPTER）当红项回灌，不是直接失败', async 
   expect(r.outcome).toBe('pass')
   expect(prompts).toHaveLength(2)
   expect(prompts[1]).toContain('草稿格式不合规')
-  expect(prompts[1]).toContain('篇号')
+  expect(prompts[1]).toContain('章号')
 })
 
 test('机检自身异常（CHECK_ERROR）→ failed，不空转重写', async () => {

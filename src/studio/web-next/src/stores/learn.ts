@@ -72,7 +72,7 @@ export const useLearnStore = defineStore('learn', () => {
     commitMessage.value = null
     try {
       const r = await runLearnCommit(name, { samples: sPicks, quotes: qPicks })
-      commitMessage.value = `已收录 ${r.sampleFiles.length} 篇样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
+      commitMessage.value = `已收录 ${r.sampleFiles.length} 章样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
       const sSet = new Set(sPicks.map((s) => s.正文))
       const qSet = new Set(qPicks.map((q) => q.正文))

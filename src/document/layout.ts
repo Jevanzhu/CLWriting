@@ -5,13 +5,13 @@
  * 全字段 capabilities 为 W2A 结构性操作铺路，W1 仅校验 write。
  *
  * 目录角色表（v2 结构）：
- * - 写作/正文 → chapter（短篇书由 tree.ts 按 kind 覆盖为 piece-body）
- * - 大纲/卷纲 → volume-outline；大纲/清单 → piece-manifest；大纲/ 其他 → outline
+ * - 写作/正文 → chapter（长短篇统一，不再按 kind 覆盖）
+ * - 大纲/卷纲 → volume-outline；大纲/章纲 → chapter-outline；大纲/ 其他 → outline
  * - 布线/<线索> → ledger；设定/ → setting
  * - 文风 → style；简介.md → introduction；工作区/ → note（运行时资产，不进树）
  * - 素材 → material；笔记 → note；废稿 → discard；未匹配 → note（自由文档，全开）
  *
- * 系统文档（账本 ledger / 篇清单 piece-manifest）trash=false（W0-1 §2）。
+ * 系统文档（账本 ledger / 章纲 chapter-outline）trash=false（W0-1 §2）。
  * 工作区内部目录（.trash/.journal/.版本/待定稿/.confirm.json/.ai-calls.json）
  * 不进文档树（§9），由扫描层 skip，本模块不判 role。
  */
@@ -19,7 +19,7 @@ import { LEAD_TYPES } from '../format/leads.js'
 
 /** 文档角色（W0-1 §2 DocumentRole）。 */
 export type DocumentRole =
-  | 'chapter' | 'piece-body' | 'piece-manifest'
+  | 'chapter' | 'piece-body' | 'chapter-outline'
   | 'outline' | 'volume-outline'
   | 'setting' | 'ledger' | 'style' | 'introduction'
   | 'draft' | 'material' | 'note' | 'discard'
@@ -62,13 +62,13 @@ function norm(p: string): string {
 }
 
 /** 按路径判 role（v2 目录结构）。relPath 是书仓库相对路径。
- *  正文统一：写作/正文/ → chapter（短篇书的正文由 tree.ts 按书级 kind 覆盖为 piece-body）。 */
+ *  正文统一：写作/正文/ → chapter（长短篇同构，不再按 kind 覆盖）。 */
 export function roleOf(relPath: string): DocumentRole {
   const p = norm(relPath)
-  // 正文（长篇章 / 短篇章，路径统一；tree.ts 按 kind 覆盖 piece-body）
+  // 正文（长篇章 / 短篇章，路径统一）
   if (p.startsWith('写作/正文/')) return 'chapter'
-  // 短篇清单（规划性质，放大纲区）
-  if (p.startsWith('大纲/清单/')) return 'piece-manifest'
+  // 章纲（规划性质，放大纲区）
+  if (p.startsWith('大纲/章纲/')) return 'chapter-outline'
   // 设定（从 定稿/设定 提升根级）
   if (p.startsWith('设定/')) return 'setting'
   // 布线（线索，从大纲拆出）
@@ -104,8 +104,8 @@ export function capabilitiesOf(role: DocumentRole, relPath?: string): Capabiliti
     case 'ledger':
       // 账本：作者可写（推进剧情），但系统资产不可删（W0-1 §2 系统文档 trash=false）
       return { ...ALL_TRUE, trash: false }
-    case 'piece-manifest':
-      // 篇清单（系统文档）不可删
+    case 'chapter-outline':
+      // 章纲（系统文档）不可删
       return { ...ALL_TRUE, trash: false }
     default:
       return { ...ALL_TRUE }

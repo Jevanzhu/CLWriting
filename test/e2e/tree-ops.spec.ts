@@ -18,6 +18,8 @@ async function gotoBook(page: Page): Promise<void> {
   await expect(page.locator('.ws-shell')).toBeVisible()
   // 确保回到章节树面板（上个 test 可能切到回收站等，leftPanel 持久化）
   await page.locator('.rbtn[data-tip*="章节树"]').click()
+  // 切面板后等树就绪再操作（右键需树项已渲染，否则点到空白菜单不弹）
+  await expect(page.locator('.tree-item').first()).toBeVisible()
 }
 
 /** 右键某树项（按 label 文本匹配 .tree-item） */
@@ -33,7 +35,7 @@ async function hoverSubmenu(page: Page, parentLabel: string): Promise<void> {
 
 /** 点子菜单里的某项 */
 async function clickSubmenuItem(page: Page, name: string): Promise<void> {
-  await page.locator('.cm-submenu').getByRole('button', { name }).click()
+  await page.locator('.cm-submenu').getByRole('menuitem', { name }).click()
 }
 
 /** inline 输入提交（新建/重命名共用） */
@@ -45,15 +47,14 @@ async function commitInline(page: Page, value: string): Promise<void> {
 
 test('新建章 + 重命名', async ({ page }) => {
   await gotoBook(page)
-  // 新建章：右键「写作」组 → 新建 → 章节
+  // 新建章：右键「写作」组 → 平铺「新建章节」（1381025 起告别「新建」子菜单）
   await ctxOn(page, '写作')
-  await hoverSubmenu(page, '新建')
-  await clickSubmenuItem(page, '章节')
+  await page.locator('.cm-menu').getByRole('menuitem', { name: '新建章节' }).click()
   await commitInline(page, 'e2e新建章')
   await expect(page.locator('.tree-list')).toContainText('e2e新建章')
   // 重命名
   await ctxOn(page, 'e2e新建章')
-  await page.locator('.cm-menu').getByRole('button', { name: '重命名' }).click()
+  await page.locator('.cm-menu').getByRole('menuitem', { name: '重命名' }).click()
   await commitInline(page, 'e2e改名章')
   await expect(page.locator('.tree-list')).toContainText('e2e改名章')
   await expect(page.locator('.tree-list')).not.toContainText('e2e新建章')
@@ -64,7 +65,7 @@ test('软删 → 回收站还原', async ({ page }) => {
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
   // 软删
   await ctxOn(page, '玉佩之秘')
-  await page.locator('.cm-menu').getByRole('button', { name: '删除' }).click()
+  await page.locator('.cm-menu').getByRole('menuitem', { name: '删除' }).click()
   // ConfirmPrompt 确认（替代原 window.confirm 自动 accept）
   await page.locator('.cp-modal').getByRole('button', { name: '删除' }).click()
   await expect(page.locator('.tree-list')).not.toContainText('玉佩之秘')
@@ -84,8 +85,7 @@ test('建卷 → 移动章到卷', async ({ page }) => {
   await gotoBook(page)
   // 建卷
   await ctxOn(page, '写作')
-  await hoverSubmenu(page, '新建')
-  await clickSubmenuItem(page, '卷')
+  await page.locator('.cm-menu').getByRole('menuitem', { name: '新建卷' }).click()
   await commitInline(page, 'e2e测试卷')
   await expect(page.locator('.tree-list')).toContainText('e2e测试卷')
   // 移动「初入宗门」到 e2e测试卷
@@ -102,7 +102,7 @@ test('复制章 → 副本入树 + 内容同源', async ({ page }) => {
   // 用「玉佩之秘」：test2 还原后稳定在正文根、test3 未移动（避免 fixture 状态耦合）
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
   await ctxOn(page, '玉佩之秘')
-  await page.locator('.cm-menu').getByRole('button', { name: '创建副本' }).click()
+  await page.locator('.cm-menu').getByRole('menuitem', { name: '创建副本' }).click()
   // 副本入树（源标题 +「副本」后缀，章号前端算）
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘 副本')
   // 点开副本 → 编辑区内容同源（源正文特征词「林远」，证明是复制非空文件）

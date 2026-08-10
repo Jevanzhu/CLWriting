@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -155,4 +155,46 @@ test('writePieceList + readPieceList: 空清单往返', () => {
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.list.反转线索表.铺垫点).toHaveLength(0)
+})
+
+test('readPieceList: 带 fm 头的章纲文件仍正确解析三段式（F9.5，fm 块内无 ## 段标题被自然跳过）', () => {
+  const fp = join(tmp, '章纲.md')
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '章号: 1',
+      '标题: 雨夜门铃',
+      '钩子类型: 悬念钩',
+      '钩子强弱: 中',
+      '情绪定位: 铺垫',
+      '场景: 叙事铺陈',
+      '字数目标: 12000',
+      '目标情绪: 惊悚',
+      '核心反转: 按门铃的来客就是三年前死在七号公寓的人',
+      '---',
+      '',
+      '## 反转线索表',
+      '- 核心反转：按门铃的来客就是三年前死在七号公寓的人',
+      '- 铺垫点（≥3，反转可回溯）：',
+      '  - [开头钩子] 门铃响三次，门外只有一把红伞',
+      '  - [发展] 旧收音机里夹着三年前的坠楼报纸',
+      '',
+      '## 情绪曲线',
+      '- [开头钩子] 惊悚 3/10：停电夜门铃',
+      '- [反转] 震惊 9/10：来客是死者',
+      '',
+      '## 伏笔回收',
+      '- 红伞 → 回收于 结尾',
+    ].join('\n'),
+    'utf-8',
+  )
+  const r = readPieceList(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.list.反转线索表.核心反转).toBe('按门铃的来客就是三年前死在七号公寓的人')
+  expect(r.list.反转线索表.铺垫点).toHaveLength(2)
+  expect(r.list.情绪曲线).toHaveLength(2)
+  expect(r.list.伏笔回收).toHaveLength(1)
+  expect(r.list.伏笔回收[0]!.伏笔).toBe('红伞')
 })

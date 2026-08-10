@@ -83,9 +83,9 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
     expect(merged.indexOf('第一章')).toBeLessThan(merged.indexOf('第二章'))
     expect(merged).toContain('---') // 章间分隔线
 
-    // split：按章号数值排序 + 4 位补零文件名
-    expect(r.files.some((f) => f.includes('分章/0001-第一章.md'))).toBe(true)
-    expect(r.files.some((f) => f.includes('分章/0002-第二章.md'))).toBe(true)
+    // split：按章号数值排序 + 3 位补零文件名（长短统一）
+    expect(r.files.some((f) => f.includes('分章/001-第一章.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/002-第二章.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -93,7 +93,7 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
 
 // ── 短篇分支（kind: short）──────────────────────
 
-test('exportBook: 短篇分支产全篇集 + 分篇 + 投稿视图', () => {
+test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
   const root = mkdtempSync(join(tmpdir(), 'export-short-'))
   writeFileSync(
     join(root, 'book.yaml'),
@@ -103,23 +103,20 @@ test('exportBook: 短篇分支产全篇集 + 分篇 + 投稿视图', () => {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '1-雪夜.md'),
-    '---\n篇号: 1\n标题: 雪夜\n---\n雪夜的正文。',
+    '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。',
     'utf-8',
   )
   try {
     const r = exportBook({ bookRoot: root, format: 'both' })
     expect(r.ok).toBe(true)
-    expect(r.unit).toBe('篇')
+    expect(r.unit).toBe('章')
     expect(r.chapterCount).toBe(1)
     // 短篇必出投稿视图
     expect(r.files.some((f) => f.includes('投稿视图-短篇集.md'))).toBe(true)
-    // merged 文件名为「全篇集-」前缀（非「全本-」）
-    expect(r.files.some((f) => f.includes('全篇集-短篇集.md'))).toBe(true)
-    // split 目录为「分篇」+ 3 位补零
-    expect(r.files.some((f) => f.includes('分篇/001-雪夜.md'))).toBe(true)
-    // 不出长篇的「全本-」「分章」
-    expect(r.files.every((f) => !f.includes('全本-'))).toBe(true)
-    expect(r.files.every((f) => !f.includes('分章'))).toBe(true)
+    // merged 文件名为「全本-」前缀
+    expect(r.files.some((f) => f.includes('全本-短篇集.md'))).toBe(true)
+    // split 目录为「分章」+ 3 位补零
+    expect(r.files.some((f) => f.includes('分章/001-雪夜.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

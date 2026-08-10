@@ -11,11 +11,12 @@
  * 消费方触发（同伏笔迁移范式）：首次进文风视图时调用，结果落 toast。
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
 import { writeEntry, ENTRIES_DIR } from './style-entry.js'
-import { parseIronRules } from '../check/count.js'
+import { parseIronRules } from './iron-rules.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 
 /** 迁移结果（伏笔迁移同构 + 类型分布供 toast） */
@@ -234,7 +235,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     // 瘦身写回（机检禁词已由 readIronRules 合并条目库，不缺失）
     const slimmed = slimIronRules(rulesText)
     if (slimmed !== rulesText) {
-      writeFileSync(rulesFile, slimmed, 'utf-8')
+      atomicWriteFile(rulesFile, slimmed)
       result.details.push('铁律瘦身为纯配置（禁词知识归条目库）')
     }
   }

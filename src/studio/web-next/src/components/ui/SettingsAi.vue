@@ -13,7 +13,6 @@ const ws = useWorkspaceStore()
 const prefs = usePrefsStore()
 const saveConfig = inject(SAVE_CONFIG_KEY)!
 
-const bookKind = ref<'long' | 'short'>('long')
 const styleInjection = ref<'light' | 'heavy'>('light')
 const callsPerChapter = ref(10)
 const autoConfirmOutline = ref(false)
@@ -31,7 +30,6 @@ watch(
     if (!open || !name) return
     try {
       const cfg = await getConfig(name)
-      bookKind.value = cfg.kind ?? 'long'
       styleInjection.value = cfg.style?.injection ?? 'light'
       callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
       autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
@@ -181,18 +179,17 @@ async function saveRagConfig(): Promise<void> {
     </div>
     <div class="setting-item">
       <div class="setting-item-info">
-        <div class="setting-item-name">{{ bookKind === 'short' ? '批量写作篇数' : '批量写作章数' }}</div>
-        <div class="setting-item-desc">{{ bookKind === 'short' ? '一次自动写作流程连续写的篇数' : '一次自动写作流程连续写的章数' }}</div>
+        <div class="setting-item-name">批量写作章数</div>
+        <div class="setting-item-desc">一次自动写作流程连续写的章数</div>
       </div>
       <div class="setting-item-control">
         <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
-        <span class="val-suffix">{{ bookKind === 'short' ? '篇' : '章' }}</span>
+        <span class="val-suffix">章</span>
       </div>
     </div>
   </section>
 
-  <template v-if="bookKind !== 'short'">
-    <div class="cfg-card-head">关系图</div>
+  <div class="cfg-card-head">关系图</div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
@@ -217,7 +214,6 @@ async function saveRagConfig(): Promise<void> {
         </div>
       </div>
     </section>
-  </template>
 
   <div class="cfg-card-head">知识检索</div>
   <section class="cfg-card">

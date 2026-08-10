@@ -8,7 +8,8 @@
  * 沿用 STALE_MS=30s：editing_workdir 新鲜 = 标记在 + ts 未过期。
  */
 import { join } from 'node:path'
-import { writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 
 /** 心跳超过此值视为已离开（进程可能崩溃/被杀）。 */
 export const STALE_MS = 30_000
@@ -35,7 +36,7 @@ export function writeGuiActive(bookRoot: string): void {
     rec.editing_workdir = true
   }
   try {
-    writeFileSync(guiActivePath(bookRoot), JSON.stringify(rec), 'utf8')
+    atomicWriteFile(guiActivePath(bookRoot), JSON.stringify(rec))
   } catch {
     // 工作区可能不存在（书未初始化）—— 心跳尽力而为
   }

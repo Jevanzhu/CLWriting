@@ -93,13 +93,14 @@ function onSave(): void {
   void doc.save(e.docId, 'manual')
 }
 
-// 定稿确认：revision 态正文/设定可定稿（final 已定稿不显；草稿入卷属 P2）
+// 定稿确认：正文区 draft（从未定稿）可首次定稿、revision（定稿后改动）可重新定稿；
+// final 已定稿不显（草稿区/待定稿在 工作区/ 非正文区，由 path 前缀排除）。
 const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
   if (!node.path.startsWith('写作/正文/')) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
-  return node.status === 'revision'
+  return node.status === 'draft' || node.status === 'revision'
 })
 const finalizing = ref(false)
 async function onFinalize(): Promise<void> {
@@ -264,14 +265,14 @@ async function onTitleCommit(): Promise<void> {
   if (newTitle === current) return
   titleSaving.value = true
   try {
-    // 短篇传 篇号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 篇目录 rename
-    // P2：fm 缺篇号时从文件名提取（防 fallback 1 覆盖真实篇号）
+    // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
+    // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
     const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).篇号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
+      ? Number(parseFmFields(e.content).章号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,
-      ...(e.role === 'piece-body' && pieceNum !== undefined ? { 篇号: pieceNum } : {}),
+      ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
     await tree.load(doc.bookName!)
     const fresh = tree.byDocId.get(ws.activeDocId)

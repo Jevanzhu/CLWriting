@@ -186,7 +186,7 @@ async function onCommit(): Promise<void> {
         <div v-for="g in sampleGroups" :key="g.场景" class="scene-group">
           <div class="group-head" @click="toggleGroup(g.items)">
             <span class="scene-name">{{ g.场景 }}</span>
-            <span class="group-meta">{{ g.count }} 篇 · 均分 {{ g.avg }}</span>
+            <span class="group-meta">{{ g.count }} 章 · 均分 {{ g.avg }}</span>
             <span class="group-toggle" :class="{ all: g.allPicked }">
               <Check :size="12" />{{ g.allPicked ? '已全选' : '全选' }}
             </span>

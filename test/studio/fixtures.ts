@@ -4,7 +4,7 @@
  * 供 dual-track 回归测 + e2e 复用（mkdtemp 临时目录，内容在代码里，灵活可控）。
  * 内容是测试小说数据（无敏感；不涉 api_key）。覆盖各 API 端点所需结构：
  * - 长篇：book.yaml + 大纲/总纲 + 布线/悬念 + 写作/正文(2章) + 设定(角色/境界) + 文风铁律
- * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/清单 + 设定/集子定位 + 文风铁律
+ * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 设定/集子定位 + 文风铁律
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -54,6 +54,12 @@ function makeLongBook(root: string): void {
     join(root, '写作', '正文', '0002-玉佩之秘.md'),
     '---\n章号: 2\n标题: 玉佩之秘\n钩子类型: 危机钩\n钩子强弱: 强\n情绪定位: 小爽\n场景: 战斗\n---\n玉佩突然爆发灵光，击退来袭的妖兽。\n\n林远震惊，这玉佩竟有如此力量。',
   )
+  // 0003：定稿 e2e 专用章——预设 finalizedRevision（旧指纹，≠当前）→ 初始即 revision 态可定稿。
+  // 避免污染被多 spec 复用的 0001/0002 的 status。
+  writeFileSync(
+    join(root, '写作', '正文', '0003-定稿观察.md'),
+    '---\n章号: 3\n标题: 定稿观察\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n山洞深处，壁画在火光中浮现。\n\n他伸手触碰，指尖微凉，仿佛听见古老的低语。',
+  )
   mkdirSync(join(root, '设定', '角色'), { recursive: true })
   writeFileSync(
     join(root, '设定', '角色', '林远.md'),
@@ -73,6 +79,15 @@ function makeLongBook(root: string): void {
       JSON.stringify({ version: 1, type: 'header' }),
       JSON.stringify({ id: 'chap-e2e-0001', nodeType: 'document', path: '写作/正文/0001-初入宗门.md', parentId: null }),
       JSON.stringify({ id: 'chap-e2e-0002', nodeType: 'document', path: '写作/正文/0002-玉佩之秘.md', parentId: null }),
+      // 0003 已定稿基线（旧指纹）→ revision 态，供定稿 e2e
+      JSON.stringify({
+        id: 'chap-e2e-0003',
+        nodeType: 'document',
+        path: '写作/正文/0003-定稿观察.md',
+        parentId: null,
+        finalizedRevision: 'sha256:stale-baseline-for-finalize-e2e',
+        finalizedAt: '2026-08-01T00:00:00.000Z',
+      }),
     ].join('\n') + '\n',
   )
   // git init + add：正文处 revision 态（tree-issues 红点聚合依赖非 final）
@@ -97,7 +112,7 @@ function makeShortBook(root: string): void {
   mkdirSync(join(root, '大纲', '清单'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '001-雨夜门铃.md'),
-    '---\n篇号: 1\n标题: 雨夜门铃\n目标情绪: 惊悚\n核心反转: 来客是三年前的死者\n---\n## 开头钩子\n\n门外没有脚印。\n\n## 反转\n\n来客笑了，他是死者。',
+    '---\n章号: 1\n标题: 雨夜门铃\n目标情绪: 惊悚\n核心反转: 来客是三年前的死者\n---\n## 开头钩子\n\n门外没有脚印。\n\n## 反转\n\n来客笑了，他是死者。',
   )
   writeFileSync(
     join(root, '大纲', '清单', '001-雨夜门铃.md'),
@@ -105,7 +120,7 @@ function makeShortBook(root: string): void {
   )
   writeFileSync(
     join(root, '写作', '正文', '002-红伞.md'),
-    '---\n篇号: 2\n标题: 红伞\n目标情绪: 后怕\n核心反转: 红伞内侧写着主角名字\n---\n## 开头\n\n红伞靠在墙边滴水。\n\n## 反转\n\n伞内侧写着主角的名字。',
+    '---\n章号: 2\n标题: 红伞\n目标情绪: 后怕\n核心反转: 红伞内侧写着主角名字\n---\n## 开头\n\n红伞靠在墙边滴水。\n\n## 反转\n\n伞内侧写着主角的名字。',
   )
   writeFileSync(
     join(root, '大纲', '清单', '002-红伞.md'),

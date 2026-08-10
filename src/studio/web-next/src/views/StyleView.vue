@@ -308,7 +308,7 @@ function sparkPoints(series: number[]): string {
     })
     .join(' ')
 }
-const unit = computed(() => (style.trend?.kind === 'short' ? '篇' : '章'))
+const unit = computed(() => '章')
 function avg(series: number[]): number {
   return series.length ? series.reduce((a, b) => a + b, 0) / series.length : 0
 }

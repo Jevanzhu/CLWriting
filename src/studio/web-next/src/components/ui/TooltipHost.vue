@@ -28,6 +28,8 @@ function onOver(e: MouseEvent): void {
     return
   }
   lastTarget = el
+  // P2-F6b：data-tip 同时暴露为 aria-label（读屏可读）。已有 aria-label 不覆盖。
+  syncAriaLabel(el)
   if (showTimer) clearTimeout(showTimer)
   showTimer = setTimeout(() => {
     const text = el.dataset.tip!
@@ -73,15 +75,32 @@ function onOver(e: MouseEvent): void {
   }, 250)
 }
 
+/** 同步 data-tip → aria-label（P2-F6b：读屏可读）。已有 aria-label 不覆盖。 */
+function syncAriaLabel(el: HTMLElement): void {
+  if (!el.getAttribute('aria-label') && el.dataset.tip) {
+    el.setAttribute('aria-label', el.dataset.tip)
+  }
+}
+
+function onFocusIn(e: FocusEvent): void {
+  const el = (e.target as HTMLElement)?.closest?.('[data-tip]') as HTMLElement | null
+  if (el) syncAriaLabel(el)
+}
+
 onMounted(() => {
   document.addEventListener('mouseover', onOver)
   document.addEventListener('scroll', hide, { capture: true })
   window.addEventListener('blur', hide)
+  // 键盘导航（tab 聚焦）也能读屏
+  document.addEventListener('focusin', onFocusIn)
+  // 挂载时对已存在元素补一次（首屏常驻按钮）
+  document.querySelectorAll<HTMLElement>('[data-tip]').forEach(syncAriaLabel)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mouseover', onOver)
   document.removeEventListener('scroll', hide, { capture: true })
   window.removeEventListener('blur', hide)
+  document.removeEventListener('focusin', onFocusIn)
   if (showTimer) clearTimeout(showTimer)
 })
 </script>

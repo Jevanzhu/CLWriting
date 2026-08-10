@@ -43,7 +43,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   const config: BookConfig = opts.kind === 'short'
     ? {
         ...DEFAULT_CONFIG,
-        // 短篇集精简：无 leads.enabled（账本降级单篇清单 #27）、无 growth（无成长线）
+        // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
         workflow: 'free', // W0 §2 决策 1：新书默认自由模式
@@ -128,20 +128,59 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
 
 /**
  * 短篇集目录布局（M8 #25 第 3 节）：一仓库一短篇集。
- * 建 `篇/`（正文）+ `清单/`（清单分离，与正文不混放）+ 整集共享 `文风/` + `工作区/`。
- * 不建 定稿/、大纲/、卷纲、设定、growth——短篇无长程载重。
+ * 建 写作/正文/（正文章）+ 大纲/章纲/（章纲，与正文不混放）+ 设定/（角色/物品/伏笔/世界观/名册，与长篇同构）
+ * + 整集共享 文风/ + 工作区/。
+ * 不建 卷纲、布线——短篇无长程载重（设定层与长篇同构，供关系图/机检复用）。
  */
-function scaffoldShortDirectories(bookRoot: string, _opts: BookScaffoldOpts): void {
-  // 写作/正文/：多篇正文并存（短篇章，扁平，默认不用卷级）
+function scaffoldShortDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
+  // 写作/正文/：多章正文并存（短篇章，默认一卷）
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
 
-  // 大纲/清单/：短篇清单（反转线索表/情绪曲线/伏笔回收），规划性质
-  mkdirSync(join(bookRoot, '大纲', '清单'), { recursive: true })
+  // 大纲/章纲/：短篇章纲（反转线索表/情绪曲线/伏笔回收），规划性质；预置结构化范例（fm + 清单三段式正文）
+  mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
+  const wordMin = recommendShortChecks(opts.genre).word_min ?? 8000
+  writeFileSync(
+    join(bookRoot, '大纲', '章纲', '0001-开篇.md'),
+    [
+      '---',
+      '章号: 1',
+      '标题: 开篇',
+      '钩子类型: 悬念钩',
+      '钩子强弱: 中',
+      '情绪定位: 铺垫',
+      '场景: 叙事铺陈',
+      `字数目标: ${wordMin}`,
+      '目标情绪: （待填）',
+      '核心反转: （待填）',
+      '---',
+      '',
+      '## 反转线索表',
+      '- 核心反转：',
+      '- [开头钩子]',
+      '- [铺垫]',
+      '',
+      '## 情绪曲线',
+      '- [开头钩子] /10',
+      '- [反转] /10',
+      '',
+      '## 伏笔回收',
+      '- → 回收于',
+      '',
+    ].join('\n'),
+    'utf-8',
+  )
+
+  // 设定/：与长篇同构（角色/物品/伏笔 + 世界观/名册），供关系图/机检/审稿复用
+  for (const d of ['设定/角色', '设定/物品', '设定/伏笔']) {
+    mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
+  }
+  writeFileSync(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
+  writeFileSync(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
 
   // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
-  scaffoldSharedStyle(bookRoot, _opts.genre)
+  scaffoldSharedStyle(bookRoot, opts.genre)
 
-  // 工作区/：临时区（当前在写的篇，态 4 续跑粒度=篇）
+  // 工作区/：临时区（当前在写的章，态 4 续跑粒度=章）
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
 }
 

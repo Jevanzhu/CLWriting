@@ -84,12 +84,12 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
 
   it('短篇固定名 001-标题.md 同样受保护', () => {
     const shortRel = '写作/正文/001-短篇.md'
-    writeFileSync(join(root, shortRel), '第1篇草稿', 'utf8')
-    const id = snapshotBeforeOverwrite(root, shortRel, '第2篇草稿盖过来')
+    writeFileSync(join(root, shortRel), '第1章草稿', 'utf8')
+    const id = snapshotBeforeOverwrite(root, shortRel, '第2章草稿盖过来')
     expect(id).not.toBeNull()
     const files = snapshotFiles('001-短篇')
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1篇草稿')
+    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1章草稿')
   })
 })
 
@@ -140,9 +140,9 @@ describe('POST /draft-save 响应契约（M3）', () => {
     const r = await postDraft({ chapter: 2, content: '第一版生成正文。' })
     expect(r.status).toBe(200)
     expect(r.json['ok']).toBe(true)
-    // 无 frontmatter → resolveDraftPath 用默认标题「第2章」+ 默认卷「第一卷」
-    expect(r.json['path']).toBe('写作/正文/第一卷/2-第2章.md')
-    expect(r.json['docId']).toBe(legacyId('写作/正文/第一卷/2-第2章.md'))
+    // 无 frontmatter → resolveDraftPath 用默认标题「第2章」+ 默认卷「第一卷」+ 3 位补零
+    expect(r.json['path']).toBe('写作/正文/第一卷/002-第2章.md')
+    expect(r.json['docId']).toBe(legacyId('写作/正文/第一卷/002-第2章.md'))
     expect(r.json['snapshotted']).toBe(false)
   })
 
@@ -160,8 +160,8 @@ describe('POST /draft-save 响应契约（M3）', () => {
     mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
     const m = readManifest(manifestPath)
     const realId = generateDocId()
-    // 登记正文区路径（draft-save 走 resolveDraftPath，长篇默认卷 第一卷）
-    upsertEntry(m, { id: realId, nodeType: 'document', path: '写作/正文/第一卷/3-第3章.md', parentId: null })
+    // 登记正文区路径（draft-save 走 resolveDraftPath，长篇默认卷 第一卷 + 3 位补零）
+    upsertEntry(m, { id: realId, nodeType: 'document', path: '写作/正文/第一卷/003-第3章.md', parentId: null })
     writeManifest(manifestPath, m)
     const r = await postDraft({ chapter: 3, content: '登记过的草稿内容。' })
     expect(r.status).toBe(200)

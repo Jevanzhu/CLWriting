@@ -41,7 +41,7 @@ const CLEAN_TEXT = `他推开门，屋里昏暗。一股寒意爬上脊背，暗
 
 他走出门，门在身后关上，发出沉闷的声响，在走廊里回荡，久久不肯散去。`
 
-const FM = '---\n篇号: 1\n标题: 测试篇\n---\n'
+const FM = '---\n章号: 1\n标题: 测试篇\n---\n'
 const BOOK = SHORT_BOOK
 const META: ChapterMeta = {
   章号: 1,

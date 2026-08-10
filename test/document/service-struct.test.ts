@@ -171,7 +171,7 @@ function makeBookWithPiece(): { root: string; svc: DocumentService } {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'kind: short\n', 'utf-8')
-  writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n篇号: 1\n标题: 原标\n---\n短篇正文', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n章号: 1\n标题: 原标\n---\n短篇正文', 'utf-8')
   writeFileSync(
     join(root, '项目', '文档清单.jsonl'),
     [
@@ -188,13 +188,13 @@ test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 文件名 rename�
   const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
-  // 篇号 1 → 3 位补零 001；标题更新
+  // 章号 1 → 3 位补零 001；标题更新
   expect(r.path).toBe('写作/正文/001-新标.md')
   expect(existsSync(join(root, '写作', '正文', '001-新标.md'))).toBe(true)
   expect(existsSync(join(root, '写作', '正文', '1-原标.md'))).toBe(false)
   const fm = readFileSync(join(root, '写作', '正文', '001-新标.md'), 'utf-8')
   expect(fm).toContain('标题: 新标')
-  expect(fm).toContain('篇号: 1') // 篇号不变
+  expect(fm).toContain('章号: 1') // 章号不变
   expect(fm).toContain('短篇正文') // body 保留
   // docId 不变（清单 path 更新）
   const m = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
@@ -204,15 +204,15 @@ test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 文件名 rename�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta（短篇）: 改篇号 → fm 篇号 + 文件名 rename（3 位补零）', () => {
+test('updateChapterMeta（短篇）: 改章号 → fm 章号 + 文件名 rename（3 位补零）', () => {
   const { root, svc } = makeBookWithPiece()
-  const r = svc.updateChapterMeta('doc_p01', { 篇号: 12, 标题: '原标' })
+  const r = svc.updateChapterMeta('doc_p01', { 章号: 12, 标题: '原标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/012-原标.md')
   expect(existsSync(join(root, '写作', '正文', '012-原标.md'))).toBe(true)
   const fm = readFileSync(join(root, '写作', '正文', '012-原标.md'), 'utf-8')
-  expect(fm).toContain('篇号: 12')
+  expect(fm).toContain('章号: 12')
   expect(fm).toContain('标题: 原标')
   rmSync(root, { recursive: true, force: true })
 })

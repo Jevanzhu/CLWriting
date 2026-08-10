@@ -62,8 +62,8 @@ type Creating = {
 } | null
 const creating = ref<Creating>(null)
 const renamePath = ref<string | null>(null)
-// 块2.2 篇章信息弹窗：编辑 标题 + 章号|篇号（落 fm + 路径同步 rename；长篇改文件名 / 短篇改篇目录名）
-// isPiece 标记短篇正文（用「篇号」标签，3 位补零）
+// 块2.2 篇章信息弹窗：编辑 标题 + 章号（落 fm + 路径同步 rename；长篇改文件名 / 短篇改文件名）
+// isPiece 标记短篇正文（3 位补零）
 const metaEditing = ref<{
   docId: string
   标题: string
@@ -234,14 +234,14 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
   if (node.role === 'piece-body') {
     // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平；path 与长篇同为 写作/正文/）
     items.push({ key: 'meta', label: '篇章信息…' })
-    // 定稿确认：与长篇章一致，仅 revision 态可定稿（D4）
-    if (node.status === 'revision') {
+    // 定稿：正文区 draft（首次）/ revision（改动后）可定稿；final 已定稿不显
+    if (node.status === 'draft' || node.status === 'revision') {
       items.push({ key: 'finalize', label: '定稿' })
     }
   } else if (node.path.startsWith('写作/正文/')) {
     items.push({ key: 'meta', label: '章节信息…' })
-    // 定稿确认：仅 revision 态正文可定稿（final 已定稿不显；草稿入卷属 P2）
-    if (node.status === 'revision') {
+    // 定稿：正文区 draft（首次）/ revision（改动后）可定稿；final 已定稿不显
+    if (node.status === 'draft' || node.status === 'revision') {
       items.push({ key: 'finalize', label: '定稿' })
     }
     const targets = moveToTargets(node)
@@ -374,18 +374,15 @@ async function onCopyPath(node: TreeNode): Promise<void> {
 }
 
 // --- 篇章信息（块2.2）---
-// 长篇传 { 标题, 章号 }；短篇传 { 标题, 篇号 }（后端按文档角色区分落 fm 字段 + 路径 rename）
+// 长/短篇统一用「章号」（后端一律落 fm 章号 + 路径 rename）
 async function onSaveMeta(meta: { 标题: string; num: number }): Promise<void> {
   const e = metaEditing.value
   if (!e) return
   metaEditing.value = null
   try {
-    const payload = e.isPiece
-      ? { 标题: meta.标题, 篇号: meta.num }
-      : { 标题: meta.标题, 章号: meta.num }
-    await updateChapterMetaDoc(props.bookName, e.docId, payload)
+    await updateChapterMetaDoc(props.bookName, e.docId, { 标题: meta.标题, 章号: meta.num })
     await tree.load(props.bookName)
-    // 路径可能变（长篇文件名 / 短篇篇目录名）→ 同步 doc entry.path
+    // 路径可能变（长篇/短篇文件名）→ 同步 doc entry.path
     const entry = doc.get(e.docId)
     if (entry) {
       const fresh = tree.byDocId.get(e.docId)
