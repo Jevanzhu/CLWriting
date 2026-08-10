@@ -323,7 +323,8 @@ async function maybeAutoMine(cache?: { chapterCount: number | null; currentChapt
   if (ui.aiAvailable === false) return
   try {
     const cfg = await getConfig(props.bookName)
-    if (!(cfg.auto?.relation_auto_mine ?? true)) return
+    // 自动梳理默认关闭（方案③：手动按钮控成本）；作者在 AI 设置开启后才自动
+    if (!(cfg.auto?.relation_auto_mine ?? false)) return
     const threshold = cfg.auto?.relation_mine_threshold ?? 3
     const last = cache.chapterCount ?? 0
     if (cache.currentChapters - last < threshold) return

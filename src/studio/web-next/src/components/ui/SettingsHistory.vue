@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // 设置 · 版本历史 tab：版本保留规则（天数/数量）+ 定稿版本统计。
 import { ref, computed, watch, inject } from 'vue'
-import { History, BookOpen } from 'lucide-vue-next'
+import { History, BookOpen, Trash2 } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { getConfig } from '../../api/books'
-import { getVersionStats, type VersionStats } from '../../api/snapshots'
+import { getVersionStats, pruneVersions, type VersionStats } from '../../api/snapshots'
 import { SAVE_CONFIG_KEY } from './settings-context'
 
 const ui = useUiStore()
@@ -19,6 +19,23 @@ const snapDays = ref(SNAPSHOT_DEFAULTS.maxDays)
 const snapCount = ref(SNAPSHOT_DEFAULTS.maxCount)
 const bookKind = ref<'long' | 'short'>('long')
 const versionStats = ref<VersionStats | null>(null)
+const pruning = ref(false)
+
+/** 清理过期编辑快照（按保留策略；pinned 定稿版本永久保留） */
+async function onPrune(): Promise<void> {
+  const name = ws.bookName
+  if (!name || pruning.value) return
+  pruning.value = true
+  try {
+    const removed = await pruneVersions(name)
+    ui.toast(removed > 0 ? `已清理 ${removed} 个过期版本` : '没有需要清理的版本', 'success')
+    await loadVersionStats()
+  } catch (e) {
+    ui.toast(`清理失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+  } finally {
+    pruning.value = false
+  }
+}
 
 /** 字节数人性化（预览：2.3 MB / 480 KB）。 */
 function formatBytes(n: number): string {
@@ -134,6 +151,18 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
           </div>
           <div class="setting-item-control">
             <span class="backup-summary">{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span>
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-item-info">
+            <div class="setting-item-name">清理过期快照</div>
+            <div class="setting-item-desc">按保留规则删除超期/超量的编辑快照（定稿版本永久保留）</div>
+          </div>
+          <div class="setting-item-control">
+            <button class="link-btn danger" :disabled="pruning" @click="onPrune">
+              <Trash2 :size="12" />
+              {{ pruning ? '清理中…' : '立即清理' }}
+            </button>
           </div>
         </div>
       </template>

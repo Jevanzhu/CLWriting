@@ -648,6 +648,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .link-btn:hover {
   background: var(--background-modifier-hover);
 }
+.link-btn.danger {
+  border-color: color-mix(in srgb, var(--text-error) 40%, var(--background-modifier-border));
+  color: var(--text-error);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.link-btn.danger:hover {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
 
 /* ── font pair ── */
 .font-pair {

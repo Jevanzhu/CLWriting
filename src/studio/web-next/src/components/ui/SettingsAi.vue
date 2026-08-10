@@ -17,7 +17,8 @@ const styleInjection = ref<'light' | 'heavy'>('light')
 const callsPerChapter = ref(10)
 const autoConfirmOutline = ref(false)
 const batchSize = ref(1)
-const relationAutoMine = ref(true)
+// 关系图 AI 梳理：手动按钮为主（控成本，方案③决策）；自动梳理默认关，作者可自行开启
+const relationAutoMine = ref(false)
 const relationMineThreshold = ref(3)
 // AI 配置（RAG 保留在 book.yaml）
 const ragEnabled = ref(false)
@@ -34,7 +35,7 @@ watch(
       callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
       autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
       batchSize.value = cfg.auto?.batch_size ?? 1
-      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? true
+      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? false
       relationMineThreshold.value = cfg.auto?.relation_mine_threshold ?? 3
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''

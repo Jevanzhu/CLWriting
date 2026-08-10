@@ -65,3 +65,12 @@ export async function getVersionStats(name: string): Promise<VersionStats> {
     finalizedDocs: r.finalizedDocs,
   }
 }
+
+// POST /api/books/:name/versions/prune → 立即清理过期编辑快照（pinned 定稿版本保留）
+export async function pruneVersions(name: string): Promise<number> {
+  const r = await apiJson<{ removed: number }>(
+    `/api/books/${encodeURIComponent(name)}/versions/prune`,
+    { method: 'POST' },
+  )
+  return r.removed
+}

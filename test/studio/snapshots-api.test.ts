@@ -5,11 +5,27 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { decodeUlidTime } from '../../src/document/stable-id.js'
+
+const DAY_MS = 86_400_000
+/** Crockford base32 字母表（与 fs/id.ts 一致）。 */
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+/** 生成指定时间戳（毫秒）的 ULID 前 10 字符 + 16 字符合法随机部。 */
+function ulidAt(ts: number): string {
+  let v = BigInt(ts)
+  let time = ''
+  for (let i = 0; i < 10; i++) {
+    time = CROCKFORD[Number(v & 0x1fn)] + time
+    v >>= 5n
+  }
+  return time + 'J'.repeat(16)
+}
 
 const BOOK = '快照测试书'
 const CHAPTER = '写作/正文/0001-开篇.md'
@@ -166,6 +182,42 @@ describe('快照端点（单章版本回滚）', () => {
   it('未登记 docId → 404', async () => {
     const r = await request('GET', api('/documents/doc_unknown/snapshots'))
     expect(r.status).toBe(404)
+  })
+
+  it('prune：超期编辑快照清理、pinned 定稿保留、计数正确', async () => {
+    // 手写一批版本文件：超期非 pinned ×2、超期 pinned ×1、近期非 pinned ×1
+    const vdir = join(workDir, BOOK, '工作区', '.版本', 'doc_1')
+    mkdirSync(vdir, { recursive: true })
+    const now = Date.now()
+    const old = now - 30 * DAY_MS // 30 天前，超 maxDays(14)
+    const recent = now - 1 * 3600_000 // 1 小时前，属于细粒度保留窗口
+    const write = (id: string, pinned: boolean, content: string) =>
+      writeFileSync(
+        join(vdir, `${id}.md`),
+        `---\n版本ID: ${id}\n时间: ${new Date(decodeUlidTime(id)).toISOString()}\n来源: manual\n${
+          pinned ? '永久: true\n' : ''
+        }---\n${content}`,
+      )
+    const oldId = ulidAt(old)
+    const oldPinnedId = ulidAt(old - 1)
+    const recentId = ulidAt(recent)
+    write(oldId, false, '旧内容A\n')
+    write(oldPinnedId, true, '定稿旧内容\n')
+    write(recentId, false, '近期内容\n')
+
+    const r = await request('POST', api('/versions/prune'))
+    expect(r.status).toBe(200)
+    expect((r.json as { removed: number }).removed).toBe(1)
+    // 超期非 pinned 被删；pinned 与近期保留
+    expect(existsSync(join(vdir, `${oldId}.md`))).toBe(false)
+    expect(existsSync(join(vdir, `${oldPinnedId}.md`))).toBe(true)
+    expect(existsSync(join(vdir, `${recentId}.md`))).toBe(true)
+  })
+
+  it('prune：无版本目录 → 空操作', async () => {
+    const r = await request('POST', api('/versions/prune'))
+    expect(r.status).toBe(200)
+    expect((r.json as { removed: number }).removed).toBe(0)
   })
 })
 
