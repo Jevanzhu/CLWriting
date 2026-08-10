@@ -41,6 +41,7 @@ export async function runAnalyze(name: string, docId: string, kind: AnalysisKind
   const r = await apiJson<AnalyzePost>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analyze`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) },
+    120_000, // AI 分析超时 2 分钟
   )
   return r.envelope
 }
@@ -58,6 +59,7 @@ export async function autotag(name: string, docId: string): Promise<ChapterTags>
   const r = await apiJson<{ ok: true; tags: ChapterTags }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/autotag`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    60_000, // 标签判定超时 1 分钟
   )
   return r.tags
 }

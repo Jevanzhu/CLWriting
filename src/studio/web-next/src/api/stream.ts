@@ -26,7 +26,7 @@ export async function spawnRole(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, 120_000) // 角色生成超时 2 分钟
 }
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）
@@ -72,5 +72,5 @@ export async function generateOutline(name: string, chapter: number): Promise<vo
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chapter }),
-  })
+  }, 300_000) // 大纲多源合成超时 5 分钟
 }

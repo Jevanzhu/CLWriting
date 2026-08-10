@@ -84,7 +84,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
     const bookRoot = join(ctx.workDir, entry.path)
     const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) return reply(res, 500, { error: `读 book.yaml 失败:${cfgResult.error}` })
+    if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
     const config = (cfgResult as { config: { book: { title: string; genre: string }; kind?: string; leads?: { enabled?: string[] } } }).config
     const title = config.book.title
     const genre = config.book.genre

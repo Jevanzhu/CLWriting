@@ -29,7 +29,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest } from '../document/manifest.js'
+import { readManifest, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
@@ -88,6 +88,9 @@ export type RouterActionKind =
  * 全程零 AI：健康检查 / 全量重建收错 / 指纹比对 / 工作区文件 / 章号推算，全是确定性脚本。
  */
 export function detectState(bookRoot: string, config: BookConfig): DetectedState {
+  // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+
   // #1 健康检查（journal 崩溃恢复 + 网盘副本扫描）
   const issues = healthCheck(bookRoot)
   if (issues.length > 0) {
@@ -120,15 +123,15 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // #3 未入账手改：定稿基线存在但当前指纹不同（manifest 指纹比对，不依赖 git）
-  const handEdits = detectHandEdits(bookRoot)
+  const handEdits = detectHandEdits(bookRoot, manifest)
   if (handEdits.length > 0) {
     return { state: 3, handEdits }
   }
 
   // #4 工作区未完成（中断恢复）：有细纲/未定稿草稿 但对应章节已定稿 → post-finalize-residue
-  const incomplete = detectIncompleteWorkdir(bookRoot)
+  const incomplete = detectIncompleteWorkdir(bookRoot, manifest)
   if (incomplete) {
-    const alreadyFinalized = isChapterFinalized(bookRoot, incomplete)
+    const alreadyFinalized = isChapterFinalized(bookRoot, incomplete, manifest)
     return {
       state: 4,
       chapterNum: incomplete,
@@ -138,7 +141,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
 
   // ── 态 4 之后按布线存在性分叉（无布线的短篇书：无态 5（无卷）/6（无体检）；直接落态 7 写作主态）──
   if (!existsSync(join(bookRoot, '布线'))) {
-    const excludeNames = unfinishedPieceNames(bookRoot)
+    const excludeNames = unfinishedPieceNames(bookRoot, manifest)
     return {
       state: 7,
       nextChapter: readChapterDir(join(bookRoot, '写作', '正文')).chapters.length - excludeNames.size + 1,
@@ -216,8 +219,7 @@ function healthCheck(bookRoot: string): HealthIssue[] {
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */
-function detectHandEdits(bookRoot: string): string[] {
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+function detectHandEdits(bookRoot: string, manifest: Manifest): string[] {
   const handEditPrefixes = ['写作/正文/', '设定/', '大纲/', '布线/']
   const out: string[] = []
   for (const entry of manifest.entries.values()) {
@@ -234,11 +236,11 @@ function detectHandEdits(bookRoot: string): string[] {
 
 /** 态 4：工作区/正文区是否有未完成章节（中断判定）。
  *  信号：工作区细纲.md / .confirm.json，或正文区存在未定稿（无 finalizedRevision）的草稿文件。 */
-function detectIncompleteWorkdir(bookRoot: string): number | null {
+function detectIncompleteWorkdir(bookRoot: string, manifest: Manifest): number | null {
   const workDir = join(bookRoot, '工作区')
   const hasOutline = existsSync(join(workDir, '细纲.md'))
   const hasConfirm = existsSync(join(workDir, '.confirm.json'))
-  const unfinishedChapter = findUnfinishedChapter(bookRoot)
+  const unfinishedChapter = findUnfinishedChapter(bookRoot, manifest)
   if (!hasOutline && !hasConfirm && !unfinishedChapter) return null
 
   let chapterNum = 0
@@ -258,8 +260,7 @@ function detectIncompleteWorkdir(bookRoot: string): number | null {
 }
 
 /** 正文区未定稿（无 finalizedRevision）的草稿文件章号；从 frontmatter 或文件名提取。 */
-function findUnfinishedChapter(bookRoot: string): number | null {
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | null {
   const finalizedStems = new Set<string>()
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
@@ -320,8 +321,7 @@ function relativePath(bookRoot: string, absPath: string): string {
 }
 
 /** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。 */
-function isChapterFinalized(bookRoot: string, chapterNum: number): boolean {
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+function isChapterFinalized(_bookRoot: string, chapterNum: number, manifest: Manifest): boolean {
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
@@ -339,8 +339,7 @@ function chapterFromRelPath(relPath: string): number {
 }
 
 /** 正文区未定稿文件名集合（用于排除草稿——未定稿不计入"已写"）。 */
-function unfinishedPieceNames(bookRoot: string): Set<string> {
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string> {
   const finalized = new Set<string>()
   for (const e of manifest.entries.values()) {
     if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(e.path)
@@ -507,7 +506,7 @@ function readRecapSnapshot(
   // 排除未定稿草稿（未定稿不计入"已写"章数）
   if (!existsSync(join(bookRoot, '布线'))) {
     const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot).size, currentVolume: 1 }
+    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot, readManifest(join(bookRoot, '项目', '文档清单.jsonl'))).size, currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined

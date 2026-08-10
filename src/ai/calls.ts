@@ -11,8 +11,9 @@
  * 与旧版差异：去掉目录锁 / limit_override / stale lock 检测（YAGNI）。
  * 旧格式（flat { chapter, used, ... }）读到即一次性迁移。
  */
-import { existsSync, readFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { existsSync, readFileSync, chmodSync } from 'node:fs'
+import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig } from '../format/types.js'
 import type { TokenUsage } from './provider/types.js'
 
@@ -98,13 +99,11 @@ function migrateOldFormat(old: OldFormat): CallRecord {
   }
 }
 
-/** 原子写记录 */
+/** 原子写记录（全局 atomicWriteFile + fsync + 权限收敛 0600） */
 function writeRecord(bookRoot: string, rec: CallRecord): void {
   const fp = budgetPath(bookRoot)
-  mkdirSync(dirname(fp), { recursive: true })
-  const tmp = `${fp}.tmp`
-  writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n', { mode: 0o600 })
-  renameSync(tmp, fp)
+  atomicWriteFile(fp, JSON.stringify(rec, null, 2) + '\n', { fsync: true })
+  chmodSync(fp, 0o600)
 }
 
 /** 预算判定：超限 → ok=false + 人话提示（三条出路在文档 §五） */

@@ -9,8 +9,8 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync, realpathSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks, removeBookEntry } from '../../../install/books.js'
@@ -130,10 +130,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
     }
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
-    // P1-2 sink 校验：防 path 被篡改为 "." 致 rmSync 删整个书库
-    if (bookAbs === ctx.workDir) {
-      reply(res, 400, { error: '书路径非法' })
-      return
+    // symlink realpath 校验：防 entry.path 中间组件是符号链接 → rmSync 删到书库外
+    try {
+      const realWorkDir = realpathSync(ctx.workDir)
+      const realBookAbs = realpathSync(bookAbs)
+      if (realBookAbs === realWorkDir || relative(realWorkDir, realBookAbs).startsWith('..')) {
+        return reply(res, 400, { error: '书路径非法（越出书库）' })
+      }
+    } catch {
+      // realpath 失败说明路径异常（文件不存在 / 权限），拒绝删除
+      return reply(res, 400, { error: '书路径异常' })
     }
     try {
       rmSync(bookAbs, { recursive: true, force: true })

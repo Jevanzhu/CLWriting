@@ -90,7 +90,7 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
     details.push(gotDelta ? '流式产出正常' : '非流式产出（UI 无逐字显示）')
   } catch (e) {
     // 不阻塞——connected=true 已说明服务可用，流式失败可能只是探测模型不支持 chat
-    details.push(`流式探测失败：${e instanceof Error ? e.message : String(e)}`)
+    details.push(`流式探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
   }
 
   return { caps, details }
@@ -140,7 +140,7 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
     if (gotTool) details.push('tool_use 支持')
     else details.push('tool_use 不支持（该模型不能用于写作）')
   } catch (e) {
-    details.push(`tool_use 探测失败：${e instanceof Error ? e.message : String(e)}`)
+    details.push(`tool_use 探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
   }
 
   // ② tool_choice 强制——指定工具名
@@ -171,7 +171,7 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
       if (gotTool) details.push('tool_choice 强制调用支持')
       else details.push('tool_choice 不可靠（将退 prompt 引导 + 校验重试）')
     } catch (e) {
-      details.push(`tool_choice 探测失败：${e instanceof Error ? e.message : String(e)}`)
+      details.push(`tool_choice 探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
     }
   }
 

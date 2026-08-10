@@ -21,6 +21,7 @@ import {
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
+import { useChatTier } from '../../composables/useChatTier'
 
 const ui = useUiStore()
 
@@ -215,6 +216,8 @@ async function saveTiers(): Promise<void> {
     void ui.probeAiStatus()
     ui.toast('档位已保存', 'success')
     await refresh()
+    // 配置变更 → 刷新对话档位下拉（ChatPanel/ChatDock 共用的单例）
+    void useChatTier().refresh()
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
   } finally {

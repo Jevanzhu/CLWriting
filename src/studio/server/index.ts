@@ -78,7 +78,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerTraceStatsRoutes({ workDir })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
-    registerStreamRoutes({ workDir, userDataPath })
+    registerStreamRoutes({ workDir, userDataPath, studioToken: token })
     registerOutlineRoutes({ workDir, userDataPath })
     registerReviewRoutes({ workDir, userDataPath })
     registerOnboardRoutes({ workDir, userDataPath })

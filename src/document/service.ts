@@ -32,7 +32,7 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
-import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
+import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
@@ -397,7 +397,7 @@ export class DocumentService {
         typeof 章号 === 'number'
           ? `${String(章号).padStart(3, '0')}-`
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
-      const newName = `${numPrefix}${标题}.md`
+      const newName = `${numPrefix}${标题.replace(/[\\/]/g, '_')}.md`
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (result.ok) this.syncRenamePieceList(path, newName)
@@ -409,7 +409,7 @@ export class DocumentService {
     // 长篇 chapter：文件名按 章号4位-标题.md
     const 章号 = map.get('章号')
     const newName =
-      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题}.md` : basename(path)
+      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题.replace(/[\\/]/g, '_')}.md` : basename(path)
     if (basename(path) !== newName) {
       return this.doMoveOrRename(docId, { kind: 'rename', newName })
     }
@@ -454,7 +454,7 @@ export class DocumentService {
       if (v !== undefined) map.set(k, v)
     }
     try {
-      writeDoc(abs, stringifyFlat(map), body)
+      atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), body), { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }

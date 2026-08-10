@@ -17,7 +17,7 @@ import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { compareVersions } from './style-compare.js'
 import { listAiVersions, readAiVersion } from '../git/ai-track.js'
-import { ulid } from '../document/stable-id.js'
+import { ulid } from '../fs/id.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 
 /** 书内候选箱相对路径 */

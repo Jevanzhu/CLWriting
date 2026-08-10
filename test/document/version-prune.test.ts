@@ -2,10 +2,10 @@
  * pruneVersions pinned 保留策略测试（P1-T1）：
  * 验证定稿里程碑（pinned=true）在超期/maxCount 兜底时恒保留。
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   writeVersion,
   pruneVersions,
@@ -19,6 +19,10 @@ const docId = 'doc_test'
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'clw-prune-'))
+})
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
 })
 
 /** 检查指定 id 的版本是否存在 */

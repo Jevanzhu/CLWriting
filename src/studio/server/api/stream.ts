@@ -21,10 +21,13 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { safeTokenCompare } from '../http.js'
 
 interface StreamCtx {
   workDir: string | null
   userDataPath: string | null
+  /** GET SSE 端点 token 校验用（EventSource 不走 isWrite 拦截） */
+  studioToken: string
 }
 
 // P2-2：per-book SSE 连接计数（防多标签页耗尽 FD）
@@ -114,6 +117,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!entry) {
       res.writeHead(404)
       res.end('no book')
+      return
+    }
+    // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token
+    // 防本地恶意进程扫描端口窃听创作内容
+    const queryToken = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? undefined
+    if (!safeTokenCompare(queryToken, ctx.studioToken)) {
+      res.writeHead(403)
+      res.end('forbidden')
       return
     }
     // 校验通过后才递增连接计数（P1-1：防 early return 路径泄漏计数器致 DoS）

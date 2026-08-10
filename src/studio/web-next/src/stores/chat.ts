@@ -29,6 +29,9 @@ export interface ChatMessage {
   tools: ToolCard[]
 }
 
+/** 消息列表上限（防长对话内存膨胀） */
+const MAX_MESSAGES = 200
+
 export const useChatStore = defineStore('chat', () => {
   /** 消息列表 */
   const messages = ref<ChatMessage[]>([])
@@ -122,6 +125,7 @@ export const useChatStore = defineStore('chat', () => {
         // P2-9：回合结束即失效 currentIdx——SSE 断线重连后 sync 不会重发 chat_turn，
         // 旧索引指向已 done 气泡会让后续 chat_text 追加错误位置
         currentIdx = -1
+        trimMessages()
         break
       }
       case 'chat_error': {
@@ -155,6 +159,14 @@ export const useChatStore = defineStore('chat', () => {
   /** 添加用户消息（发送时调用） */
   function pushUser(text: string): void {
     messages.value.push({ role: 'user', content: text, done: true, tools: [] })
+    trimMessages()
+  }
+
+  /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
+  function trimMessages(): void {
+    if (messages.value.length > MAX_MESSAGES) {
+      messages.value.splice(0, messages.value.length - MAX_MESSAGES)
+    }
   }
 
   /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */
