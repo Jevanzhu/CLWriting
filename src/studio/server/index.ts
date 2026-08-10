@@ -150,8 +150,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
       res.end()
       return
     }
-    // 写端点(POST/PUT/DELETE)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
-    const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE'
+    // 写端点(POST/PUT/DELETE/PATCH)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
+    const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH'
     if (isWrite && !isAllowedOrigin(req)) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'forbidden origin' }))

@@ -1,7 +1,7 @@
 /**
  * P0 session token 测(GPT-5 P0 defense-in-depth):写端点 token 校验。
  *
- * /api/boot 注入 token;写端点(POST/PUT/DELETE)无 token / 错 token → 403;对 token 放行进 dispatch。
+ * /api/boot 注入 token;写端点(POST/PUT/DELETE/PATCH)无 token / 错 token → 403;对 token 放行进 dispatch。
  * 与 CORS Origin 校验叠加(双重防跨站)。
  */
 import http from 'node:http'
@@ -76,6 +76,33 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
       'x-studio-token': token,
     })
     expect(r.status).not.toBe(403) // 过 token 门后 dispatch 处理(书不存在 → 4xx,但非 403)
+  })
+
+  // P0-1 守护：PATCH 方法必须走 isWrite 校验（2026-08-10 评审发现 isWrite 曾遗漏 PATCH）
+  it('PATCH 无 X-Studio-Token → 403', async () => {
+    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
+      origin: baseUrl,
+      'content-type': 'application/json',
+    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    expect(r.status).toBe(403)
+  })
+
+  it('PATCH 错 token → 403', async () => {
+    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
+      origin: baseUrl,
+      'content-type': 'application/json',
+      'x-studio-token': 'wrong-token',
+    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    expect(r.status).toBe(403)
+  })
+
+  it('PATCH 对 token → 非 403(过 token 门进 dispatch)', async () => {
+    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('x')}/documents/doc_x`, {
+      origin: baseUrl,
+      'content-type': 'application/json',
+      'x-studio-token': token,
+    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    expect(r.status).not.toBe(403)
   })
 
   it('GET 无 token → 200(token 只校验写端点)', async () => {
