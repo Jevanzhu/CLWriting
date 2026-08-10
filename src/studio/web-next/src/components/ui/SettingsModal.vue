@@ -8,6 +8,7 @@ import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import SettingsAppearance from './SettingsAppearance.vue'
 import SettingsEditor from './SettingsEditor.vue'
@@ -18,6 +19,8 @@ import AiServicePanel from './AiServicePanel.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 
 type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'providers' | 'history'
 const activeTab = ref<Tab>('appearance')
@@ -79,7 +82,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.settingsOpen" class="modal-mask" @click.self="ui.closeSettings">
-      <div class="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
+      <div ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
         <div class="modal-head">
           <div class="modal-heading">
             <span class="modal-title">设置</span>

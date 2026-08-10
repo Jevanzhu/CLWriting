@@ -3,10 +3,13 @@
 // 收文本输入 + 确认/取消；与 ConfirmPrompt（二选一）互补。danger 档确认钮警示色。
 import { ref, watch, nextTick } from 'vue'
 import { useUiStore } from '../../stores/ui'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 const ui = useUiStore()
 const inputValue = ref('')
 const inputEl = ref<HTMLInputElement | null>(null)
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 
 // 弹窗打开时填默认值 + 自动聚焦
 watch(
@@ -34,7 +37,7 @@ function onKeydown(e: KeyboardEvent): void {
 
 <template>
   <div v-if="ui.promptState" class="pd-mask" @click.self="ui.resolvePrompt(null)">
-    <div class="pd-modal" role="dialog" aria-modal="true" aria-label="输入">
+    <div ref="modalRef" class="pd-modal" role="dialog" aria-modal="true" aria-label="输入" tabindex="-1">
       <div class="pd-title">{{ ui.promptState.title }}</div>
       <div class="pd-body">{{ ui.promptState.message }}</div>
       <input

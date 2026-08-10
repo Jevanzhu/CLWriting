@@ -8,6 +8,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useAppActions } from '../../composables/useAppActions'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 import type { TreeNode } from '../../types/tree'
 
 const ui = useUiStore()
@@ -15,6 +16,8 @@ const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const { actions: appActions } = useAppActions()
+const paletteRef = ref<HTMLElement | null>(null)
+useFocusTrap(paletteRef)
 
 interface Cmd {
   id: string
@@ -114,7 +117,7 @@ function run(c: Cmd): void {
 <template>
   <Teleport to="body">
     <div v-if="ui.paletteOpen" class="palette-mask" @click="ui.closePalette">
-      <div class="palette" role="dialog" aria-modal="true" aria-label="命令面板" @click.stop>
+      <div ref="paletteRef" class="palette" role="dialog" aria-modal="true" aria-label="命令面板" tabindex="-1" @click.stop>
         <input
           ref="inp"
           v-model="q"

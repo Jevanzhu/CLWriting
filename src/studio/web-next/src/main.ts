@@ -19,4 +19,9 @@ setActivePinia(pinia)
 await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS 变量就位）
 useUiStore().probeAiStatus() // G4：后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
-createApp(App).use(pinia).use(router).mount('#app')
+const app = createApp(App)
+// 全局错误兜底：ErrorBoundary 漏网或 setup 外的异常最终在此记录，避免静默丢失
+app.config.errorHandler = (err, _instance, info) => {
+  console.error('[Vue Error]', err, info)
+}
+app.use(pinia).use(router).mount('#app')
