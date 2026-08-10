@@ -105,7 +105,10 @@ export function checkWithDb(
     // 全书最高已定稿章号：调用方传入则用（树红点聚合已扫过全书，避免重复扫描）；
     // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
-    const maxChapter = maxWrittenChapter ?? maxWrittenChapterOf(bookRoot)
+    // 优化：无布线时账本检查不运行，跳过全书扫描
+    const maxChapter = hasWiring
+      ? (maxWrittenChapter ?? maxWrittenChapterOf(bookRoot))
+      : maxWrittenChapter
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
     const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot) : undefined

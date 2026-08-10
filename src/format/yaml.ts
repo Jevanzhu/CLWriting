@@ -8,7 +8,8 @@
  * 这里手写一个支持「段（顶层 key:）+ 缩进子字段」的极简解析，覆盖 #9 第 2 节 schema。
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
 
@@ -407,5 +408,5 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 
 /** 写 book.yaml */
 export function writeBookConfig(filePath: string, cfg: BookConfig): void {
-  writeFileSync(filePath, stringifyBookConfig(cfg), 'utf-8')
+  atomicWriteFile(filePath, stringifyBookConfig(cfg))
 }

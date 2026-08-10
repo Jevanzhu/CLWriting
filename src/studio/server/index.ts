@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
+import { safeTokenCompare } from './http.js'
 import { readBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -158,7 +159,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
       return
     }
     // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
-    if (isWrite && req.headers['x-studio-token'] !== studioToken) {
+    if (isWrite && !safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'invalid or missing studio token' }))
       return
