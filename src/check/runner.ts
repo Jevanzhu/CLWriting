@@ -23,13 +23,14 @@ import {
   checkImagery,
   checkStyleMetrics,
   checkInfoLeak,
-  parseIronRules,
   checkPieceWordCount,
   checkBodyParts,
   checkSimile,
   checkSectionCount,
   checkOpeningNoEnv,
 } from './count.js'
+// P2-A1：parseIronRules 下沉到 format 层（消 format→check 循环依赖）
+import { parseIronRules } from '../format/iron-rules.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'

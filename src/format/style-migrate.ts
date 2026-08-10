@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } f
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
 import { writeEntry, ENTRIES_DIR } from './style-entry.js'
-import { parseIronRules } from '../check/count.js'
+import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 

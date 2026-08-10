@@ -16,7 +16,8 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { readFile } from '../format/frontmatter.js'
-import { parseIronRules, computeStyleMetrics, type IronRules, type StyleStats } from '../check/count.js'
+import { parseIronRules, type IronRules } from '../format/iron-rules.js'
+import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */

@@ -104,7 +104,16 @@ export function findUnsettled(journalPath: string): JournalPending[] {
       continue // 非法行跳过
     }
     if (obj.status === 'pending' && typeof obj.opId === 'string') {
-      pending.set(obj.opId, obj as unknown as JournalPending)
+      // 字段校验（P2-A3）：损坏 journal 缺字段的 pending 行不救（内容快照不完整，恢复无意义）。
+      // baseRevision 允许 null（无基线场景合法），docId/ts/content 必须为 string。
+      if (
+        typeof obj.docId === 'string' &&
+        (obj.baseRevision == null || typeof obj.baseRevision === 'string') &&
+        typeof obj.ts === 'string' &&
+        typeof obj.content === 'string'
+      ) {
+        pending.set(obj.opId, obj as unknown as JournalPending)
+      }
     } else if ((obj.status === 'settled' || obj.status === 'aborted') && typeof obj.opId === 'string') {
       pending.delete(obj.opId)
     }

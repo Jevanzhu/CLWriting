@@ -16,8 +16,8 @@ import {
   checkImagery,
   checkStyleMetrics,
   checkInfoLeak,
-  parseIronRules,
 } from '../../src/check/count.js'
+import { parseIronRules } from '../../src/format/iron-rules.js'
 import { checkLeadsForm } from '../../src/check/leads.js'
 import { renderStyleRules } from '../../src/install/scaffold.js'
 import type { ChapterMeta, RealmDoc } from '../../src/format/types.js'

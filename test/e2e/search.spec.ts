@@ -16,6 +16,10 @@ test('全书搜索 → 命中 → 跳转开 tab', async ({ page }) => {
   await page.keyboard.press('Enter')
   // 命中列表出现
   await expect(page.locator('.result').first()).toBeVisible({ timeout: 5_000 })
+  // 弱断言加强（P1-T5）：断言命中间隔 ≥2（矛盾埋词跨章命中，空结果/单条即失败）
+  const results = page.locator('.result')
+  await expect(results.nth(0)).toBeVisible()
+  expect(await results.count()).toBeGreaterThanOrEqual(2)
   // 点首个命中 → 开 tab + cm 渲染
   await page.locator('.result').first().click()
   await expect(page.locator('.cm-content')).toBeVisible()

@@ -22,7 +22,7 @@ import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
-import type { IronRules } from '../check/count.js'
+import type { IronRules } from '../format/iron-rules.js'
 
 /** 样章候选 */
 export interface SampleCandidate {

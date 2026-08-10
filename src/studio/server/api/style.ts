@@ -20,7 +20,7 @@ import { route } from '../router.js'
 import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { parseIronRules } from '../../../check/count.js'
+import { parseIronRules } from '../../../format/iron-rules.js'
 import { readBaseline, freezeBaseline } from '../../../metrics/style.js'
 import {
   readEntries,

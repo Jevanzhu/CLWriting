@@ -39,9 +39,9 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
-  // 打开设置 → AI tab
+  // 打开设置 → 服务商 tab（AI 服务商面板在「服务商」tab，非「AI」行为 tab）
   await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
-  await page.locator('.settings-nav button', { hasText: 'AI' }).click()
+  await page.locator('.settings-nav button', { hasText: '服务商' }).click()
 
   // 空态 → 添加第一个供应商（协议默认 OpenAI 兼容格式）
   await page.locator('.ai-service-panel .add-btn', { hasText: '添加' }).click()

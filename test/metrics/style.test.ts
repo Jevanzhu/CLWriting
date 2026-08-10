@@ -19,7 +19,7 @@ import {
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../../src/format/chapters.js'
 import { writeSample } from '../../src/format/style.js'
-import { parseIronRules } from '../../src/check/count.js'
+import { parseIronRules } from '../../src/format/iron-rules.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const TAG_RULES = parseIronRules('对话标签占比: 50%')

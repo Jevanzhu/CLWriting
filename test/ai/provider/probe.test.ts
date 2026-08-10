@@ -1,0 +1,115 @@
+/**
+ * probe.ts 能力探测单测（第八轮评审 P1-T2）。
+ *
+ * probe 发真实 HTTP（listModels 走 SDK、stream 走 SDK 客户端），测试用 vi.mock
+ * 按模块替换为假实现——listModels 管 connectivity 判定，adapter 工厂注入假 provider
+ * 管 stream 事件流。不碰真实端点、不泄漏 key。
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { GenEvent, ModelProvider, ProviderConf } from '../../../src/ai/provider/types.js'
+import { createProvider, probeCapabilities, probeModelCaps } from '../../../src/ai/provider/probe.js'
+import { listModels } from '../../../src/ai/provider/models.js'
+import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
+import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+
+// 自动 mock：三个模块的导出全部替换为 vi.fn()
+vi.mock('../../../src/ai/provider/models.js')
+vi.mock('../../../src/ai/provider/anthropic-adapter.js')
+vi.mock('../../../src/ai/provider/openai-adapter.js')
+
+const SAVE_DRIVER = process.env['CLWRITING_DRIVER']
+
+function conf(over: Partial<ProviderConf> = {}): ProviderConf {
+  return {
+    id: 't1',
+    name: '测试',
+    protocol: 'anthropic',
+    auth: 'anthropic',
+    baseUrl: 'https://example.local',
+    apiKey: 'sk-secret-key',
+    caps: null,
+    ...over,
+  }
+}
+
+/** 假 provider：按 events 依次产事件，末尾补 done */
+function fakeProvider(events: Array<{ type: 'text' | 'tool' | 'error'; name?: string; message?: string }>): ModelProvider {
+  const stream = async function* (): AsyncGenerator<GenEvent> {
+    for (const ev of events) {
+      if (ev.type === 'text') yield { type: 'text', delta: 'x' }
+      else if (ev.type === 'tool') yield { type: 'tool', id: 't1', name: ev.name ?? 'echo_test', input: {} }
+      else if (ev.type === 'error') yield { type: 'error', message: ev.message ?? 'failed', retryable: false }
+    }
+    yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn' }
+  }
+  return { conf: conf(), modelCaps: null, stream }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  // 默认真实探测路径（不走 mock 快路）
+  if (SAVE_DRIVER === undefined) delete process.env['CLWRITING_DRIVER']
+  else process.env['CLWRITING_DRIVER'] = SAVE_DRIVER
+})
+
+afterEach(() => {
+  if (SAVE_DRIVER === undefined) delete process.env['CLWRITING_DRIVER']
+  else process.env['CLWRITING_DRIVER'] = SAVE_DRIVER
+})
+
+describe('createProvider', () => {
+  it('anthropic 协议 → 走 anthropic 工厂', () => {
+    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([]))
+    createProvider(conf({ protocol: 'anthropic', auth: 'anthropic' }))
+    expect(createAnthropicProvider).toHaveBeenCalledTimes(1)
+    expect(createOpenAIProvider).not.toHaveBeenCalled()
+  })
+
+  it('openai 协议 → 走 openai 工厂', () => {
+    vi.mocked(createOpenAIProvider).mockReturnValue(fakeProvider([]))
+    createProvider(conf({ protocol: 'openai', auth: 'bearer' }))
+    expect(createOpenAIProvider).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('probeCapabilities', () => {
+  it('连通 + 流式正常 → connected/streaming 均 true', async () => {
+    vi.mocked(listModels).mockResolvedValue(['m1'])
+    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
+    const r = await probeCapabilities(conf())
+    expect(r.caps).toEqual({ connected: true, streaming: true })
+    expect(r.details.join()).toContain('连通')
+  })
+
+  it('连通但流式产 error → streaming:false，不崩', async () => {
+    vi.mocked(listModels).mockResolvedValue(['m1'])
+    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'error', message: 'stream failed' }]))
+    const r = await probeCapabilities(conf())
+    expect(r.caps.connected).toBe(true)
+    expect(r.caps.streaming).toBe(false)
+  })
+
+  it('listModels 失败 → 错误分类（connected:false + 诊断含失败信息）', async () => {
+    vi.mocked(listModels).mockRejectedValue(new Error('conn refused'))
+    const r = await probeCapabilities(conf())
+    expect(r.caps).toEqual({ connected: false, streaming: false })
+    expect(r.details.join()).toContain('连通失败')
+  })
+})
+
+describe('probeModelCaps', () => {
+  it('tool_use + tool_choice 均支持 → 两项 true', async () => {
+    vi.mocked(createAnthropicProvider).mockReturnValue(
+      fakeProvider([{ type: 'tool', name: 'echo_test' }, { type: 'tool', name: 'echo_test' }]),
+    )
+    const r = await probeModelCaps(conf())
+    expect(r.caps).toEqual({ toolUse: true, toolChoice: true })
+  })
+
+  it('tool_use 不支持（无 tool 事件）→ toolUse:false，跳过 toolChoice', async () => {
+    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
+    const r = await probeModelCaps(conf())
+    expect(r.caps.toolUse).toBe(false)
+    expect(r.caps.toolChoice).toBe(false)
+  })
+})
