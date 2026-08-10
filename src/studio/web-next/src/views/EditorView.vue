@@ -93,13 +93,14 @@ function onSave(): void {
   void doc.save(e.docId, 'manual')
 }
 
-// 定稿确认：revision 态正文/设定可定稿（final 已定稿不显；草稿入卷属 P2）
+// 定稿确认：正文区 draft（从未定稿）可首次定稿、revision（定稿后改动）可重新定稿；
+// final 已定稿不显（草稿区/待定稿在 工作区/ 非正文区，由 path 前缀排除）。
 const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
   if (!node.path.startsWith('写作/正文/')) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
-  return node.status === 'revision'
+  return node.status === 'draft' || node.status === 'revision'
 })
 const finalizing = ref(false)
 async function onFinalize(): Promise<void> {
