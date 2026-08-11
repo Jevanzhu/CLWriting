@@ -20,7 +20,7 @@ import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POL
 import { readManifest } from '../../../document/manifest.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { countWords } from '../../../format/words.js'
-import { ulid } from '../../../document/stable-id.js'
+import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
 import type { Revision } from '../../../document/revision.js'
 

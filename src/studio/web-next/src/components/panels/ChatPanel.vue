@@ -61,8 +61,10 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
 
 // ── 消息流滚动跟随 ──────────────────────────────
 
-watch(() => chat.messages.length, () => void nextTick(scrollToBottom))
-watch(() => chat.messages.at(-1)?.content, () => void nextTick(scrollToBottom))
+watch(
+  [() => chat.messages.length, () => chat.messages.at(-1)?.content],
+  () => void nextTick(scrollToBottom),
+)
 
 // ── 工具图标映射 ─────────────────────────────────
 

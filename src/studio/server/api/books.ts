@@ -82,7 +82,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     // 路径穿越净化：书名直接用作目录名，禁路径分隔符 + 特殊路径段（防 name="../" 越出 workDir）
-    if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    if (name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') {
       reply(res, 400, { error: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' })
       return
     }

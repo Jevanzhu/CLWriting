@@ -228,8 +228,7 @@ async function saveTiers(): Promise<void> {
 function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | null {
   if (!caps) return null
   if (!caps.connected) return { text: '连接失败', cls: 'bad' }
-  const parts = ['已连接']
-  return { text: parts.join(' · '), cls: 'ok' }
+  return { text: '已连接', cls: 'ok' }
 }
 
 function timeAgo(ts: number | undefined): string {

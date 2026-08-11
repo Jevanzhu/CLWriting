@@ -25,10 +25,14 @@ onMounted(() => {
     storyPremise.value = localStorage.getItem(PREMISE_KEY(props.bookName)) ?? ''
   } catch { /* 隐私模式忽略 */ }
 })
+let premiseTimer: ReturnType<typeof setTimeout> | null = null
 watch(storyPremise, (v) => {
-  try {
-    localStorage.setItem(PREMISE_KEY(props.bookName), v)
-  } catch { /* 忽略 */ }
+  if (premiseTimer) clearTimeout(premiseTimer)
+  premiseTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(PREMISE_KEY(props.bookName), v)
+    } catch { /* 忽略 */ }
+  }, 300)
 })
 
 // ── 步骤分组（语义层次，非平铺）──

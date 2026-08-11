@@ -158,7 +158,7 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
 /** 路径安全：rel 须相对 bookRoot 且不越出（防 trash-manifest 篡改后 restore/purge 越出书仓库）。
  *  返回绝对路径或 null（非法）。fail-closed：realpath 失败 → 拒绝（与其他 safePath 一致）。 */
 function safePathWithin(bookRoot: string, rel: string): string | null {
-  if (!rel || rel.includes('\0') || isAbsolute(rel)) return null
+  if (!rel || rel === '.' || rel.includes('\0') || isAbsolute(rel)) return null
   const abs = join(bookRoot, rel)
   if (relative(bookRoot, abs).startsWith('..')) return null
   // symlink 防御——统一引用 isWithinRoot（fail-closed，与其他 safePath 一致）

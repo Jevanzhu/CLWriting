@@ -170,7 +170,10 @@ export const useChatStore = defineStore('chat', () => {
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
   function trimMessages(): void {
     if (messages.value.length > MAX_MESSAGES) {
-      messages.value.splice(0, messages.value.length - MAX_MESSAGES)
+      const cut = messages.value.length - MAX_MESSAGES
+      messages.value.splice(0, cut)
+      // 防御性修正：splice 从头部删后 currentIdx 偏移
+      if (currentIdx >= 0) currentIdx = Math.max(-1, currentIdx - cut)
     }
   }
 

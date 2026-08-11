@@ -11,6 +11,7 @@ import LearnView from '../views/LearnView.vue'
 import StyleView from '../views/StyleView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
 import { useSse } from '../composables/useSse'
+import { useChatTier } from '../composables/useChatTier'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -31,6 +32,8 @@ watch(bookName, async (n) => {
   await doc.flushDirty()
   doc.setBook(n)
   ws.setBook(n)
+  // 切书后刷新对话档位（防短暂显示旧书模型列表）
+  void useChatTier().refresh()
 }, { immediate: true })
 // tree 加载后校验 tabs（剔除失效 docId）
 watch(
