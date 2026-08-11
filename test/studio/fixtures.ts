@@ -60,6 +60,12 @@ function makeLongBook(root: string): void {
     join(root, '写作', '正文', '0003-定稿观察.md'),
     '---\n章号: 3\n标题: 定稿观察\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n山洞深处，壁画在火光中浮现。\n\n他伸手触碰，指尖微凉，仿佛听见古老的低语。',
   )
+  // 设定伏笔：关联词「玉佩」命中 0001/0002 正文 → 足迹扫描有命中（e2e foreshadow spec 用）
+  mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
+  writeFileSync(
+    join(root, '设定', '伏笔', '玉佩线索.md'),
+    '---\n标题: 玉佩线索\n状态: 未回收\n埋设章号: 1\n重要性: 高\n关联词: 玉佩\n---\n玉佩来历之谜，第 1 章埋下。\n',
+  )
   mkdirSync(join(root, '设定', '角色'), { recursive: true })
   writeFileSync(
     join(root, '设定', '角色', '林远.md'),
