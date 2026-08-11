@@ -273,14 +273,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--size-4-8) var(--size-4-8);
+  padding: var(--size-4-6) var(--size-4-6);
 }
 .tab-pane {
   position: relative;
   min-height: 100%;
-  max-width: 620px;
-  margin: 0 auto;
-  padding-bottom: var(--size-4-8);
+  padding-bottom: var(--size-4-6);
 }
 /* tab 组件单根包裹层：继承 tab-pane 的宽度/居中约束 */
 .settings-tab {
