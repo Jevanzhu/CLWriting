@@ -116,7 +116,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <!-- 右侧设置内容 -->
           <div class="settings-content" :data-tab-scope="tabScope">
             <div class="tab-pane">
-              <transition name="tab-fade" mode="out-in">
+              <!-- mode="out-in" + keep-alive + :key 是 Vue 3 已知竞态组合：
+                   快速切 tab 时缓存命中跳过挂载，但过渡仍等离开动画 → 内容区永久空白。
+                   去掉 mode（并行过渡）→ 离开面板 absolute 浮于上层交叉淡出，无堆叠。 -->
+              <transition name="tab-fade">
                 <keep-alive>
                   <component :is="currentTabComponent" :key="activeTab" />
                 </keep-alive>
@@ -273,24 +276,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   padding: var(--size-4-8) var(--size-4-8);
 }
 .tab-pane {
+  position: relative;
   min-height: 100%;
   max-width: 620px;
   margin: 0 auto;
   padding-bottom: var(--size-4-8);
 }
+/* tab 组件单根包裹层：继承 tab-pane 的宽度/居中约束 */
+.settings-tab {
+  min-height: 100%;
+}
 
-/* tab 切换过渡：淡入 + 轻微上移（mode=out-in 避免重叠） */
-.tab-fade-enter-active,
+/* tab 切换过渡（并行模式）：离开面板绝对定位浮于上层 → 与进入面板交叉淡出，无双面板堆叠。
+   离开快（120ms 消失）→ 进入缓（200ms 浮现），形成干净的前后交接感。 */
+.tab-fade-enter-active {
+  transition: opacity var(--dur-norm) var(--ease-out);
+}
 .tab-fade-leave-active {
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 .tab-fade-enter-from {
   opacity: 0;
-  transform: translateY(4px);
 }
 .tab-fade-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
 }
 
 /* ── 空状态 ── */
