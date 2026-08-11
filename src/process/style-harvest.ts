@@ -12,19 +12,49 @@ import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { buildTree, type TreeNode } from '../document/tree.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-import { listTrackedDocs } from '../git/ai-track.js'
+import { listTrackedDocs, listAiVersions, readAiVersion } from '../git/ai-track.js'
 import {
-  collectDocSignals,
   aggregateSignals,
   mapDriftsToCandidates,
   persistCandidates,
   type DocSignals,
 } from '../format/style-candidate.js'
+import { compareVersions } from '../format/style-compare.js'
 import {
   scanChapters,
   aggregateStyleTrend,
   readBaseline,
 } from '../metrics/style.js'
+
+/** 样章候选最短段长（与 style-candidate 保持一致） */
+const MIN_SAMPLE_PARA = 50
+
+/**
+ * 采一个文档的改稿信号：最新 AI 版 vs 当前正文（从 format/style-candidate 下沉到 process 层，
+ * 消除 format→git 向上依赖）。
+ * @returns 无轨迹 / 读不到 AI 版 → null（旁路证据，静默）
+ */
+export function collectDocSignals(
+  bookRoot: string,
+  docId: string,
+  currentText: string,
+  章号?: number,
+): DocSignals | null {
+  const versions = listAiVersions(bookRoot, docId)
+  const last = versions[versions.length - 1]
+  if (!last) return null
+  const aiText = readAiVersion(bookRoot, last.sha)
+  if (aiText === null) return null
+  const r = compareVersions(aiText, currentText)
+  return {
+    docId,
+    ...(章号 !== undefined ? { 章号 } : {}),
+    gapParas: r.paras
+      .filter((p) => p.tier === 'gap' && p.authorPara.length >= MIN_SAMPLE_PARA)
+      .map((p) => ({ authorPara: p.authorPara, aiPara: p.aiPara, sim: p.sim })),
+    missing: r.missing,
+  }
+}
 
 /**
  * 收割一轮：源1 + 源2 → 候选箱。

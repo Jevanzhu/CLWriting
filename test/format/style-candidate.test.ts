@@ -13,7 +13,6 @@ import {
   addCandidate,
   confirmCandidate,
   ignoreCandidate,
-  collectDocSignals,
   aggregateSignals,
   mapDriftsToCandidates,
   mapAnalysisToCandidates,
@@ -22,6 +21,7 @@ import {
   type StyleCandidate,
   type DocSignals,
 } from '../../src/format/style-candidate.js'
+import { collectDocSignals } from '../../src/process/style-harvest.js'
 import { addEntry, readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'

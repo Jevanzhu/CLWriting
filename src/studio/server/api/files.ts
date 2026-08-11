@@ -8,12 +8,12 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, resolve, relative, isAbsolute, basename } from 'node:path'
+import { resolve, relative, isAbsolute, basename } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook } from '../book-context.js'
 
 interface FileCtx {
   workDir: string | null
@@ -99,13 +99,3 @@ function editablePath(bookRoot: string, file: string): string | null {
   return allowed ? abs : null
 }
 
-function resolveBook(
-  workDir: string | null,
-  name: string | undefined,
-): { bookRoot: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
-  return { bookRoot: join(workDir, entry.path) }
-}

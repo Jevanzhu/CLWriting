@@ -9,10 +9,9 @@
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
@@ -333,13 +332,3 @@ function structStatus(code: string): number {
   }
 }
 
-function resolveBook(
-  workDir: string | null,
-  name: string | undefined,
-): { bookRoot: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
-  return { bookRoot: join(workDir, entry.path) }
-}

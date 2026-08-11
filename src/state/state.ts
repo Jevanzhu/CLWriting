@@ -480,7 +480,8 @@ export interface StatusRecap {
  * 去 git：确认复述（lastConfirm）原依赖 commit trailer，已随 git 移除——定稿留痕改由版本档案（.版本）承载。
  */
 export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState): StatusRecap {
-  const snapshot = readRecapSnapshot(bookRoot, config, detected)
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const snapshot = readRecapSnapshot(bookRoot, config, detected, manifest)
 
   // 连写暂停元状态（M6 #34）：读 .auto-batch.json paused（叠加在态 4/8 之上）
   const batchPause = readBatchPause(bookRoot)
@@ -501,12 +502,13 @@ function readRecapSnapshot(
   bookRoot: string,
   config: BookConfig,
   detected: DetectedState,
+  manifest: Manifest,
 ): Pick<StatusRecap, 'currentChapter' | 'currentVolume'> {
   // 无布线书不读缓存章统计（无长程账本缓存）；直接扫 写作/正文/ 作为已定稿章数。
   // 排除未定稿草稿（未定稿不计入"已写"章数）
   if (!existsSync(join(bookRoot, '布线'))) {
     const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot, readManifest(join(bookRoot, '项目', '文档清单.jsonl'))).size, currentVolume: 1 }
+    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot, manifest).size, currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined

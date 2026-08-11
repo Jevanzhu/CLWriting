@@ -11,7 +11,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { buildSettingsContext } from './settings-context.js'
-import { readManifest } from '../document/manifest.js'
+import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { invalidateTreeIndex } from '../document/tree.js'
@@ -24,6 +24,7 @@ export function snapshotBeforeOverwrite(
   relPath: string,
   newContent: string,
   origin = 'draft-overwrite',
+  manifest?: Manifest,
 ): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
@@ -36,8 +37,8 @@ export function snapshotBeforeOverwrite(
   if (old === newContent) return null
   // docId：清单反查（编辑器保存的快照同目录）→ 未登记按文件名派生
   let docId: string | undefined
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  for (const e of manifest.entries.values()) {
+  const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  for (const e of m.entries.values()) {
     if (e.path === relPath) {
       docId = e.id
       break
@@ -66,8 +67,10 @@ export function saveDraft(
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
+  // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
-  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
+  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest)
   mkdirSync(dirname(absPath), { recursive: true })
   // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
   atomicWriteFile(absPath, content, { fsync: true })
@@ -75,7 +78,6 @@ export function saveDraft(
   invalidateTreeIndex(bookRoot)
   // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
   // 与树扫盘一致，前端可直接 openTab）
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   let docId: string | null = null
   for (const e of manifest.entries.values()) {
     if (e.path === relPath) {
