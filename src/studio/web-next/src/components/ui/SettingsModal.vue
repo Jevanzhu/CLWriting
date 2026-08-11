@@ -273,7 +273,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--size-4-5) var(--size-4-5);
+  padding: var(--size-4-6) var(--size-4-6);
 }
 .tab-pane {
   position: relative;
