@@ -9,7 +9,7 @@ import { existsSync, realpathSync } from 'node:fs'
 
 /** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。 */
 export function safeManifestPath(bookRoot: string, rel: string): string | null {
-  if (isAbsolute(rel)) return null
+  if (!rel || rel.includes('\0') || isAbsolute(rel)) return null
   const abs = join(bookRoot, rel)
   if (relative(bookRoot, abs).startsWith('..')) return null
   // B-P1-4：symlink realpath 二次校验（同 DocumentService.resolveSafePath 模式）。

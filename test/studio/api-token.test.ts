@@ -6,7 +6,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -15,6 +15,7 @@ import { startServer } from '../../src/studio/server/index.js'
 let baseUrl = ''
 let server: http.Server | undefined
 let token = ''
+let workDir = ''
 
 function rawRequest(
   method: string,
@@ -35,7 +36,7 @@ function rawRequest(
 }
 
 beforeAll(async () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-token-'))
+  workDir = mkdtempSync(join(tmpdir(), 'clwriting-token-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   mkdirSync(join(workDir, 't'), { recursive: true })
   writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '{"name":"t","path":"t"}\n')
@@ -49,6 +50,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
 })
 
 describe('P0 session token(写端点 defense-in-depth)', () => {

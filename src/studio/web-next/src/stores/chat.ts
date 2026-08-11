@@ -22,6 +22,8 @@ export interface ToolCard {
 
 /** 聊天消息气泡（文本 + 关联工具卡片按时序穿插） */
 export interface ChatMessage {
+  /** 稳定唯一 id（v-for key 用，防裁剪/弹出后索引错位导致动画重播） */
+  id: string
   role: 'user' | 'assistant'
   content: string
   done: boolean
@@ -31,6 +33,9 @@ export interface ChatMessage {
 
 /** 消息列表上限（防长对话内存膨胀） */
 const MAX_MESSAGES = 200
+
+/** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
+let _msgSeq = 0
 
 export const useChatStore = defineStore('chat', () => {
   /** 消息列表 */
@@ -74,7 +79,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'chat_turn': {
         // 新回合 = 新 assistant 气泡
-        messages.value.push({ role: 'assistant', content: '', done: false, tools: [] })
+        messages.value.push({ id: `m${_msgSeq++}`, role: 'assistant', content: '', done: false, tools: [] })
         currentIdx = messages.value.length - 1
         break
       }
@@ -158,7 +163,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 添加用户消息（发送时调用） */
   function pushUser(text: string): void {
-    messages.value.push({ role: 'user', content: text, done: true, tools: [] })
+    messages.value.push({ id: `m${_msgSeq++}`, role: 'user', content: text, done: true, tools: [] })
     trimMessages()
   }
 

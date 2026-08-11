@@ -82,7 +82,7 @@ const TOOL_LABELS: Record<string, string> = {
         <p class="chat-empty-sub">提问剧情走向、让 AI 机检章节，或直接写下一章</p>
       </div>
 
-      <template v-for="(msg, i) in chat.messages" :key="i">
+      <template v-for="msg in chat.messages" :key="msg.id">
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user'" class="chat-msg chat-msg-user">
           {{ msg.content }}
