@@ -64,8 +64,7 @@ test('assembleStatus: 悬太久预警（超阈值）', () => {
   const s = assembleStatus(db, DEFAULT_CONFIG)
   // 当前 152 章，悬念-008 开启于 8 → age 144，超默认阈值 10
   const 悬念 = s.staleLeads.find((l) => l.id === '悬念-008')
-  expect(悬念).toBeDefined()
-  expect(悬念!.age).toBe(144)
+  expect(悬念).toEqual(expect.objectContaining({ id: '悬念-008', age: 144, threshold: 10 }))
   expect(悬念!.threshold).toBe(10)
   db.close()
   rmSync(dir, { recursive: true, force: true })

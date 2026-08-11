@@ -90,9 +90,11 @@ export function loadProviders(userDataPath: string): ProviderStore {
   }
 
   // mtime 缓存命中——跳过 readFileSync + vault 解密（高频 AI 生成场景核心优化）
+  // P2-SEC-4：返回副本而非同一引用——调用方（API 端点）会直接 mutate store 后 saveProviders，
+  // 若缓存返回原引用，未 save 的中间态会泄漏给后续 loadProviders 调用方
   try {
     const mtime = statSync(fp).mtimeMs
-    if (_cache && _cache.path === fp && _cache.mtime === mtime) return _cache.store
+    if (_cache && _cache.path === fp && _cache.mtime === mtime) return structuredClone(_cache.store)
   } catch {
     _cache = null
   }

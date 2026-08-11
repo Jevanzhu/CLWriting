@@ -214,7 +214,7 @@ describe('W0: block 数组 → OpenAI 线格式', () => {
     const params = await runOpenAI({ systemPrompt: '', messages })
     const out = params['messages'] as Record<string, unknown>[]
     expect(out[0]!['content']).toBeNull()
-    expect(out[0]!['tool_calls']).toBeDefined()
+    expect(Array.isArray(out[0]!['tool_calls'])).toBe(true)
   })
 })
 

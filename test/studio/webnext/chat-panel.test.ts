@@ -108,7 +108,7 @@ describe('ChatPanel: 发送失败回滚（P2-L）', () => {
     expect(mocks.sendChat).toHaveBeenCalled()
     // pushUser 被 popUser 回滚
     expect(chat.messages).toHaveLength(0)
-    expect(chat.error).toBeTruthy()
+    expect(typeof chat.error).toBe('string')
   })
 })
 

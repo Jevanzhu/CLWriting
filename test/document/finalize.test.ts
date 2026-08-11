@@ -45,7 +45,7 @@ test('revision→final：改文件后定稿 → manifest 基线更新 + 状态�
   const m = readManifest(join(root, '项目', '文档清单.jsonl'))
   const e = m.entries.get(docId)!
   expect(e.finalizedRevision).toBe(computeRevision(join(root, '写作', '正文', '0001-开篇.md')))
-  expect(e.finalizedAt).toBeDefined()
+  expect(typeof e.finalizedAt).toBe('string')
 
   // 定稿后改文件 → revision 态
   writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '改了内容\n', 'utf-8')

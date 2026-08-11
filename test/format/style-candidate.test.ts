@@ -174,8 +174,7 @@ describe('源1 · 改稿轨迹', () => {
     ]
     const out = aggregateSignals(signals, '2026-07-31', 3)
     const sample = out.find((c) => c.类型 === '样章')
-    expect(sample).toBeDefined()
-    expect(sample!.正文).toBe(P2_AU)
+    expect(sample).toEqual(expect.objectContaining({ 类型: '样章', 正文: P2_AU, AI版: P2_AI, 相似度: 31 }))
     expect(sample!.AI版).toBe(P2_AI)
     expect(sample!.相似度).toBe(31)
     expect(sample!.章号).toBe(42)

@@ -135,7 +135,7 @@ test('exportBook: 无定稿目录 → ok:false', () => {
     const r = exportBook({ bookRoot: root })
     expect(r.ok).toBe(false)
     expect(r.chapterCount).toBe(0)
-    expect(r.error).toBeTruthy()
+    expect(typeof r.error).toBe('string')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -147,7 +147,7 @@ test('exportBook: 定稿目录存在但无章节文件 → ok:false', () => {
     const r = exportBook({ bookRoot: root })
     expect(r.ok).toBe(false)
     expect(r.chapterCount).toBe(0)
-    expect(r.error).toBeTruthy()
+    expect(typeof r.error).toBe('string')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

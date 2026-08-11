@@ -64,9 +64,7 @@ test('R1: 传入 ragRecallText → push 弹性段 flexibleRank 5', () => {
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-001'], ragText)
 
   const ragSection = r.sections.find((s) => s.title === 'RAG 召回')
-  expect(ragSection).toBeDefined()
-  expect(ragSection!.essential).toBe(false)
-  expect(ragSection!.flexibleRank).toBe(5)
+  expect(ragSection).toEqual(expect.objectContaining({ title: 'RAG 召回', essential: false, flexibleRank: 5 }))
   expect(ragSection!.content).toBe(ragText)
 
   db.close()

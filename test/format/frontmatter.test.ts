@@ -88,7 +88,7 @@ test('readFile: 坏文件返回结构化错误不崩', () => {
   const r1 = readFile(join(tmpdir(), '不存在-' + Date.now() + '.md'))
   expect(r1.ok).toBe(false)
   if (!r1.ok) {
-    expect(r1.error.file).toBeTruthy()
+    expect(typeof r1.error.file).toBe('string')
     expect(r1.error.message).toContain('无法读取')
   }
 

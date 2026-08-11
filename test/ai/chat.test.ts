@@ -140,7 +140,7 @@ describe('W2: 工具循环', () => {
 
     // chat_tool_result 事件存在
     const toolResult = events.find((e) => e.type === 'chat_tool_result')
-    expect(toolResult).toBeDefined()
+    expect(toolResult).toEqual(expect.objectContaining({ type: 'chat_tool_result' }))
 
     // 最终有 chat_done
     expect(hasChatDone(events)).toBe(true)
@@ -198,7 +198,7 @@ describe('W2: 写操作确认闸', () => {
     // 等 pending 出现
     await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
     const pending = events.find((e) => e.type === 'chat_tool_pending') as { callId: string } | undefined
-    expect(pending).toBeDefined()
+    expect(pending).toEqual(expect.objectContaining({ type: 'chat_tool_pending' }))
 
     // 确认
     resolveChatConfirm('test4', pending!.callId, true)
@@ -235,7 +235,7 @@ describe('W2: 写操作确认闸', () => {
 
     // 有 tool_result 且 ok=false
     const result = events.find((e) => e.type === 'chat_tool_result') as { ok: boolean; summary: string }
-    expect(result).toBeDefined()
+    expect(result).toEqual(expect.objectContaining({ type: 'chat_tool_result', ok: false }))
     expect(result.ok).toBe(false)
     expect(result.summary).toContain('取消')
 
@@ -267,7 +267,7 @@ describe('W2: 确认超时不挂起', () => {
     })
 
     const result = events.find((e) => e.type === 'chat_tool_result') as { ok: boolean }
-    expect(result).toBeDefined()
+    expect(result).toEqual(expect.objectContaining({ type: 'chat_tool_result', ok: false }))
     expect(result.ok).toBe(false) // 超时 = 取消
     expect(hasChatDone(events)).toBe(true)
   })
@@ -303,7 +303,7 @@ describe('W2: 中断', () => {
     await chatPromise
 
     // 有 chat_error（中断后循环在下一轮头部退出）
-    expect(chatError(events)).toBeTruthy()
+    expect(chatError(events)).not.toBeNull()
     expect(isChatRunning('test7')).toBe(false)
   })
 })

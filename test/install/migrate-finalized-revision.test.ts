@@ -56,8 +56,8 @@ test('无 git：所有 document 建立基线（final）', () => {
   expect(n).toBe(2)
   const m = manifest()
   for (const e of m.entries.values()) {
-    expect(e.finalizedRevision).toBeTruthy()
-    expect(e.finalizedAt).toBeTruthy()
+    expect(typeof e.finalizedRevision).toBe('string')
+    expect(typeof e.finalizedAt).toBe('string')
   }
 })
 
@@ -81,7 +81,7 @@ test('有 git：committed 干净文件建基线，dirty/untracked 不建', () =>
   const m = manifest()
   const e1 = [...m.entries.values()].find((e) => e.path.endsWith('0001-开篇.md'))!
   const e2 = [...m.entries.values()].find((e) => e.path.endsWith('0002-中篇.md'))!
-  expect(e1.finalizedRevision).toBeTruthy()
+  expect(typeof e1.finalizedRevision).toBe('string')
   expect(e2.finalizedRevision).toBeUndefined()
 })
 

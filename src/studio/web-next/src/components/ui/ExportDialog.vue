@@ -3,7 +3,7 @@
 // 成功 toast + 关弹窗；失败展示 stderr/stdout。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
-import { exportBook, type ExportFormat, type ExportPlatform } from '../../api/io'
+import { exportBook, EXPORT_FORMATS, EXPORT_PLATFORMS, type ExportFormat, type ExportPlatform } from '../../api/io'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
@@ -14,18 +14,8 @@ const ws = useWorkspaceStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-const FORMATS: { v: ExportFormat; label: string; hint: string }[] = [
-  { v: 'merged', label: '合并', hint: '全书一个文件' },
-  { v: 'split', label: '分章', hint: '每章一个文件' },
-  { v: 'both', label: '全量', hint: '合并 + 分章' },
-]
-const PLATFORMS: { v: ExportPlatform; label: string }[] = [
-  { v: 'generic', label: '通用' },
-  { v: 'wechat', label: '公众号' },
-  { v: 'zhihu-salt', label: '知乎盐选' },
-  { v: 'fanqie', label: '番茄' },
-  { v: 'xiaohongshu', label: '小红书' },
-]
+const FORMATS = EXPORT_FORMATS
+const PLATFORMS = EXPORT_PLATFORMS
 
 const format = ref<ExportFormat>('both')
 const platform = ref<ExportPlatform>('generic')

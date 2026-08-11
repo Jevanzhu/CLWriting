@@ -34,6 +34,11 @@ export interface ChatMessage {
 /** 消息列表上限（防长对话内存膨胀） */
 const MAX_MESSAGES = 200
 
+/** SSE 事件字段安全提取（替代裸 as 断言，P2-FE-8） */
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+
 /** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
 let _msgSeq = 0
 
@@ -84,16 +89,19 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'chat_text': {
-        if (currentIdx >= 0) {
-          messages.value[currentIdx]!.content += ev['text'] as string
+        const text = str(ev['text'])
+        if (text && currentIdx >= 0) {
+          messages.value[currentIdx]!.content += text
         }
         break
       }
       case 'chat_tool_pending': {
-        if (currentIdx >= 0) {
+        const callId = str(ev['callId'])
+        const name = str(ev['name'])
+        if (callId && name && currentIdx >= 0) {
           messages.value[currentIdx]!.tools.push({
-            callId: ev['callId'] as string,
-            name: ev['name'] as string,
+            callId,
+            name,
             input: ev['input'],
             status: 'pending',
           })
@@ -102,16 +110,22 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'chat_tool': {
         // readonly 工具不经 pending 直接 tool → 创建卡片
-        ensureTool(ev['callId'] as string, ev['name'] as string, ev['input'])
-        updateTool(ev['callId'] as string, { status: 'running' })
+        const callId = str(ev['callId'])
+        const name = str(ev['name'])
+        if (callId && name) {
+          ensureTool(callId, name, ev['input'])
+          updateTool(callId, { status: 'running' })
+        }
         break
       }
       case 'chat_tool_result': {
-        const ok = ev['ok'] as boolean
-        updateTool(ev['callId'] as string, {
-          status: ok ? 'ok' : 'cancelled',
-          summary: ev['summary'] as string,
-        })
+        const callId = str(ev['callId'])
+        if (callId) {
+          updateTool(callId, {
+            status: ev['ok'] === true ? 'ok' : 'cancelled',
+            ...(str(ev['summary']) ? { summary: str(ev['summary']) } : {}),
+          })
+        }
         break
       }
       case 'chat_reset': {
@@ -135,7 +149,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'chat_error': {
         running.value = false
-        error.value = ev['error'] as string
+        error.value = str(ev['error']) ?? '未知错误'
         break
       }
     }

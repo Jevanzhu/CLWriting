@@ -84,7 +84,7 @@ describe('recordTaskUsage 任务维度记账（T5）', () => {
     const root = tempBook()
     recordTaskUsage(root, 'analysis', { inputTokens: 100, outputTokens: 200 })
     const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
-    expect(rec.tasks['analysis']).toBeDefined()
+    expect(rec.tasks['analysis']).toEqual(expect.objectContaining({ used: 1, inputTokens: 100 }))
     expect(rec.tasks['analysis'].used).toBe(1)
     expect(rec.tasks['analysis'].inputTokens).toBe(100)
   })

@@ -94,8 +94,8 @@ test('repairBooks: 书目录丢失且无法重关联 → 标 missing 并保留�
   expect(result.missing[0]!.name).toBe('书X')
   expect(result.relinked).toHaveLength(0)
   // missing 登记保留，避免静默丢书；由 CLI 提示作者重关联
-  expect(result.rebuilt.find((b) => b.name === '书X')).toBeDefined()
-  expect(readBooks(wd).find((b) => b.name === '书X')).toBeDefined()
+  expect(result.rebuilt.find((b) => b.name === '书X')?.name).toBe('书X')
+  expect(readBooks(wd).find((b) => b.name === '书X')?.name).toBe('书X')
 
   rmSync(wd, { recursive: true, force: true })
 })
@@ -178,8 +178,7 @@ test('repairBooks: kind 读取（short 书正确识别）', () => {
 
   const result = repairBooks(wd)
   const entry = result.rebuilt.find((b) => b.name === '短篇集')
-  expect(entry).toBeDefined()
-  expect(entry!.kind).toBe('short')
+  expect(entry).toEqual(expect.objectContaining({ name: '短篇集', kind: 'short' }))
 
   rmSync(wd, { recursive: true, force: true })
 })

@@ -100,7 +100,7 @@ test('prepareMaterials: 透传 sampleScene 给文风样章', async () => {
       bookRoot: root, workDir, chapterLeadIds: [], sampleScene: '对话',
     })
     const styleSection = r.sections.find((s) => s.title === '文风样章')
-    expect(styleSection).toBeDefined()
+    expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
     expect(styleSection!.content).toContain('学它的留白')
     expect(styleSection!.content).toContain('你早就知道')
   } finally {
@@ -122,7 +122,7 @@ test('G1: 未传 sampleScene → 从细纲 front matter 解析场景', async () 
       bookRoot: root, workDir: wd, chapterLeadIds: [],
     })
     const styleSection = r.sections.find((s) => s.title === '文风样章')
-    expect(styleSection).toBeDefined()
+    expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
     expect(styleSection!.content).toContain('你早就知道') // 命中对话样章
     expect(styleSection!.content).toContain('学它的留白')
   } finally {
@@ -163,7 +163,7 @@ test('G3: 细纲声明场景但无样章 → styleNote 留痕（提示去 learn 
       bookRoot: root, workDir: wd, chapterLeadIds: [],
     })
     expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined()
-    expect(r.styleNote).toBeDefined()
+    expect(r.styleNote).toBeTypeOf('string')
     expect(r.styleNote).toContain('抒情')
     expect(r.styleNote).toContain('learn')
   } finally {
@@ -182,8 +182,8 @@ test('G3: 细纲声明场景且有样章 → 无 styleNote 留痕', async () => 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
       bookRoot: root, workDir: wd, chapterLeadIds: [],
     })
-    expect(r.sections.find((s) => s.title === '文风样章')).toBeDefined()
-    expect(r.styleNote).toBeUndefined() // 有样章不留痕
+    expect(r.sections.find((s) => s.title === '文风样章')).toEqual(expect.objectContaining({ title: '文风样章' })) // 有样章不留痕
+    expect(r.styleNote).toBeUndefined()
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })
@@ -224,7 +224,7 @@ test('已配 RAG + key + 命中 → 备料含「RAG 召回」段', async () => {
     expect(r.ragHitCount).toBeGreaterThan(0)
     // 备料含 RAG 召回段
     const ragSection = r.sections.find((s) => s.title === 'RAG 召回')
-    expect(ragSection).toBeDefined()
+    expect(ragSection).toEqual(expect.objectContaining({ title: 'RAG 召回' }))
     expect(ragSection!.flexibleRank).toBe(5)
     // 召回内容引用了第1章正文（精准读取切片）
     expect(ragSection!.content).toContain('第1章')
@@ -266,8 +266,8 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
       bookRoot: root, workDir, chapterLeadIds: [],
     })
     // 刚需段必须在（降级只影响 RAG 召回段）
-    expect(r.sections.find((s) => s.title === '近况')).toBeDefined()
-    expect(r.sections.find((s) => s.title === '文风铁律')).toBeDefined()
+    expect(r.sections.find((s) => s.title === '近况')).toEqual(expect.objectContaining({ title: '近况' }))
+    expect(r.sections.find((s) => s.title === '文风铁律')).toEqual(expect.objectContaining({ title: '文风铁律' }))
     expect(r.text.length).toBeGreaterThan(0)
   } finally {
     db.close()

@@ -113,9 +113,9 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
     const envPath = join(bookRoot, '项目', '分析', `${chapterDocId}.json`)
     expect(existsSync(envPath)).toBe(true)
     const env = JSON.parse(readFileSync(envPath, 'utf-8')) as { review: { sourceHash: string; payload: { collected: unknown } } }
-    expect(env.review).toBeDefined()
+    expect(env.review).toBeTypeOf('object')
     expect(typeof env.review.sourceHash).toBe('string')
-    expect(env.review.payload.collected).toBeDefined()
+    expect(env.review.payload.collected).not.toBeUndefined()
   })
 
   it('未登记 docId → 404 NOT_FOUND', async () => {

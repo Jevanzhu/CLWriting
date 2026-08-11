@@ -230,7 +230,7 @@ test('aggregateStyleTrend: 对话标签漂移的 drift.metric === "dialogueTag"�
   const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null, { driftWindow: 5 })
   const tagDrift = trend.drifts.find((d) => d.message.includes('对话标签'))
-  expect(tagDrift).toBeDefined()
+  expect(tagDrift).toEqual(expect.objectContaining({ metric: 'dialogueTag' }))
   expect(tagDrift!.metric).toBe('dialogueTag')
   rmSync(root, { recursive: true, force: true })
 })
@@ -266,7 +266,7 @@ test('freezeBaseline: 幂等重跑（覆盖，learn 新样章后指纹变）', (
   const root = makeBookWithSamples()
   freezeBaseline(root)
   const b1 = readBaseline(root)!
-  expect(b1.byScene['战斗']).toBeDefined()
+  expect(b1.byScene['战斗']).toBeTypeOf('object')
   // 再加一个战斗样章 → overall 字符总量变，复读率指纹应随之更新
   writeSample(join(root, '文风', '样章库', '战斗', '战斗-002.md'), {
     场景: '战斗', 来源: '导入', 正文: '第二场战斗完全不同的节奏内容，剑气纵横千里。',
@@ -275,7 +275,7 @@ test('freezeBaseline: 幂等重跑（覆盖，learn 新样章后指纹变）', (
   freezeBaseline(root)
   const b2 = readBaseline(root)!
   // 重跑不崩 + 内容可更新（方差随新样章变化）
-  expect(b2.byScene['战斗']).toBeDefined()
+  expect(b2.byScene['战斗']).toBeTypeOf('object')
   expect(b2.overall.sentenceLenVariance).not.toBe(varianceBefore)
   rmSync(root, { recursive: true, force: true })
 })

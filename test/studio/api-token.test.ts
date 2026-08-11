@@ -55,7 +55,7 @@ afterAll(async () => {
 
 describe('P0 session token(写端点 defense-in-depth)', () => {
   it('GET /api/boot 返非空 token', () => {
-    expect(token).toBeTruthy()
+    expect(token.length).toBeGreaterThan(10)
     expect(token.length).toBeGreaterThan(10)
   })
 
