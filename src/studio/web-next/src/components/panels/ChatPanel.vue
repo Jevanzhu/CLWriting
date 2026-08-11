@@ -9,6 +9,8 @@ import { ref, nextTick, watch } from 'vue'
 import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { confirmTool } from '../../api/chat'
+import { ApiError } from '../../api/client'
+import { useUiStore } from '../../stores/ui'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 import { useChatComposer } from '../../composables/useChatComposer'
 
@@ -43,14 +45,17 @@ const {
 )
 
 const tier = useChatTier()
+const ui = useUiStore()
 
 // ── 工具确认 ────────────────────────────────────
 
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   try {
     await confirmTool(props.bookName, { callId, ok })
-  } catch {
-    /* 404 = 已超时，忽略 */
+  } catch (e) {
+    // 404 = 工具调用已超时，静默忽略；其他错误提示作者
+    if (e instanceof ApiError && e.status === 404) return
+    ui.toast('确认请求失败，请重试', 'error')
   }
 }
 

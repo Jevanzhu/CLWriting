@@ -22,6 +22,10 @@ describe('safeManifestPath', () => {
     expect(safeManifestPath(dir, '../../../etc/passwd')).toBeNull()
   })
 
+  it('拒绝 NUL 字节注入', () => {
+    expect(safeManifestPath(dir, 'foo\0bar.md')).toBeNull()
+  })
+
   it('接受正常相对路径（文件不存在 — 新建场景）', () => {
     const result = safeManifestPath(dir, '写作/正文/0001-测试.md')
     expect(result).not.toBeNull()

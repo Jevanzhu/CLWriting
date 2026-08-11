@@ -175,7 +175,7 @@ budget:
 设计红线：
 
 - 作者数据不被升级覆盖。
-- 书仓库默认安装 `pre-push` 保护，阻止小说正文误推到远端。
+- 书仓库版本系统内置保护，定稿走原子写入 + 指纹校验，不依赖 git hook。
 - api_key 不进 git（Vault 加密落 `userData/providers.json`，0600）。
 - 定稿走原子 commit，失败则回滚定稿区改动。
 - 应用数据统一在 `userData` 目录（macOS `~/Library/Application Support/CLWriting`），跨 dev / 打包一致。

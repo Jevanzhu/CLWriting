@@ -8,7 +8,7 @@
  * 不再依赖 git：不 add/commit，纯内容指纹 + 账本。幂等：当前指纹 == 已记录基线 → skipped。
  */
 import { join } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
 import { readManifest, writeManifest } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -16,6 +16,7 @@ import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
 import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
+import { safeManifestPath } from '../fs/safe-path.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -34,8 +35,9 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
-  const absPath = join(bookRoot, relPath)
-  if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文件不存在' }
+  // 路径校验（防 manifest 篡改穿越——与其他 4 个 API 端点一致）
+  const absPath = safeManifestPath(bookRoot, relPath)
+  if (!absPath) return { ok: false, code: 'NOT_FOUND', error: '文档路径非法' }
 
   // 当前内容指纹
   const currentRev = computeRevision(absPath)

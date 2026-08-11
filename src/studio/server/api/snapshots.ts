@@ -153,6 +153,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
 
       let removed = 0
       for (const docId of ids) {
+        // docId 白名单校验（防 manifest 篡改导致的路径穿越删除）
+        if (!docId || docId.includes('\0') || docId.includes('/') || docId.includes('..')) continue
         try {
           removed += pruneSnapshots(versionsDir, docId, policy)
         } catch {
