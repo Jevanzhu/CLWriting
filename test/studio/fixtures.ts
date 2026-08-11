@@ -4,7 +4,7 @@
  * 供 dual-track 回归测 + e2e 复用（mkdtemp 临时目录，内容在代码里，灵活可控）。
  * 内容是测试小说数据（无敏感；不涉 api_key）。覆盖各 API 端点所需结构：
  * - 长篇：book.yaml + 大纲/总纲 + 布线/悬念 + 写作/正文(2章) + 设定(角色/境界) + 文风铁律
- * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 设定/集子定位 + 文风铁律
+ * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 文风铁律
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -132,8 +132,6 @@ function makeShortBook(root: string): void {
     join(root, '大纲', '清单', '002-红伞.md'),
     '## 反转线索表\n- 核心反转：红伞内侧写着主角名字\n- 铺垫点（≥3，反转可回溯）：\n  - [开头] 红伞滴水\n\n## 情绪曲线\n- [开头] 不安 5/10\n- [反转] 后怕 8/10\n\n## 伏笔回收\n- 红伞 → 回收于 反转\n',
   )
-  mkdirSync(join(root, '设定'), { recursive: true })
-  writeFileSync(join(root, '设定', '集子定位.md'), '# 集子定位\n悬疑短篇集，母题：七号公寓。')
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n- 短篇正文纯文本\n')
 }

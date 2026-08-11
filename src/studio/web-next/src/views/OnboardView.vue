@@ -40,7 +40,7 @@ const STEP_GROUPS: { label: string; steps: OnboardStep[] }[] = [
   { label: '设定基础', steps: ['synopsis', 'characters', 'world', 'realm'] },
   { label: '大纲规划', steps: ['volume', 'leads-seed'] },
   { label: '文风校准', steps: ['style-sample', 'style-rules', 'style-quotes'] },
-  { label: '短篇专属', steps: ['collection-pitch', 'first-outline'] },
+  { label: '短篇专属', steps: ['first-outline'] },
 ]
 
 // 非成长线书隐藏 realm（境界体系）步骤
