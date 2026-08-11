@@ -96,6 +96,7 @@ export function writeVersion(
   options: WriteVersionOptions = {},
 ): string | null {
   const policy = options.policy ?? DEFAULT_VERSION_POLICY
+  // 默认 force=true（兼容旧快照调用方行为——编辑器保存每次都留底；需节流的调用方显式传 force:false）
   const force = options.force ?? true
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]

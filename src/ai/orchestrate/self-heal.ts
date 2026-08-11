@@ -17,7 +17,6 @@ import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { evaluateRetry } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
-import type { BookConfig } from '../../format/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
 // 物理上位于 api/（与端点同文件），本身不依赖 HTTP 语境；待后续下沉治理。
@@ -120,8 +119,11 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
     }
   }
-  const check = opts.check ?? ((p: string) => checkWithFreshDb(bookRoot, p, config))
+  // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）
+  const db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
+  const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
 
+  try {
   // ① 首稿（C-1：预算闸——超限不跑）
   const budget = checkAiCallBudget(bookRoot, chapter, config)
   if (!budget.ok) return { outcome: 'failed', error: budget.reason }
@@ -212,6 +214,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     current = again.text
     save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
     attempt++
+  }
+  } finally {
+    if (db) db.close()
   }
 }
 
@@ -305,21 +310,6 @@ async function runGenerate(
 function spawnFailure(r: SpawnResult): SelfHealOutcome {
   if (r.status === 'aborted') return { outcome: 'aborted' }
   return { outcome: 'failed', error: r.status === 'error' ? r.error : '写稿失败' }
-}
-
-/** 每轮开关 db */
-function checkWithFreshDb(
-  bookRoot: string,
-  draftPath: string,
-  config: BookConfig,
-): CheckOutcome {
-  const hasWiring = existsSync(join(bookRoot, '布线'))
-  const db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
-  try {
-    return checkWithDb(bookRoot, draftPath, db, config)
-  } finally {
-    if (db) db.close()
-  }
 }
 
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {

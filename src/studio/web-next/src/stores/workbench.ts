@@ -38,6 +38,14 @@ function ts(): string {
   return new Date().toLocaleTimeString('zh-CN')
 }
 
+/** SSE 事件字段安全提取（替代裸 as 断言，P2-FE-8） */
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+function strArr(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+}
+
 /** 事件日志上限：SSE 长会话只 push 不裁剪会内存膨胀，超出即丢弃最旧条目。 */
 const MAX_LOG = 500
 
@@ -90,31 +98,33 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
       // F-P1-4：白名单校验（防 SSE 非预期值致 UI 渲染异常）
-      if (HEAL_PHASES.includes(e.phase as typeof HEAL_PHASES[number])) {
-        healPhase.value = e.phase as typeof HEAL_PHASES[number]
+      const phase = str(e.phase)
+      if (phase && (HEAL_PHASES as readonly string[]).includes(phase)) {
+        healPhase.value = phase as typeof HEAL_PHASES[number]
       }
     } else if (e.type === 'self_heal_progress') {
       healProgress.value = {
         attempt: Number(e.attempt ?? 0),
         maxAttempts: Number(e.maxAttempts ?? 0),
-        remaining: (e.remaining as string[] | undefined) ?? [],
+        remaining: strArr(e.remaining) ?? [],
       }
     } else if (e.type === 'self_heal_result') {
-      const oc = e.outcome as string
-      if (HEAL_OUTCOMES.includes(oc as typeof HEAL_OUTCOMES[number])) {
+      const oc = str(e.outcome)
+      if (oc && (HEAL_OUTCOMES as readonly string[]).includes(oc)) {
         healResult.value = {
           outcome: oc as HealResult['outcome'],
-          ...(e.reds ? { reds: e.reds as string[] } : {}),
-          ...(e.yellows ? { yellows: e.yellows as string[] } : {}),
-          ...(e.docId ? { docId: String(e.docId) } : {}),
-          ...(e.path ? { path: String(e.path) } : {}),
-          ...(e.error ? { error: String(e.error) } : {}),
+          ...(strArr(e.reds) ? { reds: strArr(e.reds) } : {}),
+          ...(strArr(e.yellows) ? { yellows: strArr(e.yellows) } : {}),
+          ...(str(e.docId) ? { docId: str(e.docId) } : {}),
+          ...(str(e.path) ? { path: str(e.path) } : {}),
+          ...(str(e.error) ? { error: str(e.error) } : {}),
         }
         healPhase.value = null
         healProgress.value = null
       }
     } else if (e.type === 'warning') {
-      warning.value = e.message as string
+      const msg = str(e.message)
+      if (msg) warning.value = msg
     }
   }
 
