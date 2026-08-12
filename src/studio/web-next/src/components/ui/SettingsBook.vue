@@ -92,12 +92,14 @@ function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
 </script>
 
 <template>
-  <div v-if="!hasBook" class="empty-tab">
-    <BookOpen :size="28" />
-    <p>请先打开一本书</p>
-  </div>
-  <template v-else>
-    <div class="book-banner">
+  <!-- 单根包裹：多根 fragment 在 <Transition> 下无法动画（Vue warn），且并行过渡时无动画可播 -->
+  <div class="settings-tab">
+    <div v-if="!hasBook" class="empty-tab">
+      <BookOpen :size="28" />
+      <p>请先打开一本书</p>
+    </div>
+    <template v-else>
+      <div class="book-banner">
       <BookOpen :size="16" />
       <span>{{ ws.bookName }}</span>
     </div>
@@ -173,5 +175,6 @@ function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
         </div>
       </div>
     </section>
-  </template>
+    </template>
+  </div>
 </template>

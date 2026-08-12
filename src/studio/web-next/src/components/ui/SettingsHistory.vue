@@ -84,6 +84,8 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
 </script>
 
 <template>
+  <!-- 单根包裹：见 SettingsBook.vue 说明 -->
+  <div class="settings-tab">
   <div v-if="!hasBook" class="empty-tab">
     <History :size="28" />
     <p>请先打开一本书</p>
@@ -169,4 +171,5 @@ function onSnapInput(which: 'days' | 'count', e: Event): void {
       <div v-else class="stats-hint">统计数据加载中…</div>
     </section>
   </template>
+  </div>
 </template>

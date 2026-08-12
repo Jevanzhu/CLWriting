@@ -33,6 +33,8 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
 </script>
 
 <template>
+  <!-- 单根包裹：见 SettingsBook.vue 说明 -->
+  <div class="settings-tab">
   <div class="cfg-card-head">字体</div>
   <section v-if="hasDesktop" class="cfg-card">
     <div class="setting-item">
@@ -123,4 +125,5 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
       </div>
     </div>
   </section>
+  </div>
 </template>

@@ -119,6 +119,8 @@ async function saveRagConfig(): Promise<void> {
 </script>
 
 <template>
+  <!-- 单根包裹：见 SettingsBook.vue 说明 -->
+  <div class="settings-tab">
   <section class="cfg-card">
     <div class="setting-item">
       <div class="setting-item-info">
@@ -254,4 +256,5 @@ async function saveRagConfig(): Promise<void> {
       </div>
     </template>
   </section>
+  </div>
 </template>
