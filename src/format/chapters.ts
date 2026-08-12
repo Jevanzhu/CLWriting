@@ -79,7 +79,7 @@ function chapterToMap(ch: ChapterMeta): Map<string, unknown> {
   return map
 }
 
-/** 写入章节 md */
+/** 写入章节 md（测试造章用；生产统一走 service.ts 写盘） */
 export function writeChapter(filePath: string, ch: ChapterMeta, body: string): void {
   writeFile(filePath, stringifyFlat(chapterToMap(ch)), body)
 }

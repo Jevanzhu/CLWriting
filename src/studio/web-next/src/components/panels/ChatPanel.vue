@@ -27,8 +27,14 @@ const chat = useChatStore()
 // ── 滚动（ChatPanel 独有）────────────────────────
 
 const scrollRef = ref<HTMLElement | null>(null)
+// rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次（P2-FE-7）
+let scrollRaf = 0
 function scrollToBottom(): void {
-  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  })
 }
 
 // ── 发送/停止/清空/章节选择（共享 composable）────

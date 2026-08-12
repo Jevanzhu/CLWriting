@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
+import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
@@ -109,7 +110,7 @@ export function readChapterBody(chapter: ChapterMeta): string | null {
 
 /** 句长方差（与 count.ts checkSentenceLength 同口径：按 。！？\n 切句算方差） */
 export function computeSentenceLenVariance(body: string): number {
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+  const sentences = splitSentences(body)
   if (sentences.length === 0) return 0
   const lens = sentences.map((s) => s.length)
   const mean = lens.reduce((a, b) => a + b, 0) / lens.length
@@ -119,7 +120,7 @@ export function computeSentenceLenVariance(body: string): number {
 
 /** 复读率（与 count.ts checkRepeat 同口径：滑窗句级 n-gram 重复率） */
 export function computeRepeatRate(body: string): number {
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length >= 6)
+  const sentences = splitSentences(body).filter((s) => s.length >= 6)
   if (sentences.length === 0) return 0
   const counts = new Map<string, number>()
   for (const s of sentences) counts.set(s, (counts.get(s) ?? 0) + 1)

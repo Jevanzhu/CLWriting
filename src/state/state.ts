@@ -87,9 +87,9 @@ export type RouterActionKind =
  * 进门状态判定（#15 第 2 节，按序命中即返回）。
  * 全程零 AI：健康检查 / 全量重建收错 / 指纹比对 / 工作区文件 / 章号推算，全是确定性脚本。
  */
-export function detectState(bookRoot: string, config: BookConfig): DetectedState {
-  // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次）
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+export function detectState(bookRoot: string, config: BookConfig, manifest?: Manifest): DetectedState {
+  // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次；enter() 传入复用避免双读，P2-BE-4）
+  const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
 
   // #1 健康检查（journal 崩溃恢复 + 网盘副本扫描）
   const issues = healthCheck(bookRoot)
@@ -123,15 +123,15 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
   }
 
   // #3 未入账手改：定稿基线存在但当前指纹不同（manifest 指纹比对，不依赖 git）
-  const handEdits = detectHandEdits(bookRoot, manifest)
+  const handEdits = detectHandEdits(bookRoot, m)
   if (handEdits.length > 0) {
     return { state: 3, handEdits }
   }
 
   // #4 工作区未完成（中断恢复）：有细纲/未定稿草稿 但对应章节已定稿 → post-finalize-residue
-  const incomplete = detectIncompleteWorkdir(bookRoot, manifest)
+  const incomplete = detectIncompleteWorkdir(bookRoot, m)
   if (incomplete) {
-    const alreadyFinalized = isChapterFinalized(bookRoot, incomplete, manifest)
+    const alreadyFinalized = isChapterFinalized(bookRoot, incomplete, m)
     return {
       state: 4,
       chapterNum: incomplete,
@@ -141,7 +141,7 @@ export function detectState(bookRoot: string, config: BookConfig): DetectedState
 
   // ── 态 4 之后按布线存在性分叉（无布线的短篇书：无态 5（无卷）/6（无体检）；直接落态 7 写作主态）──
   if (!existsSync(join(bookRoot, '布线'))) {
-    const excludeNames = unfinishedPieceNames(bookRoot, manifest)
+    const excludeNames = unfinishedPieceNames(bookRoot, m)
     return {
       state: 7,
       nextChapter: readChapterDir(join(bookRoot, '写作', '正文')).chapters.length - excludeNames.size + 1,
@@ -479,9 +479,10 @@ export interface StatusRecap {
  * 组装近况复述（#15 第 4 节）。
  * 去 git：确认复述（lastConfirm）原依赖 commit trailer，已随 git 移除——定稿留痕改由版本档案（.版本）承载。
  */
-export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState): StatusRecap {
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  const snapshot = readRecapSnapshot(bookRoot, config, detected, manifest)
+export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState, manifest?: Manifest): StatusRecap {
+  // enter() 已读的 manifest 复用，避免与 detectState 双读（P2-BE-4）
+  const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const snapshot = readRecapSnapshot(bookRoot, config, detected, m)
 
   // 连写暂停元状态（M6 #34）：读 .auto-batch.json paused（叠加在态 4/8 之上）
   const batchPause = readBatchPause(bookRoot)
@@ -556,8 +557,10 @@ export function enter(bookRoot: string): EnterResult {
     console.warn(`[state] book.yaml 解析降级: ${cfgResult.error.message}`)
   }
   const { config } = cfgResult
-  const detected = detectState(bookRoot, config)
+  // manifest 只读一次，detectState + buildRecap 复用（P2-BE-4：原先同一调用链读两次）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const detected = detectState(bookRoot, config, manifest)
   const route = routeState(detected)
-  const recap = buildRecap(bookRoot, config, detected)
+  const recap = buildRecap(bookRoot, config, detected, manifest)
   return { recap, detected, route, kind: config.kind ?? 'long' }
 }

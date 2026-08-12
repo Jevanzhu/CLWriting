@@ -17,6 +17,7 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
+import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -154,7 +155,8 @@ export function learnFromBook(bookRoot: string): LearnResult {
   // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
   const quoteCandidates: QuoteCandidate[] = []
   for (const ch of chapterBodies) {
-    const sentences = ch.body.split(/[。！？]/).map((s) => s.trim()).filter((s) => {
+    // 统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
+    const sentences = splitSentences(ch.body).filter((s) => {
       return s.length >= 10 && s.length <= 50 && !s.startsWith('#')
     })
     for (const s of sentences) {

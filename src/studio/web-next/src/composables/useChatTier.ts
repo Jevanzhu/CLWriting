@@ -31,6 +31,8 @@ function _createChatTier() {
   const activeEffort = computed(() => chatTier.value?.effort || creativeTier.value?.effort || 'low')
 
   async function refresh(): Promise<void> {
+    // 立即清空旧书模型列表：切书后响应回来前下拉框不残留上一本书的模型（P2-FE-2）
+    models.value = []
     tierLoading.value = true
     try {
       const data = await getProviders()

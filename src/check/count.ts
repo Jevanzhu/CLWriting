@@ -11,6 +11,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
+import { splitSentences } from '../format/sentences.js'
 // P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
 
@@ -104,7 +105,7 @@ export function checkRepeat(
   threshold = 0.15,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length >= 6)
+  const sentences = splitSentences(body).filter((s) => s.length >= 6)
   const counts = new Map<string, number>()
   for (const s of sentences) {
     counts.set(s, (counts.get(s) ?? 0) + 1)
@@ -136,7 +137,7 @@ export function checkSentenceLength(
   maxLen = 60,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+  const sentences = splitSentences(body)
   const overlong = sentences.filter((s) => s.length > maxLen)
   if (sentences.length > 0 && overlong.length / sentences.length > 0.2) {
     items.push({
@@ -248,12 +249,6 @@ export interface StyleStats {
   /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split；P2-BE-2） */
   _sentences?: string[]
   _sentencesWithColon?: string[]
-}
-
-/** 分句（共享，消除 checkStyleMetrics + computeStyleMetrics 重复 split；P2-BE-2） */
-function splitSentences(body: string, includeColon = false): string[] {
-  const re = includeColon ? /[。！？；\n]/ : /[。！？\n]/
-  return body.split(re).map((s) => s.trim()).filter((s) => s.length > 0)
 }
 
 /** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */

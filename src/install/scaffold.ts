@@ -8,7 +8,8 @@
  * 不装角色壳、不登记 books.jsonl（那些是 doInit 编排层的事）。
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { dirname, join, resolve } from 'node:path'
 import { writeBookConfig, DEFAULT_CONFIG } from '../format/yaml.js'
 import { addEntry } from '../format/style-entry.js'
@@ -67,7 +68,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
 
   // 简介（GUI 新增 5.1，落 简介.md；CLI init 无，仅 GUI 建书时写）
   if (opts.brief && opts.brief.trim()) {
-    writeFileSync(join(bookRoot, '简介.md'), opts.brief.trim(), 'utf-8')
+    atomicWriteFile(join(bookRoot, '简介.md'), opts.brief.trim())
   }
 }
 
@@ -83,17 +84,17 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
   for (const d of ['设定/角色', '设定/物品', '设定/伏笔']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
-  writeFileSync(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
-  writeFileSync(join(bookRoot, '设定', '境界体系.md'), renderRealmRules(opts), 'utf-8')
-  writeFileSync(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
+  atomicWriteFile(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n')
+  atomicWriteFile(join(bookRoot, '设定', '境界体系.md'), renderRealmRules(opts))
+  atomicWriteFile(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n')
 
   // 大纲：卷纲/章纲/总纲（线索拆到 布线/）
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
   // §17 决策①：第一卷卷纲范例（与 写作/正文/第一卷/ 同名关联，树行显「✓卷纲」）
-  writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), renderVolumeOutlineExample(), 'utf-8')
+  atomicWriteFile(join(bookRoot, '大纲', '卷纲', '第一卷.md'), renderVolumeOutlineExample())
   // 块3.1：章纲目录 + 第一章范例（结构化 fm，引导 ChapterMeta 字段录入）
   mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
-  writeFileSync(
+  atomicWriteFile(
     join(bookRoot, '大纲', '章纲', '0001-开篇.md'),
     [
       '---',
@@ -109,9 +110,8 @@ export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): v
       '本章情节要点（章纲正文，供作者规划或 AI 生成依据）。',
       '',
     ].join('\n'),
-    'utf-8',
   )
-  writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n', 'utf-8')
+  atomicWriteFile(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n')
   // 布线：基础两类恒建 + 扩展类按启用
   mkdirSync(join(bookRoot, '布线', '悬念'), { recursive: true })
   mkdirSync(join(bookRoot, '布线', '感情线'), { recursive: true })
@@ -139,7 +139,7 @@ function scaffoldShortDirectories(bookRoot: string, opts: BookScaffoldOpts): voi
   // 大纲/章纲/：短篇章纲（反转线索表/情绪曲线/伏笔回收），规划性质；预置结构化范例（fm + 清单三段式正文）
   mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
   const wordMin = recommendShortChecks(opts.genre).word_min ?? 8000
-  writeFileSync(
+  atomicWriteFile(
     join(bookRoot, '大纲', '章纲', '0001-开篇.md'),
     [
       '---',
@@ -167,15 +167,14 @@ function scaffoldShortDirectories(bookRoot: string, opts: BookScaffoldOpts): voi
       '- → 回收于',
       '',
     ].join('\n'),
-    'utf-8',
   )
 
   // 设定/：与长篇同构（角色/物品/伏笔 + 世界观/名册），供关系图/机检/审稿复用
   for (const d of ['设定/角色', '设定/物品', '设定/伏笔']) {
     mkdirSync(join(bookRoot, ...d.split('/')), { recursive: true })
   }
-  writeFileSync(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n', 'utf-8')
-  writeFileSync(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n', 'utf-8')
+  atomicWriteFile(join(bookRoot, '设定', '世界观.md'), '# 世界观\n\n（待补）\n')
+  atomicWriteFile(join(bookRoot, '设定', '名册.md'), '# 人物名册\n\n（待补）\n')
 
   // 文风/：整集共享（条目库 + 文风铁律纯配置），长短同构
   scaffoldSharedStyle(bookRoot, opts.genre)
@@ -197,7 +196,7 @@ const PRESET_AI_FLAVOR: { 词: string; 替换: string }[] = [
 /** 文风冷启动占位（O2，长短共用——整集/整本书共享笔感/禁词/机检）。 */
 function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
-  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre), 'utf-8')
+  atomicWriteFile(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre))
   // 条目库骨架 + 预置 AI 味禁词（S5：禁词知识在条目库，铁律纯配置；
   // 条目目录存在 = 迁移幂等闸生效，新书不再走迁移）
   for (const row of PRESET_AI_FLAVOR) {
