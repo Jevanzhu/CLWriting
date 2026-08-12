@@ -15,6 +15,13 @@ import { useChatTier } from '../composables/useChatTier'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
+import { useCheckStore } from '../stores/check'
+import { useReviewStore } from '../stores/review'
+import { useLearnStore } from '../stores/learn'
+import { useStyleStore } from '../stores/style'
+import { useRewriteStore } from '../stores/rewrite'
+import { useWorkbenchStore } from '../stores/workbench'
+import { useChatStore } from '../stores/chat'
 
 // 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
 // bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName/心跳/doc 缓存/tabs 跟随更新。
@@ -26,12 +33,27 @@ useSse(() => bookName.value)
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-// 切书：同步 doc 缓存 + 载入持久化 tabs
+const check = useCheckStore()
+const review = useReviewStore()
+const learn = useLearnStore()
+const style = useStyleStore()
+const rewrite = useRewriteStore()
+const workbench = useWorkbenchStore()
+const chat = useChatStore()
+// 切书：同步 doc 缓存 + 载入持久化 tabs + 清空各 store 旧状态
 watch(bookName, async (n) => {
   // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
   await doc.flushDirty()
   doc.setBook(n)
   ws.setBook(n)
+  // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
+  check.clear()
+  review.clear()
+  learn.clear()
+  style.clear()
+  rewrite.clear()
+  workbench.clear()
+  chat.clear()
   // 切书后刷新对话档位（防短暂显示旧书模型列表）
   void useChatTier().refresh()
 }, { immediate: true })

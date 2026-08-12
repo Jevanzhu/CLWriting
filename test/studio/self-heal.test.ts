@@ -44,7 +44,6 @@ function redOutcome(msg = '命中禁词「顿时」'): CheckOutcome {
 
 interface SaveCall {
   content: string
-  recordAi: boolean
   origin?: string
 }
 
@@ -52,7 +51,6 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
   return (bookRoot, _chapter, content, opts) => {
     calls.push({
       content,
-      recordAi: opts?.recordAi !== false,
       ...(opts?.snapshotOrigin ? { origin: opts.snapshotOrigin } : {}),
     })
     // 草稿直接写正文区（与 saveDraft 真实路径一致）
@@ -205,16 +203,14 @@ test('触顶：4 次 check / 3 次重写后仍红 → escalate + reds 非空', a
   expect(prompts).toHaveLength(4)
 })
 
-test('落盘：中间轮 recordAi=false，终局才 true；origin 标 self-heal', async () => {
+test('落盘：三段落盘（首稿+中间稿+终稿）；origin 标 self-heal', async () => {
   const seq: CheckOutcome[] = [redOutcome(), greenOutcome()]
   let i = 0
   const { opts, saves } = setup([`${FM}初稿`, `${FM}二稿`], () => seq[i++] ?? greenOutcome())
   await runSelfHeal(opts)
 
   expect(saves).toHaveLength(3)
-  expect(saves[0]?.recordAi).toBe(false)
-  expect(saves[1]?.recordAi).toBe(false)
-  expect(saves[2]?.recordAi).toBe(true)
+  // 终稿内容正确（文风轨迹由 self-heal.ts 显式调用，非 saveDraft 内部）
   expect(saves[2]?.content).toBe(`${FM}二稿`)
   expect(saves.every((s) => s.origin === 'self-heal')).toBe(true)
 })

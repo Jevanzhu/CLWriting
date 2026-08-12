@@ -94,11 +94,10 @@ function makeBook(): string {
 
 interface SaveCall {
   content: string
-  recordAi: boolean
 }
 function makeSave(calls: SaveCall[]): typeof saveDraft {
-  return (root, _chapter, content, opts) => {
-    calls.push({ content, recordAi: opts?.recordAi !== false })
+  return (root, _chapter, content) => {
+    calls.push({ content })
     const dir = join(root, '工作区')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, '草稿-1.md'), content, 'utf-8')
@@ -167,8 +166,8 @@ test('W1 端到端：AI 味稿检出黄 → 修复指令 → 二稿收敛 → pa
   // ③ 红黄项优先级区分：红项 [必须]、黄项 [建议]
   expect(prompts[1]).toMatch(/\[必须\]/)
   expect(prompts[1]).toMatch(/\[建议\]/)
-  // ④ 第二稿（终稿）落盘 recordAi（文风轨迹留底）
-  expect(saves[saves.length - 1]!.recordAi).toBe(true)
+  // ④ 第二稿（终稿）落盘（文风轨迹由 self-heal.ts 显式调用，非 saveDraft 内部）
+  expect(saves.length).toBeGreaterThanOrEqual(2)
   // ⑤ 终局黄项复查：二稿收敛 → yellows 空（系统验证「收窄」，非 mock 保证）
   if (r.outcome === 'pass') expect(r.yellows).toEqual([])
 })

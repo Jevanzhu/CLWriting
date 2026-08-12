@@ -15,8 +15,6 @@ import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { invalidateTreeIndex } from '../document/tree.js'
-import { recordAiVersion } from '../git/ai-track.js'
-import { recordAuthorSignal } from '../ai/author-signal.js'
 
 /** 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失） */
 export function snapshotBeforeOverwrite(
@@ -54,16 +52,17 @@ export function snapshotBeforeOverwrite(
 
 /**
  * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
- * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹。
+ * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查。
  *
- * 闭环中间轮传 `recordAi:false`——中间稿不是作者会手改的对象，
- * 记进文风轨迹只会污染信号（终局那次才记）。落盘失败向上抛，调用方决定回应。
+ * 文风改稿轨迹（recordAuthorSignal + recordAiVersion）由调用方在落盘后显式调用，
+ * 避免 process/ → ai/ 的向上依赖（P1-ARCH-1 循环依赖修复）。
+ * 落盘失败向上抛，调用方决定回应。
  */
 export function saveDraft(
   bookRoot: string,
   chapter: number,
   content: string,
-  opts?: { recordAi?: boolean; snapshotOrigin?: string },
+  opts?: { snapshotOrigin?: string },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
@@ -86,12 +85,6 @@ export function saveDraft(
     }
   }
   const finalDocId = docId ?? legacyId(relPath)
-  // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
-  if (opts?.recordAi !== false) {
-    // B5 作者信号：先对比上一版（AI 产出）删掉的片段 → 规则命中统计，再记录当前版
-    recordAuthorSignal(bookRoot, finalDocId, content, 'self-heal')
-    recordAiVersion(bookRoot, finalDocId, content)
-  }
   return { relPath, docId: finalDocId, words: content.length, snapshotted: snapshotId !== null }
 }
 

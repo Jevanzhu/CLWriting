@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { safeDocId } from '../fs/safe-path.js'
 import { createHash } from 'node:crypto'
 import { splitFrontMatter } from '../format/frontmatter.js'
 
@@ -39,8 +40,9 @@ export function analysisBookPath(bookRoot: string): string {
   return join(bookRoot, '项目', '分析', '__book__.json')
 }
 
-/** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。 */
+/** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。docId 非法 → null。 */
 export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind): Envelope | null {
+  if (!safeDocId(docId)) return null
   const fp = analysisPath(bookRoot, docId)
   if (!existsSync(fp)) return null
   try {
@@ -52,13 +54,14 @@ export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind
   }
 }
 
-/** 写某文档某 kind 的信封（合并写：其他 kind 保留；损坏文件重建）。 */
+/** 写某文档某 kind 的信封（合并写：其他 kind 保留；损坏文件重建）。docId 非法 → 跳过。 */
 export function writeAnalysis(
   bookRoot: string,
   docId: string,
   kind: AnalysisKind,
   envelope: Envelope,
 ): void {
+  if (!safeDocId(docId)) return
   const fp = analysisPath(bookRoot, docId)
   let raw: Record<string, unknown> = {}
   if (existsSync(fp)) {

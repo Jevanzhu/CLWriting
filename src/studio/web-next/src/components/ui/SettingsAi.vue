@@ -170,7 +170,7 @@ async function saveRagConfig(): Promise<void> {
   <section class="cfg-card">
     <div class="setting-item">
       <div class="setting-item-info">
-        <div class="setting-item-name">自动确认细纲</div>
+        <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
         <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
       </div>
       <div class="setting-item-control">
@@ -196,7 +196,7 @@ async function saveRagConfig(): Promise<void> {
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
+          <div class="setting-item-name">自动梳理 <span class="tag-soon">即将支持</span></div>
           <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
         </div>
         <div class="setting-item-control">
@@ -208,7 +208,7 @@ async function saveRagConfig(): Promise<void> {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
+          <div class="setting-item-name">章节增量阈值 <span class="tag-soon">即将支持</span></div>
           <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
         </div>
         <div class="setting-item-control">
@@ -258,3 +258,14 @@ async function saveRagConfig(): Promise<void> {
   </section>
   </div>
 </template>
+
+<style scoped>
+.tag-soon {
+  padding: 1px 7px;
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  border-radius: 99px;
+  background: var(--background-modifier-hover);
+  color: var(--text-faint);
+}
+</style>

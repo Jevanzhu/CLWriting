@@ -117,13 +117,10 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
 /**
  * 读设定伏笔列表（设定/伏笔/*.md 的 fm）。
- * 首次调用时自动迁移旧账本伏笔（大纲/伏笔/ → 设定/伏笔/，一次性，幂等）。
+ * 纯读：迁移在服务启动时执行（index.ts 迁移链），此处不再触发写副作用。
  * 容错：目录不存在或单个文件解析失败 → 跳过不崩。
  */
 export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
-  // 一次性自动迁移（无旧数据时 no-op）
-  migrateLegacyForeshadows(bookRoot)
-
   const dir = join(bookRoot, '设定', '伏笔')
   if (!existsSync(dir)) return []
 

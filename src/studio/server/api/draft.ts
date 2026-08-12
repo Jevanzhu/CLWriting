@@ -16,6 +16,8 @@ import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../../../format/kind.js'
 import { saveDraft, buildDraftPrompt } from '../../../process/draft-pipeline.js'
+import { recordAuthorSignal } from '../../../ai/author-signal.js'
+import { recordAiVersion } from '../../../git/ai-track.js'
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { saveDraft, buildDraftPrompt, snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js'
@@ -42,6 +44,9 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     let saved: ReturnType<typeof saveDraft>
     try {
       saved = saveDraft(bookRoot, chapter, content)
+      // 文风改稿轨迹（P1-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
+      recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save')
+      recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
       console.error('[api] 落盘失败:', e)
       return reply(res, 500, { error: '落盘失败' })

@@ -31,6 +31,8 @@ import { checkAiCallBudget } from '../calls.js'
 import { chapterToolName, assembleChapter } from '../contract/index.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
+import { recordAuthorSignal } from '../author-signal.js'
+import { recordAiVersion } from '../../git/ai-track.js'
 import { splitFrontMatter } from '../../format/frontmatter.js'
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
@@ -131,7 +133,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind))
   if (first.status !== 'ok') return spawnFailure(first)
   let current = first.text
-  const firstDraft = save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+  const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
   const draftPath = join(bookRoot, firstDraft.relPath)
 
   // ② 机检 → 红则重写 → 全绿或触顶
@@ -149,7 +151,10 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       chapterNo = outcome.chapter.章号
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
       if (st.state === 'pass') {
-        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
+        // 终稿记录文风改稿轨迹（中间稿不记，避免污染信号）
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAiVersion(bookRoot, final.docId, current)
         // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
         // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
         const yellows = ruleYellows(current, bookRoot, chapterNo)
@@ -157,7 +162,10 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         return { outcome: 'pass', chapter: opts.chapter, docId: final.docId, path: final.relPath, attempts: attempt, yellows }
       }
       if (st.state === 'escalate') {
-        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
+        // 终稿记录文风改稿轨迹
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAiVersion(bookRoot, final.docId, current)
         return {
           outcome: 'escalate',
           chapter: opts.chapter, // B-P1-2：透传章号
@@ -175,7 +183,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       reds = [`草稿格式不合规：${outcome.error}`]
       redIssues = reds
       if (attempt >= maxAttempts) {
-        const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAiVersion(bookRoot, final.docId, current)
         return { outcome: 'escalate', chapter: opts.chapter, reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
     }
@@ -183,7 +193,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // ③ 退回重写（C-1：预算闸——超限则 escalate，保留当前稿）
     const budget2 = checkAiCallBudget(bookRoot, chapter, config)
     if (!budget2.ok) {
-      const final = save(bookRoot, chapter, current, { recordAi: true, snapshotOrigin: 'self-heal' })
+      const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
+      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+      recordAiVersion(bookRoot, final.docId, current)
       return { outcome: 'escalate', chapter: opts.chapter, reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
     emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
@@ -212,7 +224,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     const again = await runGenerate(opts, state, kind, prompt)
     if (again.status !== 'ok') return spawnFailure(again)
     current = again.text
-    save(bookRoot, chapter, current, { recordAi: false, snapshotOrigin: 'self-heal' })
+    save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
     attempt++
   }
   } finally {

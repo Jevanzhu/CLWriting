@@ -27,6 +27,17 @@ export function isWithinRoot(bookRoot: string, abs: string): boolean {
   }
 }
 
+/**
+ * 校验 docId 不含路径穿越字符（manifest 可篡改数据面 defense-in-depth）。
+ *
+ * docId 系统生成（ULID 或 legacy:<hex>），正常不含分隔符。
+ * 此函数供内核层（version/analysis）调用，与 API 端点（snapshots.ts）的
+ * docId 白名单保持一致：拒绝 `\0` / `/` / `\` / `..`。
+ */
+export function safeDocId(docId: string): boolean {
+  return !docId.includes('\0') && !docId.includes('/') && !docId.includes('\\') && !docId.includes('..')
+}
+
 /** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。 */
 export function safeManifestPath(bookRoot: string, rel: string): string | null {
   if (!rel || rel.includes('\0') || isAbsolute(rel)) return null

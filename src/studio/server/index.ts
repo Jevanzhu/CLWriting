@@ -15,6 +15,7 @@ import { readBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
+import { migrateLegacyForeshadows } from '../../document/foreshadow.js'
 import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerHealthRoutes } from './api/health.js'
@@ -117,6 +118,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateVersionsDir(bookPath)
       // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
       migrateFinalizedRevisions(bookPath)
+      // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
+      migrateLegacyForeshadows(bookPath)
     }
   }
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)

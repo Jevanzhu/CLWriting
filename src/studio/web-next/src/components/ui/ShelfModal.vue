@@ -105,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 class="shelf-sort"
                 :value="sortBy"
                 aria-label="排序方式"
-                @change="setSortBy(($event.target as HTMLSelectElement).value as any)"
+                @change="setSortBy(($event.target as HTMLSelectElement).value as 'recent' | 'created' | 'name')"
               >
                 <option value="recent">最近打开</option>
                 <option value="created">创建时间</option>

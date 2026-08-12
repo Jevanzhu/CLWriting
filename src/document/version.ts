@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import type { Revision } from './revision.js'
@@ -128,6 +129,7 @@ export function writeVersion(
 
 /** 列某文档的版本（按 id 降序，新的在前；id 是 ULID 时间排序）。 */
 export function listVersions(versionsDir: string, docId: string): VersionInfo[] {
+  if (!safeDocId(docId)) return []
   const dir = join(versionsDir, docId)
   if (!existsSync(dir)) return []
   const out: VersionInfo[] = []
@@ -146,6 +148,8 @@ export function readVersion(
 ): { content: string; meta: VersionMeta & { time: number } } | null {
   // id 防穿越：ULID 是 26 位 Crockford base32，不含分隔符
   if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
+  // docId 防穿越（manifest 可篡改数据面 defense-in-depth）
+  if (!safeDocId(docId)) return null
   const file = join(versionsDir, docId, `${id}.md`)
   if (!existsSync(file)) return null
   const r = readFile(file)
