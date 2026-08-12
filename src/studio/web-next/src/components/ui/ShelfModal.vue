@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// 书架浮层（仿设置 modal）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
-// 共享逻辑走 useShelf composable，书卡走 BookCard 组件；本组件只保留浮层布局 + 关闭逻辑。
+// 书架浮层（ShelfGrid 去重 P2-5）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
+// 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件；本组件只保留浮层布局 + 关闭逻辑。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { X, BookOpen, ArrowRight, LayoutGrid, List, Sun, Moon, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../../composables/useShelf'
-import { useNativeMenu } from '../../composables/useNativeMenu'
 import { useUiStore } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
 import { useFocusTrap } from '../../composables/useFocusTrap'
-import ContextMenu, { type MenuItem } from './ContextMenu.vue'
-import BookCard from './BookCard.vue'
+import ShelfGrid from './ShelfGrid.vue'
+import CreateBookModal from './CreateBookModal.vue'
+import ConfirmDeleteModal from './ConfirmDeleteModal.vue'
 
 const router = useRouter()
 const ui = useUiStore()
@@ -28,26 +28,9 @@ const {
   },
 })
 
-// 右键菜单：桌面端原生 Menu，浏览器回退 ContextMenu
-const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
-
-function onCardContextmenu(e: MouseEvent, name: string): void {
-  const items: MenuItem[] = [
-    { key: 'open', label: '打开' },
-    { key: 'sep1', label: '', separator: true },
-    { key: 'folder', label: '打开所在文件夹', disabled: !hasDesktop },
-    { key: 'sep2', label: '', separator: true },
-    { key: 'delete', label: '删除…', danger: true },
-  ]
-  popup(items, e.clientX, e.clientY, (key) => {
-    if (key === 'open') openBook(name)
-    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name)
-    else if (key === 'delete') requestDelete([name])
-  })
-}
 
 // 卡片点击：批量模式 toggle 选中，否则打开书
 function handleCardClick(name: string): void {
@@ -210,112 +193,39 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </span>
               <ArrowRight :size="15" class="hero-list-arrow" />
             </section>
-            <section v-for="grp in groups" :key="grp.title" class="book-section">
-              <header class="section-head">
-                <h3 class="section-title">{{ grp.title }}</h3>
-                <span class="section-count">{{ grp.books.length }} 部</span>
-              </header>
-              <div v-if="viewMode === 'grid'" class="book-grid">
-                <BookCard
-                  v-for="b in grp.books"
-                  :key="b.name"
-                  :book="b"
-                  variant="grid"
-                  :batch-mode="batchMode"
-                  :selected="selected.has(b.name)"
-                  @move="onCardMove"
-                  @click="handleCardClick"
-                  @contextmenu="onCardContextmenu($event, b.name)"
-                />
-              </div>
-              <div v-else class="book-list">
-                <div class="list-head">
-                  <span class="col-name">名称</span>
-                  <span class="col-num">章节</span>
-                  <span class="col-num">字数</span>
-                  <span class="col-edited">最近</span>
-                </div>
-                <BookCard
-                  v-for="b in grp.books"
-                  :key="b.name"
-                  :book="b"
-                  variant="list"
-                  :batch-mode="batchMode"
-                  :selected="selected.has(b.name)"
-                  @move="onCardMove"
-                  @click="handleCardClick"
-                  @contextmenu="onCardContextmenu($event, b.name)"
-                />
-              </div>
-            </section>
+            <ShelfGrid
+              :groups="groups"
+              :view-mode="viewMode"
+              :batch-mode="batchMode"
+              :selected="selected"
+              @open="openBook"
+              @card-click="handleCardClick"
+              @delete-request="requestDelete"
+            />
           </div>
         </div>
       </div>
 
-      <!-- 新建书弹窗（浮层内的浮层，z 更高）-->
-      <div v-if="showCreate" class="create-overlay" @click.self="showCreate = false">
-        <div class="create-modal">
-          <h3>新建书</h3>
-          <div class="kind-picker">
-            <button type="button" :class="['kind-btn', { active: newKind === 'long' }]" @click="newKind = 'long'">
-              长篇
-            </button>
-            <button type="button" :class="['kind-btn', { active: newKind === 'short' }]" @click="newKind = 'short'">
-              短篇
-            </button>
-          </div>
-          <input
-            v-model="newName"
-            class="input"
-            placeholder="书名"
-            @keyup.enter="createBook"
-          />
-          <div v-if="createError" class="err">{{ createError }}</div>
-          <div class="create-actions">
-            <button class="btn" @click="showCreate = false">取消</button>
-            <button class="btn primary" :disabled="creating || !newName.trim()" @click="createBook">
-              {{ creating ? '创建中…' : '创建' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </Teleport>
-
-  <!-- 右键菜单（浏览器回退；桌面端走原生 Menu） -->
-  <ContextMenu
-    v-if="!isNative"
-    :visible="menuVisible"
-    :x="menuX"
-    :y="menuY"
-    :items="menuItems"
-    @select="onPopupSelect"
-    @close="onPopupClose"
-  />
-
-  <!-- 删除确认弹窗 -->
-  <Teleport to="body">
-    <div v-if="confirmTarget" class="confirm-overlay" @click.self="cancelDelete">
-      <div class="confirm-dialog">
-        <div class="confirm-head">
-          <Trash2 :size="22" class="confirm-icon-danger" />
-          <h3>确认删除</h3>
-        </div>
-        <p class="confirm-text">
-          将永久删除以下 {{ confirmTarget.length }} 本书及其全部内容（含定稿、大纲、设定），不可恢复：
-        </p>
-        <div v-if="deleteError" class="confirm-err">{{ deleteError }}</div>
-        <div class="confirm-names">
-          <span v-for="n in confirmTarget" :key="n" class="confirm-name">{{ n }}</span>
-        </div>
-        <div class="confirm-actions">
-          <button class="btn" @click="cancelDelete" :disabled="deleting">取消</button>
-          <button class="btn danger" @click="confirmDelete" :disabled="deleting">
-            {{ deleting ? '删除中…' : '确认删除' }}
-          </button>
-        </div>
-      </div>
+      <!-- 新建书 + 删除确认（壳级：空书架也需可用，故不放 ShelfGrid 内） -->
+      <CreateBookModal
+        v-if="showCreate"
+        :name="newName"
+        :kind="newKind"
+        :creating="creating"
+        :error="createError"
+        @update:name="newName = $event"
+        @update:kind="newKind = $event"
+        @create="createBook"
+        @cancel="showCreate = false"
+      />
+      <ConfirmDeleteModal
+        v-if="confirmTarget"
+        :names="confirmTarget"
+        :deleting="deleting"
+        :error="deleteError"
+        @confirm="confirmDelete"
+        @cancel="cancelDelete"
+      />
     </div>
   </Teleport>
 </template>
@@ -710,145 +620,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-accent);
   flex-shrink: 0;
 }
-.book-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-3);
-}
-.section-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--size-4-2);
-}
-.section-title {
-  margin: 0;
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text-normal);
-}
-.section-count {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-/* 网格容器 */
-.book-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--size-4-3);
-}
-/* 列表视图表头 */
-.book-list {
-  display: flex;
-  flex-direction: column;
-}
-.list-head {
-  display: grid;
-  grid-template-columns: var(--shelf-list-cols, 1fr 56px 72px 72px 18px);
-  align-items: center;
-  gap: var(--size-4-2);
-  padding: var(--size-4-1) var(--size-4-2);
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 2px;
-}
-.list-head .col-name {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.list-head .col-num {
-  text-align: right;
-}
-
-/* 新建书弹窗（浮层内，z 高于 shelf-modal）*/
-.create-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 160;
-}
-.create-modal {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: var(--size-4-4);
-  width: min(320px, calc(100vw - 32px));
-  box-shadow: var(--shadow-l);
-  animation: clw-appear var(--dur-norm) var(--ease-out);
-}
-.create-modal h3 {
-  margin: 0 0 var(--size-4-3);
-  font-size: var(--font-size-m);
-  font-weight: 600;
-}
-.kind-picker {
-  display: flex;
-  gap: 3px;
-  margin-bottom: var(--size-4-2);
-  padding: 3px;
-  background: var(--background-modifier-border);
-  border-radius: var(--radius-s);
-}
-.kind-btn {
-  flex: 1;
-  padding: 5px var(--size-4-2);
-  border: none;
-  border-radius: calc(var(--radius-s) - 2px);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-s);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.kind-btn.active {
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-weight: 500;
-}
-.kind-btn:not(.active):hover {
-  color: var(--text-normal);
-}
-.input {
-  width: 100%;
-  padding: 7px var(--size-4-2);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: var(--font-size-s);
-  box-sizing: border-box;
-}
-.input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-}
-.create-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--size-4-2);
-  margin-top: var(--size-4-3);
-}
-.err {
-  color: var(--text-error);
-  font-size: var(--font-size-xs);
-  margin-top: var(--size-4-2);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shelf-modal,
-  .create-modal {
-    animation: none;
-  }
-}
 
 /* ── 批量模式：header 内联 ── */
 .head-batch-count {
@@ -877,81 +648,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   filter: brightness(1.1);
 }
 
-/* ── 删除确认弹窗 ── */
-.confirm-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 300;
-  animation: fade-in var(--dur-fast) var(--ease-out);
-}
-.confirm-dialog {
-  width: 380px;
-  max-width: 90vw;
-  padding: var(--size-4-5);
-  border-radius: var(--radius-l);
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-xl, 0 20px 60px rgba(0,0,0,0.3));
-}
-.confirm-head {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin-bottom: var(--size-4-3);
-}
-.confirm-icon-danger {
-  color: var(--text-error);
-  flex-shrink: 0;
-}
-.confirm-head h3 {
-  margin: 0;
-  font-size: var(--font-size-l);
-  font-weight: 600;
-}
-.confirm-text {
-  margin: 0 0 var(--size-4-3);
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-.confirm-names {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: var(--size-4-4);
-  padding: var(--size-4-2);
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-  max-height: 120px;
-  overflow-y: auto;
-}
-.confirm-name {
-  font-size: var(--font-size-xs);
-  color: var(--text-normal);
-  padding: 3px 8px;
-  border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
-}
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--size-4-2);
-}
-.confirm-err {
-  margin: 0 0 var(--size-4-3);
-  padding: var(--size-4-2) var(--size-4-3);
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--text-error) 10%, transparent);
-  color: var(--text-error);
-  font-size: var(--font-size-xs);
-  line-height: 1.4;
-}
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .shelf-modal,
+  .create-modal {
+    animation: none;
+  }
 }
 </style>

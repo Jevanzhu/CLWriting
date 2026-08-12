@@ -24,8 +24,8 @@ test('分析：选章 → AI 标签分析 → 标签更新 + 全书速览空态'
   const emotionCell = page.locator('.analysis-panel .ap-tag-cell', { hasText: '情绪定位' })
   await expect(emotionCell).toContainText('铺垫')
 
-  // 点「分析标签」→ mock autotag → fm 更新
-  await page.locator('.analysis-panel .ap-run').click()
+  // 点「分析标签」→ mock autotag → fm 更新（.ap-run 有两个：分析标签 + AI 推断，用文本精确定位）
+  await page.locator('.analysis-panel .ap-run', { hasText: '分析标签' }).click()
 
   // 情绪定位 铺垫 → 转折（mock 返回值）
   await expect(emotionCell).toContainText('转折', { timeout: 15_000 })
