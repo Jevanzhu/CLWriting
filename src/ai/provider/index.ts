@@ -51,6 +51,7 @@ export {
   type SealedKey,
 } from './vault.js'
 export { createProvider, probeCapabilities, probeModelCaps } from './probe.js'
+export { detectFamily, quirksFor, type ChatQuirks, type ModelFamily } from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
 export { createOpenAIResponsesProvider } from './responses-adapter.js'

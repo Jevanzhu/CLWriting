@@ -9,6 +9,10 @@
  * 思维链：delta.reasoning_content → reasoning 事件；assistant 消息的 reasoning 块
  * 写回 reasoning_content（DeepSeek/Kimi 多轮带 tools 硬要求，方案 §4.2）。
  *
+ * 参数翻译全部由 model-quirks 表驱动（方案 §4.1/§4.4，删除 isOSeries 启发式）：
+ * effort 发射 / max_tokens 参数名 / stop 裁剪 / stream_options / 结构化档位。
+ * 400 降级链：structured（json_schema）→ effort，连接期异常未 yield 可安全重试。
+ *
  * 流式 tool_calls 按索引增量拼装 arguments 字符串，末尾整体解析。
  */
 import OpenAI from 'openai'
@@ -24,6 +28,7 @@ import type {
   ContentBlock,
 } from './types.js'
 import { redactSecret } from './redact.js'
+import { quirksFor } from './model-quirks.js'
 
 /** 创建 OpenAI 客户端（baseUrl 归一化，防 /v1 重复） */
 function createClient(conf: ProviderConf): OpenAI {
@@ -42,18 +47,12 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }
 
-/** 判断模型名是否为 o 系列（Responses 线格式 / 用 max_completion_tokens 而非 max_tokens） */
-function isOSeries(model: string): boolean {
-  return /^o\d/.test(model)
-}
-
 /**
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
  * 线格式选择由 UI 的 Protocol 值决定（openai = Chat Completions，
  * openai-responses = Responses API），不再靠 model 名自动猜测。
- *
- * isOSeries 仍保留用于 max_tokens 参数名（o 系列 → max_completion_tokens）。
+ * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  */
 export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
   return createOpenAIProviderChat(conf, client, modelCaps)
@@ -121,15 +120,18 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     messages.push(...toOpenAIMessages(m))
   }
 
+  // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数
+  const q = quirksFor(conf.model ?? '')
+
   const params: Record<string, unknown> = {
     // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
     model: conf.model ?? '',
     messages,
     stream: true,
   }
-  // max_tokens 可选——缺省则不发，让模型用自己的默认值
+  // 输出上限参数名（各家新旧名不同；缺省则不发，让模型用自己的默认值）
   if (req.maxTokens) {
-    params[isOSeries(conf.model ?? '') ? 'max_completion_tokens' : 'max_tokens'] = req.maxTokens
+    params[q.maxTokensKey] = req.maxTokens
   }
 
   if (req.tools?.length) {
@@ -144,20 +146,34 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     params['tool_choice'] = 'auto'
   }
 
+  // effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛）
   if (req.effort) {
-    // P1-4：reasoning_effort 仅 o 系列模型支持；非 o 系列（gpt-4o/DeepSeek/通义等）发则 400
-    if (isOSeries(conf.model ?? '')) {
-      // OpenAI 官方 reasoning_effort 仅接受 low|medium|high，xhigh/max 降级为 high
-      params['reasoning_effort'] = req.effort === 'xhigh' || req.effort === 'max' ? 'high' : req.effort
+    const effort = q.reasoningEffort(req.effort)
+    if (effort) {
+      params['reasoning_effort'] = effort
+      // DeepSeek：thinking 对象与 reasoning_effort 两种写法官方并存（方案 §4.1）
+      if (q.thinkingWithEffort) params['thinking'] = { type: 'enabled' }
     }
   }
 
+  // stop 裁剪（各家上限不同；grok 推理模型不发）
   if (req.stopSequences?.length) {
-    params['stop'] = req.stopSequences
+    const stops = q.trimStop(req.stopSequences)
+    if (stops?.length) params['stop'] = stops
   }
 
-  // 流式 usage（OpenAI 需显式开启）
-  params['stream_options'] = { include_usage: true }
+  // 结构化输出档位（json_schema 400 由降级链剥除；json_object 需 prompt 约束）
+  if (req.structured?.schema && q.structuredMode !== 'none') {
+    params['response_format'] =
+      q.structuredMode === 'json_schema'
+        ? { type: 'json_schema', json_schema: { name: 'output', schema: req.structured.schema, strict: true } }
+        : { type: 'json_object' }
+  }
+
+  // 流式 usage（各家支持不同；GLM 无此参数，usage 末 chunk 自带）
+  if (q.emitStreamOptions) {
+    params['stream_options'] = { include_usage: true }
+  }
 
   return params
 }
@@ -189,92 +205,124 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
         return { type: 'done', usage, stopReason }
       }
 
-      // tool_calls 增量拼装：按 index 聚合 arguments JSON 片段
-      const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
+      // 400 降级链（方案 §4.1）：json_schema 仅部分模型/网关支持 → 剥 structured 重试；
+      // reasoning_effort 部分模型不支持 → 再剥 effort 重试。连接期异常（未 yield）可安全重试
+      // attempts 逐级累积剥除（第 N 项基于第 N-1 项），保证已证明 400 的参数面不再出现
+      const attempts = [req]
+      if (quirksFor(conf.model ?? '').structuredMode === 'json_schema' && req.structured) {
+        const c = { ...req } as GenRequest
+        delete (c as { structured?: unknown }).structured
+        attempts.push(c)
+      }
+      if (req.effort) {
+        const c = { ...attempts[attempts.length - 1] } as GenRequest
+        delete (c as { effort?: unknown }).effort
+        attempts.push(c)
+      }
 
       try {
-        const stream = await c.chat.completions.create(toParams(conf, req) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming, { signal })
-
-        for await (const chunk of stream) {
-          const usage = chunk.usage
-          const choice = chunk.choices?.[0]
-          if (!choice) {
-            // usage-only chunk（最后一个 chunk 只含 usage）
-            if (usage) {
-              const ev = emitDone(
-                { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 },
-                pendingStopReason,
-              )
-              if (ev) yield ev
-            }
-            continue
-          }
-
-          const delta = choice.delta
-
-          // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
-          if (delta?.content) {
-            yield { type: 'text', delta: delta.content }
-          }
-
-          // 思维链增量（DeepSeek/Kimi 思考模型的 reasoning_content）→ reasoning 事件（方案 §4.2）
-          // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
-          const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
-          if (reasoningDelta) {
-            yield { type: 'reasoning', delta: reasoningDelta }
-          }
-
-          // tool_calls 增量
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index
-              let acc = toolAccum.get(idx)
-              if (!acc) {
-                acc = { id: tc.id ?? '', name: tc.function?.name ?? '', argsBuf: '' }
-                toolAccum.set(idx, acc)
-              }
-              if (tc.function?.name) acc.name = tc.function.name
-              if (tc.function?.arguments) acc.argsBuf += tc.function.arguments
-            }
-          }
-
-          // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
-          if (choice.finish_reason) {
-            // 所有 tool_calls 已拼完 → 发出
-            for (const [, acc] of toolAccum) {
-              if (acc.name && acc.argsBuf) {
-                let input: unknown
-                try {
-                  input = JSON.parse(acc.argsBuf)
-                } catch {
-                  input = { _raw: acc.argsBuf }
+        let lastErr: unknown = null
+        for (const attempt of attempts) {
+          try {
+            const stream = await c.chat.completions.create(
+              toParams(conf, attempt) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+              { signal },
+            )
+            // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
+            const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
+            for await (const chunk of stream) {
+              const usage = chunk.usage
+              // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
+              // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
+              const choiceUsage = (chunk.choices?.[0] as { usage?: { prompt_tokens?: number; completion_tokens?: number } } | undefined)?.usage
+              const effectiveUsage = usage ?? choiceUsage
+              const choice = chunk.choices?.[0]
+              if (!choice) {
+                // usage-only chunk（最后一个 chunk 只含 usage）
+                if (effectiveUsage) {
+                  const ev = emitDone(
+                    { inputTokens: effectiveUsage.prompt_tokens ?? 0, outputTokens: effectiveUsage.completion_tokens ?? 0 },
+                    pendingStopReason,
+                  )
+                  if (ev) yield ev
                 }
-                yield { type: 'tool', id: acc.id, name: acc.name, input }
+                continue
+              }
+
+              const delta = choice.delta
+
+              // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
+              if (delta?.content) {
+                yield { type: 'text', delta: delta.content }
+              }
+
+              // 思维链增量（DeepSeek/Kimi 思考模型的 reasoning_content）→ reasoning 事件（方案 §4.2）
+              // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
+              const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
+              if (reasoningDelta) {
+                yield { type: 'reasoning', delta: reasoningDelta }
+              }
+
+              // tool_calls 增量
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index
+                  let acc = toolAccum.get(idx)
+                  if (!acc) {
+                    acc = { id: tc.id ?? '', name: tc.function?.name ?? '', argsBuf: '' }
+                    toolAccum.set(idx, acc)
+                  }
+                  if (tc.function?.name) acc.name = tc.function.name
+                  if (tc.function?.arguments) acc.argsBuf += tc.function.arguments
+                }
+              }
+
+              // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
+              if (choice.finish_reason) {
+                // 所有 tool_calls 已拼完 → 发出
+                for (const [, acc] of toolAccum) {
+                  if (acc.name && acc.argsBuf) {
+                    let input: unknown
+                    try {
+                      input = JSON.parse(acc.argsBuf)
+                    } catch {
+                      input = { _raw: acc.argsBuf }
+                    }
+                    yield { type: 'tool', id: acc.id, name: acc.name, input }
+                  }
+                }
+                toolAccum.clear()
+
+                // 统一 stopReason 命名：OpenAI 'length' → 'max_tokens'（与 Anthropic 对齐，generateText 截断检查靠此）
+                pendingStopReason =
+                  choice.finish_reason === 'tool_calls' ? 'tool_use'
+                  : choice.finish_reason === 'length' ? 'max_tokens'
+                  : choice.finish_reason
+                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
+                if (effectiveUsage) {
+                  const ev = emitDone(
+                    { inputTokens: effectiveUsage.prompt_tokens ?? 0, outputTokens: effectiveUsage.completion_tokens ?? 0 },
+                    pendingStopReason,
+                  )
+                  if (ev) yield ev
+                }
+                // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
-            toolAccum.clear()
-
-            // 统一 stopReason 命名：OpenAI 'length' → 'max_tokens'（与 Anthropic 对齐，generateText 截断检查靠此）
-            pendingStopReason =
-              choice.finish_reason === 'tool_calls' ? 'tool_use'
-              : choice.finish_reason === 'length' ? 'max_tokens'
-              : choice.finish_reason
-            // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
-            if (usage) {
-              const ev = emitDone(
-                { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 },
-                pendingStopReason,
-              )
+            if (!doneEmitted) {
+              const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
               if (ev) yield ev
             }
-            // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
+            return
+          } catch (e) {
+            if (e instanceof OpenAI.APIError && e.status === 400 && attempts.length > 1) {
+              lastErr = e
+              continue // 尝试下一个降级参数面
+            }
+            throw e
           }
         }
-
-        if (!doneEmitted) {
-          const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
-          if (ev) yield ev
-        }
+        throw lastErr ?? new Error('openai stream: 无可用参数面')
       } catch (e) {
         yield toErrorEvent(e)
       }

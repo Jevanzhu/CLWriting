@@ -238,7 +238,26 @@ describe('OpenAI 适配器', () => {
     expect('max_tokens' in (captured ?? {})).toBe(false)
   })
 
-  it('非 o 系列模型不发 reasoning_effort（防 400）', async () => {
+  it('unknown 系列模型不发 reasoning_effort（quirks 保守省略，防 400）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            captured = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'custom-model' } as ProviderConf
+    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'high' })
+    expect('reasoning_effort' in (captured ?? {})).toBe(false)
+  })
+
+  it('gpt 系列模型发 reasoning_effort（xhigh/max → high）', async () => {
     let captured: Record<string, unknown> | null = null
     const client = {
       chat: {
@@ -253,8 +272,9 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'high' })
-    expect('reasoning_effort' in (captured ?? {})).toBe(false)
+    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'xhigh' })
+    expect(captured?.['reasoning_effort']).toBe('high')
+    expect(captured?.['max_tokens']).toBeUndefined()
   })
 
   it('o 系列模型 → Responses 线格式（input 数组 + max_output_tokens）', async () => {

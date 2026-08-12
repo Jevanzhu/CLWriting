@@ -96,9 +96,19 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   } else if (req.toolChoice === 'auto') {
     params['tool_choice'] = { type: 'auto', disable_parallel_tool_use: true }
   }
-  // effort → output_config.effort
+  // effort → output_config.effort（DeepSeek 系 quirk：档位仅 low/high/max，medium/xhigh 收敛，§4.3）
   if (req.effort) {
-    params['output_config'] = { effort: req.effort }
+    const effort = /^deepseek/i.test(conf.model ?? '')
+      ? req.effort === 'medium' ? 'high' : req.effort === 'xhigh' ? 'max' : req.effort
+      : req.effort
+    params['output_config'] = { effort }
+  }
+  // structured → output_config.format（json_schema；网关不支持时走降级链剥除）
+  if (req.structured?.schema) {
+    params['output_config'] = {
+      ...(params['output_config'] as Record<string, unknown> | undefined),
+      format: { type: 'json_schema', schema: req.structured.schema },
+    }
   }
   // stop sequences
   if (req.stopSequences?.length) {
@@ -135,18 +145,35 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       }
 
       try {
-        // 400 降级：output_config（effort）非标准 Messages API 字段，严格中转会 400；
+        // 400 降级链（方案 §4.3）：output_config.format（json_schema）→ output_config.effort
+        // 逐级累积剥除（第 N 项基于第 N-1 项），非标准 Messages API 字段严格中转会 400；
         // create 在连接阶段即抛异常（尚未 yield），可安全重试
-        let stream: AsyncIterable<Anthropic.RawMessageStreamEvent>
-        try {
-          stream = await c.messages.create(toParams(conf, req), { signal })
-        } catch (e) {
-          if (e instanceof Anthropic.APIError && e.status === 400 && req.effort) {
-            stream = await c.messages.create(toParams(conf, { ...req, effort: undefined }), { signal })
-          } else {
+        const attempts = [req]
+        if (req.structured) {
+          const c = { ...req } as GenRequest
+          delete (c as { structured?: unknown }).structured
+          attempts.push(c)
+        }
+        if (req.effort) {
+          const c = { ...attempts[attempts.length - 1] } as GenRequest
+          delete (c as { effort?: unknown }).effort
+          attempts.push(c)
+        }
+        let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
+        let lastErr: unknown = null
+        for (const attempt of attempts) {
+          try {
+            stream = await c.messages.create(toParams(conf, attempt), { signal })
+            break
+          } catch (e) {
+            if (e instanceof Anthropic.APIError && e.status === 400 && attempts.length > 1) {
+              lastErr = e
+              continue
+            }
             throw e
           }
         }
+        if (!stream) throw lastErr
 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
