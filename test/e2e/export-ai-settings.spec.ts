@@ -13,24 +13,23 @@ test('导出：打开弹窗 → 选分章格式 → 导出 → toast + 弹窗关
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
 
-  // ribbon 导出定稿 → 弹窗
+  // ribbon 导出定稿 → 弹窗（data-testid 模式，P2-TST-4）
   await page.locator('.rbtn[data-tip="导出定稿"]').click()
-  const dialog = page.locator('.export-modal')
+  const dialog = page.locator('[data-testid="export-dialog"]')
   await expect(dialog).toBeVisible()
 
   // 默认格式 both 选中（label「全量」+ hint「合并 + 分章」）
-  await expect(dialog.locator('.opt.on')).toContainText('全量')
-  await expect(dialog.locator('.opt.on')).toContainText('合并 + 分章')
+  await expect(dialog.locator('[data-testid="export-format-both"].on')).toContainText('全量')
 
-  // 选「分章」格式（用 .opt-label 精确匹配 label，避免 both 的 hint「合并 + 分章」误中）
-  await dialog.locator('.opt .opt-label', { hasText: '分章' }).click()
-  await expect(dialog.locator('.opt.on')).toContainText('分章')
+  // 选「分章」格式
+  await dialog.locator('[data-testid="export-format-split"]').click()
+  await expect(dialog.locator('[data-testid="export-format-split"].on')).toContainText('分章')
 
   // 平台 seg 默认 generic（通用）
-  await expect(dialog.locator('.seg-btn.on')).toContainText('通用')
+  await expect(dialog.locator('[data-testid="export-platform-generic"].on')).toContainText('通用')
 
   // 点导出 → toast「导出完成」+ 弹窗关闭
-  await dialog.locator('.btn.primary').click()
+  await dialog.locator('[data-testid="export-run"]').click()
   await expect(page.getByText('导出完成')).toBeVisible({ timeout: 15_000 })
   await expect(dialog).toBeHidden()
 })

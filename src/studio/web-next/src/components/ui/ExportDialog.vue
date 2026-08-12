@@ -54,10 +54,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.exportOpen" class="modal-mask" @click.self="ui.closeExport">
-      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1">
+      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1" data-testid="export-dialog">
         <div class="modal-head">
           <span>导出定稿</span>
-          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" @click="ui.closeExport"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" data-testid="export-close" @click="ui.closeExport"><X :size="18" /></button>
         </div>
         <div class="form-row">
           <label>格式</label>
@@ -67,6 +67,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               :key="f.v"
               class="opt"
               :class="{ on: format === f.v }"
+              :data-testid="`export-format-${f.v}`"
               @click="format = f.v"
             >
               <span class="opt-label">{{ f.label }}</span>
@@ -82,6 +83,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               :key="p.v"
               class="seg-btn"
               :class="{ on: platform === p.v }"
+              :data-testid="`export-platform-${p.v}`"
               @click="platform = p.v"
             >
               {{ p.label }}
@@ -89,7 +91,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
         <div class="actions">
-          <button class="btn primary" :disabled="loading" @click="run">
+          <button class="btn primary" :disabled="loading" data-testid="export-run" @click="run">
             {{ loading ? '导出中…' : '导出' }}
           </button>
         </div>
