@@ -18,6 +18,7 @@ import {
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
+import { getConfig } from '../api/books'
 import { getProviders, type TierSlot } from '../api/providers'
 import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -169,11 +170,15 @@ async function onInterrupt(): Promise<void> {
 }
 
 // 全自动写章：AI 写稿→机检→红则自动重写→全绿或触顶交作者。进度经 SSE self_heal_* 事件回流。
+// P2-3：批量连写——章数取配置 auto.batch_size（>1 时后端连写多章，进度经 self_heal_batch* 事件回流）。
 async function onAutoWrite(): Promise<void> {
   err.value = null
   try {
-    await autoWrite(props.bookName, chapter.value)
-    ui.toast(`第 ${chapter.value} 章已开始全自动写稿`, 'info')
+    const cfg = await getConfig(props.bookName)
+    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? 1)))
+    const r = await autoWrite(props.bookName, chapter.value, batchSize)
+    const msg = (r.batchSize ?? 1) > 1 ? `第 ${chapter.value} 章起连写 ${r.batchSize} 章已开始` : `第 ${chapter.value} 章已开始全自动写稿`
+    ui.toast(msg, 'info')
   } catch (e) {
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
@@ -193,8 +198,13 @@ async function onOutline(): Promise<void> {
 }
 
 // 自愈进度人话（阶段 + 第 N/M 次重写 + 剩余红项数）
+// P2-3：批量连写时优先展示「第 X/Y 章」总进度（chapter_start/done + batch_progress）
 const healText = computed(() => {
   const p = wb.healProgress
+  const bp = wb.batchProgress
+  if (wb.healPhase === 'chapter_start' && bp) return `批量连写：第 ${bp.done + 1}/${bp.total} 章开始`
+  if (wb.healPhase === 'chapter_done' && bp) return `批量连写：第 ${bp.done}/${bp.total} 章完成`
+  if (bp && bp.stoppedAt !== null) return `批量连写停在第 ${bp.stoppedAt} 章（已完成 ${bp.done}/${bp.total}）`
   if (wb.healPhase === 'rewriting' && p) {
     return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余 ${p.remaining.length} 条待修）`
   }
@@ -238,7 +248,13 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
     case 'review-progress':
       return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
     case 'self_heal_phase':
-      return `自检进入「${ev.phase}」阶段`
+      return ev.phase === 'chapter_start' ? `开始写第 ${ev.chapter} 章（${ev.done}/${ev.total}）`
+        : ev.phase === 'chapter_done' ? `第 ${ev.chapter} 章完成（${ev.done}/${ev.total}）`
+        : `自检进入「${ev.phase}」阶段`
+    case 'self_heal_batch':
+      return `批量连写 ${ev.total} 章`
+    case 'self_heal_batch_progress':
+      return `批量连写中断：已完成 ${ev.done}/${ev.total}，停在第 ${ev.stoppedAt} 章`
     case 'self_heal_reset':
       return '重新写稿（清空上一次草稿）'
     case 'text_reset':

@@ -106,6 +106,18 @@ export const useStyleStore = defineStore('style', () => {
     trend.value = await getStyleTrend(bookName.value)
   }
 
+  /** 切书清空（Book.vue watch(bookName) 调；缺此方法切书渲染崩溃） */
+  function clear(): void {
+    bookName.value = ''
+    entries.value = []
+    entryErrors.value = 0
+    candidates.value = []
+    config.value = null
+    trend.value = null
+    loading.value = false
+    loaded.value = false
+  }
+
   return {
     bookName,
     entries,
@@ -125,5 +137,6 @@ export const useStyleStore = defineStore('style', () => {
     harvest,
     freeze,
     rescan,
+    clear,
   }
 })

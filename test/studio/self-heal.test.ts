@@ -308,3 +308,65 @@ test('text 事件转发主 session（前端逐字产出）', async () => {
   expect(texts).toHaveLength(1)
   expect(texts[0] && 'text' in texts[0] ? texts[0].text : '').toContain('逐字正文')
 })
+
+// ── P2-3：批量连写 ──────────────────────────────
+
+test('批量：2 章全绿 → 每章 pass，进度事件带 done/total', async () => {
+  const { opts, prompts, emitted, saves } = setup(
+    [`${FM}第一章正文`, `${FM}第二章正文`],
+    () => greenOutcome(),
+    { chapters: [1, 2] },
+  )
+  const r = await runSelfHeal(opts)
+
+  expect(r.outcome).toBe('pass')
+  if (r.outcome === 'pass') expect(r.chapter).toBe(2)
+  expect(prompts).toHaveLength(2) // 每章一次生成
+  expect(saves).toHaveLength(4) // 每章首稿+终稿各 1 次 = 2 章 × 2
+  // 进度事件序列
+  const types = evTypes(emitted)
+  expect(types).toContain('self_heal_batch')
+  expect(types).toContain('self_heal_phase')
+  const phases = emitted.filter((e) => e.type === 'self_heal_phase')
+  expect(phases.some((e) => e.phase === 'chapter_start')).toBe(true)
+  expect(phases.some((e) => e.phase === 'chapter_done')).toBe(true)
+  // chapter_done 带 done/total
+  const done = emitted.find((e) => e.type === 'self_heal_phase' && e.phase === 'chapter_done')
+  expect(done && 'done' in done ? done.done : null).toBe(1)
+  expect(done && 'total' in done ? done.total : null).toBe(2)
+})
+
+test('批量：中途 escalate → 停后续章 + 发 batch_progress', async () => {
+  // 章1 绿；章2 恒红（触顶 escalate）
+  const seq: CheckOutcome[] = [greenOutcome(), redOutcome('第二章禁词'), redOutcome('第二章禁词'), redOutcome('第二章禁词')]
+  let i = 0
+  const { opts, prompts, emitted } = setup(
+    [`${FM}一章`, `${FM}二章初稿`, `${FM}二章重写1`, `${FM}二章重写2`, `${FM}二章重写3`],
+    () => seq[Math.min(i++, seq.length - 1)]!,
+    { chapters: [1, 2] },
+  )
+  const r = await runSelfHeal(opts)
+
+  expect(r.outcome).toBe('escalate')
+  if (r.outcome === 'escalate') {
+    expect(r.chapter).toBe(2) // 停在第二章
+    expect(r.reds).toContain('第二章禁词')
+  }
+  expect(prompts).toHaveLength(5) // 章1 一次 + 章2 首稿+3 次重写
+  const bp = emitted.find((e) => e.type === 'self_heal_batch_progress')
+  expect(bp).toBeTruthy()
+  expect(bp && 'done' in bp ? bp.done : null).toBe(1) // 已完成 1 章（章1）
+  expect(bp && 'total' in bp ? bp.total : null).toBe(2)
+  expect(bp && 'stoppedAt' in bp ? bp.stoppedAt : null).toBe(2) // 停在第二章
+})
+
+test('批量：chapters 未传 → 单章行为不变（无 batch 事件）', async () => {
+  const { opts, emitted } = setup([`${FM}单章`], () => greenOutcome())
+  const r = await runSelfHeal(opts)
+
+  expect(r.outcome).toBe('pass')
+  const types = evTypes(emitted)
+  expect(types).not.toContain('self_heal_batch')
+  expect(types).not.toContain('self_heal_batch_progress')
+  expect(types).toContain('self_heal_result')
+})

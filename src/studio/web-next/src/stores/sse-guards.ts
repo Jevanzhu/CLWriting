@@ -26,8 +26,8 @@ export function isSseEvent(ev: unknown): ev is { type: string; [k: string]: unkn
   return typeof (ev as Record<string, unknown>)['type'] === 'string'
 }
 
-/** 全自动写章阶段（与 HEAL_PHASES 白名单一致） */
-export type HealPhaseName = 'drafting' | 'checking' | 'rewriting'
+/** 全自动写章阶段（与 HEAL_PHASES 白名单一致）；P2-3 批量新增 chapter_start/chapter_done */
+export type HealPhaseName = 'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done'
 
 /** self_heal_phase 事件守卫：phase 白名单校验 + 类型收窄 */
 export function isHealPhaseEvent(
@@ -35,7 +35,7 @@ export function isHealPhaseEvent(
 ): ev is { type: 'self_heal_phase'; phase: HealPhaseName } {
   if (ev.type !== 'self_heal_phase') return false
   const p = ev.phase
-  return p === 'drafting' || p === 'checking' || p === 'rewriting'
+  return p === 'drafting' || p === 'checking' || p === 'rewriting' || p === 'chapter_start' || p === 'chapter_done'
 }
 
 /** 全自动写章终局 outcome（与 HEAL_OUTCOMES 白名单一致） */

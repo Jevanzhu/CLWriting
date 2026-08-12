@@ -112,7 +112,7 @@ function makeShortBook(root: string): void {
   mkdirSync(root, { recursive: true })
   writeFileSync(
     join(root, 'book.yaml'),
-    'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\nbudget:\n  calls_per_chapter: 8\nstyle:\n  injection: light\nshort:\n  word_min: 1000\n  word_max: 5000\n',
+    'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\nbudget:\n  calls_per_chapter: 8\nstyle:\n  injection: light\nauto:\n  batch_size: 1\nshort:\n  word_min: 1000\n  word_max: 5000\n',
   )
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '清单'), { recursive: true })

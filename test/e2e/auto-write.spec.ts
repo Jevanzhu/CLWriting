@@ -58,3 +58,21 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
   const ok = await page.request.get(`${BASE}/api/books/长篇测试书/state`)
   expect(ok.status()).toBe(200)
 })
+// ── P2-3：批量连写 ──────────────────────────────────────────────
+test('批量连写：batchSize=2 时后端返回 chapters 序列', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+
+  // boot 取 studio token（POST 需 x-studio-token）
+  const boot = await page.request.get(`${BASE}/api/boot`)
+  const token = (await boot.json()).token
+
+  const resp = await page.request.post(`${BASE}/api/books/长篇测试书/auto-write`, {
+    headers: { 'Content-Type': 'application/json', 'x-studio-token': token },
+    data: { chapter: 3, batchSize: 2 },
+  })
+  expect(resp.status()).toBe(200)
+  const body = await resp.json()
+  expect(body.chapters).toEqual([3, 4])
+  expect(body.batchSize).toBe(2)
+})

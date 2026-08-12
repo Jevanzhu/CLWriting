@@ -250,6 +250,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!Number.isInteger(chapter) || chapter < 1) {
       return reply(res, 400, { error: 'chapter 需为正整数' })
     }
+    // P2-3：批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
+    const rawBatch = body['batchSize']
+    const batchSize = rawBatch === undefined ? 1 : Number(rawBatch)
+    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 20) {
+      return reply(res, 400, { error: 'batchSize 需为 1-20 的整数' })
+    }
+    const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
 
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
     const mainSession = await ensureSession(bookName, ctx.workDir)
@@ -266,9 +273,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       bookRoot: join(ctx.workDir, entry.path),
       bookName,
       chapter,
+      ...(chapters ? { chapters } : {}),
     }).catch((e) => emitSpawnError(driver, mainSession, e))
 
-    reply(res, 200, { ok: true, chapter })
+    reply(res, 200, { ok: true, chapter, ...(batchSize > 1 ? { batchSize, chapters } : {}) })
   })
 
   // 对话助手：fire-and-forget + SSE 回流（与 /spawn 同模式）

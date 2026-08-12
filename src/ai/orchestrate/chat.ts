@@ -185,7 +185,7 @@ function formatHealResult(r: SelfHealOutcome): string {
   switch (r.outcome) {
     case 'pass':
       // B-P1-2：用 r.chapter（章号）而非 r.docId（稳定 ID，如 legacy:9f8e7d6c）
-      return r.yellows.length > 0
+      return r.yellows && r.yellows.length > 0
         ? `第${r.chapter}章已生成，机检全绿。仍有 ${r.yellows.length} 条文风建议未采纳。`
         : `第${r.chapter}章已生成，机检全绿。`
     case 'escalate':

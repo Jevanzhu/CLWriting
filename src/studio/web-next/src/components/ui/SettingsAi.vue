@@ -183,7 +183,7 @@ async function saveRagConfig(): Promise<void> {
     <div class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">批量写作章数</div>
-        <div class="setting-item-desc">一次自动写作流程连续写的章数（即将支持）</div>
+        <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
       </div>
       <div class="setting-item-control">
         <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />

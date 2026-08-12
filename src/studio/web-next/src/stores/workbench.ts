@@ -50,9 +50,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   /** SSE 连接态。 */
   const connected = ref(false)
   /** 全自动写章：当前阶段 / 重写进度 / 终局（null = 未在跑或已清）。 */
-  const healPhase = ref<'drafting' | 'checking' | 'rewriting' | null>(null)
+  const healPhase = ref<'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done' | null>(null)
   const healProgress = ref<HealProgress | null>(null)
   const healResult = ref<HealResult | null>(null)
+  /** P2-3 批量连写进度：total / 已完成章数 / 中途停下的章号（null = 单章或未在跑） */
+  const batchProgress = ref<{ done: number; total: number; stoppedAt: number | null } | null>(null)
   /** 非致命警告（如 max_tokens 截断）——UI watch 后 toast。null = 无。 */
   const warning = ref<string | null>(null)
 
@@ -75,12 +77,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       healPhase.value = null
       healProgress.value = null
       healResult.value = null
+      batchProgress.value = null
     } else if (e.type === 'init') {
       // 会话建连元数据（mock driver 每次连接都发）——不代表生成在途，不置 running
       textOut.value = ''
       healPhase.value = null
       healProgress.value = null
       healResult.value = null
+      batchProgress.value = null
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
     }
@@ -109,6 +113,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         healPhase.value = null
         healProgress.value = null
       }
+    } else if (e.type === 'self_heal_batch') {
+      // P2-3：批量开跑
+      const total = Number(e.total ?? 0)
+      batchProgress.value = { done: 0, total: total > 0 ? total : 0, stoppedAt: null }
+    } else if (e.type === 'self_heal_batch_progress') {
+      // P2-3：批量中途停（escalate/预算超限）
+      const done = Number(e.done ?? 0)
+      const total = Number(e.total ?? 0)
+      const stoppedAt = e.stoppedAt !== undefined ? Number(e.stoppedAt) : null
+      batchProgress.value = { done, total, stoppedAt }
     } else if (e.type === 'warning') {
       const msg = str(e.message)
       if (msg) warning.value = msg
@@ -121,6 +135,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase.value = null
     healProgress.value = null
     healResult.value = null
+    batchProgress.value = null
     warning.value = null
   }
   function setConnected(v: boolean): void {
@@ -135,6 +150,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase,
     healProgress,
     healResult,
+    batchProgress,
     warning,
     dispatch,
     clear,
