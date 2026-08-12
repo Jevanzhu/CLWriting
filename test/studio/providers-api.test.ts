@@ -96,6 +96,22 @@ afterAll(async () => {
 })
 
 describe('/api/providers（P0-1 修复后回归）', () => {
+  it('GET /presets 返回厂商速填（Chat→Anthropic→Responses 排序，含 baseUrl）', async () => {
+    const r = await req<{ presets: { label: string; protocol: string; baseUrl?: string }[] }>({
+      method: 'GET',
+      path: '/api/providers/presets',
+    })
+    expect(r.status).toBe(200)
+    const p = r.json.presets
+    expect(p.length).toBe(12)
+    // 排序：Chat 组在前，Responses 组最后
+    expect(p[0].protocol).toBe('openai')
+    expect(p[p.length - 1].protocol).toBe('openai-responses')
+    // 厂商行带 baseUrl 预填
+    expect(p.find((x) => x.label === 'DeepSeek')?.baseUrl).toBe('https://api.deepseek.com')
+    expect(p.find((x) => x.label === 'Claude 官方')?.baseUrl).toBe('https://api.anthropic.com')
+  })
+
   it('PUT /current 不被 /:id 遮蔽——先加两个供应商再切换', async () => {
     const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
     expect(a.status).toBe(200)

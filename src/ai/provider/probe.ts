@@ -117,7 +117,8 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
   const caps: ModelCaps = { toolUse: false, toolChoice: false }
   const provider = createProvider(conf)
 
-  // ① tool_use——声明玩具工具，诱导调用
+  // ① tool_use——toolChoice:'auto' + prompt 强引导（方案 §4.7：'any' 仅 GLM 兼容端点
+  // 不支持会误判模型完全不可写作，先测 auto 引导，模型有工具能力自然会调）
   try {
     let gotTool = false
     const ctrl = new AbortController()
@@ -128,7 +129,7 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
           systemPrompt: '你必须使用 echo_test 工具来回复。',
           messages: [{ role: 'user', content: '请调用 echo_test 工具，msg 填「hi」' }],
           tools: [TOY_TOOL],
-          toolChoice: 'any',
+          toolChoice: 'auto',
         },
         ctrl.signal,
       )) {
@@ -146,7 +147,8 @@ export async function probeModelCaps(conf: ProviderConf): Promise<ModelProbeResu
     details.push(`tool_use 探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
   }
 
-  // ② tool_choice 强制——指定工具名
+  // ② tool_choice 强制——toolChoice:'any'（GLM 类端点仅 auto → 这里 false，
+  // 正确落入「prompt 引导 + 校验重试」降级路径，方案 §4.7）
   if (caps.toolUse) {
     try {
       let gotTool = false

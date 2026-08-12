@@ -11,12 +11,14 @@ import {
   setCurrentProvider,
   testProvider,
   fetchModels,
+  fetchPresets,
   setTiers,
   setChatTier,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
   type AuthStrategy,
+  type ProviderPreset,
   type TestResult,
   type TierSlot,
 } from '../../api/providers'
@@ -70,11 +72,15 @@ const form = ref({
   apiKey: '',
 })
 
-const PROTOCOL_OPTIONS: { value: Protocol; label: string; hint: string; auth: AuthStrategy }[] = [
-  { value: 'anthropic', label: 'Anthropic', hint: 'Claude 系列（官方 / 中转 / 网关）', auth: 'anthropic' },
-  { value: 'openai-responses', label: 'OpenAI Responses', hint: 'gpt-5 系列官方新格式', auth: 'bearer' },
-  { value: 'openai', label: 'OpenAI Chat Completions', hint: 'GPT / DeepSeek / 通义等兼容格式', auth: 'bearer' },
-]
+// 厂商速填预设——PRESETS 唯一数据源（后端 /api/providers/presets），前端不再硬编码（方案 §4.6）
+const presets = ref<ProviderPreset[]>([])
+async function loadPresets(): Promise<void> {
+  try {
+    presets.value = await fetchPresets()
+  } catch {
+    presets.value = []
+  }
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -103,7 +109,10 @@ async function refresh(): Promise<void> {
   }
 }
 
-onMounted(refresh)
+onMounted(() => {
+  void loadPresets()
+  void refresh()
+})
 
 function startAdd(): void {
   editing.value = true
@@ -123,19 +132,19 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-function selectPreset(p: { value: Protocol; auth: AuthStrategy }): void {
-  form.value.protocol = p.value
-  form.value.auth = p.auth
+/** 厂商速填：打开新增表单并预填该厂商的 baseUrl（方案 §4.6） */
+function quickFill(preset: ProviderPreset): void {
+  startAdd()
+  form.value.protocol = preset.protocol
+  form.value.auth = preset.auth
+  form.value.baseUrl = preset.baseUrl ?? ''
 }
 
-/** 空状态快捷填充：官方 API 预设（打开新增表单并预填常见地址） */
-function quickFill(protocol: Protocol): void {
-  startAdd()
-  form.value.protocol = protocol
-  form.value.auth = protocol === 'anthropic' ? 'anthropic' : 'bearer'
-  form.value.baseUrl = protocol === 'anthropic'
-    ? 'https://api.anthropic.com'
-    : 'https://api.openai.com/v1'
+/** 表单内厂商行：只预填协议/认证/baseUrl，不重置表单（编辑中场景） */
+function applyPreset(preset: ProviderPreset): void {
+  form.value.protocol = preset.protocol
+  form.value.auth = preset.auth
+  if (preset.baseUrl) form.value.baseUrl = preset.baseUrl
 }
 
 async function save(): Promise<void> {
@@ -277,8 +286,15 @@ function timeAgo(ts: number | undefined): string {
       <div v-else-if="providers.length === 0" class="empty">
         <p>尚未配置任何 AI 服务商</p>
         <div class="preset-quick">
-          <button class="preset-quick-btn" @click="quickFill('anthropic')">Anthropic 官方</button>
-          <button class="preset-quick-btn" @click="quickFill('openai')">OpenAI 官方</button>
+          <button
+            v-for="(pr, i) in presets"
+            :key="i"
+            class="preset-quick-btn"
+            :title="pr.hint"
+            @click="quickFill(pr)"
+          >
+            {{ pr.label }}
+          </button>
         </div>
         <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />自定义服务商</button>
       </div>
@@ -428,11 +444,11 @@ function timeAgo(ts: number | undefined): string {
           <label>类型</label>
           <div class="preset-list">
             <button
-              v-for="(opt, i) in PROTOCOL_OPTIONS"
+              v-for="(opt, i) in presets"
               :key="i"
               class="preset-btn"
-              :class="{ on: form.protocol === opt.value }"
-              @click="selectPreset(opt)"
+              :class="{ on: form.protocol === opt.protocol }"
+              @click="applyPreset(opt)"
             >
               <span class="preset-label">{{ opt.label }}</span>
               <span class="preset-hint">{{ opt.hint }}</span>
