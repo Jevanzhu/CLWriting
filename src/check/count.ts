@@ -245,14 +245,25 @@ export interface StyleStats {
   summaryEnding: boolean
   /** 对话行总数（>0 才允许 dialogueTagRatio 有意义）；内部用，聚合层可忽略 */
   _dialogueLines: number
+  /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split；P2-BE-2） */
+  _sentences?: string[]
+  _sentencesWithColon?: string[]
+}
+
+/** 分句（共享，消除 checkStyleMetrics + computeStyleMetrics 重复 split；P2-BE-2） */
+function splitSentences(body: string, includeColon = false): string[] {
+  const re = includeColon ? /[。！？；\n]/ : /[。！？\n]/
+  return body.split(re).map((s) => s.trim()).filter((s) => s.length > 0)
 }
 
 /** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */
 export function computeStyleMetrics(body: string, rules: IronRules): StyleStats {
+  const sentences = splitSentences(body)
+  const sentencesWithColon = splitSentences(body, true)
+
   // 单句超限占比
   let overlongRatio = 0
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
-    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
     if (sentences.length > 0) {
       const overlong = sentences.filter((s) => s.length > rules.maxSentenceLen!).length
       overlongRatio = overlong / sentences.length
@@ -272,20 +283,19 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   const dialogueLines = body
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => /[「『“"][^」』”"]+[」』”"]/.test(line))
+    .filter((line) => /[「『””][^」』””]+[」』””]/.test(line))
   if (rules.maxDialogueTagRatio !== undefined && dialogueLines.length > 0) {
     const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
     const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
     dialogueTagRatio = tagged / dialogueLines.length
   }
 
-  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的"首次越界即 break"）
+  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的”首次越界即 break”）
   let parallelStreakMax = 0
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
-    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
     let prev = ''
     let streak = 0
-    for (const sentence of sentences) {
+    for (const sentence of sentencesWithColon) {
       const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
       if (prefix && prefix === prev) {
         streak += 1
@@ -311,6 +321,8 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     parallelStreakMax,
     summaryEnding,
     _dialogueLines: dialogueLines.length,
+    _sentences: sentences,
+    _sentencesWithColon: sentencesWithColon,
   }
 }
 
@@ -326,9 +338,9 @@ export function checkStyleMetrics(
   const stats = computeStyleMetrics(body, rules)
   const items: CheckItem[] = []
 
-  // 单句超铁律上限（逐句推一条，保持原行为）
+  // 单句超铁律上限（逐句推一条，复用 stats 已分句结果）
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
-    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    const sentences = stats._sentences ?? splitSentences(body)
     for (const s of sentences) {
       if (s.length > rules.maxSentenceLen) {
         items.push({
@@ -378,8 +390,8 @@ export function checkStyleMetrics(
 
   // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
-    // 复算首个越界 prefix（与原实现一致的消息文案）
-    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
+    // 复算首个越界 prefix（复用 stats 已分句结果）
+    const sentences = stats._sentencesWithColon ?? splitSentences(body, true)
     let prev = ''
     let streak = 0
     let hitPrefix = ''

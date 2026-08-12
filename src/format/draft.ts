@@ -66,7 +66,7 @@ export function resolveDraftPath(
 
   // 2. 新章 → 生成正式文件路径（标题净化路径分隔符，防 AI 产出含 ../ 的标题越出 bookRoot）
   const title = extractTitleFromContent(content) ?? `第${chapter}章`
-  const fileName = `${String(chapter).padStart(3, '0')}-${title.replace(/[\\/]/g, '_')}.md`
+  const fileName = `${String(chapter).padStart(3, '0')}-${title.replace(/[\\/\0]/g, '_')}.md`
 
   // 推断卷目录（上一章所在卷 > 最新卷 > 第一卷）
   return { relPath: `写作/正文/${inferVolumeDir(bookRoot, chapter)}/${fileName}`, existed: false }

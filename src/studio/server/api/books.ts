@@ -17,7 +17,7 @@ import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { forgetService } from './documents.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
-import { computeProgress, computeLastEdited, computeLatestChapter } from './progress.js'
+import { computeBookSummary } from './progress.js'
 
 interface BookCtx {
   workDir: string | null
@@ -43,15 +43,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const bookRoot = join(ctx.workDir!, b.path)
       try {
         const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-        const prog = computeProgress(bookRoot)
+        // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）
+        const summary = computeBookSummary(bookRoot)
         return {
           ...b,
           title: config.book.title,
-          chapters: prog.chapters,
-          words: prog.words,
-          lastEdited: computeLastEdited(bookRoot),
+          chapters: summary.chapters,
+          words: summary.words,
+          lastEdited: summary.lastEdited,
           targetWords: config.book.target_words,
-          latestChapter: computeLatestChapter(bookRoot),
+          latestChapter: summary.latestChapter,
           createdAt: b.created_at,
         }
       } catch {

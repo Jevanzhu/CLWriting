@@ -57,3 +57,42 @@ export function computeLatestChapter(bookRoot: string): string | null {
   }
   return latest?.title ?? null
 }
+
+/**
+ * 书架摘要（一次 readChapterDir 扫描算出进度 + 最近编辑 + 最新章节）。
+ * 替代 computeProgress + computeLastEdited + computeLatestChapter 三次独立扫描（P2-BE-1）。
+ */
+export function computeBookSummary(bookRoot: string): {
+  chapters: number
+  words: number
+  lastEdited: string | null
+  latestChapter: string | null
+} {
+  let items: ReturnType<typeof readChapterDir>['chapters']
+  try {
+    items = readChapterDir(join(bookRoot, '写作', '正文')).chapters
+  } catch {
+    return { chapters: 0, words: 0, lastEdited: null, latestChapter: null }
+  }
+  const words = items.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
+  let latestMtime = 0
+  let latestTitle: string | null = null
+  for (const it of items) {
+    if (!it._path) continue
+    try {
+      const m = statSync(it._path).mtimeMs
+      if (m > latestMtime) {
+        latestMtime = m
+        latestTitle = it.标题
+      }
+    } catch {
+      // 文件消失忽略
+    }
+  }
+  return {
+    chapters: items.length,
+    words,
+    lastEdited: latestMtime > 0 ? new Date(latestMtime).toISOString() : null,
+    latestChapter: latestTitle,
+  }
+}

@@ -2,7 +2,7 @@
 // 开书对话（重设计 · 向导式 master-detail）：
 // 左栏分组步骤列表 + 右栏详情/生成/编辑面板。
 // 点步骤 → 右栏展开详情（不直接生成）→ 点生成 → 编辑 → 落盘。
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { TriangleAlert, Check, Sparkles, FileText, Loader2, RotateCcw, BookOpen, PenLine } from 'lucide-vue-next'
 import {
   onboardAi, onboardSave,
@@ -29,10 +29,14 @@ let premiseTimer: ReturnType<typeof setTimeout> | null = null
 watch(storyPremise, (v) => {
   if (premiseTimer) clearTimeout(premiseTimer)
   premiseTimer = setTimeout(() => {
+    premiseTimer = null
     try {
       localStorage.setItem(PREMISE_KEY(props.bookName), v)
     } catch { /* 忽略 */ }
   }, 300)
+})
+onBeforeUnmount(() => {
+  if (premiseTimer) { clearTimeout(premiseTimer); premiseTimer = null }
 })
 
 // ── 步骤分组（语义层次，非平铺）──

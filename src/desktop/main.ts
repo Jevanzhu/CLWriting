@@ -414,7 +414,7 @@ function registerIpc(): void {
   })
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
   ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
-    if (typeof bookName !== 'string') return
+    if (typeof bookName !== 'string' || bookName.includes('\0')) return
     const workDir = readStore().current
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)

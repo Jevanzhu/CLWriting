@@ -37,11 +37,15 @@ export async function interrupt(name: string): Promise<void> {
 // POST /auto-write {chapter} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。
 // fire-and-forget：立即返回，进度经 SSE 的 self_heal_* 事件回流。409 = 本书已在跑。
 export async function autoWrite(name: string, chapter: number): Promise<{ ok: boolean; chapter: number }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/auto-write`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chapter }),
-  })
+  return apiJson(
+    `/api/books/${encodeURIComponent(name)}/auto-write`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter }),
+    },
+    30_000, // 后端应秒级确认并开始 SSE 回流；挂起则超时提示
+  )
 }
 
 // POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
