@@ -6,6 +6,8 @@
  * tool_use 翻译：GenRequest.tools → function calling；
  * tool_choice 'any' → 'required', 'tool' → {type:'function',function:{name}}。
  * effort → reasoning_effort。
+ * 思维链：delta.reasoning_content → reasoning 事件；assistant 消息的 reasoning 块
+ * 写回 reasoning_content（DeepSeek/Kimi 多轮带 tools 硬要求，方案 §4.2）。
  *
  * 流式 tool_calls 按索引增量拼装 arguments 字符串，末尾整体解析。
  */
@@ -92,9 +94,12 @@ function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
   }
 
   const out: Record<string, unknown>[] = []
-  // assistant 消息：text + tool_calls
+  // assistant 消息：text + reasoning_content + tool_calls
   if (m.role === 'assistant') {
     const msg: Record<string, unknown> = { role: 'assistant', content: textParts.join('') || null }
+    // 思维链往返（DeepSeek/Kimi 思考模型硬要求，见方案 §4.2）——reasoning 块写回 reasoning_content
+    const reasoning = (m.content as ContentBlock[]).filter((b) => b.type === 'reasoning').map((b) => b.text).join('')
+    if (reasoning) msg['reasoning_content'] = reasoning
     if (toolCalls.length > 0) msg['tool_calls'] = toolCalls
     out.push(msg)
   } else {
@@ -210,6 +215,13 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
           // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
           if (delta?.content) {
             yield { type: 'text', delta: delta.content }
+          }
+
+          // 思维链增量（DeepSeek/Kimi 思考模型的 reasoning_content）→ reasoning 事件（方案 §4.2）
+          // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
+          const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
+          if (reasoningDelta) {
+            yield { type: 'reasoning', delta: reasoningDelta }
           }
 
           // tool_calls 增量

@@ -27,6 +27,8 @@ export class GenError extends Error {
 export interface GenResult {
   /** 纯文本产出（tool_use 模式下可能为空） */
   text: string
+  /** 思维链产出（DeepSeek/Kimi 思考模型的 reasoning_content，方案 §4.2） */
+  reasoning: string
   /** tool_use 调用（结构化产出） */
   toolCalls: { id: string; name: string; input: unknown }[]
   usage: TokenUsage
@@ -81,6 +83,7 @@ export async function generate(
   onText?: (delta: string) => void,
 ): Promise<GenResult> {
   let text = ''
+  const reasoning: string[] = []
   const toolCalls: { id: string; name: string; input: unknown }[] = []
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
@@ -90,6 +93,9 @@ export async function generate(
       case 'text':
         text += ev.delta
         onText?.(ev.delta)
+        break
+      case 'reasoning':
+        reasoning.push(ev.delta)
         break
       case 'tool':
         toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
@@ -103,7 +109,7 @@ export async function generate(
     }
   }
 
-  return { text, toolCalls, usage, stopReason }
+  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason }
 }
 
 /**

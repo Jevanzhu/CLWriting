@@ -254,6 +254,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         toolCalls: { id: string; name: string; input: unknown }[]
         stopReason: string
         usage: TokenUsage
+        reasoning: string
       }>({
         userDataPath: opts.userDataPath,
         tierKind: 'chat',
@@ -275,7 +276,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
             signal,
             (delta) => emit(opts, { type: 'chat_text', text: delta }),
           )
-          return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, usage: r.usage }
+          return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, usage: r.usage, reasoning: r.reasoning }
         },
       })
 
@@ -284,7 +285,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
 
-      const { text, toolCalls, stopReason } = out.data
+      const { text, toolCalls, stopReason, reasoning } = out.data
 
       // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）
       if (stopReason === 'max_tokens') {
@@ -303,8 +304,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
 
       // 有工具调用 → assistant 消息按 block 结构入历史
+      // reasoning 块保留回传（DeepSeek/Kimi 多轮带 tools 硬要求，方案 §4.2）
       const asstBlocks: ContentBlock[] = []
       if (text) asstBlocks.push({ type: 'text', text })
+      if (reasoning) asstBlocks.push({ type: 'reasoning', text: reasoning })
       for (const c of toolCalls) {
         asstBlocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.input })
       }

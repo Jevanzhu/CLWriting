@@ -114,9 +114,14 @@ export interface ChatMsg {
 /**
  * Content block——中立表示（Anthropic 风格，表达力更强；OpenAI 侧由适配器展开还原）。
  * 对话助手 agent 循环的 tool_use/tool_result 往返用。
+ *
+ * reasoning：模型思维链（DeepSeek/Kimi 思考模型的 reasoning_content）。
+ * 多轮带 tools 时 assistant 消息必须完整回传 reasoning_content，否则 DeepSeek/Kimi 400
+ * （方案 §4.2）。Anthropic 原生端点无此回传要求，收到即静默丢弃。
  */
 export type ContentBlock =
   | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
 
@@ -129,6 +134,7 @@ export interface ToolDef {
 /** 统一事件流——每次调用返回独立 async iterable */
 export type GenEvent =
   | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage; stopReason: string }
   | { type: 'error'; message: string; retryable: boolean }

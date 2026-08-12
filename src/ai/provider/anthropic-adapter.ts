@@ -64,11 +64,13 @@ const MAX_TOKENS = 8192
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
-  const blocks: Anthropic.ContentBlockParam[] = m.content.map((b: ClwContentBlock) => {
-    if (b.type === 'text') return { type: 'text', text: b.text }
-    if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }
+  const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
+    if (b.type === 'text') return [{ type: 'text', text: b.text }]
+    // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）
+    if (b.type === 'reasoning') return []
+    if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }]
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
-    return { type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }
+    return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
   })
   return { role: m.role, content: blocks }
 }

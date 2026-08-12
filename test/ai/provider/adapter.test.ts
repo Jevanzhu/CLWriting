@@ -435,3 +435,90 @@ describe('OpenAI 适配器线格式分派（按 protocol）', () => {
     expect(chatCalled).toBe(true)
   })
 })
+
+describe('批次2 reasoning 思维链（方案 §4.2）', () => {
+  it('chat 适配器：delta.reasoning_content → reasoning 事件', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { reasoning_content: '思考中…' }, finish_reason: null }] },
+            { choices: [{ delta: { content: '结论' }, finish_reason: 'stop' }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'reasoning')).toEqual([{ type: 'reasoning', delta: '思考中…' }])
+  })
+
+  it('chat 适配器：assistant 消息的 reasoning 块 → 写回 reasoning_content 字段', async () => {
+    let sentParams: Record<string, unknown> | undefined
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            sentParams = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const req: GenRequest = {
+      systemPrompt: '',
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '回答' },
+            { type: 'reasoning', text: '推理过程' },
+            { type: 'tool_use', id: 'c1', name: 'submit', input: { a: 1 } },
+          ],
+        },
+      ],
+    }
+    await collect(createOpenAIProvider(CONF, client), req)
+    const asstMsg = (sentParams?.messages as Record<string, unknown>[])[0]
+    expect(asstMsg).toMatchObject({
+      role: 'assistant',
+      content: '回答',
+      reasoning_content: '推理过程',
+      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'submit', arguments: '{"a":1}' } }],
+    })
+  })
+
+  it('anthropic 适配器：reasoning 块静默丢弃（原生端点无此回传）', async () => {
+    let sentParams: Record<string, unknown> | undefined
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          sentParams = params as Record<string, unknown>
+          return (async function* () {
+            yield { type: 'message_start', message: { usage: { input_tokens: 1 } } }
+            yield { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const req: GenRequest = {
+      systemPrompt: '',
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '回答' },
+            { type: 'reasoning', text: '推理过程' },
+          ],
+        },
+      ],
+    }
+    await collect(createAnthropicProvider(CONF, client), req)
+    // 只回传 text，reasoning 被过滤
+    expect((sentParams?.messages as Record<string, unknown>[])[0]).toEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: '回答' }],
+    })
+  })
+})

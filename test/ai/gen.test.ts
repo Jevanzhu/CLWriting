@@ -45,6 +45,21 @@ describe('generate', () => {
     expect(r.stopReason).toBe('end_turn')
   })
 
+  it('reasoning 事件收集到 reasoning 字段（方案 §4.2）', async () => {
+    const r = await generate(
+      provider([
+        { type: 'reasoning', delta: '思考' },
+        { type: 'reasoning', delta: '过程' },
+        { type: 'text', delta: '回答' },
+        { type: 'done', usage: USAGE, stopReason: 'end_turn' },
+      ]),
+      { systemPrompt: '', messages: [] },
+      signal(),
+    )
+    expect(r.reasoning).toBe('思考过程')
+    expect(r.text).toBe('回答')
+  })
+
   it('tool 事件收集到 toolCalls（规则：先 tool 后 done）', async () => {
     const r = await generate(
       provider([
