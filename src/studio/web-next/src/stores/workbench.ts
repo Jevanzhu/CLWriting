@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards.js'
 
 /**
  * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。
@@ -23,9 +24,7 @@ export interface HealResult {
   path?: string
   error?: string
 }
-/** F-P1-4：SSE 事件字段白名单（拒绝非预期值） */
-const HEAL_PHASES = ['drafting', 'checking', 'rewriting'] as const
-const HEAL_OUTCOMES = ['pass', 'escalate', 'aborted', 'failed'] as const
+/** F-P1-4：SSE 事件字段白名单（拒绝非预期值；白名单常量集中在 sse-guards.ts 的守卫里） */
 
 /** 全自动写章进度（self_heal_progress：第 attempt/maxAttempts 次重写 + 剩余红项）。 */
 export interface HealProgress {
@@ -36,14 +35,6 @@ export interface HealProgress {
 
 function ts(): string {
   return new Date().toLocaleTimeString('zh-CN')
-}
-
-/** SSE 事件字段安全提取（替代裸 as 断言，P2-FE-8） */
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined
-}
-function strArr(v: unknown): string[] | undefined {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
 }
 
 /** 事件日志上限：SSE 长会话只 push 不裁剪会内存膨胀，超出即丢弃最旧条目。 */
@@ -67,14 +58,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
-    if (typeof ev !== 'object' || ev === null) return
-    const raw = ev as Record<string, unknown>
+    // P2-2：type guard 基础守卫（取代手写 typeof + as Record）
+    if (!isSseEvent(ev)) return
     // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
-    if (raw['type'] === 'sync') {
-      running.value = raw['running'] === true
+    if (ev.type === 'sync') {
+      running.value = ev['running'] === true
       return
     }
-    const e = { ...raw, _ts: ts() } as SseEvent
+    const e = { ...ev, _ts: ts() } as SseEvent
     log.value.push(e)
     if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)
     if (e.type === 'role_spawn') {
@@ -97,11 +88,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
-      // F-P1-4：白名单校验（防 SSE 非预期值致 UI 渲染异常）
-      const phase = str(e.phase)
-      if (phase && (HEAL_PHASES as readonly string[]).includes(phase)) {
-        healPhase.value = phase as typeof HEAL_PHASES[number]
-      }
+      // F-P1-4：白名单校验在 isHealPhaseEvent 守卫内（防 SSE 非预期值致 UI 渲染异常）
+      if (isHealPhaseEvent(e)) healPhase.value = e.phase
     } else if (e.type === 'self_heal_progress') {
       healProgress.value = {
         attempt: Number(e.attempt ?? 0),
@@ -109,10 +97,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         remaining: strArr(e.remaining) ?? [],
       }
     } else if (e.type === 'self_heal_result') {
-      const oc = str(e.outcome)
-      if (oc && (HEAL_OUTCOMES as readonly string[]).includes(oc)) {
+      if (isHealResultEvent(e)) {
         healResult.value = {
-          outcome: oc as HealResult['outcome'],
+          outcome: e.outcome,
           ...(strArr(e.reds) ? { reds: strArr(e.reds) } : {}),
           ...(strArr(e.yellows) ? { yellows: strArr(e.yellows) } : {}),
           ...(str(e.docId) ? { docId: str(e.docId) } : {}),

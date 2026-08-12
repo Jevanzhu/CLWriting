@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { str } from './sse-guards.js'
 
 /**
  * 对话助手 store（方案 §3.7.3）。
@@ -33,11 +34,6 @@ export interface ChatMessage {
 
 /** 消息列表上限（防长对话内存膨胀） */
 const MAX_MESSAGES = 200
-
-/** SSE 事件字段安全提取（替代裸 as 断言，P2-FE-8） */
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined
-}
 
 /** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
 let _msgSeq = 0

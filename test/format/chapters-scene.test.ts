@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { readChapter, writeChapter, validateEnums, readChapterDir } from '../../src/format/chapters.js'
+import { readChapter, validateEnums, readChapterDir } from '../../src/format/chapters.js'
+import { writeChapter } from '../helpers/chapter.js'
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

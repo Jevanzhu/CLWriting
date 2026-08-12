@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildIndex, recall, chunkBody } from '../../src/rag/index.js'
-import { writeChapter } from '../../src/format/chapters.js'
+import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
 

@@ -7,7 +7,7 @@
 
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
+import { readFile, parseFlat } from './frontmatter.js'
 import { countWords } from './words.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
 
@@ -56,32 +56,6 @@ export function readChapter(
   if (map.has('核心反转')) chapter.核心反转 = String(map.get('核心反转'))
 
   return { ok: true, chapter }
-}
-
-/** ChapterMeta → front matter Map */
-function chapterToMap(ch: ChapterMeta): Map<string, unknown> {
-  const map = new Map<string, unknown>()
-  map.set('章号', ch.章号)
-  map.set('标题', ch.标题)
-  map.set('钩子类型', ch.钩子类型)
-  map.set('钩子强弱', ch.钩子强弱)
-  map.set('情绪定位', ch.情绪定位)
-  if (ch.时间锚点) map.set('时间锚点', ch.时间锚点)
-  if (ch.场景) map.set('场景', ch.场景)
-  if (ch.字数目标 !== undefined) map.set('字数目标', ch.字数目标)
-  if (ch.目标情绪) map.set('目标情绪', ch.目标情绪)
-  if (ch.核心反转) map.set('核心反转', ch.核心反转)
-  if (ch._raw) {
-    for (const [k, v] of Object.entries(ch._raw)) {
-      if (!map.has(k)) map.set(k, v)
-    }
-  }
-  return map
-}
-
-/** 写入章节 md（测试造章用；生产统一走 service.ts 写盘） */
-export function writeChapter(filePath: string, ch: ChapterMeta, body: string): void {
-  writeFile(filePath, stringifyFlat(chapterToMap(ch)), body)
 }
 
 /**

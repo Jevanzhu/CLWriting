@@ -17,7 +17,7 @@ import {
   type ChapterSample,
 } from '../../src/metrics/style.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { writeChapter } from '../../src/format/chapters.js'
+import { writeChapter } from '../helpers/chapter.js'
 import { writeSample } from '../../src/format/style.js'
 import { parseIronRules } from '../../src/format/iron-rules.js'
 import type { ChapterMeta } from '../../src/format/types.js'
