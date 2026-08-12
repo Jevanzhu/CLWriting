@@ -18,7 +18,7 @@ import type { Protocol } from './types.js'
  *   剥了官方端点反而 404（models.list 会打 {base}/models）
  * - anthropic：去尾斜杠 + 剥尾部 /v1——anthropic SDK 自拼 /v1/messages，防 /v1/v1
  */
-function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
+export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
   const trimmed = baseUrl.replace(/\/+$/, '')
   return protocol === 'anthropic' ? trimmed.replace(/\/v1$/, '') : trimmed
 }

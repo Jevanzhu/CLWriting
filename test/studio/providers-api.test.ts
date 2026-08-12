@@ -105,8 +105,8 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     const p = r.json.presets
     expect(p.length).toBe(12)
     // 排序：Chat 组在前，Responses 组最后
-    expect(p[0].protocol).toBe('openai')
-    expect(p[p.length - 1].protocol).toBe('openai-responses')
+    expect(p[0]!.protocol).toBe('openai')
+    expect(p[p.length - 1]!.protocol).toBe('openai-responses')
     // 厂商行带 baseUrl 预填
     expect(p.find((x) => x.label === 'DeepSeek')?.baseUrl).toBe('https://api.deepseek.com')
     expect(p.find((x) => x.label === 'Claude 官方')?.baseUrl).toBe('https://api.anthropic.com')

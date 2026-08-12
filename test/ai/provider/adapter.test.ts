@@ -456,6 +456,107 @@ describe('OpenAI 适配器线格式分派（按 protocol）', () => {
   })
 })
 
+describe('批次3 quirks 参数面（方案 §6）', () => {
+  it('kimi：不发采样参数（temperature/top_p），用 max_completion_tokens', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            captured = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'kimi-k3' } as ProviderConf
+    await collect(createOpenAIProvider(conf, client), { ...REQ, maxTokens: 100 })
+    expect(captured).not.toHaveProperty('temperature')
+    expect(captured).not.toHaveProperty('top_p')
+    expect(captured).toHaveProperty('max_completion_tokens', 100)
+  })
+
+  it('glm：不发 stream_options（无此参数），用 max_tokens', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            captured = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'glm-5.2' } as ProviderConf
+    await collect(createOpenAIProvider(conf, client), { ...REQ, maxTokens: 100 })
+    expect(captured).not.toHaveProperty('stream_options')
+    expect(captured).toHaveProperty('max_tokens', 100)
+  })
+
+  it('usage 双兜底：usage 在 choices[0] 也能提取（Kimi 文档矛盾）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop', usage: { prompt_tokens: 7, completion_tokens: 3 } }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 3 } })
+  })
+
+  it('anthropic DeepSeek 兼容端点：effort 档位收敛（medium→high、xhigh→max）', async () => {
+    let sentParams: Record<string, unknown> | undefined
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          sentParams = params as Record<string, unknown>
+          return (async function* () {
+            yield { type: 'message_start', message: { usage: { input_tokens: 1 } } }
+            yield { type: 'message_delta', usage: { output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const conf = { ...CONF, protocol: 'anthropic' as const, model: 'deepseek-chat' } as ProviderConf
+    await collect(createAnthropicProvider(conf, client), { ...REQ, effort: 'xhigh' })
+    expect((sentParams?.['output_config'] as { effort: string })?.effort).toBe('max')
+  })
+})
+
+describe('Grok 工具整块 chunk（方案 §6：流式 tool_calls 单 chunk 不分片）', () => {
+  it('整块 arguments 一次到达 → tool 事件（不依赖增量拼装）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'submit', arguments: '{"a":1,"b":"x"}' } }] },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'grok-4.6' } as ProviderConf
+    const evs = await collect(createOpenAIProvider(conf, client), REQ)
+    const tool = evs.find((e) => e.type === 'tool')
+    expect(tool).toMatchObject({ type: 'tool', name: 'submit', input: { a: 1, b: 'x' } })
+  })
+})
+
 describe('批次2 reasoning 思维链（方案 §4.2）', () => {
   it('chat 适配器：delta.reasoning_content → reasoning 事件', async () => {
     const client = {
