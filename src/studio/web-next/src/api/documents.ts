@@ -169,6 +169,29 @@ export async function finalizeDoc(name: string, docId: string): Promise<Finalize
   )
 }
 
+// POST /documents/batch-finalize —— 批量定稿（P2-PROD-2）。
+export interface BatchFinalizeItem {
+  docId: string
+  ok: boolean
+  status?: 'final'
+  skipped?: boolean
+  error?: string
+}
+export interface BatchFinalizeOk {
+  ok: true
+  results: BatchFinalizeItem[]
+}
+export async function batchFinalizeDocs(name: string, docIds: string[]): Promise<BatchFinalizeOk> {
+  return apiJson<BatchFinalizeOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/batch-finalize`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ docIds }),
+    },
+  )
+}
+
 // --- 回收站 ---
 export interface TrashEntry {
   id: string

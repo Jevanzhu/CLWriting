@@ -117,6 +117,28 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     },
   )
 
+  // ── 批量定稿（P2-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
+  // body { docIds: string[] }；逐个 finalizeRevision（同步串行，天然无 SQLite 写锁冲突）。
+  // 单条失败不中断：返回逐条结果，前端汇总 toast。
+  route(
+    'POST',
+    '/api/books/:name/documents/batch-finalize',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const body = await readJson(req)
+      const docIds = Array.isArray(body?.docIds) ? body.docIds : null
+      if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
+        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
+      }
+      const results = docIds.map((docId) => {
+        const o = finalizeRevision(r.bookRoot, docId)
+        return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
+      })
+      reply(res, 200, { ok: true, results })
+    },
+  )
+
   // ── 字数日记（§5.4 今日基线）──────────────────────
   route(
     'GET',

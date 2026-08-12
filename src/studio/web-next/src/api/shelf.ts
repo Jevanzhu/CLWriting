@@ -10,6 +10,8 @@ export interface BookEntry {
   words?: number
   /** 最近编辑 ISO（定稿文件最新 mtime） */
   lastEdited?: string | null
+  /** 创建时间 ISO（books.jsonl created_at，排序用） */
+  createdAt?: string | null
   /** 目标字数（book.yaml target_words，hero 卡进度条用） */
   targetWords?: number
   /** 最近章节标题（hero 卡"继续写作"用） */

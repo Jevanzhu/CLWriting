@@ -20,10 +20,12 @@ import { readBookConfig } from '../format/yaml.js'
 import {
   formatShortSubmissionView,
   scanShortCollection,
+  SUBMISSION_TEMPLATES,
   type ShortSubmissionPlatform,
 } from '../metrics/short-index.js'
 
 export type ExportFormat = 'merged' | 'split' | 'both'
+/** 平台标识（配置化：查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
 export type ExportPlatform = ShortSubmissionPlatform
 
 export interface ExportOptions {
@@ -144,7 +146,10 @@ export function exportBook(options: ExportOptions): ExportResult {
   }
 
   if (kind === 'short') {
-    const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}.md`
+    // 文件名与内容标题一致：非 generic 平台带模板 label（多平台产物不互相覆盖）
+    const template = SUBMISSION_TEMPLATES[platform]
+    const platformSuffix = template && platform !== 'generic' ? `-${template.label}` : ''
+    const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}${platformSuffix}.md`
     const entries = scanShortCollection(bookRoot)
     atomicWriteFile(
       join(exportDir, submissionName),

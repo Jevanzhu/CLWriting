@@ -17,6 +17,7 @@ const ui = useUiStore()
 const { theme, toggle } = useTheme()
 const {
   shelf, groups, latestBook, viewMode, setView,
+  query, sortBy, setSortBy,
   showCreate, newName, newKind, creating, createError, createBook,
   batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
   confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
@@ -93,6 +94,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <div class="head-actions">
             <template v-if="!batchMode">
+              <input
+                v-model="query"
+                class="shelf-search"
+                type="search"
+                placeholder="搜索书名…"
+                aria-label="搜索书名"
+              />
+              <select
+                class="shelf-sort"
+                :value="sortBy"
+                aria-label="排序方式"
+                @change="setSortBy(($event.target as HTMLSelectElement).value as any)"
+              >
+                <option value="recent">最近打开</option>
+                <option value="created">创建时间</option>
+                <option value="name">书名</option>
+              </select>
               <div class="view-toggle">
                 <button
                   class="toggle-btn"
@@ -357,6 +375,30 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
+}
+/* ── 搜索 + 排序（P2-PROD-6）── */
+.shelf-search {
+  width: 140px;
+  padding: 5px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.shelf-search:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+.shelf-sort {
+  padding: 5px 8px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
 }
 /* 视图切换 segmented control */
 .view-toggle {

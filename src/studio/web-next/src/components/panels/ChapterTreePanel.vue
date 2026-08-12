@@ -13,6 +13,7 @@ import {
   copyDoc,
   deleteDoc,
   updateChapterMetaDoc,
+  batchFinalizeDocs,
 } from '../../api/documents'
 import { parseChapterFileName } from '../../shared/words'
 import {
@@ -243,6 +244,10 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
     // 定稿：正文区 draft（首次）/ revision（改动后）可定稿；final 已定稿不显
     if (node.status === 'draft' || node.status === 'revision') {
       items.push({ key: 'finalize', label: '定稿' })
+      // 批量定稿到此章：仅当存在更早的待定稿章（自己 + 之前的所有 draft/revision）才有意义
+      if (pendingChaptersUpTo(node).length > 1) {
+        items.push({ key: 'batch-finalize', label: '批量定稿到此章' })
+      }
     }
     const targets = moveToTargets(node)
     if (targets.length) {
@@ -263,6 +268,29 @@ function buildLeafMenu(node: TreeNode): MenuItem[] {
   items.push({ key: 'sep-b', label: '', separator: true })
   items.push({ key: 'delete', label: '删除', danger: true })
   return items
+}
+
+/**
+ * 收集「≤ 目标章号」的所有待定稿正文章（draft/revision）。
+ * 从整树 raw 扫（含短篇 piece-body，扁平无卷——章号从文件名取）。
+ * 返回 docId 列表（含目标章自身，按章号升序）。
+ * 注意：TreeNode.path 是完整相对路径（写作/正文/N-标题.md），章号只能从 name 提取。
+ */
+function pendingChaptersUpTo(target: TreeNode): string[] {
+  const targetNo = parseChapterFileName(target.name)?.章号
+  if (targetNo === undefined) return []
+  const out: { no: number; docId: string }[] = []
+  const walk = (ns: TreeNode[]) => {
+    for (const n of ns) {
+      if (!n.isDirectory && n.docId && (n.status === 'draft' || n.status === 'revision')) {
+        const no = parseChapterFileName(n.name)?.章号
+        if (no !== undefined && no <= targetNo) out.push({ no, docId: n.docId })
+      }
+      if (n.children.length) walk(n.children)
+    }
+  }
+  walk(tree.raw)
+  return out.sort((a, b) => a.no - b.no).map((x) => x.docId)
 }
 
 function onContextMenu(node: TreeNode, x: number, y: number): void {
@@ -338,6 +366,10 @@ function onMenuSelect(key: string): void {
   else if (key === 'finalize') {
     if (node.docId) void doc.finalize(node.docId)
   }
+  else if (key === 'batch-finalize') {
+    const docIds = pendingChaptersUpTo(node)
+    if (docIds.length) void doBatchFinalize(docIds)
+  }
   else if (key === 'meta') {
     const isPiece = node.role === 'piece-body'
     // 短篇/长篇均从文件名提取编号+标题（短篇 写作/正文/N-标题.md，长篇 写作/正文/[卷/]N-标题.md）
@@ -352,6 +384,22 @@ function onMenuSelect(key: string): void {
   else if (key === 'copy-path') void onCopyPath(node)
   else if (key === 'reveal-in-folder') void onRevealInFolder(node)
   else if (key === 'delete') void doDelete(node)
+}
+
+/** 批量定稿：逐个 finalizeRevision（后端串行，无锁冲突）→ 汇总 toast + 刷树。 */
+async function doBatchFinalize(docIds: string[]): Promise<void> {
+  const bookName = props.bookName
+  try {
+    const r = await batchFinalizeDocs(bookName, docIds)
+    const done = r.results.filter((x) => x.ok && !x.skipped).length
+    const skipped = r.results.filter((x) => x.ok && x.skipped).length
+    const failed = r.results.filter((x) => !x.ok).length
+    const total = r.results.length
+    ui.toast(`已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${failed ? `，${failed} 章失败` : ''}`, failed ? 'error' : 'success')
+    void tree.load(bookName, true)
+  } catch (err) {
+    ui.toast(friendlyError(err), 'error')
+  }
 }
 
 /** 桌面版：在系统文件管理器中打开文件所在文件夹（shell.showItemInFolder 跨平台，传入 node.path）。 */

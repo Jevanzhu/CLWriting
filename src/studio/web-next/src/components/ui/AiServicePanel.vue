@@ -439,10 +439,6 @@ function timeAgo(ts: number | undefined): string {
 </template>
 
 <style scoped>
-.ai-service-panel {
-  max-width: 680px;
-}
-
 /* ── 分组标题 ── */
 .group-title {
   display: flex;

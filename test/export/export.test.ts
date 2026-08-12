@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportBook } from '../../src/export/index.js'
+import { SUBMISSION_TEMPLATES } from '../../src/metrics/short-index.js'
 
 // ── 辅助 fixture ────────────────────────────────
 
@@ -117,6 +118,52 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
     expect(r.files.some((f) => f.includes('全本-短篇集.md'))).toBe(true)
     // split 目录为「分章」+ 3 位补零
     expect(r.files.some((f) => f.includes('分章/001-雪夜.md'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── 平台配置化（P2-PROD-5）────────────────────────
+
+test('exportBook: 新平台只需注册模板表即生效（配置化，无需改导出代码）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-platform-'))
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'kind: short', '', 'book:', '  title: 平台书', '  genre: 悬疑'].join('\n'),
+    'utf-8',
+  )
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
+  // 注册一个新平台（模拟新增平台只需加模板表一项）
+  const custom = { platform: 'custom', label: '自定义平台', titleStyle: '自定义标题风格', introLength: '99-199 字', sellingPoints: ['自定义卖点'] }
+  SUBMISSION_TEMPLATES.custom = custom
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged', platform: 'custom' })
+    expect(r.ok).toBe(true)
+    const view = readFileSync(join(root, '工作区', '导出', '投稿视图-平台书-自定义平台.md'), 'utf-8')
+    expect(view).toContain('自定义标题风格')
+    expect(view).toContain('99-199 字')
+    expect(view).toContain('自定义卖点')
+  } finally {
+    delete SUBMISSION_TEMPLATES.custom // 清理，不污染其他用例
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-unkplat-'))
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'kind: short', '', 'book:', '  title: 未知平台书', '  genre: 悬疑'].join('\n'),
+    'utf-8',
+  )
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged', platform: 'not-exist' })
+    expect(r.ok).toBe(true)
+    const view = readFileSync(join(root, '工作区', '导出', '投稿视图-未知平台书.md'), 'utf-8')
+    expect(view).toContain('平台模板：通用') // generic fallback
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

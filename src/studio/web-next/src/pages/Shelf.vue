@@ -16,6 +16,7 @@ const { theme, toggle } = useTheme()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 const {
   shelf, groups, latestBook, viewMode, setView,
+  query, sortBy, setSortBy,
   showCreate, newName, newKind, creating, createError, createBook,
   batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
   confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
@@ -105,6 +106,25 @@ function openBook(name: string): void {
             <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span><span class="sub-num">{{ formatWords(totalWords) }}</span><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
           </p>
           <p v-else class="head-sub">开启你的长篇之旅</p>
+        </div>
+        <div class="shelf-tools" v-if="shelf.books.length && !batchMode">
+          <input
+            v-model="query"
+            class="shelf-search"
+            type="search"
+            placeholder="搜索书名…"
+            aria-label="搜索书名"
+          />
+          <select
+            class="shelf-sort"
+            :value="sortBy"
+            aria-label="排序方式"
+            @change="setSortBy(($event.target as HTMLSelectElement).value as any)"
+          >
+            <option value="recent">最近打开</option>
+            <option value="created">创建时间</option>
+            <option value="name">书名</option>
+          </select>
         </div>
         <div class="shelf-actions">
           <template v-if="!batchMode">
@@ -449,6 +469,36 @@ function openBook(name: string): void {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
+}
+/* ── 搜索 + 排序工具行（P2-PROD-6）── */
+.shelf-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-5);
+}
+.shelf-search {
+  flex: 0 1 220px;
+  padding: 6px 12px;
+  font-size: var(--font-size-m);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.shelf-search:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+.shelf-sort {
+  padding: 6px 10px;
+  font-size: var(--font-size-m);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
 }
 /* 视图切换（网格/列表）segmented control */
 .view-toggle {

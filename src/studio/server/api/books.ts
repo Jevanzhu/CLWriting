@@ -52,6 +52,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
           lastEdited: computeLastEdited(bookRoot),
           targetWords: config.book.target_words,
           latestChapter: computeLatestChapter(bookRoot),
+          createdAt: b.created_at,
         }
       } catch {
         // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）
