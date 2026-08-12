@@ -1,8 +1,10 @@
 /**
- * 协议模板——不是厂商清单（方案 §四①）。
+ * 厂商速填预设（方案 §4.6）——PRESETS 为唯一数据源，前端 AiServicePanel 消费。
  *
- * CLWriting 是分发产品，别人接他们自己的服务。模板只承担一件事：
- * 把「协议 + 认证」这对技术选择翻译成人话。它是表单预填数据，运行时不依赖。
+ * 排序（已拍板）：Chat 组 → Anthropic 组 → Responses 组（仅协议模板，无速填）。
+ * baseUrl 为速填预填值，非运行时归一化（各家 SDK 拼法不同，见 §3.3）：
+ * - openai 协议：SDK 不自拼 /v1，基址须自带版本路径
+ * - anthropic 协议：SDK 自拼 /v1/messages，基址**不能**含 /v1
  */
 import type { AuthStrategy, Protocol } from './types.js'
 
@@ -11,19 +13,85 @@ export interface ProviderPreset {
   hint: string
   protocol: Protocol
   auth: AuthStrategy
+  /** 速填预填的 baseUrl（可选，不预填则留空让用户填） */
+  baseUrl?: string
 }
 
-/**
- * OpenAI 两种线格式（用户要求标出）：
- * - Responses API（/v1/responses）——官方新格式，gpt-5 系列专用，`o` 开头模型自动走
- * - Chat Completions（/v1/chat/completions）——兼容格式，绝大多数服务（gpt-4o/DeepSeek/通义等）
- */
+/** OpenAI 两种线格式说明（用户要求标出） */
+const OPENAI_NOTE = 'Chat Completions：兼容格式，绝大多数服务 / 中转 / 自建；Responses：官方新格式，gpt-5 系列专用'
+
 export const PRESETS: ProviderPreset[] = [
+  // —— Chat Completions 组（openai 协议，bearer 认证）——
   {
-    label: 'Anthropic 官方格式',
-    hint: 'Anthropic 官方 API，或声明兼容其格式的服务',
+    label: 'DeepSeek',
+    hint: 'DeepSeek 官方 API（api.deepseek.com，无 /v1）',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://api.deepseek.com',
+  },
+  {
+    label: 'GLM 智谱',
+    hint: '智谱官方 API（GLM Coding Plan 用户请改 /api/coding/paas/v4）',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  },
+  {
+    label: 'Kimi 月之暗面',
+    hint: 'Moonshot 官方 API（国内 / 国际 Key 不通用）',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://api.moonshot.cn/v1',
+  },
+  {
+    label: 'Grok xAI',
+    hint: 'xAI 官方 API（推理模型不支持 stop / penalty）',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://api.x.ai/v1',
+  },
+  {
+    label: 'GPT OpenAI',
+    hint: 'OpenAI 官方 API（Chat Completions 格式）',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://api.openai.com/v1',
+  },
+  {
+    label: 'OpenAI 兼容通用',
+    hint: '中转 / 自建 / 其他厂商（OpenAI 兼容端点）',
+    protocol: 'openai',
+    auth: 'bearer',
+  },
+
+  // —— Anthropic 组（anthropic 协议）——
+  {
+    label: 'Claude 官方',
+    hint: 'Anthropic 官方 API（基址不含 /v1，SDK 自拼）',
     protocol: 'anthropic',
     auth: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+  },
+  {
+    label: 'DeepSeek Claude 格式',
+    hint: 'DeepSeek 的 Anthropic 兼容端点（原生参数面）',
+    protocol: 'anthropic',
+    auth: 'anthropic',
+    baseUrl: 'https://api.deepseek.com/anthropic',
+  },
+  {
+    label: 'GLM Claude 格式',
+    hint: '智谱的 Anthropic 兼容端点',
+    protocol: 'anthropic',
+    auth: 'anthropic',
+    baseUrl: 'https://open.bigmodel.cn/api/anthropic',
+  },
+  {
+    label: 'Kimi Claude 格式',
+    hint: 'Moonshot 的 Anthropic 兼容端点（Bearer / AUTH_TOKEN）',
+    protocol: 'anthropic',
+    auth: 'claudeAuth',
+    baseUrl: 'https://api.moonshot.cn/anthropic',
   },
   {
     label: 'Claude 中转 / 网关',
@@ -31,16 +99,12 @@ export const PRESETS: ProviderPreset[] = [
     protocol: 'anthropic',
     auth: 'claudeAuth',
   },
+
+  // —— Responses 组（仅协议模板，无速填）——
   {
-    label: 'OpenAI 官方格式（Responses API）',
-    hint: 'OpenAI 官方新格式，gpt-5 系列专用（api.openai.com）',
-    protocol: 'openai',
-    auth: 'bearer',
-  },
-  {
-    label: 'OpenAI 兼容格式（Chat Completions）',
-    hint: '绝大多数服务：中转 / 自建 / 厂商原生端点（DeepSeek、通义等）',
-    protocol: 'openai',
+    label: 'OpenAI Responses API',
+    hint: OPENAI_NOTE,
+    protocol: 'openai-responses',
     auth: 'bearer',
   },
 ]

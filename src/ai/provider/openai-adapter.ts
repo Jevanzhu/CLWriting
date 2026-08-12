@@ -31,9 +31,13 @@ function createClient(conf: ProviderConf): OpenAI {
   })
 }
 
-/** 归一化 baseUrl：去尾部斜杠 + 去尾部 v1（SDK 会拼 /v1/chat/completions，防 /v1/v1）。 */
+/**
+ * 归一化 baseUrl（方案 §4.5 P0）：只去尾部斜杠，**不剥 /v1**。
+ * openai SDK 不自拼 /v1，基址须自带版本路径（官方 https://api.openai.com/v1）；
+ * 剥了官方端点 404。anthropic 侧 SDK 自拼 /v1，行为不同（见 anthropic 适配器）。
+ */
 function normalizeOpenAIBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
+  return baseUrl.replace(/\/+$/, '')
 }
 
 /** 判断模型名是否为 o 系列（Responses 线格式 / 用 max_completion_tokens 而非 max_tokens） */

@@ -198,9 +198,9 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
   }
 }
 
-/** 归一化 baseUrl：去尾部斜杠 + 去尾部 v1（SDK 拼 /v1/responses，防 /v1/v1）。 */
+/** 归一化 baseUrl（方案 §4.5 P0）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
 function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
+  return baseUrl.replace(/\/+$/, '')
 }
 
 /** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
