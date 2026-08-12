@@ -92,10 +92,16 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
 
 /** 根级目录展示序（作者工作流优先：写作 → 大纲 → 设定 → 布线）。 */
 const ROOT_ORDER = ['写作', '大纲', '设定', '布线']
+/** 大纲区单例总纲：置顶展示（最高频入口，优先于目录/字母序）。 */
+const SYNOPSIS_TOP = '大纲/总纲.md'
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
- *  其余层级按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）。 */
+ *  其余层级按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）；总纲例外置顶。 */
 function compareNode(a: TreeNode, b: TreeNode): number {
+  // 总纲置顶须先于目录优先判断（总纲是文件，默认排在卷纲/章纲目录后）
+  if (a.path === SYNOPSIS_TOP || b.path === SYNOPSIS_TOP) {
+    return a.path === SYNOPSIS_TOP ? -1 : 1
+  }
   if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
   const ar = ROOT_ORDER.indexOf(a.path)
   const br = ROOT_ORDER.indexOf(b.path)

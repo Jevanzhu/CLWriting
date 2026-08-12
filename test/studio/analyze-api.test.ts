@@ -200,3 +200,14 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     expect((again.json as { styleCandidates: number }).styleCandidates).toBe(0)
   })
 })
+
+describe('POST /documents/:docId/infer-meta（AI 反推目标情绪/核心反转）', () => {
+  it('→ 200 + meta 含 目标情绪/核心反转（mock 产出）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/infer-meta`)
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; meta: { 目标情绪?: string; 核心反转?: string } }
+    expect(j.ok).toBe(true)
+    expect(j.meta.目标情绪).toBeTruthy()
+    expect(j.meta.核心反转).toBeTruthy()
+  })
+})

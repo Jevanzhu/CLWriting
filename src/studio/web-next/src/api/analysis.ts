@@ -64,6 +64,22 @@ export async function autotag(name: string, docId: string): Promise<ChapterTags>
   return r.tags
 }
 
+/** AI 推断的目标情绪/核心反转（从正文反推；不落信封；前端写 fm）。 */
+export interface InferredMeta {
+  目标情绪?: string
+  核心反转?: string
+  [k: string]: string | undefined
+}
+// POST /documents/:docId/infer-meta —— AI 读正文反推目标情绪与核心反转（不落信封；前端写 fm）。
+export async function inferMeta(name: string, docId: string): Promise<InferredMeta> {
+  const r = await apiJson<{ ok: true; meta: InferredMeta }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/infer-meta`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    60_000,
+  )
+  return r.meta
+}
+
 // ── 全书聚合趋势（T1 后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
 
 export interface ScoreTrendPoint {

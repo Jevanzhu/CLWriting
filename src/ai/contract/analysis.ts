@@ -5,7 +5,7 @@
  */
 import type { ToolDef } from '../provider/types.js'
 
-export type AnalysisKind = 'score' | 'emotion' | 'hooks' | 'style' | 'tags'
+export type AnalysisKind = 'score' | 'emotion' | 'hooks' | 'style' | 'tags' | 'infer_meta'
 
 /** 按 kind 生成分析工具定义 */
 export function submitAnalysis(kind: AnalysisKind): ToolDef {
@@ -108,6 +108,20 @@ export function submitAnalysis(kind: AnalysisKind): ToolDef {
             场景: { type: 'string', enum: ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
           },
           required: ['钩子类型', '钩子强弱', '情绪定位', '场景'],
+        },
+      }
+    case 'infer_meta':
+      // AI 读正文反推章纲元数据（目标情绪/核心反转）——手写正文后补填，长短篇通用
+      return {
+        name: 'submit_infer_meta',
+        description: '提交从正文反推的目标情绪与核心反转',
+        input_schema: {
+          type: 'object',
+          properties: {
+            目标情绪: { type: 'string', description: '本章正文在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）' },
+            核心反转: { type: 'string', description: '本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转留空字符串）' },
+          },
+          required: ['目标情绪', '核心反转'],
         },
       }
   }

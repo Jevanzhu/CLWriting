@@ -16,6 +16,7 @@ const MOCK_TOOL_INPUT: Record<string, unknown> = {
   submit_hooks: { hooks: [{ pos: '章尾', type: '悬念钩', strength: 4, note: 'mock 悬念' }], density: '中' },
   submit_style: { drift: 'mock 稳定', 口癖: ['mock 口癖'], 重复度评价: 'mock 正常', 建议: ['mock 建议'] },
   submit_tags: { 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折', 场景: '对话' },
+  submit_infer_meta: { 目标情绪: 'mock 从压抑到释然的救赎', 核心反转: 'mock 真相藏在细节里' },
   submit_issues: { issues: [{ category: 'pacing', severity: 'S3', evidence: '正文原句', issue: 'mock 问题', fix: 'mock 修复' }] },
   submit_text: { 正文: '这是 mock 改写后的正文文本，保持了原有的叙事风格。' },
   // 写稿契约（self-heal mock 快路，审查 §六 self-heal 独缺 → runTask 补齐）

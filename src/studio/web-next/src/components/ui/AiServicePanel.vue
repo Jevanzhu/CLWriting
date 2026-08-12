@@ -2,7 +2,7 @@
 // AI 服务服务商管理面板（设置页「服务商」tab 的内容）。
 // 应用级配置，跨书共享，存 userData/providers.json。
 import { ref, onMounted } from 'vue'
-import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil } from 'lucide-vue-next'
+import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil, RefreshCw } from 'lucide-vue-next'
 import {
   getProviders,
   createProvider,
@@ -41,6 +41,22 @@ const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: Tie
 const assistantEnabled = ref(false)
 const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
+const fetchingModels = ref(false)
+
+/** 手动获取模型列表（初始拉取失败时的重试入口）。 */
+async function fetchModelList(): Promise<void> {
+  if (!currentId.value || fetchingModels.value) return
+  fetchingModels.value = true
+  try {
+    const r = await fetchModels({ id: currentId.value })
+    models.value = r.models
+    ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    fetchingModels.value = false
+  }
+}
 
 // 编辑/新增表单
 const editing = ref(false)
@@ -319,8 +335,15 @@ function timeAgo(ts: number | undefined): string {
       </template>
 
       <!-- 任务档位 -->
-      <div v-if="currentId && models.length > 0" class="tier-section">
-        <div class="group-title">任务档位</div>
+      <div v-if="currentId" class="tier-section">
+        <div class="group-title">
+          任务档位
+          <button class="add-btn" :disabled="fetchingModels" @click="fetchModelList">
+            <Loader2 v-if="fetchingModels" :size="14" class="spin" />
+            <RefreshCw v-else :size="14" />
+            {{ fetchingModels ? '获取中…' : '获取模型列表' }}
+          </button>
+        </div>
         <div class="tier-card">
           <div class="tier-head">
             <span class="tier-name">创作档</span>
@@ -328,7 +351,7 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="tier-fields">
             <select v-model="tierForm.creative.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
+              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.creative.effort" class="tier-select sm">
@@ -350,7 +373,7 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
             <select v-model="tierForm.assistant.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
+              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.assistant.effort" class="tier-select sm">
@@ -372,7 +395,7 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
             <select v-model="tierForm.chat.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
+              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.chat.effort" class="tier-select sm">

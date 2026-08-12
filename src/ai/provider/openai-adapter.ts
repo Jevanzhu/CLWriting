@@ -119,8 +119,11 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   }
 
   if (req.effort) {
-    // P1-4：OpenAI 官方 reasoning_effort 仅接受 low|medium|high，xhigh 降级为 high
-    params['reasoning_effort'] = req.effort === 'xhigh' ? 'high' : req.effort
+    // P1-4：reasoning_effort 仅 o 系列模型支持；非 o 系列（gpt-4o/DeepSeek/通义等）发则 400
+    if (isOSeries(conf.model ?? '')) {
+      // OpenAI 官方 reasoning_effort 仅接受 low|medium|high，xhigh/max 降级为 high
+      params['reasoning_effort'] = req.effort === 'xhigh' || req.effort === 'max' ? 'high' : req.effort
+    }
   }
 
   if (req.stopSequences?.length) {

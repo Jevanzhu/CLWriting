@@ -107,7 +107,18 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       }
 
       try {
-        const stream = await c.messages.create(toParams(conf, req), { signal })
+        // 400 降级：output_config（effort）非标准 Messages API 字段，严格中转会 400；
+        // create 在连接阶段即抛异常（尚未 yield），可安全重试
+        let stream: AsyncIterable<Anthropic.RawMessageStreamEvent>
+        try {
+          stream = await c.messages.create(toParams(conf, req), { signal })
+        } catch (e) {
+          if (e instanceof Anthropic.APIError && e.status === 400 && req.effort) {
+            stream = await c.messages.create(toParams(conf, { ...req, effort: undefined }), { signal })
+          } else {
+            throw e
+          }
+        }
 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析

@@ -236,4 +236,77 @@ describe('OpenAI 适配器', () => {
     expect('max_completion_tokens' in (captured ?? {})).toBe(false)
     expect('max_tokens' in (captured ?? {})).toBe(false)
   })
+
+  it('非 o 系列模型不发 reasoning_effort（防 400）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            captured = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
+    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'high' })
+    expect('reasoning_effort' in (captured ?? {})).toBe(false)
+  })
+
+  it('o 系列模型发 reasoning_effort（xhigh/max 降级 high）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            captured = params as Record<string, unknown>
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'o3-mini' } as ProviderConf
+    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'xhigh' })
+    expect(captured).toMatchObject({ reasoning_effort: 'high' })
+  })
+})
+
+describe('Anthropic 适配器 400 降级', () => {
+  it('output_config 400 → 去 effort 重试成功', async () => {
+    let callCount = 0
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          callCount++
+          // 第一次含 output_config → 模拟 400
+          if ('output_config' in (params as Record<string, unknown>)) {
+            throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
+          }
+          // 第二次不含 → 正常返回
+          return (async function* () {
+            yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+            yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } }
+            yield { type: 'content_block_stop', index: 0 }
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), { ...REQ, effort: 'high' })
+    expect(callCount).toBe(2) // 第一次 400 → 第二次降级成功
+    expect(evs.some((e) => e.type === 'text')).toBe(true)
+    expect(evs.some((e) => e.type === 'done')).toBe(true)
+  })
+
+  it('非 effort 相关的 400 不降级（直接报错）', async () => {
+    const err = new Anthropic.APIError(400, { type: 'error', message: 'invalid model' }, 'invalid model', undefined)
+    const client = { messages: { create: () => Promise.reject(err) } } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    expect(evs[0]).toMatchObject({ type: 'error', retryable: false })
+  })
 })

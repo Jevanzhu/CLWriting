@@ -184,6 +184,51 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     },
   )
 
+  // AI 推断目标情绪/核心反转：generateTool(submit_infer_meta) → 结构化返回（不落信封；前端写 fm）。
+  // 与 autotag 同构——读正文 → AI 反推 → 返回；长短篇通用（正文 fm 均有这两字段）。
+  route(
+    'POST',
+    '/api/books/:name/documents/:docId/infer-meta',
+    async (_req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const docId = params['docId'] ?? ''
+      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
+      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+
+      const draft = readDraft(absPath)
+      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+      const { body, chapter } = draft
+
+      const prompt = [
+        '[kind:infer_meta]',
+        '',
+        `## 任务\n对第 ${chapter.章号} 章正文做目标情绪与核心反转识别，只读不改稿。`,
+        '- 目标情绪：本章正文最终在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
+        '- 核心反转：本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转的章留空字符串）',
+        '',
+        `## 正文\n${body}`,
+      ].join('\n')
+
+      const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot)
+      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
+
+      const meta: Record<string, string> = {}
+      const emotion = String(payload.目标情绪 ?? '').trim()
+      const reversal = String(payload.核心反转 ?? '').trim()
+      if (emotion) meta.目标情绪 = emotion
+      if (reversal) meta.核心反转 = reversal
+      reply(res, 200, { ok: true, meta })
+    },
+  )
+
   // ── 全书聚合趋势：遍历 分析/<docId>.json 拼趋势序列（无 AI 依赖）──
   route(
     'GET',
