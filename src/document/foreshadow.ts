@@ -198,7 +198,11 @@ const SNIPPET_RADIUS = 15
 /**
  * 扫描全书伏笔足迹（本地 grep，零 AI）。
  *
- * 流程：收集全部章节正文 → 对每伏笔的关联词逐章 indexOf → 汇总命中 → 算风险。
+ * 性能（P2-BE-4）：预建倒排索引——收集全部唯一关键词后，
+ * 对每章正文用联合正则一次扫完（每章只扫一遍，不再逐伏笔 × 逐关键词 indexOf）。
+ * 大书（200 章 × 50 伏笔）耗时从 10M 级字符扫描降到 ≈ 全书总字数。
+ *
+ * 流程：收集全部章节正文 → 倒排索引（关键词 → 章号 → 位置[]）→ 逐伏笔查表聚合 → 算风险。
  * 已回收/已废弃的伏笔跳过扫描（风险恒绿）。
  *
  * @param bookRoot 书仓库根
@@ -211,6 +215,9 @@ export function scanForeshadowTrails(
 ): Map<string, ForeshadowTrail> {
   const chapters = collectChapterTexts(bookRoot)
   const latestChapter = chapters.size > 0 ? Math.max(...chapters.keys()) : 0
+
+  // 倒排索引：keyword → Map<章号, 位置[]>
+  const index = buildKeywordIndex(chapters, foreshadows)
 
   const result = new Map<string, ForeshadowTrail>()
   for (const f of foreshadows) {
@@ -228,14 +235,15 @@ export function scanForeshadowTrails(
 
     const keywords = f.关联词.length > 0 ? f.关联词 : [f.标题]
     const hits: ForeshadowHit[] = []
-    for (const [章号, text] of chapters) {
-      for (const kw of keywords) {
-        if (!kw) continue
-        const idx = text.indexOf(kw)
-        if (idx !== -1) {
+    for (const kw of keywords) {
+      if (!kw) continue
+      const byChapter = index.get(kw)
+      if (!byChapter) continue
+      for (const [章号, positions] of byChapter) {
+        for (const idx of positions) {
           const start = Math.max(0, idx - SNIPPET_RADIUS)
-          const end = Math.min(text.length, idx + kw.length + SNIPPET_RADIUS)
-          hits.push({ 章号, 命中词: kw, 命中片段: text.slice(start, end) })
+          const end = Math.min(chapters.get(章号)!.length, idx + kw.length + SNIPPET_RADIUS)
+          hits.push({ 章号, 命中词: kw, 命中片段: chapters.get(章号)!.slice(start, end) })
         }
       }
     }
@@ -254,6 +262,58 @@ export function scanForeshadowTrails(
     result.set(f.标题, { hits, firstHit, lastHit, staleSpan, risk })
   }
   return result
+}
+
+/**
+ * 构建关键词倒排索引（P2-BE-4）：
+ * keyword → Map<章号, 位置[]>。
+ *
+ * 每章正文用联合正则一次扫描，命中全部关键词的位置；
+ * 关键词做转义防正则元字符（如「祖父遗物（上）」）。
+ */
+function buildKeywordIndex(
+  chapters: Map<number, string>,
+  foreshadows: ForeshadowEntry[],
+): Map<string, Map<number, number[]>> {
+  const index = new Map<string, Map<number, number[]>>()
+  const keywords = new Set<string>()
+
+  // 收集全部待扫关键词（去重）
+  for (const f of foreshadows) {
+    if (f.状态 === '已回收' || f.状态 === '已废弃') continue
+    const kws = f.关联词.length > 0 ? f.关联词 : [f.标题]
+    for (const kw of kws) if (kw) keywords.add(kw)
+  }
+  if (keywords.size === 0) return index
+
+  // 联合正则：`kw1|kw2|...`，一次扫描提取全部命中
+  const re = new RegExp([...keywords].map(escapeRegExp).join('|'), 'g')
+  for (const [章号, text] of chapters) {
+    if (text.length === 0) continue
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const kw = m[0]
+      let byChapter = index.get(kw)
+      if (!byChapter) {
+        byChapter = new Map()
+        index.set(kw, byChapter)
+      }
+      let positions = byChapter.get(章号)
+      if (!positions) {
+        positions = []
+        byChapter.set(章号, positions)
+      }
+      positions.push(m.index)
+      if (m[0].length === 0) re.lastIndex++ // 防零宽匹配死循环（理论不会，防御）
+    }
+  }
+  return index
+}
+
+/** 正则元字符转义（关联词可能含「（）」「.」等） */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ── 章节正文收集 ─────────────────────────────────
