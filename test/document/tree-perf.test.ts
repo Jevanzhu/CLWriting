@@ -91,12 +91,15 @@ describe('tree 大书性能（§9.3）', () => {
 
   it('缓存命中：二次 getBookTreeIndex 近瞬时（§9.1 缓存生效）', () => {
     invalidateTreeIndex(root)
+    const tBuild0 = performance.now()
     getBookTreeIndex(root) // 首次构建 + 入缓存
+    const buildDt = performance.now() - tBuild0
     const t0 = performance.now()
     getBookTreeIndex(root) // 命中
     const dt = performance.now() - t0
     // eslint-disable-next-line no-console
-    console.log(`  缓存命中: ${dt.toFixed(3)}ms`)
-    expect(dt).toBeLessThan(5)
+    console.log(`  缓存命中: ${dt.toFixed(3)}ms (构建 ${buildDt.toFixed(1)}ms)`)
+    // 相对断言：命中耗时 < 构建耗时的 1%（不受机器/CI 快慢影响）
+    expect(dt).toBeLessThan(Math.max(0.1, buildDt * 0.01))
   })
 })
