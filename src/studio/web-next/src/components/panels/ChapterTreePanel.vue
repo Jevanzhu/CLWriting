@@ -373,7 +373,8 @@ function onMenuSelect(key: string): void {
   else if (key === 'meta') {
     const isPiece = node.role === 'piece-body'
     // 短篇/长篇均从文件名提取编号+标题（短篇 写作/正文/N-标题.md，长篇 写作/正文/[卷/]N-标题.md）
-    const m = parseChapterFileName(node.path)
+    // 注意：TreeNode.path 是完整相对路径（写作/正文/N-标题.md），章号只能从 name 提取（与 pendingChaptersUpTo 一致）
+    const m = parseChapterFileName(node.name)
     metaEditing.value = {
       docId: node.docId ?? '',
       标题: m?.标题 ?? node.name,
@@ -636,7 +637,8 @@ async function onDrop(targetPath: string): Promise<void> {
 // --- 复制（E3.3：新章号 + 「副本」标题；后端复制内容到新 path）---
 async function doCopy(node: TreeNode): Promise<void> {
   if (!node.docId) return
-  const parsed = parseChapterFileName(node.path)
+  // 同 meta：章号/标题从 name 提取（path 是完整相对路径）
+  const parsed = parseChapterFileName(node.name)
   const title = parsed?.标题 ?? node.name
   const no = String(nextChapterNo()).padStart(4, '0')
   const relPath = `写作/正文/${no}-${title} 副本.md`
