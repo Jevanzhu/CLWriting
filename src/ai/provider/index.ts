@@ -52,4 +52,5 @@ export {
 } from './vault.js'
 export { createProvider, probeCapabilities, probeModelCaps } from './probe.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
-export { createOpenAIProvider } from './openai-adapter.js'
+export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
+export { createOpenAIResponsesProvider } from './responses-adapter.js'

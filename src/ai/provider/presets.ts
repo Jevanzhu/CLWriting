@@ -13,6 +13,11 @@ export interface ProviderPreset {
   auth: AuthStrategy
 }
 
+/**
+ * OpenAI 两种线格式（用户要求标出）：
+ * - Responses API（/v1/responses）——官方新格式，gpt-5 系列专用，`o` 开头模型自动走
+ * - Chat Completions（/v1/chat/completions）——兼容格式，绝大多数服务（gpt-4o/DeepSeek/通义等）
+ */
 export const PRESETS: ProviderPreset[] = [
   {
     label: 'Anthropic 官方格式',
@@ -27,8 +32,14 @@ export const PRESETS: ProviderPreset[] = [
     auth: 'claudeAuth',
   },
   {
-    label: 'OpenAI 兼容格式',
-    hint: '绝大多数服务属于此类：厂商原生端点、中继、自建',
+    label: 'OpenAI 官方格式（Responses API）',
+    hint: 'OpenAI 官方新格式，gpt-5 系列专用（api.openai.com）',
+    protocol: 'openai',
+    auth: 'bearer',
+  },
+  {
+    label: 'OpenAI 兼容格式（Chat Completions）',
+    hint: '绝大多数服务：中转 / 自建 / 厂商原生端点（DeepSeek、通义等）',
     protocol: 'openai',
     auth: 'bearer',
   },

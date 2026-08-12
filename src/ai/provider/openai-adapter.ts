@@ -23,17 +23,34 @@ import type {
 } from './types.js'
 import { redactSecret } from './redact.js'
 
-/** 创建 OpenAI 客户端 */
+/** 创建 OpenAI 客户端（baseUrl 归一化，防 /v1 重复） */
 function createClient(conf: ProviderConf): OpenAI {
   return new OpenAI({
     apiKey: conf.apiKey,
-    baseURL: conf.baseUrl,
+    baseURL: normalizeOpenAIBaseUrl(conf.baseUrl),
   })
 }
 
-/** 判断模型名是否为 o 系列（用 max_completion_tokens 而非 max_tokens） */
+/** 归一化 baseUrl：去尾部斜杠 + 去尾部 v1（SDK 会拼 /v1/chat/completions，防 /v1/v1）。 */
+function normalizeOpenAIBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
+}
+
+/** 判断模型名是否为 o 系列（Responses 线格式 / 用 max_completion_tokens 而非 max_tokens） */
 function isOSeries(model: string): boolean {
   return /^o\d/.test(model)
+}
+
+/**
+ * OpenAI Chat Completions 适配器（/v1/chat/completions）。
+ *
+ * 线格式选择由 UI 的 Protocol 值决定（openai = Chat Completions，
+ * openai-responses = Responses API），不再靠 model 名自动猜测。
+ *
+ * isOSeries 仍保留用于 max_tokens 参数名（o 系列 → max_completion_tokens）。
+ */
+export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
+  return createOpenAIProviderChat(conf, client, modelCaps)
 }
 
 /**
@@ -147,7 +164,7 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
-export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
+export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {

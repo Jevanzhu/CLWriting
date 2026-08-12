@@ -21,14 +21,40 @@ import type {
 } from './types.js'
 import { redactSecret } from './redact.js'
 
-/** 创建 Anthropic 客户端（同时带 x-api-key + Bearer，官方与中转通吃） */
+/**
+ * 创建 Anthropic 客户端——按 auth 策略发对应认证 header（官方与中转分开）。
+ *
+ * 之前无条件同时发 x-api-key + Bearer，严格网关看到多余认证头会 400。
+ * auth 策略（types.ts）：
+ * - anthropic   → 只发 x-api-key + anthropic-version（官方格式）
+ * - claudeAuth  → 只发 Authorization: Bearer（Claude 中转 / 网关）
+ * - bearer      → 同 claudeAuth（anthropic 协议下的 Bearer 中转）
+ */
 function createClient(conf: ProviderConf): Anthropic {
-  return new Anthropic({
-    baseURL: conf.baseUrl,
-    apiKey: conf.apiKey,
-    // 中转网关只认 Authorization: Bearer，官方端点只认 x-api-key——同时发，两边兼容
-    defaultHeaders: { Authorization: `Bearer ${conf.apiKey}` },
-  })
+  const auth = conf.auth ?? 'anthropic'
+  const base: ConstructorParameters<typeof Anthropic>[0] = {
+    baseURL: normalizeAnthropicBaseUrl(conf.baseUrl),
+  }
+  if (auth === 'anthropic') {
+    base.apiKey = conf.apiKey
+    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
+  } else {
+    // claudeAuth / bearer：只带 Authorization: Bearer，不触发 x-api-key 校验
+    base.apiKey = 'sk-ant-dummy'
+    base.defaultHeaders = { Authorization: `Bearer ${conf.apiKey}`, 'anthropic-version': '2023-06-01' }
+  }
+  return new Anthropic(base)
+}
+
+/**
+ * baseUrl 归一化——存的是「用户直觉地址」，请求时按 SDK 拼接习惯去重。
+ * Anthropic SDK 固定请求 {baseURL}/v1/messages：
+ * - https://api.anthropic.com        → 原样（SDK 拼 /v1/messages）
+ * - https://api.anthropic.com/v1     → 去掉尾部 v1，防 /v1/v1/messages
+ * - https://gw.example.com/xxx/v1    → 去掉尾部 v1
+ */
+function normalizeAnthropicBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
 }
 
 /** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值（P1-5：128000 对旧模型 400） */

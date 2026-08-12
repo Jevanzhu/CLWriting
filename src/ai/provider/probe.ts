@@ -7,7 +7,8 @@
  */
 import type { ProviderConf, ProviderCaps, ModelCaps, ProbeResult, ModelProbeResult, ModelProvider } from './types.js'
 import { createAnthropicProvider } from './anthropic-adapter.js'
-import { createOpenAIProvider } from './openai-adapter.js'
+import { createOpenAIProviderChat } from './openai-adapter.js'
+import { createOpenAIResponsesProvider } from './responses-adapter.js'
 import { listModels } from './models.js'
 import { redactSecret } from './redact.js'
 
@@ -24,11 +25,13 @@ const TOY_TOOL = {
   },
 }
 
-/** 按 ProviderConf 创建适配器（modelCaps 注入模型级能力，供 generateTool 读取） */
+/** 按 ProviderConf.protocol 创建适配器（modelCaps 注入模型级能力，供 generateTool 读取） */
 export function createProvider(conf: ProviderConf, modelCaps?: ModelCaps | null): ModelProvider {
-  return conf.protocol === 'anthropic'
-    ? createAnthropicProvider(conf, undefined, modelCaps)
-    : createOpenAIProvider(conf, undefined, modelCaps)
+  switch (conf.protocol) {
+    case 'anthropic': return createAnthropicProvider(conf, undefined, modelCaps)
+    case 'openai-responses': return createOpenAIResponsesProvider(conf, undefined, modelCaps)
+    default: return createOpenAIProviderChat(conf, undefined, modelCaps)
+  }
 }
 
 /**

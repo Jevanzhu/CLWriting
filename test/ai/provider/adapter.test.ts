@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProvider, createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -218,7 +219,7 @@ describe('OpenAI 适配器', () => {
     if (first && first.type === 'error') expect(first.message).toContain('OpenAI API 500')
   })
 
-  it('不发 max_tokens（让模型用默认值）', async () => {
+  it('Chat Completions 不发 max_tokens（让模型用默认值）', async () => {
     let captured: Record<string, unknown> | null = null
     const client = {
       chat: {
@@ -230,9 +231,9 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const conf = { ...CONF, model: 'o4-mini' } as ProviderConf
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
     await collect(createOpenAIProvider(conf, client), REQ)
-    expect(captured).toMatchObject({ model: 'o4-mini' })
+    expect(captured).toMatchObject({ model: 'gpt-4o' })
     expect('max_completion_tokens' in (captured ?? {})).toBe(false)
     expect('max_tokens' in (captured ?? {})).toBe(false)
   })
@@ -256,23 +257,20 @@ describe('OpenAI 适配器', () => {
     expect('reasoning_effort' in (captured ?? {})).toBe(false)
   })
 
-  it('o 系列模型发 reasoning_effort（xhigh/max 降级 high）', async () => {
+  it('o 系列模型 → Responses 线格式（input 数组 + max_output_tokens）', async () => {
     let captured: Record<string, unknown> | null = null
     const client = {
-      chat: {
-        completions: {
-          create: async (params: unknown) => {
-            captured = params as Record<string, unknown>
-            return (async function* () {
-              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
-            })()
-          },
+      responses: {
+        create: async (params: unknown) => {
+          captured = params as Record<string, unknown>
+          return (async function* () {})()
         },
       },
     } as unknown as OpenAI
-    const conf = { ...CONF, protocol: 'openai' as const, model: 'o3-mini' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'xhigh' })
-    expect(captured).toMatchObject({ reasoning_effort: 'high' })
+    const conf = { ...CONF, protocol: 'openai-responses' as const, model: 'o3-mini' } as ProviderConf
+    await collect(createOpenAIResponsesProvider(conf, client), { ...REQ, maxTokens: 100 })
+    expect(captured).toMatchObject({ model: 'o3-mini', max_output_tokens: 100 })
+    expect('max_tokens' in (captured ?? {})).toBe(false)
   })
 })
 
@@ -308,5 +306,132 @@ describe('Anthropic 适配器 400 降级', () => {
     const client = { messages: { create: () => Promise.reject(err) } } as unknown as Anthropic
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)
     expect(evs[0]).toMatchObject({ type: 'error', retryable: false })
+  })
+})
+describe('OpenAI Responses 适配器', () => {
+  const O_CONF = { ...CONF, protocol: 'openai' as const, model: 'o3-mini' } as ProviderConf
+
+  it('output_text.delta → text 事件；response.completed usage → done', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.output_text.delta', delta: '你' },
+          { type: 'response.output_text.delta', delta: '好' },
+          {
+            type: 'response.completed',
+            response: { status: 'completed', usage: { input_tokens: 5, output_tokens: 2 }, output_text: '你好' },
+          },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(O_CONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'text')).toEqual([
+      { type: 'text', delta: '你' },
+      { type: 'text', delta: '好' },
+    ])
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 5, outputTokens: 2 }, stopReason: 'stop' })
+  })
+
+  it('function_call_arguments 增量 + output_item.done → tool 事件（完整 JSON）', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"标题":' },
+          { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '"x","正文":"y"}' },
+          {
+            type: 'response.output_item.done',
+            item: { id: 'fc_1', type: 'function_call', call_id: 'call_1', name: 'submit_chapter', arguments: '' },
+          },
+          { type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } } },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(O_CONF, client), REQ)
+    const tool = evs.find((e) => e.type === 'tool')
+    expect(tool).toMatchObject({ type: 'tool', id: 'call_1', name: 'submit_chapter', input: { 标题: 'x', 正文: 'y' } })
+  })
+
+  it('response.incomplete（max_output_tokens）→ done stopReason=max_tokens', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.output_text.delta', delta: '截断' },
+          {
+            type: 'response.incomplete',
+            response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, usage: { input_tokens: 1, output_tokens: 500 } },
+          },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(O_CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', stopReason: 'max_tokens' })
+  })
+
+  it('text.format 400 → 去 structured 重试成功', async () => {
+    let callCount = 0
+    const client = {
+      responses: {
+        create: async (params: unknown) => {
+          callCount++
+          const p = params as Record<string, unknown>
+          if (p['text'] && (p['text'] as Record<string, unknown>)['format']) {
+            throw new OpenAI.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
+          }
+          return (async function* () {
+            yield { type: 'response.output_text.delta', delta: 'ok' }
+            yield { type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } } }
+          })()
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(O_CONF, client), { ...REQ, structured: { schema: { type: 'object' } } })
+    expect(callCount).toBe(2)
+    expect(evs.some((e) => e.type === 'text')).toBe(true)
+    expect(evs.some((e) => e.type === 'done')).toBe(true)
+  })
+
+  it('非 400 错误不降级（直接报错）', async () => {
+    const err = new OpenAI.APIError(500, { type: 'error', message: 'server error' }, 'server error', undefined)
+    const client = { responses: { create: () => Promise.reject(err) } } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(O_CONF, client), { ...REQ, structured: { schema: { type: 'object' } } })
+    expect(evs[0]).toMatchObject({ type: 'error', retryable: true })
+  })
+})
+
+describe('OpenAI 适配器线格式分派（按 protocol）', () => {
+  it('openai-responses 协议 → responses.create（Responses API）', async () => {
+    let responsesCalled = false
+    const client = {
+      responses: {
+        create: async () => {
+          responsesCalled = true
+          return (async function* () {})()
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai-responses' as const, model: 'o3-mini' } as ProviderConf
+    await collect(createOpenAIResponsesProvider(conf, client), REQ)
+    expect(responsesCalled).toBe(true)
+  })
+
+  it('openai 协议 → chat.completions.create（Chat Completions）', async () => {
+    let chatCalled = false
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            chatCalled = true
+            return (async function* () {
+              yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
+    await collect(createOpenAIProviderChat(conf, client), REQ)
+    expect(chatCalled).toBe(true)
   })
 })

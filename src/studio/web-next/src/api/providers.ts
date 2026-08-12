@@ -2,7 +2,7 @@ import { apiJson } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
-export type Protocol = 'anthropic' | 'openai'
+export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 
 /** 服务级能力（连通/认证/流式）——供应商「测试连接」探测所得 */
@@ -69,6 +69,7 @@ export async function fetchModels(body: { protocol: Protocol; baseUrl: string; a
 export async function createProvider(body: {
   name: string
   protocol: Protocol
+  auth?: AuthStrategy
   baseUrl: string
   apiKey: string
 }): Promise<{ provider: ProviderConfDto }> {
@@ -81,7 +82,7 @@ export async function createProvider(body: {
 
 export async function updateProvider(
   id: string,
-  body: { name: string; protocol: Protocol; baseUrl: string; apiKey: string },
+  body: { name: string; protocol: Protocol; auth?: AuthStrategy; baseUrl: string; apiKey: string },
 ): Promise<{ provider: ProviderConfDto }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',

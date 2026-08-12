@@ -16,6 +16,7 @@ import {
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
+  type AuthStrategy,
   type TestResult,
   type TierSlot,
 } from '../../api/providers'
@@ -64,13 +65,15 @@ const editId = ref<string | null>(null)
 const form = ref({
   name: '',
   protocol: 'openai' as Protocol,
+  auth: 'bearer' as AuthStrategy,
   baseUrl: '',
   apiKey: '',
 })
 
-const PROTOCOL_OPTIONS: { value: Protocol; label: string; hint: string }[] = [
-  { value: 'anthropic', label: 'Anthropic', hint: 'Anthropic API 格式' },
-  { value: 'openai', label: 'OpenAI', hint: 'OpenAI API 格式' },
+const PROTOCOL_OPTIONS: { value: Protocol; label: string; hint: string; auth: AuthStrategy }[] = [
+  { value: 'anthropic', label: 'Anthropic', hint: 'Claude 系列（官方 / 中转 / 网关）', auth: 'anthropic' },
+  { value: 'openai-responses', label: 'OpenAI Responses', hint: 'gpt-5 系列官方新格式', auth: 'bearer' },
+  { value: 'openai', label: 'OpenAI Chat Completions', hint: 'GPT / DeepSeek / 通义等兼容格式', auth: 'bearer' },
 ]
 
 async function refresh(): Promise<void> {
@@ -105,13 +108,14 @@ onMounted(refresh)
 function startAdd(): void {
   editing.value = true
   editId.value = null
-  form.value = { name: '', protocol: 'openai', baseUrl: '', apiKey: '' }
+  form.value = { name: '', protocol: 'openai', auth: 'bearer', baseUrl: '', apiKey: '' }
 }
 
 function startEdit(p: ProviderConfDto): void {
   editing.value = true
   editId.value = p.id
-  form.value = { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, apiKey: '' }
+  // 旧配置可能无 auth → 按协议推断（anthropic 官方 / openai bearer）
+  form.value = { name: p.name, protocol: p.protocol, auth: p.auth ?? (p.protocol === 'anthropic' ? 'anthropic' : 'bearer'), baseUrl: p.baseUrl, apiKey: '' }
 }
 
 function cancelEdit(): void {
@@ -119,14 +123,16 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-function selectPreset(protocol: Protocol): void {
-  form.value.protocol = protocol
+function selectPreset(p: { value: Protocol; auth: AuthStrategy }): void {
+  form.value.protocol = p.value
+  form.value.auth = p.auth
 }
 
 /** 空状态快捷填充：官方 API 预设（打开新增表单并预填常见地址） */
 function quickFill(protocol: Protocol): void {
   startAdd()
   form.value.protocol = protocol
+  form.value.auth = protocol === 'anthropic' ? 'anthropic' : 'bearer'
   form.value.baseUrl = protocol === 'anthropic'
     ? 'https://api.anthropic.com'
     : 'https://api.openai.com/v1'
@@ -426,7 +432,7 @@ function timeAgo(ts: number | undefined): string {
               :key="i"
               class="preset-btn"
               :class="{ on: form.protocol === opt.value }"
-              @click="selectPreset(opt.value)"
+              @click="selectPreset(opt)"
             >
               <span class="preset-label">{{ opt.label }}</span>
               <span class="preset-hint">{{ opt.hint }}</span>

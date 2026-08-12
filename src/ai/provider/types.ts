@@ -5,8 +5,9 @@
  * GenRequest 极简——只含两种协议都稳定支持的参数。
  */
 
-/** 协议类型——决定走哪种 SDK / 线格式 */
-export type Protocol = 'anthropic' | 'openai'
+/** 协议类型——决定走哪种 SDK / 线格式
+ *  openai = Chat Completions（/v1/chat/completions），openai-responses = Responses API（/v1/responses） */
+export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 
 /**
  * 认证策略——与协议正交的独立维度。
@@ -93,6 +94,12 @@ export interface GenRequest {
   stopSequences?: string[]
   /** 推理等级——适配器翻译为对应协议线格式 */
   effort?: EffortLevel
+  /**
+   * 结构化输出（JSON Schema 驱动）——适配器翻译为对应协议线格式：
+   * Anthropic → output_format.json_schema；OpenAI Responses → text.format；
+   * OpenAI Chat Completions → response_format。非 400 兼容端点自动降级。
+   */
+  structured?: { schema: Record<string, unknown> }
 }
 
 export interface ChatMsg {

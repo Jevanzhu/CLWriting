@@ -341,9 +341,15 @@ function parseProviderInput(
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
   const protocol = String(body['protocol'] ?? '') as Protocol
-  if (protocol !== 'anthropic' && protocol !== 'openai') return { ok: false, error: 'protocol 需为 anthropic 或 openai' }
-  // auth 由 protocol 自动推断（UI 已简化为 2 种 API 格式，不再暴露 auth 选择）
-  const auth: AuthStrategy = protocol === 'anthropic' ? 'anthropic' : 'bearer'
+  if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
+    return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
+  }
+  // auth 从 body 读（UI 已暴露 3 种认证方式）；缺省回落协议推断（兼容旧配置）
+  const authRaw = String(body['auth'] ?? '')
+  const auth: AuthStrategy =
+    authRaw === 'anthropic' || authRaw === 'claudeAuth' || authRaw === 'bearer'
+      ? authRaw
+      : protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
   const apiKey = String(body['apiKey'] ?? '').trim()
