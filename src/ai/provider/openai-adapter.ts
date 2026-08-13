@@ -112,7 +112,7 @@ function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
 /** GenRequest → OpenAI ChatCompletionCreateParamsStreaming */
 function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
   const messages: Record<string, unknown>[] = []
-  // system prompt 作为 developer 消息（OpenAI 新约定）
+  // P3-Q7：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
   if (req.systemPrompt) {
     messages.push({ role: 'system', content: req.systemPrompt })
   }
@@ -280,6 +280,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
               // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
               if (choice.finish_reason) {
                 // 所有 tool_calls 已拼完 → 发出
+                let toolIdx = 0
                 for (const [, acc] of toolAccum) {
                   // P1-AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
                   if (acc.name) {
@@ -293,7 +294,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
                     } else {
                       input = {}
                     }
-                    yield { type: 'tool', id: acc.id, name: acc.name, input }
+                    // P3-Q5：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
+                    const id = acc.id || `call_${toolIdx}`
+                    yield { type: 'tool', id, name: acc.name, input }
+                    toolIdx++
                   }
                 }
                 toolAccum.clear()
@@ -337,6 +341,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
 
 /** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
 function toErrorEvent(e: unknown): GenEvent {
+  // P3-Q6：APIUserAbortError extends APIError（status undefined），须在 APIError 分支前判定，
+  // 否则用户中断被误报「OpenAI API undefined: Request was aborted」
+  if (e instanceof OpenAI.APIUserAbortError) {
+    return { type: 'error', message: '已中断', retryable: false }
+  }
   if (e instanceof OpenAI.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
     return { type: 'error', message: redactSecret(`OpenAI API ${e.status}: ${e.message}`), retryable }

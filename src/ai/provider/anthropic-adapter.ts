@@ -247,6 +247,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
 
 /** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
 function toErrorEvent(e: unknown): GenEvent {
+  // P3-Q6：APIUserAbortError extends APIError（status undefined），须在 APIError 分支前判定
+  if (e instanceof Anthropic.APIUserAbortError) {
+    return { type: 'error', message: '已中断', retryable: false }
+  }
   if (e instanceof Anthropic.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
     return { type: 'error', message: redactSecret(`Anthropic API ${e.status}: ${e.message}`), retryable }

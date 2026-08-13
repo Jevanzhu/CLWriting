@@ -5,7 +5,7 @@
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
 import { rmSync } from 'node:fs'
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../src/ai/orchestrate/chat.js'
@@ -365,5 +365,35 @@ describe('W2: max_tokens 截断保护', () => {
     expect(chatError(events)).toContain('截断')
     // 不应有工具事件
     expect(events.some((e) => e.type === 'chat_tool')).toBe(false)
+  })
+})
+
+// ─── Q1 锁泄漏回归（review-q P1-Q1）─────────────────
+
+describe('Q1: runChat 并发锁不泄漏', () => {
+  it('buildChatContext 抛异常 → 锁释放，后续对话不 409', async () => {
+    // mock buildChatContext 抛读盘异常（Q1 复现路径：readCharacterCards 降级 readFileSync 抛）
+    const mock = vi.spyOn(await import('../../src/ai/prompts/chat.js'), 'buildChatContext')
+    mock.mockImplementation(() => { throw new Error('模拟读盘异常') })
+
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await expect(
+      runChat({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'testQ1',
+        message: '测试锁释放',
+      }),
+    ).rejects.toThrow('模拟读盘异常')
+
+    // 锁必须已释放——否则后续对话 409「本书正在对话中」
+    expect(isChatRunning('testQ1')).toBe(false)
+
+    mock.mockRestore()
   })
 })

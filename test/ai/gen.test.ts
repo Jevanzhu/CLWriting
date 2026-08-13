@@ -214,6 +214,27 @@ describe('B-2 首字节超时', () => {
     await expect(iter.next()).rejects.toThrow('响应超时')
     expect(returnCalled).toBe(true)
   })
+
+  // Q2（review-q P1-Q2）：挂死流（next() 永不结算）超时后，return() 不得阻塞——
+  // 旧实现 `await it.return?.()` 会排队等挂起 next() 结算 → 60s 快速失败退化成死等
+  it('挂死流超时后立即抛错，不等待 return() 结算', async () => {
+    let returnCalled = false
+    const hung: AsyncIterable<GenEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          // next() 永不结算——模拟「服务器接受连接但不发数据」的半死场景
+          next: () => new Promise<IteratorResult<GenEvent>>(() => {}),
+          return: () => { returnCalled = true; return new Promise<IteratorResult<GenEvent>>(() => {}) },
+        }
+      },
+    }
+    const iter = withFirstByteTimeout(hung, 10)
+    const start = Date.now()
+    await expect(iter.next()).rejects.toThrow('响应超时')
+    // 超时应立即抛错（<1s），而不是等 return() 结算
+    expect(Date.now() - start).toBeLessThan(1000)
+    expect(returnCalled).toBe(true) // void 调用仍触发了 return()
+  })
 })
 
 describe('B-3 stopReason 传递', () => {
