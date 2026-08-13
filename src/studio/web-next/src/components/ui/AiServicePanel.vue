@@ -645,8 +645,8 @@ function timeAgo(ts: number | undefined): string {
 .probe-inline {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-right: 2px;
+  gap: 4px; /* 与 provider-actions 按钮间距同步 */
+  margin-right: 0;
 }
 .probe-hint {
   font-size: var(--font-size-s);
