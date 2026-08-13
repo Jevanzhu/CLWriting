@@ -17,8 +17,8 @@ export interface ProviderPreset {
   baseUrl?: string
 }
 
-/** OpenAI 两种线格式说明（用户要求标出） */
-const OPENAI_NOTE = 'Chat Completions：兼容格式，绝大多数服务 / 中转 / 自建；Responses：官方新格式，gpt-5 系列专用'
+/** OpenAI 两种线格式说明（用户要求标出）——Responses 预设暂缓，注释待启用 */
+// const OPENAI_NOTE = 'Chat Completions：兼容格式，绝大多数服务 / 中转 / 自建；Responses：官方新格式，gpt-5 系列专用'
 
 export const PRESETS: ProviderPreset[] = [
   // —— Chat Completions 组（openai 协议，bearer 认证）——
@@ -100,11 +100,13 @@ export const PRESETS: ProviderPreset[] = [
     auth: 'claudeAuth',
   },
 
-  // —— Responses 组（仅协议模板，无速填）——
-  {
-    label: 'OpenAI Responses API',
-    hint: OPENAI_NOTE,
-    protocol: 'openai-responses',
-    auth: 'bearer',
-  },
+  // —— Responses 组 ——
+  // Responses 协议暂缓（决策 4）：探测链已知缺陷未补全，入口隐藏防误用。
+  // 启用时机到了放开此条即可。
+  // {
+  //   label: 'OpenAI Responses API',
+  //   hint: OPENAI_NOTE,
+  //   protocol: 'openai-responses',
+  //   auth: 'bearer',
+  // },
 ]

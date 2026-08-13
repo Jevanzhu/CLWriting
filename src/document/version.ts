@@ -99,6 +99,8 @@ export function writeVersion(
   const policy = options.policy ?? DEFAULT_VERSION_POLICY
   // 默认 force=true（兼容旧快照调用方行为——编辑器保存每次都留底；需节流的调用方显式传 force:false）
   const force = options.force ?? true
+  // docId 防穿越（与 listVersions/readVersion 一致，write 路径也需校验）
+  if (!safeDocId(docId)) return null
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]
 

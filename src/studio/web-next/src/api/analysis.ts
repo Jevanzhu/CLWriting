@@ -130,6 +130,7 @@ export async function runStyleAnalysis(
   const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
     `/api/books/${encodeURIComponent(name)}/analyze-style`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    120_000, // AI 文风分析超时 2 分钟
   )
   return { envelope: r.envelope, styleCandidates: r.styleCandidates ?? 0 }
 }

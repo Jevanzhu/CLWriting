@@ -73,7 +73,7 @@ export async function onboardAi(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, 180_000) // AI 开书对话超时 3 分钟
 }
 
 // POST /onboard-save {step, content}（作者预览改后落盘）

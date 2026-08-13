@@ -88,7 +88,7 @@ export interface RelationGraph {
   nodeCount: Ref<number>
   edgeCount: Ref<number>
   debtCount: Ref<number>
-  activeLegend: Ref<typeof LEGEND>
+  activeLegend: Ref<Array<(typeof LEGEND)[number]>>
   // 交互
   svgRef: Ref<SVGSVGElement | null>
   bindSvg: (el: unknown) => void

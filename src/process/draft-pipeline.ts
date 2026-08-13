@@ -9,6 +9,7 @@ import { join, basename, dirname } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
+import { countWords } from '../format/words.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { buildSettingsContext } from './settings-context.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
@@ -85,7 +86,7 @@ export function saveDraft(
     }
   }
   const finalDocId = docId ?? legacyId(relPath)
-  return { relPath, docId: finalDocId, words: content.length, snapshotted: snapshotId !== null }
+  return { relPath, docId: finalDocId, words: countWords(content), snapshotted: snapshotId !== null }
 }
 
 function readSafe(fp: string): string {

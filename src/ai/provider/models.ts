@@ -8,9 +8,9 @@
  *   · 官方 / 纯官方格式 → 无法枚举，回退 fallback（空列表，调用方手动输入模型名）
  *   · 网关也不支持 /models → 404/405，同样回退
  */
-import Anthropic from '@anthropic-ai/sdk'
+import Anthropic, { APIError } from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import type { Protocol } from './types.js'
+import type { Protocol, AuthStrategy } from './types.js'
 
 /**
  * 归一化 baseUrl（方案 §4.5 P0，openai/chat 与 anthropic 行为不同）：
@@ -23,24 +23,38 @@ export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
   return protocol === 'anthropic' ? trimmed.replace(/\/v1$/, '') : trimmed
 }
 
-export async function listModels(protocol: Protocol, baseUrl: string, apiKey: string): Promise<string[]> {
+export async function listModels(
+  protocol: Protocol,
+  baseUrl: string,
+  apiKey: string,
+  auth: AuthStrategy = 'anthropic',
+): Promise<string[]> {
   // mock 环境短路（CLWRITING_DRIVER=mock）——避免向不存在端点发真实请求导致 fetchModels 超时
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
     return ['gpt-4o', 'gpt-4o-mini']
   }
   const url = normalizeBaseUrl(baseUrl, protocol)
   if (protocol === 'anthropic') {
-    // 先试 /v1/models（网关兼容），失败回退空列表（官方无此端点，模型名手动输入）
+    // 按 auth 策略构造客户端（与 anthropic-adapter createClient 一致）
+    const clientOpts: ConstructorParameters<typeof Anthropic>[0] = {
+      baseURL: url,
+      defaultHeaders: { 'anthropic-version': '2023-06-01' },
+    }
+    if (auth === 'anthropic') {
+      clientOpts.apiKey = apiKey
+    } else {
+      // claudeAuth / bearer：authToken 只发 Authorization: Bearer
+      clientOpts.authToken = apiKey
+    }
     try {
-      const client = new Anthropic({
-        baseURL: url,
-        apiKey,
-        defaultHeaders: { Authorization: `Bearer ${apiKey}` },
-      })
+      const client = new Anthropic(clientOpts)
       const list = await client.models.list()
       return list.data.map((m) => m.id).sort()
-    } catch {
-      return []
+    } catch (e) {
+      // 404/405 = 端点不存在（Anthropic 官方无 /v1/models）→ 回退空列表（模型名手动输入）
+      if (e instanceof APIError && (e.status === 404 || e.status === 405)) return []
+      // 401/403/网络错误等 → 上抛（调用方需区分「不通」与「通但认证错」）
+      throw e
     }
   }
   const client = new OpenAI({ baseURL: url, apiKey })

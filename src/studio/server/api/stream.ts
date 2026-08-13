@@ -129,6 +129,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     // 校验通过后才递增连接计数（P1-1：防 early return 路径泄漏计数器致 DoS）
     sseConnections.set(sseName, conns + 1)
+    // close 回调注册前移至 ensureSession 之前：ensureSession 可抛异常，
+    // 若 close 回调在其后才注册 → 计数器泄漏（连遭 DoS 上限）
+    let heartbeat: ReturnType<typeof setInterval> | undefined
+    let iter: AsyncGenerator<DriverEvent> | undefined
+    req.on('close', () => {
+      if (heartbeat) clearInterval(heartbeat)
+      const c = sseConnections.get(sseName)
+      if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
+      if (iter) void iter.return(undefined)
+      const remaining = c !== undefined ? Math.max(0, c - 1) : 0
+      if (remaining > 0) return
+      const name = params['name']!
+      if (isSelfHealRunning(name)) abortSelfHeal(name)
+      if (isChatRunning(name)) abortChat(name)
+    })
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
     const session = await ensureSession(params['name']!, ctx.workDir)
     const driver = getDriver('cc')
@@ -147,26 +162,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     )
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
-    const iter = driver.stream(session) as AsyncGenerator<DriverEvent>
+    iter = driver.stream(session) as AsyncGenerator<DriverEvent>
     // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）
     const safeWrite = (chunk: string): void => {
       if (!res.writableEnded && !res.destroyed) res.write(chunk)
     }
     // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
-    const heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
-    // 前端断开 → 中止迭代 + 中断 AI 编排（防继续烧 token）
-    req.on('close', () => {
-      clearInterval(heartbeat)
-      const c = sseConnections.get(sseName)
-      if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
-      void iter.return(undefined)
-      // 仅最后一条连接断开时才中断 AI 编排（多标签同书：关一个 tab 不应杀其他 tab 的生成）
-      const remaining = c !== undefined ? Math.max(0, c - 1) : 0
-      if (remaining > 0) return
-      const name = params['name']!
-      if (isSelfHealRunning(name)) abortSelfHeal(name)
-      if (isChatRunning(name)) abortChat(name)
-    })
+    heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
     try {
       for await (const ev of iter) {
         safeWrite(`data: ${JSON.stringify(ev)}\n\n`)

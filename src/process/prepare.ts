@@ -21,6 +21,7 @@ import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
 import type { BookConfig, StyleSample } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
+import { isWithinRoot } from '../fs/safe-path.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -126,7 +127,7 @@ function buildEndingsSections(
   if (recentEndings.length > 0) {
     const parts: string[] = []
     for (const r of recentEndings) {
-      if (existsSync(r.path)) {
+      if (existsSync(r.path) && isWithinRoot(bookRoot, r.path)) {
         parts.push(`【第${r.ref}章结尾】\n${readFileSync(r.path, 'utf-8').trim()}`)
       }
     }

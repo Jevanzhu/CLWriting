@@ -96,17 +96,17 @@ afterAll(async () => {
 })
 
 describe('/api/providers（P0-1 修复后回归）', () => {
-  it('GET /presets 返回厂商速填（Chat→Anthropic→Responses 排序，含 baseUrl）', async () => {
+  it('GET /presets 返回厂商速填（Chat→Anthropic 排序，含 baseUrl；Responses 暂缓隐藏）', async () => {
     const r = await req<{ presets: { label: string; protocol: string; baseUrl?: string }[] }>({
       method: 'GET',
       path: '/api/providers/presets',
     })
     expect(r.status).toBe(200)
     const p = r.json.presets
-    expect(p.length).toBe(12)
-    // 排序：Chat 组在前，Responses 组最后
+    expect(p.length).toBe(11)
+    // 排序：Chat 组在前，Anthropic 组在后（Responses 暂缓已隐藏）
     expect(p[0]!.protocol).toBe('openai')
-    expect(p[p.length - 1]!.protocol).toBe('openai-responses')
+    expect(p[p.length - 1]!.protocol).toBe('anthropic')
     // 厂商行带 baseUrl 预填
     expect(p.find((x) => x.label === 'DeepSeek')?.baseUrl).toBe('https://api.deepseek.com')
     expect(p.find((x) => x.label === 'Claude 官方')?.baseUrl).toBe('https://api.anthropic.com')

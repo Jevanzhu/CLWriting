@@ -21,7 +21,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { findUnsettled } from '../document/journal.js'
@@ -317,7 +317,7 @@ function statSyncSafe(fp: string): import('node:fs').Stats | null {
 }
 
 function relativePath(bookRoot: string, absPath: string): string {
-  return absPath.slice(bookRoot.length + 1).replace(/\\/g, '/')
+  return relative(bookRoot, absPath).replace(/\\/g, '/')
 }
 
 /** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。 */

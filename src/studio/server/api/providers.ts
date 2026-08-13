@@ -286,6 +286,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     let protocol: Protocol
     let baseUrl: string
     let apiKey: string
+    let auth: AuthStrategy
     if (typeof body['id'] === 'string' && body['id']) {
       const s = loadProviders(ctx.userDataPath)
       const p = s.providers.find((x) => x.id === body['id'])
@@ -293,14 +294,16 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       protocol = p.protocol
       baseUrl = p.baseUrl
       apiKey = p.apiKey
+      auth = p.auth
     } else {
       protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
       baseUrl = typeof body['baseUrl'] === 'string' ? body['baseUrl'] : ''
       apiKey = typeof body['apiKey'] === 'string' ? body['apiKey'] : ''
+      auth = (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy
     }
     if (!baseUrl || !apiKey) return reply(res, 400, { error: 'API 地址和 Key 必填' })
     try {
-      const models = await listModels(protocol, baseUrl, apiKey)
+      const models = await listModels(protocol, baseUrl, apiKey, auth)
       reply(res, 200, { models })
     } catch (e) {
       // P2-4：错误脱敏

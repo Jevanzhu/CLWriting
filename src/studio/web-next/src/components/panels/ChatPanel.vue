@@ -5,7 +5,7 @@
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onBeforeUnmount } from 'vue'
 import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { confirmTool } from '../../api/chat'
@@ -36,6 +36,11 @@ function scrollToBottom(): void {
     if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
   })
 }
+
+// 卸载时取消未完成的 rAF，防回调访问已销毁组件
+onBeforeUnmount(() => {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+})
 
 // ── 发送/停止/清空/章节选择（共享 composable）────
 

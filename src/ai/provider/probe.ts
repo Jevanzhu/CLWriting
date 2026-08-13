@@ -55,14 +55,14 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
   // ① 连通 + 认证：listModels 能拉到列表即算通过（不需要模型）
   let models: string[] = []
   try {
-    models = await listModels(conf.protocol, conf.baseUrl, conf.apiKey)
+    models = await listModels(conf.protocol, conf.baseUrl, conf.apiKey, conf.auth)
     caps.connected = true
     details.push('连通 + 认证通过')
   } catch (e) {
     details.push(`连通失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
     return { caps, details }
   }
-  if (!models.length) {
+  if (!conf.model && !models.length) {
     details.push('该服务无可用模型')
     return { caps, details }
   }

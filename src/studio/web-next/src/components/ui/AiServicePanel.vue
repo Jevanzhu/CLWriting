@@ -251,6 +251,8 @@ async function saveTiers(): Promise<void> {
     void useChatTier().refresh()
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
+    // 部分保存失败 → 回读服务端状态，防本地与服务端不一致
+    await refresh()
   } finally {
     tierSaving.value = false
   }

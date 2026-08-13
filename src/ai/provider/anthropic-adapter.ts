@@ -39,9 +39,9 @@ function createClient(conf: ProviderConf): Anthropic {
     base.apiKey = conf.apiKey
     base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
   } else {
-    // claudeAuth / bearer：只带 Authorization: Bearer，不触发 x-api-key 校验
-    base.apiKey = 'sk-ant-dummy'
-    base.defaultHeaders = { Authorization: `Bearer ${conf.apiKey}`, 'anthropic-version': '2023-06-01' }
+    // claudeAuth / bearer：用 SDK 原生 authToken 只发 Authorization: Bearer，不发 x-api-key
+    base.authToken = conf.apiKey
+    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
   }
   return new Anthropic(base)
 }

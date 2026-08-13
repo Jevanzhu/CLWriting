@@ -107,7 +107,9 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
     // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据（N3）
     // B-P1-5：改原子写，避免迁移过程中断留下半截目标文件
-    atomicWriteFile(join(newDir, `${lead.编号}-${title}.md`), fm)
+    // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越
+    const safeTitle = String(title).replace(/[/\\]/g, '_')
+    atomicWriteFile(join(newDir, `${lead.编号}-${safeTitle}.md`), fm)
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
