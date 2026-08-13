@@ -109,7 +109,9 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     // B-P1-5：改原子写，避免迁移过程中断留下半截目标文件
     // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越
     const safeTitle = String(title).replace(/[/\\\0]/g, '_')
-    atomicWriteFile(join(newDir, `${lead.编号}-${safeTitle}.md`), fm)
+    // P2-BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
+    const safeId = String(lead.编号).replace(/[/\\\0]/g, '_')
+    atomicWriteFile(join(newDir, `${safeId}-${safeTitle}.md`), fm)
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)

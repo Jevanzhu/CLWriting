@@ -253,7 +253,8 @@ export function pruneVersions(
 
   // 数量兜底：留最新的 maxCount 个；pinned 恒在（all 已按 id 降序 = 新在前）
   if (keep.size > policy.maxCount) {
-    const survivors = all.filter((s) => keep.has(s.id) && !pinned.has(s.id)).slice(0, policy.maxCount - pinned.size)
+    // P2-BE-2：pinned >= maxCount 时 maxCount - pinned.size 为负，slice(0, -N) 返回除末尾 N 个外全部（非空）→ Math.max 兜底
+    const survivors = all.filter((s) => keep.has(s.id) && !pinned.has(s.id)).slice(0, Math.max(0, policy.maxCount - pinned.size))
     keep.clear()
     for (const s of pinned) keep.add(s)
     for (const s of survivors) keep.add(s.id)

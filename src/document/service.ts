@@ -217,12 +217,13 @@ export class DocumentService {
     // 步骤 4：journal pending（含全文快照，防丢字）
     const opId = appendPending(journalPath, docId, currentRev, input.content)
 
-    // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
-    const wordDelta =
-      countWords(bodyOf(input.content)) -
-      countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
-
     try {
+      // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
+      // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
+      const wordDelta =
+        countWords(bodyOf(input.content)) -
+        countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+
       // 步骤 5：按策略建 snapshot（修改前版本留底）
       this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
       // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
@@ -233,8 +234,12 @@ export class DocumentService {
       this.maybeUpdateManifest(docId, relPath)
       // 步骤 10：journal settled
       appendSettled(journalPath, opId, newRev)
-      // 步骤 10.5：记今日字数增量（E4，仅 settled 成功才记；aborted 不记）
-      appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
+      // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
+      try {
+        appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
+      } catch {
+        // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+      }
       // 步骤 11
       return Promise.resolve({ ok: true, revision: newRev })
     } catch (e) {
