@@ -313,8 +313,9 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <!-- 测试模型选择 -->
           <div class="probe-row">
+            <span class="probe-label">测试模型</span>
             <select v-model="probeModel" class="probe-select" :disabled="!models.length">
-              <option value="" disabled>{{ models.length ? '选择测试模型' : '请先获取模型列表' }}</option>
+              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
           </div>
@@ -633,11 +634,20 @@ function timeAgo(ts: number | undefined): string {
 
 /* ── 测试模型选择 ── */
 .probe-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 6px;
 }
+.probe-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 .probe-select {
-  width: 100%;
-  padding: 4px 8px;
+  flex: 1;
+  max-width: 200px;
+  padding: 3px 8px;
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   background: var(--background-secondary);
