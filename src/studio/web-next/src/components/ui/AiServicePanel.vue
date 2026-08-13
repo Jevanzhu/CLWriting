@@ -314,9 +314,10 @@ function timeAgo(ts: number | undefined): string {
           <!-- 测试模型 + caps 徽章（同一行） -->
           <div class="provider-meta">
             <select v-model="probeModel" class="probe-select" :disabled="!models.length">
-              <option value="" disabled>{{ models.length ? '选择测试模型' : '请先获取模型列表' }}</option>
+              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
+            <span class="probe-hint">测试模型</span>
             <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
             <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
           </div>
@@ -632,24 +633,19 @@ function timeAgo(ts: number | undefined): string {
 .probe-select {
   padding: 2px 6px;
   font-size: var(--font-size-xs);
-  font-family: var(--font-monospace);
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   border-radius: var(--radius-s);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out);
-}
-.probe-select:hover:not(:disabled) {
-  border-color: var(--interactive-accent);
-}
-.probe-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
 }
 .probe-select:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.probe-hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
 }
 
 /* ── caps 徽章 ── */
