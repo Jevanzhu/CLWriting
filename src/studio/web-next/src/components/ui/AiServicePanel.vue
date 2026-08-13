@@ -640,8 +640,9 @@ function timeAgo(ts: number | undefined): string {
   margin-right: 2px;
 }
 .probe-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
   white-space: nowrap;
 }
 .probe-select {
