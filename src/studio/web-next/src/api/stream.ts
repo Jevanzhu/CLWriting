@@ -31,7 +31,7 @@ export async function spawnRole(
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）
 export async function interrupt(name: string): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' })
+  await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' }, 15_000)
 }
 
 // POST /auto-write {chapter, batchSize?} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。
