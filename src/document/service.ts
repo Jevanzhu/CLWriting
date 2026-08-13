@@ -23,6 +23,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { safeDocId } from '../fs/safe-path.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
@@ -199,6 +200,8 @@ export class DocumentService {
     absPath: string,
     input: SaveDocumentInput,
   ): Promise<SaveResult> {
+    // P1-SEC-A：journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
+    if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
     const journalPath = join(this.journalDir, `${docId}.jsonl`)
 
     // 步骤 2：revision 校验（串行内执行，保证并发一致）

@@ -18,7 +18,7 @@ import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { safeManifestPath } from '../../../fs/safe-path.js'
+import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
@@ -61,6 +61,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
       const bookRoot = join(ctx.workDir, entry.path)
       const docId = params['docId'] ?? ''
+      // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
+      if (!safeDocId(docId)) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档 ID 非法' })
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
       const absPath = safeManifestPath(bookRoot, m.path)
@@ -152,6 +154,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 
       const bookRoot = join(ctx.workDir, entry.path)
       const docId = params['docId'] ?? ''
+      if (!safeDocId(docId)) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档 ID 非法' })
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
       if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 

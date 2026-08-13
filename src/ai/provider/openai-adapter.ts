@@ -281,12 +281,17 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
               if (choice.finish_reason) {
                 // 所有 tool_calls 已拼完 → 发出
                 for (const [, acc] of toolAccum) {
-                  if (acc.name && acc.argsBuf) {
+                  // P1-AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
+                  if (acc.name) {
                     let input: unknown
-                    try {
-                      input = JSON.parse(acc.argsBuf)
-                    } catch {
-                      input = { _raw: acc.argsBuf }
+                    if (acc.argsBuf) {
+                      try {
+                        input = JSON.parse(acc.argsBuf)
+                      } catch {
+                        input = { _raw: acc.argsBuf }
+                      }
+                    } else {
+                      input = {}
                     }
                     yield { type: 'tool', id: acc.id, name: acc.name, input }
                   }

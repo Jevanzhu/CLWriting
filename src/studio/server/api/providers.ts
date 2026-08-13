@@ -350,6 +350,8 @@ function parseProviderInput(
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
   const protocol = String(body['protocol'] ?? '') as Protocol
+  // P1-AI-2：openai-responses 协议暂缓（D1/D2/D6/D7 未补全），preset 已隐藏；
+  // 后端仍接受此值以便启用时直接放开 preset，但启用前需补全探测链和 response.failed 处理
   if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
     return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
   }

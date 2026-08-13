@@ -47,7 +47,7 @@ export async function mineRelations(name: string, force = false): Promise<{ ok: 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ force }),
-  })
+  }, 120_000) // AI 关系梳理超时 2 分钟
 }
 
 /** 补全名称列表（编辑器补全用；轻量端点：角色姓名 + 物品名称，只读 fm 不拉正文） */

@@ -30,8 +30,10 @@ export interface Envelope {
   payload: unknown
 }
 
-/** 分析文件路径：项目/分析/<docId>.json。 */
-export function analysisPath(bookRoot: string, docId: string): string {
+/** 分析文件路径：项目/分析/<docId>.json。docId 非法返回 null（safe-by-default）。 */
+export function analysisPath(bookRoot: string, docId: string): string | null {
+  // P1-SEC-C：safeDocId 内联，使路径安全成为函数契约（调用方无需重复校验）
+  if (!safeDocId(docId)) return null
   return join(bookRoot, '项目', '分析', `${docId}.json`)
 }
 
@@ -42,8 +44,8 @@ export function analysisBookPath(bookRoot: string): string {
 
 /** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。docId 非法 → null。 */
 export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind): Envelope | null {
-  if (!safeDocId(docId)) return null
   const fp = analysisPath(bookRoot, docId)
+  if (!fp) return null
   if (!existsSync(fp)) return null
   try {
     const raw = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
@@ -61,8 +63,8 @@ export function writeAnalysis(
   kind: AnalysisKind,
   envelope: Envelope,
 ): void {
-  if (!safeDocId(docId)) return
   const fp = analysisPath(bookRoot, docId)
+  if (!fp) return
   let raw: Record<string, unknown> = {}
   if (existsSync(fp)) {
     try {

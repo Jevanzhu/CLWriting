@@ -8,7 +8,7 @@
  * 不再依赖 git：不 add/commit，纯内容指纹 + 账本。幂等：当前指纹 == 已记录基线 → skipped。
  */
 import { join } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
 import { readManifest, writeManifest } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -40,6 +40,8 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   if (!absPath) return { ok: false, code: 'NOT_FOUND', error: '文档路径非法' }
 
   // 当前内容指纹
+  // P1-BE-1：computeRevision 对不存在文件抛 ENOENT，需前置校验（batch-finalize 单条缺失不应中断整批）
+  if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文档不存在' }
   const currentRev = computeRevision(absPath)
 
   // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
