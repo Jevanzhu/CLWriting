@@ -126,16 +126,22 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     return { ok: false, code: 'WRITE_ERROR', reason: `恢复失败：${errMsg(e)}` }
   }
 
-  // 清单恢复 entry（无清单则建——恢复是结构性反向操作）
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const m = existsSync(manifestPath)
-    ? readManifest(manifestPath)
-    : { version: 1, entries: new Map<string, ManifestEntry>() }
-  upsertEntry(m, { id: entry.id, nodeType: 'document', path: entry.originalPath, parentId: null })
-  mkdirSync(dirname(manifestPath), { recursive: true })
-  writeManifest(manifestPath, m)
+  // P2-BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
+  try {
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = existsSync(manifestPath)
+      ? readManifest(manifestPath)
+      : { version: 1, entries: new Map<string, ManifestEntry>() }
+    upsertEntry(m, { id: entry.id, nodeType: 'document', path: entry.originalPath, parentId: null })
+    mkdirSync(dirname(manifestPath), { recursive: true })
+    writeManifest(manifestPath, m)
+  } catch { /* 主清单写失败不阻断恢复——树重建时自动补录 */
+  }
 
-  writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  try {
+    writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
+  }
   invalidateTreeIndex(bookRoot)
   return { ok: true, id, path: entry.originalPath }
 }

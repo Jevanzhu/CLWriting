@@ -17,6 +17,7 @@ import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
+import { clearChatHistory } from '../../../ai/orchestrate/chat.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
 import { computeBookSummary } from './progress.js'
@@ -159,6 +160,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
     forgetSession(name)
     invalidateTreeIndex(bookAbs)
+    clearChatHistory(name)
     reply(res, 200, { ok: true, name })
   })
 

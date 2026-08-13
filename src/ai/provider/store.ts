@@ -33,6 +33,13 @@ const FILE = 'providers.json'
  */
 let _cache: { path: string; store: ProviderStore; mtime: number } | null = null
 
+/** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复（P2-AI-1） */
+function cloneStore(store: ProviderStore): ProviderStore {
+  const cloned = structuredClone(store)
+  if (cloned.dek) cloned.dek = Buffer.from(cloned.dek)
+  return cloned
+}
+
 /**
  * 内存中的供应商存储——ProviderSettings 超集。
  *
@@ -94,7 +101,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
   // 若缓存返回原引用，未 save 的中间态会泄漏给后续 loadProviders 调用方
   try {
     const mtime = statSync(fp).mtimeMs
-    if (_cache && _cache.path === fp && _cache.mtime === mtime) return structuredClone(_cache.store)
+    if (_cache && _cache.path === fp && _cache.mtime === mtime) return cloneStore(_cache.store)
   } catch {
     _cache = null
   }
@@ -152,7 +159,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
 
   // P2-AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
   // 否则调用方（API 端点）直接 mutate store 后 saveProviders 前，未保存的中间态会泄漏给后续 loadProviders
-  return structuredClone(store)
+  return cloneStore(store)
 }
 
 /**
