@@ -35,6 +35,10 @@ function createClient(conf: ProviderConf): Anthropic {
   const auth = conf.auth ?? 'anthropic'
   const base: ConstructorParameters<typeof Anthropic>[0] = {
     baseURL: normalizeAnthropicBaseUrl(conf.baseUrl),
+    // 显式 authToken:null 阻断环境变量 ANTHROPIC_AUTH_TOKEN 注入（SDK 只在
+    // authToken === undefined 时读 env）——本机 Claude Code 凭据会污染成双认证头，
+    // 严格网关可能 400/返回匿名数据（模型列表只 2 个即此因）
+    authToken: null,
   }
   if (auth === 'anthropic') {
     base.apiKey = conf.apiKey

@@ -23,6 +23,32 @@ export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
   return protocol === 'anthropic' ? trimmed.replace(/\/v1$/, '') : trimmed
 }
 
+/**
+ * Anthropic 客户端构造参数（auth 策略 + env 污染阻断）——导出供单测断言。
+ *
+ * 关键：auth='anthropic' 时显式 authToken:null，阻断环境变量 ANTHROPIC_AUTH_TOKEN
+ * 注入（SDK 只在 authToken === undefined 时读 env）。本机 Claude Code 凭据会污染成
+ * 双认证头，网关只认 authorization → 返回匿名子集 2 个模型（模型列表只有 2 个的根因）。
+ */
+export function anthropicClientOpts(
+  url: string,
+  apiKey: string,
+  auth: AuthStrategy = 'anthropic',
+): ConstructorParameters<typeof Anthropic>[0] {
+  const opts: ConstructorParameters<typeof Anthropic>[0] = {
+    baseURL: url,
+    defaultHeaders: { 'anthropic-version': '2023-06-01' },
+    authToken: null,
+  }
+  if (auth === 'anthropic') {
+    opts.apiKey = apiKey
+  } else {
+    // claudeAuth / bearer：authToken 只发 Authorization: Bearer
+    opts.authToken = apiKey
+  }
+  return opts
+}
+
 export async function listModels(
   protocol: Protocol,
   baseUrl: string,
@@ -36,16 +62,7 @@ export async function listModels(
   const url = normalizeBaseUrl(baseUrl, protocol)
   if (protocol === 'anthropic') {
     // 按 auth 策略构造客户端（与 anthropic-adapter createClient 一致）
-    const clientOpts: ConstructorParameters<typeof Anthropic>[0] = {
-      baseURL: url,
-      defaultHeaders: { 'anthropic-version': '2023-06-01' },
-    }
-    if (auth === 'anthropic') {
-      clientOpts.apiKey = apiKey
-    } else {
-      // claudeAuth / bearer：authToken 只发 Authorization: Bearer
-      clientOpts.authToken = apiKey
-    }
+    const clientOpts = anthropicClientOpts(url, apiKey, auth)
     try {
       const client = new Anthropic(clientOpts)
       const list = await client.models.list()
