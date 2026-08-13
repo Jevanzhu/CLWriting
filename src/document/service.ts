@@ -630,19 +630,25 @@ export class DocumentService {
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
       mkdirSync(dirname(trashAbs), { recursive: true })
       renameSync(oldSafe, trashAbs)
-      // trash manifest 记录
-      appendTrashEntry(this.bookRoot, {
-        id: docId,
-        originalPath: oldPath,
-        trashedPath: trashedRel,
-        trashedAt: new Date().toISOString(),
-        role: layoutOf(oldPath).role,
-      })
-      // 清单 removeEntry
-      if (existsSync(this.manifestPath)) {
-        const m = readManifest(this.manifestPath)
-        m.entries.delete(docId)
-        writeManifest(this.manifestPath, m)
+      // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
+      // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
+      try {
+        appendTrashEntry(this.bookRoot, {
+          id: docId,
+          originalPath: oldPath,
+          trashedPath: trashedRel,
+          trashedAt: new Date().toISOString(),
+          role: layoutOf(oldPath).role,
+        })
+      } catch { /* 磁盘满等：回收站 manifest 写失败不影响删除 */
+      }
+      try {
+        if (existsSync(this.manifestPath)) {
+          const m = readManifest(this.manifestPath)
+          m.entries.delete(docId)
+          writeManifest(this.manifestPath, m)
+        }
+      } catch { /* 主清单更新失败：树重建时会发现文件不存在自动清理 */
       }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }

@@ -240,9 +240,12 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
       if (state.ctrl.signal.aborted) {
+        // P1-S4：回滚历史（防末尾 user → 下次连续 user → Anthropic 400，与 max_tokens 路径 :295 一致）
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '已中断' })
       }
       if (Date.now() > state.deadline) {
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
       }
 

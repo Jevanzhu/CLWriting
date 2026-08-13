@@ -99,8 +99,6 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
       let doneEmitted = false
       // 分块拼装中的 function call：item_id → { callId, name, args }
       const toolAccum = new Map<string, { callId: string; name: string; args: string }>()
-      // 已完成的 function call（arguments 完整）——item done 时发 tool 事件
-      const completed = new Map<string, { callId: string; name: string; args: string }>()
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
@@ -135,14 +133,21 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
             case 'response.output_item.done': {
               const item = event.item
               if (item.type === 'function_call') {
-                // 名称已随 item 完整给出；args 已增量拼完
+                // P1-S5：在 done 之前直接 yield tool 事件（与 anthropic/openai 适配器一致），
+                // 不延迟到 post-stream——否则 probe break-on-done 永远看不到 tool → toolUse 误报 false
                 const itemId = item.id ?? item.call_id ?? ''
                 const acc = toolAccum.get(itemId) ?? { callId: '', name: '', args: '' }
                 acc.callId = item.call_id ?? itemId
                 acc.name = item.name
                 acc.args = acc.args || item.arguments || ''
                 toolAccum.delete(itemId)
-                completed.set(itemId, acc)
+                let input: unknown
+                try {
+                  input = acc.args ? JSON.parse(acc.args) : {}
+                } catch {
+                  input = { _raw: acc.args }
+                }
+                yield { type: 'tool', id: acc.callId, name: acc.name, input }
               }
               break
             }
@@ -176,8 +181,9 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
           }
         }
 
-        // 流结束：发未发出的 tool 事件（无 completed 事件兜底）+ done（无 completed 事件兜底）
-        for (const [, t] of completed) {
+        // 流结束兜底：toolAccum 残留（有 delta 无 output_item.done 的截断场景）+ done（无 completed 事件兜底）
+        for (const [, t] of toolAccum) {
+          if (!t.name) continue // 无 name 说明 output_item.done 未到，无法构成完整 tool 调用
           let input: unknown
           try {
             input = t.args ? JSON.parse(t.args) : {}
@@ -186,7 +192,7 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
           }
           yield { type: 'tool', id: t.callId, name: t.name, input }
         }
-        completed.clear()
+        toolAccum.clear()
         if (!doneEmitted) {
           const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, 'stop')
           if (ev) yield ev

@@ -15,6 +15,8 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { forgetService } from './documents.js'
+import { forgetSession } from '../../../driver/index.js'
+import { invalidateTreeIndex } from '../../../document/tree.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
 import { computeBookSummary } from './progress.js'
@@ -154,6 +156,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     removeBookEntry(ctx.workDir, name)
     // 清理 service 缓存，防同 path 重建复用旧实例
     forgetService(bookAbs)
+    // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
+    forgetSession(name)
+    invalidateTreeIndex(bookAbs)
     reply(res, 200, { ok: true, name })
   })
 

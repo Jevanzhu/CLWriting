@@ -129,11 +129,16 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     }
     const absPath = join(bookRoot, p)
     // symlink realpath 校验（防 entry.path 中间组件是符号链接 → rmSync 删到书库外）
+    // P1-S1：realpathSync 须 try-catch（TOCTOU / 断链 → fail-closed，与其他 safePath 一致）
     if (existsSync(absPath)) {
-      const realBook = realpathSync(bookRoot)
-      const realAbs = realpathSync(absPath)
-      if (relative(realBook, realAbs).startsWith('..')) {
-        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '路径越出书库' })
+      try {
+        const realBook = realpathSync(bookRoot)
+        const realAbs = realpathSync(absPath)
+        if (relative(realBook, realAbs).startsWith('..')) {
+          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '路径越出书库' })
+        }
+      } catch {
+        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '路径异常' })
       }
     }
     rmSync(absPath, { force: true })
