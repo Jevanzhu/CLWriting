@@ -313,7 +313,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!conf) return reply(res, 404, { error: '供应商不存在' })
 
     try {
-      const { caps, details } = await probeCapabilities(conf)
+      // 用全局当前模型覆盖 conf.model（方案 A：model 已移至全局，conf.model 是废弃旧值）
+      const { caps, details } = await probeCapabilities({ ...conf, model: s.currentModel ?? conf.model })
       // 写回探测结果
       conf.caps = caps
       conf.capsProbedAt = Date.now()
