@@ -465,17 +465,20 @@ function timeAgo(ts: number | undefined): string {
 </template>
 
 <style scoped>
-/* ── 分组标题 ── */
+/* ── 分组标题（对齐设置页 cfg-card-head 风格） ── */
 .group-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding-bottom: var(--size-4-2);
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 var(--size-4-1);
+  margin-top: var(--size-4-5);
+  margin-bottom: var(--size-4-2);
+}
+.group-title:first-child {
+  margin-top: 0;
 }
 
 /* ── 添加按钮 ── */
@@ -517,7 +520,7 @@ function timeAgo(ts: number | undefined): string {
 }
 
 
-/* ── 空状态 ── */
+/* ── 空状态（对齐设置页 .empty-tab） ── */
 .empty {
   display: flex;
   flex-direction: column;
@@ -527,14 +530,20 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-faint);
   font-size: var(--font-size-s);
 }
+.empty p {
+  margin: 0;
+}
 
-/* ── 服务商卡片 ── */
+/* ── 服务商卡片（对齐设置页 cfg-card 风格：12px 圆角 + 项 hover） ── */
 .provider-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: 12px;
   margin-bottom: var(--size-4-2);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.provider-card:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 }
 .provider-card.active {
   border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
@@ -647,15 +656,14 @@ function timeAgo(ts: number | undefined): string {
 }
 .probe-select {
   max-width: 150px;
-  height: 22px; /* 比 mini-btn 略矮（按钮是图标，框是实体，视觉平衡） */
-  padding: 0 22px 0 8px;
-  font-size: var(--font-size-s); /* 与卡片标题同号 */
+  padding: 3px 22px 3px 8px;
+  font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .probe-select:hover:not(:disabled) {
   border-color: var(--interactive-accent);
@@ -663,6 +671,7 @@ function timeAgo(ts: number | undefined): string {
 .probe-select:focus {
   outline: none;
   border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .probe-select:disabled {
   opacity: 0.5;
@@ -742,8 +751,10 @@ function timeAgo(ts: number | undefined): string {
   font-weight: 600;
   color: var(--text-muted);
 }
+/* 表单输入框对齐设置页全局 .text-input（设置弹窗全局类已定义，此处仅随 scoped 兜底） */
 .text-input {
-  padding: 8px 12px;
+  width: 100%;
+  padding: 6px 10px;
   font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary);
@@ -831,8 +842,12 @@ function timeAgo(ts: number | undefined): string {
 .tier-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: 12px;
   margin-bottom: var(--size-4-2);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.tier-card:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 }
 .tier-head {
   display: flex;
@@ -842,7 +857,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .tier-name {
   font-size: var(--font-size-s);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-normal);
 }
 .tier-desc {
@@ -873,6 +888,12 @@ function timeAgo(ts: number | undefined): string {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.tier-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .tier-select.sm {
   flex: 0 0 auto;
