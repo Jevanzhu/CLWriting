@@ -21,6 +21,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
+import { bodyOf } from '../../../format/frontmatter.js'
 
 interface OnboardCtx {
   workDir: string | null
@@ -110,7 +111,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       console.error('[api] 落盘:', e)
       return reply(res, 500, { error: '落盘失败' })
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: countWords(content), content })
+    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
@@ -131,7 +132,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       console.error('[api] 落盘:', e)
       return reply(res, 500, { error: '落盘失败' })
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: countWords(content) })
+    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
   })
 }
 

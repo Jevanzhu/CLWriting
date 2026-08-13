@@ -229,16 +229,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   running.set(opts.bookName, state)
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
 
-  const history = getHistory(opts.bookName)
-  const baseLen = history.length
-  history.push({ role: 'user', content: opts.message })
-
-  const ctx = buildChatContext(opts.bookRoot, opts.chapter)
-  const sys = chatSystem(ctx)
-
-  emit(opts, { type: 'chat_start' })
-
   try {
+    const history = getHistory(opts.bookName)
+    const baseLen = history.length
+    history.push({ role: 'user', content: opts.message })
+
+    const ctx = buildChatContext(opts.bookRoot, opts.chapter)
+    const sys = chatSystem(ctx)
+
+    emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
       if (state.ctrl.signal.aborted) {
         return void emit(opts, { type: 'chat_error', error: '已中断' })

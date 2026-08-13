@@ -27,3 +27,9 @@ export function splitFrontMatter(
   const body = lines.slice(endIdx + 1).join('\n')
   return { fmRaw, body }
 }
+
+/** 剥 frontmatter 取正文（countWords 口径要求纯正文；裸 md 无 fm 原样返回）。 */
+export function bodyOf(raw: string): string {
+  const s = splitFrontMatter(raw)
+  return s ? s.body : raw
+}

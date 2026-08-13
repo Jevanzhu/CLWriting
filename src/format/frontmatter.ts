@@ -14,9 +14,9 @@
  */
 
 import type { ParseError } from './types.js'
-import { splitFrontMatter } from './frontmatter-core.js'
+import { splitFrontMatter, bodyOf } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
-export { splitFrontMatter }
+export { splitFrontMatter, bodyOf }
 
 // ── 值类型推断 ──────────────────────────────────
 

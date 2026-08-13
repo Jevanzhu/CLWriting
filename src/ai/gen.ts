@@ -61,8 +61,11 @@ export async function* withFirstByteTimeout(
       if (result.done) { await it.return?.(); return }
       yield result.value
     } catch (e) {
-      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）
-      await it.return?.()
+      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
+      // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
+      // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
+      // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
+      void it.return?.()
       throw e
     } finally {
       if (timer) clearTimeout(timer)

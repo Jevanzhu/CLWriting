@@ -19,6 +19,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
 import { buildSettingsContext } from '../../../process/settings-context.js'
 import { countWords } from '../../../format/words.js'
+import { bodyOf } from '../../../format/frontmatter.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OutlineCtx {
@@ -67,7 +68,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       // P2-4：API 错误脱敏
       return reply(res, 500, { error: `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}` })
     }
-    reply(res, 200, { ok: true, path: relPath, words: countWords(content) })
+    reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
   })
 }
 

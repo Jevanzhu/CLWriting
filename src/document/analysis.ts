@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { createHash } from 'node:crypto'
-import { splitFrontMatter } from '../format/frontmatter.js'
+import { bodyOf } from '../format/frontmatter.js'
 
 /** 分析载荷种类（review=三审汇总 / score=体验分 / emotion=情绪曲线 / hooks=钩子密度 / style=文风总结）。 */
 export type AnalysisKind = 'review' | 'score' | 'emotion' | 'hooks' | 'style'
@@ -117,12 +117,6 @@ export function sourceHashOf(fullContent: string): string {
 /** 信封是否过期（源正文 hash 与当前不符）。fullContent = 文档全文（含 fm）。 */
 export function isStale(envelope: Envelope, fullContent: string): boolean {
   return envelope.sourceHash !== sourceHashOf(fullContent)
-}
-
-/** 剥 frontmatter 取正文（与 service.bodyOf 同口径；裸 md 无 fm 原样返回）。 */
-function bodyOf(raw: string): string {
-  const s = splitFrontMatter(raw)
-  return s ? s.body : raw
 }
 
 /** 信封结构守卫（generatedAt/model/sourceHash 必为字符串；payload 任意）。 */

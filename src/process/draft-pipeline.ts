@@ -10,6 +10,7 @@ import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
+import { bodyOf } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { buildSettingsContext } from './settings-context.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
@@ -86,7 +87,8 @@ export function saveDraft(
     }
   }
   const finalDocId = docId ?? legacyId(relPath)
-  return { relPath, docId: finalDocId, words: countWords(content), snapshotted: snapshotId !== null }
+  // Q4：剥 fm 后计字数（与保存协议 service.ts 口径一致，fm 键值不入字数）
+  return { relPath, docId: finalDocId, words: countWords(bodyOf(content)), snapshotted: snapshotId !== null }
 }
 
 function readSafe(fp: string): string {

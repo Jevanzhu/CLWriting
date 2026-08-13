@@ -33,7 +33,7 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
-import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
+import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntry } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
@@ -650,12 +650,6 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
-}
-
-/** 剥 frontmatter 取正文（countWords 口径要求纯正文；裸 md 无 fm 原样返回）。 */
-function bodyOf(raw: string): string {
-  const s = splitFrontMatter(raw)
-  return s ? s.body : raw
 }
 
 /** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */
