@@ -47,10 +47,15 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
   // 文件存在时解析符号链接目标，防止 symlink 指向 bookRoot 外；不存在（新建场景）只做路径校验。
   // bookRoot 自身也需 realpath（macOS tmpdir 常是 /var→/private/var 符号链接，否则 relative 误判越出）。
   if (existsSync(abs)) {
-    const real = realpathSync(abs)
-    const realRoot = realpathSync(bookRoot)
-    if (relative(realRoot, real).startsWith('..')) return null
-    return real
+    // P1-R2：realpathSync 可能抛（EACCES/ELOOP/断链），须 fail-closed（与 isWithinRoot 一致）
+    try {
+      const real = realpathSync(abs)
+      const realRoot = realpathSync(bookRoot)
+      if (relative(realRoot, real).startsWith('..')) return null
+      return real
+    } catch {
+      return null
+    }
   }
   return abs
 }

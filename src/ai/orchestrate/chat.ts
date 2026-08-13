@@ -262,6 +262,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         ctrl: state.ctrl,
         register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
         onReset: () => emit(opts, { type: 'chat_reset' }),
+        // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
+        onRetry: (attempt, error) =>
+          emit(opts, { type: 'warning', message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…` }),
         run: async (provider, signal, tier) => {
           const r = await generate(
             provider,
@@ -288,7 +291,8 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）
       if (stopReason === 'max_tokens') {
-        histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
+        // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }
 
@@ -335,7 +339,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
     // 轮数触顶——补固定收尾文案
     emit(opts, { type: 'chat_turn', turn: MAX_AGENT_TURNS })
-    emit(opts, { type: 'chat_text', text: '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。' })
+    const closingMsg = '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。'
+    emit(opts, { type: 'chat_text', text: closingMsg })
+    // P1-R1b：收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
+    history.push({ role: 'assistant', content: closingMsg })
     histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
     emit(opts, { type: 'chat_done' })
   } finally {

@@ -1,8 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { safeManifestPath } from '../../src/fs/safe-path.js'
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+
+// P1-R2：safe-path.ts 的 realpathSync 是命名导入，ESM 下无法 vi.spyOn 模块命名空间
+//（"Cannot spy on export ... Module namespace is not configurable"）。
+// 用 vi.mock 包装 realpathSync 为 vi.fn——测试里可动态 mockImplementation（见 R2 用例）。
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, realpathSync: vi.fn(actual.realpathSync) }
+})
 
 describe('safeManifestPath', () => {
   let dir: string
@@ -44,5 +52,22 @@ describe('safeManifestPath', () => {
     expect(safeManifestPath(dir, 'evil/secret.md')).toBeNull()
     // 清理 symlink 目标文件（防污染 tmpdir）
     rmSync(join(tmpdir(), 'secret.md'), { force: true })
+  })
+
+  it('R2: realpathSync 抛异常 → fail-closed 返回 null（不抛异常）', () => {
+    // existsSync 返回 true 后 realpathSync 抛 ELOOP（race：existsSync 通过后文件被删/断链）。
+    // 真实文件系统难以确定性构造（existsSync 对 dangling/loop symlink 均返回 false），
+    // 故用 vi.mock 包装的 realpathSync 模拟——safe-path.ts 的命名导入与测试共享同一 mock 实例。
+    writeFileSync(join(dir, 'target.md'), 'test')
+    const spy = vi.mocked(realpathSync)
+    spy.mockImplementation(() => {
+      throw new Error('ELOOP: too many symbolic links encountered')
+    })
+    try {
+      // 修复前：异常抛给调用方（batch-finalize 中断整批）；修复后：fail-closed 返回 null
+      expect(safeManifestPath(dir, 'target.md')).toBeNull()
+    } finally {
+      spy.mockReset()
+    }
   })
 })
