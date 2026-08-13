@@ -106,7 +106,7 @@ export async function runSpec(
       if (spec.genMode === 'tool' && tool) {
         const r = await generateTool(
           provider,
-          { systemPrompt, messages, effort: tier.effort, tools: [tool.def], toolChoice: 'tool', toolName: tool.name },
+          { systemPrompt, messages, effort: tier.effort, tools: [tool.def], requireTool: true, toolName: tool.name },
           signal,
           opts.onText,
         )

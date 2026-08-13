@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenEvent, ModelProvider, ProviderConf } from '../../../src/ai/provider/types.js'
-import { createProvider, probeCapabilities, probeModelCaps } from '../../../src/ai/provider/probe.js'
+import { createProvider, probeCapabilities } from '../../../src/ai/provider/probe.js'
 import { listModels } from '../../../src/ai/provider/models.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
@@ -44,7 +44,7 @@ function fakeProvider(events: Array<{ type: 'text' | 'tool' | 'error'; name?: st
     }
     yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn' }
   }
-  return { conf: conf(), modelCaps: null, stream }
+  return { conf: conf(), stream }
 }
 
 beforeEach(() => {
@@ -102,31 +102,5 @@ describe('probeCapabilities', () => {
     const r = await probeCapabilities(conf())
     expect(r.caps).toEqual({ connected: false, streaming: false })
     expect(r.details.join()).toContain('连通失败')
-  })
-})
-
-describe('probeModelCaps', () => {
-  it('tool_use + tool_choice 均支持 → 两项 true', async () => {
-    vi.mocked(createAnthropicProvider).mockReturnValue(
-      fakeProvider([{ type: 'tool', name: 'echo_test' }, { type: 'tool', name: 'echo_test' }]),
-    )
-    const r = await probeModelCaps(conf())
-    expect(r.caps).toEqual({ toolUse: true, toolChoice: true })
-  })
-
-  it('tool_use 不支持（无 tool 事件）→ toolUse:false，跳过 toolChoice', async () => {
-    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
-    const r = await probeModelCaps(conf())
-    expect(r.caps.toolUse).toBe(false)
-    expect(r.caps.toolChoice).toBe(false)
-  })
-
-  // P1-S5 回归：probe 在 done 时 break——tool 事件必须在 done 之前到达（所有适配器均须保证此顺序）
-  it('tool 事件在 done 之前 → probe 正确检测 toolUse', async () => {
-    vi.mocked(createAnthropicProvider).mockReturnValue(
-      fakeProvider([{ type: 'tool', name: 'echo_test' }, { type: 'tool', name: 'echo_test' }]),
-    )
-    const r = await probeModelCaps(conf())
-    expect(r.caps.toolUse).toBe(true)
   })
 })

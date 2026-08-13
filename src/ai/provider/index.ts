@@ -9,7 +9,6 @@ export type {
   ProviderConf,
   ProviderSettings,
   ProviderCaps,
-  ModelCaps,
   TierSlot,
   TierConfig,
   EffortLevel,
@@ -21,7 +20,6 @@ export type {
   TokenUsage,
   ModelProvider,
   ProbeResult,
-  ModelProbeResult,
 } from './types.js'
 
 
@@ -30,8 +28,6 @@ export {
   saveProviders,
   currentProvider,
   setCurrentModel,
-  getModelCaps,
-  setModelCaps,
   resolveTier,
   tierFromStore,
   emptySettings,
@@ -50,8 +46,8 @@ export {
   type Vault,
   type SealedKey,
 } from './vault.js'
-export { createProvider, probeCapabilities, probeModelCaps } from './probe.js'
-export { detectFamily, quirksFor, type ChatQuirks, type ModelFamily } from './model-quirks.js'
+export { createProvider, probeCapabilities } from './probe.js'
+export { detectFamily, quirksFor, type FamilyQuirks, type ModelFamily } from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
 export { createOpenAIResponsesProvider } from './responses-adapter.js'

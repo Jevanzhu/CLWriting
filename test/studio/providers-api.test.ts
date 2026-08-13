@@ -194,15 +194,15 @@ describe('/api/providers（P0-1 修复后回归）', () => {
   })
 })
 
-describe('P0-3 modelCaps 缓存失效', () => {
-  it('编辑供应商关键字段后清 modelCaps 缓存', async () => {
+describe('P0-3 structured 降级记忆失效', () => {
+  it('编辑供应商关键字段后清降级记忆', async () => {
     const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
     const pid = a.json.provider.id
 
-    // 手动写入 modelCaps 缓存
+    // 手动写入降级记忆（structured 不支持）
     const sPath = join(userDataPath, 'providers.json')
     const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
-    s.modelCaps = { [`${pid}/test-model`]: { toolUse: true, toolChoice: true } }
+    s.modelCaps = { [`${pid}/test-model`]: { structured: false } }
     writeFileSync(sPath, JSON.stringify(s))
 
     // 编辑（改变 baseUrl → fieldsChanged=true）
@@ -217,13 +217,13 @@ describe('P0-3 modelCaps 缓存失效', () => {
     expect(after.modelCaps[`${pid}/test-model`]).toBeUndefined()
   })
 
-  it('删除供应商时清 modelCaps 缓存', async () => {
+  it('删除供应商时清降级记忆', async () => {
     const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
     const pid = a.json.provider.id
 
     const sPath = join(userDataPath, 'providers.json')
     const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { modelCaps: Record<string, unknown> }
-    s.modelCaps = { [`${pid}/test-model`]: { toolUse: true, toolChoice: true } }
+    s.modelCaps = { [`${pid}/test-model`]: { structured: false } }
     writeFileSync(sPath, JSON.stringify(s))
 
     const del = await req<{ ok: boolean }>({ method: 'DELETE', path: `/api/providers/${pid}` })

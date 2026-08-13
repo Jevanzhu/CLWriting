@@ -19,10 +19,7 @@ import {
   newProviderId,
   maskKey,
   probeCapabilities,
-  probeModelCaps,
   setCurrentModel,
-  getModelCaps,
-  setModelCaps,
   type ProviderConf,
   type Protocol,
   type AuthStrategy,
@@ -96,7 +93,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // 全局当前模型（方案 A：model 独立于供应商，工作台选择）
-  // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
+  // 表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应携带降级记忆（structured 支持）
   route('PUT', '/api/ai-model', async (req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const body = await readJson(req)
@@ -104,27 +101,11 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!model) return reply(res, 400, { error: 'model 必填' })
     setCurrentModel(ctx.userDataPath, model)
 
-    // 模型级 caps：查缓存，未命中则探测
+    // 降级记忆（structured 已确认不支持时存在）
     const s = loadProviders(ctx.userDataPath)
     const conf = s.providers.find((p) => p.id === s.currentId)
-    if (!conf) {
-      reply(res, 200, { ok: true, model })
-      return
-    }
-    let caps = getModelCaps(ctx.userDataPath, conf.id, model)
-    let details: string[] | undefined
-    if (!caps) {
-      try {
-        const probed = await probeModelCaps({ ...conf, model })
-        caps = probed.caps
-        details = probed.details
-        setModelCaps(ctx.userDataPath, conf.id, model, caps)
-      } catch (e) {
-        // 探测失败不阻塞选模型——生成时降级（modelCaps=null）；P2-4：错误脱敏
-        details = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
-      }
-    }
-    reply(res, 200, { ok: true, model, modelCaps: caps, details })
+    const degraded = conf ? s.modelCaps[`${conf.id}/${model}`] ?? null : null
+    reply(res, 200, { ok: true, model, modelCaps: degraded, details: undefined })
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
@@ -155,24 +136,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     s.currentModel = creative.slot.model || null
     saveProviders(ctx.userDataPath, s)
 
-    // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
-    const conf = s.providers.find((p) => p.id === s.currentId)
-    const probeDetails: Record<string, string[]> = {}
-    if (conf) {
-      const models = [creative.slot.model, assistant?.model].filter((m): m is string => !!m)
-      for (const model of models) {
-        if (!getModelCaps(ctx.userDataPath, conf.id, model)) {
-          try {
-            const probed = await probeModelCaps({ ...conf, model })
-            setModelCaps(ctx.userDataPath, conf.id, model, probed.caps)
-          } catch (e) {
-            // P2-4：错误脱敏
-            probeDetails[model] = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
-          }
-        }
-      }
-    }
-    reply(res, 200, { ok: true, tiers: s.tiers, details: probeDetails })
+    // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
+    reply(res, 200, { ok: true, tiers: s.tiers, details: {} })
   })
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
@@ -196,14 +161,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     s.tiers = { ...s.tiers, chat: parsed.slot }
     saveProviders(ctx.userDataPath, s)
 
-    // 异步探测 caps（不阻塞响应）
-    const conf = s.providers.find((p) => p.id === s.currentId)
-    if (conf && !getModelCaps(ctx.userDataPath, conf.id, parsed.slot.model)) {
-      probeModelCaps({ ...conf, model: parsed.slot.model })
-        .then((probed) => setModelCaps(ctx.userDataPath!, conf.id, parsed.slot.model, probed.caps))
-        .catch(() => { /* 探测失败不阻塞，后续 GET /providers 刷新 */ })
-    }
-
+    // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers })
   })
 

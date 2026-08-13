@@ -50,12 +50,6 @@ export interface ProviderCaps {
   streaming: boolean // 流式产出（逐字增量可用）
 }
 
-/** 模型级能力——tool_use / tool_choice（选定模型后探测，按 providerId+model 缓存） */
-export interface ModelCaps {
-  toolUse: boolean // 契约层依赖；false 则该模型不可用于写作
-  toolChoice: boolean // 强制调用；false 则退回 prompt 引导 + 校验重试
-}
-
 /** 推理等级档位（与 reasoning_effort API 参数对齐；并非所有模型都支持全部档位） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -91,6 +85,12 @@ export interface GenRequest {
   tools?: ToolDef[]
   toolChoice?: 'auto' | 'any' | 'tool' // 配合 toolName
   toolName?: string // toolChoice='tool' 时指定
+  /**
+   * 工具型意图（表驱动重构 §5.3）：工作流层声明「必须产出工具调用」，
+   * 由 generateTool 按模型系列表 toolChoiceMode 翻译为实际 tool_choice。
+   * named → tool_choice 指名；required → 转 any（不能点名）；auto/none → 不发，prompt 引导。
+   */
+  requireTool?: boolean
   stopSequences?: string[]
   /** 推理等级——适配器翻译为对应协议线格式 */
   effort?: EffortLevel
@@ -147,8 +147,6 @@ export interface TokenUsage {
 /** Provider 接口——适配器实现 */
 export interface ModelProvider {
   readonly conf: ProviderConf
-  /** 模型级能力（tool_use / tool_choice）；null = 未探测，生成时保守降级 */
-  readonly modelCaps: ModelCaps | null
   stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent>
 }
 
@@ -156,11 +154,5 @@ export interface ModelProvider {
 export interface ProbeResult {
   caps: ProviderCaps
   /** 探测过程中的诊断信息（不含书稿内容，不含完整 key） */
-  details: string[]
-}
-
-/** 模型级探测结果（选定模型后触发） */
-export interface ModelProbeResult {
-  caps: ModelCaps
   details: string[]
 }

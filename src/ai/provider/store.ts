@@ -15,7 +15,7 @@
 import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, ModelCaps, TierSlot, TierConfig } from './types.js'
+import type { ProviderConf, TierSlot, TierConfig } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
@@ -51,8 +51,12 @@ export interface ProviderStore {
   providers: ProviderConf[] // 含明文 apiKey（仅内存）
   currentId: string | null
   currentModel: string | null // 全局模型选择（方案 A：model 独立于供应商）
-  /** 模型级 caps 缓存：key = `${providerId}/${model}` */
-  modelCaps: Record<string, ModelCaps>
+  /**
+   * 表驱动重构（§6.5）：modelCaps 探测退役后，此槽复用为「400 降级记忆」——
+   * 记录该 provider+model 已确认不支持 structured 输出，下次直接跳过（避免重复 400）。
+   * key = `${providerId}/${model}`，值只用 structured:false 布尔。
+   */
+  modelCaps: Record<string, { structured: false }>
   /** 任务档位（D 档：创作档/助手档；端点按任务类型取档） */
   tiers: TierConfig
   vault: Vault | null
@@ -73,12 +77,14 @@ export function emptySettings(): ProviderStore {
   return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), vault: null, dek: null }
 }
 
+
 /** 磁盘文件结构——providers 不含 apiKey，密文统一在 vault.keys */
 interface DiskFormat {
   providers: Array<Omit<ProviderConf, 'apiKey'> & { apiKey?: string }>
   currentId: string | null
   currentModel?: string | null
-  modelCaps?: Record<string, ModelCaps>
+  /** 400 降级记忆槽（表驱动重构后复用原 modelCaps 槽，见 ProviderStore.modelCaps） */
+  modelCaps?: Record<string, { structured: false }>
   tiers?: TierConfig
   vault?: Vault
 }
@@ -230,18 +236,6 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
 export function setCurrentModel(userDataPath: string, model: string): void {
   const s = loadProviders(userDataPath)
   s.currentModel = model
-  saveProviders(userDataPath, s)
-}
-
-/** 模型级 caps（按 providerId+model 缓存）；未探测 → null */
-export function getModelCaps(userDataPath: string, providerId: string, model: string): ModelCaps | null {
-  return loadProviders(userDataPath).modelCaps[`${providerId}/${model}`] ?? null
-}
-
-/** 写入模型级 caps（选模型探测后调用） */
-export function setModelCaps(userDataPath: string, providerId: string, model: string, caps: ModelCaps): void {
-  const s = loadProviders(userDataPath)
-  s.modelCaps[`${providerId}/${model}`] = caps
   saveProviders(userDataPath, s)
 }
 

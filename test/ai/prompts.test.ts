@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import { ANALYST_SYSTEM } from '../../src/ai/prompts/analyst.js'
 import { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem } from '../../src/ai/prompts/writer.js'
 import { REVIEW_SYSTEMS, reviewSystem } from '../../src/ai/prompts/review.js'
-import { chatSystem, buildChatContext, trimHistory } from '../../src/ai/prompts/chat.js'
+import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../../src/ai/prompts/chat.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
 
 describe('analyst.ts', () => {
@@ -123,5 +123,82 @@ describe('chat.ts', () => {
     const cut = trimHistory(msgs, 1)
     expect(cut[0]!.content).toBe('u1')
     expect(cut.length).toBe(1)
+  })
+
+  // ── sanitizeHistory（§6.4，治 #3a/#3b）──
+
+  it('sanitizeHistory 剔除空 content 消息（#3a：reasoning-only 被过滤后）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+      { role: 'assistant', content: '' },           // 空文本 → 剔除
+      { role: 'assistant', content: [] },           // 空块数组 → 剔除
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    expect(out).toHaveLength(3)
+    expect(out.map((m) => m.content)).toEqual(['u0', 'a0', 'u1'])
+  })
+
+  it('sanitizeHistory 连续同 role → 插占位 user 保持交替（#3b 兜底）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'user', content: 'u1' },              // 连续 user
+      { role: 'assistant', content: 'a0' },
+      { role: 'assistant', content: 'a1' },         // 连续 assistant
+    ]
+    const out = sanitizeHistory(msgs)
+    // u0/u1 之间插 1 个占位、a0/a1 之间插 1 个占位 → 共 6 条
+    expect(out.map((m) => m.role)).toEqual(['user', 'user', 'user', 'assistant', 'user', 'assistant'])
+    // 插入的是占位 user，不是原消息
+    expect(out[1]).toMatchObject({ role: 'user', content: '[对话继续]' })
+    expect(out[4]).toMatchObject({ role: 'user', content: '[对话继续]' })
+  })
+
+  it('sanitizeHistory 孤儿 tool_result（无对应 tool_use）→ 删除', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+      // 孤儿 tool_result：前面没有任何 tool_use 声明过 t1
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    expect(out.some((m) => m.role === 'user' && Array.isArray(m.content) && m.content.length > 0)).toBe(false)
+    // 只剩 u0/a0/u1 三条
+    expect(out.map((m) => m.content)).toEqual(['u0', 'a0', 'u1'])
+  })
+
+  it('sanitizeHistory 保留合法 tool 往返（tool_use → tool_result 配对）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }] },
+      { role: 'assistant', content: 'a0' },
+    ]
+    const out = sanitizeHistory(msgs)
+    expect(out).toHaveLength(4)
+  })
+
+  it('sanitizeHistory 首条非 user（悬空 assistant）→ 剔除', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'assistant', content: 'a0' },         // 首条悬空
+      { role: 'assistant', content: 'a1' },         // 连续 assistant（也会被占位）
+      { role: 'user', content: 'u0' },
+    ]
+    const out = sanitizeHistory(msgs)
+    // 悬空 assistant 被剔除，最终首条是 user
+    expect(out[0]!.role).toBe('user')
+    expect(out[0]!.content).toBe('u0')
+  })
+
+  it('sanitizeHistory 纯函数：不修改入参', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'assistant', content: '' },
+      { role: 'user', content: 'u1' },
+    ]
+    const snapshot = JSON.stringify(msgs)
+    sanitizeHistory(msgs)
+    expect(JSON.stringify(msgs)).toBe(snapshot)
   })
 })

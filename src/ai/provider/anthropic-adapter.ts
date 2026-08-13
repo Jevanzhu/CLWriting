@@ -13,13 +13,14 @@ import type {
   GenRequest,
   GenEvent,
   ModelProvider,
-  ModelCaps,
   TokenUsage,
   ToolDef,
   ChatMsg,
   ContentBlock as ClwContentBlock,
 } from './types.js'
+import type { ProviderStore } from './store.js'
 import { redactSecret } from './redact.js'
+import { quirksFor } from './model-quirks.js'
 
 /**
  * 创建 Anthropic 客户端——按 auth 策略发对应认证 header（官方与中转分开）。
@@ -77,38 +78,52 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
 
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
+  // 表驱动参数翻译（表驱动重构 §6.1）
+  const q = quirksFor(conf.model ?? '')
+
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    max_tokens: req.maxTokens ?? MAX_TOKENS,
-    system: req.systemPrompt,
+    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192
+    max_tokens: req.maxTokens ?? q.maxOutputTokens ?? MAX_TOKENS,
     messages: req.messages.map(toAnthropicMessage),
     stream: true,
+    // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）
+    ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
   }
   // tools
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toAnthropicTool)
   }
-  // tool_choice
+  // tool_choice（#12：disable_parallel_tool_use 仅 parallelControl 为真才发）
+  const dptu = q.parallelControl ? { disable_parallel_tool_use: true } : {}
   if (req.toolChoice === 'any') {
-    params['tool_choice'] = { type: 'any', disable_parallel_tool_use: true }
+    params['tool_choice'] = { type: 'any', ...dptu }
   } else if (req.toolChoice === 'tool' && req.toolName) {
-    params['tool_choice'] = { type: 'tool', name: req.toolName, disable_parallel_tool_use: true }
+    params['tool_choice'] = { type: 'tool', name: req.toolName, ...dptu }
   } else if (req.toolChoice === 'auto') {
-    params['tool_choice'] = { type: 'auto', disable_parallel_tool_use: true }
+    params['tool_choice'] = { type: 'auto', ...dptu }
   }
-  // effort → output_config.effort（DeepSeek 系 quirk：档位仅 low/high/max，medium/xhigh 收敛，§4.3）
-  if (req.effort) {
-    const effort = /^deepseek/i.test(conf.model ?? '')
-      ? req.effort === 'medium' ? 'high' : req.effort === 'xhigh' ? 'max' : req.effort
-      : req.effort
-    params['output_config'] = { effort }
+  // #2：effort 仅当表 anthropicEffortWire=output_config 才发（claude/deepseek），
+  // 其余厂家的 anthropic 端点文档缺失 → 保守不发。档位收敛用 effortMap。
+  if (req.effort && q.anthropicEffortWire === 'output_config') {
+    const mapped = q.effortMap?.[req.effort] ?? req.effort
+    params['output_config'] = { effort: mapped }
   }
-  // structured → output_config.format（json_schema；网关不支持时走降级链剥除）
-  if (req.structured?.schema) {
+  // structured → output_config.format，按表 structuredMode 翻译（表驱动重构 §6.1）：
+  // json_schema → format.json_schema；json_object → format.json_object（deepseek 只认这个）；
+  // none → 不发（模型不支持，prompt 引导兜底）。硬编码 json_schema 会让 deepseek/glm
+  // 的 anthropic 端点 400（格式有问题），且降级链剥掉 structured 后丢失结构化输出。
+  if (req.structured?.schema && q.structuredMode !== 'none') {
+    // SDK 的 JSONOutputFormat 要求 json_object 也带 schema，但 deepseek 网关要求不带——
+    // 用 Record 断言绕开 SDK 过严类型，保持实际线格式正确
+    const format: Record<string, unknown> =
+      q.structuredMode === 'json_schema'
+        ? { type: 'json_schema', schema: req.structured.schema }
+        : { type: 'json_object' }
     params['output_config'] = {
       ...(params['output_config'] as Record<string, unknown> | undefined),
-      format: { type: 'json_schema', schema: req.structured.schema },
-    }
+      format,
+    } as unknown as Anthropic.OutputConfig
   }
   // stop sequences
   if (req.stopSequences?.length) {
@@ -125,12 +140,11 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, modelCaps?: ModelCaps | null): ModelProvider {
+export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, store?: ProviderStore): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
     conf,
-    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
@@ -145,18 +159,16 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       }
 
       try {
-        // 400 降级链（方案 §4.3）：output_config.format（json_schema）→ output_config.effort
-        // 逐级累积剥除（第 N 项基于第 N-1 项），非标准 Messages API 字段严格中转会 400；
-        // create 在连接阶段即抛异常（尚未 yield），可安全重试
-        const attempts = [req]
-        if (req.structured) {
+        // 400 降级链（方案 §6.5）：表驱动后首发即正确，只留「中转怪癖」兜底——
+        // output_config.format（json_schema）→ 剥 structured 重试一级。
+        // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
+        // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次直接跳过 structured。
+        const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
+        const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+        let attempts: GenRequest[] = [req]
+        if (req.structured && !degraded) {
           const c = { ...req } as GenRequest
           delete (c as { structured?: unknown }).structured
-          attempts.push(c)
-        }
-        if (req.effort) {
-          const c = { ...attempts[attempts.length - 1] } as GenRequest
-          delete (c as { effort?: unknown }).effort
           attempts.push(c)
         }
         let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
@@ -167,6 +179,8 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             break
           } catch (e) {
             if (e instanceof Anthropic.APIError && e.status === 400 && attempts.length > 1) {
+              // §6.5：降级命中 → 写记忆（structured 不支持）
+              if (degradedKey && store) store.modelCaps[degradedKey] = { structured: false }
               lastErr = e
               continue
             }

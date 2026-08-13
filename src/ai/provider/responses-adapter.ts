@@ -15,8 +15,9 @@
  * - 无 tool_choice 参数——工具调用由模型自行决定，只能靠 prompt 引导（契约层已兜底校验重试）
  */
 import OpenAI from 'openai'
-import type { ProviderConf, GenRequest, GenEvent, ModelProvider, ModelCaps, TokenUsage, ToolDef } from './types.js'
+import type { ProviderConf, GenRequest, GenEvent, ModelProvider, TokenUsage, ToolDef } from './types.js'
 import { redactSecret } from './redact.js'
+import { quirksFor } from './model-quirks.js'
 
 /** tool_use 往返：assistant function_call item → role:'tool' 输出（call_id 关联） */
 function toolOutputItem(toolUseId: string, content: string): Record<string, unknown> {
@@ -25,6 +26,8 @@ function toolOutputItem(toolUseId: string, content: string): Record<string, unkn
 
 /** GenRequest → /v1/responses 请求体 */
 function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
+  const q = quirksFor(conf.model ?? '')
+
   const input: Record<string, unknown>[] = []
   // 系统指令 → developer 角色（OpenAI 新约定；角色 'system' 仍兼容但官方建议 developer）
   if (req.systemPrompt) {
@@ -36,10 +39,12 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
       input.push({ role: m.role, content: m.content })
     } else {
       const textParts: string[] = []
+      const toolUseItems: Record<string, unknown>[] = []
       for (const b of m.content) {
         if (b.type === 'text') textParts.push(b.text)
         else if (b.type === 'tool_use') {
-          input.push({
+          // #11：收集 tool_use，延迟到 text 之后再 push（原始顺序 text → tool_use）
+          toolUseItems.push({
             type: 'function_call',
             call_id: b.id,
             name: b.name,
@@ -50,8 +55,9 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
         }
       }
       if (m.role === 'assistant') {
-        // assistant 文本作为 assistant 消息 content（text 与 function_call 分开两条）
+        // #11 修正：text 先于 function_call（与原始产出顺序一致）
         if (textParts.length > 0) input.push({ role: 'assistant', content: textParts.join('') })
+        input.push(...toolUseItems)
       } else if (textParts.length > 0) {
         input.push({ role: 'user', content: textParts.join('') })
       }
@@ -64,6 +70,12 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     stream: true,
   }
   if (req.maxTokens) params['max_output_tokens'] = req.maxTokens
+
+  // #10：effort → reasoning.effort（gpt-5 系列经 Responses API 的推理档位）
+  if (req.effort) {
+    const effort = q.reasoningEffort(req.effort)
+    if (effort) params['reasoning'] = { effort }
+  }
 
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toResponsesTool)
@@ -88,12 +100,11 @@ function toResponsesTool(tool: ToolDef): Record<string, unknown> {
   return { type: 'function', name: tool.name, description: tool.description ?? '', parameters: tool.input_schema }
 }
 
-export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
+export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
   const c = client ?? new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl) })
 
   return {
     conf,
-    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false

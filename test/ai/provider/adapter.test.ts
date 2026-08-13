@@ -12,8 +12,10 @@ import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adap
 import { createOpenAIProvider, createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import type { ProviderStore } from '../../../src/ai/provider/store.js'
 
 const CONF = {
+  id: 't1',
   name: 't',
   protocol: 'anthropic' as const,
   auth: 'anthropic' as const,
@@ -294,15 +296,16 @@ describe('OpenAI 适配器', () => {
   })
 })
 
-describe('Anthropic 适配器 400 降级', () => {
-  it('output_config 400 → 去 effort 重试成功', async () => {
+describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记忆）', () => {
+  it('output_config.format 400 → 剥 structured 重试成功', async () => {
     let callCount = 0
     const client = {
       messages: {
         create: async (params: unknown) => {
           callCount++
-          // 第一次含 output_config → 模拟 400
-          if ('output_config' in (params as Record<string, unknown>)) {
+          // 第一次含 output_config.format → 模拟 400
+          const p = params as Record<string, unknown>
+          if (p['output_config'] && (p['output_config'] as Record<string, unknown>)['format']) {
             throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
           }
           // 第二次不含 → 正常返回
@@ -315,13 +318,84 @@ describe('Anthropic 适配器 400 降级', () => {
         },
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(CONF, client), { ...REQ, effort: 'high' })
+    // claude 系列 structuredMode=json_schema → 发 format → 400 → 剥 structured 重试
+    const evs = await collect(
+      createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client),
+      { ...REQ, structured: { schema: { type: 'object', properties: {} } } },
+    )
     expect(callCount).toBe(2) // 第一次 400 → 第二次降级成功
     expect(evs.some((e) => e.type === 'text')).toBe(true)
     expect(evs.some((e) => e.type === 'done')).toBe(true)
   })
 
-  it('非 effort 相关的 400 不降级（直接报错）', async () => {
+  it('降级命中 → 写记忆（structured 不支持），下次直接跳过 structured 单次请求', async () => {
+    let callCount = 0
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          callCount++
+          const p = params as Record<string, unknown>
+          if (p['output_config'] && (p['output_config'] as Record<string, unknown>)['format']) {
+            throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
+          }
+          return (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const store: ProviderStore = {
+      providers: [],
+      currentId: null,
+      currentModel: null,
+      modelCaps: {},
+      tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
+      vault: null,
+      dek: null,
+    }
+    const prov = createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client, store)
+    // 第一次：带 structured → 400 → 降级重试 → 记忆写入
+    await collect(prov, { ...REQ, structured: { schema: {} } })
+    expect(store.modelCaps['t1/claude-sonnet-5']).toEqual({ structured: false })
+    // 第二次：记忆命中 → 直接剥 structured，一次请求即成功（不再 400 重试）
+    callCount = 0
+    await collect(prov, { ...REQ, structured: { schema: {} } })
+    expect(callCount).toBe(1)
+  })
+
+  it('effort 400 不再降级（表驱动后该发的才发，此 400 直接透传）', async () => {
+    const err = new Anthropic.APIError(400, { type: 'error', message: 'output_config not supported' }, 'bad', undefined)
+    let callCount = 0
+    const client = {
+      messages: {
+        create: async () => { callCount++; throw err },
+      },
+    } as unknown as Anthropic
+    // claude 系列发 effort（output_config）→ 网关仍 400 → 直接报错（不再剥 effort 重试）
+    const evs = await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), { ...REQ, effort: 'high' })
+    expect(callCount).toBe(1) // 一次即止
+    expect(evs[0]).toMatchObject({ type: 'error', retryable: false })
+  })
+
+  it('unknown 系列（anthropicEffortWire=null）不发 effort → 无降级', async () => {
+    let callCount = 0
+    const client = {
+      messages: {
+        create: async () => {
+          callCount++
+          // unknown 系列表不发 effort → 这里不会 400（验证表驱动后首发即对）
+          return (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), { ...REQ, effort: 'high' })
+    expect(callCount).toBe(1) // 首发即对，无降级
+    expect(evs.some((e) => e.type === 'done')).toBe(true)
+  })
+
+  it('非 structured 相关的 400 不降级（直接报错）', async () => {
     const err = new Anthropic.APIError(400, { type: 'error', message: 'invalid model' }, 'invalid model', undefined)
     const client = { messages: { create: () => Promise.reject(err) } } as unknown as Anthropic
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)

@@ -57,10 +57,10 @@ function captureOpenAI(): OpenAI {
   return client
 }
 
-/** 跑完流并返回捕获的线格式 params（Anthropic） */
-async function runAnthropic(req: GenRequest): Promise<Record<string, unknown>> {
+/** 跑完流并返回捕获的线格式 params（Anthropic；model 可覆盖，测表驱动分支用） */
+async function runAnthropic(req: GenRequest, model = CONF.model): Promise<Record<string, unknown>> {
   const client = captureAnthropic()
-  const prov = createAnthropicProvider(CONF, client)
+  const prov = createAnthropicProvider({ ...CONF, model } as ProviderConf, client)
   for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }
@@ -147,6 +147,34 @@ describe('W0: block 数组 → Anthropic 线格式', () => {
     const out = params['messages'] as { role: string; content: Record<string, unknown>[] }[]
     expect(out[0]!.content[0]).toMatchObject({ type: 'tool_result', is_error: true })
   })
+
+  // 表驱动重构 §6.1：structured → output_config.format 按表 structuredMode 翻译
+  // （deepseek 走 anthropic 端点时硬编码 json_schema 会 400「格式有问题」）
+  it('claude 系列 structured → output_config.format.json_schema', async () => {
+    const params = await runAnthropic(
+      { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], structured: { schema: { type: 'object', properties: { a: { type: 'string' } } } } },
+      'claude-sonnet-5',
+    )
+    const oc = params['output_config'] as Record<string, unknown>
+    expect(oc['format']).toEqual({ type: 'json_schema', schema: { type: 'object', properties: { a: { type: 'string' } } } })
+  })
+
+  it('deepseek 系列 structured → output_config.format.json_object（不带 schema）', async () => {
+    const params = await runAnthropic(
+      { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], structured: { schema: { type: 'object' } } },
+      'deepseek-v4-flash',
+    )
+    const oc = params['output_config'] as Record<string, unknown>
+    expect(oc['format']).toEqual({ type: 'json_object' })
+  })
+
+  it('unknown 系列 structured → 不发 format（结构化模式 none 保守省略）', async () => {
+    const params = await runAnthropic(
+      { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], structured: { schema: { type: 'object' } } },
+      'some-unknown-model',
+    )
+    expect(params['output_config']).toBeUndefined()
+  })
 })
 
 // ── ContentBlock 数组 → OpenAI 线格式 ──────────
@@ -218,16 +246,29 @@ describe('W0: block 数组 → OpenAI 线格式', () => {
   })
 })
 
-// ── disable_parallel_tool_use 补 auto 分支 ──────────
+// ── disable_parallel_tool_use 表驱动（#12）──────────
 
 describe('W0: disable_parallel_tool_use', () => {
-  it('Anthropic toolChoice=auto → disable_parallel_tool_use: true', async () => {
+  it('claude 系列（parallelControl=true）→ disable_parallel_tool_use: true', async () => {
+    const params = await runAnthropic(
+      {
+        systemPrompt: '',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [{ name: 't', input_schema: {} }],
+        toolChoice: 'auto',
+      },
+      'claude-sonnet-5',
+    )
+    expect(params['tool_choice']).toEqual({ type: 'auto', disable_parallel_tool_use: true })
+  })
+
+  it('unknown 系列（parallelControl=false）→ 不发 disable_parallel_tool_use', async () => {
     const params = await runAnthropic({
       systemPrompt: '',
       messages: [{ role: 'user', content: 'hi' }],
       tools: [{ name: 't', input_schema: {} }],
       toolChoice: 'auto',
     })
-    expect(params['tool_choice']).toEqual({ type: 'auto', disable_parallel_tool_use: true })
+    expect(params['tool_choice']).toEqual({ type: 'auto' })
   })
 })

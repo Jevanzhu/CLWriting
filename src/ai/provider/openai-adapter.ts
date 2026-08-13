@@ -21,12 +21,12 @@ import type {
   GenRequest,
   GenEvent,
   ModelProvider,
-  ModelCaps,
   TokenUsage,
   ToolDef,
   ChatMsg,
   ContentBlock,
 } from './types.js'
+import type { ProviderStore } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 
@@ -54,8 +54,8 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * openai-responses = Responses API），不再靠 model 名自动猜测。
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  */
-export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
-  return createOpenAIProviderChat(conf, client, modelCaps)
+export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
+  return createOpenAIProviderChat(conf, client)
 }
 
 /**
@@ -138,12 +138,32 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     params['tools'] = req.tools.map(toOpenAITool)
   }
 
-  if (req.toolChoice === 'any') {
-    params['tool_choice'] = 'required'
-  } else if (req.toolChoice === 'tool' && req.toolName) {
-    params['tool_choice'] = { type: 'function', function: { name: req.toolName } }
-  } else if (req.toolChoice === 'auto') {
-    params['tool_choice'] = 'auto'
+  // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：
+  // named → 指名/required/auto 原样；
+  // required（Kimi k3：指名与思考不兼容）→ 强制意图转 required，不指名；
+  // auto（GLM：仅 auto 可用）→ 非 auto 意图不发 tool_choice（prompt 引导兜底）；
+  // none（responses 协议不在此）→ 不发
+  if (req.toolChoice && q.toolChoiceMode !== 'none') {
+    if (q.toolChoiceMode === 'named') {
+      if (req.toolChoice === 'any') {
+        params['tool_choice'] = 'required'
+      } else if (req.toolChoice === 'tool' && req.toolName) {
+        params['tool_choice'] = { type: 'function', function: { name: req.toolName } }
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = 'auto'
+      }
+    } else if (q.toolChoiceMode === 'required') {
+      if (req.toolChoice === 'any' || req.toolChoice === 'tool') {
+        params['tool_choice'] = 'required'
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = 'auto'
+      }
+    } else if (q.toolChoiceMode === 'auto') {
+      if (req.toolChoice === 'auto') {
+        params['tool_choice'] = 'auto'
+      }
+      // 'any'/'tool' → 不支持，不发（prompt 引导 + 契约层校验重试兜底）
+    }
   }
 
   // effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛）
@@ -189,12 +209,12 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
-export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, modelCaps?: ModelCaps | null): ModelProvider {
+export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore): ModelProvider {
   const c = client ?? createClient(conf)
+  const q = quirksFor(conf.model ?? '')
 
   return {
     conf,
-    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
@@ -205,19 +225,17 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
         return { type: 'done', usage, stopReason }
       }
 
-      // 400 降级链（方案 §4.1）：json_schema 仅部分模型/网关支持 → 剥 structured 重试；
-      // reasoning_effort 部分模型不支持 → 再剥 effort 重试。连接期异常（未 yield）可安全重试
-      // attempts 逐级累积剥除（第 N 项基于第 N-1 项），保证已证明 400 的参数面不再出现
-      const attempts = [req]
-      if (quirksFor(conf.model ?? '').structuredMode === 'json_schema' && req.structured) {
+      // 400 降级链（方案 §6.5）：表驱动后首发即正确，只留「中转怪癖」兜底——
+      // json_schema/json_object 网关兼容性最参差 → 剥 structured 重试一级。
+      // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
+      // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次直接跳过 structured。
+      const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
+      const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+      let attempts: GenRequest[] = [req]
+      if (req.structured && q.structuredMode !== 'none' && !degraded) {
         const c = { ...req } as GenRequest
         delete (c as { structured?: unknown }).structured
-        attempts.push(c)
-      }
-      if (req.effort) {
-        const c = { ...attempts[attempts.length - 1] } as GenRequest
-        delete (c as { effort?: unknown }).effort
-        attempts.push(c)
+        attempts = [req, c]
       }
 
       try {
@@ -335,6 +353,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
             return
           } catch (e) {
             if (e instanceof OpenAI.APIError && e.status === 400 && attempts.length > 1) {
+              // §6.5：降级命中 → 写记忆（structured 不支持），下次直接跳过 structured 不重试
+              if (degradedKey && store) {
+                store.modelCaps[degradedKey] = { structured: false }
+              }
               lastErr = e
               continue // 尝试下一个降级参数面
             }

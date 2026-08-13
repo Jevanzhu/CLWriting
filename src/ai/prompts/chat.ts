@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ChatMsg } from '../provider/types.js'
+import type { ChatMsg, ContentBlock } from '../provider/types.js'
 import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
 
@@ -97,4 +97,72 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
   }
 
   return history.slice(cutIdx)
+}
+
+/**
+ * 发送前历史消毒（方案 §6.4，治 #3a/#3b；学 cherry-studio ensureValidHistory）。
+ *
+ * 多轮带 tools 往返后历史可能出现四类非法序列（Anthropic/OpenAI 硬性 400）：
+ * - 空 content 消息（reasoning-only assistant 被过滤后）→ 剔除（#3a）
+ * - 连续同 role（user/assistant 交替被打断，如中断回滚后）→ 插入占位 user（#3b）
+ * - 孤儿 tool_result（对应 tool_use 被裁掉）→ 删除
+ * - 首条非 user（悬空 assistant）→ 剔除
+ *
+ * 纯函数，不修改入参，返回新数组。chat.ts 的 5 处手工回滚是第一道防线，
+ * 此消毒是第二道兜底。
+ */
+export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
+  if (history.length === 0) return history
+
+  let result: ChatMsg[] = []
+  // 已知的 tool_use id（遍历中记录，靠前 assistant 消息的 tool_use）
+  const knownToolUseIds = new Set<string>()
+
+  for (const m of history) {
+    // 空 content 消息 → 剔除（reasoning-only 被过滤后留下的空壳）
+    if (typeof m.content === 'string') {
+      if (m.content.trim() === '') continue
+    } else if (m.content.length === 0) {
+      continue
+    }
+
+    // assistant 消息的 tool_use 记录进集合
+    if (m.role === 'assistant') {
+      for (const b of m.content as ContentBlock[]) {
+        if (b.type === 'tool_use') knownToolUseIds.add(b.id)
+      }
+    }
+
+    // 孤儿 tool_result（对应 tool_use 未出现过）→ 删除
+    if (m.role === 'user' && typeof m.content !== 'string') {
+      const blocks = m.content as ContentBlock[]
+      if (blocks.some((b) => b.type === 'tool_result')) {
+        const kept = blocks.filter(
+          (b) => b.type !== 'tool_result' || knownToolUseIds.has(b.toolUseId),
+        )
+        if (kept.length === 0) continue
+        result.push({ ...m, content: kept })
+        continue
+      }
+    }
+
+    result.push(m)
+  }
+
+  // 首条必须 user → 不是则剔除首部悬空 assistant
+  while (result.length > 0 && result[0]!.role !== 'user') {
+    result.shift()
+  }
+
+  // 连续同 role → 在断点插占位 user（保持 user/assistant 交替，治 #3b）
+  // 注意：必须在「首条剔除」之后——否则悬空 assistant 被占位插入会当上首条
+  const fixed: ChatMsg[] = []
+  for (const m of result) {
+    if (fixed.length > 0 && fixed[fixed.length - 1]!.role === m.role) {
+      fixed.push({ role: 'user', content: '[对话继续]' })
+    }
+    fixed.push(m)
+  }
+
+  return fixed
 }

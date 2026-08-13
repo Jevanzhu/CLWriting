@@ -19,7 +19,7 @@ import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
 import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
-import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
+import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../prompts/chat.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
@@ -232,10 +232,12 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   try {
     const history = getHistory(opts.bookName)
     const baseLen = history.length
-    history.push({ role: 'user', content: opts.message })
-
     const ctx = buildChatContext(opts.bookRoot, opts.chapter)
     const sys = chatSystem(ctx)
+    // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
+    // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
+    // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
+    history.push({ role: 'user', content: opts.message })
 
     emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
@@ -262,6 +264,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         tierKind: 'chat',
         task: 'chat',
         bookRoot: opts.bookRoot,
+        // B-P2-2：trace hash 纳入 system prompt——chat 的 system prompt 稳定（设定+职责），
+        // 不带则同 user 消息不同书 hash 冲突
+        systemPrompt: sys,
+        promptText: opts.message,
         ctrl: state.ctrl,
         register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
         onReset: () => emit(opts, { type: 'chat_reset' }),
@@ -269,11 +275,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         onRetry: (attempt, error) =>
           emit(opts, { type: 'warning', message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…` }),
         run: async (provider, signal, tier) => {
+          // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能
+          // 出现非法序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。
+          // 消毒产副本，不污染累积的 history（回滚仍按 baseLen 精确）。
+          const sanitized = sanitizeHistory(history)
           const r = await generate(
             provider,
             {
               systemPrompt: sys,
-              messages: history,
+              messages: sanitized,
               tools: chatTools,
               toolChoice: 'auto',
               effort: tier.effort,

@@ -11,12 +11,6 @@ export interface ProviderCaps {
   streaming: boolean
 }
 
-/** 模型级能力（tool_use/tool_choice）——选定模型后探测所得 */
-export interface ModelCaps {
-  toolUse: boolean
-  toolChoice: boolean
-}
-
 /** 推理等级档位（与 reasoning_effort API 参数对齐） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -112,8 +106,8 @@ export async function testProvider(id: string, model?: string): Promise<TestResu
 }
 
 /** 设置全局当前模型（方案 A：model 独立于供应商，工作台选择）。
- *  选模型时后端自动探测模型级 caps（tool_use/tool_choice），随响应返回。 */
-export async function setAiModel(model: string): Promise<{ ok: boolean; model: string; modelCaps?: ModelCaps | null; details?: string[] }> {
+ *  表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应仅携带降级记忆（structured 支持状态）。 */
+export async function setAiModel(model: string): Promise<{ ok: boolean; model: string; modelCaps?: { structured: false } | null; details?: unknown }> {
   return apiJson('/api/ai-model', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

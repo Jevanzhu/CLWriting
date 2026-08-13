@@ -11,7 +11,6 @@ import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.js'
-import type { ModelCaps } from '../../src/ai/provider/types.js'
 
 export const LONG_BOOK = '长篇测试书'
 export const SHORT_BOOK = '短篇测试集'
@@ -144,14 +143,16 @@ function makeShortBook(root: string): void {
  * 测试体内需 delete process.env.CLWRITING_DRIVER 保证走真实 provider 路径。
  * saveProviders 自动处理 vault 加密，loadProviders 自动解密。
  *
+ * 表驱动重构（§6.3）：模型级 caps 退役——modelCaps 槽仅作 400 降级记忆（structured 不支持）。
+ *
  * @param userDataPath 临时应用数据目录
  * @param fakeUrl      stub server 的 baseUrl（如 http://127.0.0.1:PORT/v1）
- * @param modelCaps    模型级 caps（toolUse/toolChoice）；缺省 = 全能力
+ * @param structuredOk 预置「structured 不支持」降级记忆（缺省 = 无记忆）
  */
 export function withFakeProvider(
   userDataPath: string,
   fakeUrl: string,
-  modelCaps?: ModelCaps,
+  structuredOk?: boolean,
 ): void {
   const store: ProviderStore = {
     providers: [{
@@ -167,7 +168,7 @@ export function withFakeProvider(
     }],
     currentId: 'fake-prov',
     currentModel: 'fake-model',
-    modelCaps: modelCaps ? { 'fake-prov/fake-model': modelCaps } : {},
+    modelCaps: structuredOk === false ? { 'fake-prov/fake-model': { structured: false } } : {},
     tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
     vault: null,
     dek: null,
