@@ -311,18 +311,14 @@ function timeAgo(ts: number | undefined): string {
             <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
-          <!-- 测试模型选择 -->
-          <div class="probe-row">
-            <span class="probe-label">测试模型</span>
+          <!-- 测试模型 + caps 徽章（同一行） -->
+          <div class="provider-meta">
             <select v-model="probeModel" class="probe-select" :disabled="!models.length">
-              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option value="" disabled>{{ models.length ? '选择测试模型' : '请先获取模型列表' }}</option>
               <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
             </select>
-          </div>
-          <!-- caps 徽章 -->
-          <div v-if="p.caps" class="caps-row">
-            <span class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
-            <span class="probed-at">上次检查 {{ timeAgo(p.capsProbedAt) }}</span>
+            <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
+            <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
           </div>
           <!-- 测试结果详情 -->
           <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
@@ -632,27 +628,28 @@ function timeAgo(ts: number | undefined): string {
   white-space: nowrap;
 }
 
-/* ── 测试模型选择 ── */
-.probe-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-.probe-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  white-space: nowrap;
-}
+/* ── 测试模型选择（与 caps 同行，复用 provider-meta 布局） ── */
 .probe-select {
-  flex: 1;
-  max-width: 200px;
-  padding: 3px 8px;
+  padding: 2px 6px;
   font-size: var(--font-size-xs);
+  font-family: var(--font-monospace);
   color: var(--text-muted);
-  background: var(--background-secondary);
+  background: transparent;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.probe-select:hover:not(:disabled) {
+  border-color: var(--interactive-accent);
+}
+.probe-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+.probe-select:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ── caps 徽章 ── */
