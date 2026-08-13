@@ -11,14 +11,12 @@ import {
   setCurrentProvider,
   testProvider,
   fetchModels,
-  fetchPresets,
   setTiers,
   setChatTier,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
   type AuthStrategy,
-  type ProviderPreset,
   type TestResult,
   type TierSlot,
 } from '../../api/providers'
@@ -72,15 +70,6 @@ const form = ref({
   apiKey: '',
 })
 
-// 厂商速填预设——PRESETS 唯一数据源（后端 /api/providers/presets），前端不再硬编码（方案 §4.6）
-const presets = ref<ProviderPreset[]>([])
-async function loadPresets(): Promise<void> {
-  try {
-    presets.value = await fetchPresets()
-  } catch {
-    presets.value = []
-  }
-}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -110,7 +99,6 @@ async function refresh(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadPresets()
   void refresh()
 })
 
@@ -132,19 +120,10 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-/** 厂商速填：打开新增表单并预填该厂商的 baseUrl（方案 §4.6） */
-function quickFill(preset: ProviderPreset): void {
-  startAdd()
-  form.value.protocol = preset.protocol
-  form.value.auth = preset.auth
-  form.value.baseUrl = preset.baseUrl ?? ''
-}
-
-/** 表单内厂商行：只预填协议/认证/baseUrl，不重置表单（编辑中场景） */
-function applyPreset(preset: ProviderPreset): void {
-  form.value.protocol = preset.protocol
-  form.value.auth = preset.auth
-  if (preset.baseUrl) form.value.baseUrl = preset.baseUrl
+/** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai→bearer） */
+function selectProtocol(p: Protocol): void {
+  form.value.protocol = p
+  form.value.auth = p === 'anthropic' ? 'anthropic' : 'bearer'
 }
 
 async function save(): Promise<void> {
@@ -287,18 +266,7 @@ function timeAgo(ts: number | undefined): string {
 
       <div v-else-if="providers.length === 0" class="empty">
         <p>尚未配置任何 AI 服务商</p>
-        <div class="preset-quick">
-          <button
-            v-for="(pr, i) in presets"
-            :key="i"
-            class="preset-quick-btn"
-            :title="pr.hint"
-            @click="quickFill(pr)"
-          >
-            {{ pr.label }}
-          </button>
-        </div>
-        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />自定义服务商</button>
+        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加服务商</button>
       </div>
 
       <template v-else>
@@ -441,20 +409,20 @@ function timeAgo(ts: number | undefined): string {
     <template v-else>
       <div class="group-title">{{ editId ? '编辑服务商' : '新增服务商' }}</div>
       <div class="form">
-        <!-- 协议模板选择 -->
+        <!-- 协议类型选择 -->
         <div class="form-row">
           <label>类型</label>
-          <div class="preset-list">
+          <div class="protocol-toggle">
             <button
-              v-for="(opt, i) in presets"
-              :key="i"
-              class="preset-btn"
-              :class="{ on: form.protocol === opt.protocol }"
-              @click="applyPreset(opt)"
-            >
-              <span class="preset-label">{{ opt.label }}</span>
-              <span class="preset-hint">{{ opt.hint }}</span>
-            </button>
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'openai' }"
+              @click="selectProtocol('openai')"
+            >OpenAI 兼容</button>
+            <button
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'anthropic' }"
+              @click="selectProtocol('anthropic')"
+            >Anthropic</button>
           </div>
         </div>
 
@@ -537,25 +505,6 @@ function timeAgo(ts: number | undefined): string {
   background: var(--background-modifier-hover);
 }
 
-/* ── 空状态快捷预设 ── */
-.preset-quick {
-  display: flex;
-  gap: 8px;
-}
-.preset-quick-btn {
-  padding: 6px 14px;
-  font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 99px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.preset-quick-btn:hover {
-  color: var(--text-normal);
-  border-color: var(--interactive-accent);
-}
 
 /* ── 空状态 ── */
 .empty {
@@ -759,39 +708,29 @@ function timeAgo(ts: number | undefined): string {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
-.preset-list {
+.protocol-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
-.preset-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: var(--background-secondary);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-  text-align: left;
-}
-.preset-btn:hover {
-  border-color: var(--interactive-accent);
-}
-.preset-btn.on {
-  border-color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
-}
-.preset-label {
+.protocol-btn {
+  padding: 8px 16px;
   font-size: var(--font-size-s);
   font-weight: 500;
-  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.preset-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
+.protocol-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.protocol-btn.on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  color: var(--text-normal);
 }
 
 .form-actions {

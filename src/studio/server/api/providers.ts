@@ -28,7 +28,6 @@ import {
   type AuthStrategy,
   type TierSlot,
   type EffortLevel,
-  PRESETS,
 } from '../../../ai/provider/index.js'
 import { listModels } from '../../../ai/provider/models.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
@@ -48,11 +47,6 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       currentModel: s.currentModel,
       tiers: s.tiers,
     })
-  })
-
-  // 厂商速填预设（PRESETS 唯一数据源，前端面板消费）
-  route('GET', '/api/providers/presets', (_req: IncomingMessage, res: ServerResponse) => {
-    reply(res, 200, { presets: PRESETS })
   })
 
   // 新增

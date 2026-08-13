@@ -24,7 +24,7 @@ export type {
   ModelProbeResult,
 } from './types.js'
 
-export { PRESETS, type ProviderPreset } from './presets.js'
+
 export {
   loadProviders,
   saveProviders,

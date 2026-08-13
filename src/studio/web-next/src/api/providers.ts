@@ -47,19 +47,6 @@ export interface ProviderConfDto {
   sortIndex?: number
 }
 
-export interface ProviderPreset {
-  label: string
-  hint: string
-  protocol: Protocol
-  auth: AuthStrategy
-  baseUrl?: string
-}
-
-export async function fetchPresets(): Promise<ProviderPreset[]> {
-  const r = await apiJson<{ presets: ProviderPreset[] }>('/api/providers/presets')
-  return r.presets
-}
-
 export async function getProviders(): Promise<{ providers: ProviderConfDto[]; currentId: string | null; currentModel: string | null; tiers: TierConfig }> {
   return apiJson('/api/providers')
 }
