@@ -33,5 +33,7 @@ export async function runCheck(name: string, docId: string): Promise<CheckResult
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     },
+    // P2-FE-2：本地机检但超大章节可能慢；无超时则 loading 永转
+    60_000,
   )
 }

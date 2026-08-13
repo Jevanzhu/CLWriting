@@ -131,7 +131,8 @@ export async function ignoreStyleCandidate(name: string, path: string): Promise<
 
 /** 收割（零 AI）：源1 改稿轨迹比对 + 源2 机检漂移映射 → 候选箱 */
 export async function runStyleHarvest(name: string): Promise<{ created: number; skipped: number }> {
-  return apiJson(`${base(name)}/harvest`, { method: 'POST' })
+  // P2-FE-2：全文轨迹比对 CPU 密集，大书可能 10-30s；无超时则 loading 永转
+  return apiJson(`${base(name)}/harvest`, { method: 'POST' }, 60_000)
 }
 
 export async function getStyleConfig(name: string): Promise<StyleConfigFE> {

@@ -42,7 +42,8 @@ export interface LearnCommitResultFE {
 
 /** 收割候选（扫定稿正文 → 段落分块 + #10 打分 + 场景预归类 → 候选） */
 export async function runLearn(name: string): Promise<LearnResultFE> {
-  return apiJson<LearnResultFE>(`/api/books/${encodeURIComponent(name)}/learn`, { method: 'POST' })
+  // P2-FE-2：扫全部定稿章打分，大书可能 10-30s；无超时则 loading 永转
+  return apiJson<LearnResultFE>(`/api/books/${encodeURIComponent(name)}/learn`, { method: 'POST' }, 60_000)
 }
 
 /** 入库勾选候选（作者勾选才入库；品味归人，不自动入库） */
