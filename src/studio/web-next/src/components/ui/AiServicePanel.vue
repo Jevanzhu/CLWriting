@@ -646,7 +646,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .probe-select {
   max-width: 150px;
-  height: 26px; /* 与 mini-btn 同高 */
+  height: 22px; /* 比 mini-btn 略矮（按钮是图标，框是实体，视觉平衡） */
   padding: 0 22px 0 8px;
   font-size: var(--font-size-s); /* 与卡片标题同号 */
   color: var(--text-normal);
