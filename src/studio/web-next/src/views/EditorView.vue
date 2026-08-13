@@ -267,8 +267,9 @@ async function onTitleCommit(): Promise<void> {
   try {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
     // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
+    // P2-FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
     const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).章号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
+      ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,

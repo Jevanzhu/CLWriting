@@ -18,6 +18,7 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY } from '../../../document/snapshot.js'
 import { readManifest } from '../../../document/manifest.js'
+import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
@@ -153,8 +154,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
 
       let removed = 0
       for (const docId of ids) {
-        // docId 白名单校验（防 manifest 篡改导致的路径穿越删除）
-        if (!docId || docId.includes('\0') || docId.includes('/') || docId.includes('\\') || docId.includes('..')) continue
+        // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
+        if (!safeDocId(docId)) continue
         try {
           removed += pruneSnapshots(versionsDir, docId, policy)
         } catch {

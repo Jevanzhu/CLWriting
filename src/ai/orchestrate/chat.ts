@@ -298,7 +298,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       // 无工具调用 → 对话结束
       if (toolCalls.length === 0) {
-        history.push({ role: 'assistant', content: text })
+        // P2-AI-1：reasoning 非空时入历史（与工具路径 :311-320 一致——DeepSeek/Kimi 多轮带 tools 硬要求）
+        if (reasoning) {
+          const blocks: ContentBlock[] = []
+          if (text) blocks.push({ type: 'text', text })
+          blocks.push({ type: 'reasoning', text: reasoning })
+          history.push({ role: 'assistant', content: blocks })
+        } else {
+          history.push({ role: 'assistant', content: text })
+        }
         histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
         return void emit(opts, {
           type: 'chat_done',

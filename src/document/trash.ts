@@ -78,7 +78,8 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
 function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
   mkdirSync(join(bookRoot, TRASH_DIR_REL), { recursive: true })
   const text = entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : '')
-  atomicWriteFile(trashManifestPath(bookRoot), text)
+  // P2-BE-5：加 fsync——回收站 manifest 是「删除可还原」的承诺，掉电丢失即永久丢还原入口
+  atomicWriteFile(trashManifestPath(bookRoot), text, { fsync: true })
 }
 
 /** 追加 trash 条目（DocumentService.trashDocument 用；同 id 替换，幂等）。 */

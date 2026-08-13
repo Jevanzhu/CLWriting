@@ -29,7 +29,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           mkdirSync(dirname(dst), { recursive: true })
           renameSync(srcAbs, dst)
           migrated++
-        } catch (e) { errors.push(`${name}: ${e}`) }
+        } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
       }
       continue
     }
@@ -43,7 +43,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           renameSync(srcAbs, dst)
           migrated++
           pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
-        } catch (e) { errors.push(`${name}: ${e}`) }
+        } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
       }
       continue
     }
@@ -62,7 +62,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
         mkdirSync(trashDir, { recursive: true })
         renameSync(srcAbs, join(trashDir, name))
         migrated++
-      } catch (e) { errors.push(`${name} → .trash: ${e}`) }
+      } catch (e) { errors.push(`${name} → .trash: ${e instanceof Error ? e.message : String(e)}`) }
       continue
     }
     try {
@@ -71,7 +71,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       migrated++
       pathRemap.set(`写作/草稿/${name}`, dstRel)
     } catch (e) {
-      errors.push(`${name} → ${dstRel}: ${e}`)
+      errors.push(`${name} → ${dstRel}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -86,7 +86,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       }
       writeManifest(manifestPath, manifest)
     } catch (e) {
-      errors.push(`manifest 更新失败: ${e}`)
+      errors.push(`manifest 更新失败: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
