@@ -305,7 +305,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
   })
 
-  route('POST', '/api/providers/:id/test', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  route('POST', '/api/providers/:id/test', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''
     const s = loadProviders(ctx.userDataPath)
@@ -313,8 +313,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!conf) return reply(res, 404, { error: '供应商不存在' })
 
     try {
-      // 用全局当前模型覆盖 conf.model（方案 A：model 已移至全局，conf.model 是废弃旧值）
-      const { caps, details } = await probeCapabilities({ ...conf, model: s.currentModel ?? conf.model })
+      // 前端可指定测试模型；未指定则用全局当前模型；都无则回落 conf.model（废弃旧值）
+      let body: Record<string, unknown> = {}
+      try { body = await readJson(req) } catch { /* 无 body（旧客户端兼容）*/ }
+      const probeModel = typeof body['model'] === 'string' && body['model']
+        ? body['model'] : (s.currentModel ?? conf.model)
+      const { caps, details } = await probeCapabilities({ ...conf, model: probeModel })
       // 写回探测结果
       conf.caps = caps
       conf.capsProbedAt = Date.now()

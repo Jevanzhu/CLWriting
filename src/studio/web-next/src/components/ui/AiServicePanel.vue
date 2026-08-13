@@ -31,6 +31,7 @@ const currentId = ref<string | null>(null)
 const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
+const probeModel = ref('') // 测试连接用的模型（默认当前模型，可手动切换）
 
 // 任务档位（D 档：创作档/助手档/对话档）
 const models = ref<string[]>([])
@@ -87,6 +88,8 @@ async function refresh(): Promise<void> {
       try {
         const r = await fetchModels({ id: currentId.value })
         models.value = r.models
+        // 默认探测模型 = 当前全局模型；不在列表中则取首个
+        probeModel.value = data.currentModel ?? r.models[0] ?? ''
       } catch {
         models.value = []
       }
@@ -186,7 +189,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
 async function test(p: ProviderConfDto): Promise<void> {
   testing.value = p.id
   try {
-    const r = await testProvider(p.id)
+    const r = await testProvider(p.id, probeModel.value || undefined)
     testResults.value.set(p.id, r)
     // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
     void ui.probeAiStatus()
@@ -307,6 +310,13 @@ function timeAgo(ts: number | undefined): string {
             <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
             <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
+          </div>
+          <!-- 测试模型选择 -->
+          <div class="probe-row">
+            <select v-model="probeModel" class="probe-select" :disabled="!models.length">
+              <option value="" disabled>{{ models.length ? '选择测试模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            </select>
           </div>
           <!-- caps 徽章 -->
           <div v-if="p.caps" class="caps-row">
@@ -619,6 +629,20 @@ function timeAgo(ts: number | undefined): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 测试模型选择 ── */
+.probe-row {
+  margin-top: 6px;
+}
+.probe-select {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
 }
 
 /* ── caps 徽章 ── */

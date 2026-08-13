@@ -103,8 +103,12 @@ export interface TestResult {
   error?: string
 }
 
-export async function testProvider(id: string): Promise<TestResult> {
-  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, { method: 'POST' }, 60_000) // 探测可能慢，60s 超时
+export async function testProvider(id: string, model?: string): Promise<TestResult> {
+  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(model ? { model } : {}),
+  }, 60_000)
 }
 
 /** 设置全局当前模型（方案 A：model 独立于供应商，工作台选择）。
