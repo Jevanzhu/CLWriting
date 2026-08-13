@@ -632,22 +632,23 @@ function timeAgo(ts: number | undefined): string {
   white-space: nowrap;
 }
 
-/* ── 测试模型选择（与测试按钮同行，紧凑内联） ── */
+/* ── 测试模型选择（与测试按钮同行，同高协调） ── */
 .probe-inline {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin-right: 2px;
 }
 .probe-hint {
-  font-size: var(--font-size-xxs);
+  font-size: var(--font-size-xs);
   color: var(--text-faint);
   white-space: nowrap;
 }
 .probe-select {
   max-width: 150px;
-  padding: 3px 8px;
-  font-size: var(--font-size-xs);
+  height: 26px; /* 与 mini-btn 同高 */
+  padding: 0 22px 0 8px;
+  font-size: var(--font-size-s); /* 与卡片标题同号 */
   color: var(--text-normal);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
