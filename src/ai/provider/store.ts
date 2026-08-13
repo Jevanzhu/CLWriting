@@ -150,7 +150,9 @@ export function loadProviders(userDataPath: string): ProviderStore {
     _cache = { path: fp, store, mtime: statSync(fp).mtimeMs }
   } catch { /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */ }
 
-  return store
+  // P2-AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
+  // 否则调用方（API 端点）直接 mutate store 后 saveProviders 前，未保存的中间态会泄漏给后续 loadProviders
+  return structuredClone(store)
 }
 
 /**

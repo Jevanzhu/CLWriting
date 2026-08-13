@@ -174,14 +174,6 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
     expect(tree.totalWords).toBe(3000)
   })
 
-  it('finalizedWords: chapter 求和（不含草稿 draft）', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
-    const tree = useTreeStore()
-    await tree.load(BOOK)
-    // 1000 + 2000 = 3000；draft 300 不算
-    expect(tree.finalizedWords).toBe(3000)
-  })
-
   it('updateWordCount: 局部更新某叶子字数（聚合随之变）', async () => {
     getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()

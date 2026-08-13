@@ -205,6 +205,11 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 /** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
 function toErrorEvent(e: unknown): GenEvent {
+  // P2-AI-4：APIUserAbortError extends APIError（status undefined），须前置判定
+  //（P3-Q6 已在 openai/anthropic 适配器补齐，responses 遗漏——用户中断应报「已中断」而非 API undefined）
+  if (e instanceof OpenAI.APIUserAbortError) {
+    return { type: 'error', message: '已中断', retryable: false }
+  }
   if (e instanceof OpenAI.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
     return { type: 'error', message: redactSecret(`OpenAI API ${e.status}: ${e.message}`), retryable }

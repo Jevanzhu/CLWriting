@@ -57,12 +57,9 @@ export const useTreeStore = defineStore('tree', () => {
   }
 
   const WORD_ALL = new Set(['chapter', 'piece-body'])
-  const WORD_FINAL = new Set(['chapter', 'piece-body'])
 
   /** 全书已写字数（chapter+piece-body）。 */
   const totalWords = computed(() => sumWords(raw.value, WORD_ALL))
-  /** 全书已定稿字数（chapter+piece-body）。 */
-  const finalizedWords = computed(() => sumWords(raw.value, WORD_FINAL))
 
   /** save 后局部更新某叶子字数（避免重拉整树）。 */
   function updateWordCount(path: string, count: number): void {
@@ -144,7 +141,6 @@ export const useTreeStore = defineStore('tree', () => {
     byPath,
     byDocId,
     totalWords,
-    finalizedWords,
     updateWordCount,
     revision,
     loading,

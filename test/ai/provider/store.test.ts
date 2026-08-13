@@ -255,3 +255,21 @@ test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
   // 主文件完整可读
   expect(JSON.parse(readFileSync(FP(), 'utf8')).vault).toBeTypeOf('object')
 })
+
+// ── P2-AI-3：缓存未命中路径返回 clone（防调用方突变污染缓存）────────
+
+test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-clone-test123456' })]
+  saveProviders(dir, store)
+
+  // 第一次 load（缓存未命中）→ 返回 clone
+  const s1 = loadProviders(dir)
+  expect(s1.providers[0]!.name).toBe('测试供应商')
+  // 突变 s1（模拟 API 端点直接 mutate 后未 save）
+  s1.providers[0]!.name = '被污染的中间态'
+
+  // 第二次 load（缓存命中）→ 不应看到 s1 的突变
+  const s2 = loadProviders(dir)
+  expect(s2.providers[0]!.name).toBe('测试供应商')
+})
