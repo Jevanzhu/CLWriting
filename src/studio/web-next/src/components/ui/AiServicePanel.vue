@@ -288,6 +288,14 @@ function timeAgo(ts: number | undefined): string {
               >
                 <Check :size="13" />
               </button>
+              <!-- 测试模型 + 下拉（挪到测试按钮前，与按钮同行） -->
+              <span class="probe-inline" :title="models.length ? '测试连接用模型' : '请先获取模型列表'">
+                <span class="probe-hint">测试模型</span>
+                <select v-model="probeModel" class="probe-select" :disabled="!models.length">
+                  <option value="" disabled>{{ models.length ? '选择模型' : '请先获取列表' }}</option>
+                  <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+                </select>
+              </span>
               <button
                 class="mini-btn"
                 :class="{ testing: testing === p.id }"
@@ -311,13 +319,8 @@ function timeAgo(ts: number | undefined): string {
             <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
-          <!-- 测试模型 + caps 徽章（同一行） -->
+          <!-- caps 徽章（测试模型已挪到测试按钮前） -->
           <div class="provider-meta">
-            <span class="probe-hint">测试模型</span>
-            <select v-model="probeModel" class="probe-select" :disabled="!models.length">
-              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取列表' }}</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-            </select>
             <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
             <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
           </div>
@@ -629,13 +632,20 @@ function timeAgo(ts: number | undefined): string {
   white-space: nowrap;
 }
 
-/* ── 测试模型选择（与 caps 同行，复用 provider-meta 布局） ── */
+/* ── 测试模型选择（与测试按钮同行，紧凑内联） ── */
+.probe-inline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 2px;
+}
 .probe-hint {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-xxs);
   color: var(--text-faint);
   white-space: nowrap;
 }
 .probe-select {
+  max-width: 150px;
   padding: 3px 8px;
   font-size: var(--font-size-xs);
   color: var(--text-normal);
