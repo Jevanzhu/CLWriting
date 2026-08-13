@@ -318,7 +318,17 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, mo
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
+            // P2-AI-2：流异常截断无 finish_reason 时，补发 toolAccum 残留（与 responses-adapter 一致）
             if (!doneEmitted) {
+              let fallbackIdx = 0
+              for (const [, acc] of toolAccum) {
+                if (!acc.name) continue
+                let input: unknown
+                try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
+                yield { type: 'tool', id: acc.id || `call_${fallbackIdx}`, name: acc.name, input }
+                fallbackIdx++
+              }
+              toolAccum.clear()
               const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
               if (ev) yield ev
             }

@@ -120,4 +120,13 @@ describe('probeModelCaps', () => {
     expect(r.caps.toolUse).toBe(false)
     expect(r.caps.toolChoice).toBe(false)
   })
+
+  // P1-S5 回归：probe 在 done 时 break——tool 事件必须在 done 之前到达（所有适配器均须保证此顺序）
+  it('tool 事件在 done 之前 → probe 正确检测 toolUse', async () => {
+    vi.mocked(createAnthropicProvider).mockReturnValue(
+      fakeProvider([{ type: 'tool', name: 'echo_test' }, { type: 'tool', name: 'echo_test' }]),
+    )
+    const r = await probeModelCaps(conf())
+    expect(r.caps.toolUse).toBe(true)
+  })
 })

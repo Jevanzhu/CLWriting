@@ -60,13 +60,19 @@ const ui = useUiStore()
 
 // ── 工具确认 ────────────────────────────────────
 
+const confirmingCallId = ref<string | null>(null)
+
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
+  if (confirmingCallId.value) return // 防重复点击
+  confirmingCallId.value = callId
   try {
     await confirmTool(props.bookName, { callId, ok })
   } catch (e) {
     // 404 = 工具调用已超时，静默忽略；其他错误提示作者
     if (e instanceof ApiError && e.status === 404) return
     ui.toast('确认请求失败，请重试', 'error')
+  } finally {
+    confirmingCallId.value = null
   }
 }
 
@@ -142,8 +148,11 @@ const TOOL_LABELS: Record<string, string> = {
 
             <!-- 确认按钮 -->
             <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
-              <button class="chat-confirm-no" @click="handleConfirm(tool.callId, false)">取消</button>
-              <button class="chat-confirm-yes" @click="handleConfirm(tool.callId, true)">确认执行</button>
+              <button class="chat-confirm-no" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, false)">取消</button>
+              <button class="chat-confirm-yes" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, true)">
+                <Loader2 v-if="confirmingCallId === tool.callId" :size="12" class="spin" />
+                确认执行
+              </button>
             </div>
           </div>
         </div>

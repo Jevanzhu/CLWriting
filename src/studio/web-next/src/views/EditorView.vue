@@ -288,6 +288,8 @@ async function onTitleCommit(): Promise<void> {
     if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
       doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
     }
+    // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记
+    if (refreshed) refreshed.conflict = false
   } catch (err) {
     ui.toast(friendlyError(err), 'error')
   } finally {
