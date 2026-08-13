@@ -656,7 +656,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .probe-select {
   max-width: 150px;
-  padding: 3px 22px 3px 8px;
+  padding: 3px 8px;
   font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary);
