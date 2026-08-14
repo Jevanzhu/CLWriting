@@ -12,8 +12,8 @@ import process from 'node:process'
 import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { readBookConfig, stringifyBookConfig } from '../format/yaml.js'
-import type { BookConfig } from '../format/types.js'
+import { readBookConfig, patchTopSection } from '../format/yaml.js'
+import { stringifyValue } from '../format/frontmatter.js'
 
 const RAG_SECRET_FILE = 'rag.secret'
 const ENV_KEY = 'CLWRITING_RAG_API_KEY'
@@ -98,22 +98,27 @@ export function enableRag(
   workDir: string,
   opts: EnableRagOpts,
 ): { ok: true } | { ok: false; reason: string } {
-  // 1. 读现有 book.yaml，合并 rag 段（非密）
+  // 1. 校验现有 book.yaml 可解析（合并 rag 段前确认基线合法）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) {
     return { ok: false, reason: `读 book.yaml 失败：${cfgResult.error.message}` }
   }
-  const config: BookConfig = {
-    ...cfgResult.config,
-    rag: {
-      enabled: true,
-      ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
-      ...(opts.model ? { model: opts.model } : {}),
-    },
-  }
+  // 已有 rag 段的非密字段做合并语义：未提供新值时保留旧值
+  const prev = cfgResult.config.rag
+  const endpoint = opts.endpoint ?? prev?.endpoint
+  const model = opts.model ?? prev?.model
 
-  // 2. 写回 book.yaml（非密段；key 绝不在此）
-  atomicWriteFile(join(bookRoot, 'book.yaml'), stringifyBookConfig(config))
+  // 2. 写回 book.yaml——V-P2-4：文本级补丁只重写 rag 段，作者的 # 注释、未知段、
+  //    未知子键逐字保留（此前 stringifyBookConfig 全量重生成会静默丢掉）。
+  //    key 绝不在此。
+  const yamlPath = join(bookRoot, 'book.yaml')
+  const raw = existsSync(yamlPath) ? readFileSync(yamlPath, 'utf-8') : ''
+  const ragBody = [
+    '  enabled: true',
+    ...(endpoint ? [`  endpoint: ${stringifyValue(endpoint)}`] : []),
+    ...(model ? [`  model: ${stringifyValue(model)}`] : []),
+  ].join('\n')
+  atomicWriteFile(yamlPath, patchTopSection(raw, 'rag', ragBody))
 
   // 3. key 落 gitignore 区（绝不写 book.yaml）
   if (opts.apiKey) {

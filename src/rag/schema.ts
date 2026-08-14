@@ -28,6 +28,21 @@ const RAG_DDL = [
 /** 建 RAG 表（幂等 IF NOT EXISTS） */
 export function createRagTables(db: DatabaseSync): void {
   for (const stmt of RAG_DDL) db.exec(stmt)
+  // V-P2-3：分块唯一键（章号+偏移区间+模型）——中断重跑不得重复 INSERT
+  // （重复 embed 费用翻倍、召回重复命中）。存量库可能有历史重复行（直接建唯一索引
+  // 会 SQLITE_CONSTRAINT 失败），失败分支先按 MIN(id) 去重再建。
+  try {
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)',
+    )
+  } catch {
+    db.exec(
+      'DELETE FROM chunks WHERE id NOT IN (SELECT MIN(id) FROM chunks GROUP BY 章号, start_offset, end_offset, model)',
+    )
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)',
+    )
+  }
 }
 
 export { RAG_DDL }

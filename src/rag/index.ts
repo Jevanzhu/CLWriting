@@ -51,6 +51,11 @@ function chapterHashKey(chapterNumber: number): string {
   return `chapter_hash:${chapterNumber}`
 }
 
+/** 错误信息提取（事务回滚返回用）。 */
+function errStr(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 function hashChapterContent(fmRaw: string, body: string): string {
   return 'sha256:' + createHash('sha256').update(fmRaw).update('\n---body---\n').update(body).digest('hex')
 }
@@ -161,9 +166,17 @@ export async function buildIndex(
     if (allChunks.length === 0) {
       // 没有有效块，但章节已处理，更新游标
       const maxCh = toIndex[toIndex.length - 1]!.章号
-      setRagMeta(db, 'indexed_max_chapter', String(maxCh))
-      for (const [chapterNumber, hash] of chapterHashes) {
-        setRagMeta(db, chapterHashKey(chapterNumber), hash)
+      // V-P2-3：游标 + 指纹同事务（游标单独领先会让指纹校验误报缺指纹）
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        setRagMeta(db, 'indexed_max_chapter', String(maxCh))
+        for (const [chapterNumber, hash] of chapterHashes) {
+          setRagMeta(db, chapterHashKey(chapterNumber), hash)
+        }
+        db.exec('COMMIT')
+      } catch (e) {
+        db.exec('ROLLBACK')
+        return { ok: false, chunkCount: 0, chapterCount: 0, error: `索引元数据写入失败：${errStr(e)}` }
       }
       return { ok: true, chunkCount: 0, chapterCount: toIndex.length }
     }
@@ -185,25 +198,40 @@ export async function buildIndex(
       }
     }
 
-    // 存向量
-    for (let i = 0; i < allChunks.length; i++) {
-      const { 章号, chunk } = allChunks[i]!
-      storeChunk(db, {
-        章号,
-        start_offset: chunk.start,
-        end_offset: chunk.end,
-        embedding: Float32Array.from(vectors[i]!),
-        model: config.model,
-      })
-    }
+    // V-P2-3：块写入 + 游标/指纹同一事务——中断（崩溃/掉电）要么全入要么全无。
+    // 此前无事务：块插一半崩，游标未更新 → 重跑整章重复 embed+INSERT（费用翻倍、
+    // 召回重复）；配合 chunks 唯一键（schema.ts）双保险。
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      // 存向量
+      for (let i = 0; i < allChunks.length; i++) {
+        const { 章号, chunk } = allChunks[i]!
+        storeChunk(db, {
+          章号,
+          start_offset: chunk.start,
+          end_offset: chunk.end,
+          embedding: Float32Array.from(vectors[i]!),
+          model: config.model,
+        })
+      }
 
-    // 更新游标
-    const maxCh = toIndex[toIndex.length - 1]!.章号
-    setRagMeta(db, 'indexed_max_chapter', String(maxCh))
-    setRagMeta(db, 'embedding_model', config.model)
-    setRagMeta(db, 'embedding_dim', String(vectors[0]!.length))
-    for (const [chapterNumber, hash] of chapterHashes) {
-      setRagMeta(db, chapterHashKey(chapterNumber), hash)
+      // 更新游标
+      const maxCh = toIndex[toIndex.length - 1]!.章号
+      setRagMeta(db, 'indexed_max_chapter', String(maxCh))
+      setRagMeta(db, 'embedding_model', config.model)
+      setRagMeta(db, 'embedding_dim', String(vectors[0]!.length))
+      for (const [chapterNumber, hash] of chapterHashes) {
+        setRagMeta(db, chapterHashKey(chapterNumber), hash)
+      }
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      return {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        error: `索引写入失败（已回滚，可安全重跑）：${errStr(e)}`,
+      }
     }
 
     return { ok: true, chunkCount: allChunks.length, chapterCount: toIndex.length }

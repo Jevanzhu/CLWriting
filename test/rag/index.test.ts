@@ -187,3 +187,105 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(hits).toEqual([])
   })
 })
+
+// ── V-P2-3：中断重跑不得重复入库（唯一键 + 事务）──────────────────────
+
+import { DatabaseSync } from 'node:sqlite'
+import { openRagDb, readAllChunks, setRagMeta, storeChunk } from '../../src/rag/store.js'
+
+describe('buildIndex 去重与事务（V-P2-3）', () => {
+  let bookRoot: string
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-dedup-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    for (const n of [1, 2]) {
+      const meta: ChapterMeta = {
+        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
+      )
+    }
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(texts.map((t) => {
+      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+      return [norm, norm * 0.5, norm * 0.3]
+    }))
+  }
+
+  it('游标被重置（模拟崩溃：块已入库但游标未推进）→ 重跑不产生重复块', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    const r1 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    if (!r1.ok) throw new Error('prereq')
+    const before = (() => {
+      const db = openRagDb(bookRoot)
+      try {
+        return readAllChunks(db).length
+      } finally {
+        db.close()
+      }
+    })()
+
+    // 模拟崩溃残留：游标归零、指纹清掉（chunks 却已在库）
+    const db = openRagDb(bookRoot)
+    setRagMeta(db, 'indexed_max_chapter', '0')
+    db.exec("DELETE FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
+    db.close()
+
+    const r2 = await buildIndex(bookRoot, config, 'key', stubEmbed) // 重跑：重新 embed + INSERT
+    expect(r2.ok).toBe(true)
+    const after = (() => {
+      const db2 = openRagDb(bookRoot)
+      try {
+        return readAllChunks(db2).length
+      } finally {
+        db2.close()
+      }
+    })()
+    expect(after).toBe(before) // 唯一键兜底：无重复行（修复前会翻倍）
+  })
+
+  it('存量库历史重复行 → openRagDb 迁移去重 + 建唯一索引', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'key', stubEmbed)
+
+    // 手工制造历史重复：删唯一索引 + 复制行（模拟旧版本库的崩溃遗留）
+    const db = new DatabaseSync(join(bookRoot, '.rag.db'))
+    db.exec('DROP INDEX idx_chunks_unique')
+    db.exec('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) SELECT 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
+    db.close()
+
+    const db2 = openRagDb(bookRoot) // 迁移入口：去重 + 重建唯一索引
+    try {
+      expect(readAllChunks(db2).length).toBeGreaterThan(0)
+      const row = db2.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
+      const distinct = db2.prepare('SELECT COUNT(*) AS n FROM (SELECT DISTINCT 章号, start_offset, end_offset, model FROM chunks)').get() as { n: number }
+      expect(row.n).toBe(distinct.n)
+    } finally {
+      db2.close()
+    }
+  })
+
+  it('storeChunk 同块幂等（INSERT OR REPLACE）', () => {
+    const db = openRagDb(bookRoot)
+    try {
+      const input = { 章号: 9, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' }
+      storeChunk(db, input)
+      storeChunk(db, input)
+      const row = db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
+      expect(row.n).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+})

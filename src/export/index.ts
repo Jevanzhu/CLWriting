@@ -12,11 +12,12 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
+import { readManifest } from '../document/manifest.js'
 import {
   formatShortSubmissionView,
   scanShortCollection,
@@ -45,6 +46,8 @@ export interface ExportResult {
   chapterCount: number
   /** 导出对象单位 */
   unit: '章'
+  /** 因未定稿被滤掉的章数（V-P2-2，前端可提示） */
+  skippedDrafts?: number
   /** 错误信息 */
   error?: string
 }
@@ -96,12 +99,40 @@ export function exportBook(options: ExportOptions): ExportResult {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
 
+  // V-P2-2：「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无 finalizedRevision；
+  // 态7 流水线刚写出的在写章/坏 fm 草稿不再混进全本/分章/投稿视图）。
+  // 旧书无清单 / 清单无任何文档条目（损坏降级）→ 无法判定，保持全量（与历史行为一致）。
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const manifestEntries = existsSync(manifestPath)
+    ? [...readManifest(manifestPath).entries.values()]
+    : null
+  let skippedDrafts = 0
+  const exportable: ExportUnit[] =
+    manifestEntries && manifestEntries.some((e) => e.nodeType === 'document')
+      ? units.filter((u) => {
+          const rel = relative(bookRoot, u.path)
+          if (manifestEntries.some((e) => e.nodeType === 'document' && e.finalizedRevision && e.path === rel)) return true
+          skippedDrafts++
+          return false
+        })
+      : units
+  if (exportable.length === 0) {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      skippedDrafts,
+      error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
+    }
+  }
+
   // 2. 按章号数值排序（不依赖文件名字符串序）
-  units.sort((a, b) => a.num - b.num)
+  exportable.sort((a, b) => a.num - b.num)
 
   // 3. 读正文并净化（复用 readFile 取 body；readChapter 只返 meta 不够）
   const purified: Array<{ num: number; title: string; body: string }> = []
-  for (const unit of units) {
+  for (const unit of exportable) {
     const r = readFile(unit.path)
     if (!r.ok) {
       return { ok: false, files: [], chapterCount: 0, unit: '章', error: `读取 ${unit.path} 失败：${r.error.message}` }
@@ -150,7 +181,9 @@ export function exportBook(options: ExportOptions): ExportResult {
     const template = SUBMISSION_TEMPLATES[platform]
     const platformSuffix = template && platform !== 'generic' ? `-${template.label}` : ''
     const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}${platformSuffix}.md`
-    const entries = scanShortCollection(bookRoot)
+    // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）
+    const exportableNums = new Set(exportable.map((u) => u.num))
+    const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))
     atomicWriteFile(
       join(exportDir, submissionName),
       formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),
@@ -158,5 +191,5 @@ export function exportBook(options: ExportOptions): ExportResult {
     files.push(`工作区/导出/${submissionName}`)
   }
 
-  return { ok: true, files, chapterCount: units.length, unit: '章' }
+  return { ok: true, files, chapterCount: exportable.length, unit: '章', skippedDrafts }
 }

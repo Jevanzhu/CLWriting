@@ -218,3 +218,79 @@ test('exportBook: 书名含路径分隔符 → 文件名净化不越出导出目
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── V-P2-2：导出滤未定稿（「导出定稿正文」名要符实）──────────────────
+
+import { readManifest, writeManifest } from '../../src/document/manifest.js'
+import type { ManifestEntry } from '../../src/document/manifest.js'
+
+/** 在书库写文档清单（含可选定稿基线）。entry.path 为书仓库相对路径。 */
+function writeManifestFile(root: string, entries: ManifestEntry[]): void {
+  const m = readManifest(join(root, '项目', '文档清单.jsonl')) // 无文件 → 默认骨架
+  for (const e of entries) m.entries.set(e.id, e)
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeManifest(join(root, '项目', '文档清单.jsonl'), m)
+}
+
+function finalizedEntry(id: string, path: string): ManifestEntry {
+  return { id, nodeType: 'document', path, parentId: null, finalizedRevision: 'sha256:fin-' + id }
+}
+
+test('exportBook: 未定稿章被滤出导出（V-P2-2），skippedDrafts 计数', () => {
+  const root = makeLongBook('滤草稿')
+  writeLongChapter(root, 1, '已定稿章', '定稿内容。')
+  writeLongChapter(root, 2, '未定稿章', '还在写的半成品。')
+  writeManifestFile(root, [
+    finalizedEntry('doc_1', '写作/正文/1-已定稿章.md'),
+    { id: 'doc_2', nodeType: 'document', path: '写作/正文/2-未定稿章.md', parentId: null },
+  ])
+  try {
+    const r = exportBook({ bookRoot: root, format: 'both' })
+    expect(r.ok).toBe(true)
+    expect(r.chapterCount).toBe(1)
+    expect(r.skippedDrafts).toBe(1)
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-滤草稿.md'), 'utf-8')
+    expect(merged).toContain('定稿内容')
+    expect(merged).not.toContain('半成品')
+    expect(r.files.some((f) => f.includes('分章/002-'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('exportBook: 全部未定稿 → ok:false + 人话提示', () => {
+  const root = makeLongBook('全草稿')
+  writeLongChapter(root, 1, '草稿章', '内容。')
+  writeManifestFile(root, [{ id: 'doc_1', nodeType: 'document', path: '写作/正文/1-草稿章.md', parentId: null }])
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('未定稿')
+    expect(r.skippedDrafts).toBe(1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('exportBook: 短篇投稿视图同口径滤未定稿', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-shortfin-'))
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇滤稿', '  genre: 悬疑'].join('\n'),
+    'utf-8',
+  )
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-成品.md'), '---\n章号: 1\n标题: 成品\n---\n成品正文内容足够长。', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '2-草稿.md'), '---\n章号: 2\n标题: 草稿\n---\n草稿正文内容足够长。', 'utf-8')
+  writeManifestFile(root, [finalizedEntry('doc_s1', '写作/正文/1-成品.md')])
+  try {
+    const r = exportBook({ bookRoot: root, format: 'both' })
+    expect(r.ok).toBe(true)
+    expect(r.chapterCount).toBe(1)
+    const view = readFileSync(join(root, '工作区', '导出', '投稿视图-短篇滤稿.md'), 'utf-8')
+    expect(view).toContain('成品')
+    expect(view).not.toContain('| 002 |')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

@@ -34,7 +34,7 @@ import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
-import { appendTrashEntry } from './trash.js'
+import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -203,6 +203,27 @@ export class DocumentService {
     // P1-SEC-A：journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
     if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
     const journalPath = join(this.journalDir, `${docId}.jsonl`)
+
+    // V-P2-1：结构性操作（rename/move/trash）同步执行、不排队，与入队 save 存在竞态窗口——
+    // 新建档（expectedRevision=null）的排队 save 若在移动/删除后出队，会在旧路径复活
+    // 已移走/已删文件（trash 场景绕过回收站）。出队时按清单核对保存目标仍是该 docId
+    // 的登记路径；已删（清单除名 + 回收站在案）同样拒绝。REVISION_CONFLICT 语义 =
+    // 「世界已变，请刷新重试」，前端既有冲突处理会重新同步路径。
+    const registered = this.lookupPathByDocId(docId)
+    if (registered !== null && registered !== relPath) {
+      return Promise.resolve({
+        ok: false,
+        code: 'REVISION_CONFLICT',
+        reason: `文档已移动或重命名（现路径 ${registered}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
+      })
+    }
+    if (registered === null && readTrashManifest(this.bookRoot).some((t) => t.id === docId)) {
+      return Promise.resolve({
+        ok: false,
+        code: 'REVISION_CONFLICT',
+        reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
+      })
+    }
 
     // 步骤 2：revision 校验（串行内执行，保证并发一致）
     const existing = existsSync(absPath)
