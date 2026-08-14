@@ -9,7 +9,7 @@ import { ANALYST_SYSTEM } from '../../src/ai/prompts/analyst.js'
 import { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem } from '../../src/ai/prompts/writer.js'
 import { REVIEW_SYSTEMS, reviewSystem } from '../../src/ai/prompts/review.js'
 import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../../src/ai/prompts/chat.js'
-import type { ChatMsg } from '../../src/ai/provider/types.js'
+import type { ChatMsg, ContentBlock } from '../../src/ai/provider/types.js'
 
 describe('analyst.ts', () => {
   it('包含角色定位 + 各分析维度 + 输出方式', () => {
@@ -140,7 +140,7 @@ describe('chat.ts', () => {
     expect(out.map((m) => m.content)).toEqual(['u0', 'a0', 'u1'])
   })
 
-  it('sanitizeHistory 连续同 role → 插占位 user 保持交替（#3b 兜底）', () => {
+  it('sanitizeHistory 连续同 role → 插互补角色占位保持交替（#3b 兜底）', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
       { role: 'user', content: 'u1' },              // 连续 user
@@ -148,11 +148,61 @@ describe('chat.ts', () => {
       { role: 'assistant', content: 'a1' },         // 连续 assistant
     ]
     const out = sanitizeHistory(msgs)
-    // u0/u1 之间插 1 个占位、a0/a1 之间插 1 个占位 → 共 6 条
-    expect(out.map((m) => m.role)).toEqual(['user', 'user', 'user', 'assistant', 'user', 'assistant'])
-    // 插入的是占位 user，不是原消息
-    expect(out[1]).toMatchObject({ role: 'user', content: '[对话继续]' })
+    // u0/u1 之间插 assistant 占位、a0/a1 之间插 user 占位 → 共 6 条且严格交替
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant'])
+    // 插入的是占位消息，不是原消息
+    expect(out[1]).toMatchObject({ role: 'assistant', content: '[收到]' })
     expect(out[4]).toMatchObject({ role: 'user', content: '[对话继续]' })
+  })
+
+  it('sanitizeHistory reasoning-only assistant 消息 → 剔除（anthropic 适配器丢块成空 content）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'reasoning', text: '思考中' }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    // reasoning-only 被剔 → u0/u1 连续 → 互补插 assistant 占位
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+    expect(out[1]).toMatchObject({ role: 'assistant', content: '[收到]' })
+  })
+
+  it('sanitizeHistory assistant 混合消息保留 reasoning 块（openai echoReasoning 回传硬要求）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'reasoning', text: 'r' }, { type: 'text', text: 'a0' }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    expect(out).toHaveLength(3)
+    // reasoning 块本体不剔除（DeepSeek/Kimi 多轮带 tools 须回传 reasoning_content）
+    expect((out[1] as { content: ContentBlock[] }).content).toEqual([
+      { type: 'reasoning', text: 'r' },
+      { type: 'text', text: 'a0' },
+    ])
+  })
+
+  it('sanitizeHistory 尾部孤儿 tool_use（中断残留无 tool_result 回应）→ 从块中剔除', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'text', text: 'a0' }, { type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    // t1 无回应 → 剔块；assistant 剩 text 仍有效保留
+    expect((out[1] as { content: ContentBlock[] }).content).toEqual([{ type: 'text', text: 'a0' }])
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+  })
+
+  it('sanitizeHistory reasoning + 孤儿 tool_use 且无 text → 整条剔除', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'reasoning', text: 'r' }, { type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+    expect(out[1]).toMatchObject({ role: 'assistant', content: '[收到]' })
   })
 
   it('sanitizeHistory 孤儿 tool_result（无对应 tool_use）→ 删除', () => {

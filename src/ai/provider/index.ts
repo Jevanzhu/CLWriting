@@ -33,6 +33,8 @@ export {
   emptySettings,
   newProviderId,
   maskKey,
+  registerDegradedPersist,
+  persistDegraded,
   type ProviderStore,
 } from './store.js'
 export {

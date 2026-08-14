@@ -10,7 +10,7 @@
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
-import { createProvider, loadProviders, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
+import { createProvider, loadProviders, saveProviders, registerDegradedPersist, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
@@ -91,6 +91,13 @@ export function resolveProvider(
   tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
 ): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
+  // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发；
+  // 同 path 重复注册无害）
+  registerDegradedPersist((key) => {
+    const s = loadProviders(userDataPath)
+    s.modelCaps[key] = { structured: false }
+    saveProviders(userDataPath, s)
+  })
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
   const s = loadProviders(userDataPath)
   const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null

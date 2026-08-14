@@ -209,7 +209,9 @@ export function quirksFor(model: string): FamilyQuirks {
         // GLM 5.2+ 7 档内部折叠：none/minimal=不思考，low/medium→high，xhigh→max
         effortMap: hasEffort ? { medium: 'high', xhigh: 'max' } : undefined,
         maxTokensKey: 'max_tokens',
-        reasoningEffort: hasEffort ? openaiEffort : () => null,
+        // openai 线档位收敛走 trimEffort（与 effortMap 一致）；openaiEffort 会把
+        // xhigh/max 压成 high，与 effortMap 的 xhigh→max 矛盾（max 档不可达）
+        reasoningEffort: hasEffort ? trimEffort : () => null,
         thinkingWithEffort: false,
         trimStop: (s) => s.slice(0, 1), // 文档冲突，取保守首个
         emitStreamOptions: false, // 无此参数，usage 末 chunk 自带

@@ -354,13 +354,16 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
       dek: null,
     }
     const prov = createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client, store)
-    // 第一次：带 structured → 400 → 降级重试 → 记忆写入
+    // 第一次：带 structured → 400 → 降级重试 → 建流成功才写记忆
     await collect(prov, { ...REQ, structured: { schema: {} } })
     expect(store.modelCaps['t1/claude-sonnet-5']).toEqual({ structured: false })
-    // 第二次：记忆命中 → 直接剥 structured，一次请求即成功（不再 400 重试）
+    // 第二次：记忆命中 → 首发即剥 structured，一次请求即成功（不再 400 重试）
     callCount = 0
-    await collect(prov, { ...REQ, structured: { schema: {} } })
+    const evs2 = await collect(prov, { ...REQ, structured: { schema: {} } })
     expect(callCount).toBe(1)
+    // 不止 callCount=1——必须真的成功产出（记忆不得关闭降级链导致必败）
+    expect(evs2.some((e) => e.type === 'done')).toBe(true)
+    expect(evs2.some((e) => e.type === 'error')).toBe(false)
   })
 
   it('effort 400 不再降级（表驱动后该发的才发，此 400 直接透传）', async () => {

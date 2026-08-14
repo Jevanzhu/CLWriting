@@ -19,6 +19,7 @@ import type {
   ContentBlock as ClwContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
+import { persistDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 
@@ -166,25 +167,31 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // 400 降级链（方案 §6.5）：表驱动后首发即正确，只留「中转怪癖」兜底——
         // output_config.format（json_schema）→ 剥 structured 重试一级。
         // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
-        // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次直接跳过 structured。
+        // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次首发即剥。
         const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
         const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+        const q = quirksFor(conf.model ?? '')
         let attempts: GenRequest[] = [req]
-        if (req.structured && !degraded) {
-          const c = { ...req } as GenRequest
-          delete (c as { structured?: unknown }).structured
-          attempts.push(c)
+        if (req.structured && q.structuredMode !== 'none') {
+          const stripped = { ...req } as GenRequest
+          delete (stripped as { structured?: unknown }).structured
+          // 记忆命中 → 首发即用剥除版（否则记忆反而关闭降级链、structured 照发 → 必败）
+          attempts = degraded ? [stripped] : [req, stripped]
         }
         let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
         let lastErr: unknown = null
         for (const attempt of attempts) {
           try {
             stream = await c.messages.create(toParams(conf, attempt), { signal })
+            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）
+            if (attempt !== req && degradedKey && store) {
+              store.modelCaps[degradedKey] = { structured: false }
+              persistDegraded(degradedKey)
+            }
             break
           } catch (e) {
-            if (e instanceof Anthropic.APIError && e.status === 400 && attempts.length > 1) {
-              // §6.5：降级命中 → 写记忆（structured 不支持）
-              if (degradedKey && store) store.modelCaps[degradedKey] = { structured: false }
+            // 非最后 attempt 的 400 → 尝试下一参数面；最后一个 400 透传原文（不被降级掩盖）
+            if (e instanceof Anthropic.APIError && e.status === 400 && attempt !== attempts[attempts.length - 1]) {
               lastErr = e
               continue
             }

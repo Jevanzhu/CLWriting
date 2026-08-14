@@ -225,6 +225,20 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
   _cache = null
 }
 
+/**
+ * 400 降级记忆落盘回调（U-P2-2）——适配器深处只持有 store 的内存 clone
+ * （P2-SEC-4：loadProviders 返回副本），mutate 不回缓存也无人保存。
+ * runner 侧注册落盘函数（load→改→save 读盘最新，防覆盖并发改动），
+ * 适配器经 persistDegraded 转发；未注册（如单测直接构造 store）时静默跳过。
+ */
+let _persistDegraded: ((key: string) => void) | null = null
+export function registerDegradedPersist(fn: (key: string) => void): void {
+  _persistDegraded = fn
+}
+export function persistDegraded(key: string): void {
+  _persistDegraded?.(key)
+}
+
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */
 export function currentProvider(userDataPath: string): ProviderConf | null {
   const s = loadProviders(userDataPath)

@@ -102,11 +102,16 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
 /**
  * 发送前历史消毒（方案 §6.4，治 #3a/#3b；学 cherry-studio ensureValidHistory）。
  *
- * 多轮带 tools 往返后历史可能出现四类非法序列（Anthropic/OpenAI 硬性 400）：
- * - 空 content 消息（reasoning-only assistant 被过滤后）→ 剔除（#3a）
- * - 连续同 role（user/assistant 交替被打断，如中断回滚后）→ 插入占位 user（#3b）
- * - 孤儿 tool_result（对应 tool_use 被裁掉）→ 删除
+ * 多轮带 tools 往返后历史可能出现的非法序列（Anthropic/OpenAI 硬性 400）：
+ * - 空 content 消息 → 剔除；reasoning-only assistant（剔 reasoning 后无
+ *   text/tool_use）同样剔除——anthropic 适配器会丢 reasoning 块致 content:[]（#3a）
+ * - 连续同 role（user/assistant 交替被打断，如中断回滚后）→ 插入互补角色占位（#3b）
+ * - 孤儿 tool_result（对应 tool_use 未出现）→ 删除
+ * - 尾部孤儿 tool_use（中断残留、无 tool_result 回应）→ 从块中剔除
  * - 首条非 user（悬空 assistant）→ 剔除
+ *
+ * reasoning 块本体保留（openai 协议 DeepSeek/Kimi 的 echoReasoning 硬要求：
+ * 多轮带 tools 时须回传 reasoning_content），只作判空口径。
  *
  * 纯函数，不修改入参，返回新数组。chat.ts 的 5 处手工回滚是第一道防线，
  * 此消毒是第二道兜底。
@@ -114,8 +119,19 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
 export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
   if (history.length === 0) return history
 
+  // 全量预扫：有 tool_result 回应的 tool_use id（供孤儿 tool_use 判定——
+  // 尾部中断残留的 tool_use 无回应，Anthropic 硬 400）
+  const answeredToolUseIds = new Set<string>()
+  for (const m of history) {
+    if (m.role === 'user' && typeof m.content !== 'string') {
+      for (const b of m.content as ContentBlock[]) {
+        if (b.type === 'tool_result') answeredToolUseIds.add(b.toolUseId)
+      }
+    }
+  }
+
   let result: ChatMsg[] = []
-  // 已知的 tool_use id（遍历中记录，靠前 assistant 消息的 tool_use）
+  // 已出现的 tool_use id（供后续孤儿 tool_result 判定；时序上 use 先于 result）
   const knownToolUseIds = new Set<string>()
 
   for (const m of history) {
@@ -126,27 +142,41 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
       continue
     }
 
+    // assistant 块级消毒：无回应的孤儿 tool_use 剔除；判空口径 = 剔 reasoning 后
+    // 无有效载荷（无 tool_use 且 text 全空白）→ 整条丢弃
+    let msg = m
+    if (m.role === 'assistant' && typeof m.content !== 'string') {
+      const blocks = (m.content as ContentBlock[]).filter(
+        (b) => b.type !== 'tool_use' || answeredToolUseIds.has(b.id),
+      )
+      const hasPayload = blocks.some(
+        (b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''),
+      )
+      if (!hasPayload) continue
+      if (blocks.length !== (m.content as ContentBlock[]).length) msg = { ...m, content: blocks }
+    }
+
     // assistant 消息的 tool_use 记录进集合
-    if (m.role === 'assistant') {
-      for (const b of m.content as ContentBlock[]) {
+    if (msg.role === 'assistant' && typeof msg.content !== 'string') {
+      for (const b of msg.content as ContentBlock[]) {
         if (b.type === 'tool_use') knownToolUseIds.add(b.id)
       }
     }
 
-    // 孤儿 tool_result（对应 tool_use 未出现过）→ 删除
-    if (m.role === 'user' && typeof m.content !== 'string') {
-      const blocks = m.content as ContentBlock[]
+    // 孤儿 tool_result（对应 tool_use 未出现过/已被剔）→ 删除
+    if (msg.role === 'user' && typeof msg.content !== 'string') {
+      const blocks = msg.content as ContentBlock[]
       if (blocks.some((b) => b.type === 'tool_result')) {
         const kept = blocks.filter(
           (b) => b.type !== 'tool_result' || knownToolUseIds.has(b.toolUseId),
         )
         if (kept.length === 0) continue
-        result.push({ ...m, content: kept })
+        result.push({ ...msg, content: kept })
         continue
       }
     }
 
-    result.push(m)
+    result.push(msg)
   }
 
   // 首条必须 user → 不是则剔除首部悬空 assistant
@@ -154,12 +184,16 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
     result.shift()
   }
 
-  // 连续同 role → 在断点插占位 user（保持 user/assistant 交替，治 #3b）
-  // 注意：必须在「首条剔除」之后——否则悬空 assistant 被占位插入会当上首条
+  // 连续同 role → 插入与当前消息角色互补的占位（保持交替，治 #3b）。
+  // 占位角色必须互补：写死 user 会在连续 user 场景插出三连 user（防线失效）
   const fixed: ChatMsg[] = []
   for (const m of result) {
     if (fixed.length > 0 && fixed[fixed.length - 1]!.role === m.role) {
-      fixed.push({ role: 'user', content: '[对话继续]' })
+      fixed.push(
+        m.role === 'user'
+          ? { role: 'assistant', content: '[收到]' }
+          : { role: 'user', content: '[对话继续]' },
+      )
     }
     fixed.push(m)
   }

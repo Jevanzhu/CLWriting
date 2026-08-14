@@ -61,8 +61,9 @@ describe('OpenAI 线格式五维度矩阵', () => {
     const old = quirksFor('glm-4.6')
     expect(old.reasoningEffort('high')).toBeNull()
     const q = quirksFor('glm-5.2')
-    expect(q.reasoningEffort('medium')).toBe('medium')
-    expect(q.reasoningEffort('xhigh')).toBe('high')
+    // openai 线收敛与 effortMap 一致（medium→high、xhigh→max），修正旧断言的表内矛盾
+    expect(q.reasoningEffort('medium')).toBe('high')
+    expect(q.reasoningEffort('xhigh')).toBe('max')
     expect(q.trimStop(['a', 'b', 'c'])).toEqual(['a'])
     expect(q.emitStreamOptions).toBe(false)
     expect(q.structuredMode).toBe('json_object')
@@ -178,6 +179,10 @@ describe('effortValues + effortMap', () => {
     const q = quirksFor('glm-5.2')
     expect(q.effortValues).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
     expect(q.effortMap).toEqual({ medium: 'high', xhigh: 'max' })
+    // openai 线收敛须与 effortMap 一致（openaiEffort 会把 xhigh/max 压成 high，max 档不可达）
+    expect(q.reasoningEffort('medium')).toBe('high')
+    expect(q.reasoningEffort('xhigh')).toBe('max')
+    expect(q.reasoningEffort('max')).toBe('max')
   })
 
   it('glm 4.x：不支持 effort', () => {
