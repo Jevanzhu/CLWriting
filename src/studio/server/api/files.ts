@@ -14,6 +14,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { resolveBook } from '../book-context.js'
+import { invalidateTreeIndex } from '../../../document/tree.js'
 
 interface FileCtx {
   workDir: string | null
@@ -58,6 +59,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
         return
       }
       atomicWriteFile(safe, body.content)
+      // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
+      // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
+      invalidateTreeIndex(r.bookRoot)
       reply(res, 200, { ok: true })
     },
   )

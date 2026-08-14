@@ -134,7 +134,20 @@ export function startServer(opts: StudioServerOptions): http.Server {
     return !origin || allowedOrigins.has(origin)
   }
 
+  // 实际监听端口（listening 后缓存，供 Host 白名单校验；0 = 未监听）
+  let listeningPort = 0
   const server = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // DNS rebinding 防御（U-P2-6）：Host 头必须精确匹配本机回环地址 + 实际监听端口。
+    // GET 端点无 Origin 头可校验——攻击页把域名二次解析到 127.0.0.1 后，同源 GET
+    // 即可全量读取书稿/配置；Host 校验切断该路径（写路径已有 Origin+token 双闸）
+    {
+      const host = req.headers.host
+      if (listeningPort === 0 || (host !== `127.0.0.1:${listeningPort}` && host !== `localhost:${listeningPort}` && host !== `[::1]:${listeningPort}`)) {
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'forbidden host' }))
+        return
+      }
+    }
     const origin = req.headers.origin
     // CORS:只对白名单 Origin 设 ACAO(跨站浏览器读被阻)
     if (origin && allowedOrigins.has(origin)) {
@@ -210,6 +223,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (addr && typeof addr === 'object') {
       allowedOrigins.add(`http://127.0.0.1:${addr.port}`)
       allowedOrigins.add(`http://localhost:${addr.port}`)
+      listeningPort = addr.port
     }
   })
   return server

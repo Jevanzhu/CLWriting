@@ -55,7 +55,8 @@ export function readJson(
         return
       }
       try {
-        resolve(data.trim() === '' ? {} : JSON.parse(data))
+        // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
+        resolve(data.trim() === '' ? {} : (JSON.parse(data) ?? {}))
       } catch (e) {
         reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`))
       }

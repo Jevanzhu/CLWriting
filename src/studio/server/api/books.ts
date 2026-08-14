@@ -17,7 +17,8 @@ import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
-import { clearChatHistory } from '../../../ai/orchestrate/chat.js'
+import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
+import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
 import { computeBookSummary } from './progress.js'
@@ -133,6 +134,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 404, { error: `没有这本书：${name}` })
       return
     }
+    // U-P2-7：先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
+    // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
+    if (isSelfHealRunning(name)) abortSelfHeal(name)
+    if (isChatRunning(name)) abortChat(name)
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
     // symlink realpath 校验：防 entry.path 中间组件是符号链接 → rmSync 删到书库外
