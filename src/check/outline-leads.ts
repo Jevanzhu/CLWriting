@@ -10,12 +10,26 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 
-export function readOutlineLeads(bookRoot: string): string[] {
+/**
+ * 读细纲的账本推进声明。
+ * @param forChapter 被检章号（V-P2-14）：细纲 front matter 自带章号且与被检章不一致时
+ *   返回 []（声明侧置空，不比对）——细纲是「当前章」覆盖写单文件，树红点聚合复检
+ *   旧草稿时，旧章正文对上新章声明会批量误报 lead-declared-not-done。
+ *   旧书细纲无章号字段 → 宽容沿用（视为属于被检章）。
+ */
+export function readOutlineLeads(bookRoot: string, forChapter?: number): string[] {
   const outlinePath = join(bookRoot, '工作区', '细纲.md')
   if (!existsSync(outlinePath)) return []
   const r = readFile(outlinePath)
   if (!r.ok) return []
-  const v = parseFlat(r.fmRaw).get('推进')
+  const fm = parseFlat(r.fmRaw)
+  if (forChapter !== undefined) {
+    const outlineChapter = Number(fm.get('章号'))
+    if (Number.isInteger(outlineChapter) && outlineChapter > 0 && outlineChapter !== forChapter) {
+      return []
+    }
+  }
+  const v = fm.get('推进')
   if (typeof v === 'string' && v.trim()) return [v.trim()]
   if (Array.isArray(v)) {
     return v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())

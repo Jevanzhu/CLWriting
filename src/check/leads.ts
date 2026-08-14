@@ -15,6 +15,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
+import { QUOTE_OPEN, QUOTE_CLOSE } from './quotes.js'
 
 /**
  * 账本形式三检。
@@ -169,13 +170,11 @@ function findChapterFileRecursive(dir: string, chapter: number): string | null {
 
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。 */
 export function extractEvidenceCore(evidence: string): string {
-  // 优先取引号内的内容（覆盖半角/全角弯引号 + 中文直角引号「」『』）
-  const quoted = evidence.match(/["""]([^"""]{4,})["""]|「([^」]{4,})」|『([^』]{4,})』/)
-  if (quoted) {
-    // 三个捕获组任一命中
-    const core = quoted[1] ?? quoted[2] ?? quoted[3]
-    if (core) return core
-  }
+  // 优先取引号内的内容（V-P2-12：统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
+  // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
+  // 截断片段致 lead-evidence-miss 误报）
+  const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN}"]([^${QUOTE_CLOSE}"]{4,})[${QUOTE_CLOSE}"]`))
+  if (quoted?.[1]) return quoted[1]
   // 否则取前 8 个字符（够 grep）
   return evidence.slice(0, 8)
 }

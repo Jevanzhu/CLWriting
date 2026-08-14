@@ -5,11 +5,11 @@
  * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
-import { join, relative } from 'node:path'
+import { join, relative, basename } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { readBookConfig } from '../format/yaml.js'
-import { readDraft, finalChapterFileName } from '../format/draft.js'
+import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from './runner.js'
 import { readOutlineLeads } from './outline-leads.js'
@@ -111,7 +111,8 @@ export function checkWithDb(
       : maxWrittenChapter
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
-    const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot) : undefined
+    // V-P2-14：细纲声明按被检章过滤（细纲单文件覆盖写，旧草稿复检不得对上新章声明）
+    const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot, draft.chapter.章号) : undefined
     const actualLeadIds = useLeads
       ? readChapterLeadUpdates(bookRoot)
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
@@ -123,7 +124,9 @@ export function checkWithDb(
       config,
       chapter: draft.chapter,
       body: draft.body,
-      fileName: finalChapterFileName(draft.chapter),
+      // V-P1-5：必须用真实文件名（从章号自身合成则 fm-chapter-mismatch 恒不触发，
+      // 章号≠文件名的红项在生产链路全部失效）。非数字文件名（如 前言.md）在检查器内不报红。
+      fileName: basename(absPath),
       declaredLeadIds,
       actualLeadIds,
       maxWrittenChapter: maxChapter,

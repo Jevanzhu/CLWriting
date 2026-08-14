@@ -12,6 +12,7 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
+import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
 // P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
 
@@ -150,6 +151,19 @@ export function checkSentenceLength(
 }
 
 /**
+ * 提示语成分字符表（对白行判定）：引号外文本全部由这些成分组成 → 该行是对白，
+ * 引号内是对白内容。启发式词表，覆盖代词/说话动词/常见修饰与数量成分；
+ * 叙述动词（看/走/举…）不在表内，叙述行不会被误判为对白。
+ */
+const ATTRIBUTION_CHARS = '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
+const ATTRIBUTION_RE = new RegExp(`^[${ATTRIBUTION_CHARS}]+$`)
+
+/** 引号外只剩提示语（或为空）→ 对白行。 */
+function isAttributionOnly(outside: string): boolean {
+  return outside === '' || ATTRIBUTION_RE.test(outside)
+}
+
+/**
  * 新专名比对名册（#10 项 10，🟡 黄）。
  * 新专名 vs 名册.md，未登记 → 候选（不自动入册）。
  */
@@ -162,13 +176,22 @@ export function checkNewNames(
   const roster = readFileSync(rosterPath, 'utf-8')
   // 粗抽：2-4 字中文专名候选（带引号或书名号的优先）
   const candidates = new Set<string>()
-  const quoted = body.match(/[「『"]([^」』"]{2,4})[」』"]/g)
-  if (quoted) {
-    for (const q of quoted) {
-      const name = q.replace(/[「『」』"]/g, '')
-      if (name.length >= 2 && name.length <= 4 && !roster.includes(name)) {
-        candidates.add(name)
-      }
+  const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
+  const punctRe = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE}${SPAN_PUNCT}「」『』]`, 'gu')
+  for (const rawLine of body.split(/\n+/)) {
+    const line = rawLine.trim()
+    const spans = line.match(spanRe)
+    if (!spans) continue
+    // 引号外只剩提示语成分（代词/说话动词/语气副词等）→ 整行是对白，
+    // 引号片段是对白内容而非专名（V-P2-13：此前「住手！」「快走」全报黄项刷屏）
+    const outside = line.replace(spanRe, '').replace(/[\s\u3000]/g, '').replace(punctRe, '')
+    if (isAttributionOnly(outside)) continue
+    for (const q of spans) {
+      const name = q.replace(punctRe, '')
+      if (name.length < 2 || name.length > 4) continue
+      // 含句读的片段是对白内容，不是专名
+      if (new RegExp(`[${SPAN_PUNCT}]`).test(name)) continue
+      if (!roster.includes(name)) candidates.add(name)
     }
   }
   for (const name of candidates) {
@@ -278,10 +301,12 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   const dialogueLines = body
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => /[「『””][^」』””]+[」』””]/.test(line))
+    .filter((line) => QUOTED_SPAN_RE.test(line))
   if (rules.maxDialogueTagRatio !== undefined && dialogueLines.length > 0) {
+    // V-P1-7：标签判定只看引号外的提示语——对整行 test 会把对白里的
+    // 「知道/别叫/笑道」等普通内容也算成对话标签，分子系统性虚高。
     const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
-    const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
+    const tagged = dialogueLines.filter((line) => tagRe.test(stripQuotedSpans(line))).length
     dialogueTagRatio = tagged / dialogueLines.length
   }
 
