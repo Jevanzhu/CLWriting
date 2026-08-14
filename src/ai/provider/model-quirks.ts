@@ -7,7 +7,7 @@
  *
  * 原则：检测不出系列 → 保守省略一切可选参数；**不做模型白名单**，
  * 永不拦截用户选任何模型（分发产品原则）。
- * 每项字段注释附官方文档出处（调研日期 2026-08-13）。
+ * 每项字段注释附官方文档出处（effort 值域调研 2026-08-14 定稿）。
  */
 import type { EffortLevel } from './types.js'
 
@@ -58,9 +58,11 @@ export interface FamilyQuirks {
    *  none    = 无此参数（openai-responses 协议）
    */
   toolChoiceMode: 'named' | 'required' | 'auto' | 'none'
-  /** effort 词汇表；[] = 不支持 reasoning 参数（不发） */
-  effortValues: EffortLevel[]
-  /** 档位收敛映射（词汇表外的档位如何折算），学 cherry-studio effortMap */
+  /**
+   * 档位收敛映射（wire 查表，学 cherry-studio effortMap）。
+   * 2026-08-14 定稿：仅 deepseek 有特例映射（anthropic 线真消费）；
+   * 其余厂家全透传，不预演官方折叠（服务端行为）。
+   */
   effortMap?: Partial<Record<EffortLevel, EffortLevel>>
   /**
    * 单次输出上限（官方文档值）；Anthropic 协议 max_tokens 必填时用它，
@@ -102,12 +104,12 @@ export interface FamilyQuirks {
 
 // ── 档位映射工具 ──
 
-/** OpenAI 官方三档映射（xhigh/max → high） */
-function openaiEffort(e: EffortLevel): string {
-  return e === 'xhigh' || e === 'max' ? 'high' : e
-}
-
-/** low/high/max 三档映射（DeepSeek/Kimi：medium→high、xhigh→max） */
+/**
+ * DeepSeek 专用 wire 收敛（2026-08-14 定稿唯一特例）。
+ * 出处：cherry-studio deepseek 特例——官方 thinking_mode 折叠 medium/xhigh→high，
+ * cherry 有意发 max 直达顶档（注释 "leaving max as the only way to reach the top
+ * level"），故 wire 上 medium→high、xhigh→max。其余厂家全透传，不预演折叠。
+ */
 function trimEffort(e: EffortLevel): string {
   return e === 'medium' ? 'high' : e === 'xhigh' ? 'max' : e
 }
@@ -127,8 +129,7 @@ export function quirksFor(model: string): FamilyQuirks {
       return {
         toolUse: true,
         toolChoiceMode: 'named', // tool_choice 四取值全支持
-        effortValues: ['low', 'medium', 'high', 'xhigh', 'max'],
-        // claude 原生支持全部档位，无需收敛
+        // effort 五档全收（docs.anthropic.com），anthropic 线 output_config 原生透传
         maxOutputTokens: 16_384, // 安全默认（个别模型上限更高，但不做白名单）
         maxTokensKey: 'max_tokens', // 走 OpenAI 网关时用
         reasoningEffort: () => null, // claude 走 anthropic 协议不发 reasoning_effort
@@ -146,10 +147,9 @@ export function quirksFor(model: string): FamilyQuirks {
       return {
         toolUse: true,
         toolChoiceMode: 'named',
-        effortValues: ['low', 'medium', 'high'],
-        effortMap: { xhigh: 'high', max: 'high' },
+        // effort 七档全收（platform.openai.com guide ReasoningEffort），客户端全透传不预演
         maxTokensKey: 'max_completion_tokens',
-        reasoningEffort: openaiEffort,
+        reasoningEffort: (e) => e,
         thinkingWithEffort: false,
         trimStop: (s) => s,
         emitStreamOptions: true,
@@ -165,7 +165,7 @@ export function quirksFor(model: string): FamilyQuirks {
       return {
         toolUse: true,
         toolChoiceMode: 'named', // tool_choice 四取值全支持
-        effortValues: ['low', 'medium', 'high', 'xhigh'],
+        // effort 四档透传（docs.x.ai reasoning guide，4.5 收 xhigh 当 high 不 400）
         maxOutputTokens: 128_000, // 官方默认值（只算可见输出，不含推理 token）
         maxTokensKey: 'max_completion_tokens',
         reasoningEffort: (e) => e, // 透传，400 由降级链处理
@@ -185,7 +185,8 @@ export function quirksFor(model: string): FamilyQuirks {
         // 官方 tool_choice 仅 auto/none/required 三个字符串枚举，无指名工具
         //（CCats 等网关对 anthropic 端点发 type:'tool' 指名会 400）→ required 转 any
         toolChoiceMode: 'required',
-        effortValues: ['low', 'high', 'max'],
+        // 唯一 effort 特例（cherry 出处见 trimEffort）：official thinking_mode
+        // 折叠 medium/xhigh→high，wire 有意发 medium→high、xhigh→max
         effortMap: { medium: 'high', xhigh: 'max' },
         maxOutputTokens: 384_000, // v4-pro 最大输出 384K
         maxTokensKey: 'max_tokens',
@@ -205,13 +206,10 @@ export function quirksFor(model: string): FamilyQuirks {
       return {
         toolUse: true,
         toolChoiceMode: 'auto', // 官方明写"默认且仅支持 auto"
-        effortValues: hasEffort ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
-        // GLM 5.2+ 7 档内部折叠：none/minimal=不思考，low/medium→high，xhigh→max
-        effortMap: hasEffort ? { medium: 'high', xhigh: 'max' } : undefined,
+        // GLM 5.2+ 官方 7 档内部折叠（docs.bigmodel.cn concept-param：low/medium→high、
+        // xhigh→max、none/minimal=不思考）——折叠是服务端行为，客户端全透传不预演
         maxTokensKey: 'max_tokens',
-        // openai 线档位收敛走 trimEffort（与 effortMap 一致）；openaiEffort 会把
-        // xhigh/max 压成 high，与 effortMap 的 xhigh→max 矛盾（max 档不可达）
-        reasoningEffort: hasEffort ? trimEffort : () => null,
+        reasoningEffort: hasEffort ? (e) => e : () => null,
         thinkingWithEffort: false,
         trimStop: (s) => s.slice(0, 1), // 文档冲突，取保守首个
         emitStreamOptions: false, // 无此参数，usage 末 chunk 自带
@@ -229,10 +227,9 @@ export function quirksFor(model: string): FamilyQuirks {
         toolUse: true,
         // k3 = auto/none/required（指名与思考不兼容）；k2.x 无 required
         toolChoiceMode: k3 ? 'required' : 'auto',
-        effortValues: k3 ? ['low', 'high', 'max'] : [],
-        effortMap: k3 ? { medium: 'high', xhigh: 'max' } : undefined,
+        // k3 官方未声明折叠方向（platform.kimi.ai）→ 客户端全透传
         maxTokensKey: 'max_completion_tokens', // 已弃用 max_tokens
-        reasoningEffort: k3 ? trimEffort : () => null,
+        reasoningEffort: k3 ? (e) => e : () => null,
         thinkingWithEffort: false,
         trimStop: (s) => s.slice(0, 5), // 最多 5 个且各 ≤32 字节
         emitStreamOptions: true,
@@ -248,7 +245,6 @@ export function quirksFor(model: string): FamilyQuirks {
       return {
         toolUse: true, // 尝试挂 tools（不支持时 400 由降级兜底）
         toolChoiceMode: 'auto',
-        effortValues: [],
         maxTokensKey: 'max_tokens',
         reasoningEffort: () => null,
         thinkingWithEffort: false,

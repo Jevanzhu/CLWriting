@@ -2,8 +2,9 @@
  * 模型系列参数表单测（表驱动重构 §五：七系列 × 全维度断言）。
  *
  * 批次 1：验证表项数据正确性——每系列断言能力维度 + 线格式维度关键字段。
- * 现有 OpenAI 侧五维度测试保留；新增 toolUse / toolChoiceMode / effortValues /
- * effortMap / maxOutputTokens / anthropicEffortWire / parallelControl / echoReasoning。
+ * 现有 OpenAI 侧五维度测试保留；新增 toolUse / toolChoiceMode / effortMap /
+ * maxOutputTokens / anthropicEffortWire / parallelControl / echoReasoning。
+ * （2026-08-14 定稿：effortValues 死字段已删；effortMap 仅 deepseek 保留）
  */
 import { describe, expect, it } from 'vitest'
 import { detectFamily, quirksFor } from '../../../src/ai/provider/model-quirks.js'
@@ -25,11 +26,11 @@ describe('detectFamily 系列判定', () => {
 // ── OpenAI 线格式五维度（现有测试保留） ──
 
 describe('OpenAI 线格式五维度矩阵', () => {
-  it('gpt：max_completion_tokens + effort 三档映射 + json_schema', () => {
+  it('gpt：max_completion_tokens + effort 透传 + json_schema', () => {
     const q = quirksFor('gpt-5.1')
     expect(q.maxTokensKey).toBe('max_completion_tokens')
     expect(q.reasoningEffort('medium')).toBe('medium')
-    expect(q.reasoningEffort('xhigh')).toBe('high')
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
     expect(q.thinkingWithEffort).toBe(false)
     expect(q.trimStop(['a'])).toEqual(['a'])
     expect(q.emitStreamOptions).toBe(true)
@@ -61,21 +62,21 @@ describe('OpenAI 线格式五维度矩阵', () => {
     const old = quirksFor('glm-4.6')
     expect(old.reasoningEffort('high')).toBeNull()
     const q = quirksFor('glm-5.2')
-    // openai 线收敛与 effortMap 一致（medium→high、xhigh→max），修正旧断言的表内矛盾
-    expect(q.reasoningEffort('medium')).toBe('high')
-    expect(q.reasoningEffort('xhigh')).toBe('max')
+    // 2026-08-14 定稿：官方折叠是服务端行为，客户端全透传
+    expect(q.reasoningEffort('medium')).toBe('medium')
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
     expect(q.trimStop(['a', 'b', 'c'])).toEqual(['a'])
     expect(q.emitStreamOptions).toBe(false)
     expect(q.structuredMode).toBe('json_object')
   })
 
-  it('kimi：k3 才发 effort（medium→high、xhigh→max）+ stop 前 5 + json_schema', () => {
+  it('kimi：k3 才发 effort（全透传）+ stop 前 5 + json_schema', () => {
     const k2 = quirksFor('k2.7-code')
     expect(k2.reasoningEffort('high')).toBeNull()
     expect(k2.maxTokensKey).toBe('max_completion_tokens')
     const q = quirksFor('kimi-k3')
-    expect(q.reasoningEffort('medium')).toBe('high')
-    expect(q.reasoningEffort('xhigh')).toBe('max')
+    expect(q.reasoningEffort('medium')).toBe('medium')
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
     expect(q.trimStop(['a', 'b', 'c', 'd', 'e', 'f'])).toEqual(['a', 'b', 'c', 'd', 'e'])
     expect(q.emitStreamOptions).toBe(true)
     expect(q.structuredMode).toBe('json_schema')
@@ -156,62 +157,63 @@ describe('能力维度：toolUse / toolChoiceMode', () => {
 
 // ── effort 词汇表 + 档位收敛（新增） ──
 
-describe('effortValues + effortMap', () => {
-  it('claude：全档位支持，无收敛', () => {
+describe('effortMap + reasoningEffort（2026-08-14 定稿：全透传，deepseek 唯一特例）', () => {
+  it('claude：无 effortMap（anthropic 线 output_config 原生全收）', () => {
     const q = quirksFor('claude-sonnet-5')
-    expect(q.effortValues).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
     expect(q.effortMap).toBeUndefined()
   })
 
-  it('gpt：三档支持，xhigh/max→high', () => {
+  it('gpt：无 effortMap + reasoning_effort 透传（七档全收，不预演折叠）', () => {
     const q = quirksFor('gpt-5.1')
-    expect(q.effortValues).toEqual(['low', 'medium', 'high'])
-    expect(q.effortMap).toEqual({ xhigh: 'high', max: 'high' })
+    expect(q.effortMap).toBeUndefined()
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
+    expect(q.reasoningEffort('max')).toBe('max')
   })
 
-  it('deepseek：三档支持，medium→high、xhigh→max', () => {
+  it('deepseek：唯一 effortMap 特例（medium→high、xhigh→max，cherry 出处）', () => {
     const q = quirksFor('deepseek-v4-pro')
-    expect(q.effortValues).toEqual(['low', 'high', 'max'])
     expect(q.effortMap).toEqual({ medium: 'high', xhigh: 'max' })
-  })
-
-  it('glm 5.2+：全档位支持，medium→high、xhigh→max', () => {
-    const q = quirksFor('glm-5.2')
-    expect(q.effortValues).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
-    expect(q.effortMap).toEqual({ medium: 'high', xhigh: 'max' })
-    // openai 线收敛须与 effortMap 一致（openaiEffort 会把 xhigh/max 压成 high，max 档不可达）
     expect(q.reasoningEffort('medium')).toBe('high')
     expect(q.reasoningEffort('xhigh')).toBe('max')
+  })
+
+  it('glm 5.2+：无 effortMap + 透传（官方折叠是服务端行为）', () => {
+    const q = quirksFor('glm-5.2')
+    expect(q.effortMap).toBeUndefined()
+    expect(q.reasoningEffort('medium')).toBe('medium')
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
     expect(q.reasoningEffort('max')).toBe('max')
   })
 
   it('glm 4.x：不支持 effort', () => {
     const q = quirksFor('glm-4.6')
-    expect(q.effortValues).toEqual([])
+    expect(q.reasoningEffort('high')).toBeNull()
     expect(q.effortMap).toBeUndefined()
   })
 
-  it('kimi k3：三档支持，medium→high、xhigh→max', () => {
+  it('kimi k3：无 effortMap + 透传（官方未声明折叠方向）', () => {
     const q = quirksFor('kimi-k3')
-    expect(q.effortValues).toEqual(['low', 'high', 'max'])
-    expect(q.effortMap).toEqual({ medium: 'high', xhigh: 'max' })
+    expect(q.effortMap).toBeUndefined()
+    expect(q.reasoningEffort('medium')).toBe('medium')
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
   })
 
   it('kimi k2：不支持 effort', () => {
     const q = quirksFor('k2.7-code')
-    expect(q.effortValues).toEqual([])
+    expect(q.reasoningEffort('high')).toBeNull()
     expect(q.effortMap).toBeUndefined()
   })
 
-  it('grok：四档支持，无收敛', () => {
+  it('grok：无 effortMap + 透传', () => {
     const q = quirksFor('grok-4.6')
-    expect(q.effortValues).toEqual(['low', 'medium', 'high', 'xhigh'])
     expect(q.effortMap).toBeUndefined()
+    expect(q.reasoningEffort('xhigh')).toBe('xhigh')
   })
 
   it('unknown：不支持 effort', () => {
     const q = quirksFor('custom-model')
-    expect(q.effortValues).toEqual([])
+    expect(q.reasoningEffort('high')).toBeNull()
+    expect(q.effortMap).toBeUndefined()
   })
 })
 

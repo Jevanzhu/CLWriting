@@ -259,7 +259,7 @@ describe('OpenAI 适配器', () => {
     expect('reasoning_effort' in (captured ?? {})).toBe(false)
   })
 
-  it('gpt 系列模型发 reasoning_effort（xhigh/max → high）', async () => {
+  it('gpt 系列模型发 reasoning_effort（2026-08-14 定稿：全透传）', async () => {
     let captured: Record<string, unknown> | null = null
     const client = {
       chat: {
@@ -275,7 +275,7 @@ describe('OpenAI 适配器', () => {
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
     await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'xhigh' })
-    expect(captured?.['reasoning_effort']).toBe('high')
+    expect(captured?.['reasoning_effort']).toBe('xhigh')
     expect(captured?.['max_tokens']).toBeUndefined()
   })
 
