@@ -31,6 +31,7 @@ Dev/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/coverage/
 /src/studio/web-next/test-results/
 
 # 项目级私有备忘

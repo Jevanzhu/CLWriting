@@ -35,5 +35,13 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/._*'],
     environment: 'node',
     testTimeout: 30000,
+    // U-P2-21 coverage 纳管：先度量不设阈值（阈值待基线稳定后引入）。
+    // web-next 是独立前端工程（自有 vue-tsc/构建链），不入本仓库内核口径。
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'json-summary'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/studio/web-next/**', 'src/**/*.d.ts'],
+    },
   },
 })

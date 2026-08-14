@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+/**
+ * 编译产物独立 server 入口（发布 smoke 用，U-P2-24）。
+ *
+ * Electron main 内嵌的是同一个 studio server 模块；此入口让打包产物
+ * （dist/desktop 本文件 + dist/web 静态前端）在无 GUI 的 e2e 环境可直接
+ * 启动验证——发布前跑 npm run test:e2e:release。
+ *
+ * 用法：node dist/desktop/server-main.js --dir <workDir> --port <port>
+ * 环境变量照常透传（CLWRITING_DRIVER=mock 可脱离大模型跑通全链路）。
+ */
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { startServer } from '../studio/server/index.js'
+
+function argValue(flag: string): string | null {
+  const i = process.argv.indexOf(flag)
+  return i !== -1 && i + 1 < process.argv.length ? (process.argv[i + 1] ?? null) : null
+}
+
+const port = Number(argValue('--port') ?? process.env['CLWRITING_PORT'] ?? 7878)
+const workDir = argValue('--dir') ?? undefined
+// 静态前端与 Electron 态同一落点：dist/web（相对编译产物的本文件定位）
+const staticDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
+
+const server = startServer({ port, workDir, staticDir })
+server.on('listening', () => {
+  console.log(`[server-main] ready on http://127.0.0.1:${port} (static: ${staticDir})`)
+})
+
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    server.close(() => process.exit(0))
+  })
+}
