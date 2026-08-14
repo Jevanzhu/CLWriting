@@ -4,11 +4,29 @@
  * 改写 e2e（M12 块2）：选章 → 审阅 tab → 改写 → diff → 接受进 buffer → ⌘S 持久。
  *
  * 顺序敏感：选段（local）在前——不 accept 不落盘，文档保持干净；
- * 整章（whole）置末尾——accept + ⌘S 会把正文（含 fm）整章换成 mock writer 产出（无 fm），
- * 破坏 fixture 文档结构，故放最后避免污染后续 test。
+ * 整章（whole）置末尾——accept + ⌘S 会把正文整章换成 mock writer 产出（W-P1-4 起
+ * fm 由 mergeFm 保留，仅正文被替换），破坏 fixture 文档内容，故放最后避免污染后续 test。
  * mock writer 产出 = tryMockTool('submit_text') 契约文案（rewrite.ts runTask mock 快路）。
  */
 import { test, expect } from '@playwright/test'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+// workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
+function chapter1Path(): string {
+  return join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '写作', '正文', '0001-初入宗门.md')
+}
+
+// 整章 accept + ⌘S 会替换 0001 正文；fm 保留后该章仍是有效章节，账本检查
+// （布线/悬念 的 0001 履历引文）会对后续所有章报红，污染 tree-issues 等下游 spec——
+// afterAll 恢复原文（同 conflict.spec 的跨 spec 防泄漏约定）。
+let orig1: string
+test.beforeAll(() => {
+  orig1 = readFileSync(chapter1Path(), 'utf-8')
+})
+test.afterAll(() => {
+  writeFileSync(chapter1Path(), orig1, 'utf-8')
+})
 
 test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) => {
   await page.goto('/')

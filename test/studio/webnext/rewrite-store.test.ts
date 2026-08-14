@@ -1,6 +1,7 @@
 /**
  * rewrite store 单测（第十一轮 P1-TST-1）：
  * 改写触发（whole/local/append）/ 接受 / 拒绝 / 清空。
+ * W-P1-4 起 run/accept 依赖 doc store（前置 flush / 基线校验）——mock 需带 get/save/patch。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -11,7 +12,12 @@ vi.mock('../../../src/studio/web-next/src/api/rewrite', () => ({
 }))
 
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
-  useDocStore: vi.fn(() => ({ patch: vi.fn() })),
+  // 默认 get → undefined：文档未打开 → run 前置 flush 直接跳过（不触发保存）
+  useDocStore: vi.fn(() => ({
+    get: vi.fn(() => undefined),
+    save: vi.fn(async () => true),
+    patch: vi.fn(),
+  })),
 }))
 
 import { runRewriteDoc, reportAiVersion } from '../../../src/studio/web-next/src/api/rewrite'
@@ -67,11 +73,16 @@ describe('rewrite: 接受/拒绝', () => {
     rewriteMock.mockResolvedValue({ ok: true, mode: 'whole', original: '旧', rewritten: '新内容', diff: [] })
     reportMock.mockResolvedValue(undefined)
     const docPatch = vi.fn()
-    vi.mocked(useDocStore).mockReturnValue({ patch: docPatch } as unknown as ReturnType<typeof useDocStore>)
+    // W-P1-4：accept 需读文档内容做基线校验（无 fm 文档：stripFrontmatter 原样返回）
+    vi.mocked(useDocStore).mockReturnValue({
+      get: vi.fn(() => ({ content: '旧', dirty: false, conflict: false })),
+      save: vi.fn(async () => true),
+      patch: docPatch,
+    } as unknown as ReturnType<typeof useDocStore>)
     const s = useRewriteStore()
     await s.run('book1', 'doc_1', '改写', '')
 
-    s.accept('book1', 'doc_1')
+    expect(s.accept('book1', 'doc_1')).toBe(true)
     expect(docPatch).toHaveBeenCalledWith('doc_1', '新内容')
     expect(reportMock).toHaveBeenCalledWith('book1', 'doc_1', '新内容')
     expect(s.result).toBeNull()
@@ -79,7 +90,7 @@ describe('rewrite: 接受/拒绝', () => {
 
   it('accept 无 result → no-op', () => {
     const s = useRewriteStore()
-    s.accept('book1', 'doc_1')
+    expect(s.accept('book1', 'doc_1')).toBe(false)
     expect(reportMock).not.toHaveBeenCalled()
   })
 

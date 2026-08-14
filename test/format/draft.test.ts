@@ -1,7 +1,7 @@
 /**
  * resolveDraftPath 路径安全测试：标题含路径分隔符时须净化，防 AI 产出越出 bookRoot。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -85,5 +85,59 @@ describe('resolveDraftPath V-P1-3 定稿防护', () => {
     const r = resolveDraftPath(bookRoot, 3)
     expect(r.existed).toBe(true)
     expect(r.relPath).toBe('写作/正文/003-雪夜.md')
+  })
+})
+
+describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
+  function writeChapter(root: string, num: number, title: string): string {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    const rel = `写作/正文/${String(num).padStart(3, '0')}-${title}.md`
+    writeFileSync(
+      join(root, rel),
+      `---\n章号: ${num}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。`,
+      'utf-8',
+    )
+    return rel
+  }
+
+  function markFinalized(root: string, rel: string): void {
+    mkdirSync(join(root, '项目'), { recursive: true })
+    const manifestPath = join(root, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      // 防线只看 finalizedRevision 是否在位，测试用合成指纹即可（文件可能已被改名）
+      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
+  }
+
+  it('定稿章被改名（清单仍挂旧 path）→ 按章号前缀拦截，仍拒绝覆盖', () => {
+    const oldRel = writeChapter(bookRoot, 3, '雪夜')
+    // 磁盘改名（fm 章号不变 → readChapterDir 仍按章号命中新文件）
+    const newRel = '写作/正文/003-雪夜改.md'
+    renameSync(join(bookRoot, oldRel), join(bookRoot, newRel))
+    markFinalized(bookRoot, oldRel) // 清单登记的是旧 path
+
+    expect(() => resolveDraftPath(bookRoot, 3)).toThrow(/已定稿/)
+  })
+
+  it('邻近章号定稿不受牵连：005 定稿不影响写 006', () => {
+    const five = writeChapter(bookRoot, 5, '第五章')
+    markFinalized(bookRoot, five)
+    writeChapter(bookRoot, 6, '第六章') // 磁盘已有第六章草稿（未定稿）
+
+    const r = resolveDraftPath(bookRoot, 6) // 不 throw
+    expect(r.existed).toBe(true)
+    expect(r.relPath).toContain('006-第六章.md')
+  })
+
+  it('章号前缀不误伤跨数量级：5 定稿不影响 50', () => {
+    const five = writeChapter(bookRoot, 5, '五')
+    markFinalized(bookRoot, five)
+    writeChapter(bookRoot, 50, '五十')
+
+    const r = resolveDraftPath(bookRoot, 50)
+    expect(r.existed).toBe(true)
   })
 })

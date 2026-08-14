@@ -31,6 +31,10 @@ export interface TrashEntry {
   trashedPath: string
   trashedAt: string
   role: DocumentRole
+  /** W-P2-1：软删前的定稿基线（无 = 从未定稿）。恢复时带回清单——丢了基线，
+   *  已定稿章恢复后被当草稿态续写，ensureChapterNotFinalized 失守，AI 可覆盖曾定稿内容。 */
+  finalizedRevision?: string
+  finalizedAt?: string
 }
 
 export type RestoreResult =
@@ -65,6 +69,8 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
           trashedPath: o.trashedPath,
           trashedAt: o.trashedAt ?? '',
           role: (o.role as DocumentRole) ?? 'note',
+          // W-P2-1：定稿基线随条目落账/读回（旧条目无此字段 → undefined，按从未定稿处理）
+          ...(o.finalizedRevision ? { finalizedRevision: o.finalizedRevision, finalizedAt: o.finalizedAt } : {}),
         })
       }
     } catch {
@@ -132,7 +138,16 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     const m = existsSync(manifestPath)
       ? readManifest(manifestPath)
       : { version: 1, entries: new Map<string, ManifestEntry>() }
-    upsertEntry(m, { id: entry.id, nodeType: 'document', path: entry.originalPath, parentId: null })
+    upsertEntry(m, {
+      id: entry.id,
+      nodeType: 'document',
+      path: entry.originalPath,
+      parentId: null,
+      // W-P2-1：恢复时带回定稿基线，还原定稿态（防线/状态机/手改检测都依赖它）
+      ...(entry.finalizedRevision
+        ? { finalizedRevision: entry.finalizedRevision, ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}) }
+        : {}),
+    })
     mkdirSync(dirname(manifestPath), { recursive: true })
     writeManifest(manifestPath, m)
   } catch { /* 主清单写失败不阻断恢复——树重建时自动补录 */

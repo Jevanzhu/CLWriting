@@ -134,3 +134,38 @@ test('listTrash: 空回收站 → []', () => {
   expect(listTrash(root)).toEqual([])
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── W-P2-1：定稿基线随回收站条目往返 ────────────────
+
+test('W-P2-1：软删已定稿章 → 回收站条目带基线；恢复后清单还原基线，定稿防线重新生效', async () => {
+  const { root, svc } = makeBookWithChapter()
+  // 清单补定稿基线（makeBookWithChapter 默认只写 status: final）
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  writeFileSync(
+    manifestPath,
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null,"finalizedRevision":"sha256:baseline-1","finalizedAt":"2026-01-01T00:00:00Z"}',
+    ].join('\n') + '\n',
+    'utf-8',
+  )
+
+  const tr = await svc.trashDocument({ docId: 'doc_ch01' })
+  expect(tr.ok).toBe(true)
+  // 回收站条目带定稿基线
+  const entries = listTrash(root)
+  expect(entries).toHaveLength(1)
+  expect(entries[0]!.finalizedRevision).toBe('sha256:baseline-1')
+
+  const rr = restoreTrash(root, 'doc_ch01')
+  expect(rr.ok).toBe(true)
+  // 恢复后清单条目带回基线（修复前：upsertEntry 不带基线 → 已定稿章降级草稿态）
+  const { readManifest } = await import('../../src/document/manifest.js')
+  const m = readManifest(manifestPath)
+  expect(m.entries.get('doc_ch01')?.finalizedRevision).toBe('sha256:baseline-1')
+
+  // 链路级断言：定稿防线（V-P1-3 + W-P2-2）对恢复章重新生效——续写第 1 章应被拒绝
+  const { resolveDraftPath } = await import('../../src/format/draft.js')
+  expect(() => resolveDraftPath(root, 1)).toThrow(/已定稿/)
+  rmSync(root, { recursive: true, force: true })
+})

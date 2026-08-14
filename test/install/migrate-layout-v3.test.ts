@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrateLayoutV3 } from '../../src/install/migrate-layout-v3.js'
+import { listTrash } from '../../src/document/trash.js'
 
 let tmp: string
 beforeEach(() => {
@@ -81,6 +82,51 @@ test('目标已存在（同章号）→ 旧稿回收站，不覆盖', () => {
   expect(readFileSync(join(tmp, '写作/正文/第一卷/001-正式.md'), 'utf-8')).toContain('已定稿内容')
   // 旧稿进回收站
   expect(has('工作区/.trash/草稿-1.md')).toBe(true)
+  // W-P2-3：进回收站清单（此前只挪文件不登记，回收站 UI 永不可见、不可还原）
+  const trash = listTrash(tmp)
+  expect(trash.some((e) => e.originalPath === '写作/草稿/草稿-1.md' && e.trashedPath === '工作区/.trash/草稿-1.md')).toBe(true)
+})
+
+// ── W-P1-5：定稿防线 throw 不得炸掉启动链路 ────────
+
+test('W-P1-5：草稿指向已定稿章（resolveDraftPath throw）→ 迁移不崩溃，稿进回收站可还原', () => {
+  // 同章号同标题 → resolveDraftPath 命中正文区已定稿文件 → V-P1-3 防线 throw
+  write('写作/草稿/草稿-1.md', '---\n章号: 1\n标题: 开篇\n---\n草稿内容')
+  write('写作/正文/第一卷/001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n定稿内容')
+  write(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"doc1","nodeType":"document","path":"写作/正文/第一卷/001-开篇.md","parentId":null,"finalizedRevision":"sha256:abc","finalizedAt":"2026-01-01T00:00:00Z"}',
+    ].join('\n') + '\n',
+  )
+
+  // 修复前：throw 冒泡出 migrateLayoutV3 → startServer 崩，应用起不来且每次启动重演
+  const r = migrateLayoutV3(tmp)
+  expect(r.errors.length).toBe(1)
+  expect(r.errors[0]).toContain('已定稿')
+  // 定稿内容未被覆盖
+  expect(readFileSync(join(tmp, '写作/正文/第一卷/001-开篇.md'), 'utf-8')).toContain('定稿内容')
+  // 冲突稿进回收站且登记在案
+  expect(has('工作区/.trash/草稿-1.md')).toBe(true)
+  expect(listTrash(tmp).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+})
+
+test('W-P1-5 后续启动可自愈：冲突稿已入回收站 → 二次迁移 no-op 无新错误', () => {
+  write('写作/草稿/草稿-1.md', '---\n章号: 1\n标题: 开篇\n---\n草稿内容')
+  write('写作/正文/第一卷/001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n定稿内容')
+  write(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"doc1","nodeType":"document","path":"写作/正文/第一卷/001-开篇.md","parentId":null,"finalizedRevision":"sha256:abc","finalizedAt":"2026-01-01T00:00:00Z"}',
+    ].join('\n') + '\n',
+  )
+  const r1 = migrateLayoutV3(tmp)
+  expect(r1.errors.length).toBe(1)
+  const r2 = migrateLayoutV3(tmp)
+  expect(r2.migrated).toBe(0)
+  expect(r2.errors).toEqual([])
 })
 
 // ── 空书库 ────────────────────────────────────────

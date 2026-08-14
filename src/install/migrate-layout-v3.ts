@@ -10,6 +10,24 @@ import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
 import { readManifest, writeManifest } from '../document/manifest.js'
+import { appendTrashEntry } from '../document/trash.js'
+import { ulid } from '../fs/id.js'
+import { roleOf } from '../document/layout.js'
+
+/** 冲突/受阻草稿 → 工作区/.trash + 回收站清单登记（W-P2-3：只挪文件不登记，
+ *  回收站 UI 永不可见、无法还原——与 doTrash 的回收站语义保持一致）。 */
+function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
+  const trashDir = join(bookRoot, '工作区', '.trash')
+  mkdirSync(trashDir, { recursive: true })
+  renameSync(srcAbs, join(trashDir, name))
+  appendTrashEntry(bookRoot, {
+    id: ulid(),
+    originalPath: `写作/草稿/${name}`,
+    trashedPath: `工作区/.trash/${name}`,
+    trashedAt: new Date().toISOString(),
+    role: roleOf(`写作/草稿/${name}`),
+  })
+}
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {
   const draftDir = join(bookRoot, '写作', '草稿')
@@ -53,14 +71,24 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined
     try { content = readFileSync(srcAbs, 'utf-8') } catch { /* 读失败用 undefined */ }
-    const { relPath: dstRel } = resolveDraftPath(bookRoot, chapterNum, content)
+    // W-P1-5：resolveDraftPath 对已定稿章无条件 throw（V-P1-3 防线）——迁移跑在启动链路，
+    // throw 冒泡会让 server 起不来且每次启动重演；归入 errors + 冲突稿进回收站，迁移继续。
+    let dstRel: string
+    try {
+      dstRel = resolveDraftPath(bookRoot, chapterNum, content).relPath
+    } catch (e) {
+      errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+      try {
+        trashDraft(bookRoot, srcAbs, name)
+        migrated++
+      } catch (e2) { errors.push(`${name} → .trash: ${e2 instanceof Error ? e2.message : String(e2)}`) }
+      continue
+    }
     const dstAbs = join(bookRoot, dstRel)
     if (existsSync(dstAbs)) {
       // 目标已存在（同章号已有定稿/草稿）→ 旧稿移回收站，不覆盖也不残留草稿区
-      const trashDir = join(bookRoot, '工作区', '.trash')
       try {
-        mkdirSync(trashDir, { recursive: true })
-        renameSync(srcAbs, join(trashDir, name))
+        trashDraft(bookRoot, srcAbs, name)
         migrated++
       } catch (e) { errors.push(`${name} → .trash: ${e instanceof Error ? e.message : String(e)}`) }
       continue

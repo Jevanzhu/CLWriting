@@ -653,6 +653,16 @@ export class DocumentService {
       renameSync(oldSafe, trashAbs)
       // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
+      // W-P2-1：软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
+      let priorFinalized: { finalizedRevision?: string; finalizedAt?: string } = {}
+      try {
+        if (existsSync(this.manifestPath)) {
+          const prior = readManifest(this.manifestPath).entries.get(docId)
+          if (prior?.finalizedRevision) {
+            priorFinalized = { finalizedRevision: prior.finalizedRevision, finalizedAt: prior.finalizedAt }
+          }
+        }
+      } catch { /* 清单不可读：按从未定稿落账 */ }
       try {
         appendTrashEntry(this.bookRoot, {
           id: docId,
@@ -660,6 +670,7 @@ export class DocumentService {
           trashedPath: trashedRel,
           trashedAt: new Date().toISOString(),
           role: layoutOf(oldPath).role,
+          ...priorFinalized,
         })
       } catch { /* 磁盘满等：回收站 manifest 写失败不影响删除 */
       }
