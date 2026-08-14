@@ -15,6 +15,7 @@ import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
+import { invalidateBookSummary } from './progress.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
@@ -75,6 +76,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
 
       const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
+        // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
+        invalidateBookSummary(r.bookRoot)
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }

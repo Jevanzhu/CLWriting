@@ -85,7 +85,10 @@ function searchFile(fp: string, lower: string): { line: number; text: string }[]
   return out
 }
 
-/** 递归列目录下所有 .md（排除 ._ / node_modules / .git） */
+/** 递归列目录下所有 .md。
+ *  V-P2-25：排除点前缀系统目录（.版本 快照 / .trash 回收站 / .journal）——
+ *  否则全书搜索被历史版本与已删文件污染，MAX_RESULTS 还可能被快照挤满；
+ *  同时排除 导出/（正文副本，命中会双份）与 node_modules。 */
 function walkMd(dir: string): string[] {
   const out: string[] = []
   const walk = (d: string): void => {
@@ -96,7 +99,7 @@ function walkMd(dir: string): string[] {
       return
     }
     for (const name of entries) {
-      if (name.startsWith('._') || name === 'node_modules' || name === '.git') continue
+      if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
       const p = join(d, name)
       let s
       try {

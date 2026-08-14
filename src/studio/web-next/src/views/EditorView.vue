@@ -303,7 +303,12 @@ watch(
     if (id && !doc.get(id)) {
       const node = tree.byDocId.get(id)
       if (node) {
-        try { await doc.open(node) } catch { /* 静默 */ }
+        // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
+        try {
+          await doc.open(node)
+        } catch (err) {
+          ui.toast(friendlyError(err), 'error')
+        }
       }
     }
   },

@@ -68,6 +68,36 @@ export function computeBookSummary(bookRoot: string): {
   lastEdited: string | null
   latestChapter: string | null
 } {
+  const cached = summaryCache.get(bookRoot)
+  if (cached && Date.now() - cached.at < SUMMARY_TTL_MS) return cached.value
+  const value = computeBookSummaryUncached(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目
+  if (summaryCache.size >= SUMMARY_CACHE_MAX) {
+    const oldest = summaryCache.keys().next().value
+    if (oldest !== undefined) summaryCache.delete(oldest)
+  }
+  summaryCache.set(bookRoot, { at: Date.now(), value })
+  return value
+}
+
+/** V-P2-27：保存成功后失效该书摘要（书架卡即时反映新字数，不等 TTL）。 */
+export function invalidateBookSummary(bookRoot: string): void {
+  summaryCache.delete(bookRoot)
+}
+
+/** V-P2-27：摘要 TTL 缓存——GET /api/books 对每本书同步整树扫描（读全部章节文件），
+ *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 5s；
+ *  内存上限防长期运行的书库累积。 */
+const SUMMARY_TTL_MS = 5000
+const SUMMARY_CACHE_MAX = 64
+const summaryCache = new Map<string, { at: number; value: ReturnType<typeof computeBookSummaryUncached> }>()
+
+function computeBookSummaryUncached(bookRoot: string): {
+  chapters: number
+  words: number
+  lastEdited: string | null
+  latestChapter: string | null
+} {
   let items: ReturnType<typeof readChapterDir>['chapters']
   try {
     items = readChapterDir(join(bookRoot, '写作', '正文')).chapters

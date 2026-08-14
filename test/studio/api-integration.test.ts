@@ -162,3 +162,28 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(d.results.every((it) => it.path.startsWith('设定/'))).toBe(true)
   })
 })
+
+// ── V-P2-25：搜索不进 .版本/.trash/导出（快照与回收站不得污染结果）──────
+
+describe('搜索范围卫生（V-P2-25）', () => {
+  it('历史快照 / 回收站 / 导出副本中的关键词不进结果', async () => {
+    const bookRoot = join(workDir, BOOK)
+    // 造三处含关键词的「不该被搜到」文件
+    mkdirSync(join(bookRoot, '工作区', '.版本', 'doc_hist'), { recursive: true })
+    writeFileSync(join(bookRoot, '工作区', '.版本', 'doc_hist', 'v1.md'), '旧版本里的林远')
+    mkdirSync(join(bookRoot, '工作区', '.trash'), { recursive: true })
+    writeFileSync(join(bookRoot, '工作区', '.trash', 'doc_dead-旧章.md'), '回收站里的林远')
+    mkdirSync(join(bookRoot, '工作区', '导出'), { recursive: true })
+    writeFileSync(join(bookRoot, '工作区', '导出', '全本-测试书.md'), '导出副本里的林远')
+    // 一处「该被搜到」的工作区正文
+    writeFileSync(join(bookRoot, '工作区', '笔记.md'), '工作区笔记提到林远')
+
+    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
+    const d = (await r.json()) as { results: { path: string }[] }
+    const paths = d.results.map((it) => it.path)
+    expect(paths.some((p) => p.includes('笔记'))).toBe(true)
+    expect(paths.some((p) => p.includes('.版本'))).toBe(false)
+    expect(paths.some((p) => p.includes('.trash'))).toBe(false)
+    expect(paths.some((p) => p.includes('导出'))).toBe(false)
+  })
+})

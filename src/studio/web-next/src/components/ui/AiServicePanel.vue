@@ -43,7 +43,10 @@ function setProbeModel(p: ProviderConfDto, e: Event): void {
 }
 
 // 任务档位（D 档：创作档/助手档/对话档）
-const models = ref<string[]>([])
+// V-P2-26：模型清单按服务商分存——共享单份清单时，非当前供应商的「测试模型」
+// 下拉显示的是别家模型，选中即 404 且看不出原因。
+const modelsByProvider = ref<Map<string, string[]>>(new Map())
+const fetchingModelIds = new Set<string>()
 const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: TierSlot | null }>({
   creative: { model: '', effort: 'xhigh' },
   assistant: null,
@@ -54,16 +57,54 @@ const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
 const fetchingModels = ref(false)
 
-/** 手动获取模型列表（初始拉取失败时的重试入口）。 */
+/** 服务商 p 的模型清单（未拉取 → 空，模板据此显示引导文案）。 */
+function modelsOf(p: ProviderConfDto): string[] {
+  return modelsByProvider.value.get(p.id) ?? []
+}
+
+/** 档位下拉用：当前供应商的模型清单。 */
+const currentModels = (): string[] =>
+  (currentId.value ? (modelsByProvider.value.get(currentId.value) ?? []) : [])
+
+/**
+ * 拉取服务商模型清单（幂等去重 + 探测模型回落）。
+ * @param opts.fallbackModel 全局当前模型在清单内时优先作探测默认
+ * @param opts.force 已有缓存也重拉（「获取模型列表」手动重试）
+ */
+async function ensureModels(
+  p: { id: string },
+  opts: { fallbackModel?: string; force?: boolean; silent?: boolean } = {},
+): Promise<void> {
+  if (fetchingModelIds.has(p.id)) return
+  if (!opts.force && modelsByProvider.value.has(p.id)) return
+  fetchingModelIds.add(p.id)
+  try {
+    const r = await fetchModels({ id: p.id })
+    modelsByProvider.value.set(p.id, r.models)
+    // 探测模型：空 / 不在新清单 → 回落（全局模型在清单内优先，否则取首个）；
+    // 已在清单 → 保留手动选择（测试完成 refresh 不重置作者的选择）
+    const cur = probeModels.value.get(p.id) ?? ''
+    if (!cur || !r.models.includes(cur)) {
+      const fallback =
+        opts.fallbackModel && r.models.includes(opts.fallbackModel) ? opts.fallbackModel : (r.models[0] ?? '')
+      probeModels.value.set(p.id, fallback)
+    }
+    if (!opts.silent) ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
+  } catch (e) {
+    if (!opts.silent) ui.toast(friendlyError(e), 'error')
+    if (opts.force) modelsByProvider.value.set(p.id, [])
+  } finally {
+    fetchingModelIds.delete(p.id)
+  }
+}
+
+/** 手动获取模型列表（初始拉取失败时的重试入口，档位区按钮）。 */
 async function fetchModelList(): Promise<void> {
   if (!currentId.value || fetchingModels.value) return
   fetchingModels.value = true
   try {
-    const r = await fetchModels({ id: currentId.value })
-    models.value = r.models
-    ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
+    const cur = providers.value.find((x) => x.id === currentId.value)
+    if (cur) await ensureModels(cur, { force: true })
   } finally {
     fetchingModels.value = false
   }
@@ -94,20 +135,14 @@ async function refresh(): Promise<void> {
     tierForm.value.chat = data.tiers.chat ? { ...data.tiers.chat } : null
     chatTierEnabled.value = !!data.tiers.chat
     if (currentId.value) {
-      try {
-        const r = await fetchModels({ id: currentId.value })
-        models.value = r.models
-        // 探测模型：空 / 不在新列表 → 回落（全局模型在列表内优先，否则取首个）；
-        // 已在列表 → 保留手动选择（测试完成 refresh 不重置作者的选择）
-        const cur = probeModels.value.get(currentId.value) ?? ''
-        if (!cur || !r.models.includes(cur)) {
-          const fallback = data.currentModel && r.models.includes(data.currentModel)
-            ? data.currentModel
-            : (r.models[0] ?? '')
-          probeModels.value.set(currentId.value, fallback)
+      const cur = providers.value.find((x) => x.id === currentId.value)
+      if (cur) {
+        try {
+          // V-P2-26：清单按服务商入缓存（拉取失败不崩，档位区可手动重试）
+          await ensureModels(cur, { fallbackModel: data.currentModel ?? undefined, silent: true })
+        } catch {
+          /* 静默：fetchModelList 可重试 */
         }
-      } catch {
-        models.value = []
       }
     }
   } catch (e) {
@@ -196,13 +231,10 @@ async function activate(p: ProviderConfDto): Promise<void> {
     currentId.value = p.id
     // P0-2：切换当前服务商后工作台/开书按钮应立即可用
     void ui.probeAiStatus()
-    // 切服务商 → 模型列表/探测模型跟随新服务商（否则测试下拉仍是旧服务商清单，
+    // 切服务商 → 模型清单/探测模型跟随新服务商（否则测试下拉仍是旧服务商清单，
     // 测旧模型名会 404 且看不出原因）
     try {
-      const r = await fetchModels({ id: p.id })
-      models.value = r.models
-      const cur = probeModels.value.get(p.id) ?? ''
-      if (!cur || !r.models.includes(cur)) probeModels.value.set(p.id, r.models[0] ?? '')
+      await ensureModels(p, { force: true, silent: true })
     } catch {
       /* 拉取失败不阻塞启用；「获取模型列表」可手动重试 */
     }
@@ -315,11 +347,17 @@ function timeAgo(ts: number | undefined): string {
                 <Check :size="13" />
               </button>
               <!-- 测试模型 + 下拉（挪到测试按钮前，与按钮同行） -->
-              <span class="probe-inline" :title="models.length ? '测试连接用模型' : '请先获取模型列表'">
+              <span class="probe-inline" :title="modelsOf(p).length ? '测试连接用模型' : '点击下拉获取该服务商的模型清单'">
                 <span class="probe-hint">测试模型</span>
-                <select :value="probeModelOf(p)" class="probe-select" :disabled="!models.length" @change="setProbeModel(p, $event)">
-                  <option value="" disabled>{{ models.length ? '选择模型' : '请先获取列表' }}</option>
-                  <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+                <select
+                  :value="probeModelOf(p)"
+                  class="probe-select"
+                  :disabled="!modelsOf(p).length"
+                  @focus="ensureModels(p, { silent: true })"
+                  @change="setProbeModel(p, $event)"
+                >
+                  <option value="" disabled>{{ modelsOf(p).length ? '选择模型' : '点此获取清单' }}</option>
+                  <option v-for="m in modelsOf(p)" :key="m" :value="m">{{ m }}</option>
                 </select>
               </span>
               <button
@@ -380,8 +418,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="tier-fields">
             <select v-model="tierForm.creative.model" class="tier-select">
-              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.creative.effort" class="tier-select sm">
               <option value="max">max</option>
@@ -402,8 +440,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
             <select v-model="tierForm.assistant.model" class="tier-select">
-              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.assistant.effort" class="tier-select sm">
               <option value="max">max</option>
@@ -424,8 +462,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
             <select v-model="tierForm.chat.model" class="tier-select">
-              <option value="" disabled>{{ models.length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.chat.effort" class="tier-select sm">
               <option value="max">max</option>
