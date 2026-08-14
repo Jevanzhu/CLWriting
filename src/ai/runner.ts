@@ -237,6 +237,12 @@ export async function runTask<T>(opts: {
         }
         // B-1：可重试（429/5xx）且未超限 → 退避后重试
         if (e instanceof GenError && e.retryable && attempt < MAX_RETRIES) {
+          // W-P2-8：重试也是真实 API 消耗——按次入账（失败响应无 usage，token 记 0），
+          // 否则单章最多 1+MAX_RETRIES 次调用只计 1 次，预算闸可被超限 4 倍
+          if (bookRoot) {
+            if (task) recordTaskUsage(bookRoot, task, null)
+            if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
+          }
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'RETRYABLE' })
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）

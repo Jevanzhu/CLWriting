@@ -7,7 +7,7 @@
  */
 import { join } from 'node:path'
 import { readEntries, ENTRIES_DIR } from '../../format/style-entry.js'
-import type { WritingRule, RuleViolation } from './types.js'
+import { ruleStripFm, type WritingRule, type RuleViolation } from './types.js'
 
 /** 条目库 AI味标签词 + 替换建议（说明字段） */
 interface FlavorWord {
@@ -29,14 +29,16 @@ export function loadAiFlavorRule(bookRoot: string): WritingRule {
   return {
     id: 'ai-flavor-words',
     level: 'yellow',
-    tasks: ['self-heal', 'spawn-write', 'rewrite'],
+    // draft-save 挂载：作者手改落盘的删除信号要走本规则（B5 闭环，W-P2-5）
+    tasks: ['self-heal', 'spawn-write', 'rewrite', 'draft-save'],
     toPrompt() {
       if (!words.length) return null
       return `以下AI味词组应避免：${words.map((w) => w.word).join('、')}`
     },
     check(body: string): RuleViolation[] {
+      const text = ruleStripFm(body)
       return words
-        .filter((w) => body.includes(w.word))
+        .filter((w) => text.includes(w.word))
         .map((w) => ({
           ruleId: 'ai-flavor-words',
           level: 'yellow' as const,

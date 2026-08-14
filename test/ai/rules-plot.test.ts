@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { plotConsistencyRule } from '../../src/ai/rules/plot-rule.js'
+import { collectRuleViolations } from '../../src/ai/rules/index.js'
 
 describe('A3 plotConsistencyRule（情节一致规则）', () => {
   let bookRoot: string
@@ -83,5 +84,13 @@ describe('A3 plotConsistencyRule（情节一致规则）', () => {
     const body = '---\n章号: 1\n标题: 测试\n钩子类型: 悬念钩\n情绪定位: 铺垫\n---\n草稿正文\n'
     const violations = plotConsistencyRule.check(body, { bookRoot, chapter: 1 })
     expect(violations).toHaveLength(0)
+  })
+
+  it('W-P2-6：引擎级——含 fm 全文经 collectRuleViolations 命中 plot 偏差（self-heal 喂全文后规则活水）', () => {
+    // 修复前 self-heal 的 ruleBody() 先剥 fm 再喂引擎 → plot 规则恒返 []（规则只认草稿 fm）
+    const draft =
+      '---\n章号: 1\n标题: 测试\n钩子类型: 危机钩\n情绪定位: 铺垫\n场景: 对话\n---\n草稿正文\n'
+    const violations = collectRuleViolations(draft, 'self-heal', bookRoot, 1)
+    expect(violations.some((v) => v.ruleId === 'plot-consistency')).toBe(true)
   })
 })

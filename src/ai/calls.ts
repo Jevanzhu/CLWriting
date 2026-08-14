@@ -152,16 +152,30 @@ export function checkAiCallBudget(
  * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null): void {
-  let rec = readRecord(bookRoot).rec
-  if (!rec || rec.chapter.num !== chapter) {
-    rec = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
+  const { rec, corrupt } = readRecord(bookRoot)
+  // W-P2-8：损坏不重置——静默覆盖等于绕过 checkAiCallBudget 的保守阻断；
+  // 只允许人工删除文件恢复计数（阻断提示里已写明出路）
+  if (corrupt) {
+    console.error('[calls] .cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    return
   }
+  if (!rec || rec.chapter.num !== chapter) {
+    const fresh: CallRecord = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
+    applyCall(fresh, usage)
+    writeRecord(bookRoot, fresh)
+    return
+  }
+  applyCall(rec, usage)
+  writeRecord(bookRoot, rec)
+}
+
+/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体） */
+function applyCall(rec: CallRecord, usage: TokenUsage | null): void {
   rec.chapter.used += 1
   if (usage) {
     rec.chapter.inputTokens += usage.inputTokens
     rec.chapter.outputTokens += usage.outputTokens
   }
-  writeRecord(bookRoot, rec)
 }
 
 /**
@@ -170,16 +184,19 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
  * 由 runTask 末尾自动调用（有 bookRoot + task 时）。
  */
 export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
-  let rec = readRecord(bookRoot).rec
-  if (!rec) {
-    rec = { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
+  const { rec, corrupt } = readRecord(bookRoot)
+  // W-P2-8：与 recordAiCall 同口径——损坏不重置，保守阻断保持
+  if (corrupt) {
+    console.error('[calls] .cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    return
   }
-  const t = rec.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
+  const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
+  const t = base.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
   t.used += 1
   if (usage) {
     t.inputTokens += usage.inputTokens
     t.outputTokens += usage.outputTokens
   }
-  rec.tasks[task] = t
-  writeRecord(bookRoot, rec)
+  base.tasks[task] = t
+  writeRecord(bookRoot, base)
 }

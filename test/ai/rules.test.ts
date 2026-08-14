@@ -60,7 +60,7 @@ describe('A2 WritingRule 规则层', () => {
     })
 
     it("task='review' 时返回空串（审稿不挂载 ai-cliche 规则）", () => {
-      // aiClicheRule.tasks = ['self-heal', 'spawn-write', 'rewrite']，不含 review
+      // aiClicheRule.tasks = ['self-heal', 'spawn-write', 'rewrite', 'draft-save']，不含 review
       const text = rulesToPrompt('review', undefined)
       expect(text).toBe('')
     })
@@ -77,6 +77,19 @@ describe('A2 WritingRule 规则层', () => {
     it('对干净正文返回空数组', () => {
       const violations = collectRuleViolations('一段普通正文，无套话', 'rewrite', '')
       expect(violations).toHaveLength(0)
+    })
+
+    // ── W-P2-5/W-P2-6：draft-save 挂载 + 含 fm 全文契约 ──
+
+    it("W-P2-5：task='draft-save' 时套话规则生效（作者删除信号主入口不再死线）", () => {
+      const violations = collectRuleViolations('他不禁笑了', 'draft-save', '')
+      expect(violations.some((v) => v.ruleId === 'ai-cliche')).toBe(true)
+    })
+
+    it('W-P2-6：body 含 fm 全文 → 套话只查正文（fm 字段值中的套话词不报）', () => {
+      const draft = '---\n章号: 1\n备注: 值得一提的是\n---\n\n干净正文。'
+      const violations = collectRuleViolations(draft, 'self-heal', '')
+      expect(violations.filter((v) => v.ruleId === 'ai-cliche')).toHaveLength(0)
     })
   })
 

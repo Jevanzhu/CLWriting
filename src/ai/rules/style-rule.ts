@@ -11,7 +11,7 @@
  * - summaryEnding 为布尔维度：基线 false 但正文 true 报偏离
  * - 对话标签占比保护：无对话行（_dialogueLines===0）时跳过 dialogueTagRatio 维
  */
-import type { WritingRule, RuleViolation } from './types.js'
+import { ruleStripFm, type WritingRule, type RuleViolation } from './types.js'
 import { readBaseline, readIronRules, computeFullStats } from '../../metrics/style.js'
 import { styleRemedy } from './style-remedy.js'
 
@@ -79,7 +79,8 @@ export const styleConsistencyRule: WritingRule = {
     if (!baseline) return []
 
     const rules = readIronRules(ctx.bookRoot)
-    const stats = computeFullStats(body, rules)
+    // 统计前剥 fm：fm 短行会污染句长/占比指纹（body 含 fm 是规则引擎契约，正文型规则各自剥）
+    const stats = computeFullStats(ruleStripFm(body), rules)
     const ref = baseline.overall
     const violations: RuleViolation[] = []
 

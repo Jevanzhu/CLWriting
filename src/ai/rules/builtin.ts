@@ -4,7 +4,7 @@
  * writer.ts:21/42/56 三处「避免AI味」约束字面量搬到此处 toPrompt()，
  * 验收要求 prompts/writer.ts 约束字面量归零。
  */
-import type { WritingRule, RuleViolation } from './types.js'
+import { ruleStripFm, type WritingRule, type RuleViolation } from './types.js'
 
 /** 原 writer.ts 三处硬编码的统一约束文本 */
 const AI_CLICHE_PROMPT =
@@ -29,10 +29,11 @@ const CLICHE_WORDS = [
 export const aiClicheRule: WritingRule = {
   id: 'ai-cliche',
   level: 'yellow',
-  tasks: ['self-heal', 'spawn-write', 'rewrite'],
+  // draft-save 挂载：作者手改落盘的删除信号要走本规则（B5 闭环，W-P2-5）
+  tasks: ['self-heal', 'spawn-write', 'rewrite', 'draft-save'],
   toPrompt: () => AI_CLICHE_PROMPT,
   check(body: string): RuleViolation[] {
-    return CLICHE_WORDS.filter((w) => body.includes(w)).map((w) => ({
+    return CLICHE_WORDS.filter((w) => ruleStripFm(body).includes(w)).map((w) => ({
       ruleId: 'ai-cliche',
       level: 'yellow' as const,
       message: `AI高频套话「${w}」——删除或替换为具体描写`,

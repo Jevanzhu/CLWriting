@@ -9,7 +9,11 @@
  * - 级别分红/黄——红项卡流程（evaluateRetry 打回重写），黄项提示不卡（B2 回流）
  * - tasks 挂载 TaskSpec.name——写稿查 AI 味、审稿不查，由挂载关系表达
  * - check() 是确定性检测（字符串/统计），不调 AI——零成本零延迟
+ * - check(body) 的 body 含 front matter（plot-consistency 需比对 fm）；
+ *   只关心正文的文本扫描/统计规则应先经 ruleStripFm 剥离，避免 fm 短行污染统计
  */
+
+import { splitFrontMatter } from '../../format/frontmatter.js'
 
 /** 规则级别：红项卡流程，黄项提示不卡 */
 export type RuleLevel = 'red' | 'yellow'
@@ -47,6 +51,12 @@ export interface WritingRule {
   readonly tasks: readonly string[]
   /** 注入 system prompt 的约束文本（null = 不注入） */
   toPrompt(ctx: RuleContext): string | null
-  /** 检验违规项（空数组 = 无违规） */
+  /** 检验违规项（空数组 = 无违规）；body 含 fm，正文型规则用 ruleStripFm 剥离 */
   check(body: string, ctx: RuleContext): RuleViolation[]
+}
+
+/** 剥离 front matter 取正文（正文型规则入参预处理；plot-consistency 等需要 fm 的规则不用） */
+export function ruleStripFm(content: string): string {
+  const split = splitFrontMatter(content)
+  return split ? split.body : content
 }

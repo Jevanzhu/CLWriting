@@ -165,13 +165,15 @@ describe('ai-calls.json 损坏保守阻断（V-P2-10）', () => {
     expect(b.ok).toBe(true)
   })
 
-  it('损坏后记账恢复：recordAiCall 覆盖损坏文件', () => {
+  it('损坏后记账不重置（W-P2-8）：recordAiCall/recordTaskUsage 跳过，阻断保持', () => {
     const root = tempBook()
     mkdirSync(join(root, '.cache'), { recursive: true })
     writeFileSync(join(root, '.cache', 'ai-calls.json'), 'garbage', 'utf8')
     recordAiCall(root, 1, { inputTokens: 1, outputTokens: 1 })
+    recordTaskUsage(root, 'review', null)
+    // 文件保持损坏（未被新账本覆盖）→ 保守阻断持续，只能人工删除恢复
+    expect(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')).toBe('garbage')
     const b = checkAiCallBudget(root, 1, CONFIG)
-    expect(b.ok).toBe(true)
-    if (b.ok) expect(b.used).toBe(1)
+    expect(b.ok).toBe(false)
   })
 })

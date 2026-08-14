@@ -33,7 +33,7 @@ import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersion } from '../../git/ai-track.js'
-import { splitFrontMatter } from '../../format/frontmatter.js'
+
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
 const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项；[必须] 为硬性错误必须修，[建议] 为文风黄项不强制但建议采纳。保持正文连贯与既定情节走向。'
@@ -73,6 +73,8 @@ export type SelfHealOutcome =
 /** 运行中的编排（book 级并发锁 + 中断句柄） */
 interface RunState {
   ctrl: AbortController
+  /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账） */
+  usage: { calls: number; inputTokens: number; outputTokens: number }
 }
 const running = new Map<string, RunState>()
 
@@ -93,7 +95,7 @@ export function abortSelfHeal(bookName: string): boolean {
  * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
  */
 export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
-  const state: RunState = { ctrl: new AbortController() }
+  const state: RunState = { ctrl: new AbortController(), usage: { calls: 0, inputTokens: 0, outputTokens: 0 } }
   running.set(opts.bookName, state)
   let result: SelfHealOutcome
   try {
@@ -103,7 +105,7 @@ export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> 
   } finally {
     running.delete(opts.bookName)
   }
-  emitResult(opts, result)
+  emitResult(opts, result, state.usage)
   return result
 }
 
@@ -231,7 +233,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'self_heal_reset' })
 
     // B2：黄项修复指令（规则违规，提示不卡——不计入 evaluateRetry 全绿判定）
-    const ruleViolations = collectRuleViolations(ruleBody(current), 'self-heal', bookRoot, chapterNo)
+    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
     // B3：规则命中统计（供工作台高频违规面板 + B4 前置注入）
     recordRuleHits(bookRoot, ruleViolations)
     // 红项 [必须] / 黄项 [建议]：AI 能区分硬性错误与文风建议（优先级不同取舍）
@@ -410,7 +412,7 @@ async function runChapter(
     emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
     emit(opts, { type: 'self_heal_reset' })
 
-    const ruleViolations = collectRuleViolations(ruleBody(current), 'self-heal', bookRoot, chapterNo)
+    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
     recordRuleHits(bookRoot, ruleViolations)
     const allIssues = [
       ...redIssues.map((s) => `[必须] ${s}`),
@@ -472,6 +474,9 @@ async function runGenerate(
   // emit 模拟增量（前端/测试能见推进），终稿走 assembleChapter（与真实同 decode）。
   const mock = tryMockTool(chapterToolName())
   if (mock) {
+    state.usage.calls += 1
+    state.usage.inputTokens += mock.usage.inputTokens
+    state.usage.outputTokens += mock.usage.outputTokens
     const body = String((mock.input as { 正文?: string })['正文'] ?? '')
     if (body) {
       for (let i = 0; i < body.length; i += 12) {
@@ -506,6 +511,13 @@ async function runGenerate(
   }
   if (state.ctrl.signal.aborted) return { status: 'aborted' }
 
+  // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）
+  state.usage.calls += 1
+  if (out.data.usage) {
+    state.usage.inputTokens += out.data.usage.inputTokens
+    state.usage.outputTokens += out.data.usage.outputTokens
+  }
+
   // C-2：记账已下沉到 runTask（chapter + task 块自动记，避免双记）
 
   // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
@@ -532,22 +544,16 @@ function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
   return getRedItems(outcome.report).map((i) => i.message)
 }
 
-/** 规则检验只查正文（剥离 front matter，避免 fm 短行污染文风指纹） */
-function ruleBody(content: string): string {
-  const split = splitFrontMatter(content)
-  return split ? split.body : content
-}
-
-/** 终局黄项复查：对终稿正文跑规则 → 违规 message 列表（W1 收敛可见性） */
+/** 终局黄项复查：对终稿跑规则 → 违规 message 列表（W1 收敛可见性；含 fm——plot 一致规则要比对章纲，正文型规则各自剥） */
 function ruleYellows(content: string, bookRoot: string, chapter: number): string[] {
-  return collectRuleViolations(ruleBody(content), 'self-heal', bookRoot, chapter).map((v) => v.message)
+  return collectRuleViolations(content, 'self-heal', bookRoot, chapter).map((v) => v.message)
 }
 
 function emit(opts: SelfHealOpts, ev: DriverEvent): void {
   opts.driver.emit?.(opts.mainSession, ev)
 }
 
-function emitResult(opts: SelfHealOpts, result: SelfHealOutcome): void {
+function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState['usage']): void {
   const ev: DriverEvent =
     result.outcome === 'pass'
       ? { type: 'self_heal_result', outcome: 'pass', yellows: result.yellows, docId: result.docId, path: result.path }
@@ -560,7 +566,8 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome): void {
   emit(opts, {
     type: 'done',
     cost: 0,
-    usage: 0,
+    // W-P2-7：真实 outputTokens 累计（与 stream.ts 口径一致），不再恒 0
+    usage: usage.outputTokens,
     reason: result.outcome === 'aborted' ? 'cancelled' : result.outcome === 'failed' ? 'error' : 'success',
   })
 }

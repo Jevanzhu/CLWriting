@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
+import { checkAiCallBudget } from '../../src/ai/calls.js'
+import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
 import { GenError } from '../../src/ai/gen.js'
 
@@ -142,6 +144,32 @@ describe('runTask B-1 指数退避重试', () => {
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.data).toBe('ok')
     expect(calls).toBe(2) // 第一次 429 → 退避 → 第二次成功
+  }, 10_000)
+
+  it('W-P2-8：内部重试也入账——429 一次 + 成功一次 → chapter used=2（预算闸不可被重试超限）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-retry-'))
+    try {
+      let calls = 0
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot,
+        task: 'self-heal',
+        chapter: 1,
+        run: () => {
+          calls++
+          if (calls < 2) throw new GenError('429 limit', true)
+          return Promise.resolve('ok')
+        },
+      })
+      expect(out.ok).toBe(true)
+      const b = checkAiCallBudget(bookRoot, 1, { budget: { calls_per_chapter: 10 } } as unknown as BookConfig)
+      expect(b.ok).toBe(true)
+      if (b.ok) expect(b.used).toBe(2) // 1 次失败重试 + 1 次成功，均按真实 API 消耗计数
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
   }, 10_000)
 
   it('不可重试错误 → 不重试，直接 GEN_FAIL', async () => {

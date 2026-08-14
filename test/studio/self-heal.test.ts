@@ -370,3 +370,21 @@ test('批量：chapters 未传 → 单章行为不变（无 batch 事件）', as
   expect(types).not.toContain('self_heal_batch_progress')
   expect(types).toContain('self_heal_result')
 })
+
+test('W-P2-7：mock 驱动全程 → done 事件携带真实累计 usage（不再恒 0）', async () => {
+  const prev = process.env['CLWRITING_DRIVER']
+  process.env['CLWRITING_DRIVER'] = 'mock'
+  try {
+    // genFn: undefined 覆盖默认注入 → runGenerate 走 tryMockTool 快路（usage=MOCK_USAGE）
+    const { opts, emitted } = setup([`${FM}全绿`], () => greenOutcome(), { genFn: undefined })
+    const r = await runSelfHeal(opts)
+    expect(r.outcome).toBe('pass')
+    const done = emitted.find((e) => e.type === 'done') as { usage?: number } | undefined
+    expect(done).toBeDefined()
+    // 一次生成 × mock outputTokens 50 → done.usage 应为 50（修复前恒 0，前端 leg 计数缺）
+    expect(done?.usage).toBe(50)
+  } finally {
+    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
+    else process.env['CLWRITING_DRIVER'] = prev
+  }
+})
