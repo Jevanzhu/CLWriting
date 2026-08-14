@@ -1,8 +1,11 @@
 name: CI
 
 on:
-  # 暂停 push / pull_request 自动触发，避免频繁 push 时反复跑 CI。
-  # 需要验证时在 GitHub Actions 页面手动 Run workflow。
+  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main/dev + 指向 main 的 PR，避免特性分支频繁跑。
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -37,20 +40,14 @@ jobs:
       - name: 构建（src + web-next → dist，发布资产门）
         run: npm run build:all
 
-      - name: Studio 前端资产 smoke（dist/web/index.html 必须存在）
-        run: node -e "const fs=require('fs');if(!fs.existsSync('dist/web/index.html')){console.error('dist/web/index.html 缺失,发布包会无前端');process.exit(1)}"
+      - name: 发布产物门（dist/web/index.html + package.main 必须存在）
+        run: node -e "const fs=require('fs');const p=require('./package.json');for(const f of ['dist/web/index.html',p.main]){if(!fs.existsSync(f)){console.error(f+' 缺失,发布包不完整');process.exit(1)}}"
 
       - name: 测试（含 node:sqlite smoke）
         run: npm test
 
-      - name: RC 中文路径专项（Windows 发布门）
-        run: npm run test:rc-path
-
-      - name: bin 链路 smoke（build → bin 可执行）
-        run: node dist/cli.js --version
-
-      - name: 运行时零第三方依赖断言
-        run: node -e "const d=require('./package.json').dependencies||{}; if(Object.keys(d).length){console.error('运行时依赖非空:',d);process.exit(1)}"
+      # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
+      # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 
   # e2e job（M11 E1 恢复）：playwright 跑 web-next 7 条动线，独立 job 不阻塞 build-test。
   e2e:
