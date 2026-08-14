@@ -29,6 +29,7 @@ import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
+import { parseChapterFileName } from '../format/words.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import type { BookConfig, ParseError } from '../format/types.js'
@@ -142,10 +143,12 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   // ── 态 4 之后按布线存在性分叉（无布线的短篇书：无态 5（无卷）/6（无体检）；直接落态 7 写作主态）──
   if (!existsSync(join(bookRoot, '布线'))) {
     const excludeNames = unfinishedPieceNames(bookRoot, m)
-    return {
-      state: 7,
-      nextChapter: readChapterDir(join(bookRoot, '写作', '正文')).chapters.length - excludeNames.size + 1,
-    }
+    const bodyDir = join(bookRoot, '写作', '正文')
+    // V-P1-3：fm 解析失败的草稿不进 readChapterDir 的 chapters，但其文件名章号仍占位——
+    // nextChapter 必须以正文区最大文件名章号为下限。否则「3 章已定稿 + 坏 fm 的 004 草稿」
+    // 会算出 nextChapter=3，resolveDraftPath 覆盖写已定稿第 3 章。
+    const formula = readChapterDir(bodyDir).chapters.length - excludeNames.size + 1
+    return { state: 7, nextChapter: Math.max(formula, maxFileNameChapter(bodyDir)) }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -371,6 +374,33 @@ function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string>
 }
 
 // 已定稿章数 = readChapterDir 章数 − 未定稿文件数（排除草稿后再计"已写"，见态 7 分支与 readRecapSnapshot）
+
+/** 正文区文件名里的最大章号（含 fm 解析失败的文件；无匹配 → 0）。V-P1-3：nextChapter 下限。 */
+function maxFileNameChapter(bodyDir: string): number {
+  if (!existsSync(bodyDir)) return 0
+  let max = 0
+  const walk = (dir: string): void => {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (name.startsWith('._')) continue
+      const fp = join(dir, name)
+      const st = statSyncSafe(fp)
+      if (st === null) continue
+      if (st.isDirectory()) walk(fp)
+      else if (name.endsWith('.md')) {
+        const parsed = parseChapterFileName(name)
+        if (parsed && parsed.章号 > max) max = parsed.章号
+      }
+    }
+  }
+  walk(bodyDir)
+  return max
+}
 
 /** 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。 */
 function readBatchPause(bookRoot: string): { atChapter: number; reason: string; detail: string } | undefined {

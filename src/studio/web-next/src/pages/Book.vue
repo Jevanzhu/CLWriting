@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import WorkspaceShell from '../components/shell/WorkspaceShell.vue'
 import EditorView from '../views/EditorView.vue'
@@ -66,6 +66,12 @@ watch(
   () => tree.byDocId.size,
   () => ws.validate(new Set(tree.byDocId.keys())),
 )
+// V-P1-2：关窗/重载兜底——beforeunload 窗口内同步落盘 dirty 文档（autosave 间隔内的编辑不再静默丢失）
+function flushOnUnload(): void {
+  doc.flushSyncOnUnload()
+}
+onMounted(() => window.addEventListener('beforeunload', flushOnUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
 </script>
 
 <template>

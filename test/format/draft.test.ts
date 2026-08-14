@@ -1,11 +1,14 @@
 /**
  * resolveDraftPath 路径安全测试：标题含路径分隔符时须净化，防 AI 产出越出 bookRoot。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { resolveDraftPath } from '../../src/format/draft.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { generateDocId } from '../../src/document/stable-id.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 let bookRoot: string
 
@@ -48,5 +51,39 @@ describe('resolveDraftPath 标题净化', () => {
   it('无标题 → 默认 第N章', () => {
     const { relPath } = resolveDraftPath(bookRoot, 42)
     expect(relPath).toContain('042-第42章.md')
+  })
+})
+
+describe('resolveDraftPath V-P1-3 定稿防护', () => {
+  function writeChapter(root: string, num: number, title: string): string {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    const rel = `写作/正文/${String(num).padStart(3, '0')}-${title}.md`
+    writeFileSync(
+      join(root, rel),
+      `---\n章号: ${num}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。`,
+      'utf-8',
+    )
+    return rel
+  }
+
+  it('同章号文件已定稿 → 拒绝覆盖（throw，防静默摧毁定稿）', () => {
+    const rel = writeChapter(bookRoot, 3, '雪夜')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+      finalizedRevision: computeRevision(join(bookRoot, rel)), finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
+
+    expect(() => resolveDraftPath(bookRoot, 3)).toThrow(/已定稿/)
+  })
+
+  it('同章号文件未定稿（草稿续写）→ 照常返回覆盖路径', () => {
+    writeChapter(bookRoot, 3, '雪夜') // 无清单 → 无定稿信息可依，维持旧行为
+    const r = resolveDraftPath(bookRoot, 3)
+    expect(r.existed).toBe(true)
+    expect(r.relPath).toBe('写作/正文/003-雪夜.md')
   })
 })

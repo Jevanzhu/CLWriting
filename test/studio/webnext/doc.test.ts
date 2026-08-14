@@ -8,7 +8,7 @@
  *
  * 复用根 vitest（node 环境）；shared/revision 真实跑 WebCrypto 以验证对拍口径。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -28,6 +28,7 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
       this.code = code
     }
   },
+  getToken: vi.fn(() => 'test-token'),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
@@ -234,5 +235,61 @@ describe('doc store · 5b9c888 审阅修复', () => {
     const e = doc.get('d1')!
     expect(e.conflict).toBe(false)
     expect(e.error).toBe('网络断了')
+  })
+})
+
+describe('doc store · V-P1-2 卸载兜底（flushSyncOnUnload）', () => {
+  interface XhrCall { method: string; url: string; headers: Record<string, string>; body: string }
+  const calls: XhrCall[] = []
+  class FakeXHR {
+    method = ''
+    url = ''
+    headers: Record<string, string> = {}
+    open(method: string, url: string): void { this.method = method; this.url = url }
+    setRequestHeader(k: string, v: string): void { this.headers[k] = v }
+    send(body: string): void { calls.push({ method: this.method, url: this.url, headers: this.headers, body }) }
+  }
+
+  beforeEach(() => {
+    calls.length = 0
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('dirty 文档 → 同步 XHR PUT（正确 URL/token/乐观锁负载）', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.patch('d1', '未保存内容')
+    const base = doc.get('d1')!.baselineRevision
+    expect(() => doc.flushSyncOnUnload()).not.toThrow()
+    expect(calls).toHaveLength(1)
+    const call = calls[0]!
+    expect(call.method).toBe('PUT')
+    expect(call.url).toBe('/api/books/test-book/documents/d1/content')
+    expect(call.headers['x-studio-token']).toBe('test-token')
+    const payload = JSON.parse(call.body) as { content: string; expectedRevision: string; origin: string }
+    expect(payload.content).toBe('未保存内容')
+    expect(payload.expectedRevision).toBe(base)
+    expect(payload.origin).toBe('autosave')
+  })
+
+  it('clean / 冲突未决文档 → 跳过不发', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.flushSyncOnUnload() // 非 dirty
+    const doc2 = await openDoc('d2', '写作/正文/第2章.md', 'a')
+    doc2.patch('d2', 'b')
+    doc2.get('d2')!.conflict = true // 冲突未决：同步盲写只会再 409
+    doc2.flushSyncOnUnload()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('XHR 抛异常 → 不中断其余文档的兜底', async () => {
+    vi.stubGlobal('XMLHttpRequest', class {
+      open(): void {}
+      setRequestHeader(): void {}
+      send(): void { throw new Error('页面正在销毁') }
+    })
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.patch('d1', 'b')
+    expect(() => doc.flushSyncOnUnload()).not.toThrow()
   })
 })

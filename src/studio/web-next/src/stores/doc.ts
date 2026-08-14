@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getContent, saveContent, finalizeDoc } from '../api/documents'
-import { ApiError } from '../api/client'
+import { ApiError, getToken } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
@@ -213,5 +213,36 @@ export const useDocStore = defineStore('doc', () => {
     await Promise.all(dirty.map((e) => save(e.docId, 'autosave')))
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty }
+  /** 卸载兜底（V-P1-2）：beforeunload 窗口内异步 fetch 不保证送达，改用同步 XHR 尽力落盘。
+   *  只处理 dirty 且无冲突且不在保存中的文档；失败静默——最近 autosave/手动保存 + 服务端
+   *  .版本 快照仍是恢复底线。页面即将销毁，不回写 store 状态。 */
+  function flushSyncOnUnload(): void {
+    if (!bookName.value) return
+    const token = getToken()
+    for (const e of docs.value.values()) {
+      if (!e.dirty || e.saving || e.conflict) continue
+      try {
+        const xhr = new XMLHttpRequest()
+        xhr.open(
+          'PUT',
+          `/api/books/${encodeURIComponent(bookName.value)}/documents/${encodeURIComponent(e.docId)}/content`,
+          false,
+        )
+        xhr.setRequestHeader('Content-Type', 'application/json')
+        if (token) xhr.setRequestHeader('x-studio-token', token)
+        xhr.send(
+          JSON.stringify({
+            content: e.content,
+            expectedRevision: e.baselineRevision,
+            operationId: newOperationId(),
+            origin: 'autosave',
+          }),
+        )
+      } catch {
+        /* 卸载路径尽力而为 */
+      }
+    }
+  }
+
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty, flushSyncOnUnload }
 })

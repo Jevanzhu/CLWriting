@@ -8,6 +8,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { relative, join } from 'node:path'
 import { readFile, splitFrontMatter, parseFlat } from './frontmatter.js'
 import { readChapter, readChapterDir } from './chapters.js'
+import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
 
 export type ReadDraftResult =
@@ -58,10 +59,14 @@ export function resolveDraftPath(
 ): { relPath: string; existed: boolean } {
   const bodyDir = join(bookRoot, '写作', '正文')
 
-  // 1. 已有同章号 → 覆盖
+  // 1. 已有同章号 → 覆盖（V-P1-3：已定稿章除外——覆盖定稿 = 静默摧毁作者已确认内容）
   if (existsSync(bodyDir)) {
     const hit = readChapterDir(bodyDir).chapters.find((c) => c.章号 === chapter)
-    if (hit?._path) return { relPath: slashRelative(bookRoot, hit._path), existed: true }
+    if (hit?._path) {
+      const relPath = slashRelative(bookRoot, hit._path)
+      ensureChapterNotFinalized(bookRoot, relPath)
+      return { relPath, existed: true }
+    }
   }
 
   // 2. 新章 → 生成正式文件路径（标题净化路径分隔符，防 AI 产出含 ../ 的标题越出 bookRoot）
@@ -79,6 +84,24 @@ function extractTitleFromContent(content?: string): string | null {
   if (!split) return null
   const title = parseFlat(split.fmRaw).get('标题')
   return typeof title === 'string' && title.trim() ? title.trim() : null
+}
+
+/** V-P1-3：目标章已定稿（manifest finalizedRevision 基线在位）→ 拒绝覆盖写。
+ *  态 4 续写/对话 agent/自动连写的章号一旦指向已定稿章（如坏 fm 副本文件抢章号），
+ *  无条件覆盖会静默摧毁定稿内容；fail-closed，由调用方提示作者走回滚或另立章号。
+ *  清单缺失/不可读（legacy 书）无定稿信息可依 → 维持旧行为不阻断。 */
+function ensureChapterNotFinalized(bookRoot: string, relPath: string): void {
+  let manifest: ReturnType<typeof readManifest>
+  try {
+    manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  } catch {
+    return
+  }
+  for (const e of manifest.entries.values()) {
+    if (e.nodeType === 'document' && e.path === relPath && e.finalizedRevision) {
+      throw new Error(`第 ${relPath} 章已定稿，拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
+    }
+  }
 }
 
 /** 长篇卷目录推断：上一章卷 > 最新卷 > 第一卷。 */

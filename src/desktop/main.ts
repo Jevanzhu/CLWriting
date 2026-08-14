@@ -559,8 +559,8 @@ function buildMenu(): void {
         { type: 'separator' },
         { label: '切换亮/暗主题', ...action('theme') },
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
+        // reload 系仅 dev 保留（V-P1-2）：生产下误触整页重载会丢未保存编辑，兜底保存不保证全救回
+        ...(app.isPackaged ? [] : [{ role: 'reload' as const }, { role: 'forceReload' as const }]),
         // 开发者工具仅 dev 显示（打包后隐藏）
         ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
         { type: 'separator' },
