@@ -8,12 +8,13 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, resolve, relative, isAbsolute, basename } from 'node:path'
+import { resolve, relative, isAbsolute, basename } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook } from '../book-context.js'
+import { invalidateTreeIndex } from '../../../document/tree.js'
 
 interface FileCtx {
   workDir: string | null
@@ -58,6 +59,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
         return
       }
       atomicWriteFile(safe, body.content)
+      // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
+      // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
+      invalidateTreeIndex(r.bookRoot)
       reply(res, 200, { ok: true })
     },
   )
@@ -99,13 +103,3 @@ function editablePath(bookRoot: string, file: string): string | null {
   return allowed ? abs : null
 }
 
-function resolveBook(
-  workDir: string | null,
-  name: string | undefined,
-): { bookRoot: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
-  return { bookRoot: join(workDir, entry.path) }
-}

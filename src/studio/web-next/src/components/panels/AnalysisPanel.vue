@@ -2,13 +2,13 @@
 // 分析面板（右栏速览）：全书速览（聚合趋势摘要）。
 // 章节标签已回归 MetaFormPanel（章节信息）；单章分析详情在 rhythm 视图。
 import { computed, ref, watch } from 'vue'
-import { RefreshCw, Tag } from 'lucide-vue-next'
+import { RefreshCw, Tag, Sparkles } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf, parseFmFields, isBodyKind, stripFrontmatter, mergeFm } from '../../shared/words'
-import { getAnalysisOverview, autotag, type AnalysisOverview } from '../../api/analysis'
+import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { friendlyError } from '../../shared/error'
 
@@ -63,6 +63,40 @@ const tagValues = computed<Record<string, string>>(() => {
   for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
   return out
 })
+
+// ── 目标情绪/核心反转（AI 从正文反推 → 写 fm；长短篇通用）──
+const META_FIELDS = [
+  { key: '目标情绪', label: '目标情绪' },
+  { key: '核心反转', label: '核心反转' },
+] as const
+const metaValues = computed<Record<string, string>>(() => {
+  if (!entry.value) return {}
+  const parsed = parseFmFields(entry.value.content)
+  const out: Record<string, string> = {}
+  for (const f of META_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  return out
+})
+const inferring = ref(false)
+async function inferChapterMeta(): Promise<void> {
+  if (!docId.value || inferring.value) return
+  inferring.value = true
+  try {
+    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回
+    const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
+    const meta = await inferMeta(props.bookName, docId.value)
+    await updateDocMeta(props.bookName, docId.value, meta)
+    await doc.refresh(docId.value)
+    const refreshed = doc.get(docId.value)
+    if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
+      doc.patch(docId.value, mergeFm(refreshed.content, localBody))
+    }
+    ui.toast('情绪/反转推断完成', 'success')
+  } catch (err) {
+    ui.toast(friendlyError(err), 'error')
+  } finally {
+    inferring.value = false
+  }
+}
 
 // ── 全书速览（聚合 overview 摘要）──
 const overview = ref<AnalysisOverview | null>(null)
@@ -127,7 +161,23 @@ function gotoOverview(): void {
       </div>
     </div>
 
-    <!-- 全书速览（点击「详情 →」跳 rhythm 视图） -->
+    <!-- 情绪/反转卡（AI 读正文反推 → 写 fm；长短篇通用） -->
+    <div class="ap-card">
+      <div class="ap-card-head">
+        <div class="ap-card-title"><Sparkles :size="14" /><span>情绪/反转</span></div>
+        <button class="ap-run" :disabled="inferring" @click="inferChapterMeta">
+          <RefreshCw :size="12" :class="{ spin: inferring }" />
+          <span>{{ inferring ? '推断中…' : 'AI 推断' }}</span>
+        </button>
+      </div>
+      <div class="ap-meta-list">
+        <div v-for="f in META_FIELDS" :key="f.key" class="ap-meta-row">
+          <span class="ap-meta-label">{{ f.label }}</span>
+          <span v-if="metaValues[f.key]" class="ap-meta-val">{{ metaValues[f.key] }}</span>
+          <span v-else class="ap-meta-empty">—</span>
+        </div>
+      </div>
+    </div>
     <div class="ap-card">
       <div class="ap-card-head">
         <div class="ap-card-title"><span>全书速览</span></div>
@@ -190,6 +240,30 @@ function gotoOverview(): void {
   align-self: flex-start;
 }
 .ap-tag-empty {
+  font-size: var(--font-size-s);
+  color: var(--text-faint);
+}
+/* 情绪/反转 */
+.ap-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+.ap-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ap-meta-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.ap-meta-val {
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+.ap-meta-empty {
   font-size: var(--font-size-s);
   color: var(--text-faint);
 }

@@ -13,9 +13,10 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs'
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { isWithinRoot } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -77,7 +78,8 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
 function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
   mkdirSync(join(bookRoot, TRASH_DIR_REL), { recursive: true })
   const text = entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : '')
-  atomicWriteFile(trashManifestPath(bookRoot), text)
+  // P2-BE-5：加 fsync——回收站 manifest 是「删除可还原」的承诺，掉电丢失即永久丢还原入口
+  atomicWriteFile(trashManifestPath(bookRoot), text, { fsync: true })
 }
 
 /** 追加 trash 条目（DocumentService.trashDocument 用；同 id 替换，幂等）。 */
@@ -124,16 +126,22 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     return { ok: false, code: 'WRITE_ERROR', reason: `恢复失败：${errMsg(e)}` }
   }
 
-  // 清单恢复 entry（无清单则建——恢复是结构性反向操作）
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const m = existsSync(manifestPath)
-    ? readManifest(manifestPath)
-    : { version: 1, entries: new Map<string, ManifestEntry>() }
-  upsertEntry(m, { id: entry.id, nodeType: 'document', path: entry.originalPath, parentId: null })
-  mkdirSync(dirname(manifestPath), { recursive: true })
-  writeManifest(manifestPath, m)
+  // P2-BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
+  try {
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = existsSync(manifestPath)
+      ? readManifest(manifestPath)
+      : { version: 1, entries: new Map<string, ManifestEntry>() }
+    upsertEntry(m, { id: entry.id, nodeType: 'document', path: entry.originalPath, parentId: null })
+    mkdirSync(dirname(manifestPath), { recursive: true })
+    writeManifest(manifestPath, m)
+  } catch { /* 主清单写失败不阻断恢复——树重建时自动补录 */
+  }
 
-  writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  try {
+    writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
+  }
   invalidateTreeIndex(bookRoot)
   return { ok: true, id, path: entry.originalPath }
 }
@@ -155,18 +163,13 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
 }
 
 /** 路径安全：rel 须相对 bookRoot 且不越出（防 trash-manifest 篡改后 restore/purge 越出书仓库）。
- *  返回绝对路径或 null（非法）。 */
+ *  返回绝对路径或 null（非法）。fail-closed：realpath 失败 → 拒绝（与其他 safePath 一致）。 */
 function safePathWithin(bookRoot: string, rel: string): string | null {
-  if (isAbsolute(rel)) return null
+  if (!rel || rel === '.' || rel.includes('\0') || isAbsolute(rel)) return null
   const abs = join(bookRoot, rel)
   if (relative(bookRoot, abs).startsWith('..')) return null
-  // P2：symlink 防御——realpath 仍须在 bookRoot 内（两边都 realpath 防 macOS /var → /private/var 前缀差异）
-  try {
-    if (existsSync(abs)) {
-      const realRoot = realpathSync(bookRoot)
-      if (relative(realRoot, realpathSync(abs)).startsWith('..')) return null
-    }
-  } catch { /* lstat 失败 → 放行（后续操作兜底） */ }
+  // symlink 防御——统一引用 isWithinRoot（fail-closed，与其他 safePath 一致）
+  if (!isWithinRoot(bookRoot, abs)) return null
   return abs
 }
 

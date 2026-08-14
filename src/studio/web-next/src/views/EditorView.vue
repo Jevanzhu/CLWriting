@@ -267,8 +267,9 @@ async function onTitleCommit(): Promise<void> {
   try {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
     // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
+    // P2-FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
     const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).章号 ?? Number(e.path.match(/(\d+)-[^/]*\.md$/)?.[1] ?? 1))
+      ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
       : undefined
     await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
       标题: newTitle,
@@ -287,6 +288,8 @@ async function onTitleCommit(): Promise<void> {
     if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
       doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
     }
+    // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记
+    if (refreshed) refreshed.conflict = false
   } catch (err) {
     ui.toast(friendlyError(err), 'error')
   } finally {
@@ -300,7 +303,12 @@ watch(
     if (id && !doc.get(id)) {
       const node = tree.byDocId.get(id)
       if (node) {
-        try { await doc.open(node) } catch { /* 静默 */ }
+        // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
+        try {
+          await doc.open(node)
+        } catch (err) {
+          ui.toast(friendlyError(err), 'error')
+        }
       }
     }
   },

@@ -7,15 +7,17 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenEvent, ModelProvider, ProviderConf } from '../../../src/ai/provider/types.js'
-import { createProvider, probeCapabilities, probeModelCaps } from '../../../src/ai/provider/probe.js'
+import { createProvider, probeCapabilities } from '../../../src/ai/provider/probe.js'
 import { listModels } from '../../../src/ai/provider/models.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 
 // 自动 mock：三个模块的导出全部替换为 vi.fn()
 vi.mock('../../../src/ai/provider/models.js')
 vi.mock('../../../src/ai/provider/anthropic-adapter.js')
 vi.mock('../../../src/ai/provider/openai-adapter.js')
+vi.mock('../../../src/ai/provider/responses-adapter.js')
 
 const SAVE_DRIVER = process.env['CLWRITING_DRIVER']
 
@@ -42,7 +44,7 @@ function fakeProvider(events: Array<{ type: 'text' | 'tool' | 'error'; name?: st
     }
     yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'end_turn' }
   }
-  return { conf: conf(), modelCaps: null, stream }
+  return { conf: conf(), stream }
 }
 
 beforeEach(() => {
@@ -62,13 +64,19 @@ describe('createProvider', () => {
     vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([]))
     createProvider(conf({ protocol: 'anthropic', auth: 'anthropic' }))
     expect(createAnthropicProvider).toHaveBeenCalledTimes(1)
-    expect(createOpenAIProvider).not.toHaveBeenCalled()
+    expect(createOpenAIProviderChat).not.toHaveBeenCalled()
   })
 
-  it('openai 协议 → 走 openai 工厂', () => {
-    vi.mocked(createOpenAIProvider).mockReturnValue(fakeProvider([]))
+  it('openai 协议 → 走 Chat Completions 工厂', () => {
+    vi.mocked(createOpenAIProviderChat).mockReturnValue(fakeProvider([]))
     createProvider(conf({ protocol: 'openai', auth: 'bearer' }))
-    expect(createOpenAIProvider).toHaveBeenCalledTimes(1)
+    expect(createOpenAIProviderChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('openai-responses 协议 → 走 Responses 工厂', () => {
+    vi.mocked(createOpenAIResponsesProvider).mockReturnValue(fakeProvider([]))
+    createProvider(conf({ protocol: 'openai-responses', auth: 'bearer' }))
+    expect(createOpenAIResponsesProvider).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -94,22 +102,5 @@ describe('probeCapabilities', () => {
     const r = await probeCapabilities(conf())
     expect(r.caps).toEqual({ connected: false, streaming: false })
     expect(r.details.join()).toContain('连通失败')
-  })
-})
-
-describe('probeModelCaps', () => {
-  it('tool_use + tool_choice 均支持 → 两项 true', async () => {
-    vi.mocked(createAnthropicProvider).mockReturnValue(
-      fakeProvider([{ type: 'tool', name: 'echo_test' }, { type: 'tool', name: 'echo_test' }]),
-    )
-    const r = await probeModelCaps(conf())
-    expect(r.caps).toEqual({ toolUse: true, toolChoice: true })
-  })
-
-  it('tool_use 不支持（无 tool 事件）→ toolUse:false，跳过 toolChoice', async () => {
-    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
-    const r = await probeModelCaps(conf())
-    expect(r.caps.toolUse).toBe(false)
-    expect(r.caps.toolChoice).toBe(false)
   })
 })

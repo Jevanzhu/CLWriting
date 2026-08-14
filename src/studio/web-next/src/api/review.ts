@@ -52,6 +52,7 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
   return apiJson<ReviewResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+    120_000, // 三审超时 2 分钟
   )
 }
 

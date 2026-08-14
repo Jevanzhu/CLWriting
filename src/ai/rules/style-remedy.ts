@@ -6,6 +6,8 @@
  * 生成带证据的修复建议，替代 style-rule.ts 原有的静态建议。
  */
 
+import { splitSentences } from '../../format/sentences.js'
+
 /** 总结体开头词 */
 const SUMMARY_KEYWORDS = ['总之', '综上', '总而言之', '由此可见', '这一切', '如此看来', '说到底']
 
@@ -56,9 +58,7 @@ export function extractRepeatPhrases(body: string): string[] {
  * maxLen 默认 40（如 IronRules 有 maxSentenceLen 可由调用方传入）。
  */
 export function extractLongSentences(body: string, maxLen = DEFAULT_MAX_SENTENCE_LEN): string[] {
-  const overlong = body
-    .split(/[。！？]/)
-    .map((s) => s.trim())
+  const overlong = splitSentences(body)
     .filter((s) => s.length > maxLen)
   // 按长度降序取前 3
   const top3 = overlong.sort((a, b) => b.length - a.length).slice(0, 3)
@@ -77,11 +77,8 @@ export function extractSummaryEnding(body: string): string | null {
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
   const tail = paragraphs.slice(-2).join('\n')
-  // 按 。！？\n 切句
-  const sentences = tail
-    .split(/[。！？\n]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+  // 统一分句口径（P2-BE-6）
+  const sentences = splitSentences(tail)
   for (const s of sentences) {
     if (SUMMARY_KEYWORDS.some((kw) => s.startsWith(kw))) {
       return s.length > SUMMARY_TRUNCATE ? `${s.slice(0, SUMMARY_TRUNCATE)}……` : s

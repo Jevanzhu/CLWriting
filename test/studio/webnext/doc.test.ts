@@ -8,7 +8,7 @@
  *
  * 复用根 vitest（node 环境）；shared/revision 真实跑 WebCrypto 以验证对拍口径。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -18,19 +18,23 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   // doc.ts 仅用 instanceof + err.code + err.message，mock 同结构即可
   ApiError: class ApiError extends Error {
-    code: string
-    constructor(code: string, message: string) {
+    status: number
+    code?: string
+    // 与真实 client.ApiError 同构（message, status, code）——doc.ts 判 instanceof + code
+    constructor(message: string, status: number, code?: string) {
       super(message)
       this.name = 'ApiError'
+      this.status = status
       this.code = code
     }
   },
+  getToken: vi.fn(() => 'test-token'),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
 
-import { getContent, saveContent } from '../../../src/studio/web-next/src/api/documents'
+import { getContent, saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents'
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
@@ -43,6 +47,7 @@ function makeNode(path: string, docId: string): TreeNode {
     path,
     name: path.split('/').pop()!,
     isDirectory: false,
+    role: 'chapter',
     docId,
     children: [],
   } as TreeNode
@@ -52,7 +57,7 @@ function makeNode(path: string, docId: string): TreeNode {
 async function openDoc(docId: string, path: string, content: string) {
   const doc = useDocStore()
   doc.setBook(BOOK)
-  getContent.mockResolvedValueOnce(content)
+  vi.mocked(getContent).mockResolvedValueOnce(content)
   await doc.open(makeNode(path, docId))
   return doc
 }
@@ -101,8 +106,8 @@ describe('doc store · save 前置守卫', () => {
   it('saving 中 → 不重入', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    let resolve!: (v: unknown) => void
-    saveContent.mockReturnValueOnce(new Promise((r) => (resolve = r)))
+    let resolve!: (v: SaveOk | PromiseLike<SaveOk>) => void
+    vi.mocked(saveContent).mockReturnValueOnce(new Promise((r) => (resolve = r)))
     const p = doc.save('d1') // 进行中
     expect(await doc.save('d1')).toBe(false) // 重入被拒
     resolve({ ok: true, revision: 'sha256:h', superseded: false })
@@ -115,7 +120,7 @@ describe('doc store · save 成功', () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     const oldBase = doc.get('d1')!.baselineRevision
     doc.patch('d1', 'b')
-    saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
     const ok = await doc.save('d1')
     expect(ok).toBe(true)
     expect(saveContent).toHaveBeenCalledWith(
@@ -137,7 +142,7 @@ describe('doc store · save 成功', () => {
     const doc = await openDoc('legacy:设定/x.md', '设定/x.md', 'a')
     const oldBase = doc.get('legacy:设定/x.md')!.baselineRevision
     doc.patch('legacy:设定/x.md', 'b')
-    saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false })
     const ok = await doc.save('legacy:设定/x.md')
     expect(ok).toBe(true)
     expect(saveContent).toHaveBeenCalledWith(
@@ -156,8 +161,8 @@ describe('doc store · 5b9c888 审阅修复', () => {
   it('① 保存竞态：await 期间新输入，成功后 dirty 不误清', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    let resolveSave!: (v: unknown) => void
-    saveContent.mockReturnValueOnce(new Promise((r) => (resolveSave = r)))
+    let resolveSave!: (v: SaveOk | PromiseLike<SaveOk>) => void
+    vi.mocked(saveContent).mockReturnValueOnce(new Promise((r) => (resolveSave = r)))
     const p = doc.save('d1') // snapshot = 'b'
     doc.patch('d1', 'c') // await 期间继续输入
     expect(doc.get('d1')!.saving).toBe(true)
@@ -172,7 +177,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
   it('② 409 冲突：conflict 置位 + error 提示', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    saveContent.mockRejectedValueOnce(new ApiError('REVISION_CONFLICT', '版本冲突'))
+    vi.mocked(saveContent).mockRejectedValueOnce(new ApiError('版本冲突', 409, 'REVISION_CONFLICT'))
     const ok = await doc.save('d1')
     expect(ok).toBe(false)
     const e = doc.get('d1')!
@@ -183,9 +188,9 @@ describe('doc store · 5b9c888 审阅修复', () => {
   it('② 冲突未决时 autosave 跳过（不再发请求）', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    saveContent.mockRejectedValueOnce(new ApiError('REVISION_CONFLICT', 'x'))
+    vi.mocked(saveContent).mockRejectedValueOnce(new ApiError('x', 409, 'REVISION_CONFLICT'))
     await doc.save('d1') // 触发冲突
-    saveContent.mockClear()
+    vi.mocked(saveContent).mockClear()
     expect(await doc.save('d1', 'autosave')).toBe(false)
     expect(saveContent).not.toHaveBeenCalled()
   })
@@ -195,7 +200,7 @@ describe('doc store · 5b9c888 审阅修复', () => {
     doc.patch('d1', '本地改')
     const e = doc.get('d1')!
     e.conflict = true
-    getContent.mockResolvedValueOnce('远端最新')
+    vi.mocked(getContent).mockResolvedValueOnce('远端最新')
     await doc.reloadFromRemote('d1')
     expect(e.content).toBe('远端最新')
     expect(e.dirty).toBe(false)
@@ -207,8 +212,8 @@ describe('doc store · 5b9c888 审阅修复', () => {
     doc.patch('d1', '本地覆盖')
     const e = doc.get('d1')!
     e.conflict = true
-    getContent.mockResolvedValueOnce('远端当前')
-    saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:over', superseded: false })
+    vi.mocked(getContent).mockResolvedValueOnce('远端当前')
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:over', superseded: false })
     await doc.overwriteRemote('d1')
     expect(e.conflict).toBe(false)
     expect(saveContent).toHaveBeenCalledWith(
@@ -224,11 +229,67 @@ describe('doc store · 5b9c888 审阅修复', () => {
   it('非冲突错误：记录 error，不置 conflict', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    saveContent.mockRejectedValueOnce(new Error('网络断了'))
+    vi.mocked(saveContent).mockRejectedValueOnce(new Error('网络断了'))
     const ok = await doc.save('d1')
     expect(ok).toBe(false)
     const e = doc.get('d1')!
     expect(e.conflict).toBe(false)
     expect(e.error).toBe('网络断了')
+  })
+})
+
+describe('doc store · V-P1-2 卸载兜底（flushSyncOnUnload）', () => {
+  interface XhrCall { method: string; url: string; headers: Record<string, string>; body: string }
+  const calls: XhrCall[] = []
+  class FakeXHR {
+    method = ''
+    url = ''
+    headers: Record<string, string> = {}
+    open(method: string, url: string): void { this.method = method; this.url = url }
+    setRequestHeader(k: string, v: string): void { this.headers[k] = v }
+    send(body: string): void { calls.push({ method: this.method, url: this.url, headers: this.headers, body }) }
+  }
+
+  beforeEach(() => {
+    calls.length = 0
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('dirty 文档 → 同步 XHR PUT（正确 URL/token/乐观锁负载）', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.patch('d1', '未保存内容')
+    const base = doc.get('d1')!.baselineRevision
+    expect(() => doc.flushSyncOnUnload()).not.toThrow()
+    expect(calls).toHaveLength(1)
+    const call = calls[0]!
+    expect(call.method).toBe('PUT')
+    expect(call.url).toBe('/api/books/test-book/documents/d1/content')
+    expect(call.headers['x-studio-token']).toBe('test-token')
+    const payload = JSON.parse(call.body) as { content: string; expectedRevision: string; origin: string }
+    expect(payload.content).toBe('未保存内容')
+    expect(payload.expectedRevision).toBe(base)
+    expect(payload.origin).toBe('autosave')
+  })
+
+  it('clean / 冲突未决文档 → 跳过不发', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.flushSyncOnUnload() // 非 dirty
+    const doc2 = await openDoc('d2', '写作/正文/第2章.md', 'a')
+    doc2.patch('d2', 'b')
+    doc2.get('d2')!.conflict = true // 冲突未决：同步盲写只会再 409
+    doc2.flushSyncOnUnload()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('XHR 抛异常 → 不中断其余文档的兜底', async () => {
+    vi.stubGlobal('XMLHttpRequest', class {
+      open(): void {}
+      setRequestHeader(): void {}
+      send(): void { throw new Error('页面正在销毁') }
+    })
+    const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
+    doc.patch('d1', 'b')
+    expect(() => doc.flushSyncOnUnload()).not.toThrow()
   })
 })

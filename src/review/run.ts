@@ -60,7 +60,7 @@ export interface ReviewExecutionPacket {
   downgrade_reason?: string
   lenses_run: ReviewLens[]
   /** 预计 AI 调用次数（满审/顺序审=3，合审=1） */
-  planned_calls: 1 | 3
+  planned_calls: number
   /** 各视角分包（满审/顺序审=3 份独立；合审=1 份合并） */
   packets: ReviewLensPacket[]
   /** 输出目录：宿主把各视角 issues JSON 回写到此处 */

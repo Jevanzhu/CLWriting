@@ -410,3 +410,47 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 export function writeBookConfig(filePath: string, cfg: BookConfig): void {
   atomicWriteFile(filePath, stringifyBookConfig(cfg))
 }
+
+/**
+ * 文本级补丁：替换或追加一个顶层段（V-P2-4）。
+ *
+ * 读改写场景（enableRag 等）不能走 stringifyBookConfig 全量重生成——解析模型只保
+ * 已知字段，作者的 # 注释、未知段、未知子键会静默丢失。此函数只重写目标段的
+ * 行区间，区间外的原文（含注释与未知内容）逐字保留。
+ *
+ * @param raw 现有 book.yaml 全文（空串 = 无文件，纯追加）
+ * @param section 顶层段名（如 'rag'）
+ * @param body 段体行（不含段头行，如 '  enabled: true'）
+ */
+export function patchTopSection(raw: string, section: string, body: string): string {
+  const lines = raw.split('\n')
+  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  if (start === -1) {
+    // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）
+    if (raw === '') return `${section}:\n${body}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
+    return `${prefix}\n${section}:\n${body}\n`
+  }
+  // 段区间末尾 = 下一个顶层 key（非缩进、非注释、非空行）之前
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]!
+    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
+      end = i
+      break
+    }
+  }
+  // 保留旧段尾部的空行 run（段间分隔）——替换体本身无尾空行，不补会与下一段粘连
+  let blanks = 0
+  for (let i = end - 1; i > start; i--) {
+    if (lines[i]!.trim() === '') blanks++
+    else break
+  }
+  return [
+    ...lines.slice(0, start),
+    `${section}:`,
+    ...body.split('\n'),
+    ...Array.from({ length: blanks }, () => ''),
+    ...lines.slice(end),
+  ].join('\n')
+}

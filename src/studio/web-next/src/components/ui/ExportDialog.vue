@@ -3,7 +3,7 @@
 // 成功 toast + 关弹窗；失败展示 stderr/stdout。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
-import { exportBook, type ExportFormat, type ExportPlatform } from '../../api/io'
+import { exportBook, EXPORT_FORMATS, EXPORT_PLATFORMS, type ExportFormat, type ExportPlatform } from '../../api/io'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
@@ -14,18 +14,8 @@ const ws = useWorkspaceStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-const FORMATS: { v: ExportFormat; label: string; hint: string }[] = [
-  { v: 'merged', label: '合并', hint: '全书一个文件' },
-  { v: 'split', label: '分章', hint: '每章一个文件' },
-  { v: 'both', label: '全量', hint: '合并 + 分章' },
-]
-const PLATFORMS: { v: ExportPlatform; label: string }[] = [
-  { v: 'generic', label: '通用' },
-  { v: 'wechat', label: '公众号' },
-  { v: 'zhihu-salt', label: '知乎盐选' },
-  { v: 'fanqie', label: '番茄' },
-  { v: 'xiaohongshu', label: '小红书' },
-]
+const FORMATS = EXPORT_FORMATS
+const PLATFORMS = EXPORT_PLATFORMS
 
 const format = ref<ExportFormat>('both')
 const platform = ref<ExportPlatform>('generic')
@@ -64,10 +54,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.exportOpen" class="modal-mask" @click.self="ui.closeExport">
-      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1">
+      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1" data-testid="export-dialog">
         <div class="modal-head">
           <span>导出定稿</span>
-          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" @click="ui.closeExport"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" data-testid="export-close" @click="ui.closeExport"><X :size="18" /></button>
         </div>
         <div class="form-row">
           <label>格式</label>
@@ -77,6 +67,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               :key="f.v"
               class="opt"
               :class="{ on: format === f.v }"
+              :data-testid="`export-format-${f.v}`"
               @click="format = f.v"
             >
               <span class="opt-label">{{ f.label }}</span>
@@ -92,6 +83,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               :key="p.v"
               class="seg-btn"
               :class="{ on: platform === p.v }"
+              :data-testid="`export-platform-${p.v}`"
               @click="platform = p.v"
             >
               {{ p.label }}
@@ -99,7 +91,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
         <div class="actions">
-          <button class="btn primary" :disabled="loading" @click="run">
+          <button class="btn primary" :disabled="loading" data-testid="export-run" @click="run">
             {{ loading ? '导出中…' : '导出' }}
           </button>
         </div>

@@ -5,10 +5,12 @@
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onBeforeUnmount } from 'vue'
 import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { confirmTool } from '../../api/chat'
+import { ApiError } from '../../api/client'
+import { useUiStore } from '../../stores/ui'
 import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 import { useChatComposer } from '../../composables/useChatComposer'
 
@@ -25,9 +27,20 @@ const chat = useChatStore()
 // ── 滚动（ChatPanel 独有）────────────────────────
 
 const scrollRef = ref<HTMLElement | null>(null)
+// rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次（P2-FE-7）
+let scrollRaf = 0
 function scrollToBottom(): void {
-  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  })
 }
+
+// 卸载时取消未完成的 rAF，防回调访问已销毁组件
+onBeforeUnmount(() => {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+})
 
 // ── 发送/停止/清空/章节选择（共享 composable）────
 
@@ -43,21 +56,32 @@ const {
 )
 
 const tier = useChatTier()
+const ui = useUiStore()
 
 // ── 工具确认 ────────────────────────────────────
 
+const confirmingCallId = ref<string | null>(null)
+
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
+  if (confirmingCallId.value) return // 防重复点击
+  confirmingCallId.value = callId
   try {
     await confirmTool(props.bookName, { callId, ok })
-  } catch {
-    /* 404 = 已超时，忽略 */
+  } catch (e) {
+    // 404 = 工具调用已超时，静默忽略；其他错误提示作者
+    if (e instanceof ApiError && e.status === 404) return
+    ui.toast('确认请求失败，请重试', 'error')
+  } finally {
+    confirmingCallId.value = null
   }
 }
 
 // ── 消息流滚动跟随 ──────────────────────────────
 
-watch(() => chat.messages.length, () => void nextTick(scrollToBottom))
-watch(() => chat.messages.at(-1)?.content, () => void nextTick(scrollToBottom))
+watch(
+  [() => chat.messages.length, () => chat.messages.at(-1)?.content],
+  () => void nextTick(scrollToBottom),
+)
 
 // ── 工具图标映射 ─────────────────────────────────
 
@@ -82,7 +106,7 @@ const TOOL_LABELS: Record<string, string> = {
         <p class="chat-empty-sub">提问剧情走向、让 AI 机检章节，或直接写下一章</p>
       </div>
 
-      <template v-for="(msg, i) in chat.messages" :key="i">
+      <template v-for="msg in chat.messages" :key="msg.id">
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user'" class="chat-msg chat-msg-user">
           {{ msg.content }}
@@ -124,8 +148,11 @@ const TOOL_LABELS: Record<string, string> = {
 
             <!-- 确认按钮 -->
             <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
-              <button class="chat-confirm-no" @click="handleConfirm(tool.callId, false)">取消</button>
-              <button class="chat-confirm-yes" @click="handleConfirm(tool.callId, true)">确认执行</button>
+              <button class="chat-confirm-no" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, false)">取消</button>
+              <button class="chat-confirm-yes" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, true)">
+                <Loader2 v-if="confirmingCallId === tool.callId" :size="12" class="spin" />
+                确认执行
+              </button>
             </div>
           </div>
         </div>

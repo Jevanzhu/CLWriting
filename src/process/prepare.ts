@@ -21,6 +21,7 @@ import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
 import type { BookConfig, StyleSample } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
+import { isWithinRoot } from '../fs/safe-path.js'
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -88,71 +89,45 @@ export function prepare(
   ragRecallText?: string,
   sampleScene: string | string[] = '战斗',
 ): PrepareResult {
-  const sections: MaterialSection[] = []
-  const trimLog: string[] = []
-
-  // ── 刚需段（#12 第 4 节：永不裁剪）──────────────
-
-  // #1 近况（刚需——AI 必须知道写到哪里了）
+  // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
   const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50)
-  sections.push({
-    title: '近况',
-    content: formatStatus(snapshot),
-    essential: true,
-  })
-
-  // #2 本章账本推进条目（刚需——#12 第 2 节#2 源头限流：只取本章涉及的）
-  if (chapterLeadIds.length > 0) {
-    const parts: string[] = []
-    for (const id of chapterLeadIds) {
-      const history = readLeadHistory(db, id)
-      parts.push(`【${id}】`)
-      for (const h of history.slice(-3)) {
-        // 只取最近 3 条履历（源头限流）
-        parts.push(`  第${h.章号}章 ${h.动词}：${h.证据}`)
-      }
-    }
-    sections.push({
-      title: '本章推进的账本',
-      content: parts.join('\n'),
-      essential: true,
-    })
-  }
-
-  // #3 文风（S5 预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
-  // 未迁移书（无条目库）→ 旧行为：铁律全文刚需注入
-  const entriesDir = join(bookRoot, ENTRIES_DIR)
-  const hasEntryLib = existsSync(entriesDir)
   const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
-  const entryLib = hasEntryLib ? readEntries(entriesDir).entries : []
-  if (hasEntryLib) {
-    const ess = buildStyleEssentials(entryLib, scenes)
-    if (ess) {
-      sections.push({
-        title: '文风',
-        content: ess,
-        essential: true,
-      })
-    }
-  } else {
-    const ironPath = join(bookRoot, '文风', '文风铁律.md')
-    if (existsSync(ironPath)) {
-      sections.push({
-        title: '文风铁律',
-        content: readFileSync(ironPath, 'utf-8').trim(),
-        essential: true,
-      })
-    }
-  }
 
-  // ── 弹性段（#12 第 4 节：可裁剪，按优先级）──────
+  const sections: MaterialSection[] = [
+    ...buildStatusSection(snapshot),
+    ...buildLedgerSection(db, chapterLeadIds),
+    ...buildStyleSections(bookRoot, config, scenes),
+    ...buildEndingsSections(db, bookRoot, snapshot),
+    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText),
+  ]
+
+  const trimLog: string[] = []
+  const { estimatedTokens, trimmed } = applyBudgetTrim(config, sections, trimLog)
+  const text = serializeSections(sections, trimmed, trimLog)
+
+  return {
+    sections,
+    text,
+    estimatedTokens,
+    trimmed,
+    trimLog,
+  }
+}
+
+/** 弹性#1 近章结尾 + 弹性#1.5 前章正文结尾（最靠后砍，保留连贯性） */
+function buildEndingsSections(
+  db: DatabaseSync,
+  bookRoot: string,
+  snapshot: ReturnType<typeof assembleStatus>,
+): MaterialSection[] {
+  const sections: MaterialSection[] = []
 
   // 弹性#1 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
   const recentEndings = readChapterSummaries(db, Math.max(1, snapshot.currentChapter - 1), snapshot.currentChapter)
   if (recentEndings.length > 0) {
     const parts: string[] = []
     for (const r of recentEndings) {
-      if (existsSync(r.path)) {
+      if (existsSync(r.path) && isWithinRoot(bookRoot, r.path)) {
         parts.push(`【第${r.ref}章结尾】\n${readFileSync(r.path, 'utf-8').trim()}`)
       }
     }
@@ -193,6 +168,38 @@ export function prepare(
           degradedContent: `【第${prevChapterNo}章正文结尾】\n${tailByParagraph(prevBody, 500)}`,
         })
       }
+    }
+  }
+
+  return sections
+}
+
+/** #3 文风（刚需）+ 弹性#2 文风样章 + 弹性#2b 伏笔提醒 */
+function buildStyleSections(
+  bookRoot: string,
+  config: BookConfig,
+  scenes: string[],
+): MaterialSection[] {
+  const sections: MaterialSection[] = []
+
+  // 文风（S5 预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
+  // 未迁移书（无条目库）→ 旧行为：铁律全文刚需注入
+  const entriesDir = join(bookRoot, ENTRIES_DIR)
+  const hasEntryLib = existsSync(entriesDir)
+  const entryLib = hasEntryLib ? readEntries(entriesDir).entries : []
+  if (hasEntryLib) {
+    const ess = buildStyleEssentials(entryLib, scenes)
+    if (ess) {
+      sections.push({ title: '文风', content: ess, essential: true })
+    }
+  } else {
+    const ironPath = join(bookRoot, '文风', '文风铁律.md')
+    if (existsSync(ironPath)) {
+      sections.push({
+        title: '文风铁律',
+        content: readFileSync(ironPath, 'utf-8').trim(),
+        essential: true,
+      })
     }
   }
 
@@ -256,6 +263,46 @@ export function prepare(
     }
   }
 
+  return sections
+}
+
+/** #1 近况（刚需——AI 必须知道写到哪里了） */
+function buildStatusSection(snapshot: ReturnType<typeof assembleStatus>): MaterialSection[] {
+  return [{
+    title: '近况',
+    content: formatStatus(snapshot),
+    essential: true,
+  }]
+}
+
+/** #2 本章账本推进条目（刚需——#12 第 2 节#2 源头限流：只取本章涉及的） */
+function buildLedgerSection(db: DatabaseSync, chapterLeadIds: string[]): MaterialSection[] {
+  if (chapterLeadIds.length === 0) return []
+  const parts: string[] = []
+  for (const id of chapterLeadIds) {
+    const history = readLeadHistory(db, id)
+    parts.push(`【${id}】`)
+    for (const h of history.slice(-3)) {
+      // 只取最近 3 条履历（源头限流）
+      parts.push(`  第${h.章号}章 ${h.动词}：${h.证据}`)
+    }
+  }
+  return [{
+    title: '本章推进的账本',
+    content: parts.join('\n'),
+    essential: true,
+  }]
+}
+
+/** 弹性#3 远期卷摘要 + 弹性#4 非本章预警 + #8 RAG 召回（flexibleRank 3/4/5） */
+function buildOutlookSections(
+  bookRoot: string,
+  snapshot: ReturnType<typeof assembleStatus>,
+  chapterLeadIds: string[],
+  ragRecallText?: string,
+): MaterialSection[] {
+  const sections: MaterialSection[] = []
+
   // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）
   if (snapshot.currentVolume > 1) {
     const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${snapshot.currentVolume - 1}.md`)
@@ -291,8 +338,15 @@ export function prepare(
     })
   }
 
-  // ── 预算兜底裁剪（#12 第 3/4 节）────────────────
+  return sections
+}
 
+/** 预算兜底裁剪（#12 第 3/4 节）：先降档、仍超再整段移除，刚需绝不砍 */
+function applyBudgetTrim(
+  config: BookConfig,
+  sections: MaterialSection[],
+  trimLog: string[],
+): { estimatedTokens: number; trimmed: boolean } {
   const budget = config.budget.input_per_chapter ?? 80000
   let totalTokens = sections.reduce((sum, s) => sum + estimateTokens(s.content), 0)
   let trimmed = false
@@ -328,8 +382,15 @@ export function prepare(
     }
   }
 
-  // ── 合并文本 + 头部留痕 ────────────────────────
+  return { estimatedTokens: totalTokens, trimmed }
+}
 
+/** 合并文本 + 头部留痕 */
+function serializeSections(
+  sections: MaterialSection[],
+  trimmed: boolean,
+  trimLog: string[],
+): string {
   const lines: string[] = []
   if (trimmed) {
     lines.push(`> ⚠ 因预算裁剪：${trimLog.join('、')}。可运行 read 补充。`)
@@ -340,12 +401,5 @@ export function prepare(
     lines.push(s.content)
     lines.push('')
   }
-
-  return {
-    sections,
-    text: lines.join('\n'),
-    estimatedTokens: totalTokens,
-    trimmed,
-    trimLog,
-  }
+  return lines.join('\n')
 }

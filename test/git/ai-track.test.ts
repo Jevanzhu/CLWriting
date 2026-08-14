@@ -15,8 +15,19 @@ import {
   decodeRefSegment,
   listTrackedDocs,
 } from '../../src/git/ai-track.js'
-import { git, addCommit } from '../../src/git/exec.js'
+import { git } from '../../src/git/exec.js'
 import { legacyId } from '../../src/document/stable-id.js'
+
+/** 测试自备 add+commit（exec.addCommit 已随去 git 清理删除）。返回 commit hash。 */
+function commit(root: string, msg: string): { ok: boolean; hash: string } {
+  for (const args of [['add', '-A'], ['commit', '-m', msg], ['rev-parse', 'HEAD']] as string[][]) {
+    const r = git(args, root)
+    if (!r.ok) return { ok: false, hash: '' }
+    if (args[0] === 'rev-parse') return { ok: true, hash: r.stdout.trim() }
+  }
+  return { ok: false, hash: '' }
+}
+
 
 let root = ''
 
@@ -81,11 +92,11 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
 describe('旁路语义', () => {
   it('reset --hard 免疫：回退分支后轨迹 ref 原样在', () => {
     writeFileSync(join(root, 'a.md'), '第一稿', 'utf-8')
-    const c1 = addCommit(root, 'ch:0001 第一章')
+    const c1 = commit(root, 'ch:0001 第一章')
     expect(c1.ok).toBe(true)
     recordAiVersion(root, 'doc_A', 'AI 初版全文')
     writeFileSync(join(root, 'a.md'), '第二稿', 'utf-8')
-    expect(addCommit(root, 'ch:0002 第二章').ok).toBe(true)
+    expect(commit(root, 'ch:0002 第二章').ok).toBe(true)
     // 回滚到第一章 commit
     const hash = c1.ok ? c1.hash : ''
     expect(git(['reset', '--hard', hash], root).ok).toBe(true)
@@ -96,7 +107,7 @@ describe('旁路语义', () => {
 
   it('旁路 ref 不进 git log（不污染 ch: 链）', () => {
     writeFileSync(join(root, 'a.md'), '正文', 'utf-8')
-    expect(addCommit(root, 'ch:0001 第一章').ok).toBe(true)
+    expect(commit(root, 'ch:0001 第一章').ok).toBe(true)
     recordAiVersion(root, 'doc_A', 'AI 版')
     const log = git(['log', '--all', '--oneline'], root)
     expect(log.ok).toBe(true)

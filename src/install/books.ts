@@ -63,7 +63,8 @@ export function readBooks(workDir: string): BookEntry[] {
         // 路径安全：拒绝对路径与父级穿越段（防 books.jsonl 篡改后 join(workDir,path) 越出 workDir，
         // DELETE 端点 rmSync recursive 可递归删除外部目录 —— NP0-B）
         const relPath = obj['path']
-        if (isAbsolute(relPath) || relPath.split(/[\\/]/).includes('..')) continue
+        // P2-SEC-2：补 NUL 字节检查（与 safeManifestPath 一致——NUL 可截断后续路径拼接）
+        if (!relPath || relPath.includes('\0') || isAbsolute(relPath) || relPath.split(/[\\/]/).includes('..')) continue
         // P1-2：拒绝 "." / "" / "./" 等 resolve 后指向 workDir 自身的路径
         // （join(workDir,".")=workDir → DELETE rmSync recursive 删整个书库）
         if (resolve(workDir, relPath) === resolve(workDir)) continue

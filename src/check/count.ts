@@ -11,6 +11,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
+import { splitSentences } from '../format/sentences.js'
+import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
 // P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
 
@@ -104,7 +106,7 @@ export function checkRepeat(
   threshold = 0.15,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length >= 6)
+  const sentences = splitSentences(body).filter((s) => s.length >= 6)
   const counts = new Map<string, number>()
   for (const s of sentences) {
     counts.set(s, (counts.get(s) ?? 0) + 1)
@@ -136,7 +138,7 @@ export function checkSentenceLength(
   maxLen = 60,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+  const sentences = splitSentences(body)
   const overlong = sentences.filter((s) => s.length > maxLen)
   if (sentences.length > 0 && overlong.length / sentences.length > 0.2) {
     items.push({
@@ -146,6 +148,19 @@ export function checkSentenceLength(
     })
   }
   return { name: '句式体检', items }
+}
+
+/**
+ * 提示语成分字符表（对白行判定）：引号外文本全部由这些成分组成 → 该行是对白，
+ * 引号内是对白内容。启发式词表，覆盖代词/说话动词/常见修饰与数量成分；
+ * 叙述动词（看/走/举…）不在表内，叙述行不会被误判为对白。
+ */
+const ATTRIBUTION_CHARS = '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
+const ATTRIBUTION_RE = new RegExp(`^[${ATTRIBUTION_CHARS}]+$`)
+
+/** 引号外只剩提示语（或为空）→ 对白行。 */
+function isAttributionOnly(outside: string): boolean {
+  return outside === '' || ATTRIBUTION_RE.test(outside)
 }
 
 /**
@@ -161,13 +176,22 @@ export function checkNewNames(
   const roster = readFileSync(rosterPath, 'utf-8')
   // 粗抽：2-4 字中文专名候选（带引号或书名号的优先）
   const candidates = new Set<string>()
-  const quoted = body.match(/[「『"]([^」』"]{2,4})[」』"]/g)
-  if (quoted) {
-    for (const q of quoted) {
-      const name = q.replace(/[「『」』"]/g, '')
-      if (name.length >= 2 && name.length <= 4 && !roster.includes(name)) {
-        candidates.add(name)
-      }
+  const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
+  const punctRe = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE}${SPAN_PUNCT}「」『』]`, 'gu')
+  for (const rawLine of body.split(/\n+/)) {
+    const line = rawLine.trim()
+    const spans = line.match(spanRe)
+    if (!spans) continue
+    // 引号外只剩提示语成分（代词/说话动词/语气副词等）→ 整行是对白，
+    // 引号片段是对白内容而非专名（V-P2-13：此前「住手！」「快走」全报黄项刷屏）
+    const outside = line.replace(spanRe, '').replace(/[\s\u3000]/g, '').replace(punctRe, '')
+    if (isAttributionOnly(outside)) continue
+    for (const q of spans) {
+      const name = q.replace(punctRe, '')
+      if (name.length < 2 || name.length > 4) continue
+      // 含句读的片段是对白内容，不是专名
+      if (new RegExp(`[${SPAN_PUNCT}]`).test(name)) continue
+      if (!roster.includes(name)) candidates.add(name)
     }
   }
   for (const name of candidates) {
@@ -245,14 +269,19 @@ export interface StyleStats {
   summaryEnding: boolean
   /** 对话行总数（>0 才允许 dialogueTagRatio 有意义）；内部用，聚合层可忽略 */
   _dialogueLines: number
+  /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split；P2-BE-2） */
+  _sentences?: string[]
+  _sentencesWithColon?: string[]
 }
 
 /** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */
 export function computeStyleMetrics(body: string, rules: IronRules): StyleStats {
+  const sentences = splitSentences(body)
+  const sentencesWithColon = splitSentences(body, true)
+
   // 单句超限占比
   let overlongRatio = 0
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
-    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
     if (sentences.length > 0) {
       const overlong = sentences.filter((s) => s.length > rules.maxSentenceLen!).length
       overlongRatio = overlong / sentences.length
@@ -272,20 +301,21 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   const dialogueLines = body
     .split(/\n+/)
     .map((line) => line.trim())
-    .filter((line) => /[「『“"][^」』”"]+[」』”"]/.test(line))
+    .filter((line) => QUOTED_SPAN_RE.test(line))
   if (rules.maxDialogueTagRatio !== undefined && dialogueLines.length > 0) {
+    // V-P1-7：标签判定只看引号外的提示语——对整行 test 会把对白里的
+    // 「知道/别叫/笑道」等普通内容也算成对话标签，分子系统性虚高。
     const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
-    const tagged = dialogueLines.filter((line) => tagRe.test(line)).length
+    const tagged = dialogueLines.filter((line) => tagRe.test(stripQuotedSpans(line))).length
     dialogueTagRatio = tagged / dialogueLines.length
   }
 
-  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的"首次越界即 break"）
+  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的”首次越界即 break”）
   let parallelStreakMax = 0
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
-    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
     let prev = ''
     let streak = 0
-    for (const sentence of sentences) {
+    for (const sentence of sentencesWithColon) {
       const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
       if (prefix && prefix === prev) {
         streak += 1
@@ -311,6 +341,8 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     parallelStreakMax,
     summaryEnding,
     _dialogueLines: dialogueLines.length,
+    _sentences: sentences,
+    _sentencesWithColon: sentencesWithColon,
   }
 }
 
@@ -326,9 +358,9 @@ export function checkStyleMetrics(
   const stats = computeStyleMetrics(body, rules)
   const items: CheckItem[] = []
 
-  // 单句超铁律上限（逐句推一条，保持原行为）
+  // 单句超铁律上限（逐句推一条，复用 stats 已分句结果）
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
-    const sentences = body.split(/[。！？\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    const sentences = stats._sentences ?? splitSentences(body)
     for (const s of sentences) {
       if (s.length > rules.maxSentenceLen) {
         items.push({
@@ -378,8 +410,8 @@ export function checkStyleMetrics(
 
   // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
-    // 复算首个越界 prefix（与原实现一致的消息文案）
-    const sentences = body.split(/[。！？；\n]/).map((s) => s.trim()).filter(Boolean)
+    // 复算首个越界 prefix（复用 stats 已分句结果）
+    const sentences = stats._sentencesWithColon ?? splitSentences(body, true)
     let prev = ''
     let streak = 0
     let hitPrefix = ''

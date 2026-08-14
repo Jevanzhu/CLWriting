@@ -84,7 +84,7 @@ describe('recordTaskUsage 任务维度记账（T5）', () => {
     const root = tempBook()
     recordTaskUsage(root, 'analysis', { inputTokens: 100, outputTokens: 200 })
     const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
-    expect(rec.tasks['analysis']).toBeDefined()
+    expect(rec.tasks['analysis']).toEqual(expect.objectContaining({ used: 1, inputTokens: 100 }))
     expect(rec.tasks['analysis'].used).toBe(1)
     expect(rec.tasks['analysis'].inputTokens).toBe(100)
   })
@@ -136,5 +136,42 @@ describe('旧格式迁移（T5）', () => {
     const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
     expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
     expect(rec.tasks).toEqual({})
+  })
+})
+
+// ── V-P2-10：记账文件损坏 → 预算闸保守阻断（与头注释承诺一致，此前静默放行归零）──
+
+describe('ai-calls.json 损坏保守阻断（V-P2-10）', () => {
+  it('JSON 损坏 → ok=false + 人话提示（不再当无记录放行）', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(join(root, '.cache', 'ai-calls.json'), '{ 损坏的 JSON', 'utf8')
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(false)
+    if (!b.ok) expect(b.reason).toContain('损坏')
+  })
+
+  it('形状不对（chapter 非法）→ 同样阻断', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(join(root, '.cache', 'ai-calls.json'), JSON.stringify({ chapter: { num: 'x' }, tasks: {} }), 'utf8')
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(false)
+  })
+
+  it('无文件（新书）→ 正常放行不受影响', () => {
+    const root = tempBook()
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+  })
+
+  it('损坏后记账恢复：recordAiCall 覆盖损坏文件', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(join(root, '.cache', 'ai-calls.json'), 'garbage', 'utf8')
+    recordAiCall(root, 1, { inputTokens: 1, outputTokens: 1 })
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(1)
   })
 })

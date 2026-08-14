@@ -12,12 +12,10 @@
  */
 
 import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
-import { compareVersions } from './style-compare.js'
-import { listAiVersions, readAiVersion } from '../git/ai-track.js'
-import { ulid } from '../document/stable-id.js'
+import { ulid } from '../fs/id.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 
 /** 书内候选箱相对路径 */
@@ -162,6 +160,8 @@ export function addCandidate(bookRoot: string, c: StyleCandidate): string {
  * @returns 条目相对路径；候选读不出 → null
  */
 export function confirmCandidate(bookRoot: string, candidateRelPath: string): string | null {
+  // P2-SEC-1：内部路径校验（防裸调用绕过 API 层白名单）
+  if (!candidateRelPath || candidateRelPath.includes('\0') || relative(bookRoot, join(bookRoot, candidateRelPath)).startsWith('..')) return null
   const fp = join(bookRoot, candidateRelPath)
   const r = readCandidate(fp)
   if (!r.ok) return null
@@ -182,6 +182,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
 
 /** 作者忽略：状态落盘为已忽略（保留文件，去重闸靠它记住「别再骚扰」） */
 export function ignoreCandidate(bookRoot: string, candidateRelPath: string): boolean {
+  if (!candidateRelPath || candidateRelPath.includes('\0') || relative(bookRoot, join(bookRoot, candidateRelPath)).startsWith('..')) return false
   const fp = join(bookRoot, candidateRelPath)
   const r = readCandidate(fp)
   if (!r.ok) return false
@@ -199,32 +200,6 @@ export interface DocSignals {
   gapParas: { authorPara: string; aiPara: string | null; sim: number }[]
   /** surface 段缺失 n-gram → 跨文档聚合成禁词候选 */
   missing: string[]
-}
-
-/**
- * 采一个文档的改稿信号：最新 AI 版 vs 当前正文。
- * @returns 无轨迹 / 读不到 AI 版 → null（旁路证据，静默）
- */
-export function collectDocSignals(
-  bookRoot: string,
-  docId: string,
-  currentText: string,
-  章号?: number,
-): DocSignals | null {
-  const versions = listAiVersions(bookRoot, docId)
-  const last = versions[versions.length - 1]
-  if (!last) return null
-  const aiText = readAiVersion(bookRoot, last.sha)
-  if (aiText === null) return null
-  const r = compareVersions(aiText, currentText)
-  return {
-    docId,
-    ...(章号 !== undefined ? { 章号 } : {}),
-    gapParas: r.paras
-      .filter((p) => p.tier === 'gap' && p.authorPara.length >= MIN_SAMPLE_PARA)
-      .map((p) => ({ authorPara: p.authorPara, aiPara: p.aiPara, sim: p.sim })),
-    missing: r.missing,
-  }
 }
 
 /**

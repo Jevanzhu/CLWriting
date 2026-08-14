@@ -6,11 +6,9 @@
  * 复用内核聚合函数，直接返结构化对象（不走人话 format）。后端零新增逻辑。
  * 空书（count=0）照常返对象，前端渲染空态。
  */
-import { join } from 'node:path'
 import { route } from '../router.js'
 import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
-import { readKind } from '../book-context.js'
+import { readKind, resolveBook } from '../book-context.js'
 import { scanChapters, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
 
 interface HealthCtx {
@@ -27,16 +25,4 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     const samples = scanChapters(r.bookRoot)
     reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
   })
-}
-
-/** 解析书：找 entry → bookRoot；workDir 缺 / 书不存在 → error 联合 */
-function resolveBook(
-  workDir: string | null,
-  name: string | undefined,
-): { bookRoot: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
-  return { bookRoot: join(workDir, entry.path) }
 }

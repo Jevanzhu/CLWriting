@@ -12,10 +12,10 @@
  *
  * 写入健壮性（原子写/备份/损坏不静默）属于 S5，本文件仅做 chmod 0600。
  */
-import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, ModelCaps, TierSlot, TierConfig } from './types.js'
+import type { ProviderConf, TierSlot, TierConfig } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
@@ -28,6 +28,19 @@ import {
 const FILE = 'providers.json'
 
 /**
+ * mtime 缓存——避免每次 AI 生成重复 readFileSync + AES-256-GCM 解密。
+ * saveProviders 写后失效；外部改动经 mtime 检测自动失效。
+ */
+let _cache: { path: string; store: ProviderStore; mtime: number } | null = null
+
+/** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复（P2-AI-1） */
+function cloneStore(store: ProviderStore): ProviderStore {
+  const cloned = structuredClone(store)
+  if (cloned.dek) cloned.dek = Buffer.from(cloned.dek)
+  return cloned
+}
+
+/**
  * 内存中的供应商存储——ProviderSettings 超集。
  *
  * load 时解密得到明文 apiKey + vault/dek（复用避免重解）；
@@ -38,8 +51,12 @@ export interface ProviderStore {
   providers: ProviderConf[] // 含明文 apiKey（仅内存）
   currentId: string | null
   currentModel: string | null // 全局模型选择（方案 A：model 独立于供应商）
-  /** 模型级 caps 缓存：key = `${providerId}/${model}` */
-  modelCaps: Record<string, ModelCaps>
+  /**
+   * 表驱动重构（§6.5）：modelCaps 探测退役后，此槽复用为「400 降级记忆」——
+   * 记录该 provider+model 已确认不支持 structured 输出，下次直接跳过（避免重复 400）。
+   * key = `${providerId}/${model}`，值只用 structured:false 布尔。
+   */
+  modelCaps: Record<string, { structured: false }>
   /** 任务档位（D 档：创作档/助手档；端点按任务类型取档） */
   tiers: TierConfig
   vault: Vault | null
@@ -60,12 +77,14 @@ export function emptySettings(): ProviderStore {
   return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), vault: null, dek: null }
 }
 
+
 /** 磁盘文件结构——providers 不含 apiKey，密文统一在 vault.keys */
 interface DiskFormat {
   providers: Array<Omit<ProviderConf, 'apiKey'> & { apiKey?: string }>
   currentId: string | null
   currentModel?: string | null
-  modelCaps?: Record<string, ModelCaps>
+  /** 400 降级记忆槽（表驱动重构后复用原 modelCaps 槽，见 ProviderStore.modelCaps） */
+  modelCaps?: Record<string, { structured: false }>
   tiers?: TierConfig
   vault?: Vault
 }
@@ -78,7 +97,20 @@ interface DiskFormat {
  */
 export function loadProviders(userDataPath: string): ProviderStore {
   const fp = `${userDataPath}/${FILE}`
-  if (!existsSync(fp)) return emptySettings()
+  if (!existsSync(fp)) {
+    _cache = null
+    return emptySettings()
+  }
+
+  // mtime 缓存命中——跳过 readFileSync + vault 解密（高频 AI 生成场景核心优化）
+  // P2-SEC-4：返回副本而非同一引用——调用方（API 端点）会直接 mutate store 后 saveProviders，
+  // 若缓存返回原引用，未 save 的中间态会泄漏给后续 loadProviders 调用方
+  try {
+    const mtime = statSync(fp).mtimeMs
+    if (_cache && _cache.path === fp && _cache.mtime === mtime) return cloneStore(_cache.store)
+  } catch {
+    _cache = null
+  }
 
   let raw: DiskFormat
   try {
@@ -126,7 +158,14 @@ export function loadProviders(userDataPath: string): ProviderStore {
     saveProviders(userDataPath, store)
   }
 
-  return store
+  // 更新 mtime 缓存
+  try {
+    _cache = { path: fp, store, mtime: statSync(fp).mtimeMs }
+  } catch { /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */ }
+
+  // P2-AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
+  // 否则调用方（API 端点）直接 mutate store 后 saveProviders 前，未保存的中间态会泄漏给后续 loadProviders
+  return cloneStore(store)
 }
 
 /**
@@ -181,6 +220,23 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
   } catch {
     // Windows / 某些 FS 不支持 chmod
   }
+
+  // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存）
+  _cache = null
+}
+
+/**
+ * 400 降级记忆落盘回调（U-P2-2）——适配器深处只持有 store 的内存 clone
+ * （P2-SEC-4：loadProviders 返回副本），mutate 不回缓存也无人保存。
+ * runner 侧注册落盘函数（load→改→save 读盘最新，防覆盖并发改动），
+ * 适配器经 persistDegraded 转发；未注册（如单测直接构造 store）时静默跳过。
+ */
+let _persistDegraded: ((key: string) => void) | null = null
+export function registerDegradedPersist(fn: (key: string) => void): void {
+  _persistDegraded = fn
+}
+export function persistDegraded(key: string): void {
+  _persistDegraded?.(key)
 }
 
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */
@@ -194,18 +250,6 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
 export function setCurrentModel(userDataPath: string, model: string): void {
   const s = loadProviders(userDataPath)
   s.currentModel = model
-  saveProviders(userDataPath, s)
-}
-
-/** 模型级 caps（按 providerId+model 缓存）；未探测 → null */
-export function getModelCaps(userDataPath: string, providerId: string, model: string): ModelCaps | null {
-  return loadProviders(userDataPath).modelCaps[`${providerId}/${model}`] ?? null
-}
-
-/** 写入模型级 caps（选模型探测后调用） */
-export function setModelCaps(userDataPath: string, providerId: string, model: string, caps: ModelCaps): void {
-  const s = loadProviders(userDataPath)
-  s.modelCaps[`${providerId}/${model}`] = caps
   saveProviders(userDataPath, s)
 }
 

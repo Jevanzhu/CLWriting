@@ -15,11 +15,13 @@ import { readdirSync, statSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { listSnapshotEntries, readSnapshot } from '../../../document/snapshot.js'
+import { readBookConfig } from '../../../format/yaml.js'
+import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY } from '../../../document/snapshot.js'
 import { readManifest } from '../../../document/manifest.js'
+import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { countWords } from '../../../format/words.js'
-import { ulid } from '../../../document/stable-id.js'
+import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
 import type { Revision } from '../../../document/revision.js'
 
@@ -115,6 +117,52 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         pinnedCount: scan.pinnedCount,
         finalizedDocs,
       })
+    },
+  )
+
+  // 立即清理过期编辑快照（改动 10b S24）：按保留策略（max_days/max_count）扫全书所有
+  // docId 的版本目录 prune 一遍。pinned 定稿版本永久保留不清理。返回清理的文件数。
+  route(
+    'POST',
+    '/api/books/:name/versions/prune',
+    (_req: IncomingMessage, res: ServerResponse, params) => {
+      if (!ctx.workDir) return reply(res, 400, { ok: false, error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { ok: false, error: `没有这本书：${params['name']}` })
+      const bookRoot = join(ctx.workDir, entry.path)
+      const versionsDir = join(bookRoot, '工作区', '.版本')
+      if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
+
+      // 保留策略：读 book.yaml 的 snapshots 配置（缺省 14 天 / 30 个）
+      const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
+      const policy = {
+        maxDays: cfg.snapshots?.max_days ?? 14,
+        maxCount: cfg.snapshots?.max_count ?? 30,
+        throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+      }
+
+      // 收集所有 docId（manifest 已登记的 + 版本目录里实际存在的）
+      const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+      const ids = new Set(manifest.entries.keys())
+      try {
+        for (const d of readdirSync(versionsDir)) {
+          if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
+        }
+      } catch {
+        /* 目录读取失败用 manifest 集合 */
+      }
+
+      let removed = 0
+      for (const docId of ids) {
+        // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
+        if (!safeDocId(docId)) continue
+        try {
+          removed += pruneSnapshots(versionsDir, docId, policy)
+        } catch {
+          /* 单文档清理失败不阻断全书 */
+        }
+      }
+      reply(res, 200, { ok: true, removed })
     },
   )
 

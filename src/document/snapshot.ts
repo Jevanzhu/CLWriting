@@ -7,7 +7,6 @@
  */
 import {
   writeVersion,
-  listVersions,
   readVersion,
   pruneVersions,
   listVersionEntries,
@@ -43,10 +42,6 @@ export function writeSnapshot(
   options: WriteSnapshotOptions = {},
 ): string | null {
   return writeVersion(snapshotsDir, docId, content, meta, options)
-}
-
-export function listSnapshots(snapshotsDir: string, docId: string): SnapshotInfo[] {
-  return listVersions(snapshotsDir, docId)
 }
 
 export function readSnapshot(

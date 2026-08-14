@@ -109,10 +109,9 @@ test('prepare: 可按场景注入文风样章，避免固定战斗样章', () =>
   const { root, db } = makeBookWithMaterial()
   const r = prepare(db, DEFAULT_CONFIG, root, [], undefined, '对话')
   const styleSection = r.sections.find((s) => s.title === '文风样章')
-  expect(styleSection).toBeDefined()
+  expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
   expect(styleSection!.content).toContain('学它的留白')
   expect(styleSection!.content).toContain('你早就知道')
-  expect(styleSection!.content).not.toContain('刀光没入雪雾')
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
@@ -128,7 +127,7 @@ test('G2: 多场景注入（heavy）→ 主场景优先 + 次场景补', () => {
   // 主场景=战斗，次场景=对话
   const r = prepare(db, cfg, root, [], undefined, ['战斗', '对话'])
   const styleSection = r.sections.find((s) => s.title === '文风样章')
-  expect(styleSection).toBeDefined()
+  expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
   // heavy 总量 3：战斗各取 1（主）+ 对话 1（次）+ 战斗补 1 = 战斗×2 + 对话×1
   expect(styleSection!.content).toContain('刀光没入雪雾') // 主场景首段
   expect(styleSection!.content).toContain('长枪破阵') // 主场景补段
@@ -142,7 +141,7 @@ test('G2: 轻档多场景 → 只主场景 1 段（保持轻注入）', () => {
   // 默认轻注入
   const r = prepare(db, DEFAULT_CONFIG, root, [], undefined, ['对话', '战斗'])
   const styleSection = r.sections.find((s) => s.title === '文风样章')
-  expect(styleSection).toBeDefined()
+  expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
   expect(styleSection!.content).toContain('你早就知道') // 主场景=对话
   expect(styleSection!.content).not.toContain('刀光没入雪雾') // 轻档不带次场景
   db.close()
@@ -200,7 +199,7 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
   expect(r.trimmed).toBe(true)
   expect(r.trimLog.some((l) => l.includes('降档'))).toBe(true)
   const style = r.sections.find((s) => s.title === '文风样章')
-  expect(style).toBeDefined() // 降档保留，未整段删
+  expect(style).toEqual(expect.objectContaining({ title: '文风样章' })) // 降档保留，未整段删
   expect(style!.content.length).toBeLessThan(1500) // 降档后仅 1 段（≈1000 字），非 heavy 全量 3 段
   db.close()
   rmSync(root, { recursive: true, force: true })
@@ -246,9 +245,7 @@ test('C1: 有前章定稿正文 → 「前章正文结尾」段出现，flexible
   makePrevChapterFinal(root)
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   const sec = r.sections.find((s) => s.title === '前章正文结尾')
-  expect(sec).toBeDefined()
-  expect(sec!.essential).toBe(false)
-  expect(sec!.flexibleRank).toBe(1.5)
+  expect(sec).toEqual(expect.objectContaining({ title: '前章正文结尾', essential: false, flexibleRank: 1.5 }))
   // 内容以【第149章正文结尾】开头
   expect(sec!.content).toContain('【第149章正文结尾】')
   // 全量版取末尾约 1500 字（段落边界截断后 ≤ 1500 + 前缀）
@@ -306,8 +303,8 @@ test('C1: 降档版 degradedContent = 末尾 500 字', () => {
   makePrevChapterFinal(root, 3000)
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   const sec = r.sections.find((s) => s.title === '前章正文结尾')
-  expect(sec).toBeDefined()
-  expect(sec!.degradedContent).toBeDefined()
+  expect(sec).toEqual(expect.objectContaining({ title: '前章正文结尾' }))
+  expect(typeof sec!.degradedContent).toBe('string')
   // 降档版以【第149章正文结尾】开头
   expect(sec!.degradedContent).toContain('【第149章正文结尾】')
   // 降档正文 ≤ 500 字

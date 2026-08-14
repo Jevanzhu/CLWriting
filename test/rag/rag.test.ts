@@ -185,3 +185,76 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
     expect(cosineSimilarity(new Float32Array([1, 0]), a)).toBe(0)
   })
 })
+
+// ── V-P2-4：enableRag 读改写不丢注释/未知段（文本级补丁）──────────────
+
+describe('enableRag 保真（V-P2-4）', () => {
+  let bookRoot: string
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = join(tmpdir(), `rag-keep-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    bookRoot = join(workDir, 'mybook')
+    mkdirSync(bookRoot, { recursive: true })
+  })
+  afterEach(() => {
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
+  it('注释、未知段、未知子键逐字保留；rag 段原位替换', () => {
+    const raw = [
+      'spec_version: 1',
+      '# 作者备注：这本书的预算别动',
+      '',
+      'book:',
+      '  title: 测试',
+      '  genre: 玄幻',
+      '  custom_field: 42',
+      '',
+      'rag:',
+      '  enabled: false',
+      '  endpoint: http://old',
+      '',
+      'plugin_unknown:',
+      '  key: value',
+    ].join('\n') + '\n'
+    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
+
+    const r = enableRag(bookRoot, workDir, { endpoint: 'https://api.example.com/v1/embeddings', model: 'm1' })
+    expect(r.ok).toBe(true)
+
+    const after = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
+    expect(after).toContain('# 作者备注：这本书的预算别动') // 注释保留
+    expect(after).toContain('custom_field: 42') // 已知段未知子键保留
+    expect(after).toContain('plugin_unknown:') // 未知段保留
+    expect(after).toContain('  key: value')
+    expect(after).not.toContain('enabled: false') // rag 段被替换
+    expect(after).toContain('enabled: true')
+    expect(after.indexOf('plugin_unknown:')).toBeGreaterThan(after.indexOf('rag:')) // 段序不变
+
+    // 解析口径：rag 生效
+    const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
+    expect(cfg.rag?.enabled).toBe(true)
+    expect(cfg.rag?.endpoint).toBe('https://api.example.com/v1/embeddings')
+  })
+
+  it('无 rag 段 → 追加到文件尾，其余原样', () => {
+    const raw = 'spec_version: 1\n\nbook:\n  title: 测试\n  genre: 玄幻\n# 尾注释\n'
+    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
+    const r = enableRag(bookRoot, workDir, { model: 'm2' })
+    expect(r.ok).toBe(true)
+    const after = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
+    expect(after).toContain('# 尾注释')
+    expect(after).toContain('rag:')
+    expect(after).toContain('model: m2')
+    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, model: 'm2' })
+  })
+
+  it('合并语义：不带新值调用 → 保留旧 endpoint/model', () => {
+    const raw = 'spec_version: 1\n\nrag:\n  enabled: false\n  endpoint: http://keep-me\n  model: keep-model\n'
+    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
+    const r = enableRag(bookRoot, workDir, {})
+    expect(r.ok).toBe(true)
+    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, endpoint: 'http://keep-me', model: 'keep-model' })
+  })
+})

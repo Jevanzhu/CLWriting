@@ -71,8 +71,7 @@ describe('A2 WritingRule 规则层', () => {
       // bookRoot 空串 → applicableRules 只返回内置静态规则（不读条目库）
       const violations = collectRuleViolations('值得一提的是效果很好', 'rewrite', '')
       const hit = violations.find((v) => v.ruleId === 'ai-cliche')
-      expect(hit).toBeDefined()
-      expect(hit!.level).toBe('yellow')
+      expect(hit).toEqual(expect.objectContaining({ ruleId: 'ai-cliche', level: 'yellow' }))
     })
 
     it('对干净正文返回空数组', () => {

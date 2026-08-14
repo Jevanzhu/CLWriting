@@ -20,6 +20,20 @@ interface KnowledgeCtx {
   token: string
 }
 
+/** 校验 SampleCandidate 形状（防外部提交畸形数据经 as 断言绕过） */
+function isSampleCandidate(v: unknown): v is SampleCandidate {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return typeof o['场景'] === 'string' && typeof o['正文'] === 'string' && typeof o['出处'] === 'string'
+}
+
+/** 校验 QuoteCandidate 形状 */
+function isQuoteCandidate(v: unknown): v is QuoteCandidate {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return typeof o['场景'] === 'string' && typeof o['正文'] === 'string' && typeof o['出处'] === 'string'
+}
+
 export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）
   route('POST', '/api/books/:name/learn', (req: IncomingMessage, res: ServerResponse, params) => {
@@ -39,8 +53,8 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
     const body = await readJson(req)
-    const samples = Array.isArray(body['samples']) ? (body['samples'] as SampleCandidate[]) : []
-    const quotes = Array.isArray(body['quotes']) ? (body['quotes'] as QuoteCandidate[]) : []
+    const samples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]).filter(isSampleCandidate) : []
+    const quotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]).filter(isQuoteCandidate) : []
     const bookRoot = join(ctx.workDir, entry.path)
     const sampleFiles = samples.length ? commitSamples(bookRoot, samples) : []
     const quoteFiles = quotes.length ? commitQuotes(bookRoot, quotes) : []

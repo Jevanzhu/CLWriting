@@ -48,7 +48,7 @@ test('readAnalysis: 无文件 / 无 kind / 结构不符 → null', () => {
 test('readAnalysis: 损坏文件 → null', () => {
   const root = mkdtempSync(join(tmpdir(), 'analysis-'))
   mkdirSync(join(root, '项目', '分析'), { recursive: true })
-  writeFileSync(analysisPath(root, 'doc_a'), '{坏 json', 'utf-8')
+  writeFileSync(analysisPath(root, 'doc_a')!, '{坏 json', 'utf-8')
   expect(readAnalysis(root, 'doc_a', 'score')).toBeNull()
   rmSync(root, { recursive: true, force: true })
 })

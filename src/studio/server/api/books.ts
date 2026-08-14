@@ -9,15 +9,19 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync, realpathSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks, removeBookEntry } from '../../../install/books.js'
 import { forgetService } from './documents.js'
+import { forgetSession } from '../../../driver/index.js'
+import { invalidateTreeIndex } from '../../../document/tree.js'
+import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
+import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
-import { computeProgress, computeLastEdited, computeLatestChapter } from './progress.js'
+import { computeBookSummary } from './progress.js'
 
 interface BookCtx {
   workDir: string | null
@@ -43,15 +47,17 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const bookRoot = join(ctx.workDir!, b.path)
       try {
         const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-        const prog = computeProgress(bookRoot)
+        // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）
+        const summary = computeBookSummary(bookRoot)
         return {
           ...b,
           title: config.book.title,
-          chapters: prog.chapters,
-          words: prog.words,
-          lastEdited: computeLastEdited(bookRoot),
+          chapters: summary.chapters,
+          words: summary.words,
+          lastEdited: summary.lastEdited,
           targetWords: config.book.target_words,
-          latestChapter: computeLatestChapter(bookRoot),
+          latestChapter: summary.latestChapter,
+          createdAt: b.created_at,
         }
       } catch {
         // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）
@@ -82,7 +88,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     // 路径穿越净化：书名直接用作目录名，禁路径分隔符 + 特殊路径段（防 name="../" 越出 workDir）
-    if (/[\\/]/.test(name) || name === '.' || name === '..') {
+    if (name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') {
       reply(res, 400, { error: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' })
       return
     }
@@ -128,12 +134,22 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 404, { error: `没有这本书：${name}` })
       return
     }
+    // U-P2-7：先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
+    // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
+    if (isSelfHealRunning(name)) abortSelfHeal(name)
+    if (isChatRunning(name)) abortChat(name)
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
-    // P1-2 sink 校验：防 path 被篡改为 "." 致 rmSync 删整个书库
-    if (bookAbs === ctx.workDir) {
-      reply(res, 400, { error: '书路径非法' })
-      return
+    // symlink realpath 校验：防 entry.path 中间组件是符号链接 → rmSync 删到书库外
+    try {
+      const realWorkDir = realpathSync(ctx.workDir)
+      const realBookAbs = realpathSync(bookAbs)
+      if (realBookAbs === realWorkDir || relative(realWorkDir, realBookAbs).startsWith('..')) {
+        return reply(res, 400, { error: '书路径非法（越出书库）' })
+      }
+    } catch {
+      // realpath 失败说明路径异常（文件不存在 / 权限），拒绝删除
+      return reply(res, 400, { error: '书路径异常' })
     }
     try {
       rmSync(bookAbs, { recursive: true, force: true })
@@ -146,6 +162,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     removeBookEntry(ctx.workDir, name)
     // 清理 service 缓存，防同 path 重建复用旧实例
     forgetService(bookAbs)
+    // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
+    forgetSession(name)
+    invalidateTreeIndex(bookAbs)
+    clearChatHistory(name)
     reply(res, 200, { ok: true, name })
   })
 

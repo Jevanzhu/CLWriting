@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writeChapter } from '../../src/format/chapters.js'
+import { writeChapter } from '../helpers/chapter.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import {
   analyzeShortCollection,

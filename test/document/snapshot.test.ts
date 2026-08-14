@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   writeSnapshot,
-  listSnapshots,
   readSnapshot,
   pruneSnapshots,
   listSnapshotEntries,
   DEFAULT_SNAPSHOT_POLICY,
 } from '../../src/document/snapshot.js'
+import { listVersions } from '../../src/document/version.js'
 import { decodeUlidTime } from '../../src/document/stable-id.js'
 
 const HOUR = 3600_000
@@ -73,13 +73,13 @@ describe('snapshot', () => {
     writeSnapshot(dir, 'doc_1', 'a', { origin: 'x' })
     await new Promise((r) => setTimeout(r, 2))
     const id2 = writeSnapshot(dir, 'doc_1', 'b', { origin: 'x' })
-    const list = listSnapshots(dir, 'doc_1')
+    const list = listVersions(dir, 'doc_1')
     expect(list).toHaveLength(2)
     expect(list[0]!.id).toBe(id2)
   })
 
   it('无快照 → 空', () => {
-    expect(listSnapshots(dir, 'doc_无')).toHaveLength(0)
+    expect(listVersions(dir, 'doc_无')).toHaveLength(0)
   })
 })
 
@@ -97,28 +97,28 @@ describe('snapshot · 去重与节流', () => {
     const id2 = writeSnapshot(dir, 'doc_1', '一样的正文', { origin: 'manual' })
     expect(id1).not.toBeNull()
     expect(id2).toBeNull()
-    expect(listSnapshots(dir, 'doc_1')).toHaveLength(1)
+    expect(listVersions(dir, 'doc_1')).toHaveLength(1)
   })
 
   it('内容变了 → 正常落新文件', () => {
     writeSnapshot(dir, 'doc_1', '第一版', { origin: 'manual' })
     const id2 = writeSnapshot(dir, 'doc_1', '第二版', { origin: 'manual' })
     expect(id2).not.toBeNull()
-    expect(listSnapshots(dir, 'doc_1')).toHaveLength(2)
+    expect(listVersions(dir, 'doc_1')).toHaveLength(2)
   })
 
   it('force=false 且窗口内已有快照 → 节流跳过', () => {
     seedSnapshot(dir, 'doc_1', Date.now() - 60_000, '旧内容') // 1 分钟前
     const id = writeSnapshot(dir, 'doc_1', '新内容', { origin: 'autosave' }, { force: false })
     expect(id).toBeNull()
-    expect(listSnapshots(dir, 'doc_1')).toHaveLength(1)
+    expect(listVersions(dir, 'doc_1')).toHaveLength(1)
   })
 
   it('force=false 但已过节流窗口 → 正常写入', () => {
     seedSnapshot(dir, 'doc_1', Date.now() - 10 * 60_000, '旧内容') // 10 分钟前 > 5 分钟窗口
     const id = writeSnapshot(dir, 'doc_1', '新内容', { origin: 'autosave' }, { force: false })
     expect(id).not.toBeNull()
-    expect(listSnapshots(dir, 'doc_1')).toHaveLength(2)
+    expect(listVersions(dir, 'doc_1')).toHaveLength(2)
   })
 
   it('force=true（缺省）不受节流限制', () => {
@@ -193,7 +193,7 @@ describe('snapshot · 分层保留清理', () => {
     seedSnapshot(dir, 'd', now - 110 * 60_000, 'c', 3)
     const removed = pruneSnapshots(dir, 'd', DEFAULT_SNAPSHOT_POLICY, now)
     expect(removed).toBe(0)
-    expect(listSnapshots(dir, 'd')).toHaveLength(3)
+    expect(listVersions(dir, 'd')).toHaveLength(3)
   })
 
   it('2-24 小时：每小时只留最早的一个', () => {
@@ -203,7 +203,7 @@ describe('snapshot · 分层保留清理', () => {
     seedSnapshot(dir, 'd', base + 10 * 60_000, 'b', 2)
     seedSnapshot(dir, 'd', base + 20 * 60_000, 'c', 3)
     pruneSnapshots(dir, 'd', DEFAULT_SNAPSHOT_POLICY, now)
-    const left = listSnapshots(dir, 'd')
+    const left = listVersions(dir, 'd')
     expect(left).toHaveLength(1)
     expect(left[0]!.id).toBe(earliest)
   })
@@ -214,7 +214,7 @@ describe('snapshot · 分层保留清理', () => {
     seedSnapshot(dir, 'd', base + 3 * HOUR, 'b', 2)
     seedSnapshot(dir, 'd', base + 9 * HOUR, 'c', 3)
     pruneSnapshots(dir, 'd', DEFAULT_SNAPSHOT_POLICY, now)
-    const left = listSnapshots(dir, 'd')
+    const left = listVersions(dir, 'd')
     expect(left).toHaveLength(1)
     expect(left[0]!.id).toBe(earliest)
   })
@@ -223,7 +223,7 @@ describe('snapshot · 分层保留清理', () => {
     seedSnapshot(dir, 'd', now - 20 * DAY, 'old', 1)
     seedSnapshot(dir, 'd', now - 60_000, 'new', 2)
     pruneSnapshots(dir, 'd', { maxDays: 14, maxCount: 30, throttleMinutes: 5 }, now)
-    const left = listSnapshots(dir, 'd')
+    const left = listVersions(dir, 'd')
     expect(left).toHaveLength(1)
     expect(readSnapshot(dir, 'd', left[0]!.id)!.content).toBe('new')
   })
@@ -232,7 +232,7 @@ describe('snapshot · 分层保留清理', () => {
     // 最近 2 小时内 5 个（都在细粒度窗口，靠 maxCount 裁）
     for (let i = 0; i < 5; i++) seedSnapshot(dir, 'd', now - i * 60_000, `c${i}`, i)
     pruneSnapshots(dir, 'd', { maxDays: 14, maxCount: 3, throttleMinutes: 5 }, now)
-    const left = listSnapshots(dir, 'd')
+    const left = listVersions(dir, 'd')
     expect(left).toHaveLength(3)
     // 留下的是最新三个（now-0 / now-1min / now-2min）
     const times = left.map((s) => decodeUlidTime(s.id)).sort((a, b) => b - a)

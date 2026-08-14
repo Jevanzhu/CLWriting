@@ -159,6 +159,60 @@ describe('scanForeshadowTrails', () => {
     expect(t.hits).toHaveLength(1)
     expect(t.firstHit).toBe(1)
   })
+
+  test('关键词含正则元字符（括号/点）也能命中（转义防御）', () => {
+    writeForeshadow('带符号', { 重要性: '中', 关联词: '祖父遗物（上）', 埋设章号: '1' })
+    writeChapter(1, '埋', '他拿出祖父遗物（上）。')
+    writeChapter(2, '续', '继续。')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const t = trails.get('带符号')!
+    expect(t.hits).toHaveLength(1)
+    expect(t.firstHit).toBe(1)
+    expect(t.hits[0]!.命中片段).toContain('祖父遗物（上）')
+  })
+
+  test('同章多次命中同一关键词 → 全部记录（位置索引完整性）', () => {
+    writeForeshadow('多次', { 重要性: '中', 关联词: '玉佩', 埋设章号: '1' })
+    writeChapter(1, '埋', '玉佩在桌上，玉佩在手上。')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const t = trails.get('多次')!
+    expect(t.hits).toHaveLength(2)
+    expect(t.hits.map((h) => h.命中片段)).toEqual([
+      expect.stringContaining('玉佩在桌上'),
+      expect.stringContaining('玉佩在手上'),
+    ])
+  })
+
+  test('P2-BE-4 性能：250 章 × 30 伏笔 × 5 关联词 < 500ms（倒排索引）', () => {
+    // 造 250 章，每章 ~2KB 正文（含 5 个真实命中词各 1 次）
+    const dir = join(root, '写作', '正文', '第一卷')
+    mkdirSync(dir, { recursive: true })
+    const filler = '普通叙述内容。'.repeat(80) // ~500 字
+    for (let ch = 1; ch <= 250; ch++) {
+      const hits = Array.from({ length: 30 }, (_, i) => `占位词${i}-${ch % 5}`).join(' ')
+      writeChapter(ch, `章${ch}`, `${filler}${hits}${filler}`)
+    }
+    // 30 个伏笔，每个 5 个关联词（占位词{i}-0..4，每章全命中）
+    for (let i = 0; i < 30; i++) {
+      writeForeshadow(`伏笔${i}`, {
+        重要性: '中',
+        关联词: Array.from({ length: 5 }, (_, k) => `占位词${i}-${k}`).join(','),
+        埋设章号: '1',
+      })
+    }
+    // 预热 + 首次调用含读文件，不计入性能断言（性能测的是扫描本身）
+    scanForeshadowTrails(root, readForeshadows(root))
+    const start = performance.now()
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const dt = performance.now() - start
+    // CI 宽松阈值 < 500ms，本地通常 < 100ms
+    expect(dt).toBeLessThan(500)
+    expect(trails.size).toBe(30)
+    // 每伏笔应命中（每章 5 词之一）
+    expect(trails.get('伏笔0')!.hits.length).toBeGreaterThan(0)
+  })
 })
 
 describe('migrateLegacyForeshadows', () => {

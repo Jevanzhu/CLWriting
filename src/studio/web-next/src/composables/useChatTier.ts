@@ -5,6 +5,8 @@
  */
 import { ref, computed, reactive } from 'vue'
 import { getProviders, setChatTier, fetchModels, type TierSlot, type EffortLevel } from '../api/providers'
+import { useUiStore } from '../stores/ui'
+import { friendlyError } from '../shared/error'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
@@ -31,6 +33,8 @@ function _createChatTier() {
   const activeEffort = computed(() => chatTier.value?.effort || creativeTier.value?.effort || 'low')
 
   async function refresh(): Promise<void> {
+    // 立即清空旧书模型列表：切书后响应回来前下拉框不残留上一本书的模型（P2-FE-2）
+    models.value = []
     tierLoading.value = true
     try {
       const data = await getProviders()
@@ -57,8 +61,9 @@ function _createChatTier() {
     chatTier.value = slot
     try {
       await setChatTier(slot)
-    } catch {
-      /* 保存失败不影响本地显示 */
+    } catch (e) {
+      // 本地已生效但未持久化，重开将回落旧档——静默会让作者误以为已保存（U-P2-18）
+      useUiStore().toast(`档位保存失败，重开后将回落旧档：${friendlyError(e)}`, 'error')
     }
   }
 

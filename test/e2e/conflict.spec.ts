@@ -19,6 +19,20 @@ function chapterPath(file: string): string {
 const CHAPTER_1 = (): string => chapterPath('0001-初入宗门.md')
 const CHAPTER_2 = (): string => chapterPath('0002-玉佩之秘.md')
 
+// 记录原始内容，afterAll 恢复（防跨 spec 状态泄漏）
+let orig1: string
+let orig2: string
+
+test.beforeAll(() => {
+  orig1 = readFileSync(CHAPTER_1(), 'utf-8')
+  orig2 = readFileSync(CHAPTER_2(), 'utf-8')
+})
+
+test.afterAll(() => {
+  writeFileSync(CHAPTER_1(), orig1, 'utf-8')
+  writeFileSync(CHAPTER_2(), orig2, 'utf-8')
+})
+
 async function openChapter(page: import('@playwright/test').Page, name: string): Promise<void> {
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()

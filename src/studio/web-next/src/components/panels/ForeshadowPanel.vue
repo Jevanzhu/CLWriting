@@ -28,7 +28,9 @@ const currentChapNo = computed<number | null>(() => {
   if (!ws.activeDocId) return null
   const entry = doc.get(ws.activeDocId)
   if (!entry || !entry.path.startsWith('写作/正文/')) return null
-  return parseChapterFileName(entry.path)?.章号 ?? null
+  // entry.path 是完整相对路径（写作/正文/N-标题.md）→ 章号从文件名尾段提取
+  const name = entry.path.split('/').pop() ?? ''
+  return parseChapterFileName(name)?.章号 ?? null
 })
 
 function importanceRank(s: string): number {

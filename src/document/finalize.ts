@@ -16,6 +16,7 @@ import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
 import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
+import { safeManifestPath } from '../fs/safe-path.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -34,10 +35,13 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const relPath = lookupRelPath(docId, manifestPath)
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
-  const absPath = join(bookRoot, relPath)
-  if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文件不存在' }
+  // 路径校验（防 manifest 篡改穿越——与其他 4 个 API 端点一致）
+  const absPath = safeManifestPath(bookRoot, relPath)
+  if (!absPath) return { ok: false, code: 'NOT_FOUND', error: '文档路径非法' }
 
   // 当前内容指纹
+  // P1-BE-1：computeRevision 对不存在文件抛 ENOENT，需前置校验（batch-finalize 单条缺失不应中断整批）
+  if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文档不存在' }
   const currentRev = computeRevision(absPath)
 
   // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本

@@ -19,10 +19,7 @@ import {
   newProviderId,
   maskKey,
   probeCapabilities,
-  probeModelCaps,
   setCurrentModel,
-  getModelCaps,
-  setModelCaps,
   type ProviderConf,
   type Protocol,
   type AuthStrategy,
@@ -96,7 +93,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // 全局当前模型（方案 A：model 独立于供应商，工作台选择）
-  // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
+  // 表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应携带降级记忆（structured 支持）
   route('PUT', '/api/ai-model', async (req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const body = await readJson(req)
@@ -104,27 +101,11 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!model) return reply(res, 400, { error: 'model 必填' })
     setCurrentModel(ctx.userDataPath, model)
 
-    // 模型级 caps：查缓存，未命中则探测
+    // 降级记忆（structured 已确认不支持时存在）
     const s = loadProviders(ctx.userDataPath)
     const conf = s.providers.find((p) => p.id === s.currentId)
-    if (!conf) {
-      reply(res, 200, { ok: true, model })
-      return
-    }
-    let caps = getModelCaps(ctx.userDataPath, conf.id, model)
-    let details: string[] | undefined
-    if (!caps) {
-      try {
-        const probed = await probeModelCaps({ ...conf, model })
-        caps = probed.caps
-        details = probed.details
-        setModelCaps(ctx.userDataPath, conf.id, model, caps)
-      } catch (e) {
-        // 探测失败不阻塞选模型——生成时降级（modelCaps=null）；P2-4：错误脱敏
-        details = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
-      }
-    }
-    reply(res, 200, { ok: true, model, modelCaps: caps, details })
+    const degraded = conf ? s.modelCaps[`${conf.id}/${model}`] ?? null : null
+    reply(res, 200, { ok: true, model, modelCaps: degraded, details: undefined })
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
@@ -155,24 +136,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     s.currentModel = creative.slot.model || null
     saveProviders(ctx.userDataPath, s)
 
-    // 选模型时触发模型级 caps 探测（tool_use / tool_choice），按 providerId+model 缓存
-    const conf = s.providers.find((p) => p.id === s.currentId)
-    const probeDetails: Record<string, string[]> = {}
-    if (conf) {
-      const models = [creative.slot.model, assistant?.model].filter((m): m is string => !!m)
-      for (const model of models) {
-        if (!getModelCaps(ctx.userDataPath, conf.id, model)) {
-          try {
-            const probed = await probeModelCaps({ ...conf, model })
-            setModelCaps(ctx.userDataPath, conf.id, model, probed.caps)
-          } catch (e) {
-            // P2-4：错误脱敏
-            probeDetails[model] = [`模型能力探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`]
-          }
-        }
-      }
-    }
-    reply(res, 200, { ok: true, tiers: s.tiers, details: probeDetails })
+    // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
+    reply(res, 200, { ok: true, tiers: s.tiers, details: {} })
   })
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
@@ -196,14 +161,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     s.tiers = { ...s.tiers, chat: parsed.slot }
     saveProviders(ctx.userDataPath, s)
 
-    // 异步探测 caps（不阻塞响应）
-    const conf = s.providers.find((p) => p.id === s.currentId)
-    if (conf && !getModelCaps(ctx.userDataPath, conf.id, parsed.slot.model)) {
-      probeModelCaps({ ...conf, model: parsed.slot.model })
-        .then((probed) => setModelCaps(ctx.userDataPath!, conf.id, parsed.slot.model, probed.caps))
-        .catch(() => { /* 探测失败不阻塞，后续 GET /providers 刷新 */ })
-    }
-
+    // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers })
   })
 
@@ -280,6 +238,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     let protocol: Protocol
     let baseUrl: string
     let apiKey: string
+    let auth: AuthStrategy
     if (typeof body['id'] === 'string' && body['id']) {
       const s = loadProviders(ctx.userDataPath)
       const p = s.providers.find((x) => x.id === body['id'])
@@ -287,14 +246,16 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       protocol = p.protocol
       baseUrl = p.baseUrl
       apiKey = p.apiKey
+      auth = p.auth
     } else {
       protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
       baseUrl = typeof body['baseUrl'] === 'string' ? body['baseUrl'] : ''
       apiKey = typeof body['apiKey'] === 'string' ? body['apiKey'] : ''
+      auth = (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy
     }
     if (!baseUrl || !apiKey) return reply(res, 400, { error: 'API 地址和 Key 必填' })
     try {
-      const models = await listModels(protocol, baseUrl, apiKey)
+      const models = await listModels(protocol, baseUrl, apiKey, auth)
       reply(res, 200, { models })
     } catch (e) {
       // P2-4：错误脱敏
@@ -302,7 +263,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
   })
 
-  route('POST', '/api/providers/:id/test', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  route('POST', '/api/providers/:id/test', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''
     const s = loadProviders(ctx.userDataPath)
@@ -310,7 +271,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!conf) return reply(res, 404, { error: '供应商不存在' })
 
     try {
-      const { caps, details } = await probeCapabilities(conf)
+      // 前端可指定测试模型；未指定则用全局当前模型；都无则回落 conf.model（废弃旧值）
+      let body: Record<string, unknown> = {}
+      try { body = await readJson(req) } catch { /* 无 body（旧客户端兼容）*/ }
+      const probeModel = typeof body['model'] === 'string' && body['model']
+        ? body['model'] : (s.currentModel ?? conf.model)
+      const { caps, details } = await probeCapabilities({ ...conf, model: probeModel })
       // 写回探测结果
       conf.caps = caps
       conf.capsProbedAt = Date.now()
@@ -341,9 +307,17 @@ function parseProviderInput(
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
   const protocol = String(body['protocol'] ?? '') as Protocol
-  if (protocol !== 'anthropic' && protocol !== 'openai') return { ok: false, error: 'protocol 需为 anthropic 或 openai' }
-  // auth 由 protocol 自动推断（UI 已简化为 2 种 API 格式，不再暴露 auth 选择）
-  const auth: AuthStrategy = protocol === 'anthropic' ? 'anthropic' : 'bearer'
+  // P1-AI-2：openai-responses 协议暂缓（D1/D2/D6/D7 未补全），preset 已隐藏；
+  // 后端仍接受此值以便启用时直接放开 preset，但启用前需补全探测链和 response.failed 处理
+  if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
+    return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
+  }
+  // auth 从 body 读（UI 已暴露 3 种认证方式）；缺省回落协议推断（兼容旧配置）
+  const authRaw = String(body['auth'] ?? '')
+  const auth: AuthStrategy =
+    authRaw === 'anthropic' || authRaw === 'claudeAuth' || authRaw === 'bearer'
+      ? authRaw
+      : protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
   const apiKey = String(body['apiKey'] ?? '').trim()

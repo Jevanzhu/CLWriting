@@ -17,7 +17,8 @@ const styleInjection = ref<'light' | 'heavy'>('light')
 const callsPerChapter = ref(10)
 const autoConfirmOutline = ref(false)
 const batchSize = ref(1)
-const relationAutoMine = ref(true)
+// 关系图 AI 梳理：手动按钮为主（控成本，方案③决策）；自动梳理默认关，作者可自行开启
+const relationAutoMine = ref(false)
 const relationMineThreshold = ref(3)
 // AI 配置（RAG 保留在 book.yaml）
 const ragEnabled = ref(false)
@@ -34,7 +35,7 @@ watch(
       callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
       autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
       batchSize.value = cfg.auto?.batch_size ?? 1
-      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? true
+      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? false
       relationMineThreshold.value = cfg.auto?.relation_mine_threshold ?? 3
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''
@@ -118,6 +119,8 @@ async function saveRagConfig(): Promise<void> {
 </script>
 
 <template>
+  <!-- 单根包裹：见 SettingsBook.vue 说明 -->
+  <div class="settings-tab">
   <section class="cfg-card">
     <div class="setting-item">
       <div class="setting-item-info">
@@ -167,7 +170,7 @@ async function saveRagConfig(): Promise<void> {
   <section class="cfg-card">
     <div class="setting-item">
       <div class="setting-item-info">
-        <div class="setting-item-name">自动确认细纲</div>
+        <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
         <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
       </div>
       <div class="setting-item-control">
@@ -180,7 +183,7 @@ async function saveRagConfig(): Promise<void> {
     <div class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">批量写作章数</div>
-        <div class="setting-item-desc">一次自动写作流程连续写的章数</div>
+        <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
       </div>
       <div class="setting-item-control">
         <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
@@ -193,7 +196,7 @@ async function saveRagConfig(): Promise<void> {
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
+          <div class="setting-item-name">自动梳理 <span class="tag-soon">即将支持</span></div>
           <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
         </div>
         <div class="setting-item-control">
@@ -205,7 +208,7 @@ async function saveRagConfig(): Promise<void> {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
+          <div class="setting-item-name">章节增量阈值 <span class="tag-soon">即将支持</span></div>
           <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
         </div>
         <div class="setting-item-control">
@@ -253,4 +256,16 @@ async function saveRagConfig(): Promise<void> {
       </div>
     </template>
   </section>
+  </div>
 </template>
+
+<style scoped>
+.tag-soon {
+  padding: 1px 7px;
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  border-radius: 99px;
+  background: var(--background-modifier-hover);
+  color: var(--text-faint);
+}
+</style>

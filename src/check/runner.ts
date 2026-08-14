@@ -76,9 +76,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
   const short = config.short
   const sections: CheckSectionResult[] = []
 
-  // 当前章号：默认取本章自身章号；调用方传了全书最高章号时用它作基准
-  // （账本「未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）
-  const currentChapter = input.maxWrittenChapter ?? chapter.章号
+  // 未来章基准：默认取本章自身章号；调用方传了全书最高章号时用它
+  // （账本「凭空声称未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）。
+  // 注意：这只喂 checkLeadsForm 的未来章判定；collectByproducts 必须用被检章自身章号
+  // （V-P1-4：两者曾共用一个变量，三审的「本章账本变动」错拿了最高已定稿章的履历）。
+  const futureBaselineChapter = input.maxWrittenChapter ?? chapter.章号
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
   const enabledTypes = ['悬念', '感情线', ...config.leads.enabled]
 
@@ -89,7 +91,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
     }
     // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
     sections.push(
-      checkLeadsForm(db, bookRoot, currentChapter, enabledTypes, input.declaredLeadIds, input.actualLeadIds),
+      checkLeadsForm(db, bookRoot, futureBaselineChapter, enabledTypes, input.declaredLeadIds, input.actualLeadIds),
     )
 
     // #10 项 2 成长线语义（红）—— 仅启用成长线时
@@ -165,7 +167,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
 
   let byproducts: CheckReport['byproducts'] = {}
   if (hasWiring) {
-    byproducts = collectByproducts(sections, db!, currentChapter, enabledTypes)
+    byproducts = collectByproducts(sections, db!, chapter.章号, enabledTypes)
   }
   if (short && pieceList) {
     byproducts = { ...byproducts, pieceListChecks: collectPieceListChecks(pieceList) }
@@ -175,11 +177,13 @@ export function runAllChecks(input: CheckInput): CheckReport {
   return report
 }
 
-/** 收集机检顺带产出（#10 第 2 节末）：本章账本变动清单 + 信息差/新专名候选。 */
+/** 收集机检顺带产出（#10 第 2 节末）：本章账本变动清单 + 信息差/新专名候选。
+ *  checkedChapter = 被检章自身章号（V-P1-4：三审 ledger_checks 据此核对「本章」账本变动，
+ *  不得用全书最高已定稿章号）。 */
 function collectByproducts(
   sections: CheckSectionResult[],
   db: DatabaseSync,
-  currentChapter: number,
+  checkedChapter: number,
   enabledTypes: string[],
 ): CheckReport['byproducts'] {
   const infoLeakCandidates: string[] = []
@@ -191,14 +195,14 @@ function collectByproducts(
     }
   }
 
-  // 本章账本变动清单（本章已入库的履历，按已启用类）
+  // 本章账本变动清单（被检章已入库的履历，按已启用类）
   const placeholders = enabledTypes.map(() => '?').join(',')
   const rows = db.prepare(
     `SELECT lh.lead_id AS leadId, lh.chapter AS chapter, lh.verb AS verb, lh.evidence AS evidence
      FROM lead_history lh JOIN leads l ON l.id = lh.lead_id
      WHERE lh.chapter = ? AND l.type IN (${placeholders})
      ORDER BY lh.lead_id`,
-  ).all(currentChapter, ...enabledTypes) as Record<string, unknown>[]
+  ).all(checkedChapter, ...enabledTypes) as Record<string, unknown>[]
   const leadChanges = rows.map((r) => ({
     leadId: r['leadId'] as string,
     chapter: r['chapter'] as number,

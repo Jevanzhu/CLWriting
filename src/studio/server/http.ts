@@ -36,7 +36,9 @@ export function readJson(
   limitBytes = JSON_BODY_LIMIT_BYTES,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    let data = ''
+    // 缓冲按 Buffer 收集、一次性 concat 后再解码：逐 chunk toString 会把跨分块边界的
+    // 多字节 UTF-8 字符（中文正文常态）切成 U+FFFD，造成静默内容损坏（V-P1-1）。
+    const chunks: Buffer[] = []
     let size = 0
     let tooLarge = false
     req.on('data', (c: Buffer) => {
@@ -44,18 +46,20 @@ export function readJson(
       size += c.byteLength
       if (size > limitBytes) {
         tooLarge = true
-        data = ''
+        chunks.length = 0
         return
       }
-      data += c.toString('utf-8')
+      chunks.push(c)
     })
     req.on('end', () => {
       if (tooLarge) {
         reject(new HttpError(413, '请求体过大'))
         return
       }
+      const data = Buffer.concat(chunks).toString('utf-8')
       try {
-        resolve(data.trim() === '' ? {} : JSON.parse(data))
+        // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
+        resolve(data.trim() === '' ? {} : (JSON.parse(data) ?? {}))
       } catch (e) {
         reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`))
       }

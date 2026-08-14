@@ -134,6 +134,28 @@ test('short 态 7: 已有 2 章定稿 → 起草第 3 章（篇号 = 扫 写作/
   }
 })
 
+test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextChapter 不回指已定稿章', () => {
+  const root = makeShortBook()
+  try {
+    finalizePiece(root, 1, '雪夜')
+    finalizePiece(root, 2, '旧伞')
+    finalizePiece(root, 3, '空巷')
+    // AI 产出无 front matter 的坏草稿：fm 解析失败不进 readChapterDir 的 chapters。
+    // 态 4 的 findUnfinishedChapter 按文件名章号拦截 → 续写第 4 章（改写坏草稿本身），
+    // 不会把 nextChapter 回指到已定稿的第 3 章。
+    writeFileSync(join(root, '写作', '正文', '第一卷', '004-坏草稿.md'), '没有 front matter 的正文', 'utf-8')
+
+    const d = detectState(root, SHORT_CONFIG)
+    expect(d.state).toBe(4)
+    if (d.state === 4) {
+      expect(d.chapterNum).toBe(4)
+      expect(d.resumePoint).toBe('pre-finalize')
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('short 不触发态 5/6: 已有多个章节也不判卷末/体检（无长程概念）', () => {
   const root = makeShortBook()
   try {

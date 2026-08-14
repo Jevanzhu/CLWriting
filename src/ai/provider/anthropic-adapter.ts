@@ -13,22 +13,54 @@ import type {
   GenRequest,
   GenEvent,
   ModelProvider,
-  ModelCaps,
   TokenUsage,
   ToolDef,
   ChatMsg,
   ContentBlock as ClwContentBlock,
 } from './types.js'
+import type { ProviderStore } from './store.js'
+import { persistDegraded } from './store.js'
 import { redactSecret } from './redact.js'
+import { quirksFor } from './model-quirks.js'
 
-/** 创建 Anthropic 客户端（同时带 x-api-key + Bearer，官方与中转通吃） */
+/**
+ * 创建 Anthropic 客户端——按 auth 策略发对应认证 header（官方与中转分开）。
+ *
+ * 之前无条件同时发 x-api-key + Bearer，严格网关看到多余认证头会 400。
+ * auth 策略（types.ts）：
+ * - anthropic   → 只发 x-api-key + anthropic-version（官方格式）
+ * - claudeAuth  → 只发 Authorization: Bearer（Claude 中转 / 网关）
+ * - bearer      → 同 claudeAuth（anthropic 协议下的 Bearer 中转）
+ */
 function createClient(conf: ProviderConf): Anthropic {
-  return new Anthropic({
-    baseURL: conf.baseUrl,
-    apiKey: conf.apiKey,
-    // 中转网关只认 Authorization: Bearer，官方端点只认 x-api-key——同时发，两边兼容
-    defaultHeaders: { Authorization: `Bearer ${conf.apiKey}` },
-  })
+  const auth = conf.auth ?? 'anthropic'
+  const base: ConstructorParameters<typeof Anthropic>[0] = {
+    baseURL: normalizeAnthropicBaseUrl(conf.baseUrl),
+    // 显式 authToken:null 阻断环境变量 ANTHROPIC_AUTH_TOKEN 注入（SDK 只在
+    // authToken === undefined 时读 env）——本机 Claude Code 凭据会污染成双认证头，
+    // 严格网关可能 400/返回匿名数据（模型列表只 2 个即此因）
+    authToken: null,
+  }
+  if (auth === 'anthropic') {
+    base.apiKey = conf.apiKey
+    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
+  } else {
+    // claudeAuth / bearer：用 SDK 原生 authToken 只发 Authorization: Bearer，不发 x-api-key
+    base.authToken = conf.apiKey
+    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
+  }
+  return new Anthropic(base)
+}
+
+/**
+ * baseUrl 归一化——存的是「用户直觉地址」，请求时按 SDK 拼接习惯去重。
+ * Anthropic SDK 固定请求 {baseURL}/v1/messages：
+ * - https://api.anthropic.com        → 原样（SDK 拼 /v1/messages）
+ * - https://api.anthropic.com/v1     → 去掉尾部 v1，防 /v1/v1/messages
+ * - https://gw.example.com/xxx/v1    → 去掉尾部 v1
+ */
+function normalizeAnthropicBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
 }
 
 /** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值（P1-5：128000 对旧模型 400） */
@@ -38,39 +70,85 @@ const MAX_TOKENS = 8192
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
-  const blocks: Anthropic.ContentBlockParam[] = m.content.map((b: ClwContentBlock) => {
-    if (b.type === 'text') return { type: 'text', text: b.text }
-    if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }
+  const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
+    if (b.type === 'text') return [{ type: 'text', text: b.text }]
+    // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）
+    if (b.type === 'reasoning') return []
+    if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }]
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
-    return { type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }
+    return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
   })
   return { role: m.role, content: blocks }
 }
 
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
+  // 表驱动参数翻译（表驱动重构 §6.1）
+  const q = quirksFor(conf.model ?? '')
+
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    max_tokens: req.maxTokens ?? MAX_TOKENS,
-    system: req.systemPrompt,
+    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192
+    max_tokens: req.maxTokens ?? q.maxOutputTokens ?? MAX_TOKENS,
     messages: req.messages.map(toAnthropicMessage),
     stream: true,
+    // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）
+    ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
   }
   // tools
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toAnthropicTool)
   }
-  // tool_choice
-  if (req.toolChoice === 'any') {
-    params['tool_choice'] = { type: 'any', disable_parallel_tool_use: true }
-  } else if (req.toolChoice === 'tool' && req.toolName) {
-    params['tool_choice'] = { type: 'tool', name: req.toolName, disable_parallel_tool_use: true }
-  } else if (req.toolChoice === 'auto') {
-    params['tool_choice'] = { type: 'auto', disable_parallel_tool_use: true }
+  // tool_choice 按表 toolChoiceMode 翻译（V-P2-9，对齐 openai-adapter §6.1）：
+  // named → any/tool/auto 原样（claude/glm/kimi）；
+  // required（deepseek：官方仅 auto/none/required，anthropic 端点指名 type:'tool' 会 400）
+  //   → 强制意图转 type:'any'（不指名），auto 原样；
+  // auto → 仅 auto 发（不支持强制），none → 不发。
+  // #12：disable_parallel_tool_use 仅 parallelControl 为真才发
+  const dptu = q.parallelControl ? { disable_parallel_tool_use: true } : {}
+  if (req.toolChoice && q.toolChoiceMode !== 'none') {
+    if (q.toolChoiceMode === 'named') {
+      if (req.toolChoice === 'any') {
+        params['tool_choice'] = { type: 'any', ...dptu }
+      } else if (req.toolChoice === 'tool' && req.toolName) {
+        params['tool_choice'] = { type: 'tool', name: req.toolName, ...dptu }
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+    } else if (q.toolChoiceMode === 'required') {
+      if (req.toolChoice === 'any' || req.toolChoice === 'tool') {
+        params['tool_choice'] = { type: 'any', ...dptu } // 指名意图降级为 any（deepseek 400 防线）
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+    } else if (q.toolChoiceMode === 'auto') {
+      if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+      // 'any'/'tool' → 不支持，不发（prompt 引导 + 契约层校验重试兜底）
+    }
   }
-  // effort → output_config.effort
-  if (req.effort) {
-    params['output_config'] = { effort: req.effort }
+  // #2：effort 仅当表 anthropicEffortWire=output_config 才发（claude/deepseek），
+  // 其余厂家的 anthropic 端点文档缺失 → 保守不发。档位收敛用 effortMap。
+  if (req.effort && q.anthropicEffortWire === 'output_config') {
+    const mapped = q.effortMap?.[req.effort] ?? req.effort
+    params['output_config'] = { effort: mapped }
+  }
+  // structured → output_config.format，按表 structuredMode 翻译（表驱动重构 §6.1）：
+  // json_schema → format.json_schema；json_object → format.json_object（deepseek 只认这个）；
+  // none → 不发（模型不支持，prompt 引导兜底）。硬编码 json_schema 会让 deepseek/glm
+  // 的 anthropic 端点 400（格式有问题），且降级链剥掉 structured 后丢失结构化输出。
+  if (req.structured?.schema && q.structuredMode !== 'none') {
+    // SDK 的 JSONOutputFormat 要求 json_object 也带 schema，但 deepseek 网关要求不带——
+    // 用 Record 断言绕开 SDK 过严类型，保持实际线格式正确
+    const format: Record<string, unknown> =
+      q.structuredMode === 'json_schema'
+        ? { type: 'json_schema', schema: req.structured.schema }
+        : { type: 'json_object' }
+    params['output_config'] = {
+      ...(params['output_config'] as Record<string, unknown> | undefined),
+      format,
+    } as unknown as Anthropic.OutputConfig
   }
   // stop sequences
   if (req.stopSequences?.length) {
@@ -87,12 +165,11 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, modelCaps?: ModelCaps | null): ModelProvider {
+export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, store?: ProviderStore): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
     conf,
-    modelCaps: modelCaps ?? null,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
@@ -107,7 +184,41 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       }
 
       try {
-        const stream = await c.messages.create(toParams(conf, req), { signal })
+        // 400 降级链（方案 §6.5）：表驱动后首发即正确，只留「中转怪癖」兜底——
+        // output_config.format（json_schema）→ 剥 structured 重试一级。
+        // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
+        // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次首发即剥。
+        const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
+        const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+        const q = quirksFor(conf.model ?? '')
+        let attempts: GenRequest[] = [req]
+        if (req.structured && q.structuredMode !== 'none') {
+          const stripped = { ...req } as GenRequest
+          delete (stripped as { structured?: unknown }).structured
+          // 记忆命中 → 首发即用剥除版（否则记忆反而关闭降级链、structured 照发 → 必败）
+          attempts = degraded ? [stripped] : [req, stripped]
+        }
+        let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
+        let lastErr: unknown = null
+        for (const attempt of attempts) {
+          try {
+            stream = await c.messages.create(toParams(conf, attempt), { signal })
+            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）
+            if (attempt !== req && degradedKey && store) {
+              store.modelCaps[degradedKey] = { structured: false }
+              persistDegraded(degradedKey)
+            }
+            break
+          } catch (e) {
+            // 非最后 attempt 的 400 → 尝试下一参数面；最后一个 400 透传原文（不被降级掩盖）
+            if (e instanceof Anthropic.APIError && e.status === 400 && attempt !== attempts[attempts.length - 1]) {
+              lastErr = e
+              continue
+            }
+            throw e
+          }
+        }
+        if (!stream) throw lastErr
 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
@@ -181,6 +292,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
 
 /** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
 function toErrorEvent(e: unknown): GenEvent {
+  // P3-Q6：APIUserAbortError extends APIError（status undefined），须在 APIError 分支前判定
+  if (e instanceof Anthropic.APIUserAbortError) {
+    return { type: 'error', message: '已中断', retryable: false }
+  }
   if (e instanceof Anthropic.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
     return { type: 'error', message: redactSecret(`Anthropic API ${e.status}: ${e.message}`), retryable }

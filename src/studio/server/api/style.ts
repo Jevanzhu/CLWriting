@@ -15,7 +15,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { rmSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { route } from '../router.js'
 import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
@@ -57,9 +57,9 @@ function relPath(bookRoot: string, p: string | undefined): string {
   return isAbsolute(p) ? relative(bookRoot, p) : p
 }
 
-/** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径） */
+/** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径、NUL 字节） */
 function insideDir(rel: string, dir: string): boolean {
-  return rel.startsWith(`${dir}/`) && !rel.includes('..') && !isAbsolute(rel)
+  return rel.startsWith(`${dir}/`) && !rel.includes('..') && !rel.includes('\0') && !isAbsolute(rel)
 }
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
@@ -127,7 +127,21 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, ENTRIES_DIR)) {
       return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'path 须在 文风/条目/ 内' })
     }
-    rmSync(join(bookRoot, p), { force: true })
+    const absPath = join(bookRoot, p)
+    // symlink realpath 校验（防 entry.path 中间组件是符号链接 → rmSync 删到书库外）
+    // P1-S1：realpathSync 须 try-catch（TOCTOU / 断链 → fail-closed，与其他 safePath 一致）
+    if (existsSync(absPath)) {
+      try {
+        const realBook = realpathSync(bookRoot)
+        const realAbs = realpathSync(absPath)
+        if (relative(realBook, realAbs).startsWith('..')) {
+          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '路径越出书库' })
+        }
+      } catch {
+        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '路径异常' })
+      }
+    }
+    rmSync(absPath, { force: true })
     reply(res, 200, { ok: true })
   })
 

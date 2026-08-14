@@ -12,6 +12,7 @@ import { route } from '../router.js'
 import { checkToken, readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { exportBook, type ExportFormat, type ExportPlatform } from '../../../export/index.js'
+import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
 
 interface IoCtx {
   workDir: string | null
@@ -19,7 +20,7 @@ interface IoCtx {
 }
 
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])
-const PLATFORMS = new Set(['generic', 'wechat', 'zhihu-salt', 'fanqie', 'xiaohongshu'])
+const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
 export function registerIoRoutes(ctx: IoCtx): void {
   // 导出定稿

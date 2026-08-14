@@ -55,6 +55,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let prefsLoaded = false
   let watchStop: (() => void) | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染） */
+  let bookGen = 0
 
   /** 切书：异步加载书库级 prefs（工作区布局 + 最后打开文档）。 */
   function setBook(name: string): void {
@@ -62,16 +64,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     bookName.value = name
     prefsLoaded = false
     activeDocId.value = null
-    void loadBookPrefs()
+    const gen = ++bookGen
+    void loadBookPrefs(gen)
   }
 
   /** 从 .clwriting/prefs.json 加载书库级偏好；首次为空时从旧 localStorage 迁移。 */
-  async function loadBookPrefs(): Promise<void> {
+  async function loadBookPrefs(gen = bookGen): Promise<void> {
     if (!bookName.value) return
     let prefs: BookPrefs = {}
     try {
       prefs = await getBookPrefs(bookName.value)
     } catch { /* API 不可达用默认 */ }
+
+    // 竞态守卫：await 期间若已切到其他书 → 丢弃本次结果，防 A 的 prefs 写入 C 的 slot
+    if (gen !== bookGen) return
 
     // 向后兼容：prefs.json 不存在时从旧 localStorage 迁移
     if (Object.keys(prefs).length === 0) {

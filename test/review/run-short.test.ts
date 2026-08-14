@@ -11,7 +11,7 @@ import {
 } from '../../src/review/run.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { runCheckForDocument } from '../../src/studio/server/api/check.js'
-import { writeChapter } from '../../src/format/chapters.js'
+import { writeChapter } from '../helpers/chapter.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { ReviewIssue } from '../../src/review/contract.js'

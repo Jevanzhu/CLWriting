@@ -217,3 +217,69 @@ describe('DocumentService / snapshot 触发', () => {
     expect(existsSync(snapDir)).toBe(false)
   })
 })
+
+// ── V-P2-1：排队 save 与结构性操作（rename/trash）竞态 ──────────────
+// 结构性操作同步执行不排队：入队 save 出队时目标路径可能已被移走/删除。
+// 新建档（expectedRevision=null）撞空路径本会直接落盘 → 在旧路径复活文件。
+
+describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
+  let bookRoot: string
+  let svc: DocumentService
+  beforeEach(() => {
+    bookRoot = mkdtempSync(join(tmpdir(), 'svc-race-'))
+    mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+    svc = new DocumentService({ bookRoot })
+  })
+  afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
+
+  it('rename 后迟到的 null 基线 save → REVISION_CONFLICT，旧路径不复活', async () => {
+    const created = await svc.createDocument({ relPath: '写作/正文/0001-开篇.md', content: '初稿' })
+    if (!created.ok) throw new Error('prereq create')
+    const renamed = await svc.renameDocument({ docId: created.docId, newName: '0002-改名.md' })
+    if (!renamed.ok) throw new Error('prereq rename')
+
+    const r = await svc.save(created.docId, '写作/正文/0001-开篇.md', {
+      content: '迟到的新建内容', expectedRevision: null, operationId: 'op-late', origin: 'autosave',
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
+    expect(existsSync(join(bookRoot, '写作/正文/0001-开篇.md'))).toBe(false)
+  })
+
+  it('trash 后迟到的 null 基线 save → 拒绝（回收站在案，不绕过软删）', async () => {
+    const created = await svc.createDocument({ relPath: '写作/正文/0003-雪夜.md', content: '雪' })
+    if (!created.ok) throw new Error('prereq create')
+    const trashed = await svc.trashDocument({ docId: created.docId })
+    if (!trashed.ok) throw new Error('prereq trash')
+
+    const r = await svc.save(created.docId, '写作/正文/0003-雪夜.md', {
+      content: '迟到内容', expectedRevision: null, operationId: 'op-late2', origin: 'autosave',
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.code).toBe('REVISION_CONFLICT')
+      expect(r.reason).toContain('回收站')
+    }
+    expect(existsSync(join(bookRoot, '写作/正文/0003-雪夜.md'))).toBe(false)
+  })
+
+  it('rename 后按登记新路径保存 → 放行（save 跟随文档）', async () => {
+    const created = await svc.createDocument({ relPath: '写作/正文/0005-跟随.md', content: 'a' })
+    if (!created.ok) throw new Error('prereq create')
+    await svc.renameDocument({ docId: created.docId, newName: '0006-新名.md' })
+    const r = await svc.save(created.docId, '写作/正文/0006-新名.md', {
+      content: 'b', expectedRevision: created.revision, operationId: 'op-follow', origin: 'manual',
+    })
+    expect(r.ok).toBe(true)
+    expect(readFileSync(join(bookRoot, '写作/正文/0006-新名.md'), 'utf-8')).toBe('b')
+  })
+
+  it('未移动未删除 → 同路径正常保存不受影响', async () => {
+    const created = await svc.createDocument({ relPath: '写作/正文/0007-常例.md', content: 'a' })
+    if (!created.ok) throw new Error('prereq create')
+    const r = await svc.save(created.docId, '写作/正文/0007-常例.md', {
+      content: 'b', expectedRevision: created.revision, operationId: 'op-ok', origin: 'manual',
+    })
+    expect(r.ok).toBe(true)
+  })
+})

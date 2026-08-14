@@ -116,6 +116,17 @@ test('排序：同级目录优先于文件（第一卷 目录排在 0099-平铺 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('排序：大纲区总纲置顶（排在 卷纲/章纲 目录前）', () => {
+  const root = makeBook()
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(join(root, '大纲', '章纲', '0001-开场.md'), '---\n标题: 开场\n---\n纲', 'utf-8')
+  writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲', 'utf-8')
+  const outlineDir = findNode(buildTree(root), '大纲')!
+  const paths = outlineDir.children.map((c) => c.path)
+  expect(paths[0]).toBe('大纲/总纲.md') // 文件总纲优先于 卷纲/章纲 目录
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('getBookTreeIndex: 缓存同引用；invalidate 后重建 + revision 递增', () => {
   const root = makeBook()
   const idx1 = getBookTreeIndex(root)

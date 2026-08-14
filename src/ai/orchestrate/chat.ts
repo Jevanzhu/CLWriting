@@ -19,7 +19,7 @@ import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
 import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
-import { chatSystem, buildChatContext, trimHistory } from '../prompts/chat.js'
+import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../prompts/chat.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
@@ -185,7 +185,7 @@ function formatHealResult(r: SelfHealOutcome): string {
   switch (r.outcome) {
     case 'pass':
       // B-P1-2：用 r.chapter（章号）而非 r.docId（稳定 ID，如 legacy:9f8e7d6c）
-      return r.yellows.length > 0
+      return r.yellows && r.yellows.length > 0
         ? `第${r.chapter}章已生成，机检全绿。仍有 ${r.yellows.length} 条文风建议未采纳。`
         : `第${r.chapter}章已生成，机检全绿。`
     case 'escalate':
@@ -229,21 +229,25 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   running.set(opts.bookName, state)
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
 
-  const history = getHistory(opts.bookName)
-  const baseLen = history.length
-  history.push({ role: 'user', content: opts.message })
-
-  const ctx = buildChatContext(opts.bookRoot, opts.chapter)
-  const sys = chatSystem(ctx)
-
-  emit(opts, { type: 'chat_start' })
-
   try {
+    const history = getHistory(opts.bookName)
+    const baseLen = history.length
+    const ctx = buildChatContext(opts.bookRoot, opts.chapter)
+    const sys = chatSystem(ctx)
+    // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
+    // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
+    // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
+    history.push({ role: 'user', content: opts.message })
+
+    emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
       if (state.ctrl.signal.aborted) {
+        // P1-S4：回滚历史（防末尾 user → 下次连续 user → Anthropic 400，与 max_tokens 路径 :295 一致）
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '已中断' })
       }
       if (Date.now() > state.deadline) {
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
       }
 
@@ -254,20 +258,32 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         toolCalls: { id: string; name: string; input: unknown }[]
         stopReason: string
         usage: TokenUsage
+        reasoning: string
       }>({
         userDataPath: opts.userDataPath,
         tierKind: 'chat',
         task: 'chat',
         bookRoot: opts.bookRoot,
+        // B-P2-2：trace hash 纳入 system prompt——chat 的 system prompt 稳定（设定+职责），
+        // 不带则同 user 消息不同书 hash 冲突
+        systemPrompt: sys,
+        promptText: opts.message,
         ctrl: state.ctrl,
         register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
         onReset: () => emit(opts, { type: 'chat_reset' }),
+        // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
+        onRetry: (attempt, error) =>
+          emit(opts, { type: 'warning', message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…` }),
         run: async (provider, signal, tier) => {
+          // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能
+          // 出现非法序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。
+          // 消毒产副本，不污染累积的 history（回滚仍按 baseLen 精确）。
+          const sanitized = sanitizeHistory(history)
           const r = await generate(
             provider,
             {
               systemPrompt: sys,
-              messages: history,
+              messages: sanitized,
               tools: chatTools,
               toolChoice: 'auto',
               effort: tier.effort,
@@ -275,7 +291,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
             signal,
             (delta) => emit(opts, { type: 'chat_text', text: delta }),
           )
-          return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, usage: r.usage }
+          return { text: r.text, toolCalls: r.toolCalls, stopReason: r.stopReason, usage: r.usage, reasoning: r.reasoning }
         },
       })
 
@@ -284,17 +300,26 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
 
-      const { text, toolCalls, stopReason } = out.data
+      const { text, toolCalls, stopReason, reasoning } = out.data
 
       // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）
       if (stopReason === 'max_tokens') {
-        histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
+        // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
+        history.length = baseLen
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }
 
       // 无工具调用 → 对话结束
       if (toolCalls.length === 0) {
-        history.push({ role: 'assistant', content: text })
+        // P2-AI-1：reasoning 非空时入历史（与工具路径 :311-320 一致——DeepSeek/Kimi 多轮带 tools 硬要求）
+        if (reasoning) {
+          const blocks: ContentBlock[] = []
+          if (text) blocks.push({ type: 'text', text })
+          blocks.push({ type: 'reasoning', text: reasoning })
+          history.push({ role: 'assistant', content: blocks })
+        } else {
+          history.push({ role: 'assistant', content: text })
+        }
         histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
         return void emit(opts, {
           type: 'chat_done',
@@ -303,8 +328,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
 
       // 有工具调用 → assistant 消息按 block 结构入历史
+      // reasoning 块保留回传（DeepSeek/Kimi 多轮带 tools 硬要求，方案 §4.2）
       const asstBlocks: ContentBlock[] = []
       if (text) asstBlocks.push({ type: 'text', text })
+      if (reasoning) asstBlocks.push({ type: 'reasoning', text: reasoning })
       for (const c of toolCalls) {
         asstBlocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.input })
       }
@@ -333,7 +360,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
     // 轮数触顶——补固定收尾文案
     emit(opts, { type: 'chat_turn', turn: MAX_AGENT_TURNS })
-    emit(opts, { type: 'chat_text', text: '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。' })
+    const closingMsg = '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。'
+    emit(opts, { type: 'chat_text', text: closingMsg })
+    // P1-R1b：收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
+    history.push({ role: 'assistant', content: closingMsg })
     histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
     emit(opts, { type: 'chat_done' })
   } finally {

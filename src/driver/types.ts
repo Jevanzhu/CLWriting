@@ -30,10 +30,15 @@ export type DriverEvent =
   | { type: 'interrupted'; reason: string }
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
   // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
-  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting'; attempt?: number }
+  // P2-3：批量连写新增 phase 分支（chapter_start/chapter_done）+ chapter/done/total 进度字段
+  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done'; attempt?: number; chapter?: number; done?: number; total?: number }
   /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
   | { type: 'self_heal_reset' }
-  | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[] }
+  | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[]; chapter?: number }
+  /** P2-3：批量连写开跑（total=本次连写章数） */
+  | { type: 'self_heal_batch'; total: number }
+  /** P2-3：批量中途停（escalate/预算超限）——done=已完成章数,stoppedAt=停下的章号 */
+  | { type: 'self_heal_batch_progress'; done: number; total: number; stoppedAt: number }
   | {
       type: 'self_heal_result'
       outcome: 'pass' | 'escalate' | 'aborted' | 'failed'

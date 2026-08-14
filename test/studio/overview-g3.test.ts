@@ -84,11 +84,11 @@ describe('G3：overview state 缓存 + 本地数据完整', () => {
       volumes: unknown
       timeline: unknown
     }
-    expect(j.identity).toBeDefined()
-    expect(j.progress).toBeDefined()
-    expect(j.state).toBeDefined()
-    expect(j.volumes).toBeDefined()
-    expect(j.timeline).toBeDefined()
+    expect(j.identity).toEqual(expect.objectContaining({ kind: 'long' }))
+    expect(j.progress).toBeTypeOf('object')
+    expect(j.state).toBeTypeOf('object')
+    expect(Array.isArray(j.volumes)).toBe(true)
+    expect(Array.isArray(j.timeline)).toBe(true)
   })
 
   it('state 字段含 state/name（判定有结果，非崩溃）', async () => {

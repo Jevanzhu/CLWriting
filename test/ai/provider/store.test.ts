@@ -54,8 +54,8 @@ test('判据1: 保存后 providers.json 不含明文 apiKey', () => {
   const raw = readFileSync(FP(), 'utf8')
   expect(raw).not.toContain('sk-super-secret')
   const parsed = JSON.parse(raw)
-  expect(parsed.vault).toBeDefined()
-  expect(parsed.vault.keys).toBeDefined()
+  expect(parsed.vault).toBeTypeOf('object')
+  expect(parsed.vault.keys).toBeTypeOf('object')
   expect(parsed.providers[0].apiKey).toBeUndefined()
 })
 
@@ -94,7 +94,7 @@ test('判据4: 明文 providers.json load 后自动迁移为密文', () => {
   // 文件已转为密文
   const raw = readFileSync(FP(), 'utf8')
   expect(raw).not.toContain('sk-legacy-plaintext')
-  expect(JSON.parse(raw).vault).toBeDefined()
+  expect(JSON.parse(raw).vault).toBeTypeOf('object')
   expect(JSON.parse(raw).providers[0].apiKey).toBeUndefined()
 })
 
@@ -129,7 +129,7 @@ test('判据5: 半迁移(vault+明文并存)→vault优先，明文补迁移后�
   expect(raw2).not.toContain('sk-legacy-residue')
   expect(raw2).not.toContain('sk-key-b')
   // vault.keys 现在含两条
-  expect(JSON.parse(raw2).vault.keys['prov-b']).toBeDefined()
+  expect(JSON.parse(raw2).vault.keys['prov-b']).toBeTypeOf('object')
 })
 
 // ── 判据 6：IV 不复用（同一 key save 两次密文不同）──
@@ -163,7 +163,7 @@ test('判据7: 删除 provider → vault.keys 条目消失', () => {
   saveProviders(dir, store)
 
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
-  expect(raw.vault.keys['prov-keep']).toBeDefined()
+  expect(raw.vault.keys['prov-keep']).toBeTypeOf('object')
   expect(raw.vault.keys['prov-del']).toBeUndefined()
 })
 
@@ -217,7 +217,7 @@ test('补充: apiKey 为空的 provider 不写入 vault.keys', () => {
   saveProviders(dir, store)
 
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
-  expect(raw.vault.keys['prov-with-key']).toBeDefined()
+  expect(raw.vault.keys['prov-with-key']).toBeTypeOf('object')
   expect(raw.vault.keys['prov-no-key']).toBeUndefined()
 })
 
@@ -244,7 +244,7 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
   expect(bak).not.toContain('sk-first-secret12345')
   expect(bak).not.toContain('sk-second-secret1234')
   // 备份含 vault（密文）
-  expect(JSON.parse(bak).vault).toBeDefined()
+  expect(JSON.parse(bak).vault).toBeTypeOf('object')
 })
 
 test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
@@ -253,5 +253,23 @@ test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
   saveProviders(dir, store)
   expect(existsSync(join(dir, 'providers.json.tmp'))).toBe(false)
   // 主文件完整可读
-  expect(JSON.parse(readFileSync(FP(), 'utf8')).vault).toBeDefined()
+  expect(JSON.parse(readFileSync(FP(), 'utf8')).vault).toBeTypeOf('object')
+})
+
+// ── P2-AI-3：缓存未命中路径返回 clone（防调用方突变污染缓存）────────
+
+test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-clone-test123456' })]
+  saveProviders(dir, store)
+
+  // 第一次 load（缓存未命中）→ 返回 clone
+  const s1 = loadProviders(dir)
+  expect(s1.providers[0]!.name).toBe('测试供应商')
+  // 突变 s1（模拟 API 端点直接 mutate 后未 save）
+  s1.providers[0]!.name = '被污染的中间态'
+
+  // 第二次 load（缓存命中）→ 不应看到 s1 的突变
+  const s2 = loadProviders(dir)
+  expect(s2.providers[0]!.name).toBe('测试供应商')
 })

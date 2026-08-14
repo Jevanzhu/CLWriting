@@ -2,10 +2,10 @@
  * pruneVersions pinned 保留策略测试（P1-T1）：
  * 验证定稿里程碑（pinned=true）在超期/maxCount 兜底时恒保留。
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   writeVersion,
   pruneVersions,
@@ -19,6 +19,10 @@ const docId = 'doc_test'
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'clw-prune-'))
+})
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
 })
 
 /** 检查指定 id 的版本是否存在 */
@@ -70,6 +74,29 @@ describe('pruneVersions pinned 保留', () => {
 
     expect(exists(pinned1)).toBe(true)
     expect(exists(pinned2)).toBe(true)
+  })
+
+  it('BE-2: pinned >= maxCount 时非 pinned 版本全部清理（修复负索引保留过多）', () => {
+    // pinned 4 个 > maxCount 3 → 修复前 slice(0, 3-4=-1) 保留除末尾 1 个外全部非 pinned
+    // 修复后 Math.max(0, -1)=0 → 非 pinned 全清理
+    const pinned1 = writeVersion(dir, docId, '定稿1', { origin: 'finalize', pinned: true })
+    const pinned2 = writeVersion(dir, docId, '定稿2', { origin: 'finalize', pinned: true })
+    const pinned3 = writeVersion(dir, docId, '定稿3', { origin: 'finalize', pinned: true })
+    const pinned4 = writeVersion(dir, docId, '定稿4', { origin: 'finalize', pinned: true })
+    const draftA = writeVersion(dir, docId, '草稿a', { origin: 'autosave' })
+    const draftB = writeVersion(dir, docId, '草稿b', { origin: 'autosave' })
+
+    const policy = { maxDays: 365, maxCount: 3, throttleMinutes: 0 }
+    pruneVersions(dir, docId, policy)
+
+    // pinned 恒在
+    expect(exists(pinned1)).toBe(true)
+    expect(exists(pinned2)).toBe(true)
+    expect(exists(pinned3)).toBe(true)
+    expect(exists(pinned4)).toBe(true)
+    // 非 pinned 全清理（修复前 slice(0,-1) 会保留 draftA）
+    expect(exists(draftA)).toBe(false)
+    expect(exists(draftB)).toBe(false)
   })
 
   it('全 pinned 场景 prune 返回 0', () => {

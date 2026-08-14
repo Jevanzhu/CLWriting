@@ -108,7 +108,7 @@ describe('ChatPanel: 发送失败回滚（P2-L）', () => {
     expect(mocks.sendChat).toHaveBeenCalled()
     // pushUser 被 popUser 回滚
     expect(chat.messages).toHaveLength(0)
-    expect(chat.error).toBeTruthy()
+    expect(typeof chat.error).toBe('string')
   })
 })
 
@@ -161,8 +161,8 @@ describe('ChatPanel: 清空（P1-4/P2-K）', () => {
     expect(mocks.interrupt).toHaveBeenCalledWith('test-book')
     expect(mocks.clearChatHistory).toHaveBeenCalledWith('test-book')
     // interrupt 必须在 clearChatHistory 之前
-    expect(mocks.interrupt.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.clearChatHistory.mock.invocationCallOrder[0],
+    expect(mocks.interrupt.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      mocks.clearChatHistory.mock.invocationCallOrder[0] ?? 0,
     )
   })
 })

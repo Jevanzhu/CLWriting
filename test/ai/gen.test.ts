@@ -6,14 +6,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import { generate, generateText, generateTool, GenError, withFirstByteTimeout } from '../../src/ai/gen.js'
-import type { GenEvent, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
+import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 
 const CONF = { name: 'fake' } as ProviderConf
 
 function provider(events: GenEvent[]): ModelProvider {
   return {
     conf: CONF,
-    modelCaps: null,
     async *stream() {
       for (const e of events) yield e
     },
@@ -43,6 +42,21 @@ describe('generate', () => {
     expect(deltas).toEqual(['你', '好'])
     expect(r.usage).toEqual(USAGE)
     expect(r.stopReason).toBe('end_turn')
+  })
+
+  it('reasoning 事件收集到 reasoning 字段（方案 §4.2）', async () => {
+    const r = await generate(
+      provider([
+        { type: 'reasoning', delta: '思考' },
+        { type: 'reasoning', delta: '过程' },
+        { type: 'text', delta: '回答' },
+        { type: 'done', usage: USAGE, stopReason: 'end_turn' },
+      ]),
+      { systemPrompt: '', messages: [] },
+      signal(),
+    )
+    expect(r.reasoning).toBe('思考过程')
+    expect(r.text).toBe('回答')
   })
 
   it('tool 事件收集到 toolCalls（规则：先 tool 后 done）', async () => {
@@ -92,7 +106,6 @@ describe('generateText / generateTool 简化路径', () => {
   it('generateText 在 max_tokens 截断时抛 GenError', async () => {
     const p: ModelProvider = {
       conf: CONF,
-      modelCaps: null,
       async *stream() {
         yield { type: 'text', delta: '不完整的大纲' }
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
@@ -120,25 +133,63 @@ describe('generateText / generateTool 简化路径', () => {
     expect(b.text).toBe('自由文本')
   })
 
-  // P0-2：modelCaps.toolUse=false → 提前拒绝，不进入生成阶段
-  it('generateTool 在 toolUse=false 时抛不可重试 GenError', async () => {
+  // 表驱动重构：能力判据从 modelCaps 换成静态表。unknown 系列 toolUse=true（尝试挂 tools），
+  // 不拒绝；requireTool 意图按 toolChoiceMode 翻译（unknown=auto → 不发 tool_choice，prompt 引导）
+  // 注：const 数组接收 req（闭包内 push）——字面量初始化的 let 变量被闭包引用时 TS 收窄成 never
+  it('generateTool unknown 系列：toolUse=true 不拒绝，requireTool 意图转 auto（不发 tool_choice）', async () => {
+    const sent: GenRequest[] = []
     const p: ModelProvider = {
       conf: CONF,
-      modelCaps: { toolUse: false, toolChoice: false },
-      async *stream() {
-        yield { type: 'text', delta: '不该走到这里' }
+      async *stream(req) {
+        sent.push(req)
+        yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
       },
     }
-    await expect(
-      generateTool(p, { systemPrompt: '', messages: [] }, signal()),
-    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
+    const out = await generateTool(p, { systemPrompt: '', messages: [], requireTool: true, toolName: 't' }, signal())
+    expect(out.input).toBeNull()
+    // unknown 系列 toolChoiceMode='auto' → requireTool 意图不落 tool_choice，prompt 引导
+    expect(sent[0]?.toolChoice).toBeUndefined()
+    expect(sent[0]?.toolName).toBeUndefined()
+  })
+
+  // 表驱动：named 系列（claude/gpt/grok）requireTool 意图 → toolChoice:'tool' 指名
+  it('generateTool named 系列：requireTool 意图转 toolChoice=tool 指名', async () => {
+    const sent: GenRequest[] = []
+    const p: ModelProvider = {
+      conf: { ...CONF, model: 'claude-sonnet-5' } as ProviderConf,
+      async *stream(req) {
+        sent.push(req)
+        yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
+      },
+    }
+    const out = await generateTool(p, { systemPrompt: '', messages: [], requireTool: true, toolName: 't' }, signal())
+    expect(out.input).toBeNull()
+    expect(sent[0]?.toolChoice).toBe('tool')
+    expect(sent[0]?.toolName).toBe('t')
+  })
+
+  // 表驱动：deepseek 系列 toolChoiceMode='required'（官方无指名）→ requireTool 意图转 any
+  //（回归：CCats 网关对 anthropic 端点发 type:'tool' 指名 400，右栏 AI 推断直接报错）
+  it('generateTool deepseek 系列：requireTool 意图转 toolChoice=any 非指名', async () => {
+    const sent: GenRequest[] = []
+    const p: ModelProvider = {
+      conf: { ...CONF, model: 'deepseek-v4-flash' } as ProviderConf,
+      async *stream(req) {
+        sent.push(req)
+        yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
+      },
+    }
+    const out = await generateTool(p, { systemPrompt: '', messages: [], requireTool: true, toolName: 't' }, signal())
+    expect(out.input).toBeNull()
+    // deepseek 只能「必须调某个」不能点名 → toolChoice=any（线格式 type:'any'）
+    expect(sent[0]?.toolChoice).toBe('any')
+    expect(sent[0]?.toolName).toBe('t') // toolName 保留（any 不需要，但不该被清掉）
   })
 
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级
   it('generateTool 在 max_tokens 截断且无 tool_use 时抛 GenError', async () => {
     const p: ModelProvider = {
       conf: CONF,
-      modelCaps: { toolUse: true, toolChoice: true },
       async *stream() {
         yield { type: 'text', delta: '不完整的产出' }
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
@@ -198,6 +249,27 @@ describe('B-2 首字节超时', () => {
     const iter = withFirstByteTimeout(slow, 10)
     await expect(iter.next()).rejects.toThrow('响应超时')
     expect(returnCalled).toBe(true)
+  })
+
+  // Q2（review-q P1-Q2）：挂死流（next() 永不结算）超时后，return() 不得阻塞——
+  // 旧实现 `await it.return?.()` 会排队等挂起 next() 结算 → 60s 快速失败退化成死等
+  it('挂死流超时后立即抛错，不等待 return() 结算', async () => {
+    let returnCalled = false
+    const hung: AsyncIterable<GenEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          // next() 永不结算——模拟「服务器接受连接但不发数据」的半死场景
+          next: () => new Promise<IteratorResult<GenEvent>>(() => {}),
+          return: () => { returnCalled = true; return new Promise<IteratorResult<GenEvent>>(() => {}) },
+        }
+      },
+    }
+    const iter = withFirstByteTimeout(hung, 10)
+    const start = Date.now()
+    await expect(iter.next()).rejects.toThrow('响应超时')
+    // 超时应立即抛错（<1s），而不是等 return() 结算
+    expect(Date.now() - start).toBeLessThan(1000)
+    expect(returnCalled).toBe(true) // void 调用仍触发了 return()
   })
 })
 

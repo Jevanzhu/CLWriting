@@ -5,8 +5,9 @@
  * GenRequest 极简——只含两种协议都稳定支持的参数。
  */
 
-/** 协议类型——决定走哪种 SDK / 线格式 */
-export type Protocol = 'anthropic' | 'openai'
+/** 协议类型——决定走哪种 SDK / 线格式
+ *  openai = Chat Completions（/v1/chat/completions），openai-responses = Responses API（/v1/responses） */
+export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 
 /**
  * 认证策略——与协议正交的独立维度。
@@ -49,12 +50,6 @@ export interface ProviderCaps {
   streaming: boolean // 流式产出（逐字增量可用）
 }
 
-/** 模型级能力——tool_use / tool_choice（选定模型后探测，按 providerId+model 缓存） */
-export interface ModelCaps {
-  toolUse: boolean // 契约层依赖；false 则该模型不可用于写作
-  toolChoice: boolean // 强制调用；false 则退回 prompt 引导 + 校验重试
-}
-
 /** 推理等级档位（与 reasoning_effort API 参数对齐；并非所有模型都支持全部档位） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -90,9 +85,21 @@ export interface GenRequest {
   tools?: ToolDef[]
   toolChoice?: 'auto' | 'any' | 'tool' // 配合 toolName
   toolName?: string // toolChoice='tool' 时指定
+  /**
+   * 工具型意图（表驱动重构 §5.3）：工作流层声明「必须产出工具调用」，
+   * 由 generateTool 按模型系列表 toolChoiceMode 翻译为实际 tool_choice。
+   * named → tool_choice 指名；required → 转 any（不能点名）；auto/none → 不发，prompt 引导。
+   */
+  requireTool?: boolean
   stopSequences?: string[]
   /** 推理等级——适配器翻译为对应协议线格式 */
   effort?: EffortLevel
+  /**
+   * 结构化输出（JSON Schema 驱动）——适配器翻译为对应协议线格式：
+   * Anthropic → output_format.json_schema；OpenAI Responses → text.format；
+   * OpenAI Chat Completions → response_format。非 400 兼容端点自动降级。
+   */
+  structured?: { schema: Record<string, unknown> }
 }
 
 export interface ChatMsg {
@@ -107,9 +114,14 @@ export interface ChatMsg {
 /**
  * Content block——中立表示（Anthropic 风格，表达力更强；OpenAI 侧由适配器展开还原）。
  * 对话助手 agent 循环的 tool_use/tool_result 往返用。
+ *
+ * reasoning：模型思维链（DeepSeek/Kimi 思考模型的 reasoning_content）。
+ * 多轮带 tools 时 assistant 消息必须完整回传 reasoning_content，否则 DeepSeek/Kimi 400
+ * （方案 §4.2）。Anthropic 原生端点无此回传要求，收到即静默丢弃。
  */
 export type ContentBlock =
   | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
 
@@ -122,6 +134,7 @@ export interface ToolDef {
 /** 统一事件流——每次调用返回独立 async iterable */
 export type GenEvent =
   | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage; stopReason: string }
   | { type: 'error'; message: string; retryable: boolean }
@@ -134,8 +147,6 @@ export interface TokenUsage {
 /** Provider 接口——适配器实现 */
 export interface ModelProvider {
   readonly conf: ProviderConf
-  /** 模型级能力（tool_use / tool_choice）；null = 未探测，生成时保守降级 */
-  readonly modelCaps: ModelCaps | null
   stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent>
 }
 
@@ -143,11 +154,5 @@ export interface ModelProvider {
 export interface ProbeResult {
   caps: ProviderCaps
   /** 探测过程中的诊断信息（不含书稿内容，不含完整 key） */
-  details: string[]
-}
-
-/** 模型级探测结果（选定模型后触发） */
-export interface ModelProbeResult {
-  caps: ModelCaps
   details: string[]
 }

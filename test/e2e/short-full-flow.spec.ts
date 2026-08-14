@@ -66,8 +66,8 @@ test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 �
   await expect(page.locator('.rail-item', { hasText: '卷纲' })).toHaveCount(0)
   await expect(page.locator('.rail-group-label', { hasText: '短篇专属' })).toBeVisible()
 
-  // 跑「短篇专属 → 集子定位」一步：生成 + 保存
-  await page.locator('.rail-item', { hasText: '集子定位' }).click()
+  // 跑「短篇专属 → 首章细纲」一步：生成 + 保存
+  await page.locator('.rail-item', { hasText: '首章细纲' }).click()
   await page.locator('.btn.primary', { hasText: '生成' }).click()
   await expect(page.locator('.ob-panel textarea, .ob-panel .cm-content, .ob-panel .editor-area').first()).toBeVisible({ timeout: 15_000 })
   // 生成后保存

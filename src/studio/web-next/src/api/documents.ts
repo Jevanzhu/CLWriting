@@ -46,6 +46,7 @@ export async function saveContent(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
+    30_000, // 本地磁盘写应秒级；超时防 saving 永不清除
   )
 }
 
@@ -166,6 +167,29 @@ export async function finalizeDoc(name: string, docId: string): Promise<Finalize
   return apiJson<FinalizeOk>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/finalize`,
     { method: 'POST' },
+  )
+}
+
+// POST /documents/batch-finalize —— 批量定稿（P2-PROD-2）。
+export interface BatchFinalizeItem {
+  docId: string
+  ok: boolean
+  status?: 'final'
+  skipped?: boolean
+  error?: string
+}
+export interface BatchFinalizeOk {
+  ok: true
+  results: BatchFinalizeItem[]
+}
+export async function batchFinalizeDocs(name: string, docIds: string[]): Promise<BatchFinalizeOk> {
+  return apiJson<BatchFinalizeOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/batch-finalize`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ docIds }),
+    },
   )
 }
 

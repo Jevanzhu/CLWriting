@@ -114,7 +114,7 @@ export type ReviewTierDecision =
       ok: true
       requested_tier: ReviewTier
       tier: ReviewTier
-      calls: 1 | 3
+      calls: number
       fallback: string
       lenses_run: ReviewLens[]
       ledger_check: '已跑'
@@ -123,7 +123,7 @@ export type ReviewTierDecision =
   | {
       ok: false
       requested_tier: ReviewTier
-      calls: 1 | 3
+      calls: number
       fallback: string
       reason: string
     }
@@ -244,39 +244,43 @@ export function selectReviewTier(input: {
 }): ReviewTierDecision {
   const remaining = Math.max(0, Math.floor(input.remaining_calls))
   const lensesRun = input.lenses
+  // V-P1-8：满审调用数 = 实际视角数（长篇 2-3、短篇 5），不再是硬编码 3——
+  // 短篇满审实际产 5 份 packets，预算闸只校验 3 会让 planned_calls 与分包数自相矛盾，
+  // 高风险章「必须满审」的校验同样低估。
+  const fullCalls = Math.max(1, lensesRun.length)
 
   if (input.high_risk) {
     if (!input.capabilities.parallel_subagents) {
       return {
         ok: false,
         requested_tier: 'full',
-        calls: 3,
+        calls: fullCalls,
         fallback: '风险章满审跑不了',
         reason: '高风险章禁止降级，但当前宿主不支持并行独立三审；请换宿主或人工确认后再继续。',
       }
     }
-    if (remaining < 3) {
+    if (remaining < fullCalls) {
       return {
         ok: false,
         requested_tier: 'full',
-        calls: 3,
+        calls: fullCalls,
         fallback: '风险章满审跑不了',
-        reason: `高风险章必须满审，还需要 3 次调用；当前只剩 ${remaining} 次，请提额或降低前序 best-of-N。`,
+        reason: `高风险章必须满审，还需要 ${fullCalls} 次调用；当前只剩 ${remaining} 次，请提额或降低前序 best-of-N。`,
       }
     }
-    return { ok: true, requested_tier: 'full', tier: 'full', calls: 3, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+    return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
   }
 
-  if (input.capabilities.parallel_subagents && remaining >= 3) {
-    return { ok: true, requested_tier: 'full', tier: 'full', calls: 3, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+  if (input.capabilities.parallel_subagents && remaining >= fullCalls) {
+    return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
   }
 
-  if (!input.capabilities.parallel_subagents && input.capabilities.multiple_calls && remaining >= 3) {
+  if (!input.capabilities.parallel_subagents && input.capabilities.multiple_calls && remaining >= fullCalls) {
     return {
       ok: true,
       requested_tier: 'full',
       tier: 'sequential',
-      calls: 3,
+      calls: fullCalls,
       fallback: '无并行能力',
       lenses_run: lensesRun,
       ledger_check: '已跑',
@@ -296,7 +300,7 @@ export function selectReviewTier(input: {
       ledger_check: '已跑',
       downgrade_reason: input.capabilities.parallel_subagents
         ? '剩余调用不足以跑满审，普通章降级为合审。'
-        : '当前宿主或预算不足以跑三次审查，普通章降级为合审。',
+        : '当前宿主或预算不足以跑满审，普通章降级为合审。',
     }
   }
 

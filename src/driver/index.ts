@@ -32,3 +32,12 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
   sessions.set(bookId, session)
   return session
 }
+
+/** 清除某书的 session（删书时调用，释放 channel + ctrl 等资源） */
+export function forgetSession(bookId: string): void {
+  const session = sessions.get(bookId)
+  if (session) {
+    getDriver('cc').dispose(session)
+    sessions.delete(bookId)
+  }
+}

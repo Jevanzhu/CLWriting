@@ -18,6 +18,8 @@ import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
 import { buildSettingsContext } from '../../../process/settings-context.js'
+import { countWords } from '../../../format/words.js'
+import { bodyOf } from '../../../format/frontmatter.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OutlineCtx {
@@ -59,14 +61,20 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const content = result.text
     const outlineDir = join(bookRoot, '工作区')
     const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
+    // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
+    // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
+    // AI 产出自身以 --- 开头时原样落盘（罕见，readOutlineLeads 走宽容路径不比对）。
+    const withFm = content.startsWith('---')
+      ? content
+      : `---\n章号: ${chapter}\n---\n\n${content}`
     try {
       mkdirSync(outlineDir, { recursive: true })
-      atomicWriteFile(join(outlineDir, `细纲.md`), content || '(空细纲)')
+      atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
     } catch (e) {
       // P2-4：API 错误脱敏
       return reply(res, 500, { error: `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}` })
     }
-    reply(res, 200, { ok: true, path: relPath, words: content.length })
+    reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
   })
 }
 

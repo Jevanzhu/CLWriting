@@ -33,6 +33,11 @@ export function getLastInitialBook(): string | null {
   return initialBook
 }
 
+/** 供 SSE EventSource URL 携带 token（EventSource API 不支持自定义 header） */
+export function getToken(): string | null {
+  return token
+}
+
 /** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。init.signal 透传，调用方可用于取消。*/
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
@@ -49,9 +54,10 @@ export async function apiJson<T>(
   timeoutMs?: number,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
   const controller = timeoutMs ? new AbortController() : undefined
   if (controller) {
-    timer = setTimeout(() => controller!.abort(), timeoutMs)
+    timer = setTimeout(() => { timedOut = true; controller!.abort() }, timeoutMs)
     // 外部 signal 联动：外部 abort → 内部也 abort
     init?.signal?.addEventListener('abort', () => controller!.abort(), { once: true })
   }
@@ -67,8 +73,8 @@ export async function apiJson<T>(
     }
     return data
   } catch (e) {
-    // 超时 abort 抛友好错误
-    if (e instanceof DOMException && e.name === 'AbortError' && timer) {
+    // 超时 abort 抛友好错误（timedOut 区分超时 abort 与外部 signal abort）
+    if (e instanceof DOMException && e.name === 'AbortError' && timedOut) {
       throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
     }
     throw e

@@ -103,7 +103,7 @@ describe('POST /outline（大纲生成）', () => {
     expect(existsSync(join(bookRoot, '工作区', '细纲.md'))).toBe(true)
   })
 
-  it('非 mock 环境 + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
+  it('outline 非 mock + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
     delete process.env['CLWRITING_DRIVER']
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
     expect(r.status).toBe(500)
@@ -127,7 +127,7 @@ describe('POST /onboard-ai（开书引导）', () => {
     expect(existsSync(join(bookRoot, '大纲', '总纲.md'))).toBe(true)
   })
 
-  it('非 mock 环境 + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
+  it('onboard-ai 非 mock + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
     delete process.env['CLWRITING_DRIVER']
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, { step: 'characters' })
     expect(r.status).toBe(500)

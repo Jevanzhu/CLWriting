@@ -1,6 +1,7 @@
 import { watch, onUnmounted, type WatchSource } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
+import { getToken } from '../api/client'
 
 /**
  * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑），
@@ -25,7 +26,9 @@ export function useSse(bookName: WatchSource<string>): void {
 
   function doConnect(): void {
     const base = import.meta.env.DEV ? 'http://127.0.0.1:7878' : ''
-    es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream`)
+    const t = getToken()
+    const tokenQuery = t ? `?token=${encodeURIComponent(t)}` : ''
+    es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream${tokenQuery}`)
     es.onopen = () => {
       errorCount = 0
       wb.setConnected(true)

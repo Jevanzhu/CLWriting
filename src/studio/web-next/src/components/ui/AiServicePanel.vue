@@ -2,7 +2,7 @@
 // AI 服务服务商管理面板（设置页「服务商」tab 的内容）。
 // 应用级配置，跨书共享，存 userData/providers.json。
 import { ref, onMounted } from 'vue'
-import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil } from 'lucide-vue-next'
+import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil, RefreshCw } from 'lucide-vue-next'
 import {
   getProviders,
   createProvider,
@@ -16,11 +16,13 @@ import {
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
+  type AuthStrategy,
   type TestResult,
   type TierSlot,
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
+import { useChatTier } from '../../composables/useChatTier'
 
 const ui = useUiStore()
 
@@ -29,9 +31,22 @@ const currentId = ref<string | null>(null)
 const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
+// 测试连接用的模型——按服务商分卡独立（默认当前模型，可手动切换；
+// 不选时后端回落该服务商的 conf.model）
+const probeModels = ref<Map<string, string>>(new Map())
+
+function probeModelOf(p: ProviderConfDto): string {
+  return probeModels.value.get(p.id) ?? ''
+}
+function setProbeModel(p: ProviderConfDto, e: Event): void {
+  probeModels.value.set(p.id, (e.target as HTMLSelectElement).value)
+}
 
 // 任务档位（D 档：创作档/助手档/对话档）
-const models = ref<string[]>([])
+// V-P2-26：模型清单按服务商分存——共享单份清单时，非当前供应商的「测试模型」
+// 下拉显示的是别家模型，选中即 404 且看不出原因。
+const modelsByProvider = ref<Map<string, string[]>>(new Map())
+const fetchingModelIds = new Set<string>()
 const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: TierSlot | null }>({
   creative: { model: '', effort: 'xhigh' },
   assistant: null,
@@ -40,6 +55,60 @@ const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: Tie
 const assistantEnabled = ref(false)
 const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
+const fetchingModels = ref(false)
+
+/** 服务商 p 的模型清单（未拉取 → 空，模板据此显示引导文案）。 */
+function modelsOf(p: ProviderConfDto): string[] {
+  return modelsByProvider.value.get(p.id) ?? []
+}
+
+/** 档位下拉用：当前供应商的模型清单。 */
+const currentModels = (): string[] =>
+  (currentId.value ? (modelsByProvider.value.get(currentId.value) ?? []) : [])
+
+/**
+ * 拉取服务商模型清单（幂等去重 + 探测模型回落）。
+ * @param opts.fallbackModel 全局当前模型在清单内时优先作探测默认
+ * @param opts.force 已有缓存也重拉（「获取模型列表」手动重试）
+ */
+async function ensureModels(
+  p: { id: string },
+  opts: { fallbackModel?: string; force?: boolean; silent?: boolean } = {},
+): Promise<void> {
+  if (fetchingModelIds.has(p.id)) return
+  if (!opts.force && modelsByProvider.value.has(p.id)) return
+  fetchingModelIds.add(p.id)
+  try {
+    const r = await fetchModels({ id: p.id })
+    modelsByProvider.value.set(p.id, r.models)
+    // 探测模型：空 / 不在新清单 → 回落（全局模型在清单内优先，否则取首个）；
+    // 已在清单 → 保留手动选择（测试完成 refresh 不重置作者的选择）
+    const cur = probeModels.value.get(p.id) ?? ''
+    if (!cur || !r.models.includes(cur)) {
+      const fallback =
+        opts.fallbackModel && r.models.includes(opts.fallbackModel) ? opts.fallbackModel : (r.models[0] ?? '')
+      probeModels.value.set(p.id, fallback)
+    }
+    if (!opts.silent) ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
+  } catch (e) {
+    if (!opts.silent) ui.toast(friendlyError(e), 'error')
+    if (opts.force) modelsByProvider.value.set(p.id, [])
+  } finally {
+    fetchingModelIds.delete(p.id)
+  }
+}
+
+/** 手动获取模型列表（初始拉取失败时的重试入口，档位区按钮）。 */
+async function fetchModelList(): Promise<void> {
+  if (!currentId.value || fetchingModels.value) return
+  fetchingModels.value = true
+  try {
+    const cur = providers.value.find((x) => x.id === currentId.value)
+    if (cur) await ensureModels(cur, { force: true })
+  } finally {
+    fetchingModels.value = false
+  }
+}
 
 // 编辑/新增表单
 const editing = ref(false)
@@ -47,14 +116,11 @@ const editId = ref<string | null>(null)
 const form = ref({
   name: '',
   protocol: 'openai' as Protocol,
+  auth: 'bearer' as AuthStrategy,
   baseUrl: '',
   apiKey: '',
 })
 
-const PROTOCOL_OPTIONS: { value: Protocol; label: string; hint: string }[] = [
-  { value: 'anthropic', label: 'Anthropic', hint: 'Anthropic API 格式' },
-  { value: 'openai', label: 'OpenAI', hint: 'OpenAI API 格式' },
-]
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -69,11 +135,14 @@ async function refresh(): Promise<void> {
     tierForm.value.chat = data.tiers.chat ? { ...data.tiers.chat } : null
     chatTierEnabled.value = !!data.tiers.chat
     if (currentId.value) {
-      try {
-        const r = await fetchModels({ id: currentId.value })
-        models.value = r.models
-      } catch {
-        models.value = []
+      const cur = providers.value.find((x) => x.id === currentId.value)
+      if (cur) {
+        try {
+          // V-P2-26：清单按服务商入缓存（拉取失败不崩，档位区可手动重试）
+          await ensureModels(cur, { fallbackModel: data.currentModel ?? undefined, silent: true })
+        } catch {
+          /* 静默：fetchModelList 可重试 */
+        }
       }
     }
   } catch (e) {
@@ -83,18 +152,21 @@ async function refresh(): Promise<void> {
   }
 }
 
-onMounted(refresh)
+onMounted(() => {
+  void refresh()
+})
 
 function startAdd(): void {
   editing.value = true
   editId.value = null
-  form.value = { name: '', protocol: 'openai', baseUrl: '', apiKey: '' }
+  form.value = { name: '', protocol: 'openai', auth: 'bearer', baseUrl: '', apiKey: '' }
 }
 
 function startEdit(p: ProviderConfDto): void {
   editing.value = true
   editId.value = p.id
-  form.value = { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, apiKey: '' }
+  // 旧配置可能无 auth → 按协议推断（anthropic 官方 / openai bearer）
+  form.value = { name: p.name, protocol: p.protocol, auth: p.auth ?? (p.protocol === 'anthropic' ? 'anthropic' : 'bearer'), baseUrl: p.baseUrl, apiKey: '' }
 }
 
 function cancelEdit(): void {
@@ -102,17 +174,10 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-function selectPreset(protocol: Protocol): void {
-  form.value.protocol = protocol
-}
-
-/** 空状态快捷填充：官方 API 预设（打开新增表单并预填常见地址） */
-function quickFill(protocol: Protocol): void {
-  startAdd()
-  form.value.protocol = protocol
-  form.value.baseUrl = protocol === 'anthropic'
-    ? 'https://api.anthropic.com'
-    : 'https://api.openai.com/v1'
+/** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai→bearer） */
+function selectProtocol(p: Protocol): void {
+  form.value.protocol = p
+  form.value.auth = p === 'anthropic' ? 'anthropic' : 'bearer'
 }
 
 async function save(): Promise<void> {
@@ -166,6 +231,13 @@ async function activate(p: ProviderConfDto): Promise<void> {
     currentId.value = p.id
     // P0-2：切换当前服务商后工作台/开书按钮应立即可用
     void ui.probeAiStatus()
+    // 切服务商 → 模型清单/探测模型跟随新服务商（否则测试下拉仍是旧服务商清单，
+    // 测旧模型名会 404 且看不出原因）
+    try {
+      await ensureModels(p, { force: true, silent: true })
+    } catch {
+      /* 拉取失败不阻塞启用；「获取模型列表」可手动重试 */
+    }
     ui.toast(`已启用「${p.name}」`, 'success')
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
@@ -175,7 +247,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
 async function test(p: ProviderConfDto): Promise<void> {
   testing.value = p.id
   try {
-    const r = await testProvider(p.id)
+    const r = await testProvider(p.id, probeModels.value.get(p.id) || undefined)
     testResults.value.set(p.id, r)
     // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
     void ui.probeAiStatus()
@@ -215,8 +287,12 @@ async function saveTiers(): Promise<void> {
     void ui.probeAiStatus()
     ui.toast('档位已保存', 'success')
     await refresh()
+    // 配置变更 → 刷新对话档位下拉（ChatPanel/ChatDock 共用的单例）
+    void useChatTier().refresh()
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
+    // 部分保存失败 → 回读服务端状态，防本地与服务端不一致
+    await refresh()
   } finally {
     tierSaving.value = false
   }
@@ -225,8 +301,7 @@ async function saveTiers(): Promise<void> {
 function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | null {
   if (!caps) return null
   if (!caps.connected) return { text: '连接失败', cls: 'bad' }
-  const parts = ['已连接']
-  return { text: parts.join(' · '), cls: 'ok' }
+  return { text: '已连接', cls: 'ok' }
 }
 
 function timeAgo(ts: number | undefined): string {
@@ -252,11 +327,7 @@ function timeAgo(ts: number | undefined): string {
 
       <div v-else-if="providers.length === 0" class="empty">
         <p>尚未配置任何 AI 服务商</p>
-        <div class="preset-quick">
-          <button class="preset-quick-btn" @click="quickFill('anthropic')">Anthropic 官方</button>
-          <button class="preset-quick-btn" @click="quickFill('openai')">OpenAI 官方</button>
-        </div>
-        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />自定义服务商</button>
+        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加服务商</button>
       </div>
 
       <template v-else>
@@ -275,6 +346,20 @@ function timeAgo(ts: number | undefined): string {
               >
                 <Check :size="13" />
               </button>
+              <!-- 测试模型 + 下拉（挪到测试按钮前，与按钮同行） -->
+              <span class="probe-inline" :title="modelsOf(p).length ? '测试连接用模型' : '点击下拉获取该服务商的模型清单'">
+                <span class="probe-hint">测试模型</span>
+                <select
+                  :value="probeModelOf(p)"
+                  class="probe-select"
+                  :disabled="!modelsOf(p).length"
+                  @focus="ensureModels(p, { silent: true })"
+                  @change="setProbeModel(p, $event)"
+                >
+                  <option value="" disabled>{{ modelsOf(p).length ? '选择模型' : '点此获取清单' }}</option>
+                  <option v-for="m in modelsOf(p)" :key="m" :value="m">{{ m }}</option>
+                </select>
+              </span>
               <button
                 class="mini-btn"
                 :class="{ testing: testing === p.id }"
@@ -298,10 +383,10 @@ function timeAgo(ts: number | undefined): string {
             <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
             <span class="key">{{ p.apiKeyMasked }}</span>
           </div>
-          <!-- caps 徽章 -->
-          <div v-if="p.caps" class="caps-row">
-            <span class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
-            <span class="probed-at">上次检查 {{ timeAgo(p.capsProbedAt) }}</span>
+          <!-- caps 徽章（测试模型已挪到测试按钮前） -->
+          <div class="provider-meta">
+            <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
+            <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
           </div>
           <!-- 测试结果详情 -->
           <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
@@ -317,8 +402,15 @@ function timeAgo(ts: number | undefined): string {
       </template>
 
       <!-- 任务档位 -->
-      <div v-if="currentId && models.length > 0" class="tier-section">
-        <div class="group-title">任务档位</div>
+      <div v-if="currentId" class="tier-section">
+        <div class="group-title">
+          任务档位
+          <button class="add-btn" :disabled="fetchingModels" @click="fetchModelList">
+            <Loader2 v-if="fetchingModels" :size="14" class="spin" />
+            <RefreshCw v-else :size="14" />
+            {{ fetchingModels ? '获取中…' : '获取模型列表' }}
+          </button>
+        </div>
         <div class="tier-card">
           <div class="tier-head">
             <span class="tier-name">创作档</span>
@@ -326,8 +418,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div class="tier-fields">
             <select v-model="tierForm.creative.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.creative.effort" class="tier-select sm">
               <option value="max">max</option>
@@ -348,8 +440,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
             <select v-model="tierForm.assistant.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.assistant.effort" class="tier-select sm">
               <option value="max">max</option>
@@ -370,8 +462,8 @@ function timeAgo(ts: number | undefined): string {
           </div>
           <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
             <select v-model="tierForm.chat.model" class="tier-select">
-              <option value="" disabled>选择模型</option>
-              <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
             </select>
             <select v-model="tierForm.chat.effort" class="tier-select sm">
               <option value="max">max</option>
@@ -392,20 +484,20 @@ function timeAgo(ts: number | undefined): string {
     <template v-else>
       <div class="group-title">{{ editId ? '编辑服务商' : '新增服务商' }}</div>
       <div class="form">
-        <!-- 协议模板选择 -->
+        <!-- 协议类型选择 -->
         <div class="form-row">
           <label>类型</label>
-          <div class="preset-list">
+          <div class="protocol-toggle">
             <button
-              v-for="(opt, i) in PROTOCOL_OPTIONS"
-              :key="i"
-              class="preset-btn"
-              :class="{ on: form.protocol === opt.value }"
-              @click="selectPreset(opt.value)"
-            >
-              <span class="preset-label">{{ opt.label }}</span>
-              <span class="preset-hint">{{ opt.hint }}</span>
-            </button>
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'openai' }"
+              @click="selectProtocol('openai')"
+            >OpenAI 兼容</button>
+            <button
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'anthropic' }"
+              @click="selectProtocol('anthropic')"
+            >Anthropic</button>
           </div>
         </div>
 
@@ -437,21 +529,20 @@ function timeAgo(ts: number | undefined): string {
 </template>
 
 <style scoped>
-.ai-service-panel {
-  max-width: 680px;
-}
-
-/* ── 分组标题 ── */
+/* ── 分组标题（对齐设置页 cfg-card-head 风格） ── */
 .group-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding-bottom: var(--size-4-2);
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 var(--size-4-1);
+  margin-top: var(--size-4-5);
+  margin-bottom: var(--size-4-2);
+}
+.group-title:first-child {
+  margin-top: 0;
 }
 
 /* ── 添加按钮 ── */
@@ -492,27 +583,8 @@ function timeAgo(ts: number | undefined): string {
   background: var(--background-modifier-hover);
 }
 
-/* ── 空状态快捷预设 ── */
-.preset-quick {
-  display: flex;
-  gap: 8px;
-}
-.preset-quick-btn {
-  padding: 6px 14px;
-  font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 99px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.preset-quick-btn:hover {
-  color: var(--text-normal);
-  border-color: var(--interactive-accent);
-}
 
-/* ── 空状态 ── */
+/* ── 空状态（对齐设置页 .empty-tab） ── */
 .empty {
   display: flex;
   flex-direction: column;
@@ -522,14 +594,20 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-faint);
   font-size: var(--font-size-s);
 }
+.empty p {
+  margin: 0;
+}
 
-/* ── 服务商卡片 ── */
+/* ── 服务商卡片（对齐设置页 cfg-card 风格：12px 圆角 + 项 hover） ── */
 .provider-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: 12px;
   margin-bottom: var(--size-4-2);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.provider-card:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 }
 .provider-card.active {
   border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
@@ -627,6 +705,43 @@ function timeAgo(ts: number | undefined): string {
   white-space: nowrap;
 }
 
+/* ── 测试模型选择（与测试按钮同行，同高协调） ── */
+.probe-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px; /* 与 provider-actions 按钮间距同步 */
+  margin-right: 0;
+}
+.probe-hint {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+.probe-select {
+  max-width: 150px;
+  padding: 3px 8px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.probe-select:hover:not(:disabled) {
+  border-color: var(--interactive-accent);
+}
+.probe-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+.probe-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ── caps 徽章 ── */
 .caps-row {
   display: flex;
@@ -700,8 +815,10 @@ function timeAgo(ts: number | undefined): string {
   font-weight: 600;
   color: var(--text-muted);
 }
+/* 表单输入框对齐设置页全局 .text-input（设置弹窗全局类已定义，此处仅随 scoped 兜底） */
 .text-input {
-  padding: 8px 12px;
+  width: 100%;
+  padding: 6px 10px;
   font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary);
@@ -714,39 +831,29 @@ function timeAgo(ts: number | undefined): string {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
-.preset-list {
+.protocol-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
-.preset-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: var(--background-secondary);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-  text-align: left;
-}
-.preset-btn:hover {
-  border-color: var(--interactive-accent);
-}
-.preset-btn.on {
-  border-color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
-}
-.preset-label {
+.protocol-btn {
+  padding: 8px 16px;
   font-size: var(--font-size-s);
   font-weight: 500;
-  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.preset-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
+.protocol-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.protocol-btn.on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  color: var(--text-normal);
 }
 
 .form-actions {
@@ -799,8 +906,12 @@ function timeAgo(ts: number | undefined): string {
 .tier-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: 12px;
   margin-bottom: var(--size-4-2);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.tier-card:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 }
 .tier-head {
   display: flex;
@@ -810,7 +921,7 @@ function timeAgo(ts: number | undefined): string {
 }
 .tier-name {
   font-size: var(--font-size-s);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-normal);
 }
 .tier-desc {
@@ -841,6 +952,12 @@ function timeAgo(ts: number | undefined): string {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.tier-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .tier-select.sm {
   flex: 0 0 auto;

@@ -133,11 +133,9 @@ describe('GET /tree-issues 树红点聚合（T9b）', () => {
     }
     expect(j.ok).toBe(true)
     // 0001：fm 章 99 ≠ 文件名 0001 → hasRed=true
-    expect(j.issues[redDocId]).toBeDefined()
-    expect(j.issues[redDocId]!.hasRed).toBe(true)
-    expect(j.issues[redDocId]!.verdictRejected).toBe(false)
+    expect(j.issues[redDocId]).toEqual(expect.objectContaining({ hasRed: true, verdictRejected: false }))
     // 0002：fm 干净 hasRed=false，verdict 驳回 verdictRejected=true
-    expect(j.issues[verdictDocId]).toBeDefined()
+    expect(j.issues[verdictDocId]).toEqual(expect.objectContaining({ hasRed: false, verdictRejected: true }))
     expect(j.issues[verdictDocId]!.hasRed).toBe(false)
     expect(j.issues[verdictDocId]!.verdictRejected).toBe(true)
   })
@@ -156,7 +154,7 @@ describe('GET /tree-issues 树红点聚合（T9b）', () => {
     // 0002 fm 干净 + verdict 通过 → 不入 issues（仅 hasRed 或 verdictRejected 才入）
     expect(j.issues[verdictDocId]).toBeUndefined()
     // 0001 仍 fm red（不受 verdict 影响）
-    expect(j.issues[redDocId]).toBeDefined()
+    expect(j.issues[redDocId]).toEqual(expect.objectContaining({ hasRed: true }))
   })
 })
 

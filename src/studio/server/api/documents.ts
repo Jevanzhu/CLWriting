@@ -9,13 +9,13 @@
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
+import { invalidateBookSummary } from './progress.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 
@@ -76,6 +76,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
 
       const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
+        // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
+        invalidateBookSummary(r.bookRoot)
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
@@ -115,6 +117,28 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
       }
       reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
+    },
+  )
+
+  // ── 批量定稿（P2-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
+  // body { docIds: string[] }；逐个 finalizeRevision（同步串行，天然无 SQLite 写锁冲突）。
+  // 单条失败不中断：返回逐条结果，前端汇总 toast。
+  route(
+    'POST',
+    '/api/books/:name/documents/batch-finalize',
+    async (req: IncomingMessage, res: ServerResponse, params) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return reply(res, r.status, { error: r.error })
+      const body = await readJson(req)
+      const docIds = Array.isArray(body?.docIds) ? body.docIds : null
+      if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
+        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
+      }
+      const results = docIds.map((docId) => {
+        const o = finalizeRevision(r.bookRoot, docId)
+        return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
+      })
+      reply(res, 200, { ok: true, results })
     },
   )
 
@@ -333,13 +357,3 @@ function structStatus(code: string): number {
   }
 }
 
-function resolveBook(
-  workDir: string | null,
-  name: string | undefined,
-): { bookRoot: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
-  return { bookRoot: join(workDir, entry.path) }
-}

@@ -1,5 +1,5 @@
 /**
- * 书架共享逻辑：分组 + 最新书 + 视图模式 + 建书表单 + 格式化纯函数。
+ * 书架共享逻辑：分组 + 搜索/排序 + 最新书 + 视图模式 + 建书表单 + 格式化纯函数。
  * Shelf.vue（全屏页）与 ShelfModal.vue（浮层）共用，差异仅在选书后的跳转。
  */
 import { ref, computed } from 'vue'
@@ -56,17 +56,57 @@ export function useShelf(options?: {
 }) {
   const shelf = useShelfStore()
 
+  // ── 搜索 + 排序（P2-PROD-6）────────────────────
+  /** 搜索词（按书名模糊匹配） */
+  const query = ref('')
+  type SortBy = 'recent' | 'created' | 'name'
+  /** 排序方式：最近打开 / 创建时间 / 字母序（localStorage 持久化） */
+  const sortBy = ref<SortBy>(loadSortPreference())
+  const SORT_KEY = 'clw-shelf-sort'
+  function loadSortPreference(): SortBy {
+    try {
+      const v = localStorage.getItem(SORT_KEY)
+      return v === 'recent' || v === 'created' || v === 'name' ? v : 'recent'
+    } catch {
+      return 'recent'
+    }
+  }
+  function setSortBy(v: SortBy): void {
+    sortBy.value = v
+    try {
+      localStorage.setItem(SORT_KEY, v)
+    } catch {
+      /* localStorage 不可用时忽略 */
+    }
+  }
+
+  /** 按搜索词过滤 + 排序后的完整书列表 */
+  const filteredBooks = computed(() => {
+    const q = query.value.trim().toLowerCase()
+    const books = q
+      ? shelf.books.filter((b) => (b.title ?? b.name).toLowerCase().includes(q))
+      : [...shelf.books]
+    switch (sortBy.value) {
+      case 'name':
+        return books.sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name, 'zh-CN'))
+      case 'created':
+        return books.sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
+      default: // recent
+        return books.sort((a, b) => new Date(b.lastEdited ?? 0).getTime() - new Date(a.lastEdited ?? 0).getTime())
+    }
+  })
+
   // 按 kind 分组（长篇/短篇），空组不渲染
   const groups = computed(() => {
-    const longBks = shelf.books.filter((b) => b.kind !== 'short')
-    const shortBks = shelf.books.filter((b) => b.kind === 'short')
+    const longBks = filteredBooks.value.filter((b) => b.kind !== 'short')
+    const shortBks = filteredBooks.value.filter((b) => b.kind === 'short')
     return [
       { title: '长篇', books: longBks },
       { title: '短篇', books: shortBks },
     ].filter((g) => g.books.length)
   })
 
-  // 最近编辑的书（hero「继续写作」用）
+  // 最近编辑的书（hero「继续写作」用，不受搜索/排序影响——始终取全书最近）
   const latestBook = computed(() => {
     const sorted = shelf.books
       .filter((b) => b.lastEdited)
@@ -172,6 +212,10 @@ export function useShelf(options?: {
     shelf,
     groups,
     latestBook,
+    // 搜索 + 排序（P2-PROD-6）
+    query,
+    sortBy,
+    setSortBy,
     viewMode,
     setView,
     showCreate,

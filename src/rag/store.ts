@@ -52,10 +52,11 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   return db
 }
 
-/** 存一个块（embedding 序列化为 BLOB） */
+/** 存一个块（embedding 序列化为 BLOB）。
+ *  V-P2-3：INSERT OR REPLACE——(章号, 偏移, 模型) 有唯一键，同块重写幂等不重复。 */
 export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
   const stmt = db.prepare(
-    `INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at)
+    `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   )
   stmt.run(

@@ -12,6 +12,7 @@ import type {
   GenEvent,
   TokenUsage,
 } from './provider/types.js'
+import { quirksFor } from './provider/model-quirks.js'
 
 /** 生成错误 */
 export class GenError extends Error {
@@ -27,6 +28,8 @@ export class GenError extends Error {
 export interface GenResult {
   /** 纯文本产出（tool_use 模式下可能为空） */
   text: string
+  /** 思维链产出（DeepSeek/Kimi 思考模型的 reasoning_content，方案 §4.2） */
+  reasoning: string
   /** tool_use 调用（结构化产出） */
   toolCalls: { id: string; name: string; input: unknown }[]
   usage: TokenUsage
@@ -59,8 +62,11 @@ export async function* withFirstByteTimeout(
       if (result.done) { await it.return?.(); return }
       yield result.value
     } catch (e) {
-      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）
-      await it.return?.()
+      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
+      // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
+      // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
+      // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
+      void it.return?.()
       throw e
     } finally {
       if (timer) clearTimeout(timer)
@@ -80,16 +86,24 @@ export async function generate(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<GenResult> {
+  // #6（表驱动重构）：模型不支持工具调用（chat 路径直调 generate）→ 剥掉 tools，
+  // 防不支持工具的模型收到 tools 数组 → 400 或静默忽略（学 canModelConsumeTools）
+  const q = quirksFor(provider.conf.model ?? '')
+  const effective: GenRequest = !q.toolUse && req.tools?.length ? { ...req, tools: undefined } : req
   let text = ''
+  const reasoning: string[] = []
   const toolCalls: { id: string; name: string; input: unknown }[] = []
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
 
-  for await (const ev of withFirstByteTimeout(provider.stream(req, signal), FIRST_BYTE_TIMEOUT_MS)) {
+  for await (const ev of withFirstByteTimeout(provider.stream(effective, signal), FIRST_BYTE_TIMEOUT_MS)) {
     switch (ev.type) {
       case 'text':
         text += ev.delta
         onText?.(ev.delta)
+        break
+      case 'reasoning':
+        reasoning.push(ev.delta)
         break
       case 'tool':
         toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
@@ -103,7 +117,7 @@ export async function generate(
     }
   }
 
-  return { text, toolCalls, usage, stopReason }
+  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason }
 }
 
 /**
@@ -134,15 +148,30 @@ export async function generateTool(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string }> {
+  // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
+  const q = quirksFor(provider.conf.model ?? '')
   // P0-2：模型不支持工具调用 → 提前拒绝（避免进入生成阶段拿不到 tool_use 再降级失败浪费 token）
-  if (provider.modelCaps?.toolUse === false) {
+  if (!q.toolUse) {
     throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false)
   }
-  // 模型级 caps.toolChoice=true → 强制工具调用（确保结构化产出）；null/false 则依赖 prompt 引导 + text 兜底
-  // 强制工具调用仅在调用方未指定 toolChoice 时生效（保留调用方的 toolName 精确指向）
-  const effective = provider.modelCaps?.toolChoice && !req.toolChoice
-    ? { ...req, toolChoice: 'any' as const }
-    : req
+  // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
+  let effective: GenRequest = req
+  if (req.requireTool && req.toolName) {
+    if (q.toolChoiceMode === 'named') {
+      // 可指名 → tool_choice 指名（保留 toolName 精确指向）
+      effective = { ...req, toolChoice: 'tool', toolName: req.toolName }
+    } else if (q.toolChoiceMode === 'required') {
+      // 只能「必须调某个」不能点名（Kimi k3）→ 转 any（OpenAI required / Anthropic any）
+      effective = { ...req, toolChoice: 'any' }
+    } else {
+      // auto/none（GLM / responses 协议）→ 不发 tool_choice，prompt 引导 + 契约层校验重试
+      effective = { ...req, toolChoice: undefined, toolName: undefined }
+    }
+  }
+  // 调用方未指定 toolChoice 且模型可强制 → 强制（确保结构化产出）；auto/none 不强制
+  if (!effective.toolChoice && (q.toolChoiceMode === 'named' || q.toolChoiceMode === 'required')) {
+    effective = { ...effective, toolChoice: 'any' }
+  }
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text

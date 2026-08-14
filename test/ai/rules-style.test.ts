@@ -100,8 +100,7 @@ describe('A3 风格一致规则', () => {
       const body = '一。这是一个非常非常非常非常非常非常非常非常非常非常长的句子。'
       const violations = styleConsistencyRule.check(body, { bookRoot })
       const hit = violations.find((v) => v.message.includes('句长方差'))
-      expect(hit).toBeDefined()
-      expect(hit!.ruleId).toBe('style-consistency')
+      expect(hit).toEqual(expect.objectContaining({ ruleId: 'style-consistency', level: 'yellow' }))
       expect(hit!.level).toBe('yellow')
       expect(hit!.message).toContain('偏离基线')
       expect(hit!.message).toContain('偏高')
@@ -122,8 +121,7 @@ describe('A3 风格一致规则', () => {
       const body = '他推开门走进房间。桌上摆着一杯凉茶。他推开门走进房间。'
       const violations = styleConsistencyRule.check(body, { bookRoot })
       const hit = violations.find((v) => v.message.includes('复读率'))
-      expect(hit).toBeDefined()
-      // message 应含证据关键词和具体词组（非静态建议）
+      expect(hit).toEqual(expect.objectContaining({ ruleId: 'style-consistency', level: 'yellow' }))
       expect(hit!.message).toContain('重复出现')
       expect(hit!.message).toContain('他推开门')
     })
@@ -136,8 +134,7 @@ describe('A3 风格一致规则', () => {
       const body = '他推开门走进房间。桌上摆着一杯凉茶。\n\n总之，这一刻他终于明白了命运的真谛。'
       const violations = styleConsistencyRule.check(body, { bookRoot })
       const hit = violations.find((v) => v.message.includes('结尾总结体'))
-      expect(hit).toBeDefined()
-      // message 应含总结句原文（非静态建议）
+      expect(hit).toEqual(expect.objectContaining({ ruleId: 'style-consistency' }))
       expect(hit!.message).toContain('总之')
       expect(hit!.message).toContain('删去段末总结句')
     })

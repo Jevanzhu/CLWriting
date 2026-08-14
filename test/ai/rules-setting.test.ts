@@ -67,9 +67,7 @@ describe('A3 settingConsistencyRule（设定一致规则）', () => {
       const violations = settingConsistencyRule.check('林远看着「张三」走过来', { bookRoot })
       expect(violations.length).toBeGreaterThanOrEqual(1)
       const hit = violations.find((v) => v.message.includes('张三'))
-      expect(hit).toBeDefined()
-      expect(hit!.ruleId).toBe('setting-consistency')
-      expect(hit!.level).toBe('yellow')
+      expect(hit).toEqual(expect.objectContaining({ ruleId: 'setting-consistency', level: 'yellow' }))
     })
 
     it("正文含已登记名「林远」→ check 不报该名", () => {

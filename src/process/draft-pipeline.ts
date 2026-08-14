@@ -9,14 +9,14 @@ import { join, basename, dirname } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
+import { countWords } from '../format/words.js'
+import { bodyOf } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { buildSettingsContext } from './settings-context.js'
-import { readManifest } from '../document/manifest.js'
+import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { invalidateTreeIndex } from '../document/tree.js'
-import { recordAiVersion } from '../git/ai-track.js'
-import { recordAuthorSignal } from '../ai/author-signal.js'
 
 /** 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失） */
 export function snapshotBeforeOverwrite(
@@ -24,6 +24,7 @@ export function snapshotBeforeOverwrite(
   relPath: string,
   newContent: string,
   origin = 'draft-overwrite',
+  manifest?: Manifest,
 ): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
@@ -36,8 +37,8 @@ export function snapshotBeforeOverwrite(
   if (old === newContent) return null
   // docId：清单反查（编辑器保存的快照同目录）→ 未登记按文件名派生
   let docId: string | undefined
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  for (const e of manifest.entries.values()) {
+  const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  for (const e of m.entries.values()) {
     if (e.path === relPath) {
       docId = e.id
       break
@@ -53,21 +54,24 @@ export function snapshotBeforeOverwrite(
 
 /**
  * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
- * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹。
+ * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查。
  *
- * 闭环中间轮传 `recordAi:false`——中间稿不是作者会手改的对象，
- * 记进文风轨迹只会污染信号（终局那次才记）。落盘失败向上抛，调用方决定回应。
+ * 文风改稿轨迹（recordAuthorSignal + recordAiVersion）由调用方在落盘后显式调用，
+ * 避免 process/ → ai/ 的向上依赖（P1-ARCH-1 循环依赖修复）。
+ * 落盘失败向上抛，调用方决定回应。
  */
 export function saveDraft(
   bookRoot: string,
   chapter: number,
   content: string,
-  opts?: { recordAi?: boolean; snapshotOrigin?: string },
+  opts?: { snapshotOrigin?: string },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
+  // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
-  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin)
+  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest)
   mkdirSync(dirname(absPath), { recursive: true })
   // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
   atomicWriteFile(absPath, content, { fsync: true })
@@ -75,7 +79,6 @@ export function saveDraft(
   invalidateTreeIndex(bookRoot)
   // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
   // 与树扫盘一致，前端可直接 openTab）
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   let docId: string | null = null
   for (const e of manifest.entries.values()) {
     if (e.path === relPath) {
@@ -84,13 +87,8 @@ export function saveDraft(
     }
   }
   const finalDocId = docId ?? legacyId(relPath)
-  // 文风S2 改稿轨迹：AI 产出记旁路 ref（作者手改后可比对挖信号；失败不阻断落盘）
-  if (opts?.recordAi !== false) {
-    // B5 作者信号：先对比上一版（AI 产出）删掉的片段 → 规则命中统计，再记录当前版
-    recordAuthorSignal(bookRoot, finalDocId, content, 'self-heal')
-    recordAiVersion(bookRoot, finalDocId, content)
-  }
-  return { relPath, docId: finalDocId, words: content.length, snapshotted: snapshotId !== null }
+  // Q4：剥 fm 后计字数（与保存协议 service.ts 口径一致，fm 键值不入字数）
+  return { relPath, docId: finalDocId, words: countWords(bodyOf(content)), snapshotted: snapshotId !== null }
 }
 
 function readSafe(fp: string): string {

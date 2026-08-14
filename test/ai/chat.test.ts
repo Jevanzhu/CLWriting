@@ -5,7 +5,7 @@
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
 import { rmSync } from 'node:fs'
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../src/ai/orchestrate/chat.js'
@@ -140,7 +140,7 @@ describe('W2: 工具循环', () => {
 
     // chat_tool_result 事件存在
     const toolResult = events.find((e) => e.type === 'chat_tool_result')
-    expect(toolResult).toBeDefined()
+    expect(toolResult).toEqual(expect.objectContaining({ type: 'chat_tool_result' }))
 
     // 最终有 chat_done
     expect(hasChatDone(events)).toBe(true)
@@ -198,7 +198,7 @@ describe('W2: 写操作确认闸', () => {
     // 等 pending 出现
     await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
     const pending = events.find((e) => e.type === 'chat_tool_pending') as { callId: string } | undefined
-    expect(pending).toBeDefined()
+    expect(pending).toEqual(expect.objectContaining({ type: 'chat_tool_pending' }))
 
     // 确认
     resolveChatConfirm('test4', pending!.callId, true)
@@ -235,7 +235,7 @@ describe('W2: 写操作确认闸', () => {
 
     // 有 tool_result 且 ok=false
     const result = events.find((e) => e.type === 'chat_tool_result') as { ok: boolean; summary: string }
-    expect(result).toBeDefined()
+    expect(result).toEqual(expect.objectContaining({ type: 'chat_tool_result', ok: false }))
     expect(result.ok).toBe(false)
     expect(result.summary).toContain('取消')
 
@@ -267,7 +267,7 @@ describe('W2: 确认超时不挂起', () => {
     })
 
     const result = events.find((e) => e.type === 'chat_tool_result') as { ok: boolean }
-    expect(result).toBeDefined()
+    expect(result).toEqual(expect.objectContaining({ type: 'chat_tool_result', ok: false }))
     expect(result.ok).toBe(false) // 超时 = 取消
     expect(hasChatDone(events)).toBe(true)
   })
@@ -303,7 +303,7 @@ describe('W2: 中断', () => {
     await chatPromise
 
     // 有 chat_error（中断后循环在下一轮头部退出）
-    expect(chatError(events)).toBeTruthy()
+    expect(chatError(events)).not.toBeNull()
     expect(isChatRunning('test7')).toBe(false)
   })
 })
@@ -365,5 +365,131 @@ describe('W2: max_tokens 截断保护', () => {
     expect(chatError(events)).toContain('截断')
     // 不应有工具事件
     expect(events.some((e) => e.type === 'chat_tool')).toBe(false)
+  })
+})
+
+// ─── Q1 锁泄漏回归（review-q P1-Q1）─────────────────
+
+describe('Q1: runChat 并发锁不泄漏', () => {
+  it('buildChatContext 抛异常 → 锁释放，后续对话不 409', async () => {
+    // mock buildChatContext 抛读盘异常（Q1 复现路径：readCharacterCards 降级 readFileSync 抛）
+    const mock = vi.spyOn(await import('../../src/ai/prompts/chat.js'), 'buildChatContext')
+    mock.mockImplementation(() => { throw new Error('模拟读盘异常') })
+
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await expect(
+      runChat({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'testQ1',
+        message: '测试锁释放',
+      }),
+    ).rejects.toThrow('模拟读盘异常')
+
+    // 锁必须已释放——否则后续对话 409「本书正在对话中」
+    expect(isChatRunning('testQ1')).toBe(false)
+
+    mock.mockRestore()
+  })
+})
+
+// ─── R1 历史结构回归（review-r P1-R1）─────────────────
+
+/** messages 中存在连续同 role（Anthropic 400 根因：user/assistant 必须交替） */
+function hasConsecutiveSameRole(messages: unknown[]): boolean {
+  return messages.some((m, i) => {
+    if (i === 0) return false
+    const cur = (m as { role?: string }).role
+    const prev = (messages[i - 1] as { role?: string }).role
+    return cur === prev && cur !== undefined
+  })
+}
+
+describe('R1: max_tokens / 触顶后历史不连续 user', () => {
+  it('max_tokens 截断 → 历史回滚，下次对话消息不连续', async () => {
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    // 第一次对话：max_tokens 截断 → chat_error
+    fake.setScript([{ type: 'max_tokens', partial: '半截回复' }])
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'testR1a',
+      message: '第一次问题',
+    })
+    expect(chatError(events)).toContain('截断')
+
+    // 第二次对话：正常回复
+    fake.setScript([{ type: 'text', content: '好的。' }])
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'testR1a',
+      message: '第二次问题',
+    })
+
+    // 第二次请求的 messages 不得连续同 role（P1-R1a 修复验证）
+    const body = fake.lastBody()
+    const messages = Array.isArray(body?.['messages']) ? (body['messages'] as unknown[]) : []
+    expect(messages.length).toBeGreaterThan(0)
+    expect(hasConsecutiveSameRole(messages)).toBe(false)
+  })
+
+  it('5 轮触顶 → 收尾文案入历史，下次对话消息不连续', async () => {
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    // 第一次对话：连续 6 个 tool → 第 5 轮触顶
+    fake.setScript([
+      { type: 'tool', name: 'check_chapter', input: { chapter: 1 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 2 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 3 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 4 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 5 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
+    ])
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'testR1b',
+      message: '查所有章节',
+    })
+    expect(hasChatDone(events)).toBe(true)
+
+    // 第二次对话：正常回复
+    fake.setScript([{ type: 'text', content: '好的。' }])
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'testR1b',
+      message: '继续',
+    })
+
+    const body = fake.lastBody()
+    const messages = Array.isArray(body?.['messages']) ? (body['messages'] as unknown[]) : []
+    expect(messages.length).toBeGreaterThan(0)
+    expect(hasConsecutiveSameRole(messages)).toBe(false)
+    // 历史末尾应是 assistant 收尾文案（P1-R1b：触顶文案入历史）
+    const last = messages.at(-1) as { role?: string } | undefined
+    const secondLast = messages.at(-2) as { role?: string; content?: unknown } | undefined
+    expect(secondLast?.role).toBe('assistant')
+    expect(String(secondLast?.content ?? '')).toContain('工具调用上限')
+    expect(last?.role).toBe('user')
   })
 })

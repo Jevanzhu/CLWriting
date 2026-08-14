@@ -57,12 +57,9 @@ export const useTreeStore = defineStore('tree', () => {
   }
 
   const WORD_ALL = new Set(['chapter', 'piece-body'])
-  const WORD_FINAL = new Set(['chapter', 'piece-body'])
 
   /** 全书已写字数（chapter+piece-body）。 */
   const totalWords = computed(() => sumWords(raw.value, WORD_ALL))
-  /** 全书已定稿字数（chapter+piece-body）。 */
-  const finalizedWords = computed(() => sumWords(raw.value, WORD_FINAL))
 
   /** save 后局部更新某叶子字数（避免重拉整树）。 */
   function updateWordCount(path: string, count: number): void {
@@ -110,9 +107,12 @@ export const useTreeStore = defineStore('tree', () => {
   })
 
   /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。 */
+  let issuesGen = 0
   async function loadIssues(name: string): Promise<void> {
+    const gen = ++issuesGen
     try {
       const r = await getTreeIssues(name)
+      if (gen !== issuesGen) return // 旧书慢响应后到：防覆盖新书红点
       issues.value = r.issues ?? {}
       issuesWarning.value = r.warning ?? null
     } catch {
@@ -122,19 +122,23 @@ export const useTreeStore = defineStore('tree', () => {
 
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
    *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
+  let loadGen = 0
   async function load(name: string, refresh = false): Promise<void> {
+    const gen = ++loadGen
     loading.value = true
     error.value = null
     try {
       const r = await getTree(name, refresh)
+      if (gen !== loadGen) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
       void loadIssues(name)
     } catch (e) {
+      if (gen !== loadGen) return
       error.value = friendlyError(e)
     } finally {
-      loading.value = false
+      if (gen === loadGen) loading.value = false
     }
   }
 
@@ -144,7 +148,6 @@ export const useTreeStore = defineStore('tree', () => {
     byPath,
     byDocId,
     totalWords,
-    finalizedWords,
     updateWordCount,
     revision,
     loading,

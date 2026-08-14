@@ -34,12 +34,12 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-/** 带 fake provider 的 userData */
-function setup(modelCaps?: Parameters<typeof withFakeProvider>[2]): string {
+/** 带 fake provider 的 userData；structuredOk=false → 预置 structured 降级记忆 */
+function setup(structuredOk?: boolean): string {
   const ud = tempUserData()
   dirs.push(ud)
   delete process.env.CLWRITING_DRIVER // 保证走非 mock 分支
-  withFakeProvider(ud, fake.url, modelCaps)
+  withFakeProvider(ud, fake.url, structuredOk)
   return ud
 }
 
@@ -73,12 +73,16 @@ describe('P0-1：CLWRITING_DRIVER 未设时 mockText 不短路', () => {
   })
 })
 
-// ─── P0-2：caps.toolUse=false 的模型走工具型任务被拒 ──────────────────
+// ─── P0-2：unknown 系列（fake-model）表驱动行为 ──────────────────
+// 表驱动重构：能力判据从 modelCaps 探测换成静态表。fake-model 是 unknown 系列
+// → toolUse=true（尝试挂 tools）+ toolChoiceMode=auto → requireTool 意图不发 tool_choice。
 
-describe('P0-2：toolUse:false 的模型不能用于工具型任务', () => {
-  it('generateTool 在 toolUse=false 时抛 GenError（不浪费 token）', async () => {
-    fake.setScript([]) // 重置计数器（P0-2 不应触 stub）
-    const ud = setup({ toolUse: false, toolChoice: false })
+describe('P0-2：unknown 系列表驱动行为', () => {
+  it('generateTool unknown 系列不拒绝，走生成（requireTool 意图转 auto）', async () => {
+    fake.setScript([
+      { type: 'tool', name: 'test_tool', input: { ok: true }, id: 'call_1' },
+    ])
+    const ud = setup()
 
     const out = await runTask<{ input: unknown }>({
       userDataPath: ud,
@@ -89,79 +93,44 @@ describe('P0-2：toolUse:false 的模型不能用于工具型任务', () => {
             systemPrompt: 'test',
             messages: [{ role: 'user', content: 'test' }],
             tools: [{ name: 'test_tool', input_schema: { type: 'object', properties: {} } }],
+            requireTool: true,
+            toolName: 'test_tool',
           },
           signal,
         ),
     })
 
-    // modelCaps.toolUse=false → generateTool 抛 GenError → runTask 包成 GEN_FAIL
-    expect(out.ok).toBe(false)
-    if (!out.ok) {
-      expect(out.code).toBe('GEN_FAIL')
-      expect(out.error).toContain('不支持工具调用')
+    // unknown 系列 toolUse=true → 正常生成，拿到 tool 产出
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.data.input).toEqual({ ok: true })
     }
-    // stub 不应被调用（P0-2 的意义：提前拒绝，不浪费 token）
-    expect(fake.requestCount()).toBe(0)
+    expect(fake.requestCount()).toBeGreaterThanOrEqual(1)
   })
 })
 
-// ─── P0-3：编辑 provider 后 modelCaps 缓存清除 ────────────────────────
+// ─── P0-3：编辑 provider 后 structured 降级记忆清除 ────────────────────────
 
-describe('P0-3：编辑 provider 关键字段后 modelCaps 缓存清除', () => {
-  it('modelCaps.toolUse=false 被拒 → 编辑清缓存 → caps 变 null → 不再拒绝（请求打到 stub）', async () => {
-    const ud = setup({ toolUse: false, toolChoice: false })
+describe('P0-3：编辑 provider 后 structured 降级记忆清除', () => {
+  it('编辑 provider 关键字段 → 清降级记忆（structured 支持状态随端点变化）', async () => {
+    const ud = setup(false)
 
-    // 初始：caps 缓存 toolUse=false → 工具型任务被拒
+    // 初始：降级记忆（structured 不支持）已写入
     const before = loadProviders(ud)
-    expect(before.modelCaps['fake-prov/fake-model']).toEqual({ toolUse: false, toolChoice: false })
+    expect(before.modelCaps['fake-prov/fake-model']).toEqual({ structured: false })
 
-    const blocked = await runTask<{ input: unknown }>({
-      userDataPath: ud,
-      run: (provider, signal) =>
-        generateTool(
-          provider,
-          {
-            systemPrompt: '',
-            messages: [{ role: 'user', content: 'test' }],
-            tools: [{ name: 'test_tool', input_schema: { type: 'object', properties: {} } }],
-          },
-          signal,
-        ),
-    })
-    expect(blocked.ok).toBe(false) // 被拒
-
-    // 模拟编辑 provider（改 baseUrl → 关键字段变更 → 清 modelCaps）
+    // 模拟编辑 provider（改 baseUrl → 关键字段变更 → 清降级记忆）
     const s = loadProviders(ud)
     const conf = s.providers[0]!
     s.providers[0] = { ...conf, baseUrl: 'http://127.0.0.1:9999/v1', caps: null }
-    // P0-3 修复行为：清除该 provider 的 modelCaps 缓存
     const prefix = `${conf.id}/`
     for (const key of Object.keys(s.modelCaps)) {
       if (key.startsWith(prefix)) delete s.modelCaps[key]
     }
     saveProviders(ud, s)
 
-    // 编辑后：caps 缓存已清 → resolveProvider 得 modelCaps=null → generateTool 不拒绝
-    fake.setScript([{ type: 'tool', name: 'test_tool', input: { result: 'ok' } }])
-    fake.requestCount // 记录当前计数（不重置，验证增量）
-
-    const ud2 = setup() // 新目录，caps 为空
-    const after = await runTask<{ input: unknown }>({
-      userDataPath: ud2,
-      run: (provider, signal) =>
-        generateTool(
-          provider,
-          {
-            systemPrompt: '',
-            messages: [{ role: 'user', content: 'test' }],
-            tools: [{ name: 'test_tool', input_schema: { type: 'object', properties: {} } }],
-          },
-          signal,
-        ),
-    })
-
-    expect(after.ok).toBe(true) // caps=null 时不拒绝
-    expect(fake.requestCount()).toBeGreaterThanOrEqual(1) // 请求打到了 stub
+    const after = loadProviders(ud)
+    expect(after.modelCaps['fake-prov/fake-model']).toBeUndefined()
   })
 })
 

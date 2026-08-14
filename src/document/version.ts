@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import type { Revision } from './revision.js'
@@ -96,7 +97,10 @@ export function writeVersion(
   options: WriteVersionOptions = {},
 ): string | null {
   const policy = options.policy ?? DEFAULT_VERSION_POLICY
+  // 默认 force=true（兼容旧快照调用方行为——编辑器保存每次都留底；需节流的调用方显式传 force:false）
   const force = options.force ?? true
+  // docId 防穿越（与 listVersions/readVersion 一致，write 路径也需校验）
+  if (!safeDocId(docId)) return null
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]
 
@@ -127,6 +131,7 @@ export function writeVersion(
 
 /** 列某文档的版本（按 id 降序，新的在前；id 是 ULID 时间排序）。 */
 export function listVersions(versionsDir: string, docId: string): VersionInfo[] {
+  if (!safeDocId(docId)) return []
   const dir = join(versionsDir, docId)
   if (!existsSync(dir)) return []
   const out: VersionInfo[] = []
@@ -145,6 +150,8 @@ export function readVersion(
 ): { content: string; meta: VersionMeta & { time: number } } | null {
   // id 防穿越：ULID 是 26 位 Crockford base32，不含分隔符
   if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
+  // docId 防穿越（manifest 可篡改数据面 defense-in-depth）
+  if (!safeDocId(docId)) return null
   const file = join(versionsDir, docId, `${id}.md`)
   if (!existsSync(file)) return null
   const r = readFile(file)
@@ -246,7 +253,8 @@ export function pruneVersions(
 
   // 数量兜底：留最新的 maxCount 个；pinned 恒在（all 已按 id 降序 = 新在前）
   if (keep.size > policy.maxCount) {
-    const survivors = all.filter((s) => keep.has(s.id) && !pinned.has(s.id)).slice(0, policy.maxCount - pinned.size)
+    // P2-BE-2：pinned >= maxCount 时 maxCount - pinned.size 为负，slice(0, -N) 返回除末尾 N 个外全部（非空）→ Math.max 兜底
+    const survivors = all.filter((s) => keep.has(s.id) && !pinned.has(s.id)).slice(0, Math.max(0, policy.maxCount - pinned.size))
     keep.clear()
     for (const s of pinned) keep.add(s)
     for (const s of survivors) keep.add(s.id)

@@ -1,7 +1,7 @@
 import { apiJson } from './client'
 
 // onboard 开书对话（细案 §2.2 + 服务端 onboard.ts）：分步 AI 生成设定 + 落盘。
-// 长篇 9 步 + 短篇 2 步；realm 仅成长线书（服务端校验）。
+// 长篇 9 步 + 短篇 1 步；realm 仅成长线书（服务端校验）。
 
 export type OnboardStep =
   | 'synopsis'
@@ -13,7 +13,6 @@ export type OnboardStep =
   | 'style-sample'
   | 'style-rules'
   | 'style-quotes'
-  | 'collection-pitch'
   | 'first-outline'
 
 export const STEP_LABEL: Record<OnboardStep, string> = {
@@ -26,7 +25,6 @@ export const STEP_LABEL: Record<OnboardStep, string> = {
   'style-sample': '样章库',
   'style-rules': '文风铁律',
   'style-quotes': '金句库',
-  'collection-pitch': '集子定位',
   'first-outline': '首章细纲',
 }
 
@@ -41,7 +39,6 @@ export const STEP_PATH: Record<OnboardStep, string> = {
   'style-sample': '文风/样章库.md',
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
-  'collection-pitch': '设定/集子定位.md',
   'first-outline': '大纲/首章细纲.md',
 }
 
@@ -56,7 +53,6 @@ export const STEP_DESC: Record<OnboardStep, string> = {
   'style-sample': '文风样章库。5 场景（战斗/对话/抒情/铺陈/爽点）各 200-400 字，供写章时文风对齐。',
   'style-rules': '文风铁律。正文规范、对话标签占比上限、句长方差、重复率上限、题材专属禁忌。',
   'style-quotes': '金句库。20-30 条题材典型金句（角色台词/叙事金句），供写章时点缀。',
-  'collection-pitch': '集子定位。贯穿主题、题材定位、目标读者、整体调性、首章切入点。',
   'first-outline': '首章细纲。目标情绪、核心反转、五段结构、伏笔回收、字数预估。',
 }
 
@@ -77,7 +73,7 @@ export async function onboardAi(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, 180_000) // AI 开书对话超时 3 分钟
 }
 
 // POST /onboard-save {step, content}（作者预览改后落盘）
@@ -89,5 +85,5 @@ export async function onboardSave(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, 30_000)
 }

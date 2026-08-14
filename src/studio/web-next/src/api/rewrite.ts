@@ -23,6 +23,7 @@ export async function runRewriteDoc(
   return apiJson<RewriteResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/rewrite`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    120_000, // AI 改写超时 2 分钟
   )
 }
 

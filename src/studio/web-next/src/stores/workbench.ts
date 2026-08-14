@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards.js'
 
 /**
  * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。
@@ -23,9 +24,7 @@ export interface HealResult {
   path?: string
   error?: string
 }
-/** F-P1-4：SSE 事件字段白名单（拒绝非预期值） */
-const HEAL_PHASES = ['drafting', 'checking', 'rewriting'] as const
-const HEAL_OUTCOMES = ['pass', 'escalate', 'aborted', 'failed'] as const
+/** F-P1-4：SSE 事件字段白名单（拒绝非预期值；白名单常量集中在 sse-guards.ts 的守卫里） */
 
 /** 全自动写章进度（self_heal_progress：第 attempt/maxAttempts 次重写 + 剩余红项）。 */
 export interface HealProgress {
@@ -51,22 +50,24 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   /** SSE 连接态。 */
   const connected = ref(false)
   /** 全自动写章：当前阶段 / 重写进度 / 终局（null = 未在跑或已清）。 */
-  const healPhase = ref<'drafting' | 'checking' | 'rewriting' | null>(null)
+  const healPhase = ref<'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done' | null>(null)
   const healProgress = ref<HealProgress | null>(null)
   const healResult = ref<HealResult | null>(null)
+  /** P2-3 批量连写进度：total / 已完成章数 / 中途停下的章号（null = 单章或未在跑） */
+  const batchProgress = ref<{ done: number; total: number; stoppedAt: number | null } | null>(null)
   /** 非致命警告（如 max_tokens 截断）——UI watch 后 toast。null = 无。 */
   const warning = ref<string | null>(null)
 
   /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
-    if (typeof ev !== 'object' || ev === null) return
-    const raw = ev as Record<string, unknown>
+    // P2-2：type guard 基础守卫（取代手写 typeof + as Record）
+    if (!isSseEvent(ev)) return
     // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
-    if (raw['type'] === 'sync') {
-      running.value = raw['running'] === true
+    if (ev.type === 'sync') {
+      running.value = ev['running'] === true
       return
     }
-    const e = { ...raw, _ts: ts() } as SseEvent
+    const e = { ...ev, _ts: ts() } as SseEvent
     log.value.push(e)
     if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)
     if (e.type === 'role_spawn') {
@@ -76,12 +77,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       healPhase.value = null
       healProgress.value = null
       healResult.value = null
+      batchProgress.value = null
     } else if (e.type === 'init') {
       // 会话建连元数据（mock driver 每次连接都发）——不代表生成在途，不置 running
       textOut.value = ''
       healPhase.value = null
       healProgress.value = null
       healResult.value = null
+      batchProgress.value = null
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
     }
@@ -89,32 +92,40 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
-      // F-P1-4：白名单校验（防 SSE 非预期值致 UI 渲染异常）
-      if (HEAL_PHASES.includes(e.phase as typeof HEAL_PHASES[number])) {
-        healPhase.value = e.phase as typeof HEAL_PHASES[number]
-      }
+      // F-P1-4：白名单校验在 isHealPhaseEvent 守卫内（防 SSE 非预期值致 UI 渲染异常）
+      if (isHealPhaseEvent(e)) healPhase.value = e.phase
     } else if (e.type === 'self_heal_progress') {
       healProgress.value = {
         attempt: Number(e.attempt ?? 0),
         maxAttempts: Number(e.maxAttempts ?? 0),
-        remaining: (e.remaining as string[] | undefined) ?? [],
+        remaining: strArr(e.remaining) ?? [],
       }
     } else if (e.type === 'self_heal_result') {
-      const oc = e.outcome as string
-      if (HEAL_OUTCOMES.includes(oc as typeof HEAL_OUTCOMES[number])) {
+      if (isHealResultEvent(e)) {
         healResult.value = {
-          outcome: oc as HealResult['outcome'],
-          ...(e.reds ? { reds: e.reds as string[] } : {}),
-          ...(e.yellows ? { yellows: e.yellows as string[] } : {}),
-          ...(e.docId ? { docId: String(e.docId) } : {}),
-          ...(e.path ? { path: String(e.path) } : {}),
-          ...(e.error ? { error: String(e.error) } : {}),
+          outcome: e.outcome,
+          ...(strArr(e.reds) ? { reds: strArr(e.reds) } : {}),
+          ...(strArr(e.yellows) ? { yellows: strArr(e.yellows) } : {}),
+          ...(str(e.docId) ? { docId: str(e.docId) } : {}),
+          ...(str(e.path) ? { path: str(e.path) } : {}),
+          ...(str(e.error) ? { error: str(e.error) } : {}),
         }
         healPhase.value = null
         healProgress.value = null
       }
+    } else if (e.type === 'self_heal_batch') {
+      // P2-3：批量开跑
+      const total = Number(e.total ?? 0)
+      batchProgress.value = { done: 0, total: total > 0 ? total : 0, stoppedAt: null }
+    } else if (e.type === 'self_heal_batch_progress') {
+      // P2-3：批量中途停（escalate/预算超限）
+      const done = Number(e.done ?? 0)
+      const total = Number(e.total ?? 0)
+      const stoppedAt = e.stoppedAt !== undefined ? Number(e.stoppedAt) : null
+      batchProgress.value = { done, total, stoppedAt }
     } else if (e.type === 'warning') {
-      warning.value = e.message as string
+      const msg = str(e.message)
+      if (msg) warning.value = msg
     }
   }
 
@@ -124,6 +135,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase.value = null
     healProgress.value = null
     healResult.value = null
+    batchProgress.value = null
     warning.value = null
   }
   function setConnected(v: boolean): void {
@@ -138,6 +150,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healPhase,
     healProgress,
     healResult,
+    batchProgress,
     warning,
     dispatch,
     clear,

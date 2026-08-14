@@ -27,7 +27,7 @@ import {
 } from 'electron'
 import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { startServer } from '../studio/server/index.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -388,6 +388,7 @@ function registerIpc(): void {
   // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
   ipcMain.handle('desktop:show-in-folder', (_e, bookName: unknown, relPath: unknown) => {
     if (typeof bookName !== 'string' || typeof relPath !== 'string') return
+    if (relPath.includes('\0')) return
     const workDir = readStore().current
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
@@ -399,11 +400,21 @@ function registerIpc(): void {
     const absPath = resolve(bookRoot, relPath)
     const rel = relative(bookRoot, absPath)
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return
-    if (existsSync(absPath)) shell.showItemInFolder(absPath)
+    // symlink realpath 二次校验（与 HTTP API 层 safePath 一致）
+    if (existsSync(absPath)) {
+      try {
+        const realRoot = realpathSync(bookRoot)
+        const realAbs = realpathSync(absPath)
+        if (relative(realRoot, realAbs).startsWith('..')) return
+        shell.showItemInFolder(realAbs)
+      } catch {
+        /* realpath 失败忽略 */
+      }
+    }
   })
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
   ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
-    if (typeof bookName !== 'string') return
+    if (typeof bookName !== 'string' || bookName.includes('\0')) return
     const workDir = readStore().current
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
@@ -548,8 +559,8 @@ function buildMenu(): void {
         { type: 'separator' },
         { label: '切换亮/暗主题', ...action('theme') },
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
+        // reload 系仅 dev 保留（V-P1-2）：生产下误触整页重载会丢未保存编辑，兜底保存不保证全救回
+        ...(app.isPackaged ? [] : [{ role: 'reload' as const }, { role: 'forceReload' as const }]),
         // 开发者工具仅 dev 显示（打包后隐藏）
         ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
         { type: 'separator' },

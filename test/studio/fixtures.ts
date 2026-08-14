@@ -4,14 +4,13 @@
  * 供 dual-track 回归测 + e2e 复用（mkdtemp 临时目录，内容在代码里，灵活可控）。
  * 内容是测试小说数据（无敏感；不涉 api_key）。覆盖各 API 端点所需结构：
  * - 长篇：book.yaml + 大纲/总纲 + 布线/悬念 + 写作/正文(2章) + 设定(角色/境界) + 文风铁律
- * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 设定/集子定位 + 文风铁律
+ * - 短篇：book.yaml + 写作/正文(2篇 正文) + 大纲/章纲 + 文风铁律
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.js'
-import type { ModelCaps } from '../../src/ai/provider/types.js'
 
 export const LONG_BOOK = '长篇测试书'
 export const SHORT_BOOK = '短篇测试集'
@@ -60,6 +59,12 @@ function makeLongBook(root: string): void {
     join(root, '写作', '正文', '0003-定稿观察.md'),
     '---\n章号: 3\n标题: 定稿观察\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n山洞深处，壁画在火光中浮现。\n\n他伸手触碰，指尖微凉，仿佛听见古老的低语。',
   )
+  // 设定伏笔：关联词「玉佩」命中 0001/0002 正文 → 足迹扫描有命中（e2e foreshadow spec 用）
+  mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
+  writeFileSync(
+    join(root, '设定', '伏笔', '玉佩线索.md'),
+    '---\n标题: 玉佩线索\n状态: 未回收\n埋设章号: 1\n重要性: 高\n关联词: 玉佩\n---\n玉佩来历之谜，第 1 章埋下。\n',
+  )
   mkdirSync(join(root, '设定', '角色'), { recursive: true })
   writeFileSync(
     join(root, '设定', '角色', '林远.md'),
@@ -106,7 +111,7 @@ function makeShortBook(root: string): void {
   mkdirSync(root, { recursive: true })
   writeFileSync(
     join(root, 'book.yaml'),
-    'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\nbudget:\n  calls_per_chapter: 8\nstyle:\n  injection: light\nshort:\n  word_min: 1000\n  word_max: 5000\n',
+    'spec_version: 1\nkind: short\nbook:\n  title: 短篇测试集\n  genre: 悬疑\nhost: cc\nbudget:\n  calls_per_chapter: 8\nstyle:\n  injection: light\nauto:\n  batch_size: 1\nshort:\n  word_min: 1000\n  word_max: 5000\n',
   )
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '清单'), { recursive: true })
@@ -126,8 +131,6 @@ function makeShortBook(root: string): void {
     join(root, '大纲', '清单', '002-红伞.md'),
     '## 反转线索表\n- 核心反转：红伞内侧写着主角名字\n- 铺垫点（≥3，反转可回溯）：\n  - [开头] 红伞滴水\n\n## 情绪曲线\n- [开头] 不安 5/10\n- [反转] 后怕 8/10\n\n## 伏笔回收\n- 红伞 → 回收于 反转\n',
   )
-  mkdirSync(join(root, '设定'), { recursive: true })
-  writeFileSync(join(root, '设定', '集子定位.md'), '# 集子定位\n悬疑短篇集，母题：七号公寓。')
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n- 短篇正文纯文本\n')
 }
@@ -140,14 +143,16 @@ function makeShortBook(root: string): void {
  * 测试体内需 delete process.env.CLWRITING_DRIVER 保证走真实 provider 路径。
  * saveProviders 自动处理 vault 加密，loadProviders 自动解密。
  *
+ * 表驱动重构（§6.3）：模型级 caps 退役——modelCaps 槽仅作 400 降级记忆（structured 不支持）。
+ *
  * @param userDataPath 临时应用数据目录
  * @param fakeUrl      stub server 的 baseUrl（如 http://127.0.0.1:PORT/v1）
- * @param modelCaps    模型级 caps（toolUse/toolChoice）；缺省 = 全能力
+ * @param structuredOk 预置「structured 不支持」降级记忆（缺省 = 无记忆）
  */
 export function withFakeProvider(
   userDataPath: string,
   fakeUrl: string,
-  modelCaps?: ModelCaps,
+  structuredOk?: boolean,
 ): void {
   const store: ProviderStore = {
     providers: [{
@@ -163,7 +168,7 @@ export function withFakeProvider(
     }],
     currentId: 'fake-prov',
     currentModel: 'fake-model',
-    modelCaps: modelCaps ? { 'fake-prov/fake-model': modelCaps } : {},
+    modelCaps: structuredOk === false ? { 'fake-prov/fake-model': { structured: false } } : {},
     tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
     vault: null,
     dek: null,

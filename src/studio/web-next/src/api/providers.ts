@@ -2,19 +2,13 @@ import { apiJson } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
-export type Protocol = 'anthropic' | 'openai'
+export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 
 /** 服务级能力（连通/认证/流式）——供应商「测试连接」探测所得 */
 export interface ProviderCaps {
   connected: boolean
   streaming: boolean
-}
-
-/** 模型级能力（tool_use/tool_choice）——选定模型后探测所得 */
-export interface ModelCaps {
-  toolUse: boolean
-  toolChoice: boolean
 }
 
 /** 推理等级档位（与 reasoning_effort API 参数对齐） */
@@ -47,13 +41,6 @@ export interface ProviderConfDto {
   sortIndex?: number
 }
 
-export interface ProviderPreset {
-  label: string
-  hint: string
-  protocol: Protocol
-  auth: AuthStrategy
-}
-
 export async function getProviders(): Promise<{ providers: ProviderConfDto[]; currentId: string | null; currentModel: string | null; tiers: TierConfig }> {
   return apiJson('/api/providers')
 }
@@ -69,6 +56,7 @@ export async function fetchModels(body: { protocol: Protocol; baseUrl: string; a
 export async function createProvider(body: {
   name: string
   protocol: Protocol
+  auth?: AuthStrategy
   baseUrl: string
   apiKey: string
 }): Promise<{ provider: ProviderConfDto }> {
@@ -81,7 +69,7 @@ export async function createProvider(body: {
 
 export async function updateProvider(
   id: string,
-  body: { name: string; protocol: Protocol; baseUrl: string; apiKey: string },
+  body: { name: string; protocol: Protocol; auth?: AuthStrategy; baseUrl: string; apiKey: string },
 ): Promise<{ provider: ProviderConfDto }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
@@ -109,13 +97,17 @@ export interface TestResult {
   error?: string
 }
 
-export async function testProvider(id: string): Promise<TestResult> {
-  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, { method: 'POST' }, 60_000) // 探测可能慢，60s 超时
+export async function testProvider(id: string, model?: string): Promise<TestResult> {
+  return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(model ? { model } : {}),
+  }, 60_000)
 }
 
 /** 设置全局当前模型（方案 A：model 独立于供应商，工作台选择）。
- *  选模型时后端自动探测模型级 caps（tool_use/tool_choice），随响应返回。 */
-export async function setAiModel(model: string): Promise<{ ok: boolean; model: string; modelCaps?: ModelCaps | null; details?: string[] }> {
+ *  表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应仅携带降级记忆（structured 支持状态）。 */
+export async function setAiModel(model: string): Promise<{ ok: boolean; model: string; modelCaps?: { structured: false } | null; details?: unknown }> {
   return apiJson('/api/ai-model', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

@@ -23,6 +23,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { safeDocId } from '../fs/safe-path.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
@@ -32,8 +33,8 @@ import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
-import { readFile as readDoc, writeFile as writeDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
-import { appendTrashEntry } from './trash.js'
+import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
+import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -199,7 +200,30 @@ export class DocumentService {
     absPath: string,
     input: SaveDocumentInput,
   ): Promise<SaveResult> {
+    // P1-SEC-A：journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
+    if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
     const journalPath = join(this.journalDir, `${docId}.jsonl`)
+
+    // V-P2-1：结构性操作（rename/move/trash）同步执行、不排队，与入队 save 存在竞态窗口——
+    // 新建档（expectedRevision=null）的排队 save 若在移动/删除后出队，会在旧路径复活
+    // 已移走/已删文件（trash 场景绕过回收站）。出队时按清单核对保存目标仍是该 docId
+    // 的登记路径；已删（清单除名 + 回收站在案）同样拒绝。REVISION_CONFLICT 语义 =
+    // 「世界已变，请刷新重试」，前端既有冲突处理会重新同步路径。
+    const registered = this.lookupPathByDocId(docId)
+    if (registered !== null && registered !== relPath) {
+      return Promise.resolve({
+        ok: false,
+        code: 'REVISION_CONFLICT',
+        reason: `文档已移动或重命名（现路径 ${registered}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
+      })
+    }
+    if (registered === null && readTrashManifest(this.bookRoot).some((t) => t.id === docId)) {
+      return Promise.resolve({
+        ok: false,
+        code: 'REVISION_CONFLICT',
+        reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
+      })
+    }
 
     // 步骤 2：revision 校验（串行内执行，保证并发一致）
     const existing = existsSync(absPath)
@@ -214,12 +238,13 @@ export class DocumentService {
     // 步骤 4：journal pending（含全文快照，防丢字）
     const opId = appendPending(journalPath, docId, currentRev, input.content)
 
-    // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
-    const wordDelta =
-      countWords(bodyOf(input.content)) -
-      countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
-
     try {
+      // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
+      // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
+      const wordDelta =
+        countWords(bodyOf(input.content)) -
+        countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+
       // 步骤 5：按策略建 snapshot（修改前版本留底）
       this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
       // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
@@ -230,8 +255,12 @@ export class DocumentService {
       this.maybeUpdateManifest(docId, relPath)
       // 步骤 10：journal settled
       appendSettled(journalPath, opId, newRev)
-      // 步骤 10.5：记今日字数增量（E4，仅 settled 成功才记；aborted 不记）
-      appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
+      // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
+      try {
+        appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
+      } catch {
+        // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+      }
       // 步骤 11
       return Promise.resolve({ ok: true, revision: newRev })
     } catch (e) {
@@ -397,7 +426,7 @@ export class DocumentService {
         typeof 章号 === 'number'
           ? `${String(章号).padStart(3, '0')}-`
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
-      const newName = `${numPrefix}${标题}.md`
+      const newName = `${numPrefix}${标题.replace(/[\\/]/g, '_')}.md`
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (result.ok) this.syncRenamePieceList(path, newName)
@@ -409,7 +438,7 @@ export class DocumentService {
     // 长篇 chapter：文件名按 章号4位-标题.md
     const 章号 = map.get('章号')
     const newName =
-      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题}.md` : basename(path)
+      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题.replace(/[\\/]/g, '_')}.md` : basename(path)
     if (basename(path) !== newName) {
       return this.doMoveOrRename(docId, { kind: 'rename', newName })
     }
@@ -454,7 +483,7 @@ export class DocumentService {
       if (v !== undefined) map.set(k, v)
     }
     try {
-      writeDoc(abs, stringifyFlat(map), body)
+      atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), body), { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
@@ -622,19 +651,25 @@ export class DocumentService {
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
       mkdirSync(dirname(trashAbs), { recursive: true })
       renameSync(oldSafe, trashAbs)
-      // trash manifest 记录
-      appendTrashEntry(this.bookRoot, {
-        id: docId,
-        originalPath: oldPath,
-        trashedPath: trashedRel,
-        trashedAt: new Date().toISOString(),
-        role: layoutOf(oldPath).role,
-      })
-      // 清单 removeEntry
-      if (existsSync(this.manifestPath)) {
-        const m = readManifest(this.manifestPath)
-        m.entries.delete(docId)
-        writeManifest(this.manifestPath, m)
+      // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
+      // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
+      try {
+        appendTrashEntry(this.bookRoot, {
+          id: docId,
+          originalPath: oldPath,
+          trashedPath: trashedRel,
+          trashedAt: new Date().toISOString(),
+          role: layoutOf(oldPath).role,
+        })
+      } catch { /* 磁盘满等：回收站 manifest 写失败不影响删除 */
+      }
+      try {
+        if (existsSync(this.manifestPath)) {
+          const m = readManifest(this.manifestPath)
+          m.entries.delete(docId)
+          writeManifest(this.manifestPath, m)
+        }
+      } catch { /* 主清单更新失败：树重建时会发现文件不存在自动清理 */
       }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
@@ -647,12 +682,6 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
-}
-
-/** 剥 frontmatter 取正文（countWords 口径要求纯正文；裸 md 无 fm 原样返回）。 */
-function bodyOf(raw: string): string {
-  const s = splitFrontMatter(raw)
-  return s ? s.body : raw
 }
 
 /** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */

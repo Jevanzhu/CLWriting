@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup'
 
 export default defineConfig([
   {
-    entry: ['src/desktop/main.ts'],
+    entry: ['src/desktop/main.ts', 'src/desktop/server-main.ts'],
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
     format: ['esm'],
     target: 'node24',

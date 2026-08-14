@@ -97,7 +97,7 @@ describe('P0-1 短篇手测·机器可验部分', () => {
     const s = await api('/api/books')
     const books = s.books as { name: string; words: number; chapters: number }[]
     const mine = books.find((b) => b.name === BOOK)
-    expect(mine).toBeTruthy()
+    expect(mine).toEqual(expect.objectContaining({ name: BOOK }))
     expect(typeof mine!.words).toBe('number')
     expect(typeof mine!.chapters).toBe('number')
   })
@@ -156,7 +156,7 @@ describe('P0-1 短篇手测·机器可验部分', () => {
     })
     expect(d.status).toBe(201)
     const docId = (d as unknown as { docId: string }).docId
-    expect(docId).toBeTruthy()
+    expect(docId.length).toBeGreaterThan(0)
     // 再次保存（走乐观锁协议，验保存链路无报错）
     const s = await api(`/api/books/${enc(BOOK)}/documents/${docId}/content`, {
       method: 'PUT',

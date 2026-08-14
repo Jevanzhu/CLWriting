@@ -60,7 +60,13 @@ export function checkGrowth(
     let sequence: string[] | null = null
     if (realmDoc && currentRealm) {
       for (const sys of realmDoc.体系) {
-        if (sys.序列.includes(currentRealm)) {
+        // V-P2-17：精确命中后允许前缀匹配（任一方向）——作者常把当前境界写成
+        // 「炼气一层」而序列枚举是「炼气」（或反之截断），精确 includes 会误报
+        // growth-realm-miss 红。证据侧同问题的解法见 extractExactRealmFromEvidence。
+        if (
+          sys.序列.includes(currentRealm) ||
+          sys.序列.some((realm) => currentRealm.startsWith(realm) || realm.startsWith(currentRealm))
+        ) {
           sequence = sys.序列
           break
         }

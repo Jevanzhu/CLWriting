@@ -84,7 +84,8 @@ export async function dispatch(
       if (!res.headersSent) {
         const status = e instanceof HttpError ? e.status : 500
         res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+        // 仅暴露 HttpError（应用级可控消息）；原始异常 message 可能含 API Key 等敏感信息
+        res.end(JSON.stringify({ error: e instanceof HttpError ? e.message : '内部错误' }))
       }
     }
     return true

@@ -41,6 +41,7 @@ export async function runAnalyze(name: string, docId: string, kind: AnalysisKind
   const r = await apiJson<AnalyzePost>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analyze`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) },
+    120_000, // AI 分析超时 2 分钟
   )
   return r.envelope
 }
@@ -58,8 +59,25 @@ export async function autotag(name: string, docId: string): Promise<ChapterTags>
   const r = await apiJson<{ ok: true; tags: ChapterTags }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/autotag`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    60_000, // 标签判定超时 1 分钟
   )
   return r.tags
+}
+
+/** AI 推断的目标情绪/核心反转（从正文反推；不落信封；前端写 fm）。 */
+export interface InferredMeta {
+  目标情绪?: string
+  核心反转?: string
+  [k: string]: string | undefined
+}
+// POST /documents/:docId/infer-meta —— AI 读正文反推目标情绪与核心反转（不落信封；前端写 fm）。
+export async function inferMeta(name: string, docId: string): Promise<InferredMeta> {
+  const r = await apiJson<{ ok: true; meta: InferredMeta }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/infer-meta`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    60_000,
+  )
+  return r.meta
 }
 
 // ── 全书聚合趋势（T1 后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
@@ -112,6 +130,7 @@ export async function runStyleAnalysis(
   const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
     `/api/books/${encodeURIComponent(name)}/analyze-style`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    120_000, // AI 文风分析超时 2 分钟
   )
   return { envelope: r.envelope, styleCandidates: r.styleCandidates ?? 0 }
 }

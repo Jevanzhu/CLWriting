@@ -6,10 +6,15 @@
  *
  * 追加写（appendFileSync + fsync），**不用 atomicWriteFile**——整文件替换会
  * O(n²) 且重写窗口崩了丢全历史；追加一行最多损坏末行，恢复扫描本就逐行容错。
+ *
+ * 膨胀治理（U-P2-9）：pending 含全文快照，日写一章 journal 线性涨 ~2MB。
+ * settle/abort 后超过阈值触发 compact——只保留未结算 pending（崩溃恢复唯一
+ * 依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，无净损失。
  */
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { ulid } from './stable-id.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import type { Revision } from './revision.js'
 
 export interface JournalPending {
@@ -71,6 +76,7 @@ export function appendSettled(
     newRevision,
   }
   appendLine(journalPath, JSON.stringify(entry))
+  maybeCompactJournal(journalPath)
 }
 
 /** 追加 aborted 行，标记某 opId 保存失败（不落盘）。 */
@@ -82,6 +88,7 @@ export function appendAborted(journalPath: string, opId: string, reason: string)
     reason,
   }
   appendLine(journalPath, JSON.stringify(entry))
+  maybeCompactJournal(journalPath)
 }
 
 /** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。 */
@@ -144,5 +151,31 @@ function fsyncFile(filePath: string): void {
         // best-effort
       }
     }
+  }
+}
+
+// ── 膨胀治理（U-P2-9）────────────────────────────
+
+/** compact 阈值：journal 字节数超过此值时在 settle/abort 后压缩（只留未结算 pending）。 */
+export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
+
+/**
+ * 超阈值时压缩 journal：已结算（settled/aborted 配对完成）的行全部丢弃，
+ * 只保留未结算 pending（崩溃恢复的唯一依赖，含全文快照）。
+ *
+ * 安全条件：settled 行的使命仅是配对消除 pending（findUnsettled 语义），其
+ * pending 已不在保留集内，丢弃无损失。原子替换（tmp+rename）：压缩窗口崩溃
+ * 则原 journal 完好，tmp 残留下次覆盖。best-effort——失败不影响保存主流程。
+ * 调用时机在 appendSettled/appendAborted 之后（本进程内 per-docId 串行，无并发写）。
+ */
+function maybeCompactJournal(journalPath: string): void {
+  try {
+    if (!existsSync(journalPath)) return
+    if (statSync(journalPath).size < JOURNAL_COMPACT_BYTES) return
+    const unsettled = findUnsettled(journalPath)
+    const text = unsettled.map((p) => JSON.stringify(p)).join('\n')
+    atomicWriteFile(journalPath, unsettled.length > 0 ? text + '\n' : '', { fsync: true })
+  } catch {
+    // best-effort：压缩失败不影响保存结果，下次再试
   }
 }

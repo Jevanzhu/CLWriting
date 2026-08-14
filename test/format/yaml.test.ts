@@ -7,6 +7,7 @@ import {
   writeBookConfig,
   stringifyBookConfig,
   getWorkflow,
+  patchTopSection,
   DEFAULT_CONFIG,
 } from '../../src/format/yaml.js'
 
@@ -209,3 +210,32 @@ test('snapshots 段：非正数值忽略（回落代码默认）', () => {
   if (r.ok) expect(r.config.snapshots).toBeUndefined()
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ── V-P2-4：patchTopSection 文本级段补丁（读改写保注释/未知段）────────
+
+test('patchTopSection: 替换中间段，前后原文逐字保留', () => {
+    const raw = 'a: 1\n# 注释\nrag:\n  enabled: false\n\nb: 2\n'
+    const out = patchTopSection(raw, 'rag', '  enabled: true\n  model: m')
+    expect(out).toBe('a: 1\n# 注释\nrag:\n  enabled: true\n  model: m\n\nb: 2\n')
+  })
+
+test('patchTopSection: 段不存在 → 追加（空行分隔）', () => {
+    const raw = 'a: 1\n'
+    const out = patchTopSection(raw, 'rag', '  enabled: true')
+    expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
+  })
+
+test('patchTopSection: 空文件 → 纯新段', () => {
+    expect(patchTopSection('', 'rag', '  enabled: true')).toBe('rag:\n  enabled: true\n')
+  })
+
+test('patchTopSection: 段内注释被替换（段区间归段所有），段外注释保留', () => {
+    const raw = '# 外注释\nrag:\n# 段内注释\n  enabled: false\nhost: cc\n'
+    const out = patchTopSection(raw, 'rag', '  enabled: true')
+    expect(out).toBe('# 外注释\nrag:\n  enabled: true\nhost: cc\n')
+  })
+
+test('patchTopSection: 无尾换行文件 → 补齐结构', () => {
+    const out = patchTopSection('a: 1', 'rag', '  enabled: true')
+    expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
+  })

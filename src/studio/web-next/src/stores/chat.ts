@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { str } from './sse-guards.js'
 
 /**
  * 对话助手 store（方案 §3.7.3）。
@@ -22,12 +23,20 @@ export interface ToolCard {
 
 /** 聊天消息气泡（文本 + 关联工具卡片按时序穿插） */
 export interface ChatMessage {
+  /** 稳定唯一 id（v-for key 用，防裁剪/弹出后索引错位导致动画重播） */
+  id: string
   role: 'user' | 'assistant'
   content: string
   done: boolean
   /** 本回合的工具卡片（按时序） */
   tools: ToolCard[]
 }
+
+/** 消息列表上限（防长对话内存膨胀） */
+const MAX_MESSAGES = 200
+
+/** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
+let _msgSeq = 0
 
 export const useChatStore = defineStore('chat', () => {
   /** 消息列表 */
@@ -71,21 +80,24 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'chat_turn': {
         // 新回合 = 新 assistant 气泡
-        messages.value.push({ role: 'assistant', content: '', done: false, tools: [] })
+        messages.value.push({ id: `m${_msgSeq++}`, role: 'assistant', content: '', done: false, tools: [] })
         currentIdx = messages.value.length - 1
         break
       }
       case 'chat_text': {
-        if (currentIdx >= 0) {
-          messages.value[currentIdx]!.content += ev['text'] as string
+        const text = str(ev['text'])
+        if (text && currentIdx >= 0) {
+          messages.value[currentIdx]!.content += text
         }
         break
       }
       case 'chat_tool_pending': {
-        if (currentIdx >= 0) {
+        const callId = str(ev['callId'])
+        const name = str(ev['name'])
+        if (callId && name && currentIdx >= 0) {
           messages.value[currentIdx]!.tools.push({
-            callId: ev['callId'] as string,
-            name: ev['name'] as string,
+            callId,
+            name,
             input: ev['input'],
             status: 'pending',
           })
@@ -94,16 +106,22 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'chat_tool': {
         // readonly 工具不经 pending 直接 tool → 创建卡片
-        ensureTool(ev['callId'] as string, ev['name'] as string, ev['input'])
-        updateTool(ev['callId'] as string, { status: 'running' })
+        const callId = str(ev['callId'])
+        const name = str(ev['name'])
+        if (callId && name) {
+          ensureTool(callId, name, ev['input'])
+          updateTool(callId, { status: 'running' })
+        }
         break
       }
       case 'chat_tool_result': {
-        const ok = ev['ok'] as boolean
-        updateTool(ev['callId'] as string, {
-          status: ok ? 'ok' : 'cancelled',
-          summary: ev['summary'] as string,
-        })
+        const callId = str(ev['callId'])
+        if (callId) {
+          updateTool(callId, {
+            status: ev['ok'] === true ? 'ok' : 'cancelled',
+            ...(str(ev['summary']) ? { summary: str(ev['summary']) } : {}),
+          })
+        }
         break
       }
       case 'chat_reset': {
@@ -122,11 +140,12 @@ export const useChatStore = defineStore('chat', () => {
         // P2-9：回合结束即失效 currentIdx——SSE 断线重连后 sync 不会重发 chat_turn，
         // 旧索引指向已 done 气泡会让后续 chat_text 追加错误位置
         currentIdx = -1
+        trimMessages()
         break
       }
       case 'chat_error': {
         running.value = false
-        error.value = ev['error'] as string
+        error.value = str(ev['error']) ?? '未知错误'
         break
       }
     }
@@ -154,7 +173,18 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 添加用户消息（发送时调用） */
   function pushUser(text: string): void {
-    messages.value.push({ role: 'user', content: text, done: true, tools: [] })
+    messages.value.push({ id: `m${_msgSeq++}`, role: 'user', content: text, done: true, tools: [] })
+    trimMessages()
+  }
+
+  /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
+  function trimMessages(): void {
+    if (messages.value.length > MAX_MESSAGES) {
+      const cut = messages.value.length - MAX_MESSAGES
+      messages.value.splice(0, cut)
+      // 防御性修正：splice 从头部删后 currentIdx 偏移
+      if (currentIdx >= 0) currentIdx = Math.max(-1, currentIdx - cut)
+    }
   }
 
   /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */

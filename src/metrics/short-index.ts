@@ -104,10 +104,11 @@ export interface ShortSubmissionItem {
   pitch: string
 }
 
-export type ShortSubmissionPlatform = 'generic' | 'wechat' | 'zhihu-salt' | 'fanqie' | 'xiaohongshu'
+/** 平台标识（配置化：运行时查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
+export type ShortSubmissionPlatform = string
 
 export interface ShortSubmissionTemplate {
-  platform: ShortSubmissionPlatform
+  platform: string
   label: string
   titleStyle: string
   introLength: string
@@ -202,7 +203,8 @@ const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
   opening_env_chars: 300,
 }
 
-const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTemplate> = {
+/** 平台模板映射表（单一真相源）：新增平台只需在此加一项，导出/io 自动识别。 */
+export const SUBMISSION_TEMPLATES: Record<string, ShortSubmissionTemplate> = {
   generic: {
     platform: 'generic',
     label: '通用',
@@ -239,6 +241,9 @@ const SUBMISSION_TEMPLATES: Record<ShortSubmissionPlatform, ShortSubmissionTempl
     sellingPoints: ['一句话钩子', '情绪标签', '评论区讨论点'],
   },
 }
+
+/** 已注册平台清单（单一真相源；io.ts 校验复用，避免硬编码漂移）。 */
+export const SUBMISSION_PLATFORMS: readonly string[] = Object.keys(SUBMISSION_TEMPLATES)
 
 /** 扫描短篇集索引。正文走 readChapterDir（递归卷结构），章纲按正文文件名匹配 `大纲/章纲/` 顶层。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
@@ -300,7 +305,7 @@ export function formatShortSubmissionView(
 ): string {
   const report = analyzeShortCollection(entries, shortConfig)
   const items = entries.map(toSubmissionItem)
-  const template = SUBMISSION_TEMPLATES[platform] ?? SUBMISSION_TEMPLATES.generic
+  const template = SUBMISSION_TEMPLATES[platform] ?? SUBMISSION_TEMPLATES.generic!
   const lines: string[] = []
   lines.push(`# 投稿视图-${title}${platform === 'generic' ? '' : `-${template.label}`}`)
   lines.push('')

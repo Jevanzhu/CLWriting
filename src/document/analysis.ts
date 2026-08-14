@@ -11,8 +11,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { safeDocId } from '../fs/safe-path.js'
 import { createHash } from 'node:crypto'
-import { splitFrontMatter } from '../format/frontmatter.js'
+import { bodyOf } from '../format/frontmatter.js'
 
 /** 分析载荷种类（review=三审汇总 / score=体验分 / emotion=情绪曲线 / hooks=钩子密度 / style=文风总结）。 */
 export type AnalysisKind = 'review' | 'score' | 'emotion' | 'hooks' | 'style'
@@ -29,8 +30,10 @@ export interface Envelope {
   payload: unknown
 }
 
-/** 分析文件路径：项目/分析/<docId>.json。 */
-export function analysisPath(bookRoot: string, docId: string): string {
+/** 分析文件路径：项目/分析/<docId>.json。docId 非法返回 null（safe-by-default）。 */
+export function analysisPath(bookRoot: string, docId: string): string | null {
+  // P1-SEC-C：safeDocId 内联，使路径安全成为函数契约（调用方无需重复校验）
+  if (!safeDocId(docId)) return null
   return join(bookRoot, '项目', '分析', `${docId}.json`)
 }
 
@@ -39,9 +42,10 @@ export function analysisBookPath(bookRoot: string): string {
   return join(bookRoot, '项目', '分析', '__book__.json')
 }
 
-/** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。 */
+/** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。docId 非法 → null。 */
 export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind): Envelope | null {
   const fp = analysisPath(bookRoot, docId)
+  if (!fp) return null
   if (!existsSync(fp)) return null
   try {
     const raw = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
@@ -52,7 +56,7 @@ export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind
   }
 }
 
-/** 写某文档某 kind 的信封（合并写：其他 kind 保留；损坏文件重建）。 */
+/** 写某文档某 kind 的信封（合并写：其他 kind 保留；损坏文件重建）。docId 非法 → 跳过。 */
 export function writeAnalysis(
   bookRoot: string,
   docId: string,
@@ -60,6 +64,7 @@ export function writeAnalysis(
   envelope: Envelope,
 ): void {
   const fp = analysisPath(bookRoot, docId)
+  if (!fp) return
   let raw: Record<string, unknown> = {}
   if (existsSync(fp)) {
     try {
@@ -112,12 +117,6 @@ export function sourceHashOf(fullContent: string): string {
 /** 信封是否过期（源正文 hash 与当前不符）。fullContent = 文档全文（含 fm）。 */
 export function isStale(envelope: Envelope, fullContent: string): boolean {
   return envelope.sourceHash !== sourceHashOf(fullContent)
-}
-
-/** 剥 frontmatter 取正文（与 service.bodyOf 同口径；裸 md 无 fm 原样返回）。 */
-function bodyOf(raw: string): string {
-  const s = splitFrontMatter(raw)
-  return s ? s.body : raw
 }
 
 /** 信封结构守卫（generatedAt/model/sourceHash 必为字符串；payload 任意）。 */

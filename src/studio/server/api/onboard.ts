@@ -1,8 +1,9 @@
 /**
- * onboard 段2 端点(2.4):AI 填设定(长篇 9 步 / 短篇专属待补)。
+ * onboard 段2 端点(2.4):AI 填设定(长篇 9 步 / 短篇 1 步)。
  *
  * POST /api/books/:name/onboard-ai  body {step}
  *   长篇 step: synopsis|characters|world|realm|volume|leads-seed|style-sample|style-rules|style-quotes
+ *   短篇 step: first-outline
  *   → 组 prompt(title/genre/kind)→ generateText → 落盘
  *   → {ok, step, path, words, content}
  *
@@ -19,6 +20,8 @@ import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
+import { countWords } from '../../../format/words.js'
+import { bodyOf } from '../../../format/frontmatter.js'
 
 interface OnboardCtx {
   workDir: string | null
@@ -48,7 +51,6 @@ type OnboardStep =
   | 'style-sample'
   | 'style-rules'
   | 'style-quotes'
-  | 'collection-pitch'
   | 'first-outline'
 
 /** 各步落盘路径(相对 bookRoot)*/
@@ -62,7 +64,6 @@ const STEP_PATH: Record<OnboardStep, string> = {
   'style-sample': '文风/样章库.md',
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
-  'collection-pitch': '设定/集子定位.md',
   'first-outline': '大纲/首章细纲.md',
 }
 
@@ -84,7 +85,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
     const bookRoot = join(ctx.workDir, entry.path)
     const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) return reply(res, 500, { error: `读 book.yaml 失败:${cfgResult.error}` })
+    if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
     const config = (cfgResult as { config: { book: { title: string; genre: string }; kind?: string; leads?: { enabled?: string[] } } }).config
     const title = config.book.title
     const genre = config.book.genre
@@ -110,7 +111,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       console.error('[api] 落盘:', e)
       return reply(res, 500, { error: '落盘失败' })
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: content.length, content })
+    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
@@ -131,7 +132,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       console.error('[api] 落盘:', e)
       return reply(res, 500, { error: '落盘失败' })
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: content.length })
+    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
   })
 }
 
@@ -173,8 +174,6 @@ function buildOnboardPrompt(
       return `## 任务\n为这部${genre}小说《${title}》生成文风铁律(题材定制,替代通用占位)。\n\n${ctx}\n\n## 要求\n产出文风铁律 markdown,含:正文纯文本(禁 MD 语法)、对话标签占比上限、句长方差区间、重复率上限、题材专属规范(如玄幻禁现代词汇、言情禁说教)。${common}`
     case 'style-quotes':
       return `## 任务\n为这部${genre}小说《${title}》生成金句库种子。\n\n${ctx}\n\n## 要求\n产出 20-30 条题材典型金句(角色台词/叙事金句),每条一行,可带角色标注。供写章时点缀。${common}`
-    case 'collection-pitch':
-      return `## 任务\n为这部${genre}短篇集《${title}》生成集子定位。\n\n${ctx}\n\n## 要求\n产出集子定位,含:集子主线(贯穿主题)、题材定位、目标读者、整体调性、首章切入点。整集共享设定,各章独立成章但有母题串联。${common}`
     case 'first-outline':
       return `## 任务\n为这部${genre}短篇集《${title}》生成首章细纲。\n\n${ctx}\n\n## 要求\n产出首章细纲(单章结构),含:目标情绪、核心反转、五段结构(开场/发展/转折/高潮/余韵,每段一句话)、伏笔回收设计、字数预估(8000-20000)。${common}`
   }
