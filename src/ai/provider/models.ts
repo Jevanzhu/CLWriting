@@ -54,6 +54,8 @@ export async function listModels(
   baseUrl: string,
   apiKey: string,
   auth: AuthStrategy = 'anthropic',
+  /** 请求中断信号（V-P2-11：不传则 SDK 默认超时 10 分钟，网关 TCP 黑洞时「测试连接」挂死） */
+  signal?: AbortSignal,
 ): Promise<string[]> {
   // mock 环境短路（CLWRITING_DRIVER=mock）——避免向不存在端点发真实请求导致 fetchModels 超时
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
@@ -65,9 +67,11 @@ export async function listModels(
     const clientOpts = anthropicClientOpts(url, apiKey, auth)
     try {
       const client = new Anthropic(clientOpts)
-      const list = await client.models.list()
+      const list = await client.models.list(undefined, signal ? { signal } : undefined)
       return list.data.map((m) => m.id).sort()
     } catch (e) {
+      // abort → 上抛（调用方需要区分「超时/中断」与「不通」）
+      if (signal?.aborted) throw e
       // 404/405 = 端点不存在（Anthropic 官方无 /v1/models）→ 回退空列表（模型名手动输入）
       if (e instanceof APIError && (e.status === 404 || e.status === 405)) return []
       // 401/403/网络错误等 → 上抛（调用方需区分「不通」与「通但认证错」）
@@ -75,6 +79,6 @@ export async function listModels(
     }
   }
   const client = new OpenAI({ baseURL: url, apiKey })
-  const list = await client.models.list()
+  const list = await client.models.list(signal ? { signal } : undefined)
   return list.data.map((m) => m.id).sort()
 }

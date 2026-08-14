@@ -720,3 +720,68 @@ describe('批次2 reasoning 思维链（方案 §4.2）', () => {
     })
   })
 })
+
+// ── V-P2-9：anthropic 适配器 tool_choice 按表翻译（此前无视 toolChoiceMode 无条件发 type:'tool'）──
+
+describe('Anthropic tool_choice 表驱动（V-P2-9）', () => {
+  it('deepseek（required 模式）指名意图 → type:any（指名 type:tool 会 400）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          captured = params as Record<string, unknown>
+          return (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    await collect(
+      createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client),
+      { ...REQ, toolChoice: 'tool', toolName: 'submit_chapter' },
+    )
+    expect(captured?.['tool_choice']).toEqual({ type: 'any' })
+  })
+
+  it('deepseek（required 模式）any 意图 → type:any；auto → type:auto', async () => {
+    const results: unknown[] = []
+    for (const toolChoice of ['any', 'auto'] as const) {
+      const client = {
+        messages: {
+          create: async (params: unknown) => {
+            results.push((params as Record<string, unknown>)['tool_choice'])
+            return (async function* () {
+              yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            })()
+          },
+        },
+      } as unknown as Anthropic
+      await collect(
+        createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client),
+        { ...REQ, toolChoice },
+      )
+    }
+    expect(results[0]).toEqual({ type: 'any' })
+    expect(results[1]).toEqual({ type: 'auto' })
+  })
+
+  it('claude（named 模式）指名意图 → type:tool 原样（不降级）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          captured = params as Record<string, unknown>
+          return (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    await collect(
+      createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client),
+      { ...REQ, toolChoice: 'tool', toolName: 'submit_chapter' },
+    )
+    // claude 表项 parallelControl:true → 附带 disable_parallel_tool_use，断言取子集
+    expect(captured?.['tool_choice']).toMatchObject({ type: 'tool', name: 'submit_chapter' })
+  })
+})

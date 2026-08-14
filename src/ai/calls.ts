@@ -45,36 +45,44 @@ function budgetPath(bookRoot: string): string {
 }
 
 /**
- * 读记录；缺失 / 损坏 → null。
- * 旧格式（flat { chapter: number, used: number, ... }）自动迁移。
+ * 读记录。
+ * - 文件缺失 → { rec: null, corrupt: false }（新书，正常）
+ * - JSON 损坏 / 形状不对 → { rec: null, corrupt: true }（V-P2-10：预算闸据此保守阻断，
+ *   与头注释承诺一致——此前损坏被当「无记录」静默放行归零，恰是自动写章烧钱最不该静默的点）
+ * - 旧格式（flat { chapter: number, used: number, ... }）自动迁移。
  */
-function readRecord(bookRoot: string): CallRecord | null {
+function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolean } {
   const fp = budgetPath(bookRoot)
-  if (!existsSync(fp)) return null
+  if (!existsSync(fp)) return { rec: null, corrupt: false }
   try {
     const raw = JSON.parse(readFileSync(fp, 'utf8')) as Record<string, unknown>
     // 旧格式检测：raw.chapter 是 number（而非 object）→ 迁移写回
     if (typeof raw['chapter'] === 'number') {
       const migrated = migrateOldFormat(raw as unknown as OldFormat)
       writeRecord(bookRoot, migrated)
-      return migrated
+      return { rec: migrated, corrupt: false }
     }
     // 新格式
     const chapter = raw['chapter'] as ChapterUsage | undefined
-    if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') return null
+    if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') {
+      return { rec: null, corrupt: true }
+    }
     return {
-      chapter: {
-        num: chapter.num,
-        used: chapter.used,
-        inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
-        outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
+      rec: {
+        chapter: {
+          num: chapter.num,
+          used: chapter.used,
+          inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
+          outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
+        },
+        tasks: typeof raw['tasks'] === 'object' && raw['tasks'] !== null
+          ? raw['tasks'] as Record<string, TaskUsage>
+          : {},
       },
-      tasks: typeof raw['tasks'] === 'object' && raw['tasks'] !== null
-        ? raw['tasks'] as Record<string, TaskUsage>
-        : {},
+      corrupt: false,
     }
   } catch {
-    return null
+    return { rec: null, corrupt: true }
   }
 }
 
@@ -106,15 +114,23 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
   chmodSync(fp, 0o600)
 }
 
-/** 预算判定：超限 → ok=false + 人话提示（三条出路在文档 §五） */
+/** 预算判定：超限 → ok=false + 人话提示（三条出路在文档 §五）；损坏 → 保守阻断（V-P2-10） */
 export function checkAiCallBudget(
   bookRoot: string,
   chapter: number,
   config: BookConfig,
 ): { ok: true; used: number; limit: number } | { ok: false; used: number; limit: number; reason: string } {
   const limit = config.budget.calls_per_chapter
-  const rec = readRecord(bookRoot)
+  const { rec, corrupt } = readRecord(bookRoot)
 
+  if (corrupt) {
+    return {
+      ok: false,
+      used: 0,
+      limit,
+      reason: 'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
+    }
+  }
   if (!rec || rec.chapter.num !== chapter) {
     // 无记录或已换章 → 计数从零开始
     return { ok: true, used: 0, limit }
@@ -136,7 +152,7 @@ export function checkAiCallBudget(
  * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null): void {
-  let rec = readRecord(bookRoot)
+  let rec = readRecord(bookRoot).rec
   if (!rec || rec.chapter.num !== chapter) {
     rec = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
   }
@@ -154,7 +170,7 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
  * 由 runTask 末尾自动调用（有 bookRoot + task 时）。
  */
 export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
-  let rec = readRecord(bookRoot)
+  let rec = readRecord(bookRoot).rec
   if (!rec) {
     rec = { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
   }

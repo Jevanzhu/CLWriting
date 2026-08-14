@@ -44,9 +44,17 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
   const caps: ProviderCaps = { connected: false, streaming: false }
 
   // ① 连通 + 认证：listModels 能拉到列表即算通过（不需要模型）
+  // V-P2-11：listModels 步骤也受 30s 超时约束（与流式探测同款）——不传 signal 时
+  // SDK 默认超时 10 分钟，网关 TCP 黑洞会让「测试连接」按钮挂死。
   let models: string[] = []
   try {
-    models = await listModels(conf.protocol, conf.baseUrl, conf.apiKey, conf.auth)
+    const listCtrl = new AbortController()
+    const listTimer = setTimeout(() => listCtrl.abort(), 30_000)
+    try {
+      models = await listModels(conf.protocol, conf.baseUrl, conf.apiKey, conf.auth, listCtrl.signal)
+    } finally {
+      clearTimeout(listTimer)
+    }
     caps.connected = true
     details.push('连通 + 认证通过')
   } catch (e) {

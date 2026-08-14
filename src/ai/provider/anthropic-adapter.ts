@@ -99,14 +99,34 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toAnthropicTool)
   }
-  // tool_choice（#12：disable_parallel_tool_use 仅 parallelControl 为真才发）
+  // tool_choice 按表 toolChoiceMode 翻译（V-P2-9，对齐 openai-adapter §6.1）：
+  // named → any/tool/auto 原样（claude/glm/kimi）；
+  // required（deepseek：官方仅 auto/none/required，anthropic 端点指名 type:'tool' 会 400）
+  //   → 强制意图转 type:'any'（不指名），auto 原样；
+  // auto → 仅 auto 发（不支持强制），none → 不发。
+  // #12：disable_parallel_tool_use 仅 parallelControl 为真才发
   const dptu = q.parallelControl ? { disable_parallel_tool_use: true } : {}
-  if (req.toolChoice === 'any') {
-    params['tool_choice'] = { type: 'any', ...dptu }
-  } else if (req.toolChoice === 'tool' && req.toolName) {
-    params['tool_choice'] = { type: 'tool', name: req.toolName, ...dptu }
-  } else if (req.toolChoice === 'auto') {
-    params['tool_choice'] = { type: 'auto', ...dptu }
+  if (req.toolChoice && q.toolChoiceMode !== 'none') {
+    if (q.toolChoiceMode === 'named') {
+      if (req.toolChoice === 'any') {
+        params['tool_choice'] = { type: 'any', ...dptu }
+      } else if (req.toolChoice === 'tool' && req.toolName) {
+        params['tool_choice'] = { type: 'tool', name: req.toolName, ...dptu }
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+    } else if (q.toolChoiceMode === 'required') {
+      if (req.toolChoice === 'any' || req.toolChoice === 'tool') {
+        params['tool_choice'] = { type: 'any', ...dptu } // 指名意图降级为 any（deepseek 400 防线）
+      } else if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+    } else if (q.toolChoiceMode === 'auto') {
+      if (req.toolChoice === 'auto') {
+        params['tool_choice'] = { type: 'auto', ...dptu }
+      }
+      // 'any'/'tool' → 不支持，不发（prompt 引导 + 契约层校验重试兜底）
+    }
   }
   // #2：effort 仅当表 anthropicEffortWire=output_config 才发（claude/deepseek），
   // 其余厂家的 anthropic 端点文档缺失 → 保守不发。档位收敛用 effortMap。
