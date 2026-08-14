@@ -67,7 +67,7 @@ describe('rewrite: 接受/拒绝', () => {
     rewriteMock.mockResolvedValue({ ok: true, mode: 'whole', original: '旧', rewritten: '新内容', diff: [] })
     reportMock.mockResolvedValue(undefined)
     const docPatch = vi.fn()
-    vi.mocked(useDocStore).mockReturnValue({ patch: docPatch })
+    vi.mocked(useDocStore).mockReturnValue({ patch: docPatch } as unknown as ReturnType<typeof useDocStore>)
     const s = useRewriteStore()
     await s.run('book1', 'doc_1', '改写', '')
 

@@ -23,13 +23,14 @@ function leaf(path: string, docId: string, status?: string): TreeNode {
     path,
     name: path.split('/').pop()!.replace(/\.md$/, ''),
     isDirectory: false,
+    role: 'chapter',
     docId,
     status: status as TreeNode['status'],
     children: [],
   } as TreeNode
 }
 function dir(path: string, children: TreeNode[]): TreeNode {
-  return { path, name: path.split('/').pop()!, isDirectory: true, children } as TreeNode
+  return { path, name: path.split('/').pop()!, isDirectory: true, role: 'group', children } as TreeNode
 }
 
 /** 模拟一套完整书库 raw nodes（v3 目录树，草稿落正文区靠 status 区分）。 */
@@ -63,7 +64,7 @@ beforeEach(() => {
 
 describe('tree · load', () => {
   it('getTree → raw + revision + loading 归位', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.loading).toBe(false)
@@ -73,7 +74,7 @@ describe('tree · load', () => {
   })
 
   it('getTree 失败 → error 记录', async () => {
-    getTree.mockRejectedValue(new Error('网络断'))
+    vi.mocked(getTree).mockRejectedValue(new Error('网络断'))
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.error).toBe('网络断')
@@ -83,7 +84,7 @@ describe('tree · load', () => {
 
 describe('tree · groupTree 分组（v2 直透）', () => {
   async function setup() {
-    getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     return tree
@@ -130,7 +131,7 @@ describe('tree · groupTree 分组（v2 直透）', () => {
 
 describe('tree · 索引', () => {
   it('byPath 含真实目录 + 叶子', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.byPath.has('写作')).toBe(true)
@@ -138,7 +139,7 @@ describe('tree · 索引', () => {
   })
 
   it('byDocId 索引叶子', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.byDocId.get('doc1')?.path).toBe('写作/正文/第一卷/第1章-x.md')
@@ -167,7 +168,7 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
   }
 
   it('totalWords: chapter 求和（draft 不再计入；非正文 role 排除）', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: rawWords(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     // 1000 + 2000（chapter）= 3000；draft 300 与 setting 500 不算
@@ -175,7 +176,7 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
   })
 
   it('updateWordCount: 局部更新某叶子字数（聚合随之变）', async () => {
-    getTree.mockResolvedValue({ ok: true, nodes: rawWords(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTree).mockResolvedValue({ nodes: rawWords(), revision: 'r1', validatedAt: '' })
     const tree = useTreeStore()
     await tree.load(BOOK)
     expect(tree.totalWords).toBe(3000)

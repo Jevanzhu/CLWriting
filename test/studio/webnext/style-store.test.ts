@@ -53,10 +53,10 @@ const trendMock = getStyleTrend as ReturnType<typeof vi.fn>
 const BOOK = 'test-book'
 
 function entry(path: string, kind: string): StyleEntryFE {
-  return { _path: path, 类型: kind, 场景: '', 说明: '', 标签: [], 创建: '' } as StyleEntryFE
+  return { _path: path, 类型: kind, 场景: '', 说明: '', 标签: [], 创建: '', 来源: '作者标注', 正文: '' } as StyleEntryFE
 }
 function candidate(path: string, status: string): StyleCandidateFE {
-  return { _path: path, 状态: status, 来源: '机检', 说明: '', 创建: '' } as StyleCandidateFE
+  return { _path: path, 状态: status, 来源: '收割', 说明: '', 创建: '', 类型: '样章', 场景: '', 正文: '' } as StyleCandidateFE
 }
 function config(): StyleConfigFE {
   return { baseline: null, 条目标签: [], 候选源: [] } as unknown as StyleConfigFE

@@ -161,8 +161,8 @@ describe('ChatPanel: 清空（P1-4/P2-K）', () => {
     expect(mocks.interrupt).toHaveBeenCalledWith('test-book')
     expect(mocks.clearChatHistory).toHaveBeenCalledWith('test-book')
     // interrupt 必须在 clearChatHistory 之前
-    expect(mocks.interrupt.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.clearChatHistory.mock.invocationCallOrder[0],
+    expect(mocks.interrupt.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      mocks.clearChatHistory.mock.invocationCallOrder[0] ?? 0,
     )
   })
 })
