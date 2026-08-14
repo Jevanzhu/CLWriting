@@ -31,7 +31,16 @@ const currentId = ref<string | null>(null)
 const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
-const probeModel = ref('') // 测试连接用的模型（默认当前模型，可手动切换）
+// 测试连接用的模型——按服务商分卡独立（默认当前模型，可手动切换；
+// 不选时后端回落该服务商的 conf.model）
+const probeModels = ref<Map<string, string>>(new Map())
+
+function probeModelOf(p: ProviderConfDto): string {
+  return probeModels.value.get(p.id) ?? ''
+}
+function setProbeModel(p: ProviderConfDto, e: Event): void {
+  probeModels.value.set(p.id, (e.target as HTMLSelectElement).value)
+}
 
 // 任务档位（D 档：创作档/助手档/对话档）
 const models = ref<string[]>([])
@@ -88,8 +97,15 @@ async function refresh(): Promise<void> {
       try {
         const r = await fetchModels({ id: currentId.value })
         models.value = r.models
-        // 默认探测模型 = 当前全局模型；不在列表中则取首个
-        probeModel.value = data.currentModel ?? r.models[0] ?? ''
+        // 探测模型：空 / 不在新列表 → 回落（全局模型在列表内优先，否则取首个）；
+        // 已在列表 → 保留手动选择（测试完成 refresh 不重置作者的选择）
+        const cur = probeModels.value.get(currentId.value) ?? ''
+        if (!cur || !r.models.includes(cur)) {
+          const fallback = data.currentModel && r.models.includes(data.currentModel)
+            ? data.currentModel
+            : (r.models[0] ?? '')
+          probeModels.value.set(currentId.value, fallback)
+        }
       } catch {
         models.value = []
       }
@@ -180,6 +196,16 @@ async function activate(p: ProviderConfDto): Promise<void> {
     currentId.value = p.id
     // P0-2：切换当前服务商后工作台/开书按钮应立即可用
     void ui.probeAiStatus()
+    // 切服务商 → 模型列表/探测模型跟随新服务商（否则测试下拉仍是旧服务商清单，
+    // 测旧模型名会 404 且看不出原因）
+    try {
+      const r = await fetchModels({ id: p.id })
+      models.value = r.models
+      const cur = probeModels.value.get(p.id) ?? ''
+      if (!cur || !r.models.includes(cur)) probeModels.value.set(p.id, r.models[0] ?? '')
+    } catch {
+      /* 拉取失败不阻塞启用；「获取模型列表」可手动重试 */
+    }
     ui.toast(`已启用「${p.name}」`, 'success')
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
@@ -189,7 +215,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
 async function test(p: ProviderConfDto): Promise<void> {
   testing.value = p.id
   try {
-    const r = await testProvider(p.id, probeModel.value || undefined)
+    const r = await testProvider(p.id, probeModels.value.get(p.id) || undefined)
     testResults.value.set(p.id, r)
     // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
     void ui.probeAiStatus()
@@ -291,7 +317,7 @@ function timeAgo(ts: number | undefined): string {
               <!-- 测试模型 + 下拉（挪到测试按钮前，与按钮同行） -->
               <span class="probe-inline" :title="models.length ? '测试连接用模型' : '请先获取模型列表'">
                 <span class="probe-hint">测试模型</span>
-                <select v-model="probeModel" class="probe-select" :disabled="!models.length">
+                <select :value="probeModelOf(p)" class="probe-select" :disabled="!models.length" @change="setProbeModel(p, $event)">
                   <option value="" disabled>{{ models.length ? '选择模型' : '请先获取列表' }}</option>
                   <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
                 </select>

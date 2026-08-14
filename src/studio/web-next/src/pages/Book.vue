@@ -41,9 +41,13 @@ const rewrite = useRewriteStore()
 const workbench = useWorkbenchStore()
 const chat = useChatStore()
 // 切书：同步 doc 缓存 + 载入持久化 tabs + 清空各 store 旧状态
+let bookGen = 0
 watch(bookName, async (n) => {
+  // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
+  const gen = ++bookGen
   // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
   await doc.flushDirty()
+  if (gen !== bookGen) return
   doc.setBook(n)
   ws.setBook(n)
   // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
@@ -69,8 +73,10 @@ watch(
     <Transition name="clw-view" mode="out-in">
       <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
       <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
-      <OverviewView v-else-if="ws.activeView === 'overview'" :book-name="bookName" />
-      <RelationsView v-else-if="ws.activeView === 'relations'" :book-name="bookName" />
+      <!-- :key=bookName —— 切书时强制重建（两视图内部仅 onMounted 拉数、无 watch bookName；
+           无 key 复用组件会一直显示旧书数据） -->
+      <OverviewView v-else-if="ws.activeView === 'overview'" :key="bookName" :book-name="bookName" />
+      <RelationsView v-else-if="ws.activeView === 'relations'" :key="bookName" :book-name="bookName" />
       <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
       <StyleView v-else-if="ws.activeView === 'style'" :book-name="bookName" />
       <OnboardView v-else :book-name="bookName" />

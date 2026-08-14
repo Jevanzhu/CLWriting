@@ -23,27 +23,36 @@ export const useReviewStore = defineStore('review', () => {
   const error = ref<string | null>(null)
   const lastDocId = ref<string | null>(null)
 
+  /** 操作代：run/loadEnvelope/clear 共用——任何切换都让在途旧结果失效 */
+  let opGen = 0
+
   async function run(name: string, docId: string): Promise<void> {
+    const gen = ++opGen
     loading.value = true
     error.value = null
     try {
       const r = await runReview(name, docId)
+      if (gen !== opGen) return // 三审最长 2 分钟：期间切文档/清空，旧结果不落
       collected.value = r.collected
       lastDocId.value = docId
       const env = await getReviewEnvelope(name, docId)
+      if (gen !== opGen) return
       envelope.value = env?.envelope ?? null
       stale.value = env?.stale ?? false
     } catch (e) {
+      if (gen !== opGen) return
       error.value = friendlyError(e)
       collected.value = null
     } finally {
-      loading.value = false
+      if (gen === opGen) loading.value = false
     }
   }
 
   /** 打开文档时读存量信封；无 recent collected 时用信封 payload 展示。 */
   async function loadEnvelope(name: string, docId: string): Promise<void> {
+    const gen = ++opGen
     const env = await getReviewEnvelope(name, docId)
+    if (gen !== opGen) return
     envelope.value = env?.envelope ?? null
     stale.value = env?.stale ?? false
     lastDocId.value = env ? docId : null
@@ -53,6 +62,7 @@ export const useReviewStore = defineStore('review', () => {
   }
 
   function clear(): void {
+    opGen++ // 在途 run/loadEnvelope 全部失效（切书清空后旧结果不得回流）
     collected.value = null
     envelope.value = null
     stale.value = false
