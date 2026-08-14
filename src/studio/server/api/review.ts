@@ -24,7 +24,9 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
-import { buildReviewPacket, collectReviewIssues } from '../../../review/run.js'
+import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
+import type { ReviewLensPacket } from '../../../review/run.js'
+import type { ReviewTier } from '../../../review/contract.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
@@ -114,6 +116,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           userDataPath: ctx.userDataPath,
           bookRoot,
           packets: built.packet.packets,
+          tier: built.packet.tier,
           body,
           chapter: chapter.章号,
           outDir: built.packet.out_dir,
@@ -176,19 +179,17 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 }
 
 /**
- * 三审 generateTool×3 共享循环（M12 B0.2 提取）：草稿线 + docId 直读线共用。
- * 逐 lens：generateTool(submit_issues) → 收 issues → 写 issues-<lens>.json → 进度回流。
+ * 三审 generateTool×3 共享循环（M12 B0.2 提取）：docId 直读线使用。
+ * 逐 packet：generateTool(submit_issues) → 收 issues → 写 issues 文件 → 进度回流。
+ * 文件名契约与 collectReviewIssues 对齐：独立档 issues-<lens>.json；合审单档 issues-combined.json
+ * （W-P1-1：合审时 packet.lens 是锚视角名，按它写文件 collect 永远找不到）。
  * 串行避 GLM 并发；出错返 {ok:false,error}（调用方决定 reply）。
  */
 async function runLensSpawnLoop(opts: {
   userDataPath: string | null
   bookRoot?: string
-  packets: Array<{
-    lens: string
-    title?: string
-    focus?: string[]
-    ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }>
-  }>
+  packets: ReviewLensPacket[]
+  tier: ReviewTier
   body: string
   chapter: number
   outDir: string
@@ -209,16 +210,17 @@ async function runLensSpawnLoop(opts: {
     // tool_use 产出 → input.issues；降级用 text
     const issues = (input as { issues?: unknown[] })?.issues
     const issuesJson = issues ? JSON.stringify(issues) : text.trim()
-    atomicWriteFile(join(opts.outDir, `issues-${lens}.json`), issuesJson)
+    const issuesFile = opts.tier === 'combined' ? COMBINED_ISSUES_FILE : `issues-${lens}.json`
+    atomicWriteFile(join(opts.outDir, issuesFile), issuesJson)
     opts.onProgress?.(lens, 'done')
   }
   return { ok: true, lenses }
 }
 
-/** 组单视角审稿 prompt:焦点 + 账本核对(continuity)+ 正文 + 输出契约 */
-function buildLensPrompt(
+/** 组单视角审稿 prompt:焦点 + 账本核对(continuity)/清单核对(payoff) + 正文 + 输出契约 */
+export function buildLensPrompt(
   lens: string,
-  sub: { title?: string; focus?: string[]; ledger_checks?: Array<{ lead_id: string; chapter: number; verb: string; evidence: string }> },
+  sub: Pick<ReviewLensPacket, 'lens' | 'title' | 'focus' | 'ledger_checks' | 'list_checks'>,
   draftBody: string,
   chapter: number,
 ): string {
@@ -233,9 +235,20 @@ function buildLensPrompt(
         : `## 账本核对\n(本章无账本清单)`,
     )
   }
+  // 短篇设定收尾审：清单.md 的反转线索 + 伏笔回收逐条核对（与 continuity 账本核对对称，W-P1-2）
+  if (lens === 'payoff') {
+    const checks = sub.list_checks ?? []
+    parts.push(
+      checks.length
+        ? `## 清单核对(逐条核对反转线索与伏笔回收)\n${checks
+            .map((c) => `- ${c.type === 'reversal' ? '反转' : '伏笔'}｜${c.subject}｜${c.location || '未标注位置'}｜${c.detail}`)
+            .join('\n')}`
+        : `## 清单核对\n(本篇无清单条目)`,
+    )
+  }
   parts.push(`## 正文\n${draftBody}`)
   parts.push(
-    `## category 枚举参考\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
+    `## category 枚举参考（与回收白名单一致，短篇视角用后四维）\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)/hook(开篇钩子)/emotion_peak(情绪反转)/reversal(反转线索)/payoff(伏笔回收)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
 }
