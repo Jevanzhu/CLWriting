@@ -40,11 +40,16 @@ export function userMessageEvent(message: string, chapter?: number): NewEvent {
   }
 }
 
-export function assistantMessageEvent(message: string | ContentBlock[], usage?: { inputTokens: number; outputTokens: number }, stopReason?: string): NewEvent {
+export function assistantMessageEvent(
+  message: string | ContentBlock[],
+  usage?: { inputTokens: number; outputTokens: number },
+  stopReason?: string,
+  sourceSeqs?: number[],
+): NewEvent {
   const data: Record<string, unknown> = { message }
   if (usage) data['usage'] = usage
   if (stopReason) data['stopReason'] = stopReason
-  return { type: 'assistant/message', data, surfaceOp: 'append' }
+  return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceSeqs ? { sourceSeqs } : {}) }
 }
 
 export function toolCallEvent(callId: string, name: string, args: unknown): NewEvent {
@@ -134,7 +139,14 @@ export class SessionRecorder {
     if (!this.store || this.pending.length === 0) return null
     const n = this.pending.length
     const before = this.store.lastSeq()
-    this.store.appendEvents(this.sessionId, this.pending)
+    // P3 血缘：sourceSeqs 以「批内序号」传入（0-based，同批前驱引用），落库前转全局 seq
+    const resolved = this.pending.map((ev, _idx) => {
+      if (ev.sourceSeqs && ev.sourceSeqs.length > 0) {
+        return { ...ev, sourceSeqs: ev.sourceSeqs.map((s) => before + 1 + s) }
+      }
+      return ev
+    })
+    this.store.appendEvents(this.sessionId, resolved)
     this.pending = []
     const range = { first: before + 1, last: before + n }
     this.flushedRanges.push(range)

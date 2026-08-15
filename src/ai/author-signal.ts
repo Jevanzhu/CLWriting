@@ -11,6 +11,8 @@
 import { listAiVersions, readAiVersion } from '../git/ai-track.js'
 import { collectRuleViolations } from './rules/index.js'
 import { recordRuleHits } from './rule-hits.js'
+import { openSessionStore, bookHash } from '../events/store.js'
+import { authorSignalEvent } from '../events/chain-bridge.js'
 
 /** 作者删除信号只统计套话类规则（碎片文本对风格/设定/情节统计无意义） */
 const SIGNAL_RULE_IDS = new Set(['ai-cliche', 'ai-flavor-words'])
@@ -26,6 +28,7 @@ export function recordAuthorSignal(
   docId: string,
   currentContent: string,
   task: string,
+  userDataPath?: string,
 ): void {
   const versions = listAiVersions(bookRoot, docId)
   if (!versions.length) return
@@ -38,7 +41,23 @@ export function recordAuthorSignal(
   // 只统计套话类规则（作者删掉的 AI 味片段 = 信号）
   const violations = collectRuleViolations(deleted, task, bookRoot)
     .filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
-  recordRuleHits(bookRoot, violations)
+  recordRuleHits(bookRoot, violations, userDataPath)
+  // P3 事件化（author/signal）：作者删除信号入事件流（观测层静默）
+  if (userDataPath && violations.length > 0) {
+    try {
+      const store = openSessionStore(userDataPath, bookRoot)
+      if (store) {
+        const sessionId = store.workspaceSession(bookHash(bookRoot))
+        store.appendEvents(
+          sessionId,
+          violations.map((v) => authorSignalEvent({ ruleId: v.ruleId, message: v.message, task })),
+        )
+        store.close()
+      }
+    } catch {
+      // 观测层失败静默
+    }
+  }
 }
 
 /**

@@ -24,6 +24,7 @@ export { saveDraft, buildDraftPrompt, snapshotBeforeOverwrite } from '../../../p
 
 interface DraftCtx {
   workDir: string | null
+  userDataPath?: string | null
 }
 
 export function registerDraftRoutes(ctx: DraftCtx): void {
@@ -45,7 +46,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     try {
       saved = saveDraft(bookRoot, chapter, content)
       // 文风改稿轨迹（P1-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
-      recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save')
+      recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
       recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
       console.error('[api] 落盘失败:', e)

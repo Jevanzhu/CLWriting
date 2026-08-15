@@ -243,7 +243,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         // 终稿记录文风改稿轨迹（中间稿不记，避免污染信号）
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         // W-P1-3 右端：写稿完成（pass）后自动生成 账本推进.md（AI 草拟，作者定稿时确认）。
         // fire-and-forget：不阻塞主流程返回；仅长篇有布线时触发。
@@ -259,7 +259,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       if (st.state === 'escalate') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         // 终稿记录文风改稿轨迹
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         return {
           outcome: 'escalate',
@@ -279,7 +279,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       redIssues = reds
       if (attempt >= maxAttempts) {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         return { outcome: 'escalate', chapter: opts.chapter, reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
@@ -289,7 +289,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     const budget2 = checkAiCallBudget(bookRoot, chapter, config)
     if (!budget2.ok) {
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
       return { outcome: 'escalate', chapter: opts.chapter, reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
@@ -300,7 +300,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // B2：黄项修复指令（规则违规，提示不卡——不计入 evaluateRetry 全绿判定）
     const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
     // B3：规则命中统计（供工作台高频违规面板 + B4 前置注入）
-    recordRuleHits(bookRoot, ruleViolations)
+    recordRuleHits(bookRoot, ruleViolations, opts.userDataPath ?? undefined)
     // 红项 [必须] / 黄项 [建议]：AI 能区分硬性错误与文风建议（优先级不同取舍）
     const allIssues = [
       ...redIssues.map((s) => `[必须] ${s}`),
@@ -476,7 +476,7 @@ async function runChapter(
       }
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
         // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
@@ -486,7 +486,7 @@ async function runChapter(
       }
       if (st.state === 'escalate') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         return { chapter, outcome: 'escalate', reds: redMessages(outcome), docId: final.docId, path: final.relPath, attempts: attempt }
       }
@@ -498,7 +498,7 @@ async function runChapter(
       redIssues = reds
       if (attempt >= maxAttempts) {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
         return { chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
@@ -508,7 +508,7 @@ async function runChapter(
     const budget2 = checkAiCallBudget(bookRoot, chapter, config)
     if (!budget2.ok) {
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
+      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
       return { chapter, outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
@@ -517,7 +517,7 @@ async function runChapter(
     emit(opts, { type: 'self_heal_reset' })
 
     const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
-    recordRuleHits(bookRoot, ruleViolations)
+    recordRuleHits(bookRoot, ruleViolations, opts.userDataPath ?? undefined)
     const allIssues = [
       ...redIssues.map((s) => `[必须] ${s}`),
       ...ruleViolations.map((v) => `[建议] ${v.message}`),

@@ -32,6 +32,8 @@ import { listSkills, loadSkill } from '../../process/skills.js'
 // F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
 import { openSessionStore } from '../../events/store.js'
 import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
+import { settingsSnapshotEvent, revisionRefEvent } from '../../events/chain-bridge.js'
+import { digest16 } from '../../events/lineage.js'
 
 // ── 常量 ──────────────────────────────────────────
 
@@ -482,6 +484,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     const baseLen = history.length
     const ctx = buildChatContext(opts.bookRoot, opts.chapter, { userDataPath: opts.userDataPath })
     const sys = chatSystem(ctx)
+    // P3 血缘：注入快照指纹（settings/正文预览）——turn 内登记 settings/snapshot + revision/ref
+    const settingsDigest = digest16(ctx.settings)
+    const revisionDigest = ctx.currentChapter ? digest16(ctx.currentChapter) : undefined
     // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
     // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
     // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
@@ -504,6 +509,12 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
 
       recorder.add(turnStartEvent(turn))
+      // P3 血缘：登记本轮注入快照（settings/snapshot + revision/ref），assistant 事件引用
+      const lineageIdx: number[] = []
+      lineageIdx.push(recorder.add(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
+      if (revisionDigest !== undefined) {
+        lineageIdx.push(recorder.add(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: '' })))
+      }
       emit(opts, { type: 'chat_turn', turn })
 
       const out = await runTask<{
@@ -578,7 +589,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         }
         history.push({ role: 'assistant', content: asstContent })
         // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
-        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason)))
+        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx)))
         recorder.add(turnEndEvent(turn, 'completed'))
         const range = recorder.flush()
         if (range) {
@@ -607,7 +618,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       history.push({ role: 'assistant', content: asstBlocks })
       // F1-P1：assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
-      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason)))
+      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx)))
       for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
       // 执行工具 + 结果按 tool_result block 回填

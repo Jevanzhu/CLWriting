@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } 
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../src/ai/orchestrate/chat.js'
+import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
 let fake: FakeProvider
@@ -546,5 +547,50 @@ describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章
 
     const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
     expect(result?.summary).toBe('章号需为正整数。')
+  })
+})
+
+// ─── F1-P3 血缘事件 ───────────────────────────────
+
+describe('F1-P3 chat 血缘事件', () => {
+  it('单轮对话：settings/snapshot 登记 + assistant sourceSeqs 引用（可回溯、早于 assistant）', async () => {
+    fake.setScript([{ type: 'text', content: '答案是谈判。' }])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'lineage-e2e',
+      message: '主角该硬闯还是谈判？',
+    })
+    expect(hasChatDone(events)).toBe(true)
+
+    // 读事件库（对话会话 book = bookName）
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const evs = store.listEvents('lineage-e2e')
+      const snap = evs.find((e) => e.type === 'settings/snapshot')
+      expect(snap).toBeDefined()
+      expect((snap!.data as { scope: string }).scope).toBe('settings')
+      expect(typeof (snap!.data as { digest: string }).digest).toBe('string')
+
+      const asst = evs.find((e) => e.type === 'assistant/message')
+      expect(asst).toBeDefined()
+      expect(asst!.sourceSeqs).toBeDefined()
+      expect(asst!.sourceSeqs!.length).toBeGreaterThan(0)
+      // 完整来源链可回溯：每个引用 seq 都能在事件流定位，且早于 assistant
+      for (const s of asst!.sourceSeqs!) {
+        expect(evs.some((e) => e.seq === s)).toBe(true)
+        expect(s).toBeLessThan(asst!.seq)
+      }
+      // settings/snapshot seq 被 assistant 引用
+      expect(asst!.sourceSeqs).toContain(snap!.seq)
+    } finally {
+      store.close()
+    }
   })
 })

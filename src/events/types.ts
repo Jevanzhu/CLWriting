@@ -30,6 +30,12 @@ export type EventType =
   | 'llm/retry'
   | 'retry/attempt'
   | 'check/report'
+  // P3 血缘+检索（F1 方案 §二 v1 + §五 血缘设计）
+  | 'revision/ref'
+  | 'settings/snapshot'
+  | 'foreshadow/change'
+  | 'author/signal'
+  | 'rule/hit'
 
 /** 可上 surface 的事件类型（投影只处理这三类） */
 export const SURFACE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
@@ -105,6 +111,50 @@ export interface StepEndData {
   layer: LayerName
   /** 结构化终止原因：completed / max-tokens / error / aborted / timeout */
   reason: string
+}
+
+// ── P3 血缘+检索事件载荷（F1 §二 v1 + §五）─────────────────────────────
+
+/** revision/ref —— 正文版本指纹引用（血缘锚点） */
+export interface RevisionRefData {
+  chapter: number
+  /** 正文内容指纹（sha256 前 16 位） */
+  revision: string
+  /** 相对书库根的正文路径 */
+  path: string
+}
+
+/** settings/snapshot —— 注入设定快照（「模型可见 ⟺ 已记录」登记） */
+export interface SettingsSnapshotData {
+  scope: string
+  /** 快照版本（如设定文件 mtime/显式版本）；缺省由 digest 表达 */
+  version?: string
+  /** 快照内容指纹（sha256 前 16 位） */
+  digest: string
+}
+
+/** foreshadow/change —— 伏笔状态机（goal 词汇） */
+export interface ForeshadowChangeData {
+  operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete' | 'block' | 'clear'
+  /** 伏笔标题 */
+  title: string
+  /** 变化后的伏笔条目快照（可选，减轻载荷） */
+  entry?: Record<string, unknown>
+}
+
+/** author/signal —— 作者删除信号（套话类规则命中，B5 闭环） */
+export interface AuthorSignalData {
+  ruleId: string
+  message: string
+  task: string
+}
+
+/** rule/hit —— 规则命中（B3/B4 事件化） */
+export interface RuleHitData {
+  ruleId: string
+  task: string
+  chapter?: number
+  message: string
 }
 
 /** llm/call —— 合并 trace.ts 的 TraceEntry（P2 单一事实源） */

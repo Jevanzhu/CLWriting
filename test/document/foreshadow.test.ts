@@ -7,7 +7,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { readForeshadows, scanForeshadowTrails, migrateLegacyForeshadows } from '../../src/document/foreshadow.js'
+import { readForeshadows, scanForeshadowTrails, migrateLegacyForeshadows, searchForeshadowTrails } from '../../src/document/foreshadow.js'
 
 let root: string
 
@@ -285,5 +285,42 @@ describe('migrateLegacyForeshadows', () => {
     const list = readForeshadows(root)
     expect(list).toHaveLength(2)
     expect(list.map((e) => e.埋设章号).sort()).toEqual([1, 5])
+  })
+})
+
+describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
+  test('按标题 / 关联词 / 命中片段检索，返回足迹（哪章埋了哪章收了）', () => {
+    writeForeshadow('古剑', { 重要性: '高', 关联词: '锈剑', 埋设章号: '2' })
+    writeForeshadow('玉佩', { 重要性: '中', 关联词: '玉佩', 埋设章号: '1' })
+    writeChapter(1, '开', '他拾起玉佩。')
+    writeChapter(2, '中', '锈剑出鞘。')
+    writeChapter(8, '后', '剧情推进。')
+
+    // 标题检索
+    const byTitle = searchForeshadowTrails(root, '古剑')
+    expect(byTitle.map((h) => h.标题)).toEqual(['古剑'])
+    expect(byTitle[0]!.足迹.firstHit).toBe(2)
+    // 关联词检索
+    const byKw = searchForeshadowTrails(root, '玉佩')
+    expect(byKw.map((h) => h.标题)).toContain('玉佩')
+    // 命中片段检索（正文里的词）
+    const bySnippet = searchForeshadowTrails(root, '锈剑')
+    expect(bySnippet.map((h) => h.标题)).toContain('古剑')
+    expect(bySnippet[0]!.足迹.hits[0]!.章号).toBe(2)
+    // 空 query → 全量
+    expect(searchForeshadowTrails(root)).toHaveLength(2)
+    // 无匹配 → 空
+    expect(searchForeshadowTrails(root, '不存在词xyz')).toHaveLength(0)
+  })
+
+  test('按末次命中降序（最近提及在前）', () => {
+    writeForeshadow('早线', { 重要性: '中', 关联词: '早词', 埋设章号: '1' })
+    writeForeshadow('晚线', { 重要性: '中', 关联词: '晚词', 埋设章号: '3' })
+    writeChapter(1, '一', '早词出现。')
+    writeChapter(3, '三', '晚词出现。')
+    writeChapter(10, '十', '晚词再提。')
+
+    const all = searchForeshadowTrails(root)
+    expect(all.map((h) => h.标题)).toEqual(['晚线', '早线']) // lastHit 10 > 1
   })
 })

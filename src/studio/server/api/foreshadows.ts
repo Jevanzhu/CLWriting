@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
-import { readForeshadows, scanForeshadowTrails } from '../../../document/foreshadow.js'
+import { readForeshadows, scanForeshadowTrails, searchForeshadowTrails } from '../../../document/foreshadow.js'
 
 interface ForeshadowCtx {
   workDir: string | null
@@ -25,6 +25,12 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const bookRoot = join(ctx.workDir, entry.path)
+    // F1-P3：?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
+    const q = new URL(_req.url ?? '', 'http://local').searchParams.get('q') ?? undefined
+    if (q) {
+      reply(res, 200, searchForeshadowTrails(bookRoot, q))
+      return
+    }
     const entries = readForeshadows(bookRoot)
     const trails = scanForeshadowTrails(bookRoot, entries)
     reply(res, 200, entries.map((e) => ({ ...e, 足迹: trails.get(e.标题) ?? null })))

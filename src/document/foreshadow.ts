@@ -362,3 +362,47 @@ function parseChapterNoFromName(name: string): number | null {
   const m = name.match(/^(\d+)-/) // P2：与 leads.ts 对齐（要求 - 分隔符）
   return m ? Number(m[1]) : null
 }
+
+// ── F1-P3 伏笔足迹 FTS 检索 ────────────────────────
+
+/** 伏笔足迹检索命中（「哪章埋了哪章收了」可检索） */
+export interface ForeshadowSearchHit {
+  标题: string
+  状态: string
+  重要性: string
+  /** 足迹（firstHit=埋设点 / lastHit=最近提及 / hits=全部命中） */
+  足迹: ForeshadowTrail
+}
+
+/**
+ * 伏笔足迹检索：按标题 / 关联词 / 命中片段过滤 scanForeshadowTrails 结果。
+ *
+ * query 为空 → 全量（按末次命中降序，最近提及在前）。
+ * 匹配维度（F3/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文。
+ *
+ * @param bookRoot 书库根
+ * @param query 检索词（可选；大小写不敏感）
+ */
+export function searchForeshadowTrails(bookRoot: string, query?: string): ForeshadowSearchHit[] {
+  const entries = readForeshadows(bookRoot)
+  const trails = scanForeshadowTrails(bookRoot, entries)
+  const q = (query ?? '').trim().toLowerCase()
+  const results: ForeshadowSearchHit[] = []
+  for (const e of entries) {
+    const trail = trails.get(e.标题)
+    if (!trail) continue
+    if (!q) {
+      results.push({ 标题: e.标题, 状态: e.状态, 重要性: e.重要性, 足迹: trail })
+      continue
+    }
+    const titleHit = e.标题.toLowerCase().includes(q)
+    const kwHit = e.关联词.some((w) => w.toLowerCase().includes(q))
+    const snippetHit = trail.hits.some(
+      (h) => h.命中片段.toLowerCase().includes(q) || h.命中词.toLowerCase().includes(q),
+    )
+    if (titleHit || kwHit || snippetHit) {
+      results.push({ 标题: e.标题, 状态: e.状态, 重要性: e.重要性, 足迹: trail })
+    }
+  }
+  return results.sort((a, b) => (b.足迹.lastHit ?? 0) - (a.足迹.lastHit ?? 0))
+}

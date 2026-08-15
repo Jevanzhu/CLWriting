@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { recordRuleHits, readRuleHits, topRuleHits } from '../../src/ai/rule-hits.js'
+import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { rulesToPrompt } from '../../src/ai/rules/index.js'
 import type { RuleViolation } from '../../src/ai/rules/index.js'
 
@@ -98,5 +99,53 @@ describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
     expect(text).not.toContain('本书近期常见问题')
     // 仍含内置规则约束（ai-cliche）
     expect(text).toContain('避免AI味')
+  })
+})
+
+describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
+  it('带 userDataPath → workspace 会话写 rule/hit 事件；缺省不写', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ev-'))
+    try {
+      const ud = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ud-'))
+      try {
+        const v: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频词' }
+        // 缺省（无 userDataPath）：不写事件
+        recordRuleHits(root, [v])
+        const store0 = openSessionStore(ud, root)!
+        try {
+          expect(store0.listEvents(bookHash(root))).toHaveLength(0)
+        } finally {
+          store0.close()
+        }
+        // 带 userDataPath：写事件
+        recordRuleHits(root, [v], ud)
+        const store = openSessionStore(ud, root)!
+        try {
+          const evs = store.listEvents(bookHash(root))
+          const rules = evs.filter((e) => e.type === 'rule/hit')
+          expect(rules).toHaveLength(1)
+          expect(rules[0]!.data).toMatchObject({ ruleId: 'ai-cliche', task: 'check' })
+        } finally {
+          store.close()
+        }
+      } finally {
+        rmSync(ud, { recursive: true, force: true })
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('json 读路径不受影响（双写兼容）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-json-'))
+    try {
+      const v: RuleViolation = { ruleId: 'banned-word', level: 'red', message: '命中禁词' }
+      recordRuleHits(root, [v], undefined)
+      const hits = readRuleHits(root)
+      expect(hits).toHaveLength(1)
+      expect(hits[0]!.ruleId).toBe('banned-word')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

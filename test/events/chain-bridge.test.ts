@@ -9,9 +9,15 @@ import {
   llmRetryEvent,
   retryAttemptEvent,
   checkReportEvent,
+  revisionRefEvent,
+  settingsSnapshotEvent,
+  foreshadowChangeEvent,
+  authorSignalEvent,
+  ruleHitEvent,
   layerForTask,
   ChainRecorder,
 } from '../../src/events/chain-bridge.js'
+import { assistantMessageEvent } from '../../src/events/chat-bridge.js'
 
 describe('F1-P2 链路事件构造器', () => {
   it('step/start + step/end 载荷（task + layer + reason）', () => {
@@ -87,6 +93,48 @@ describe('F1-P2 ChainRecorder', () => {
     const r = new ChainRecorder(badStore, 'ws-x')
     expect(() => r.add(llmCallEvent({ runId: 'r', task: 't', tierKind: 'creative', model: 'm', attempt: 0, stopReason: 'end_turn', durationMs: 1, ok: true }))).not.toThrow()
     expect(() => r.close()).not.toThrow()
+  })
+})
+
+describe('F1-P3 血缘事件构造器', () => {
+  it('revision/ref + settings/snapshot 载荷', () => {
+    expect(revisionRefEvent({ chapter: 3, revision: 'r9', path: '写作/正文/3.md' })).toEqual({
+      type: 'revision/ref',
+      data: { chapter: 3, revision: 'r9', path: '写作/正文/3.md' },
+    })
+    expect(settingsSnapshotEvent({ scope: 'settings', digest: 'd1' })).toEqual({
+      type: 'settings/snapshot',
+      data: { scope: 'settings', digest: 'd1' },
+    })
+    expect(settingsSnapshotEvent({ scope: 'chapter', version: 'v2', digest: 'd2' })).toEqual({
+      type: 'settings/snapshot',
+      data: { scope: 'chapter', version: 'v2', digest: 'd2' },
+    })
+  })
+
+  it('foreshadow/change + author/signal + rule/hit 载荷', () => {
+    expect(foreshadowChangeEvent({ operation: 'complete', title: '古剑' })).toEqual({
+      type: 'foreshadow/change',
+      data: { operation: 'complete', title: '古剑' },
+    })
+    expect(authorSignalEvent({ ruleId: 'ai-cliche', message: '删掉', task: 'self-heal' })).toEqual({
+      type: 'author/signal',
+      data: { ruleId: 'ai-cliche', message: '删掉', task: 'self-heal' },
+    })
+    expect(ruleHitEvent({ ruleId: 'banned-word', task: 'check', message: '命中' })).toEqual({
+      type: 'rule/hit',
+      data: { ruleId: 'banned-word', task: 'check', message: '命中' },
+    })
+  })
+
+  it('assistantMessageEvent 可选 sourceSeqs 透传', () => {
+    expect(assistantMessageEvent('ok', undefined, undefined, [3, 4])).toEqual({
+      type: 'assistant/message',
+      data: { message: 'ok' },
+      surfaceOp: 'append',
+      sourceSeqs: [3, 4],
+    })
+    expect(assistantMessageEvent('ok')).not.toHaveProperty('sourceSeqs')
   })
 })
 

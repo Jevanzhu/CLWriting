@@ -67,7 +67,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerOverviewRoutes({ workDir })
     registerRhythmRoutes({ workDir })
     registerSettingsRoutes({ workDir, userDataPath })
-    registerDraftRoutes({ workDir })
+    registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir })

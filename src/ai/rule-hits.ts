@@ -12,6 +12,8 @@ import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { RuleViolation } from './rules/types.js'
+import { openSessionStore, bookHash } from '../events/store.js'
+import { ruleHitEvent } from '../events/chain-bridge.js'
 
 const FILE = 'rule-hits.json'
 /** 每条规则保留最近命中 message 数（B4 前置注入参考） */
@@ -49,7 +51,7 @@ function readHits(bookRoot: string): RuleHitsMap {
  *  并发安全：本函数全程同步 I/O（readFileSync → mutate → atomicWriteFile），
  *  Node.js 单线程事件循环保证同步段不会交叉，read-modify-write 天然原子。
  *  若将来改为异步 I/O（fs.promises），需加 per-bookRoot 写锁防交叉覆盖。 */
-export function recordRuleHits(bookRoot: string, violations: RuleViolation[]): void {
+export function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string): void {
   if (!violations.length) return
   const hits = readHits(bookRoot)
   const now = new Date().toISOString()
@@ -65,6 +67,22 @@ export function recordRuleHits(bookRoot: string, violations: RuleViolation[]): v
     atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
   } catch {
     // 统计是旁路，不影响主流程
+  }
+  // P3 事件化（rule/hit）：可选 userDataPath 时双写事件（审计单一事实源；观测层静默）
+  if (userDataPath) {
+    try {
+      const store = openSessionStore(userDataPath, bookRoot)
+      if (store) {
+        const sessionId = store.workspaceSession(bookHash(bookRoot))
+        store.appendEvents(
+          sessionId,
+          violations.map((v) => ruleHitEvent({ ruleId: v.ruleId, task: 'check', message: v.message })),
+        )
+        store.close()
+      }
+    } catch {
+      // 观测层失败静默
+    }
   }
 }
 
