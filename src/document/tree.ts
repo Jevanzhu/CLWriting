@@ -8,12 +8,12 @@
  * BookTreeIndex 进程内缓存：跨请求共享，结构性 mutation 后 invalidateTreeIndex 失效。
  * watcher 不做（0 依赖红线）——外部编辑器改动靠前端手动刷新触发 rescan。
  */
-import { readdirSync, readFileSync, existsSync, type Dirent } from 'node:fs'
+import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
-import { deriveStatusFull, type DocumentStatus } from './status.js'
-import { computeRevision } from './revision.js'
+import { deriveStatus, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
@@ -148,7 +148,7 @@ function collectVolumeOutlineStems(bookRoot: string): Set<string> {
   return set
 }
 
-/** 递归填 docId/status/volumeOutlinePath。 */
+/** 递归填 docId/status/volumeOutlinePath。W-P2-4：单次读探针（哈希+字数+published 一次带出）。 */
 function annotate(
   nodes: TreeNode[],
   bookRoot: string,
@@ -159,12 +159,13 @@ function annotate(
     if (!n.isDirectory) {
       const entry = entryByPath.get(n.path)
       n.docId = entry?.id ?? legacyId(n.path)
-      // 状态：实时算文件指纹 + manifest 定稿基线比对（无 git 依赖）
-      const abs = join(bookRoot, n.path)
-      const rev = existsSync(abs) ? computeRevision(abs) : null
-      n.status = deriveStatusFull(bookRoot, n.path, entry ?? null, rev)
+      // W-P2-4：一次读文件得到 rev + wordCount + published（原 computeRevision/countWordsOf/readPublished 三读合一）
+      const probe = probeFile(bookRoot, n.path)
+      const rev = probe?.rev ?? null
+      const status = deriveStatus(n.path, entry ?? null, rev)
+      n.status = status === 'final' && probe?.published ? 'published' : status
       if (isCountedRole(n.role)) {
-        n.wordCount = countWordsOf(bookRoot, n.path)
+        n.wordCount = probe?.wordCount ?? 0
       }
     } else {
       const volName = matchVolumeName(n.path)
@@ -183,15 +184,73 @@ function isCountedRole(role: DocumentRole): boolean {
   return role === 'chapter' || role === 'piece-body'
 }
 
-/** 读文档剥 frontmatter 后 countWords（读失败 → 0 容错）。 */
-function countWordsOf(bookRoot: string, rel: string): number {
+// ── W-P2-4：树单次读 + 哈希缓存 ─────────────────────────────
+
+/** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志（原三读合一）。 */
+interface FileProbe {
+  rev: string
+  wordCount: number
+  published: boolean
+}
+
+/**
+ * 进程级哈希缓存：path + (mtimeMs,size) → probe。
+ * 文件未变（stat 级检测）→ 复用，跳过整文件读 + SHA-256（200 万字树的重灾区）。
+ * 缓存无上限但按书隔离（键带 bookRoot），进程内树重建频次远低于文件量，可接受。
+ */
+const probeCache = new Map<string, { mtimeMs: number; size: number; probe: FileProbe }>()
+
+/** 清空哈希缓存（结构性 mutation 后由 invalidateTreeIndex 调用）。 */
+export function clearProbeCache(): void {
+  probeCache.clear()
+}
+
+/**
+ * 单次读取文件 → { rev, wordCount, published }。
+ * - rev：文件字节 SHA-256（computeRevision 同源 hashFile 语义）
+ * - wordCount：剥 fm 后码点数（原 countWordsOf）
+ * - published：fm `已发布` == true/'true'（原 readPublished 的 final 分支才读，这里一次带出）
+ * 文件不存在/读失败 → null（调用方容错）。
+ */
+function probeFile(bookRoot: string, rel: string): FileProbe | null {
+  const full = join(bookRoot, rel)
+  let st: { mtimeMs: number; size: number }
   try {
-    const raw = readFileSync(join(bookRoot, rel), 'utf-8')
-    const split = splitFrontMatter(raw)
-    return countWords(split ? split.body : raw)
+    st = statSync(full)
   } catch {
-    return 0
+    return null
   }
+  const key = bookRoot + '|' + rel
+  const hit = probeCache.get(key)
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.probe
+
+  let raw: Buffer
+  try {
+    raw = readFileSync(full)
+  } catch {
+    return null
+  }
+  const rev = 'sha256:' + createHash('sha256').update(raw).digest('hex')
+  // 字数 + published 都从同一份字节解析（一次读、一次 utf8 解码）
+  const text = raw.toString('utf8')
+  const split = splitFrontMatter(text)
+  const wordCount = countWords(split ? split.body : text)
+  let published = false
+  if (split) {
+    const v = parsePublishedValue(split.fmRaw)
+    published = v === true || v === 'true'
+  }
+  const probe: FileProbe = { rev, wordCount, published }
+  probeCache.set(key, { mtimeMs: st.mtimeMs, size: st.size, probe })
+  return probe
+}
+
+/** 从 fm 原文提取 `已发布` 字段值（与原 readPublished/parseFlat 同口径，内联避免第三读）。 */
+function parsePublishedValue(fmRaw: string): boolean | string | undefined {
+  const m = fmRaw.match(/^已发布[:：]\s*(.+?)\s*$/m)
+  if (!m) return undefined
+  const v = m[1]!.trim()
+  return v === 'true' ? true : v
 }
 
 /** 写作/正文/<卷> → <卷>（卷目录名，直接子级）；正文根或更深层（卷里的章）→ null。 */
@@ -228,4 +287,6 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
 /** 结构性 mutation 后失效缓存（下次 getBookTreeIndex 重建，revision 递增）。 */
 export function invalidateTreeIndex(bookRoot: string): void {
   indexes.delete(bookRoot)
+  // W-P2-4：文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希
+  clearProbeCache()
 }

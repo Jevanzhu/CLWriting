@@ -90,6 +90,27 @@ interface DiskFormat {
 }
 
 /**
+ * W-P2-9：主文件损坏时的备份恢复引导。
+ * 从 providers.bak.json 复制回主文件（并尝试保持 0600 权限）。
+ * @returns null=恢复成功；string=恢复失败原因（bak 缺失/读失败/复制失败）。
+ */
+function tryRestoreFromBak(fp: string, bakFp: string): string | null {
+  if (!existsSync(bakFp)) return '备份文件不存在'
+  try {
+    copyFileSync(bakFp, fp)
+    try {
+      chmodSync(fp, 0o600)
+    } catch {
+      /* 平台不支持 chmod 则忽略 */
+    }
+    _cache = null // 恢复后强制重读
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+}
+
+/**
  * 读 providers.json → 解密 → ProviderStore（含明文 apiKey）。
  *
  * 解密失败（版本过高 / 认证失败）抛错——S5 会兜住"损坏不静默"，
@@ -113,11 +134,23 @@ export function loadProviders(userDataPath: string): ProviderStore {
   }
 
   let raw: DiskFormat
+  const bakFp = `${dirname(fp)}/providers.bak.json`
   try {
     raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
   } catch (e) {
-    // D6：损坏不静默——保留原文件、向上报错（router 全局 catch 转 500 响应）
-    throw new Error(`providers.json 解析失败，文件可能损坏：${e instanceof Error ? e.message : ''}`)
+    // W-P2-9：损坏不静默，且不再直接放弃——主文件解析失败时尝试从 bak 恢复
+    // （save 每次写前都会生成 providers.bak.json，理论上是最新一份完整配置）。
+    // 恢复成功 → 用备份内容继续（并在下方用恢复后的内容重写主文件，重建一致状态）。
+    const bakErr = tryRestoreFromBak(fp, bakFp)
+    if (bakErr) {
+      // D6：备份也不可用 → 保留原文件、向上报错（router 全局 catch 转 500 响应）
+      throw new Error(`providers.json 解析失败，文件可能损坏（备份恢复亦失败）：${e instanceof Error ? e.message : ''}${bakErr ? '；bak: ' + bakErr : ''}`)
+    }
+    try {
+      raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
+    } catch (e2) {
+      throw new Error(`providers.json 备份恢复后仍无法解析：${e2 instanceof Error ? e2.message : ''}`)
+    }
   }
   if (!Array.isArray(raw.providers)) return emptySettings()
 

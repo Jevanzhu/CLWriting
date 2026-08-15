@@ -5,11 +5,12 @@
  * mock/真实 decode 一致、resolveProvider 独立行为。
  * （GEN_FAIL / ABORTED 需真实 provider 网络路径，不在这层单测，由 e2e 覆盖。）
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
+import { persistDegraded } from '../../src/ai/provider/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
@@ -242,5 +243,35 @@ describe('runTask B-1 指数退避重试', () => {
     })
     expect(out.ok).toBe(true)
     expect(triggered).toBe(false)
+  })
+})
+
+describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {
+  it('persistDegraded 同一 key 二次触发 → 文件 mtime 不变（跳过重复 load+save）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    // resolveProvider 注册降级回调（内部 load+save+去重）
+    const r = resolveProvider(ud)
+    expect(r.ok).toBe(true)
+
+    const key = 'prov-test/gpt-4o'
+    const fp = join(ud, 'providers.json')
+    const mtimeBefore = statSync(fp).mtimeMs
+
+    // 第一次 persist：写入 modelCaps
+    persistDegraded(key)
+    const mtimeAfterFirst = statSync(fp).mtimeMs
+
+    // 第二次 persist（同 key）：去重命中 → 不写盘
+    persistDegraded(key)
+    const mtimeAfterSecond = statSync(fp).mtimeMs
+
+    // 第一次写入会改 mtime（文件确实被写）；第二次应完全不动
+    expect(mtimeAfterFirst).toBeGreaterThanOrEqual(mtimeBefore)
+    expect(mtimeAfterSecond).toBe(mtimeAfterFirst)
+
+    // 落盘内容含 modelCaps 记忆
+    const raw = JSON.parse(readFileSync(fp, 'utf8'))
+    expect(raw.modelCaps?.[key]).toEqual({ structured: false })
   })
 })

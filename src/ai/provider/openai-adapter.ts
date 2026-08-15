@@ -139,6 +139,12 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     params['tools'] = req.tools.map(toOpenAITool)
   }
 
+  // W-P2-10：强制工具调用（non-auto）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
+  // 与 anthropic 线 disable_parallel_tool_use:true 同语义（W0 意图：强制工具名时避免并行发散），
+  // 对齐 quirks 表注释「parallel_tool_calls 可关」——此前 openai 线从不发，字段恒缺省（并行默认开）。
+  // 注意：parallel_tool_calls 是顶层 chat.completions 参数，不是 tool_choice 的子字段。
+  const forced = req.toolChoice && (req.toolChoice === 'any' || req.toolChoice === 'tool')
+  if (forced && q.parallelControl) params['parallel_tool_calls'] = false
   // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：
   // named → 指名/required/auto 原样；
   // required（Kimi k3：指名与思考不兼容）→ 强制意图转 required，不指名；

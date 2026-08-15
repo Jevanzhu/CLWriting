@@ -94,7 +94,10 @@ export function resolveProvider(
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发；
   // 同 path 重复注册无害）
   registerDegradedPersist((key) => {
+    // W-P2-9：降级记忆已记录 → 跳过全量重写（原实现每次 400 命中都 load+save，
+    // 含备份 copy+chmod 的 I/O churn；同一 key 只应写一次）
     const s = loadProviders(userDataPath)
+    if (s.modelCaps[key]?.structured === false) return
     s.modelCaps[key] = { structured: false }
     saveProviders(userDataPath, s)
   })

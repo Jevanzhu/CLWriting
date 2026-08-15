@@ -89,6 +89,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 
       // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
       const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
+      // W-P2-12：high_risk 不再恒 false——机检红项即高风险章（正文有硬伤），
+      // 触发 selectReviewTier 的「风险章禁止降级满审」闸（此前该分支是死参数，仅测试独享）。
       const built = buildReviewPacket({
         checkReport: report,
         body,
@@ -96,7 +98,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         workDir: reviewOutDir,
         capabilities: { parallel_subagents: false, multiple_calls: true },
         remaining_calls: config.budget.calls_per_chapter,
-        high_risk: false,
+        high_risk: outcome.hasRed,
         hasWiring,
         hasShort,
       })

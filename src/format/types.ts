@@ -134,6 +134,8 @@ export interface ChapterMeta {
   _raw?: Record<string, string>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
+  /** W-P2-4：readChapterDir 传 includeBody 时带出正文原文（导出单次读用；默认缺省不驻留内存） */
+  _body?: string
 }
 
 // ── 文风样章（#5 第 4 节）────────────────────────

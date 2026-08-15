@@ -10,11 +10,11 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseChapterFileName } from '../format/words.js'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../format/read.js'
-import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
@@ -22,6 +22,50 @@ import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../for
 import type { BookConfig, StyleSample } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 import { isWithinRoot } from '../fs/safe-path.js'
+
+/**
+ * W-P2-4：按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
+ * 替代 readChapterDir 全树递归扫描（备料为取一章此前要 stat/读全书所有 md）。
+ * 文件名契约 `<数字>-<标题>.md`（parseChapterFileName），可补零。找不到 → null。
+ * 正确性兜底：卷目录只存在一层（写作/正文/<卷>/），更深嵌套不在此结构内——
+ * 若未来出现更深嵌套，此处返回 null 由调用方降级（不产出该段，行为与「无此章」一致）。
+ */
+function findChapterByNumber(bookRoot: string, chapterNo: number): string | null {
+  const bodyRoot = join(bookRoot, '写作', '正文')
+  const tryFile = (dir: string): string | null => {
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return null
+    }
+    for (const name of entries) {
+      if (!name.endsWith('.md') || name.startsWith('._')) continue
+      const parsed = parseChapterFileName(name)
+      if (parsed && parsed.章号 === chapterNo) return join(dir, name)
+    }
+    return null
+  }
+
+  // ① 正文根目录散章
+  const atRoot = tryFile(bodyRoot)
+  if (atRoot) return atRoot
+
+  // ② 各卷子目录（写作/正文/<卷>/）
+  let volDirs: string[]
+  try {
+    volDirs = readdirSync(bodyRoot).filter((n) => {
+      try { return statSync(join(bodyRoot, n)).isDirectory() } catch { return false }
+    })
+  } catch {
+    return null
+  }
+  for (const v of volDirs) {
+    const inVol = tryFile(join(bodyRoot, v))
+    if (inVol) return inVol
+  }
+  return null
+}
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 export interface MaterialSection {
@@ -148,14 +192,11 @@ function buildEndingsSections(
   const prevChapterNo = snapshot.currentChapter - 1
   if (prevChapterNo >= 1) {
     let prevBody: string | null = null
-    // 正文区扫描（含 untracked 草稿——草稿取消独立目录后，前章草稿也在正文区）
-    const finalDir = join(bookRoot, '写作', '正文')
-    if (existsSync(finalDir)) {
-      const prev = readChapterDir(finalDir).chapters.find((c) => c.章号 === prevChapterNo)
-      if (prev?._path) {
-        const r = readFile(prev._path)
-        if (r.ok) prevBody = r.body
-      }
+    // W-P2-4：只扫 正文根+卷目录 两层找前一章，不再全树 readChapterDir（为取一章读全书）
+    const prevPath = findChapterByNumber(bookRoot, prevChapterNo)
+    if (prevPath && isWithinRoot(bookRoot, prevPath)) {
+      const r = readFile(prevPath)
+      if (r.ok) prevBody = r.body
     }
     if (prevBody !== null) {
       const full = tailByParagraph(prevBody, 1500)

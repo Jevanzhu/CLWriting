@@ -19,7 +19,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createAllTables, clearAllTables } from './schema.js'
-import { syncLead, syncChapter, syncSummary, setMeta } from './sync.js'
+import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
 import { readLeadDir } from '../format/leads.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
@@ -27,6 +27,86 @@ import type { ParseError } from '../format/types.js'
 
 /** 基础三类（恒启用，母本第 2.1 节） */
 const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
+
+/** 源树顶层目录（与全量重建扫描范围一致：布线/写作/定稿） */
+const SOURCE_DIRS = ['布线', '写作', '定稿'] as const
+
+/**
+ * W-P2-4 增量 rebuild：只 stat 源目录树（不读文件内容、不解析、不入库），
+ * 返回所有源 md 文件的最大 mtimeMs；无源文件 → 0。
+ * 比全量重建轻几个数量级（200 万字书也只做 readdir+stat）。
+ */
+function walkSourceMaxMtime(bookRoot: string): number {
+  let max = 0
+  const stack: string[] = []
+  for (const d of SOURCE_DIRS) {
+    const dir = join(bookRoot, d)
+    if (existsSync(dir)) stack.push(dir)
+  }
+  while (stack.length > 0) {
+    const dir = stack.pop()!
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('._')) continue
+      if (e.isDirectory()) {
+        stack.push(join(dir, e.name))
+      } else if (e.isFile() && e.name.endsWith('.md')) {
+        try {
+          const m = statSync(join(dir, e.name)).mtimeMs
+          if (m > max) max = m
+        } catch {
+          /* stat 失败忽略 */
+        }
+      }
+    }
+  }
+  return max
+}
+
+/**
+ * W-P2-4：增量跳过检测——db 存在、meta 有 source_max_mtime、且源树最大 mtime 未超过记录值
+ * → 跳过全量重建，从 meta 恢复 counts/errors（语义等价：源没变 → db 内容必然没变）。
+ * db 损坏/无记录/源有变化 → null（走全量重建，正好满足「删了能建回」）。
+ */
+function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResult | null {
+  if (!existsSync(cachePath)) return null
+  let db: DatabaseSync
+  try {
+    db = new DatabaseSync(cachePath, { readOnly: true })
+  } catch {
+    return null // 只读打不开（损坏/被锁）→ 全量重建
+  }
+  try {
+    const recorded = getMeta(db, 'source_max_mtime')
+    if (recorded === null) return null // 旧库无记录 → 首次全量
+    const maxMtime = walkSourceMaxMtime(bookRoot)
+    if (maxMtime > Number(recorded)) return null // 源有变化 → 全量
+    // 无变化 → 从 meta 恢复结果
+    const leadCount = Number(getMeta(db, 'lead_count') ?? '0')
+    const chapterCount = Number(getMeta(db, 'chapter_count') ?? '0')
+    const summaryCount = Number(getMeta(db, 'summary_count') ?? '0')
+    const errCount = Number(getMeta(db, 'error_count') ?? '0')
+    let errors: ParseError[] = []
+    if (errCount > 0) {
+      try {
+        const parsed = JSON.parse(getMeta(db, 'errors') ?? '[]')
+        if (Array.isArray(parsed)) errors = parsed as ParseError[]
+      } catch {
+        errors = []
+      }
+    }
+    return { leadCount, chapterCount, summaryCount, errors }
+  } catch {
+    return null
+  } finally {
+    db.close()
+  }
+}
 
 /** 重建结果 */
 export interface RebuildResult {
@@ -50,10 +130,16 @@ export function rebuild(
   bookRoot: string,
   cachePath: string,
 ): RebuildResult {
+  // W-P2-4 增量：进门/机检高频路径，源树未变则跳过全量重建（stat 级检测，语义等价）
+  const incremental = tryIncrementalRebuild(bookRoot, cachePath)
+  if (incremental) return incremental
+
   const errors: ParseError[] = []
   let leadCount = 0
   let chapterCount = 0
   let summaryCount = 0
+  // W-P2-4：本次重建的源树最大 mtime（+1ms 缓冲防同毫秒写后漏检），重建后写 meta
+  const sourceMaxMtime = Math.ceil(walkSourceMaxMtime(bookRoot)) + 1
 
   // 读 book.yaml → 决定启用哪些账本类（#9 第 5 节）
   const bookYamlPath = join(bookRoot, 'book.yaml')
@@ -130,8 +216,10 @@ export function rebuild(
     // #4 写 meta
     setMeta(db, 'rebuilt_at', new Date().toISOString())
     setMeta(db, 'format_version', '1')
+    setMeta(db, 'source_max_mtime', String(sourceMaxMtime)) // W-P2-4 增量基准
     setMeta(db, 'lead_count', String(leadCount))
     setMeta(db, 'chapter_count', String(chapterCount))
+    setMeta(db, 'summary_count', String(summaryCount))
     setMeta(db, 'error_count', String(errors.length))
     if (errors.length > 0) {
       setMeta(db, 'errors', JSON.stringify(errors))

@@ -247,6 +247,44 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
   expect(JSON.parse(bak).vault).toBeTypeOf('object')
 })
 
+// ── W-P2-9：主文件损坏 → 自动从 bak 恢复 ────────────
+
+test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留配置', () => {
+  // 正常 save 两次（第二次生成 bak）
+  const store = emptySettings()
+  store.providers = [makeConf({ id: 'prov-restore', apiKey: 'sk-restore-me-123' })]
+  store.currentId = 'prov-restore'
+  saveProviders(dir, store)
+  store.providers[0]!.apiKey = 'sk-restore-v2-456'
+  saveProviders(dir, store)
+
+  // 改坏主文件（bak 完好）
+  writeFileSync(FP(), '{ broken json !!!', 'utf8')
+
+  // load 应静默恢复（不抛错），配置从 bak 还原
+  const loaded = loadProviders(dir)
+  expect(loaded.providers).toHaveLength(1)
+  expect(loaded.providers[0]!.id).toBe('prov-restore')
+  // bak = 第二次 save 前的备份（S5-D7 语义：保存时备份的是前一次内容 → 这里是 v1 key）
+  expect(loaded.providers[0]!.apiKey).toBe('sk-restore-me-123')
+
+  // 主文件已被恢复内容重写（不再是损坏内容）
+  const raw = readFileSync(FP(), 'utf8')
+  expect(raw).not.toContain('broken')
+  expect(JSON.parse(raw).providers[0].id).toBe('prov-restore')
+})
+
+test('W-P2-9: 主文件损坏且无 bak → 仍抛错（不静默返回空）', () => {
+  // 首次 save 不产生 bak（S5-D7 语义：仅第二次起有备份）
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-no-bak-key' })]
+  saveProviders(dir, store)
+  expect(existsSync(join(dir, 'providers.bak.json'))).toBe(false)
+
+  writeFileSync(FP(), '{ broken json !!!', 'utf8')
+  expect(() => loadProviders(dir)).toThrow(/备份恢复亦失败/)
+})
+
 test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-atomic-test123456' })]

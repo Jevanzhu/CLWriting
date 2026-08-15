@@ -19,9 +19,12 @@ const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', 
 
 const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标', '目标情绪', '核心反转'])
 
-/** 读取章节 md → ChapterMeta（容错） */
+/** 读取章节 md → ChapterMeta（容错）。
+ * @param includeBody W-P2-4：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
+ *                    默认缺省不驻留正文，既有调用方零成本。 */
 export function readChapter(
   filePath: string,
+  includeBody?: boolean,
 ): { ok: true; chapter: ChapterMeta } | { ok: false; error: ParseError } {
   const r = readFile(filePath)
   if (!r.ok) return r
@@ -48,6 +51,7 @@ export function readChapter(
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _path: filePath,
     _wordCount: countWords(r.body),
+    ...(includeBody ? { _body: r.body } : {}),
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
   if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
@@ -80,9 +84,12 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
-/** 扫描目录读所有章节（容错，递归子目录——支持 写作/正文/<卷>/ 结构） */
+/** 扫描目录读所有章节（容错，递归子目录——支持 写作/正文/<卷>/ 结构）。
+ * @param includeBody W-P2-4：为 true 时带出 _body（正文原文），导出等「meta+body 都要」的调用方一次读；
+ *                     默认缺省（undefined/false）不驻留正文，既有调用方零成本。 */
 export function readChapterDir(
   dirPath: string,
+  includeBody?: boolean,
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
@@ -105,7 +112,7 @@ export function readChapterDir(
       if (st.isDirectory()) {
         walk(fp) // 递归子目录（卷）
       } else if (name.endsWith('.md')) {
-        const r = readChapter(fp)
+        const r = readChapter(fp, includeBody)
         if (r.ok) chapters.push(r.chapter)
         else errors.push(r.error)
       }

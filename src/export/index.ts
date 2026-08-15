@@ -15,7 +15,6 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readManifest } from '../document/manifest.js'
 import {
@@ -56,6 +55,8 @@ interface ExportUnit {
   num: number
   title: string
   path: string
+  /** W-P2-4：readChapterDir(includeBody) 一次读带出，替代二次 readFile */
+  body?: string
 }
 
 /**
@@ -83,17 +84,17 @@ export function exportBook(options: ExportOptions): ExportResult {
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const bodyDir = join(bookRoot, '写作', '正文')
 
-  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构）
+  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构；W-P2-4：includeBody 一次读带出正文，不再二次 readFile）
   if (!existsSync(bodyDir)) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
-  const { chapters, errors } = readChapterDir(bodyDir)
+  const { chapters, errors } = readChapterDir(bodyDir, true)
   if (errors.length > 0) {
     const msgs = errors.map((e) => `${e.file}: ${e.message}`).join('; ')
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${msgs}` }
   }
   const units: ExportUnit[] = chapters.flatMap((ch) =>
-    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
+    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path, body: ch._body }] : [],
   )
   if (units.length === 0) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
@@ -130,14 +131,13 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 2. 按章号数值排序（不依赖文件名字符串序）
   exportable.sort((a, b) => a.num - b.num)
 
-  // 3. 读正文并净化（复用 readFile 取 body；readChapter 只返 meta 不够）
+  // 3. 净化正文（W-P2-4：body 已随 readChapterDir(includeBody=true) 一次带出，不再二次 readFile）
   const purified: Array<{ num: number; title: string; body: string }> = []
   for (const unit of exportable) {
-    const r = readFile(unit.path)
-    if (!r.ok) {
-      return { ok: false, files: [], chapterCount: 0, unit: '章', error: `读取 ${unit.path} 失败：${r.error.message}` }
+    if (!unit.body) {
+      return { ok: false, files: [], chapterCount: 0, unit: '章', error: `读取 ${unit.path} 失败：正文为空` }
     }
-    purified.push({ num: unit.num, title: unit.title, body: purifyBody(r.body) })
+    purified.push({ num: unit.num, title: unit.title, body: purifyBody(unit.body) })
   }
 
   // 4. 准备导出目录（母本 6.2 工作区/导出/）
