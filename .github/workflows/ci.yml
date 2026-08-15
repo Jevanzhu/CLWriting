@@ -46,10 +46,14 @@ jobs:
       - name: 测试（含 node:sqlite smoke）
         run: npm test
 
+      # X-P2-16：README 数字对账门——「账实对照」从自律升级为门禁，失配即红
+      - name: README 数字对账（check:counts）
+        run: npm run check:counts
+
       # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
       # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 
-  # e2e job（M11 E1 恢复）：playwright 跑 web-next 7 条动线，独立 job 不阻塞 build-test。
+  # e2e job（M11 E1 恢复）：playwright 跑 web-next 动线 e2e（test/e2e/，release-smoke 另走 test:e2e:release），独立 job 不阻塞 build-test。
   e2e:
     name: e2e · playwright
     runs-on: macos-latest
