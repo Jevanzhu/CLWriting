@@ -64,6 +64,8 @@ watch(bookName, async (n) => {
   rewrite.clear()
   workbench.clear()
   chat.clear()
+  // Y-P2-5：切书/刷新后从事件库恢复对话历史（store 内自带空判/竞态守卫，失败静默）
+  if (n) void chat.seedHistory(n)
   // 切书后刷新对话档位（防短暂显示旧书模型列表）
   void useChatTier().refresh()
 }, { immediate: true })
@@ -85,14 +87,15 @@ onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
     <Transition name="clw-view" mode="out-in">
       <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
       <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
-      <!-- :key=bookName —— 切书时强制重建（两视图内部仅 onMounted 拉数、无 watch bookName；
-           无 key 复用组件会一直显示旧书数据） -->
+      <!-- :key=bookName —— 切书时强制重建（下列视图无 watch bookName、多为仅 onMounted 拉数；
+           无 key 复用组件会一直显示旧书数据）。Y-P2-3：StyleView 自带切书 watch、
+           WorkbenchView 由内部 watch 重载规则命中，均无需 key -->
       <OverviewView v-else-if="ws.activeView === 'overview'" :key="bookName" :book-name="bookName" />
       <RelationsView v-else-if="ws.activeView === 'relations'" :key="bookName" :book-name="bookName" />
-      <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
+      <LearnView v-else-if="ws.activeView === 'learn'" :key="bookName" :book-name="bookName" />
       <StyleView v-else-if="ws.activeView === 'style'" :book-name="bookName" />
-      <AuditView v-else-if="ws.activeView === 'audit'" :book-name="bookName" />
-      <OnboardView v-else :book-name="bookName" />
+      <AuditView v-else-if="ws.activeView === 'audit'" :key="bookName" :book-name="bookName" />
+      <OnboardView v-else :key="bookName" :book-name="bookName" />
     </Transition>
   </WorkspaceShell>
 </template>

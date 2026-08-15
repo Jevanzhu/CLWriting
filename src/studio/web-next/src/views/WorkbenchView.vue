@@ -108,6 +108,8 @@ watch(
   () => refreshState(),
   { immediate: true },
 )
+// Y-P2-3：切书重载规则命中（原仅 onMounted 拉一次，切书后残留旧书统计；初载仍走 onMounted）
+watch(() => props.bookName, () => void loadRuleHits())
 onMounted(() => {
   void loadTier()
   void loadRuleHits()

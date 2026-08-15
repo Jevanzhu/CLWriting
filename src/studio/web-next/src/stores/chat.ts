@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { str } from './sse-guards.js'
+import { fetchChatHistory, type ChatHistoryMessage } from '../api/chat.js'
 
 /**
  * 对话助手 store（方案 §3.7.3）。
  *
  * 消息列表 + 工具卡片状态机 + running。
  * chat_* 事件在 useSse 消费点分流到 dispatch()（不塞进 workbench.dispatch）。
+ * Y-P2-5：刷新/切书后经 seedHistory 从事件库投影恢复历史（仅 messages 为空时种子化）。
  */
 
 /** 工具卡片状态 */
@@ -49,6 +51,8 @@ export const useChatStore = defineStore('chat', () => {
   const notice = ref<string | null>(null)
   /** 当前正在填充的 assistant 气泡索引（chat_text 追加目标） */
   let currentIdx = -1
+  /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫） */
+  let seedGen = 0
 
   /** 是否有消息 */
   const hasMessages = computed(() => messages.value.length > 0)
@@ -180,6 +184,77 @@ export const useChatStore = defineStore('chat', () => {
     trimMessages()
   }
 
+  // ── Y-P2-5：历史种子化（刷新/切书后从事件库投影恢复）────
+
+  /** 历史消息 → 气泡模型（与 SSE 实时渲染等价：tool 结果回填到 assistant 的工具卡片，不渲染为用户气泡） */
+  function seedFromHistory(msgs: ChatHistoryMessage[]): void {
+    const seeded: ChatMessage[] = []
+    for (const m of msgs) {
+      if (typeof m.content === 'string') {
+        seeded.push({ id: `m${_msgSeq++}`, role: m.role, content: m.content, done: true, tools: [] })
+        continue
+      }
+      if (m.role === 'user') {
+        // tool_result 合成消息：结果按 callId 回填前一条 assistant 气泡的工具卡片（等价 chat_tool_result）
+        for (const b of m.content) {
+          if (b.type === 'tool_result') {
+            applySeedToolResult(seeded, b.toolUseId, b.content, b.isError === true)
+          }
+        }
+        continue
+      }
+      // assistant 块结构：text 拼进气泡内容；tool_use → 工具卡片；reasoning 不渲染（SSE 流本就不透出思维链）
+      let text = ''
+      const tools: ToolCard[] = []
+      for (const b of m.content) {
+        if (b.type === 'text') text += b.text
+        else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: b.input, status: 'running' })
+      }
+      seeded.push({ id: `m${_msgSeq++}`, role: 'assistant', content: text, done: true, tools })
+    }
+    // 兜底：无 tool_result 回填的卡片（异常残留的半截回合）标 cancelled，防永久转圈
+    for (const m of seeded) {
+      for (const t of m.tools) {
+        if (t.status === 'running') t.status = 'cancelled'
+      }
+    }
+    messages.value.push(...seeded)
+    // 种子化只在空列表进行（见 seedHistory 守卫），currentIdx 必为 -1；防御性复位防未来不变式漂移
+    currentIdx = -1
+    trimMessages()
+  }
+
+  /** 历史 tool_result 回填：反向找最近的同 callId 卡片（等价 SSE 的 updateTool） */
+  function applySeedToolResult(seeded: ChatMessage[], callId: string, summary: string, isError: boolean): void {
+    for (let i = seeded.length - 1; i >= 0; i--) {
+      const tool = seeded[i]!.tools.find((t) => t.callId === callId)
+      if (tool) {
+        tool.status = isError ? 'failed' : 'ok'
+        if (summary) tool.summary = summary
+        return
+      }
+    }
+  }
+
+  /**
+   * 拉取并种子化对话历史（Y-P2-5）：仅当前消息为空且不在生成中时执行。
+   * 竞态守卫：拉取期间若有新 SSE 消息到达（messages 非空）/开始生成（running）/
+   * 切书（clear 使 seedGen 失效）→ 宁可放弃种子化也不覆盖/插入错位。
+   */
+  async function seedHistory(bookName: string): Promise<void> {
+    if (!bookName || messages.value.length > 0 || running.value) return
+    const gen = ++seedGen
+    let data: { messages: ChatHistoryMessage[] }
+    try {
+      data = await fetchChatHistory(bookName)
+    } catch {
+      return // 后端未起/离线：静默放弃（对话区留白，可正常发起新对话）
+    }
+    if (gen !== seedGen || messages.value.length > 0 || running.value) return
+    if (data.messages.length === 0) return
+    seedFromHistory(data.messages)
+  }
+
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
   function trimMessages(): void {
     if (messages.value.length > MAX_MESSAGES) {
@@ -202,6 +277,7 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     notice.value = null
     currentIdx = -1
+    seedGen++ // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
   }
 
   return {
@@ -214,5 +290,6 @@ export const useChatStore = defineStore('chat', () => {
     pushUser,
     popUser,
     clear,
+    seedHistory,
   }
 })

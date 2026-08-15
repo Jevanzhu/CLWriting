@@ -48,6 +48,7 @@ import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { registerTraceStatsRoutes } from './api/trace-stats.js'
 import { registerAuditRoutes } from './api/audit.js'
+import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 import { resetRouteSchemas } from './api/schema.js'
 import { createStaticHandler } from './static.js'
@@ -85,6 +86,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerProvidersRoutes({ userDataPath })
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath })
+    registerChatHistoryRoutes({ workDir, userDataPath }) // Y-P2-5：对话历史只读端点（editor 组，同 audit 事件读取模式）
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath, studioToken: token })

@@ -28,6 +28,26 @@ export async function clearChatHistory(name: string): Promise<{ ok: boolean }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/chat/clear`, { method: 'POST' }, 15_000)
 }
 
+// ── Y-P2-5：对话历史恢复（只读投影） ──────────────────
+
+/** 历史消息 content block（服务端 ContentBlock 的 JSON 投影，同构透出） */
+export type ChatHistoryBlock =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
+
+/** 历史消息：user 纯文本，或带 text/reasoning/tool_use/tool_result 块结构 */
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string | ChatHistoryBlock[]
+}
+
+/** GET /chat/history —— 事件库投影的对话历史（刷新后前端种子化用） */
+export async function fetchChatHistory(bookName: string): Promise<{ messages: ChatHistoryMessage[] }> {
+  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history`, undefined, 15_000)
+}
+
 /** POST /chat/confirm {callId, ok} —— 工具确认/取消 */
 export async function confirmTool(
   name: string,
