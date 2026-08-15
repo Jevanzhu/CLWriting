@@ -7,10 +7,15 @@
  * - 与 check/lead-updates.ts 读取格式同构（两端闭合右侧数据源闭环）
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseLeadUpdateDraft, buildLeadUpdatePrompt } from '../../src/process/lead-update-draft.js'
+import {
+  parseLeadUpdateDraft,
+  buildLeadUpdatePrompt,
+  generateLeadUpdateDraft,
+  archivePendingLeadUpdates,
+} from '../../src/process/lead-update-draft.js'
 import { readChapterLeadUpdates } from '../../src/check/lead-updates.js'
 
 /** 造一本有布线的短书（book.yaml + 布线/悬念 一条进行中线） */
@@ -93,5 +98,108 @@ test('闭环：parseLeadUpdateDraft 产出可被 readChapterLeadUpdates 读回�
     expect(readChapterLeadUpdates(root)).toEqual([{ leadId: '悬念-001', 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' }])
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── X-P2-6：批量连写按章归档（archivePendingLeadUpdates + generateLeadUpdateDraft 联动） ──
+
+const ARCHIVE_DIR = join('工作区', '.账本推进暂存')
+
+/** 造第 1 章正文（generateLeadUpdateDraft 需按章号读到正文） */
+function makeChapter(root: string): void {
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(
+    join(root, '写作', '正文', '0001-雨夜.md'),
+    '---\n章号: 1\n标题: 雨夜\n---\n\n山门外的钟声在雨夜里连响了三下。\n',
+    'utf-8',
+  )
+}
+
+test('archivePendingLeadUpdates: 主文件载其他章条目 → 归档到 .账本推进暂存/第N章.md', () => {
+  const root = makeWiringBook()
+  try {
+    writeFileSync(
+      join(root, '工作区', '账本推进.md'),
+      '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n',
+      'utf-8',
+    )
+    archivePendingLeadUpdates(root, 1)
+    // 主文件已被挪走归档，内容原样
+    expect(existsSync(join(root, '工作区', '账本推进.md'))).toBe(false)
+    const archived = join(root, ARCHIVE_DIR, '第2章.md')
+    expect(existsSync(archived)).toBe(true)
+    expect(readFileSync(archived, 'utf-8')).toBe('# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('archivePendingLeadUpdates: 同章重生成（自愈复查）→ 不归档（覆盖语义）', () => {
+  const root = makeWiringBook()
+  try {
+    const content = '# 第1章 账本推进\n- 悬念-001 递进：本章证据。\n'
+    writeFileSync(join(root, '工作区', '账本推进.md'), content, 'utf-8')
+    archivePendingLeadUpdates(root, 1)
+    expect(readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')).toBe(content)
+    expect(existsSync(join(root, ARCHIVE_DIR))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('archivePendingLeadUpdates: 无条目（无推进占位）/ 无标签旧格式 / 无文件 → 不归档', () => {
+  const root = makeWiringBook()
+  try {
+    // 无推进占位（count=0 产出）→ 不归档
+    writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n# 本章无账本推进\n', 'utf-8')
+    archivePendingLeadUpdates(root, 1)
+    expect(existsSync(join(root, '工作区', '账本推进.md'))).toBe(true)
+
+    // 无标签旧格式 → 视为当前章，保持覆盖语义
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：旧格式条目。\n', 'utf-8')
+    archivePendingLeadUpdates(root, 1)
+    expect(existsSync(join(root, '工作区', '账本推进.md'))).toBe(true)
+    expect(existsSync(join(root, ARCHIVE_DIR))).toBe(false)
+
+    // 无文件 → no-op
+    rmSync(join(root, '工作区', '账本推进.md'))
+    archivePendingLeadUpdates(root, 1)
+    expect(existsSync(join(root, ARCHIVE_DIR))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-6: generateLeadUpdateDraft（mock）→ 落盘带章节标签；载有他章草稿时先归档再写', async () => {
+  const prev = process.env['CLWRITING_DRIVER']
+  process.env['CLWRITING_DRIVER'] = 'mock' // LEAD_UPDATE_SPEC mock：悬念-001 递进 + 正文原句
+  try {
+    const root = makeWiringBook()
+    try {
+      makeChapter(root)
+      // 主文件先载第 2 章待确认草稿（模拟批量连写上一章未定稿）
+      writeFileSync(
+        join(root, '工作区', '账本推进.md'),
+        '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n',
+        'utf-8',
+      )
+
+      const r = await generateLeadUpdateDraft(root, 1, null)
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.count).toBe(1)
+
+      // 第 2 章草稿已归档，本章主文件带章节标签 + mock 解析出的推进条目
+      const archived = join(root, ARCHIVE_DIR, '第2章.md')
+      expect(existsSync(archived)).toBe(true)
+      expect(readFileSync(archived, 'utf-8')).toContain('上一章证据')
+      const main = readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')
+      expect(main).toContain('# 第1章 账本推进')
+      expect(main).toContain('- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  } finally {
+    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
+    else process.env['CLWRITING_DRIVER'] = prev
   }
 })

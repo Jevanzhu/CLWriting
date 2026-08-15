@@ -250,25 +250,40 @@ export function selectReviewTier(input: {
   const fullCalls = Math.max(1, lensesRun.length)
 
   if (input.high_risk) {
-    if (!input.capabilities.parallel_subagents) {
-      return {
-        ok: false,
-        requested_tier: 'full',
-        calls: fullCalls,
-        fallback: '风险章满审跑不了',
-        reason: '高风险章禁止降级，但当前宿主不支持并行独立三审；请换宿主或人工确认后再继续。',
-      }
-    }
+    // X-P2-7：高风险章的红线是「禁止降级合审」，不是「必须有并行能力」——顺序满审
+    // （多次独立调用，独立性由分包+分视角保证）与并行满审同构，本端点实现本就是串行循环。
+    // 原判定「无并行能力即 fail」与 capabilities 硬编码 false 组合成死端：红项章三审必 500。
     if (remaining < fullCalls) {
       return {
         ok: false,
         requested_tier: 'full',
         calls: fullCalls,
         fallback: '风险章满审跑不了',
-        reason: `高风险章必须满审，还需要 ${fullCalls} 次调用；当前只剩 ${remaining} 次，请提额或降低前序 best-of-N。`,
+        reason: `高风险章（机检有红项）必须满审，还需要 ${fullCalls} 次调用；当前只剩 ${remaining} 次。请先修复红项（或跑全自动写章自愈）再审，或提额调用数。`,
       }
     }
-    return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+    if (input.capabilities.parallel_subagents) {
+      return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+    }
+    if (input.capabilities.multiple_calls) {
+      return {
+        ok: true,
+        requested_tier: 'full',
+        tier: 'sequential',
+        calls: fullCalls,
+        fallback: '无并行能力',
+        lenses_run: lensesRun,
+        ledger_check: '已跑',
+        downgrade_reason: '高风险章：宿主不支持并行独立三审，降级为顺序满审（不降合审）。',
+      }
+    }
+    return {
+      ok: false,
+      requested_tier: 'full',
+      calls: fullCalls,
+      fallback: '风险章满审跑不了',
+      reason: '高风险章（机检有红项）禁止降级合审，但当前宿主不支持多次独立调用；请先修复红项（或跑全自动写章自愈）再审。',
+    }
   }
 
   if (input.capabilities.parallel_subagents && remaining >= fullCalls) {

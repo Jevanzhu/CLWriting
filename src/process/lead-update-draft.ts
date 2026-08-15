@@ -9,6 +9,7 @@
  * finalize 时回写布线履历并清空）。
  */
 import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
@@ -21,6 +22,9 @@ import { readOpenLeads } from './open-leads.js'
 
 /** 账本推进文件路径（与 check/lead-updates.ts + document/lead-finalize.ts 读取常量一致） */
 export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
+
+/** 批量连写下按章归档目录（X-P2-6：上一章未定稿确认的草稿不被本章覆盖，finalize 按章号回收） */
+export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
 
 /**
  * W-P1-3 右端：生成并落盘 账本推进.md（AI 草拟）。
@@ -52,15 +56,43 @@ export async function generateLeadUpdateDraft(
   if (!text) return { ok: false, code: 'failed', error: 'AI 产出为空' }
 
   const updates = parseLeadUpdateDraft(text, bookRoot)
-  const lines = updates.length > 0
+  const body = updates.length > 0
     ? updates.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据).join('\n')
     : '# 本章无账本推进'
   try {
-    atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), lines + '\n')
+    // X-P2-6：批量连写下，主文件可能是上一章（尚未定稿确认）的草稿——先按章归档再写本章，
+    // finalize（applyLeadUpdates）按定稿章号从归档回收，防止整链旁路丢确认内容。
+    archivePendingLeadUpdates(bookRoot, chapter)
+    atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), `# 第${chapter}章 账本推进\n` + body + '\n')
   } catch (e) {
     return { ok: false, code: 'failed', error: '落盘:' + (e instanceof Error ? e.message : String(e)) }
   }
   return { ok: true, count: updates.length }
+}
+
+/**
+ * 主文件若载有**其他章**的待确认条目 → 归档到 工作区/.账本推进暂存/第N章.md（X-P2-6）。
+ * 同章重生成（自愈循环复查）直接覆盖不归档；无条目（空/无推进）不归档；无标签旧文件不归档
+ * （语义上视为当前章，保持单章模式旧行为）。
+ */
+export function archivePendingLeadUpdates(bookRoot: string, forChapter: number): void {
+  const file = join(bookRoot, LEAD_UPDATES_FILE)
+  if (!existsSync(file)) return
+  let raw: string
+  try {
+    raw = readFileSync(file, 'utf-8')
+  } catch {
+    return
+  }
+  const hasEntries = raw.split('\n').some((l) => l.trim().startsWith('-'))
+  if (!hasEntries) return
+  const m = (raw.split('\n', 1)[0] ?? '').match(/^#\s*第(\d+)章/)
+  if (!m) return // 无标签旧格式 → 视为当前章，保持覆盖语义
+  const tag = Number(m[1])
+  if (tag === forChapter) return
+  const dir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
+  mkdirSync(dir, { recursive: true })
+  renameSync(file, join(dir, `第${tag}章.md`))
 }
 
 /**

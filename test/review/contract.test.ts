@@ -95,7 +95,36 @@ test('selectReviewTier: 普通章预算紧时可合审，高风险章必须停�
   if (!highRisk.ok) {
     expect(highRisk.calls).toBe(3)
     expect(highRisk.fallback).toBe('风险章满审跑不了')
-    expect(highRisk.reason).toContain('高风险章必须满审')
+    expect(highRisk.reason).toContain('高风险章')
+    expect(highRisk.reason).toContain('必须满审')
+    expect(highRisk.reason).toContain('先修复红项')
+  }
+})
+
+test('selectReviewTier: X-P2-7 高风险章无并行能力但可多次调用 → 顺序满审（不降合审、不再死端 500）', () => {
+  const decision = selectReviewTier({
+    capabilities: { parallel_subagents: false, multiple_calls: true },
+    remaining_calls: 8,
+    high_risk: true,
+    lenses: ['reader', 'editor', 'continuity'],
+  })
+  expect(decision.ok).toBe(true)
+  if (decision.ok) {
+    expect(decision.tier).toBe('sequential')
+    expect(decision.calls).toBe(3)
+    expect(decision.downgrade_reason).toContain('顺序满审')
+  }
+
+  // 预算不足才是真死端：fail 且文案给出「先修红项」出路
+  const poor = selectReviewTier({
+    capabilities: { parallel_subagents: false, multiple_calls: true },
+    remaining_calls: 1,
+    high_risk: true,
+    lenses: ['reader', 'editor', 'continuity'],
+  })
+  expect(poor.ok).toBe(false)
+  if (!poor.ok) {
+    expect(poor.reason).toContain('先修复红项')
   }
 })
 

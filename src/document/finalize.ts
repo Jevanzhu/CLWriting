@@ -84,10 +84,16 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
 
   // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
   // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
+  // X-P2-5：账本回写降级为 best-effort——此时定稿主流程（版本+清单基线）已落盘，账本侧 IO
+  // 异常不应让 API 报「定稿失败」（实际已生效，误导作者重试）；对齐 appendWordsDelta 先例。
   const isChapter = relPath.startsWith('写作/正文/')
   const hasWiring = existsSync(join(bookRoot, '布线'))
   if (isChapter && hasWiring && chapterNo > 0) {
-    applyLeadUpdates(bookRoot, chapterNo)
+    try {
+      applyLeadUpdates(bookRoot, chapterNo)
+    } catch (e) {
+      console.error(`[finalize] 账本履历回写失败（定稿已生效，不回滚）ch${chapterNo}: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 
   invalidateTreeIndex(bookRoot)

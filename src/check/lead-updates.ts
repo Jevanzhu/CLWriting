@@ -25,14 +25,30 @@ export interface ChapterLeadUpdate {
 }
 
 /**
- * 解析 `工作区/账本推进.md`（无文件/空 → []）。
+ * 解析 `工作区/账本推进.md`（无文件/空/读失败 → []；X-P2-5 读失败按无推进降级）。
  *
  * 行格式：`- <编号> <动词>：<证据>`（冒号支持全角/半角；非列表行忽略）。
+ * 首行约定 `# 第N章 账本推进`（X-P2-6 章节标签，解析时忽略；旧文件无标签同样兼容）。
  */
 export function readChapterLeadUpdates(bookRoot: string): ChapterLeadUpdate[] {
   const p = join(bookRoot, '工作区', '账本推进.md')
-  if (!existsSync(p)) return []
-  const text = readFileSync(p, 'utf-8')
+  return readLeadUpdatesAt(p)
+}
+
+/** 读指定路径的账本推进文件（无文件/空/读失败 → []）。 */
+export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
+  if (!existsSync(absPath)) return []
+  let text: string
+  try {
+    text = readFileSync(absPath, 'utf-8')
+  } catch {
+    return [] // X-P2-5：读失败（并发删/权限）按无推进降级，不阻断机检/定稿
+  }
+  return parseLeadUpdateLines(text)
+}
+
+/** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。 */
+export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   for (const raw of text.split('\n')) {
     const line = raw.trim()
@@ -46,6 +62,18 @@ export function readChapterLeadUpdates(bookRoot: string): ChapterLeadUpdate[] {
     }
   }
   return out
+}
+
+/** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。 */
+export function readLeadUpdateChapterTag(absPath: string): number | null {
+  if (!existsSync(absPath)) return null
+  try {
+    const first = readFileSync(absPath, 'utf-8').split('\n', 1)[0] ?? ''
+    const m = first.match(/^#\s*第(\d+)章/)
+    return m ? Number(m[1]) : null
+  } catch {
+    return null
+  }
 }
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。 */
