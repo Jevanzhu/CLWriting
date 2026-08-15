@@ -8,6 +8,7 @@ import {
   Wrench,
   Compass,
   Feather,
+  ScrollText,
   Download,
   BookOpen,
   Library,
@@ -98,6 +99,14 @@ function openLibraryManager(): void {
         @click="ws.setActiveView('style')"
       >
         <Feather :size="20" />
+      </button>
+      <button
+        class="rbtn" data-tip-dir="right"
+        :class="{ on: ws.activeView === 'audit' }"
+        data-tip="事件审计（重放 / 遮蔽差异）"
+        @click="ws.setActiveView('audit')"
+      >
+        <ScrollText :size="20" />
       </button>
     </div>
 

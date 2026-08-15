@@ -47,6 +47,7 @@ import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { registerTraceStatsRoutes } from './api/trace-stats.js'
+import { registerAuditRoutes } from './api/audit.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 import { resetRouteSchemas } from './api/schema.js'
 import { createStaticHandler } from './static.js'
@@ -83,6 +84,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerStyleRoutes({ workDir })
     registerProvidersRoutes({ userDataPath })
     registerTraceStatsRoutes({ workDir, userDataPath })
+    registerAuditRoutes({ workDir, userDataPath })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath, studioToken: token })

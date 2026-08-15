@@ -9,6 +9,7 @@ import OverviewView from '../views/OverviewView.vue'
 import RelationsView from '../views/RelationsView.vue'
 import LearnView from '../views/LearnView.vue'
 import StyleView from '../views/StyleView.vue'
+import AuditView from '../views/AuditView.vue'
 import { useHeartbeat } from '../composables/useHeartbeat'
 import { useSse } from '../composables/useSse'
 import { useChatTier } from '../composables/useChatTier'
@@ -90,6 +91,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
       <RelationsView v-else-if="ws.activeView === 'relations'" :key="bookName" :book-name="bookName" />
       <LearnView v-else-if="ws.activeView === 'learn'" :book-name="bookName" />
       <StyleView v-else-if="ws.activeView === 'style'" :book-name="bookName" />
+      <AuditView v-else-if="ws.activeView === 'audit'" :book-name="bookName" />
       <OnboardView v-else :book-name="bookName" />
     </Transition>
   </WorkspaceShell>
