@@ -23,6 +23,7 @@ import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 import { readKind } from '../../format/kind.js'
 import { checkWithDb, type CheckOutcome } from '../../check/run.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
+import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
 import { tryMockTool } from '../mock-tool.js'
 import { runSpec } from '../tasks/spec.js'
@@ -185,6 +186,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         // 终稿记录文风改稿轨迹（中间稿不记，避免污染信号）
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
         recordAiVersion(bookRoot, final.docId, current)
+        // W-P1-3 右端：写稿完成（pass）后自动生成 账本推进.md（AI 草拟，作者定稿时确认）。
+        // fire-and-forget：不阻塞主流程返回；仅长篇有布线时触发。
+        if (hasWiring) void generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
         // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
         // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
         const yellows = ruleYellows(current, bookRoot, chapterNo)

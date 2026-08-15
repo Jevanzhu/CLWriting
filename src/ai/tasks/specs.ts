@@ -43,6 +43,15 @@ export const ONBOARD_SPEC: TaskSpec = {
   mock: { kind: 'text', text: MOCK_ONBOARD },
 }
 
+/** 账本推进声明（W-P1-3 右端：写稿后 AI 声明本章实际写入的履历行，作者确认后 finalize 回写） */
+export const LEAD_UPDATE_SPEC: TaskSpec = {
+  name: 'lead-updates',
+  tierKind: 'creative',
+  genMode: 'text',
+  systemPrompt: '',
+  mock: { kind: 'text', text: '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。' },
+}
+
 /**
  * 流式写稿工厂（role 决定 system prompt）。
  *

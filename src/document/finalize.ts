@@ -17,6 +17,7 @@ import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
 import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { safeManifestPath } from '../fs/safe-path.js'
+import { applyLeadUpdates } from './lead-finalize.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -80,6 +81,14 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   next.finalizedRevision = currentRev
   next.finalizedAt = new Date().toISOString()
   writeManifest(manifestPath, manifest)
+
+  // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
+  // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
+  const isChapter = relPath.startsWith('写作/正文/')
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  if (isChapter && hasWiring && chapterNo > 0) {
+    applyLeadUpdates(bookRoot, chapterNo)
+  }
 
   invalidateTreeIndex(bookRoot)
   return { ok: true, status: 'final', skipped: false }

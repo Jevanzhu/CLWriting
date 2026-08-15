@@ -83,3 +83,12 @@ export async function generateOutline(name: string, chapter: number): Promise<vo
     body: JSON.stringify({ chapter }),
   }, 300_000) // 大纲多源合成超时 5 分钟
 }
+
+// W-P1-3 右端：POST /lead-updates {chapter} —— 生成账本推进草稿（AI 草拟，作者定稿时确认回写）
+export async function generateLeadUpdates(name: string, chapter: number): Promise<{ ok: boolean; count: number }> {
+  return apiJson(`/api/books/${encodeURIComponent(name)}/lead-updates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter }),
+  }, 300_000)
+}

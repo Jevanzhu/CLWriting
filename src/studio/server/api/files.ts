@@ -27,7 +27,12 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
   { dir: '大纲', mode: 'md' },
   { dir: '布线', mode: 'md' }, // 线索账本（设定伏笔在 设定/ 下）
   { dir: '文风', mode: 'md' }, // 文风铁律/样章库/金句库（撤出编辑树；SettingsModal「文风铁律」复用 /file 读写）
+  // W-P1-3 作者确认位：细纲.md（推进声明）与 账本推进.md（实际履历行）需在编辑器可见可改，
+  // 但 工作区/ 其余内部资产（.版本/.confirm.json 等）不进编辑白名单——只放行这两个确认文件。
 ]
+
+/** W-P1-3：作者确认位专用白名单（工作区下仅这两个文件可进编辑器） */
+const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进.md'])
 
 
 export function registerFileRoutes(ctx: FileCtx): void {
@@ -93,13 +98,15 @@ function safePath(bookRoot: string, file: string): string | null {
   return abs
 }
 
-/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件。 */
+/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+ W-P1-3 工作区确认文件白名单）。 */
 function editablePath(bookRoot: string, file: string): string | null {
   if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
   const abs = safePath(bookRoot, file)
   if (!abs) return null
   const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
   const allowed = EDIT_DIRS.some(({ dir }) => rel === dir || rel.startsWith(`${dir}/`))
+  // W-P1-3 作者确认位：细纲.md（推进声明）与 账本推进.md（实际履历行）放行编辑器读写
+  if (!allowed && WORKDIR_EDITABLE.has(rel)) return abs
   return allowed ? abs : null
 }
 

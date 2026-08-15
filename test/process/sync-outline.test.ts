@@ -1,0 +1,70 @@
+/**
+ * 清单检文件链（批 3）：短篇写稿后同步 AI 章纲。
+ *
+ * 覆盖 syncChapterOutline：
+ * - 短篇 + 有 细纲.md → 同步到大纲/章纲/<正文basename>
+ * - 长篇 → 跳过
+ * - 无细纲 → 跳过
+ * - 非标准正文文件名 → 跳过
+ */
+import { test, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { syncChapterOutline } from '../../src/process/draft-pipeline.js'
+
+function makeBook(kind: 'long' | 'short'): string {
+  const root = mkdtempSync(join(tmpdir(), 'sync-outline-'))
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  mkdirSync(join(root, '大纲'), { recursive: true })
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: ' + kind + '\nbook:\n  title: 测试\nhost: cc\n',
+    'utf-8',
+  )
+  writeFileSync(join(root, '工作区', '细纲.md'), '## 反转线索表\n- 核心反转：来客就是死者\n- [开头] 尸体敲门\n', 'utf-8')
+  return root
+}
+
+test('syncChapterOutline: 短篇 + 有细纲 → 同步到大纲/章纲/<正文basename>', () => {
+  const root = makeBook('short')
+  try {
+    const ok = syncChapterOutline(root, '写作/正文/001-夜访者.md')
+    expect(ok).toBe(true)
+    const target = join(root, '大纲', '章纲', '001-夜访者.md')
+    expect(existsSync(target)).toBe(true)
+    expect(readFileSync(target, 'utf-8')).toContain('来客就是死者')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('syncChapterOutline: 长篇 → 跳过（不落章纲）', () => {
+  const root = makeBook('long')
+  try {
+    const ok = syncChapterOutline(root, '写作/正文/001-开篇.md')
+    expect(ok).toBe(false)
+    expect(existsSync(join(root, '大纲', '章纲', '001-开篇.md'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('syncChapterOutline: 无细纲 → 跳过', () => {
+  const root = makeBook('short')
+  try {
+    rmSync(join(root, '工作区', '细纲.md'))
+    expect(syncChapterOutline(root, '写作/正文/001-夜访者.md')).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('syncChapterOutline: 非标准正文文件名（无章号前缀）→ 跳过', () => {
+  const root = makeBook('short')
+  try {
+    expect(syncChapterOutline(root, '写作/正文/前言.md')).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

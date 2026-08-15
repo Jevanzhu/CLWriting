@@ -12,6 +12,7 @@ import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
 import { bodyOf } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
+import { readKind } from '../format/kind.js'
 import { buildSettingsContext } from './settings-context.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
@@ -88,7 +89,12 @@ export function saveDraft(
   }
   const finalDocId = docId ?? legacyId(relPath)
   // Q4：剥 fm 后计字数（与保存协议 service.ts 口径一致，fm 键值不入字数）
-  return { relPath, docId: finalDocId, words: countWords(bodyOf(content)), snapshotted: snapshotId !== null }
+  const words = countWords(bodyOf(content))
+  // 清单检文件链（批 3）：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，
+  // 使 清单形式检（runner.ts:158 按正文同名找章纲）+ pieceListChecks 有数据可读。
+  // 短篇正文文件名与章纲同 basename 契约：正文 <章号3位>-<标题>.md → 章纲同名。
+  syncChapterOutline(bookRoot, relPath)
+  return { relPath, docId: finalDocId, words, snapshotted: snapshotId !== null }
 }
 
 function readSafe(fp: string): string {
@@ -98,6 +104,30 @@ function readSafe(fp: string): string {
   } catch {
     return ''
   }
+}
+
+/**
+ * 清单检文件链（批 3）：短篇写稿后同步 AI 章纲。
+ *
+ * 短篇 清单形式检 按 大纲/章纲/<正文basename> 读章纲（runner.ts:158），
+ * 而 outline 端点把章纲写到 工作区/细纲.md（短篇无布线，细纲即章纲）。
+ * 写稿落盘（saveDraft，draft-save 端点与 self-heal 共用）后，
+ * 若为短篇且 细纲.md 存在 → 复制到 大纲/章纲/<正文basename>，文件名契约对齐。
+ *
+ * 幂等：覆盖写同内容；无细纲/非短篇/正文非标准章号 → 跳过（不阻断保存）。
+ */
+export function syncChapterOutline(bookRoot: string, bodyRelPath: string): boolean {
+  if (readKind(bookRoot) !== 'short') return false
+  const outlinePath = join(bookRoot, '工作区', '细纲.md')
+  if (!existsSync(outlinePath)) return false
+  const base = basename(bodyRelPath)
+  if (!/^\d{3,}-.+/.test(base)) return false // 非标准 <章号3位>-<标题>.md → 不落章纲
+  const outlineContent = readSafe(outlinePath)
+  if (!outlineContent) return false
+  const outlineDir = join(bookRoot, '大纲', '章纲')
+  mkdirSync(outlineDir, { recursive: true })
+  atomicWriteFile(join(outlineDir, base), outlineContent)
+  return true
 }
 
 /** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据 */

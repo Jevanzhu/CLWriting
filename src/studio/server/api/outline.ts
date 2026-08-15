@@ -21,6 +21,7 @@ import { buildSettingsContext } from '../../../process/settings-context.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { readOpenLeads } from '../../../process/open-leads.js'
 
 interface OutlineCtx {
   workDir: string | null
@@ -63,10 +64,14 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
     // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
     // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
-    // AI 产出自身以 --- 开头时原样落盘（罕见，readOutlineLeads 走宽容路径不比对）。
+    // W-P1-3 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
+    // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
+    // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
+    const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
+    const declaredFm = kind === 'long' ? `推进: [${outlineIds.join(', ')}]` : ''
     const withFm = content.startsWith('---')
       ? content
-      : `---\n章号: ${chapter}\n---\n\n${content}`
+      : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
     try {
       mkdirSync(outlineDir, { recursive: true })
       atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
@@ -107,8 +112,10 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
     }
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
+    // 清单检文件链（批 3）：短篇章纲要求产出结构化三段（反转线索表/情绪曲线/伏笔回收），
+    // 写稿后 syncChapterOutline 把 细纲.md 同步到大纲/章纲/，清单形式检据此有数据可读。
     parts.push(
-      `## 要求\n产出第 ${chapter} 章章纲:① 目标情绪(本章要落地的核心情绪);② 核心反转(单章反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单章闭合不烂尾)。直接输出章纲 markdown。`,
+      `## 要求\n产出第 ${chapter} 章章纲:① 目标情绪(本章要落地的核心情绪);② 核心反转(单章反转点,铺垫→反转→收尾);③ 情节骨架(开篇抓人/中段铺垫/反转爆破/余韵收尾,单章闭合不烂尾);④ 结构化清单三段(供机检清单形式检)。\n\n结构化三段必须用以下标题与行格式：\n## 反转线索表\n- 核心反转：<一句话>\n- [位置1] <铺垫内容>\n- [位置2] <铺垫内容>\n- [位置3] <铺垫内容>\n## 情绪曲线\n- [段落] 情绪 强度/10\n(至少 5 段：开头钩子/发展/铺垫/反转/余韵，反转段峰值应 ≥8/10)\n## 伏笔回收\n- <伏笔> → 回收于 <位置>\n直接输出章纲 markdown。`,
     )
     return parts.join('\n\n')
   }
@@ -132,10 +139,47 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
 
   const settingsCtx = buildSettingsContext(bookRoot)
   if (settingsCtx) parts.push(settingsCtx)
+
+  // W-P1-3 左端：注入当前「进行中」账本（已启用类），AI 只能从存量编号中声明推进——
+  // 让「账本推进声明」从正文 freeform 升级为结构化 `推进:` 行（见 endpoint 解析落 fm）。
+  const openLeads = readOpenLeads(bookRoot)
+  if (openLeads.length > 0) {
+    parts.push(
+      `## 当前账本（进行中，仅可从这些编号中声明推进，不得臆造新编号）\n${openLeads
+        .map((l) => `- ${l.编号} ${l.标题}（${l.状态}）`)
+        .join('\n')}`,
+    )
+  }
+
   parts.push(
-    `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(哪些线 × 动词:埋下/推进/揭开);③ 情节骨架(开篇/发展/章尾钩)。直接输出细纲 markdown。`,
+    `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(本章实际推进哪些线,写清 线×动词:埋下/推进/揭开,动词须匹配该线合法动词表);③ 情节骨架(开篇/发展/章尾钩)。\n\n## 输出结尾\n细纲正文之后,最后一行必须以「推进: 」开头声明本章推进的账本编号列表(编号取自上方「当前账本」清单,用半角逗号分隔;本章不推进任何线则写「推进: 无」)。`,
   )
   return parts.join('\n\n')
+}
+
+/**
+ * W-P1-3 左端：从细纲 AI 产出解析 `推进:` 声明行 → 账本编号数组。
+ * 取全文最后一个 `推进[:：]` 行（细纲正文若出现「推进」一词带冒号，取末尾覆盖写的声明行）。
+ * 编号合法性：必须命中存量进行中账本（readOpenLeads 白名单），防 AI 臆造编号污染两端闭合。
+ * 无声明/全非法 → []（显式空声明：两端闭合左侧空，实际有推进时会被 lead-done-not-declared 暴露）。
+ */
+export function parseOutlineLeads(text: string, bookRoot: string): string[] {
+  const lines = text.split('\n')
+  let matched: string | null = null
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i]!.match(/^\s*推进[:：]\s*(.+?)\s*$/)
+    if (m) {
+      matched = m[1]!
+      break
+    }
+  }
+  if (!matched) return []
+  const want = new Set(readOpenLeads(bookRoot).map((l) => l.编号))
+  const ids = matched
+    .split(/[,，、\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s !== '无' && s !== '无推进' && want.has(s))
+  return [...new Set(ids)]
 }
 
 function readSafe(fp: string): string {

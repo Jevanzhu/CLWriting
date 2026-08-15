@@ -118,6 +118,15 @@ export function checkWithDb(
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
       : undefined
+    // W-P2-11：word-count 黄项数据源接线——章纲（大纲/章纲/）fm 字数目标 已入 ChapterMeta，
+    // 正文 ChapterMeta 无此字段（宿主写稿不产），按章号查同章章纲取 字数目标 作 targetWords。
+    // 未设（无章纲 / 无 字数目标）→ undefined → 检查器 targetWords 0 → 不检也不提示（决策 C 第 3 条）。
+    let targetWords: number | undefined
+    const outlineDir = join(bookRoot, '大纲', '章纲')
+    if (existsSync(outlineDir)) {
+      const { chapters: outlineChapters } = readChapterDir(outlineDir)
+      targetWords = outlineChapters.find((c) => c.章号 === draft.chapter.章号)?.字数目标
+    }
     const report: CheckReport = runAllChecks({
       ...(db ? { db } : {}),
       bookRoot,
@@ -130,6 +139,7 @@ export function checkWithDb(
       declaredLeadIds,
       actualLeadIds,
       maxWrittenChapter: maxChapter,
+      targetWords,
     })
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {

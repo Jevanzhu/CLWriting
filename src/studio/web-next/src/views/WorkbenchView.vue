@@ -14,6 +14,7 @@ import {
   autoWrite,
   getDraftPrompt,
   generateOutline,
+  generateLeadUpdates,
   type BookState,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
@@ -191,6 +192,18 @@ async function onOutline(): Promise<void> {
   try {
     await generateOutline(props.bookName, chapter.value)
     ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
+  } catch (e) {
+    err.value = friendlyError(e)
+    ui.toast(err.value, 'error')
+  }
+}
+
+// W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md）——作者确认/修改后定稿时回写布线履历
+async function onLeadUpdates(): Promise<void> {
+  err.value = null
+  try {
+    const r = await generateLeadUpdates(props.bookName, chapter.value)
+    ui.toast(r.count > 0 ? `已生成 ${r.count} 条账本推进，请确认` : '本章无账本推进', 'success')
   } catch (e) {
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
@@ -393,6 +406,15 @@ const recent = computed(() => wb.log.slice(-200))
           @click="onOutline"
         >
           生成细纲
+        </button>
+        <button
+          v-if="!wb.running"
+          class="btn"
+          :disabled="ui.aiAvailable === false"
+          title="W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md），定稿时确认回写布线履历"
+          @click="onLeadUpdates"
+        >
+          生成账本推进
         </button>
         <button
           v-if="!wb.running"
