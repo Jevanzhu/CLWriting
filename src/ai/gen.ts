@@ -11,16 +11,29 @@ import type {
   GenRequest,
   GenEvent,
   TokenUsage,
+  GenErrorCode,
 } from './provider/types.js'
 import { quirksFor } from './provider/model-quirks.js'
 
-/** 生成错误 */
+/** 生成错误（A5：结构化字段与 GenEvent.error 对齐；code 供 failureAction 决策表分流） */
 export class GenError extends Error {
   retryable: boolean
-  constructor(message: string, retryable: boolean) {
+  code?: GenErrorCode
+  status?: number
+  retryAfterMs?: number
+  requestId?: string
+  constructor(
+    message: string,
+    retryable: boolean,
+    fields?: { code?: GenErrorCode; status?: number; retryAfterMs?: number; requestId?: string },
+  ) {
     super(message)
     this.name = 'GenError'
     this.retryable = retryable
+    if (fields?.code !== undefined) this.code = fields.code
+    if (fields?.status !== undefined) this.status = fields.status
+    if (fields?.retryAfterMs !== undefined) this.retryAfterMs = fields.retryAfterMs
+    if (fields?.requestId !== undefined) this.requestId = fields.requestId
   }
 }
 
@@ -53,7 +66,7 @@ export async function* withFirstByteTimeout(
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true)),
+        () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })),
         timeoutMs,
       )
     })
@@ -113,7 +126,12 @@ export async function generate(
         stopReason = ev.stopReason
         break
       case 'error':
-        throw new GenError(ev.message, ev.retryable)
+        throw new GenError(ev.message, ev.retryable, {
+          code: ev.code,
+          status: ev.status,
+          retryAfterMs: ev.retryAfterMs,
+          requestId: ev.requestId,
+        })
     }
   }
 
@@ -133,7 +151,7 @@ export async function generateText(
   const r = await generate(provider, req, signal, onText)
   // P1-3：纯文本端点截断检查（与 generateTool 对称）
   if (r.stopReason === 'max_tokens') {
-    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
+    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS' })
   }
   return r.text
 }
@@ -152,7 +170,7 @@ export async function generateTool(
   const q = quirksFor(provider.conf.model ?? '')
   // P0-2：模型不支持工具调用 → 提前拒绝（避免进入生成阶段拿不到 tool_use 再降级失败浪费 token）
   if (!q.toolUse) {
-    throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false)
+    throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false, { code: 'UNSUPPORTED' })
   }
   // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
   let effective: GenRequest = req
@@ -176,7 +194,7 @@ export async function generateTool(
   const tool = r.toolCalls[0]
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   if (!tool && r.stopReason === 'max_tokens') {
-    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false)
+    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS' })
   }
   return {
     input: tool ? tool.input : null,

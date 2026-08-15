@@ -22,6 +22,7 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
+import { httpStatusToCode, headerErrorFields } from './failure.js'
 
 /**
  * 创建 Anthropic 客户端——按 auth 策略发对应认证 header（官方与中转分开）。
@@ -290,19 +291,31 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
   }
 }
 
-/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
+/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9；A5 附结构化 code） */
 function toErrorEvent(e: unknown): GenEvent {
   // P3-Q6：APIUserAbortError extends APIError（status undefined），须在 APIError 分支前判定
   if (e instanceof Anthropic.APIUserAbortError) {
-    return { type: 'error', message: '已中断', retryable: false }
+    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
+  }
+  // A5：连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
+  if (e instanceof Anthropic.APIConnectionError) {
+    return { type: 'error', message: redactSecret(e.message), retryable: false, code: 'NETWORK' }
   }
   if (e instanceof Anthropic.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
-    return { type: 'error', message: redactSecret(`Anthropic API ${e.status}: ${e.message}`), retryable }
+    return {
+      type: 'error',
+      message: redactSecret(`Anthropic API ${e.status}: ${e.message}`),
+      retryable,
+      code: httpStatusToCode(e.status, e.message),
+      ...(e.status !== undefined ? { status: e.status } : {}),
+      ...headerErrorFields(e.headers),
+      ...(e.requestID ? { requestId: e.requestID } : {}),
+    }
   }
   if (e instanceof Error && e.name === 'AbortError') {
-    return { type: 'error', message: '已中断', retryable: false }
+    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
   }
   const msg = e instanceof Error ? e.message : String(e)
-  return { type: 'error', message: redactSecret(msg), retryable: false }
+  return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
 }

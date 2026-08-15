@@ -253,7 +253,8 @@ export async function runTask<T>(opts: {
             if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
           }
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
-          trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'RETRYABLE' })
+          // A5：errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
+          trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: e.code ?? 'RETRYABLE' })
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
@@ -269,7 +270,15 @@ export async function runTask<T>(opts: {
           if (task) recordTaskUsage(bookRoot, task, null)
           if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
         }
-        trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'GEN_FAIL' })
+        // A5：终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
+        trace({
+          model: tier.model,
+          attempt,
+          stopReason: 'error',
+          usage: null,
+          ok: false,
+          errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
+        })
         return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
       }
     }

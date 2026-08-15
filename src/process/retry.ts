@@ -72,3 +72,26 @@ export function formatRetryState(s: RetryState): string {
       return `⚠️ 需作者介入：\n${s.redFeedback}`
   }
 }
+
+// ── A4（DSH-19）：连续相同红项 → 换策略提醒 ──────────
+
+/**
+ * 红项集合 canonical key：去重 + 排序后拼接。
+ * 「同一章连续重写后红项**完全相同**」的判定基础（顺序无关、重复无关）。
+ */
+export function redSetKey(redIssues: string[]): string {
+  return [...new Set(redIssues)].sort().join('\n')
+}
+
+/**
+ * 换策略提醒文案（注入重写 prompt 的独立段落，不拦截——guard 只提供信息不夺权）。
+ * 触发口径（决策 2）：本次机检红项与上一次重写前完全相同（第 2 次相同即提醒）。
+ */
+export function buildStrategyReminder(redIssues: string[]): string {
+  return [
+    '## 策略提醒（重要）',
+    '以下红项与上一次重写前完全相同——同样的改法已经无效，不要原样微调措辞再试一遍：',
+    ...redIssues.map((s) => `- ${s}`),
+    '请先换定位再动笔：确认红项指向的根源（如正文事实与声明不一致、缺承接场景、表述与检查规则本身冲突），再换一种修法（改情节走向 / 补场景 / 调整该处信息量）；若红项无法通过重写正文消除，保持该处不动，优先保证其余红项收敛。',
+  ].join('\n')
+}

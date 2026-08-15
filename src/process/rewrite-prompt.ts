@@ -8,7 +8,8 @@ export interface DiffLine {
   text: string
 }
 
-/** 组改写 prompt(local 选段 / whole 整章，AI 自愈 + rewrite 端点共用) */
+/** 组改写 prompt(local 选段 / whole 整章，AI 自愈 + rewrite 端点共用)。
+ *  A4：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。 */
 export function buildRewritePrompt(
   mode: 'local' | 'whole',
   original: string,
@@ -17,6 +18,7 @@ export function buildRewritePrompt(
   reviewIssues: string[],
   chapter: number,
   kind: 'long' | 'short',
+  strategyHint?: string,
 ): string {
   if (mode === 'local') {
     return [
@@ -43,6 +45,9 @@ export function buildRewritePrompt(
   ]
   if (reviewIssues.length) {
     parts.push('', '## 审稿意见(逐条采纳)', ...reviewIssues.map((s, i) => `${i + 1}. ${s}`))
+  }
+  if (strategyHint) {
+    parts.push('', strategyHint)
   }
   parts.push(
     '',

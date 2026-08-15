@@ -137,7 +137,39 @@ export type GenEvent =
   | { type: 'reasoning'; delta: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage; stopReason: string }
-  | { type: 'error'; message: string; retryable: boolean }
+  | {
+      type: 'error'
+      message: string
+      retryable: boolean
+      /** A5（DSH-15 LlmFailure 对标）：结构化错误码——决策表 failureAction 的输入 */
+      code?: GenErrorCode
+      /** HTTP 状态码（协议层错误才有） */
+      status?: number
+      /** 服务端 Retry-After（毫秒；B4 退避升级时消费） */
+      retryAfterMs?: number
+      /** 服务端请求 id（OpenAI 兼容 x-request-id / Anthropic request-id，排障用） */
+      requestId?: string
+    }
+
+/**
+ * 结构化错误码（A5）。处置决策表见 provider/failure.ts 的 failureAction：
+ * 可重试（RATE_LIMIT/SERVER_ERROR/TIMEOUT/NETWORK）/ 换 provider（AUTH/NOT_FOUND/UNSUPPORTED）/
+ * 改提示词（CONTEXT_WINDOW_EXCEEDED → 触发压缩裁剪）/ 交作者（BAD_REQUEST/PROTOCOL/UNKNOWN）。
+ */
+export type GenErrorCode =
+  | 'RATE_LIMIT' // 429
+  | 'SERVER_ERROR' // 5xx
+  | 'TIMEOUT' // 首字节/流超时（B-2）
+  | 'NETWORK' // 连接层失败（SDK APIConnectionError）
+  | 'AUTH' // 401/402/403：key 无效 / 无权限 / 欠费
+  | 'NOT_FOUND' // 404：模型/端点不存在
+  | 'CONTEXT_WINDOW_EXCEEDED' // 输入超窗（400 文案启发）
+  | 'MAX_TOKENS' // 输出截断（结构化场景不可用）
+  | 'UNSUPPORTED' // 模型能力不支持（如无 tool_use）
+  | 'ABORTED' // 主动中断
+  | 'BAD_REQUEST' // 400 其他（多半是请求组装问题）
+  | 'PROTOCOL' // 协议/解析层异常
+  | 'UNKNOWN'
 
 export interface TokenUsage {
   inputTokens: number

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { evaluateRetry, formatRetryState } from '../../src/process/retry.js'
+import { evaluateRetry, formatRetryState, redSetKey, buildStrategyReminder } from '../../src/process/retry.js'
 import type { CheckReport } from '../../src/check/types.js'
 
 function redReport(msg = '命中禁词'): CheckReport {
@@ -62,4 +62,23 @@ test('formatRetryState: 三态人话', () => {
   expect(retry).toContain('重写')
   const escalate = formatRetryState({ state: 'escalate', attempt: 3, redFeedback: '需作者', redIssues: ['需作者'] })
   expect(escalate).toContain('作者介入')
+})
+
+// ── A4（DSH-19）：红项 canonical key + 换策略提醒 ──
+
+test('redSetKey: 顺序无关 + 去重（「完全相同」的判定基础）', () => {
+  expect(redSetKey(['红A', '红B'])).toBe(redSetKey(['红B', '红A']))
+  expect(redSetKey(['红A', '红A', '红B'])).toBe(redSetKey(['红B', '红A']))
+  expect(redSetKey(['红A'])).not.toBe(redSetKey(['红B']))
+  expect(redSetKey(['红A', '红B'])).not.toBe(redSetKey(['红A']))
+  expect(redSetKey([])).toBe('')
+})
+
+test('buildStrategyReminder: 提醒不拦截——列红项 + 换修法指引', () => {
+  const r = buildStrategyReminder(['命中禁词：老阴比', '正文事实与账本声明不一致'])
+  expect(r).toContain('策略提醒')
+  expect(r).toContain('完全相同')
+  expect(r).toContain('命中禁词：老阴比')
+  expect(r).toContain('正文事实与账本声明不一致')
+  expect(r).toContain('换')
 })

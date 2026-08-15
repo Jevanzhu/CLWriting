@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import type { ChatMsg, ContentBlock } from '../provider/types.js'
 import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
+import { normalizeMaxMessages } from './window.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -80,16 +81,20 @@ export function buildChatContext(bookRoot: string, chapter?: number): ChatContex
  * @param maxTurns 保留最近 N 个完整回合（默认 10）
  */
 export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
-  if (history.length <= maxTurns * 2) return history // 粗估：每回合至少 2 条消息
+  // A1（CS-12）：窗口参数入口归一——非法值（0/负/NaN/分数/非数）归 null = 不设限，
+  // 防设置项化后脏值静默丢上下文；当前调用方传常量，属前置防线
+  const window = normalizeMaxMessages(maxTurns)
+  if (window === null) return history
+  if (history.length <= window * 2) return history // 粗估：每回合至少 2 条消息
 
-  // 从尾部往前找 maxTurns 个「纯文本 user 消息」作为回合边界
+  // 从尾部往前找 window 个「纯文本 user 消息」作为回合边界
   let turnBoundaries = 0
   let cutIdx = 0
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i]!
     if (m.role === 'user' && typeof m.content === 'string') {
       turnBoundaries++
-      if (turnBoundaries >= maxTurns) {
+      if (turnBoundaries >= window) {
         cutIdx = i
         break
       }

@@ -40,6 +40,18 @@ describe('buildRewritePrompt', () => {
     const p = buildRewritePrompt('whole', '原文', '', '指令', [], 2, 'long')
     expect(p).not.toContain('审稿意见')
   })
+
+  it('A4 strategyHint 注入 → 独立段落落在审稿意见之后；缺省不含', () => {
+    const withHint = buildRewritePrompt('whole', '原文', '', '指令', ['意见A'], 2, 'long', '## 策略提醒（重要）\n同样的改法已经无效')
+    expect(withHint).toContain('策略提醒')
+    expect(withHint).toContain('同样的改法已经无效')
+    // 段序：审稿意见在前、策略提醒在后、要求收尾
+    expect(withHint.indexOf('审稿意见')).toBeLessThan(withHint.indexOf('策略提醒'))
+    expect(withHint.indexOf('策略提醒')).toBeLessThan(withHint.indexOf('## 要求'))
+    // 缺省不注入
+    const noHint = buildRewritePrompt('whole', '原文', '', '指令', ['意见A'], 2, 'long')
+    expect(noHint).not.toContain('策略提醒')
+  })
 })
 
 describe('buildAppendPrompt', () => {

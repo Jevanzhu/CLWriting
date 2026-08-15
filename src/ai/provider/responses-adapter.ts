@@ -18,6 +18,7 @@ import OpenAI from 'openai'
 import type { ProviderConf, GenRequest, GenEvent, ModelProvider, TokenUsage, ToolDef } from './types.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
+import { httpStatusToCode, headerErrorFields } from './failure.js'
 
 /** tool_use 往返：assistant function_call item → role:'tool' 输出（call_id 关联） */
 function toolOutputItem(toolUseId: string, content: string): Record<string, unknown> {
@@ -220,20 +221,32 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }
 
-/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9） */
+/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9；A5 附结构化 code） */
 function toErrorEvent(e: unknown): GenEvent {
   // P2-AI-4：APIUserAbortError extends APIError（status undefined），须前置判定
   //（P3-Q6 已在 openai/anthropic 适配器补齐，responses 遗漏——用户中断应报「已中断」而非 API undefined）
   if (e instanceof OpenAI.APIUserAbortError) {
-    return { type: 'error', message: '已中断', retryable: false }
+    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
+  }
+  // A5：连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
+  if (e instanceof OpenAI.APIConnectionError) {
+    return { type: 'error', message: redactSecret(e.message), retryable: false, code: 'NETWORK' }
   }
   if (e instanceof OpenAI.APIError) {
     const retryable = e.status === 429 || (e.status ?? 0) >= 500
-    return { type: 'error', message: redactSecret(`OpenAI API ${e.status}: ${e.message}`), retryable }
+    return {
+      type: 'error',
+      message: redactSecret(`OpenAI API ${e.status}: ${e.message}`),
+      retryable,
+      code: httpStatusToCode(e.status, e.message),
+      ...(e.status !== undefined ? { status: e.status } : {}),
+      ...headerErrorFields(e.headers),
+      ...(e.requestID ? { requestId: e.requestID } : {}),
+    }
   }
   if (e instanceof Error && e.name === 'AbortError') {
-    return { type: 'error', message: '已中断', retryable: false }
+    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
   }
   const msg = e instanceof Error ? e.message : String(e)
-  return { type: 'error', message: redactSecret(msg), retryable: false }
+  return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
 }

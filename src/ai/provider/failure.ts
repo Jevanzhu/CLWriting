@@ -1,0 +1,96 @@
+/**
+ * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 A5 / DSH-15 LlmFailure 对标）。
+ *
+ * 三个适配器的 toErrorEvent 统一走这里；上层（runner 重试 / 自愈分流）按
+ * failureAction 的结果决定动作，不再对 message 字符串做模式匹配。
+ */
+
+import type { GenErrorCode } from './types.js'
+
+/** HTTP status + 错误消息 → 错误码（消息启发只用于 400 的超窗识别） */
+export function httpStatusToCode(status: number | undefined, message: string): GenErrorCode {
+  if (status === 429) return 'RATE_LIMIT'
+  if (status === 401 || status === 402 || status === 403) return 'AUTH'
+  if (status === 404) return 'NOT_FOUND'
+  if (status !== undefined && status >= 500) return 'SERVER_ERROR'
+  if (status === 400) {
+    // 超窗各家文案不一：Anthropic "prompt is too long"、OpenAI "context_length_exceeded"、
+    // DeepSeek "maximum context length"——统一归 CONTEXT_WINDOW_EXCEEDED（改提示词信号）
+    if (/context|too long|token.{0,24}(limit|maximum|exceed)|exceed.{0,24}context/i.test(message)) {
+      return 'CONTEXT_WINDOW_EXCEEDED'
+    }
+    return 'BAD_REQUEST'
+  }
+  return 'UNKNOWN'
+}
+
+/**
+ * Retry-After 头 → 毫秒。支持秒数与 HTTP-date 两种格式；解析不了返回 undefined（不猜）。
+ * 不做封顶/重试决策——尊重与否属 B4 退避升级的策略层。
+ */
+export function parseRetryAfterMs(v: string | undefined): number | undefined {
+  if (!v) return undefined
+  const sec = Number(v.trim())
+  if (Number.isFinite(sec) && sec >= 0) return Math.round(sec * 1000)
+  const at = Date.parse(v)
+  if (Number.isFinite(at)) return Math.max(at - Date.now(), 0)
+  return undefined
+}
+
+/** 从响应头取字段（兼容 Headers 实例与 plain object；键名大小写不敏感） */
+function headerValue(headers: unknown, name: string): string | undefined {
+  if (!headers) return undefined
+  const lower = name.toLowerCase()
+  if (typeof (headers as { get?: unknown }).get === 'function') {
+    const v = (headers as { get: (k: string) => unknown }).get(lower)
+    if (typeof v === 'string') return v
+  }
+  for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+    if (k.toLowerCase() === lower && typeof v === 'string') return v
+  }
+  return undefined
+}
+
+/** SDK 错误的 headers → {retryAfterMs?, requestId?}（展开进 error 事件用） */
+export function headerErrorFields(headers: unknown): { retryAfterMs?: number; requestId?: string } {
+  const retryAfter = parseRetryAfterMs(headerValue(headers, 'retry-after'))
+  const requestId =
+    headerValue(headers, 'x-request-id') ?? headerValue(headers, 'request-id')
+  return {
+    ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
+    ...(requestId !== undefined && requestId !== '' ? { requestId } : {}),
+  }
+}
+
+/** 失败处置动作（决策表输出） */
+export type FailureAction =
+  | 'retry' // 同 provider 退避重试（B4 落地抖动公式）
+  | 'switch-provider' // 换 provider/模型（凭据/配额/能力问题，重试无意义）
+  | 'shrink-prompt' // 缩输入（超窗 → B1 压缩/裁剪触发信号）
+  | 'author' // 交作者决策（请求组装/协议问题，自动路径到头）
+  | 'none' // 非失败（主动中断）
+
+/** 决策表：错误码 → 处置动作。无 code 时退回布尔 retryable（存量路径口径）。 */
+export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): FailureAction {
+  switch (e.code) {
+    case 'RATE_LIMIT':
+    case 'SERVER_ERROR':
+    case 'TIMEOUT':
+    case 'NETWORK':
+      return 'retry'
+    case 'AUTH':
+    case 'NOT_FOUND':
+    case 'UNSUPPORTED':
+      return 'switch-provider'
+    case 'CONTEXT_WINDOW_EXCEEDED':
+      return 'shrink-prompt'
+    case 'ABORTED':
+      return 'none'
+    case 'MAX_TOKENS':
+    case 'BAD_REQUEST':
+    case 'PROTOCOL':
+    case 'UNKNOWN':
+    default:
+      return e.retryable ? 'retry' : 'author'
+  }
+}

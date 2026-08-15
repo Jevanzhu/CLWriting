@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
-import { evaluateRetry } from '../../process/retry.js'
+import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
@@ -184,6 +184,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
 
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
+  // A4：上一次机检的红项集合 key——第 2 次完全相同即注入「换策略」提醒（不拦截）
+  let prevRedKey: string | null = null
   for (;;) {
     if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
@@ -277,6 +279,11 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       ...ruleViolations.map((v) => `[建议] ${v.message}`),
     ]
 
+    // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
+    const redKey = redSetKey(redIssues)
+    const repeated = redKey !== '' && redKey === prevRedKey
+    prevRedKey = redKey
+
     const prompt = buildRewritePrompt(
       'whole',
       current,
@@ -285,6 +292,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       allIssues,
       chapterNo,
       kind,
+      repeated ? buildStrategyReminder(redIssues) : undefined,
     )
     const again = await runGenerate(opts, state, kind, prompt)
     if (again.status !== 'ok') return spawnFailure(again)
@@ -399,6 +407,8 @@ async function runChapter(
 
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
+  // A4：上一次机检的红项集合 key（与单章路径同口径）
+  let prevRedKey: string | null = null
   for (;;) {
     if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
@@ -471,6 +481,11 @@ async function runChapter(
       ...ruleViolations.map((v) => `[建议] ${v.message}`),
     ]
 
+    // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
+    const redKey = redSetKey(redIssues)
+    const repeated = redKey !== '' && redKey === prevRedKey
+    prevRedKey = redKey
+
     const prompt = buildRewritePrompt(
       'whole',
       current,
@@ -479,6 +494,7 @@ async function runChapter(
       allIssues,
       chapterNo,
       kind,
+      repeated ? buildStrategyReminder(redIssues) : undefined,
     )
     const again = await runGenerate(opts, state, kind, prompt, chapter)
     if (again.status === 'aborted') return { outcome: 'aborted' }

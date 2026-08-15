@@ -19,6 +19,7 @@ import { LEAD_UPDATE_SPEC } from '../ai/tasks/specs.js'
 import { readOutlineLeads } from '../check/outline-leads.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import { readOpenLeads } from './open-leads.js'
+import { pruneTextMiddle } from './prune.js'
 
 /** 账本推进文件路径（与 check/lead-updates.ts + document/lead-finalize.ts 读取常量一致） */
 export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
@@ -105,7 +106,9 @@ export function buildLeadUpdatePrompt(bookRoot: string, chapter: number, body: s
   const open = readOpenLeads(bookRoot)
   const parts: string[] = [
     '## 任务\n为第 ' + chapter + ' 章生成「账本推进声明」——AI 写完本章后声明本章**实际**推进了哪些账本线。',
-    '## 本章正文\n' + body.slice(0, 6000),
+    // A3：超长正文无通知硬切 slice(0,6000) → 修剪器头尾保留（账本证据常在章尾）。
+    // 预算对齐原值：4800+1024+marker ≈ 5850 < 6000，可见量不增、多覆盖尾部且明示省略
+    '## 本章正文\n' + pruneTextMiddle(body, { threshold: 6000, head: 4800, tail: 1024 }),
   ]
   if (declared.length > 0) {
     parts.push('## 细纲声明推进（计划，本章应兑现；实际写砸了可如实降级/不推进）\n' + declared.join('、'))

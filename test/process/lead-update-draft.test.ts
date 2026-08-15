@@ -82,6 +82,25 @@ test('buildLeadUpdatePrompt: 注入正文 + 细纲声明 + 进行中账本', () 
   }
 })
 
+test('A3: 超长正文 → 头尾保留 + 省略标记（替代无通知硬切，章尾证据可见）', () => {
+  const root = makeWiringBook()
+  try {
+    const head = '开头证据句。'
+    const middle = '水'.repeat(7000)
+    const tail = '结尾证据句。'
+    const prompt = buildLeadUpdatePrompt(root, 1, head + middle + tail)
+    expect(prompt).toContain('开头证据句。')
+    expect(prompt).toContain('结尾证据句。') // 旧 slice(0,6000) 会丢章尾
+    expect(prompt).toContain('[...中段已省略...]')
+    // 正文段被压回阈值内（头 4800 + 尾 1024 + marker < 6000）
+    const bodySection = prompt.split('## 本章正文\n')[1]!.split('\n\n## ')[0]!
+    expect(Array.from(bodySection).length).toBeLessThan(6000)
+    expect(bodySection).toContain('水') // 头部保留段仍在（非整段丢弃）
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('闭环：parseLeadUpdateDraft 产出可被 readChapterLeadUpdates 读回（格式同构）', () => {
   const root = makeWiringBook()
   try {
