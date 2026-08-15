@@ -43,7 +43,7 @@ export function collectDocSignals(
   const versions = listAiVersions(bookRoot, docId)
   const last = versions[versions.length - 1]
   if (!last) return null
-  const aiText = readAiVersion(bookRoot, last.sha)
+  const aiText = readAiVersion(bookRoot, docId, last.sha)
   if (aiText === null) return null
   const r = compareVersions(aiText, currentText)
   return {

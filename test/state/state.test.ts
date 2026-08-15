@@ -21,7 +21,8 @@ const FAST_CHAPTER_FIXTURE = { commitEach: false }
 
 test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
   const root = makeGitBook()
-  // 造 Dropbox 风格冲突副本（纯 fs，不依赖 git）
+  // 造 Dropbox 风格冲突副本（纯 fs，不依赖 git；X-P2-20 起需同名母本共存才算副本）
+  writeFileSync(join(root, '写作', '正文', '某章.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '某章 2.md'), '副本内容', 'utf-8')
 
   const d = detectState(root, DEFAULT_CONFIG)
@@ -148,7 +149,8 @@ test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
 test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → 先报态 1）', () => {
   const root = makeGitBook()
   stageIncompleteChapter(root, 1) // 工作区未完成（态 4）
-  // 再造健康问题（态 1）
+  // 再造健康问题（态 1；X-P2-20：副本需同名母本）
+  writeFileSync(join(root, '写作', '正文', '冲突副本.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '冲突副本 2.md'), '副本', 'utf-8')
 
   const d = detectState(root, DEFAULT_CONFIG)
@@ -161,6 +163,7 @@ test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → �
 test('routeState: 各态路由动作 + needsAI 标记', () => {
   // 态 1 不需 AI、态 2/3 需 AI（M3 桩）、态 4/7 不需 AI
   const root1 = makeGitBook()
+  writeFileSync(join(root1, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root1, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
   expect(routeState(detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
   rmSync(root1, { recursive: true, force: true })
@@ -205,6 +208,7 @@ test('enter: 干净书 → recap + route 结构正确', () => {
 
 test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () => {
   const root = makeGitBook()
+  writeFileSync(join(root, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
 
   const result = enter(root)

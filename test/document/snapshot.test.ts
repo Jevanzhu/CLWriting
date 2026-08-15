@@ -100,6 +100,21 @@ describe('snapshot · 去重与节流', () => {
     expect(listVersions(dir, 'doc_1')).toHaveLength(1)
   })
 
+  it('X-P2-3：不同 origin 同内容 → 各自落盘（覆写留底不被 ai 轨迹去重吞掉）', () => {
+    const id1 = writeSnapshot(dir, 'doc_1', '同一段正文', { origin: 'ai' })
+    const id2 = writeSnapshot(dir, 'doc_1', '同一段正文', { origin: 'draft-overwrite' })
+    expect(id1).not.toBeNull()
+    expect(id2).not.toBeNull()
+    expect(listVersions(dir, 'doc_1')).toHaveLength(2)
+  })
+
+  it('X-P2-3：同 origin 同内容 → 仍去重', () => {
+    writeSnapshot(dir, 'doc_1', '同一段正文', { origin: 'ai' })
+    const id2 = writeSnapshot(dir, 'doc_1', '同一段正文', { origin: 'ai' })
+    expect(id2).toBeNull()
+    expect(listVersions(dir, 'doc_1')).toHaveLength(1)
+  })
+
   it('内容变了 → 正常落新文件', () => {
     writeSnapshot(dir, 'doc_1', '第一版', { origin: 'manual' })
     const id2 = writeSnapshot(dir, 'doc_1', '第二版', { origin: 'manual' })

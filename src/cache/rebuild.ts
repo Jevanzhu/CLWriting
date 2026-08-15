@@ -9,7 +9,7 @@
  * #3 定稿/摘要/ → summaries
  * #4 写 meta（重建戳 + 健康报告）
  *
- * 已启用类 = 基础三类（恒启用）+ book.yaml 的 leads.enabled（#9 第 5 节）。
+ * 已启用类 = 基础两类（恒启用）+ book.yaml 的 leads.enabled（#9 第 5 节）。
  * 未启用的扩展类目录不存在即跳过，不报错（母本第 2.1 节）。
  *
  * 容错（#4 第 5 节）：单个 md 解析失败不中断重建——跳过并计入 meta 健康报告。
@@ -25,21 +25,45 @@ import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
 import type { ParseError } from '../format/types.js'
 
-/** 基础三类（恒启用，母本第 2.1 节） */
+/** 基础两类（恒启用，母本第 2.1 节） */
 const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
 
-/** 源树顶层目录（与全量重建扫描范围一致：布线/写作/定稿） */
-const SOURCE_DIRS = ['布线', '写作', '定稿'] as const
+/**
+ * 源树根（与全量重建扫描范围精确一致）：
+ * - 目录：布线 / 写作 / 定稿 / 大纲/关系线（关系线入库但物理在 大纲/ 下）
+ * - 文件：book.yaml（leads.enabled 决定扫描范围）
+ * 注意：大纲/ 其余子树（章纲/卷纲/总纲）不入库——不进基准，防细纲高频编辑打穿增量。
+ */
+const SOURCE_SUBDIRS = ['布线', '写作', '定稿', join('大纲', '关系线')] as const
+
+/** 源树统计：mtime 基准 + 文件数 + 总字节（X-P2-1：三者合判，删文件/改配置也能检出） */
+interface SourceStats {
+  maxMtime: number
+  count: number
+  size: number
+}
 
 /**
- * W-P2-4 增量 rebuild：只 stat 源目录树（不读文件内容、不解析、不入库），
- * 返回所有源 md 文件的最大 mtimeMs；无源文件 → 0。
+ * W-P2-4 增量 rebuild 基准探测：只 stat 源目录树（不读文件内容、不解析、不入库）。
  * 比全量重建轻几个数量级（200 万字书也只做 readdir+stat）。
+ * X-P2-1：max mtime 之外同时累计 count/size——纯删除不抬 max mtime，旧基准漏检删章；
+ * book.yaml（非 .md）单独计入（leads.enabled 变更改变扫描范围）。
  */
-function walkSourceMaxMtime(bookRoot: string): number {
-  let max = 0
+function walkSourceStats(bookRoot: string): SourceStats {
+  const stats: SourceStats = { maxMtime: 0, count: 0, size: 0 }
+  const bump = (fp: string): void => {
+    try {
+      const st = statSync(fp)
+      stats.count++
+      stats.size += st.size
+      if (st.mtimeMs > stats.maxMtime) stats.maxMtime = st.mtimeMs
+    } catch {
+      /* stat 失败忽略 */
+    }
+  }
+  bump(join(bookRoot, 'book.yaml'))
   const stack: string[] = []
-  for (const d of SOURCE_DIRS) {
+  for (const d of SOURCE_SUBDIRS) {
     const dir = join(bookRoot, d)
     if (existsSync(dir)) stack.push(dir)
   }
@@ -56,22 +80,18 @@ function walkSourceMaxMtime(bookRoot: string): number {
       if (e.isDirectory()) {
         stack.push(join(dir, e.name))
       } else if (e.isFile() && e.name.endsWith('.md')) {
-        try {
-          const m = statSync(join(dir, e.name)).mtimeMs
-          if (m > max) max = m
-        } catch {
-          /* stat 失败忽略 */
-        }
+        bump(join(dir, e.name))
       }
     }
   }
-  return max
+  return stats
 }
 
 /**
- * W-P2-4：增量跳过检测——db 存在、meta 有 source_max_mtime、且源树最大 mtime 未超过记录值
+ * W-P2-4：增量跳过检测——db 存在、meta 有基准、且源树未变
  * → 跳过全量重建，从 meta 恢复 counts/errors（语义等价：源没变 → db 内容必然没变）。
- * db 损坏/无记录/源有变化 → null（走全量重建，正好满足「删了能建回」）。
+ * X-P2-1：基准为 (max mtime, 文件数, 总字节) 三元组——任一不符（含纯删除/book.yaml 变更）
+ * → null（走全量重建，正好满足「删了能建回」）；旧库无新基准字段 → 首次全量。
  */
 function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResult | null {
   if (!existsSync(cachePath)) return null
@@ -83,9 +103,17 @@ function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResu
   }
   try {
     const recorded = getMeta(db, 'source_max_mtime')
-    if (recorded === null) return null // 旧库无记录 → 首次全量
-    const maxMtime = walkSourceMaxMtime(bookRoot)
-    if (maxMtime > Number(recorded)) return null // 源有变化 → 全量
+    const recordedCount = getMeta(db, 'source_file_count')
+    const recordedSize = getMeta(db, 'source_total_size')
+    if (recorded === null || recordedCount === null || recordedSize === null) return null // 旧库无三元组基准 → 首次全量
+    const stats = walkSourceStats(bookRoot)
+    if (
+      stats.maxMtime > Number(recorded) ||
+      stats.count !== Number(recordedCount) ||
+      stats.size !== Number(recordedSize)
+    ) {
+      return null // 源有变化（含删除/配置变更）→ 全量
+    }
     // 无变化 → 从 meta 恢复结果
     const leadCount = Number(getMeta(db, 'lead_count') ?? '0')
     const chapterCount = Number(getMeta(db, 'chapter_count') ?? '0')
@@ -138,8 +166,9 @@ export function rebuild(
   let leadCount = 0
   let chapterCount = 0
   let summaryCount = 0
-  // W-P2-4：本次重建的源树最大 mtime（+1ms 缓冲防同毫秒写后漏检），重建后写 meta
-  const sourceMaxMtime = Math.ceil(walkSourceMaxMtime(bookRoot)) + 1
+  // W-P2-4 + X-P2-1：本次重建的源树基准（mtime+1ms 缓冲防同毫秒写后漏检；count/size 防纯删除漏检），重建后写 meta
+  const sourceStats = walkSourceStats(bookRoot)
+  const sourceMaxMtime = Math.ceil(sourceStats.maxMtime) + 1
 
   // 读 book.yaml → 决定启用哪些账本类（#9 第 5 节）
   const bookYamlPath = join(bookRoot, 'book.yaml')
@@ -217,6 +246,8 @@ export function rebuild(
     setMeta(db, 'rebuilt_at', new Date().toISOString())
     setMeta(db, 'format_version', '1')
     setMeta(db, 'source_max_mtime', String(sourceMaxMtime)) // W-P2-4 增量基准
+    setMeta(db, 'source_file_count', String(sourceStats.count)) // X-P2-1 删除检测
+    setMeta(db, 'source_total_size', String(sourceStats.size)) // X-P2-1 删除检测
     setMeta(db, 'lead_count', String(leadCount))
     setMeta(db, 'chapter_count', String(chapterCount))
     setMeta(db, 'summary_count', String(summaryCount))

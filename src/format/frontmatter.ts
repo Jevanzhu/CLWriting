@@ -20,6 +20,36 @@ export { splitFrontMatter, bodyOf }
 
 // ── 值类型推断 ──────────────────────────────────
 
+/** 内联数组切分：引号外逗号才切，引号内逗号保留；`\"` 是转义引号不算引号边界。
+ *  （K17 原正则的引号配对把 `\"` 也计入——串内同时存在转义引号与含逗号引号项时配对错乱，往返错位） */
+function splitInlineArray(inner: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i]!
+    if (c === '\\' && inQuote && i + 1 < inner.length) {
+      cur += c + inner[i + 1]!
+      i++
+      continue
+    }
+    if (c === '"') {
+      inQuote = !inQuote
+      cur += c
+      continue
+    }
+    if (c === ',' && !inQuote) {
+      out.push(cur.trim())
+      cur = ''
+      continue
+    }
+    cur += c
+  }
+  out.push(cur.trim())
+  // X-P2-18：数组项与标量对称 unquote——序列化端逐项加引号，解析端不剥则带引号往返错位
+  return out.map((s) => unquote(s))
+}
+
 /** 解析单行值：区分 int / 内联数组 / 字符串 */
 export function parseValue(raw: string): unknown {
   const trimmed = raw.trim()
@@ -30,7 +60,7 @@ export function parseValue(raw: string): unknown {
     const inner = trimmed.slice(1, -1).trim()
     if (inner === '') return []
     // K17：逗号分割时跳过引号内的逗号（如 [科幻, "悬疑,推理"]）
-    return inner.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((s) => s.trim())
+    return splitInlineArray(inner)
   }
 
   // 纯整数（不含小数点、e 等；开启章等字段）
@@ -60,12 +90,15 @@ function unquote(s: string): string {
 export function stringifyValue(val: unknown): string {
   if (typeof val === 'number') return String(val)
   if (Array.isArray(val)) {
-    return '[' + val.join(', ') + ']'
+    // X-P2-18：逐项走标量序列化（含逗号/引号项加引号转义），与解析端 K17 的引号跳过对称——
+    // 此前 join(', ') 直拼，含逗号项序列化后往返错位（["悬疑,推理"] 解析回成两项）
+    return '[' + val.map((v) => stringifyValue(v)).join(', ') + ']'
   }
   if (typeof val === 'boolean') return val ? 'true' : 'false'
   const s = String(val)
   // 需要加引号的情形：纯数字串（防被当 int）、空、特殊字符
-  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`]/.test(s)) {
+  // X-P2-18：补 `,`——内联数组的分隔符本身，含逗号项不引号则解析端切错位
+  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,]/.test(s)) {
     return '"' + s.replace(/"/g, '\\"') + '"'
   }
   return s

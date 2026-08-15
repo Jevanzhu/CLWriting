@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportBook } from '../../src/export/index.js'
@@ -290,6 +290,77 @@ test('exportBook: 短篇投稿视图同口径滤未定稿', () => {
     const view = readFileSync(join(root, '工作区', '导出', '投稿视图-短篇滤稿.md'), 'utf-8')
     expect(view).toContain('成品')
     expect(view).not.toContain('| 002 |')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── X-P2-4：超长文件名截断 + 单章级问题降级为警告 ──
+
+test('X-P2-4: 超长章标题文件名截断（80 码位封顶），不再因文件名过长写失败', () => {
+  const root = makeLongBook('长标题书')
+  const longTitle = '长'.repeat(120)
+  writeLongChapter(root, 1, longTitle, '正文。')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'split' })
+    expect(r.ok).toBe(true)
+    const names = readdirSync(join(root, '工作区', '导出', '分章'))
+    expect(names).toHaveLength(1)
+    // `001-` + 标题截 80 码位 + `.md`
+    expect(Array.from(names[0]!).length).toBe('001-'.length + 80 + '.md'.length)
+    // 只有文件名截，内容里标题完整
+    const body = readFileSync(join(root, '工作区', '导出', '分章', names[0]!), 'utf-8')
+    expect(body.startsWith(`# ${longTitle}`)).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-4: 个别坏章（解析失败）跳过并记警告，不再拖垮整本导出', () => {
+  const root = makeLongBook('坏章降级')
+  writeLongChapter(root, 1, '好章', '好章正文。')
+  // 无 front matter 的残留草稿 → readChapterDir 解析失败
+  writeFileSync(join(root, '写作', '正文', '0002-坏章.md'), '没有 front matter 的草稿文件。', 'utf-8')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    expect(r.chapterCount).toBe(1)
+    expect(r.warnings).toHaveLength(1)
+    expect(r.warnings![0]).toContain('0002-坏章.md')
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-坏章降级.md'), 'utf-8')
+    expect(merged).toContain('好章正文。')
+    expect(merged).not.toContain('草稿文件')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-4: 正文为空的单章跳过（警告），其余照常导出', () => {
+  const root = makeLongBook('空章降级')
+  writeLongChapter(root, 1, '有肉', '有正文的章。')
+  writeFileSync(join(root, '写作', '正文', '2-空章.md'), '---\n章号: 2\n标题: 空章\n---\n', 'utf-8')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    expect(r.chapterCount).toBe(1)
+    expect(r.warnings![0]).toContain('2-空章.md')
+    expect(r.warnings![0]).toContain('正文为空')
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-空章降级.md'), 'utf-8')
+    expect(merged).toContain('有正文的章。')
+    expect(merged).not.toContain('空章')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-4: 全部章解析失败 → 整体失败并列出问题文件', () => {
+  const root = makeLongBook('全坏')
+  writeFileSync(join(root, '写作', '正文', '0001-坏.md'), '没有 front matter。', 'utf-8')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('章解析失败')
+    expect(r.error).toContain('0001-坏.md')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

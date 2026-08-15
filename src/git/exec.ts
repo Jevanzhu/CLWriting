@@ -15,7 +15,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { readdirSync, type Dirent } from 'node:fs'
+import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 
 // ── 统一 git 执行器（#16 第 3 节）──────────────────
@@ -76,10 +76,11 @@ export function scanCloudCopies(bookRoot: string): string[] {
   const patterns = [
     /^\._[^/]+$/, // AppleDouble ._*
     /^\.DS_Store$/,
-    /.+\s2\.md$/, // <名> 2.md（Dropbox/OneDrive 风格）
-    /.+\s\(\d+\)\.md$/, // <名> (1).md（Google Drive 风格）
     /.+-conflicted copy.*\.md$/i, // <名>-conflicted copy.md
   ]
+  // X-P2-20：`<名> 2.md` / `<名> (1).md` 收紧为「同名去重副本」——同目录存在母本 `<名>.md` 才报；
+  // 纯文件名正则分不出副本与合法标题（`第 2.md` 会被误报），必须验母本
+  const dedupCopy = /^(.+)\s(?:\d+|\(\d+\))\.md$/
   const walk = (dir: string): void => {
     let entries: Dirent[]
     try {
@@ -89,12 +90,16 @@ export function scanCloudCopies(bookRoot: string): string[] {
     }
     for (const e of entries) {
       // 跳过 .git / node_modules / .cache（不扫 git 内部、依赖与可重建缓存）
-      if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cache') continue
+      // X-P2-20：补 .版本（工作区/版本档案，每书成百上千文件，进门全扫纯属浪费）与 .trash（回收站）
+      if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cache' || e.name === '.版本' || e.name === '.trash') continue
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         walk(full)
       } else if (patterns.some((p) => p.test(e.name))) {
         copies.push(full)
+      } else {
+        const m = dedupCopy.exec(e.name)
+        if (m && existsSync(join(dir, `${m[1]}.md`))) copies.push(full)
       }
     }
   }

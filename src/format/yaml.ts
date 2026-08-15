@@ -12,6 +12,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
+import { LEAD_TYPES } from './leads.js'
 
 // ── 默认值（#9 第 3 节，待 beta 的给占位）────────
 
@@ -144,7 +145,14 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const en = leads.children.find((c) => c.key === 'enabled')
     if (en) {
       const v = parseValue(en.value)
-      if (Array.isArray(v)) cfg.leads.enabled = v.map(String)
+      if (Array.isArray(v)) {
+        // X-P3a：未知账本类过滤 + 留痕——此前静默收下错别字值，作者以为启用了
+        const valid = v.map(String).filter((s) => (LEAD_TYPES as readonly string[]).includes(s))
+        if (valid.length < v.length) {
+          console.warn(`[book.yaml] leads.enabled 含未知账本类（合法值：${LEAD_TYPES.join('/')}），已忽略`)
+        }
+        cfg.leads.enabled = valid
+      }
     }
     const th = leads.children.find((c) => c.key === 'thresholds')
     if (th) {
@@ -271,10 +279,12 @@ function parseFiniteNumber(raw: string, fallback: number): number {
 export function readBookConfig(
   filePath: string,
 ): { ok: true; config: BookConfig } | { ok: false; config: BookConfig; error: ParseError } {
+  // X-P2-17：错误分支返回默认配置的深拷贝——共享单例引用一旦被调用方 mutate 即串污染后续所有读
+  const freshDefault = (): BookConfig => structuredClone(DEFAULT_CONFIG)
   if (!existsSync(filePath)) {
     return {
       ok: false,
-      config: DEFAULT_CONFIG,
+      config: freshDefault(),
       error: { file: filePath, line: 0, message: 'book.yaml 不存在（用默认配置）' },
     }
   }
@@ -284,7 +294,7 @@ export function readBookConfig(
   } catch (e) {
     return {
       ok: false,
-      config: DEFAULT_CONFIG,
+      config: freshDefault(),
       error: { file: filePath, line: 0, message: `读取失败：${e instanceof Error ? e.message : String(e)}` },
     }
   }
@@ -294,7 +304,7 @@ export function readBookConfig(
   } catch (e) {
     return {
       ok: false,
-      config: DEFAULT_CONFIG,
+      config: freshDefault(),
       error: { file: filePath, line: 0, message: `解析失败：${e instanceof Error ? e.message : String(e)}` },
     }
   }

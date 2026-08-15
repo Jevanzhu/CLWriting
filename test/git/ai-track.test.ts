@@ -51,7 +51,7 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
     const versions = listAiVersions(root, 'doc_TESTID001')
     expect(versions).toHaveLength(1)
     expect(versions[0]!.ref).toBe(ref)
-    expect(readAiVersion(root, versions[0]!.sha)).toBe(content)
+    expect(readAiVersion(root, 'doc_TESTID001', versions[0]!.sha)).toBe(content)
   })
 
   it('多版按 ulid 升序（时间序）；不同文档互不串', () => {
@@ -61,7 +61,7 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
     const a = listAiVersions(root, 'doc_A')
     expect(a).toHaveLength(2)
     expect(a[0]!.ulid <= a[1]!.ulid).toBe(true)
-    expect(readAiVersion(root, a[1]!.sha)).toBe('版本二')
+    expect(readAiVersion(root, 'doc_A', a[1]!.sha)).toBe('版本二')
     expect(listAiVersions(root, 'doc_B')).toHaveLength(1)
   })
 
@@ -73,16 +73,53 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
     expect(ref).not.toBeNull()
     const versions = listAiVersions(root, docId)
     expect(versions).toHaveLength(1)
-    expect(readAiVersion(root, versions[0]!.sha)).toBe('AI 草稿全文')
+    expect(readAiVersion(root, docId, versions[0]!.sha)).toBe('AI 草稿全文')
   })
 
-  it('空内容不记；非 git 目录返回 null/空不崩', () => {
+  it('空内容不记；hex sha 在无 git 书库读不回（cat-file 失败 → null 不崩）', () => {
     expect(recordAiVersion(root, 'doc_A', '   ')).toBeNull()
+    expect(readAiVersion(root, 'doc_A', 'deadbeef')).toBeNull()
+  })
+})
+
+// ── X-P2-3：无 git 书库（v3 新书）双后端 → 工作区/.版本（origin 'ai'） ────────
+
+describe('X-P2-3 版本档案后端（无 .git 书库）', () => {
+  it('recordAiVersion → 落 工作区/.版本；list/read/listTrackedDocs/delete 全链可用', () => {
     const plain = mkdtempSync(join(tmpdir(), 'clwriting-not-git-'))
     try {
-      expect(recordAiVersion(plain, 'doc_A', '内容')).toBeNull()
+      // 修复前：无 git 静默返回 null（自愈/改写轨迹全丢）；现在落版本档案
+      const id = recordAiVersion(plain, 'doc_A', 'AI 版本一')
+      expect(id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
+      recordAiVersion(plain, 'doc_A', 'AI 版本二')
+      recordAiVersion(plain, 'doc_B', '别的文档')
+
+      const a = listAiVersions(plain, 'doc_A')
+      expect(a).toHaveLength(2)
+      expect(a[0]!.ulid <= a[1]!.ulid).toBe(true) // 升序口径与 git 路径一致
+      expect(readAiVersion(plain, 'doc_A', a[1]!.sha)).toBe('AI 版本二')
+      expect(readAiVersion(plain, 'doc_A', a[0]!.sha)).toBe('AI 版本一')
+
+      expect(listTrackedDocs(plain)).toContain('doc_A')
+      expect(listTrackedDocs(plain)).toContain('doc_B')
+
+      expect(deleteAiVersions(plain, 'doc_A')).toBe(2)
       expect(listAiVersions(plain, 'doc_A')).toHaveLength(0)
-      expect(readAiVersion(plain, 'deadbeef')).toBeNull()
+      expect(listAiVersions(plain, 'doc_B')).toHaveLength(1)
+    } finally {
+      rmSync(plain, { recursive: true, force: true })
+    }
+  })
+
+  it('编辑快照（非 ai 来源）不混入 AI 轨迹列表', async () => {
+    const plain = mkdtempSync(join(tmpdir(), 'clwriting-not-git-'))
+    try {
+      const { writeVersion } = await import('../../src/document/version.js')
+      writeVersion(join(plain, '工作区', '.版本'), 'doc_A', '手编辑内容', { origin: 'manual' })
+      recordAiVersion(plain, 'doc_A', 'AI 版本')
+      const a = listAiVersions(plain, 'doc_A')
+      expect(a).toHaveLength(1) // manual 快照不进 AI 轨迹
+      expect(readAiVersion(plain, 'doc_A', a[0]!.sha)).toBe('AI 版本')
     } finally {
       rmSync(plain, { recursive: true, force: true })
     }
@@ -102,7 +139,7 @@ describe('旁路语义', () => {
     expect(git(['reset', '--hard', hash], root).ok).toBe(true)
     const versions = listAiVersions(root, 'doc_A')
     expect(versions).toHaveLength(1)
-    expect(readAiVersion(root, versions[0]!.sha)).toBe('AI 初版全文')
+    expect(readAiVersion(root, 'doc_A', versions[0]!.sha)).toBe('AI 初版全文')
   })
 
   it('旁路 ref 不进 git log（不污染 ch: 链）', () => {

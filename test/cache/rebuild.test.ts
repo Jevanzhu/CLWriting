@@ -167,3 +167,107 @@ test('rebuild: 容错（坏文件跳过、计入 errors、不中断）', () => {
 
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── X-P2-1：增量基准补全（mtime+count+size 三元组 / book.yaml / 大纲·关系线） ──
+
+test('X-P2-1 增量：源未变跳过全量（行篡改留痕证明）；源变全量修复', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  expect(rebuild(root, cachePath).chapterCount).toBe(1)
+
+  // 篡改一行数据（增量路径信任 meta 不动数据行——篡改留痕即证明没跑全量）
+  const db = new DatabaseSync(cachePath)
+  db.exec("UPDATE chapters SET title='TAMPERED'")
+  db.close()
+  expect(rebuild(root, cachePath).chapterCount).toBe(1)
+  const db2 = new DatabaseSync(cachePath)
+  const t = db2.prepare('SELECT title FROM chapters WHERE number=152').get() as { title: string }
+  db2.close()
+  expect(t.title).toBe('TAMPERED')
+
+  // 源变化（章节内容改动，mtime 抬升）→ 全量重建 → 篡改被修复
+  writeFileSync(
+    join(root, '写作', '正文', '152-北境的雪.md'),
+    '---\n章号: 152\n标题: 北境的雪改\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 转折\n---\n\n北境下雪了，改动。\n',
+    'utf-8',
+  )
+  rebuild(root, cachePath)
+  const db3 = new DatabaseSync(cachePath)
+  const t3 = db3.prepare('SELECT title FROM chapters WHERE number=152').get() as { title: string }
+  db3.close()
+  expect(t3.title).toBe('北境的雪改')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('X-P2-1 删除检测：删源文件 → 基准文件数变化 → 全量（不再吃旧账）', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  rebuild(root, cachePath)
+  // 纯删除不抬 max mtime——修复前只比 mtime 会误判「源未变」→ 恒返回旧 chapterCount
+  rmSync(join(root, '写作', '正文', '152-北境的雪.md'))
+  const r = rebuild(root, cachePath)
+  expect(r.chapterCount).toBe(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('X-P2-1 book.yaml 入基准：启用类变更 → 全量（新启用类入库）', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  // 预置未启用类的目录 + 条目（首次重建不入库）
+  const 布局线dir = join(root, '布线', '布局线')
+  mkdirSync(布局线dir, { recursive: true })
+  writeLead(join(布局线dir, '布局线-001-暗流.md'), {
+    编号: '布局线-001', 标题: '暗流', 类型: '布局线', 状态: '进行中', 开启章: 10,
+    履历: [{ 章号: 10, 动词: '布局', 证据: '暗流涌动' }],
+  })
+  expect(rebuild(root, cachePath).leadCount).toBe(3)
+
+  // 只改 book.yaml（启用 布局线）——md 源树一动不动；修复前 book.yaml 不在基准 → 增量跳过
+  writeBookConfig(join(root, 'book.yaml'), {
+    ...DEFAULT_CONFIG,
+    book: { title: '北境往事', genre: '玄幻' },
+    leads: { enabled: ['成长线', '布局线'], thresholds: { 成长线: 50 } },
+  })
+  expect(rebuild(root, cachePath).leadCount).toBe(4)
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('X-P2-1 关系线入基准：大纲/关系线 变更 → 全量（缓存状态更新）', () => {
+  const root = makeBookFixture()
+  // 启用 关系线（物理目录在 大纲/关系线——入库但不在旧 SOURCE_DIRS）
+  writeBookConfig(join(root, 'book.yaml'), {
+    ...DEFAULT_CONFIG,
+    book: { title: '北境往事', genre: '玄幻' },
+    leads: { enabled: ['成长线', '关系线'], thresholds: { 成长线: 50 } },
+  })
+  const 关系dir = join(root, '大纲', '关系线')
+  mkdirSync(关系dir, { recursive: true })
+  writeLead(join(关系dir, '关系线-001-师徒债.md'), {
+    编号: '关系线-001', 标题: '师徒债', 类型: '关系线', 状态: '进行中', 开启章: 1,
+    欠方: '林晚', 债主: '师尊',
+    履历: [{ 章号: 1, 动词: '结下', 证据: '一碗罚酒' }],
+  })
+  const cachePath = join(root, '.cache', 'index.db')
+  expect(rebuild(root, cachePath).leadCount).toBe(4)
+
+  // 改关系线条目状态（只有 大纲/ 下的文件变了）→ 修复前增量跳过 → 缓存旧状态
+  writeLead(join(关系dir, '关系线-001-师徒债.md'), {
+    编号: '关系线-001', 标题: '师徒债', 类型: '关系线', 状态: '已收尾', 开启章: 1,
+    欠方: '林晚', 债主: '师尊',
+    履历: [
+      { 章号: 1, 动词: '结下', 证据: '一碗罚酒' },
+      { 章号: 90, 动词: '清算', 证据: '雪夜对账' },
+    ],
+  })
+  rebuild(root, cachePath)
+  const db = new DatabaseSync(cachePath)
+  const lead = loadLeadFromCache(db, '关系线-001')
+  db.close()
+  expect(lead).not.toBeNull()
+  expect(lead!.状态).toBe('已收尾')
+  expect(lead!.履历).toHaveLength(2)
+
+  rmSync(root, { recursive: true, force: true })
+})

@@ -65,6 +65,12 @@ describe('readForeshadows', () => {
     expect(list[0]!.关联词).toEqual([])
     expect(list[0]!.埋设章号).toBeNull()
   })
+
+  test('X-P2-19: 关联词中文逗号也切分（整串不成一个词）', () => {
+    writeForeshadow('双逗号伏笔', { 关联词: '佩剑，玉佩, 剑穗，' })
+    const list = readForeshadows(root)
+    expect(list[0]!.关联词).toEqual(['佩剑', '玉佩', '剑穗'])
+  })
 })
 
 describe('scanForeshadowTrails', () => {

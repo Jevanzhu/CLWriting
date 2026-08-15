@@ -2,7 +2,7 @@
  * 书仓库 scaffold —— 从 init.ts 提取的共享模块（M7 #36 复用边界）。
  *
  * init（#30）和 import（#36）都通过这里建书仓库，保证 6.2 目录树、
- * 文风铁律模板、书级 AGENTS.md、git init + 身份隔离、init commit 完全一致。
+ * 文风铁律模板、书级 AGENTS.md 完全一致（去 git 版本系统 W0 后不再 git init）。
  *
  * 行为契约：本模块只负责「建书仓库骨架」，不含工作目录 scaffold、
  * 不装角色壳、不登记 books.jsonl（那些是 doInit 编排层的事）。
@@ -311,8 +311,9 @@ export function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEn
  * 向上查找最近的含 .git 的祖先目录（git 仓库定位）。
  * 命中返回该目录路径，否则 null。
  *
- * 用途：建书仓库前防护——工作目录不能位于某个 git 仓库内，
- * 否则书仓库的 git init 会被外层 git 当子模块/嵌入仓库，破坏隔离模型。
+ * 用途：建书仓库前防护——工作目录不能位于某个 git 仓库内。
+ * 去 git 版本系统（W0）后书仓库虽不再 git init，但书文件落进外层 git 仓库
+ * 仍会被其版本控制吞掉（脏状态/被误提交），隔离模型照样被破坏。
  */
 export function findGitAncestor(startDir: string): string | null {
   let dir = resolve(startDir)

@@ -188,3 +188,16 @@ test('旧平铺 fm（无块标量）parseFlat 不受影响', () => {
   expect(map.get('开启章')).toBe(12)
   expect(stringifyFlat(map)).toBe(fmRaw)
 })
+
+test('X-P2-18: 数组逐项序列化——含逗号/引号/纯数字/空项往返不丢', () => {
+  const cases: unknown[][] = [
+    ['科幻', '悬疑,推理', '带"引号"', '123', ''],
+    ['a', 'b'],
+    [],
+  ]
+  for (const arr of cases) {
+    expect(parseValue(stringifyValue(arr))).toEqual(arr)
+  }
+  // 序列化形态：含逗号项带引号（与解析端 K17 的引号跳过对称）
+  expect(stringifyValue(['科幻', '悬疑,推理'])).toBe('[科幻, "悬疑,推理"]')
+})

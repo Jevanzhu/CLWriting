@@ -29,7 +29,7 @@ export function recordAuthorSignal(
 ): void {
   const versions = listAiVersions(bookRoot, docId)
   if (!versions.length) return
-  const prev = readAiVersion(bookRoot, versions[versions.length - 1]!.sha)
+  const prev = readAiVersion(bookRoot, docId, versions[versions.length - 1]!.sha)
   if (!prev) return
 
   const deleted = deletedSegments(prev, currentContent)

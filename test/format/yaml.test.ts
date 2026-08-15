@@ -80,6 +80,20 @@ test('readBookConfig: 文件不存在返回默认', () => {
   expect(r.config).toEqual(DEFAULT_CONFIG)
 })
 
+test('X-P2-17: 错误分支返回默认配置深拷贝——调用方 mutate 不串污染单例', () => {
+  const r1 = readBookConfig(join(tmpdir(), '不存在-' + Date.now() + '.yaml'))
+  expect(r1.ok).toBe(false)
+  if (!r1.ok) {
+    r1.config.book.title = '污染'
+    r1.config.budget.calls_per_chapter = 999
+  }
+  // 再读一次：模块级 DEFAULT_CONFIG 未被上一份返回值污染
+  const r2 = readBookConfig(join(tmpdir(), '不存在-' + Date.now() + '.yaml'))
+  expect(r2.config.book.title).toBe('')
+  expect(r2.config.budget.calls_per_chapter).toBe(DEFAULT_CONFIG.budget.calls_per_chapter)
+  expect(DEFAULT_CONFIG.book.title).toBe('')
+})
+
 test('writeBookConfig + readBookConfig 往返', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')

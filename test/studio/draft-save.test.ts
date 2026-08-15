@@ -40,10 +40,10 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     writeFileSync(join(root, REL), '旧稿：他把烟摁灭。', 'utf8')
     const id = snapshotBeforeOverwrite(root, REL, '新稿：重生成的内容。')
     expect(id).not.toBeNull()
-    // 未登记清单 → 文件名派生键
-    const files = snapshotFiles('0042-测试章')
+    // 未登记清单 → legacyId(relPath) 派生键（X-P2-2：与树扫盘/编辑器 openTab 同口径，快照在版本历史可恢复）
+    const files = snapshotFiles(legacyId(REL))
     expect(files).toHaveLength(1)
-    const snap = readFileSync(join(root, '工作区', '.版本', '0042-测试章', files[0]!), 'utf8')
+    const snap = readFileSync(join(root, '工作区', '.版本', legacyId(REL), files[0]!), 'utf8')
     expect(snap).toContain('旧稿：他把烟摁灭。')
     expect(snap).toContain('来源: draft-overwrite')
     expect(snap).not.toContain('新稿')
@@ -52,7 +52,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
   it('内容相同 → 不留', () => {
     writeFileSync(join(root, REL), '同一份内容', 'utf8')
     expect(snapshotBeforeOverwrite(root, REL, '同一份内容')).toBeNull()
-    expect(snapshotFiles('0042-测试章')).toHaveLength(0)
+    expect(snapshotFiles(legacyId(REL))).toHaveLength(0)
   })
 
   it('目标文件不存在（首次生成）→ 不留', () => {
@@ -79,7 +79,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     expect(snapshotBeforeOverwrite(root, REL, '版本2')).not.toBeNull()
     writeFileSync(join(root, REL), '版本2', 'utf8')
     expect(snapshotBeforeOverwrite(root, REL, '版本3')).not.toBeNull()
-    expect(snapshotFiles('0042-测试章')).toHaveLength(2)
+    expect(snapshotFiles(legacyId(REL))).toHaveLength(2)
   })
 
   it('短篇固定名 001-标题.md 同样受保护', () => {
@@ -87,9 +87,9 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     writeFileSync(join(root, shortRel), '第1章草稿', 'utf8')
     const id = snapshotBeforeOverwrite(root, shortRel, '第2章草稿盖过来')
     expect(id).not.toBeNull()
-    const files = snapshotFiles('001-短篇')
+    const files = snapshotFiles(legacyId(shortRel))
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.版本', '001-短篇', files[0]!), 'utf8')).toContain('第1章草稿')
+    expect(readFileSync(join(root, '工作区', '.版本', legacyId(shortRel), files[0]!), 'utf8')).toContain('第1章草稿')
   })
 })
 

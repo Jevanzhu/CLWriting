@@ -47,6 +47,8 @@ export interface ExportResult {
   unit: '章'
   /** 因未定稿被滤掉的章数（V-P2-2，前端可提示） */
   skippedDrafts?: number
+  /** X-P2-4：单章级问题（解析失败/正文为空被跳过）——个别坏章不再拖垮整本导出 */
+  warnings?: string[]
   /** 错误信息 */
   error?: string
 }
@@ -72,10 +74,16 @@ function purifyBody(body: string): string {
     .trim()
 }
 
-/** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录。
- *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化。 */
+/** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（X-P2-4）。
+ *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化——
+ *  AI 产出标题可任意长，超 255 字节文件名在 macOS/NTFS 直接写失败，整本导出被一章拖垮。 */
+const FILENAME_MAX_CP = 80
+
 function sanitizeFileName(name: string): string {
-  return name.replace(/[\\/]/g, '_')
+  const cleaned = name.replace(/[\\/]/g, '_').trim()
+  return Array.from(cleaned).length > FILENAME_MAX_CP
+    ? Array.from(cleaned).slice(0, FILENAME_MAX_CP).join('')
+    : cleaned
 }
 
 export function exportBook(options: ExportOptions): ExportResult {
@@ -88,14 +96,16 @@ export function exportBook(options: ExportOptions): ExportResult {
   if (!existsSync(bodyDir)) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
+  // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
+  const warnings: string[] = []
   const { chapters, errors } = readChapterDir(bodyDir, true)
-  if (errors.length > 0) {
-    const msgs = errors.map((e) => `${e.file}: ${e.message}`).join('; ')
-    return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${msgs}` }
-  }
+  for (const e of errors) warnings.push(`${relative(bookRoot, e.file)}: ${e.message}`)
   const units: ExportUnit[] = chapters.flatMap((ch) =>
     ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path, body: ch._body }] : [],
   )
+  if (units.length === 0 && warnings.length > 0) {
+    return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${warnings.join('; ')}` }
+  }
   if (units.length === 0) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
@@ -107,16 +117,30 @@ export function exportBook(options: ExportOptions): ExportResult {
   const manifestEntries = existsSync(manifestPath)
     ? [...readManifest(manifestPath).entries.values()]
     : null
-  let skippedDrafts = 0
-  const exportable: ExportUnit[] =
+  // X-P2-4：定稿路径先建 Set（O(n+m)），逐章 some() 扫全表在大书上白白 O(n×m)
+  const finalizedPaths =
     manifestEntries && manifestEntries.some((e) => e.nodeType === 'document')
+      ? new Set(
+          manifestEntries
+            .filter((e) => e.nodeType === 'document' && e.finalizedRevision)
+            .map((e) => e.path),
+        )
+      : null
+  let skippedDrafts = 0
+  const filtered: ExportUnit[] =
+    finalizedPaths !== null
       ? units.filter((u) => {
-          const rel = relative(bookRoot, u.path)
-          if (manifestEntries.some((e) => e.nodeType === 'document' && e.finalizedRevision && e.path === rel)) return true
+          if (finalizedPaths.has(relative(bookRoot, u.path))) return true
           skippedDrafts++
           return false
         })
       : units
+  // X-P2-4：正文为空的单章跳过（记警告），不再整本失败
+  const exportable: ExportUnit[] = filtered.filter((u) => {
+    if (u.body) return true
+    warnings.push(`${relative(bookRoot, u.path)}: 正文为空，已跳过`)
+    return false
+  })
   if (exportable.length === 0) {
     return {
       ok: false,
@@ -124,6 +148,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       chapterCount: 0,
       unit: '章',
       skippedDrafts,
+      ...(warnings.length > 0 ? { warnings } : {}),
       error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
     }
   }
@@ -132,13 +157,11 @@ export function exportBook(options: ExportOptions): ExportResult {
   exportable.sort((a, b) => a.num - b.num)
 
   // 3. 净化正文（W-P2-4：body 已随 readChapterDir(includeBody=true) 一次带出，不再二次 readFile）
-  const purified: Array<{ num: number; title: string; body: string }> = []
-  for (const unit of exportable) {
-    if (!unit.body) {
-      return { ok: false, files: [], chapterCount: 0, unit: '章', error: `读取 ${unit.path} 失败：正文为空` }
-    }
-    purified.push({ num: unit.num, title: unit.title, body: purifyBody(unit.body) })
-  }
+  const purified: Array<{ num: number; title: string; body: string }> = exportable.map((unit) => ({
+    num: unit.num,
+    title: unit.title,
+    body: purifyBody(unit.body!),
+  }))
 
   // 4. 准备导出目录（母本 6.2 工作区/导出/）
   const exportDir = join(bookRoot, '工作区', '导出')
@@ -191,5 +214,12 @@ export function exportBook(options: ExportOptions): ExportResult {
     files.push(`工作区/导出/${submissionName}`)
   }
 
-  return { ok: true, files, chapterCount: exportable.length, unit: '章', skippedDrafts }
+  return {
+    ok: true,
+    files,
+    chapterCount: exportable.length,
+    unit: '章',
+    skippedDrafts,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  }
 }

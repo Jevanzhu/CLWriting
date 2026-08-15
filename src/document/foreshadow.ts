@@ -153,7 +153,8 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
       埋设章号: parsePositiveInt(map.get('埋设章号')),
       回收章号: parsePositiveInt(map.get('回收章号')),
       重要性: String(map.get('重要性') ?? '中'),
-      关联词: 关联词raw.split(',').map((s) => s.trim()).filter(Boolean),
+      // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
+      关联词: 关联词raw.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
       摘要: r.ok ? r.body.slice(0, 100).trim() : '',
     })
   }

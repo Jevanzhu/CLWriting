@@ -110,9 +110,17 @@ export function writeVersion(
       const age = Date.now() - decodeUlidTime(latest.id)
       if (age < policy.throttleMinutes * 60_000) return null
     }
-    // 去重：与最新版本同内容 → 不落新文件
-    const prev = readVersion(versionsDir, docId, latest.id)
-    if (prev && prev.content === content) return null
+    // X-P2-3：去重按 origin 分域——ai 轨迹（origin 'ai'，X-P2-3 无 git 书库后端）与编辑快照/
+    // 覆写留底共处同一档案但语义不同：跨 origin 同内容去重会把「覆写留底」吞掉（snapshotted
+    // 假 false、恢复点被 ai 记录顶替），反向也会让 ai 轨迹被快照顶掉。只与「最新的同 origin
+    // 版本」比对同内容；不同 origin 的内容独立保留（各自受分层/数量策略约束）。
+    for (const s of existing) {
+      const prev = readVersion(versionsDir, docId, s.id)
+      if (!prev) continue
+      if (prev.meta.origin !== meta.origin) continue
+      if (prev.content === content) return null
+      break
+    }
   }
 
   const id = ulid()

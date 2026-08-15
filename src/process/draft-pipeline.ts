@@ -45,7 +45,7 @@ export function snapshotBeforeOverwrite(
       break
     }
   }
-  if (!docId) docId = basename(relPath, '.md')
+  if (!docId) docId = legacyId(relPath) // X-P2-2：与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
   try {
     return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, { force: true })
   } catch {

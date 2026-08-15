@@ -12,15 +12,41 @@ import { join } from 'node:path'
 import { scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
 import { makeGitBook } from '../helpers/book.js'
 
-test('scanCloudCopies: Dropbox/OneDrive 风格「名 2.md」与 Google Drive「名 (1).md」命中', () => {
+test('scanCloudCopies: Dropbox/OneDrive 风格「名 2.md」与 Google Drive「名 (1).md」命中（需同名母本）', () => {
   const root = join(tmpdir(), `clw-exec-${Date.now()}`)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第1章.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '第1章 2.md'), '副本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '第1章 (1).md'), '副本', 'utf-8')
   try {
     const copies = scanCloudCopies(root)
     expect(copies.some((f) => f.includes('2.md'))).toBe(true)
     expect(copies.some((f) => f.includes('(1).md'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-20: 合法标题名「第 2.md」不再误报（无同名母本不算网盘副本）', () => {
+  const root = join(tmpdir(), `clw-exec-${Date.now()}`)
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第 2.md'), '合法章节文件', 'utf-8')
+  try {
+    expect(scanCloudCopies(root)).toEqual([])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-20: .版本 与 .trash 目录不扫', () => {
+  const root = join(tmpdir(), `clw-exec-${Date.now()}`)
+  // AppleDouble 形态一旦被扫必命中——用它证明目录确实被跳过
+  for (const d of [join('工作区', '.版本'), '.trash']) {
+    mkdirSync(join(root, d), { recursive: true })
+    writeFileSync(join(root, d, '._残留.md'), 'x', 'utf-8')
+  }
+  try {
+    expect(scanCloudCopies(root)).toEqual([])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
