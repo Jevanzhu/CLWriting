@@ -43,6 +43,22 @@ export function checkLeadsForm(
 
   const 正文dir = join(bookRoot, '写作', '正文')
 
+  // Z-P2-12：章文件解析 + 正文读取按章号缓存（本次三检作用域）。
+  // 此前每条履历证据都递归扫目录 + 整章重读，O(履历数×章数) IO——大书三检显著变慢；
+  // 不做跨调用缓存：定稿间正文会变，过期正文会漏报 lead-evidence-miss。
+  const chapterPathCache = new Map<number, string | null>()
+  const chapterTextCache = new Map<number, string | null>()
+  const chapterTextOf = (chapter: number): string | null => {
+    if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
+    if (!chapterPathCache.has(chapter)) {
+      chapterPathCache.set(chapter, findChapterFile(正文dir, chapter))
+    }
+    const path = chapterPathCache.get(chapter) ?? null
+    const text = path !== null ? readFileSync(path, 'utf-8') : null
+    chapterTextCache.set(chapter, text)
+    return text
+  }
+
   for (const lead of leads) {
     const id = lead['id'] as string
     const history = readLeadHistory(db, id)
@@ -74,9 +90,8 @@ export function checkLeadsForm(
 
       // #2 引文命中：证据须在该章正文 grep 命中
       if (!entry.回填 && entry.证据) {
-        const chapterPath = findChapterFile(正文dir, entry.章号)
-        if (chapterPath) {
-          const text = readFileSync(chapterPath, 'utf-8')
+        const text = chapterTextOf(entry.章号)
+        if (text) {
           // 取引号内的核心片段 grep（#3 第 4 节：章内证据尽量是正文原文）
           const evidenceCore = extractEvidenceCore(entry.证据)
           if (evidenceCore && !text.includes(evidenceCore)) {

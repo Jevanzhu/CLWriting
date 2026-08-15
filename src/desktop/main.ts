@@ -61,6 +61,20 @@ const CLW_CSP = [
 // 必须在 app.getPath('userData') 首次调用（如下方 stateFile）之前执行。
 app.setPath('userData', defaultUserDataPath())
 
+// Z-P2-8 单实例锁：双开实例会对同一 userData 的 workdir.json / window-state.json
+// 读改写互踩（atomic 写只防文件撕裂，防不了语义层竞态）。锁须在 setPath 之后请求，
+// 保证 dev/打包两种形态落在同一 userData 上（否则锁会各自为政形同虚设）。
+// 第二实例拿不到锁 → app.quit() 并跳过文件底部全部生命周期注册（不进 whenReady、
+// 不起 server、不开窗）；持锁实例收到 second-instance 时聚焦已有主窗口。
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
+  })
+}
+
 /** 前端静态目录：打包后 asar 内 / 开发项目根 dist/web */
 function resolveStaticDir(): string {
   return app.isPackaged
@@ -606,47 +620,51 @@ function buildMenu(): void {
 
 // ── 生命周期 ──────────────────────────────────────────
 
-app.whenReady().then(() => {
-  // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
-  if (!process.env.CLW_DEV_UI) {
-    session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
-      cb({
-        responseHeaders: {
-          ..._d.responseHeaders,
-          'Content-Security-Policy': [CLW_CSP],
-        },
+// Z-P2-8：单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
+// 防退出竞态中 whenReady/activate 仍触发 bootstrap（起 server/开窗/读写状态文件）
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
+    if (!process.env.CLW_DEV_UI) {
+      session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
+        cb({
+          responseHeaders: {
+            ..._d.responseHeaders,
+            'Content-Security-Policy': [CLW_CSP],
+          },
+        })
       })
+    }
+    registerIpc()
+    buildMenu()
+    runBootstrap((e) => {
+      console.error('✗ 启动失败：', e instanceof Error ? e.message : String(e))
+      app.quit()
     })
+  })
+
+  // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
+  // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
+  // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）
+  let bootstrapping = false
+  function runBootstrap(onError?: (e: unknown) => void): void {
+    if (bootstrapping) return
+    bootstrapping = true
+    void bootstrap()
+      .catch((e) => onError?.(e))
+      .finally(() => {
+        bootstrapping = false
+      })
   }
-  registerIpc()
-  buildMenu()
-  runBootstrap((e) => {
-    console.error('✗ 启动失败：', e instanceof Error ? e.message : String(e))
+
+  // 桌面应用：关窗即退出（停 server）
+  app.on('window-all-closed', () => {
     app.quit()
   })
-})
 
-// Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
-// mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
-// 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）
-let bootstrapping = false
-function runBootstrap(onError?: (e: unknown) => void): void {
-  if (bootstrapping) return
-  bootstrapping = true
-  void bootstrap()
-    .catch((e) => onError?.(e))
-    .finally(() => {
-      bootstrapping = false
-    })
+  app.on('activate', () => {
+    if (mainWindow === null) {
+      runBootstrap((e) => console.error('✗ 重启失败：', e))
+    }
+  })
 }
-
-// 桌面应用：关窗即退出（停 server）
-app.on('window-all-closed', () => {
-  app.quit()
-})
-
-app.on('activate', () => {
-  if (mainWindow === null) {
-    runBootstrap((e) => console.error('✗ 重启失败：', e))
-  }
-})

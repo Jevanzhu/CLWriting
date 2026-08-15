@@ -1,8 +1,9 @@
 /**
  * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 A5 / DSH-15 LlmFailure 对标）。
  *
- * 三个适配器的 toErrorEvent 统一走这里；上层（runner 重试 / 自愈分流）按
- * failureAction 的结果决定动作，不再对 message 字符串做模式匹配。
+ * 三个适配器的 toErrorEvent 统一走这里；runner 重试按 failureAction 的结果决定动作
+ * （retry-policy.shouldRetryError 消费 'retry' 族——Z-P2-2 单口径化后的唯一事实源），
+ * 不再对 message 字符串做模式匹配。switch-provider/shrink-prompt 族留给自愈分流（A7+）。
  */
 
 import type { GenErrorCode } from './types.js'

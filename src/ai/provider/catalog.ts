@@ -15,6 +15,11 @@
  *
  * contentVersion 消费方：A7 表驱动数据入库的 seeder 跳过依据（同内容同版本 → 跳过；
  * 用日期戳则同日重生不成触发，cherry 已踩过——见架构研读 §2.1）。
+ *
+ * 处置口径（Z-P2-4，2026-08-16）：A7 seeder 未落地前 MODEL_CATALOG 运行时零消费，
+ * 属「为 A7 预建的资产」而非被替代的死代码——生成管线（script + sync 双向校验）
+ * 自洽且是 A7 直接输入，**不删，明确移 RC 后随 A7 接线**。届时若 A7 方案变更不再
+ * 需要目录体，再整体退役本三件套。
  */
 import { createHash } from 'node:crypto'
 import { detectFamily, quirksFor, type FamilyQuirks, type ModelFamily } from './model-quirks.js'

@@ -83,6 +83,9 @@ export async function dispatch(
     try {
       await r.handler(req, res, params)
     } catch (e) {
+      // Z-P2-9：异常在 dispatch 内兜底后外层 try 接不到，必须在此留诊断日志，
+      // 否则 500「内部错误」无从排障（前缀风格对齐 index.ts 的 '[api] unhandled error'）
+      console.error('[api] handler error:', req.method, req.url, e)
       if (!res.headersSent) {
         const status = e instanceof HttpError ? e.status : 500
         res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })

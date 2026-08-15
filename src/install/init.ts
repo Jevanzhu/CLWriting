@@ -1,7 +1,7 @@
 /**
  * `clwriting init` 逻辑层 —— 依据 M5 #30（GUI 建书入口，CLI 退场后仅剩此消费）。
  *
- * 装工作目录（非 git）+ 建第一本书（独立 git 仓库）→ 登记 books.jsonl。
+ * 装工作目录（非 git）+ 建第一本书（去 git 自管版本的书仓库）→ 登记 books.jsonl。
  * 角色壳 / templates 角色源 / .clwriting/dist 随 CLI 退场不再生成。
  *
  * 幂等：工作目录骨架已存在则复用；同名书已登记则报冲突不覆盖。
@@ -78,7 +78,7 @@ export function doInit(opts: InitOptions): InitResult {
   // 步骤 5：工作目录骨架（非 git，幂等复用）
   scaffoldWorkDir(workDir)
 
-  // 步骤 6：书仓库 scaffold（独立 git + book.yaml + 6.2 目录 + 文风占位 + 初始 commit）
+  // 步骤 6：书仓库 scaffold（book.yaml + 6.2 目录 + 文风占位 + 初始 manifest——去 git，见 scaffold.ts）
   scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
 
   // 步骤 8：登记 books.jsonl + 设活动书

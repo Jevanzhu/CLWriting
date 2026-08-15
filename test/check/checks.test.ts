@@ -278,6 +278,25 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+// Z-P2-12：同章多条证据共享章正文缓存——命中/未命中逐条独立判定，缓存不串判
+test('checkLeadsForm: 同章多条证据（一命中一未命中）→ 恰一条 lead-evidence-miss', () => {
+  const { root, db } = makeLeadsBook()
+  writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  syncLead(db, {
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
+    履历: [
+      { 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }, // 命中
+      { 章号: 12, 动词: '推进', 证据: '不存在的句子' }, // 未命中（走同章缓存）
+    ], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
+  const misses = r.items.filter((i) => i.checkId === 'lead-evidence-miss')
+  expect(misses).toHaveLength(1)
+  expect(misses[0]!.message).toContain('不存在的句子')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 // NP0-A 回归：scaffold 默认建「写作/正文/第一卷/」卷子目录，findChapterFile 须递归扫描，
 // 否则引文命中检查在默认布局下整体跳过（防吃书核心环节静默失效）。
 test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出 → 红（NP0-A 回归）', () => {

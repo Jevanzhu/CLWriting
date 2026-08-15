@@ -28,6 +28,20 @@ test('redact: 裸 key（sk- / xai- 前缀）脱敏', () => {
   expect(redactSecret('xai-abcdefghijklmnop')).not.toContain('xai-abcdefghijklmnop')
 })
 
+test('redact: 裸 key（P3 补全常见厂商前缀）脱敏', () => {
+  // sk-ant-（Anthropic）/ gsk_（Groq）/ hf_（HuggingFace）/ glpat-（GitLab PAT）/ ghp_（GitHub PAT）
+  expect(redactSecret('sk-ant-api03-secretkey1234567890')).not.toContain('sk-ant-api03-secretkey1234567890')
+  expect(redactSecret('gsk_secretkey1234567890ab')).not.toContain('gsk_secretkey1234567890ab')
+  expect(redactSecret('hf_secretkey1234567890abcd')).not.toContain('hf_secretkey1234567890abcd')
+  expect(redactSecret('glpat-secretkey1234567890ab')).not.toContain('glpat-secretkey1234567890ab')
+  expect(redactSecret('ghp_secretkey1234567890abcd')).not.toContain('ghp_secretkey1234567890abcd')
+  // 各前缀替换后都留 REDACTED 痕迹（确认是被脱敏而非截断）
+  expect(redactSecret('key: gsk_secretkey1234567890ab')).toContain('***REDACTED***')
+  expect(redactSecret('key: glpat-secretkey1234567890ab')).toContain('***REDACTED***')
+  // 短串不误杀（< 16 字符后缀，同 sk-short 口径）
+  expect(redactSecret('hf_short123')).toBe('hf_short123')
+})
+
 test('redact: 无害文本不误伤', () => {
   expect(redactSecret('连通失败：连接超时')).toBe('连通失败：连接超时')
   expect(redactSecret('OpenAI API 401: Invalid authentication')).toBe('OpenAI API 401: Invalid authentication')

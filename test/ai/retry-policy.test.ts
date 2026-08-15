@@ -3,6 +3,7 @@
  */
 import { test, expect } from 'vitest'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from '../../src/ai/retry-policy.js'
+import { failureAction } from '../../src/ai/provider/failure.js'
 import { GenError } from '../../src/ai/gen.js'
 
 const policy = DEFAULT_RETRY_POLICY
@@ -44,4 +45,29 @@ test('shouldRetryError: code 命中优先（RATE_LIMIT/5xx/超时/网络）；�
 test('shouldRetryError: 无 code 按布尔 retryable 兜底（mode:always——存量口径不变）', () => {
   expect(shouldRetryError(policy, new GenError('legacy retryable', true))).toBe(true)
   expect(shouldRetryError(policy, new GenError('legacy fatal', false))).toBe(false)
+})
+
+// ── Z-P2-2 单口径化：有 code 一律走 failure.ts 决策表，不再有第二份列表 ──
+
+test('shouldRetryError ≡ failureAction==retry：全错误码族逐一对照（防两套口径再分叉）', () => {
+  const codes = [
+    'RATE_LIMIT', 'SERVER_ERROR', 'TIMEOUT', 'NETWORK', // retry 族
+    'AUTH', 'NOT_FOUND', 'UNSUPPORTED', // switch-provider 族
+    'CONTEXT_WINDOW_EXCEEDED', // shrink-prompt 族
+    'ABORTED', // none 族
+    'MAX_TOKENS', 'BAD_REQUEST', 'PROTOCOL', 'UNKNOWN', // author 族（retryable 兜底）
+  ] as const
+  for (const code of codes) {
+    for (const retryable of [true, false]) {
+      const e = new GenError(`${code}/${retryable}`, retryable, { code })
+      expect(shouldRetryError(policy, e)).toBe(failureAction(e) === 'retry')
+    }
+  }
+})
+
+test('shouldRetryError: 决策表口径下 coded+retryable 的边缘组合同样重试（UNKNOWN 无状态网络错不再漏杀）', () => {
+  // 旧口径（code 命中固定列表）下 UNKNOWN 一律不重试；决策表 default 分支按 retryable 分流
+  expect(shouldRetryError(policy, new GenError('fetch failed', true, { code: 'UNKNOWN' }))).toBe(true)
+  expect(shouldRetryError(policy, new GenError('bad req', true, { code: 'BAD_REQUEST' }))).toBe(true)
+  expect(shouldRetryError(policy, new GenError('bad req', false, { code: 'BAD_REQUEST' }))).toBe(false)
 })

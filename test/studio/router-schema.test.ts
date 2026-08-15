@@ -3,10 +3,10 @@
  * 验收：1) defineRoute 注册 + parse 校验（400 {error} 信封）；2) 重复声明拒绝；
  *       3) Map 注册表防原型链注入（__proto__/constructor 不命中）；4) dispatch path 参数 null-proto 防注入。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { defineRoute, getRouteSchema } from '../../src/studio/server/api/schema.js'
-import { dispatch } from '../../src/studio/server/router.js'
+import { dispatch, route } from '../../src/studio/server/router.js'
 
 function listen(srv: Server): Promise<number> {
   return new Promise((resolve) => {
@@ -87,6 +87,34 @@ describe('E2: route schema 单点声明', () => {
     expect((await resp.json()) as Record<string, unknown>).toEqual({ name: '__proto__', n: 1 })
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
     srv.close()
+  })
+
+  it('Z-P2-9：handler 抛非 HttpError → 500 {error} 信封 + console.error 留诊断日志', async () => {
+    // 异常被 dispatch 内部 catch 兜底（外层 index.ts 的 try 接不到），
+    // 若无日志则 500「内部错误」无从排障——验证日志已打且含 method/url/原始异常
+    route('GET', '/e2/boom', () => {
+      throw new Error('boom: api_key=sk-secret1234567890')
+    })
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const srv = createServer((req, res) => { void dispatch(req, res) })
+      const port = await listen(srv)
+      const resp = await fetch(`http://127.0.0.1:${port}/e2/boom`)
+      // 客户端只见 500 信封（敏感 detail 不外泄）
+      expect(resp.status).toBe(500)
+      expect(await resp.json()).toEqual({ error: '内部错误' })
+      // server 侧日志：前缀 + method + url + 原始异常
+      expect(errSpy).toHaveBeenCalledTimes(1)
+      const [prefix, method, url, err] = errSpy.mock.calls[0]!
+      expect(prefix).toBe('[api] handler error:')
+      expect(method).toBe('GET')
+      expect(url).toBe('/e2/boom')
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).message).toContain('boom')
+      srv.close()
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 })
 
