@@ -69,7 +69,14 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
   )
 }
 
-/** 读全部块（召回用，全表线性扫描——单本几千块内 ms 级，#37 第 5 节） */
+/**
+ * 读全部块（召回用，全表线性扫描——#37 第 5 节）。
+ * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
+ * 700 章 / 3.5 万块 / 1536 维（.rag.db ~277MB）单次召回 ~320-350ms，含全表 BLOB 读回 +
+ * 逐块余弦 + 700 章指纹校验；线性外推：1 万块 ~100ms、几千块几十 ms（原「单本几千块 ms 级」
+ * 成立）。结论：十万块内线性扫描可用，超出或要求 <100ms 交互时再议 FTS/向量索引（RC，
+ * 需先量化收益）——在界值测试退化失败前明确不引索引。
+ */
 export function readAllChunks(db: DatabaseSync): RagChunk[] {
   const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
   const rows = stmt.all() as Array<{

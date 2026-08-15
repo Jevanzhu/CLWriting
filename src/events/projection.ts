@@ -250,6 +250,13 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
       }
     }
 
+    // G2-1：快照登记类事件同载荷形状 {scope, digest}——settings/snapshot 与 skills/snapshot 同构校验
+    if (ev.type === 'settings/snapshot' || ev.type === 'skills/snapshot') {
+      if (typeof ev.data['scope'] !== 'string' || typeof ev.data['digest'] !== 'string') {
+        issues.push({ seq: ev.seq, message: ev.type + ' 载荷缺 scope/digest 字符串字段' })
+      }
+    }
+
     if (ev.type === 'compaction/end') {
       const start = ev.shadowStart
       const end = ev.shadowEnd

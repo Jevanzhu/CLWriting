@@ -33,6 +33,8 @@ export type EventType =
   // P3 血缘+检索（F1 方案 §二 v1 + §五 血缘设计）
   | 'revision/ref'
   | 'settings/snapshot'
+  // G2-1 技能包快照登记（与 settings/snapshot 同载荷形状 {scope, digest}，非 surface 血缘/审计类）
+  | 'skills/snapshot'
   | 'foreshadow/change'
   | 'author/signal'
   | 'rule/hit'
@@ -167,6 +169,13 @@ export interface SettingsSnapshotData {
   /** 快照版本（如设定文件 mtime/显式版本）；缺省由 digest 表达 */
   version?: string
   /** 快照内容指纹（sha256 前 16 位） */
+  digest: string
+}
+
+/** skills/snapshot —— 技能包注入快照（G2-1：与 settings/snapshot 同载荷形状，scope 固定 'skills'） */
+export interface SkillsSnapshotData {
+  scope: 'skills'
+  /** 技能包内容指纹（sha256 前 16 位） */
   digest: string
 }
 

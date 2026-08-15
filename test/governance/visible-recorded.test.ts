@@ -7,19 +7,24 @@
  * tmp userData 的 SQLite 事件库）产出的事件流验证校验器：
  * - 正向：管线登记的 settings/snapshot 与「模型实际看见的 settings」配对通过校验；
  * - 负向：对同一真实事件流做破坏（删记录 / 指纹漂移），校验器必须报违规——证明有牙；
- * - 缺口固化：chapter 正文注入以 revision/ref 登记（载荷形状不被校验器消费）→
- *   如实断言其缺失，接线完成后翻转本用例（防缺口断言变僵尸，同 KNOWN 白名单思路）。
+ * - 缺口接线（G2-2 已翻转）：chapter（revision/ref）与 skills（skills/snapshot）注入
+ *   均有登记，且可见侧改走生产收集器 visibleInjections → 全量 visible 校验通过；
+ *   本用例原为缺口固化（TODO Y-P2-4），接线完成时翻转，防断言僵尸。
  *
- * 「可见」侧的两条来源（防循环论证）：
- * 1. 生产 prompt 组装函数 buildChatContext 重建（同一 bookRoot/chapter/userDataPath）；
- * 2. 锚点断言：settings 原文确实出现在发往 provider 的 system prompt 里（fake.lastBody）。
+ * 「可见」侧的两条来源（防循环论证；G2-2 起注入清单由生产收集器产出，不再手工拼）：
+ * 1. 生产 prompt 组装函数 buildChatContext 重建 ctx（同一 bookRoot/chapter/userDataPath）
+ *    → visibleInjections(ctx) 推导注入清单（settings/chapter/skills 的注入条件与
+ *    chatSystem 一一镜像）；
+ * 2. 锚点断言：注入原文（settings / skills 索引）确实出现在发往 provider 的
+ *    system prompt 里（fake.lastBody）。
  */
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from '../ai/fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
-import { buildChatContext } from '../../src/ai/prompts/chat.js'
+import { buildChatContext, visibleInjections } from '../../src/ai/prompts/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { digest16, verifyVisibleRecorded, type VisibleInjection } from '../../src/events/lineage.js'
 import type { ChatEvent } from '../../src/events/types.js'
@@ -92,10 +97,28 @@ function collectEvents(ud: string, bookName: string): ChatEvent[] {
   }
 }
 
-/** 重建「模型可见」侧：生产 buildChatContext（与 runChat 内部同一入参） */
-function visibleSettings(ud: string): VisibleInjection[] {
+/** 重建「模型可见」侧：生产收集器 visibleInjections 产出（G2-2 起不再手工拼 {scope,digest}——
+ *  同一 bookRoot/chapter/userDataPath 重建 ctx，注入条件与 chatSystem 镜像） */
+function visibleAll(ud: string): VisibleInjection[] {
   const ctx = buildChatContext(bookRoot, 1, { userDataPath: ud })
-  return [{ scope: 'settings', digest: digest16(ctx.settings) }]
+  return visibleInjections(ctx)
+}
+
+/** 聚焦 settings scope 的可见侧——负向两用例的破坏面只落在 settings/snapshot 上，
+ *  可见侧须同步收窄（保持原断言语义：missing 恰为整份 visible） */
+function visibleSettings(ud: string): VisibleInjection[] {
+  return visibleAll(ud).filter((v) => v.scope === 'settings')
+}
+
+/** 在 tmp 工作区放一个可被发现的技巧包（项目根 <bookRoot>/设定/技巧/*.md，DSH-18 三根之首）。
+ *  捆绑根 resources/skills 现有内容恰使 skillsIndex 非空，但测试自持不依赖它——
+ *  仓库捆绑包增删不该悄悄改变本文件的判据 */
+function plantProjectSkill(): void {
+  mkdirSync(join(bookRoot, '设定', '技巧'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, '设定', '技巧', '测试技巧.md'),
+    '---\nname: 测试技巧\ndescription: 治理测试专用技巧包\nwhenToUse: 验证 skills 注入血缘时。\n---\n\n测试技巧正文。',
+  )
 }
 
 describe('Y-P2-4 治理：模型可见 ⟺ 已记录（verifyVisibleRecorded 管线级回归锚）', () => {
@@ -167,7 +190,8 @@ describe('Y-P2-4 治理：模型可见 ⟺ 已记录（verifyVisibleRecorded 管
     expect(check.missing).toEqual(visible)
   })
 
-  it('已知缺口固化（TODO Y-P2-4）：chapter 正文注入以 revision/ref 登记，校验器只认 settings/snapshot → 如实报缺失', async () => {
+  it('缺口接线翻转（G2-2，原 TODO Y-P2-4）：chapter/skills 注入均有登记，收集器产出的全量 visible 全部 present', async () => {
+    plantProjectSkill()
     fake.setScript([{ type: 'text', content: '这一章的钩子可以再强一点。' }])
     const ud = setup()
     await runOne(ud, 'gov-gap', '第 1 章写得怎么样？', 1)
@@ -177,25 +201,76 @@ describe('Y-P2-4 治理：模型可见 ⟺ 已记录（verifyVisibleRecorded 管
     expect(ctx.currentChapter).toBeDefined()
 
     // chapter 注入对模型可见（进 system prompt 的「作者指定讨论的章节」段），
-    // 管线也确实登记了血缘——但形状是 revision/ref（{chapter,revision,path}），
-    // 不是校验器消费的 settings/snapshot（{scope,digest}）→ 校验器只能报缺失。
+    // 管线以 revision/ref（{chapter,revision,path}）登记血缘；G2-1 起校验器把
+    // revision/ref 归一化为 {scope:'chapter', digest:revision} 一并消费
     const revRef = evs.find((e) => e.type === 'revision/ref')
     expect(revRef).toBeDefined()
     expect((revRef!.data as { revision: string }).revision).toBe(digest16(ctx.currentChapter!))
 
-    const visible: VisibleInjection[] = [
-      ...visibleSettings(ud),
-      { scope: 'chapter', digest: digest16(ctx.currentChapter!) },
-    ]
+    // G2-2 翻转后的通过断言：visible 侧改由生产收集器产出（不再手工拼 {scope,digest}），
+    // 全量注入（settings + chapter + skills）对真实事件流校验 missing 为空——
+    // 「模型可见 ⟺ 已记录」在本管线成立
+    const visible = visibleInjections(ctx)
+    expect(visible.map((v) => v.scope)).toEqual(['settings', 'chapter', 'skills'])
     const check = verifyVisibleRecorded(visible, evs)
-    expect(check.missing).toEqual([{ scope: 'chapter', digest: digest16(ctx.currentChapter!) }])
+    expect(check.missing).toEqual([])
+    expect(check.present).toBe(visible.length)
 
-    // TODO(Y-P2-4) 管线级接线缺口（接线完成后翻转本用例为通过断言）：
-    // 1) chapter 注入：runChat 以 revision/ref 登记（chat.ts:542），verifyVisibleRecorded
-    //    只匹配 settings/snapshot 的 scope+digest，两种载荷形状不互通；
-    // 2) skillsIndex（DSH-18）注入 system prompt 但完全无登记（本 fixture 技巧包为空，
-    //    恰好未触发；有技巧包的环境下「可见 ⟺ 已记录」不成立）；
-    // 3) 「可见」侧无生产收集器：VisibleInjection[] 由 runChat 手工登记时隐式得知，
-    //    prompt 组装函数（buildChatContext）不产出注入清单，校验器因此无法在生产侧自证。
+    // 负向·登记漂移：revision/ref 的 revision 指纹被篡改 → chapter 注入报缺失
+    //（证明上方的匹配不是空转——归一化消费真的在对指纹）
+    const sabotaged = evs.map((e) =>
+      e.type === 'revision/ref'
+        ? { ...e, data: { ...(e.data as Record<string, unknown>), revision: 'deadbeefdeadbeef' } }
+        : e,
+    )
+    const chapterInj = visible.find((v) => v.scope === 'chapter')!
+    const check2 = verifyVisibleRecorded(visible, sabotaged)
+    expect(check2.missing).toEqual([chapterInj])
+    expect(check2.present).toBe(visible.length - 1)
+  })
+
+  it('skills 注入·正向（G2-2）：项目技巧包进索引 → 管线登记 skills/snapshot，收集器全量 visible 全部 present', async () => {
+    plantProjectSkill()
+    fake.setScript([{ type: 'text', content: '我会按技巧包里的清单来讨论。' }])
+    const ud = setup()
+    await runOne(ud, 'gov-skills', '帮我看看第 1 章的场面调度', 1)
+
+    const evs = collectEvents(ud, 'gov-skills')
+    // 前提自查：技巧包确实进了可见侧（收集器产出 skills 注入）且管线确实登记了
+    // skills/snapshot——任一不成立说明 fixture/接线退化，而非校验器失守
+    const ctx = buildChatContext(bookRoot, 1, { userDataPath: ud })
+    const visible = visibleInjections(ctx)
+    expect(visible.some((v) => v.scope === 'skills')).toBe(true)
+    expect(evs.filter((e) => e.type === 'skills/snapshot').length).toBeGreaterThanOrEqual(1)
+
+    // 锚点断言（防循环论证）：技巧包索引原文确实出现在发往 provider 的 system prompt 里
+    const body = fake.lastBody() as { messages: Array<{ role: string; content: unknown }> }
+    expect(
+      typeof body.messages[0]!.content === 'string' && (body.messages[0]!.content as string).includes(ctx.skillsIndex!),
+      'skills 索引未出现在实际请求的 system prompt——「可见」侧推导失真',
+    ).toBe(true)
+
+    const check = verifyVisibleRecorded(visible, evs)
+    expect(check.missing).toEqual([])
+    expect(check.present).toBe(visible.length)
+  })
+
+  it('skills 注入·负向（G2-2）：从事件流抽掉 skills/snapshot → 校验器精确报 skills 注入缺失（有牙）', async () => {
+    plantProjectSkill()
+    fake.setScript([{ type: 'text', content: '好的，我们聊聊场面调度。' }])
+    const ud = setup()
+    await runOne(ud, 'gov-skills-del', '聊聊场面调度', 1)
+
+    const evs = collectEvents(ud, 'gov-skills-del')
+    const visible = visibleAll(ud)
+    expect(verifyVisibleRecorded(visible, evs).missing).toEqual([])
+
+    // 破坏：抽掉 skills/snapshot 登记 → skills 注入「模型可见但不可回溯」，
+    // 其余注入（settings/chapter）不受牵连——缺失精确落在被破坏的那条
+    const sabotaged = evs.filter((e) => e.type !== 'skills/snapshot')
+    const skillsInj = visible.find((v) => v.scope === 'skills')!
+    const check = verifyVisibleRecorded(visible, sabotaged)
+    expect(check.missing).toEqual([skillsInj])
+    expect(check.present).toBe(visible.length - 1)
   })
 })

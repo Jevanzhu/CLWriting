@@ -27,6 +27,76 @@ describe('chunkBody', () => {
     const chunks = chunkBody(body)
     expect(chunks.every((c) => c.text.trim().length >= 20)).toBe(true)
   })
+
+  // ── 单块长度上限（MAX_CHUNK_CHARS = 1000）────────────────────────
+
+  it('超长无分隔文本（无空行/无标点）→ 所有块 ≤ 上限，偏移连续覆盖原文', () => {
+    const body = '长'.repeat(5000) // 一个 5000 字段，任何切点都没有
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBeGreaterThanOrEqual(5)
+    for (const c of chunks) {
+      expect(c.text.length).toBeLessThanOrEqual(1000)
+      expect(c.text.length).toBeGreaterThanOrEqual(20)
+    }
+    // 偏移连续覆盖 [0, 5000)，拼回原文无损
+    expect(chunks[0]!.start).toBe(0)
+    expect(chunks[chunks.length - 1]!.end).toBe(body.length)
+    for (let i = 1; i < chunks.length; i++) {
+      expect(chunks[i]!.start).toBe(chunks[i - 1]!.end)
+    }
+    expect(chunks.map((c) => c.text).join('')).toBe(body)
+  })
+
+  it('超长带句读段 → 细分块 ≤ 上限且在句末断开（非最后块以句读收尾）', () => {
+    // 每句 110 字（含句号），40 句 = 4400 字一段
+    const sentence = '风'.repeat(109) + '。'
+    const body = sentence.repeat(40)
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBeGreaterThanOrEqual(5) // 1000/110 ≈ 9 句一块
+    for (const c of chunks) {
+      expect(c.text.length).toBeLessThanOrEqual(1000)
+    }
+    // 句读优先于硬切：除最后一块外都以句号收尾（硬切会切在句中）
+    for (let i = 0; i < chunks.length - 1; i++) {
+      expect(chunks[i]!.text.endsWith('。')).toBe(true)
+    }
+    expect(chunks.map((c) => c.text).join('')).toBe(body)
+  })
+
+  it('正常短段落 + 超长段混合 → 短段整段一块不变，超长段细分', () => {
+    const shortSeg = '正常段落内容，这是一个普通长度的段落，不应被细分。'
+    const longSeg = '字'.repeat(2500)
+    const body = `${shortSeg}\n\n${longSeg}`
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBe(4) // 2500 = 1000 + 1000 + 500
+    expect(chunks[0]!.text).toBe(shortSeg) // 短段行为与上限前完全一致
+    expect(chunks[0]!.start).toBe(0)
+    expect(chunks[0]!.end).toBe(shortSeg.length)
+    for (const c of chunks.slice(1)) {
+      expect(c.text.length).toBeLessThanOrEqual(1000)
+    }
+  })
+
+  it('恰好等于上限的段 → 不细分，整段一块', () => {
+    const body = '好'.repeat(1000)
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBe(1)
+    expect(chunks[0]!.text.length).toBe(1000)
+  })
+
+  it('硬切不劈开代理对（emoji 跨在切点上仍是合法字符串）', () => {
+    // 999 个汉字 + 一个 emoji（2 码元）× N，使代理对恰好横跨 1000 切点
+    const body = '前'.repeat(999) + '😀'.repeat(1001)
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBeGreaterThan(1)
+    const loneHigh = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/
+    const loneLow = /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    for (const c of chunks) {
+      expect(loneHigh.test(c.text)).toBe(false)
+      expect(loneLow.test(c.text)).toBe(false)
+      expect(c.text.length).toBeLessThanOrEqual(1000)
+    }
+  })
 })
 
 describe('buildIndex + recall（桩 embed）', () => {

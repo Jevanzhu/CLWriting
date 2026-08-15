@@ -68,6 +68,11 @@ export function settingsSnapshotEvent(data: {
   return { type: 'settings/snapshot', data: { ...data } }
 }
 
+/** G2-1 技能包快照登记（镜像 settingsSnapshotEvent；scope 固定 'skills'，载荷同形状 {scope, digest}） */
+export function skillsSnapshotEvent(data: { digest: string }): NewEvent {
+  return { type: 'skills/snapshot', data: { scope: 'skills', digest: data.digest } }
+}
+
 export function foreshadowChangeEvent(data: {
   operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete' | 'block' | 'clear'
   title: string

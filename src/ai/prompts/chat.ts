@@ -12,6 +12,9 @@ import { resolveDraftPath } from '../../format/draft.js'
 import { normalizeMaxMessages } from './window.js'
 import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
 import { listSkills, formatSkillIndex } from '../../process/skills.js'
+// G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
+// 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
+import { digest16, type VisibleInjection } from '../../events/lineage.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -45,6 +48,22 @@ ${ctx.skillsIndex ? `\n${ctx.skillsIndex}\n` : ''}
 - 你是讨论伙伴，不是代笔——引导作者自己做决定
 - 调用 write_chapter 前先用一句话说明你要做什么（作者会看到确认框）
 - 超出能力范围时坦诚说明`
+}
+
+/**
+ * 「模型可见」注入收集器（G2-2 链路侧接线）：把 ctx 中实际进 system prompt 的
+ * 段落折成 {scope, digest} 清单——verifyVisibleRecorded 的 visible 入参唯一生产来源。
+ *
+ * 口径与 chatSystem 的注入条件一一镜像：settings 恒注入；currentChapter / skillsIndex
+ * 非空才注入（chatSystem 的两个三元分支），非空才产出注入项。digest 直接取注入原文
+ * （chatSystem 拼进 prompt 的同一 ctx 字段），不二次拼接；登记侧（runChat）必须对
+ * 同一字段做同源 digest16，任一侧改拼接源即破坏「模型可见 ⟺ 已记录」。
+ */
+export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
+  const out: VisibleInjection[] = [{ scope: 'settings', digest: digest16(ctx.settings) }]
+  if (ctx.currentChapter) out.push({ scope: 'chapter', digest: digest16(ctx.currentChapter) })
+  if (ctx.skillsIndex) out.push({ scope: 'skills', digest: digest16(ctx.skillsIndex) })
+  return out
 }
 
 /**

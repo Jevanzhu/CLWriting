@@ -25,7 +25,23 @@ export interface TextChunk {
   end: number
 }
 
-/** 按段落/双空行分块，记偏移（#37 第 4 节，粒度默认值待 beta 校准） */
+/**
+ * 单块长度上限（字符，按 trim 后文本计）。
+ * 量级对齐现有段落粒度（网文段落常见数十~数百字，正常段落永不触发），只拦
+ * 病理超长段（整章无空行连续长文）：不设上限时单块可达数万字，一次撑爆
+ * embedding 输入 token 限制、召回粒度也失去意义。取 1000：约 1k~1.5k token，
+ * 对 8k token 级模型（如 text-embedding-3-small）留足余量。
+ */
+const MAX_CHUNK_CHARS = 1000
+
+/** 句读切点：超长段行内再分时优先在句末断开（标点留在句尾） */
+const SENTENCE_ENDERS = new Set(['。', '！', '？', '；', '…', '」', '』'])
+
+/**
+ * 按段落/双空行分块，记偏移（#37 第 4 节，粒度默认值待 beta 校准）。
+ * 超过 MAX_CHUNK_CHARS 的段在现有切分逻辑内再细分（行边界 → 句读 → 硬切），
+ * 子块偏移仍指原文，对外类型不变。
+ */
 export function chunkBody(body: string): TextChunk[] {
   const chunks: TextChunk[] = []
   // 按双空行（段落/场景）分割，保留偏移
@@ -33,18 +49,61 @@ export function chunkBody(body: string): TextChunk[] {
   let lastEnd = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(body)) !== null) {
-    const seg = body.slice(lastEnd, m.index)
-    if (seg.trim().length >= 20) {
-      chunks.push({ text: seg.trim(), start: lastEnd, end: m.index })
-    }
+    pushSegmentChunks(body, lastEnd, m.index, chunks)
     lastEnd = re.lastIndex
   }
   // 末尾段
-  const tail = body.slice(lastEnd)
-  if (tail.trim().length >= 20) {
-    chunks.push({ text: tail.trim(), start: lastEnd, end: body.length })
-  }
+  pushSegmentChunks(body, lastEnd, body.length, chunks)
   return chunks
+}
+
+/** 一个段（双空行之间）入块：不超上限整段一块，超上限细分（子块同走 ≥20 过滤）。 */
+function pushSegmentChunks(body: string, segStart: number, segEnd: number, out: TextChunk[]): void {
+  const seg = body.slice(segStart, segEnd)
+  if (seg.trim().length < 20) return
+  if (seg.trim().length <= MAX_CHUNK_CHARS) {
+    out.push({ text: seg.trim(), start: segStart, end: segEnd })
+    return
+  }
+  for (const [s, e] of subdivideSegment(seg, MAX_CHUNK_CHARS)) {
+    const text = seg.slice(s, e).trim()
+    if (text.length >= 20) {
+      out.push({ text, start: segStart + s, end: segStart + e })
+    }
+  }
+}
+
+/**
+ * 超长段细分：贪心收集子段使每段 ≤ max 字符。切点优先级——换行/句读（取窗口内
+ * 最后一个，标点留在句尾）→ 硬切（窗口内无任何边界时）。返回子段在段内的 [start, end)。
+ */
+function subdivideSegment(seg: string, max: number): Array<[number, number]> {
+  const pieces: Array<[number, number]> = []
+  let pieceStart = 0
+  while (pieceStart < seg.length) {
+    // 剩余整段已 ≤ max → 直接收尾
+    if (seg.length - pieceStart <= max) {
+      pieces.push([pieceStart, seg.length])
+      break
+    }
+    // 窗口 (pieceStart, pieceStart+max] 内找最大切点（前一字符是换行或句读）
+    let boundary = -1
+    for (let i = pieceStart + 1; i <= pieceStart + max; i++) {
+      const prev = seg[i - 1]!
+      if (prev === '\n' || SENTENCE_ENDERS.has(prev)) boundary = i
+    }
+    let cut = boundary > pieceStart ? boundary : pieceStart + max
+    // 硬切防劈开代理对（emoji 等增补平面字符占 2 个 UTF-16 码元）
+    if (isHighSurrogate(seg.charCodeAt(cut - 1))) cut--
+    if (cut <= pieceStart) cut = pieceStart + 1 // 极小 max 兜底，防死循环
+    pieces.push([pieceStart, cut])
+    pieceStart = cut
+  }
+  return pieces
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff
 }
 
 function chapterHashKey(chapterNumber: number): string {

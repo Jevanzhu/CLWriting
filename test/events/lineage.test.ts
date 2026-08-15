@@ -8,15 +8,17 @@ import { describe, expect, it, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { openSessionStore, bookHash, type NewEvent } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent, userMessageEvent, turnStartEvent } from '../../src/events/chat-bridge.js'
 import {
   settingsSnapshotEvent,
+  skillsSnapshotEvent,
   revisionRefEvent,
   recordForeshadowChanges,
 } from '../../src/events/chain-bridge.js'
 import { assistantMessageEvent } from '../../src/events/chat-bridge.js'
 import { digest16, verifyVisibleRecorded, recordedSnapshots } from '../../src/events/lineage.js'
+import type { ChatEvent } from '../../src/events/types.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
@@ -72,6 +74,84 @@ describe('F1-P3 verifyVisibleRecorded（模型可见 ⟺ 已记录）', () => {
     expect(recordedSnapshots(evs)).toEqual([
       { scope: 'settings', digest: 'd1', seq: 5 },
       { scope: 'chapter', digest: 'd2', seq: 9 },
+    ])
+  })
+})
+
+describe('G2-1 verifyVisibleRecorded 三种登记形状（settings/snapshot + revision/ref + skills/snapshot）', () => {
+  /** 事件数组 → 带 seq 的 ChatEvent[]（模拟落库后的 seq 分配；模式照抄 branch-tree.test.ts） */
+  function seqEvents(evs: NewEvent[]): ChatEvent[] {
+    return evs.map((ev, i) => ({
+      ...ev,
+      seq: i + 1,
+      sessionId: 's',
+      replaceGeneration: 1,
+      createdAt: Date.now(),
+      data: { ...ev.data },
+    }))
+  }
+
+  it('chapter scope：revision/ref{revision} 满足 {scope:"chapter"} 注入；revision 不匹配 → missing', () => {
+    const evs = seqEvents([revisionRefEvent({ chapter: 1, revision: 'rev-1', path: '写作/正文/1.md' })])
+    expect(verifyVisibleRecorded([{ scope: 'chapter', digest: 'rev-1' }], evs)).toEqual({
+      present: 1,
+      missing: [],
+    })
+    // 指纹漂移：记录存在但 revision 与可见注入不一致 → 仍报缺失（scope 对得上也无效）
+    expect(verifyVisibleRecorded([{ scope: 'chapter', digest: 'rev-drift' }], evs)).toEqual({
+      present: 0,
+      missing: [{ scope: 'chapter', digest: 'rev-drift' }],
+    })
+  })
+
+  it('skills scope：skills/snapshot{digest} 满足 {scope:"skills"} 注入；digest 不匹配 → missing', () => {
+    const evs = seqEvents([skillsSnapshotEvent({ digest: 'sk-1' })])
+    expect(verifyVisibleRecorded([{ scope: 'skills', digest: 'sk-1' }], evs)).toEqual({
+      present: 1,
+      missing: [],
+    })
+    expect(verifyVisibleRecorded([{ scope: 'skills', digest: 'sk-2' }], evs)).toEqual({
+      present: 0,
+      missing: [{ scope: 'skills', digest: 'sk-2' }],
+    })
+  })
+
+  it('混合：settings+chapter+skills 同校互不干扰；删任一登记仍精确报缺失（有牙不回退）', () => {
+    const all = [
+      settingsSnapshotEvent({ scope: 'settings', digest: 'd-set' }),
+      revisionRefEvent({ chapter: 1, revision: 'd-ch', path: '写作/正文/1.md' }),
+      skillsSnapshotEvent({ digest: 'd-sk' }),
+    ]
+    const visible = [
+      { scope: 'settings', digest: 'd-set' },
+      { scope: 'chapter', digest: 'd-ch' },
+      { scope: 'skills', digest: 'd-sk' },
+    ]
+    expect(verifyVisibleRecorded(visible, seqEvents(all))).toEqual({ present: 3, missing: [] })
+
+    // 跨形状不串位：settings/skills 记录满足不了 chapter 注入（scope 不同）
+    const noRev = seqEvents([all[0]!, all[2]!])
+    expect(verifyVisibleRecorded(visible, noRev).missing).toEqual([{ scope: 'chapter', digest: 'd-ch' }])
+
+    // 负向·删记录：逐一剔除任一登记，对应注入精确报缺失（其余仍 present）
+    for (let i = 0; i < all.length; i++) {
+      const sabotaged = seqEvents(all.filter((_, j) => j !== i))
+      const r = verifyVisibleRecorded(visible, sabotaged)
+      expect(r.missing).toEqual([visible[i]!])
+      expect(r.present).toBe(2)
+    }
+  })
+
+  it('recordedSnapshots 三形状归一化提取（revision/ref → scope="chapter"、digest=revision）', () => {
+    const evs = seqEvents([
+      settingsSnapshotEvent({ scope: 'settings', digest: 'd-set' }),
+      revisionRefEvent({ chapter: 1, revision: 'd-ch', path: '写作/正文/1.md' }),
+      skillsSnapshotEvent({ digest: 'd-sk' }),
+    ])
+    expect(recordedSnapshots(evs)).toEqual([
+      { scope: 'settings', digest: 'd-set', seq: 1 },
+      { scope: 'chapter', digest: 'd-ch', seq: 2 },
+      { scope: 'skills', digest: 'd-sk', seq: 3 },
     ])
   })
 })
