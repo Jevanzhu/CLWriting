@@ -3,11 +3,15 @@
  *
  * buildSettingsContext：角色卡 + 境界体系 → 上下文摘要（AI 写稿/对话 prompt 注入用）。
  * 供 ai/prompts、ai/orchestrate、studio/server/api/draft 共用。
+ *
+ * C3（DSH-17 预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档），
+ * 供 draft-pipeline 组装预算注入；buildSettingsContext 改为按层拼接，渲染格式不变。
  */
 import { join, basename, relative } from 'node:path'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readRealmDoc } from '../format/realms.js'
+import type { SettingsLayer } from './settings-injection.js'
 
 /** 角色卡(P2 结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
 export interface CharacterCard {
@@ -65,27 +69,43 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   return out
 }
 
-/** 角色 + 境界体系 → prompt 注入上下文（写稿/对话保持人物一致性） */
-export function buildSettingsContext(bookRoot: string): string {
-  const parts: string[] = []
+/**
+ * 角色层 + 境界层 → 结构化设定层（C3 预算注入用，均 volume 档）。
+ * 各层 text 渲染格式与原 buildSettingsContext 完全一致（含 '## …' 标题头）。
+ */
+export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
+  const layers: SettingsLayer[] = []
   const chars = readCharacterCards(join(bookRoot, '设定', '角色'), bookRoot)
   if (chars.length) {
-    parts.push(
-      '## 角色设定(供参考,保持人物一致)',
-      chars
-        .map((c) => {
-          const meta = [c.身份, c.目标, c.境界].filter(Boolean).join('/')
-          return `- ${c.姓名}${meta ? `(${meta})` : ''}`
-        })
-        .join('\n'),
-    )
+    layers.push({
+      name: '角色设定',
+      specificity: 'volume',
+      text:
+        '## 角色设定(供参考,保持人物一致)\n\n' +
+        chars
+          .map((c) => {
+            const meta = [c.身份, c.目标, c.境界].filter(Boolean).join('/')
+            return `- ${c.姓名}${meta ? `(${meta})` : ''}`
+          })
+          .join('\n'),
+    })
   }
   const rr = readRealmDoc(join(bookRoot, '设定', '境界体系.md'))
   if (rr.ok && rr.doc.体系.length) {
-    parts.push(
-      '## 境界体系(成长线机检依据)',
-      rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
-    )
+    layers.push({
+      name: '境界体系',
+      specificity: 'volume',
+      text:
+        '## 境界体系(成长线机检依据)\n\n' +
+        rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
+    })
   }
-  return parts.join('\n\n')
+  return layers
+}
+
+/** 角色 + 境界体系 → prompt 注入上下文（写稿/对话保持人物一致性）；按层拼接，格式不变 */
+export function buildSettingsContext(bookRoot: string): string {
+  return buildSettingsLayers(bookRoot)
+    .map((l) => l.text)
+    .join('\n\n')
 }

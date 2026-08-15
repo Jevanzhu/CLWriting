@@ -11,6 +11,7 @@ import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
 import { normalizeMaxMessages } from './window.js'
 import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
+import { listSkills, formatSkillIndex } from '../../process/skills.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -18,6 +19,8 @@ export interface ChatContext {
   settings: string
   /** 作者指定讨论的章节信息（未选则 undefined） */
   currentChapter?: string
+  /** 写作技巧包索引（DSH-18：一行一包的元信息目录；空库为 undefined 不注入） */
+  skillsIndex?: string
 }
 
 /** 构建 system prompt（前段稳定 → 利于前缀缓存） */
@@ -28,7 +31,7 @@ export function chatSystem(ctx: ChatContext): string {
 ${ctx.settings}
 
 ${ctx.currentChapter ? `## 作者指定讨论的章节\n${ctx.currentChapter}` : ''}
-
+${ctx.skillsIndex ? `\n${ctx.skillsIndex}\n` : ''}
 ## 你的职责
 - 讨论剧情走向、角色动机、伏笔布局
 - 分析节奏与结构问题
@@ -49,8 +52,13 @@ ${ctx.currentChapter ? `## 作者指定讨论的章节\n${ctx.currentChapter}` :
  *
  * @param bookRoot 书库根
  * @param chapter 作者选定的章号（可选；未选则只注入设定不注入正文）
+ * @param opts 用户数据根（DSH-18：技巧包用户根发现用；缺省只扫项目根 + 捆绑根）
  */
-export function buildChatContext(bookRoot: string, chapter?: number): ChatContext {
+export function buildChatContext(
+  bookRoot: string,
+  chapter?: number,
+  opts?: { userDataPath?: string },
+): ChatContext {
   const settings = buildSettingsContext(bookRoot)
   let currentChapter: string | undefined
 
@@ -73,7 +81,10 @@ export function buildChatContext(bookRoot: string, chapter?: number): ChatContex
     currentChapter = parts.join('\n')
   }
 
-  return { settings, currentChapter }
+  // DSH-18 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
+  const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
+
+  return { settings, currentChapter, skillsIndex: skillsIndex || undefined }
 }
 
 /**

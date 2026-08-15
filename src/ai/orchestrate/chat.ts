@@ -25,6 +25,8 @@ import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../prom
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
+// DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
+import { listSkills, loadSkill } from '../../process/skills.js'
 // F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
 import { openSessionStore } from '../../events/store.js'
 import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
@@ -215,6 +217,21 @@ async function executeChatTool(
         if (!body.trim()) return { ok: false, summary: `第${chapter}章正文为空。` }
         return { ok: true, summary: body }
       }
+      case 'read_skill': {
+        // DSH-18 按需加载通道：system prompt 索引只给元信息，正文用时才取
+        //（三根 rank 覆盖序与 listSkills 一致：项目 > 用户 > 捆绑）
+        const skill = loadSkill(String(input['name'] ?? ''), {
+          bookRoot: opts.bookRoot,
+          userDataPath: opts.userDataPath,
+        })
+        if (!skill) {
+          const names = listSkills({ bookRoot: opts.bookRoot, userDataPath: opts.userDataPath })
+            .map((m) => m.name)
+            .join('、')
+          return { ok: false, summary: `未找到该技巧包。可用：${names}` }
+        }
+        return { ok: true, summary: skill.content }
+      }
       default:
         return { ok: false, summary: `未知工具：${call.name}` }
     }
@@ -392,7 +409,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     const recorder = new SessionRecorder(store, sessionId)
     recorder.add(sessionStartEvent(opts.bookName))
     const baseLen = history.length
-    const ctx = buildChatContext(opts.bookRoot, opts.chapter)
+    const ctx = buildChatContext(opts.bookRoot, opts.chapter, { userDataPath: opts.userDataPath })
     const sys = chatSystem(ctx)
     // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
     // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。

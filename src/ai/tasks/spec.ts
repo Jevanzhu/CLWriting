@@ -11,6 +11,7 @@ import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
 import { generate, generateTool, GenError } from '../gen.js'
 import { rulesToPrompt } from '../rules/index.js'
+import { resolveBuiltinSystemPrompt } from '../prompts/resource.js'
 
 /** 任务生成模式 */
 type GenMode = 'text' | 'tool'
@@ -87,7 +88,10 @@ export async function runSpec(
   opts: SpecOpts,
 ): Promise<TaskResult<SpecOutput>> {
   // A2：按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
-  const systemPrompt = (opts.systemPromptOverride ?? spec.systemPrompt) + rulesToPrompt(spec.name, opts.bookRoot)
+  // C2：内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
+  // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
+  const base = resolveBuiltinSystemPrompt(opts.systemPromptOverride ?? spec.systemPrompt, opts.userDataPath ?? undefined) ?? ''
+  const systemPrompt = base + rulesToPrompt(spec.name, opts.bookRoot)
   const tool = opts.toolOverride ?? spec.tool
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]

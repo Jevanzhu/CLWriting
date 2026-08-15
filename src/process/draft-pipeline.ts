@@ -3,7 +3,8 @@
  *
  * AI 编排层（self-heal）与 draft 落盘端点共用：
  * - saveDraft：覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹
- * - buildDraftPrompt：细纲 + 备料 + 章纲 + 世界观 + 要求（长短篇 front matter 分支）
+ * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（C3：世界观/角色/境界共享
+ *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 要求（长短篇 front matter 分支）
  */
 import { join, basename, dirname } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
@@ -13,8 +14,8 @@ import { countWords } from '../format/words.js'
 import { bodyOf } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
-import { pruneTextMiddle } from './prune.js'
-import { buildSettingsContext } from './settings-context.js'
+import { buildSettingsLayers } from './settings-context.js'
+import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
@@ -139,13 +140,36 @@ function readChapterOutline(bookRoot: string, chapter: number): string {
   return readSafe(hit._path)
 }
 
-/** 组 draft prompt:细纲 + 备料 + 章纲 + 世界观 + 要求(方案 6.6,长短篇 front matter 分支)*/
+/** 设定注入预算（C3 / DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */
+export const SETTINGS_BUDGET_CHARS = 6000
+
+/**
+ * 设定注入（C3 预算制，取代 B3 世界观无差别 prune）：
+ * 世界观（project 档，预算内全文直入）+ 角色/境界层（volume 档）→ assembleSettingsInjection
+ * 按预算分配——超限先丢宽泛层再截断最具体层，in-band 声明指名省略/截断了什么。
+ * 章纲不进预算（已单独注入，情节依据优先级最高）。
+ */
+function buildSettingsInjection(bookRoot: string, worldView: string): string {
+  const layers: SettingsLayer[] = []
+  if (worldView) {
+    layers.push({
+      name: '世界观',
+      specificity: 'project',
+      text: `## 世界观(本书设定,保持设定一致)\n${worldView}`,
+    })
+  }
+  layers.push(...buildSettingsLayers(bookRoot))
+  return assembleSettingsInjection(layers, { maxChars: SETTINGS_BUDGET_CHARS }).text
+}
+
+/** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 要求(方案 6.6,长短篇 front matter 分支)*/
 export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
   const chapterOutline = readChapterOutline(bookRoot, chapter)
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
+  const settingsInjection = buildSettingsInjection(bookRoot, worldView)
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 章正文(短篇,8000-20000 字,单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
@@ -153,10 +177,7 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
     if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
     if (materials) parts.push(`## 备料\n${materials}`)
-    // B3 低配（写链无工具取回通道）：世界观超长头尾保留 + 明示省略，替代无通知硬切
-    if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${pruneTextMiddle(worldView, { threshold: 1200, head: 900, tail: 200 })}`)
-    const settingsCtx = buildSettingsContext(bookRoot)
-    if (settingsCtx) parts.push(settingsCtx)
+    if (settingsInjection) parts.push(settingsInjection)
     parts.push(
       `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
@@ -168,10 +189,7 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
-  // B3 低配（写链无工具取回通道）：世界观超长头尾保留 + 明示省略，替代无通知硬切
-  if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${pruneTextMiddle(worldView, { threshold: 1200, head: 900, tail: 200 })}`)
-  const settingsCtx = buildSettingsContext(bookRoot)
-  if (settingsCtx) parts.push(settingsCtx)
+  if (settingsInjection) parts.push(settingsInjection)
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )

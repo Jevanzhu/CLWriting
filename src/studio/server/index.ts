@@ -38,6 +38,8 @@ import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
 import { registerSnapshotRoutes } from './api/snapshots.js'
 import { registerSearchRoutes } from './api/search.js'
+// C2：内置 prompt overlay 升级迁移（startServer 启动期执行一次）
+import { migratePromptOverlays } from '../../ai/prompts/resource.js'
 import { registerCheckRoutes } from './api/check.js'
 import { registerAnalysisRoutes } from './api/analysis.js'
 import { registerForeshadowRoutes } from './api/foreshadows.js'
@@ -104,6 +106,16 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
+  // C2：内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
+  // 用户改过的原样保留；A6「升级不覆盖用户改动」的落点）
+  if (opts.userDataPath) {
+    try {
+      const r = migratePromptOverlays(opts.userDataPath)
+      if (r.upgraded.length > 0) console.error(`[migrate-prompts] 已升级未改动副本：${r.upgraded.join(', ')}`)
+    } catch (e) {
+      console.error(`[migrate-prompts] ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
   // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {

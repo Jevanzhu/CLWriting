@@ -17,6 +17,7 @@ export type ToolRisk = 'readonly' | 'write'
 export const TOOL_RISK: Record<string, ToolRisk> = {
   check_chapter: 'readonly',
   read_chapter: 'readonly',
+  read_skill: 'readonly',
   write_chapter: 'write',
 }
 
@@ -41,6 +42,18 @@ export const chatTools: ToolDef[] = [
       properties: {
         chapter: { type: 'number', description: '章号（省略则用作者当前选定章节）' },
       },
+    },
+  },
+  {
+    name: 'read_skill',
+    description:
+      '按名读取写作技巧包全文（场景/对话/开篇等实操清单）。可用技巧包名见 system prompt 的「写作技巧包」索引。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '技巧包名（如「场景描写」，见 system prompt 索引）' },
+      },
+      required: ['name'],
     },
   },
   {
