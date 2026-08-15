@@ -43,6 +43,12 @@ beforeAll(async () => {
     join(bookRoot, '设定', '境界体系.md'),
     '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基, 金丹]\n---\n境界说明',
   )
+  // X-P2-14 用：一章正文（GET 可读 / PUT 拒绝）
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, '写作', '正文', '0001-初入宗门.md'),
+    '---\n章号: 1\n标题: 初入宗门\n---\n\n林远踏入宗门。',
+  )
 
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
@@ -144,6 +150,22 @@ describe('GUI API 集成链(设定台 P2)', () => {
       body: JSON.stringify({ content: 'broken: true\n' }),
     })
     expect(blocked.status).toBe(400)
+  })
+
+  it('X-P2-14: PUT /file 拒绝正文（走文档保存协议）；GET 正文仍可读（doc store 按路径开 tab）', async () => {
+    const chapter = '写作/正文/0001-初入宗门.md'
+    // 读侧开放（编辑器开 tab 用）
+    const read = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`)
+    expect(read.ok).toBe(true)
+    // 写侧拒绝：正文 PUT 旁路会绕过乐观锁 + journal + 快照协议
+    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 篡改\n' }),
+    })
+    expect(blocked.status).toBe(400)
+    const d = (await blocked.json()) as { error: string }
+    expect(d.error).toContain('正文请走文档保存协议')
   })
 
   it('GET /api/books/:name/search?q= 全书扫描 + 行级匹配（W2A 收尾）', async () => {

@@ -26,7 +26,12 @@ import { useChatStore } from '../stores/chat'
 // 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
 // bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName/心跳/doc 缓存/tabs 跟随更新。
 const route = useRoute()
-const bookName = computed(() => String(route.params.name))
+// X-P2-21：params.name 缺失（脏路由/手输 URL）时归空串——String(undefined) 会把字面量
+// 'undefined' 当书名，心跳每 20s POST /books/undefined/heartbeat + SSE 连不存在书
+const bookName = computed(() => {
+  const n = route.params.name
+  return n === undefined || n === null ? '' : String(n)
+})
 useHeartbeat(() => bookName.value)
 useSse(() => bookName.value)
 

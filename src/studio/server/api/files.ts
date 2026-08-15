@@ -55,8 +55,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const file = queryParams(req).get('file') ?? ''
-      const safe = editablePath(r.bookRoot, file)
-      if (!safe) return reply(res, 400, { error: '非法路径' })
+      // X-P2-14：路径寻址 PUT 不放行 写作/正文——正文保存必须走 /documents/:docId/content
+      // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
+      const safe = writablePath(r.bookRoot, file)
+      if (!safe) return reply(res, 400, { error: '非法路径（正文请走文档保存协议）' })
       if (!existsSync(safe)) return reply(res, 404, { error: '文件不存在' })
       const body = (await readJson(req)) as { content?: unknown }
       if (typeof body.content !== 'string') {
@@ -108,5 +110,14 @@ function editablePath(bookRoot: string, file: string): string | null {
   // W-P1-3 作者确认位：细纲.md（推进声明）与 账本推进.md（实际履历行）放行编辑器读写
   if (!allowed && WORKDIR_EDITABLE.has(rel)) return abs
   return allowed ? abs : null
+}
+
+/** X-P2-14：写侧白名单 = editablePath 去掉 写作/正文——正文 PUT 走文档保存协议（读侧 doc store 仍按路径读正文）。 */
+function writablePath(bookRoot: string, file: string): string | null {
+  const abs = editablePath(bookRoot, file)
+  if (!abs) return null
+  const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
+  if (rel === '写作/正文' || rel.startsWith('写作/正文/')) return null
+  return abs
 }
 

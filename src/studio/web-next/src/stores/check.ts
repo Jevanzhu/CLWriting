@@ -22,24 +22,31 @@ export const useCheckStore = defineStore('check', () => {
     report.value ? report.value.sections.flatMap((s) => s.items.filter((i) => i.level === 'yellow')) : [],
   )
 
+  /** 操作代（X-P2-15，与 review store 同款）：run/clear 共用——切文档后旧请求结果不落 */
+  let opGen = 0
+
   async function run(name: string, docId: string): Promise<void> {
+    const gen = ++opGen
     loading.value = true
     error.value = null
     try {
       const r = await runCheck(name, docId)
+      if (gen !== opGen) return // 机检数秒：期间切文档/清空，旧结果不落（防张冠李戴）
       report.value = r.report
       hasRed.value = r.hasRed
       lastDocId.value = docId
     } catch (e) {
+      if (gen !== opGen) return
       error.value = friendlyError(e)
       report.value = null
       hasRed.value = false
     } finally {
-      loading.value = false
+      if (gen === opGen) loading.value = false
     }
   }
 
   function clear(): void {
+    opGen++
     report.value = null
     error.value = null
     hasRed.value = false

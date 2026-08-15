@@ -145,6 +145,51 @@ describe('POST /documents/:docId/rewrite 改写直读（M12 B2.1）', () => {
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, { selection: 'x' })
     expect(r.status).toBe(400)
   })
+
+  // ── X-P2-13：选区定位（未 trim 匹配 + 多次出现显式报错） ──────────────
+  // 注意：server 启动链路 migrate-layout-v2 会把 定稿/正文/ → 写作/正文/ 并改写清单路径，
+  // 章节现役路径是 写作/正文/0001-开篇.md。
+
+  it('X-P2-13: 带首尾空白的选区按原文位置替换（不 trim 错位）', async () => {
+    // 选区含尾随句读+换行（作者真实选区的原样）；修复前 trim 后 replace 首个出现可能换错位置
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, {
+      instruction: '更生动',
+      selection: '，主角登场。\n',
+    })
+    expect(r.status).toBe(200)
+    const j = r.json as { ok: boolean; mode: string; rewritten: string }
+    expect(j.ok).toBe(true)
+    expect(j.mode).toBe('local')
+    // mock 产出替换在选区原位置：前缀「这是正文内容」保留（body fm 分隔带一个前导换行），选区被替换
+    expect(j.rewritten.trimStart().startsWith('这是正文内容')).toBe(true)
+    expect(j.rewritten).toContain('mock 改写后的正文文本')
+    expect(j.rewritten).not.toContain('，主角登场。\n')
+  })
+
+  it('X-P2-13: 选区在正文出现多次 → 400 AMBIGUOUS_SELECTION（不再默默换首个出现）', async () => {
+    // 往正文写重复片段（同一短语出现两次）后选它
+    const fs = await import('node:fs')
+    const chapterPath = join(workDir, BOOK, '写作', '正文', '0001-开篇.md')
+    fs.writeFileSync(
+      chapterPath,
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n他笑了。她又看了他一眼，他笑了。\n',
+      'utf8',
+    )
+    const amb = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, {
+      instruction: '改写',
+      selection: '他笑了',
+    })
+    expect(amb.status).toBe(400)
+    const j = amb.json as { code: string; error: string }
+    expect(j.code).toBe('AMBIGUOUS_SELECTION')
+    expect(j.error).toContain('出现多次')
+    // 还原正文，不污染后续用例
+    fs.writeFileSync(
+      chapterPath,
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
+      'utf8',
+    )
+  })
 })
 
 describe('append 纯函数（M2 续写解选区）', () => {

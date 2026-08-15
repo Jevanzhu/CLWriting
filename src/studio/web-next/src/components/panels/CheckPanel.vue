@@ -2,7 +2,7 @@
 // 机检面板（M12 块3 B3.2）：本地规则检查，无 AI 依赖，断网可用。
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
 // 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 'lucide-vue-next'
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -27,6 +27,9 @@ async function runCheck(): Promise<void> {
   // T9b：机检结果变化 → 刷新树红点（正文 red 增减要冒泡到树）
   if (!check.error) void tree.loadIssues(props.bookName)
 }
+
+// X-P2-15：切文档即清报告（store 注释声称「调用方 clear」但无人调——旧文档红项挂在新文档上）
+watch(docId, () => check.clear())
 </script>
 
 <template>

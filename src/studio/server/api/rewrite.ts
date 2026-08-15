@@ -70,7 +70,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const reqBody = await readJson(req)
     const instruction = String(reqBody['instruction'] ?? '').trim()
     if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
-    const selectionRaw = String(reqBody['selection'] ?? '').trim()
+    // X-P2-13：选区保持原样（不 trim）参与定位——首尾空白是作者选区的一部分，
+    // trim 后匹配可能落到正文另一处；纯空白选区仍视为整章改写
+    const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
     const append = reqBody['append'] === true
 
     const bookRoot = join(ctx.workDir, entry.path)
@@ -86,9 +88,18 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const original = draft.body
     // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
     const selection = selectionRaw || original
-    const mode: 'local' | 'whole' | 'append' = append ? 'append' : selectionRaw ? 'local' : 'whole'
-    if (mode === 'local' && !original.includes(selection)) {
-      return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+    const mode: 'local' | 'whole' | 'append' = append ? 'append' : selectionRaw.trim() ? 'local' : 'whole'
+    // X-P2-13：显式定位选区（indexOf 取位置 + 唯一性校验）——String.replace 只换首个出现，
+    // 同文多处时作者选的可能不是第一处；出现多次时无法定位，报错让作者扩大选区
+    let selStart = -1
+    if (mode === 'local') {
+      selStart = original.indexOf(selectionRaw)
+      if (selStart < 0) {
+        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+      }
+      if (original.indexOf(selectionRaw, selStart + 1) >= 0) {
+        return reply(res, 400, { ok: false, code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
+      }
     }
 
     const prompt = append
@@ -97,9 +108,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
     if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
     const produced = result.produced
+    // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
     const rewritten =
       mode === 'append' ? appendRewritten(original, produced)
-      : mode === 'local' ? original.replace(selection, produced)
+      : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
       : produced
     if (rewritten === original) {
       return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
