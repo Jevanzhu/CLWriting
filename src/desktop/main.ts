@@ -620,11 +620,25 @@ app.whenReady().then(() => {
   }
   registerIpc()
   buildMenu()
-  bootstrap().catch((e) => {
+  runBootstrap((e) => {
     console.error('✗ 启动失败：', e instanceof Error ? e.message : String(e))
     app.quit()
   })
 })
+
+// Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
+// mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
+// 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）
+let bootstrapping = false
+function runBootstrap(onError?: (e: unknown) => void): void {
+  if (bootstrapping) return
+  bootstrapping = true
+  void bootstrap()
+    .catch((e) => onError?.(e))
+    .finally(() => {
+      bootstrapping = false
+    })
+}
 
 // 桌面应用：关窗即退出（停 server）
 app.on('window-all-closed', () => {
@@ -633,6 +647,6 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (mainWindow === null) {
-    bootstrap().catch((e) => console.error('✗ 重启失败：', e))
+    runBootstrap((e) => console.error('✗ 重启失败：', e))
   }
 })

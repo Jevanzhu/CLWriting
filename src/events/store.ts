@@ -71,8 +71,10 @@ function rowToEvent(r: Row): ChatEvent {
   }
 }
 
-/** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers */
-function repairOrphanSessions(db: DatabaseSync): void {
+/** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
+ *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
+ *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。 */
+function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
   const stmt = db.prepare(
     `SELECT e.session_id,
             SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
@@ -88,19 +90,47 @@ function repairOrphanSessions(db: DatabaseSync): void {
   );
   const now = Date.now()
   for (const o of orphans) {
-    if (o.starts > o.ends) ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+    if (o.starts > o.ends && !skip.has(o.session_id)) {
+      ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+    }
   }
+}
+
+// ── Y-P1-1/Y-P2-6：进程内连接单例（引用计数）+ 活跃会话登记 ──
+// 此前每次 openSessionStore 都重跑 mkdir+PRAGMA+DDL×2+全表修复聚合（一次自愈写章
+// 十次级连接开关），且修复会在活跃会话进行中注入虚假 session/end。现按 dbPath
+// 缓存连接：缓存命中只计引用；close() 为「释放引用」，归零才真关库+清缓存。
+// DDL 与孤儿修复只在首次打开（或归零重开后）执行一次。
+interface StoreEntry {
+  store: SessionStore
+  refs: number
+  closed: boolean
+}
+const openStores = new Map<string, StoreEntry>()
+const activeChatSessions = new Set<string>()
+
+/** 登记/注销本进程活跃对话会话（SessionRecorder 构造/收尾调用；孤儿修复跳过） */
+export function registerActiveChatSession(sessionId: string): void {
+  activeChatSessions.add(sessionId)
+}
+export function unregisterActiveChatSession(sessionId: string): void {
+  activeChatSessions.delete(sessionId)
 }
 
 /**
  * 打开本书事件库（userDataPath 为空 → null，调用方退化内存模式）。
- * 建目录 + DDL + 启动修复，同步返回。
+ * 进程内按 dbPath 单例（引用计数）：命中直接复用；首次建目录 + DDL + 启动修复。
  */
 export function openSessionStore(userDataPath: string | null | undefined, bookRoot: string): SessionStore | null {
   if (!userDataPath) return null
   const dir = join(userDataPath, 'clwriting', 'session')
-  mkdirSync(dir, { recursive: true })
   const dbPath = join(dir, bookHash(bookRoot) + '.db')
+  const cached = openStores.get(dbPath)
+  if (cached && !cached.closed) {
+    cached.refs++
+    return cached.store
+  }
+  mkdirSync(dir, { recursive: true })
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA busy_timeout = 5000')
@@ -132,9 +162,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     )`
   );
 
-  repairOrphanSessions(db)
+  repairOrphanSessions(db, activeChatSessions)
 
-  return {
+  const entry: StoreEntry = { store: null!, refs: 1, closed: false }
+  const store: SessionStore = {
     dbPath,
     createSession(book: string, header?: Record<string, unknown>): string {
       const sid = ulid()
@@ -213,8 +244,18 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
     },
     close(): void {
-      db.close()
+      // Y-P1-1/Y-P2-6：引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）
+      if (entry.closed) return
+      entry.refs--
+      if (entry.refs <= 0) {
+        entry.closed = true
+        openStores.delete(dbPath)
+        db.close()
+      }
     },
   }
+  entry.store = store
+  openStores.set(dbPath, entry)
+  return store
 }
 

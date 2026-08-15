@@ -30,7 +30,7 @@ import { resolveDraftPath } from '../../format/draft.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../process/skills.js'
 // F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
-import { openSessionStore } from '../../events/store.js'
+import { openSessionStore, bookHash } from '../../events/store.js'
 import { selectBranchTo } from '../../events/branch-tree.js'
 import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
 import { settingsSnapshotEvent, revisionRefEvent } from '../../events/chain-bridge.js'
@@ -196,7 +196,15 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
   if (userDataPath && bookRoot) {
-    openSessionStore(userDataPath, bookRoot)?.clearBook(bookName)
+    // Y-P2-7：两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
+    // 此前只清前者，链路事件（step/llm/check）残留
+    const store = openSessionStore(userDataPath, bookRoot)
+    try {
+      store?.clearBook(bookName)
+      store?.clearBook(bookHash(bookRoot))
+    } finally {
+      store?.close()
+    }
   }
 }
 
@@ -443,12 +451,16 @@ async function finalizeHistory(
   )
   if (outcome.summarizedCount > 0) {
     const shadowSeqs = msgSeqs.splice(0, outcome.summarizedCount).flat()
-    // 压缩存档消息无事件 seq（replace 遮蔽事件已表达「被压内容 → 存档」的来源关系）；
-    // 跨重启恢复暂只回放未遮蔽节点（存档入事件流属 F1-P2/P3 事件族收敛）
-    msgSeqs.unshift([])
+    // Y-P2-2：压缩存档并入 compaction/end 载荷（replace 在被遮蔽区间原位取代）——
+    // 跨重启恢复经投影带回存档（此前摘要只在内存，重启丢被压上下文）
+    const firstMsg = outcome.history[0]
+    const archiveSeq =
+      firstMsg !== undefined && typeof firstMsg.content === 'string'
+        ? recorder.close('completed', shadowSeqs, firstMsg.content)
+        : recorder.close('completed', shadowSeqs)
+    msgSeqs.unshift(archiveSeq !== null ? [archiveSeq] : [])
     msgSeqMap.set(opts.bookName, msgSeqs)
     histories.set(opts.bookName, outcome.history)
-    recorder.close('completed', shadowSeqs)
     return
   }
   msgSeqMap.set(opts.bookName, msgSeqs)
@@ -467,8 +479,11 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   // E1a：正常完成（emit chat_done）才续链；abort/error/超时丢弃队列
   let completedOk = false
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
-  // F1-P1：事件库（userData 为空 → null，退化内存模式）；finally 关闭连接
+  // F1-P1：事件库（userData 为空 → null，退化内存模式）；连接为进程内单例（引用计数），
+  // finally 的 close() 是「释放引用」——归零才真关库
   const store = openSessionStore(opts.userDataPath, opts.bookRoot)
+  // Y-P1-1：recorder 提前声明——异常路径 finally 兜底 dispose（注销活跃登记，防孤儿修复误伤）
+  let recorder: SessionRecorder | undefined
 
   try {
     const history = getHistory(opts.bookName)
@@ -476,6 +491,14 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // 内存无历史且库有投影 → 恢复（LRU 逐出/重启后都走这条）。
     let msgSeqs = msgSeqMap.get(opts.bookName) ?? []
     let pendingMsgSeqs: Array<number | number[]> = []
+    // Y-P2-7：批内序号 → 全局 seq 换算收口（三处重复换算，改口径极易漏改一处）
+    const commitPendingMsgSeqs = (range: { first: number; last: number } | null): void => {
+      if (!range) return
+      for (const idx of pendingMsgSeqs) {
+        msgSeqs.push(typeof idx === 'number' ? [range.first + idx] : idx.map((i) => range.first + i))
+      }
+      pendingMsgSeqs = []
+    }
     if (opts.regenerate && store) {
       // F1-P4：重新生成——总是从事件重建到触发 user（parentSeq）为止（不依赖内存历史，
       // 内存可能含旧分支或被截断的历史），沿分支路径
@@ -495,7 +518,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // 防御：msgSeqs 与 history 长度不一致（旧进程残留）→ 重置，宁可遮蔽不精准也不误遮蔽
     if (msgSeqs.length !== history.length) msgSeqs = []
     const sessionId = store ? store.createSession(opts.bookName, { book: opts.bookName }) : 'mem'
-    const recorder = new SessionRecorder(store, sessionId)
+    recorder = new SessionRecorder(store, sessionId)
     recorder.add(sessionStartEvent(opts.bookName))
     const baseLen = history.length
     const ctx = buildChatContext(opts.bookRoot, opts.chapter, { userDataPath: opts.userDataPath })
@@ -610,13 +633,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
         pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, branchFor(opts.regenerate))))
         recorder.add(turnEndEvent(turn, 'completed'))
-        const range = recorder.flush()
-        if (range) {
-          for (const idx of pendingMsgSeqs) {
-            msgSeqs.push(typeof idx === 'number' ? [range.first + idx] : idx.map((i) => range.first + i))
-          }
-          pendingMsgSeqs = []
-        }
+        commitPendingMsgSeqs(recorder.flush())
         emit(opts, {
           type: 'chat_done',
           ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
@@ -668,13 +685,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       pendingMsgSeqs.push(resultIdxs)
       recorder.add(turnEndEvent(turn, 'completed'))
-      const range2 = recorder.flush()
-      if (range2) {
-        for (const idx of pendingMsgSeqs) {
-          msgSeqs.push(typeof idx === 'number' ? [range2.first + idx] : idx.map((i) => range2.first + i))
-        }
-        pendingMsgSeqs = []
-      }
+      commitPendingMsgSeqs(recorder.flush())
     }
 
     // 轮数触顶——补固定收尾文案
@@ -686,13 +697,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // F1-P1：事件记录 + 落库 + trim 遮蔽（与无工具完成路径一致）
     pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg)))
     recorder.add(turnEndEvent(MAX_AGENT_TURNS - 1, 'max-turns'))
-    const range3 = recorder.flush()
-    if (range3) {
-      for (const idx of pendingMsgSeqs) {
-        msgSeqs.push(typeof idx === 'number' ? [range3.first + idx] : idx.map((i) => range3.first + i))
-      }
-      pendingMsgSeqs = []
-    }
+    commitPendingMsgSeqs(recorder.flush())
     emit(opts, { type: 'chat_done' })
     completedOk = true
     // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
@@ -701,7 +706,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     running.delete(opts.bookName)
     // E1a：steer 续链——正常完成自动消费队头；abort/error/超时丢弃队列
     drainNextChat(opts, completedOk)
-    // F1-P1：关闭事件库连接（防 FD 泄漏；WAL 多连接虽不锁，但连接需释放）
+    // Y-P1-1：注销活跃会话登记（幂等；close 已调过则 no-op）——异常跳过 close 的路径兜底
+    recorder?.dispose()
+    // F1-P1：释放事件库引用（单例引用计数；steer 续链已拿到自己的引用，不受影响）
     store?.close()
     // X-P2-11：对话终态注销 ctrl——isRunning 归 false（此前 chat_done 后仍登记，SSE 快照假报「生成中」）
     opts.driver.unregisterCtrl?.(opts.mainSession, state.ctrl)

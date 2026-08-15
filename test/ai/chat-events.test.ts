@@ -134,12 +134,56 @@ describe('F1-P1 压缩走遮蔽', () => {
     expect(compactions.length).toBeGreaterThan(0)
     // 校验链通过（遮蔽区间合法）
     expect(validateEventStream(evs)).toEqual([])
-    // 恢复出的历史是最近回合（不含被遮蔽的旧回合）
+    // 恢复出的历史 = checkpoint 存档（Y-P2-2 事件化后投影带回）+ 最近回合，不含被遮蔽的旧回合
     const msgs = deriveMessages(evs)
-    expect(msgs.length).toBeLessThanOrEqual(20)
+    expect(msgs.length).toBeLessThanOrEqual(21)
     // 人类抄本保留：全量 append 事件仍可审计
     const userEvents = evs.filter((e) => e.type === 'user/message')
     expect(userEvents.length).toBeGreaterThanOrEqual(11)
+  })
+})
+
+describe('Y-P2-2 压缩存档事件化', () => {
+  // 足够长的用户消息：保证存档（前导+标签 ~100 字）严格小于被压的回合
+  const q = (i: number): string => `第${i}轮问题` + '情节细节'.repeat(40)
+
+  it('存档以 user/message{checkpoint} 入流（sourceSeqs=被压节点）；跨重启恢复带回存档', async () => {
+    const ud = setup()
+    for (let i = 1; i <= 10; i++) {
+      fake.setScript([{ type: 'text', content: '第' + i + '轮回复' }])
+      await runOne(ud, 'ckpt-c', q(i))
+    }
+    fake.setScript([
+      { type: 'text', content: '第11轮回复' },
+      { type: 'text', content: '1. Primary Request and Intent（作者连续讨论第1-11轮情节）2. Next Step（写第12章）' },
+    ])
+    await runOne(ud, 'ckpt-c', q(11))
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('ckpt-c')
+    store.close()
+    // 存档并入 compaction/end 载荷（Y-P2-2：replace 原位取代），sourceSeqs 覆盖被遮蔽区间
+    const summaries = evs.filter(
+      (e) => e.type === 'compaction/end' && typeof e.data['message'] === 'string' && e.surfaceOp === 'replace',
+    )
+    expect(summaries.length).toBe(1)
+    const arc = summaries[0]!
+    for (let s = arc.shadowStart!; s <= arc.shadowEnd!; s++) {
+      expect(arc.sourceSeqs).toContain(s)
+    }
+    expect(validateEventStream(evs)).toEqual([])
+
+    // 模拟重启：清内存（不带 ud → 库不动），投影恢复首条即 checkpoint 存档（原位取代）
+    clearChatHistory('ckpt-c')
+    const store2 = openSessionStore(ud, bookRoot)!
+    const evs2 = store2.listEvents('ckpt-c')
+    store2.close()
+    const msgs = deriveMessages(evs2)
+    expect(msgs.length).toBe(21)
+    expect(msgs[0]!.role).toBe('user')
+    expect(typeof msgs[0]!.content === 'string' && msgs[0]!.content.includes('<compacted-summary>')).toBe(true)
+    expect(msgs[0]!.content).toContain('Primary Request and Intent')
+    expect(msgs[1]!.content).toBe(q(2))
   })
 })
 

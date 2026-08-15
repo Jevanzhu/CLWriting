@@ -13,6 +13,7 @@ import type { ChatMsg, ContentBlock } from '../ai/provider/types.js'
 import type { ChatEvent, SessionEndReason, TurnEndReason } from './types.js'
 import { foldSurface, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
+import { registerActiveChatSession, unregisterActiveChatSession } from './store.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -131,10 +132,14 @@ export class SessionRecorder {
   private sessionId: string
   /** 已落库批次区间（失败回滚时遮蔽本会话全部已写事件用） */
   private flushedRanges: Array<{ first: number; last: number }> = []
+  /** close 已执行（幂等） */
+  private ended = false
 
   constructor(store: SessionStore | null, sessionId: string) {
     this.store = store
     this.sessionId = sessionId
+    // Y-P1-1：登记活跃会话——孤儿修复（重开库时）跳过进行中的会话，防虚假 session/end
+    if (store) registerActiveChatSession(sessionId)
   }
 
   /** 记录事件，返回该事件在本批次内的序号（0-based；flush 后 first + idx = seq） */
@@ -172,43 +177,67 @@ export class SessionRecorder {
   }
 
   /**
-   * 会话收尾：追加 session/end 并落库。
+   * 会话收尾：追加 session/end 并落库（幂等——重复调用只生效一次）。
    * @param shadow 若给定被裁消息的 seq 列表，写 compaction/start + replace 遮蔽 + compaction/end
+   * @param summary Y-P2-2：压缩存档内容（checkpoint 包裹后的 user 消息原文）——并入首个
+   *  compaction/end 载荷，投影时在被遮蔽区间原位取代（「模型可见⟺已记录」，跨重启带回存档）。
+   * @returns 存档节点 seq（= 携带 message 的 compaction/end 事件 seq）；无存档/无落库 → null
    */
-  close(reason: SessionEndReason, shadowSeqs?: number[]): void {
-    this.pending.push(sessionEndEvent(reason))
-    this.flush()
-    if (!this.store || !shadowSeqs || shadowSeqs.length === 0) return
-    // 遮蔽区间：被裁 seq 应连续（每回合事件连续写）；不连续则逐段遮蔽
-    const sorted = [...shadowSeqs].sort((a, b) => a - b)
-    const segs: Array<{ start: number; end: number }> = []
-    let segStart = sorted[0]!;
-    let segEnd = sorted[0]!;
-    for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i]! === segEnd + 1) {
-        segEnd = sorted[i]!
-      } else {
-        segs.push({ start: segStart, end: segEnd })
-        segStart = sorted[i]!;
-        segEnd = sorted[i]!;
+  close(reason: SessionEndReason, shadowSeqs?: number[], summary?: string): number | null {
+    if (this.ended) return null
+    this.ended = true
+    let archiveSeq: number | null = null
+    try {
+      this.pending.push(sessionEndEvent(reason))
+      this.flush()
+      if (!this.store || !shadowSeqs || shadowSeqs.length === 0) return null
+      // 遮蔽区间：被裁 seq 应连续（每回合事件连续写）；不连续则逐段遮蔽
+      const sorted = [...shadowSeqs].sort((a, b) => a - b)
+      const segs: Array<{ start: number; end: number }> = []
+      let segStart = sorted[0]!
+      let segEnd = sorted[0]!
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i]! === segEnd + 1) {
+          segEnd = sorted[i]!
+        } else {
+          segs.push({ start: segStart, end: segEnd })
+          segStart = sorted[i]!
+          segEnd = sorted[i]!
+        }
       }
+      segs.push({ start: segStart, end: segEnd })
+      // Y-P2-2：存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）
+      let carried = false
+      for (const s of segs) {
+        const carry = summary !== undefined && !carried
+        if (carry) carried = true
+        const before = this.store.lastSeq()
+        this.store.appendEvents(this.sessionId, [
+          { type: 'compaction/start', data: { count: s.end - s.start + 1 } },
+          {
+            type: 'compaction/end',
+            ...(carry && summary !== undefined
+              ? { data: { reason, message: summary } }
+              : { data: { reason } }),
+            surfaceOp: 'replace',
+            shadowStart: s.start,
+            shadowEnd: s.end,
+            sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
+          },
+        ])
+        if (carry) archiveSeq = before + 2
+      }
+    } finally {
+      // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）
+      this.dispose()
     }
-    segs.push({ start: segStart, end: segEnd })
-    const now = Date.now()
-    for (const s of segs) {
-      this.store.appendEvents(this.sessionId, [
-        { type: 'compaction/start', data: { count: s.end - s.start + 1 } },
-        {
-          type: 'compaction/end',
-          data: { reason },
-          surfaceOp: 'replace',
-          shadowStart: s.start,
-          shadowEnd: s.end,
-          sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
-        },
-      ])
-    }
-    void now;
+    return archiveSeq
+  }
+
+  /** 注销活跃登记（幂等；不写事件）——runChat finally 兜底防异常路径漏注销 */
+  dispose(): void {
+    if (this.store) unregisterActiveChatSession(this.sessionId)
+    this.store = null
   }
 }
 

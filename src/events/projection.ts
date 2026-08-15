@@ -92,12 +92,36 @@ export function foldSurface(events: ChatEvent[], prefixSeq?: number): SurfaceNod
       continue
     }
     if (ev.type === 'compaction/end') {
-      // replace 遮蔽：闭区间 [shadowStart, shadowEnd] 内已可见节点标 shadowed
+      // replace 遮蔽：闭区间 [shadowStart, shadowEnd] 内已可见节点标 shadowed；
+      // Y-P2-2：携带存档内容（data.message）时在被遮蔽区间原位取代——投影语义与内存
+      // 历史 [存档, ...toKeep] 一致（此前存档只在内存，跨重启恢复丢被压上下文）
       const start = ev.shadowStart
       const end = ev.shadowEnd
       if (start !== undefined && end !== undefined && start <= end) {
-        for (const n of visible) {
-          if (n.seq >= start && n.seq <= end) n.shadowed = true
+        let insertAt = visible.length
+        let inserted = false
+        for (let i = 0; i < visible.length; i++) {
+          const n = visible[i]!
+          if (n.seq >= start && n.seq <= end) {
+            n.shadowed = true
+            if (!inserted) {
+              insertAt = i
+              inserted = true
+            }
+          } else if (n.seq > end && !inserted) {
+            insertAt = i
+            inserted = true
+          }
+        }
+        const msg = ev.data['message']
+        if (typeof msg === 'string' && msg.trim() !== '') {
+          visible.splice(insertAt, 0, {
+            seq: ev.seq,
+            kind: 'user-text',
+            role: 'user',
+            content: msg,
+            shadowed: false,
+          })
         }
       }
       continue
@@ -218,6 +242,10 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
       }
       // replace 后 visible 更新：移除被遮蔽节点
       for (let s = start ?? 0; s <= (end ?? -1); s++) visibleSeqs.delete(s)
+      // Y-P2-2：携带存档的 compaction/end 本身成为可见节点（投影在区间原位插入存档）
+      if (typeof ev.data['message'] === 'string' && (ev.data['message'] as string).trim() !== '') {
+        visibleSeqs.add(ev.seq)
+      }
     }
 
     // 本事件成为可见节点（surface 且带 surfaceOp 时加入）
