@@ -49,6 +49,22 @@ describe('readJson 分块解码（V-P1-1）', () => {
     await expect(chunkedReq([body], 1024)).rejects.toBeInstanceOf(HttpError)
   })
 
+  it('超大请求体 → data 阶段立即 413（不等 end）+ 后续数据排空丢弃不缓冲（Y-P2-7）', async () => {
+    // 不调用 end：模拟客户端仍在发送，超限后必须当场拒绝（不等 end）。
+    // 剩余数据排空丢弃而非同步 destroy——destroy 会抢在 413 响应刷出前掐断
+    // socket（真实 HTTP 客户端收到 ECONNRESET 而非 413，见 api-token.test.ts 回归锚）
+    const stream = new PassThrough()
+    const req = stream as unknown as IncomingMessage
+    const pending = readJson(req, 1024)
+    stream.write(Buffer.from(JSON.stringify({ content: 'x'.repeat(2048) })))
+    await expect(pending).rejects.toMatchObject({ status: 413 })
+    // 拒绝发生在 data 阶段（stream 未 end，promise 已 settle = 不等 end 的证明）；
+    // 再写超限余量也不缓冲/不重复 settle（chunks 已清空，end 守卫兜底）
+    stream.write(Buffer.alloc(4096))
+    await expect(pending).rejects.toMatchObject({ status: 413 })
+    stream.end()
+  })
+
   it('空 body → {}（沿用既有兜底语义）', async () => {
     const result = await chunkedReq([Buffer.from('')])
     expect(result).toEqual({})

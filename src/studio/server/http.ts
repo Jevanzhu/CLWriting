@@ -47,15 +47,20 @@ export function readJson(
       if (size > limitBytes) {
         tooLarge = true
         chunks.length = 0
+        // 超限即拒绝（Y-P2-7）：不等 end，防悬挂连接长期占用 FD。reject 在前，
+        // 上层 catch 后据此回复 413。剩余数据排空丢弃——同步 req.destroy() 会抢在
+        // 413 响应刷出前掐断 socket（客户端收到 ECONNRESET 而非 413）；排空让
+        // 有限请求体自然到 end，连接随响应正常收口，同样不占 FD。
+        reject(new HttpError(413, '请求体过大'))
+        req.removeAllListeners('data')
+        req.resume()
         return
       }
       chunks.push(c)
     })
     req.on('end', () => {
-      if (tooLarge) {
-        reject(new HttpError(413, '请求体过大'))
-        return
-      }
+      // 超限已在 data 中 reject；此处仅防御（promise settle 后重复调用无效）
+      if (tooLarge) return
       const data = Buffer.concat(chunks).toString('utf-8')
       try {
         // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
