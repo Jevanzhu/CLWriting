@@ -19,6 +19,8 @@ import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
 import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
+// 工具面扩展：注册表分派（book_search/chapter_status/树操作/改写/账本/文风）
+import { TOOL_EXECUTORS, type ToolContext } from '../tools/index.js'
 import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../prompts/chat.js'
 import { compactHistory } from '../prompts/compaction.js'
 import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../prompts/checkpoint.js'
@@ -155,6 +157,16 @@ async function executeChatTool(
 ): Promise<{ ok: boolean; summary: string }> {
   const input = call.input as Record<string, unknown>
   try {
+    // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
+    const executor = TOOL_EXECUTORS[call.name]
+    if (executor) {
+      const tctx: ToolContext = {
+        bookRoot: opts.bookRoot,
+        bookName: opts.bookName,
+        userDataPath: opts.userDataPath ?? null,
+      }
+      return await executor(tctx, input)
+    }
     switch (call.name) {
       case 'write_chapter': {
         if (isSelfHealRunning(opts.bookName)) {

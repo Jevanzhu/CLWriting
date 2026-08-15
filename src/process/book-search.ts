@@ -1,0 +1,117 @@
+/**
+ * 全书 .md 扫描搜索（§19.1，YAGNI 不引 FTS）。
+ *
+ * 从 server/api/search.ts 抽取的服务层：行级 includes 匹配（大小写不敏感），
+ * 每文件限行、总限文件防大；排除点前缀系统目录（.版本 快照/.trash 回收站/.journal）、
+ * 导出/ 与 node_modules（V-P2-25，防全书搜索被历史版本与已删文件污染）。
+ * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
+ */
+import { join } from 'node:path'
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+
+/** 可搜目录全集（相对 bookRoot） */
+export const SEARCH_ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']
+
+/** scope → 可搜目录（相对 bookRoot） */
+export const SEARCH_SCOPE_DIRS: Record<string, string[]> = {
+  all: SEARCH_ALL_DIRS,
+  定稿: ['写作/正文', '设定'],
+  正文: ['写作/正文'],
+  设定: ['设定'],
+  大纲: ['大纲'],
+  工作区: ['工作区'],
+}
+
+const MAX_MATCHES_PER_FILE = 20
+const MAX_RESULTS = 50
+const MATCH_LINE_SLICE = 200
+
+export interface SearchMatch {
+  line: number
+  text: string
+}
+
+export interface SearchHit {
+  /** 相对 bookRoot 的路径（正斜杠） */
+  path: string;
+  matches: SearchMatch[];
+}
+
+export interface SearchOutcome {
+  results: SearchHit[];
+  truncated?: boolean;
+}
+
+/**
+ * 全书搜索主函数。q 为空返回空结果；scope 非法回落 all。
+ */
+export function searchBook(bookRoot: string, q: string, scope?: string): SearchOutcome {
+  const query = (q ?? '').trim()
+  if (!query) return { results: [] }
+  const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
+  const lower = query.toLowerCase()
+  const results: SearchHit[] = []
+  for (const dir of dirs) {
+    const abs = join(bookRoot, dir)
+    if (!existsSync(abs)) continue
+    for (const fp of walkMd(abs)) {
+      const matches = searchFile(fp, lower)
+      if (matches.length === 0) continue
+      const rel = fp.slice(bookRoot.length + 1).split('\\').join('/')
+      results.push({ path: rel, matches: matches.slice(0, MAX_MATCHES_PER_FILE) })
+      if (results.length >= MAX_RESULTS) {
+        return { results, truncated: true }
+      }
+    }
+  }
+  return { results }
+}
+
+/** 行级 includes 匹配（大小写不敏感），返回匹配行（行号 + 截断文本）。 */
+function searchFile(fp: string, lower: string): SearchMatch[] {
+  let text: string
+  try {
+    text = readFileSync(fp, 'utf-8')
+  } catch {
+    return []
+  }
+  const out: SearchMatch[] = []
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.toLowerCase().includes(lower)) {
+      out.push({ line: i + 1, text: lines[i]!.slice(0, MATCH_LINE_SLICE) })
+    }
+  }
+  return out
+}
+
+/**
+ * 递归列目录下所有 .md。
+ * 排除点前缀系统目录与 node_modules / 导出（V-P2-25）。
+ */
+function walkMd(dir: string): string[] {
+  const out: string[] = []
+  const walk = (d: string): void => {
+    let entries: string[]
+    try {
+      entries = readdirSync(d)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
+      const p = join(d, name)
+      let s
+      try {
+        s = statSync(p)
+      } catch {
+        continue
+      }
+      if (s.isDirectory()) walk(p)
+      else if (name.endsWith('.md')) out.push(p)
+    }
+  }
+  walk(dir)
+  return out
+}
+

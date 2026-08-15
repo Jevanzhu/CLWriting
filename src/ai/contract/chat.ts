@@ -18,7 +18,17 @@ export const TOOL_RISK: Record<string, ToolRisk> = {
   check_chapter: 'readonly',
   read_chapter: 'readonly',
   read_skill: 'readonly',
+  book_search: 'readonly',
+  chapter_status: 'readonly',
   write_chapter: 'write',
+  move_chapter: 'write',
+  rename_chapter: 'write',
+  copy_chapter: 'write',
+  delete_chapter: 'write',
+  rewrite_chapter: 'write',
+  rewrite_selection: 'write',
+  lead_update: 'write',
+  harvest_style: 'write',
 }
 
 /** 工具集 */
@@ -66,5 +76,109 @@ export const chatTools: ToolDef[] = [
       },
       required: ['chapter'],
     },
+  },
+  {
+    name: 'book_search',
+    description: '全书关键词搜索（写作/正文、设定、大纲、布线、工作区）。返回命中文件与行号。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词' },
+        scope: { type: 'string', description: '搜索范围：all / 定稿 / 正文 / 设定 / 大纲 / 工作区（缺省 all）' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'chapter_status',
+    description: '全书近况快照：已写到第几章/第几卷、近 3 章节奏、进行中与超时账本。',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'move_chapter',
+    description: '把指定章移动到目标目录（如移动到卷）。会改动书树结构，执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+        toDir: { type: 'string', description: '目标目录（相对书根，如 写作/正文/第二卷）' },
+      },
+      required: ['chapter', 'toDir'],
+    },
+  },
+  {
+    name: 'rename_chapter',
+    description: '重命名指定章（改标题，章号不变）。会改动文件名与书树，执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+        newTitle: { type: 'string', description: '新标题' },
+      },
+      required: ['chapter', 'newTitle'],
+    },
+  },
+  {
+    name: 'copy_chapter',
+    description: '复制指定章为副本（同目录，标题加「副本」）。会新增文件与书树节点，执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+      },
+      required: ['chapter'],
+    },
+  },
+  {
+    name: 'delete_chapter',
+    description: '软删指定章（移入回收站，可还原）。执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+      },
+      required: ['chapter'],
+    },
+  },
+  {
+    name: 'rewrite_chapter',
+    description: '按指令改写整章（AI 产出改写稿，不直接落盘；作者确认后再保存）。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+        instruction: { type: 'string', description: '改写指令（如：把战斗场景压缩一半，突出情感变化）' },
+      },
+      required: ['chapter', 'instruction'],
+    },
+  },
+  {
+    name: 'rewrite_selection',
+    description: '按指令改写指定章的某段原文（AI 产出改写选段，不直接落盘；作者确认后再保存）。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+        selection: { type: 'string', description: '待改写选段（须与正文中原文一致）' },
+        instruction: { type: 'string', description: '改写指令' },
+      },
+      required: ['chapter', 'selection', 'instruction'],
+    },
+  },
+  {
+    name: 'lead_update',
+    description: '生成指定章的账本推进（AI 草拟履历行，写入 工作区/账本推进.md）。执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+      },
+      required: ['chapter'],
+    },
+  },
+  {
+    name: 'harvest_style',
+    description: '从定稿正文收割文风候选（样章/金句），写入 工作区/learn候选。执行前作者需确认。',
+    input_schema: { type: 'object', properties: {} },
   },
 ]
