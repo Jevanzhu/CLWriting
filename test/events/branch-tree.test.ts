@@ -103,6 +103,23 @@ describe('F1-P4 selectBranch（分支可切换）', () => {
     const sel = selectBranch(evs, 'g2')
     expect(sel.map((e) => e.seq)).toEqual([1, 2, 3, 4])
   })
+
+  it('G1：分支后的普通续聊（无 branchId、seq > rootSeq）不丢出分支视图', () => {
+    const evs = seqEvents([
+      userMessageEvent('q'), // 1
+      assistantMessageEvent('a0'), // 2 初版线性回复
+      assistantMessageEvent('a1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b1' }), // 3 变体一
+      userMessageEvent('follow'), // 4 分支后普通续聊（线性）
+      assistantMessageEvent('a2'), // 5
+      assistantMessageEvent('a1p', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b2' }), // 6 变体二
+    ])
+    // 默认（最新组 b2）：续聊（4/5）保留 + b2；a0（2）在顶替槽 (1,3) 内——被 regenerate
+    // 顶替的原始回复，从视图剔除（否则默认视图新旧答案堆叠、与进程内截断口径分裂）；
+    // b1 变体被组过滤排除
+    expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 4, 5, 6])
+    // 切到旧组 b1：b2 被排除，续聊（4/5）仍在——刷新/切分支都不丢消息；a0 同理剔除
+    expect(selectBranch(evs, 'b1').map((e) => e.seq)).toEqual([1, 3, 4, 5])
+  })
 })
 
 describe('F1-P4 selectBranchTo（重新生成入口：恢复到指定 seq）', () => {

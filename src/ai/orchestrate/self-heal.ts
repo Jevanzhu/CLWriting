@@ -65,6 +65,13 @@ export interface SelfHealOpts {
   /** 生成函数注入（单测替身）；缺省用 provider + tool_use 生成。
    *  接收 userPrompt + kind，返回完整 markdown（front matter + 正文）。 */
   genFn?: (userPrompt: string, kind: 'long' | 'short', signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
+  /**
+   * Z-P2-5：ctrl 登记 driver（/interrupt 的 driver.interrupt() 与 isRunning() 据此对生成期生效）。
+   * 仅 /auto-write 端点传；chat 内嵌写章（write_chapter 工具）不传——彼时 chat 自身 ctrl
+   * 已在同一 session 在册，再登记会触发 cc registerCtrl 的 P2-6 语义（换新先 abort 旧）
+   * 误伤外层对话，且经 chat.ts 的 abort 桥接反过来把本次写章一并中断。
+   */
+  register?: (ctrl: AbortController) => void
 }
 
 export type SelfHealOutcome =
@@ -375,7 +382,8 @@ async function runChapter(
       ) {
         leadDraftTried = true
         emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt })
-        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
+        // Z-P1-1：编排级 signal 透传——中断自愈时账本草稿生成同步中止（不跑到总超时）
+        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)
         if (gen.ok && gen.count > 0) continue
       }
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
@@ -389,7 +397,8 @@ async function runChapter(
         recordAiVersion(bookRoot, final.docId, current)
         // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
         // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
-        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath))
+        // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）
+        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal))
         const yellows = ruleYellows(current, bookRoot, chapterNo)
         writeTodos('completed', 'completed', 'completed')
         writeGoal('complete', 'complete', { rounds: attempt })
@@ -537,6 +546,10 @@ async function runGenerate(
     chapter,
     userPrompt,
     ctrl: state.ctrl,
+    // Z-P2-5：登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning() 真值（SSE
+    // sync 快照不再假空闲），/interrupt 的 driver.interrupt() 也能直接 abort 在途请求
+    //（与 abortSelfHeal 内存闸双保险）。同 ctrl 多轮重复登记，cc 侧幂等跳过
+    register: opts.register,
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
     onText: (delta) => emit(opts, { type: 'text', text: delta }),
     // Bug C：provider 重试（429/5xx）时推 warning——前端可见「响应异常，重试中」，不再静默卡死

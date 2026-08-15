@@ -11,6 +11,9 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/
 import { runChat, clearChatHistory, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
+import { loadHistoryWithSeqs } from '../../src/events/chat-bridge.js'
+import { selectBranch } from '../../src/events/branch-tree.js'
+import type { ContentBlock } from '../../src/ai/provider/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
 let fake: FakeProvider
@@ -56,7 +59,14 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
   }
 }
 
-async function runOne(ud: string, bookName: string, message: string): Promise<void> {
+/** 跑一轮对话管线；regenerate 时不传 message（复用已记录 user，与 regenerate 端点同形状）。
+ *  返回本轮 emit 的 DriverEvent（失败路径断言 chat_error 用）。 */
+async function runOne(
+  ud: string,
+  bookName: string,
+  message: string | undefined,
+  extra?: { regenerate?: { parentSeq: number; branchId: string } },
+): Promise<DriverEvent[]> {
   const events: DriverEvent[] = []
   await runChat({
     driver: makeDriver(events),
@@ -64,8 +74,10 @@ async function runOne(ud: string, bookName: string, message: string): Promise<vo
     userDataPath: ud,
     bookRoot,
     bookName,
-    message,
+    ...(message !== undefined ? { message } : {}),
+    ...extra,
   })
+  return events
 }
 
 describe('F1-P1 会话落库', () => {
@@ -263,3 +275,228 @@ describe('B2 checkpoint 压缩', () => {
   })
 })
 
+describe('F1-P4 regenerate 回合分支元数据（G1 接线修复回归）', () => {
+  it('普通回合 surface 事件不带 branchId；regenerate 带工具往返 → 分支视图保留 tool_result 合成消息与最终 assistant', async () => {
+    const ud = setup()
+    // 第一轮普通对话（线性）：user + assistant
+    fake.setScript([{ type: 'text', content: '初版回复：节奏偏慢。' }])
+    await runOne(ud, 'evt-regen', '第 3 章写得如何？')
+
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('evt-regen')
+      store.close()
+      userSeq = evs.find((e) => e.type === 'user/message')!.seq
+      // 无回归锚：普通（非 regenerate）回合的 surface 事件一律不带 branchId
+      for (const e of evs) {
+        if (e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result') {
+          expect(e.data['branchId']).toBeUndefined()
+          expect(e.data['parentSeq']).toBeUndefined()
+        }
+      }
+    }
+
+    // regenerate（parentSeq = 触发 user 的全局 seq，branchId = 变体组）：
+    // 脚本含一个 readonly 工具往返（book_search）+ 文本回复
+    fake.setScript([
+      { type: 'tool', name: 'book_search', input: { query: '玉佩' } },
+      { type: 'text', content: '重写版回复：钩子可以再强一点。' },
+    ])
+    await runOne(ud, 'evt-regen', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('evt-regen')
+    store.close()
+    // 校验链通过（tool/result 载荷新增 parentSeq/branchId 不违反 validateEventStream）
+    expect(validateEventStream(evs)).toEqual([])
+
+    // 整个 regenerate 回合进同一变体组：首条 assistant(tool_use)、tool/result、最终 assistant
+    // 都带 branchId=b1 + parentSeq=userSeq（修复前 tool/result 缺元数据 → 丢出分支视图）
+    const grouped = evs.filter((e) => e.data['branchId'] === 'b1')
+    expect(grouped.map((e) => e.type)).toEqual(['assistant/message', 'tool/result', 'assistant/message'])
+    for (const e of grouped) expect(e.data['parentSeq']).toBe(userSeq)
+
+    // 分支视图（selectBranch + loadHistoryWithSeqs，与 GET /chat/history?branch=b1 同源）：
+    // selectBranch 语义 = 组内 + 祖先链 + 组外线性（含续聊）——初版 assistant（2）在顶替槽
+    // (userSeq, 组根) 内，是被顶替的原始回复，从视图剔除（Z-P1-2：防默认视图新旧答案堆叠、
+    // 与进程内「截断到 user 再答」口径分裂）；其后整段重写回合：assistant(tool_use) +
+    // tool_result 合成消息 + 最终 assistant（修复前 tool/result 缺元数据 → 分支视图只剩首条 assistant，工具往返丢失）
+    const { msgs } = loadHistoryWithSeqs(selectBranch(evs, 'b1'))
+    expect(msgs).toHaveLength(4)
+    expect(msgs[0]).toEqual({ role: 'user', content: '第 3 章写得如何？' })
+    // 重写回合首条 assistant：含 book_search 的 tool_use block
+    expect(msgs[1]!.role).toBe('assistant')
+    const asstBlocks = msgs[1]!.content as ContentBlock[]
+    const toolUse = asstBlocks.find((b) => b.type === 'tool_use') as { id: string; name: string } | undefined
+    expect(toolUse?.name).toBe('book_search')
+    // tool_result 合成消息：user role + 与 tool_use id 对齐的 tool_result block（readonly 执行非 error）
+    expect(msgs[2]!.role).toBe('user')
+    const trBlocks = msgs[2]!.content as ContentBlock[]
+    expect(trBlocks).toHaveLength(1)
+    expect(trBlocks[0]).toMatchObject({ type: 'tool_result', toolUseId: toolUse!.id, isError: false })
+    expect((trBlocks[0] as { content: string }).content).toContain('玉佩')
+    // 最终 assistant 文本
+    expect(msgs[3]).toEqual({ role: 'assistant', content: '重写版回复：钩子可以再强一点。' })
+  })
+
+  it('regenerate 轮数触顶：收尾 assistant 也进变体组（分支视图末条 = 收尾文案）', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, 'evt-max', '第 1 章写得怎么样？')
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('evt-max')
+      store.close()
+      userSeq = evs.find((e) => e.type === 'user/message')!.seq
+    }
+
+    // 5 个工具响应打满 MAX_AGENT_TURNS(5) → 走轮数触顶收尾路径（补固定文案）
+    fake.setScript([
+      { type: 'tool', name: 'book_search', input: { query: '林远' } },
+      { type: 'tool', name: 'book_search', input: { query: '玉佩' } },
+      { type: 'tool', name: 'book_search', input: { query: '宗门' } },
+      { type: 'tool', name: 'book_search', input: { query: '长老' } },
+      { type: 'tool', name: 'book_search', input: { query: '妖兽' } },
+    ])
+    await runOne(ud, 'evt-max', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('evt-max')
+    store.close()
+    expect(validateEventStream(evs)).toEqual([])
+    // 收尾 assistant（轮数触顶固定文案）带分支元数据（修复前缺 → 丢出分支视图）
+    const closing = evs.find(
+      (e) => e.type === 'assistant/message' && String(e.data['message']).includes('工具调用上限'),
+    )
+    expect(closing).toBeDefined()
+    expect(closing!.data['branchId']).toBe('b1')
+    expect(closing!.data['parentSeq']).toBe(userSeq)
+
+    // 分支视图：5 轮工具往返（5 条 tool_result 合成消息）+ 收尾 assistant 全部在组内
+    const { msgs } = loadHistoryWithSeqs(selectBranch(evs, 'b1'))
+    expect(msgs.filter((m) => m.role === 'user' && Array.isArray(m.content))).toHaveLength(5)
+    expect(msgs[msgs.length - 1]).toEqual({
+      role: 'assistant',
+      content: '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。',
+    })
+  })
+})
+
+
+describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一）', () => {
+  it('regenerate 成功 → 其后普通回合的 user/assistant 事件带 branchId 进组；切其他变体时续聊被正确排除', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, 'z-lineage', '第一问')
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      userSeq = store.listEvents('z-lineage').find((e) => e.type === 'user/message')!.seq
+      store.close()
+    }
+
+    // regenerate b1 成功 → 激活 b1
+    fake.setScript([{ type: 'text', content: '重写版回复。' }])
+    await runOne(ud, 'z-lineage', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+
+    // 普通续聊：事件应带 branchId=b1（进组），且不带 parentSeq（不是变体根）
+    fake.setScript([{ type: 'text', content: '续聊回复。' }])
+    await runOne(ud, 'z-lineage', '续聊问题')
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('z-lineage')
+      store.close()
+      expect(validateEventStream(evs)).toEqual([])
+      const contUser = evs.find((e) => e.type === 'user/message' && e.data['message'] === '续聊问题')
+      expect(contUser).toBeDefined()
+      expect(contUser!.data['branchId']).toBe('b1')
+      expect(contUser!.data['parentSeq']).toBeUndefined()
+      const contAsst = evs.find((e) => e.type === 'assistant/message' && e.data['message'] === '续聊回复。')
+      expect(contAsst).toBeDefined()
+      expect(contAsst!.data['branchId']).toBe('b1')
+      expect(contAsst!.data['parentSeq']).toBeUndefined()
+    }
+
+    // 再生一个变体 b2（同 parent）：续聊（b1 组成员）不得泄入 b2 视图
+    fake.setScript([{ type: 'text', content: '重写二版。' }])
+    await runOne(ud, 'z-lineage', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b2' } })
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('z-lineage')
+    store.close()
+    // b1 视图：user + 重写版 + 续聊往返（续聊进组 → 归属 b1）
+    const b1 = loadHistoryWithSeqs(selectBranch(evs, 'b1')).msgs
+    expect(b1).toEqual([
+      { role: 'user', content: '第一问' },
+      { role: 'assistant', content: '重写版回复。' },
+      { role: 'user', content: '续聊问题' },
+      { role: 'assistant', content: '续聊回复。' },
+    ])
+    // b2（默认）视图：只有 user + 重写二版——b1 组（含续聊）被组过滤排除，
+    // 被顶替的初版回复在顶替槽内剔除
+    const b2 = loadHistoryWithSeqs(selectBranch(evs)).msgs
+    expect(b2).toEqual([
+      { role: 'user', content: '第一问' },
+      { role: 'assistant', content: '重写二版。' },
+    ])
+  })
+
+  it('regenerate 失败（400 终态）→ 不激活新分支：后续普通回合事件无 branchId（防归因到幽灵组）', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, 'z-fail', '第一问')
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      userSeq = store.listEvents('z-fail').find((e) => e.type === 'user/message')!.seq
+      store.close()
+    }
+
+    // regenerate b1 失败：400 不可重试 → chat_error；半截组事件被遮蔽
+    fake.setScript([{ type: 'error', status: 400, message: 'bad request' }])
+    const evs1 = await runOne(ud, 'z-fail', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+    expect(evs1.some((e) => e.type === 'chat_error')).toBe(true)
+
+    // 后续普通回合：无 branchId（b1 未激活——激活会把续聊归因到被遮蔽的幽灵组）
+    fake.setScript([{ type: 'text', content: '后续回复。' }])
+    await runOne(ud, 'z-fail', '后续问题')
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('z-fail')
+    store.close()
+    const after = evs.filter((e) => e.type === 'user/message' && e.data['message'] === '后续问题')
+    expect(after).toHaveLength(1)
+    expect(after[0]!.data['branchId']).toBeUndefined()
+    expect(validateEventStream(evs)).toEqual([])
+  })
+
+  it('跨重启恢复走默认分支投影：模型收到的历史不含被顶替的初版回复（与视图/进程内口径一致）', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, 'z-recover', '第一问')
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      userSeq = store.listEvents('z-recover').find((e) => e.type === 'user/message')!.seq
+      store.close()
+    }
+    fake.setScript([{ type: 'text', content: '重写版回复。' }])
+    await runOne(ud, 'z-recover', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+
+    // 模拟重启：只清内存（不带 userDataPath → 不动库；活跃分支映射一并归零）
+    clearChatHistory('z-recover')
+
+    fake.setScript([{ type: 'text', content: '重启后回复。' }])
+    await runOne(ud, 'z-recover', '重启后问题')
+
+    // 模型收到的 messages：system 后应为 [user 第一问, assistant 重写版回复, user 重启后问题]——
+    // 初版回复（被顶替）不得堆进上下文（修复前全量投影 = 新旧两版答案并列，答非所问）
+    const body = fake.lastBody() as { messages: Array<{ role: string; content: unknown }> }
+    const flat = JSON.stringify(body.messages)
+    expect(flat).not.toContain('初版回复')
+    expect(flat).toContain('重写版回复')
+    expect(body.messages[1]!.content).toBe('第一问')
+    expect(body.messages[2]!.content).toBe('重写版回复。')
+    expect(body.messages[body.messages.length - 1]!.content).toBe('重启后问题')
+  })
+})

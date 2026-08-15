@@ -10,7 +10,9 @@ import { readKind } from '../../format/kind.js'
 import { readChapterBody } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
-/** 跑一次 writer 改写（与 rewrite 端点 runRewriter 同口径：tool_use 产出 → input.正文，降级 text）。 */
+/** 跑一次 writer 改写（与 rewrite 端点 runRewriter 同口径：tool_use 产出 → input.正文，降级 text）。
+ *  Z-P1-1：ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
+ *  不再跑到 runTask 10 分钟总超时白烧 token（非 chat 调用点无 signal，行为不变）。 */
 async function runRewriter(
   ctx: ToolContext,
   prompt: string,
@@ -19,6 +21,7 @@ async function runRewriter(
     userDataPath: ctx.userDataPath,
     bookRoot: ctx.bookRoot,
     userPrompt: prompt,
+    signal: ctx.signal,
   })
   if (!out.ok) return { ok: false, error: out.error }
   const { input, text } = out.data

@@ -250,7 +250,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
     const bookName = params['name']!
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
-    // 并发保护:check 阶段无子进程 → isRunning 假空闲 → 前端可再触发,两个编排器会互相覆写草稿
+    // 并发保护（防御双闸之一，Z-P2-5 起与 driver.isRunning 并存）：本闸是编排级内存锁，
+    // 覆盖 self-heal 完整生命周期——机检/账本草稿等阶段无在途 LLM 请求，driver.isRunning
+    // 仍为 false，只有本闸拦得住重复触发（两个编排器会互相覆写草稿）。生成期两闸重叠冗余，
+    // 保留无害：登记受 /interrupt 注销影响存在时序窗口，内存闸始终是可靠口径。
     if (isSelfHealRunning(bookName)) {
       return reply(res, 409, { error: '本书正在全自动写章,先等它跑完或中断' })
     }
@@ -275,6 +278,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       return reply(res, 409, { error: '本书正在全自动写章，先等它跑完或中断' })
     }
     const driver = getDriver('cc')
+    // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
+    // 生成期 isRunning() 真值（SSE sync 快照此前假空闲，前端可误触 /spawn 互相覆写草稿），
+    // /interrupt 的 driver.interrupt() 也能直接 abort 在途请求（与 abortSelfHeal 双保险）。
+    // X-P2-11：终态注销（finally）——防 done 后快照仍报「生成中」。
+    let registered: AbortController | null = null
     void runSelfHeal({
       driver,
       mainSession,
@@ -284,7 +292,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       bookName,
       chapter,
       ...(chapters ? { chapters } : {}),
-    }).catch((e) => emitSpawnError(driver, mainSession, e))
+      register: (c) => {
+        registered = c
+        driver.registerCtrl?.(mainSession, c)
+      },
+    })
+      .catch((e) => emitSpawnError(driver, mainSession, e))
+      .finally(() => {
+        if (registered) driver.unregisterCtrl?.(mainSession, registered)
+      })
 
     reply(res, 200, { ok: true, chapter, ...(batchSize > 1 ? { batchSize, chapters } : {}) })
   })

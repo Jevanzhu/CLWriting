@@ -118,8 +118,12 @@ export function defaultBranchId(tree: BranchTree): string | null {
  * 语义（对齐 cherry 分支树导航）：
  * - 无任何分支元数据（普通线性对话）→ 原样返回全量（按 seq 升序）；
  * - 无 branchId → 默认分支（最新一组）；
- * - 有 branchId → 保留该组全部节点 + 其祖先链（跟随 parentSeq 到根），
- *   丢弃其他兄弟分支的节点；未遮蔽过滤由调用方（foldSurface/loadHistoryWithSeqs）处理。
+ * - 有 branchId → 保留该组全部节点 + 其祖先链（跟随 parentSeq 到根）+
+ *   组外无分支线性事件（G1：含 root 之后的普通续聊，防刷新丢消息），
+ *   只丢弃其他兄弟分支的节点；未遮蔽过滤由调用方（foldSurface/loadHistoryWithSeqs）处理。
+ * - 顶替槽（Z-P1-2）：对每个有变体组的 parent P，(P, 首个组根) 之间的无分支消息
+ *   是被 regenerate 顶替的原始回复——从所有分支视图剔除（否则默认视图新旧答案
+ *   堆叠，且与进程内「截断到 user 再答」的口径分裂）；组根之后的续聊不受影响。
  */
 export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[] {
   const tree = buildBranchTree(events)
@@ -139,11 +143,24 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
     const p = tree.parents.get(seq)
     if (p !== undefined && !keep.has(p)) queue.push(p)
   }
-  // 线性兜底：目标组根之前的所有「无分支」消息（普通对话消息/旧数据缺 parentSeq）也保留
-  const rootSeq = group[0]!
+  // 顶替槽：每个带组 parent 的 (P, 首个组根) 半开区间——槽内无分支消息是被顶替的原答案
+  const firstRootByParent = new Map<number, number>()
+  for (const seqs of tree.groups.values()) {
+    const root = seqs[0]!
+    const p = tree.parents.get(root)
+    if (p === undefined) continue
+    const cur = firstRootByParent.get(p)
+    if (cur === undefined || root < cur) firstRootByParent.set(p, root)
+  }
+  const slots = [...firstRootByParent]
+  // 线性兜底：槽外的「无分支」消息（普通对话消息/旧数据缺 parentSeq）都保留——
+  // G1：分支后的普通续聊（seq > rootSeq、无 branchId）也在线性时间线上，
+  // 只保 root 之前会把续聊丢出视图（刷新即消失），故不再按 seq 截断；
+  // 其他变体（带 branchId）仍被组过滤排除，切换语义不受影响。
   for (const ev of sortEvents(events)) {
-    if (ev.seq >= rootSeq) break
-    if (ev.data['branchId'] === undefined) keep.add(ev.seq)
+    if (ev.data['branchId'] !== undefined) continue
+    const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
+    if (!superseded) keep.add(ev.seq)
   }
   return sortEvents(events).filter((e) => keep.has(e.seq))
 }

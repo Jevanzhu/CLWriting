@@ -31,9 +31,9 @@ import { resolveDraftPath } from '../../format/draft.js'
 import { listSkills, loadSkill } from '../../process/skills.js'
 // F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
 import { openSessionStore, bookHash } from '../../events/store.js'
-import { selectBranchTo } from '../../events/branch-tree.js'
+import { selectBranch, selectBranchTo } from '../../events/branch-tree.js'
 import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
-import { settingsSnapshotEvent, revisionRefEvent } from '../../events/chain-bridge.js'
+import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent } from '../../events/chain-bridge.js'
 import { digest16 } from '../../events/lineage.js'
 
 // ── 常量 ──────────────────────────────────────────
@@ -44,11 +44,6 @@ const CONFIRM_TIMEOUT_MS = 2 * 60_000
 const MAX_HISTORY_TURNS = 10
 
 // ── 类型 ──────────────────────────────────────────
-
-/** F1-P4：重新生成时给 assistant 事件带分支元数据（parentSeq + branchId） */
-function branchFor(regenerate: { parentSeq: number; branchId: string } | undefined): { parentSeq: number; branchId: string } | undefined {
-  return regenerate
-}
 
 export interface ChatOpts {
   driver: StudioDriver
@@ -163,6 +158,11 @@ export function resolveChatConfirm(bookName: string, callId: string, ok: boolean
 const histories = new Map<string, ChatMsg[]>()
 // F1-P1：与 histories 并行维护「每条消息 → 事件 seq」映射（压缩遮蔽用，跨 runChat 持久）
 const msgSeqMap = new Map<string, number[][]>()
+// Z-P1-2（G1 写侧谱系）：本书活跃分支 = 最近一次成功 regenerate 的 branchId——
+// 其后的普通回合事件带该 branchId 进组（续聊归属明确，不摊给所有变体视图）；
+// 仅成功回合激活（失败/中断的半截组已被遮蔽，激活会把续聊归因到幽灵组）；
+// 与 histories 同生命周期：LRU 逐出 / clearChatHistory 一并重置
+const activeBranchByBook = new Map<string, string>()
 const MAX_HISTORY_BOOKS = 8
 
 /** 取（或建）本书对话历史——命中重插（真 LRU，X-P2-24）。导出供测试验证逐出语义。 */
@@ -181,6 +181,7 @@ export function getHistory(bookName: string): ChatMsg[] {
     if (oldest !== undefined) {
       histories.delete(oldest)
       msgSeqMap.delete(oldest)
+      activeBranchByBook.delete(oldest)
     }
   }
   const fresh: ChatMsg[] = []
@@ -195,6 +196,7 @@ export function getHistory(bookName: string): ChatMsg[] {
 export function clearChatHistory(bookName: string, userDataPath?: string, bookRoot?: string): void {
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
+  activeBranchByBook.delete(bookName)
   if (userDataPath && bookRoot) {
     // Y-P2-7：两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
     // 此前只清前者，链路事件（step/llm/check）残留
@@ -210,10 +212,28 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
 
 // ── 等确认 ────────────────────────────────────────
 
-function waitConfirm(state: ChatRunState, callId: string, timeoutMs: number): Promise<boolean> {
+/** 等作者确认（导出供单测验证 abort 释放语义）。 */
+export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => { state.pending.delete(callId); resolve(false) }, timeoutMs)
-    state.pending.set(callId, (ok) => { clearTimeout(timer); resolve(ok) })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Z-P1-1：abort 也释放确认。abortChat 只放行「当时已挂起」的确认，其后循环里再挂起的
+    // 确认若不监听 signal 会各空等满超时（默认 2 分钟），期间 running 锁被白占。
+    // settle 后再触发一律 no-op（幂等：作者确认与 abort 可能先后到达同一确认）。
+    let settled = false
+    const onAbort = (): void => finish(false)
+    const finish = (ok: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      state.pending.delete(callId)
+      state.ctrl.signal.removeEventListener('abort', onAbort)
+      resolve(ok)
+    }
+    timer = setTimeout(() => finish(false), timeoutMs)
+    state.pending.set(callId, finish)
+    // abort 先于挂起到达（signal 已 aborted）→ 立即按取消处理，不等超时
+    if (state.ctrl.signal.aborted) finish(false)
+    else state.ctrl.signal.addEventListener('abort', onAbort)
   })
 }
 
@@ -239,6 +259,9 @@ async function executeChatTool(
         bookRoot: opts.bookRoot,
         bookName: opts.bookName,
         userDataPath: opts.userDataPath ?? null,
+        // Z-P1-1：编排级中断信号下发工具层——嵌套 AI 生成（rewrite/lead_update）据此
+        // 同步中止，不再跑到各自的总超时；本地工具（tree/search 等）忽略之
+        signal: ctrl,
       }
       return await executor(tctx, input)
     }
@@ -508,7 +531,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       msgSeqs = restored.seqsPerMsg
       msgSeqMap.set(opts.bookName, msgSeqs)
     } else if (store && history.length === 0) {
-      const restored = loadHistoryWithSeqs(store.listEvents(opts.bookName))
+      // Z-P1-2：恢复走默认分支投影（最新变体组 + 线性兜底），与 GET /chat/history 视图同口径——
+      // 全量投影会把兄弟变体顺序堆进模型上下文（regenerate 过的书重启后答非所问）
+      const restored = loadHistoryWithSeqs(selectBranch(store.listEvents(opts.bookName)))
       if (restored.msgs.length > 0) {
         history.push(...restored.msgs)
         msgSeqs = restored.seqsPerMsg
@@ -517,22 +542,35 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     }
     // 防御：msgSeqs 与 history 长度不一致（旧进程残留）→ 重置，宁可遮蔽不精准也不误遮蔽
     if (msgSeqs.length !== history.length) msgSeqs = []
+    // Z-P1-2（G1 写侧谱系）：本回合分支归属——regenerate = parentSeq + 新 branchId；
+    // 普通回合延续本书活跃分支（只带 branchId 进组，不设 parentSeq——不是变体根）；
+    // 无活跃分支（线性书/清空后）→ undefined，行为与旧版完全一致
+    const activeBranch = activeBranchByBook.get(opts.bookName)
+    const turnBranch: { parentSeq?: number; branchId?: string } | undefined = opts.regenerate
+      ? { parentSeq: opts.regenerate.parentSeq, branchId: opts.regenerate.branchId }
+      : activeBranch !== undefined
+        ? { branchId: activeBranch }
+        : undefined
     const sessionId = store ? store.createSession(opts.bookName, { book: opts.bookName }) : 'mem'
     recorder = new SessionRecorder(store, sessionId)
     recorder.add(sessionStartEvent(opts.bookName))
     const baseLen = history.length
     const ctx = buildChatContext(opts.bookRoot, opts.chapter, { userDataPath: opts.userDataPath })
     const sys = chatSystem(ctx)
-    // P3 血缘：注入快照指纹（settings/正文预览）——turn 内登记 settings/snapshot + revision/ref
+    // P3 血缘：注入快照指纹（settings/正文预览/技巧包索引）——turn 内登记 settings/snapshot
+    // + revision/ref + skills/snapshot。三处 digest 与可见侧收集器 visibleInjections
+    // （prompts/chat.ts）严格同源：同一 ctx 字段、同一 digest16——「模型可见 ⟺ 已记录」的命门
     const settingsDigest = digest16(ctx.settings)
     const revisionDigest = ctx.currentChapter ? digest16(ctx.currentChapter) : undefined
+    const skillsDigest = ctx.skillsIndex ? digest16(ctx.skillsIndex) : undefined
     // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
     // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
     // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
     if (!opts.regenerate) {
-      // F1-P4：regenerate 复用已有 user 消息（历史恢复已含），不再 push/写新 user 事件
+      // F1-P4：regenerate 复用已有 user 消息（历史恢复已含），不再 push/写新 user 事件；
+      // 普通回合带活跃分支归属（Z-P1-2 写侧谱系——regenerate 后的续聊 user 进组）
       history.push({ role: 'user', content: opts.message ?? '' })
-      pendingMsgSeqs.push(recorder.add(userMessageEvent(opts.message ?? '', opts.chapter)))
+      pendingMsgSeqs.push(recorder.add(userMessageEvent(opts.message ?? '', opts.chapter, turnBranch)))
     }
 
     emit(opts, { type: 'chat_start' })
@@ -551,11 +589,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
 
       recorder.add(turnStartEvent(turn))
-      // P3 血缘：登记本轮注入快照（settings/snapshot + revision/ref），assistant 事件引用
+      // P3 血缘：登记本轮注入快照（settings/snapshot + revision/ref + skills/snapshot），assistant 事件引用
       const lineageIdx: number[] = []
       lineageIdx.push(recorder.add(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
       if (revisionDigest !== undefined) {
         lineageIdx.push(recorder.add(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: '' })))
+      }
+      // G2-2：技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
+      if (skillsDigest !== undefined) {
+        lineageIdx.push(recorder.add(skillsSnapshotEvent({ digest: skillsDigest })))
       }
       emit(opts, { type: 'chat_turn', turn })
 
@@ -631,7 +673,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         }
         history.push({ role: 'assistant', content: asstContent })
         // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
-        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, branchFor(opts.regenerate))))
+        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
         recorder.add(turnEndEvent(turn, 'completed'))
         commitPendingMsgSeqs(recorder.flush())
         emit(opts, {
@@ -639,6 +681,8 @@ export async function runChat(opts: ChatOpts): Promise<void> {
           ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
         })
         completedOk = true
+        // Z-P1-2：regenerate 成功才激活新分支（失败/中断的半截组已被遮蔽，激活会归因到幽灵组）
+        if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
         // B1+B2：溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
         await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
         return
@@ -654,7 +698,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       history.push({ role: 'assistant', content: asstBlocks })
       // F1-P1：assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
-      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx, branchFor(opts.regenerate))))
+      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
       for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
       // 执行工具 + 结果按 tool_result block 回填
@@ -677,10 +721,12 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       history.push({ role: 'user', content: results })
       // F1-P1：tool/result 事件（每条 tool_result block 一个事件，合成一条 user 消息的 seqs）
+      // F1-P4：regenerate 回合同样带分支元数据——否则 tool/result 无 branchId 会落在组外，
+      // selectBranch 只保留组内+祖先链，带工具调用的变体在分支视图里丢工具往返
       const resultIdxs: number[] = []
       for (const rb of results) {
         if (rb.type === 'tool_result') {
-          resultIdxs.push(recorder.add(toolResultEvent(rb.toolUseId, rb.content, rb.isError)))
+          resultIdxs.push(recorder.add(toolResultEvent(rb.toolUseId, rb.content, rb.isError, turnBranch)))
         }
       }
       pendingMsgSeqs.push(resultIdxs)
@@ -695,11 +741,14 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // P1-R1b：收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
     history.push({ role: 'assistant', content: closingMsg })
     // F1-P1：事件记录 + 落库 + trim 遮蔽（与无工具完成路径一致）
-    pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg)))
+    // F1-P4：收尾 assistant 也进同一变体组（regenerate 轮数触顶时整回合不丢出分支视图）
+    pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg, undefined, undefined, undefined, turnBranch)))
     recorder.add(turnEndEvent(MAX_AGENT_TURNS - 1, 'max-turns'))
     commitPendingMsgSeqs(recorder.flush())
     emit(opts, { type: 'chat_done' })
     completedOk = true
+    // Z-P1-2：轮数触顶收尾也属正常完成——同口径激活新分支
+    if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
     // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
     await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
   } finally {

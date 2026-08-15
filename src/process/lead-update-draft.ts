@@ -32,6 +32,8 @@ export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
  * 端点与 self-heal 写稿完成后共用：读本章正文 + 细纲声明 + 进行中账本 → AI 声明实际履历行
  * → 解析过滤（存量编号 + 合法动词）→ 写 工作区/账本推进.md。
  *
+ * @param signal Z-P1-1：外部中断信号（self-heal 编排级 / chat 工具层）——
+ *               生成随调用方中断同步中止；端点直调（无可中断语境）缺省不传。
  * @returns { ok: true; count: number } 成功（count=0 表示无推进/全被过滤）；
  *          { ok: false; code: 'rejected' | 'not-found' | 'failed'; error: string } 失败
  *          （rejected=业务拒绝如短篇无布线；not-found=正文不存在；failed=AI/落盘失败）。
@@ -40,6 +42,7 @@ export async function generateLeadUpdateDraft(
   bookRoot: string,
   chapter: number,
   userDataPath: string | null,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; count: number } | { ok: false; code: 'rejected' | 'not-found' | 'failed'; error: string }> {
   if (readKind(bookRoot) !== 'long') return { ok: false, code: 'rejected', error: '账本推进仅适用于长篇（有布线账本）' }
 
@@ -51,7 +54,8 @@ export async function generateLeadUpdateDraft(
   if (!draft.ok) return { ok: false, code: 'not-found', error: draft.reason }
 
   const prompt = buildLeadUpdatePrompt(bookRoot, chapter, draft.body)
-  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
+  // Z-P1-1：signal 桥接进 runSpec——调用方（self-heal/chat）中断时本生成同步中止
+  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal })
   if (!out.ok) return { ok: false, code: 'failed', error: out.error }
   const text = out.data.text.trim()
   if (!text) return { ok: false, code: 'failed', error: 'AI 产出为空' }

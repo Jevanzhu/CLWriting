@@ -46,8 +46,14 @@ export interface SpecOpts {
   bookRoot?: string
   /** 章号（仅 self-heal 传；记账 chapter 块用） */
   chapter?: number
-  /** 外部传入的 ctrl（如 self-heal 编排级 AbortController） */
+  /** 外部传入的 ctrl（如 self-heal 编排级 AbortController）；与 signal 同时传时 ctrl 优先 */
   ctrl?: AbortController
+  /**
+   * Z-P1-1：外部中断信号（如 chat 编排级 signal）——内部桥接为 ctrl 传入 runTask，
+   * 嵌套生成随调用方中断同步中止。调用方只持有 AbortSignal（工具层透传场景）时用这个，
+   * 免去各调用点手抄 signal → AbortController 桥接。
+   */
+  signal?: AbortSignal
   /** 登记 ctrl → driver */
   register?: (ctrl: AbortController) => void
   /** 重试前回调（推 reset 事件清前端缓冲） */
@@ -78,6 +84,18 @@ export interface SpecOutput {
 }
 
 /**
+ * Z-P1-1：signal → AbortController 桥接——runTask 形参是 ctrl（控制器），
+ * 而工具层只能拿到编排方的 AbortSignal（chat 把 state.ctrl.signal 下发到 ToolContext），
+ * 在此单点桥接，调用方不各抄一份。已 aborted 的信号直接落 abort（不发请求）。
+ */
+function ctrlFromSignal(signal: AbortSignal): AbortController {
+  const ctrl = new AbortController()
+  if (signal.aborted) ctrl.abort()
+  else signal.addEventListener('abort', () => ctrl.abort(), { once: true })
+  return ctrl
+}
+
+/**
  * 用 TaskSpec 跑一次 AI 生成。
  *
  * 内部封装 resolveTier + generate/generateTool + runTask 样板。
@@ -103,7 +121,7 @@ export async function runSpec(
     bookRoot: opts.bookRoot,
     chapter: opts.chapter,
     promptText: opts.userPrompt,
-    ctrl: opts.ctrl,
+    ctrl: opts.ctrl ?? (opts.signal ? ctrlFromSignal(opts.signal) : undefined),
     register: opts.register,
     onReset: opts.onReset,
     onRetry: opts.onRetry,

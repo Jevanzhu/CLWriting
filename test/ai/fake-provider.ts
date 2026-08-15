@@ -17,12 +17,14 @@ interface FakeUsage {
   output: number
 }
 
-/** 脚本条目 —— 每条对应一次请求的响应 */
+/** 脚本条目 —— 每条对应一次请求的响应。
+ *  delayMs（任意条目可选）：响应前挂起 N ms——制造「在途请求」窗口，供中断类测试
+ *  在生成进行中触发 abort（Z-P1-1）；客户端断开后挂起的响应被静默丢弃。 */
 export type FakeResponse =
-  | { type: 'text'; content: string; usage?: FakeUsage }
-  | { type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage }
-  | { type: 'error'; status: number; message: string; retryAfter?: string }
-  | { type: 'max_tokens'; partial: string; usage?: FakeUsage }
+  | ({ type: 'text'; content: string; usage?: FakeUsage } & { delayMs?: number })
+  | ({ type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage } & { delayMs?: number })
+  | ({ type: 'error'; status: number; message: string; retryAfter?: string } & { delayMs?: number })
+  | ({ type: 'max_tokens'; partial: string; usage?: FakeUsage } & { delayMs?: number })
 
 /** stub 实例句柄 */
 export interface FakeProvider {
@@ -63,7 +65,7 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
     // 收集请求体
     let bodyChunks = ''
     req.on('data', (c) => (bodyChunks += c))
-    req.on('end', () => {
+    req.on('end', async () => {
       reqCount++
       try {
         lastRequestBody = JSON.parse(bodyChunks) as Record<string, unknown>
@@ -78,6 +80,13 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'stub 脚本为空' }))
         return
+      }
+
+      // delayMs：挂起响应制造在途窗口（Z-P1-1 中断测试用）——期间客户端 abort 会销毁连接，
+      // 唤醒后写已死连接无意义，直接丢弃（不写不 end，让 socket 自然回收）
+      if (resp.delayMs !== undefined) {
+        await new Promise((r) => setTimeout(r, resp.delayMs))
+        if (res.destroyed || res.writableEnded) return
       }
 
       // 错误响应（非流式）

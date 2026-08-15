@@ -49,12 +49,13 @@ export function assistantMessageEvent(
   usage?: { inputTokens: number; outputTokens: number },
   stopReason?: string,
   sourceSeqs?: number[],
-  branch?: { parentSeq: number; branchId?: string },
+  branch?: { parentSeq?: number; branchId?: string },
 ): NewEvent {
   const data: Record<string, unknown> = { message }
   if (usage) data['usage'] = usage
   if (stopReason) data['stopReason'] = stopReason
-  if (branch) data['parentSeq'] = branch.parentSeq
+  // F1-P4/Z-P1-2：parentSeq 仅变体根需要（regenerate 首条）；续聊进组只带 branchId
+  if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
   if (branch?.branchId) data['branchId'] = branch.branchId
   return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceSeqs ? { sourceSeqs } : {}) }
 }
@@ -67,10 +68,12 @@ export function toolResultEvent(
   callId: string,
   content: string,
   isError?: boolean,
-  branch?: { parentSeq?: number },
+  branch?: { parentSeq?: number; branchId?: string },
 ): NewEvent {
   const data: Record<string, unknown> = isError === undefined ? { callId, content } : { callId, content, isError }
+  // F1-P4：分支元数据与 userMessageEvent 同模式（不传时行为不变——普通回合零影响）
   if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
+  if (branch?.branchId) data['branchId'] = branch.branchId
   return { type: 'tool/result', data, surfaceOp: 'append' }
 }
 
