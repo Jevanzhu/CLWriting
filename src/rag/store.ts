@@ -112,7 +112,8 @@ export function setRagMeta(db: DatabaseSync, key: string, value: string): void {
  */
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) return 0
-  const len = Math.min(a.length, b.length)
+  // P3-14：长度已判等，Math.min 冗余
+  const len = a.length
   let dot = 0
   let normA = 0
   let normB = 0

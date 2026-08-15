@@ -49,8 +49,21 @@ export interface GenResult {
   stopReason: string
 }
 
-/** B-2：chunk 超时——每个事件前若超过此时限无数据，抛可重试 GenError */
-const FIRST_BYTE_TIMEOUT_MS = 60_000
+/** B-2：chunk 超时默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
+ *  P3-1：参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s 不变）——
+ *  深度推理模型首 token 可能超过 60s，此前写死导致被误判 TIMEOUT 白废一轮请求 + 吃退避。 */
+const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 60_000
+const FIRST_BYTE_TIMEOUT_ENV = 'CLWRITING_FIRST_BYTE_TIMEOUT_MS'
+
+/** 显式 resolve 首字节超时（默认值纪律：链路参数不允许隐式默认穿透，超时也须可重放） */
+export function resolveFirstByteTimeoutMs(): number {
+  const raw = process.env[FIRST_BYTE_TIMEOUT_ENV]
+  if (raw !== undefined && raw !== '') {
+    const n = Number(raw)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return DEFAULT_FIRST_BYTE_TIMEOUT_MS
+}
 
 /**
  * 包装 async iterable，对每个 chunk 加超时（B-2：首字节网络挂起 → 快速失败可重试；
@@ -109,7 +122,7 @@ export async function generate(
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
 
-  for await (const ev of withFirstByteTimeout(provider.stream(effective, signal), FIRST_BYTE_TIMEOUT_MS)) {
+  for await (const ev of withFirstByteTimeout(provider.stream(effective, signal), resolveFirstByteTimeoutMs())) {
     switch (ev.type) {
       case 'text':
         text += ev.delta

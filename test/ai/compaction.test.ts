@@ -91,7 +91,7 @@ describe('compactHistory（纪律）', () => {
     })
     expect(out.history).toBe(history)
     expect(out.summarizedCount).toBe(0)
-    expect(out.overflow).toBe(false)
+    expect(out.wasOverLimit).toBe(false)
   })
 
   it('空摘要 fail-open：原数组引用返回，绝不插占位符', async () => {
@@ -99,7 +99,7 @@ describe('compactHistory（纪律）', () => {
     const out = await compactHistory(history, { keepTurns: 10 }, () => null)
     expect(out.history).toBe(history)
     expect(out.summarizedCount).toBe(0)
-    expect(out.overflow).toBe(true)
+    expect(out.wasOverLimit).toBe(true)
   })
 
   it('严格更小校验：摘要不比原文小 → 视为失败（原引用返回）', async () => {

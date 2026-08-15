@@ -198,12 +198,25 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
           ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
           : undefined
         const q = quirksFor(conf.model ?? '')
-        let attempts: GenRequest[] = [req]
-        if (req.structured && q.structuredMode !== 'none') {
-          const stripped = { ...req } as GenRequest
-          delete (stripped as { structured?: unknown }).structured
+        // P3-5：400 降级链在「剥 structured」之外加末端「剥 tools → 纯文本」一环——
+        // unknown 系列（识别不出时 toolUse 保守为 true）若实际不支持工具调用，
+        // 纯 tools 请求 400 后不再同形状反复重试到放弃（此前无级可退）。
+        // 剥 tools 成功不写 structured 记忆（归因不同，防污染记忆）。
+        const stripStructured =
+          req.structured && q.structuredMode !== 'none' ? ({ ...req, structured: undefined } as GenRequest) : null
+        const stripTools = req.tools?.length
+          ? ({ ...req, tools: undefined, toolChoice: undefined, toolName: undefined } as GenRequest)
+          : null
+        let attempts: GenRequest[]
+        if (stripStructured && stripTools) {
           // 记忆命中 → 首发即用剥除版（否则记忆反而关闭降级链、structured 照发 → 必败）
-          attempts = degraded ? [stripped] : [req, stripped]
+          attempts = degraded ? [stripStructured, stripTools] : [req, stripStructured, stripTools]
+        } else if (stripStructured) {
+          attempts = degraded ? [stripStructured] : [req, stripStructured]
+        } else if (stripTools) {
+          attempts = [req, stripTools]
+        } else {
+          attempts = [req]
         }
         let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
         let lastErr: unknown = null
@@ -211,8 +224,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
           try {
             stream = await c.messages.create(toParams(conf, attempt), { signal })
             // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）；
+            // P3-5：剥 tools 的 attempt 不写 structured 记忆（归因不同）。
             // D2：落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写
-            if (attempt !== req && degradedKey) {
+            if (attempt !== req && attempt === stripStructured && degradedKey) {
               if (store) store.modelCaps[degradedKey] = { structured: false }
               persistDegraded(degradedKey)
             }

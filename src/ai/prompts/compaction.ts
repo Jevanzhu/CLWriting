@@ -82,8 +82,11 @@ export interface CompactOutcome {
   history: ChatMsg[]
   /** 被压掉的消息条数（>0 = 发生了压缩；0 = no-op，调用方跳过遮蔽/持久化） */
   summarizedCount: number
-  /** 是否存在可压溢出（true 且 summarizedCount=0 → 摘要失败，fail-open 保留原历史） */
-  overflow: boolean
+  /**
+   * 本次是否因溢出被触发压缩（P3-7 改名：真实含义是「被触发」，不是「仍在溢出」——
+   * 压缩成功也返回 true）。true 且 summarizedCount=0 → 摘要失败，fail-open 保留原历史。
+   */
+  wasOverLimit: boolean
 }
 
 /**
@@ -101,23 +104,23 @@ export async function compactHistory(
   summarize: (toSummarize: ChatMsg[], priorSummary: string | null) => string | null | Promise<string | null>,
 ): Promise<CompactOutcome> {
   const plan = planCompaction(history, opts)
-  if (plan === null) return { history, summarizedCount: 0, overflow: false }
+  if (plan === null) return { history, summarizedCount: 0, wasOverLimit: false }
 
   const first = plan.toSummarize[0]
   const priorSummary =
     first !== undefined && typeof first.content === 'string' ? extractPriorSummary(first.content) : null
   const summary = await summarize(plan.toSummarize, priorSummary)
   if (summary === null || summary.trim() === '') {
-    return { history, summarizedCount: 0, overflow: true }
+    return { history, summarizedCount: 0, wasOverLimit: true }
   }
   const wrapped = `${CHECKPOINT_PREAMBLE}\n\n${CHECKPOINT_TAG_OPEN}\n${summary.trim()}\n${CHECKPOINT_TAG_CLOSE}`
   // 严格更小：与被压掉的原文比（摘要区含旧存档时一并计入——累计存档必须仍小于累计原文）
   if (Array.from(wrapped).length >= measureMessages(plan.toSummarize)) {
-    return { history, summarizedCount: 0, overflow: true }
+    return { history, summarizedCount: 0, wasOverLimit: true }
   }
   return {
     history: [{ role: 'user', content: wrapped }, ...plan.toKeep],
     summarizedCount: plan.toSummarize.length,
-    overflow: true,
+    wasOverLimit: true,
   }
 }

@@ -132,7 +132,8 @@ export interface ToolResultData {
 }
 
 export interface TurnEndData {
-  reason: 'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens' | 'interrupted'
+  /** P3-14：复用 TurnEndReason 词表——此前手写字面量漏了 'max-turns'（agent loop 触顶真实收敛原因），与 TURN_END_REASONS 校验词表不一致 */
+  reason: TurnEndReason
 }
 
 // ── P2 五层链路事件载荷（F1 §二 v1 + §六 trace 合并计划）─────────────────────

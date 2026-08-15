@@ -52,12 +52,14 @@ test('exportBook: 导出产物不含 front matter', () => {
 
 test('exportBook: #% 批注行被过滤', () => {
   const root = makeLongBook('批注过滤')
-  writeLongChapter(root, 1, '批注测试', '#% 这是作者批注\n正文内容\n#% 又一条批注')
+  // P3-14：行首整行批注 + 行中批注尾巴（正文#%批注）都要滤净
+  writeLongChapter(root, 1, '批注测试', '#% 这是作者批注\n正文内容#%行中批注\n#% 又一条批注')
   try {
     exportBook({ bookRoot: root, format: 'merged' })
     const merged = readFileSync(join(root, '工作区', '导出', '全本-批注过滤.md'), 'utf-8')
     expect(merged).not.toContain('#%')
     expect(merged).not.toContain('作者批注')
+    expect(merged).not.toContain('行中批注')
     expect(merged).toContain('正文内容')
   } finally {
     rmSync(root, { recursive: true, force: true })

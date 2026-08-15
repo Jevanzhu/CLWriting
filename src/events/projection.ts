@@ -182,7 +182,7 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const sorted = sortEvents(events)
   const seenSeqs = new Set<number>()
-  let visibleSeqs = new Set<number>()
+  const visibleSeqs = new Set<number>()
   let lastSeq = -1
 
   for (const ev of sorted) {

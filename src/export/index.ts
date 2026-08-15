@@ -65,11 +65,21 @@ interface ExportUnit {
  * 导出定稿正文（多形态 + 净化）。
  */
 
-/** 净化正文：去首尾空白 + 过滤 #% 开头的作者批注行（W0 §6 过渡期，导出不泄漏定稿批注） */
+/** 净化正文：去首尾空白 + 过滤 #% 作者批注（W0 §6 过渡期，导出不泄漏定稿批注）。
+ *  P3-14：行首整行批注与**行中**批注尾巴（`正文#%批注`）一并截掉——此前只滤
+ *  行首 `#%`，行中批注会泄漏进导出；截断后行尾空白收敛，整行批注变空行则剔除，
+ *  原空行保留（markdown 分段）。 */
 function purifyBody(body: string): string {
   return body
     .split('\n')
-    .filter((line) => !line.startsWith('#%'))
+    .map((line) => {
+      if (line.trim() === '') return { keep: true, out: line } // 原空行保留（分段）
+      const i = line.indexOf('#%')
+      const out = i === -1 ? line : line.slice(0, i).replace(/\s+$/, '')
+      return { keep: out.trim() !== '', out }
+    })
+    .filter((r) => r.keep)
+    .map((r) => r.out)
     .join('\n')
     .trim()
 }

@@ -12,14 +12,18 @@ import type { ToolContext, ToolResult } from './context.js'
 
 /** 跑一次 writer 改写（与 rewrite 端点 runRewriter 同口径：tool_use 产出 → input.正文，降级 text）。
  *  Z-P1-1：ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
- *  不再跑到 runTask 10 分钟总超时白烧 token（非 chat 调用点无 signal，行为不变）。 */
+ *  不再跑到 runTask 10 分钟总超时白烧 token（非 chat 调用点无 signal，行为不变）。
+ *  P3-8：chapter 透传 runSpec → runTask 的 chapter 记账块——对话里 AI rewrite 的
+ *  token 用量归集到本章预算账（与 write_chapter 同口径，章预算熔断不再被 rewrite 绕过）。 */
 async function runRewriter(
   ctx: ToolContext,
   prompt: string,
+  chapter: number,
 ): Promise<{ ok: true; produced: string } | { ok: false; error: string }> {
   const out = await runSpec(REWRITE_SPEC, {
     userDataPath: ctx.userDataPath,
     bookRoot: ctx.bookRoot,
+    chapter,
     userPrompt: prompt,
     signal: ctx.signal,
   })
@@ -47,7 +51,7 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   if (body === null) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
   const kind = readKind(ctx.bookRoot)
   const prompt = buildRewritePrompt('whole', body, '', instruction, [], chapter, kind)
-  const r = await runRewriter(ctx, prompt)
+  const r = await runRewriter(ctx, prompt, chapter)
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   const diff = lineDiff(body, r.produced)
   const changed = diff.filter((d) => d.type !== 'same').length
@@ -70,7 +74,7 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
   if (!body.includes(selection)) return { ok: false, summary: '选段未在第 ' + chapter + ' 章正文中找到（请提供完整原文片段）。' }
   const kind = readKind(ctx.bookRoot)
   const prompt = buildRewritePrompt('local', body, selection, instruction, [], chapter, kind)
-  const r = await runRewriter(ctx, prompt)
+  const r = await runRewriter(ctx, prompt, chapter)
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   return {
     ok: true,

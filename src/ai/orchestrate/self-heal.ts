@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
+import type { BookConfig } from '../../format/types.js'
 import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
 import { openSessionStore, bookHash } from '../../events/store.js'
@@ -162,6 +163,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
   }
 
+  // P3-6：book.yaml 只解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
+  // 写 8 章重复解析 8 次同一文件）
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const hasWiring = existsSync(join(bookRoot, '布线'))
   if (hasWiring) {
@@ -175,7 +178,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
 
   // F2：单章/批量共享同一套 ctx（消除双路径重复）
-  const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain }
+  const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain, config }
 
   // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
   // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
@@ -226,6 +229,8 @@ interface ChapterCtx {
   check: (p: string) => CheckOutcome
   db: DatabaseSync | null
   chain: ChainRecorder | null
+  /** P3-6：book.yaml 解析一次，循环共用（预算闸/check 同源） */
+  config: BookConfig
 }
 
 /**
@@ -302,9 +307,8 @@ async function runChapter(
   ctx: ChapterCtx,
   chapter: number,
 ): Promise<ChapterRun> {
-  const { bookRoot, maxAttempts, save, kind, check, chain } = ctx
-  // ① 首稿（C-1：预算闸——超限不跑）
-  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+  const { bookRoot, maxAttempts, save, kind, check, chain, config } = ctx
+  // ① 首稿（C-1：预算闸——超限不跑）；config 由 orchestrate 解析一次传入（P3-6）
   const budget = checkAiCallBudget(bookRoot, chapter, config)
   if (!budget.ok) return { chapter, outcome: 'failed', error: budget.reason, attempts: 0 }
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
