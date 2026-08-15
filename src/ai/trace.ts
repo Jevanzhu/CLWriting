@@ -43,8 +43,8 @@ export interface TraceEntry {
   stopReason: string
   /** prompt 脱敏元信息 */
   promptMeta: PromptMeta
-  /** token 用量 */
-  usage: { input: number; output: number }
+  /** token 用量（D4：cache 命中/写入可选入账——端点下发才有） */
+  usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }
   /** 总耗时 ms（含重试退避） */
   durationMs: number
   /** 是否成功 */
@@ -122,8 +122,13 @@ export function readTraceLines(bookRoot: string): TraceEntry[] {
   return lines
 }
 
-/** trace 落盘用的 token 用量提取（从 TaskOk.usage 或 GenResult.usage） */
-export function toTraceUsage(usage: TokenUsage | null): { input: number; output: number } {
+/** trace 落盘用的 token 用量提取（从 TaskOk.usage 或 GenResult.usage；D4 含 cache 字段） */
+export function toTraceUsage(usage: TokenUsage | null): { input: number; output: number; cacheRead?: number; cacheWrite?: number } {
   if (!usage) return { input: 0, output: 0 }
-  return { input: usage.inputTokens, output: usage.outputTokens }
+  return {
+    input: usage.inputTokens,
+    output: usage.outputTokens,
+    ...(usage.cacheReadTokens !== undefined ? { cacheRead: usage.cacheReadTokens } : {}),
+    ...(usage.cacheWriteTokens !== undefined ? { cacheWrite: usage.cacheWriteTokens } : {}),
+  }
 }

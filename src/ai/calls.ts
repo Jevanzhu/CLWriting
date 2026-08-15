@@ -23,6 +23,9 @@ interface ChapterUsage {
   used: number
   inputTokens: number
   outputTokens: number
+  /** D4：cache 记账（可选——旧记录无此字段按 0；端点不下发则不累计） */
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
 }
 
 /** task 块（全端点覆盖） */
@@ -30,6 +33,8 @@ interface TaskUsage {
   used: number
   inputTokens: number
   outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
 }
 
 /** 磁盘记录格式 */
@@ -67,6 +72,9 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
     if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') {
       return { rec: null, corrupt: true }
     }
+    // D4：cache 记账字段可选——存在则必须是数字（与 X-P3a 同口径，坏条目按损坏处理）
+    const cacheNum = (v: unknown): number | undefined =>
+      v === undefined ? undefined : typeof v === 'number' ? v : NaN
     // X-P3a：tasks 逐条校验形状——盲 cast 遇坏条目（used 非数字）会让后续
     // 累加变 NaN 静默烂账，且绕过「损坏保守阻断」承诺；坏条目按损坏处理
     const tasks: Record<string, TaskUsage> = {}
@@ -76,9 +84,21 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         if (!t || typeof t.used !== 'number' || typeof t.inputTokens !== 'number' || typeof t.outputTokens !== 'number') {
           return { rec: null, corrupt: true }
         }
-        tasks[k] = { used: t.used, inputTokens: t.inputTokens, outputTokens: t.outputTokens }
+        const cr = cacheNum(t.cacheReadTokens)
+        const cw = cacheNum(t.cacheWriteTokens)
+        if (Number.isNaN(cr) || Number.isNaN(cw)) return { rec: null, corrupt: true }
+        tasks[k] = {
+          used: t.used,
+          inputTokens: t.inputTokens,
+          outputTokens: t.outputTokens,
+          ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
+          ...(cw !== undefined ? { cacheWriteTokens: cw } : {}),
+        }
       }
     }
+    const chapterCr = cacheNum(chapter.cacheReadTokens)
+    const chapterCw = cacheNum(chapter.cacheWriteTokens)
+    if (Number.isNaN(chapterCr) || Number.isNaN(chapterCw)) return { rec: null, corrupt: true }
     return {
       rec: {
         chapter: {
@@ -86,6 +106,8 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           used: chapter.used,
           inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
           outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
+          ...(chapterCr !== undefined ? { cacheReadTokens: chapterCr } : {}),
+          ...(chapterCw !== undefined ? { cacheWriteTokens: chapterCw } : {}),
         },
         tasks,
       },
@@ -179,12 +201,18 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
   writeRecord(bookRoot, rec)
 }
 
-/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体） */
+/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；D4 含 cache 字段） */
 function applyCall(rec: CallRecord, usage: TokenUsage | null): void {
   rec.chapter.used += 1
   if (usage) {
     rec.chapter.inputTokens += usage.inputTokens
     rec.chapter.outputTokens += usage.outputTokens
+    if (usage.cacheReadTokens !== undefined) {
+      rec.chapter.cacheReadTokens = (rec.chapter.cacheReadTokens ?? 0) + usage.cacheReadTokens
+    }
+    if (usage.cacheWriteTokens !== undefined) {
+      rec.chapter.cacheWriteTokens = (rec.chapter.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
+    }
   }
 }
 
@@ -206,6 +234,12 @@ export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsag
   if (usage) {
     t.inputTokens += usage.inputTokens
     t.outputTokens += usage.outputTokens
+    if (usage.cacheReadTokens !== undefined) {
+      t.cacheReadTokens = (t.cacheReadTokens ?? 0) + usage.cacheReadTokens
+    }
+    if (usage.cacheWriteTokens !== undefined) {
+      t.cacheWriteTokens = (t.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
+    }
   }
   base.tasks[task] = t
   writeRecord(bookRoot, base)

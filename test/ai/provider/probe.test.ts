@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenEvent, ModelProvider, ProviderConf } from '../../../src/ai/provider/types.js'
 import { createProvider, probeCapabilities } from '../../../src/ai/provider/probe.js'
+import { clearProviderCache } from '../../../src/ai/provider/registry.js'
 import { listModels } from '../../../src/ai/provider/models.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
@@ -49,6 +50,8 @@ function fakeProvider(events: Array<{ type: 'text' | 'tool' | 'error'; name?: st
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // D2：registry 按 settings hash 缓存适配器实例——同 conf 跨用例会命中旧 mock 工厂产物，逐用例清
+  clearProviderCache()
   // 默认真实探测路径（不走 mock 快路）
   if (SAVE_DRIVER === undefined) delete process.env['CLWRITING_DRIVER']
   else process.env['CLWRITING_DRIVER'] = SAVE_DRIVER

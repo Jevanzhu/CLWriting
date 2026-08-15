@@ -272,6 +272,28 @@ export function persistDegraded(key: string): void {
   _persistDegraded?.(key)
 }
 
+/**
+ * 降级记忆新鲜读（批次 D2）——与 persistDegraded 对称的查通道。
+ *
+ * 缘由：适配器缓存（registry 按 settings hash 复用实例）后，适配器捕获的 store
+ * 是创建时刻的快照，降级记忆会读到旧值。runner 注册本回调后，适配器经
+ * lookupDegraded 读「此刻磁盘上的记忆」（loadProviders 有 mtime 缓存，代价可忽略），
+ * 适配器不再依赖捕获的 store 快照。未注册（单测直接构造 store）时返回 undefined，
+ * 由适配器回落到捕获 store 的快照读。
+ */
+let _lookupDegraded: ((key: string) => boolean | undefined) | null = null
+export function registerDegradedLookup(fn: (key: string) => boolean | undefined): void {
+  _lookupDegraded = fn
+}
+export function lookupDegraded(key: string): boolean | undefined {
+  return _lookupDegraded?.(key)
+}
+/** 测试辅助：清空注册的查/写回调（防跨用例泄漏） */
+export function resetDegradedChannels(): void {
+  _lookupDegraded = null
+  _persistDegraded = null
+}
+
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */
 export function currentProvider(userDataPath: string): ProviderConf | null {
   const s = loadProviders(userDataPath)

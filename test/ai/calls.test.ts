@@ -177,3 +177,57 @@ describe('ai-calls.json 损坏保守阻断（V-P2-10）', () => {
     expect(b.ok).toBe(false)
   })
 })
+
+describe('D4 cache token 记账累计', () => {
+  it('chapter 块：cache 读/写量随调用累计', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 60, cacheWriteTokens: 10 })
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 40 })
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { cacheReadTokens?: number; cacheWriteTokens?: number }
+    }
+    expect(raw.chapter.cacheReadTokens).toBe(100)
+    expect(raw.chapter.cacheWriteTokens).toBe(10)
+  })
+
+  it('task 块：cache 字段累计；usage 无 cache 字段 → 不造零值', () => {
+    const root = tempBook()
+    recordTaskUsage(root, 'review', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 8 })
+    recordTaskUsage(root, 'review', { inputTokens: 10, outputTokens: 5 })
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      tasks: Record<string, { cacheReadTokens?: number; cacheWriteTokens?: number }>
+    }
+    expect(raw.tasks['review']?.cacheReadTokens).toBe(8)
+    expect('cacheWriteTokens' in (raw.tasks['review'] ?? {})).toBe(false)
+  })
+
+  it('旧账本（无 cache 字段）读入不损坏，续账正常', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({ chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 5 }, tasks: {} }),
+      'utf8',
+    )
+    recordAiCall(root, 1, { inputTokens: 1, outputTokens: 1, cacheReadTokens: 1 })
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(true)
+    expect(b.ok && b.used).toBe(2)
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { cacheReadTokens?: number }
+    }
+    expect(raw.chapter.cacheReadTokens).toBe(1)
+  })
+
+  it('坏 cache 字段（非数字）按损坏保守阻断（X-P3a 同口径）', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({ chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 'x' }, tasks: {} }),
+      'utf8',
+    )
+    const b = checkAiCallBudget(root, 1, CONFIG)
+    expect(b.ok).toBe(false)
+  })
+})

@@ -35,6 +35,9 @@ export {
   maskKey,
   registerDegradedPersist,
   persistDegraded,
+  registerDegradedLookup,
+  lookupDegraded,
+  resetDegradedChannels,
   type ProviderStore,
 } from './store.js'
 export {
@@ -48,7 +51,16 @@ export {
   type Vault,
   type SealedKey,
 } from './vault.js'
-export { createProvider, probeCapabilities } from './probe.js'
+export { probeCapabilities } from './probe.js'
+export { MODEL_CATALOG, MODEL_CATALOG_VERSION } from './catalog.gen.js'
+export {
+  createProvider,
+  resolveAdapter,
+  clearProviderCache,
+  providerCacheSize,
+  ADAPTER_REGISTRY,
+  type AdapterEntry,
+} from './registry.js'
 export { detectFamily, quirksFor, type FamilyQuirks, type ModelFamily } from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'

@@ -8,22 +8,14 @@
  * 表驱动重构（方案 §6.3）：模型级能力（tool_use / tool_choice）由 model-quirks
  * 静态表判定（probeModelCaps 已退役——探测结果与生产参数面不一致是 400 源头之一）。
  */
-import type { ProviderConf, ProviderCaps, ProbeResult, ModelProvider } from './types.js'
-import type { ProviderStore } from './store.js'
-import { createAnthropicProvider } from './anthropic-adapter.js'
-import { createOpenAIProviderChat } from './openai-adapter.js'
-import { createOpenAIResponsesProvider } from './responses-adapter.js'
+import type { ProviderConf, ProviderCaps, ProbeResult } from './types.js'
 import { listModels } from './models.js'
 import { redactSecret } from './redact.js'
 
-/** 按 ProviderConf.protocol 创建适配器（store 可选——降级记忆读写用，§6.5） */
-export function createProvider(conf: ProviderConf, store?: ProviderStore): ModelProvider {
-  switch (conf.protocol) {
-    case 'anthropic': return createAnthropicProvider(conf, undefined, store)
-    case 'openai-responses': return createOpenAIResponsesProvider(conf)
-    default: return createOpenAIProviderChat(conf, undefined, store)
-  }
-}
+// createProvider 迁至 registry.ts（批次 D2：声明式注册表 + settings hash 实例缓存）；
+// import + re-export（纯 `export {} from` 不建本地绑定，probeCapabilities 引用会 ReferenceError）
+import { createProvider } from './registry.js'
+export { createProvider }
 
 /**
  * 探测供应商的服务级能力（连通 / 认证 / 流式）。

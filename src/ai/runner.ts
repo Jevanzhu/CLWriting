@@ -10,7 +10,7 @@
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
-import { createProvider, loadProviders, saveProviders, registerDegradedPersist, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
+import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
@@ -100,6 +100,12 @@ export function resolveProvider(
     if (s.modelCaps[key]?.structured === false) return
     s.modelCaps[key] = { structured: false }
     saveProviders(userDataPath, s)
+  })
+  // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
+  // 创建时捕获的 store 快照；loadProviders 有 mtime 缓存，高频 stream 代价可忽略
+  registerDegradedLookup((key) => {
+    const s = loadProviders(userDataPath)
+    return s.modelCaps[key]?.structured === false ? true : undefined
   })
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
   const s = loadProviders(userDataPath)

@@ -785,3 +785,100 @@ describe('Anthropic tool_choice 表驱动（V-P2-9）', () => {
     expect(captured?.['tool_choice']).toMatchObject({ type: 'tool', name: 'submit_chapter' })
   })
 })
+
+describe('D4 cache token 记账（三协议提取口径）', () => {
+  it('Anthropic：message_start 捕获 cache 读/写量，message_delta 缺字段时兜底', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          // Anthropic 口径：input_tokens 不含 cache，cache_read/cache_creation 独立字段
+          { type: 'message_start', message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } } },
+          { type: 'message_delta', usage: { output_tokens: 5 }, delta: { stop_reason: 'end_turn' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 100, outputTokens: 5, cacheReadTokens: 60, cacheWriteTokens: 20 },
+    })
+  })
+
+  it('Anthropic：message_delta 带 cache 字段时以其为准（终值优先）', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } } },
+          { type: 'message_delta', usage: { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 80, cache_creation_input_tokens: 20 }, delta: { stop_reason: 'end_turn' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      usage: { cacheReadTokens: 80, cacheWriteTokens: 20 },
+    })
+  })
+
+  it('Anthropic：端点不发 cache 字段 → usage 无 cache 键（不造零值）', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 10 } } },
+          { type: 'message_delta', usage: { output_tokens: 2 }, delta: { stop_reason: 'end_turn' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toBeDefined()
+    expect(done && 'cacheReadTokens' in done.usage).toBe(false)
+  })
+
+  it('OpenAI Chat：prompt_tokens_details.cached_tokens → cacheReadTokens（已含于 inputTokens）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 40 } } },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      usage: { inputTokens: 50, outputTokens: 3, cacheReadTokens: 40 },
+    })
+  })
+
+  it('OpenAI Chat：choices[0].usage 双兜底路径同样提取 cache（Kimi 形态）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            // usage 挂在 choices[0]（§4.4 Kimi 文档矛盾形态）
+            { choices: [{ delta: { content: 'x' }, finish_reason: 'stop', usage: { prompt_tokens: 9, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 7 } } }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { cacheReadTokens: 7 } })
+  })
+
+  it('Responses：input_tokens_details.cached_tokens → cacheReadTokens', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 2, input_tokens_details: { cached_tokens: 25 } } } },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(
+      createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses' as const, auth: 'bearer' as const } as ProviderConf, client),
+      REQ,
+    )
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      usage: { inputTokens: 30, outputTokens: 2, cacheReadTokens: 25 },
+    })
+  })
+})

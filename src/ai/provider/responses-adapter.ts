@@ -173,6 +173,10 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
               const usage: TokenUsage = {
                 inputTokens: r.usage?.input_tokens ?? 0,
                 outputTokens: r.usage?.output_tokens ?? 0,
+                // D4：cache 命中读量（OpenAI 口径：已含于 input_tokens）
+                ...(r.usage?.input_tokens_details?.cached_tokens
+                  ? { cacheReadTokens: r.usage.input_tokens_details.cached_tokens }
+                  : {}),
               }
               const ev = emitDone(usage, stopReason)
               if (ev) yield ev
@@ -183,7 +187,13 @@ export function createOpenAIResponsesProvider(conf: ProviderConf, client?: OpenA
               const r = event.response
               if (r.status === 'incomplete' && r.incomplete_details?.reason === 'max_output_tokens') {
                 const ev = emitDone(
-                  { inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0 },
+                  {
+                    inputTokens: r.usage?.input_tokens ?? 0,
+                    outputTokens: r.usage?.output_tokens ?? 0,
+                    ...(r.usage?.input_tokens_details?.cached_tokens
+                      ? { cacheReadTokens: r.usage.input_tokens_details.cached_tokens }
+                      : {}),
+                  },
                   'max_tokens',
                 )
                 if (ev) yield ev

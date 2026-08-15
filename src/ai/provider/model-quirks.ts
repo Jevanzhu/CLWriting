@@ -10,12 +10,12 @@
  * 每项字段注释附官方文档出处（effort 值域调研 2026-08-14 定稿）。
  */
 import type { EffortLevel } from './types.js'
+import { modelIdKeys } from './normalize.js'
 
 export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi' | 'unknown'
 
-/** 按模型名前缀判定系列（不做白名单，识别不出即 unknown → 保守省略） */
-export function detectFamily(model: string): ModelFamily {
-  const m = model.trim()
+/** 单个键形态上的前缀判定（不做白名单，识别不出即 unknown → 保守省略） */
+function familyByPrefix(m: string): ModelFamily {
   if (/^(gpt-|o\d|chatgpt-)/i.test(m)) return 'gpt'
   if (/^grok/i.test(m)) return 'grok'
   if (/^deepseek/i.test(m)) return 'deepseek'
@@ -23,6 +23,21 @@ export function detectFamily(model: string): ModelFamily {
   // kimi 现役 k3/k2.x（平台模型 ID 可能不带 kimi 前缀，如 "k3"）
   if (/^(kimi|moonshot|k\d)/i.test(m)) return 'kimi'
   if (/^claude/i.test(m)) return 'claude'
+  return 'unknown'
+}
+
+/**
+ * 判定系列——三键解析（批次 D3，学 cherry findModel「精确 → 保留尺寸 → 尺寸无关」）：
+ * 原文前缀 → 带尺寸归一键 → 尺寸无关键。归一道解决组织前缀 / 冒号尺寸 / 大小写
+ * 变体（`zai-org/glm-4.7`、`gpt-oss:20b`、`deepseek-ai/deepseek-chat`）。
+ * 三道全不中 → unknown（宁缺勿错：错误系列比无元数据更糟——参数面发错会 400）。
+ */
+export function detectFamily(model: string): ModelFamily {
+  const { raw, sized, norm } = modelIdKeys(model)
+  for (const key of [raw, sized, norm]) {
+    const f = familyByPrefix(key)
+    if (f !== 'unknown') return f
+  }
   return 'unknown'
 }
 

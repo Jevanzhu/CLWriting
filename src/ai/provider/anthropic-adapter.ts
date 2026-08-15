@@ -19,7 +19,7 @@ import type {
   ContentBlock as ClwContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded } from './store.js'
+import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
@@ -175,6 +175,8 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
       let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens（P2-3）
+      let cacheReadFromStart: number | undefined // D4：message_start 的 cache 读量（message_delta 缺字段时兜底）
+      let cacheWriteFromStart: number | undefined // D4：message_start 的 cache 写量（同上）
       let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
       // 去重：某些上游发重复 message_delta（cc-switch issue 记录的故障）
       // done 幂等，重复到达时忽略
@@ -190,7 +192,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
         // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次首发即剥。
         const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
-        const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+        // D2：优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，
+        // 会读到旧记忆）；未注册查通道（单测直连适配器）→ 回落捕获 store 快照
+        const degraded = degradedKey
+          ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
+          : undefined
         const q = quirksFor(conf.model ?? '')
         let attempts: GenRequest[] = [req]
         if (req.structured && q.structuredMode !== 'none') {
@@ -204,9 +210,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         for (const attempt of attempts) {
           try {
             stream = await c.messages.create(toParams(conf, attempt), { signal })
-            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）
-            if (attempt !== req && degradedKey && store) {
-              store.modelCaps[degradedKey] = { structured: false }
+            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）；
+            // D2：落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写
+            if (attempt !== req && degradedKey) {
+              if (store) store.modelCaps[degradedKey] = { structured: false }
               persistDegraded(degradedKey)
             }
             break
@@ -228,8 +235,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         for await (const event of stream) {
           switch (event.type) {
             case 'message_start': {
-              // input_tokens 在 message_start（message_delta 一般不含，P2-3）
+              // input_tokens 在 message_start（message_delta 一般不含，P2-3）；
+              // D4：cache 读/写量同点捕获（Anthropic input_tokens 不含 cache，独立记账）
               inputTokensFromStart = event.message.usage.input_tokens
+              cacheReadFromStart = event.message.usage.cache_read_input_tokens ?? undefined
+              cacheWriteFromStart = event.message.usage.cache_creation_input_tokens ?? undefined
               break
             }
             case 'content_block_start': {
@@ -267,9 +277,13 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               if (event.delta?.stop_reason) pendingStopReason = event.delta.stop_reason
               // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）
               if (event.usage) {
+                const cacheRead = event.usage.cache_read_input_tokens ?? cacheReadFromStart
+                const cacheWrite = event.usage.cache_creation_input_tokens ?? cacheWriteFromStart
                 const usage: TokenUsage = {
                   inputTokens: event.usage.input_tokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? 0,
+                  ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+                  ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
                 }
                 const ev = emitDone(usage, pendingStopReason ?? 'end_turn')
                 if (ev) yield ev

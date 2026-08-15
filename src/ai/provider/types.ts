@@ -171,9 +171,23 @@ export type GenErrorCode =
   | 'PROTOCOL' // 协议/解析层异常
   | 'UNKNOWN'
 
+/**
+ * 统一 token 用量（批次 D4 补 cache 记账，学 cherry TokenUsage 三分）。
+ *
+ * 两种协议的 inputTokens 口径**不同**（换算已注明，勿混算成本）：
+ * - OpenAI 兼容（含 DeepSeek）：prompt_tokens **已含** cache 命中部分，
+ *   cacheReadTokens 是其中的命中量（OpenAI prompt_tokens_details.cached_tokens）；
+ * - Anthropic：input_tokens **不含** cache 读写，cacheRead/cacheWrite 单列
+ *   （cache_read_input_tokens / cache_creation_input_tokens）。
+ * cacheWriteTokens 仅 Anthropic 协议有值（OpenAI 兼容线无此概念）。
+ */
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /** 前缀缓存命中读量（已含于 OpenAI 兼容的 inputTokens；Anthropic 则独立于 inputTokens） */
+  cacheReadTokens?: number
+  /** 前缀缓存写入量（仅 Anthropic 协议下发） */
+  cacheWriteTokens?: number
 }
 
 /** Provider 接口——适配器实现 */

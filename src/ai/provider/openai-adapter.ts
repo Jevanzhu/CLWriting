@@ -27,7 +27,7 @@ import type {
   ContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded } from './store.js'
+import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
@@ -217,6 +217,23 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
+/** OpenAI 兼容线 usage 形态（prompt_tokens_details 非所有中转都发，可选） */
+interface WireUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number }
+}
+
+/** usage 线格式 → TokenUsage（D4：prompt_tokens_details.cached_tokens → cacheReadTokens） */
+function toUsage(u: WireUsage | undefined | null): TokenUsage {
+  const cached = u?.prompt_tokens_details?.cached_tokens
+  return {
+    inputTokens: u?.prompt_tokens ?? 0,
+    outputTokens: u?.completion_tokens ?? 0,
+    ...(cached ? { cacheReadTokens: cached } : {}),
+  }
+}
+
 export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore): ModelProvider {
   const c = client ?? createClient(conf)
   const q = quirksFor(conf.model ?? '')
@@ -238,7 +255,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
       // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次首发即剥。
       const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
-      const degraded = degradedKey ? store?.modelCaps?.[degradedKey] : undefined
+      // D2：优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，
+      // 会读到旧记忆）；未注册查通道（单测直连适配器）→ 回落捕获 store 快照
+      const degraded = degradedKey
+        ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
+        : undefined
       let attempts: GenRequest[] = [req]
       if (req.structured && q.structuredMode !== 'none') {
         const stripped = { ...req } as GenRequest
@@ -255,9 +276,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               toParams(conf, attempt) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
               { signal },
             )
-            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）
-            if (attempt !== req && degradedKey && store) {
-              store.modelCaps[degradedKey] = { structured: false }
+            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）；
+            // D2：落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写
+            if (attempt !== req && degradedKey) {
+              if (store) store.modelCaps[degradedKey] = { structured: false }
               persistDegraded(degradedKey)
             }
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
@@ -266,16 +288,13 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               const usage = chunk.usage
               // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
-              const choiceUsage = (chunk.choices?.[0] as { usage?: { prompt_tokens?: number; completion_tokens?: number } } | undefined)?.usage
+              const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
               const effectiveUsage = usage ?? choiceUsage
               const choice = chunk.choices?.[0]
               if (!choice) {
                 // usage-only chunk（最后一个 chunk 只含 usage）
                 if (effectiveUsage) {
-                  const ev = emitDone(
-                    { inputTokens: effectiveUsage.prompt_tokens ?? 0, outputTokens: effectiveUsage.completion_tokens ?? 0 },
-                    pendingStopReason,
-                  )
+                  const ev = emitDone(toUsage(effectiveUsage), pendingStopReason)
                   if (ev) yield ev
                 }
                 continue
@@ -341,10 +360,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   : choice.finish_reason
                 // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
                 if (effectiveUsage) {
-                  const ev = emitDone(
-                    { inputTokens: effectiveUsage.prompt_tokens ?? 0, outputTokens: effectiveUsage.completion_tokens ?? 0 },
-                    pendingStopReason,
-                  )
+                  const ev = emitDone(toUsage(effectiveUsage), pendingStopReason)
                   if (ev) yield ev
                 }
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
