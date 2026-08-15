@@ -27,7 +27,7 @@ const chatOpen = ref(false)
 // ── 发送/停止/清空/章节选择（共享 composable）────
 
 const {
-  input, sending, busy, selectedChapter,
+  input, sending, busy, chatRunning, selectedChapter,
   chapterMenuOpen, chapterWrapRef,
   handleSend, handleKeydown, stopChat, handleClear,
   toggleChapterMenu, selectChapter,
@@ -167,7 +167,7 @@ function onExpandChat(): void {
                 <Trash2 :size="13" />
               </button>
               <button
-                v-if="busy"
+                v-if="chatRunning"
                 class="chat-stop-btn"
                 title="停止"
                 @click="stopChat"

@@ -45,7 +45,7 @@ onBeforeUnmount(() => {
 // ── 发送/停止/清空/章节选择（共享 composable）────
 
 const {
-  input, sending, busy, selectedChapter,
+  input, sending, busy, chatRunning, selectedChapter,
   chapterMenuOpen, chapterWrapRef,
   handleSend, handleKeydown, stopChat, handleClear,
   toggleChapterMenu, selectChapter,
@@ -227,7 +227,7 @@ const TOOL_LABELS: Record<string, string> = {
               <Trash2 :size="13" />
             </button>
             <button
-              v-if="busy"
+              v-if="chatRunning"
               class="chat-stop-btn"
               title="停止"
               @click="stopChat"

@@ -11,12 +11,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
-import { runChat, isChatRunning, abortChat, resolveChatConfirm, clearChatHistory } from '../../../ai/orchestrate/chat.js'
+import { isChatRunning, abortChat, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
@@ -147,11 +148,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       const c = sseConnections.get(sseName)
       if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
       if (iter) void iter.return(undefined)
-      const remaining = c !== undefined ? Math.max(0, c - 1) : 0
-      if (remaining > 0) return
-      const name = params['name']!
-      if (isSelfHealRunning(name)) abortSelfHeal(name)
-      if (isChatRunning(name)) abortChat(name)
+      // E1c（后台继续，cherry backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
+      // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放（E1b）恢复现场。
+      // 显式停止仍走 POST /interrupt（用户主动取消）。
     })
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
     const session = await ensureSession(params['name']!, ctx.workDir)
@@ -291,45 +290,49 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   })
 
   // 对话助手：fire-and-forget + SSE 回流（与 /spawn 同模式）
-  route('POST', '/api/books/:name/chat', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const bookName = params['name']!
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
-    if (isChatRunning(bookName)) {
-      return reply(res, 409, { error: '本书正在对话中，请等当前对话结束' })
-    }
+  // E2 示范：route schema 单点声明（defineRoute）——input 形状由 parse 声明，handler 拿类型化 input；
+  // 校验失败统一 400 {error} 信封；新路由一律走 defineRoute，禁止加裸 route()。
+  // 数据归属（E3 归类规则）：S2 事件子系统——会话写入经 events/store（chat-bridge 构造事件），本端点只触发编排。
+  defineRoute('chat.send', {
+    method: 'POST',
+    path: '/api/books/:name/chat',
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const message = String(body['message'] ?? '').trim()
+      if (!message) throw new Error('message 必填')
+      if (message.length > 50_000) throw new Error('消息过长（上限 5 万字符）')
+      // X-P2-12：chapter 非法值（如 "abc" → NaN）不放进 opts——下游 buildChatContext/工具
+      // 会拿 NaN 找章，报错面目全非；入口即校验
+      const rawChapter = body['chapter']
+      const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
+      if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) {
+        throw new Error('chapter 需为正整数')
+      }
+      return { message, chapter }
+    },
+    handler: async ({ params, input }, _req, res) => {
+      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+      if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+      const bookName = params['name']!
+      if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
 
-    const body = await readJson(req)
-    const message = String(body['message'] ?? '').trim()
-    if (!message) return reply(res, 400, { error: 'message 必填' })
-    if (message.length > 50_000) return reply(res, 400, { error: '消息过长（上限 5 万字符）' })
-    // X-P2-12：chapter 非法值（如 "abc" → NaN）不放进 opts——下游 buildChatContext/工具
-    // 会拿 NaN 找章，报错面目全非；入口即校验
-    const rawChapter = body['chapter']
-    const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
-    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) {
-      return reply(res, 400, { error: 'chapter 需为正整数' })
-    }
+      const mainSession = await ensureSession(bookName, ctx.workDir)
+      // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
+      // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
+      const driver = getDriver('cc')
+      const outcome = sendChatMessage({
+        driver,
+        mainSession,
+        userDataPath: ctx.userDataPath!,
+        bookRoot: join(ctx.workDir, entry.path),
+        bookName,
+        message: input.message,
+        ...(input.chapter !== undefined ? { chapter: input.chapter } : {}),
+      })
 
-    const mainSession = await ensureSession(bookName, ctx.workDir)
-    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
-    if (isChatRunning(bookName)) {
-      return reply(res, 409, { error: '本书正在对话中，请等当前对话结束' })
-    }
-    const driver = getDriver('cc')
-    void runChat({
-      driver,
-      mainSession,
-      userDataPath: ctx.userDataPath!,
-      bookRoot: join(ctx.workDir, entry.path),
-      bookName,
-      message,
-      ...(chapter !== undefined ? { chapter } : {}),
-    }).catch((e) => emitSpawnError(driver, mainSession, e))
-
-    reply(res, 200, { ok: true })
+      reply(res, 200, { ok: true, queued: outcome === 'queued' })
+    },
   })
 
   // 工具确认：作者点了确认/取消

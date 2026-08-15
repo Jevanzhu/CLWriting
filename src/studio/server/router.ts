@@ -73,7 +73,9 @@ export async function dispatch(
     if (r.method !== req.method) continue
     const m = r.regex.exec(pathname)
     if (!m) continue
-    const params: Record<string, string> = {}
+    // E2：null-prototype 对象组装 path 参数——防 __proto__/constructor 原型链注入
+    // （防御纵深：key 虽来自开发者定义的 path 模板，但 value 是外部 URL 解码，零原型保险）
+    const params: Record<string, string> = Object.create(null) as Record<string, string>
     r.keys.forEach((k, i) => {
       const v = m[i + 1]
       if (typeof v === 'string') params[k] = decodeURIComponent(v)

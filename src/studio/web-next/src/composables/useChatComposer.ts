@@ -19,7 +19,12 @@ export function useChatComposer(
 
   const input = ref('')
   const sending = ref(false)
-  const busy = computed(() => chat.running || wb.running)
+  // E1a（steer）：对话运行中允许继续发消息（后端入队，当前轮结束自动续链）；
+  // 仅写稿/自愈编排运行（wb.running）时禁发，避免生成中改稿并发
+  const busy = computed(() => wb.running)
+  // E1a（steer）：对话在跑即可显示停止按钮（interrupt）——停止与禁发语义分离：
+  // 运行中追加消息走入队（不禁发），但仍可显式停止当前对话
+  const chatRunning = computed(() => chat.running)
   const selectedChapter = ref<number | undefined>(currentChapter())
 
   watch(currentChapter, (v) => {
@@ -34,10 +39,15 @@ export function useChatComposer(
     if (onPushed) await onPushed()
     sending.value = true
     try {
-      await sendChat(bookName(), {
+      const result = await sendChat(bookName(), {
         message: text,
         ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
       })
+      // E1a（steer）：入队成功提示（消息已入队，当前对话结束后处理）
+      if (result.queued) {
+        chat.error = null // 清历史错误态
+        chat.notice = '已加入队列——当前对话结束后会自动处理这条消息。'
+      }
     } catch (e) {
       chat.popUser()
       chat.error = e instanceof Error ? e.message : String(e)
@@ -86,7 +96,7 @@ export function useChatComposer(
   }
 
   return {
-    input, sending, busy, selectedChapter,
+    input, sending, busy, chatRunning, selectedChapter,
     chapterMenuOpen, chapterWrapRef,
     handleSend, handleKeydown, stopChat, handleClear,
     toggleChapterMenu, selectChapter,

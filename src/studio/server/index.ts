@@ -48,11 +48,14 @@ import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { registerTraceStatsRoutes } from './api/trace-stats.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
+import { resetRouteSchemas } from './api/schema.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
 function buildRoutes(workDir: string | null, token: string, userDataPath: string | null): RouteTable {
   const routes = createRouteTable()
+  // E2：schema 注册表随路由表生命周期重置（防跨 server 实例重复声明）
+  resetRouteSchemas()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
     registerAiStatusRoutes({ userDataPath })

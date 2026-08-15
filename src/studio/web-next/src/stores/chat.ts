@@ -45,6 +45,8 @@ export const useChatStore = defineStore('chat', () => {
   const running = ref(false)
   /** 最近一次错误 */
   const error = ref<string | null>(null)
+  /** E1a（steer）：非错误提示（如「消息已入队，当前对话结束后处理」） */
+  const notice = ref<string | null>(null)
   /** 当前正在填充的 assistant 气泡索引（chat_text 追加目标） */
   let currentIdx = -1
 
@@ -76,6 +78,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_start': {
         running.value = true
         error.value = null
+        notice.value = null
         break
       }
       case 'chat_turn': {
@@ -197,6 +200,7 @@ export const useChatStore = defineStore('chat', () => {
   function clear(): void {
     messages.value = []
     error.value = null
+    notice.value = null
     currentIdx = -1
   }
 
@@ -204,6 +208,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     running,
     error,
+    notice,
     hasMessages,
     dispatch,
     pushUser,

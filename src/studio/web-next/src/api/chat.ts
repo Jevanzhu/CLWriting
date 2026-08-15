@@ -1,10 +1,17 @@
 import { apiJson } from './client'
 
 /** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流） */
+export interface SendChatResult {
+  ok: boolean
+  /** E1a（steer）：true = 对话运行中已入队，当前轮结束自动续链 */
+  queued?: boolean
+}
+
+/** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流；运行中入队） */
 export async function sendChat(
   name: string,
   body: { message: string; chapter?: number },
-): Promise<{ ok: boolean }> {
+): Promise<SendChatResult> {
   return apiJson(
     `/api/books/${encodeURIComponent(name)}/chat`,
     {

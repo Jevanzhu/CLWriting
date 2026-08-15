@@ -22,6 +22,11 @@ interface Consumer {
   queue: DriverEvent[]
   notify: (() => void) | null
 }
+/** E1b：生成执行的边界事件（业务语义：执行开始清空 ring、执行终态停止累积） */
+const EXEC_START = new Set(['chat_start', 'self_heal_batch', 'role_spawn'])
+const EXEC_END = new Set(['chat_done', 'chat_error', 'self_heal_result', 'done', 'interrupted'])
+/** E1b：迟到回放 ring 容量（cap 协议单元——事件本身，非原始 delta） */
+export const MAX_EXEC_RING = 200
 /** 每 session 一个事件总线（广播到所有消费者） */
 interface Channel {
   consumers: Set<Consumer>
@@ -29,6 +34,10 @@ interface Channel {
   pre: DriverEvent[]
   /** pre 是否已被某个消费者接管（防多消费者重放历史） */
   preTaken: boolean
+  /** E1b：活跃执行期间的事件 ring（迟到回放）——执行开始清空、执行中累积最近 N 个协议单元 */
+  execRing: DriverEvent[]
+  /** E1b：是否有活跃执行（执行边界事件维护） */
+  execActive: boolean
 }
 const channels = new Map<string, Channel>()
 /** session → AbortController（interrupt 时 abort，替代 kill 子进程）。cc 无生成时为懒占位，dispose/interrupt 兜底用 */
@@ -38,7 +47,7 @@ let sessionSeq = 0
 function channel(id: string): Channel {
   let ch = channels.get(id)
   if (!ch) {
-    ch = { consumers: new Set(), pre: [], preTaken: false }
+    ch = { consumers: new Set(), pre: [], preTaken: false, execRing: [], execActive: false }
     channels.set(id, ch)
   }
   return ch
@@ -46,6 +55,16 @@ function channel(id: string): Channel {
 
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
+  // E1b：维护活跃执行 ring——执行开始清空重开，执行终态停止累积；执行中累积最近 N 个协议单元
+  if (EXEC_START.has(ev.type)) {
+    ch.execRing = []
+    ch.execActive = true
+  }
+  if (EXEC_END.has(ev.type)) ch.execActive = false
+  if (ch.execActive) {
+    ch.execRing.push(ev)
+    if (ch.execRing.length > MAX_EXEC_RING) ch.execRing.shift()
+  }
   if (ch.consumers.size === 0) {
     // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
     // （SSE 有 sync 快照兜底，重连不重放历史）
@@ -75,11 +94,14 @@ export const ccDriver: StudioDriver = {
     const ch = channel(session.id)
     const consumer: Consumer = { queue: [], notify: null }
     ch.consumers.add(consumer)
-    // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
+    // E1b：迟到回放——pre（无消费者期间完整暂存）优先；已被接管过则回放活跃执行的 execRing
+    // （cap 协议单元，新 listener 加入时顺序重放，看到当前执行已流式内容）
     if (!ch.preTaken && ch.pre.length > 0) {
       consumer.queue.push(...ch.pre)
       ch.pre.length = 0
       ch.preTaken = true
+    } else if (ch.execActive && ch.execRing.length > 0) {
+      consumer.queue.push(...ch.execRing)
     }
     try {
       while (!session.closed) {

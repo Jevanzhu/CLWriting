@@ -72,13 +72,70 @@ export function isChatRunning(bookName: string): boolean {
   return running.has(bookName)
 }
 
-/** 中断本书的对话——abort + 放行挂起的确认 */
+/** E1a（steer / B5 Inbox 合流）：per-book 待处理消息队列。
+ * 对话运行中发来的消息入队（steer「入队让出」语义），当前轮正常完成后自动消费队头续链；
+ * abort/error/超时则丢弃队列（cherry steer 四分支：aborted/error → 丢弃，持久化 user 行留历史可重发）。 */
+interface PendingChatMsg {
+  message: string
+  chapter?: number
+}
+const pendingChats = new Map<string, PendingChatMsg[]>()
+
+/** 中断本书的对话——abort + 放行挂起的确认 + 丢弃待处理队列（用户停止 = 后续指令一并作废） */
 export function abortChat(bookName: string): boolean {
   const st = running.get(bookName)
   if (!st) return false
   for (const [, resolve] of st.pending) resolve(false)
+  pendingChats.delete(bookName)
   st.ctrl.abort()
   return true
+}
+
+/** E1a：对话消息统一入口——无运行直接启动；运行中入队（当前轮结束自动续链）。
+ * 返回 'started'（直接开跑）| 'queued'（已入队）。错误兜底 emit driver error（与 stream.ts 原 emitSpawnError 对齐）。 */
+export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' {
+  if (running.has(opts.bookName)) {
+    const q = pendingChats.get(opts.bookName) ?? []
+    q.push({ message: opts.message, chapter: opts.chapter })
+    pendingChats.set(opts.bookName, q)
+    return 'queued'
+  }
+  void runChat(opts).catch((e) => {
+    opts.driver.emit?.(opts.mainSession, {
+      type: 'error',
+      kind: 'chat',
+      message: e instanceof Error ? e.message : String(e),
+      recoverable: false,
+    })
+  })
+  return 'started'
+}
+
+/** E1a：runChat 收尾续链——正常完成消费队头自动跑下一条；abort/error/超时丢弃队列。 */
+function drainNextChat(base: ChatOpts, completedOk: boolean): void {
+  const q = pendingChats.get(base.bookName)
+  if (!q || q.length === 0) {
+    pendingChats.delete(base.bookName)
+    return
+  }
+  if (!completedOk) {
+    pendingChats.delete(base.bookName)
+    return
+  }
+  const next = q.shift()!
+  if (q.length === 0) pendingChats.delete(base.bookName)
+  void runChat({
+    ...base,
+    message: next.message,
+    ...(next.chapter !== undefined ? { chapter: next.chapter } : {}),
+  }).catch((e) => {
+    base.driver.emit?.(base.mainSession, {
+      type: 'error',
+      kind: 'chat',
+      message: e instanceof Error ? e.message : String(e),
+      recoverable: false,
+    })
+  })
 }
 
 /** 作者点了确认/取消（由 POST /chat/confirm 调用） */
@@ -397,6 +454,8 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     pending: new Map(),
   }
   running.set(opts.bookName, state)
+  // E1a：正常完成（emit chat_done）才续链；abort/error/超时丢弃队列
+  let completedOk = false
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
   // F1-P1：事件库（userData 为空 → null，退化内存模式）；finally 关闭连接
   const store = openSessionStore(opts.userDataPath, opts.bookRoot)
@@ -532,6 +591,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
           type: 'chat_done',
           ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
         })
+        completedOk = true
         // B1+B2：溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
         await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
         return
@@ -604,10 +664,13 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       pendingMsgSeqs = []
     }
     emit(opts, { type: 'chat_done' })
+    completedOk = true
     // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
     await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
   } finally {
     running.delete(opts.bookName)
+    // E1a：steer 续链——正常完成自动消费队头；abort/error/超时丢弃队列
+    drainNextChat(opts, completedOk)
     // F1-P1：关闭事件库连接（防 FD 泄漏；WAL 多连接虽不锁，但连接需释放）
     store?.close()
     // X-P2-11：对话终态注销 ctrl——isRunning 归 false（此前 chat_done 后仍登记，SSE 快照假报「生成中」）
