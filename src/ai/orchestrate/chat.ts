@@ -23,6 +23,9 @@ import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../p
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
+// F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
+import { openSessionStore } from '../../events/store.js'
+import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
 
 // ── 常量 ──────────────────────────────────────────
 
@@ -85,6 +88,8 @@ export function resolveChatConfirm(bookName: string, callId: string, ok: boolean
 // ── 内存级对话历史（per-book，LRU 上限防多书累积） ────
 
 const histories = new Map<string, ChatMsg[]>()
+// F1-P1：与 histories 并行维护「每条消息 → 事件 seq」映射（压缩遮蔽用，跨 runChat 持久）
+const msgSeqMap = new Map<string, number[][]>()
 const MAX_HISTORY_BOOKS = 8
 
 /** 取（或建）本书对话历史——命中重插（真 LRU，X-P2-24）。导出供测试验证逐出语义。 */
@@ -100,16 +105,26 @@ export function getHistory(bookName: string): ChatMsg[] {
   if (histories.size >= MAX_HISTORY_BOOKS) {
     // 删最旧（Map 保留插入顺序）
     const oldest = histories.keys().next().value
-    if (oldest !== undefined) histories.delete(oldest)
+    if (oldest !== undefined) {
+      histories.delete(oldest)
+      msgSeqMap.delete(oldest)
+    }
   }
   const fresh: ChatMsg[] = []
   histories.set(bookName, fresh)
   return fresh
 }
 
-/** 清空本书对话历史（前端"清空对话"时调） */
-export function clearChatHistory(bookName: string): void {
+/**
+ * 清空本书对话历史（前端"清空对话"时调）。
+ * F1-P1：可选传 userDataPath + bookRoot 一并清事件库（无参时只清内存，保持测试兼容）。
+ */
+export function clearChatHistory(bookName: string, userDataPath?: string, bookRoot?: string): void {
   histories.delete(bookName)
+  msgSeqMap.delete(bookName)
+  if (userDataPath && bookRoot) {
+    openSessionStore(userDataPath, bookRoot)?.clearBook(bookName)
+  }
 }
 
 // ── 等确认 ────────────────────────────────────────
@@ -236,9 +251,28 @@ export async function runChat(opts: ChatOpts): Promise<void> {
   }
   running.set(opts.bookName, state)
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
+  // F1-P1：事件库（userData 为空 → null，退化内存模式）；finally 关闭连接
+  const store = openSessionStore(opts.userDataPath, opts.bookRoot)
 
   try {
     const history = getHistory(opts.bookName)
+    // F1-P1：事件库（userData 为空 → null，退化内存模式）+ 跨重启恢复。
+    // 内存无历史且库有投影 → 恢复（LRU 逐出/重启后都走这条）。
+    let msgSeqs = msgSeqMap.get(opts.bookName) ?? []
+    let pendingMsgSeqs: Array<number | number[]> = []
+    if (store && history.length === 0) {
+      const restored = loadHistoryWithSeqs(store.listEvents(opts.bookName))
+      if (restored.msgs.length > 0) {
+        history.push(...restored.msgs)
+        msgSeqs = restored.seqsPerMsg
+        msgSeqMap.set(opts.bookName, msgSeqs)
+      }
+    }
+    // 防御：msgSeqs 与 history 长度不一致（旧进程残留）→ 重置，宁可遮蔽不精准也不误遮蔽
+    if (msgSeqs.length !== history.length) msgSeqs = []
+    const sessionId = store ? store.createSession(opts.bookName, { book: opts.bookName }) : 'mem'
+    const recorder = new SessionRecorder(store, sessionId)
+    recorder.add(sessionStartEvent(opts.bookName))
     const baseLen = history.length
     const ctx = buildChatContext(opts.bookRoot, opts.chapter)
     const sys = chatSystem(ctx)
@@ -246,19 +280,24 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
     // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
     history.push({ role: 'user', content: opts.message })
+    pendingMsgSeqs.push(recorder.add(userMessageEvent(opts.message, opts.chapter)))
 
     emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
       if (state.ctrl.signal.aborted) {
         // P1-S4：回滚历史（防末尾 user → 下次连续 user → Anthropic 400，与 max_tokens 路径 :295 一致）
         history.length = baseLen
+        // F1-P1：本会话已落库事件遮蔽（防下次恢复出已回滚的废数据）
+        recorder.close('interrupted', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: '已中断' })
       }
       if (Date.now() > state.deadline) {
         history.length = baseLen
+        recorder.close('aborted', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
       }
 
+      recorder.add(turnStartEvent(turn))
       emit(opts, { type: 'chat_turn', turn })
 
       const out = await runTask<{
@@ -305,6 +344,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       if (!out.ok) {
         history.length = baseLen
+        recorder.close('failed', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
 
@@ -314,21 +354,41 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       if (stopReason === 'max_tokens') {
         // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
         history.length = baseLen
+        recorder.close('failed', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }
 
       // 无工具调用 → 对话结束
       if (toolCalls.length === 0) {
         // P2-AI-1：reasoning 非空时入历史（与工具路径 :311-320 一致——DeepSeek/Kimi 多轮带 tools 硬要求）
+        let asstContent: string | ContentBlock[]
         if (reasoning) {
           const blocks: ContentBlock[] = []
           if (text) blocks.push({ type: 'text', text })
           blocks.push({ type: 'reasoning', text: reasoning })
-          history.push({ role: 'assistant', content: blocks })
+          asstContent = blocks
         } else {
-          history.push({ role: 'assistant', content: text })
+          asstContent = text
         }
-        histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
+        history.push({ role: 'assistant', content: asstContent })
+        // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
+        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason)))
+        recorder.add(turnEndEvent(turn, 'completed'))
+        const range = recorder.flush()
+        if (range) {
+          for (const idx of pendingMsgSeqs) {
+            msgSeqs.push(typeof idx === 'number' ? [range.first + idx] : idx.map((i) => range.first + i))
+          }
+          pendingMsgSeqs = []
+        }
+        // 压缩走遮蔽：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
+        const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
+        const cut = history.length - trimmed.length
+        const shadowSeqs = msgSeqs.slice(0, cut).flat()
+        msgSeqs = msgSeqs.slice(cut)
+        msgSeqMap.set(opts.bookName, msgSeqs)
+        histories.set(opts.bookName, trimmed)
+        recorder.close('completed', shadowSeqs)
         return void emit(opts, {
           type: 'chat_done',
           ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
@@ -344,6 +404,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         asstBlocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.input })
       }
       history.push({ role: 'assistant', content: asstBlocks })
+      // F1-P1：assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
+      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason)))
+      for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
       // 执行工具 + 结果按 tool_result block 回填
       const results: ContentBlock[] = []
@@ -364,6 +427,22 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         emit(opts, { type: 'chat_tool_result', callId: call.id, summary: r.summary, ok: r.ok })
       }
       history.push({ role: 'user', content: results })
+      // F1-P1：tool/result 事件（每条 tool_result block 一个事件，合成一条 user 消息的 seqs）
+      const resultIdxs: number[] = []
+      for (const rb of results) {
+        if (rb.type === 'tool_result') {
+          resultIdxs.push(recorder.add(toolResultEvent(rb.toolUseId, rb.content, rb.isError)))
+        }
+      }
+      pendingMsgSeqs.push(resultIdxs)
+      recorder.add(turnEndEvent(turn, 'completed'))
+      const range2 = recorder.flush()
+      if (range2) {
+        for (const idx of pendingMsgSeqs) {
+          msgSeqs.push(typeof idx === 'number' ? [range2.first + idx] : idx.map((i) => range2.first + i))
+        }
+        pendingMsgSeqs = []
+      }
     }
 
     // 轮数触顶——补固定收尾文案
@@ -372,10 +451,28 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     emit(opts, { type: 'chat_text', text: closingMsg })
     // P1-R1b：收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
     history.push({ role: 'assistant', content: closingMsg })
-    histories.set(opts.bookName, trimHistory(history, MAX_HISTORY_TURNS))
+    // F1-P1：事件记录 + 落库 + trim 遮蔽（与无工具完成路径一致）
+    pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg)))
+    recorder.add(turnEndEvent(MAX_AGENT_TURNS - 1, 'max-turns'))
+    const range3 = recorder.flush()
+    if (range3) {
+      for (const idx of pendingMsgSeqs) {
+        msgSeqs.push(typeof idx === 'number' ? [range3.first + idx] : idx.map((i) => range3.first + i))
+      }
+      pendingMsgSeqs = []
+    }
+    const trimmed3 = trimHistory(history, MAX_HISTORY_TURNS)
+    const cut3 = history.length - trimmed3.length
+    const shadowSeqs3 = msgSeqs.slice(0, cut3).flat()
+    msgSeqs = msgSeqs.slice(cut3)
+    msgSeqMap.set(opts.bookName, msgSeqs)
+    histories.set(opts.bookName, trimmed3)
+    recorder.close('completed', shadowSeqs3)
     emit(opts, { type: 'chat_done' })
   } finally {
     running.delete(opts.bookName)
+    // F1-P1：关闭事件库连接（防 FD 泄漏；WAL 多连接虽不锁，但连接需释放）
+    store?.close()
     // X-P2-11：对话终态注销 ctrl——isRunning 归 false（此前 chat_done 后仍登记，SSE 快照假报「生成中」）
     opts.driver.unregisterCtrl?.(opts.mainSession, state.ctrl)
   }

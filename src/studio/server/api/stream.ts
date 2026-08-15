@@ -351,7 +351,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const bookName = params['name']!
     if (isChatRunning(bookName)) return reply(res, 409, { error: '对话进行中，请先停止再清空' })
-    clearChatHistory(bookName)
+    // F1-P1：清内存 + 清事件库（userData/书路径缺失时只清内存）
+    const entry = readBooks(ctx.workDir).find((b) => b.name === bookName)
+    clearChatHistory(bookName, ctx.userDataPath ?? undefined, entry ? join(ctx.workDir, entry.path) : undefined)
     reply(res, 200, { ok: true })
   })
 }
