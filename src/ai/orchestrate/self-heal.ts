@@ -346,7 +346,11 @@ async function runChapter(
   // A4：上一次机检的红项集合 key（与单章路径同口径）
   let prevRedKey: string | null = null
   for (;;) {
-    if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
+    // F5 审阅批：中止时 goal 落 pause（非终态——重跑同 id 重新 create 覆盖）
+    if (state.ctrl.signal.aborted) {
+      writeGoal('pause', 'paused')
+      return { outcome: 'aborted' }
+    }
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
     const outcome = check(draftPath)
     // P2：机检报告事件化（红项结构化，自愈打回判据来源）
@@ -395,19 +399,25 @@ async function runChapter(
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
+        writeTodos('completed', 'completed', 'in_progress')
         writeGoal('block', 'blocked', { blockedReason: redMessages(outcome).join('；'), rounds: attempt })
         return { chapter, outcome: 'escalate', reds: redMessages(outcome), docId: final.docId, path: final.relPath, attempts: attempt }
       }
       redIssues = st.redIssues
       reds = redMessages(outcome)
     } else {
-      if (outcome.code !== 'NOT_CHAPTER') return { chapter, outcome: 'failed', error: outcome.error, attempts: attempt }
+      if (outcome.code !== 'NOT_CHAPTER') {
+        // F5 审阅批：机检崩溃是明确阻断事实——goal 落 block 附原因（todo 保持初始表：机检未完成）
+        writeGoal('block', 'blocked', { blockedReason: outcome.error, rounds: attempt })
+        return { chapter, outcome: 'failed', error: outcome.error, attempts: attempt }
+      }
       reds = [`草稿格式不合规：${outcome.error}`]
       redIssues = reds
       if (attempt >= maxAttempts) {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
+        writeTodos('completed', 'completed', 'in_progress')
         writeGoal('block', 'blocked', { blockedReason: reds.join('；'), rounds: attempt })
         return { chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
@@ -419,7 +429,8 @@ async function runChapter(
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
       recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
-      writeGoal('block', 'blocked', { blockedReason: [...reds, budget2.reason].join('；'), rounds: attempt })
+        writeTodos('completed', 'completed', 'in_progress')
+        writeGoal('block', 'blocked', { blockedReason: [...reds, budget2.reason].join('；'), rounds: attempt })
       return { chapter, outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
     emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
@@ -449,12 +460,16 @@ async function runChapter(
       repeated ? buildStrategyReminder(redIssues) : undefined,
     )
     const again = await runGenerate(opts, state, kind, prompt, chapter)
-    if (again.status === 'aborted') return { outcome: 'aborted' }
+    if (again.status === 'aborted') {
+      writeGoal('pause', 'paused')
+      return { outcome: 'aborted' }
+    }
     if (again.status !== 'ok') {
       // F2：有稿可交——重写失败保留当前已落盘稿，escalate 附错误原因
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
       recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
+      writeTodos('completed', 'completed', 'in_progress')
       writeGoal('block', 'blocked', { blockedReason: again.error, rounds: attempt })
       return { chapter, outcome: 'escalate', reds: [again.error], docId: final.docId, path: final.relPath, attempts: attempt }
     }

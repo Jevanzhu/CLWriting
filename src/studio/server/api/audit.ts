@@ -3,13 +3,16 @@
  *
  * GET /api/books/:name/audit → {
  *   conversation: { events, modelVisible, humanVisible, shadowedCount },
- *   workflowEvents: [...]
+ *   workflowEvents: [...],
+ *   goals: [...], todos: [...]
  * }
  *
  * - conversation：对话会话（book = bookName）surface 投影——events 全量（含遮蔽标记）、
  *   modelVisible = 模型可见（未遮蔽）、humanVisible = 人类可见（含被遮蔽节点）、
  *   shadowedCount = 被 replace 遮蔽的节点数（人类抄本不被压缩遮蔽抹掉）；
- * - workflowEvents：写作工作流（book = bookHash(bookRoot)）step/llm-call 链路事件。
+ * - workflowEvents：写作工作流（book = bookHash(bookRoot)）step/llm-call 链路事件；
+ * - goals/todos：工作流会话 goal/todo 事件的重放当前态（foldGoals/foldTodos，F5——
+ *   self-heal 的修复目标与章节任务清单）。
  *
  * 纯只读（重放纯函数），不产生副作用。
  */
@@ -20,7 +23,8 @@ import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
-import type { EventType, SurfaceOp } from '../../../events/types.js'
+import { foldGoals, foldTodos } from '../../../events/goal-state.js'
+import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
 interface AuditCtx {
   workDir: string | null
@@ -70,12 +74,12 @@ export interface AuditConversation {
   shadowedCount: number
 }
 
-/** 审计视图（对话 + 工作流），纯函数——route 薄接线 + 单测直喂 store */
+/** 审计视图（对话 + 工作流 + goal/todo 当前态），纯函数——route 薄接线 + 单测直喂 store */
 export function buildAuditView(
   store: SessionStore,
   bookName: string,
   bookRoot: string,
-): { conversation: AuditConversation | null; workflowEvents: AuditEvent[] } {
+): { conversation: AuditConversation | null; workflowEvents: AuditEvent[]; goals: GoalSnapshot[]; todos: Todo[] } {
   // 对话会话（book = bookName）：surface 投影 + 遮蔽差异
   const convoEvents = store.listEvents(bookName)
   let conversation: AuditConversation | null = null
@@ -111,7 +115,8 @@ export function buildAuditView(
     data: e.data,
   }))
 
-  return { conversation, workflowEvents }
+  // F5：goal/todo 当前态（goal/todo 事件随 self-heal 落工作流会话，重放即得）
+  return { conversation, workflowEvents, goals: foldGoals(wsEvents), todos: foldTodos(wsEvents) }
 }
 
 export function registerAuditRoutes(ctx: AuditCtx): void {
@@ -122,7 +127,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     const bookName = params['name']!
     const bookRoot = join(ctx.workDir, entry.path)
     if (!ctx.userDataPath) {
-      return reply(res, 200, { conversation: null, workflowEvents: [] })
+      return reply(res, 200, { conversation: null, workflowEvents: [], goals: [], todos: [] })
     }
 
     // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）

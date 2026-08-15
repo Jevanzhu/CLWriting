@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
-import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
+import { runSelfHeal, abortSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
@@ -141,6 +141,12 @@ test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escala
     expect(blocked.goal.state).toBe('blocked')
     expect(blocked.goal.blockedReason).toContain('命中禁词')
     expect(blocked.goal.roundsStarted).toBe(2)
+
+    // F5 审阅批：escalate 终态 todo 表——机检已完成，修复停在 in_progress
+    //（三态词汇无 failed，配 goal blockedReason 读作「被阻断」）
+    const todoWrites = evs.filter((e) => e.type === 'todo/write')
+    const lastTodos = (todoWrites[todoWrites.length - 1]!.data as { todos: { state: string }[] }).todos
+    expect(lastTodos.map((t) => t.state)).toEqual(['completed', 'completed', 'in_progress'])
   } finally {
     rmSync(ud, { recursive: true, force: true })
   }
@@ -183,6 +189,67 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
     const last = todos[todos.length - 1]!.data as { todos: { text: string; state: string }[] }
     expect(last.todos.map((t) => t.text)).toEqual(['写第1章首稿', '机检第1章', '修复第1章红项'])
     expect(last.todos.every((t) => t.state === 'completed')).toBe(true)
+  } finally {
+    rmSync(ud, { recursive: true, force: true })
+  }
+})
+
+test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）', async () => {
+  const workDir = makeDualTrackWorkdir()
+  const bookRoot = join(workDir, '短篇', SHORT_BOOK)
+  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-f5pause-'))
+  try {
+    const opts: SelfHealOpts = {
+      driver: makeEmitDriver([]),
+      mainSession: { id: 'main', cwd: workDir, closed: false },
+      userDataPath: ud,
+      cwd: workDir,
+      bookRoot,
+      bookName: BOOK,
+      chapter: 1,
+      check: () => { abortSelfHeal(BOOK); return redOutcome() },
+      save: makeSave(),
+      genFn: makeGenFn(['第一稿', '第二稿']),
+    }
+    const r = await runSelfHeal(opts)
+    expect(r.outcome).toBe('aborted')
+
+    const evs = readChain(ud, bookRoot)
+    const goals = evs.filter((e) => e.type === 'goal/change')
+    expect(goals.map((e) => (e.data as { operation: string }).operation)).toEqual(['create', 'pause'])
+    const paused = goals[1]!.data as { goal: { state: string } }
+    expect(paused.goal.state).toBe('paused')
+  } finally {
+    rmSync(ud, { recursive: true, force: true })
+  }
+})
+
+test('F5 审阅批：机检崩溃（CHECK_ERROR）→ goal block 附原因（非悬置 active）', async () => {
+  const workDir = makeDualTrackWorkdir()
+  const bookRoot = join(workDir, '短篇', SHORT_BOOK)
+  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-f5cf-'))
+  try {
+    const opts: SelfHealOpts = {
+      driver: makeEmitDriver([]),
+      mainSession: { id: 'main', cwd: workDir, closed: false },
+      userDataPath: ud,
+      cwd: workDir,
+      bookRoot,
+      bookName: BOOK,
+      chapter: 1,
+      check: (): CheckOutcome => ({ ok: false, code: 'CHECK_ERROR', error: '机检内部错误：mock' }),
+      save: makeSave(),
+      genFn: makeGenFn(['第一稿', '第二稿']),
+    }
+    const r = await runSelfHeal(opts)
+    expect(r.outcome).toBe('failed')
+
+    const evs = readChain(ud, bookRoot)
+    const goals = evs.filter((e) => e.type === 'goal/change')
+    expect(goals.map((e) => (e.data as { operation: string }).operation)).toEqual(['create', 'block'])
+    const blocked = goals[1]!.data as { goal: { state: string; blockedReason?: string } }
+    expect(blocked.goal.state).toBe('blocked')
+    expect(blocked.goal.blockedReason).toContain('机检内部错误')
   } finally {
     rmSync(ud, { recursive: true, force: true })
   }

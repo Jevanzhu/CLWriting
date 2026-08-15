@@ -47,6 +47,11 @@ function typeLabel(t: string): string {
   return t.replace('/', '·')
 }
 
+/** F5：goal 状态 → 中文标签 */
+function goalStateLabel(s: string): string {
+  return s === 'active' ? '进行中' : s === 'paused' ? '已暂停' : s === 'blocked' ? '被阻断' : s === 'complete' ? '已完成' : s
+}
+
 /** data 摘要（取几个常见字段，避免大对象撑爆列表） */
 function dataSummary(e: AuditEventFE): string {
   const d = e.data
@@ -179,6 +184,26 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 
       <!-- 工作流链路 -->
       <template v-else>
+        <!-- F5：当前目标 / 任务清单（goal/todo 重放快照） -->
+        <section v-if="view.goals.length > 0 || view.todos.length > 0" class="sec">
+          <h2 class="sec-title">当前状态（goal / todo）</h2>
+          <div class="goal-list">
+            <div v-for="g in view.goals" :key="g.id" class="goal-row">
+              <span class="goal-state" :data-state="g.state">{{ goalStateLabel(g.state) }}</span>
+              <span class="goal-title">{{ g.title }}</span>
+              <span class="goal-meta">
+                轮次 {{ g.roundsStarted }}{{ g.maxGoalRounds !== undefined ? '/' + g.maxGoalRounds : '' }}
+                <template v-if="g.blockedReason"> · {{ g.blockedReason }}</template>
+              </span>
+            </div>
+          </div>
+          <div v-if="view.todos.length > 0" class="todo-list">
+            <span v-for="(t, i) in view.todos" :key="i" class="todo-item" :data-state="t.state">
+              {{ t.state === 'completed' ? '✓' : t.state === 'in_progress' ? '◐' : '○' }} {{ t.text }}
+            </span>
+          </div>
+        </section>
+
         <section class="sec">
           <h2 class="sec-title">工作流事件（{{ view.workflowEvents.length }}）</h2>
           <div class="ev-list">
@@ -409,4 +434,51 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 .lineage-note { font-size: 0.72rem; color: var(--text-dim); margin: 4px 0 0; }
 .empty { color: var(--text-dim); font-size: 0.82rem; padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
+
+/* F5：当前 goal/todo 面板 */
+.goal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--size-4-3);
+}
+.goal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+.goal-state {
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.goal-state[data-state='active'] { color: var(--accent); border-color: var(--accent); }
+.goal-state[data-state='blocked'] { color: var(--danger, #d35400); border-color: var(--danger, #d35400); }
+.goal-state[data-state='complete'] { color: var(--color-green, #3e9e51); border-color: var(--color-green, #3e9e51); }
+.goal-title { font-weight: 600; }
+.goal-meta { color: var(--text-dim); font-size: 0.75rem; }
+.todo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.todo-item {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+.todo-item[data-state='completed'] { color: var(--text-dim); }
+.todo-item[data-state='in_progress'] { border-color: var(--accent); }
 </style>

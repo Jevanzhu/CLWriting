@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, userMessageEvent, assistantMessageEvent, sessionStartEvent } from '../../src/events/chat-bridge.js'
-import { stepStartEvent, llmCallEvent } from '../../src/events/chain-bridge.js'
+import { stepStartEvent, llmCallEvent, goalChangeEvent, todoWriteEvent } from '../../src/events/chain-bridge.js'
 import { buildAuditView } from '../../src/studio/server/api/audit.js'
 
 function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T): T {
@@ -102,6 +102,52 @@ describe('F1-P5 buildAuditView', () => {
       const { conversation, workflowEvents } = buildAuditView(store, 'conv', bookRoot)
       expect(conversation).toBeNull()
       expect(workflowEvents.map((e) => e.type)).toEqual(['step/start', 'llm/call'])
+    })
+  })
+
+  it('F5：goal/todo 事件重放为当前态快照（goals + todos 字段）', () => {
+    withStore((store, bookRoot) => {
+      const sid = store.workspaceSession(bookHash(bookRoot))
+      store.appendEvents(sid, [
+        goalChangeEvent({
+          operation: 'create',
+          goal: { id: 'self-heal:ch1', title: '修复第1章红项', state: 'active', roundsStarted: 0, createdAt: 1, updatedAt: 1 },
+        }),
+        todoWriteEvent({
+          todos: [
+            { text: '写第1章首稿', state: 'completed' },
+            { text: '机检第1章', state: 'in_progress' },
+            { text: '修复第1章红项', state: 'pending' },
+          ],
+        }),
+        goalChangeEvent({
+          operation: 'complete',
+          goal: { id: 'self-heal:ch1', title: '修复第1章红项', state: 'complete', roundsStarted: 1, createdAt: 1, updatedAt: 2 },
+        }),
+        todoWriteEvent({
+          todos: [
+            { text: '写第1章首稿', state: 'completed' },
+            { text: '机检第1章', state: 'completed' },
+            { text: '修复第1章红项', state: 'completed' },
+          ],
+        }),
+      ])
+      const { goals, todos } = buildAuditView(store, 'conv', bookRoot)
+      expect(goals).toHaveLength(1)
+      expect(goals[0]!.id).toBe('self-heal:ch1')
+      expect(goals[0]!.state).toBe('complete')
+      expect(goals[0]!.roundsStarted).toBe(1)
+      expect(todos.map((t) => t.state)).toEqual(['completed', 'completed', 'completed'])
+    })
+  })
+
+  it('F5：无 goal/todo 事件 → goals/todos 为空数组（不炸端点）', () => {
+    withStore((store, bookRoot) => {
+      const sid = store.workspaceSession(bookHash(bookRoot))
+      store.appendEvents(sid, [stepStartEvent('自愈', 'review')])
+      const { goals, todos } = buildAuditView(store, 'conv', bookRoot)
+      expect(goals).toEqual([])
+      expect(todos).toEqual([])
     })
   })
 })

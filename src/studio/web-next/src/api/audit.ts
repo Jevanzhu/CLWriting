@@ -28,9 +28,30 @@ export interface AuditConversationFE {
   shadowedCount: number
 }
 
+/** F5：goal 当前态快照（foldGoals 重放） */
+export interface GoalFE {
+  id: string
+  title: string
+  description?: string
+  state: 'active' | 'paused' | 'blocked' | 'complete'
+  roundsStarted: number
+  maxGoalRounds?: number
+  blockedReason?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** F5：todo 条目（foldTodos 重放，整表快照） */
+export interface TodoFE {
+  text: string
+  state: 'pending' | 'in_progress' | 'completed'
+}
+
 export interface AuditViewFE {
   conversation: AuditConversationFE | null
   workflowEvents: AuditEventFE[]
+  goals: GoalFE[]
+  todos: TodoFE[]
 }
 
 /** GET /api/books/:name/audit → 审计视图 */
