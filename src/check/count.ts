@@ -163,6 +163,12 @@ function isAttributionOnly(outside: string): boolean {
   return outside === '' || ATTRIBUTION_RE.test(outside)
 }
 
+/** X-P2-9：对白归属行结构——1-4 汉字（人名/称谓）+ 说话动词 + 可选尾缀（了/着/道）。
+ *  说话人名词不在提示语词表（V-P2-13 只挡代词行），「快走。」林晚说。这类
+ *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。 */
+const SPEECH_ATTRIBUTION_RE =
+  /^[\u4e00-\u9fa5]{1,4}(?:说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语)(?:了|着|道)?$/
+
 /**
  * 新专名比对名册（#10 项 10，🟡 黄）。
  * 新专名 vs 名册.md，未登记 → 候选（不自动入册）。
@@ -186,6 +192,8 @@ export function checkNewNames(
     // 引号片段是对白内容而非专名（V-P2-13：此前「住手！」「快走」全报黄项刷屏）
     const outside = line.replace(spanRe, '').replace(/[\s\u3000]/g, '').replace(punctRe, '')
     if (isAttributionOnly(outside)) continue
+    // X-P2-9：人名 + 说话动词的对白归属行同样豁免
+    if (SPEECH_ATTRIBUTION_RE.test(outside)) continue
     for (const q of spans) {
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
@@ -216,14 +224,9 @@ export function checkImagery(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (imageryWords.length === 0) {
-    return {
-      name: '高频意象',
-      items: [{
-        checkId: 'imagery-source-disabled',
-        level: 'yellow',
-        message: '高频意象词表未启用（数据源待接入），本项未实际检测。',
-      }],
-    }
+    // X-P2-22：词表未配置即静默跳过——恒久「未启用」黄项只会训练作者无视机检面板；
+    // 检查器本体保留，待数据源（知识层/book.yaml）接入后自然生效
+    return { name: '高频意象', items }
   }
   for (const word of imageryWords) {
     if (!word) continue
@@ -466,14 +469,8 @@ export function checkInfoLeak(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (leakKeywords.length === 0) {
-    return {
-      name: '信息差候选',
-      items: [{
-        checkId: 'info-leak-source-disabled',
-        level: 'yellow',
-        message: '信息差关键词未启用（数据源待接入），本项未实际检测。',
-      }],
-    }
+    // X-P2-22：同高频意象——关键词源未配置静默跳过，不再产恒久黄项
+    return { name: '信息差候选', items }
   }
   for (const kw of leakKeywords) {
     if (kw && body.includes(kw)) {

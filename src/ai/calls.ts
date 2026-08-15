@@ -67,6 +67,18 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
     if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') {
       return { rec: null, corrupt: true }
     }
+    // X-P3a：tasks 逐条校验形状——盲 cast 遇坏条目（used 非数字）会让后续
+    // 累加变 NaN 静默烂账，且绕过「损坏保守阻断」承诺；坏条目按损坏处理
+    const tasks: Record<string, TaskUsage> = {}
+    if (typeof raw['tasks'] === 'object' && raw['tasks'] !== null) {
+      for (const [k, v] of Object.entries(raw['tasks'] as Record<string, unknown>)) {
+        const t = v as Partial<TaskUsage> | null
+        if (!t || typeof t.used !== 'number' || typeof t.inputTokens !== 'number' || typeof t.outputTokens !== 'number') {
+          return { rec: null, corrupt: true }
+        }
+        tasks[k] = { used: t.used, inputTokens: t.inputTokens, outputTokens: t.outputTokens }
+      }
+    }
     return {
       rec: {
         chapter: {
@@ -75,9 +87,7 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
           outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
         },
-        tasks: typeof raw['tasks'] === 'object' && raw['tasks'] !== null
-          ? raw['tasks'] as Record<string, TaskUsage>
-          : {},
+        tasks,
       },
       corrupt: false,
     }

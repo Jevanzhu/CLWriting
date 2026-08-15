@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-06-18T14:40:00+08:00",
+  "generated_at": "2026-08-15T00:00:00+08:00",
   "summary": {
     "migrated": 13,
     "deferred": 1,
@@ -12,7 +12,7 @@
       "source": "clwriting-v1-m4-scaffold",
       "source_ref": "workspace",
       "license": "MIT",
-      "sha256": "sha256:60cd8fc2de1e52671c5ab5b64a815a2eaec7ce6a8eaf8138709c878135ccda7c",
+      "sha256": "sha256:1fea6bb5d78a0b8bd21615db6baf50fc10f105952979692ebe9bc923bdf473ea",
       "category": "索引",
       "note": "知识层入口，说明平移原则与现有素材索引"
     },

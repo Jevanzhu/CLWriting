@@ -57,7 +57,14 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   const p = trashManifestPath(bookRoot)
   if (!existsSync(p)) return []
   const entries: TrashEntry[] = []
-  for (const line of readFileSync(p, 'utf-8').split('\n')) {
+  // X-P3a：existsSync 与 read 之间有竞态（并发删/权限变化），读失败按无 manifest 处理
+  let raw: string
+  try {
+    raw = readFileSync(p, 'utf-8')
+  } catch {
+    return []
+  }
+  for (const line of raw.split('\n')) {
     const t = line.trim()
     if (!t) continue
     try {

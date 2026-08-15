@@ -38,13 +38,6 @@ export function draftParseReason(message: string): string {
   return message
 }
 
-/**
- * 定稿文件名规则：写作/正文/<章号3位>-<标题>.md（扁平）。
- */
-export function finalChapterFileName(chapter: ChapterMeta): string {
-  return `${String(chapter.章号).padStart(3, '0')}-${chapter.标题}.md`
-}
-
 // ── 正文区草稿路径定位（草稿目录取消后，草稿直接写正文区）──────────────
 
 /**

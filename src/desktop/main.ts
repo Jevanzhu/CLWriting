@@ -2,7 +2,7 @@
  * Electron 主进程入口（桌面化 #electron）。
  *
  * 起 studio server（复用 src/studio/server，127.0.0.1 随机端口）→ BrowserWindow loadURL。
- * 前端 Vue 零改造（fetch /api/...）；driver 复用（spawn claude）。
+ * 前端 Vue 零改造（fetch /api/...）；driver 复用（与 CLI/Web 同源：cc 驱动 spawn claude，provider 线走 HTTP）。
  *
  * 工作目录（书库）管理（批2 起）：
  * - 启动定位：userData 持久化的 current（合法则用）> findWorkDir(cwd) > 弹原生选择器。
@@ -422,7 +422,16 @@ function registerIpc(): void {
     // 路径校验：entry.path 来自 books.jsonl，防 `..` 越出 workDir 打开任意目录
     const target = resolve(workDir, entry.path)
     if (relative(workDir, target).startsWith('..')) return
-    void shell.openPath(target)
+    // X-P3a：symlink realpath 二次校验（与 show-in-folder / HTTP safePath 同口径——
+    // books.jsonl 被篡改成指向 workDir 外的 symlink 时，resolve/relative 看的是链接路径不是真实路径）
+    try {
+      const realWork = realpathSync(workDir)
+      const realTarget = realpathSync(target)
+      if (relative(realWork, realTarget).startsWith('..')) return
+      void shell.openPath(realTarget)
+    } catch {
+      // realpath 失败 = 目录不存在，无物可开
+    }
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   ipcMain.handle('desktop:get-system-fonts', async () => {

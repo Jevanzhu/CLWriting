@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { checkSentenceLength, checkNewNames } from '../../src/check/count.js'
+import { checkSentenceLength, checkNewNames, checkImagery, checkInfoLeak } from '../../src/check/count.js'
 
 // ── checkSentenceLength（#10 项 8，🟡 黄）──────────
 // 分句按 [。！？\n] 切；超 maxLen（默认 60）为超长句；
@@ -93,4 +93,44 @@ test('checkNewNames: 引号内仅 1 字或超 4 字不候选', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('X-P2-9: 人名+说话动词的对白归属行不报新专名（说话人不在提示语词表）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const roster = join(dir, '名册.md')
+  writeFileSync(roster, '空名册', 'utf-8')
+  try {
+    // 网文最高频对白行式：引号外是「人名+说/道/喊」——引号内是对白内容，不是专名
+    const body = ['「快走。」林晚说。', '「站住。」萧破军喊道。', '「别管我。」白衣女子喊了。'].join('\n')
+    const r = checkNewNames(body, roster)
+    expect(r.items).toHaveLength(0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('X-P2-9: 引号外非归属结构照报（叙述行不豁免）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const roster = join(dir, '名册.md')
+  writeFileSync(roster, '空名册', 'utf-8')
+  try {
+    // 引号外是完整叙述（人名+动作，非说话动词收尾）→ 引号内仍按专名候选报
+    const body = '「玄天宗」林晚远远望着那座山。'
+    const r = checkNewNames(body, roster)
+    expect(r.items.some((i) => i.checkId === 'new-name' && i.message.includes('玄天宗'))).toBe(true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ── X-P2-22：词表未配置静默跳过（不再产恒久「未启用」黄项）────
+
+test('X-P2-22: checkImagery 无词表 → 零项（不产 source-disabled 黄）', () => {
+  const r = checkImagery('空气仿佛凝固了。')
+  expect(r.items).toHaveLength(0)
+})
+
+test('X-P2-22: checkInfoLeak 无关键词 → 零项（不产 source-disabled 黄）', () => {
+  const r = checkInfoLeak('他知道了血脉的秘密。')
+  expect(r.items).toHaveLength(0)
 })

@@ -41,6 +41,15 @@ test('vault: 版本守卫——高于当前版本抛 VaultVersionError', () => {
   expect(() => openVault(future, KEY_A)).toThrow(VaultVersionError)
 })
 
+test('X-P2-25: v=0/缺失 → 明确「版本不识别」，不再误导成认证失败', () => {
+  const { vault } = createVault(KEY_A)
+  const zero = { ...vault, v: 0 }
+  expect(() => openVault(zero, KEY_A)).toThrow(/版本不识别/)
+  const noV = JSON.parse(JSON.stringify(vault)) as { v?: number }
+  delete noV.v
+  expect(() => openVault(noV as unknown as typeof vault, KEY_A)).toThrow(/版本不识别/)
+})
+
 test('vault: sealKey + openKey 往返', () => {
   const { dek } = createVault(KEY_A)
   const sealed = sealKey(dek, 'sk-test-12345')

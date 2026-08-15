@@ -131,8 +131,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // #10 项 7 高频意象（黄）
   sections.push(checkImagery(body, input.imageryWords ?? []))
 
-  // #10 项 8 句式体检（黄）
-  sections.push(checkSentenceLength(body))
+  // #10 项 8 句式体检（黄）—— X-P2-23：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
+  // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总
+  if (!(ironRules.maxSentenceLen && ironRules.maxSentenceLen > 0)) {
+    sections.push(checkSentenceLength(body))
+  }
 
   // #10 项 9 文风可量化（黄）—— 读 文风铁律.md 的可量化硬约束阈值（#5 第 8 节）
   sections.push(checkStyleMetrics(body, ironRules))

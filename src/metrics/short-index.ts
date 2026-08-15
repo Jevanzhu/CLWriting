@@ -85,14 +85,9 @@ export interface DistributionItem {
   pieces: number[]
 }
 
-export interface ShortDraftGuidance {
-  nextPiece: number
-  profile: string
-  emphasis: string
-  avoid: string[]
-  fill: string[]
-  checklist: string[]
-}
+// X-P3a：删除 7 个零引用死接口（ShortDraftGuidance/ShortQualityTrendReport/
+// ShortSeriesMotifReport/ShortCalibrationReport/ShortBudgetCalibrationReport/
+// ShortRepairPlanIssue/ShortRepairPlanReport）——设计期占位，从未有生产/测试引用
 
 export interface ShortSubmissionItem {
   num: number
@@ -115,28 +110,6 @@ export interface ShortSubmissionTemplate {
   sellingPoints: string[]
 }
 
-export interface ShortQualityTrendReport {
-  count: number
-  window: number
-  recentAvgScore: number
-  previousAvgScore: number | null
-  direction: '上升' | '下降' | '持平' | '样本不足'
-  recentWordMin: number
-  recentWordMax: number
-  recentEndingFlavor: DistributionItem | null
-  signals: string[]
-  notes: string[]
-}
-
-export interface ShortSeriesMotifReport {
-  count: number
-  declaredMotifs: string[]
-  observedMotifs: DistributionItem[]
-  underusedMotifs: string[]
-  repeatedMotifs: DistributionItem[]
-  notes: string[]
-}
-
 export interface ShortCalibrationSample {
   num: number
   title: string
@@ -147,33 +120,6 @@ export interface ShortCalibrationSample {
   openingEnvHits: string[]
 }
 
-export interface ShortCalibrationReport {
-  count: number
-  current: NonNullable<BookConfig['short']>
-  recommended: NonNullable<BookConfig['short']>
-  confidence: 'low' | 'medium' | 'high'
-  samples: ShortCalibrationSample[]
-  notes: string[]
-}
-
-export interface ShortBudgetCalibrationReport {
-  count: number
-  usableCount: number
-  currentLimit: number
-  avgCalls: number
-  p80Calls: number
-  p90Calls: number
-  recommendedLimit: number
-  overLimit: number
-  nearLimit: number
-  missingAccounting: number
-}
-
-export interface ShortRepairPlanIssue {
-  reason: string
-  action: string
-}
-
 export interface ShortRepairPlanItem {
   num: number
   title: string
@@ -181,13 +127,6 @@ export interface ShortRepairPlanItem {
   score: number
   reasons: string[]
   actions: string[]
-}
-
-export interface ShortRepairPlanReport {
-  count: number
-  items: ShortRepairPlanItem[]
-  collectionActions: string[]
-  notes: string[]
 }
 
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {

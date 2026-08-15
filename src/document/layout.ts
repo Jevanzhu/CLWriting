@@ -53,7 +53,7 @@ const ALL_TRUE: Capabilities = {
   aiPropose: false, // AI 线冻结期恒 false（W0-1 §2）
 }
 
-/** 账本七类目录名集合（大纲/<七类>/，#3 第 2 节）。 */
+/** 账本六类目录名集合（大纲/<六类>/，#3 第 2 节；伏笔已独立为设定伏笔系统）。 */
 const LEDGER_DIRS = new Set<string>(LEAD_TYPES)
 
 /** 规整路径：去前导 ./、反斜杠转正斜杠。 */

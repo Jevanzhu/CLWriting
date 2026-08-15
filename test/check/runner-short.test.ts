@@ -97,6 +97,41 @@ test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () =
   expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('时间静止'))).toBe(true)
 })
 
+// ── X-P2-23：句长双阈值去重 ──────────────────────
+
+test('X-P2-23: 铁律配了单句上限 → 跳过汇总句式体检（不与逐句铁律双报）', () => {
+  mkdirSync(join(tmp, '文风'), { recursive: true })
+  writeFileSync(join(tmp, '文风', '文风铁律.md'), [
+    '## 可量化约束',
+    '- 单句上限字数: 60',
+  ].join('\n'), 'utf-8')
+
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: shortConfig(),
+    chapter: ch,
+    body: '正文内容。',
+    fileName: '001-雪夜.md',
+  })
+  // 汇总口径的「句式体检」section 不再出现（逐句铁律项已覆盖超长句）
+  expect(r.sections.map((s) => s.name)).not.toContain('句式体检')
+  // 铁律未配时不跳过——上面「含禁词/复读/句式」用例已覆盖，此处再验一次显式无铁律
+  const bare = mkdtempSync(join(tmpdir(), 'clwriting-runner-noiron-'))
+  try {
+    const r2 = runAllChecks({
+      bookRoot: bare,
+      config: shortConfig(),
+      chapter: ch,
+      body: '正文内容。',
+      fileName: '001-雪夜.md',
+    })
+    expect(r2.sections.map((s) => s.name)).toContain('句式体检')
+  } finally {
+    rmSync(bare, { recursive: true, force: true })
+  }
+})
+
 // ── 章号文件名不一致报红（短篇 front matter）──────
 
 test('runAllChecks short: 章号文件名不一致 → 红项', () => {

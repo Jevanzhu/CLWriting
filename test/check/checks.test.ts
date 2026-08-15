@@ -421,10 +421,10 @@ test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
 
 // ── 高频意象（#10 项 7，黄）────────────────────────
 
-test('checkImagery: 词表命中超阈 → 黄；空表 → 显式未启用', () => {
+test('checkImagery: 词表命中超阈 → 黄；空表 → 静默跳过（X-P2-22，不再产未启用黄）', () => {
   const body = '空气仿佛凝固。又一次空气仿佛凝固。还是空气仿佛凝固。'
   expect(checkImagery(body, ['空气仿佛凝固'], 3).items.some((i) => i.level === 'yellow')).toBe(true)
-  expect(checkImagery(body, [], 3).items.some((i) => i.checkId === 'imagery-source-disabled')).toBe(true)
+  expect(checkImagery(body, [], 3).items).toHaveLength(0)
 })
 
 // ── 文风可量化（#10 项 9，黄）──────────────────────
@@ -497,7 +497,7 @@ test('checkStyleMetrics: 顿号分隔形容词堆叠 + 扩展总结体 → 黄',
 
 // ── 信息差候选（#10 项 11，黄）─────────────────────
 
-test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 显式未启用', () => {
+test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 静默跳过（X-P2-22，不再产未启用黄）', () => {
   expect(checkInfoLeak('他其实是皇子。', ['皇子']).items.some((i) => i.checkId === 'info-leak-candidate')).toBe(true)
-  expect(checkInfoLeak('他其实是皇子。', []).items.some((i) => i.checkId === 'info-leak-source-disabled')).toBe(true)
+  expect(checkInfoLeak('他其实是皇子。', []).items).toHaveLength(0)
 })

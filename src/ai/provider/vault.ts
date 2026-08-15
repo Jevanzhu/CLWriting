@@ -115,7 +115,12 @@ export function createVault(keyMaterial: Buffer): { vault: Vault; dek: Buffer } 
  * 抛 VaultVersionError（版本过高）/ VaultDecryptError（认证失败）。
  */
 export function openVault(vault: Vault, keyMaterial: Buffer): Buffer {
+  // X-P2-25：版本守卫补下界——v=0/缺失此前放行，走进 GCM 后抛误导性的
+  // 「密文认证失败」（真凶是版本不识别，作者会去重试密钥白折腾）
   if (vault.v > VAULT_VERSION) throw new VaultVersionError(vault.v)
+  if (!Number.isInteger(vault.v) || vault.v < 1) {
+    throw new VaultDecryptError(`vault 版本不识别（v=${String(vault.v)}），文件损坏或来源不明`)
+  }
   const salt = Buffer.from(vault.salt, 'base64')
   const kek = deriveKEK(keyMaterial, salt)
   return openAESGCM(kek, vault.dek.byApp)

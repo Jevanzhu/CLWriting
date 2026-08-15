@@ -426,7 +426,9 @@ export class DocumentService {
         typeof 章号 === 'number'
           ? `${String(章号).padStart(3, '0')}-`
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
-      const newName = `${numPrefix}${标题.replace(/[\\/]/g, '_')}.md`
+      // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
+      const safeTitle = 标题.trim() || '未命名'
+      const newName = `${numPrefix}${safeTitle.replace(/[\\/]/g, '_')}.md`
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (result.ok) this.syncRenamePieceList(path, newName)
@@ -437,8 +439,9 @@ export class DocumentService {
 
     // 长篇 chapter：文件名按 章号4位-标题.md
     const 章号 = map.get('章号')
+    const safeTitle = 标题.trim() || '未命名'
     const newName =
-      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${标题.replace(/[\\/]/g, '_')}.md` : basename(path)
+      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
     if (basename(path) !== newName) {
       return this.doMoveOrRename(docId, { kind: 'rename', newName })
     }

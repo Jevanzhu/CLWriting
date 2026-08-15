@@ -307,7 +307,9 @@ function chapterFromFile(absPath: string, name: string): number {
   } catch {
     // 读失败忽略
   }
-  const m = name.match(/(\d+)/)
+  // 文件名兜底：只认文件名开头的数字（NNN-标题.md 约定）；未锚定会抓到
+  // 标题中段的数字（如「第2卷-001-雨夜.md」取 2），章号错位（X-P3a）
+  const m = name.match(/^0*(\d+)/)
   return m ? Number(m[1]) : 0
 }
 

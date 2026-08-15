@@ -289,8 +289,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           }
           const hooksEnv = readAnalysis(bookRoot, docId, 'hooks')
           if (hooksEnv?.payload) {
-            const p = hooksEnv.payload as { hooks: unknown[]; density: string }
-            hooksTrend.push({ 章号, 标题, density: p.density, hookCount: p.hooks.length })
+            // X-P3a：形状守卫——坏信封（hooks 非数组/density 缺失）跳过该章，
+            // 不让一章的坏数据 TypeError 拖垮整个 overview 端点
+            const p = hooksEnv.payload as { hooks?: unknown; density?: unknown }
+            if (Array.isArray(p.hooks) && typeof p.density === 'string') {
+              hooksTrend.push({ 章号, 标题, density: p.density, hookCount: p.hooks.length })
+            }
           }
         }
       }

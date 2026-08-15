@@ -13,7 +13,7 @@
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile, parseFlat } from '../../format/frontmatter.js'
+import { readFile, parseFlat, splitFrontMatter } from '../../format/frontmatter.js'
 import type { WritingRule, RuleViolation } from './types.js'
 
 /** 设定子目录/文件相对路径 */
@@ -66,10 +66,13 @@ function loadSettingData(bookRoot: string): SettingData {
     }
   }
 
-  // 名册：全文缓存（check 时 includes 粗匹配）
+  // 名册：全文缓存（check 时 includes 粗匹配；X-P3a：剥 front matter——
+  // 名册是文档可能带 fm，fm 元信息（如「姓名: 模板示例」）不该参与专名匹配）
   const rosterPath = join(bookRoot, ROSTER_FILE)
   if (existsSync(rosterPath)) {
-    data.rosterText = readFileSync(rosterPath, 'utf-8')
+    const rosterRaw = readFileSync(rosterPath, 'utf-8')
+    const rosterSplit = splitFrontMatter(rosterRaw)
+    data.rosterText = rosterSplit ? rosterSplit.body : rosterRaw
   }
 
   return data
