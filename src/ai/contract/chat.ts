@@ -16,14 +16,26 @@ export type ToolRisk = 'readonly' | 'write'
 /** 工具名 → 风险级别（未知工具按 write 从严） */
 export const TOOL_RISK: Record<string, ToolRisk> = {
   check_chapter: 'readonly',
+  read_chapter: 'readonly',
   write_chapter: 'write',
 }
 
-/** 对话工具集 */
+/** 工具集 */
 export const chatTools: ToolDef[] = [
   {
     name: 'check_chapter',
     description: '对指定章节执行机检，返回红项/黄项列表。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号（省略则用作者当前选定章节）' },
+      },
+    },
+  },
+  {
+    name: 'read_chapter',
+    description:
+      '读取指定章节的完整正文。当对话上下文中的章节内容显示「已省略」时，用它取回全文（B3 spill 取回通道）。',
     input_schema: {
       type: 'object',
       properties: {

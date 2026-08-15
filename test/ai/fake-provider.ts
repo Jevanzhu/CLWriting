@@ -21,7 +21,7 @@ interface FakeUsage {
 export type FakeResponse =
   | { type: 'text'; content: string; usage?: FakeUsage }
   | { type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage }
-  | { type: 'error'; status: number; message: string }
+  | { type: 'error'; status: number; message: string; retryAfter?: string }
   | { type: 'max_tokens'; partial: string; usage?: FakeUsage }
 
 /** stub 实例句柄 */
@@ -82,7 +82,10 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
 
       // 错误响应（非流式）
       if (resp.type === 'error') {
-        res.writeHead(resp.status, { 'Content-Type': 'application/json' })
+        // B4：可选 Retry-After 头（429 语义），驱动 runner 退避升级路径
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (resp.retryAfter !== undefined) headers['Retry-After'] = resp.retryAfter
+        res.writeHead(resp.status, headers)
         res.end(JSON.stringify({ error: { message: resp.message, type: 'stub_error' } }))
         return
       }

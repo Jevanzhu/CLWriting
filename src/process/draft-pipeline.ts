@@ -13,6 +13,7 @@ import { countWords } from '../format/words.js'
 import { bodyOf } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
+import { pruneTextMiddle } from './prune.js'
 import { buildSettingsContext } from './settings-context.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
@@ -152,7 +153,8 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
     if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
     if (materials) parts.push(`## 备料\n${materials}`)
-    if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
+    // B3 低配（写链无工具取回通道）：世界观超长头尾保留 + 明示省略，替代无通知硬切
+    if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${pruneTextMiddle(worldView, { threshold: 1200, head: 900, tail: 200 })}`)
     const settingsCtx = buildSettingsContext(bookRoot)
     if (settingsCtx) parts.push(settingsCtx)
     parts.push(
@@ -166,7 +168,8 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
-  if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${worldView.slice(0, 1200)}`)
+  // B3 低配（写链无工具取回通道）：世界观超长头尾保留 + 明示省略，替代无通知硬切
+  if (worldView) parts.push(`## 世界观(本书设定,保持设定一致)\n${pruneTextMiddle(worldView, { threshold: 1200, head: 900, tail: 200 })}`)
   const settingsCtx = buildSettingsContext(bookRoot)
   if (settingsCtx) parts.push(settingsCtx)
   parts.push(

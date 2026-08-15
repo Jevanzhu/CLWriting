@@ -12,7 +12,7 @@
  * - `runTask` 传 `task:'chat'` + `bookRoot` → trace/记账自动覆盖
  * - 持 CHAT_SPEC 元数据直调 runTask（不走 runSpec，messages 是累积数组）
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/types.js'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
@@ -20,6 +20,8 @@ import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
 import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../prompts/chat.js'
+import { compactHistory } from '../prompts/compaction.js'
+import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../prompts/checkpoint.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from './self-heal.js'
 import { runCheckForDocument, type CheckOutcome } from '../../check/run.js'
 import { resolveDraftPath } from '../../format/draft.js'
@@ -196,6 +198,23 @@ async function executeChatTool(
         const outcome = runCheckForDocument(opts.bookRoot, draftPath)
         return formatCheckResult(outcome)
       }
+      case 'read_chapter': {
+        // B3 spill 取回通道：读完整正文回填（上下文里被外置省略的全文由此取回）。
+        // 章号回落与 check_chapter 同口径（X-P2-12）；结果不再二次 spill（防 read→spill→read 环）
+        const chapter = Number(input['chapter'] ?? opts.chapter)
+        if (!Number.isInteger(chapter) || chapter < 1) {
+          return { ok: false, summary: '章号需为正整数。' }
+        }
+        const draftRel = resolveDraftPath(opts.bookRoot, chapter).relPath
+        const draftPath = join(opts.bookRoot, draftRel)
+        if (!existsSync(draftPath)) {
+          return { ok: false, summary: `第${chapter}章草稿不存在。` }
+        }
+        const raw = readFileSync(draftPath, 'utf-8')
+        const body = raw.replace(/^---[\s\S]*?---\n?/, '')
+        if (!body.trim()) return { ok: false, summary: `第${chapter}章正文为空。` }
+        return { ok: true, summary: body }
+      }
       default:
         return { ok: false, summary: `未知工具：${call.name}` }
     }
@@ -242,6 +261,105 @@ function formatCheckResult(outcome: CheckOutcome): { ok: boolean; summary: strin
 }
 
 // ── 主循环 ────────────────────────────────────────
+
+// B2：压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）
+const compactionSuppressed = new Set<string>()
+
+/**
+ * checkpoint 摘要调用（B2，KV-cache 友好形态）：同一 system + tools + 待压前缀原样重放，
+ * 末尾追加一条 user 指令——摘要调用成为刚结束对话的真前缀延伸。
+ * fail-closed：max_tokens 收尾（截断摘要）/ 意外工具调用 / 空文本 / 调用失败 → null。
+ */
+async function summarizeCheckpoint(
+  opts: ChatOpts,
+  sys: string,
+  state: ChatRunState,
+  toSummarize: ChatMsg[],
+  priorSummary: string | null,
+): Promise<string | null> {
+  const sanitized = sanitizeHistory(toSummarize)
+  if (sanitized.length === 0) return null
+  const instruction = buildCheckpointInstruction(priorSummary ?? undefined)
+  const out = await runTask<string | null>({
+    userDataPath: opts.userDataPath,
+    tierKind: 'chat',
+    task: 'chat',
+    bookRoot: opts.bookRoot,
+    systemPrompt: sys,
+    promptText: instruction,
+    ctrl: state.ctrl,
+    register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
+    onReset: () => emit(opts, { type: 'chat_reset' }),
+    onRetry: (attempt, error) =>
+      emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${error}），第 ${attempt + 1} 次重试中…` }),
+    run: async (provider, signal, tier) => {
+      const r = await generate(
+        provider,
+        {
+          systemPrompt: sys,
+          messages: [...sanitized, { role: 'user', content: instruction }],
+          tools: chatTools,
+          maxTokens: clampCheckpointOutputTokens(),
+          effort: tier.effort,
+        },
+        signal,
+      )
+      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return null
+      const t = r.text.trim()
+      return t === '' ? null : t
+    },
+  })
+  return out.ok ? out.data : null
+}
+
+/**
+ * 对话收尾的历史窗口处理（B1+B2 升级 F1-P1 的 trim 遮蔽点）：
+ * 溢出时优先 checkpoint 压缩（信息保留 + seq 遮蔽语义不变），失败回落现行硬截断。
+ * 空摘要 fail-open：保留原历史、不插占位符（B2 纪律），本次不遮蔽。
+ */
+async function finalizeHistory(
+  opts: ChatOpts,
+  history: ChatMsg[],
+  msgSeqs: number[][],
+  recorder: SessionRecorder,
+  sys: string,
+  state: ChatRunState,
+): Promise<void> {
+  // 硬截断兜底（= F1-P1 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
+  const trimAndClose = (): void => {
+    const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
+    const cut = history.length - trimmed.length
+    const shadowSeqs = msgSeqs.splice(0, cut).flat()
+    msgSeqMap.set(opts.bookName, msgSeqs)
+    histories.set(opts.bookName, trimmed)
+    recorder.close('completed', shadowSeqs)
+  }
+
+  // suppress 短路在摘要尝试之前——失败过的书不再白打一次摘要调用（E10 抑制的本意）
+  if (compactionSuppressed.has(opts.bookName)) {
+    compactionSuppressed.delete(opts.bookName)
+    trimAndClose()
+    return
+  }
+
+  const outcome = await compactHistory(history, { keepTurns: MAX_HISTORY_TURNS }, (toSum, prior) =>
+    summarizeCheckpoint(opts, sys, state, toSum, prior),
+  )
+  if (outcome.summarizedCount > 0) {
+    const shadowSeqs = msgSeqs.splice(0, outcome.summarizedCount).flat()
+    // 压缩存档消息无事件 seq（replace 遮蔽事件已表达「被压内容 → 存档」的来源关系）；
+    // 跨重启恢复暂只回放未遮蔽节点（存档入事件流属 F1-P2/P3 事件族收敛）
+    msgSeqs.unshift([])
+    msgSeqMap.set(opts.bookName, msgSeqs)
+    histories.set(opts.bookName, outcome.history)
+    recorder.close('completed', shadowSeqs)
+    return
+  }
+  msgSeqMap.set(opts.bookName, msgSeqs)
+  // no-op 或摘要失败（fail-open 保留原历史，不遮蔽）；失败 → 置 suppress，下次溢出硬截断
+  if (outcome.overflow) compactionSuppressed.add(opts.bookName)
+  recorder.close('completed')
+}
 
 export async function runChat(opts: ChatOpts): Promise<void> {
   const state: ChatRunState = {
@@ -381,18 +499,13 @@ export async function runChat(opts: ChatOpts): Promise<void> {
           }
           pendingMsgSeqs = []
         }
-        // 压缩走遮蔽：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
-        const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
-        const cut = history.length - trimmed.length
-        const shadowSeqs = msgSeqs.slice(0, cut).flat()
-        msgSeqs = msgSeqs.slice(cut)
-        msgSeqMap.set(opts.bookName, msgSeqs)
-        histories.set(opts.bookName, trimmed)
-        recorder.close('completed', shadowSeqs)
-        return void emit(opts, {
+        emit(opts, {
           type: 'chat_done',
           ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
         })
+        // B1+B2：溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
+        await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
+        return
       }
 
       // 有工具调用 → assistant 消息按 block 结构入历史
@@ -461,14 +574,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       pendingMsgSeqs = []
     }
-    const trimmed3 = trimHistory(history, MAX_HISTORY_TURNS)
-    const cut3 = history.length - trimmed3.length
-    const shadowSeqs3 = msgSeqs.slice(0, cut3).flat()
-    msgSeqs = msgSeqs.slice(cut3)
-    msgSeqMap.set(opts.bookName, msgSeqs)
-    histories.set(opts.bookName, trimmed3)
-    recorder.close('completed', shadowSeqs3)
     emit(opts, { type: 'chat_done' })
+    // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
+    await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
   } finally {
     running.delete(opts.bookName)
     // F1-P1：关闭事件库连接（防 FD 泄漏；WAL 多连接虽不锁，但连接需释放）

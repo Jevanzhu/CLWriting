@@ -10,6 +10,7 @@ import type { ChatMsg, ContentBlock } from '../provider/types.js'
 import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../format/draft.js'
 import { normalizeMaxMessages } from './window.js'
+import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -59,9 +60,15 @@ export function buildChatContext(bookRoot: string, chapter?: number): ChatContex
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')
-      // 剥离 front matter，取正文前 2000 字
+      // 剥离 front matter，取正文
       const body = raw.replace(/^---[\s\S]*?---\n?/, '')
-      parts.push(body.slice(0, 2000))
+      // B3：超长正文外置（工作区/spills/）+ 头尾预览 + read_chapter 取回指引，
+      // 替代 slice(0,2000) 无通知硬切（可切半句、章尾不可见）
+      parts.push(
+        spillIfLarge(body, { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }, (full) =>
+          writeSpillFile(bookRoot, full),
+        ).preview,
+      )
     }
     currentChapter = parts.join('\n')
   }

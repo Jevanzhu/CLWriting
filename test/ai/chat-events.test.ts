@@ -8,7 +8,7 @@ import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
+import { runChat, clearChatHistory, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
@@ -121,10 +121,11 @@ describe('F1-P1 跨重启恢复', () => {
 describe('F1-P1 压缩走遮蔽', () => {
   it('多轮累积触发 trim → 库里写 compaction/end replace 遮蔽旧回合', async () => {
     const ud = setup()
-    // 11 轮累积 22 条消息 → 超 MAX_HISTORY_TURNS(10)*2=20 → trim 触发
+    // 11 轮累积 22 条消息 → 超 MAX_HISTORY_TURNS(10)*2=20 → trim 触发。
+    // 用户消息带足够细节：checkpoint 存档（前导+标签 ~100 字）须严格小于被压内容才走压缩路
     for (let i = 1; i <= 11; i++) {
       fake.setScript([{ type: 'text', content: '第' + i + '轮回复' }])
-      await runOne(ud, 'evt-c', '第' + i + '轮问题' + String.fromCharCode(64 + i))
+      await runOne(ud, 'evt-c', '第' + i + '轮问题' + String.fromCharCode(64 + i) + '细节'.repeat(60))
     }
     const store = openSessionStore(ud, bookRoot)!;
     const evs = store.listEvents('evt-c')
@@ -139,6 +140,82 @@ describe('F1-P1 压缩走遮蔽', () => {
     // 人类抄本保留：全量 append 事件仍可审计
     const userEvents = evs.filter((e) => e.type === 'user/message')
     expect(userEvents.length).toBeGreaterThanOrEqual(11)
+  })
+})
+
+describe('B2 checkpoint 压缩', () => {
+  // 足够长的用户消息：保证存档（前导+标签 ~100 字）严格小于被压的 2 个回合
+  const q = (i: number): string => `第${i}轮问题` + '情节细节'.repeat(40)
+
+  it('溢出 → checkpoint 摘要成功：历史首条变存档 user 消息，旧回合 seq 遮蔽', async () => {
+    const ud = setup()
+    for (let i = 1; i <= 10; i++) {
+      fake.setScript([{ type: 'text', content: '第' + i + '轮回复' }])
+      await runOne(ud, 'ckpt-a', q(i))
+    }
+    // 第 11 轮：脚本第 2 条给 checkpoint 摘要调用（chat 回复后 finalizeHistory 发起）
+    fake.setScript([
+      { type: 'text', content: '第11轮回复' },
+      { type: 'text', content: '1. Primary Request and Intent（作者连续讨论第1-11轮情节）2. Next Step（写第12章）' },
+    ])
+    await runOne(ud, 'ckpt-a', q(11))
+
+    const h = getHistory('ckpt-a')
+    // 存档 user 消息插入 + 最近 10 回合保留（1 + 20）
+    expect(h.length).toBe(21)
+    const first = h[0]!
+    expect(first.role).toBe('user')
+    expect(typeof first.content === 'string' && first.content.includes('<compacted-summary>')).toBe(true)
+    expect(first.content).toContain('Primary Request and Intent')
+    expect(h[1]!.content).toBe(q(2)) // toKeep 首条 = 回合2（11 回合压掉最旧 1 个，保 10）
+    // 库里：被压回合 replace 遮蔽 + 校验链通过
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('ckpt-a')
+    store.close()
+    expect(evs.filter((e) => e.type === 'compaction/end' && e.surfaceOp === 'replace').length).toBeGreaterThan(0)
+    expect(validateEventStream(evs)).toEqual([])
+
+    // 第 12 轮：再次溢出 → 二次压缩「合并而非复制」——历史仍只有一条存档消息
+    fake.setScript([{ type: 'text', content: '第12轮回复' }])
+    await runOne(ud, 'ckpt-a', q(12))
+    const h2 = getHistory('ckpt-a')
+    expect(h2.length).toBe(21)
+    const tagCount = h2.filter((m) => typeof m.content === 'string' && m.content.includes('<compacted-summary>')).length
+    expect(tagCount).toBe(1)
+  })
+
+  it('摘要失败 → fail-open：保留原历史不遮蔽不占位；下次溢出回落硬截断', async () => {
+    const ud = setup()
+    for (let i = 1; i <= 10; i++) {
+      fake.setScript([{ type: 'text', content: '第' + i + '轮回复' }])
+      await runOne(ud, 'ckpt-b', q(i))
+    }
+    // 第 11 轮：chat 回复正常，checkpoint 调用 400（不可重试）→ 压缩失败
+    fake.setScript([
+      { type: 'text', content: '第11轮回复' },
+      { type: 'error', status: 400, message: 'bad request' },
+    ])
+    await runOne(ud, 'ckpt-b', q(11))
+
+    // fail-open：原历史全保留（22 条），无占位符，库里无遮蔽事件
+    const h = getHistory('ckpt-b')
+    expect(h.length).toBe(22)
+    expect(h.some((m) => typeof m.content === 'string' && m.content.includes('<compacted-summary>'))).toBe(false)
+    const store = openSessionStore(ud, bookRoot)!
+    let evs = store.listEvents('ckpt-b')
+    store.close()
+    expect(evs.filter((e) => e.type === 'compaction/end').length).toBe(0)
+    expect(validateEventStream(evs)).toEqual([])
+
+    // 第 12 轮：溢出 + suppress → 不再调摘要，直接硬截断（F1-P1 原行为兜底）
+    fake.setScript([{ type: 'text', content: '第12轮回复' }])
+    await runOne(ud, 'ckpt-b', q(12))
+    expect(getHistory('ckpt-b').length).toBe(20)
+    const store2 = openSessionStore(ud, bookRoot)!
+    evs = store2.listEvents('ckpt-b')
+    store2.close()
+    expect(evs.filter((e) => e.type === 'compaction/end' && e.surfaceOp === 'replace').length).toBeGreaterThan(0)
+    expect(validateEventStream(evs)).toEqual([])
   })
 })
 

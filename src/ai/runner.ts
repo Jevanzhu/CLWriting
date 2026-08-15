@@ -15,6 +15,7 @@ import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
+import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 
 /** 未定位到应用数据目录（统一文案） */
 export const NO_USERDATA_MSG = '未定位到应用数据目录'
@@ -43,9 +44,8 @@ export interface TaskOk<T> {
 
 export type TaskResult<T> = TaskOk<T> | TaskErr
 
-/** B-1：可重试错误（429/5xx）的退避重试上限（退避 1s → 2s → 4s） */
-const MAX_RETRIES = 3
-const BACKOFF_MS = [1000, 2000, 4000] as const
+/** B-1/B4：可重试错误的退避重试（策略集中在 retry-policy.ts：指数退避+对称抖动+Retry-After 封顶） */
+const RETRY_POLICY = DEFAULT_RETRY_POLICY
 /** B-2：整体超时默认上限（档位 timeoutMs 可覆盖） */
 const DEFAULT_TIMEOUT_MS = 600_000 // 10 min
 
@@ -244,10 +244,33 @@ export async function runTask<T>(opts: {
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
           return timeoutAbort()
         }
-        // B-1：可重试（429/5xx）且未超限 → 退避后重试
-        if (e instanceof GenError && e.retryable && attempt < MAX_RETRIES) {
+        // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
+        if (e instanceof GenError && shouldRetryError(RETRY_POLICY, e) && attempt < RETRY_POLICY.maxRetries) {
+          const delay = backoffDelayMs(RETRY_POLICY, attempt + 1, {
+            ...(e.retryAfterMs !== undefined ? { providerRetryAfterMs: e.retryAfterMs } : {}),
+          })
+          // B4：服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
+          if (delay === null) {
+            if (bookRoot) {
+              if (task) recordTaskUsage(bookRoot, task, null)
+              if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
+            }
+            trace({
+              model: tier.model,
+              attempt,
+              stopReason: 'error',
+              usage: null,
+              ok: false,
+              errCode: 'RETRY_AFTER_OVER_CAP',
+            })
+            return {
+              ok: false,
+              code: 'GEN_FAIL',
+              error: `服务端要求等待 ${Math.round(e.retryAfterMs! / 1000)}s 后重试（超过 ${RETRY_POLICY.maxDelayMs / 1000}s 上限），已停止重试：${e.message}`,
+            }
+          }
           // W-P2-8：重试也是真实 API 消耗——按次入账（失败响应无 usage，token 记 0），
-          // 否则单章最多 1+MAX_RETRIES 次调用只计 1 次，预算闸可被超限 4 倍
+          // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
           if (bookRoot) {
             if (task) recordTaskUsage(bookRoot, task, null)
             if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
@@ -258,7 +281,7 @@ export async function runTask<T>(opts: {
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
-          await sleep(BACKOFF_MS[attempt]!, ctrl.signal)
+          await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
             trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
             return timeoutAbort()

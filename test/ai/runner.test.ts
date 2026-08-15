@@ -147,6 +147,45 @@ describe('runTask B-1 指数退避重试', () => {
     expect(calls).toBe(2) // 第一次 429 → 退避 → 第二次成功
   }, 10_000)
 
+  it('B4：服务端 Retry-After（封顶内）→ 用服务端值快退避后重试成功', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const startedAt = Date.now()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: () => {
+        calls++
+        if (calls < 2) throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 60 })
+        return Promise.resolve('ok')
+      },
+    })
+    expect(out.ok).toBe(true)
+    expect(calls).toBe(2)
+    // 服务端明示 60ms → 实际等待即 60ms（指数基数 1000ms 不参与）
+    expect(Date.now() - startedAt).toBeLessThan(900)
+  }, 10_000)
+
+  it('B4：Retry-After 超封顶（> 30s）→ 不重试，终态 GEN_FAIL 带人话', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: () => {
+        calls++
+        throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 120_000 })
+      },
+    })
+    expect(out.ok).toBe(false)
+    if (!out.ok) {
+      expect(out.code).toBe('GEN_FAIL')
+      expect(out.error).toContain('已停止重试')
+      expect(out.error).toContain('120')
+    }
+    expect(calls).toBe(1) // 尊重服务端「等很久」的判断，不盲试
+  }, 10_000)
+
   it('W-P2-8：内部重试也入账——429 一次 + 成功一次 → chapter used=2（预算闸不可被重试超限）', async () => {
     const ud = tempUserData()
     writeProviders(ud)
