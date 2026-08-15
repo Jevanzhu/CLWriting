@@ -5,9 +5,9 @@
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
-import { ref, nextTick, watch, onBeforeUnmount } from 'vue'
-import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
-import { useChatStore } from '../../stores/chat'
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
+import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { useChatStore, type ChatMessage } from '../../stores/chat'
 import { confirmTool } from '../../api/chat'
 import { ApiError } from '../../api/client'
 import { useUiStore } from '../../stores/ui'
@@ -94,6 +94,56 @@ const TOOL_LABELS: Record<string, string> = {
   write_chapter: '自动写章',
   check_chapter: '机检',
 }
+
+// ── G1：重新生成 + 变体切换 ─────────────────────
+
+/** 最后一条已完成的 assistant 气泡（「重新生成」按钮的挂载点；!running 才可点） */
+const lastDoneAssistant = computed(() => {
+  const last = chat.messages[chat.messages.length - 1]
+  return last && last.role === 'assistant' && last.done ? last : null
+})
+
+/** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体） */
+function handleRegenerate(): void {
+  void chat.regenerate(props.bookName, selectedChapter.value)
+}
+
+/**
+ * 各助手消息的变体组定位（msgId → 当前序号/总数/同组分支 id 列表）。
+ * 命中条件：消息 seq 落在某分支组区间（rootSeq ≤ seq ≤ lastSeq）且
+ * 同 parentSeq 的变体组数 > 1（按 rootSeq 升序稳定排序）。
+ */
+const variantGroups = computed(() => {
+  const map = new Map<string, { index: number; total: number; label: string; branchIds: string[] }>()
+  for (const msg of chat.messages) {
+    if (msg.role !== 'assistant' || msg.seq === undefined) continue
+    const seq = msg.seq
+    const group = chat.branches.find((b) => seq >= b.rootSeq && seq <= b.lastSeq)
+    if (!group) continue
+    const variants = chat.branches
+      .filter((b) => b.parentSeq === group.parentSeq)
+      .sort((a, b) => a.rootSeq - b.rootSeq)
+    const index = variants.findIndex((b) => b.branchId === group.branchId)
+    if (index < 0 || variants.length <= 1) continue
+    map.set(msg.id, {
+      index,
+      total: variants.length,
+      label: `${index + 1}/${variants.length}`,
+      branchIds: variants.map((v) => v.branchId),
+    })
+  }
+  return map
+})
+
+/** 切到相邻变体组（首尾循环；运行中禁用） */
+function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
+  if (chat.running) return
+  const g = variantGroups.value.get(msg.id)
+  if (!g) return
+  const total = g.branchIds.length
+  const next = g.branchIds[(g.index + dir + total) % total]
+  if (next) void chat.switchBranch(props.bookName, next)
+}
 </script>
 
 <template>
@@ -114,6 +164,29 @@ const TOOL_LABELS: Record<string, string> = {
 
         <!-- 助手消息 -->
         <div v-else class="chat-msg chat-msg-assistant">
+          <!-- G1：变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
+          <div v-if="variantGroups.has(msg.id)" class="chat-variant">
+            <button
+              type="button"
+              class="chat-variant-btn"
+              :disabled="chat.running"
+              title="上一个变体"
+              @click="switchVariant(msg, -1)"
+            >
+              <ChevronLeft :size="13" />
+            </button>
+            <span class="chat-variant-label">{{ variantGroups.get(msg.id)?.label }}</span>
+            <button
+              type="button"
+              class="chat-variant-btn"
+              :disabled="chat.running"
+              title="下一个变体"
+              @click="switchVariant(msg, 1)"
+            >
+              <ChevronRight :size="13" />
+            </button>
+          </div>
+
           <!-- 文本 -->
           <div v-if="msg.content" class="chat-text">{{ msg.content }}</div>
           <div v-else-if="!msg.done && msg.tools.length === 0" class="chat-typing">
@@ -155,6 +228,18 @@ const TOOL_LABELS: Record<string, string> = {
               </button>
             </div>
           </div>
+
+          <!-- G1：最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
+          <button
+            v-if="lastDoneAssistant && msg.id === lastDoneAssistant.id"
+            type="button"
+            class="chat-regen-btn"
+            :disabled="chat.running"
+            @click="handleRegenerate"
+          >
+            <RefreshCw :size="12" />
+            <span>重新生成</span>
+          </button>
         </div>
       </template>
 
@@ -427,6 +512,71 @@ const TOOL_LABELS: Record<string, string> = {
   padding: var(--size-4-2);
   border-radius: var(--radius-s);
   background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
+}
+
+/* ── G1：变体切换器 + 重新生成 ── */
+.chat-variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  align-self: flex-start;
+  padding: 1px 3px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.chat-variant-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.chat-variant-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.chat-variant-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.chat-variant-label {
+  padding: 0 3px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.chat-regen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  margin-top: var(--size-4-1);
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.chat-regen-btn:hover:not(:disabled) {
+  border-color: var(--background-modifier-border-hover);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.chat-regen-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ── 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 ── */

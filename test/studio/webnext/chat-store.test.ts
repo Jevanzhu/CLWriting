@@ -10,16 +10,22 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   clearChatHistory: vi.fn(),
   confirmTool: vi.fn(),
   fetchChatHistory: vi.fn(),
+  fetchChatBranches: vi.fn(),
+  regenerateChat: vi.fn(),
 }))
 
-import { fetchChatHistory, type ChatHistoryMessage } from '../../../src/studio/web-next/src/api/chat'
+import { fetchChatHistory, fetchChatBranches, regenerateChat, type ChatHistoryMessage } from '../../../src/studio/web-next/src/api/chat'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 
 const fetchMock = fetchChatHistory as ReturnType<typeof vi.fn>
+const branchesMock = fetchChatBranches as ReturnType<typeof vi.fn>
+const regenMock = regenerateChat as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  // G1：branches 默认空成功（个别用例覆写；防止上个用例的 rejected 残留污染）
+  branchesMock.mockResolvedValue({ branches: [], activeBranchId: null })
 })
 
 describe('W3: chat store 事件分派', () => {
@@ -266,5 +272,318 @@ describe('Y-P2-5: 历史种子化', () => {
     const chat = useChatStore()
     await chat.seedHistory('书A')
     expect(chat.messages).toHaveLength(0)
+  })
+})
+
+// ── G1：分支（变体）与重新生成 ────────────────────────
+
+/** 本地构造一轮已完成对话（[user, assistant(done)]，走真实 dispatch 路径） */
+function seedLocalTurn(chat: ReturnType<typeof useChatStore>): void {
+  chat.pushUser('写第二章')
+  chat.dispatch({ type: 'chat_start' })
+  chat.dispatch({ type: 'chat_turn', turn: 0 })
+  chat.dispatch({ type: 'chat_text', text: '好的，马上写。' })
+  chat.dispatch({ type: 'chat_done' })
+}
+
+/** 带权威 seqs 的默认分支历史（regenerate 取 parentSeq 的数据源） */
+const SEQ_HISTORY: { messages: ChatHistoryMessage[]; seqs: number[][]; branchId: string } = {
+  messages: [
+    { role: 'user', content: '写第二章' },
+    { role: 'assistant', content: '好的，马上写。' },
+  ],
+  seqs: [[10], [11]],
+  branchId: 'b1',
+}
+
+/** 分支 b2 的历史（带工具回合——验证切换复用种子化路径，tool_result 回填不分叉） */
+const BRANCH2_HISTORY: { messages: ChatHistoryMessage[]; seqs: number[][]; branchId: string } = {
+  messages: [
+    { role: 'user', content: '换一版' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: '我先机检。' },
+        { type: 'tool_use', id: 'tu-7', name: 'check_chapter', input: { chapter: 2 } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', toolUseId: 'tu-7', content: '全绿', isError: false }],
+    },
+    { role: 'assistant', content: '变体二完成。' },
+  ],
+  seqs: [[20], [21], [22, 23], [24]],
+  branchId: 'b2',
+}
+
+describe('G1: regenerate 重新生成', () => {
+  it('正常路径：fetch 权威历史 → POST(parentSeq+新 branchId) → 截断到 user + activeBranchId=新 id', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockResolvedValueOnce({ ok: true })
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A', 5)
+    expect(regenMock).toHaveBeenCalledTimes(1)
+    const [name, body] = regenMock.mock.calls[0] as [
+      string,
+      { parentSeq: number; branchId: string; chapter?: number },
+    ]
+    expect(name).toBe('书A')
+    expect(body.parentSeq).toBe(10) // 最后一条真实 user 的事件 seq
+    expect(typeof body.branchId).toBe('string')
+    expect(body.branchId).not.toBe('b1') // 每次重新生成传新 branchId
+    expect(body.chapter).toBe(5)
+    // 截断：user 保留、其后旧 assistant 全删；activeBranchId = 新 branchId
+    expect(chat.messages).toHaveLength(1)
+    expect(chat.messages[0]!.role).toBe('user')
+    expect(chat.activeBranchId).toBe(body.branchId)
+    expect(chat.error).toBeNull()
+  })
+
+  it('最后一条是 user → 拒绝（不发任何请求）', async () => {
+    const chat = useChatStore()
+    chat.pushUser('只有用户消息')
+    await chat.regenerate('书A')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(regenMock).not.toHaveBeenCalled()
+    expect(chat.error).toBeNull()
+  })
+
+  it('最后一条 assistant 未 done → 拒绝', async () => {
+    const chat = useChatStore()
+    chat.pushUser('写')
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    chat.running = false // 隔离变量：只留「未 done」这一个拒绝条件
+    await chat.regenerate('书A')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(regenMock).not.toHaveBeenCalled()
+  })
+
+  it('running → 拒绝', async () => {
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    chat.dispatch({ type: 'chat_start' }) // 新回合开跑（steer），最后消息仍是 done 的 assistant
+    await chat.regenerate('书A')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(regenMock).not.toHaveBeenCalled()
+  })
+
+  it('防重入：进行中二次调用直接返回（只 POST 一次）', async () => {
+    const d = deferred<typeof SEQ_HISTORY>()
+    fetchMock.mockReturnValueOnce(d.promise)
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    const p1 = chat.regenerate('书A')
+    const p2 = chat.regenerate('书A')
+    await p2
+    expect(regenMock).not.toHaveBeenCalled()
+    d.resolve(SEQ_HISTORY)
+    await p1
+    expect(regenMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('POST 失败 → 置 error 且保留原视图', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockRejectedValueOnce(new Error('服务开小差'))
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A')
+    expect(chat.error).toBe('服务开小差')
+    expect(chat.messages).toHaveLength(2) // 原视图原样保留
+    expect(chat.activeBranchId).toBeNull()
+  })
+
+  it('fetch 权威历史失败 → 置 error 且保留原视图', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('网络断了'))
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A')
+    expect(chat.error).toBe('获取对话历史失败，请稍后重试')
+    expect(chat.messages).toHaveLength(2)
+    expect(regenMock).not.toHaveBeenCalled()
+  })
+
+  it('权威历史无可用 user seq → 拒绝（置 error、不发 POST、保留原视图）', async () => {
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '只有回复' }], seqs: [[7]], branchId: null })
+    fetchMock.mockResolvedValueOnce({ messages: SEQ_HISTORY.messages, seqs: [] }) // user 消息无 seq
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A') // 无 user 消息
+    expect(chat.error).toBe('未找到可重新生成的消息')
+    await chat.regenerate('书A') // user 的 seq 缺失
+    expect(chat.error).toBe('未找到可重新生成的消息')
+    expect(regenMock).not.toHaveBeenCalled()
+    expect(chat.messages).toHaveLength(2)
+  })
+
+  it('POST 在 SSE 抢先完成后才返回 → 新回复气泡不被截断误删', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const d = deferred<{ ok: boolean }>()
+    const posted = deferred<void>() // POST 已发出（快照已拍）的信号
+    regenMock.mockImplementationOnce(() => {
+      posted.resolve()
+      return d.promise
+    })
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    const p = chat.regenerate('书A')
+    await posted.promise // 服务端收到请求后才可能回流 SSE
+    // POST 未返回，但 SSE 已开跑并快速完成（新气泡已 done）
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 1 })
+    chat.dispatch({ type: 'chat_text', text: '新版回复' })
+    chat.dispatch({ type: 'chat_done' })
+    d.resolve({ ok: true })
+    await p
+    expect(chat.messages).toHaveLength(2)
+    expect(chat.messages[0]!.role).toBe('user')
+    expect(chat.messages[1]!.content).toBe('新版回复')
+    expect(chat.messages[1]!.done).toBe(true)
+  })
+})
+
+describe('G1: switchBranch 分支切换', () => {
+  it('成功 → 整体替换 messages（tool_result 回填不分叉）+ activeBranchId=返回值 + 刷新 branches', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.activeBranchId).toBe('b1')
+
+    fetchMock.mockResolvedValueOnce(BRANCH2_HISTORY)
+    branchesMock.mockResolvedValueOnce({
+      branches: [
+        { branchId: 'b1', messageCount: 2, rootSeq: 10, lastSeq: 11, isDefault: false, parentSeq: null },
+        { branchId: 'b2', messageCount: 4, rootSeq: 20, lastSeq: 24, isDefault: true, parentSeq: 10 },
+      ],
+      activeBranchId: 'b2',
+    })
+    await chat.switchBranch('书A', 'b2')
+    expect(fetchMock).toHaveBeenLastCalledWith('书A', 'b2')
+    // 整体替换：旧视图 2 气泡 → 新分支 3 气泡（合成 user 不渲染为气泡）
+    expect(chat.messages).toHaveLength(3)
+    expect(chat.messages[0]!.content).toBe('换一版')
+    expect(chat.messages[0]!.seq).toBe(20)
+    // 复用种子化路径：tool_result 回填前一条 assistant 的工具卡片
+    expect(chat.messages[1]!.tools[0]).toMatchObject({ callId: 'tu-7', status: 'ok', summary: '全绿' })
+    expect(chat.messages[2]!.content).toBe('变体二完成。')
+    expect(chat.activeBranchId).toBe('b2')
+    expect(chat.branches).toHaveLength(2)
+  })
+
+  it('返回 branchId=null（线性书）→ activeBranchId 用返回值，不回落传入 id', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    fetchMock.mockResolvedValueOnce({ messages: SEQ_HISTORY.messages, seqs: SEQ_HISTORY.seqs, branchId: null })
+    await chat.switchBranch('书A', 'bX')
+    expect(chat.activeBranchId).toBeNull()
+  })
+
+  it('running → 拒绝（不拉取）', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    chat.running = true
+    await chat.switchBranch('书A', 'b2')
+    expect(fetchMock).toHaveBeenCalledTimes(1) // 只有种子化那一次
+    expect(chat.messages).toHaveLength(2)
+  })
+
+  it('fetch 失败 → 静默保留原视图', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    fetchMock.mockRejectedValueOnce(new Error('后端未起'))
+    await chat.switchBranch('书A', 'b2')
+    expect(chat.messages).toHaveLength(2)
+    expect(chat.messages[1]!.content).toBe('好的，马上写。')
+    expect(chat.activeBranchId).toBe('b1')
+  })
+
+  it('在途切换被 clear 作废 → 旧响应不再替换视图', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    const d = deferred<typeof BRANCH2_HISTORY>()
+    fetchMock.mockReturnValueOnce(d.promise)
+    const p = chat.switchBranch('书A', 'b2')
+    chat.clear() // ++seedGen 作废在途切换
+    d.resolve(BRANCH2_HISTORY)
+    await p
+    expect(chat.messages).toHaveLength(0)
+    expect(chat.activeBranchId).toBeNull()
+  })
+
+  it('在途种子化被切换作废（seedGen 语义）→ 切换后的视图不被旧历史覆盖', async () => {
+    const d = deferred<typeof SEQ_HISTORY>()
+    fetchMock.mockReturnValueOnce(d.promise) // seedHistory 的拉取挂起
+    const chat = useChatStore()
+    const sp = chat.seedHistory('书A')
+    fetchMock.mockResolvedValueOnce(BRANCH2_HISTORY)
+    await chat.switchBranch('书A', 'b2') // ++seedGen 作废在途种子化
+    d.resolve(SEQ_HISTORY)
+    await sp
+    expect(chat.messages).toHaveLength(3) // 仍是 b2 视图，书A 旧历史未种入
+    expect(chat.activeBranchId).toBe('b2')
+  })
+})
+
+describe('G1: seqs 透传与分支态', () => {
+  it('种子化带 seqs → 气泡 seq=seqs[i][0]，activeBranchId=history 返回值，branches 落库', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    branchesMock.mockResolvedValueOnce({
+      branches: [{ branchId: 'b1', messageCount: 2, rootSeq: 10, lastSeq: 11, isDefault: true, parentSeq: null }],
+      activeBranchId: 'b1',
+    })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.messages[0]!.seq).toBe(10)
+    expect(chat.messages[1]!.seq).toBe(11)
+    expect(chat.activeBranchId).toBe('b1')
+    expect(chat.branches).toHaveLength(1)
+  })
+
+  it('branches 拉取失败 → 静默降级（种子化与 activeBranchId 不受影响）', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    branchesMock.mockRejectedValueOnce(new Error('后端未起'))
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.messages).toHaveLength(2)
+    expect(chat.activeBranchId).toBe('b1')
+    expect(chat.branches).toHaveLength(0)
+  })
+
+  it('clear → 分支态重置（activeBranchId/branches）', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.activeBranchId).toBe('b1')
+    chat.clear()
+    expect(chat.activeBranchId).toBeNull()
+    expect(chat.branches).toHaveLength(0)
+  })
+
+  it('重新生成回合 chat_done → best-effort 刷新 branches + 新回复经 SSE 落位', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockResolvedValueOnce({ ok: true })
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A')
+    expect(chat.messages).toHaveLength(1) // 已截断到 user
+    // SSE 接管：新回合回流
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 1 })
+    chat.dispatch({ type: 'chat_text', text: '新回复' })
+    branchesMock.mockResolvedValueOnce({
+      branches: [{ branchId: 'bn', messageCount: 2, rootSeq: 11, lastSeq: 12, isDefault: true, parentSeq: 10 }],
+      activeBranchId: 'bn',
+    })
+    chat.dispatch({ type: 'chat_done' })
+    await vi.waitFor(() => expect(chat.branches).toHaveLength(1))
+    expect(chat.messages).toHaveLength(2) // user + SSE 新气泡
+    expect(chat.messages[1]!.done).toBe(true)
+    expect(chat.running).toBe(false)
   })
 })

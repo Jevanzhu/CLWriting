@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { str } from './sse-guards.js'
-import { fetchChatHistory, type ChatHistoryMessage } from '../api/chat.js'
+import {
+  fetchChatHistory,
+  fetchChatBranches,
+  regenerateChat,
+  type ChatHistoryMessage,
+  type ChatHistoryResult,
+  type ChatBranchInfo,
+} from '../api/chat.js'
 
 /**
  * 对话助手 store（方案 §3.7.3）。
@@ -9,6 +16,8 @@ import { fetchChatHistory, type ChatHistoryMessage } from '../api/chat.js'
  * 消息列表 + 工具卡片状态机 + running。
  * chat_* 事件在 useSse 消费点分流到 dispatch()（不塞进 workbench.dispatch）。
  * Y-P2-5：刷新/切书后经 seedHistory 从事件库投影恢复历史（仅 messages 为空时种子化）。
+ * G1：重新生成（regenerate）与分支切换（switchBranch）——消息带 seq、维护
+ * activeBranchId/branches，多分支书支持在变体组间切换。
  */
 
 /** 工具卡片状态 */
@@ -32,6 +41,8 @@ export interface ChatMessage {
   done: boolean
   /** 本回合的工具卡片（按时序） */
   tools: ToolCard[]
+  /** G1：该消息事件 seq（历史种子化时取 seqs[i][0]；实时 SSE 消息无此字段） */
+  seq?: number
 }
 
 /** 消息列表上限（防长对话内存膨胀） */
@@ -53,6 +64,14 @@ export const useChatStore = defineStore('chat', () => {
   let currentIdx = -1
   /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫） */
   let seedGen = 0
+  /** G1：当前激活分支（history 返回的实际采用分支；无分支语义/未拉取时 null） */
+  const activeBranchId = ref<string | null>(null)
+  /** G1：分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
+  const branches = ref<ChatBranchInfo[]>([])
+  /** G1：重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
+  let regenPending = false
+  /** G1：重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
+  let regenBook: string | null = null
 
   /** 是否有消息 */
   const hasMessages = computed(() => messages.value.length > 0)
@@ -148,11 +167,23 @@ export const useChatStore = defineStore('chat', () => {
         // 旧索引指向已 done 气泡会让后续 chat_text 追加错误位置
         currentIdx = -1
         trimMessages()
+        // G1：重新生成的回合结束 → 复位进行中标志 + best-effort 刷新分支列表（变体计数更新）
+        if (regenPending) {
+          regenPending = false
+          const book = regenBook
+          regenBook = null
+          if (book) void refreshBranches(book, seedGen)
+        }
         break
       }
       case 'chat_error': {
         running.value = false
         error.value = str(ev['error']) ?? '未知错误'
+        // G1：重新生成回合异常中断 → 复位防重入标志（防永久锁死，可再次触发）
+        if (regenPending) {
+          regenPending = false
+          regenBook = null
+        }
         break
       }
     }
@@ -186,12 +217,15 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── Y-P2-5：历史种子化（刷新/切书后从事件库投影恢复）────
 
-  /** 历史消息 → 气泡模型（与 SSE 实时渲染等价：tool 结果回填到 assistant 的工具卡片，不渲染为用户气泡） */
-  function seedFromHistory(msgs: ChatHistoryMessage[]): void {
+  /** 历史消息 → 气泡模型（与 SSE 实时渲染等价：tool 结果回填到 assistant 的工具卡片，不渲染为用户气泡）。
+   *  G1：seqs 与 msgs 平行，气泡 seq 取该消息事件 seq（seqs[i][0]；tool-result 合成消息不渲染为气泡可忽略）。 */
+  function seedFromHistory(msgs: ChatHistoryMessage[], seqs?: number[][]): void {
     const seeded: ChatMessage[] = []
-    for (const m of msgs) {
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i]!
+      const seq = seqs?.[i]?.[0]
       if (typeof m.content === 'string') {
-        seeded.push({ id: `m${_msgSeq++}`, role: m.role, content: m.content, done: true, tools: [] })
+        seeded.push({ id: `m${_msgSeq++}`, role: m.role, content: m.content, done: true, tools: [], ...(typeof seq === 'number' ? { seq } : {}) })
         continue
       }
       if (m.role === 'user') {
@@ -210,7 +244,7 @@ export const useChatStore = defineStore('chat', () => {
         if (b.type === 'text') text += b.text
         else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: b.input, status: 'running' })
       }
-      seeded.push({ id: `m${_msgSeq++}`, role: 'assistant', content: text, done: true, tools })
+      seeded.push({ id: `m${_msgSeq++}`, role: 'assistant', content: text, done: true, tools, ...(typeof seq === 'number' ? { seq } : {}) })
     }
     // 兜底：无 tool_result 回填的卡片（异常残留的半截回合）标 cancelled，防永久转圈
     for (const m of seeded) {
@@ -240,11 +274,13 @@ export const useChatStore = defineStore('chat', () => {
    * 拉取并种子化对话历史（Y-P2-5）：仅当前消息为空且不在生成中时执行。
    * 竞态守卫：拉取期间若有新 SSE 消息到达（messages 非空）/开始生成（running）/
    * 切书（clear 使 seedGen 失效）→ 宁可放弃种子化也不覆盖/插入错位。
+   * G1：种子化成功后 best-effort 拉 branches（失败静默不影响种子化），
+   * branches 存列表、activeBranchId 用 history 返回的 branchId（两者解耦）。
    */
   async function seedHistory(bookName: string): Promise<void> {
     if (!bookName || messages.value.length > 0 || running.value) return
     const gen = ++seedGen
-    let data: { messages: ChatHistoryMessage[] }
+    let data: ChatHistoryResult
     try {
       data = await fetchChatHistory(bookName)
     } catch {
@@ -252,7 +288,136 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (gen !== seedGen || messages.value.length > 0 || running.value) return
     if (data.messages.length === 0) return
-    seedFromHistory(data.messages)
+    seedFromHistory(data.messages, data.seqs)
+    // G1：activeBranchId 用 history 返回的实际采用分支——种子化成功即写，
+    // 与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）
+    activeBranchId.value = data.branchId ?? null
+    // 分支列表 best-effort 拉取（失败静默——变体切换器降级隐藏，对话不受影响）
+    await refreshBranches(bookName, gen)
+  }
+
+  /** G1：best-effort 刷新分支列表（失败静默；gen 不符丢弃防旧书数据污染新书） */
+  async function refreshBranches(bookName: string, gen: number): Promise<void> {
+    try {
+      const d = await fetchChatBranches(bookName)
+      if (gen !== seedGen) return
+      branches.value = d.branches ?? []
+    } catch {
+      /* 静默 */
+    }
+  }
+
+  /**
+   * G1：切换到指定分支（变体组）。仅 !running 时允许；seedGen++ 作废在途种子化/切换。
+   * 成功且无竞态 → 整体替换 messages（新种子，带 seqs）+ activeBranchId=返回的 branchId，
+   * 再 best-effort 刷新分支列表；失败静默返回（保留原视图）。
+   */
+  async function switchBranch(bookName: string, branchId: string | null): Promise<void> {
+    if (running.value) return
+    const gen = ++seedGen
+    let data: ChatHistoryResult
+    try {
+      data = await fetchChatHistory(bookName, branchId ?? undefined)
+    } catch {
+      return // 静默失败：保留原视图
+    }
+    if (gen !== seedGen || running.value) return
+    messages.value = []
+    currentIdx = -1
+    if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
+    // activeBranchId = history 返回值（线性书显式 null；仅旧后端缺字段时才回落传入 id）
+    activeBranchId.value = data.branchId !== undefined ? data.branchId : branchId ?? null
+    await refreshBranches(bookName, gen)
+  }
+
+  /** G1：生成新分支 id（b + 时间戳 36 进制 + 随机尾，防同毫秒碰撞） */
+  function newBranchId(): string {
+    return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  }
+
+  /**
+   * G1：重新生成最后一条回复（新分支变体）。
+   * 仅 !running 且最后一条消息为已完成 assistant 时允许；进行中标志防重入。
+   * 流程：拉默认分支权威历史（拿 seqs）→ 反向定位最后一条 user 的事件 seq 作
+   * parentSeq → 生成新 branchId → POST regenerate → 成功后本地截断 messages 到
+   * 该 user 为止、activeBranchId=新 branchId，SSE 自然接管追加新气泡；
+   * 任一步失败 → error 置错并保留原视图。
+   */
+  async function regenerate(bookName: string, chapter?: number): Promise<void> {
+    const last = messages.value[messages.value.length - 1]
+    if (regenPending || running.value || !last || last.role !== 'assistant' || !last.done) return
+    regenPending = true
+    const gen = seedGen
+    let handedOff = false // 已交由 SSE 接管（标志改由 chat_done/chat_error 复位）
+    try {
+      let data: ChatHistoryResult
+      try {
+        data = await fetchChatHistory(bookName)
+      } catch {
+        error.value = '获取对话历史失败，请稍后重试'
+        return
+      }
+      if (gen !== seedGen || running.value) return // 期间清空/切分支/新回合开跑：放弃
+      // 反向找最后一条真实 user 文本消息（tool_result 合成的 user 不算）的事件 seq
+      let parentSeq: number | undefined
+      for (let i = data.messages.length - 1; i >= 0; i--) {
+        const m = data.messages[i]!
+        if (m.role === 'user' && typeof m.content === 'string') {
+          const seq = data.seqs?.[i]?.[0]
+          if (typeof seq === 'number') parentSeq = seq
+          break
+        }
+      }
+      if (parentSeq === undefined) {
+        error.value = '未找到可重新生成的消息'
+        return
+      }
+      const branchId = newBranchId()
+      // POST 前快照本地消息 id：截断只删快照内的旧消息——SSE 抢先开跑追加的新气泡
+      // （即使已快速 done）不属于旧视图，不得误删
+      const preIds = new Set(messages.value.map((m) => m.id))
+      try {
+        await regenerateChat(bookName, {
+          parentSeq,
+          branchId,
+          ...(chapter !== undefined ? { chapter } : {}),
+        })
+      } catch (e) {
+        error.value = e instanceof Error ? e.message : String(e) // 保留原视图
+        return
+      }
+      if (gen !== seedGen) return // 期间清空/切分支：不污染新视图
+      // 本地截断到最后一条 user 气泡（其后旧消息全删、user 保留；SSE 抢先追加的新气泡保留）
+      let lastUser = -1
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        if (messages.value[i]!.role === 'user') {
+          lastUser = i
+          break
+        }
+      }
+      if (lastUser >= 0) {
+        messages.value = messages.value.filter(
+          (m, i) => i <= lastUser || !m.done || !preIds.has(m.id),
+        )
+        // 截断移动了在途回合气泡的索引 → 重定位 currentIdx（SSE 已开跑时）
+        if (currentIdx >= 0) {
+          let live = -1
+          for (let i = messages.value.length - 1; i >= 0; i--) {
+            const m = messages.value[i]!
+            if (m.role === 'assistant' && !m.done) {
+              live = i
+              break
+            }
+          }
+          currentIdx = live
+        }
+      }
+      activeBranchId.value = branchId
+      regenBook = bookName // chat_done 时 best-effort 刷新分支列表
+      handedOff = true
+    } finally {
+      if (!handedOff) regenPending = false
+    }
   }
 
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
@@ -278,6 +443,11 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = null
     currentIdx = -1
     seedGen++ // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
+    // G1：重置分支态 + 复位重新生成进行中标志（清空后旧分支/在途操作不得残留）
+    activeBranchId.value = null
+    branches.value = []
+    regenPending = false
+    regenBook = null
   }
 
   return {
@@ -286,10 +456,14 @@ export const useChatStore = defineStore('chat', () => {
     error,
     notice,
     hasMessages,
+    activeBranchId,
+    branches,
     dispatch,
     pushUser,
     popUser,
     clear,
     seedHistory,
+    switchBranch,
+    regenerate,
   }
 })

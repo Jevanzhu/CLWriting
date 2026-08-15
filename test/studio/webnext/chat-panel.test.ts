@@ -7,6 +7,8 @@
  * - P1-4/P2-K 清空顺序（先 interrupt 再 clearChatHistory 再 clear）
  * - P2-L 发送失败回滚（popUser）
  * - Enter 发送 / Shift+Enter 换行
+ * - G1 重新生成按钮（末条已完成才渲染/running 禁用/点击调 regenerate）
+ * - G1 变体切换器（双变体组才渲染/标签 n/m/首尾循环/running 禁用）
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -131,6 +133,126 @@ describe('ChatPanel: 停止按钮（P1-2）', () => {
     await nextTick()
     expect(w.find('.chat-stop-btn').exists()).toBe(false)
     expect(w.find('.chat-send-btn').exists()).toBe(true)
+  })
+})
+
+// ── G1 重新生成 + 变体切换 ────────────────────────────
+
+describe('ChatPanel: 重新生成按钮（G1）', () => {
+  it('末条已完成 assistant → 渲染按钮，点击调 chat.regenerate', async () => {
+    const chat = useChatStore()
+    const regen = vi.spyOn(chat, 'regenerate').mockResolvedValue(undefined)
+    chat.messages.push(
+      { id: 'u1', role: 'user', content: '写一段', done: true, tools: [], seq: 1 },
+      { id: 'a1', role: 'assistant', content: '答案', done: true, tools: [], seq: 2 },
+    )
+    const w = mountPanel()
+    await nextTick()
+    const btn = w.find('.chat-regen-btn')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes('disabled')).toBeUndefined()
+    await btn.trigger('click')
+    expect(regen).toHaveBeenCalledWith('test-book', undefined)
+  })
+
+  it('非末条 assistant（后面还有消息）→ 不渲染按钮', async () => {
+    const chat = useChatStore()
+    chat.messages.push(
+      { id: 'u1', role: 'user', content: '问', done: true, tools: [], seq: 1 },
+      { id: 'a1', role: 'assistant', content: '答', done: true, tools: [], seq: 2 },
+      { id: 'u2', role: 'user', content: '再问', done: true, tools: [], seq: 3 },
+    )
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-regen-btn').exists()).toBe(false)
+  })
+
+  it('running 中 → 按钮禁用', async () => {
+    const chat = useChatStore()
+    chat.messages.push(
+      { id: 'u1', role: 'user', content: '问', done: true, tools: [], seq: 1 },
+      { id: 'a1', role: 'assistant', content: '答', done: true, tools: [], seq: 2 },
+    )
+    chat.running = true
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-regen-btn').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('ChatPanel: 变体切换器（G1）', () => {
+  /** 双变体组（同 parentSeq=1）+ 一条可见 assistant（seq 指定落在哪个组） */
+  function seedBranched(chat: ReturnType<typeof useChatStore>, visibleSeq: number): void {
+    chat.messages.push(
+      { id: 'u1', role: 'user', content: '写一段', done: true, tools: [], seq: 1 },
+      { id: 'a1', role: 'assistant', content: `答案@${visibleSeq}`, done: true, tools: [], seq: visibleSeq },
+    )
+    chat.branches = [
+      { branchId: 'b1', messageCount: 1, rootSeq: 2, lastSeq: 2, isDefault: false, parentSeq: 1 },
+      { branchId: 'b2', messageCount: 1, rootSeq: 3, lastSeq: 3, isDefault: true, parentSeq: 1 },
+    ]
+  }
+
+  it('seq 落入同 parent 双变体组 → 渲染切换器 + 标签 1/2；组外消息不渲染', async () => {
+    const chat = useChatStore()
+    seedBranched(chat, 2)
+    // 组外后续回合：seq 5 不在任何分支区间，不应出现切换器
+    chat.messages.push(
+      { id: 'u2', role: 'user', content: '追问', done: true, tools: [], seq: 4 },
+      { id: 'a2', role: 'assistant', content: '后答', done: true, tools: [], seq: 5 },
+    )
+    const w = mountPanel()
+    await nextTick()
+    const switchers = w.findAll('.chat-variant')
+    expect(switchers).toHaveLength(1)
+    expect(w.find('.chat-variant-label').text()).toBe('1/2')
+  })
+
+  it('仅单变体组（无兄弟分支）→ 不渲染切换器', async () => {
+    const chat = useChatStore()
+    seedBranched(chat, 2)
+    chat.branches = [
+      { branchId: 'b1', messageCount: 1, rootSeq: 2, lastSeq: 2, isDefault: true, parentSeq: 1 },
+    ]
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-variant').exists()).toBe(false)
+  })
+
+  it('点击 ▶ → 调 chat.switchBranch 切到下一变体；末位循环回首', async () => {
+    const chat = useChatStore()
+    seedBranched(chat, 3) // 可见消息落在 b2（index 1）
+    const switchSpy = vi.spyOn(chat, 'switchBranch').mockResolvedValue(undefined)
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-variant-label').text()).toBe('2/2')
+    const [, nextBtn] = w.findAll('.chat-variant-btn')
+    await nextBtn!.trigger('click')
+    expect(switchSpy).toHaveBeenCalledWith('test-book', 'b1') // (1+1+2)%2=0 → 循环回首
+  })
+
+  it('点击 ◀ → 调 chat.switchBranch 切到上一变体', async () => {
+    const chat = useChatStore()
+    seedBranched(chat, 2) // 可见消息落在 b1（index 0）
+    const switchSpy = vi.spyOn(chat, 'switchBranch').mockResolvedValue(undefined)
+    const w = mountPanel()
+    await nextTick()
+    const [prevBtn] = w.findAll('.chat-variant-btn')
+    await prevBtn!.trigger('click')
+    expect(switchSpy).toHaveBeenCalledWith('test-book', 'b2') // (0-1+2)%2=1 → 循环到末
+  })
+
+  it('running 中 → 切换按钮禁用且点击不调 switchBranch', async () => {
+    const chat = useChatStore()
+    seedBranched(chat, 2)
+    const switchSpy = vi.spyOn(chat, 'switchBranch').mockResolvedValue(undefined)
+    chat.running = true
+    const w = mountPanel()
+    await nextTick()
+    const btns = w.findAll('.chat-variant-btn')
+    for (const b of btns) expect(b.attributes('disabled')).toBeDefined()
+    await btns[1]!.trigger('click')
+    expect(switchSpy).not.toHaveBeenCalled()
   })
 })
 

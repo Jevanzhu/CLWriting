@@ -75,7 +75,7 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
   it('空库（无事件）→ 200 + 空 messages', async () => {
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history`)
     expect(r.status).toBe(200)
-    expect(r.json).toEqual({ messages: [] })
+    expect(r.json).toEqual({ messages: [], seqs: [], branchId: null })
   })
 
   it('书名不存在 → 404 + 错误信封', async () => {
@@ -90,6 +90,8 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
     expect(r.status).toBe(200)
     const j = r.json as {
       messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }>
+      seqs: number[][]
+      branchId: string | null
     }
     expect(j.messages).toHaveLength(4)
     // 1. user 纯文本
@@ -107,6 +109,9 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
     })
     // 4. 收尾 assistant 文本
     expect(j.messages[3]).toEqual({ role: 'assistant', content: '第 1 章检查完毕，钩子和节奏都没问题。' })
+    // G1：seqs 与 messages 平行逐条对位；线性书（无分支元数据）branchId=null 且消息一条不丢
+    expect(j.seqs).toEqual([[1], [2], [3], [4]])
+    expect(j.branchId).toBeNull()
   })
 
   it('被遮蔽事件（compaction replace）不进投影', async () => {
@@ -125,9 +130,10 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
     }
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history`)
     expect(r.status).toBe(200)
-    const j = r.json as { messages: Array<{ content: string | Array<Record<string, unknown>> }> }
-    // 遮蔽消息不出现（上一轮 4 条不变）
+    const j = r.json as { messages: Array<{ content: string | Array<Record<string, unknown>> }>; seqs: number[][] }
+    // 遮蔽消息不出现（上一轮 4 条不变）；被遮蔽 seq 也不进 seqs
     expect(j.messages).toHaveLength(4)
     expect(JSON.stringify(j.messages)).not.toContain('这条会被遮蔽')
+    expect(j.seqs).toEqual([[1], [2], [3], [4]])
   })
 })
