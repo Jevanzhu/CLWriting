@@ -17,12 +17,19 @@ export type EventType =
   | 'session/end'
   | 'turn/start'
   | 'turn/end'
+  | 'step/start'
+  | 'step/end'
   | 'user/message'
   | 'assistant/message'
   | 'tool/call'
   | 'tool/result'
   | 'compaction/start'
   | 'compaction/end'
+  // P2 五层链路事件化（F1 方案 §二 v1）
+  | 'llm/call'
+  | 'llm/retry'
+  | 'retry/attempt'
+  | 'check/report'
 
 /** 可上 surface 的事件类型（投影只处理这三类） */
 export const SURFACE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
@@ -81,4 +88,57 @@ export interface ToolResultData {
 
 export interface TurnEndData {
   reason: 'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens' | 'interrupted'
+}
+
+// ── P2 五层链路事件载荷（F1 §二 v1 + §六 trace 合并计划）─────────────────────
+
+/** 五层链路（F2/DSH-8 绑定：每层一个 step）：context/draft/review/self-heal/chat */
+export type LayerName = 'context' | 'draft' | 'review' | 'self-heal' | 'chat'
+
+export interface StepStartData {
+  task: string
+  layer: LayerName
+}
+
+export interface StepEndData {
+  task: string
+  layer: LayerName
+  /** 结构化终止原因：completed / max-tokens / error / aborted / timeout */
+  reason: string
+}
+
+/** llm/call —— 合并 trace.ts 的 TraceEntry（P2 单一事实源） */
+export interface LlmCallData {
+  runId: string
+  task: string
+  tierKind: string
+  model: string
+  attempt: number
+  stopReason: string
+  usage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }
+  durationMs: number
+  ok: boolean
+  errCode?: string
+  promptMeta?: { chars: number; files: string[]; hash: string }
+}
+
+/** llm/retry —— 重试记账（先落库后等待） */
+export interface LlmRetryData {
+  attempt: number
+  delayMs: number
+  errCode?: string
+}
+
+/** retry/attempt —— 自愈重写轮次（「连续相同红项换策略」canonical key 来源） */
+export interface RetryAttemptData {
+  attempt: number
+  maxAttempts: number
+  redIssues?: string[]
+}
+
+/** check/report —— 机检报告（自愈打回判据来源） */
+export interface CheckReportData {
+  chapter: number
+  reds: string[]
+  yellows?: string[]
 }

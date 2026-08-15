@@ -6,7 +6,8 @@
  *
  * 不做 UI（第二波）；本模块只产数据，由 API 端点薄接线透出。
  */
-import { readTraceLines, type TraceEntry } from './trace.js'
+import { openSessionStore, bookHash } from '../events/store.js'
+import type { LlmCallData } from '../events/types.js'
 
 /** 单个 task 的聚合统计 */
 export interface TaskStat {
@@ -49,12 +50,66 @@ function dayKey(ts: string): string {
  * @param bookRoot 书库根路径
  * @returns 聚合统计（无数据时 total=0）
  */
-export function aggregateTrace(bookRoot: string): TraceStats {
-  const entries = readTraceLines(bookRoot)
+/**
+ * 从事件库读 llm/call 事件（P2：trace 单一事实源；观测层失败静默 → []）。
+ * llm/call 事件挂 workspace 会话（bookHash(bookRoot) 为 book 标识），
+ * 按事件创建时间聚日（createdAt 为 ms 时间戳）。
+ */
+function readLlmCalls(
+  userDataPath: string | null | undefined,
+  bookRoot: string,
+): {
+  task: string
+  ok: boolean
+  durationMs: number
+  attempt: number
+  usageIn: number
+  usageOut: number
+  day: string
+}[] {
+  if (!userDataPath) return []
+  try {
+    const store = openSessionStore(userDataPath, bookRoot)
+    if (!store) return []
+    try {
+      const events = store.listEvents(bookHash(bookRoot))
+      const out: {
+        task: string
+        ok: boolean
+        durationMs: number
+        attempt: number
+        usageIn: number
+        usageOut: number
+        day: string
+      }[] = []
+      for (const e of events) {
+        if (e.type !== 'llm/call') continue
+        const d = e.data as unknown as LlmCallData
+        out.push({
+          task: d.task,
+          ok: d.ok,
+          durationMs: d.durationMs,
+          attempt: d.attempt,
+          usageIn: d.usage?.input ?? 0,
+          usageOut: d.usage?.output ?? 0,
+          day: dayKey(new Date(e.createdAt).toISOString()),
+        })
+      }
+      return out
+    } finally {
+      store.close()
+    }
+  } catch {
+    return []
+  }
+}
+
+export function aggregateTrace(userDataPath: string | null | undefined, bookRoot: string): TraceStats {
+  const entries = readLlmCalls(userDataPath, bookRoot)
   if (entries.length === 0) return { total: 0, byTask: {} }
 
   // 按 task 分组
-  const groups = new Map<string, TraceEntry[]>()
+  const groups = new Map<string, typeof entries>()
   for (const e of entries) {
     const arr = groups.get(e.task) ?? []
     arr.push(e)
@@ -67,17 +122,17 @@ export function aggregateTrace(bookRoot: string): TraceStats {
     const okCount = list.filter((e) => e.ok).length
     const durations = list.map((e) => e.durationMs).sort((a, b) => a - b)
     const totalAttempts = list.reduce((sum, e) => sum + e.attempt, 0)
-    const totalIn = list.reduce((sum, e) => sum + e.usage.input, 0)
-    const totalOut = list.reduce((sum, e) => sum + e.usage.output, 0)
+    const totalIn = list.reduce((sum, e) => sum + e.usageIn, 0)
+    const totalOut = list.reduce((sum, e) => sum + e.usageOut, 0)
 
     // 按天聚合
     const byDay: Record<string, { count: number; ok: number; tokens: number }> = {}
     for (const e of list) {
-      const day = dayKey(e.ts)
+      const day = e.day
       const d = byDay[day] ?? { count: 0, ok: 0, tokens: 0 }
       d.count++
       if (e.ok) d.ok++
-      d.tokens += e.usage.input + e.usage.output
+      d.tokens += e.usageIn + e.usageOut
       byDay[day] = d
     }
 

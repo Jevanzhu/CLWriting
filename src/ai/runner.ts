@@ -13,8 +13,10 @@
 import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
-import { newRunId, appendTrace, promptMeta, toTraceUsage, type TraceEntry } from './trace.js'
+import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
+import { openSessionStore, bookHash } from '../events/store.js'
+import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 
 /** 未定位到应用数据目录（统一文案） */
@@ -131,6 +133,26 @@ export function resolveProvider(
  * @param opts.run        真实生成。异常统一包成 GEN_FAIL（abort 导致的异常 → ABORTED）。
  * @param opts.onReset    重试前回调——调用方在此推 reset 事件清前端缓冲（B-1：流式重试防重复产出）。
  */
+/**
+ * P2：建链路事件录制器（userDataPath + bookRoot + task 齐备才建；失败静默 → null）。
+ * workspace 会话的 book 标识 = bookHash(bookRoot)（与对话会话的 bookName 隔离，互不干扰）。
+ */
+function mkChain(
+  userDataPath: string | null,
+  bookRoot: string | undefined,
+  task: string | undefined,
+): ChainRecorder | null {
+  if (!userDataPath || !bookRoot || !task) return null
+  try {
+    const store = openSessionStore(userDataPath, bookRoot)
+    if (!store) return null
+    const sessionId = store.workspaceSession(bookHash(bookRoot))
+    return new ChainRecorder(store, sessionId)
+  } catch {
+    return null
+  }
+}
+
 export async function runTask<T>(opts: {
   userDataPath: string | null
   mockTool?: string
@@ -162,7 +184,10 @@ export async function runTask<T>(opts: {
   const bookRoot = opts.bookRoot
   const task = opts.task
 
-  /** trace 落盘（bookRoot + task 两参数齐备才落） */
+  // P2：链路事件录制器（mock 快路在 chain 初始化前 return，故提前声明为 let 避免 TDZ）
+  let chain: ChainRecorder | null = null
+
+  /** P2：llm/call 事件（替代 trace 文件落盘；bookRoot + task 齐备才记；观测层静默） */
   const trace = (p: {
     model: string
     attempt: number
@@ -172,23 +197,23 @@ export async function runTask<T>(opts: {
     errCode?: string
   }): void => {
     if (!bookRoot || !task) return
-    const entry: TraceEntry = {
-      runId,
-      ts: new Date().toISOString(),
-      task,
-      tierKind,
-      model: p.model,
-      attempt: p.attempt,
-      stopReason: p.stopReason,
-      promptMeta: opts.promptText
-        ? promptMeta(opts.systemPrompt ?? '', opts.promptText)
-        : { chars: 0, files: [], hash: '' },
-      usage: toTraceUsage(p.usage),
-      durationMs: Date.now() - startMs,
-      ok: p.ok,
-      ...(p.errCode ? { errCode: p.errCode } : {}),
-    }
-    appendTrace(bookRoot, entry)
+    chain?.add(
+      llmCallEvent({
+        runId,
+        task,
+        tierKind,
+        model: p.model,
+        attempt: p.attempt,
+        stopReason: p.stopReason,
+        usage: p.usage ? toTraceUsage(p.usage) : undefined,
+        durationMs: Date.now() - startMs,
+        ok: p.ok,
+        ...(p.errCode ? { errCode: p.errCode } : {}),
+        ...(opts.promptText
+          ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText) }
+          : {}),
+      }),
+    )
   }
 
   // mock 快路（工具型）：tryMockTool 命中即短路，不触 provider
@@ -214,6 +239,11 @@ export async function runTask<T>(opts: {
   const ctrl = opts.ctrl ?? new AbortController()
   if (opts.register) opts.register(ctrl)
 
+  // P2：链路事件录制（主流程开始；mock 快路/未配置不记）——step/start 先落库
+  chain = mkChain(opts.userDataPath, bookRoot, task)
+  if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
+  let stepReason: string | undefined
+
   // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
   const tier = r.tier
@@ -237,6 +267,7 @@ export async function runTask<T>(opts: {
           if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, usage)
         }
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
+        stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         return { ok: true, data, ctrl, usage, runId }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
@@ -248,6 +279,7 @@ export async function runTask<T>(opts: {
             if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
           }
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+          stepReason = timedOut ? 'timeout' : 'aborted'
           return timeoutAbort()
         }
         // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
@@ -269,6 +301,7 @@ export async function runTask<T>(opts: {
               ok: false,
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
+            stepReason = 'error'
             return {
               ok: false,
               code: 'GEN_FAIL',
@@ -287,9 +320,12 @@ export async function runTask<T>(opts: {
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
+          // P2：llm/retry 重试记账（先落库后等待）——重试链可重放
+          chain?.add(llmRetryEvent({ attempt, delayMs: delay, ...((e instanceof GenError && e.code) ? { errCode: e.code } : {}) }))
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
             trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+            stepReason = timedOut ? 'timeout' : 'aborted'
             return timeoutAbort()
           }
           continue
@@ -308,10 +344,16 @@ export async function runTask<T>(opts: {
           ok: false,
           errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
         })
+        stepReason = 'error'
         return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
       }
     }
   } finally {
     clearTimeout(totalTimer)
+    // P2：step/end 结构化终止原因（先落库后清理）——五层链路终止可查
+    if (chain) {
+      if (stepReason) chain.add(stepEndEvent(task!, layerForTask(task!), stepReason))
+      chain.close()
+    }
   }
 }

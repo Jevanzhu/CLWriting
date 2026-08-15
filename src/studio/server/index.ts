@@ -82,7 +82,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerForeshadowRoutes({ workDir })
     registerStyleRoutes({ workDir })
     registerProvidersRoutes({ userDataPath })
-    registerTraceStatsRoutes({ workDir })
+    registerTraceStatsRoutes({ workDir, userDataPath })
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath, studioToken: token })

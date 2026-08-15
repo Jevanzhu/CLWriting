@@ -38,6 +38,8 @@ export interface SessionStore {
   appendEvents(sessionId: string, events: NewEvent[]): number
   appendEvent(sessionId: string, ev: NewEvent): number
   listEvents(book: string, sessionId?: string): ChatEvent[]
+  /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
+  workspaceSession(book: string): string
   latestSession(book: string): SessionRow | null
   /** 当前库最大 seq（recorder 算写入区间用） */
   lastSeq(): number
@@ -179,9 +181,23 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       ).all(book) as unknown as Row[];
       return rows.map(rowToEvent)
     },
+    workspaceSession(book: string): string {
+      const row = db.prepare(
+        `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`
+      ).get(book) as { session_id: string } | undefined
+      if (row) return row.session_id
+      const sid = `ws-${ulid()}`
+      const now = Date.now()
+      db.prepare(
+        `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
+         VALUES (?, 1, ?, ?, ?, ?)`
+      ).run(sid, book, JSON.stringify({ kind: 'workspace' }), now, now)
+      return sid
+    },
     latestSession(book: string): SessionRow | null {
+      // P2：排除 workspace 会话（ws- 前缀）——链路事件不干扰对话恢复选会话
       const stmt = db.prepare(
-        `SELECT * FROM sessions WHERE book = ? ORDER BY updated_at DESC LIMIT 1`
+        `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC LIMIT 1`
       );
       const r = stmt.get(book) as SessionRow | undefined
       return r ?? null

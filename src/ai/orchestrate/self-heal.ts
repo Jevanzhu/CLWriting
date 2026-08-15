@@ -17,6 +17,8 @@ import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
+import { openSessionStore, bookHash } from '../../events/store.js'
+import { ChainRecorder, checkReportEvent, retryAttemptEvent } from '../../events/chain-bridge.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
 // 物理上位于 api/（与端点同文件），本身不依赖 HTTP 语境；待后续下沉治理。
@@ -123,9 +125,22 @@ export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> 
   return result
 }
 
+/** P2：自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null） */
+function mkChain(opts: SelfHealOpts): ChainRecorder | null {
+  try {
+    const store = openSessionStore(opts.userDataPath, opts.bookRoot)
+    if (!store) return null
+    return new ChainRecorder(store, store.workspaceSession(bookHash(opts.bookRoot)))
+  } catch {
+    return null
+  }
+}
+
 async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHealOutcome> {
   const { bookRoot, chapter } = opts
   const maxAttempts = opts.maxAttempts ?? 3
+  // P2：自愈链路事件录制（check/report + retry/attempt 挂 workspace 会话；观测层静默）
+  const chain = mkChain(opts)
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
   // P2-3：批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）
@@ -163,9 +178,11 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         check,
         db,
         chapters: chapters!,
+        chain,
       })
     } finally {
       if (db) db.close()
+      chain?.close()
     }
   }
 
@@ -190,6 +207,13 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
     const outcome = check(draftPath)
+    // P2：机检报告事件化（红项结构化，自愈打回判据来源）
+    chain?.add(
+      checkReportEvent({
+        chapter,
+        reds: outcome.ok ? redMessages(outcome) : [`草稿格式不合规：${outcome.error}`],
+      }),
+    )
 
     let reds: string[]
     let redIssues: string[] // K13：结构化红项数组（消除字符串往返）
@@ -212,6 +236,10 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         if (gen.ok && gen.count > 0) continue
       }
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
+      // P2：打回评估事件化（重试链可重放；pass 不记）
+      if (st.state !== 'pass') {
+        chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
+      }
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         // 终稿记录文风改稿轨迹（中间稿不记，避免污染信号）
@@ -302,6 +330,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   }
   } finally {
     if (db) db.close()
+    chain?.close()
   }
 }
 
@@ -333,6 +362,7 @@ async function orchestrateBatch(
     check: (p: string) => CheckOutcome
     db: DatabaseSync | null
     chapters: number[]
+    chain: ChainRecorder | null
   },
 ): Promise<SelfHealOutcome> {
   const total = ctx.chapters.length
@@ -386,10 +416,11 @@ async function runChapter(
     kind: 'long' | 'short'
     check: (p: string) => CheckOutcome
     db: DatabaseSync | null
+    chain: ChainRecorder | null
   },
   chapter: number,
 ): Promise<ChapterRun | { outcome: 'aborted' }> {
-  const { bookRoot, maxAttempts, save, kind, check } = ctx
+  const { bookRoot, maxAttempts, save, kind, check, chain } = ctx
   // ① 首稿（C-1：预算闸——超限不跑）
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const budget = checkAiCallBudget(bookRoot, chapter, config)
@@ -413,6 +444,13 @@ async function runChapter(
     if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
     const outcome = check(draftPath)
+    // P2：机检报告事件化（红项结构化，自愈打回判据来源）
+    chain?.add(
+      checkReportEvent({
+        chapter,
+        reds: outcome.ok ? redMessages(outcome) : [`草稿格式不合规：${outcome.error}`],
+      }),
+    )
 
     let reds: string[]
     let redIssues: string[]
@@ -432,6 +470,10 @@ async function runChapter(
         if (gen.ok && gen.count > 0) continue
       }
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
+      // P2：打回评估事件化（重试链可重放；pass 不记）
+      if (st.state !== 'pass') {
+        chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
+      }
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
