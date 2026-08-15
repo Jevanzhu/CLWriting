@@ -6,7 +6,7 @@
  * 观测层纪律：写失败静默（同 appendTrace），不拖累业务流程；「先落库后等待」（llm/retry）。
  */
 import type { NewEvent, SessionStore } from './store.js'
-import type { LayerName, StepEndReason } from './types.js'
+import type { GoalChangeData, LayerName, StepEndReason, TodoWriteData } from './types.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -82,6 +82,16 @@ export function authorSignalEvent(data: { ruleId: string; message: string; task:
 
 export function ruleHitEvent(data: { ruleId: string; task: string; chapter?: number; message: string }): NewEvent {
   return { type: 'rule/hit', data: { ...data } }
+}
+
+// ── F5 goal 状态机 + todo 快照事件构造器 ──────────────────────────
+
+export function goalChangeEvent(data: GoalChangeData): NewEvent {
+  return { type: 'goal/change', data: { operation: data.operation, goal: data.goal } }
+}
+
+export function todoWriteEvent(data: TodoWriteData): NewEvent {
+  return { type: 'todo/write', data: { todos: data.todos } }
 }
 
 /** task 名 → 五层 layer 映射（F2/DSH-8：五层每层一个 step） */

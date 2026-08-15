@@ -36,6 +36,9 @@ export type EventType =
   | 'foreshadow/change'
   | 'author/signal'
   | 'rule/hit'
+  // F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）
+  | 'goal/change'
+  | 'todo/write'
 
 // ── F2：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
 // turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
@@ -225,4 +228,52 @@ export interface CheckReportData {
   chapter: number
   reds: string[]
   yellows?: string[]
+}
+
+// ── F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────
+
+/** goal 生命周期动词（与伏笔状态机同词汇——F3 foreshadow/change 复用） */
+export const GOAL_OPERATIONS = [
+  'create',
+  'edit',
+  'pause',
+  'resume',
+  'complete',
+  'block',
+  'clear',
+] as const
+export type GoalOperation = (typeof GOAL_OPERATIONS)[number]
+
+/** goal 状态 */
+export type GoalState = 'active' | 'paused' | 'blocked' | 'complete'
+
+/** goal 完整快照（每次变更整快照落库，last-write-wins） */
+export interface GoalSnapshot {
+  id: string
+  title: string
+  description?: string
+  state: GoalState
+  /** 已启动的自动轮次数 */
+  roundsStarted: number
+  maxGoalRounds?: number
+  blockedReason?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** goal/change —— goal 状态机变更（完整快照 + 动词） */
+export interface GoalChangeData {
+  operation: GoalOperation
+  goal: GoalSnapshot
+}
+
+/** todo 条目（无 id——整表快照，三态） */
+export interface Todo {
+  text: string
+  state: 'pending' | 'in_progress' | 'completed'
+}
+
+/** todo/write —— 任务清单整表快照（last-write-wins，空表 = 清空） */
+export interface TodoWriteData {
+  todos: Todo[]
 }

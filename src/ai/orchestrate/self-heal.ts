@@ -18,7 +18,8 @@ import { readBookConfig } from '../../format/yaml.js'
 import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
 import { openSessionStore, bookHash } from '../../events/store.js'
-import { ChainRecorder, checkReportEvent, retryAttemptEvent } from '../../events/chain-bridge.js'
+import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
+import type { GoalOperation, GoalState, Todo } from '../../events/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
 // 物理上位于 api/（与端点同文件），本身不依赖 HTTP 语境；待后续下沉治理。
@@ -310,6 +311,36 @@ async function runChapter(
   const hasWiring = existsSync(join(bookRoot, '布线'))
   let leadDraftTried = false
 
+  // F5：章节任务清单（todo 整表快照）+ 修复目标（goal 状态机，完整快照 last-write-wins）
+  const goalId = 'self-heal:ch' + chapter
+  const goalNow = Date.now()
+  const writeTodos = (draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void => {
+    chain?.add(todoWriteEvent({
+      todos: [
+        { text: '写第' + chapter + '章首稿', state: draft },
+        { text: '机检第' + chapter + '章', state: check },
+        { text: '修复第' + chapter + '章红项', state: fix },
+      ],
+    }))
+  }
+  const writeGoal = (op: GoalOperation, state: GoalState, extra?: { blockedReason?: string; rounds?: number }): void => {
+    chain?.add(goalChangeEvent({
+      operation: op,
+      goal: {
+        id: goalId,
+        title: '修复第' + chapter + '章红项',
+        state,
+        roundsStarted: extra?.rounds ?? 0,
+        ...(maxAttempts !== undefined ? { maxGoalRounds: maxAttempts } : {}),
+        ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
+        createdAt: goalNow,
+        updatedAt: Date.now(),
+      },
+    }))
+  }
+  writeTodos('completed', 'in_progress', 'pending')
+  writeGoal('create', 'active')
+
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
   // A4：上一次机检的红项集合 key（与单章路径同口径）
@@ -356,12 +387,15 @@ async function runChapter(
         // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
         if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath))
         const yellows = ruleYellows(current, bookRoot, chapterNo)
+        writeTodos('completed', 'completed', 'completed')
+        writeGoal('complete', 'complete', { rounds: attempt })
         return { chapter, outcome: 'pass', yellows, docId: final.docId, path: final.relPath, attempts: attempt }
       }
       if (st.state === 'escalate') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
+        writeGoal('block', 'blocked', { blockedReason: redMessages(outcome).join('；'), rounds: attempt })
         return { chapter, outcome: 'escalate', reds: redMessages(outcome), docId: final.docId, path: final.relPath, attempts: attempt }
       }
       redIssues = st.redIssues
@@ -374,6 +408,7 @@ async function runChapter(
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
         recordAiVersion(bookRoot, final.docId, current)
+        writeGoal('block', 'blocked', { blockedReason: reds.join('；'), rounds: attempt })
         return { chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
       }
     }
@@ -384,6 +419,7 @@ async function runChapter(
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
       recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
+      writeGoal('block', 'blocked', { blockedReason: [...reds, budget2.reason].join('；'), rounds: attempt })
       return { chapter, outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
     }
     emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
@@ -419,6 +455,7 @@ async function runChapter(
       const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
       recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
       recordAiVersion(bookRoot, final.docId, current)
+      writeGoal('block', 'blocked', { blockedReason: again.error, rounds: attempt })
       return { chapter, outcome: 'escalate', reds: [again.error], docId: final.docId, path: final.relPath, attempts: attempt }
     }
     current = again.text

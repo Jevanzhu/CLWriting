@@ -18,6 +18,7 @@ import {
   SESSION_END_REASONS,
   STEP_END_REASONS,
   TURN_END_REASONS,
+  GOAL_OPERATIONS,
 } from './types.js'
 
 /** 投影出的表面节点（带 seq，供 replace 遮蔽引用） */
@@ -213,6 +214,40 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
     }
     if (ev.type === 'session/end' && typeof reason === 'string' && !(SESSION_END_REASONS as readonly string[]).includes(reason)) {
       issues.push({ seq: ev.seq, message: 'session/end 非法终止原因: ' + reason })
+    }
+
+    // F5：goal/change 的 operation 受控词表 + 快照形状；todo/write 整表形状
+    if (ev.type === 'goal/change') {
+      const op = ev.data['operation']
+      if (typeof op === 'string' && !(GOAL_OPERATIONS as readonly string[]).includes(op)) {
+        issues.push({ seq: ev.seq, message: 'goal/change 非法 operation: ' + op })
+      }
+      const goal = ev.data['goal']
+      if (!goal || typeof goal !== 'object') {
+        issues.push({ seq: ev.seq, message: 'goal/change 缺 goal 快照' })
+      } else {
+        const g = goal as Record<string, unknown>
+        if (typeof g['id'] !== 'string' || typeof g['title'] !== 'string') {
+          issues.push({ seq: ev.seq, message: 'goal/change 快照缺 id/title' })
+        }
+        if (g['state'] !== 'active' && g['state'] !== 'paused' && g['state'] !== 'blocked' && g['state'] !== 'complete') {
+          issues.push({ seq: ev.seq, message: 'goal/change 快照非法 state' })
+        }
+      }
+    }
+    if (ev.type === 'todo/write') {
+      const todos = ev.data['todos']
+      if (!Array.isArray(todos)) {
+        issues.push({ seq: ev.seq, message: 'todo/write 缺 todos 数组' })
+      } else {
+        for (const t of todos) {
+          const td = t as Record<string, unknown> | null
+          if (!td || typeof td['text'] !== 'string' || (td['state'] !== 'pending' && td['state'] !== 'in_progress' && td['state'] !== 'completed')) {
+            issues.push({ seq: ev.seq, message: 'todo/write 含非法条目' })
+            break
+          }
+        }
+      }
     }
 
     if (ev.type === 'compaction/end') {

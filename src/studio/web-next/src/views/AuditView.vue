@@ -54,6 +54,16 @@ function dataSummary(e: AuditEventFE): string {
   if (typeof d['task'] === 'string') return String(d['task'])
   if (typeof d['callId'] === 'string') return String(d['callId'])
   if (typeof d['chapter'] === 'number') return 'chapter ' + String(d['chapter'])
+  // F5：goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
+  if (typeof d['operation'] === 'string' && d['goal'] && typeof d['goal'] === 'object') {
+    const g = d['goal'] as { title?: unknown; state?: unknown }
+    return [d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim().slice(0, 60)
+  }
+  if (Array.isArray(d['todos'])) {
+    const ts = d['todos'] as { state?: unknown }[]
+    const done = ts.filter((t) => t.state === 'completed').length
+    return 'todos ' + done + '/' + ts.length
+  }
   return ''
 }
 
