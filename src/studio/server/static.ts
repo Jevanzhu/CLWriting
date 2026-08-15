@@ -50,15 +50,25 @@ export function createStaticHandler(rootDir: string) {
       const s = await stat(abs)
       const file = s.isDirectory() ? join(abs, 'index.html') : abs
       const data = await readFile(file)
+      // vite 构建产物在 assets/ 下且文件名带内容 hash → 可长缓存 immutable；
+      // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效（Y-P2-7）。
+      // 用 URL 层 decodedPathname 判定（跨平台恒为 / 分隔，且穿越路径天然不命中）。
+      const cacheable = decodedPathname.startsWith('/assets/')
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        'cache-control': cacheable
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
       })
       res.end(data)
     } catch {
       // SPA fallback：非文件路径回 index.html（前端路由接管）
       try {
         const data = await readFile(join(root, 'index.html'))
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-cache',
+        })
         res.end(data)
       } catch {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })

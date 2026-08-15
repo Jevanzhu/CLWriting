@@ -7,6 +7,7 @@
  * 浏览器版无此脚本 → window.clwritingDesktop 不存在 → 前端据此隐藏桌面入口。
  */
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。 */
@@ -40,13 +41,21 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 书架窗口选书 → 通知主窗口打开该工作区并聚焦，关闭书架窗口。 */
   openBook: (name: string): Promise<void> =>
     ipcRenderer.invoke('desktop:open-book', name),
-  /** 订阅主窗口导航事件（书架窗口选书时主进程转发到此，主窗口 router.push）。 */
-  onNavigate: (cb: (path: string) => void): void => {
-    ipcRenderer.on('desktop:navigate', (_e, path: string) => cb(path))
+  /** 订阅主窗口导航事件（书架窗口选书时主进程转发到此，主窗口 router.push）。返回退订函数（Y-P2-7）。 */
+  onNavigate: (cb: (path: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, path: string): void => cb(path)
+    ipcRenderer.on('desktop:navigate', handler)
+    return () => {
+      ipcRenderer.removeListener('desktop:navigate', handler)
+    }
   },
-  /** 订阅系统菜单动作（菜单 click → 主进程转发 actionKey → 前端 dispatch）。 */
-  onMenuAction: (cb: (key: string) => void): void => {
-    ipcRenderer.on('desktop:menu-action', (_e, key: string) => cb(key))
+  /** 订阅系统菜单动作（菜单 click → 主进程转发 actionKey → 前端 dispatch）。返回退订函数（Y-P2-7）。 */
+  onMenuAction: (cb: (key: string) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, key: string): void => cb(key)
+    ipcRenderer.on('desktop:menu-action', handler)
+    return () => {
+      ipcRenderer.removeListener('desktop:menu-action', handler)
+    }
   },
   /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null */
   showContextMenu: (

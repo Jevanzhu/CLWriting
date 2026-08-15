@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]  # 仅 mac（win/linux 暂缓 2026-06-30）
-        node: [24]
+        # G4-1（2026-08-16）：typecheck/单测扩 ubuntu；e2e 与桌面构建仍仅 mac（Electron 面）。
+        os: [ubuntu-latest, macos-latest]
+        # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
+        node: [24, 26]
     steps:
       - uses: actions/checkout@v4
 
