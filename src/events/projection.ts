@@ -13,7 +13,12 @@
  */
 import type { ContentBlock } from '../ai/provider/types.js'
 import type { ChatEvent, EventType } from './types.js'
-import { SURFACE_EVENT_TYPES } from './types.js'
+import {
+  SURFACE_EVENT_TYPES,
+  SESSION_END_REASONS,
+  STEP_END_REASONS,
+  TURN_END_REASONS,
+} from './types.js'
 
 /** 投影出的表面节点（带 seq，供 replace 遮蔽引用） */
 export interface SurfaceNode {
@@ -172,6 +177,18 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
     }
     if (isReplaceCarrier && ev.surfaceOp !== 'replace') {
       issues.push({ seq: ev.seq, message: 'compaction/end 必须带 surfaceOp=replace' })
+    }
+
+    // F2：结构化终止原因校验——turn/end、step/end、session/end 的 reason 必须是受控词表
+    const reason = ev.data['reason']
+    if (ev.type === 'turn/end' && typeof reason === 'string' && !(TURN_END_REASONS as readonly string[]).includes(reason)) {
+      issues.push({ seq: ev.seq, message: 'turn/end 非法终止原因: ' + reason })
+    }
+    if (ev.type === 'step/end' && typeof reason === 'string' && !(STEP_END_REASONS as readonly string[]).includes(reason)) {
+      issues.push({ seq: ev.seq, message: 'step/end 非法终止原因: ' + reason })
+    }
+    if (ev.type === 'session/end' && typeof reason === 'string' && !(SESSION_END_REASONS as readonly string[]).includes(reason)) {
+      issues.push({ seq: ev.seq, message: 'session/end 非法终止原因: ' + reason })
     }
 
     if (ev.type === 'compaction/end') {

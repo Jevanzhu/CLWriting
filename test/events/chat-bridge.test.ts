@@ -121,7 +121,7 @@ describe('F1-P1 SessionRecorder', () => {
     rec.add(assistantMessageEvent('半截回复'))
     rec.flush()
     // 模拟失败：遮蔽本会话全部已写事件
-    rec.close('failed', rec.allSessionSeqs())
+    rec.close('error', rec.allSessionSeqs())
     expect(deriveMessages(store.listEvents('书A'))).toEqual([])
     store.close()
   })

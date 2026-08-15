@@ -125,6 +125,25 @@ describe('F1-P1 校验链', () => {
     expect(validateEventStream(r3).some((i) => i.message.includes('未覆盖'))).toBe(true)
   })
 
+  it('F2：turn/end、step/end、session/end 的 reason 必须在受控词表', () => {
+    // 合法 reason 通过
+    const good = [
+      ev(1, 'session/end', { reason: 'completed' }),
+      ev(2, 'turn/end', { reason: 'max-turns' }),
+      ev(3, 'step/end', { reason: 'aborted' }),
+    ]
+    expect(validateEventStream(good)).toEqual([])
+    // 非法 reason 报问题（自由字符串被拒绝）
+    const bad = [
+      ev(1, 'session/end', { reason: 'failed' }), // 'failed' 非受控词（应为 error）
+      ev(2, 'turn/end', { reason: 'timeout' }), // 'timeout' 非受控词（应为 aborted）
+      ev(3, 'step/end', { reason: 'whatever' }),
+    ]
+    expect(validateEventStream(bad).some((i) => i.message.includes('session/end 非法终止原因'))).toBe(true)
+    expect(validateEventStream(bad).some((i) => i.message.includes('turn/end 非法终止原因'))).toBe(true)
+    expect(validateEventStream(bad).some((i) => i.message.includes('step/end 非法终止原因'))).toBe(true)
+  })
+
   it('seq 重复 / sourceSeqs 含未来 seq → 报问题', () => {
     const dup = [ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }), ev(1, 'user/message', { message: 'b' }, { surfaceOp: 'append' })]
     expect(validateEventStream(dup).some((i) => i.message.includes('重复'))).toBe(true)

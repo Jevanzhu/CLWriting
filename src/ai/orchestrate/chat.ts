@@ -580,7 +580,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       if (!out.ok) {
         history.length = baseLen
-        recorder.close('failed', recorder.allSessionSeqs())
+        recorder.close('error', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
 
@@ -590,7 +590,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       if (stopReason === 'max_tokens') {
         // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
         history.length = baseLen
-        recorder.close('failed', recorder.allSessionSeqs())
+        recorder.close('max-tokens', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }
 

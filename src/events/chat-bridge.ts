@@ -10,7 +10,7 @@
  *   人类抄本（append 事件）全量保留，模型可见投影只含未遮蔽节点。
  */
 import type { ChatMsg, ContentBlock } from '../ai/provider/types.js'
-import type { ChatEvent } from './types.js'
+import type { ChatEvent, SessionEndReason, TurnEndReason } from './types.js'
 import { foldSurface, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
 
@@ -20,7 +20,7 @@ export function sessionStartEvent(book: string): NewEvent {
   return { type: 'session/start', data: { book } }
 }
 
-export function sessionEndEvent(reason: string): NewEvent {
+export function sessionEndEvent(reason: SessionEndReason): NewEvent {
   return { type: 'session/end', data: { reason } }
 }
 
@@ -28,7 +28,7 @@ export function turnStartEvent(turn: number): NewEvent {
   return { type: 'turn/start', turn, data: {} }
 }
 
-export function turnEndEvent(turn: number, reason: string): NewEvent {
+export function turnEndEvent(turn: number, reason: TurnEndReason): NewEvent {
   return { type: 'turn/end', turn, data: { reason } }
 }
 
@@ -175,7 +175,7 @@ export class SessionRecorder {
    * 会话收尾：追加 session/end 并落库。
    * @param shadow 若给定被裁消息的 seq 列表，写 compaction/start + replace 遮蔽 + compaction/end
    */
-  close(reason: string, shadowSeqs?: number[]): void {
+  close(reason: SessionEndReason, shadowSeqs?: number[]): void {
     this.pending.push(sessionEndEvent(reason))
     this.flush()
     if (!this.store || !shadowSeqs || shadowSeqs.length === 0) return

@@ -11,7 +11,7 @@ import { SessionRecorder, userMessageEvent, assistantMessageEvent, sessionStartE
 import { stepStartEvent, llmCallEvent } from '../../src/events/chain-bridge.js'
 import { buildAuditView } from '../../src/studio/server/api/audit.js'
 
-function withStore<T>(fn: (store: ReturnType<typeof openSessionStore>, bookRoot: string) => T): T {
+function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T): T {
   const userData = mkdtempSync(join(tmpdir(), 'audit-'))
   const bookRoot = join(userData, 'books', 'x')
   const store = openSessionStore(userData, bookRoot)!

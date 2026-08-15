@@ -137,7 +137,7 @@ function mkChain(opts: SelfHealOpts): ChainRecorder | null {
 }
 
 async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHealOutcome> {
-  const { bookRoot, chapter } = opts
+  const { bookRoot } = opts
   const maxAttempts = opts.maxAttempts ?? 3
   // P2：自愈链路事件录制（check/report + retry/attempt 挂 workspace 会话；观测层静默）
   const chain = mkChain(opts)
@@ -166,184 +166,69 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
   const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
 
+  // F2：单章/批量共享同一套 ctx（消除双路径重复）
+  const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain }
+
   // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
   // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
   if (isBatch) {
     try {
-      return await orchestrateBatch(opts, state, {
-        bookRoot,
-        maxAttempts,
-        save,
-        kind,
-        check,
-        db,
-        chapters: chapters!,
-        chain,
-      })
+      return await orchestrateBatch(opts, state, ctx, chapters!)
     } finally {
       if (db) db.close()
       chain?.close()
     }
   }
 
+  // F2：单章统一走 runChapter（与批量同源，消除双路径重复 + 语义统一：
+  // 无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿））
   try {
-  // ① 首稿（C-1：预算闸——超限不跑）
-  const budget = checkAiCallBudget(bookRoot, chapter, config)
-  if (!budget.ok) return { outcome: 'failed', error: budget.reason }
-  emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind))
-  if (first.status !== 'ok') return spawnFailure(first)
-  let current = first.text
-  const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-  const draftPath = join(bookRoot, firstDraft.relPath)
-  // X-P1-2：本章是否已在循环内补生成过账本推进草稿（防重复 AI 调用）
-  let leadDraftTried = false
-
-  // ② 机检 → 红则重写 → 全绿或触顶
-  let attempt = 0
-  // A4：上一次机检的红项集合 key——第 2 次完全相同即注入「换策略」提醒（不拦截）
-  let prevRedKey: string | null = null
-  for (;;) {
-    if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
-    emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
-    const outcome = check(draftPath)
-    // P2：机检报告事件化（红项结构化，自愈打回判据来源）
-    chain?.add(
-      checkReportEvent({
-        chapter,
-        reds: outcome.ok ? redMessages(outcome) : [`草稿格式不合规：${outcome.error}`],
-      }),
-    )
-
-    let reds: string[]
-    let redIssues: string[] // K13：结构化红项数组（消除字符串往返）
-    let chapterNo = chapter
-
-    if (outcome.ok) {
-      chapterNo = outcome.chapter.章号
-      // X-P1-2：账本侧红（细纲声明未兑现）重写正文不可修——actual 侧来自 工作区/账本推进.md，
-      // 而它按设计在 pass 后才生成（W-P1-3 决策 C），首检必红构成时序死锁。首遇时先对已落盘
-      // 正文补生成账本推进草稿（AI 从正文提取原句证据）再复查一次：证据命中正文即消红（真绿
-      // 通过）；仍红则说明细纲声明了正文确实没写，按正常重写/升级走（重写不可修 → 最终交作者）。
-      if (
-        hasWiring &&
-        !leadDraftTried &&
-        getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')
-      ) {
-        leadDraftTried = true
-        emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt })
-        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
-        if (gen.ok && gen.count > 0) continue
-      }
-      const st = evaluateRetry(outcome.report, attempt, maxAttempts)
-      // P2：打回评估事件化（重试链可重放；pass 不记）
-      if (st.state !== 'pass') {
-        chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
-      }
-      if (st.state === 'pass') {
-        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        // 终稿记录文风改稿轨迹（中间稿不记，避免污染信号）
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
-        recordAiVersion(bookRoot, final.docId, current)
-        // W-P1-3 右端：写稿完成（pass）后自动生成 账本推进.md（AI 草拟，作者定稿时确认）。
-        // fire-and-forget：不阻塞主流程返回；仅长篇有布线时触发。
-        // X-P1-2：循环内已补生成过（leadDraftTried）则不重复调用。
-        // X-P3a：失败不再静默——console 留痕（不发明新 SSE phase，前端白名单会滤掉）
-        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath))
-        // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
-        // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
-        const yellows = ruleYellows(current, bookRoot, chapterNo)
-        // B-P1-2：透传章号（opts.chapter），formatHealResult 显示"第N章"而非 docId
-        return { outcome: 'pass', chapter: opts.chapter, docId: final.docId, path: final.relPath, attempts: attempt, yellows }
-      }
-      if (st.state === 'escalate') {
-        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        // 终稿记录文风改稿轨迹
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
-        recordAiVersion(bookRoot, final.docId, current)
-        return {
-          outcome: 'escalate',
-          chapter: opts.chapter, // B-P1-2：透传章号
-          reds: redMessages(outcome),
-          docId: final.docId,
-          path: final.relPath,
-          attempts: attempt,
-        }
-      }
-      redIssues = st.redIssues
-      reds = redMessages(outcome)
-    } else {
-      // tool_use 契约下 fm 漂移不应出现；但保留降级处理
-      if (outcome.code !== 'NOT_CHAPTER') return { outcome: 'failed', error: outcome.error }
-      reds = [`草稿格式不合规：${outcome.error}`]
-      redIssues = reds
-      if (attempt >= maxAttempts) {
-        const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-        recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
-        recordAiVersion(bookRoot, final.docId, current)
-        return { outcome: 'escalate', chapter: opts.chapter, reds, docId: final.docId, path: final.relPath, attempts: attempt }
+    const run = await runChapter(opts, state, ctx, opts.chapter)
+    if (run.outcome === 'aborted') return { outcome: 'aborted' }
+    if (run.outcome === 'failed') return { outcome: 'failed', error: run.error }
+    if (run.outcome === 'escalate') {
+      return {
+        outcome: 'escalate',
+        chapter: opts.chapter, // B-P1-2：透传章号，formatHealResult 显示"第N章"
+        reds: run.reds,
+        docId: run.docId,
+        path: run.path,
+        attempts: run.attempts,
       }
     }
-
-    // ③ 退回重写（C-1：预算闸——超限则 escalate，保留当前稿）
-    const budget2 = checkAiCallBudget(bookRoot, chapter, config)
-    if (!budget2.ok) {
-      const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
-      recordAiVersion(bookRoot, final.docId, current)
-      return { outcome: 'escalate', chapter: opts.chapter, reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
+    return {
+      outcome: 'pass',
+      chapter: opts.chapter,
+      docId: run.docId,
+      path: run.path,
+      attempts: run.attempts,
+      ...(run.yellows ? { yellows: run.yellows } : {}),
     }
-    emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
-    emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
-    emit(opts, { type: 'self_heal_reset' })
-
-    // B2：黄项修复指令（规则违规，提示不卡——不计入 evaluateRetry 全绿判定）
-    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
-    // B3：规则命中统计（供工作台高频违规面板 + B4 前置注入）
-    recordRuleHits(bookRoot, ruleViolations, opts.userDataPath ?? undefined)
-    // 红项 [必须] / 黄项 [建议]：AI 能区分硬性错误与文风建议（优先级不同取舍）
-    const allIssues = [
-      ...redIssues.map((s) => `[必须] ${s}`),
-      ...ruleViolations.map((v) => `[建议] ${v.message}`),
-    ]
-
-    // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
-    const redKey = redSetKey(redIssues)
-    const repeated = redKey !== '' && redKey === prevRedKey
-    prevRedKey = redKey
-
-    const prompt = buildRewritePrompt(
-      'whole',
-      current,
-      '',
-      REWRITE_INSTRUCTION,
-      allIssues,
-      chapterNo,
-      kind,
-      repeated ? buildStrategyReminder(redIssues) : undefined,
-    )
-    const again = await runGenerate(opts, state, kind, prompt)
-    if (again.status !== 'ok') return spawnFailure(again)
-    current = again.text
-    save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-    attempt++
-  }
   } finally {
     if (db) db.close()
     chain?.close()
   }
 }
-
-/** 单章闭环一次运行的结果：pass/escalate（落盘 + 记录已在 runChapter 内完成），或中断 */
-interface ChapterRun {
-  chapter: number
-  outcome: 'pass' | 'escalate'
-  yellows?: string[]
-  reds?: string[]
-  docId?: string
-  path?: string
-  attempts: number
+/** 单章闭环共享上下文（F2：单章/批量同源，消除双路径重复） */
+interface ChapterCtx {
+  bookRoot: string
+  maxAttempts: number
+  save: typeof saveDraft
+  kind: 'long' | 'short'
+  check: (p: string) => CheckOutcome
+  db: DatabaseSync | null
+  chain: ChainRecorder | null
 }
+
+/**
+ * 单章闭环一次运行的结果（落盘 + 记录已在 runChapter 内完成），或中断。
+ * F2 语义统一：无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿）。
+ */
+type ChapterRun =
+  | { chapter: number; outcome: 'pass'; yellows?: string[]; docId: string; path: string; attempts: number }
+  | { chapter: number; outcome: 'escalate'; reds: string[]; docId: string; path: string; attempts: number }
+  | { chapter: number; outcome: 'failed'; error: string; attempts: number }
+  | { outcome: 'aborted' }
 
 /**
  * P2-3：批量连写编排——循环各章跑 runChapter（单章闭环），
@@ -354,25 +239,22 @@ interface ChapterRun {
 async function orchestrateBatch(
   opts: SelfHealOpts,
   state: RunState,
-  ctx: {
-    bookRoot: string
-    maxAttempts: number
-    save: typeof saveDraft
-    kind: 'long' | 'short'
-    check: (p: string) => CheckOutcome
-    db: DatabaseSync | null
-    chapters: number[]
-    chain: ChainRecorder | null
-  },
+  ctx: ChapterCtx,
+  chapters: number[],
 ): Promise<SelfHealOutcome> {
-  const total = ctx.chapters.length
+  const total = chapters.length
   for (let i = 0; i < total; i++) {
-    const ch = ctx.chapters[i]!
+    const ch = chapters[i]!
     if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
 
     const run = await runChapter(opts, state, ctx, ch)
     if (run.outcome === 'aborted') return { outcome: 'aborted' }
-    // 单章 escalate/预算超限 → 停后续章，报批量进度（done=已完成章数）
+    // F2 语义统一：无稿（首稿预算超限/生成失败）→ failed 停后续章；有稿 escalate 同样停
+    if (run.outcome === 'failed') {
+      emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
+      return { outcome: 'failed', error: run.error }
+    }
+    // 单章 escalate → 停后续章，报批量进度（done=已完成章数）
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       return {
@@ -396,7 +278,7 @@ async function orchestrateBatch(
       }
     }
     emit(opts, { type: 'self_heal_phase', phase: 'chapter_done', chapter: ch, done: i + 1, total })
-    emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: ctx.chapters[i + 1]!, done: i + 1, total })
+    emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters[i + 1]!, done: i + 1, total })
   }
   // 不可达（循环内必 return）；保险兜底
   return { outcome: 'failed', error: '批量连写未正常结束' }
@@ -409,26 +291,18 @@ async function orchestrateBatch(
 async function runChapter(
   opts: SelfHealOpts,
   state: RunState,
-  ctx: {
-    bookRoot: string
-    maxAttempts: number
-    save: typeof saveDraft
-    kind: 'long' | 'short'
-    check: (p: string) => CheckOutcome
-    db: DatabaseSync | null
-    chain: ChainRecorder | null
-  },
+  ctx: ChapterCtx,
   chapter: number,
-): Promise<ChapterRun | { outcome: 'aborted' }> {
+): Promise<ChapterRun> {
   const { bookRoot, maxAttempts, save, kind, check, chain } = ctx
   // ① 首稿（C-1：预算闸——超限不跑）
   const config = readBookConfig(join(bookRoot, 'book.yaml')).config
   const budget = checkAiCallBudget(bookRoot, chapter, config)
-  if (!budget.ok) return { chapter, outcome: 'escalate', reds: [budget.reason], attempts: 0 }
+  if (!budget.ok) return { chapter, outcome: 'failed', error: budget.reason, attempts: 0 }
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
   const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind), chapter)
   if (first.status === 'aborted') return { outcome: 'aborted' }
-  if (first.status !== 'ok') return { chapter, outcome: 'escalate', reds: [first.error], attempts: 0 }
+  if (first.status !== 'ok') return { chapter, outcome: 'failed', error: first.error, attempts: 0 }
   let current = first.text
   const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
   const draftPath = join(bookRoot, firstDraft.relPath)
@@ -493,7 +367,7 @@ async function runChapter(
       redIssues = st.redIssues
       reds = redMessages(outcome)
     } else {
-      if (outcome.code !== 'NOT_CHAPTER') return { chapter, outcome: 'escalate', reds: [outcome.error], attempts: attempt }
+      if (outcome.code !== 'NOT_CHAPTER') return { chapter, outcome: 'failed', error: outcome.error, attempts: attempt }
       reds = [`草稿格式不合规：${outcome.error}`]
       redIssues = reds
       if (attempt >= maxAttempts) {
@@ -540,7 +414,13 @@ async function runChapter(
     )
     const again = await runGenerate(opts, state, kind, prompt, chapter)
     if (again.status === 'aborted') return { outcome: 'aborted' }
-    if (again.status !== 'ok') return { chapter, outcome: 'escalate', reds: [again.error], attempts: attempt }
+    if (again.status !== 'ok') {
+      // F2：有稿可交——重写失败保留当前已落盘稿，escalate 附错误原因
+      const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
+      recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
+      recordAiVersion(bookRoot, final.docId, current)
+      return { chapter, outcome: 'escalate', reds: [again.error], docId: final.docId, path: final.relPath, attempts: attempt }
+    }
     current = again.text
     save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
     attempt++
@@ -643,11 +523,6 @@ async function runGenerate(
   // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
   if (text.trim()) return { status: 'ok', text: text.trim() }
   return { status: 'error', error: 'AI 产出为空' }
-}
-
-function spawnFailure(r: SpawnResult): SelfHealOutcome {
-  if (r.status === 'aborted') return { outcome: 'aborted' }
-  return { outcome: 'failed', error: r.status === 'error' ? r.error : '写稿失败' }
 }
 
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {

@@ -6,7 +6,7 @@
  * 观测层纪律：写失败静默（同 appendTrace），不拖累业务流程；「先落库后等待」（llm/retry）。
  */
 import type { NewEvent, SessionStore } from './store.js'
-import type { LayerName } from './types.js'
+import type { LayerName, StepEndReason } from './types.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -14,7 +14,7 @@ export function stepStartEvent(task: string, layer: LayerName): NewEvent {
   return { type: 'step/start', data: { task, layer } }
 }
 
-export function stepEndEvent(task: string, layer: LayerName, reason: string): NewEvent {
+export function stepEndEvent(task: string, layer: LayerName, reason: StepEndReason): NewEvent {
   return { type: 'step/end', data: { task, layer, reason } }
 }
 

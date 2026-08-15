@@ -37,6 +37,40 @@ export type EventType =
   | 'author/signal'
   | 'rule/hit'
 
+// ── F2：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
+// turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
+export const TURN_END_REASONS = [
+  'completed',
+  'aborted',
+  'blocked',
+  'error',
+  'max-tokens',
+  'interrupted',
+  'max-turns',
+] as const
+export type TurnEndReason = (typeof TURN_END_REASONS)[number]
+
+// step/end：单次任务调用收敛（六种；step 无轮数概念）
+export const STEP_END_REASONS = [
+  'completed',
+  'aborted',
+  'blocked',
+  'error',
+  'max-tokens',
+  'interrupted',
+] as const
+export type StepEndReason = (typeof STEP_END_REASONS)[number]
+
+// session/end：整会话结束（max-tokens = 回复截断导致会话提前终止）
+export const SESSION_END_REASONS = [
+  'completed',
+  'interrupted',
+  'aborted',
+  'error',
+  'max-tokens',
+] as const
+export type SessionEndReason = (typeof SESSION_END_REASONS)[number]
+
 /** 可上 surface 的事件类型（投影只处理这三类） */
 export const SURFACE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'user/message',

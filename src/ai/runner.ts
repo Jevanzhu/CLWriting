@@ -17,6 +17,7 @@ import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
 import { openSessionStore, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
+import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 
 /** 未定位到应用数据目录（统一文案） */
@@ -242,7 +243,7 @@ export async function runTask<T>(opts: {
   // P2：链路事件录制（主流程开始；mock 快路/未配置不记）——step/start 先落库
   chain = mkChain(opts.userDataPath, bookRoot, task)
   if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
-  let stepReason: string | undefined
+  let stepReason: StepEndReason | undefined
 
   // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
@@ -279,7 +280,7 @@ export async function runTask<T>(opts: {
             if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
           }
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
-          stepReason = timedOut ? 'timeout' : 'aborted'
+          stepReason = timedOut ? 'aborted' : 'aborted'
           return timeoutAbort()
         }
         // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
@@ -325,7 +326,7 @@ export async function runTask<T>(opts: {
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
             trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
-            stepReason = timedOut ? 'timeout' : 'aborted'
+            stepReason = timedOut ? 'aborted' : 'aborted'
             return timeoutAbort()
           }
           continue
