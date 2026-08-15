@@ -1,35 +1,112 @@
 <script setup lang="ts">
 // F1-P5 审计视图：事件重放 + 遮蔽差异（模型可见 vs 人类可见）+ 工作流链路。
 // 只读审计——展示「模型看到的 vs 人类看到的」差异，以及每本书的事件流与血缘引用。
+// AA-P2-1：长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
+// 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
 import { ref, computed, onMounted } from 'vue'
 import {
   ScrollText, Eye, EyeOff, GitBranch, RefreshCw, AlertCircle,
-  User, Bot, Wrench, ChevronRight, ChevronDown,
+  User, Bot, Wrench, ChevronRight, ChevronDown, MoreHorizontal,
 } from 'lucide-vue-next'
-import { getAudit, type AuditEventFE, type AuditNodeFE, type AuditViewFE } from '../api/audit'
+import { getAudit, type AuditConversationFE, type AuditEventFE, type AuditNodeFE, type GoalFE, type TodoFE } from '../api/audit'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 
-const view = ref<AuditViewFE | null>(null)
 const loading = ref(true)
 const err = ref<string | null>(null)
+/** 对话审计头部（投影/遮蔽差异；每页响应同源——foldSurface 全量计算，各页一致） */
+const conversation = ref<AuditConversationFE | null>(null)
+/** 累积的对话事件（跨页追加，按 seq 去重） */
+const convoEvents = ref<AuditEventFE[]>([])
+const convoTotal = ref(0)
+const convoLoadingMore = ref(false)
+/** 已载条数（= 下页 offset 起点） */
+const convoOffset = ref(0)
+/** 累积的工作流事件 */
+const workflowEvents = ref<AuditEventFE[]>([])
+const workflowTotal = ref(0)
+const workflowLoadingMore = ref(false)
+const workflowOffset = ref(0)
+const goals = ref<GoalFE[]>([])
+const todos = ref<TodoFE[]>([])
 /** 事件重放展开的 seq 集合（点开看 data / 血缘） */
 const expanded = ref<Set<number>>(new Set())
 /** 差异视图模式：'model' | 'human' */
 const diffMode = ref<'model' | 'human'>('model')
-/** 工作流 tab：'events' | 'workflow' */
+/** 工作流 tab：'convo' | 'workflow' */
 const tab = ref<'convo' | 'workflow'>('convo')
+
+/** 每页上限（与服务端 DEFAULT_PAGE_LIMIT 对齐） */
+const PAGE_LIMIT = 500
+
+const hasMoreConvo = computed(() => convoEvents.value.length < convoTotal.value)
+const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTotal.value)
 
 async function load(): Promise<void> {
   loading.value = true
   err.value = null
+  conversation.value = null
+  convoEvents.value = []
+  convoTotal.value = 0
+  convoOffset.value = 0
+  workflowEvents.value = []
+  workflowTotal.value = 0
+  workflowOffset.value = 0
+  goals.value = []
+  todos.value = []
   try {
-    view.value = await getAudit(props.bookName)
+    const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
+    conversation.value = v.conversation
+    convoEvents.value = v.conversation?.events ?? []
+    convoTotal.value = v.conversation?.eventsTotal ?? 0
+    convoOffset.value = convoEvents.value.length
+    workflowEvents.value = v.workflowEvents ?? []
+    workflowTotal.value = v.workflowTotal ?? 0
+    workflowOffset.value = workflowEvents.value.length
+    goals.value = v.goals ?? []
+    todos.value = v.todos ?? []
   } catch (e) {
     err.value = friendlyError(e)
   } finally {
     loading.value = false
+  }
+}
+
+/** 追加下一页对话事件（offset = 已载条数；seq 去重防 sync/重复请求混入） */
+async function loadMoreConvo(): Promise<void> {
+  if (convoLoadingMore.value || !hasMoreConvo.value) return
+  convoLoadingMore.value = true
+  err.value = null
+  try {
+    const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: convoOffset.value })
+    if (conversation.value === null) conversation.value = v.conversation
+    const seen = new Set(convoEvents.value.map((e) => e.seq))
+    const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
+    convoEvents.value.push(...fresh)
+    convoOffset.value = convoEvents.value.length
+  } catch (e) {
+    err.value = friendlyError(e)
+  } finally {
+    convoLoadingMore.value = false
+  }
+}
+
+/** 追加下一页工作流事件（对称实现；长自愈批的链路事件也可能超 500） */
+async function loadMoreWorkflow(): Promise<void> {
+  if (workflowLoadingMore.value || !hasMoreWorkflow.value) return
+  workflowLoadingMore.value = true
+  err.value = null
+  try {
+    const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
+    const seen = new Set(workflowEvents.value.map((e) => e.seq))
+    const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
+    workflowEvents.value.push(...fresh)
+    workflowOffset.value = workflowEvents.value.length
+  } catch (e) {
+    err.value = friendlyError(e)
+  } finally {
+    workflowLoadingMore.value = false
   }
 }
 
@@ -79,7 +156,7 @@ function roleIcon(n: AuditNodeFE): string {
 
 /** 差异列表：当前模式下的节点（model = 未遮蔽；human = 全量） */
 const diffNodes = computed<AuditNodeFE[]>(() => {
-  const c = view.value?.conversation
+  const c = conversation.value
   if (!c) return []
   return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
 })
@@ -90,9 +167,9 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
     <header class="audit-head">
       <div class="head-left">
         <h1 class="audit-title">事件审计</h1>
-        <span v-if="view?.conversation" class="shadow-hint">
-          <EyeOff :size="13" /> 遮蔽 {{ view.conversation.shadowedCount }} · 可见
-          {{ view.conversation.modelVisible.length }} / 人类 {{ view.conversation.humanVisible.length }}
+        <span v-if="conversation" class="shadow-hint">
+          <EyeOff :size="13" /> 遮蔽 {{ conversation.shadowedCount }} · 可见
+          {{ conversation.modelVisible.length }} / 人类 {{ conversation.humanVisible.length }}
         </span>
         <span v-else-if="!loading && !err" class="shadow-hint">本库尚无对话事件</span>
       </div>
@@ -103,20 +180,21 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 
     <p v-if="err" class="audit-err"><AlertCircle :size="14" /> {{ err }}</p>
 
-    <template v-if="view">
+    <template v-if="!loading">
       <!-- tab 切换 -->
       <div class="tabbar">
         <button :class="{ on: tab === 'convo' }" @click="tab = 'convo'">
           <ScrollText :size="14" /> 对话审计
+          <span v-if="convoTotal > 0" class="tab-total">{{ convoEvents.length }}/{{ convoTotal }}</span>
         </button>
         <button :class="{ on: tab === 'workflow' }" @click="tab = 'workflow'">
-          <GitBranch :size="14" /> 工作流链路（{{ view.workflowEvents.length }}）
+          <GitBranch :size="14" /> 工作流链路（{{ workflowEvents.length }}{{ hasMoreWorkflow ? '/' + workflowTotal : '' }}）
         </button>
       </div>
 
       <!-- 对话审计：重放 + 遮蔽差异 -->
       <template v-if="tab === 'convo'">
-        <template v-if="view.conversation">
+        <template v-if="conversation">
           <!-- 遮蔽差异：模型可见 vs 人类可见 对照 -->
           <section class="sec">
             <h2 class="sec-title">
@@ -151,11 +229,11 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
             </div>
           </section>
 
-          <!-- 事件重放（全量含遮蔽标记 + 血缘） -->
+          <!-- 事件重放（分页累积，含遮蔽标记 + 血缘） -->
           <section class="sec">
-            <h2 class="sec-title">事件重放（{{ view.conversation.events.length }}）</h2>
+            <h2 class="sec-title">事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）</h2>
             <div class="ev-list">
-              <div v-for="e in view.conversation.events" :key="e.seq" class="ev-row">
+              <div v-for="e in convoEvents" :key="e.seq" class="ev-row">
                 <button class="ev-toggle" @click="toggle(e.seq)">
                   <ChevronRight v-if="!expanded.has(e.seq)" :size="13" />
                   <ChevronDown v-else :size="13" />
@@ -175,7 +253,15 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
                   </p>
                 </div>
               </div>
-              <div v-if="view.conversation.events.length === 0" class="empty">暂无事件</div>
+              <div v-if="convoEvents.length === 0" class="empty">暂无事件</div>
+            </div>
+            <!-- AA-P2-1：截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
+            <div v-if="hasMoreConvo" class="pager">
+              <span class="pager-hint">已显示 {{ convoEvents.length }} / {{ convoTotal }} 条，更多最早事件待加载</span>
+              <button class="load-more" :disabled="convoLoadingMore" @click="loadMoreConvo">
+                <MoreHorizontal :size="14" :class="{ spin: convoLoadingMore }" />
+                {{ convoLoadingMore ? '加载中…' : '加载更多' }}
+              </button>
             </div>
           </section>
         </template>
@@ -185,10 +271,10 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
       <!-- 工作流链路 -->
       <template v-else>
         <!-- F5：当前目标 / 任务清单（goal/todo 重放快照） -->
-        <section v-if="view.goals.length > 0 || view.todos.length > 0" class="sec">
+        <section v-if="goals.length > 0 || todos.length > 0" class="sec">
           <h2 class="sec-title">当前状态（goal / todo）</h2>
           <div class="goal-list">
-            <div v-for="g in view.goals" :key="g.id" class="goal-row">
+            <div v-for="g in goals" :key="g.id" class="goal-row">
               <span class="goal-state" :data-state="g.state">{{ goalStateLabel(g.state) }}</span>
               <span class="goal-title">{{ g.title }}</span>
               <span class="goal-meta">
@@ -197,17 +283,17 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
               </span>
             </div>
           </div>
-          <div v-if="view.todos.length > 0" class="todo-list">
-            <span v-for="(t, i) in view.todos" :key="i" class="todo-item" :data-state="t.state">
+          <div v-if="todos.length > 0" class="todo-list">
+            <span v-for="(t, i) in todos" :key="i" class="todo-item" :data-state="t.state">
               {{ t.state === 'completed' ? '✓' : t.state === 'in_progress' ? '◐' : '○' }} {{ t.text }}
             </span>
           </div>
         </section>
 
         <section class="sec">
-          <h2 class="sec-title">工作流事件（{{ view.workflowEvents.length }}）</h2>
+          <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
           <div class="ev-list">
-            <div v-for="e in view.workflowEvents" :key="e.seq" class="ev-row">
+            <div v-for="e in workflowEvents" :key="e.seq" class="ev-row">
               <button class="ev-toggle" @click="toggle(e.seq)">
                 <ChevronRight v-if="!expanded.has(e.seq)" :size="13" />
                 <ChevronDown v-else :size="13" />
@@ -219,7 +305,14 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
                 <pre>{{ JSON.stringify(e.data, null, 2) }}</pre>
               </div>
             </div>
-            <div v-if="view.workflowEvents.length === 0" class="empty">暂无工作流事件（运行一次 AI 写作后可见）</div>
+            <div v-if="workflowEvents.length === 0" class="empty">暂无工作流事件（运行一次 AI 写作后可见）</div>
+          </div>
+          <div v-if="hasMoreWorkflow" class="pager">
+            <span class="pager-hint">已显示 {{ workflowEvents.length }} / {{ workflowTotal }} 条，更多最早事件待加载</span>
+            <button class="load-more" :disabled="workflowLoadingMore" @click="loadMoreWorkflow">
+              <MoreHorizontal :size="14" :class="{ spin: workflowLoadingMore }" />
+              {{ workflowLoadingMore ? '加载中…' : '加载更多' }}
+            </button>
           </div>
         </section>
       </template>
@@ -303,7 +396,38 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   background: var(--accent);
   color: var(--accent-contrast, #fff);
 }
+.tab-total {
+  margin-left: 5px;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
 .sec { margin-bottom: var(--size-4-5); }
+/* AA-P2-1：分页续页 */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-3);
+  margin-top: var(--size-4-3);
+  flex-wrap: wrap;
+}
+.pager-hint {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+.load-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.load-more:disabled { opacity: 0.55; cursor: default; }
 .sec-title {
   display: flex;
   align-items: center;

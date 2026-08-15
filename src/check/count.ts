@@ -99,25 +99,36 @@ export function checkWordCount(
 
 /**
  * 复读检查（#10 项 6，🟡 黄）。
- * 滑窗句级 n-gram 重复率。
+ * 滑窗句级 n-gram 重复率（P3-12 实装：此前实现是整句哈希，与注释宣称的 n-gram 不符，
+ * 重复句改一两个字就抓不住）。算法：对每个句子取字符级滑窗 n-gram，统计
+ * 「重复 n-gram 实例数 / 总 n-gram 数」为复读率——重复句改个别字仍有大量相同
+ * n-gram 被计数；阈值经测试校准，保持不误报正常文本。
  */
+const REPEAT_N_GRAM = 8
+
 export function checkRepeat(
   body: string,
   threshold = 0.15,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const sentences = splitSentences(body).filter((s) => s.length >= 6)
+  // 句子需 ≥ n-gram 长度才计入（过短句子无滑窗意义）
+  const sentences = splitSentences(body).filter((s) => s.length >= REPEAT_N_GRAM)
   const counts = new Map<string, number>()
+  let total = 0
   for (const s of sentences) {
-    counts.set(s, (counts.get(s) ?? 0) + 1)
+    for (let i = 0; i + REPEAT_N_GRAM <= s.length; i++) {
+      const gram = s.slice(i, i + REPEAT_N_GRAM)
+      counts.set(gram, (counts.get(gram) ?? 0) + 1)
+      total++
+    }
   }
-  // 重复实例数 = 每个重复句子（出现≥2次）的总出现次数 - 1
+  // 重复实例数 = 每个出现≥2次的 n-gram 的总出现次数 - 1
   let repeatInstances = 0
   for (const c of counts.values()) {
     if (c >= 2) repeatInstances += c - 1
   }
-  if (sentences.length > 0) {
-    const rate = repeatInstances / sentences.length
+  if (total > 0) {
+    const rate = repeatInstances / total
     if (rate > threshold) {
       items.push({
         checkId: 'repeat',
@@ -455,7 +466,10 @@ function adjStackRegex(maxAdjStack: number): RegExp {
 }
 
 function summaryEndingRegex(): RegExp {
-  return /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来).*(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
+  // P3-12：`.*` 不跨行 → 换 `[\s\S]*`（多行结尾（分段总结体）此前漏检；漏检方向安全不误报）
+  // AA-P3-6：前段改惰性 `[\s\S]*?`——触发词与收束词取「最近」配对，最小匹配窗，避免
+  // 同一收束窗内跨大段误配（结尾 140 字窗口内，贪婪会吞到最后一个收束词才回吐）。
+  return /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来)[\s\S]*?(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
 }
 
 /**
@@ -560,25 +574,25 @@ export function checkBodyParts(
 
 /**
  * 「像」比喻密度检查（#27 第 5.3 节，🟡 黄）。
- * 比喻泛滥计数：以「像」开头的比喻句超阈报黄。
+ * 比喻泛滥计数：明喻句式超阈报黄。
+ * P3-12：此前把所有「像」字都计入比喻统计（含「相像/很像/好像/不像/像他这样的人」
+ * 等非比喻），误报偏高——现按句式约束：像 + 名词性短语（可带「一样/似的/般」尾缀），
+ * 排除非比喻「像」字用法；「像刀/像雪」等短比与「像X一样」长比都计。
  */
+const SIMILE_RE = /(?:^|[^相很好不像])(像)(?!他|她|你|我|这|那)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
+
 export function checkSimile(
   body: string,
   threshold = 10,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 统计「像」字出现次数（粗计；精确判定比喻句需语义，零 token 取近似）
-  let count = 0
-  let idx = body.indexOf('像')
-  while (idx !== -1) {
-    count++
-    idx = body.indexOf('像', idx + 1)
-  }
+  // 统计明喻句式命中数（粗计；精确判定比喻语义需 NLP，零 token 取句式近似）
+  const count = (body.match(SIMILE_RE) ?? []).length
   if (count > threshold) {
     items.push({
       checkId: 'simile-density',
       level: 'yellow',
-      message: `「像」出现 ${count} 次超阈值（≤${threshold}），比喻泛滥疑似 AI 味`,
+      message: `比喻句「像…」出现 ${count} 次超阈值（≤${threshold}），比喻泛滥疑似 AI 味`,
     })
   }
   return { name: '比喻密度', items }

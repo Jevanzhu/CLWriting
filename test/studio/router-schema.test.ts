@@ -89,6 +89,21 @@ describe('E2: route schema 单点声明', () => {
     srv.close()
   })
 
+  it('AA-P3-10: 路径参数损坏 % 编码 → 400 {error} 信封（不再 500）', async () => {
+    // decodeURIComponent('%E4%') 抛 URIError——此前 decode 在 handler try 外，
+    // URIError 逃出 dispatch → 外层 catch → 500；现 decode 入 try，解析失败归 400。
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const resp = await fetch(`http://127.0.0.1:${port}/e2/%E4%/echo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ n: 1 }),
+    })
+    expect(resp.status).toBe(400)
+    expect(await resp.json()).toEqual({ error: '路径参数编码无效' })
+    srv.close()
+  })
+
   it('Z-P2-9：handler 抛非 HttpError → 500 {error} 信封 + console.error 留诊断日志', async () => {
     // 异常被 dispatch 内部 catch 兜底（外层 index.ts 的 try 接不到），
     // 若无日志则 500「内部错误」无从排障——验证日志已打且含 method/url/原始异常

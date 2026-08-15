@@ -82,6 +82,14 @@ export const useChatStore = defineStore('chat', () => {
       case 'sync': {
         // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
         running.value = ev['chatRunning'] === true
+        // AA-P3-8：regenPending 陷阱态恢复——regenPending 只由 chat_done/chat_error 复位，
+        // 若 SSE 全断且这两者都没到，防重入标志永久卡死「重新生成」。重连的 sync 是权威
+        // 快照：后端不在跑对话（chatRunning=false）→ 那次 regenerate 的回合要么从未启动、
+        // 要么已结束（chat_done 已消费掉但前端没收到）→ 必须复位标志，允许再次触发。
+        if (!running.value && regenPending) {
+          regenPending = false
+          regenBook = null
+        }
         // P2-9：重连时后端只补发 chatRunning，不重发 chat_turn——若旧 currentIdx 已随回合结束失效，
         // 找到最后一个未 done 的 assistant 气泡重建索引（否则 chat_text 追加到错误气泡或被静默丢弃）
         if (running.value && (currentIdx < 0 || messages.value[currentIdx]?.done)) {
@@ -184,6 +192,12 @@ export const useChatStore = defineStore('chat', () => {
           regenPending = false
           regenBook = null
         }
+        break
+      }
+      case 'notice': {
+        // AA-P3-1：队列超容丢弃最旧消息等非错误提示（与「已加入队列」同通道展示）
+        const msg = str(ev['message'])
+        if (msg) notice.value = msg
         break
       }
     }

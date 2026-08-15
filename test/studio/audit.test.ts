@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, userMessageEvent, assistantMessageEvent, sessionStartEvent } from '../../src/events/chat-bridge.js'
 import { stepStartEvent, llmCallEvent, goalChangeEvent, todoWriteEvent } from '../../src/events/chain-bridge.js'
-import { buildAuditView } from '../../src/studio/server/api/audit.js'
+import { buildAuditView, parseAuditPaging } from '../../src/studio/server/api/audit.js'
 
 function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T): T {
   const userData = mkdtempSync(join(tmpdir(), 'audit-'))
@@ -149,6 +149,93 @@ describe('F1-P5 buildAuditView', () => {
       expect(goals).toEqual([])
       expect(todos).toEqual([])
     })
+  })
+})
+
+describe('AA-P2-1/AA-P2-2: audit 分页', () => {
+  /** 造 N 条对话消息（N 条 user + N 条 assistant = 2N 事件，全部一次 append） */
+  function seedConvo(store: NonNullable<ReturnType<typeof openSessionStore>>, n: number): void {
+    const sid = store.createSession('conv', { book: 'conv' })
+    const evs: Parameters<typeof store.appendEvents>[1] = []
+    for (let i = 0; i < n; i++) {
+      evs.push(userMessageEvent(`消息${i}`))
+      evs.push(assistantMessageEvent(`回复${i}`))
+    }
+    store.appendEvents(sid, evs)
+  }
+
+  it('默认 limit=500 截断 + eventsTotal 全量（长书 >500 不一次全量进响应）', () => {
+    withStore((store) => {
+      seedConvo(store, 400) // 800 条事件 > 默认 500
+      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent')
+      expect(conversation).not.toBeNull()
+      expect(conversation!.eventsTotal).toBe(800)
+      expect(conversation!.events).toHaveLength(500) // 默认页截断
+      // listEvents 升序 → 首页为最早 500 条
+      expect(conversation!.events[0]!.seq).toBe(1)
+      expect(conversation!.events[499]!.seq).toBe(500)
+    })
+  })
+
+  it('分页参数透传：offset 推进 → 后页切片（total 恒全量，切片不重叠）', () => {
+    withStore((store) => {
+      seedConvo(store, 10) // 20 条
+      const page1 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
+      expect(page1.conversation!.events).toHaveLength(8)
+      expect(page1.conversation!.eventsTotal).toBe(20)
+      expect(page1.conversation!.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+      const page2 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
+      expect(page2.conversation!.events.map((e) => e.seq)).toEqual([9, 10, 11, 12, 13, 14, 15, 16])
+      const page3 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 16 })
+      expect(page3.conversation!.events.map((e) => e.seq)).toEqual([17, 18, 19, 20])
+      // 切片拼接 = 全量（无重叠无遗漏）
+      const all = [...page1.conversation!.events, ...page2.conversation!.events, ...page3.conversation!.events]
+      expect(all.map((e) => e.seq)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
+    })
+  })
+
+  it('offset 出界 → 自然空页（total 仍全量，不炸）', () => {
+    withStore((store) => {
+      seedConvo(store, 2) // 4 条
+      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 500, offset: 999 })
+      expect(conversation!.events).toHaveLength(0)
+      expect(conversation!.eventsTotal).toBe(4)
+    })
+  })
+
+  it('workflowTotal 透出：工作流事件同样按页截断 + 总数', () => {
+    withStore((store, bookRoot) => {
+      const sid = store.workspaceSession(bookHash(bookRoot))
+      const evs: Parameters<typeof store.appendEvents>[1] = []
+      for (let i = 0; i < 12; i++) evs.push(stepStartEvent(`步骤${i}`, 'review'))
+      store.appendEvents(sid, evs)
+      const { workflowEvents, workflowTotal } = buildAuditView(store, 'conv', bookRoot, { limit: 5, offset: 0 })
+      expect(workflowTotal).toBe(12)
+      expect(workflowEvents).toHaveLength(5)
+    })
+  })
+})
+
+describe('AA-P2-2: limit 夹取（分页保护不可打穿）', () => {
+  it('limit=0 / 负 / 非法 → 回缺省 500', () => {
+    expect(parseAuditPaging('0', null)).toEqual({ limit: 500, offset: 0 })
+    expect(parseAuditPaging('-3', null)).toEqual({ limit: 500, offset: 0 })
+    expect(parseAuditPaging('abc', null)).toEqual({ limit: 500, offset: 0 })
+    expect(parseAuditPaging('', null)).toEqual({ limit: 500, offset: 0 })
+    expect(parseAuditPaging(null, null)).toEqual({ limit: 500, offset: 0 })
+  })
+
+  it('limit 超大 → 夹取到 500（999999999 不能打穿截断）', () => {
+    expect(parseAuditPaging('999999999', null)).toEqual({ limit: 500, offset: 0 })
+  })
+
+  it('合法 limit/offset 原样保留', () => {
+    expect(parseAuditPaging('100', '200')).toEqual({ limit: 100, offset: 200 })
+  })
+
+  it('offset 非法/负 → 0（无上界，出界自然空页）', () => {
+    expect(parseAuditPaging(null, '-1')).toEqual({ limit: 500, offset: 0 })
+    expect(parseAuditPaging(null, 'x')).toEqual({ limit: 500, offset: 0 })
   })
 })
 

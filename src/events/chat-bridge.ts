@@ -154,18 +154,12 @@ export class SessionRecorder {
   /** 落库当前批 → 该批事件 seq 区间 [first, last]；无 store 或空批 → null */
   flush(): { first: number; last: number } | null {
     if (!this.store || this.pending.length === 0) return null
-    const n = this.pending.length
-    const before = this.store.lastSeq()
-    // P3 血缘：sourceSeqs 以「批内序号」传入（0-based，同批前驱引用），落库前转全局 seq
-    const resolved = this.pending.map((ev, _idx) => {
-      if (ev.sourceSeqs && ev.sourceSeqs.length > 0) {
-        return { ...ev, sourceSeqs: ev.sourceSeqs.map((s) => before + 1 + s) }
-      }
-      return ev
-    })
-    this.store.appendEvents(this.sessionId, resolved)
+    // AA-P3-7：血缘 seq 不再用 lastSeq()+批内序号推算（多窗口并发写事件库时 lastSeq()
+    // 与落库之间无原子性，可能错链到别的窗口）——INSERT RETURNING 取数据库真实分配的
+    // seq，sourceSeqs 批内索引在同一事务内回写解析。
+    const seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)
     this.pending = []
-    const range = { first: before + 1, last: before + n }
+    const range = { first: seqs[0]!, last: seqs[seqs.length - 1]! }
     this.flushedRanges.push(range)
     return range
   }

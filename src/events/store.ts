@@ -36,6 +36,10 @@ export interface SessionStore {
   dbPath: string
   createSession(book: string, header?: Record<string, unknown>): string
   appendEvents(sessionId: string, events: NewEvent[]): number
+  /** AA-P3-7：落库并返回真实分配的 seq（INSERT RETURNING，单事务内回写血缘）。
+   *  events 的 sourceSeqs 按「批内序号」（0-based，同批前驱引用）传入；返回 seq 数组与
+   *  events 一一对应。血缘推算不再依赖 lastSeq()+批内序号（多窗口并发写时可错链）。 */
+  appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
   appendEvent(sessionId: string, ev: NewEvent): number
   listEvents(book: string, sessionId?: string): ChatEvent[]
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
@@ -182,6 +186,9 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
       );
+      const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
+      // P3-9：sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
+      // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
       db.exec('BEGIN')
       try {
         for (const e of evs) {
@@ -189,13 +196,48 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
             e.surfaceOp ?? null, e.shadowStart ?? null, e.shadowEnd ?? null,
             e.sourceSeqs ? JSON.stringify(e.sourceSeqs) : null, now)
         }
+        touch.run(now, sessionId)
         db.exec('COMMIT')
       } catch (err) {
         db.exec('ROLLBACK')
         throw err
       }
-      db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?').run(now, sessionId)
       return evs.length
+    },
+    // AA-P3-7：INSERT RETURNING 取真实 seq，sourceSeqs 批内索引同事务回写解析——
+    // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
+    appendEventsResolveLineage(sessionId: string, evs: NewEvent[]): number[] {
+      const now = Date.now()
+      const ins = db.prepare(
+        `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?) RETURNING seq`
+      )
+      const upd = db.prepare('UPDATE events SET source_seqs = ? WHERE session_id = ? AND seq = ?')
+      const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
+      db.exec('BEGIN')
+      try {
+        const seqs: number[] = []
+        for (const e of evs) {
+          const row = ins.get(
+            sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
+            e.surfaceOp ?? null, e.shadowStart ?? null, e.shadowEnd ?? null, now,
+          ) as { seq: number }
+          seqs.push(row.seq)
+        }
+        // 血缘回写：批内序号（0-based 同批前驱引用）→ 真实全局 seq，与插入同事务
+        evs.forEach((e, idx) => {
+          if (e.sourceSeqs && e.sourceSeqs.length > 0) {
+            const resolved = e.sourceSeqs.map((s) => seqs[s]!)
+            upd.run(JSON.stringify(resolved), sessionId, seqs[idx]!)
+          }
+        })
+        touch.run(now, sessionId)
+        db.exec('COMMIT')
+        return seqs
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
     },
     appendEvent(sessionId: string, ev: NewEvent): number {
       return this.appendEvents(sessionId, [ev])
@@ -227,8 +269,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     },
     latestSession(book: string): SessionRow | null {
       // P2：排除 workspace 会话（ws- 前缀）——链路事件不干扰对话恢复选会话
+      // P3-9：ORDER BY 加 rowid tiebreaker——同一毫秒创建/更新的多个会话选择结果稳定
+      //（此前仅 updated_at DESC，同毫秒无次序锚，恢复选择不确定）
       const stmt = db.prepare(
-        `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC LIMIT 1`
+        `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`
       );
       const r = stmt.get(book) as SessionRow | undefined
       return r ?? null

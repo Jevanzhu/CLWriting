@@ -60,14 +60,33 @@ test('checkBodyParts: 未超阈通过', () => {
 
 // ── checkSimile ──────────────────────────────────
 
-test('checkSimile: 「像」超阈报黄', () => {
-  const r = checkSimile('像'.repeat(11), 10)
+test('checkSimile: 明喻句式超阈报黄', () => {
+  const r = checkSimile('像雪花一样飘落。像月光一样清冷。像石头一样沉默。像流水一样绵长。像火焰一样炽热。像薄雾一样朦胧。像刀锋一样锋利。像湖水一样平静。像远山一样巍峨。像灯火一样温暖。像尘埃一样渺小。像星河一样浩瀚。', 10)
   expect(r.items).toHaveLength(1)
-  expect(r.items[0]!.message).toContain('11')
+  expect(r.items[0]!.message).toContain('12')
+})
+
+test('checkSimile: 非明喻「像」字不计入（P3-12 模式约束）', () => {
+  expect(checkSimile('他很像他的父亲。相像之处颇多。', 10).items).toHaveLength(0)
+  expect(checkSimile('像'.repeat(11), 10).items).toHaveLength(0)
 })
 
 test('checkSimile: 未超阈通过', () => {
-  expect(checkSimile('像像像', 10).items).toHaveLength(0)
+  expect(checkSimile('像雪花一样飘落。', 10).items).toHaveLength(0)
+})
+
+test('AA-P3-6 金测: 真实语料明喻计数——4 处明喻 + 非比喻「像」不误计（漏报/误报基线）', () => {
+  const body = [
+    '她坐在窗前，很像她母亲年轻时的样子。', // 很像 → 非比喻，不计
+    '月光像水一样漫过桌角，他的手指像枯枝般蜷着，心却像刀割一样疼。', // 3 处
+    '她不像从前那样容易相信别人了。', // 不像 → 非比喻，不计
+    '门外站着一个人，像一尊沉默的石像。', // 1 处
+  ].join('')
+  // 恰 4 处明喻：阈 4 → 不报（= 不漏报也不误报的临界）；阈 3 → 报
+  expect(checkSimile(body, 4).items).toHaveLength(0)
+  const over = checkSimile(body, 3)
+  expect(over.items).toHaveLength(1)
+  expect(over.items[0]!.message).toContain('4')
 })
 
 // ── checkSectionCount ────────────────────────────

@@ -269,7 +269,13 @@ export function registerDegradedPersist(fn: (key: string) => void): void {
   _persistDegraded = fn
 }
 export function persistDegraded(key: string): void {
-  _persistDegraded?.(key)
+  if (!_persistDegraded) return
+  try {
+    _persistDegraded(key)
+  } catch {
+    // AA-P3-5：降级记忆是优化通道——写失败（load/save 抛错）不向调用方传播，不得中断
+    // 已成功的建流；失败由 runner 侧「不标记」承载，下次 persistDegraded 自然重试。
+  }
 }
 
 /**

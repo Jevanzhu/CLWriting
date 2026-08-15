@@ -101,3 +101,35 @@ test('E1b: pre 语义保留——无消费者期间事件仍由首个消费者�
   ccDriver.dispose(session)
 })
 
+test('AA-P3-2: pre 队列有 cap——无消费者超量事件只接管最近 N 个（防无限增堆）', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  // 无消费者 emit 超量事件（> MAX_PRE_EVENTS = MAX_EXEC_RING）
+  for (let i = 0; i < MAX_EXEC_RING + 10; i++) {
+    ccDriver.emit!(session, { type: 'chat_text', text: '暂存' + i })
+  }
+  // 首个消费者只接管最近 N 个：cap=200 → 从 暂存10 开始（前 10 个被挤掉）
+  const gen = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const e1 = await firstEvent(gen)
+  expect((e1 as { text: string }).text).toBe('暂存10')
+  ccDriver.dispose(session)
+})
+
+test('AA-P3-3: 执行终态事件先入 ring 再关 active——活跃执行期间 ring 含终态锚', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const genA = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const pendingA = genA.next()
+  ccDriver.emit!(session, { type: 'chat_start' })
+  ccDriver.emit!(session, { type: 'chat_text', text: '过程' })
+  ccDriver.emit!(session, { type: 'chat_done' }) // 终态：先入 ring 再关 active
+  // 消费 A 的完整流（含终态锚）——修复前 chat_done 不进 ring，但 A 是活连接经广播也能收到；
+  // 关键不变式：ring 内容 = 完整执行（start/过程/done），新执行开始时才清空
+  const a1 = await pendingA
+  expect((a1.value as { type: string }).type).toBe('chat_start')
+  const a2 = await genA.next()
+  expect((a2.value as { text: string }).text).toBe('过程')
+  const a3 = await genA.next()
+  expect((a3.value as { type: string }).type).toBe('chat_done')
+  await genA.return!({ type: 'notice', message: '' } as never)
+  ccDriver.dispose(session)
+})
+

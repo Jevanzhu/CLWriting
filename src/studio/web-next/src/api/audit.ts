@@ -23,9 +23,17 @@ export interface AuditNodeFE {
 
 export interface AuditConversationFE {
   events: AuditEventFE[]
+  /** AA-P2-1：对话事件总条数（与 events.length 区分——前者是当前页条数，后者是能否翻页的总数） */
+  eventsTotal: number
   modelVisible: AuditNodeFE[]
   humanVisible: AuditNodeFE[]
   shadowedCount: number
+}
+
+/** AA-P2-1：分页参数（limit 服务端夹取 1..500；offset 为已载条数起点） */
+export interface AuditPagingFE {
+  limit?: number
+  offset?: number
 }
 
 /** F5：goal 当前态快照（foldGoals 重放） */
@@ -50,11 +58,19 @@ export interface TodoFE {
 export interface AuditViewFE {
   conversation: AuditConversationFE | null
   workflowEvents: AuditEventFE[]
+  /** AA-P2-1：工作流事件总条数（分页续页用） */
+  workflowTotal: number
   goals: GoalFE[]
   todos: TodoFE[]
 }
 
-/** GET /api/books/:name/audit → 审计视图 */
-export async function getAudit(bookName: string): Promise<AuditViewFE> {
-  return apiJson<AuditViewFE>('/api/books/' + encodeURIComponent(bookName) + '/audit')
+/** GET /api/books/:name/audit → 审计视图（可选分页参数，AA-P2-1：前端翻页靠 offset 推进） */
+export async function getAudit(bookName: string, paging?: AuditPagingFE): Promise<AuditViewFE> {
+  const q = new URLSearchParams()
+  if (paging?.limit !== undefined) q.set('limit', String(paging.limit))
+  if (paging?.offset !== undefined) q.set('offset', String(paging.offset))
+  const qs = q.toString()
+  return apiJson<AuditViewFE>(
+    '/api/books/' + encodeURIComponent(bookName) + '/audit' + (qs ? '?' + qs : ''),
+  )
 }

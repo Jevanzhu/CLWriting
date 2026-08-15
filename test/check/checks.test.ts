@@ -514,6 +514,22 @@ test('checkStyleMetrics: 顿号分隔形容词堆叠 + 扩展总结体 → 黄',
   expect(r.items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
 })
 
+test('AA-P3-6 金测: 结尾总结体——动作/画面收束不误报，真总结体不漏报', () => {
+  const rules = parseIronRules('结尾总结体: 禁止')
+  // 误报基线：动作/物件/画面收束（无触发+收束配对）→ 不报
+  const sceneEnding = [
+    '他松开手，刀锋贴着地面滑出一线火光。',
+    '北风掀开帘子，把桌上的灯吹灭了。',
+  ].join('\n')
+  expect(checkStyleMetrics(sceneEnding, rules).items.some((i) => i.checkId === 'style-summary-ending')).toBe(false)
+  // 漏报基线：真·总结体（触发词 + 收束词同段，跨行也命中）→ 报
+  const summaryEnding = [
+    '这一刻他终于明白，',
+    '所谓命运，不过是自己给的答案。',
+  ].join('\n')
+  expect(checkStyleMetrics(summaryEnding, rules).items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
+})
+
 // ── 信息差候选（#10 项 11，黄）─────────────────────
 
 test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 静默跳过（X-P2-22，不再产未启用黄）', () => {

@@ -76,10 +76,22 @@ export async function dispatch(
     // E2：null-prototype 对象组装 path 参数——防 __proto__/constructor 原型链注入
     // （防御纵深：key 虽来自开发者定义的 path 模板，但 value 是外部 URL 解码，零原型保险）
     const params: Record<string, string> = Object.create(null) as Record<string, string>
-    r.keys.forEach((k, i) => {
-      const v = m[i + 1]
-      if (typeof v === 'string') params[k] = decodeURIComponent(v)
-    })
+    // AA-P3-10：decode 入 try——路径参数含损坏 % 编码（如 /api/books/%E4%）时
+    // decodeURIComponent 抛 URIError；此前在 handler try 外抛出 → 外层 500。
+    // 参数解析失败是客户端请求问题 → 归 400（不泄漏内部细节）。
+    try {
+      r.keys.forEach((k, i) => {
+        const v = m[i + 1]
+        if (typeof v === 'string') params[k] = decodeURIComponent(v)
+      })
+    } catch {
+      console.error('[api] bad path encoding:', req.method, req.url)
+      if (!res.headersSent) {
+        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: '路径参数编码无效' }))
+      }
+      return true
+    }
     try {
       await r.handler(req, res, params)
     } catch (e) {

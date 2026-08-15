@@ -56,9 +56,11 @@ export function useSse(bookName: WatchSource<string>): void {
     es.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)
-        // chat_* → chat store；sync → 同时给 chat（同步运行态防锁死）和 workbench
+        // chat_* → chat store；sync → 同时给 chat（同步运行态防锁死）和 workbench；
+        // notice（AA-P3-1：队列丢弃提示）→ chat store（对话域信息）
         const t = typeof data?.type === 'string' ? data.type : ''
-        if (t === 'sync' || t.startsWith('chat_')) chat.dispatch(data)
+        const isChat = t === 'sync' || t.startsWith('chat_') || t === 'notice'
+        if (isChat) chat.dispatch(data)
         if (t === 'sync' || !t.startsWith('chat_')) wb.dispatch(data)
       } catch {
         /* 非 JSON 静默丢弃（细案 §2.2） */

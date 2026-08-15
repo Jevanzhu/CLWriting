@@ -17,6 +17,7 @@
  * 3. 分层保留：写入后顺带 prune，越近越细越远越粗（pinned 跳过）
  */
 import { existsSync, readdirSync, renameSync, unlinkSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
@@ -86,6 +87,46 @@ const DAY_MS = 86_400_000
 const FINE_WINDOW_MS = 2 * HOUR_MS
 
 /**
+ * P3-14：最新同 origin 版本内容指纹缓存（去重优化）。
+ * 写版本前的去重此前每次全量读盘扫历史（复杂度随版本数线性涨）；现改为
+ * 「指纹缓存命中 O(1) 跳过，冷缓存才读盘比对」。
+ *
+ * AA-P1-1 修正：缓存值改存「版本 id + fp」，命中需满足两个条件——
+ *   ① fp 相等；② 缓存指向的版本 id **仍在盘**（prune 可能已把那份文件删掉）。
+ * 版本被 prune 删掉后，缓存必须失效（回到读盘比对）——否则「内容恰好等于被删
+ * 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背 W0-1 留底纪律。
+ * 另有第二道防线：pruneVersions 删除时同步失效对应缓存条目。
+ * 缓存 key 含 versionsDir + docId + origin，Map 有 size 上限（进程级防缓涨）。
+ */
+interface VersionFpCacheEntry {
+  /** 缓存指向的版本 id（用于校验其是否仍在盘） */
+  id: string
+  fp: string
+}
+const latestOriginHash = new Map<string, VersionFpCacheEntry>()
+/** 进程级缓存上限（防多书长跑缓涨）——超限丢最旧（Map 按插入序） */
+const MAX_CACHE_ENTRIES = 500
+
+function contentFingerprint(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+/** 缓存超限修剪（写入后调用） */
+function trimVersionCache(): void {
+  while (latestOriginHash.size > MAX_CACHE_ENTRIES) {
+    const oldest = latestOriginHash.keys().next().value
+    if (oldest === undefined) break
+    latestOriginHash.delete(oldest)
+  }
+}
+
+/** 写缓存条目 + 超限修剪（AA-P1-1：Map 有 size 上限，防多书长跑缓涨） */
+function setVersionCache(cacheKey: string, entry: VersionFpCacheEntry): void {
+  latestOriginHash.set(cacheKey, entry)
+  trimVersionCache()
+}
+
+/**
  * 建版本：全文 + front matter 元信息（来源/原因/基线/字数/永久）。
  * 返回版本 id；被去重或节流跳过时返回 null。写入成功后顺带 prune（不引定时器）。
  */
@@ -103,6 +144,9 @@ export function writeVersion(
   if (!safeDocId(docId)) return null
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]
+  // P3-14：去重指纹缓存 key（含 versionsDir 防跨书碰撞）
+  const cacheKey = `${versionsDir}\u0000${docId}\u0000${meta.origin}`
+  const fp = contentFingerprint(content)
 
   if (latest) {
     // 节流：窗口内已有版本 → 跳过（force 时不限）
@@ -114,11 +158,26 @@ export function writeVersion(
     // 覆写留底共处同一档案但语义不同：跨 origin 同内容去重会把「覆写留底」吞掉（snapshotted
     // 假 false、恢复点被 ai 记录顶替），反向也会让 ai 轨迹被快照顶掉。只与「最新的同 origin
     // 版本」比对同内容；不同 origin 的内容独立保留（各自受分层/数量策略约束）。
+    // P3-14 + AA-P1-1：先查指纹缓存 O(1)；命中须同时满足 ① fp 相等 ② 缓存指向的版本 id
+    // **仍在盘**（prune 删除/外部删除/陈旧缓存都会让 id 失配）——否则「内容恰等于已删
+    // 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背 W0-1 留底纪律。
+    // 任一不满足 → 缓存失效，落读盘比对（保持「最新同 origin」比对语义）。冷缓存直接读盘。
+    const cached = latestOriginHash.get(cacheKey)
+    const cacheAlive = cached !== undefined && existing.some((s) => s.id === cached.id)
+    if (cacheAlive) {
+      if (cached!.fp === fp) return null // 命中：去重跳过
+    } else if (cached !== undefined) {
+      // 缓存指向的版本已不在盘 → 失效，回读盘比对
+      latestOriginHash.delete(cacheKey)
+    }
     for (const s of existing) {
       const prev = readVersion(versionsDir, docId, s.id)
       if (!prev) continue
       if (prev.meta.origin !== meta.origin) continue
-      if (prev.content === content) return null
+      if (prev.content === content) {
+        setVersionCache(cacheKey, { id: s.id, fp })
+        return null
+      }
       break
     }
   }
@@ -133,6 +192,9 @@ export function writeVersion(
   front.push('---', '')
   const file = join(versionsDir, docId, `${id}.md`)
   atomicWriteFile(file, front.join('\n') + content, { fsync: true })
+  // P3-14 + AA-P1-1：写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
+  // 命中时校验该 id 仍在盘；Map 有 size 上限防缓涨）
+  setVersionCache(cacheKey, { id, fp })
   pruneVersions(versionsDir, docId, policy)
   return id
 }

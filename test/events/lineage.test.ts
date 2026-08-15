@@ -189,6 +189,41 @@ describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
       store.close()
     }
   })
+
+  it('AA-P3-7: sourceSeqs 用 INSERT RETURNING 真实 seq——非零基线（前序事件）下批内索引仍正确映射', () => {
+    const ud = tmpRoot()
+    const bookRoot = '/books/l'
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const sessionId = store.createSession('l', { book: 'l' })
+      // 基线：直接落 3 条前序事件（seq 1..3），把 lastSeq 推到 3——旧实现用
+      // lastSeq()+批内序号推算，与「真实分配 seq」在并发写窗口下可能错链
+      store.appendEvents(sessionId, [
+        { type: 'user/message', data: { text: '基线1' } },
+        { type: 'user/message', data: { text: '基线2' } },
+        { type: 'user/message', data: { text: '基线3' } },
+      ])
+
+      const rec = new SessionRecorder(store, sessionId)
+      rec.add(sessionStartEvent('l')) // 批内 0 → 真实 seq 4
+      const settingsIdx = rec.add(settingsSnapshotEvent({ scope: 'settings', digest: 'd2' })) // 批内 1 → 5
+      const revisionIdx = rec.add(revisionRefEvent({ chapter: 2, revision: 'r2', path: '写作/正文/2.md' })) // 批内 2 → 6
+      rec.add(assistantMessageEvent('ok', undefined, undefined, [settingsIdx, revisionIdx])) // 批内 3 → 7
+      const range = rec.flush()!
+      expect(range).toEqual({ first: 4, last: 7 })
+
+      const evs = store.listEvents('l')
+      const asst = evs.find((e) => e.type === 'assistant/message')!
+      // 真实 seq：批内 1→5、批内 2→6（= 数据库实际分配的 seq，而非 lastSeq 推算）
+      expect(asst.sourceSeqs).toEqual([5, 6])
+      expect(asst.sourceSeqs!.every((s) => s < asst.seq)).toBe(true)
+      // 血缘可回溯：5/6 都能在事件流定位到 settings/snapshot 与 revision/ref
+      expect(evs.find((e) => e.seq === 5)!.type).toBe('settings/snapshot')
+      expect(evs.find((e) => e.seq === 6)!.type).toBe('revision/ref')
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('F1-P3 recordForeshadowChanges', () => {

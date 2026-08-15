@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
-import { persistDegraded } from '../../src/ai/provider/store.js'
+import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
@@ -25,6 +25,7 @@ function tempUserData(): string {
 afterEach(() => {
   for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
+  resetDegradedChannels()
 })
 
 /** 写最小 providers.json（明文 apiKey，loadProviders 自动迁移加密） */
@@ -363,5 +364,22 @@ describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {
     // 落盘内容含 modelCaps 记忆
     const raw = JSON.parse(readFileSync(fp, 'utf8'))
     expect(raw.modelCaps?.[key]).toEqual({ structured: false })
+  })
+
+  it('AA-P3-5: 写失败不传播（吞错）且不标记——下次成功调用自动重试', () => {
+    const calls: string[] = []
+    // 第一次回调模拟 load/save 抛错（磁盘忙/权限）
+    registerDegradedPersist((key) => {
+      calls.push(key)
+      throw new Error('disk busy')
+    })
+    // 吞错：不向调用方（适配器建流）传播
+    expect(() => persistDegraded('a/b')).not.toThrow()
+    // 换正常回调 → 同一 key 必须真正执行（失败未标记 → 重试成功）
+    registerDegradedPersist((key) => {
+      calls.push(key)
+    })
+    persistDegraded('a/b')
+    expect(calls).toEqual(['a/b', 'a/b']) // 失败一次 + 重试成功一次
   })
 })

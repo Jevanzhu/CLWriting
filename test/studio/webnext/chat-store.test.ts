@@ -83,6 +83,14 @@ describe('W3: chat store 事件分派', () => {
     expect(chat.running).toBe(false)
     expect(chat.error).toBe('出错了')
   })
+
+  it('AA-P3-1: notice 事件 → notice 提示（队列丢弃可感知）', () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'notice', message: '对话队列已满：已丢弃最旧的排队消息…' })
+    expect(chat.notice).toContain('已丢弃最旧的排队消息')
+    chat.clear()
+    expect(chat.notice).toBeNull()
+  })
 })
 
 describe('W3: 工具卡片状态流转', () => {
@@ -441,6 +449,42 @@ describe('G1: regenerate 重新生成', () => {
     expect(chat.messages[0]!.role).toBe('user')
     expect(chat.messages[1]!.content).toBe('新版回复')
     expect(chat.messages[1]!.done).toBe(true)
+  })
+
+  it('AA-P3-8: sync(chatRunning=false) 复位 regenPending 陷阱态——SSE 全断后仍可再次重新生成', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockResolvedValueOnce({ ok: true })
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A') // POST 成功 → handedOff=true → regenPending=true（陷阱态）
+    expect(chat.messages).toHaveLength(1) // 已截断到 user
+    // SSE 全断且无 chat_done/chat_error → 重连的 sync 快照：后端不在跑
+    chat.dispatch({ type: 'sync', chatRunning: false })
+    // 复位后允许再次触发：先走完一轮新对话（最后一条 assistant done）
+    chat.pushUser('再问一次')
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    chat.dispatch({ type: 'chat_text', text: '新回复' })
+    chat.dispatch({ type: 'chat_done' })
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockResolvedValueOnce({ ok: true })
+    await chat.regenerate('书A') // 未被 regenPending 永久卡死 → POST 再次发出
+    expect(regenMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('AA-P3-8 回归: sync(chatRunning=true) 不误复位——回合在途时防重入标志保留', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    regenMock.mockResolvedValueOnce({ ok: true })
+    const chat = useChatStore()
+    seedLocalTurn(chat)
+    await chat.regenerate('书A') // regenPending=true, regenBook='书A'
+    branchesMock.mockClear()
+    // 重连 sync：后端仍在跑那次 regenerate → chatRunning=true → 标志必须保留
+    chat.dispatch({ type: 'sync', chatRunning: true })
+    // 后续 chat_done 正常复位 + 刷新分支（若 sync 误复位了标志，这里就不会刷新）
+    chat.dispatch({ type: 'chat_done' })
+    await vi.waitFor(() => expect(branchesMock).toHaveBeenCalledTimes(1))
+    expect(regenMock).toHaveBeenCalledTimes(1) // 期间没有第二次 regenerate 被误放行
   })
 })
 

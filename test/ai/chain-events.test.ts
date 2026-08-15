@@ -164,5 +164,45 @@ describe('F1-P2 runTask 链事件', () => {
     const end = evs.at(-1)!.data as { reason: string }
     expect(end.reason).toBe('aborted')
   })
+
+  it('AA-P3-4: 总超时 → step/end(interrupted)（与用户中断 aborted 可区分，不再恒等）', async () => {
+    const ud = tempUserData()
+    // 档位 timeoutMs=60ms：制造真实总超时（此前 `timedOut ? 'aborted' : 'aborted'` 恒等，
+    // 审计无法区分超时 vs 用户中断——现超时记 'interrupted'）
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({
+        providers: [
+          {
+            id: 'prov-test',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'sk-test',
+            caps: { connected: true, streaming: true },
+          },
+        ],
+        currentId: 'prov-test',
+        currentModel: 'gpt-4o',
+        tiers: { creative: { model: 'gpt-4o', effort: 'high', timeoutMs: 60 }, assistant: null, chat: null },
+      }),
+    )
+    const root = tempBookRoot()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      bookRoot: root,
+      task: 'chat',
+      run: (_p, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          // 真实 provider 流式行为：signal abort → 立即 reject（不挂到永远）
+          signal.addEventListener('abort', () => reject(new Error('timeout')))
+        }),
+    })
+    expect(out).toMatchObject({ ok: false, code: 'TIMEOUT_TOTAL' })
+    const evs = readChainEvents(ud, root)
+    const end = evs.at(-1)!.data as { reason: string }
+    expect(end.reason).toBe('interrupted')
+  }, 10_000)
 })
 

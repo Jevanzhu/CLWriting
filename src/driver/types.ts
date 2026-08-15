@@ -23,6 +23,8 @@ export type DriverEvent =
   | { type: 'text_reset' }
   /** 非致命警告（如 max_tokens 截断）——UI toast 提示，不影响生成状态（B-3） */
   | { type: 'warning'; message: string }
+  /** 非致命提示（AA-P3-1：如队列超容丢弃最旧消息——信息性告知，非警告） */
+  | { type: 'notice'; message: string }
   | { type: 'tool_use'; tool: string; input: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
   | { type: 'usage'; cost: number; tokens: number }

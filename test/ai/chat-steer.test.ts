@@ -128,5 +128,33 @@ describe('E1a: steer 入队与续链', () => {
     expect(sendMsg(ud, 'steer-plain', '你好', driver)).toBe('started')
     await waitFor(() => !isChatRunning('steer-plain'))
   })
+
+  it('AA-P3-1: 队列超容丢最旧 → emit notice（丢弃可感知，不再零感知）', async () => {
+    // 第一轮挂起 2s 制造在途窗口——期间可入队 11 条（容量 10），第 11 条挤掉最旧
+    fake.setScript([
+      { type: 'text', content: '第一轮回复。', delayMs: 2000 },
+      { type: 'text', content: '续链回复。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+    const bookName = 'steer-overflow'
+
+    expect(sendMsg(ud, bookName, '第一条', driver)).toBe('started')
+    await waitFor(() => isChatRunning(bookName))
+    // 连发 11 条排队消息（2..12）：容量 10 → 第 12 条触发丢最旧（第2条）
+    for (let i = 2; i <= 12; i++) {
+      expect(sendMsg(ud, bookName, `第${i}条`, driver)).toBe('queued')
+    }
+    // 丢弃必须可感知：notice 事件带被丢消息预览
+    const notices = events.filter((e) => e.type === 'notice') as Array<{ message: string }>
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.message).toContain('已丢弃最旧的排队消息')
+    expect(notices[0]!.message).toContain('第2条')
+
+    // 全部续链跑完（第一轮 + 保留下来的 10 条），收尾无残留
+    await waitFor(() => !isChatRunning(bookName), 15_000)
+    expect(events.filter((e) => e.type === 'chat_done').length).toBe(11)
+  }, 25_000)
 })
 

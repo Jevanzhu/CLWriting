@@ -20,6 +20,11 @@ import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 
+/** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
+ *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
+ *  丢他键」的窗口越小）；失败不标记，下次 persistDegraded 自动重试。 */
+const degradedPersistedKeys = new Set<string>()
+
 /** 未定位到应用数据目录（统一文案） */
 export const NO_USERDATA_MSG = '未定位到应用数据目录'
 /** 未配置 AI 服务供应商（统一文案） */
@@ -97,12 +102,20 @@ export function resolveProvider(
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发；
   // 同 path 重复注册无害）
   registerDegradedPersist((key) => {
-    // W-P2-9：降级记忆已记录 → 跳过全量重写（原实现每次 400 命中都 load+save，
-    // 含备份 copy+chmod 的 I/O churn；同一 key 只应写一次）
+    // AA-P3-5：W-P2-9 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
+    // （load→改→save 的读改写窗口在多书并发 400 时可互相覆盖丢他键；标记命中即跳过，
+    //  写频降到每 key 一次）。失败不标记 → 下次 persistDegraded 自动重试。
+    const memoKey = `${userDataPath}\u0000${key}`
+    if (degradedPersistedKeys.has(memoKey)) return
     const s = loadProviders(userDataPath)
-    if (s.modelCaps[key]?.structured === false) return
+    if (s.modelCaps[key]?.structured === false) {
+      // 读盘已含（他进程/他处写过）→ 也标（防重复 load 扫描）
+      degradedPersistedKeys.add(memoKey)
+      return
+    }
     s.modelCaps[key] = { structured: false }
     saveProviders(userDataPath, s)
+    degradedPersistedKeys.add(memoKey)
   })
   // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
   // 创建时捕获的 store 快照；loadProviders 有 mtime 缓存，高频 stream 代价可忽略
@@ -185,7 +198,8 @@ export async function runTask<T>(opts: {
   const bookRoot = opts.bookRoot
   const task = opts.task
 
-  // P2：链路事件录制器（mock 快路在 chain 初始化前 return，故提前声明为 let 避免 TDZ）
+  // P2：链路事件录制器——先于 mock 快路初始化（P3-6：此前 mkChain 在 mock 快路之后才建，
+  // mock 命中的回合不产生任何链路事件，审计流里是黑洞；现提前建，快路也记 step/llm）
   let chain: ChainRecorder | null = null
 
   /** P2：llm/call 事件（替代 trace 文件落盘；bookRoot + task 齐备才记；观测层静默） */
@@ -217,33 +231,52 @@ export async function runTask<T>(opts: {
     )
   }
 
+  // P3-6：step/start 先落库（mock 快路 / resolveProvider 失败路径在其后各自收尾）
+  chain = mkChain(opts.userDataPath, bookRoot, task)
+  if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
+  let stepReason: StepEndReason | undefined
+
+  /** mock 快路收尾：step/end + 释放 chain（防 finally 双 close；P3-6 补记链路事件） */
+  const finishMock = (): void => {
+    stepReason = 'completed'
+    if (chain) {
+      chain.add(stepEndEvent(task!, layerForTask(task!), 'completed'))
+      chain.close()
+      chain = null
+    }
+  }
+
   // mock 快路（工具型）：tryMockTool 命中即短路，不触 provider
   if (opts.mockTool) {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+      finishMock()
       return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null, runId }
     }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
   if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+    finishMock()
     return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, runId }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)
   if (!r.ok) {
     trace({ model: '', attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: r.code })
+    // P3-6：step/start 已落——失败路径也必须 step/end 收尾（防孤儿 step/start）
+    stepReason = 'error'
+    if (chain) {
+      chain.add(stepEndEvent(task!, layerForTask(task!), 'error'))
+      chain.close()
+      chain = null
+    }
     return r
   }
 
   const ctrl = opts.ctrl ?? new AbortController()
   if (opts.register) opts.register(ctrl)
-
-  // P2：链路事件录制（主流程开始；mock 快路/未配置不记）——step/start 先落库
-  chain = mkChain(opts.userDataPath, bookRoot, task)
-  if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
-  let stepReason: StepEndReason | undefined
 
   // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
@@ -280,7 +313,9 @@ export async function runTask<T>(opts: {
             if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
           }
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
-          stepReason = timedOut ? 'aborted' : 'aborted'
+          // AA-P3-4：step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
+          // 'interrupted'（执行被强制中止），用户中断记 'aborted'（审计可区分两类终止）
+          stepReason = timedOut ? 'interrupted' : 'aborted'
           return timeoutAbort()
         }
         // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
@@ -326,7 +361,8 @@ export async function runTask<T>(opts: {
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
             trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
-            stepReason = timedOut ? 'aborted' : 'aborted'
+            // AA-P3-4：同第一处——超时 'interrupted' vs 用户中断 'aborted'
+            stepReason = timedOut ? 'interrupted' : 'aborted'
             return timeoutAbort()
           }
           continue

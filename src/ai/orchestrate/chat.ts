@@ -85,6 +85,8 @@ interface PendingChatMsg {
   chapter?: number
 }
 const pendingChats = new Map<string, PendingChatMsg[]>()
+/** P3-4：每书待处理队列容量上限——失控客户端/脚本循环发消息不能无限撑内存；超出丢最旧 */
+const MAX_PENDING_CHATS = 10
 
 /** 中断本书的对话——abort + 放行挂起的确认 + 丢弃待处理队列（用户停止 = 后续指令一并作废） */
 export function abortChat(bookName: string): boolean {
@@ -101,6 +103,16 @@ export function abortChat(bookName: string): boolean {
 export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' {
   if (running.has(opts.bookName)) {
     const q = pendingChats.get(opts.bookName) ?? []
+    // P3-4：超容丢最旧（队列是「让出」语义，作者最新指令优先级高于陈旧排队消息）
+    // AA-P3-1：丢弃必须可感知——API 已回 queued，若静默丢最旧，作者会以为所有消息都在排队
+    if (q.length >= MAX_PENDING_CHATS) {
+      const dropped = q.shift()!
+      const preview = (dropped.message || '(空消息)').slice(0, 40)
+      emit(opts, {
+        type: 'notice',
+        message: `对话队列已满：已丢弃最旧的排队消息「${preview}…」——你刚发送的这条会顶替它。`,
+      })
+    }
     q.push({ message: opts.message ?? '', chapter: opts.chapter })
     pendingChats.set(opts.bookName, q)
     return 'queued'
@@ -488,7 +500,7 @@ async function finalizeHistory(
   }
   msgSeqMap.set(opts.bookName, msgSeqs)
   // no-op 或摘要失败（fail-open 保留原历史，不遮蔽）；失败 → 置 suppress，下次溢出硬截断
-  if (outcome.overflow) compactionSuppressed.add(opts.bookName)
+  if (outcome.wasOverLimit) compactionSuppressed.add(opts.bookName)
   recorder.close('completed')
 }
 

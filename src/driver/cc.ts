@@ -27,6 +27,9 @@ const EXEC_START = new Set(['chat_start', 'self_heal_batch', 'role_spawn'])
 const EXEC_END = new Set(['chat_done', 'chat_error', 'self_heal_result', 'done', 'interrupted'])
 /** E1b：迟到回放 ring 容量（cap 协议单元——事件本身，非原始 delta） */
 export const MAX_EXEC_RING = 200
+/** AA-P3-2：无消费者期间 pre 暂存上限（同 MAX_EXEC_RING 量级）——首个消费者接入前
+ *  长自愈流不再无限增堆内存；超出只留最近 N 个（旧事件进 sync 快照/日志兜底） */
+const MAX_PRE_EVENTS = MAX_EXEC_RING
 /** 每 session 一个事件总线（广播到所有消费者） */
 interface Channel {
   consumers: Set<Consumer>
@@ -55,20 +58,27 @@ function channel(id: string): Channel {
 
 function push(id: string, ev: DriverEvent): void {
   const ch = channel(id)
-  // E1b：维护活跃执行 ring——执行开始清空重开，执行终态停止累积；执行中累积最近 N 个协议单元
+  // E1b：维护活跃执行 ring——执行开始清空重开，执行中累积最近 N 个协议单元
   if (EXEC_START.has(ev.type)) {
     ch.execRing = []
     ch.execActive = true
   }
-  if (EXEC_END.has(ev.type)) ch.execActive = false
+  // AA-P3-3：终态事件先入 ring 再关 active——迟到连接回放能看到「执行已结束」锚
+  // （chat_done/chat_error/self_heal_result…），此前 EXEC_END 先置 active=false，
+  // 终态被挡在 ring 外，回放只剩过程不见结局
   if (ch.execActive) {
     ch.execRing.push(ev)
     if (ch.execRing.length > MAX_EXEC_RING) ch.execRing.shift()
   }
+  if (EXEC_END.has(ev.type)) ch.execActive = false
   if (ch.consumers.size === 0) {
     // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
     // （SSE 有 sync 快照兜底，重连不重放历史）
-    if (!ch.preTaken) ch.pre.push(ev)
+    if (!ch.preTaken) {
+      ch.pre.push(ev)
+      // AA-P3-2：pre cap——超过只留最近 N 个（首个消费者只接管最近 N 个）
+      if (ch.pre.length > MAX_PRE_EVENTS) ch.pre.shift()
+    }
     return
   }
   // 广播：复制事件到每个活跃消费者队列，唤醒其挂起等待
