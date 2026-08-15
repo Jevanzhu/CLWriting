@@ -5,6 +5,7 @@
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
 import { rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
@@ -491,5 +492,59 @@ describe('R1: max_tokens / 触顶后历史不连续 user', () => {
     expect(secondLast?.role).toBe('assistant')
     expect(String(secondLast?.content ?? '')).toContain('工具调用上限')
     expect(last?.role).toBe('user')
+  })
+})
+
+// ─── X-P2-12 check_chapter 章号回落 ─────────────────
+
+describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章', () => {
+  it('input 无 chapter + opts.chapter=1 → 回落查第 1 章（不再「章号需为正整数」被拒）', async () => {
+    fake.setScript([
+      { type: 'tool', name: 'check_chapter', input: {} }, // AI 常省略入参
+      { type: 'text', content: '查完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+    // 长篇书（有正文 0001-初入宗门.md）——回落章号后能真跑到机检
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'testXp212a',
+      message: '帮我查这章',
+      chapter: 1,
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    // 回落成功：不再是参数错误，也不是「草稿不存在」（第 1 章正文在 fixture 里）
+    expect(result?.summary).not.toBe('章号需为正整数。')
+    expect(result?.summary).not.toBe('第1章草稿不存在。')
+  })
+
+  it('input 无 chapter 且 opts.chapter 也缺 → 才报「章号需为正整数」', async () => {
+    fake.setScript([
+      { type: 'tool', name: 'check_chapter', input: {} },
+      { type: 'text', content: '好的。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'testXp212b',
+      message: '帮我查一章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result?.summary).toBe('章号需为正整数。')
   })
 })

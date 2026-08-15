@@ -92,6 +92,45 @@ test('P2-6 回归: 同一 ctrl 重复登记幂等，不 abort 自己（chat 多�
   ccDriver.dispose(session)
 })
 
+// ── X-P2-11：生成终态注销（isRunning 不再假报「生成中」） ────────────────
+
+test('X-P2-11 unregisterCtrl: 终态注销后 isRunning 归 false（done 后 SSE 快照不假报在途）', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  // 生成正常完成（done/error）→ 编排层注销
+  ccDriver.unregisterCtrl!(session, ctrl)
+  expect(ccDriver.isRunning!(session)).toBe(false)
+  // session 仍可用（可再登记新 ctrl）
+  ccDriver.registerCtrl!(session, ctrl)
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  ccDriver.dispose(session)
+})
+
+test('X-P2-11 unregisterCtrl: 只注销自己——晚到的旧注销不抹掉新登记', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl1 = new AbortController()
+  const ctrl2 = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl1)
+  ccDriver.registerCtrl!(session, ctrl2) // ctrl1 被 abort（P2-6），ctrl2 在途
+  // ctrl1 的晚到 unregister（异步竞态）不得影响 ctrl2
+  ccDriver.unregisterCtrl!(session, ctrl1)
+  expect(ccDriver.isRunning!(session)).toBe(true)
+  ccDriver.unregisterCtrl!(session, ctrl2)
+  expect(ccDriver.isRunning!(session)).toBe(false)
+  ccDriver.dispose(session)
+})
+
+test('X-P2-11 isRunning 兜底: 已 abort 的 ctrl 不算在途（编排层直接 abort 自身的路径）', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const ctrl = new AbortController()
+  ccDriver.registerCtrl!(session, ctrl)
+  ctrl.abort() // 不经 driver.interrupt，编排层自行 abort（如超时）
+  expect(ccDriver.isRunning!(session)).toBe(false)
+  ccDriver.dispose(session)
+})
+
 test('Bug A 回归: cc 多消费者广播——前端 + 调试 curl 双 SSE 连接都收到全部事件', async () => {
   const session = await ccDriver.startSession('/tmp')
 

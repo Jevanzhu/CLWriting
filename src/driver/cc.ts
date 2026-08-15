@@ -136,12 +136,19 @@ export const ccDriver: StudioDriver = {
     sessionCtrl.set(session.id, ctrl)
   },
 
+  // X-P2-11：生成终态注销——isRunning 立即归 false（此前 done 后仍登记，SSE 快照假报「生成中」，
+  // 前端误显不可生成）。只注销自己：晚到的 unregister 不得抹掉后来的新登记。
+  unregisterCtrl(session: Session, ctrl: AbortController): void {
+    if (sessionCtrl.get(session.id) === ctrl) sessionCtrl.delete(session.id)
+  },
+
   emit(session: Session, ev: DriverEvent): void {
     push(session.id, ev)
   },
 
   isRunning(session: Session): boolean {
     const ctrl = sessionCtrl.get(session.id)
-    return !!ctrl && !session.closed
+    // X-P2-11：aborted 的 ctrl 不算在途（编排层直接 abort 自身 ctrl 而非走 interrupt 的路径兜底）
+    return !!ctrl && !ctrl.signal.aborted && !session.closed
   },
 }

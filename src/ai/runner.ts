@@ -235,6 +235,12 @@ export async function runTask<T>(opts: {
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
         if (ctrl.signal.aborted) {
+          // X-P2-10：中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
+          // 否则中断重跑可绕过预算闸（task/chapter 两块与成功/重试路径同口径）
+          if (bookRoot) {
+            if (task) recordTaskUsage(bookRoot, task, null)
+            if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
+          }
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
           return timeoutAbort()
         }
@@ -257,6 +263,11 @@ export async function runTask<T>(opts: {
             return timeoutAbort()
           }
           continue
+        }
+        // X-P2-10：终态失败的调用同样入账（成功/重试/中断/失败四路同口径，预算闸不再被失败路径绕过）
+        if (bookRoot) {
+          if (task) recordTaskUsage(bookRoot, task, null)
+          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
         }
         trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: 'GEN_FAIL' })
         return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }

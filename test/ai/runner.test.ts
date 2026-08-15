@@ -173,6 +173,57 @@ describe('runTask B-1 指数退避重试', () => {
     }
   }, 10_000)
 
+  // X-P2-10：终态失败（GEN_FAIL）也入账——此前失败调用不计数，预算闸可被失败路径绕过
+  it('X-P2-10：不可重试失败入账——GEN_FAIL 后 chapter used=1', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-fail-'))
+    try {
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot,
+        task: 'self-heal',
+        chapter: 1,
+        run: () => {
+          throw new GenError('400 bad request', false)
+        },
+      })
+      expect(out).toMatchObject({ ok: false, code: 'GEN_FAIL' })
+      const b = checkAiCallBudget(bookRoot, 1, { budget: { calls_per_chapter: 10 } } as unknown as BookConfig)
+      expect(b.ok).toBe(true)
+      if (b.ok) expect(b.used).toBe(1)
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
+  })
+
+  // X-P2-10：中断/超时路径同样入账——中断重跑不可绕过预算闸
+  it('X-P2-10：中断入账——ABORTED 后 chapter used=1（中断重跑不绕预算闸）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-abort-'))
+    try {
+      const ctrl = new AbortController()
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot,
+        task: 'self-heal',
+        chapter: 1,
+        ctrl,
+        run: () => {
+          ctrl.abort()
+          throw new GenError('429 limit', true)
+        },
+      })
+      expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+      const b = checkAiCallBudget(bookRoot, 1, { budget: { calls_per_chapter: 10 } } as unknown as BookConfig)
+      expect(b.ok).toBe(true)
+      if (b.ok) expect(b.used).toBe(1)
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
+  })
+
   it('不可重试错误 → 不重试，直接 GEN_FAIL', async () => {
     const ud = tempUserData()
     writeProviders(ud)

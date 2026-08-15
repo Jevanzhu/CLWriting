@@ -87,9 +87,16 @@ export function resolveChatConfirm(bookName: string, callId: string, ok: boolean
 const histories = new Map<string, ChatMsg[]>()
 const MAX_HISTORY_BOOKS = 8
 
-function getHistory(bookName: string): ChatMsg[] {
-  const h = histories.get(bookName)
-  if (h) return h
+/** 取（或建）本书对话历史——命中重插（真 LRU，X-P2-24）。导出供测试验证逐出语义。 */
+export function getHistory(bookName: string): ChatMsg[] {
+  // X-P2-24：命中重插实现真 LRU——Map 按插入序淘汰，get 不重插的话
+  // 热点书历史会被只碰过一次的冷书逐出
+  const hit = histories.get(bookName)
+  if (hit) {
+    histories.delete(bookName)
+    histories.set(bookName, hit)
+    return hit
+  }
   if (histories.size >= MAX_HISTORY_BOOKS) {
     // 删最旧（Map 保留插入顺序）
     const oldest = histories.keys().next().value
@@ -161,7 +168,8 @@ async function executeChatTool(
         }
       }
       case 'check_chapter': {
-        const chapter = Number(input['chapter'])
+        // X-P2-12：AI 常省略 chapter 入参——回落到作者选定章（均缺才报错；此前 NaN 直接被拒）
+        const chapter = Number(input['chapter'] ?? opts.chapter)
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
@@ -368,5 +376,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     emit(opts, { type: 'chat_done' })
   } finally {
     running.delete(opts.bookName)
+    // X-P2-11：对话终态注销 ctrl——isRunning 归 false（此前 chat_done 后仍登记，SSE 快照假报「生成中」）
+    opts.driver.unregisterCtrl?.(opts.mainSession, state.ctrl)
   }
 }

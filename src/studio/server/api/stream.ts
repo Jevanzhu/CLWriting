@@ -66,23 +66,32 @@ async function runWriterSpawn(opts: {
   }
 
   const kind = readKind(opts.bookRoot)
-  const out = await runSpec(streamSpec(opts.role, kind), {
-    userDataPath: opts.userDataPath,
-    bookRoot: opts.bookRoot,
-    userPrompt: opts.prompt,
-    register: (ctrl) => opts.driver.registerCtrl?.(opts.mainSession, ctrl),
-    onReset: () => emit({ type: 'text_reset' }),
-    onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
-  })
+  // X-P2-11：登记的 ctrl 在终态注销——isRunning 归 false（此前 done 后仍登记，SSE 快照假报「生成中」）
+  let registered: AbortController | null = null
+  try {
+    const out = await runSpec(streamSpec(opts.role, kind), {
+      userDataPath: opts.userDataPath,
+      bookRoot: opts.bookRoot,
+      userPrompt: opts.prompt,
+      register: (ctrl) => {
+        registered = ctrl
+        opts.driver.registerCtrl?.(opts.mainSession, ctrl)
+      },
+      onReset: () => emit({ type: 'text_reset' }),
+      onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
+    })
 
-  if (out.ok) {
-    // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
-    if (out.data.stopReason === 'max_tokens') {
-      emit({ type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
+    if (out.ok) {
+      // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
+      if (out.data.stopReason === 'max_tokens') {
+        emit({ type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
+      }
+      emit({ type: 'done', cost: 0, usage: out.usage?.outputTokens ?? 0, reason: 'success' })
+    } else {
+      emit({ type: 'error', kind: 'provider', message: out.error, recoverable: false })
     }
-    emit({ type: 'done', cost: 0, usage: out.usage?.outputTokens ?? 0, reason: 'success' })
-  } else {
-    emit({ type: 'error', kind: 'provider', message: out.error, recoverable: false })
+  } finally {
+    if (registered) opts.driver.unregisterCtrl?.(opts.mainSession, registered)
   }
 }
 
@@ -296,7 +305,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const message = String(body['message'] ?? '').trim()
     if (!message) return reply(res, 400, { error: 'message 必填' })
     if (message.length > 50_000) return reply(res, 400, { error: '消息过长（上限 5 万字符）' })
-    const chapter = body['chapter'] !== undefined ? Number(body['chapter']) : undefined
+    // X-P2-12：chapter 非法值（如 "abc" → NaN）不放进 opts——下游 buildChatContext/工具
+    // 会拿 NaN 找章，报错面目全非；入口即校验
+    const rawChapter = body['chapter']
+    const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
+    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) {
+      return reply(res, 400, { error: 'chapter 需为正整数' })
+    }
 
     const mainSession = await ensureSession(bookName, ctx.workDir)
     // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
