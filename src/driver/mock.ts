@@ -121,4 +121,8 @@ export const mockDriver: StudioDriver = {
   registerCtrl(): void {
     // mock 无可中断生成（生成是各端点 mock 快路即时返回）；noop 保持接口完整
   },
+
+  unregisterCtrl(): void {
+    // 同 registerCtrl：mock 无登记，注销亦 noop
+  },
 }

@@ -8,7 +8,7 @@
 import { test, expect } from 'vitest'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
+import { makeDualTrackWorkdir, SHORT_BOOK, LONG_BOOK, tempUserData } from '../studio/fixtures.js'
 import {
   runSelfHeal,
   isSelfHealRunning,
@@ -383,6 +383,106 @@ test('W-P2-7：mock 驱动全程 → done 事件携带真实累计 usage（不�
     expect(done).toBeDefined()
     // 一次生成 × mock outputTokens 50 → done.usage 应为 50（修复前恒 0，前端 leg 计数缺）
     expect(done?.usage).toBe(50)
+  } finally {
+    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
+    else process.env['CLWRITING_DRIVER'] = prev
+  }
+})
+
+// ── X-P1-2：账本侧红（lead-declared-not-done）补生成账本推进草稿 ──────────────────────
+
+/** 账本侧红：细纲声明推进但正文未兑现（actual 侧来自 账本推进.md，pass 前不存在 → 首检必红） */
+function leadRedOutcome(): CheckOutcome {
+  return {
+    ok: true,
+    report: {
+      sections: [
+        { name: '账本', items: [{ checkId: 'lead-declared-not-done', level: 'red', message: '悬念-001 细纲声明推进但正文未兑现' }] },
+      ],
+    },
+    hasRed: true,
+    chapter: META,
+    body: '正文',
+  }
+}
+
+/** 长篇书 opts（布线 fixture：悬念-001 进行中 + 细纲声明推进）——X-P1-2 用 */
+function setupLongBook(
+  check: (p: string) => CheckOutcome,
+  extra: Partial<SelfHealOpts> = {},
+): { opts: SelfHealOpts; emitted: DriverEvent[]; prompts: string[]; bookRoot: string } {
+  const workDir = makeDualTrackWorkdir()
+  const bookRoot = join(workDir, '长篇', LONG_BOOK)
+  // 细纲声明推进 悬念-001（账本侧红的数据条件；check 为替身，声明仅为口径还原）
+  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+  writeFileSync(join(bookRoot, '工作区', '细纲.md'), '---\n章号: 1\n推进: [悬念-001]\n---\n\n本章细纲。', 'utf8')
+  const emitted: DriverEvent[] = []
+  const { genFn, prompts } = makeGenFn([`${FM}山门外的钟声在雨夜里连响了三下。`])
+  const opts: SelfHealOpts = {
+    driver: makeEmitDriver(emitted),
+    mainSession: { id: 'main', cwd: workDir, closed: false },
+    userDataPath: tempUserData(),
+    cwd: workDir,
+    bookRoot,
+    bookName: LONG_BOOK,
+    chapter: 1,
+    check,
+    save: makeSave([]),
+    genFn,
+    ...extra,
+  }
+  return { opts, emitted, prompts, bookRoot }
+}
+
+test('X-P1-2：账本侧红 → 补生成账本推进草稿后复查真绿（不重写正文、只补一次）', async () => {
+  const prev = process.env['CLWRITING_DRIVER']
+  process.env['CLWRITING_DRIVER'] = 'mock' // generateLeadUpdateDraft 走 mock 快路（悬念-001 递进 + 正文原句证据）
+  try {
+    const seq: CheckOutcome[] = [leadRedOutcome(), greenOutcome()]
+    let i = 0
+    const { opts, emitted, prompts, bookRoot } = setupLongBook(() =>
+      seq[Math.min(i++, seq.length - 1)]!,
+    )
+    const r = await runSelfHeal(opts)
+
+    // 补生成后复查真绿 → pass，正文零重写（重写修不了账本侧红）
+    expect(r.outcome).toBe('pass')
+    if (r.outcome === 'pass') expect(r.attempts).toBe(0)
+    expect(prompts).toHaveLength(1)
+    // 恰好一次 lead_update 阶段事件（leadDraftTried 防重复 AI 调用）
+    const leadPhases = emitted.filter((e) => e.type === 'self_heal_phase' && 'phase' in e && e.phase === 'lead_update')
+    expect(leadPhases).toHaveLength(1)
+    // pass 后不再重复生成（leadDraftTried 抑制 pass 分支的二次调用）
+    expect(prompts).toHaveLength(1)
+    // 账本推进.md 已落盘：章节标签 + 悬念-001 推进行（mock 文本解析过滤后）
+    const draft = readFileSync(join(bookRoot, '工作区', '账本推进.md'), 'utf8')
+    expect(draft).toContain('# 第1章 账本推进')
+    expect(draft).toContain('- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。')
+  } finally {
+    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
+    else process.env['CLWRITING_DRIVER'] = prev
+  }
+})
+
+test('X-P1-2：补生成失败（无 provider）→ 不死循环，按正常重写/升级走（只补一次）', async () => {
+  const prev = process.env['CLWRITING_DRIVER']
+  delete process.env['CLWRITING_DRIVER'] // 真实 provider 路径 → 空 providers 解析失败
+  try {
+    let i = 0
+    const { opts, emitted, prompts, bookRoot } = setupLongBook(() => {
+      i++
+      return leadRedOutcome() // 恒红（重写修不了账本侧红）→ 触顶升级
+    })
+    const r = await runSelfHeal(opts)
+
+    expect(r.outcome).toBe('escalate')
+    if (r.outcome === 'escalate') expect(r.attempts).toBe(3)
+    // 首稿 + 3 次重写；lead_update 只补一次（失败后不再重试生成，交给重写循环）
+    expect(prompts).toHaveLength(4)
+    const leadPhases = emitted.filter((e) => e.type === 'self_heal_phase' && 'phase' in e && e.phase === 'lead_update')
+    expect(leadPhases).toHaveLength(1)
+    // 生成失败 → 账本推进.md 未落盘
+    expect(existsSync(join(bookRoot, '工作区', '账本推进.md'))).toBe(false)
   } finally {
     if (prev === undefined) delete process.env['CLWRITING_DRIVER']
     else process.env['CLWRITING_DRIVER'] = prev

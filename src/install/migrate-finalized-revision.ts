@@ -3,9 +3,12 @@
  *
  * 旧书库首次加载时，把 git 时代的状态映射到 manifest.finalizedRevision 基线：
  * - 有 git 的书库：git clean 文件 = 已定稿 → 基线 = 当前指纹；dirty/untracked → 不设（revision/draft）。
- * - 无 git 的书库：之前所有文件都坍缩为 final（collectFileStatuses 降级空集）→ 基线 = 当前指纹（状态不变）。
+ * - 无 .git 的书库：**跳过**（X-P1-1）。原「无 git = 全部坍缩 final」是 git 时代的迁移假设——
+ *   v3 架构新书永无 .git（scaffold 不再 git init），假设失效：误标会把新书正常草稿判成已定稿，
+ *   断写章链路（ensureChapterNotFinalized 拦截 + 手改误报）。无基线保持 draft 是安全方向
+ *   （误判 draft 可正常走定稿流程，误判 final 断写）。
  *
- * 幂等：已有 finalizedRevision 的 entry 跳过；已迁移的书库（任一 document entry 有基线）整书跳过 git 反推。
+ * 幂等：已有 finalizedRevision 的 entry 跳过；已迁移的书库（任一 document entry 有基线）整书跳过。
  * 迁移后 book.yaml 不再依赖 git——此后状态机、定稿全走指纹 + manifest。
  */
 import { existsSync } from 'node:fs'
@@ -32,9 +35,10 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   }
   if (migratedAny) return 0
 
-  const hasGit = existsSync(join(bookRoot, '.git'))
-  // 有 git：一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）
-  const dirty = hasGit ? new Set(statusPorcelain(bookRoot, true).split('\n').filter(Boolean).map((l) => l.slice(3))) : null
+  // X-P1-1：仅对有 .git 的 git 时代书库执行（无 git = 从未经历 git 时代 → 无状态可映射）。
+  if (!existsSync(join(bookRoot, '.git'))) return 0
+  // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）
+  const dirty = new Set(statusPorcelain(bookRoot, true).split('\n').filter(Boolean).map((l) => l.slice(3)))
 
   let updated = 0
   const nowIso = new Date().toISOString()
@@ -43,7 +47,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     if (e.finalizedRevision) continue // 幂等：已有基线跳过
     const abs = join(bookRoot, e.path)
     if (!existsSync(abs)) continue
-    if (hasGit && dirty && dirty.has(e.path)) continue // git dirty/untracked → 不设基线（revision/draft）
+    if (dirty.has(e.path)) continue // git dirty/untracked → 不设基线（revision/draft）
     e.finalizedRevision = computeRevision(abs)
     e.finalizedAt = nowIso
     updated++

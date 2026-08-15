@@ -21,6 +21,7 @@ export function useSse(bookName: WatchSource<string>): void {
   const chat = useChatStore()
   let es: EventSource | null = null
   let errorCount = 0
+  let backoffStep = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let currentName = ''
 
@@ -31,16 +32,24 @@ export function useSse(bookName: WatchSource<string>): void {
     es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream${tokenQuery}`)
     es.onopen = () => {
       errorCount = 0
+      backoffStep = 0
       wb.setConnected(true)
     }
     es.onerror = () => {
       wb.setConnected(false)
       errorCount++
-      // 超过快速重连阈值：接管重连，用指数退避避免疯狂请求
-      if (errorCount > FAST_RETRY_LIMIT && es) {
+      // X-P1-3：非 2xx（token 随 server 重启轮换 / 书删改名 / 429 连接数上限）按 EventSource
+      // 规范 fail-closed（readyState=CLOSED）且浏览器不再自动重连，onerror 仅触发一次——
+      // 必须立即接管退避重连，否则死连：AI 进度事件全丢、running 假空闲。网络抖动
+      // （CONNECTING，浏览器会自连）维持原「前 5 次不接管」策略。
+      // backoffStep 独立计数（onopen 清零）：接管次数决定退避阶数，不与抖动 errorCount 混算
+      // （否则先抖 5 次再 fail-closed 首退避就 64s）。
+      const failClosed = es !== null && es.readyState === EventSource.CLOSED
+      if (es && (failClosed || errorCount > FAST_RETRY_LIMIT)) {
         es.close()
         es = null
-        const delay = Math.min(BASE_BACKOFF_MS * 2 ** (errorCount - FAST_RETRY_LIMIT - 1), MAX_BACKOFF_MS)
+        backoffStep += 1
+        const delay = Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(doConnect, delay)
       }
     }

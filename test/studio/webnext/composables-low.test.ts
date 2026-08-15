@@ -168,10 +168,13 @@ describe('useHeartbeat', () => {
 describe('useSse', () => {
   class MockES {
     static instances: MockES[] = []
+    static readonly CLOSED = 2
     onopen: (() => void) | null = null
     onerror: (() => void) | null = null
     onmessage: ((e: MessageEvent) => void) | null = null
     url = ''
+    /** 缺省 CONNECTING（网络抖动路径）；置 2 模拟 fail-closed（X-P1-3 用例） */
+    readyState = 0
     closed = false
     constructor(url: string) {
       this.url = url
@@ -225,5 +228,47 @@ describe('useSse', () => {
     for (let i = 0; i < 6; i++) es0.onerror?.()
     vi.advanceTimersByTime(2_100) // 首次退避 2s
     expect(MockES.instances.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('X-P1-3: fail-closed（readyState=CLOSED，如 token 轮换/429）→ 立即接管退避重连', async () => {
+    vi.useFakeTimers()
+    // 带 readyState 的 mock：真实 EventSource 非 2xx 时 fail-closed（CLOSED=2）且浏览器不再自连
+    class ClosedES {
+      static instances: ClosedES[] = []
+      static readonly CLOSED = 2
+      static readonly CONNECTING = 0
+      onopen: (() => void) | null = null
+      onerror: (() => void) | null = null
+      onmessage: ((e: MessageEvent) => void) | null = null
+      url = ''
+      readyState = 0
+      closed = false
+      constructor(url: string) {
+        this.url = url
+        ClosedES.instances.push(this)
+      }
+      close(): void {
+        this.closed = true
+        this.readyState = 2
+      }
+    }
+    vi.stubGlobal('EventSource', ClosedES)
+    ClosedES.instances = []
+    const name = ref('书A')
+    useSse(name)
+    await nextTick()
+    const es0 = ClosedES.instances[0]!
+
+    // 网络抖动（CONNECTING）前 5 次不接管（浏览器自连）
+    for (let i = 0; i < 5; i++) es0.onerror?.()
+    expect(es0.closed).toBe(false)
+    expect(ClosedES.instances).toHaveLength(1)
+
+    // fail-closed：第 1 次即接管（不再等 5 次）→ close + 2s 后重连
+    es0.readyState = 2
+    es0.onerror?.()
+    expect(es0.closed).toBe(true)
+    vi.advanceTimersByTime(2_000)
+    expect(ClosedES.instances).toHaveLength(2)
   })
 })

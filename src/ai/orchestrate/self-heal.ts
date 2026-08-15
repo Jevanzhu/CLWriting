@@ -95,6 +95,19 @@ export function abortSelfHeal(bookName: string): boolean {
 /**
  * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
  */
+
+/** X-P3a：fire-and-forget 的账本推进草稿失败留痕（此前静默，作者不知道草稿没生成） */
+async function logLeadDraftFailure(
+  p: Promise<{ ok: true; count: number } | { ok: false; code: string; error: string }>,
+): Promise<void> {
+  try {
+    const r = await p
+    if (!r.ok) console.error(`[self-heal] 账本推进草稿生成失败（${r.code}）：${r.error}`)
+  } catch (e) {
+    console.error('[self-heal] 账本推进草稿生成异常：', e instanceof Error ? e.message : String(e))
+  }
+}
+
 export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
   const state: RunState = { ctrl: new AbortController(), usage: { calls: 0, inputTokens: 0, outputTokens: 0 } }
   running.set(opts.bookName, state)
@@ -166,6 +179,8 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   let current = first.text
   const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
   const draftPath = join(bookRoot, firstDraft.relPath)
+  // X-P1-2：本章是否已在循环内补生成过账本推进草稿（防重复 AI 调用）
+  let leadDraftTried = false
 
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
@@ -180,6 +195,20 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
 
     if (outcome.ok) {
       chapterNo = outcome.chapter.章号
+      // X-P1-2：账本侧红（细纲声明未兑现）重写正文不可修——actual 侧来自 工作区/账本推进.md，
+      // 而它按设计在 pass 后才生成（W-P1-3 决策 C），首检必红构成时序死锁。首遇时先对已落盘
+      // 正文补生成账本推进草稿（AI 从正文提取原句证据）再复查一次：证据命中正文即消红（真绿
+      // 通过）；仍红则说明细纲声明了正文确实没写，按正常重写/升级走（重写不可修 → 最终交作者）。
+      if (
+        hasWiring &&
+        !leadDraftTried &&
+        getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')
+      ) {
+        leadDraftTried = true
+        emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt })
+        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
+        if (gen.ok && gen.count > 0) continue
+      }
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
@@ -188,7 +217,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         recordAiVersion(bookRoot, final.docId, current)
         // W-P1-3 右端：写稿完成（pass）后自动生成 账本推进.md（AI 草拟，作者定稿时确认）。
         // fire-and-forget：不阻塞主流程返回；仅长篇有布线时触发。
-        if (hasWiring) void generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
+        // X-P1-2：循环内已补生成过（leadDraftTried）则不重复调用。
+        // X-P3a：失败不再静默——console 留痕（不发明新 SSE phase，前端白名单会滤掉）
+        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath))
         // W1 终局黄项复查：pass 前对终稿跑一次规则（剥离 fm 只查正文），
         // 只提示不 gate——黄项收敛与否让作者可见（「收窄」从 mock 变成系统验证）。
         const yellows = ruleYellows(current, bookRoot, chapterNo)
@@ -362,6 +393,9 @@ async function runChapter(
   let current = first.text
   const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
   const draftPath = join(bookRoot, firstDraft.relPath)
+  // X-P1-2/X-P2-6：批量模式与单章同口径——账本侧红补生成 + pass 后生成草稿
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  let leadDraftTried = false
 
   // ② 机检 → 红则重写 → 全绿或触顶
   let attempt = 0
@@ -376,11 +410,25 @@ async function runChapter(
 
     if (outcome.ok) {
       chapterNo = outcome.chapter.章号
+      // X-P1-2：账本侧红重写不可修——补生成账本推进草稿后复查一次（同单章路径）
+      if (
+        hasWiring &&
+        !leadDraftTried &&
+        getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')
+      ) {
+        leadDraftTried = true
+        emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt })
+        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath)
+        if (gen.ok && gen.count > 0) continue
+      }
       const st = evaluateRetry(outcome.report, attempt, maxAttempts)
       if (st.state === 'pass') {
         const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
         recordAuthorSignal(bookRoot, final.docId, current, 'self-heal')
         recordAiVersion(bookRoot, final.docId, current)
+        // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
+        // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
+        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath))
         const yellows = ruleYellows(current, bookRoot, chapterNo)
         return { chapter, outcome: 'pass', yellows, docId: final.docId, path: final.relPath, attempts: attempt }
       }

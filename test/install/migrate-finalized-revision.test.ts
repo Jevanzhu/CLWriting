@@ -45,19 +45,20 @@ function manifest(): ReturnType<typeof readManifest> {
   return readManifest(join(tmp, '项目', '文档清单.jsonl'))
 }
 
-// ── 无 git：全部坍缩为 final（基线 = 当前指纹）──
+// ── 无 git（v3 新书）：不迁移（X-P1-1）──────────────
+// v3 scaffold 不再 git init，新书永无 .git——「无 git = 旧书坍缩 final」假设失效，
+// 误标会把新书正常草稿判成已定稿（ensureChapterNotFinalized 拦截写章 + 手改误报）。
 
-test('无 git：所有 document 建立基线（final）', () => {
+test('无 git（v3 新书）：no-op，全部保持 draft（X-P1-1）', () => {
   scaffold([
     ['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文'],
     ['设定/角色/主角.md', '---\n姓名: 主角\n---\n角色设定'],
   ])
   const n = migrateFinalizedRevisions(tmp)
-  expect(n).toBe(2)
+  expect(n).toBe(0)
   const m = manifest()
   for (const e of m.entries.values()) {
-    expect(typeof e.finalizedRevision).toBe('string')
-    expect(typeof e.finalizedAt).toBe('string')
+    expect(e.finalizedRevision).toBeUndefined()
   }
 })
 
@@ -88,7 +89,8 @@ test('有 git：committed 干净文件建基线，dirty/untracked 不建', () =>
 // ── 幂等 ──────────────────────────────────────────
 
 test('幂等：已有基线 → 跳过（第二次 0）', () => {
-  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文']])
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文']], true)
+  execSync('git add -A && git commit -m init', { cwd: tmp, stdio: 'pipe' })
   const r1 = migrateFinalizedRevisions(tmp)
   expect(r1).toBe(1)
   const r2 = migrateFinalizedRevisions(tmp)
@@ -127,7 +129,8 @@ test('无清单：no-op', () => {
 // ── 文件缺失跳过 ─────────────────────────────────
 
 test('manifest 登记但文件不存在 → 跳过不建基线', () => {
-  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文']])
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文']], true)
+  execSync('git add -A && git commit -m init', { cwd: tmp, stdio: 'pipe' })
   // 手动加一个悬空 entry
   const m = manifest()
   m.entries.set('doc-ghost', { id: 'doc-ghost', nodeType: 'document', path: '写作/正文/0099-幽灵.md', parentId: null })

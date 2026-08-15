@@ -52,7 +52,7 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
   return apiJson<ReviewResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
-    120_000, // 三审超时 2 分钟
+    600_000, // X-P1-4：三审超时 10 分钟——真实 provider 串行 3 视角单次 1-3 分钟常态，120s 必假超时（服务端继续跑完落信封，费用照花）
   )
 }
 

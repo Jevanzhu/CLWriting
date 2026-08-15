@@ -31,7 +31,8 @@ export type DriverEvent =
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
   // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
   // P2-3：批量连写新增 phase 分支（chapter_start/chapter_done）+ chapter/done/total 进度字段
-  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done'; attempt?: number; chapter?: number; done?: number; total?: number }
+  // X-P1-2：lead_update——账本侧红补生成账本推进草稿（AI 调用，可能数秒~分钟）
+  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting' | 'lead_update' | 'chapter_start' | 'chapter_done'; attempt?: number; chapter?: number; done?: number; total?: number }
   /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
   | { type: 'self_heal_reset' }
   | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[]; chapter?: number }
@@ -75,6 +76,8 @@ export interface StudioDriver {
   isRunning?(session: Session): boolean
   /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。可选,mock 可不实现 */
   registerCtrl?(session: Session, ctrl: AbortController): void
+  /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。可选 */
+  unregisterCtrl?(session: Session, ctrl: AbortController): void
   /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */
   emit?(session: Session, ev: DriverEvent): void
 }

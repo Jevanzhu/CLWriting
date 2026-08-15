@@ -37,6 +37,13 @@ interface ReviewCtx {
   userDataPath: string | null
 }
 
+/**
+ * X-P1-4：三审运行中并发闸（key=`${bookName}/${docId}`）。三审真实耗时分钟级，
+ * 前端超时重试或双击会并发跑两份（费用双倍 + 并发写同一信封）——同 chat/auto-write 的
+ * 409 闸口径，运行中直接拒绝。
+ */
+const reviewRunning = new Set<string>()
+
 const LENS_LABEL: Record<string, string> = {
   reader: '读者',
   editor: '编辑',
@@ -70,77 +77,88 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
       if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
-
-      // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
-      const outcome = runCheckForDocument(bookRoot, absPath)
-      if (!outcome.ok) {
-        return reply(res, checkOutcomeStatus(outcome.code), {
-          ok: false,
-          code: outcome.code,
-          error: outcome.error,
-          ...(outcome.details ? { details: outcome.details } : {}),
-        })
+      // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
+      const runKey = `${params['name']}/${docId}`
+      if (reviewRunning.has(runKey)) {
+        return reply(res, 409, { ok: false, code: 'REVIEW_RUNNING', error: '该文档三审进行中，请稍候完成后再试' })
       }
-      const { report, chapter, body } = outcome
-
-      const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-      const hasWiring = existsSync(join(bookRoot, '布线'))
-      const hasShort = config.kind === 'short'
-
-      // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
-      const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
-      // W-P2-12：high_risk 不再恒 false——机检红项即高风险章（正文有硬伤），
-      // 触发 selectReviewTier 的「风险章禁止降级满审」闸（此前该分支是死参数，仅测试独享）。
-      const built = buildReviewPacket({
-        checkReport: report,
-        body,
-        chapter: chapter.章号,
-        workDir: reviewOutDir,
-        capabilities: { parallel_subagents: false, multiple_calls: true },
-        remaining_calls: config.budget.calls_per_chapter,
-        high_risk: outcome.hasRed,
-        hasWiring,
-        hasShort,
-      })
-      if (!built.ok) {
-        rmSync(reviewOutDir, { recursive: true, force: true })
-        return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
-      }
-
-      // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
+      reviewRunning.add(runKey)
       try {
-        const driver = getDriver('cc')
-        const mainSession = await ensureSession(params['name']!, ctx.workDir!)
-        const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
-          if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+
+        // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
+        const outcome = runCheckForDocument(bookRoot, absPath)
+        if (!outcome.ok) {
+          return reply(res, checkOutcomeStatus(outcome.code), {
+            ok: false,
+            code: outcome.code,
+            error: outcome.error,
+            ...(outcome.details ? { details: outcome.details } : {}),
+          })
         }
-        const loopResult = await runLensSpawnLoop({
-          userDataPath: ctx.userDataPath,
-          bookRoot,
-          packets: built.packet.packets,
-          tier: built.packet.tier,
+        const { report, chapter, body } = outcome
+  
+        const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+        const hasWiring = existsSync(join(bookRoot, '布线'))
+        const hasShort = config.kind === 'short'
+  
+        // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
+        const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
+        // W-P2-12：high_risk 不再恒 false——机检红项即高风险章（正文有硬伤），
+        // 触发 selectReviewTier 的「风险章禁止降级满审」闸（此前该分支是死参数，仅测试独享）。
+        const built = buildReviewPacket({
+          checkReport: report,
           body,
           chapter: chapter.章号,
-          outDir: built.packet.out_dir,
-          onProgress: emitProgress,
+          workDir: reviewOutDir,
+          capabilities: { parallel_subagents: false, multiple_calls: true },
+          remaining_calls: config.budget.calls_per_chapter,
+          high_risk: outcome.hasRed,
+          hasWiring,
+          hasShort,
         })
-        if (!loopResult.ok) return reply(res, 500, { ok: false, code: 'LENS_FAIL', error: loopResult.error })
-
-        // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
-        const collected = collectReviewIssues({ packet: built.packet })
-        // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
-        const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
-        writeAnalysis(bookRoot, docId, 'review', {
-          generatedAt: new Date().toISOString(),
-          model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
-          sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
-          payload: { collected, lenses: loopResult.lenses },
-        })
-
-        reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+        if (!built.ok) {
+          rmSync(reviewOutDir, { recursive: true, force: true })
+          return reply(res, 500, { ok: false, code: 'PACKET_FAIL', error: built.reason })
+        }
+  
+        // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
+        try {
+          const driver = getDriver('cc')
+          const mainSession = await ensureSession(params['name']!, ctx.workDir!)
+          const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
+            if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+          }
+          const loopResult = await runLensSpawnLoop({
+            userDataPath: ctx.userDataPath,
+            bookRoot,
+            packets: built.packet.packets,
+            tier: built.packet.tier,
+            body,
+            chapter: chapter.章号,
+            outDir: built.packet.out_dir,
+            onProgress: emitProgress,
+          })
+          if (!loopResult.ok) return reply(res, 500, { ok: false, code: 'LENS_FAIL', error: loopResult.error })
+  
+          // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
+          const collected = collectReviewIssues({ packet: built.packet })
+          // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
+          const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
+          writeAnalysis(bookRoot, docId, 'review', {
+            generatedAt: new Date().toISOString(),
+            model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
+            sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
+            payload: { collected, lenses: loopResult.lenses },
+          })
+  
+          reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+        } finally {
+          // 三审临时目录用毕即清（防跨审稿累积膨胀）
+          rmSync(reviewOutDir, { recursive: true, force: true })
+        }
       } finally {
-        // 三审临时目录用毕即清（防跨审稿累积膨胀）
-        rmSync(reviewOutDir, { recursive: true, force: true })
+        // X-P1-4：并发闸释放（成功/失败/异常路径都解锁）
+        reviewRunning.delete(runKey)
       }
     },
   )
