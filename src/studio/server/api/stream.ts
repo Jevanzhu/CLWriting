@@ -349,6 +349,36 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     reply(res, 200, { ok: true })
   })
 
+  // F1-P4：重新生成上一条回复——parentSeq = 触发 user 的全局 seq，branchId = 变体组
+  route('POST', '/api/books/:name/chat/regenerate', async (req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: '没有这本书:' + params['name'] })
+    const bookName = params['name']!
+    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
+    const body = await readJson(req)
+    const rawParentSeq = Number(body['parentSeq'])
+    if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return reply(res, 400, { error: 'parentSeq 需为正整数' })
+    const branchId = String(body['branchId'] ?? '').trim()
+    if (!branchId) return reply(res, 400, { error: 'branchId 必填' })
+    const rawChapter = body['chapter']
+    const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
+    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return reply(res, 400, { error: 'chapter 需为正整数' })
+
+    const mainSession = await ensureSession(bookName, ctx.workDir)
+    const driver = getDriver('cc')
+    const outcome = sendChatMessage({
+      driver,
+      mainSession,
+      userDataPath: ctx.userDataPath!,
+      bookRoot: join(ctx.workDir, entry.path),
+      bookName,
+      regenerate: { parentSeq: rawParentSeq, branchId },
+      ...(chapter !== undefined ? { chapter } : {}),
+    })
+    reply(res, 200, { ok: true, queued: outcome === 'queued' })
+  })
+
   // 清空本书对话历史（前端"清空对话"时调）
   route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })

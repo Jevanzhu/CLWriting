@@ -1,0 +1,180 @@
+/**
+ * F1-P4 分支/消息树（F1 方案 §七 P4，抄 cherry message.ts 邻接表 + 兄弟组约束）。
+ *
+ * 分支模型（对齐 cherry）：
+ * - 每条消息事件（assistant/message、user/message）可带 parentSeq（前驱消息 seq）
+ *   与 branchId（同 parent 的「重新生成」兄弟组；缺省 = 普通线性消息）；
+ * - branchId 同组 = 同一 parent 下的多次重新生成（siblingsGroupId 语义）；
+ * - 默认分支 = 每组最后一次（最新）；
+ * - 分支对话可持久（事件 append-only，元数据在 data JSON）、可切换（selectBranch）。
+ *
+ * 纯函数，不依赖 DB——单测直接喂事件数组。
+ */
+import type { ChatEvent, EventType } from './types.js'
+import { SURFACE_EVENT_TYPES } from './types.js'
+
+/** 分支树节点（surface 消息事件；非 surface 事件也保留用于重放） */
+export interface BranchNode {
+  seq: number
+  type: EventType
+  /** 前驱消息事件 seq（重新生成/分支用；缺省 = 普通线性） */
+  parentSeq?: number
+  /** 兄弟组 ID（同 parent 的重新生成组；缺省 = 无分支） */
+  branchId?: string
+  data: Record<string, unknown>
+}
+
+export interface BranchInfo {
+  /** 兄弟组 ID */
+  branchId: string
+  /** 该组含 surface 消息数 */
+  messageCount: number
+  /** 组根 seq（第一个节点） */
+  rootSeq: number
+  /** 组末 seq（最新一次生成的节点） */
+  lastSeq: number
+  /** 是否默认分支（该 parent 下最新一组） */
+  isDefault: boolean
+  /** 该组父节点 seq（root 的分支锚点；无 → null） */
+  parentSeq: number | null
+}
+
+export interface BranchTree {
+  /** seq → 节点（全部事件，含非 surface） */
+  nodes: Map<number, BranchNode>
+  /** branchId → 组内节点 seq[]（按 seq 升序） */
+  groups: Map<string, number[]>
+  /** seq → parentSeq（无 → undefined） */
+  parents: Map<number, number | undefined>
+}
+
+/** 从事件流重建分支树（纯函数；events 不必有序） */
+export function buildBranchTree(events: ChatEvent[]): BranchTree {
+  const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  const nodes = new Map<number, BranchNode>()
+  const groups = new Map<string, number[]>()
+  const parents = new Map<number, number | undefined>()
+  for (const ev of sorted) {
+    const parentSeq = typeof ev.data['parentSeq'] === 'number' ? (ev.data['parentSeq'] as number) : undefined
+    const branchId = typeof ev.data['branchId'] === 'string' ? (ev.data['branchId'] as string) : undefined
+    nodes.set(ev.seq, {
+      seq: ev.seq,
+      type: ev.type,
+      ...(parentSeq !== undefined ? { parentSeq } : {}),
+      ...(branchId !== undefined ? { branchId } : {}),
+      data: ev.data,
+    })
+    parents.set(ev.seq, parentSeq)
+    if (branchId !== undefined) {
+      const g = groups.get(branchId) ?? []
+      g.push(ev.seq)
+      groups.set(branchId, g)
+    }
+  }
+  return { nodes, groups, parents }
+}
+
+/**
+ * 列分支组（按组末 seq 降序 = 最新在前）。
+ * 无分支元数据的事件（普通线性）不产生分支组。
+ */
+export function listBranches(tree: BranchTree): BranchInfo[] {
+  const out: BranchInfo[] = []
+  const latestByParent = new Map<number, { branchId: string; lastSeq: number }>()
+  for (const [branchId, seqs] of tree.groups) {
+    if (seqs.length === 0) continue
+    const rootSeq = seqs[0]!
+    const lastSeq = seqs[seqs.length - 1]!
+    const parentSeq = tree.parents.get(rootSeq)
+    out.push({
+      branchId,
+      messageCount: seqs.length,
+      rootSeq,
+      lastSeq,
+      isDefault: false,
+      parentSeq: parentSeq ?? null,
+    })
+    if (parentSeq !== undefined) {
+      const cur = latestByParent.get(parentSeq)
+      if (!cur || lastSeq > cur.lastSeq) latestByParent.set(parentSeq, { branchId, lastSeq })
+    }
+  }
+  for (const b of out) {
+    const latest = latestByParent.get(b.parentSeq ?? -1)
+    b.isDefault = latest?.branchId === b.branchId
+  }
+  return out.sort((a, b) => b.lastSeq - a.lastSeq)
+}
+
+/** 默认分支 ID：最新一组（无分支 → null） */
+export function defaultBranchId(tree: BranchTree): string | null {
+  const branches = listBranches(tree)
+  return branches.length > 0 ? branches[0]!.branchId : null
+}
+
+/**
+ * 选分支：沿指定 branchId（或其父链）重建「该分支可见的事件序列」。
+ *
+ * 语义（对齐 cherry 分支树导航）：
+ * - 无任何分支元数据（普通线性对话）→ 原样返回全量（按 seq 升序）；
+ * - 无 branchId → 默认分支（最新一组）；
+ * - 有 branchId → 保留该组全部节点 + 其祖先链（跟随 parentSeq 到根），
+ *   丢弃其他兄弟分支的节点；未遮蔽过滤由调用方（foldSurface/loadHistoryWithSeqs）处理。
+ */
+export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[] {
+  const tree = buildBranchTree(events)
+  const target = branchId ?? defaultBranchId(tree)
+  if (target === null) return sortEvents(events)
+
+  const group = tree.groups.get(target)
+  if (!group) return sortEvents(events)
+
+  // 收集该组节点 + 祖先链（parentSeq 递归到根）
+  const keep = new Set<number>()
+  const queue = [...group]
+  while (queue.length > 0) {
+    const seq = queue.pop()!
+    if (keep.has(seq)) continue
+    keep.add(seq)
+    const p = tree.parents.get(seq)
+    if (p !== undefined && !keep.has(p)) queue.push(p)
+  }
+  // 线性兜底：目标组根之前的所有「无分支」消息（普通对话消息/旧数据缺 parentSeq）也保留
+  const rootSeq = group[0]!
+  for (const ev of sortEvents(events)) {
+    if (ev.seq >= rootSeq) break
+    if (ev.data['branchId'] === undefined) keep.add(ev.seq)
+  }
+  return sortEvents(events).filter((e) => keep.has(e.seq))
+}
+
+/**
+ * 恢复到指定 seq 的祖先路径（重新生成入口用）：该节点 + parentSeq 链 + 线性兜底。
+ * 用于「重新生成 parentSeq 处的回复」时重建截止该 user 的消息序列。
+ */
+export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEvent[] {
+  const tree = buildBranchTree(events)
+  const keep = new Set<number>()
+  let cur: number | undefined = targetSeq
+  while (cur !== undefined && !keep.has(cur)) {
+    keep.add(cur)
+    cur = tree.parents.get(cur)
+  }
+  // 线性兜底：targetSeq 之前所有「无分支」消息（普通对话消息/旧数据缺 parentSeq）
+  for (const ev of sortEvents(events)) {
+    if (ev.seq >= targetSeq) break
+    if (ev.data['branchId'] === undefined) keep.add(ev.seq)
+  }
+  return sortEvents(events).filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
+}
+
+/** 按 seq 升序（与 projection.sortEvents 一致） */
+function sortEvents(events: ChatEvent[]): ChatEvent[] {
+  return [...events].sort((a, b) => a.seq - b.seq)
+}
+
+/** surface 消息事件判断（分支树只对 surface 消息计数） */
+export function isSurfaceMessage(type: EventType): boolean {
+  return SURFACE_EVENT_TYPES.has(type)
+}
+

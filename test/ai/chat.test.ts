@@ -594,3 +594,66 @@ describe('F1-P3 chat 血缘事件', () => {
     }
   })
 })
+
+describe('F1-P4 chat 重新生成（分支）', () => {
+  it('regenerate：复用已有 user，新 assistant 带 branchId + parentSeq，分支可恢复', async () => {
+    fake.setScript([
+      { type: 'text', content: '第一版回复。' },
+      { type: 'text', content: '重新生成的回复。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+    const bookName = 'branch-e2e'
+
+    // 第一轮：正常对话
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName,
+      message: '怎么收尾？',
+    })
+    expect(hasChatDone(events)).toBe(true)
+
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const evs1 = store.listEvents(bookName)
+      const userEv = evs1.find((e) => e.type === 'user/message')
+      expect(userEv).toBeDefined()
+      const userSeq = userEv!.seq
+      expect(evs1.filter((e) => e.type === 'assistant/message')).toHaveLength(1)
+
+      // 第二轮：重新生成（parentSeq = 第一轮 user 的全局 seq，新变体组 r1）
+      await runChat({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName,
+        regenerate: { parentSeq: userSeq, branchId: 'r1' },
+      })
+      expect(hasChatDone(events)).toBe(true)
+
+      const evs2 = store.listEvents(bookName)
+      const asst = evs2.filter((e) => e.type === 'assistant/message')
+      expect(asst).toHaveLength(2) // 第一版 + 重新生成版
+      const branchAsst = asst[asst.length - 1]!
+      expect((branchAsst.data as { branchId?: string }).branchId).toBe('r1')
+      expect((branchAsst.data as { parentSeq?: number }).parentSeq).toBe(userSeq)
+      // 无新 user 事件（复用旧 user 消息）
+      expect(evs2.filter((e) => e.type === 'user/message')).toHaveLength(1)
+
+      // 分支可切换：新变体带 branchId → 分支树可识别；普通消息无 branchId（线性兜底）
+      const branch = evs2.find((e) => e.type === 'assistant/message' && (e.data as { branchId?: string }).branchId === 'r1')
+      expect(branch).toBeDefined()
+      expect((branch!.data as { branchId?: string }).branchId).toBe('r1')
+      // 第一版 assistant 无 branchId（普通线性消息）
+      const firstAsst = asst[0]!
+      expect((firstAsst.data as { branchId?: string }).branchId).toBeUndefined()
+    } finally {
+      store.close()
+    }
+  })
+})

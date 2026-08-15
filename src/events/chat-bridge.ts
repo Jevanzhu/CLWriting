@@ -32,12 +32,15 @@ export function turnEndEvent(turn: number, reason: string): NewEvent {
   return { type: 'turn/end', turn, data: { reason } }
 }
 
-export function userMessageEvent(message: string, chapter?: number): NewEvent {
-  return {
-    type: 'user/message',
-    data: chapter === undefined ? { message } : { message, chapter },
-    surfaceOp: 'append',
-  }
+export function userMessageEvent(
+  message: string,
+  chapter?: number,
+  branch?: { parentSeq?: number; branchId?: string },
+): NewEvent {
+  const data: Record<string, unknown> = chapter === undefined ? { message } : { message, chapter }
+  if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
+  if (branch?.branchId) data['branchId'] = branch.branchId
+  return { type: 'user/message', data, surfaceOp: 'append' }
 }
 
 export function assistantMessageEvent(
@@ -45,10 +48,13 @@ export function assistantMessageEvent(
   usage?: { inputTokens: number; outputTokens: number },
   stopReason?: string,
   sourceSeqs?: number[],
+  branch?: { parentSeq: number; branchId?: string },
 ): NewEvent {
   const data: Record<string, unknown> = { message }
   if (usage) data['usage'] = usage
   if (stopReason) data['stopReason'] = stopReason
+  if (branch) data['parentSeq'] = branch.parentSeq
+  if (branch?.branchId) data['branchId'] = branch.branchId
   return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceSeqs ? { sourceSeqs } : {}) }
 }
 
@@ -56,12 +62,15 @@ export function toolCallEvent(callId: string, name: string, args: unknown): NewE
   return { type: 'tool/call', data: { callId, name, arguments: args } }
 }
 
-export function toolResultEvent(callId: string, content: string, isError?: boolean): NewEvent {
-  return {
-    type: 'tool/result',
-    data: isError === undefined ? { callId, content } : { callId, content, isError },
-    surfaceOp: 'append',
-  }
+export function toolResultEvent(
+  callId: string,
+  content: string,
+  isError?: boolean,
+  branch?: { parentSeq?: number },
+): NewEvent {
+  const data: Record<string, unknown> = isError === undefined ? { callId, content } : { callId, content, isError }
+  if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
+  return { type: 'tool/result', data, surfaceOp: 'append' }
 }
 
 // ── 恢复历史 + 消息→seq 映射 ───────────────────────

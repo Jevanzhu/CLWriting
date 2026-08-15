@@ -31,6 +31,7 @@ import { resolveDraftPath } from '../../format/draft.js'
 import { listSkills, loadSkill } from '../../process/skills.js'
 // F1-P1：事件溯源——历史持久化 + 跨重启恢复 + 压缩走遮蔽
 import { openSessionStore } from '../../events/store.js'
+import { selectBranchTo } from '../../events/branch-tree.js'
 import { loadHistoryWithSeqs, SessionRecorder, sessionStartEvent, turnStartEvent, turnEndEvent, userMessageEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../events/chat-bridge.js'
 import { settingsSnapshotEvent, revisionRefEvent } from '../../events/chain-bridge.js'
 import { digest16 } from '../../events/lineage.js'
@@ -44,16 +45,23 @@ const MAX_HISTORY_TURNS = 10
 
 // ── 类型 ──────────────────────────────────────────
 
+/** F1-P4：重新生成时给 assistant 事件带分支元数据（parentSeq + branchId） */
+function branchFor(regenerate: { parentSeq: number; branchId: string } | undefined): { parentSeq: number; branchId: string } | undefined {
+  return regenerate
+}
+
 export interface ChatOpts {
   driver: StudioDriver
   mainSession: Session
   userDataPath: string
   bookRoot: string
   bookName: string
-  /** 作者发送的消息 */
-  message: string
+  /** 作者发送的消息（regenerate 时不填——复用已有 user 消息） */
+  message?: string
   /** 作者选定讨论的章号（可选） */
   chapter?: number
+  /** F1-P4：重新生成——parentSeq = 触发 user 的全局 seq，branchId = 变体组 */
+  regenerate?: { parentSeq: number; branchId: string }
   /** 确认闸超时注入（单测用短超时） */
   confirmTimeoutMs?: number
 }
@@ -98,7 +106,7 @@ export function abortChat(bookName: string): boolean {
 export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' {
   if (running.has(opts.bookName)) {
     const q = pendingChats.get(opts.bookName) ?? []
-    q.push({ message: opts.message, chapter: opts.chapter })
+    q.push({ message: opts.message ?? '', chapter: opts.chapter })
     pendingChats.set(opts.bookName, q)
     return 'queued'
   }
@@ -468,7 +476,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // 内存无历史且库有投影 → 恢复（LRU 逐出/重启后都走这条）。
     let msgSeqs = msgSeqMap.get(opts.bookName) ?? []
     let pendingMsgSeqs: Array<number | number[]> = []
-    if (store && history.length === 0) {
+    if (opts.regenerate && store) {
+      // F1-P4：重新生成——总是从事件重建到触发 user（parentSeq）为止（不依赖内存历史，
+      // 内存可能含旧分支或被截断的历史），沿分支路径
+      const restored = loadHistoryWithSeqs(selectBranchTo(store.listEvents(opts.bookName), opts.regenerate.parentSeq))
+      history.length = 0
+      history.push(...restored.msgs)
+      msgSeqs = restored.seqsPerMsg
+      msgSeqMap.set(opts.bookName, msgSeqs)
+    } else if (store && history.length === 0) {
       const restored = loadHistoryWithSeqs(store.listEvents(opts.bookName))
       if (restored.msgs.length > 0) {
         history.push(...restored.msgs)
@@ -490,8 +506,11 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
     // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
     // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
-    history.push({ role: 'user', content: opts.message })
-    pendingMsgSeqs.push(recorder.add(userMessageEvent(opts.message, opts.chapter)))
+    if (!opts.regenerate) {
+      // F1-P4：regenerate 复用已有 user 消息（历史恢复已含），不再 push/写新 user 事件
+      history.push({ role: 'user', content: opts.message ?? '' })
+      pendingMsgSeqs.push(recorder.add(userMessageEvent(opts.message ?? '', opts.chapter)))
+    }
 
     emit(opts, { type: 'chat_start' })
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
@@ -589,7 +608,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         }
         history.push({ role: 'assistant', content: asstContent })
         // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
-        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx)))
+        pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, branchFor(opts.regenerate))))
         recorder.add(turnEndEvent(turn, 'completed'))
         const range = recorder.flush()
         if (range) {
@@ -618,7 +637,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       }
       history.push({ role: 'assistant', content: asstBlocks })
       // F1-P1：assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
-      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx)))
+      pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx, branchFor(opts.regenerate))))
       for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
       // 执行工具 + 结果按 tool_result block 回填
