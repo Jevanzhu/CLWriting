@@ -69,8 +69,8 @@ export interface CheckInput {
  *
  * 长短篇统一链路，按数据存在性条件开关：
  * - 有布线（账本/成长线）：账本形式三检 + 成长线 + 专名/信息差（db 强依赖）
- * - 有 config.short：短篇专属项（身体部位词/「像」/节数/开头零环境）+ 清单形式检
- * - 通用项（禁词/复读/句式/文风/字数）恒跑
+ * - 有 config.short：短篇专属项（五段节数/开头零环境）+ 清单形式检
+ * - 通用项（禁词/复读/句式/文风/字数/AI 味=身体部位词+比喻）恒跑
  */
 export function runAllChecks(input: CheckInput): CheckReport {
   const { db, bookRoot, config, chapter, body, fileName } = input
@@ -149,10 +149,13 @@ export function runAllChecks(input: CheckInput): CheckReport {
     sections.push(checkInfoLeak(body, input.leakKeywords ?? []))
   }
 
-  // 短篇专属项（#27 第 5.3 节，有 config.short 才跑）
+  // AI 味检查（通用项，长短篇都跑）：身体部位词堆砌 + 比喻密度。
+  // 短篇有题材预设阈值用短篇的；长篇/未配置用内置默认（body≤5、比喻≤10）。
+  sections.push(checkBodyParts(body, short?.body_part_threshold))
+  sections.push(checkSimile(body, short?.simile_threshold))
+
+  // 短篇专属项（#27 第 5.3 节，有 config.short 才跑）：五段节数 + 开头零环境（黄金 300 字）
   if (short) {
-    sections.push(checkBodyParts(body, short.body_part_threshold))
-    sections.push(checkSimile(body, short.simile_threshold))
     sections.push(checkSectionCount(body, short.section_count))
     sections.push(checkOpeningNoEnv(body, short.opening_env_chars))
   }

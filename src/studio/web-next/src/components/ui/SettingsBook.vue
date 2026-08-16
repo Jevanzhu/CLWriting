@@ -27,7 +27,8 @@ const bookKind = ref<'long' | 'short'>('long')
 const volumeSize = ref<number | null>(null)
 const targetWords = ref<number | null>(null)
 const chapterTargetWords = ref<number | null>(null)
-const workflow = ref<'free' | 'assist' | 'strict'>('free')
+/** 短篇严格模式：把短篇专属黄项提升为红项（book.yaml short.strict） */
+const shortStrict = ref(false)
 /** 打开设置时读到的书名基线：判断是否真的改了名（防同名重存触发无谓改名）。 */
 const titleBaseline = ref('')
 
@@ -47,7 +48,7 @@ watch(
       bookGenre.value = cfg.book?.genre ?? ''
       bookKind.value = cfg.kind ?? 'long'
       volumeSize.value = cfg.book?.volume_size ?? null
-      workflow.value = cfg.workflow ?? 'free'
+      shortStrict.value = cfg.short?.strict ?? false
       targetWords.value = cfg.book?.target_words ?? null
       chapterTargetWords.value = cfg.book?.chapter_target_words ?? null
     } catch {
@@ -114,10 +115,11 @@ function onChapterTargetInput(e: Event): void {
     c.book.chapter_target_words = chapterTargetWords.value ?? undefined
   })
 }
-function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
-  workflow.value = mode
+function onShortStrictToggle(e: Event): void {
+  shortStrict.value = (e.target as HTMLInputElement).checked
   void saveConfig((c) => {
-    c.workflow = mode
+    if (!c.short) c.short = {}
+    c.short.strict = shortStrict.value
   })
 }
 </script>
@@ -163,17 +165,16 @@ function setWorkflow(mode: 'free' | 'assist' | 'strict'): void {
           <span class="val-suffix">章</span>
         </div>
       </div>
-      <div class="setting-item">
+      <div v-if="bookKind === 'short'" class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">写作模式</div>
-          <div class="setting-item-desc">控制 AI 辅助的门禁强度</div>
+          <div class="setting-item-name">短篇严格模式</div>
+          <div class="setting-item-desc">把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿</div>
         </div>
         <div class="setting-item-control">
-          <div class="seg">
-            <button :class="{ on: workflow === 'free' }" @click="setWorkflow('free')">自由</button>
-            <button :class="{ on: workflow === 'assist' }" @click="setWorkflow('assist')">辅助</button>
-            <button :class="{ on: workflow === 'strict' }" @click="setWorkflow('strict')">严格</button>
-          </div>
+          <label class="switch">
+            <input type="checkbox" aria-label="短篇严格模式" :checked="shortStrict" @change="onShortStrictToggle($event)" />
+            <span class="switch-slider"></span>
+          </label>
         </div>
       </div>
       <div class="setting-item">

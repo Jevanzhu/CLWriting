@@ -6,7 +6,6 @@ import {
   readBookConfig,
   writeBookConfig,
   stringifyBookConfig,
-  getWorkflow,
   patchTopSection,
   DEFAULT_CONFIG,
 } from '../../src/format/yaml.js'
@@ -173,45 +172,23 @@ test('stringifyBookConfig: leads.enabled 为空数组时合法', () => {
   expect(text).toContain('spec_version: 1')
 })
 
-// ── workflow 字段（W0 §2，W2B B1）──────────────────
+// ── workflow 字段已删除（W0 §2 废弃）──
+// 存量 book.yaml 里的 workflow 行是未知字段：解析不赋值、输出不写，
+// 下次存配置 stringifyBookConfig 重建时自然丢弃（无行为字段，无兼容负担）。
 
-test('workflow: free/assist 中文值往返；strict 不落盘（零改动红线）但 getWorkflow 回落', () => {
+test('workflow: 存量 book.yaml 的 workflow 行不再解析/输出（删除语义）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'wf-'))
   const fp = join(dir, 'book.yaml')
-  for (const w of ['free', 'assist', 'strict'] as const) {
-    writeBookConfig(fp, { ...DEFAULT_CONFIG, workflow: w })
-    const r = readBookConfig(fp)
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      // strict 不落盘（旧书无字段零改动红线），读回 undefined；free/assist 往返
-      expect(r.config.workflow).toBe(w === 'strict' ? undefined : w)
-      expect(getWorkflow(r.config)).toBe(w)
-    }
-  }
-  rmSync(dir, { recursive: true, force: true })
-})
-
-test('workflow: 缺省 → getWorkflow strict（旧书兼容，最保守门禁）', () => {
-  expect(getWorkflow(DEFAULT_CONFIG)).toBe('strict')
-})
-
-test('workflow: 未知值容错 → 不赋值，getWorkflow 回落 strict', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wf-'))
-  const fp = join(dir, 'book.yaml')
-  writeFileSync(fp, ['spec_version: 1', '', 'workflow: 乱来', ''].join('\n'), 'utf-8')
+  writeFileSync(fp, ['spec_version: 1', '', 'workflow: 自由', ''].join('\n'), 'utf-8')
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
   if (r.ok) {
-    expect(r.config.workflow).toBeUndefined()
-    expect(getWorkflow(r.config)).toBe('strict')
+    // 字段类型已删：解析不再产出 workflow
+    expect('workflow' in r.config).toBe(false)
+    // 重建输出不写 workflow 行
+    expect(stringifyBookConfig(r.config)).not.toContain('workflow')
   }
   rmSync(dir, { recursive: true, force: true })
-})
-
-test('workflow: strict 不输出（旧书无字段零改动红线）；free 输出中文「自由」', () => {
-  expect(stringifyBookConfig({ ...DEFAULT_CONFIG, workflow: 'strict' })).not.toContain('workflow')
-  expect(stringifyBookConfig({ ...DEFAULT_CONFIG, workflow: 'free' })).toContain('workflow: 自由')
-  expect(stringifyBookConfig({ ...DEFAULT_CONFIG, workflow: 'assist' })).toContain('workflow: 辅助')
 })
 
 test('snapshots 段：缺省不输出（零改动红线）；有值往返一致', () => {

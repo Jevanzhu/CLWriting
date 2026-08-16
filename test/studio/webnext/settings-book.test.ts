@@ -116,3 +116,46 @@ describe('SettingsBook 书名全量改名', () => {
     expect((input.element as HTMLInputElement).value).toBe('旧名')
   })
 })
+
+describe('SettingsBook 短篇严格模式（short.strict）', () => {
+  it('短篇书显示开关且反映已存值；切换写入 short.strict', async () => {
+    mocks.getConfig.mockResolvedValue({
+      kind: 'short',
+      short: { strict: false },
+      book: { title: '短篇', genre: '现实' },
+    } satisfies BookConfig)
+    const wrapper = await mountOpen()
+
+    const sw = wrapper.find('input[aria-label="短篇严格模式"]')
+    expect(sw.exists()).toBe(true)
+    expect((sw.element as HTMLInputElement).checked).toBe(false)
+
+    // 捕获 saveConfig 的 mutator，验证写入 short.strict
+    let captured: ((c: BookConfig) => void) | undefined
+    mocks.saveConfig.mockImplementation((mut: (c: BookConfig) => void) => {
+      captured = mut
+      return Promise.resolve()
+    })
+    await sw.setValue(true)
+    await flushPromises()
+    const cfg = { kind: 'short', short: {} } as BookConfig
+    captured!(cfg)
+    expect(cfg.short?.strict).toBe(true)
+  })
+
+  it('已存 strict:true 时开关为勾选态', async () => {
+    mocks.getConfig.mockResolvedValue({
+      kind: 'short',
+      short: { strict: true },
+      book: { title: '短篇', genre: '现实' },
+    } satisfies BookConfig)
+    const wrapper = await mountOpen()
+    const sw = wrapper.find('input[aria-label="短篇严格模式"]')
+    expect((sw.element as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('长篇书不显示「短篇严格模式」开关', async () => {
+    const wrapper = await mountOpen() // beforeEach 默认长篇
+    expect(wrapper.find('input[aria-label="短篇严格模式"]').exists()).toBe(false)
+  })
+})

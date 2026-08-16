@@ -47,7 +47,6 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
-        workflow: 'free', // W0 §2 决策 1：新书默认自由模式
         // P2-3：短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）
         auto: { ...DEFAULT_CONFIG.auto, batch_size: 1 },
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
@@ -56,7 +55,6 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
     : {
         ...DEFAULT_CONFIG,
         host: opts.host ?? 'cc',
-        workflow: 'free', // W0 §2 决策 1：新书默认自由模式
         book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
         leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
       }
