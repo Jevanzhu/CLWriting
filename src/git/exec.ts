@@ -26,10 +26,18 @@ export type GitResult =
   | { ok: false; humanMsg: string; stderr?: string }
 
 /**
+ * git 单次调用超时（P2-30）：仓库锁 / 交互提示 / 挂载盘无响应时 spawnSync 会永久阻塞
+ * 调用线程——statusPorcelain 在 server 启动链路（migrate 反推）会拖死启动。超时后
+ * kill 子进程并按失败返回（fail-closed：调用方不能把「未完成」当「成功/干净」）。
+ */
+const GIT_TIMEOUT_MS = 15_000
+
+/**
  * 执行一条 git 命令（统一收口，#16 第 3 节）。
  * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败按退出码 → 人话，不把作者丢给 git 报错。
  * opts.input：喂 stdin（hash-object --stdin 等内容写入场景用）。
+ * 超时（P2-30）：15s 上限，git 无响应即中止并按失败返回（statusPorcelain 得 null → fail-closed）。
  */
 export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; input?: string }): GitResult {
   const r = spawnSync('git', args, {
@@ -37,13 +45,18 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
     stdio: 'pipe',
     encoding: opts?.encoding ?? 'utf-8',
     ...(opts?.input !== undefined ? { input: opts.input } : {}),
+    timeout: GIT_TIMEOUT_MS,
   })
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
+  const errCode = (r.error as { code?: string } | undefined)?.code
+  const timedOut = errCode === 'ETIMEDOUT' || r.signal === 'SIGTERM'
   const stderr = String(r.stderr || r.error?.message || '')
   return {
     ok: false,
-    humanMsg: `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+    humanMsg: timedOut
+      ? `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`
+      : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
 }

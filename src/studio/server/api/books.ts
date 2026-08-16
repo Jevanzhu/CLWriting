@@ -21,6 +21,7 @@ import {
   readActive,
   writeActive,
   writeBooks,
+  isInvalidBookName,
 } from '../../../install/books.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
@@ -101,8 +102,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       reply(res, 400, { error: '书名不能为空' })
       return
     }
-    // 路径穿越净化：书名直接用作目录名，禁路径分隔符 + 特殊路径段（防 name="../" 越出 workDir）
-    if (name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') {
+    // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
+    if (isInvalidBookName(name)) {
       reply(res, 400, { error: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' })
       return
     }

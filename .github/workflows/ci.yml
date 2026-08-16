@@ -56,6 +56,11 @@ jobs:
       - name: README 数字对账（check:counts）
         run: npm run check:counts
 
+      # P2-29：知识层 manifest 对账门——「CI 只相信正式知识层」从注释升级为门禁
+      #（知识层/_manifest.json 与实际文件任一失配即红，改素材漏登记/漏更新不再静默）
+      - name: 知识层 manifest 对账（check:knowledge）
+        run: npm run check:knowledge
+
       # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
       # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 

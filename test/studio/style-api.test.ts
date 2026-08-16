@@ -39,7 +39,7 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 文风测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    'spec_version: 1\nkind: long\nbook:\n  title: 文风书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     'utf8',
   )
   // 旧文风资产（首读 GET entries 应触发迁移）

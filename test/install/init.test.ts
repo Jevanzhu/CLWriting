@@ -188,6 +188,22 @@ test('init: 幂等——工作目录复用，同名书冲突拒绝', () => {
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('init: P2-27 非法书名（路径分隔符/特殊路径段）→ 逻辑层拒绝，不越出 workDir', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-badname-'))
+  try {
+    for (const bad of ['../逃逸', 'a/b', 'a\\b', '..', '.', 'x\0y']) {
+      const r = doInit({ workDir: wd, name: bad })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('书名')
+    }
+    // 越出防御：逃逸目录不得被创建到 workDir 上层
+    expect(existsSync(join(wd, '..', '逃逸'))).toBe(false)
+    expect(existsSync(join(wd, '.clwriting', 'books.jsonl'))).toBe(false) // 无任何登记落盘
+  } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
 test('init 出的空书: enter 干净落态 7（起草新章）—— M5 核心出口', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init5-'))
   const r = doInit({ workDir: wd, name: '空书测试', genre: '玄幻' })

@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
 import { safeTokenCompare } from './http.js'
-import { readBooks } from '../../install/books.js'
+import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
@@ -128,6 +128,21 @@ export function startServer(opts: StudioServerOptions): http.Server {
       if (r.upgraded.length > 0) console.error(`[migrate-prompts] 已升级未改动副本：${r.upgraded.join(', ')}`)
     } catch (e) {
       console.error(`[migrate-prompts] ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  // 书库自愈（P1-10）：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
+  // changed=false 不写盘；变更时报告供诊断（作者侧零交互）。置于迁移循环前：
+  // 先保证登记完整，逐书迁移才遍历得到全部书。
+  if (opts.workDir) {
+    try {
+      const r = repairBooks(opts.workDir)
+      if (r.changed) {
+        console.error(
+          `[repair-books] 书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
+        )
+      }
+    } catch (e) {
+      console.error(`[repair-books] ${e instanceof Error ? e.message : String(e)}`)
     }
   }
   // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）

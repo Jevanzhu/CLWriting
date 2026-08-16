@@ -30,6 +30,7 @@
     "test:coverage": "vitest run --coverage",
     "check:counts": "node scripts/check-counts.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
+    "check:knowledge": "tsx scripts/check-knowledge.ts",
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:release": "npm run build:all && CLWRITING_E2E_RELEASE=1 playwright test test/e2e/release-smoke.spec.ts",
     "dev:electron": "npm run build:all && electron .",

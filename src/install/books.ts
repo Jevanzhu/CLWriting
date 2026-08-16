@@ -48,6 +48,15 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
   return `${bookKindDir(kind)}/${bookName}`
 }
 
+/**
+ * 书名合法性（P2-27：跨 server 建书 + doInit 逻辑层共用单一真相源）。
+ * 书名直接用作目录名——禁空、NUL、路径分隔符、特殊路径段（. / ..），
+ * 防 `../` 经 join 后越出 workDir（此前防线只在 server 层，逻辑层新调用方会重踩）。
+ */
+export function isInvalidBookName(name: string): boolean {
+  return name === '' || name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..'
+}
+
 /** 读 books.jsonl（容错：缺文件返回空；坏行跳过不崩）。 */
 export function readBooks(workDir: string): BookEntry[] {
   const fp = join(workDir, BOOKS_FILE)

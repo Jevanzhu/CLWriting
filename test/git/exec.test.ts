@@ -5,12 +5,22 @@
  * （零生产调用方的死代码）；仍存活：git() / statusPorcelain（migrate 反推用）/
  * scanCloudCopies（状态机进门检查）。本文件覆盖后两者的行为契约。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
 import { makeGitBook } from '../helpers/book.js'
+
+// P2-30：包装 spawnSync 记录调用参数（真实实现保留——现有测试零感知），
+// 断言 git()/statusPorcelain 每次调用都带 timeout（防挂起永久阻塞）。
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) }
+})
+import { spawnSync } from 'node:child_process'
+import { git } from '../../src/git/exec.js'
+const mockSpawn = vi.mocked(spawnSync)
 
 test('scanCloudCopies: Dropbox/OneDrive 风格「名 2.md」与 Google Drive「名 (1).md」命中（需同名母本）', () => {
   const root = join(tmpdir(), `clw-exec-${Date.now()}`)
@@ -101,6 +111,25 @@ test('RB-IF-P1-1: git 不可用/执行失败 → statusPorcelain 返回 null（�
   mkdirSync(join(root, '.git'), { recursive: true }) // 空 .git：git status 报 not a git repository
   try {
     expect(statusPorcelain(root)).toBeNull()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('P2-30: git()/statusPorcelain 调 spawnSync 必带 timeout（防仓库锁/交互提示永久阻塞）', () => {
+  const root = makeGitBook()
+  try {
+    mockSpawn.mockClear()
+    git(['status'], root)
+    expect(mockSpawn).toHaveBeenCalled()
+    const opts = mockSpawn.mock.calls[0]![2] as { timeout?: number }
+    expect(opts.timeout).toBe(15000)
+
+    mockSpawn.mockClear()
+    statusPorcelain(root)
+    expect(mockSpawn).toHaveBeenCalled()
+    const opts2 = mockSpawn.mock.calls[0]![2] as { timeout?: number }
+    expect(opts2.timeout).toBe(15000)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

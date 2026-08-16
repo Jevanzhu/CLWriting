@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
-import { appendBook, writeActive, readBooks, bookStoragePath } from './books.js'
+import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import type { LeadType } from '../format/types.js'
 
@@ -47,6 +47,10 @@ export function doInit(opts: InitOptions): InitResult {
   const workDir = resolve(opts.workDir)
   const bookName = opts.name
   if (!bookName) return { ok: false, reason: '书名不能为空' }
+  // P2-27：逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
+  if (isInvalidBookName(bookName)) {
+    return { ok: false, reason: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' }
+  }
 
   const kind = opts.kind ?? 'long'
   const bookPath = bookStoragePath(bookName, kind)
