@@ -16,6 +16,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import ChatPanel from '../../../src/studio/web-next/src/components/panels/ChatPanel.vue'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
+import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
 // ── mock API 层（拦截真实网络请求） ────────────────────
 
@@ -256,10 +257,10 @@ describe('ChatPanel: 变体切换器（G1）', () => {
   })
 })
 
-// ── P1-4/P2-K 清空 ───────────────────────────────────
+// ── P1-4/P2-K 清空（CC-P2-16 起加 danger 二次确认） ────
 
 describe('ChatPanel: 清空（P1-4/P2-K）', () => {
-  it('清空按钮 → clearChatHistory + chat.clear', async () => {
+  it('清空按钮 → 确认后 clearChatHistory + chat.clear', async () => {
     const chat = useChatStore()
     chat.pushUser('旧消息')
     const w = mountPanel()
@@ -267,9 +268,25 @@ describe('ChatPanel: 清空（P1-4/P2-K）', () => {
     const clearBtn = w.find('.composer-clear')
     expect(clearBtn.exists()).toBe(true)
     await clearBtn.trigger('click')
+    // CC-P2-16：清空连服务端历史一起删（不可恢复）→ 先弹 danger 确认
+    const ui = useUiStore()
+    expect(ui.confirmState?.danger).toBe(true)
+    ui.resolveConfirm(true)
     await flushPromises()
     expect(mocks.clearChatHistory).toHaveBeenCalledWith('test-book')
     expect(chat.messages).toHaveLength(0)
+  })
+
+  it('确认弹窗取消 → 不清空（CC-P2-16）', async () => {
+    const chat = useChatStore()
+    chat.pushUser('旧消息')
+    const w = mountPanel()
+    await nextTick()
+    await w.find('.composer-clear').trigger('click')
+    useUiStore().resolveConfirm(false)
+    await flushPromises()
+    expect(mocks.clearChatHistory).not.toHaveBeenCalled()
+    expect(chat.messages).toHaveLength(1)
   })
 
   it('清空时 running → 先 interrupt 再 clearChatHistory', async () => {
@@ -279,6 +296,7 @@ describe('ChatPanel: 清空（P1-4/P2-K）', () => {
     const w = mountPanel()
     await nextTick()
     await w.find('.composer-clear').trigger('click')
+    useUiStore().resolveConfirm(true)
     await flushPromises()
     expect(mocks.interrupt).toHaveBeenCalledWith('test-book')
     expect(mocks.clearChatHistory).toHaveBeenCalledWith('test-book')

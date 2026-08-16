@@ -79,6 +79,9 @@ export const useUiStore = defineStore('ui', () => {
     danger?: boolean
   }): Promise<boolean> {
     return new Promise((resolve) => {
+      // CC-P1-5：并发 ask 直接顶掉旧弹窗时，旧 Promise 以「取消」结清——
+      // 否则首个调用方 await 永久挂起，后续保存/删除逻辑静默丢失
+      confirmState.value?.resolve(false)
       confirmState.value = { ...opts, resolve }
     })
   }
@@ -99,6 +102,8 @@ export const useUiStore = defineStore('ui', () => {
     danger?: boolean
   }): Promise<string | null> {
     return new Promise((resolve) => {
+      // CC-P1-5：同 ask——被顶掉的旧输入框以「取消」结清，防 Promise 悬挂
+      promptState.value?.resolve(null)
       promptState.value = { ...opts, resolve }
     })
   }

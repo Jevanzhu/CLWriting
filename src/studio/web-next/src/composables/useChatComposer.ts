@@ -5,6 +5,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useWorkbenchStore } from '../stores/workbench'
+import { useUiStore } from '../stores/ui'
 import { sendChat, clearChatHistory } from '../api/chat'
 import { interrupt } from '../api/stream'
 
@@ -90,6 +91,14 @@ export function useChatComposer(
   }
 
   async function handleClear(): Promise<void> {
+    // CC-P2-16：清空连服务端历史一起删（不可恢复）——danger 二次确认后才执行
+    const ok = await useUiStore().ask({
+      title: '清空对话',
+      message: '将删除本书的全部对话记录（不可恢复），确定清空吗？',
+      confirmText: '清空',
+      danger: true,
+    })
+    if (!ok) return
     if (chat.running) await stopChat()
     try { await clearChatHistory(bookName()) } catch { /* 忽略 */ }
     chat.clear()

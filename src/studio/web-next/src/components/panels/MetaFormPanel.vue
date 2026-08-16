@@ -6,7 +6,7 @@ import { Tag } from 'lucide-vue-next'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
-import { parseFmFields, formKindOf, stripFrontmatter, mergeFm } from '../../shared/words'
+import { parseFmFields, formKindOf } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -189,14 +189,10 @@ async function onSave(): Promise<void> {
       // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
       meta[f.key] = f.type === 'number' ? Number(v) : v
     }
-    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（不覆盖正文改动）
-    const localBody = stripFrontmatter(entry.value.content)
+    // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
+    // 此前在此手动 patch 回 body 的守卫已下沉到 doc store
     await updateDocMeta(props.bookName, ws.activeDocId, meta)
     await doc.refresh(ws.activeDocId)
-    const refreshed = doc.get(ws.activeDocId)
-    if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
-    }
     ui.toast('已保存', 'success')
   } catch (err) {
     ui.toast(friendlyError(err), 'error')

@@ -293,3 +293,56 @@ describe('doc store · V-P1-2 卸载兜底（flushSyncOnUnload）', () => {
     expect(() => doc.flushSyncOnUnload()).not.toThrow()
   })
 })
+
+// ── CC-P2-15：refresh 本地正文保护 ──────────────────────
+
+describe('doc store · refresh 本地正文保护（CC-P2-15）', () => {
+  const FM_OLD = '---\n标题: 旧标题\n---\n\n旧正文'
+  const FM_NEW = '---\n标题: 新标题\n---\n\n服务端正文'
+
+  it('非脏：整体对齐磁盘（fm+正文都取服务端），dirty 清', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', FM_OLD)
+    vi.mocked(getContent).mockResolvedValueOnce(FM_NEW)
+    await doc.refresh('d1')
+    const e = doc.get('d1')!
+    expect(e.content).toBe(FM_NEW)
+    expect(e.dirty).toBe(false)
+    expect(e.baselineRevision).toBe(await sha256Revision(FM_NEW))
+  })
+
+  it('脏：只取服务端 fm，正文保留本地，dirty 不清（修复前：整体覆盖丢未保存编辑）', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', FM_OLD)
+    doc.patch('d1', '---\n标题: 旧标题\n---\n\n本地未保存正文')
+    vi.mocked(getContent).mockResolvedValueOnce(FM_NEW)
+    await doc.refresh('d1')
+    const e = doc.get('d1')!
+    expect(e.content).toContain('标题: 新标题') // fm 已对齐磁盘
+    expect(e.content).toContain('本地未保存正文') // 正文未被覆盖
+    expect(e.content).not.toContain('服务端正文')
+    expect(e.dirty).toBe(true) // 未保存编辑仍在
+  })
+
+  it('await 窗口内的键盘输入同样受保护（旧调用方守卫盖不到的微竞态）', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', FM_OLD)
+    vi.mocked(getContent).mockImplementationOnce(async () => {
+      // 模拟 fetch 在途时作者继续敲字（此刻才变脏）
+      doc.patch('d1', '---\n标题: 旧标题\n---\n\n窗口内新输入')
+      return FM_NEW
+    })
+    await doc.refresh('d1')
+    const e = doc.get('d1')!
+    expect(e.content).toContain('标题: 新标题')
+    expect(e.content).toContain('窗口内新输入')
+    expect(e.dirty).toBe(true)
+  })
+
+  it('脏但服务端内容与本地一致（autosave 已落）→ 正常归位 dirty=false', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', FM_OLD)
+    doc.patch('d1', FM_NEW)
+    vi.mocked(getContent).mockResolvedValueOnce(FM_NEW)
+    await doc.refresh('d1')
+    const e = doc.get('d1')!
+    expect(e.content).toBe(FM_NEW)
+    expect(e.dirty).toBe(false)
+  })
+})

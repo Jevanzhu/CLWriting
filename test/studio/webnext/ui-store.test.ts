@@ -146,3 +146,28 @@ describe('ui: AI 可达性探测', () => {
     expect(getAiStatusMock).toHaveBeenCalledTimes(2)
   })
 })
+
+// ── CC-P1-5：ask/prompt 并发覆盖结清 ────────────────────
+
+describe('ui: ask/prompt 并发覆盖结清（CC-P1-5）', () => {
+  it('ask 顶掉未决确认 → 旧 Promise 以 false 结清（不永久悬挂）', async () => {
+    const ui = useUiStore()
+    const p1 = ui.ask({ title: '第一个', message: 'm' })
+    const p2 = ui.ask({ title: '第二个', message: 'm' })
+    // 修复前：p1 的 resolve 随 confirmState 被覆盖而丢失，await 永久挂起
+    await expect(p1).resolves.toBe(false)
+    expect(ui.confirmState?.title).toBe('第二个') // 弹窗展示的是后来者
+    ui.resolveConfirm(true)
+    await expect(p2).resolves.toBe(true)
+  })
+
+  it('prompt 顶掉未决输入 → 旧 Promise 以 null 结清', async () => {
+    const ui = useUiStore()
+    const p1 = ui.prompt({ title: '第一个', message: 'm' })
+    const p2 = ui.prompt({ title: '第二个', message: 'm' })
+    await expect(p1).resolves.toBeNull()
+    expect(ui.promptState?.title).toBe('第二个')
+    ui.resolvePrompt('新值')
+    await expect(p2).resolves.toBe('新值')
+  })
+})

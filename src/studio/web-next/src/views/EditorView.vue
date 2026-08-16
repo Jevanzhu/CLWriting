@@ -281,14 +281,10 @@ async function onTitleCommit(): Promise<void> {
       e.path = fresh.path
       e.name = fresh.name
     }
-    // refresh 前抓最新本地正文（含上述 await 期间用户编辑），防 refresh 覆盖丢失正文
-    const localBody = stripFrontmatter(e.content)
+    // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
     await doc.refresh(ws.activeDocId)
-    const refreshed = doc.get(ws.activeDocId)
-    if (refreshed && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(ws.activeDocId, mergeFm(refreshed.content, localBody))
-    }
     // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记
+    const refreshed = doc.get(ws.activeDocId)
     if (refreshed) refreshed.conflict = false
   } catch (err) {
     ui.toast(friendlyError(err), 'error')
@@ -298,18 +294,20 @@ async function onTitleCommit(): Promise<void> {
 }
 
 watch(
-  () => props.docId,
-  async (id) => {
-    if (id && !doc.get(id)) {
-      const node = tree.byDocId.get(id)
-      if (node) {
-        // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
-        try {
-          await doc.open(node)
-        } catch (err) {
-          ui.toast(friendlyError(err), 'error')
-        }
-      }
+  // CC-P1-4：同时挂 docId 和 tree.byDocId——恢复持久化 activeDocId 时 getBookPrefs（快）
+  // 可能先于 tree.load（慢，大书含 git status + 全盘字数）返回，此时 byDocId 为空；
+  // 仅 watch docId 会触发一次空查找后静默放弃，树到达后无补偿重试 → 编辑器停留空态。
+  // 挂上 byDocId.get(docId) 后树加载完成 watch 重触发，补开恢复的文档。
+  [() => props.docId, () => (props.docId ? tree.byDocId.get(props.docId) : undefined)],
+  async ([id]) => {
+    if (!id || doc.get(id)) return
+    const node = tree.byDocId.get(id)
+    if (!node) return
+    // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
+    try {
+      await doc.open(node)
+    } catch (err) {
+      ui.toast(friendlyError(err), 'error')
     }
   },
   { immediate: true },

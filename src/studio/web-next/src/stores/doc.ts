@@ -6,7 +6,7 @@ import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
 import { useWordsStore } from './words'
-import { countWords, stripFrontmatter } from '../shared/words'
+import { countWords, stripFrontmatter, mergeFm } from '../shared/words'
 import type { TreeNode } from '../types/tree'
 
 /**
@@ -180,12 +180,21 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  /** 静默刷新文档内容（外部改了 fm 等，重新拉对齐磁盘；不 toast、不重置 conflict）。 */
+  /** 静默刷新文档内容（外部改了 fm 等，重新拉对齐磁盘；不 toast、不重置 conflict）。
+   *  CC-P2-15：本地有未保存编辑（含 await 窗口内的键盘输入）时不整体覆盖——
+   *  只取服务端 fm、正文保留本地、dirty 不清，否则编辑被静默丢弃。
+   *  守卫下沉到 store 前 EditorView/MetaFormPanel 各自 patch 回本地正文，现全调用方统一受保护。 */
   async function refresh(docId: string): Promise<void> {
     const e = docs.value.get(docId)
     if (!e) return
     try {
       const content = await getContent(bookName.value!, e.path)
+      if (e.dirty && e.content !== content) {
+        // fm 以服务端为准（refresh 的目的），正文以本地为准（未保存编辑）
+        e.content = mergeFm(content, stripFrontmatter(e.content))
+        e.baselineRevision = await sha256Revision(content)
+        return
+      }
       e.content = content
       e.baselineRevision = await sha256Revision(content)
       e.dirty = false

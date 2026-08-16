@@ -86,14 +86,30 @@ describe('useChatComposer', () => {
     expect(sendMock).toHaveBeenCalled()
   })
 
-  it('handleClear 清空历史 + chat.clear', async () => {
+  it('handleClear 确认后清空历史 + chat.clear（CC-P2-16 起 danger 二次确认）', async () => {
     clearMock.mockResolvedValue({})
     const c = useChatComposer(() => '书', () => undefined)
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.clear = vi.fn()
-    await c.handleClear()
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = c.handleClear()
+    expect(ui.confirmState?.danger).toBe(true) // 不可恢复操作 → danger 样式
+    ui.resolveConfirm(true)
+    await p
     expect(clearMock).toHaveBeenCalledWith('书')
     expect(chat.clear).toHaveBeenCalled()
+  })
+
+  it('handleClear 取消 → 不删服务端历史（CC-P2-16）', async () => {
+    const c = useChatComposer(() => '书', () => undefined)
+    const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
+    chat.clear = vi.fn()
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = c.handleClear()
+    ui.resolveConfirm(false)
+    await p
+    expect(clearMock).not.toHaveBeenCalled()
+    expect(chat.clear).not.toHaveBeenCalled()
   })
 
   it('selectChapter 切换选中章节 + 关菜单', () => {
