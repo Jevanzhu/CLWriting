@@ -63,6 +63,10 @@ afterAll(async () => {
 })
 
 describe('GUI API 集成链(设定台 P2)', () => {
+  it('CC-P2-13: 非回环 host 启动即拒（fail-fast，不再全请求 403 的静默陷阱）', () => {
+    expect(() => startServer({ port: 0, workDir, host: '0.0.0.0' })).toThrow('非回环')
+  })
+
   it('GET /api/books 书架含测试书', async () => {
     const r = await fetch(`${baseUrl}/api/books`)
     expect(r.ok).toBe(true)

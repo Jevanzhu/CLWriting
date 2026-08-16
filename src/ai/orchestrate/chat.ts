@@ -64,11 +64,15 @@ export interface ChatOpts {
   regenerate?: { parentSeq: number; branchId: string }
   /** 确认闸超时注入（单测用短超时） */
   confirmTimeoutMs?: number
+  /** agent 总时长注入（单测用短 deadline，CC-P2-2） */
+  deadlineMs?: number
 }
 
 interface ChatRunState {
   ctrl: AbortController
   deadline: number
+  /** CC-P2-2：deadline 定时器已触发——ctrl.abort 的来源区分（用户中断 vs 超时） */
+  timedOut?: boolean
   /** 挂起中的工具确认：callId → resolve */
   pending: Map<string, (ok: boolean) => void>
 }
@@ -533,11 +537,20 @@ async function finalizeHistory(
 }
 
 export async function runChat(opts: ChatOpts): Promise<void> {
+  const deadlineMs = opts.deadlineMs ?? AGENT_DEADLINE_MS
   const state: ChatRunState = {
     ctrl: new AbortController(),
-    deadline: Date.now() + AGENT_DEADLINE_MS,
+    deadline: Date.now() + deadlineMs,
     pending: new Map(),
   }
+  // CC-P2-2：deadline 定时器强制生效——此前 deadline 只在轮首检查，write_chapter 触发的
+  // 嵌套 self-heal（单章多次重写 × 自身超时）或挂起中的确认闸期间完全不生效，整场
+  // 对话可远超 30min。到点即 abort 编排级 ctrl：waitConfirm 监听 signal 放行取消、
+  // 嵌套 self-heal 经 executeChatTool 的 abort 桥接同步中断；轮首检查保留兜底。
+  const deadlineTimer = setTimeout(() => {
+    state.timedOut = true
+    state.ctrl.abort()
+  }, deadlineMs)
   running.set(opts.bookName, state)
   // E1a：正常完成（emit chat_done）才续链；abort/error/超时丢弃队列
   let completedOk = false
@@ -619,6 +632,11 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         // P1-S4：回滚历史（防末尾 user → 下次连续 user → Anthropic 400，与 max_tokens 路径 :295 一致）
         history.length = baseLen
         // F1-P1：本会话已落库事件遮蔽（防下次恢复出已回滚的废数据）
+        // CC-P2-2：deadline 定时器触发的 abort 报「超时」（含嵌套 self-heal / 确认闸期间）
+        if (state.timedOut) {
+          recorder.close('aborted', recorder.allSessionSeqs())
+          return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
+        }
         recorder.close('interrupted', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: '已中断' })
       }
@@ -685,6 +703,11 @@ export async function runChat(opts: ChatOpts): Promise<void> {
 
       if (!out.ok) {
         history.length = baseLen
+        // CC-P2-2：deadline 定时器在 generate 期间触发 → 按超时收口（与轮首 aborted 分支同文案）
+        if (state.timedOut) {
+          recorder.close('aborted', recorder.allSessionSeqs())
+          return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
+        }
         recorder.close('error', recorder.allSessionSeqs())
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
@@ -783,7 +806,9 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // F1-P1：事件记录 + 落库 + trim 遮蔽（与无工具完成路径一致）
     // F1-P4：收尾 assistant 也进同一变体组（regenerate 轮数触顶时整回合不丢出分支视图）
     pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg, undefined, undefined, undefined, turnBranch)))
-    recorder.add(turnEndEvent(MAX_AGENT_TURNS - 1, 'max-turns'))
+    // CC-P2-1：触顶收尾记 turn 5 的终态（与上方 chat_turn emit 的 turn=MAX_AGENT_TURNS 同口径）——
+    // 此前记 MAX_AGENT_TURNS-1 会把循环内已记 completed 的最后一轮再关一次，同轮双终态
+    recorder.add(turnEndEvent(MAX_AGENT_TURNS, 'max-turns'))
     commitPendingMsgSeqs(recorder.flush())
     emit(opts, { type: 'chat_done' })
     completedOk = true
@@ -792,6 +817,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
     // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
     await finalizeHistory(opts, history, msgSeqs, recorder, sys, state)
   } finally {
+    clearTimeout(deadlineTimer)
     running.delete(opts.bookName)
     // E1a：steer 续链——正常完成自动消费队头；abort/error/超时丢弃队列
     drainNextChat(opts, completedOk)

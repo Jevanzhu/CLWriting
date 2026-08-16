@@ -41,18 +41,18 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/check',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
 
       const bookRoot = join(ctx.workDir, entry.path)
       const docId = params['docId'] ?? ''
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
-      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
+      if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       const outcome = runCheckForDocument(bookRoot, absPath)
       if (!outcome.ok) {
@@ -74,9 +74,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     'GET',
     '/api/books/:name/tree-issues',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
 
       const bookRoot = join(ctx.workDir, entry.path)
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId

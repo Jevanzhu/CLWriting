@@ -284,7 +284,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       reply(res, 200, { ok: true, caps, details })
     } catch (e) {
       // P2-4：错误脱敏
-      reply(res, 500, { ok: false, error: redactSecret(e instanceof Error ? e.message : String(e)) })
+      reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
     }
   })
 }

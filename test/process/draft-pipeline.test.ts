@@ -105,6 +105,20 @@ describe('buildDraftPrompt: 短篇', () => {
     expect(p).toContain('铺垫→反转→收尾')
   })
 
+  it('CC-P2-22: 要求五段 ## 标题（与节数机检同口径），不再「禁 markdown 标题」', () => {
+    // 节数守恒机检按 ## 标题计数（checkSectionCount），守规稿不应再因无标题被报项
+    const p = buildDraftPrompt(dir, 1, 'short')
+    expect(p).toContain('## 开头钩子')
+    expect(p).toContain('## 余韵')
+    expect(p).not.toContain('禁 markdown 标题')
+  })
+
+  it('CC-P2-22: 长篇维持纯叙事文本（禁 markdown 标题——长篇无节数机检）', () => {
+    const p = buildDraftPrompt(dir, 1, 'long')
+    expect(p).toContain('禁 markdown 标题')
+    expect(p).not.toContain('## 开头钩子')
+  })
+
   it('有细纲+章纲+备料 → 全部拼入', () => {
     mkdirSync(join(dir, '工作区'), { recursive: true })
     writeFileSync(join(dir, '工作区', '细纲.md'), '短篇细纲')

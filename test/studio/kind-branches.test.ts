@@ -153,6 +153,15 @@ describe('buildRewritePrompt(kind 分支)', () => {
     expect(p).toContain('8000-20000 字')
     expect(p).toContain('单章完整开合')
   })
+  it('CC-P2-22: whole 短篇要求五段 ## 标题（重写循环与机检不再两头矛盾）', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'short')
+    expect(p).toContain('## 开头钩子')
+    expect(p).toContain('## 余韵')
+  })
+  it('CC-P2-22: whole 长篇不注入五段标题要求（无节数机检）', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'long')
+    expect(p).not.toContain('## 开头钩子')
+  })
   it('whole 长篇:第N章 + 2k-4k 字单章钩', () => {
     const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'long')
     expect(p).toContain('第 3 章')

@@ -99,13 +99,12 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
       const path = svc.resolvePath(docId)
       if (!path) {
-        reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
+        reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未在清单登记：${docId}` })
         return
       }
       const input = parseSaveInput(await readJson(req))
       if (!input) {
         reply(res, 400, {
-          ok: false,
           code: 'BAD_INPUT',
           error: 'content / expectedRevision / operationId 缺失或类型不符',
         })
@@ -123,7 +122,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
-      reply(res, structStatus(outcome.code), { ok: false, code: outcome.code, reason: outcome.reason })
+      // CC-P2-11：错误信封统一 {error, code?}——save 结构化失败码保留 code，人话进 error
+      reply(res, structStatus(outcome.code), { code: outcome.code, error: outcome.reason })
     },
   )
 
@@ -177,13 +177,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // skipped）兜底，不产生双 commit。
       const release = acquireTaskGate(params['name']!, 'batch-finalize')
       if (!release) {
-        return reply(res, 409, { ok: false, code: 'BUSY', error: '本书批量定稿进行中，请等待完成后再试' })
+        return reply(res, 409, { code: 'BUSY', error: '本书批量定稿进行中，请等待完成后再试' })
       }
       try {
         const body = await readJson(req)
         const docIds = Array.isArray(body?.docIds) ? body.docIds : null
         if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
-          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
+          return reply(res, 400, { code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
         }
         const results = docIds.map((docId) => {
           const o = finalizeRevision(r.bookRoot, docId)
@@ -217,7 +217,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const body = await readJson(req)
       const baseline = Number(body?.baseline)
       if (!Number.isFinite(baseline) || baseline < 0) {
-        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'baseline 需非负数' })
+        reply(res, 400, { code: 'BAD_INPUT', error: 'baseline 需非负数' })
         return
       }
       appendBaseline(r.bookRoot, todayDate(), baseline)
@@ -234,7 +234,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const body = await readJson(req)
       if (typeof body.relPath !== 'string' || !body.relPath) {
-        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'relPath 缺失' })
+        reply(res, 400, { code: 'BAD_INPUT', error: 'relPath 缺失' })
         return
       }
       const svc = getOrCreateService(r.bookRoot)
@@ -264,13 +264,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       let result
       if (body.op === 'rename') {
         if (typeof body.newName !== 'string') {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'rename 需要 newName' })
+          reply(res, 400, { code: 'BAD_INPUT', error: 'rename 需要 newName' })
           return
         }
         result = await svc.renameDocument({ docId, newName: body.newName })
       } else if (body.op === 'move') {
         if (typeof body.toDir !== 'string') {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'move 需要 toDir' })
+          reply(res, 400, { code: 'BAD_INPUT', error: 'move 需要 toDir' })
           return
         }
         result = await svc.moveDocument({ docId, toDir: body.toDir })
@@ -279,7 +279,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         // 章号：长篇/短篇统一用 章号
         const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
         if (标题 === undefined && !Number.isFinite(numVal)) {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
+          reply(res, 400, { code: 'BAD_INPUT', error: 'meta 需要 标题 或 章号' })
           return
         }
         const metaUpdate: Record<string, unknown> = {}
@@ -289,12 +289,12 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       } else if (body.op === 'fm') {
         const meta = body.meta
         if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
-          reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'fm 需要 meta 对象' })
+          reply(res, 400, { code: 'BAD_INPUT', error: 'fm 需要 meta 对象' })
           return
         }
         result = svc.updateDocMeta(docId, meta as Record<string, unknown>)
       } else {
-        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '未知 op（rename/move/meta/fm）' })
+        reply(res, 400, { code: 'BAD_INPUT', error: '未知 op（rename/move/meta/fm）' })
         return
       }
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
@@ -312,7 +312,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
       if (typeof body.relPath !== 'string' || !body.relPath) {
-        reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'relPath 缺失' })
+        reply(res, 400, { code: 'BAD_INPUT', error: 'relPath 缺失' })
         return
       }
       const svc = getOrCreateService(r.bookRoot)

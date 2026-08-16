@@ -1,5 +1,5 @@
 // API 客户端：启动从 /api/boot 取 token，写方法（非 GET）自动注入 x-studio-token；
-// {error}/{reason}/{code} 统一抛 ApiError。对齐细案 §5（不学旧版 monkey-patch fetch）。
+// 错误信封统一 {error, code?}（CC-P2-11）——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
 
 let token: string | null = null
 let initialBook: string | null = null
@@ -66,7 +66,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return fetch(path, { ...init, method, headers })
 }
 
-/** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（reason > error > code > HTTP 状态）。
+/** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（error > code > HTTP 状态）。
  *  可选 timeoutMs：超时后 abort 并抛 ApiError(408)。未传则无超时（向后兼容）。*/
 export async function apiJson<T>(
   path: string,
@@ -85,11 +85,10 @@ export async function apiJson<T>(
     const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })
     const data = (await r.json().catch(() => ({}))) as T & {
       error?: string
-      reason?: string
       code?: string
     }
     if (!r.ok) {
-      throw new ApiError(data.reason ?? data.error ?? data.code ?? `HTTP ${r.status}`, r.status, data.code)
+      throw new ApiError(data.error ?? data.code ?? `HTTP ${r.status}`, r.status, data.code)
     }
     return data
   } catch (e) {

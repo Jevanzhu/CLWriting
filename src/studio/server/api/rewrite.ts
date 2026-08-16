@@ -65,16 +65,16 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
   route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+    if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')
-    if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书已在改写中，请等待完成后再试' })
+    if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在改写中，请等待完成后再试' })
     try {
       const reqBody = await readJson(req)
       const instruction = String(reqBody['instruction'] ?? '').trim()
-      if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
+      if (!instruction) return reply(res, 400, { code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
       // X-P2-13：选区保持原样（不 trim）参与定位——首尾空白是作者选区的一部分，
       // trim 后匹配可能落到正文另一处；纯空白选区仍视为整章改写
       const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
@@ -83,13 +83,13 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       const bookRoot = join(ctx.workDir, entry.path)
       const docId = params['docId'] ?? ''
       const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
-      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
+      if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
       const draft = readDraft(absPath)
-      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+      if (!draft.ok) return reply(res, 400, { code: 'NOT_CHAPTER', error: draft.reason })
       const original = draft.body
       // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
       const selection = selectionRaw || original
@@ -100,10 +100,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       if (mode === 'local') {
         selStart = original.indexOf(selectionRaw)
         if (selStart < 0) {
-          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+          return reply(res, 400, { code: 'BAD_INPUT', error: 'selection 不在正文内' })
         }
         if (original.indexOf(selectionRaw, selStart + 1) >= 0) {
-          return reply(res, 400, { ok: false, code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
+          return reply(res, 400, { code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
         }
       }
 
@@ -111,7 +111,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         ? buildAppendPrompt(original, instruction)
         : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
       const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
       const produced = result.produced
       // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
       const rewritten =
@@ -119,7 +119,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
         : produced
       if (rewritten === original) {
-        return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
+        return reply(res, 500, { code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
       }
       reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
     } finally {
@@ -130,12 +130,12 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   // 改稿轨迹采集（文风S2）：作者接受改写时前端上报 AI 版全文 → 旁路 ref。
   // 只写 ref 不碰正文（「AI 永不落盘正文」红线不破）；失败静默——轨迹是旁路证据，不阻断接受。
   route('POST', '/api/books/:name/documents/:docId/ai-version', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
+    if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
     const reqBody = await readJson(req)
     const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
-    if (!content.trim()) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'content 为空' })
+    if (!content.trim()) return reply(res, 400, { code: 'BAD_INPUT', error: 'content 为空' })
     const ref = recordAiVersion(join(ctx.workDir, entry.path), params['docId'] ?? '', content)
     reply(res, 200, { ok: true, recorded: ref !== null })
   })

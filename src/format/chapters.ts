@@ -84,6 +84,15 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
+/** 章号 → 按名定位文件时的全部合法前缀口径（单一真相源，CC-P2-21）。
+ *  正文目录里三种命名并存：legacy 无补零（5-标题.md）、草稿新建 3 位补零
+ *  （format/draft.ts resolveDraftPath）、service 改名与前端新建 4 位补零
+ *  （document/service.ts / useChapterTreeActions）。按章号定位文件必须三口径全试——
+ *  此前 RAG 召回精准读正文只试「无补零 + 4 位」，3 位命名的章静默返回 null。 */
+export function chapterNamePrefixes(chapter: number): string[] {
+  return [`${chapter}-`, `${String(chapter).padStart(3, '0')}-`, `${String(chapter).padStart(4, '0')}-`]
+}
+
 /** 扫描目录读所有章节（容错，递归子目录——支持 写作/正文/<卷>/ 结构）。
  * @param includeBody W-P2-4：为 true 时带出 _body（正文原文），导出等「meta+body 都要」的调用方一次读；
  *                     默认缺省（undefined/false）不驻留正文，既有调用方零成本。 */

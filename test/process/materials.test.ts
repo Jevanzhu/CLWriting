@@ -12,7 +12,7 @@
 
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -228,6 +228,30 @@ test('已配 RAG + key + 命中 → 备料含「RAG 召回」段', async () => {
     expect(ragSection!.flexibleRank).toBe(5)
     // 召回内容引用了第1章正文（精准读取切片）
     expect(ragSection!.content).toContain('第1章')
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('CC-P2-21: 3 位补零命名（草稿新建口径）的章 → 召回后仍能精准读正文切片', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // 草稿新建用 3 位补零（format/draft.ts resolveDraftPath）；此前 readChapterBodyByNumber
+    // 只试「无补零 + 4 位」，这些章 RAG 命中后正文静默读 null → 召回段空手而归
+    renameSync(join(root, '写作', '正文', '1-前章.md'), join(root, '写作', '正文', '001-前章.md'))
+    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(root, cfg, 'stub-key', stubEmbed)
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], embedFn: stubEmbed,
+    })
+    expect(r.ragHitCount).toBeGreaterThan(0)
+    const ragSection = r.sections.find((s) => s.title === 'RAG 召回')
+    expect(ragSection).toBeDefined()
+    // 正文切片真实取到（而非只有章号头行——正文读 null 时该段不会出现正文文字）
+    expect(ragSection!.content).toContain('古卷')
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })

@@ -115,6 +115,10 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
     })
     expect(r.status).toBe(409)
     expect((r.json as { code: string }).code).toBe('REVISION_CONFLICT')
+    // CC-P2-11：错误信封统一 {error, code?}——code 保留（doc store 冲突双出路机器码），
+    // 人话进 error，不再有 ok:false 冗余位
+    expect(typeof (r.json as { error: string }).error).toBe('string')
+    expect((r.json as Record<string, unknown>).ok).toBeUndefined()
   })
 
   it('docId 未在清单登记 → 404', async () => {

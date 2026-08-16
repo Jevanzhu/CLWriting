@@ -6,7 +6,10 @@
  * 禁止随手加裸 route()——未来 channel/端点增多时防「加裸路由不声明」的漂移。
  *
  * 三个传输层纪律（第8.3节）：
- * 1. 错误信封：parse 失败/抛错统一 {error}（dispatch 已有 HttpError 信封兜底）；
+ * 1. 错误信封（CC-P2-11 统一）：非 2xx 回复一律 { error: 人话, code?: 机器码 }——
+ *    code 仅当前端需要机器分支时携带（如 REVISION_CONFLICT 冲突双出路）；禁止再造
+ *    {ok:false,...}/{reason} 变体（200 业务结果体不在此列，按各端点自身契约）；
+ *    parse 失败/抛错统一 {error}（dispatch 已有 HttpError 信封兜底）；
  * 2. input 形状由 parse 声明（handler 拿解析后的类型，不裸 JSON）；
  * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会
  *    被解析成 truthy 值——cherry 用裸对象 + Object.hasOwn 的原因，Map 更干净）。

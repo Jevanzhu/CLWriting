@@ -186,7 +186,10 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     if (materials) parts.push(`## 备料\n${materials}`)
     if (settingsInjection) parts.push(settingsInjection)
     parts.push(
-      `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
+      // CC-P2-22：短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
+      // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
+      // 守规稿进重写循环两头矛盾。五段名与机检提示文案同口径。
+      `## 要求\n只输出第 ${chapter} 章正文（正文以 ## 标题分五段：## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵；段内纯叙事文本，仅段落与空行，禁加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
     return parts.join('\n\n')
   }

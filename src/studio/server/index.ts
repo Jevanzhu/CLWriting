@@ -178,7 +178,14 @@ export function startServer(opts: StudioServerOptions): http.Server {
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin)
+  // CC-P2-13：host 选项此前是陷阱——允许传任意监听地址，但下方 Host 白名单硬编码回环，
+  // 传非回环 host 时全请求 403（参数存在即故障）。产品口径仅本机回环（本文件头注释），
+  // 非回环值启动即拒——fail-fast 优于逐请求 403 的静默失效。
+  const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
   const host = opts.host ?? '127.0.0.1'
+  if (!LOOPBACK_HOSTS.has(host)) {
+    throw new Error(`不支持的非回环监听地址：${host}——Studio 服务仅限本机回环（127.0.0.1 / localhost / ::1）`)
+  }
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 
   const isAllowedOrigin = (req: IncomingMessage): boolean => {

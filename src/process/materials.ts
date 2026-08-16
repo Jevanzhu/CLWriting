@@ -16,6 +16,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
+import { chapterNamePrefixes } from '../format/chapters.js'
 import { prepare, type PrepareResult } from './prepare.js'
 import { readRagConfig, readApiKey } from '../rag/config.js'
 import { recall, type RecallHit } from '../rag/index.js'
@@ -44,14 +45,13 @@ function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
 
 /**
  * 按章号精准读取定稿正文（复用 frontmatter.readFile 取 body）。
- * 兼容两种命名：<章号>-<标题>.md（原始章号）与 <章号4位补零>-<标题>.md（commit msg 口径）。
+ * 前缀口径走 chapterNamePrefixes 单一真相源（CC-P2-21）：无补零 / 3 位 / 4 位补零全试——
+ * 草稿新建是 3 位补零，此前只试「无补零 + 4 位」导致这些章 RAG 召回静默返回 null。
  */
 function readChapterBodyByNumber(bookRoot: string, chapter: number): string | null {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
-  const padded = String(chapter).padStart(4, '0')
-  const candidates = [`${chapter}-`, `${padded}-`]
-  return findChapterBodyRecursive(bodyDir, candidates)
+  return findChapterBodyRecursive(bodyDir, chapterNamePrefixes(chapter))
 }
 
 /** 递归扫描正文目录（含卷子目录），按文件名前缀匹配章号取正文。

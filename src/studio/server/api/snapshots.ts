@@ -98,9 +98,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     'GET',
     '/api/books/:name/version-stats',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { ok: false, error: '未定位到工作目录' })
+      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { ok: false, error: `没有这本书：${params['name']}` })
+      if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
       const bookRoot = join(ctx.workDir, entry.path)
       const versionsDir = join(bookRoot, '工作区', '.版本')
       const scan = scanVersionsDir(versionsDir)
@@ -126,9 +126,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     'POST',
     '/api/books/:name/versions/prune',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { ok: false, error: '未定位到工作目录' })
+      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { ok: false, error: `没有这本书：${params['name']}` })
+      if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
       const bookRoot = join(ctx.workDir, entry.path)
       const versionsDir = join(bookRoot, '工作区', '.版本')
       if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
@@ -187,7 +187,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const r = resolveDoc(ctx.workDir, params['name'], docId)
       if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
-      if (!snap) return reply(res, 404, { ok: false, error: '版本不存在' })
+      if (!snap) return reply(res, 404, { error: '版本不存在' })
       reply(res, 200, { ok: true, content: snap.content, meta: snap.meta })
     },
   )
@@ -201,13 +201,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const r = resolveDoc(ctx.workDir, params['name'], docId)
       if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
-      if (!snap) return reply(res, 404, { ok: false, error: '版本不存在' })
+      if (!snap) return reply(res, 404, { error: '版本不存在' })
 
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
       if (expectedRevision === null) {
-        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'expectedRevision 必填' })
+        return reply(res, 400, { code: 'BAD_INPUT', error: 'expectedRevision 必填' })
       }
 
       const outcome = await getOrCreateService(r.bookRoot).save(docId, r.relPath, {

@@ -3,7 +3,7 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -29,6 +29,15 @@ describe('recordAiCall 记账', () => {
     const b = checkAiCallBudget(root, 1, CONFIG)
     expect(b.ok).toBe(true)
     if (b.ok) expect(b.used).toBe(1)
+  })
+
+  it('CC-P2-3: 记账文件权限 0600（atomicWriteFile mode 随临时文件创建，无全局可读窗口）', () => {
+    const root = tempBook()
+    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
+    recordAiCall(root, 1, { inputTokens: 1, outputTokens: 2 }) // 二次写（覆盖 rename）权限不变
+    const mode = statSync(join(root, '.cache', 'ai-calls.json')).mode & 0o777
+    // POSIX 权限位（Windows 跑不到这里——CI 为 ubuntu/macos）
+    expect(mode).toBe(0o600)
   })
 
   it('多次调用累计计数', () => {

@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { runChat, isChatRunning, abortChat, resolveChatConfirm } from '../../src/ai/orchestrate/chat.js'
+import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
@@ -341,6 +341,73 @@ describe('W2: 轮数触顶', () => {
     expect(hasChatDone(events)).toBe(true)
     // 不超过 5 轮请求
     expect(fake.requestCount()).toBeLessThanOrEqual(5)
+  })
+
+  it('CC-P2-1: 触顶收尾记 turn 5 终态——最后一轮（turn 4）不再被重复收尾', async () => {
+    fake.setScript([
+      { type: 'tool', name: 'check_chapter', input: { chapter: 1 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 2 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 3 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 4 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 5 } },
+      { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'test8-ev',
+      message: '查所有章节',
+    })
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('test8-ev')
+    store.close()
+    const turnEnds = evs
+      .filter((e) => e.type === 'turn/end')
+      .map((e) => ({ turn: e.turn ?? -1, reason: (e.data as { reason: string }).reason }))
+    // 5 轮各一个 completed 终态 + 触顶收尾一个 turn 5 max-turns——同轮双终态消除
+    expect(turnEnds).toEqual([
+      { turn: 0, reason: 'completed' },
+      { turn: 1, reason: 'completed' },
+      { turn: 2, reason: 'completed' },
+      { turn: 3, reason: 'completed' },
+      { turn: 4, reason: 'completed' },
+      { turn: 5, reason: 'max-turns' },
+    ])
+  })
+
+  it('CC-P2-2: deadline 到点在确认闸等待期间强制中止（报「对话超时」并回滚历史）', async () => {
+    // write 风险工具 → 挂起等作者确认；deadline（300ms）先于确认超时（60s）触发
+    fake.setScript([
+      { type: 'tool', name: 'rename_chapter', input: { chapter: 1, title: '新标题' } },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'test-dl',
+      message: '帮我改名',
+      deadlineMs: 300,
+      confirmTimeoutMs: 60_000,
+    })
+
+    // 确认闸确已挂起（超时发生在 await 点上，而非轮首检查的空转路径）
+    expect(events.some((e) => e.type === 'chat_tool_pending')).toBe(true)
+    expect(chatError(events)).toContain('对话超时')
+    // 超时回滚：本书历史不留半截回合
+    expect(getHistory('test-dl').length).toBe(0)
+    expect(isChatRunning('test-dl')).toBe(false)
   })
 })
 
