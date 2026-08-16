@@ -105,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <BookOpen :size="16" /><span>书籍与目标</span>
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-              <Sparkles :size="16" /><span>AI 写作行为</span>
+              <Sparkles :size="16" /><span>AI 功能</span>
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
               <Server :size="16" /><span>AI 服务商</span>

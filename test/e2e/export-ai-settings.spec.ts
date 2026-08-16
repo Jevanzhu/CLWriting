@@ -44,8 +44,8 @@ test('AI 设置：设置弹窗 → AI tab → 对话助手开关切换', async (
   const settings = page.locator('.settings-modal')
   await expect(settings).toBeVisible()
 
-  // 切 AI 写作行为 tab（左侧导航「AI 写作行为」，与「AI 服务商」区分）
-  await settings.locator('.settings-nav button', { hasText: 'AI 写作行为' }).click()
+  // 切 AI 功能 tab（左侧导航「AI 功能」，与「AI 服务商」区分）
+  await settings.locator('.settings-nav button', { hasText: 'AI 功能' }).click()
   await expect(settings.locator('.settings-tab')).toBeVisible()
 
   // 对话助手 switch 初始未勾选（prefs.chatEnabled 默认 false）

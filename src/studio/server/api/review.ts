@@ -85,6 +85,10 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       reviewRunning.add(runKey)
       try {
 
+        // CC-P1-2：sourceHash 必须与进 prompt 的正文同源——分钟级三审期间作者保存会让
+        // 任务后重读的 hash 对应新稿，而 payload 审的是旧稿，stale 判定恒 false（错配）。
+        const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
+
         // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
         const outcome = runCheckForDocument(bookRoot, absPath)
         if (!outcome.ok) {
@@ -147,7 +151,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           writeAnalysis(bookRoot, docId, 'review', {
             generatedAt: new Date().toISOString(),
             model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
-            sourceHash: sourceHashOf(readFileSync(absPath, 'utf-8')),
+            sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
             payload: { collected, lenses: loopResult.lenses },
           })
   

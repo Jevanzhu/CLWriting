@@ -149,7 +149,13 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
     // nextChapter 必须以正文区最大文件名章号为下限。否则「3 章已定稿 + 坏 fm 的 004 草稿」
     // 会算出 nextChapter=3，resolveDraftPath 覆盖写已定稿第 3 章。
     const formula = readChapterDir(bodyDir).chapters.length - excludeNames.size + 1
-    return { state: 7, nextChapter: Math.max(formula, maxFileNameChapter(bodyDir)) }
+    // CC-P1-6：跳过已定稿篇号——短篇集删除/回收造成编号断档（定稿剩 1、2、5）时
+    // max(formula, maxFileName)=5 会回指已定稿第 5 篇，resolveDraftPath 的防覆盖闸
+    // （V-P2-2/W-P2-2）fail-loud 抛错卡死写作流。跳过 5 → 6，篇号永不复用。
+    return {
+      state: 7,
+      nextChapter: skipFinalizedChapters(Math.max(formula, maxFileNameChapter(bodyDir)), finalizedChapterNumbers(m)),
+    }
   }
 
   // 读缓存算 currentChapter（5/6/7 都要）
@@ -180,8 +186,8 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
 
   // #6 体检周期：CLI 退场后移除（态 6 不再拦截写章），直接落态 7。
 
-  // #7 起草新章（兜底）
-  return { state: 7, nextChapter: currentChapter + 1 }
+  // #7 起草新章（兜底）。CC-P1-6：长轨同样跳过已定稿章号（外部删章/断档场景防回指定稿）。
+  return { state: 7, nextChapter: skipFinalizedChapters(currentChapter + 1, finalizedChapterNumbers(m)) }
 }
 
 /** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描）。 */
@@ -461,6 +467,30 @@ function maxFileNameChapter(bodyDir: string): number {
   return max
 }
 
+/**
+ * 清单中已定稿条目的章号集合（文件名前缀数值口径，与 format/draft.ts
+ * ensureChapterNotFinalized 的 RB-KN-P1-2 数值比对同源——定稿改名 3/4 位补零均命中）。
+ * CC-P1-6：只跳定稿号，不跳草稿占号——V-P1-3 场景（坏 fm 草稿占号）的恢复语义
+ * 就是落号覆盖草稿，跳草稿会把恢复流变成永久跳号。
+ */
+function finalizedChapterNumbers(m: Manifest): Set<number> {
+  const out = new Set<number>()
+  for (const e of m.entries.values()) {
+    if (e.nodeType !== 'document' || !e.finalizedRevision) continue
+    const base = e.path.split('/').pop() ?? ''
+    const g = base.match(/^(\d+)-/)
+    if (g) out.add(Number(g[1]))
+  }
+  return out
+}
+
+/** CC-P1-6：n 起步跳过一切已定稿章号（「篇号永不复用」语义；连续定稿时 n+1 即空闲，零开销）。 */
+function skipFinalizedChapters(n: number, finalized: Set<number>): number {
+  let next = n
+  while (finalized.has(next)) next++
+  return next
+}
+
 /** 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。 */
 function readBatchPause(bookRoot: string): { atChapter: number; reason: string; detail: string } | undefined {
   const fp = join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
@@ -579,7 +609,9 @@ export function buildRecap(bookRoot: string, config: BookConfig, detected: Detec
   return {
     currentChapter: snapshot.currentChapter,
     currentVolume: snapshot.currentVolume,
-    nextChapter: snapshot.currentChapter + 1,
+    // CC-P1-6：与 detectState 同口径跳过已定稿章号（断档场景 currentChapter+1 可回指定稿，
+    // 状态卡「开始写第 X 章」的提示号与 detectState 的执行号必须一致）
+    nextChapter: skipFinalizedChapters(snapshot.currentChapter + 1, finalizedChapterNumbers(m)),
     gitClean: detected.state !== 1,
     parseErrors: detected.state === 2,
     handEdits: detected.state === 3,

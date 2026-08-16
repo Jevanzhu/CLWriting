@@ -39,7 +39,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
-  // 打开设置 → AI 服务商 tab（服务商面板在「AI 服务商」tab，非「AI 写作行为」tab）
+  // 打开设置 → AI 服务商 tab（服务商面板在「AI 服务商」tab，非「AI 功能」tab）
   await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
   await page.locator('.settings-nav button', { hasText: 'AI 服务商' }).click()
 

@@ -22,6 +22,7 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
+import { anthropicClientOpts } from './models.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
 
 /**
@@ -32,25 +33,16 @@ import { httpStatusToCode, headerErrorFields } from './failure.js'
  * - anthropic   → 只发 x-api-key + anthropic-version（官方格式）
  * - claudeAuth  → 只发 Authorization: Bearer（Claude 中转 / 网关）
  * - bearer      → 同 claudeAuth（anthropic 协议下的 Bearer 中转）
+ *
+ * 构造参数统一走 models.anthropicClientOpts（CC-P1-1：env 污染双向阻断的单一
+ * 真相源——claudeAuth/bearer 分支 apiKey:null 防止 SDK 回退读 env
+ * ANTHROPIC_API_KEY 造成双认证头；此处原先的私有副本漏了该防线）。
  */
 function createClient(conf: ProviderConf): Anthropic {
   const auth = conf.auth ?? 'anthropic'
-  const base: ConstructorParameters<typeof Anthropic>[0] = {
-    baseURL: normalizeAnthropicBaseUrl(conf.baseUrl),
-    // 显式 authToken:null 阻断环境变量 ANTHROPIC_AUTH_TOKEN 注入（SDK 只在
-    // authToken === undefined 时读 env）——本机 Claude Code 凭据会污染成双认证头，
-    // 严格网关可能 400/返回匿名数据（模型列表只 2 个即此因）
-    authToken: null,
-  }
-  if (auth === 'anthropic') {
-    base.apiKey = conf.apiKey
-    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
-  } else {
-    // claudeAuth / bearer：用 SDK 原生 authToken 只发 Authorization: Bearer，不发 x-api-key
-    base.authToken = conf.apiKey
-    base.defaultHeaders = { 'anthropic-version': '2023-06-01' }
-  }
-  return new Anthropic(base)
+  return new Anthropic(
+    anthropicClientOpts(normalizeAnthropicBaseUrl(conf.baseUrl), conf.apiKey, auth),
+  )
 }
 
 /**

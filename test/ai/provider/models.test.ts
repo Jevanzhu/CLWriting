@@ -39,10 +39,11 @@ describe('anthropicClientOpts（authToken:null 阻断 env 污染）', () => {
     expect(opts!.defaultHeaders).toMatchObject({ 'anthropic-version': '2023-06-01' })
   })
 
-  it('auth=claudeAuth/bearer → authToken=apiKey（不发 x-api-key）', () => {
+  it('auth=claudeAuth/bearer → authToken=apiKey + 显式 apiKey:null（不发 x-api-key）', () => {
     const opts = anthropicClientOpts('https://gw.local', 'sk-bearer', 'claudeAuth')
     expect(opts!.authToken).toBe('sk-bearer')
-    expect(opts!.apiKey).toBeUndefined()
+    // CC-P1-1：null（非 undefined）——undefined 时 SDK 回退读 env ANTHROPIC_API_KEY
+    expect(opts).toHaveProperty('apiKey', null)
   })
 
   it('显式 authToken:null 而非 undefined——SDK 只在 undefined 时读 env，null 则阻断', () => {
@@ -51,5 +52,24 @@ describe('anthropicClientOpts（authToken:null 阻断 env 污染）', () => {
     const opts = anthropicClientOpts('https://ccats.art', 'sk-x', 'anthropic')
     expect(opts).toHaveProperty('authToken', null)
     expect(opts!.authToken === undefined).toBe(false)
+  })
+
+  it('CC-P1-1：claudeAuth/bearer 下 apiKey:null 真机阻断 env ANTHROPIC_API_KEY（SDK 实证）', async () => {
+    // 回归：claudeAuth/bearer 分支此前 apiKey 留 undefined → 本机设了
+    // ANTHROPIC_API_KEY 时 SDK 同发 x-api-key + Bearer 双认证头（严格网关 400/串号）。
+    // 用真 SDK 客户端实证：opts.apiKey=null 构造后 client.apiKey 不吃 env。
+    const opts = anthropicClientOpts('https://gw.local', 'sk-bearer', 'bearer')
+    process.env['ANTHROPIC_API_KEY'] = 'env-leaked-key'
+    try {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk')
+      // 修复语义：apiKey 显式 null → SDK 不吃 env
+      const client = new Anthropic(opts!)
+      expect(client.apiKey).toBeNull()
+      // 反证：undefined（旧行为）确实会被 env 污染——锁住修复语义
+      const polluted = new Anthropic({ ...opts!, apiKey: undefined })
+      expect(polluted.apiKey).toBe('env-leaked-key')
+    } finally {
+      delete process.env['ANTHROPIC_API_KEY']
+    }
   })
 })

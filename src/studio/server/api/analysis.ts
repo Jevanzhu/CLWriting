@@ -122,16 +122,19 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
         const { body, chapter } = draft
 
+        // CC-P1-2：sourceHash 与进 prompt 的正文同刻同源——分钟级分析期间作者保存会让
+        // 任务后重读的 hash 对应新稿而 payload 分析的是旧稿，stale 判定恒 false（错配）。
+        const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
+
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
         if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
         const payload = result.payload
 
-        const fullContent = readFileSync(absPath, 'utf-8')
         const envelope = {
           generatedAt: new Date().toISOString(),
           model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
-          sourceHash: sourceHashOf(fullContent),
+          sourceHash, // 进 prompt 时的稿（见上）——与 payload 同源，不重读
           payload,
         }
         writeAnalysis(bookRoot, docId, kind, envelope)
