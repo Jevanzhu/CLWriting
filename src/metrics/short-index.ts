@@ -10,7 +10,6 @@ import { existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
-import { readFile } from '../format/frontmatter.js'
 import { countWords } from '../format/chapters.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
@@ -190,20 +189,20 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const 章纲Dir = join(bookRoot, '大纲', '章纲')
   if (!existsSync(bodyDir)) return []
 
-  const { chapters } = readChapterDir(bodyDir)
+  // CC-P2-33：includeBody 一次读带出正文（对齐 export W-P2-4 口径），
+  // 消除每章二次 readFile 的整读放大（大书 O(2n) 读 → O(n)）
+  const { chapters } = readChapterDir(bodyDir, true)
   const entries: ShortPieceIndexEntry[] = []
   for (const ch of chapters) {
     if (!ch._path) continue
-    const bodyPath = ch._path
-    const name = basename(bodyPath)
-    const file = readFile(bodyPath)
+    const name = basename(ch._path)
     const list = readListIfExists(join(章纲Dir, name))
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
-    const body = file.ok ? file.body : ''
+    const body = ch._body ?? ''
     entries.push({
       num: ch.章号,
       title: ch.标题,
-      wordCount: file.ok ? countWords(body) : 0,
+      wordCount: countWords(body),
       targetEmotion: cleanValue(ch.目标情绪),
       coreReversal,
       reversalType: classifyReversal(coreReversal),

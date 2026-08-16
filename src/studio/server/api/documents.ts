@@ -16,6 +16,7 @@ import { DocumentService, type SaveDocumentInput } from '../../../document/servi
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
 import { invalidateBookSummary } from './progress.js'
+import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
@@ -170,16 +171,28 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
-      const body = await readJson(req)
-      const docIds = Array.isArray(body?.docIds) ? body.docIds : null
-      if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
-        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
+      // CC-P2-9：并发闸——必须在首个 await（readJson）前同步占位，覆盖 body 在途窗口：
+      // handler 已持闸悬在 readJson 时，后到的完整请求 409（与 rewrite/outline 闸同口径）。
+      // 注：定稿循环全程同步，body 已齐的双击会串行执行——由 finalize 幂等（已定稿 →
+      // skipped）兜底，不产生双 commit。
+      const release = acquireTaskGate(params['name']!, 'batch-finalize')
+      if (!release) {
+        return reply(res, 409, { ok: false, code: 'BUSY', error: '本书批量定稿进行中，请等待完成后再试' })
       }
-      const results = docIds.map((docId) => {
-        const o = finalizeRevision(r.bookRoot, docId)
-        return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
-      })
-      reply(res, 200, { ok: true, results })
+      try {
+        const body = await readJson(req)
+        const docIds = Array.isArray(body?.docIds) ? body.docIds : null
+        if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
+          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
+        }
+        const results = docIds.map((docId) => {
+          const o = finalizeRevision(r.bookRoot, docId)
+          return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
+        })
+        reply(res, 200, { ok: true, results })
+      } finally {
+        release()
+      }
     },
   )
 

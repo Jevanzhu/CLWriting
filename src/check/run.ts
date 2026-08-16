@@ -17,9 +17,10 @@ import { leadEvidenceMatchesBody, readChapterLeadUpdates } from './lead-updates.
 import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { deriveStatusFull } from '../document/status.js'
-import { computeRevision } from '../document/revision.js'
+import { probeCachedRevision } from '../document/tree.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
+import type { ChapterLeadUpdate } from './lead-updates.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
 export type CheckOutcome =
@@ -85,6 +86,20 @@ function maxWrittenChapterOf(bookRoot: string): number | undefined {
 }
 
 /**
+ * 批量机检的预扫共享上下文（CC-P1-3）：树红点聚合一次扫描、逐章复用。
+ * 此前三项数据每章在 checkWithDb 内现扫/现读——大书数百章时 O(N²) 文件读
+ * 单请求阻塞事件循环秒级；不传则单章端点行为不变（每章现扫，语义等价）。
+ */
+export interface BatchCheckContext {
+  /** 全书最高已定稿章号（maxWrittenChapterOf 预扫结果） */
+  maxWrittenChapter?: number
+  /** 大纲/章纲 章列表（targetWords 查表用；空数组 = 无章纲目录） */
+  outlineChapters?: ChapterMeta[]
+  /** 工作区/账本推进.md 解析结果（无文件时为空数组） */
+  leadUpdates?: ChapterLeadUpdate[]
+}
+
+/**
  * 对单文档跑机检（复用外部 db；有布线 db 必填、无布线传 null）。
  *
  * T9b 树红点聚合 rebuild 一次后循环调此（避免每章 rebuild 的 O(N²)）；
@@ -96,37 +111,37 @@ export function checkWithDb(
   absPath: string,
   db: DatabaseSync | null,
   config: BookConfig,
-  maxWrittenChapter?: number,
+  batch?: BatchCheckContext,
 ): CheckOutcome {
   const draft = readDraft(absPath)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
     const hasWiring = existsSync(join(bookRoot, '布线'))
-    // 全书最高已定稿章号：调用方传入则用（树红点聚合已扫过全书，避免重复扫描）；
-    // 未传（单章 check 端点）时扫描一次 写作/正文 取最大章号。
+    // 全书最高已定稿章号：batch 存在即视为已预扫（树红点聚合循环外已扫过全书），
+    // 直接用 batch.maxWrittenChapter——即使为 undefined（无定稿章）也是预扫的合法结果，
+    // 不再回扫；未传 batch（单章 check 端点）时才扫描一次 写作/正文 取最大章号。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     // 优化：无布线时账本检查不运行，跳过全书扫描
     const maxChapter = hasWiring
-      ? (maxWrittenChapter ?? maxWrittenChapterOf(bookRoot))
-      : maxWrittenChapter
+      ? (batch ? batch.maxWrittenChapter : maxWrittenChapterOf(bookRoot))
+      : batch?.maxWrittenChapter
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
     // V-P2-14：细纲声明按被检章过滤（细纲单文件覆盖写，旧草稿复检不得对上新章声明）
     const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot, draft.chapter.章号) : undefined
     const actualLeadIds = useLeads
-      ? readChapterLeadUpdates(bookRoot)
+      ? (batch?.leadUpdates ?? readChapterLeadUpdates(bookRoot))
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
       : undefined
     // W-P2-11：word-count 黄项数据源接线——章纲（大纲/章纲/）fm 字数目标 已入 ChapterMeta，
     // 正文 ChapterMeta 无此字段（宿主写稿不产），按章号查同章章纲取 字数目标 作 targetWords。
     // 未设（无章纲 / 无 字数目标）→ undefined → 检查器 targetWords 0 → 不检也不提示（决策 C 第 3 条）。
-    let targetWords: number | undefined
+    // CC-P1-3：批量聚合经 batch 传预扫列表；单章端点现扫（只消除批量时的每章重扫）
     const outlineDir = join(bookRoot, '大纲', '章纲')
-    if (existsSync(outlineDir)) {
-      const { chapters: outlineChapters } = readChapterDir(outlineDir)
-      targetWords = outlineChapters.find((c) => c.章号 === draft.chapter.章号)?.字数目标
-    }
+    const outlineList =
+      batch?.outlineChapters ?? (existsSync(outlineDir) ? readChapterDir(outlineDir).chapters : [])
+    const targetWords = outlineList.find((c) => c.章号 === draft.chapter.章号)?.字数目标
     const report: CheckReport = runAllChecks({
       ...(db ? { db } : {}),
       bookRoot,
@@ -191,19 +206,31 @@ export function collectTreeIssues(
       // B-P1-1：统一用 maxWrittenChapterOf（仅计已定稿章），与单章 checkWithDb 端点一致。
       // 旧实现遍历所有 chapters（含未定稿草稿），导致树红点聚合与单章机检的"最高已写章号"基准不一致。
       const maxWritten = maxWrittenChapterOf(bookRoot)
+      // CC-P1-3：三项预扫提升到循环外——此前每章 checkWithDb 内各现扫一遍（大纲/章纲 全量
+      // readChapterDir + 工作区/账本推进 整读），大书数百章 O(N²) 文件读阻塞事件循环秒级；
+      // 单请求内共享一份（章纲/账本推进只在编辑时变，跨请求由增量 rebuild/probe 缓存兜住）
+      const batch: BatchCheckContext = {
+        maxWrittenChapter: maxWritten,
+        outlineChapters: existsSync(join(bookRoot, '大纲', '章纲'))
+          ? readChapterDir(join(bookRoot, '大纲', '章纲')).chapters
+          : [],
+        leadUpdates: readChapterLeadUpdates(bookRoot),
+      }
       for (const ch of chapters) {
         if (!ch._path) continue
         const relPath = relative(bookRoot, ch._path)
         // 定稿态跳过——不在树上打扰已确认的章节
         const entry = entryByPath.get(relPath) ?? null
-        const rev = existsSync(join(bookRoot, relPath)) ? computeRevision(join(bookRoot, relPath)) : null
+        // CC-P1-3：字节指纹走 probeCache（stat 级命中零读零哈希，与树 W-P2-4 同口径），
+        // 替代每章 computeRevision 整读 + SHA-256
+        const rev = probeCachedRevision(bookRoot, relPath)
         const st = deriveStatusFull(bookRoot, relPath, entry, rev)
         if (st === 'final' || st === 'published') continue
         const docId = pathToDocId.get(relPath)
         if (!docId) continue
         let hasRed = false
         if (!rebuildFailed) {
-          const outcome = checkWithDb(bookRoot, ch._path, db, config, maxWritten)
+          const outcome = checkWithDb(bookRoot, ch._path, db, config, batch)
           hasRed = outcome.ok ? outcome.hasRed : false
         }
         const verdict = readReviewVerdict(docId)

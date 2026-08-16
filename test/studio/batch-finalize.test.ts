@@ -25,19 +25,29 @@ let ch2DocId = ''
 let ch3DocId = ''
 
 function postBatch(docIds: unknown): Promise<{ status: number; json: unknown }> {
+  return postBatchDelayed(docIds, 0)
+}
+
+/** body 延迟 bodyDelayMs 才上送——制造 handler 已进入（持闸）但悬在 readJson 的在途窗口 */
+function postBatchDelayed(docIds: unknown, bodyDelayMs: number): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
     const u = new URL(baseUrl)
+    const body = JSON.stringify({ docIds })
     const req = http.request(
       {
         host: u.hostname,
         port: u.port,
         path: `/api/books/${encodeURIComponent(BOOK)}/documents/batch-finalize`,
         method: 'POST',
-        headers: { 'x-studio-token': token, 'content-type': 'application/json' },
+        headers: {
+          'x-studio-token': token,
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body), // 必须带上：flushHeaders 后服务器据 length 判 body 未完
+        },
       },
       (res) => {
         let data = ''
-        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('data', (c) => (data += c.toString('utf8')))
         res.on('end', () => {
           let json: unknown = null
           try {
@@ -50,7 +60,10 @@ function postBatch(docIds: unknown): Promise<{ status: number; json: unknown }> 
       },
     )
     req.on('error', reject)
-    req.end(JSON.stringify({ docIds }))
+    // 先 flushHeaders 发请求头（Node 的 http.request 在 end/write 前不发任何字节），
+    // 服务器据此进入 handler 同步占闸、悬在 readJson 等 body；body 延迟上送模拟在途窗口。
+    req.flushHeaders()
+    setTimeout(() => req.end(body), bodyDelayMs)
   })
 }
 
@@ -154,5 +167,25 @@ describe('POST /documents/batch-finalize（P2-PROD-2）', () => {
     expect((await postBatch([])).status).toBe(400)
     expect((await postBatch('x')).status).toBe(400)
     expect((await postBatch([1])).status).toBe(400)
+  })
+
+  it('CC-P2-9：定稿进行中后到请求 409 BUSY（防每章双 commit + 双 manifest 写）', async () => {
+    // 改脏一章供定稿
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0002-转折.md'),
+      '---\n章号: 2\n标题: 转折\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n弟子林远踏入山门，双击防双跑。\n',
+      'utf8',
+    )
+    // 闸在首个 await（readJson）前同步占位。请求 1 body 延迟上送 → handler1 持闸悬在
+    // readJson；期间到达的完整请求 2 必吃 409（修复前：无闸直接放行双跑）。
+    // 注：定稿循环全程同步，两个 body 已齐的请求会串行各自持闸——那种双击由
+    // finalize 幂等（已定稿 → skipped）兜底，本闸覆盖的是在途窗口。
+    const p1 = postBatchDelayed([ch2DocId], 250)
+    await new Promise((r) => setTimeout(r, 80)) // 等 handler1 进入（已占闸、悬在 readJson）
+    const r2 = await postBatch([ch2DocId])
+    expect(r2.status).toBe(409)
+    expect((r2.json as { ok: boolean; code: string }).code).toBe('BUSY')
+    const r1 = await p1
+    expect(r1.status).toBe(200)
   })
 })

@@ -188,7 +188,7 @@ function isCountedRole(role: DocumentRole): boolean {
 
 /** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志（原三读合一）。 */
 interface FileProbe {
-  rev: string
+  rev: `sha256:${string}`
   wordCount: number
   published: boolean
 }
@@ -203,6 +203,16 @@ const probeCache = new Map<string, { mtimeMs: number; size: number; probe: FileP
 /** 清空哈希缓存（结构性 mutation 后由 invalidateTreeIndex 调用）。 */
 export function clearProbeCache(): void {
   probeCache.clear()
+}
+
+/**
+ * CC-P1-3：字节指纹的缓存版（computeRevision 语义，stat 级复用 probeCache）。
+ * 树红点聚合每章一调——未变文件（绝大多数）stat 命中零读零哈希，替代每章整读 + SHA-256；
+ * 结构性 mutation 时随 invalidateTreeIndex 一并失效。mtime+size 撞车理论窗口与树自身
+ * W-P2-4 probeCache 同口径。文件不存在/读失败 → null（调用方容错）。
+ */
+export function probeCachedRevision(bookRoot: string, relPath: string): `sha256:${string}` | null {
+  return probeFile(bookRoot, relPath)?.rev ?? null
 }
 
 /**
@@ -230,7 +240,7 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   } catch {
     return null
   }
-  const rev = 'sha256:' + createHash('sha256').update(raw).digest('hex')
+  const rev = ('sha256:' + createHash('sha256').update(raw).digest('hex')) as `sha256:${string}`
   // 字数 + published 都从同一份字节解析（一次读、一次 utf8 解码）
   const text = raw.toString('utf8')
   const split = splitFrontMatter(text)
