@@ -35,6 +35,21 @@ interface StreamCtx {
 const sseConnections = new Map<string, number>()
 const MAX_SSE_PER_BOOK = 5
 
+// RB-SV-P2-1：per-book spawn 运行闸（与 /auto-write 的 self-heal 闸同模式）——
+// 双标签页时序窗口并发双 spawn 会互相覆写草稿回流。占位在首个 await 前同步完成
+// （比 auto-write 的「检查→await→二次检查」更严，无 TOCTOU 窗口），终态 finally 释放。
+const spawnRunning = new Map<string, true>()
+
+export function isSpawnRunning(bookName: string): boolean {
+  return spawnRunning.has(bookName)
+}
+
+/** 测试用：直接置/清 spawn 运行闸（并发 409 用例的确定性夹具，同 __clearDocumentServices 风格）。 */
+export function __setSpawnRunning(bookName: string, running: boolean): void {
+  if (running) spawnRunning.set(bookName, true)
+  else spawnRunning.delete(bookName)
+}
+
 /**
  * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
  * text 增量经 driver.emit 推 SSE。替代旧 driver.spawnRole 路径。
@@ -201,30 +216,45 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
 
-    const body = await readJson(req)
-    const role = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
-    const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
-    // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
-    if (!prompt.trim()) {
-      return reply(res, 400, { error: 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）' })
+    // RB-SV-P2-1：并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
+    const bookName = params['name']!
+    if (spawnRunning.has(bookName)) {
+      return reply(res, 409, { error: '本书正在生成，先等它跑完或中断' })
     }
-    if (prompt.length > 100_000) {
-      return reply(res, 400, { error: 'prompt 过长（上限 10 万字符）' })
+    spawnRunning.set(bookName, true)
+    let launched = false
+    try {
+      const body = await readJson(req)
+      const role = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
+      const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
+      // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
+      if (!prompt.trim()) {
+        return reply(res, 400, { error: 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）' })
+      }
+      if (prompt.length > 100_000) {
+        return reply(res, 400, { error: 'prompt 过长（上限 10 万字符）' })
+      }
+
+      const mainSession = await ensureSession(bookName, ctx.workDir)
+      const driver = getDriver('cc')
+      launched = true
+      // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
+      // 终态（含失败/中断）释放并发闸
+      void runWriterSpawn({
+        driver,
+        mainSession,
+        userDataPath: ctx.userDataPath,
+        bookRoot: join(ctx.workDir, entry.path),
+        prompt,
+        role,
+      })
+        .catch((e) => emitSpawnError(driver, mainSession, e))
+        .finally(() => spawnRunning.delete(bookName))
+
+      reply(res, 200, { ok: true, role })
+    } finally {
+      if (!launched) spawnRunning.delete(bookName)
     }
-
-    const mainSession = await ensureSession(params['name']!, ctx.workDir)
-    const driver = getDriver('cc')
-    // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流
-    void runWriterSpawn({
-      driver,
-      mainSession,
-      userDataPath: ctx.userDataPath,
-      bookRoot: join(ctx.workDir, entry.path),
-      prompt,
-      role,
-    }).catch((e) => emitSpawnError(driver, mainSession, e))
-
-    reply(res, 200, { ok: true, role })
   })
 
   // 中断当前生成：AbortController.abort() + 推 interrupted，session 保留可再 spawn

@@ -96,16 +96,27 @@ const currentAction = computed<{ label: string; run: () => void | Promise<void> 
   return ACTION_RUNS[a] ?? null
 })
 
+// RB-FE-P2-4：状态卡请求代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 状态（对齐本文件 kindReqId 风格）
+let stateGen = 0
 async function refreshState(): Promise<void> {
+  const gen = ++stateGen
   try {
-    state.value = await getState(props.bookName)
+    const s = await getState(props.bookName)
+    if (gen !== stateGen) return
+    state.value = s
   } catch (e) {
+    if (gen !== stateGen) return
     err.value = friendlyError(e)
   }
 }
 watch(
   () => props.bookName,
-  () => refreshState(),
+  () => {
+    // RB-FE-P2-4：切书清残留——旧书的 prompt 输入与 draftSaved 提示不带进新书
+    prompt.value = ''
+    draftSaved.value = null
+    void refreshState()
+  },
   { immediate: true },
 )
 // Y-P2-3：切书重载规则命中（原仅 onMounted 拉一次，切书后残留旧书统计；初载仍走 onMounted）

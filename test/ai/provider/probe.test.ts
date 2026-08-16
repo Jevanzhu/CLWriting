@@ -12,13 +12,11 @@ import { clearProviderCache } from '../../../src/ai/provider/registry.js'
 import { listModels } from '../../../src/ai/provider/models.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
-import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 
-// 自动 mock：三个模块的导出全部替换为 vi.fn()
+// 自动 mock：模块的导出全部替换为 vi.fn()
 vi.mock('../../../src/ai/provider/models.js')
 vi.mock('../../../src/ai/provider/anthropic-adapter.js')
 vi.mock('../../../src/ai/provider/openai-adapter.js')
-vi.mock('../../../src/ai/provider/responses-adapter.js')
 
 const SAVE_DRIVER = process.env['CLWRITING_DRIVER']
 
@@ -74,12 +72,6 @@ describe('createProvider', () => {
     vi.mocked(createOpenAIProviderChat).mockReturnValue(fakeProvider([]))
     createProvider(conf({ protocol: 'openai', auth: 'bearer' }))
     expect(createOpenAIProviderChat).toHaveBeenCalledTimes(1)
-  })
-
-  it('openai-responses 协议 → 走 Responses 工厂', () => {
-    vi.mocked(createOpenAIResponsesProvider).mockReturnValue(fakeProvider([]))
-    createProvider(conf({ protocol: 'openai-responses', auth: 'bearer' }))
-    expect(createOpenAIResponsesProvider).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -22,6 +22,7 @@ import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface OutlineCtx {
   workDir: string | null
@@ -46,40 +47,46 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-
-    const body = await readJson(_req)
-    const chapter = Number(body['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
-
-    const bookRoot = join(ctx.workDir, entry.path)
-    const kind = readKind(bookRoot)
-    const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
-
-    // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
-    const result = await runOutline(ctx.userDataPath, prompt, bookRoot)
-    if (!result.ok) return reply(res, 500, { error: result.error })
-
-    const content = result.text
-    const outlineDir = join(bookRoot, '工作区')
-    const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
-    // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
-    // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
-    // W-P1-3 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
-    // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
-    // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
-    const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
-    const declaredFm = kind === 'long' ? `推进: [${outlineIds.join(', ')}]` : ''
-    const withFm = content.startsWith('---')
-      ? content
-      : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
+    // RB-SV-P2-2：长任务并发闸（细纲生成分钟级，且落盘为覆盖写）
+    const release = acquireTaskGate(params['name']!, 'outline')
+    if (!release) return reply(res, 409, { error: '本书正在生成细纲，请等待完成后再试' })
     try {
-      mkdirSync(outlineDir, { recursive: true })
-      atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
-    } catch (e) {
-      // P2-4：API 错误脱敏
-      return reply(res, 500, { error: `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}` })
+      const body = await readJson(_req)
+      const chapter = Number(body['chapter'])
+      if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const kind = readKind(bookRoot)
+      const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
+
+      // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
+      const result = await runOutline(ctx.userDataPath, prompt, bookRoot)
+      if (!result.ok) return reply(res, 500, { error: result.error })
+
+      const content = result.text
+      const outlineDir = join(bookRoot, '工作区')
+      const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
+      // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
+      // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
+      // W-P1-3 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
+      // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
+      // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
+      const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
+      const declaredFm = kind === 'long' ? `推进: [${outlineIds.join(', ')}]` : ''
+      const withFm = content.startsWith('---')
+        ? content
+        : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
+      try {
+        mkdirSync(outlineDir, { recursive: true })
+        atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
+      } catch (e) {
+        // P2-4：API 错误脱敏
+        return reply(res, 500, { error: `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}` })
+      }
+      reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
+    } finally {
+      release()
     }
-    reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
   })
 }
 

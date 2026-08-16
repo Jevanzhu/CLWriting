@@ -184,7 +184,13 @@ export function rebuild(
   // 建库（如果 db 文件不存在，DatabaseSync 会创建）
   const db = new DatabaseSync(cachePath)
   db.exec('PRAGMA busy_timeout = 5000') // P2-5：并发 rebuild 等 5s 而非立即 SQLITE_BUSY
-  db.exec('BEGIN') // 原子重建
+  try {
+    db.exec('BEGIN') // 原子重建
+  } catch (e) {
+    // RB-IF-P2-8：BEGIN 失败（库损坏/busy 超时耗尽）也要关连接——原先此路径泄漏 file handle + WAL
+    db.close()
+    throw e
+  }
   try {
     createAllTables(db)
     clearAllTables(db) // 幂等：清空旧数据

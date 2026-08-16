@@ -116,7 +116,9 @@ function readSafe(fp: string): string {
  * 写稿落盘（saveDraft，draft-save 端点与 self-heal 共用）后，
  * 若为短篇且 细纲.md 存在 → 复制到 大纲/章纲/<正文basename>，文件名契约对齐。
  *
- * 幂等：覆盖写同内容；无细纲/非短篇/正文非标准章号 → 跳过（不阻断保存）。
+ * RB-IF-P2-4：仅创建缺失的章纲——已存在且内容与细纲不同视为作者手改，不覆盖
+ * （正文覆写有 snapshotBeforeOverwrite 留底，章纲原先是静默覆盖，红线不一致）。
+ * 无细纲/非短篇/正文非标准章号 → 跳过（不阻断保存）。
  */
 export function syncChapterOutline(bookRoot: string, bodyRelPath: string): boolean {
   if (readKind(bookRoot) !== 'short') return false
@@ -126,6 +128,11 @@ export function syncChapterOutline(bookRoot: string, bodyRelPath: string): boole
   if (!/^\d{3,}-.+/.test(base)) return false // 非标准 <章号3位>-<标题>.md → 不落章纲
   const outlineContent = readSafe(outlinePath)
   if (!outlineContent) return false
+  const target = join(bookRoot, '大纲', '章纲', base)
+  if (existsSync(target)) {
+    // 已有章纲：内容一致 → no-op；不同 → 作者手改优先，保留不覆盖
+    return readSafe(target) === outlineContent
+  }
   const outlineDir = join(bookRoot, '大纲', '章纲')
   mkdirSync(outlineDir, { recursive: true })
   atomicWriteFile(join(outlineDir, base), outlineContent)

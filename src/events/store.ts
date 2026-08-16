@@ -35,7 +35,10 @@ export type NewEvent = Omit<ChatEvent, 'seq' | 'sessionId' | 'createdAt' | 'repl
 export interface SessionStore {
   dbPath: string
   createSession(book: string, header?: Record<string, unknown>): string
-  appendEvents(sessionId: string, events: NewEvent[]): number
+  /** 落库一批事件，返回数据库真实分配的 seq 数组（与 events 一一对应）。
+   *  RB-IF-P1-2：compaction 事件的 sourceSeqs 是全局 seq（遮蔽区间），不走
+   *  appendEventsResolveLineage 的批内索引解析——由本方法原样落库并返回真实 seq。 */
+  appendEvents(sessionId: string, events: NewEvent[]): number[]
   /** AA-P3-7：落库并返回真实分配的 seq（INSERT RETURNING，单事务内回写血缘）。
    *  events 的 sourceSeqs 按「批内序号」（0-based，同批前驱引用）传入；返回 seq 数组与
    *  events 一一对应。血缘推算不再依赖 lastSeq()+批内序号（多窗口并发写时可错链）。 */
@@ -75,19 +78,25 @@ function rowToEvent(r: Row): ChatEvent {
   }
 }
 
+/** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2） */
+const ORPHAN_GRACE_MS = 10 * 60 * 1000
+
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
  *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
- *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。 */
+ *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。
+ *  RB-IF-P2-2：进程内 Set 看不见跨进程写方（dev-api/脚本与 app 并行开同库）——
+ *  加宽限期，按会话最后事件的 created_at 判断；距今不足阈值/拿不到时间 → 保守不补。 */
 function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
   const stmt = db.prepare(
     `SELECT e.session_id,
             SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
-            SUM(CASE WHEN e.type = 'session/end' THEN 1 ELSE 0 END) AS ends
+            SUM(CASE WHEN e.type = 'session/end' THEN 1 ELSE 0 END) AS ends,
+            MAX(e.created_at) AS last_at
      FROM events e
      WHERE e.session_id IN (SELECT DISTINCT session_id FROM events WHERE type = 'session/start')
      GROUP BY e.session_id`
   );
-  const orphans = stmt.all() as Array<{ session_id: string; starts: number; ends: number }>
+  const orphans = stmt.all() as Array<{ session_id: string; starts: number; ends: number; last_at: number | null }>
   const ins = db.prepare(
     `INSERT INTO events (session_id, type, data, replace_generation, created_at)
      VALUES (?, 'session/end', ?, 0, ?)`
@@ -95,6 +104,8 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
   const now = Date.now()
   for (const o of orphans) {
     if (o.starts > o.ends && !skip.has(o.session_id)) {
+      // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
+      if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
       ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
     }
   }
@@ -180,29 +191,33 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       ).run(sid, book, JSON.stringify(header ?? {}), now, now)
       return sid
     },
-    appendEvents(sessionId: string, evs: NewEvent[]): number {
+    appendEvents(sessionId: string, evs: NewEvent[]): number[] {
       const now = Date.now()
+      // RB-IF-P1-2：INSERT RETURNING 取真实 seq——close() 写 compaction 事件后据此
+      // 定位 archiveSeq，不再 lastSeq()+2 推算（多窗口并发写时可错链到别窗事件）
       const ins = db.prepare(
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) RETURNING seq`
       );
       const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
       // P3-9：sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
       // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
       db.exec('BEGIN')
       try {
+        const seqs: number[] = []
         for (const e of evs) {
-          ins.run(sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
+          const row = ins.get(sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
             e.surfaceOp ?? null, e.shadowStart ?? null, e.shadowEnd ?? null,
-            e.sourceSeqs ? JSON.stringify(e.sourceSeqs) : null, now)
+            e.sourceSeqs ? JSON.stringify(e.sourceSeqs) : null, now) as { seq: number }
+          seqs.push(row.seq)
         }
         touch.run(now, sessionId)
         db.exec('COMMIT')
+        return seqs
       } catch (err) {
         db.exec('ROLLBACK')
         throw err
       }
-      return evs.length
     },
     // AA-P3-7：INSERT RETURNING 取真实 seq，sourceSeqs 批内索引同事务回写解析——
     // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
@@ -240,7 +255,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       }
     },
     appendEvent(sessionId: string, ev: NewEvent): number {
-      return this.appendEvents(sessionId, [ev])
+      return this.appendEvents(sessionId, [ev])[0]!
     },
     listEvents(book: string, sessionId?: string): ChatEvent[] {
       if (sessionId) {
@@ -282,10 +297,19 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       return row.m ?? 0
     },
     clearBook(book: string): void {
-      db.prepare(
-        `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
-      ).run(book);
-      db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+      // RB-IF-P2-1：两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
+      // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
+      db.exec('BEGIN')
+      try {
+        db.prepare(
+          `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
+        ).run(book);
+        db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
     },
     close(): void {
       // Y-P1-1/Y-P2-6：引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）

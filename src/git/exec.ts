@@ -61,13 +61,15 @@ function humanizeGitError(args: string[], stderr?: string): string {
 /** git status --porcelain（判定工作树脏不脏；core.quotepath=false 保中文路径不转义）。
  *  注意：只去末尾换行，**不动行首空格**——porcelain 是固定宽度格式（XY<空格>path），
  *  XY 中 X 状态码可能是空格（如 " M"=worktree改），行首 trim 会吃掉它破坏对齐。
- *  调用方按 .slice(3) 取 path。 */
-export function statusPorcelain(cwd: string, untrackedAll = false): string {
+ *  调用方按 .slice(3) 取 path。
+ *  RB-IF-P1-1：失败返回 null（与「干净」的 '' 区分）——fail-open 会让调用方把
+ *  无法判定的脏集当空集（migrate 据此把脏 entry 全部误标已定稿）。调用方须显式处理 null。 */
+export function statusPorcelain(cwd: string, untrackedAll = false): string | null {
   // -c core.quotepath=false：非 ASCII 路径（中文目录/文件名）原样输出，免八进制转义
   const args = ['-c', 'core.quotepath=false', 'status', '--porcelain']
   if (untrackedAll) args.push('-uall')
   const r = git(args, cwd)
-  return r.ok ? r.stdout.replace(/\n+$/, '') : ''
+  return r.ok ? r.stdout.replace(/\n+$/, '') : null
 }
 
 /** 扫描网盘副本残留（#16 第 2 节，真实坑：CLWriting 开发即踩过 SMB 同步盘） */

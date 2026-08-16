@@ -42,6 +42,11 @@ const MAX_AGENT_TURNS = 5
 const AGENT_DEADLINE_MS = 30 * 60_000
 const CONFIRM_TIMEOUT_MS = 2 * 60_000
 const MAX_HISTORY_TURNS = 10
+/** RB-AI-P2-5：read_chapter 单次返回上限（code points，与 chat 入口消息上限 5 万字符
+ *  同量级的安全上限）——数万字整章无上限灌 tool_result 可撑爆上下文 */
+const READ_CHAPTER_MAX_CHARS = 20_000
+const READ_CHAPTER_HEAD_CHARS = 12_000
+const READ_CHAPTER_TAIL_CHARS = 6_000
 
 // ── 类型 ──────────────────────────────────────────
 
@@ -81,8 +86,11 @@ export function isChatRunning(bookName: string): boolean {
  * 对话运行中发来的消息入队（steer「入队让出」语义），当前轮正常完成后自动消费队头续链；
  * abort/error/超时则丢弃队列（cherry steer 四分支：aborted/error → 丢弃，持久化 user 行留历史可重发）。 */
 interface PendingChatMsg {
-  message: string
+  /** RB-AI-P2-1：逐条语义字段各自独立——排队时完整保留 message/regenerate/chapter，
+   *  续链时不得从上一轮继承（base 含 regenerate 时续链曾走恢复分支吞掉排队新消息） */
+  message?: string
   chapter?: number
+  regenerate?: { parentSeq: number; branchId: string }
 }
 const pendingChats = new Map<string, PendingChatMsg[]>()
 /** P3-4：每书待处理队列容量上限——失控客户端/脚本循环发消息不能无限撑内存；超出丢最旧 */
@@ -107,13 +115,16 @@ export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' {
     // AA-P3-1：丢弃必须可感知——API 已回 queued，若静默丢最旧，作者会以为所有消息都在排队
     if (q.length >= MAX_PENDING_CHATS) {
       const dropped = q.shift()!
-      const preview = (dropped.message || '(空消息)').slice(0, 40)
+      // RB-AI-P2-1：regenerate 项无 message，预览降级显示「(重新生成)」而非误报空消息
+      const preview = (dropped.message || (dropped.regenerate ? '(重新生成)' : '(空消息)')).slice(0, 40)
       emit(opts, {
         type: 'notice',
         message: `对话队列已满：已丢弃最旧的排队消息「${preview}…」——你刚发送的这条会顶替它。`,
       })
     }
-    q.push({ message: opts.message ?? '', chapter: opts.chapter })
+    // RB-AI-P2-1：排队项完整保留语义字段（此前只存 message/chapter——运行中发起的
+    // regenerate 被降级为空 message 入队）
+    q.push({ message: opts.message, chapter: opts.chapter, regenerate: opts.regenerate })
     pendingChats.set(opts.bookName, q)
     return 'queued'
   }
@@ -141,10 +152,15 @@ function drainNextChat(base: ChatOpts, completedOk: boolean): void {
   }
   const next = q.shift()!
   if (q.length === 0) pendingChats.delete(base.bookName)
+  // RB-AI-P2-1：环境字段（driver/session/userData/book 等来自 base）与逐条字段
+  // （message/regenerate/chapter 来自队列项）分开组装——此前 {...base, message} 续链：
+  // base 含 regenerate 时排队新消息走「恢复旧历史」分支被静默吞掉；next.chapter 缺省时
+  // 误继承上一条的选定章。逐条字段一律以队列项为准（undefined 也覆盖，不继承）
   void runChat({
     ...base,
     message: next.message,
-    ...(next.chapter !== undefined ? { chapter: next.chapter } : {}),
+    chapter: next.chapter,
+    regenerate: next.regenerate,
   }).catch((e) => {
     base.driver.emit?.(base.mainSession, {
       type: 'error',
@@ -337,7 +353,19 @@ async function executeChatTool(
         const raw = readFileSync(draftPath, 'utf-8')
         const body = raw.replace(/^---[\s\S]*?---\n?/, '')
         if (!body.trim()) return { ok: false, summary: `第${chapter}章正文为空。` }
-        return { ok: true, summary: body }
+        // RB-AI-P2-5：超上限截断到头尾保留 + 注明截断量与正文文件路径（全文在草稿文件，
+        // 作者可查）。不外置 spill：read_chapter 是 spill 取回通道，二次外置会 read→spill→read
+        // 环（spill.ts 防环不变量）——上限取「能覆盖绝大多数整章、又不至数万字爆上下文」
+        const chars = Array.from(body)
+        if (chars.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
+        const kept = READ_CHAPTER_HEAD_CHARS + READ_CHAPTER_TAIL_CHARS
+        return {
+          ok: true,
+          summary:
+            chars.slice(0, READ_CHAPTER_HEAD_CHARS).join('') +
+            `\n\n（全章 ${chars.length} 字超出单次读取上限，已截断至 ${kept} 字（开头 + 结尾）。全文在 ${draftRel}。）\n\n` +
+            chars.slice(chars.length - READ_CHAPTER_TAIL_CHARS).join(''),
+        }
       }
       case 'read_skill': {
         // DSH-18 按需加载通道：system prompt 索引只给元信息，正文用时才取

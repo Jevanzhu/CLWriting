@@ -80,6 +80,10 @@ function flushOnUnload(): void {
 }
 onMounted(() => window.addEventListener('beforeunload', flushOnUnload))
 onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
+// RB-FE-P1-2：路由离开 /book（组件卸载，watch(bookName) 不再触发）也 flush 脏文档——
+// 选 onUnmounted 而非 onBeforeRouteLeave：覆盖一切卸载路径（路由跳转/程序化导航）。
+// flushDirty 内部逐文档 try/catch（save 永不 reject），fire-and-forget 安全，不阻塞卸载
+onUnmounted(() => void doc.flushDirty())
 </script>
 
 <template>

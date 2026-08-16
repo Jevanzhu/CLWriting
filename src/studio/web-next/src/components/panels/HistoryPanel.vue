@@ -53,7 +53,10 @@ function delta(words: number): string {
   return d > 0 ? `+${d}` : String(d)
 }
 
+let loadGen = 0
 async function load(): Promise<void> {
+  // RB-FE-P2-6：双 watch（doc/book/savedAt）并发加载竞态——旧响应不覆盖新列表
+  const gen = ++loadGen
   if (!ws.activeDocId) {
     entries.value = []
     return
@@ -61,12 +64,15 @@ async function load(): Promise<void> {
   loading.value = true
   err.value = null
   try {
-    entries.value = await listSnapshots(props.bookName, ws.activeDocId)
+    const list = await listSnapshots(props.bookName, ws.activeDocId)
+    if (gen !== loadGen) return
+    entries.value = list
   } catch (e) {
+    if (gen !== loadGen) return
     const msg = friendlyError(e)
     err.value = msg === 'not found' ? '暂无历史数据' : msg
   } finally {
-    loading.value = false
+    if (gen === loadGen) loading.value = false
   }
 }
 

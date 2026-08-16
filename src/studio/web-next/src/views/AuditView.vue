@@ -8,7 +8,7 @@ import {
   ScrollText, Eye, EyeOff, GitBranch, RefreshCw, AlertCircle,
   User, Bot, Wrench, ChevronRight, ChevronDown, MoreHorizontal,
 } from 'lucide-vue-next'
-import { getAudit, type AuditConversationFE, type AuditEventFE, type AuditNodeFE, type GoalFE, type TodoFE } from '../api/audit'
+import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type AuditNodeFE, type GoalFE, type TodoFE } from '../api/audit'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -160,6 +160,26 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   if (!c) return []
   return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
 })
+
+// ── 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）──────────────
+// 事件史默认 append-only 全量保留；此处是每书唯一清理入口，两步确认（销毁不可撤销）。
+const clearing = ref(false)
+const confirmClear = ref(false)
+
+async function doClear(): Promise<void> {
+  if (clearing.value) return
+  clearing.value = true
+  err.value = null
+  try {
+    await clearAudit(props.bookName)
+    confirmClear.value = false
+    await load()
+  } catch (e) {
+    err.value = friendlyError(e)
+  } finally {
+    clearing.value = false
+  }
+}
 </script>
 
 <template>
@@ -173,9 +193,20 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
         </span>
         <span v-else-if="!loading && !err" class="shadow-hint">本库尚无对话事件</span>
       </div>
-      <button class="reload-btn" :disabled="loading" @click="load">
-        <RefreshCw :size="14" :class="{ spin: loading }" /> 刷新
-      </button>
+      <div class="head-actions">
+        <!-- 事件保留定版：每书事件史清理入口（两步确认——销毁不可撤销） -->
+        <button v-if="!confirmClear" class="reload-btn danger" :disabled="loading || clearing" @click="confirmClear = true">
+          清除事件史…
+        </button>
+        <template v-else>
+          <span class="clear-hint">清除本书全部事件（对话+工作流），不可撤销？</span>
+          <button class="reload-btn danger" :disabled="clearing" @click="doClear">{{ clearing ? '清除中…' : '确认清除' }}</button>
+          <button class="reload-btn" :disabled="clearing" @click="confirmClear = false">取消</button>
+        </template>
+        <button class="reload-btn" :disabled="loading" @click="load">
+          <RefreshCw :size="14" :class="{ spin: loading }" /> 刷新
+        </button>
+      </div>
     </header>
 
     <p v-if="err" class="audit-err"><AlertCircle :size="14" /> {{ err }}</p>
@@ -366,6 +397,18 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   font-size: 0.82rem;
 }
 .reload-btn:disabled { opacity: 0.5; cursor: default; }
+.head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  flex-wrap: wrap;
+}
+/* 事件保留定版：销毁动作红色 + 确认提示 */
+.reload-btn.danger { color: var(--text-error); border-color: var(--text-error); }
+.clear-hint {
+  color: var(--text-error);
+  font-size: 0.8rem;
+}
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .audit-err {

@@ -28,10 +28,15 @@ import {
 import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import type { Server } from 'node:http'
 import { startServer } from '../studio/server/index.js'
+import { setInitialBook } from '../studio/server/api/books.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
+import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
+import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
+import { shutdownStudio } from './graceful-shutdown.js' // RB-SV-P2-6：优雅退出
 import { getFonts as getSystemFontList } from 'font-list'
 import {
   parseStore,
@@ -70,7 +75,14 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv: string[]) => {
+    // RB-SV-P2-4：第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
+    const workDir = readStore().current
+    const ref = initialBookArg(argv)
+    if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
+      const name = resolveInitialBook(workDir, ref)
+      if (name) mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
+    }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
   })
 }
@@ -86,6 +98,7 @@ let mainWindow: BrowserWindow | null = null
 let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
+let studioServer: Server | null = null // 内嵌 server（dev HMR 态为 null）
 
 /** 主窗口 bounds 持久化（userData/window-state.json）：关闭时存，启动时恢复。 */
 const stateFile = join(app.getPath('userData'), 'window-state.json')
@@ -191,7 +204,8 @@ async function pickLibrary(): Promise<string | null> {
 /** 重启进程以应用新 workDir（规避 server 路由单例，见方案 §3.1）。 */
 function relaunch(): void {
   app.relaunch()
-  app.exit(0)
+  // RB-SV-P2-6：走 before-quit 优雅清理（app.exit 会跳过 before-quit）
+  app.quit()
 }
 
 /** 打开书库（菜单/前端共用）：选 → 存 → 重启。返回是否已触发切换。 */
@@ -315,8 +329,18 @@ async function bootstrap(): Promise<void> {
   if (devUi) {
     appUrl = 'http://localhost:5173'
   } else {
+    // RB-SV-P2-4：--book 直进接线——argv/env 解析为登记书名，boot 下发前端直达工作区
+    //（dev HMR 态不起内嵌 server，boot 由独立 dev-api 提供，此项不生效）
+    if (workDir) {
+      const ref = initialBookArg(process.argv)
+      if (ref) {
+        const name = resolveInitialBook(workDir, ref)
+        if (name) setInitialBook(name)
+      }
+    }
     const staticDir = resolveStaticDir()
     const server = startServer({ port: 0, staticDir, workDir, userDataPath: app.getPath('userData') })
+    studioServer = server // RB-SV-P2-6：退出前 close 用
     const port = await listenPort(server)
     appUrl = `http://127.0.0.1:${port}`
   }
@@ -481,28 +505,30 @@ function registerIpc(): void {
     if (workDir) void shell.openPath(workDir)
   })
   // ── 原生右键菜单 ──
-  ipcMain.on('desktop:context-menu', (event, specs: unknown[]) => {
+  ipcMain.on('desktop:context-menu', (event, specs: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
+    // RB-SV-P2-5：载荷形状校验前置——非数组/无合法项整体忽略（弹不了菜单但不崩主进程）
+    const items = parseContextMenuSpecs(specs)
+    if (!items || items.length === 0) return
     let sent = false
     function sendOnce(key: string | null): void {
       if (sent) return
       sent = true
       event.sender.send('desktop:context-menu-select', key)
     }
-    function build(s: Record<string, unknown>): MenuItemConstructorOptions {
+    function build(s: ContextMenuSpec): MenuItemConstructorOptions {
       if (s.separator) return { type: 'separator' }
       const item: MenuItemConstructorOptions = {
-        label: (s.label as string) ?? '',
+        label: s.label,
         enabled: s.disabled !== true,
-        click: () => { sendOnce(s.key as string) },
+        click: () => { sendOnce(s.key ?? null) },
       }
-      if (s.accelerator) item.accelerator = s.accelerator as string
-      const sub = s.submenu
-      if (Array.isArray(sub) && sub.length) item.submenu = (sub as Record<string, unknown>[]).map(build)
+      if (s.accelerator) item.accelerator = s.accelerator
+      if (s.submenu && s.submenu.length) item.submenu = s.submenu.map(build)
       return item
     }
-    const menu = Menu.buildFromTemplate(specs.map((s) => build(s as Record<string, unknown>)))
+    const menu = Menu.buildFromTemplate(items.map(build))
     // popup 非阻塞：菜单关闭走 callback，点选走 click。macOS 下 NSMenu 先关
     // 菜单再派发 action，click 可能晚于 callback —— 故 callback 里延后一拍
     // 才补发 null（取消），给 click 抢先 sendOnce 的机会。渲染侧是
@@ -660,6 +686,21 @@ if (gotSingleInstanceLock) {
   // 桌面应用：关窗即退出（停 server）
   app.on('window-all-closed', () => {
     app.quit()
+  })
+
+  // RB-SV-P2-6：优雅退出——先中断在途编排（self-heal/chat）+ close HTTP server，
+  // 再真正退出；总超时 2s 兜底（清理卡死也强制退出）。清理只跑一次，二次 quit 直通。
+  let shutdownStarted = false
+  app.on('before-quit', (e) => {
+    if (shutdownStarted) return
+    shutdownStarted = true
+    e.preventDefault()
+    void Promise.race([
+      shutdownStudio(() => readStore().current, studioServer),
+      new Promise<void>((r) => setTimeout(r, 2_000)),
+    ]).finally(() => {
+      app.quit()
+    })
   })
 
   app.on('activate', () => {

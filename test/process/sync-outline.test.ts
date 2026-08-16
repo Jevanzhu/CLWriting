@@ -68,3 +68,29 @@ test('syncChapterOutline: 非标准正文文件名（无章号前缀）→ 跳�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('RB-IF-P2-4: 章纲已存在且内容不同（作者手改）→ 不覆盖', () => {
+  const root = makeBook('short')
+  try {
+    // 首次同步创建章纲
+    expect(syncChapterOutline(root, '写作/正文/001-夜访者.md')).toBe(true)
+    const target = join(root, '大纲', '章纲', '001-夜访者.md')
+    // 作者手改章纲
+    writeFileSync(target, '## 反转线索表\n- 核心反转：作者亲手改过的版本\n', 'utf-8')
+    // 再次保存草稿 → 不得把手改内容覆盖回细纲
+    expect(syncChapterOutline(root, '写作/正文/001-夜访者.md')).toBe(false)
+    expect(readFileSync(target, 'utf-8')).toContain('作者亲手改过的版本')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('RB-IF-P2-4: 章纲已存在且内容相同 → no-op 返回 true（幂等语义保留）', () => {
+  const root = makeBook('short')
+  try {
+    expect(syncChapterOutline(root, '写作/正文/001-夜访者.md')).toBe(true)
+    expect(syncChapterOutline(root, '写作/正文/001-夜访者.md')).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

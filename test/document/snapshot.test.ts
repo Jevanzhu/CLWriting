@@ -129,6 +129,22 @@ describe('snapshot · 去重与节流', () => {
     expect(listVersions(dir, 'doc_1')).toHaveLength(1)
   })
 
+  it('RB-KN-P2-6: 窗口内只有他 origin 版本（如 finalize）→ autosave 留底不被误节流', () => {
+    // 直接落一个 finalize 来源的版本（绕过 writeSnapshot）：1 分钟前
+    const ms = Date.now() - 60_000
+    const id = ulidAt(ms, 0)
+    mkdirSync(join(dir, 'doc_1'), { recursive: true })
+    writeFileSync(
+      join(dir, 'doc_1', `${id}.md`),
+      `---\n快照ID: ${id}\n时间: ${new Date(ms).toISOString()}\n来源: finalize\n---\n旧内容`,
+      'utf-8',
+    )
+    // 修复前：节流按「最新任意 origin」判窗口 → 此处 autosave 修改前留底被静默吞掉
+    const sid = writeSnapshot(dir, 'doc_1', '新内容', { origin: 'autosave' }, { force: false })
+    expect(sid).not.toBeNull()
+    expect(listVersions(dir, 'doc_1')).toHaveLength(2)
+  })
+
   it('force=false 但已过节流窗口 → 正常写入', () => {
     seedSnapshot(dir, 'doc_1', Date.now() - 10 * 60_000, '旧内容') // 10 分钟前 > 5 分钟窗口
     const id = writeSnapshot(dir, 'doc_1', '新内容', { origin: 'autosave' }, { force: false })

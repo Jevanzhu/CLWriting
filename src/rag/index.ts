@@ -195,15 +195,26 @@ export async function buildIndex(
     // 增量：读已索引到第几章，跳过已索引的
     const indexedChStr = getRagMeta(db, 'indexed_max_chapter')
     const indexedMax = indexedChStr ? Number(indexedChStr) : 0
-    const fingerprintIssue = validateIndexedChapterFingerprints(
-      db,
-      chapters.filter((ch) => ch.章号 <= indexedMax),
-    )
-    if (fingerprintIssue) {
-      return { ok: false, chunkCount: 0, chapterCount: 0, error: fingerprintIssue }
+    // RB-IF-P1-3：<=indexedMax 但无指纹的章（低章号补写/历史中断残留）不再要求删库
+    // 重建——并入本轮重索引集合自愈闭环；指纹不符（正文已变更）仍报错不变
+    const missingFingerprint = new Set<number>()
+    for (const ch of chapters) {
+      if (ch.章号 > indexedMax) continue
+      const currentHash = readChapterFingerprint(ch)
+      if (!currentHash) continue // 当前读不出 → 留给 toIndex 的读失败路径（下轮重试）
+      const indexedHash = getRagMeta(db, chapterHashKey(ch.章号))
+      if (!indexedHash) {
+        missingFingerprint.add(ch.章号)
+        continue
+      }
+      if (indexedHash !== currentHash) {
+        return { ok: false, chunkCount: 0, chapterCount: 0, error: `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .rag.db 后重建索引。` }
+      }
     }
 
-    const toIndex = chapters.filter((ch) => ch.章号 > indexedMax).sort((a, b) => a.章号 - b.章号)
+    const toIndex = chapters
+      .filter((ch) => ch.章号 > indexedMax || missingFingerprint.has(ch.章号))
+      .sort((a, b) => a.章号 - b.章号)
     if (toIndex.length === 0) {
       return { ok: true, chunkCount: 0, chapterCount: 0 }
     }
@@ -211,42 +222,77 @@ export async function buildIndex(
     // 收集所有待 embed 的块（批量请求减往返）
     const allChunks: Array<{ 章号: number; chunk: TextChunk }> = []
     const chapterHashes = new Map<number, string>()
+    // RB-IF-P1-3：读失败为瞬时性（文件占用）——游标不越过失败章：本轮只收集首个
+    // 读失败章之前的章，失败章及其后留给下轮重试，保证可自愈不死锁（修复前
+    // continue 跳过但游标照常推进到 toIndex 最大章号，该章永久无指纹）
+    let readFailAt: number | null = null
     for (const ch of toIndex) {
-      const path = ch._path
-      if (!path) continue
-      const r = readFile(path)
-      if (!r.ok) continue
+      const r = ch._path ? readFile(ch._path) : null
+      if (!r || !r.ok) {
+        readFailAt = ch.章号
+        break
+      }
       chapterHashes.set(ch.章号, hashChapterContent(r.fmRaw, r.body))
       for (const chunk of chunkBody(r.body)) {
         allChunks.push({ 章号: ch.章号, chunk })
       }
     }
 
-    if (allChunks.length === 0) {
-      // 没有有效块，但章节已处理，更新游标
-      const maxCh = toIndex[toIndex.length - 1]!.章号
-      // V-P2-3：游标 + 指纹同事务（游标单独领先会让指纹校验误报缺指纹）
-      db.exec('BEGIN IMMEDIATE')
-      try {
-        setRagMeta(db, 'indexed_max_chapter', String(maxCh))
-        for (const [chapterNumber, hash] of chapterHashes) {
-          setRagMeta(db, chapterHashKey(chapterNumber), hash)
-        }
-        db.exec('COMMIT')
-      } catch (e) {
-        db.exec('ROLLBACK')
-        return { ok: false, chunkCount: 0, chapterCount: 0, error: `索引元数据写入失败：${errStr(e)}` }
+    if (allChunks.length === 0 && chapterHashes.size === 0) {
+      // 一章都没读成 → 不动游标，报错下轮重试（恢复后自动补齐）
+      return {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        error:
+          readFailAt !== null
+            ? `第 ${readFailAt} 章正文读取失败（可能被占用），本轮未推进索引游标，请稍后重试。`
+            : '没有可索引的章节内容。',
       }
-      return { ok: true, chunkCount: 0, chapterCount: toIndex.length }
     }
+    // 本轮提交的章 = 已成功读取的章；游标 = max(旧游标, 本轮最大成功章)——重索引
+    // 低章号时不回退（更高章仍已索引），读失败时不越过失败章
+    const cursorTarget = Math.max(indexedMax, chapterHashes.size > 0 ? Math.max(...chapterHashes.keys()) : 0)
 
-    // 批量 embed
-    const texts = allChunks.map((c) => c.chunk.text)
-    const vectors = await embedFn(config.endpoint, config.model, apiKey, texts)
-    if (vectors === null) {
-      return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+    const committed = await commitIndexBatch(db, config, allChunks, chapterHashes, cursorTarget, embedFn, apiKey)
+    if (!committed.ok && readFailAt !== null) {
+      return committed
     }
-    const indexedDim = getRagMeta(db, 'embedding_dim')
+    if (readFailAt !== null) {
+      // 部分成功：失败章之前的章已提交，游标停在失败章前，下轮重试补齐
+      return {
+        ok: false,
+        chunkCount: committed.chunkCount,
+        chapterCount: committed.chapterCount,
+        error: `第 ${readFailAt} 章正文读取失败（可能被占用），已索引至第 ${cursorTarget} 章，下轮自动重试补齐。`,
+      }
+    }
+    return committed
+  } finally {
+    db.close()
+  }
+}
+
+/** V-P2-3：块写入 + 游标/指纹同一事务——中断（崩溃/掉电）要么全入要么全无。
+ *  此前无事务：块插一半崩，游标未更新 → 重跑整章重复 embed+INSERT（费用翻倍、
+ *  召回重复）；配合 chunks 唯一键（schema.ts）双保险。空块批次只写游标/指纹。 */
+async function commitIndexBatch(
+  db: DatabaseSync,
+  config: RagConfig,
+  allChunks: Array<{ 章号: number; chunk: TextChunk }>,
+  chapterHashes: Map<number, string>,
+  cursorTarget: number,
+  embedFn: typeof embed,
+  apiKey: string,
+): Promise<BuildIndexResult> {
+  // 批量 embed
+  const texts = allChunks.map((c) => c.chunk.text)
+  const vectors = allChunks.length > 0 ? await embedFn(config.endpoint!, config.model!, apiKey, texts) : []
+  if (vectors === null) {
+    return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+  }
+  const indexedDim = getRagMeta(db, 'embedding_dim')
+  if (allChunks.length > 0) {
     const vectorDim = vectors[0]!.length
     if (indexedDim && Number(indexedDim) !== vectorDim) {
       return {
@@ -256,47 +302,43 @@ export async function buildIndex(
         error: `embedding 维度与现有索引不一致（现有：${indexedDim}，当前：${vectorDim}），请重建索引。`,
       }
     }
+  }
 
-    // V-P2-3：块写入 + 游标/指纹同一事务——中断（崩溃/掉电）要么全入要么全无。
-    // 此前无事务：块插一半崩，游标未更新 → 重跑整章重复 embed+INSERT（费用翻倍、
-    // 召回重复）；配合 chunks 唯一键（schema.ts）双保险。
-    db.exec('BEGIN IMMEDIATE')
-    try {
-      // 存向量
-      for (let i = 0; i < allChunks.length; i++) {
-        const { 章号, chunk } = allChunks[i]!
-        storeChunk(db, {
-          章号,
-          start_offset: chunk.start,
-          end_offset: chunk.end,
-          embedding: Float32Array.from(vectors[i]!),
-          model: config.model,
-        })
-      }
-
-      // 更新游标
-      const maxCh = toIndex[toIndex.length - 1]!.章号
-      setRagMeta(db, 'indexed_max_chapter', String(maxCh))
-      setRagMeta(db, 'embedding_model', config.model)
-      setRagMeta(db, 'embedding_dim', String(vectors[0]!.length))
-      for (const [chapterNumber, hash] of chapterHashes) {
-        setRagMeta(db, chapterHashKey(chapterNumber), hash)
-      }
-      db.exec('COMMIT')
-    } catch (e) {
-      db.exec('ROLLBACK')
-      return {
-        ok: false,
-        chunkCount: 0,
-        chapterCount: 0,
-        error: `索引写入失败（已回滚，可安全重跑）：${errStr(e)}`,
-      }
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    // 存向量
+    for (let i = 0; i < allChunks.length; i++) {
+      const { 章号, chunk } = allChunks[i]!
+      storeChunk(db, {
+        章号,
+        start_offset: chunk.start,
+        end_offset: chunk.end,
+        embedding: Float32Array.from(vectors[i]!),
+        model: config.model!,
+      })
     }
 
-    return { ok: true, chunkCount: allChunks.length, chapterCount: toIndex.length }
-  } finally {
-    db.close()
+    // 更新游标
+    setRagMeta(db, 'indexed_max_chapter', String(cursorTarget))
+    if (allChunks.length > 0) {
+      setRagMeta(db, 'embedding_model', config.model!)
+      setRagMeta(db, 'embedding_dim', String(vectors[0]!.length))
+    }
+    for (const [chapterNumber, hash] of chapterHashes) {
+      setRagMeta(db, chapterHashKey(chapterNumber), hash)
+    }
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    return {
+      ok: false,
+      chunkCount: 0,
+      chapterCount: 0,
+      error: `索引写入失败（已回滚，可安全重跑）：${errStr(e)}`,
+    }
   }
+
+  return { ok: true, chunkCount: allChunks.length, chapterCount: chapterHashes.size }
 }
 
 export interface RecallHit {

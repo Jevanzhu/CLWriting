@@ -11,6 +11,7 @@ import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
 import { getBookTreeIndex } from '../../src/document/tree.js'
 import { legacyId } from '../../src/document/stable-id.js'
+import { findUnsettled } from '../../src/document/journal.js'
 
 /** 造书：写作/正文/第一卷/0001-开篇 + 项目清单登记 doc_ch01 + git init。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
@@ -88,6 +89,11 @@ test('moveDocument: 跨卷移动，文件名不变（章号稳定 §11）+ 清�
   const snapDir = join(root, '工作区', '.版本', 'doc_ch01')
   expect(existsSync(snapDir)).toBe(true)
   expect(readdirSync(snapDir).length).toBeGreaterThan(0)
+  // P3-10：journal 兜底——移动全程 move pending → settled 配对，无悬置
+  const jPath = join(root, '工作区', '.journal', 'doc_ch01.jsonl')
+  expect(existsSync(jPath)).toBe(true)
+  expect(readFileSync(jPath, 'utf-8')).toContain('"kind":"move"')
+  expect(findUnsettled(jPath)).toHaveLength(0)
   rmSync(root, { recursive: true, force: true })
 })
 

@@ -428,6 +428,7 @@ onUnmounted(() => {
             :model-value="body"
             :mode="entry.mode"
             :typewriter="ws.focusMode"
+            :history-key="docId ?? undefined"
             @update:model-value="onBodyChange"
           />
         </div>

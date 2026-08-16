@@ -22,6 +22,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface OnboardCtx {
   workDir: string | null
@@ -72,46 +73,53 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const reqBody = await readJson(req)
-    const step = String(reqBody['step'] ?? '') as OnboardStep
-    /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
-    const discussionContext =
-      typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
-    /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
-    const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
-    if (!(step in STEP_PATH)) {
-      return reply(res, 400, { error: `step 不支持:${step}` })
-    }
-
-    const bookRoot = join(ctx.workDir, entry.path)
-    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
-    const config = (cfgResult as { config: { book: { title: string; genre: string }; kind?: string; leads?: { enabled?: string[] } } }).config
-    const title = config.book.title
-    const genre = config.book.genre
-    const kind = config.kind ?? 'long'
-    const leadsEnabled = config.leads?.enabled ?? []
-
-    // realm 仅成长线书
-    if (step === 'realm' && !leadsEnabled.includes('成长线')) {
-      return reply(res, 400, { error: 'realm 步仅成长线书(book.yaml leads 未启用成长线)' })
-    }
-
-    const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
-
-    const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
-    if (!result.ok) return reply(res, 500, { error: result.error })
-
-    const content = result.text || '(空产出)'
-    const relPath = STEP_PATH[step]
+    // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
+    const release = acquireTaskGate(params['name']!, 'onboard-ai')
+    if (!release) return reply(res, 409, { error: '本书已有 AI 设定任务在跑，请等待完成后再试' })
     try {
-      mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      atomicWriteFile(join(bookRoot, relPath), content)
-    } catch (e) {
-      console.error('[api] 落盘:', e)
-      return reply(res, 500, { error: '落盘失败' })
+      const reqBody = await readJson(req)
+      const step = String(reqBody['step'] ?? '') as OnboardStep
+      /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
+      const discussionContext =
+        typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
+      /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
+      const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
+      if (!(step in STEP_PATH)) {
+        return reply(res, 400, { error: `step 不支持:${step}` })
+      }
+
+      const bookRoot = join(ctx.workDir, entry.path)
+      const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+      if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
+      const config = (cfgResult as { config: { book: { title: string; genre: string }; kind?: string; leads?: { enabled?: string[] } } }).config
+      const title = config.book.title
+      const genre = config.book.genre
+      const kind = config.kind ?? 'long'
+      const leadsEnabled = config.leads?.enabled ?? []
+
+      // realm 仅成长线书
+      if (step === 'realm' && !leadsEnabled.includes('成长线')) {
+        return reply(res, 400, { error: 'realm 步仅成长线书(book.yaml leads 未启用成长线)' })
+      }
+
+      const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
+
+      const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
+      if (!result.ok) return reply(res, 500, { error: result.error })
+
+      const content = result.text || '(空产出)'
+      const relPath = STEP_PATH[step]
+      try {
+        mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
+        atomicWriteFile(join(bookRoot, relPath), content)
+      } catch (e) {
+        console.error('[api] 落盘:', e)
+        return reply(res, 500, { error: '落盘失败' })
+      }
+      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
+    } finally {
+      release()
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）

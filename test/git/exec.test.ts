@@ -86,10 +86,21 @@ test('statusPorcelain: 中文路径原样输出（core.quotepath=false）+ 行�
   try {
     writeFileSync(join(root, '布线', '悬念', '悬念-999-测试.md'), '---\n---\n内容', 'utf-8')
     const out = statusPorcelain(root)
-    expect(out).toContain('悬念-999-测试.md') // 不被八进制转义
-    expect(out).not.toContain('\\351') // 未启用 quotepath=false 时的转义形态
+    expect(out).not.toBeNull() // 成功路径返回 string
+    expect(out!).toContain('悬念-999-测试.md') // 不被八进制转义
+    expect(out!).not.toContain('\\351') // 未启用 quotepath=false 时的转义形态
     // 行首格式：XY<空格>path（untracked 为 "?? "）
-    expect(out.split('\n').some((l) => l.startsWith('?? ') && l.includes('悬念-999'))).toBe(true)
+    expect(out!.split('\n').some((l) => l.startsWith('?? ') && l.includes('悬念-999'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('RB-IF-P1-1: git 不可用/执行失败 → statusPorcelain 返回 null（与干净 "" 区分，不 fail-open）', () => {
+  const root = join(tmpdir(), `clw-exec-${Date.now()}`)
+  mkdirSync(join(root, '.git'), { recursive: true }) // 空 .git：git status 报 not a git repository
+  try {
+    expect(statusPorcelain(root)).toBeNull()
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

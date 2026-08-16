@@ -19,6 +19,7 @@ import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -74,33 +75,40 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
-    const body = (await readJson(req).catch(() => ({}))) as { force?: boolean }
-    const force = body?.force === true
-    const bookRoot = join(ctx.workDir, entry.path)
-    const cachePath = join(bookRoot, RELATION_CACHE)
-    if (!force && existsSync(cachePath)) {
-      return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
-    }
-    const context = buildMineContext(bookRoot)
-    if (!context.trim()) return reply(res, 400, { error: '没有可梳理的材料（名册/角色卡/正文均空）' })
-    const out = await runSpec(RELATION_MINE_SPEC, {
-      userDataPath: ctx.userDataPath,
-      bookRoot,
-      userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
-    })
-    if (!out.ok) return reply(res, 500, { error: `AI 梳理失败:${out.error}` })
-    const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
-    const relations = input?.relations ?? []
-    if (!relations.length) return reply(res, 200, { ok: true, cached: true, relations: [] })
+    // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
+    const release = acquireTaskGate(params['name']!, 'relations-mine')
+    if (!release) return reply(res, 409, { error: '本书正在梳理角色关系，请等待完成后再试' })
     try {
-      mkdirSync(dirname(cachePath), { recursive: true })
-      atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
-    } catch (e) {
-      console.error('[api] 落盘缓存失败:', e)
-      return reply(res, 500, { error: '落盘缓存失败' })
+      // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
+      const body = (await readJson(req).catch(() => ({}))) as { force?: boolean }
+      const force = body?.force === true
+      const bookRoot = join(ctx.workDir, entry.path)
+      const cachePath = join(bookRoot, RELATION_CACHE)
+      if (!force && existsSync(cachePath)) {
+        return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
+      }
+      const context = buildMineContext(bookRoot)
+      if (!context.trim()) return reply(res, 400, { error: '没有可梳理的材料（名册/角色卡/正文均空）' })
+      const out = await runSpec(RELATION_MINE_SPEC, {
+        userDataPath: ctx.userDataPath,
+        bookRoot,
+        userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
+      })
+      if (!out.ok) return reply(res, 500, { error: `AI 梳理失败:${out.error}` })
+      const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
+      const relations = input?.relations ?? []
+      if (!relations.length) return reply(res, 200, { ok: true, cached: true, relations: [] })
+      try {
+        mkdirSync(dirname(cachePath), { recursive: true })
+        atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
+      } catch (e) {
+        console.error('[api] 落盘缓存失败:', e)
+        return reply(res, 500, { error: '落盘缓存失败' })
+      }
+      reply(res, 200, { ok: true, cached: false, relations })
+    } finally {
+      release()
     }
-    reply(res, 200, { ok: true, cached: false, relations })
   })
 }
 

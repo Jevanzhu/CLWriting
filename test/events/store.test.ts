@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -74,6 +75,29 @@ describe('F1-P1 store 存取', () => {
     store.close()
   })
 
+  it('RB-IF-P2-1: clearBook 原子——第二条 DELETE 失败时第一条整体回滚（不留孤儿 events）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvent(sid, { type: 'user/message', data: { message: '审计数据' }, surfaceOp: 'append' })
+    // 用触发器让第二条 DELETE（sessions）必然失败——验证第一条（events）随之回滚
+    const other = new DatabaseSync(store.dbPath)
+    other.exec(
+      `CREATE TRIGGER block_sessions_delete BEFORE DELETE ON sessions BEGIN
+         SELECT RAISE(ABORT, 'blocked');
+       END`,
+    )
+    try {
+      expect(() => store.clearBook('书A')).toThrow()
+      // 修复前：第一条 DELETE 已生效 → 孤儿 events（无 sessions 行）永久查不到
+      expect(store.listEvents('书A')).toHaveLength(1)
+    } finally {
+      other.exec('DROP TRIGGER block_sessions_delete')
+      other.close()
+      store.close()
+    }
+  })
+
   it('失败事务回滚——appendEvents 抛错后无部分写入', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
@@ -89,20 +113,53 @@ describe('F1-P1 store 存取', () => {
   })
 })
 
+/** 把库内全部事件 created_at 回拨到 now - ms（模拟「最后活动已超过宽限期」的陈旧孤儿） */
+function backdateEvents(ud: string, bookRoot: string, ms: number): void {
+  const db = new DatabaseSync(join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db'))
+  db.prepare('UPDATE events SET created_at = ?').run(Date.now() - ms)
+  db.close()
+}
+
 describe('F1-P1 启动修复', () => {
-  it('孤儿 session（有 start 无 end）重开库时补 session/end{interrupted}', () => {
+  it('陈旧孤儿 session（最后活动已过宽限期）重开库时补 session/end{interrupted}', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
     store.appendEvent(sid, { type: 'session/start', data: { book: '书A' } })
     store.appendEvent(sid, { type: 'user/message', data: { message: 'crash' }, surfaceOp: 'append' })
     store.close()
+    backdateEvents(ud, '/books/a', 11 * 60 * 1000) // 超过 10 分钟宽限期
     // 重开库（模拟崩溃后重启）
     const store2 = openSessionStore(ud, '/books/a')!;
     const evs = store2.listEvents('书A')
     const ends = evs.filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1)
     expect(ends[0]!.data['reason']).toBe('interrupted')
+    store2.close()
+  })
+
+  it('RB-IF-P2-2: 新近活跃的孤儿（伪孤儿，跨进程进行中）不补虚假 end', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvent(sid, { type: 'session/start', data: { book: '书A' } })
+    store.appendEvent(sid, { type: 'user/message', data: { message: '另一进程进行中' }, surfaceOp: 'append' })
+    store.close()
+    // 不回拨：最后活动就在此刻（宽限期内）
+    const store2 = openSessionStore(ud, '/books/a')!;
+    expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
+    store2.close()
+  })
+
+  it('RB-IF-P2-2: 恰在宽限期边界内（9 分钟前）仍不补', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.close()
+    backdateEvents(ud, '/books/a', 9 * 60 * 1000)
+    const store2 = openSessionStore(ud, '/books/a')!;
+    expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
     store2.close()
   })
 
@@ -113,6 +170,7 @@ describe('F1-P1 启动修复', () => {
     store.appendEvent(sid, { type: 'session/start', data: {} })
     store.appendEvent(sid, { type: 'session/end', data: { reason: 'completed' } })
     store.close()
+    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     store2.close()

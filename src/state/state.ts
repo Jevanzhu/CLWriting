@@ -24,14 +24,15 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
-import { findUnsettled } from '../document/journal.js'
+import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, type Manifest } from '../document/manifest.js'
+import { readManifest, writeManifest, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
+import { safeManifestPath } from '../fs/safe-path.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
@@ -153,12 +154,22 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
 
   // 读缓存算 currentChapter（5/6/7 都要）
   const volumeSize = volumeSizeOf(config)
-  const db = new DatabaseSync(cachePath)
+  // RB-KN-P2-1：db 打开/统计与 rebuild 同层故障面（磁盘满/权限/损坏）——原先此处无兜底，
+  // db 层异常直接从 detectState 抛出崩掉整个 enter（同文件 readRecapSnapshot 有 catch 降级，行为不一致）
   let snapshot
   try {
-    snapshot = assembleStatus(db, config, volumeSize)
-  } finally {
-    db.close()
+    const db = new DatabaseSync(cachePath)
+    try {
+      snapshot = assembleStatus(db, config, volumeSize)
+    } finally {
+      db.close()
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return {
+      state: 2,
+      parseErrors: [{ file: cachePath, line: 0, message: `缓存读取失败：${msg}（可删 .cache/index.db 重试）` }],
+    }
   }
   const currentChapter = snapshot.currentChapter
 
@@ -185,7 +196,9 @@ export interface HealthIssue {
 function healthCheck(bookRoot: string): HealthIssue[] {
   const issues: HealthIssue[] = []
 
-  // ① journal 崩溃恢复：扫 工作区/.journal/*.jsonl，找 pending 未 settled 的写操作
+  // ① journal 崩溃恢复：扫 工作区/.journal/*.jsonl，找 pending 未 settled 的写操作。
+  // P3-10：move 类 pending（rename 与清单更新之间的崩溃窗口）确定性自愈——内容不变
+  // 仅路径变，按磁盘现状收口清单，不惊动作者；save 类才可能丢字，仍走作者提示。
   const journalDir = join(bookRoot, '工作区', '.journal')
   if (existsSync(journalDir)) {
     try {
@@ -193,12 +206,16 @@ function healthCheck(bookRoot: string): HealthIssue[] {
         if (name.startsWith('._') || !name.endsWith('.jsonl')) continue
         const docId = name.slice(0, -'.jsonl'.length)
         const pending = findUnsettled(join(journalDir, name))
-        if (pending.length > 0) {
+        const unresolved: JournalAnyPending[] = []
+        for (const p of pending) {
+          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p)) unresolved.push(p)
+        }
+        if (unresolved.length > 0) {
           issues.push({
             kind: 'crashedWrite',
             humanMsg: `上次写作时「${docId}」的保存没完成，可能丢字。`,
             fix: '确认内容是否完整，可从版本历史恢复，或忽略继续写作。',
-            files: pending.map((p) => p.opId),
+            files: unresolved.map((p) => p.opId),
           })
         }
       }
@@ -219,6 +236,46 @@ function healthCheck(bookRoot: string): HealthIssue[] {
   }
 
   return issues
+}
+
+/**
+ * P3-10：move 类 pending 确定性收口。返回 true = 已处理（不报 issue）。
+ * - 新路径在、旧路径不在 → rename 已发生、清单未跟上 → 补清单 + settled（幂等：清单已对齐时只补 settled）
+ * - 旧路径在、新路径不在 → rename 未发生 → 悬置 pending 标 aborted（无实际效果待恢复）
+ * - 两端都在 / 都不在 / 路径越出书仓库 → 不可自动判定，返回 false 交作者
+ */
+function healMovePending(bookRoot: string, docId: string, p: JournalMovePending): boolean {
+  const oldAbs = safeManifestPath(bookRoot, p.oldPath)
+  const newAbs = safeManifestPath(bookRoot, p.newPath)
+  if (!oldAbs || !newAbs) return false
+  const oldExists = existsSync(oldAbs)
+  const newExists = existsSync(newAbs)
+  try {
+    if (newExists && !oldExists) {
+      const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+      if (existsSync(manifestPath)) {
+        const m = readManifest(manifestPath)
+        const entry = m.entries.get(docId)
+        if (entry && entry.path !== p.newPath) {
+          entry.path = p.newPath
+          writeManifest(manifestPath, m)
+        }
+      }
+      appendSettled(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, computeRevision(newAbs))
+      return true
+    }
+    if (oldExists && !newExists) {
+      appendAborted(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
+      return true
+    }
+  } catch {
+    return false // 自愈写盘失败 → 仍报 issue 交作者
+  }
+  return false
+}
+
+function journalDir(bookRoot: string): string {
+  return join(bookRoot, '工作区', '.journal')
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */
@@ -540,8 +597,13 @@ function readRecapSnapshot(
   // 无布线书不读缓存章统计（无长程账本缓存）；直接扫 写作/正文/ 作为已定稿章数。
   // 排除未定稿草稿（未定稿不计入"已写"章数）
   if (!existsSync(join(bookRoot, '布线'))) {
-    const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-    return { currentChapter: chapters.length - unfinishedPieceNames(bookRoot, manifest).size, currentVolume: 1 }
+    const bodyDir = join(bookRoot, '写作', '正文')
+    const { chapters } = readChapterDir(bodyDir)
+    const formula = chapters.length - unfinishedPieceNames(bookRoot, manifest).size
+    // RB-KN-P1-3：坏 fm 草稿占位兜底（与态 7 分支 V-P1-3 同口径）——「3 篇已定稿 +
+    // 坏 fm 的 004 草稿」只按公式算出 currentChapter=2、nextChapter=3，回指已定稿第 3 篇；
+    // 以文件名最大章号-1 为下限，保证 nextChapter 不低于正文区已有占位。
+    return { currentChapter: Math.max(formula, maxFileNameChapter(bodyDir) - 1), currentVolume: 1 }
   }
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | undefined

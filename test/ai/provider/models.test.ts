@@ -15,11 +15,6 @@ describe('normalizeBaseUrl 协议分流（方案 §4.5 P0）', () => {
     expect(normalizeBaseUrl('https://open.bigmodel.cn/api/paas/v4', 'openai')).toBe('https://open.bigmodel.cn/api/paas/v4')
   })
 
-  it('openai-responses：同 openai，只去尾部斜杠', () => {
-    expect(normalizeBaseUrl('https://api.openai.com/v1', 'openai-responses')).toBe('https://api.openai.com/v1')
-    expect(normalizeBaseUrl('https://api.openai.com/v1/', 'openai-responses')).toBe('https://api.openai.com/v1')
-  })
-
   it('anthropic：去尾斜杠 + 剥尾部 /v1（SDK 自拼 /v1/messages）', () => {
     expect(normalizeBaseUrl('https://api.anthropic.com', 'anthropic')).toBe('https://api.anthropic.com')
     expect(normalizeBaseUrl('https://api.anthropic.com/', 'anthropic')).toBe('https://api.anthropic.com')

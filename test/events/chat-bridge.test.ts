@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, type SessionStore } from '../../src/events/store.js'
@@ -124,6 +125,41 @@ describe('F1-P1 SessionRecorder', () => {
     rec.close('error', rec.allSessionSeqs())
     expect(deriveMessages(store.listEvents('书A'))).toEqual([])
     store.close()
+  })
+
+  it('RB-IF-P1-2: close 的 archiveSeq 用真实 seq——并发写方在场不错链到外来事件', () => {
+    const { store } = openTmp()
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A'))
+    rec.add(userMessageEvent('旧'))
+    const r = rec.flush()!
+    // 模拟多窗口并发写：触发器在每次 INSERT 后替「另一窗口」补插一行——旧实现
+    // lastSeq()+2 推算会把外来行当 archiveSeq（错链），INSERT RETURNING 真实 seq 不受影响
+    const other = new DatabaseSync(store.dbPath)
+    other.exec(
+      `CREATE TRIGGER other_window AFTER INSERT ON events BEGIN
+         INSERT INTO events (session_id, type, data, replace_generation, created_at)
+         VALUES ('other-window', 'note', '{}', 0, 0);
+       END`,
+    )
+    try {
+      const archiveSeq = rec.close('completed', [r.first, r.last], '存档内容')
+      const evs = store.listEvents('书A')
+      const archive = evs.find((e) => e.type === 'compaction/end' && e.data['message'] === '存档内容')
+      expect(archive).toBeDefined()
+      expect(archiveSeq).toBe(archive!.seq) // 指向自身的 compaction/end 事件
+      // 外来行确实插在了 compaction 事件紧邻位置（证明并发窗口存在），archiveSeq 未取到它
+      const foreign = other.prepare(
+        `SELECT MIN(seq) AS m, MAX(seq) AS m2 FROM events WHERE session_id = 'other-window' AND type = 'note'`,
+      ).get() as { m: number; m2: number }
+      expect(foreign.m2!).toBeGreaterThanOrEqual(archive!.seq - 1)
+      expect(archiveSeq).not.toBe(foreign.m2!)
+    } finally {
+      other.exec('DROP TRIGGER other_window')
+      other.close()
+      store.close()
+    }
   })
 
   it('工具往返录制：tool/call 审计 + tool/result 合并 seq', () => {

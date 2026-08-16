@@ -9,7 +9,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectState } from '../../src/state/state.js'
+import { detectState, buildRecap } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -151,6 +151,24 @@ test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextCha
       expect(d.chapterNum).toBe(4)
       expect(d.resumePoint).toBe('pre-finalize')
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('RB-KN-P1-3: short recap 坏 fm 草稿占位 → nextChapter 不回指已定稿篇（与态 7 同口径）', () => {
+  const root = makeShortBook()
+  try {
+    finalizePiece(root, 1, '雪夜')
+    finalizePiece(root, 2, '旧伞')
+    finalizePiece(root, 3, '空巷')
+    writeFileSync(join(root, '写作', '正文', '第一卷', '004-坏草稿.md'), '没有 front matter 的正文', 'utf-8')
+
+    const d = detectState(root, SHORT_CONFIG)
+    const recap = buildRecap(root, SHORT_CONFIG, d)
+    // 修复前：公式算出 currentChapter = 3 - 1(坏草稿占未定稿位) = 2 → nextChapter=3 回指已定稿第 3 篇
+    expect(recap.currentChapter).toBe(3)
+    expect(recap.nextChapter).toBe(4)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

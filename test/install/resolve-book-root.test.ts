@@ -189,6 +189,17 @@ test('resolveBookRoot: 纯数字位置参不误判为书目录', () => {
   cleanupTempDir(book)
 })
 
+test('RB-IF-P2-7: 自由文本位置参不误判为书目录（回落 cwd 书仓库）', () => {
+  const book = mkdtempSync(join(tmpdir(), 'bk-free-'))
+  makeBookRepo(book)
+  process.chdir(book)
+  // 题材名/报告名类自由文本不是书仓库（无 book.yaml）→ 不得被 resolve 当书根返回
+  const r = resolveBookRoot(['悬疑反转'])
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.bookRoot).toBe(book)
+  cleanupTempDir(book)
+})
+
 test('resolveBookRoot: explicitBookRoot 参数优先', () => {
   const book = mkdtempSync(join(tmpdir(), 'bk3-'))
   makeBookRepo(book)

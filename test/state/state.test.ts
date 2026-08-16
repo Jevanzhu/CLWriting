@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { appendMovePending, findUnsettled } from '../../src/document/journal.js'
 
 const FAST_CHAPTER_FIXTURE = { commitEach: false }
 
@@ -223,5 +224,70 @@ test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
   const { recap, route } = enter(root)
   expect(recap.state).toBe(5)
   expect(route.action).toBe('volume-review')
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── P3-10: move 类 journal pending 进门确定性自愈 ───────────────────
+
+/** 造场景：清单登记 oldRel，文件按 fileExists 落盘（new=rename 已发生），journal 悬置 move pending。 */
+function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): {
+  root: string
+  docId: string
+  oldRel: string
+  newRel: string
+  jPath: string
+} {
+  const root = makeGitBook()
+  const docId = generateDocId()
+  const oldRel = '写作/正文/0001-开篇.md'
+  const newRel = '写作/正文/0002-开篇.md'
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  const rel = fileExists === 'old' ? oldRel : fileExists === 'new' ? newRel : null
+  if (rel) {
+    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+  }
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  mkdirSync(join(root, '项目'), { recursive: true })
+  const m = readManifest(manifestPath)
+  upsertEntry(m, { id: docId, nodeType: 'document', path: oldRel, parentId: null })
+  writeManifest(manifestPath, m)
+  const jPath = join(root, '工作区', '.journal', `${docId}.jsonl`)
+  mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
+  appendMovePending(jPath, docId, oldRel, newRel)
+  return { root, docId, oldRel, newRel, jPath }
+}
+
+test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + settled，不拦进门', () => {
+  const { root, docId, newRel, jPath } = makeMovePendingBook('new')
+  const d = detectState(root, DEFAULT_CONFIG)
+  // 不因 move pending 报 crashedWrite（确定性自愈，不门禁）
+  if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
+  // 清单已对齐新路径
+  const after = readManifest(join(root, '项目', '文档清单.jsonl'))
+  expect(after.entries.get(docId)?.path).toBe(newRel)
+  // journal 已配对 settled（下次进门不再处理）
+  expect(findUnsettled(jPath)).toHaveLength(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置，清单不动', () => {
+  const { root, docId, oldRel, jPath } = makeMovePendingBook('old')
+  const d = detectState(root, DEFAULT_CONFIG)
+  if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
+  const after = readManifest(join(root, '项目', '文档清单.jsonl'))
+  expect(after.entries.get(docId)?.path).toBe(oldRel)
+  expect(findUnsettled(jPath)).toHaveLength(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 crashedWrite 交作者', () => {
+  const { root, jPath } = makeMovePendingBook('none')
+  const d = detectState(root, DEFAULT_CONFIG)
+  expect(d.state).toBe(1)
+  if (d.state === 1) {
+    expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(true)
+  }
+  // 未处理：pending 仍悬置
+  expect(findUnsettled(jPath)).toHaveLength(1)
   rmSync(root, { recursive: true, force: true })
 })

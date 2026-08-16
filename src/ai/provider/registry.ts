@@ -21,7 +21,6 @@ import type { ProviderConf, Protocol, ModelProvider } from './types.js'
 import type { ProviderStore } from './store.js'
 import { createAnthropicProvider } from './anthropic-adapter.js'
 import { createOpenAIProviderChat } from './openai-adapter.js'
-import { createOpenAIResponsesProvider } from './responses-adapter.js'
 
 /** 注册表条目——一行声明一个协议适配器 */
 export interface AdapterEntry {
@@ -44,11 +43,6 @@ export const ADAPTER_REGISTRY: readonly AdapterEntry[] = [
     name: 'openai',
     aliases: ['openai-chat', 'openai-completions', 'chat-completions'],
     create: (conf, store) => createOpenAIProviderChat(conf, undefined, store),
-  },
-  {
-    name: 'openai-responses',
-    aliases: ['responses', 'openai-responses-api'],
-    create: (conf) => createOpenAIResponsesProvider(conf),
   },
 ]
 
@@ -131,6 +125,10 @@ export function createProvider(conf: ProviderConf, store?: ProviderStore): Model
 
   const entry = resolveAdapter(conf.protocol)
   if (!entry) {
+    // Z-P2-1 拍板停用的协议——存量 conf（providers.json 直灌）给出可迁移的明确报错
+    if (String(conf.protocol) === 'openai-responses') {
+      throw new Error('openai-responses 协议已停用：请将该供应商协议改为 openai（gpt-5 系列经 Chat Completions 可用）')
+    }
     // Protocol 是封闭联合类型，落到这里说明类型被绕过（JSON 直灌等）——显式报错不做猜测
     throw new Error(`未知协议适配器：${String(conf.protocol)}`)
   }

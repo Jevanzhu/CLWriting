@@ -109,6 +109,14 @@ test('checkSectionCount: 无标题不按自然段计节，只提示补五段标�
   expect(r.items[0]!.message).toContain('不按自然段计节')
 })
 
+test('RB-KN-P2-7: 仅 1 个 ## 标题 → 文案如实（检测到 1 个，不再误称「未使用 ##」）', () => {
+  const r = checkSectionCount('## 开头\n只有一段标题的正文', 5)
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.checkId).toBe('section-count-heading-missing')
+  expect(r.items[0]!.message).toContain('仅检测到 1 个')
+  expect(r.items[0]!.message).not.toContain('未使用')
+})
+
 // ── checkOpeningNoEnv ────────────────────────────
 
 test('checkOpeningNoEnv: 开头无环境通过', () => {

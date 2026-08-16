@@ -18,9 +18,14 @@ import { finalizeRevision } from '../../../document/finalize.js'
 import { invalidateBookSummary } from './progress.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
+import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
+import { openSessionStore, bookHash } from '../../../events/store.js'
+import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 
 interface DocumentCtx {
   workDir: string | null
+  /** Z-P2-6：伏笔事件族接线需要（null → 观测层静默跳过） */
+  userDataPath: string | null
 }
 
 /** per-bookRoot DocumentService 缓存（跨请求共享串行队列）。 */
@@ -45,6 +50,38 @@ export function __clearDocumentServices(): void {
 /** 删书时清理对应 bookRoot 的 service 缓存（防同 path 重建复用旧实例）。 */
 export function forgetService(bookRoot: string): void {
   services.delete(bookRoot)
+}
+
+// ── Z-P2-6：伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
+// 快照-差分模式：变更前抓 设定/伏笔/ 全量状态（非伏笔路径 null 免读），变更后
+// recordForeshadowChanges 差分落 workspace 会话（与 step/llm 链路事件同会话）。
+
+/** 变更前快照：path 落在 设定/伏笔/ 才读（其余文档零开销直通 null）。 */
+function foreshadowSnapshot(bookRoot: string, path: string | null): ForeshadowEntry[] | null {
+  if (!path || !path.startsWith('设定/伏笔/')) return null
+  try {
+    return readForeshadows(bookRoot)
+  } catch {
+    return null
+  }
+}
+
+/** 变更后差分落事件：prev 为 null（非伏笔/快照失败）静默跳过；写失败静默（观测层）。 */
+function recordForeshadowDelta(
+  userDataPath: string | null,
+  bookRoot: string,
+  prev: ForeshadowEntry[] | null,
+): void {
+  if (!prev || !userDataPath) return
+  try {
+    const store = openSessionStore(userDataPath, bookRoot)
+    if (!store) return
+    const sessionId = store.workspaceSession(bookHash(bookRoot))
+    recordForeshadowChanges(store, sessionId, prev, readForeshadows(bookRoot))
+    store.close()
+  } catch {
+    // 观测层：写失败不炸文档操作
+  }
 }
 
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
@@ -74,10 +111,14 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
 
+      // Z-P2-6：伏笔快照先于保存（差分需要变更前状态）
+      const fsPrev = foreshadowSnapshot(r.bookRoot, path)
       const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
         // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
         invalidateBookSummary(r.bookRoot)
+        // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
+        recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
@@ -184,10 +225,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
       const svc = getOrCreateService(r.bookRoot)
+      // Z-P2-6：新建伏笔（create）前快照
+      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath)
       const result = await svc.createDocument({
         relPath: body.relPath,
         content: typeof body.content === 'string' ? body.content : undefined,
       })
+      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 201 : structStatus(result.code), result)
     },
   )
@@ -202,6 +246,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
       const svc = getOrCreateService(r.bookRoot)
+      // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
+      const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
       let result
       if (body.op === 'rename') {
         if (typeof body.newName !== 'string') {
@@ -238,6 +284,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         reply(res, 400, { ok: false, code: 'BAD_INPUT', error: '未知 op（rename/move/meta/fm）' })
         return
       }
+      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
   )
@@ -270,7 +317,10 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot)
+      // Z-P2-6：软删伏笔（clear 事件）前快照
+      const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
       const result = await svc.trashDocument({ docId })
+      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
   )

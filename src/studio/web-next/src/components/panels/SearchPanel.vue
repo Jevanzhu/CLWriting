@@ -29,7 +29,10 @@ const SCOPES = [
   { v: '工作区', label: '工作区' },
 ]
 
+let runGen = 0
 async function run(): Promise<void> {
+  // RB-FE-P2-6：连续搜索竞态——只渲染最后一次查询的结果，旧慢响应不覆盖新结果
+  const gen = ++runGen
   if (!q.value.trim()) {
     results.value = []
     truncated.value = false
@@ -39,12 +42,14 @@ async function run(): Promise<void> {
   err.value = null
   try {
     const r = await search(props.bookName, q.value, scope.value)
+    if (gen !== runGen) return
     results.value = r.results
     truncated.value = !!r.truncated
   } catch (e) {
+    if (gen !== runGen) return
     err.value = friendlyError(e)
   } finally {
-    loading.value = false
+    if (gen === runGen) loading.value = false
   }
 }
 

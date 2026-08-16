@@ -227,6 +227,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (co) cfg.auto.confirm_outline = String(parseValue(co.value)) === 'true'
     const bs = auto.children.find((c) => c.key === 'batch_size')
     if (bs) cfg.auto.batch_size = parseFiniteNumber(bs.value, DEFAULT_CONFIG.auto.batch_size)
+    // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
+    // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
+    const ram = auto.children.find((c) => c.key === 'relation_auto_mine')
+    if (ram) cfg.auto.relation_auto_mine = String(parseValue(ram.value)) === 'true'
+    const rmt = auto.children.find((c) => c.key === 'relation_mine_threshold')
+    if (rmt) cfg.auto.relation_mine_threshold = parseFiniteNumber(rmt.value, DEFAULT_CONFIG.auto.relation_mine_threshold ?? 3)
   }
 
   const growth = find('growth')
@@ -387,6 +393,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     'auto:',
     `  confirm_outline: ${cfg.auto.confirm_outline}`,
     `  batch_size: ${cfg.auto.batch_size}`,
+    // RB-KN-P2-10：显式配置过的关系图两键随写回（缺省不输出——现有仓库零改动红线）
+    ...(cfg.auto.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
+    ...(cfg.auto.relation_mine_threshold !== undefined ? [`  relation_mine_threshold: ${cfg.auto.relation_mine_threshold}`] : []),
   )
 
   // growth 段：长篇输出（成长线/境界）；短篇无（无成长线）

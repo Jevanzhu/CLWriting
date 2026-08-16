@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
-import { appendAborted, appendPending, appendSettled, findUnsettled } from '../../src/document/journal.js'
+import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalPending } from '../../src/document/journal.js'
 
 const SHA = (s: string) => s as `sha256:${string}`
 
@@ -36,7 +36,7 @@ describe('journal', () => {
     appendPending(j, 'doc_1', null, '未结算')
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
-    expect(u[0]!.content).toBe('未结算')
+    expect((u[0] as JournalPending).content).toBe('未结算')
   })
 
   it('多 opId 混合 → 只返回未结算的', () => {
@@ -92,7 +92,7 @@ describe('journal compact（U-P2-9）', () => {
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
     expect(u[0]!.opId).toBe(alive)
-    expect(u[0]!.content).toBe(big + '尾巴')
+    expect((u[0] as JournalPending).content).toBe(big + '尾巴')
   })
 
   it('阈值以下不压缩（防高频重写 O(n²)）', () => {
@@ -108,6 +108,47 @@ describe('journal compact（U-P2-9）', () => {
     const opId = appendPending(j, 'doc_1', null, big)
     appendAborted(j, opId, '模拟磁盘满')
     expect(statSync(j).size).toBe(0)
+    expect(findUnsettled(j)).toHaveLength(0)
+  })
+})
+
+// ── P3-10：move 类 pending（rename 与清单更新之间的崩溃窗口兜底）─────────
+
+describe('journal move pending（P3-10）', () => {
+  let dir: string
+  let j: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'journal-move-'))
+    j = join(dir, 'doc_1.jsonl')
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('appendMovePending → findUnsettled 返回 move 形状（kind/oldPath/newPath）', () => {
+    const opId = appendMovePending(j, 'doc_1', '写作/正文/1-a.md', '写作/正文/2-a.md')
+    expect(opId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
+    const u = findUnsettled(j)
+    expect(u).toHaveLength(1)
+    expect(u[0]).toMatchObject({ kind: 'move', oldPath: '写作/正文/1-a.md', newPath: '写作/正文/2-a.md' })
+  })
+
+  it('move pending 与 save pending 混合 → 各自独立配对结算', () => {
+    const m = appendMovePending(j, 'doc_1', 'a.md', 'b.md')
+    const s = appendPending(j, 'doc_1', null, '保存中')
+    appendSettled(j, m, SHA('sha256:m1'))
+    const u = findUnsettled(j)
+    expect(u).toHaveLength(1)
+    expect(u[0]!.opId).toBe(s)
+    appendAborted(j, s, '模拟失败')
+    expect(findUnsettled(j)).toHaveLength(0)
+  })
+
+  it('损坏 move pending（缺 newPath）不救，findUnsettled 跳过', () => {
+    appendFileSync(
+      j,
+      JSON.stringify({ opId: 'x', docId: 'd', ts: 't', status: 'pending', kind: 'move', oldPath: 'a.md' }) + '\n',
+    )
     expect(findUnsettled(j)).toHaveLength(0)
   })
 })

@@ -184,6 +184,29 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     expect(r.json.error).toBe('apiKey 必填')
   })
 
+  it('POST openai-responses 协议 → 400 拒配（Z-P2-1：已停用，提示改用 openai）', async () => {
+    const r = await req<{ error: string }>({
+      method: 'POST',
+      path: '/api/providers',
+      body: { ...CONF, protocol: 'openai-responses' },
+    })
+    expect(r.status).toBe(400)
+    expect(r.json.error).toContain('openai-responses 协议已停用')
+    expect(r.json.error).toContain('openai')
+  })
+
+  it('PUT 编辑为 openai-responses 协议 → 同样拒配 400', async () => {
+    const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
+    const pid = a.json.provider.id
+    const r = await req<{ error: string }>({
+      method: 'PUT',
+      path: `/api/providers/${pid}`,
+      body: { ...CONF, protocol: 'openai-responses' },
+    })
+    expect(r.status).toBe(400)
+    expect(r.json.error).toContain('已停用')
+  })
+
   it('POST /:id/test 对不存在的 id → 404（不涉真网络）', async () => {
     const r = await req<{ error: string }>({
       method: 'POST',

@@ -70,7 +70,7 @@ export interface FamilyQuirks {
    *  named   = 可强制指定函数名（OpenAI/Anthropic/DeepSeek…）
    *  required= 只能"必须调某个"不能点名（Kimi k3）
    *  auto    = 仅支持 auto（GLM 类）
-   *  none    = 无此参数（openai-responses 协议）
+   *  none    = 无此参数（openai-responses 协议已停用；保留枚举位防生成物 schema 漂移）
    */
   toolChoiceMode: 'named' | 'required' | 'auto' | 'none'
   /**

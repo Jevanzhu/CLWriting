@@ -14,7 +14,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
-import { writeEntry, ENTRIES_DIR } from './style-entry.js'
+import { writeEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
@@ -79,10 +79,33 @@ export function parseAiFlavorRows(text: string): { 词: string; 替换: string }
   return rows
 }
 
-/** 条目落新库（迁移内部：序号内存计数，避免每写一个都扫盘） */
+/** 条目落新库（迁移内部：序号内存计数，避免每写一个都扫盘）。
+ *  RB-KN-P2-4：续跑时序号从盘上既有条目之后起——中途崩溃重启不得覆写已迁条目。 */
 function makeWriter(bookRoot: string, result: StyleMigrateResult) {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const seq = new Map<string, number>()
+  // 播种既有序号：<类型>/<场景>-NNN.md 取最大 N（续跑防覆写）
+  try {
+    for (const kind of readdirSync(entriesDir)) {
+      const kindDir = join(entriesDir, kind)
+      let files: string[] = []
+      try {
+        files = readdirSync(kindDir)
+      } catch {
+        continue
+      }
+      for (const f of files) {
+        const m = f.match(/^(.+)-(\d{3,})\.md$/)
+        if (m) {
+          const key = `${kind}/${m[1]}`
+          const n = Number(m[2])
+          seq.set(key, Math.max(seq.get(key) ?? 0, n))
+        }
+      }
+    }
+  } catch {
+    /* 条目目录不存在（首次迁移）→ 空播种 */
+  }
   return (e: StyleEntry): void => {
     const key = `${e.类型}/${e.场景}`
     const n = (seq.get(key) ?? 0) + 1
@@ -104,6 +127,11 @@ function rmdirIfEmpty(dir: string): void {
   }
 }
 
+/** RB-KN-P2-4：铁律是否仍含待迁移段（反和解 / AI 味替换）——幂等闸的续跑判定输入 */
+function hasLegacyRulesSection(text: string): boolean {
+  return /^##[^\n]*(反和解|AI\s*味替换)/m.test(text)
+}
+
 /**
  * 铁律瘦身（S5）：删「反和解段」「AI 味替换参考」段（知识已入条目库），
  * 保留头部引言、可量化约束、删除分级及作者自加段（保守：未知段一律保留）。
@@ -121,16 +149,26 @@ export function slimIronRules(text: string): string {
 }
 
 /**
- * 执行迁移。已迁移（条目目录存在）→ no-op。
+ * 执行迁移。旧源已清且铁律已瘦（或本无旧源）→ no-op。
  * 旧样章库/金句库不存在也算正常（新书或纯手动书），只做铁律提取。
+ * RB-KN-P2-4：幂等闸改「旧源是否仍在」判定（对齐 foreshadow 迁移的可续跑范式）——
+ * 原先条目目录存在即 no-op，第 N 条迁移后崩溃的书永远半迁移（剩余旧库文件无人认领）。
  */
 export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   const result: StyleMigrateResult = { migrated: 0, skipped: 0, details: [], byKind: {} }
   const entriesDir = join(bookRoot, ENTRIES_DIR)
-  if (existsSync(entriesDir)) return result // 幂等闸：已迁移
 
   const styleDir = join(bookRoot, '文风')
   if (!existsSync(styleDir)) return result // 无文风目录（异常书），不建库
+
+  const rulesFile = join(styleDir, '文风铁律.md')
+  const rulesHasLegacy = existsSync(rulesFile) && hasLegacyRulesSection(readFileSync(rulesFile, 'utf-8'))
+  const hasLegacySource =
+    existsSync(join(styleDir, '样章库')) ||
+    existsSync(join(styleDir, '金句库')) ||
+    existsSync(join(styleDir, '金句库.md')) ||
+    rulesHasLegacy
+  if (existsSync(entriesDir) && !hasLegacySource) return result // 幂等闸：已迁移完
 
   const write = makeWriter(bookRoot, result)
 
@@ -213,10 +251,12 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (quoteCount > 0) result.details.push(`金句库 → ${quoteCount} 条样章（标签: 金句）`)
 
   // ── 3. 铁律：提取（反和解禁词 + AI 味替换表 → 禁词条目）→ 瘦身为纯配置 ──
-  const rulesFile = join(styleDir, '文风铁律.md')
   if (existsSync(rulesFile)) {
     const rulesText = readFileSync(rulesFile, 'utf-8')
-    const seen = new Set<string>()
+    // RB-KN-P2-4：续跑去重——条目库已有同文禁词（上次写完条目、瘦身写回前崩溃）不重写
+    const seen = new Set<string>(
+      readEntries(entriesDir, '禁词').entries.map((e) => e.正文.trim()).filter(Boolean),
+    )
     const banned = parseIronRules(rulesText).bannedWords ?? []
     for (const word of banned) {
       if (seen.has(word)) continue

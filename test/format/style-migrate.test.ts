@@ -121,13 +121,43 @@ describe('migrateStyleLibrary', () => {
     expect(r.details.some((d) => d.includes('瘦身'))).toBe(true)
   })
 
-  it('幂等：第二次调用 no-op', () => {
+  it('幂等：旧源已清空 → 第二次调用 no-op', () => {
     makeSample('战斗', '001', '正文')
     expect(migrateStyleLibrary(root).migrated).toBe(1)
-    makeSample('战斗', '001', '再建一个旧样章')
+    // 旧库文件已随迁移删除（无旧源残留）→ 再调用 no-op
     const second = migrateStyleLibrary(root)
     expect(second.migrated).toBe(0)
     expect(readEntries(join(root, ENTRIES_DIR)).entries).toHaveLength(1)
+  })
+
+  it('RB-KN-P2-4: 半迁移状态可续跑（条目目录已存在 + 旧库仍有文件）不覆写已迁条目', () => {
+    makeSample('战斗', '001', '第一条样章')
+    // 第一次迁移只迁了 001（旧库文件随迁随删）
+    const first = migrateStyleLibrary(root)
+    expect(first.migrated).toBe(1)
+    // 模拟「迁移第 2 条之前崩溃」：旧库仍有未迁文件（条目目录已存在）
+    makeSample('战斗', '002', '崩溃后残留的旧样章')
+    // 修复前：条目目录存在 → 幂等闸直接 no-op，残留旧样章永久无人认领
+    const resume = migrateStyleLibrary(root)
+    expect(resume.migrated).toBe(1)
+    const { entries } = readEntries(join(root, ENTRIES_DIR))
+    expect(entries).toHaveLength(2)
+    // 续跑不覆写：序号从既有条目之后起，两条正文各归其位
+    expect(entries.some((e) => e.正文 === '第一条样章')).toBe(true)
+    expect(entries.some((e) => e.正文 === '崩溃后残留的旧样章')).toBe(true)
+  })
+
+  it('RB-KN-P2-4: 铁律条目已写但瘦身写回前崩溃 → 续跑不重复写禁词条目', () => {
+    writeFileSync(join(root, '文风', '文风铁律.md'), IRON_RULES, 'utf-8')
+    // 第一次完整迁移：禁词 3 条 + 瘦身
+    expect(migrateStyleLibrary(root).byKind['禁词']).toBe(3)
+    // 模拟崩溃窗口：条目已写、瘦身写回被回退（铁律仍是胖的）
+    writeFileSync(join(root, '文风', '文风铁律.md'), IRON_RULES, 'utf-8')
+    const resume = migrateStyleLibrary(root)
+    // 续跑去重：同文禁词不重写
+    expect(resume.byKind['禁词'] ?? 0).toBe(0)
+    const { entries } = readEntries(join(root, ENTRIES_DIR), '禁词')
+    expect(entries).toHaveLength(3)
   })
 
   it('空文风目录：迁移零条但建骨架（幂等闸生效）', () => {

@@ -26,9 +26,13 @@ export const useWordsStore = defineStore('words', () => {
   })
 
   /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。 */
+  let reqGen = 0
   async function ensureBaseline(name: string): Promise<void> {
+    // RB-FE-P2-5：请求代守卫——切书后旧书慢响应不污染今日字数基线（后调者胜）
+    const gen = ++reqGen
     try {
       const r = await getWordsDiary(name)
+      if (gen !== reqGen) return
       date.value = r.date
       todayDelta.value = r.delta
       if (r.baseline === null) {
@@ -38,9 +42,10 @@ export const useWordsStore = defineStore('words', () => {
         baseline.value = r.baseline
       }
     } catch {
+      if (gen !== reqGen) return
       baseline.value = tree.totalWords // 失败降级：今日 0
     } finally {
-      ready.value = true
+      if (gen === reqGen) ready.value = true
     }
   }
 

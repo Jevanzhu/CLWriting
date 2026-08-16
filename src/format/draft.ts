@@ -84,8 +84,9 @@ function extractTitleFromContent(content?: string): string | null {
  *  无条件覆盖会静默摧毁定稿内容；fail-closed，由调用方提示作者走回滚或另立章号。
  *  清单缺失/不可读（legacy 书）无定稿信息可依 → 维持旧行为不阻断。
  *  W-P2-2：除精确 path 外，同章号定稿条目一并拦截——定稿章被作者/外部工具改名后
- *  清单仍挂旧 path，只按 path 匹配会让覆盖分支命中改名后的新文件而绕过防线；
- *  正文区文件名约定 NNN-标题.md，按章号前缀匹配可堵住改名旁路。 */
+ *  清单仍挂旧 path，只按 path 匹配会让覆盖分支命中改名后的新文件而绕过防线。
+ *  RB-KN-P1-2：章号匹配改数值口径（^(\d+)- 提取后 Number 比对）——原先按 3 位补零
+ *  前缀匹配，而 service 重命名生成 4 位补零（0005- 不匹配 005-），防线在改名书上失守。 */
 function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: number): void {
   let manifest: ReturnType<typeof readManifest>
   try {
@@ -93,14 +94,17 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
   } catch {
     return
   }
-  const prefix = chapter !== undefined ? `${String(chapter).padStart(3, '0')}-` : null
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (e.path === relPath) {
       throw new Error(`第 ${relPath} 章已定稿，拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
     }
-    if (prefix && (e.path.split('/').pop() ?? '').startsWith(prefix)) {
-      throw new Error(`第 ${chapter} 章已定稿（${e.path}），拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
+    if (chapter !== undefined) {
+      const base = e.path.split('/').pop() ?? ''
+      const m = base.match(/^(\d+)-/)
+      if (m && Number(m[1]) === chapter) {
+        throw new Error(`第 ${chapter} 章已定稿（${e.path}），拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
+      }
     }
   }
 }

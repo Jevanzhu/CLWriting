@@ -223,12 +223,15 @@ export function resolveBookRoot(
   }
 }
 
-/** 从位置参里找书目录候选（非 -- 开头、非 .md 结尾）。 */
+/** 从位置参里找书目录候选（非 -- 开头、非 .md 结尾）。
+ *  RB-IF-P2-7：候选须真是书仓库（含 book.yaml）才接受——原先任何自由文本位置参
+ *  （题材名/报告名等）都被 resolve 当书目录返回 ok，带自由文本参数的命令被误导。 */
 function findPositionalBookRoot(args: readonly string[]): string | undefined {
   for (const arg of args) {
     if (arg.startsWith('--')) continue
     if (/^\d+$/.test(arg)) continue // 章号/批量数量等数字位置参，不是书目录
     if (arg.endsWith('.md')) continue // 草稿文件，不是书目录
+    if (!isBookRepo(resolve(arg))) continue // 非书仓库的自由文本 → 不当书根（回落 cwd/活动书）
     return arg
   }
   return undefined

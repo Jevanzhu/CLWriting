@@ -119,6 +119,19 @@ export function checkLeadsForm(
           message: `${id} 状态「${status}」与履历末条动词「${lastEntry.动词}」不一致`,
           leadId: id,
         })
+      } else if (
+        (status === '已收尾' || status === '已放弃') &&
+        (OPEN_VERBS.has(lastEntry.动词) || ADVANCE_VERBS.has(lastEntry.动词))
+      ) {
+        // RB-KN-P2-9：反向漂移——状态已标终态但末条足迹仍是开端/推进动词。原先只检
+        // 正向（末条收尾 → 状态须翻转），账本被标「已收尾」后又推进的状态漂移无检测。
+        // 报黄不报红：作者显式改状态收口是合法场景，提示而非拦截。
+        items.push({
+          checkId: 'lead-status-drift',
+          level: 'yellow',
+          message: `${id} 状态已标「${status}」但履历末条仍是推进动词「${lastEntry.动词}」——若为作者显式收口请忽略，否则状态与足迹已漂移`,
+          leadId: id,
+        })
       }
     }
   }
@@ -209,6 +222,8 @@ export function extractEvidenceCore(evidence: string): string {
  */
 const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
 const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
+const OPEN_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].open))
+const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].advance))
 const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 
 function checkStatusClosure(lastVerb: string, status: string, leadType?: string): boolean {

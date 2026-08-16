@@ -164,6 +164,25 @@ test('collectReviewIssues: 缺视角 → 审稿单不成立', () => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
+test('RB-KN-P2-8: issues 文件读取失败（并发删除/权限）→ 与 JSON 损坏分开记录原因', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const packet = makeFullPacket(workDir)
+  mkdirSync(packet.out_dir, { recursive: true })
+  // reader：占位目录 → readFileSync 抛 EISDIR（读取失败面）
+  mkdirSync(join(packet.out_dir, lensIssuesFileName('reader')), { recursive: true })
+  // editor：内容坏 → JSON 解析失败面
+  writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '{oops', 'utf-8')
+  writeFileSync(join(packet.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+
+  const collected = collectReviewIssues({ packet })
+  expect(collected.ok).toBe(false)
+  const readFail = collected.bad_entries.find((b) => b.reason.includes('文件读取失败'))
+  const jsonBad = collected.bad_entries.find((b) => b.reason.includes('JSON 损坏'))
+  expect(readFail).toBeDefined() // 修复前：读取失败也被记成「JSON 损坏」
+  expect(jsonBad).toBeDefined()
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立）', () => {
   const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)

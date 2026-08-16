@@ -9,7 +9,7 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readBookConfig, patchTopSection } from '../format/yaml.js'
@@ -61,9 +61,9 @@ export function writeApiKey(workDir: string, key: string): void {
   const clwritingDir = join(workDir, '.clwriting')
   mkdirSync(clwritingDir, { recursive: true })
   ensureRagSecretGitignore(workDir)
-  atomicWriteFile(join(clwritingDir, RAG_SECRET_FILE), key + '\n')
-  // P2-3：限制文件权限（对比 vault.ts 已做 chmod 0600）
-  chmodSync(join(clwritingDir, RAG_SECRET_FILE), 0o600)
+  // RB-IF-P2-6：临时文件按 0600 创建后 rename——修复前先落盘后 chmod，默认 umask
+  // （0644）窗口内凭据全局可读。rename 保持原子性；覆盖旧文件时同样以 0600 面世
+  atomicWriteFile(join(clwritingDir, RAG_SECRET_FILE), key + '\n', { mode: 0o600 })
 }
 
 /** 给 rag.secret 加显式忽略兜底，避免工作目录被误放进 git 后泄露 key。 */

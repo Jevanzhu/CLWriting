@@ -25,8 +25,20 @@ const workDir = argValue('--dir') ?? undefined
 const staticDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
 
 const server = startServer({ port, workDir, staticDir })
+// RB-SV-P2-3：监听错误兜底——EADDRINUSE 等给出可读中文后退出，而非未捕获异常崩溃
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[server-main] 端口 ${port} 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口`)
+  } else {
+    console.error(`[server-main] server 启动失败：${err.message}`)
+  }
+  process.exit(1)
+})
 server.on('listening', () => {
-  console.log(`[server-main] ready on http://127.0.0.1:${port} (static: ${staticDir})`)
+  // 用实际监听端口（--port 0 随机端口时与配置值不同）
+  const addr = server.address()
+  const actualPort = addr && typeof addr === 'object' ? addr.port : port
+  console.log(`[server-main] ready on http://127.0.0.1:${actualPort} (static: ${staticDir})`)
 })
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

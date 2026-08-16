@@ -28,6 +28,7 @@ import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface AnalysisCtx {
   workDir: string | null
@@ -99,38 +100,45 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-      const reqBody = await readJson(req)
-      const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
-      if (!ANALYSIS_KINDS.has(kind)) {
-        return reply(res, 400, { ok: false, code: 'BAD_KIND', error: 'kind 需为 score/emotion/hooks/style 之一' })
+      // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
+      const release = acquireTaskGate(params['name']!, 'analyze')
+      if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书已有分析任务在跑，请等待完成后再试' })
+      try {
+        const reqBody = await readJson(req)
+        const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
+        if (!ANALYSIS_KINDS.has(kind)) {
+          return reply(res, 400, { ok: false, code: 'BAD_KIND', error: 'kind 需为 score/emotion/hooks/style 之一' })
+        }
+
+        const bookRoot = join(ctx.workDir, entry.path)
+        const docId = params['docId'] ?? ''
+        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        const absPath = safeManifestPath(bookRoot, m.path)
+        if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
+        if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+
+        const draft = readDraft(absPath)
+        if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+        const { body, chapter } = draft
+
+        const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
+        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
+        if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+        const payload = result.payload
+
+        const fullContent = readFileSync(absPath, 'utf-8')
+        const envelope = {
+          generatedAt: new Date().toISOString(),
+          model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
+          sourceHash: sourceHashOf(fullContent),
+          payload,
+        }
+        writeAnalysis(bookRoot, docId, kind, envelope)
+        reply(res, 200, { ok: true, envelope })
+      } finally {
+        release()
       }
-
-      const bookRoot = join(ctx.workDir, entry.path)
-      const docId = params['docId'] ?? ''
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
-      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
-
-      const draft = readDraft(absPath)
-      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
-      const { body, chapter } = draft
-
-      const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
-      const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
-      const payload = result.payload
-
-      const fullContent = readFileSync(absPath, 'utf-8')
-      const envelope = {
-        generatedAt: new Date().toISOString(),
-        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
-        sourceHash: sourceHashOf(fullContent),
-        payload,
-      }
-      writeAnalysis(bookRoot, docId, kind, envelope)
-      reply(res, 200, { ok: true, envelope })
     },
   )
 
@@ -142,45 +150,51 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      // RB-SV-P2-2：长任务并发闸
+      const release = acquireTaskGate(params['name']!, 'autotag')
+      if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书已在识别章节标签，请等待完成后再试' })
+      try {
+        const bookRoot = join(ctx.workDir, entry.path)
+        const docId = params['docId'] ?? ''
+        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        const absPath = safeManifestPath(bookRoot, m.path)
+        if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
+        if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-      const bookRoot = join(ctx.workDir, entry.path)
-      const docId = params['docId'] ?? ''
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
-      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+        const draft = readDraft(absPath)
+        if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+        const { body, chapter } = draft
 
-      const draft = readDraft(absPath)
-      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
-      const { body, chapter } = draft
+        const prompt = [
+          '[kind:tags]',
+          '',
+          `## 任务\n对第 ${chapter.章号} 章正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
+          '',
+          `## 正文\n${body}`,
+        ].join('\n')
 
-      const prompt = [
-        '[kind:tags]',
-        '',
-        `## 任务\n对第 ${chapter.章号} 章正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
-        '',
-        `## 正文\n${body}`,
-      ].join('\n')
+        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot)
+        if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+        const payload = result.payload as Record<string, unknown>
 
-      const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
-      const payload = result.payload as Record<string, unknown>
-
-      // 校验：只保留合法选项内的字段（防 AI 产出越界值）
-      const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
-        钩子类型: new Set(['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']),
-        钩子强弱: new Set(['强', '中', '弱']),
-        情绪定位: new Set(['压抑', '铺垫', '小爽', '大爽', '转折']),
-        场景: new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']),
+        // 校验：只保留合法选项内的字段（防 AI 产出越界值）
+        const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
+          钩子类型: new Set(['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']),
+          钩子强弱: new Set(['强', '中', '弱']),
+          情绪定位: new Set(['压抑', '铺垫', '小爽', '大爽', '转折']),
+          场景: new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']),
+        }
+        const tags: Record<string, string> = {}
+        for (const key of Object.keys(ALLOWED_TAGS)) {
+          const allowed = ALLOWED_TAGS[key]
+          const v = String(payload[key] ?? '').trim()
+          if (allowed && allowed.has(v)) tags[key] = v
+        }
+        reply(res, 200, { ok: true, tags })
+      } finally {
+        release()
       }
-      const tags: Record<string, string> = {}
-      for (const key of Object.keys(ALLOWED_TAGS)) {
-        const allowed = ALLOWED_TAGS[key]
-        const v = String(payload[key] ?? '').trim()
-        if (allowed && allowed.has(v)) tags[key] = v
-      }
-      reply(res, 200, { ok: true, tags })
     },
   )
 
@@ -193,39 +207,45 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      // RB-SV-P2-2：长任务并发闸
+      const release = acquireTaskGate(params['name']!, 'infer-meta')
+      if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书已在推断目标情绪，请等待完成后再试' })
+      try {
+        const bookRoot = join(ctx.workDir, entry.path)
+        const docId = params['docId'] ?? ''
+        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        const absPath = safeManifestPath(bookRoot, m.path)
+        if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
+        if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-      const bookRoot = join(ctx.workDir, entry.path)
-      const docId = params['docId'] ?? ''
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-      const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径不合法' })
-      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+        const draft = readDraft(absPath)
+        if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+        const { body, chapter } = draft
 
-      const draft = readDraft(absPath)
-      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
-      const { body, chapter } = draft
+        const prompt = [
+          '[kind:infer_meta]',
+          '',
+          `## 任务\n对第 ${chapter.章号} 章正文做目标情绪与核心反转识别，只读不改稿。`,
+          '- 目标情绪：本章正文最终在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
+          '- 核心反转：本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转的章留空字符串）',
+          '',
+          `## 正文\n${body}`,
+        ].join('\n')
 
-      const prompt = [
-        '[kind:infer_meta]',
-        '',
-        `## 任务\n对第 ${chapter.章号} 章正文做目标情绪与核心反转识别，只读不改稿。`,
-        '- 目标情绪：本章正文最终在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
-        '- 核心反转：本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转的章留空字符串）',
-        '',
-        `## 正文\n${body}`,
-      ].join('\n')
+        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot)
+        if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+        const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
-      const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
-      const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
-
-      const meta: Record<string, string> = {}
-      const emotion = String(payload.目标情绪 ?? '').trim()
-      const reversal = String(payload.核心反转 ?? '').trim()
-      if (emotion) meta.目标情绪 = emotion
-      if (reversal) meta.核心反转 = reversal
-      reply(res, 200, { ok: true, meta })
+        const meta: Record<string, string> = {}
+        const emotion = String(payload.目标情绪 ?? '').trim()
+        const reversal = String(payload.核心反转 ?? '').trim()
+        if (emotion) meta.目标情绪 = emotion
+        if (reversal) meta.核心反转 = reversal
+        reply(res, 200, { ok: true, meta })
+      } finally {
+        release()
+      }
     },
   )
 
@@ -316,66 +336,72 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
       const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
       if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
+      const release = acquireTaskGate(params['name']!, 'analyze-style')
+      if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书正在做文风分析，请等待完成后再试' })
+      try {
+        const bookRoot = join(ctx.workDir, entry.path)
 
-      // 读所有定稿正文章节（按章号排序）
-      const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-      const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
-      if (!sorted.length) return reply(res, 400, { ok: false, code: 'NO_CHAPTERS', error: '无定稿正文章节' })
+        // 读所有定稿正文章节（按章号排序）
+        const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+        const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
+        if (!sorted.length) return reply(res, 400, { ok: false, code: 'NO_CHAPTERS', error: '无定稿正文章节' })
 
-
-      // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
-      const rules = readIronRules(bookRoot)
-      const allBodies: string[] = []
-      const recent = sorted.slice(-10)
-      const recentBodies: string[] = []
-      for (const ch of sorted) {
-        if (!ch._path) continue
-        const draft = readDraft(ch._path)
-        if (!draft.ok) continue
-        allBodies.push(draft.body)
-        if (recent.includes(ch)) {
-          recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+        // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
+        const rules = readIronRules(bookRoot)
+        const allBodies: string[] = []
+        const recent = sorted.slice(-10)
+        const recentBodies: string[] = []
+        for (const ch of sorted) {
+          if (!ch._path) continue
+          const draft = readDraft(ch._path)
+          if (!draft.ok) continue
+          allBodies.push(draft.body)
+          if (recent.includes(ch)) {
+            recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+          }
         }
+
+        const fullStats = computeFullStats(allBodies.join('\n\n'), rules)
+        const sampleText = recentBodies.join('\n\n---\n\n')
+
+        const prompt = [
+          '[kind:style]',
+          '',
+          `## 任务\n对全书最近 ${recent.length} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
+          '',
+          `## 全文本地 stats（全文 ${sorted.length} 章扫描）\n${JSON.stringify(fullStats)}`,
+          '',
+          `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
+          '',
+          `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
+        ].join('\n')
+
+        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot)
+        if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+        const payload = result.payload
+
+        const envelope = {
+          generatedAt: new Date().toISOString(),
+          model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
+          sourceHash: sourceHashOf(sampleText),
+          payload,
+        }
+        writeBookAnalysis(bookRoot, 'style', envelope)
+
+        // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
+        let styleCandidates = 0
+        if (typeof payload === 'object' && payload !== null) {
+          const mapped = mapAnalysisToCandidates(
+            payload as { 口癖?: string[]; 建议?: string[] },
+            new Date().toISOString().slice(0, 10),
+          )
+          styleCandidates = persistCandidates(bookRoot, mapped).created.length
+        }
+        reply(res, 200, { ok: true, envelope, styleCandidates })
+      } finally {
+        release()
       }
-
-      const fullStats = computeFullStats(allBodies.join('\n\n'), rules)
-      const sampleText = recentBodies.join('\n\n---\n\n')
-
-      const prompt = [
-        '[kind:style]',
-        '',
-        `## 任务\n对全书最近 ${recent.length} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
-        '',
-        `## 全文本地 stats（全文 ${sorted.length} 章扫描）\n${JSON.stringify(fullStats)}`,
-        '',
-        `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
-        '',
-        `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
-      ].join('\n')
-
-      const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
-      const payload = result.payload
-
-      const envelope = {
-        generatedAt: new Date().toISOString(),
-        model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
-        sourceHash: sourceHashOf(sampleText),
-        payload,
-      }
-      writeBookAnalysis(bookRoot, 'style', envelope)
-
-      // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
-      let styleCandidates = 0
-      if (typeof payload === 'object' && payload !== null) {
-        const mapped = mapAnalysisToCandidates(
-          payload as { 口癖?: string[]; 建议?: string[] },
-          new Date().toISOString().slice(0, 10),
-        )
-        styleCandidates = persistCandidates(bookRoot, mapped).created.length
-      }
-      reply(res, 200, { ok: true, envelope, styleCandidates })
     },
   )
 }

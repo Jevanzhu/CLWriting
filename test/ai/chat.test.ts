@@ -4,7 +4,7 @@
  * 用 fake-provider 跑真实 HTTP 全链路（非 mock 分支）。
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
-import { rmSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
@@ -496,8 +496,71 @@ describe('R1: max_tokens / 触顶后历史不连续 user', () => {
   })
 })
 
-// ─── X-P2-12 check_chapter 章号回落 ─────────────────
+// ─── RB-AI-P2-5 read_chapter 超长章节截断 ───────────
 
+describe('RB-AI-P2-5: read_chapter 整章无上限灌上下文', () => {
+  it('数万字章节 → tool_result 截断到头尾上限并注明全文字数与正文路径', async () => {
+    // 覆写 fixture 第 1 章为 3 万字正文
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    writeFileSync(
+      join(longRoot, '写作', '正文', '0001-初入宗门.md'),
+      '---\n章号: 1\n标题: 初入宗门\n---\n' + '长'.repeat(30_000),
+      'utf8',
+    )
+    fake.setScript([
+      { type: 'tool', name: 'read_chapter', input: { chapter: 1 } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'testP25',
+      message: '读第 1 章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    // 截断生效：返回量 < 2 万字上限（3 万字全量灌进 tool_result 会撑爆上下文）
+    expect(result!.summary!.length).toBeLessThan(20_000)
+    expect(result!.summary!.startsWith('长')).toBe(true) // 头部保留
+    expect(result!.summary!.endsWith('长')).toBe(true) // 尾部保留
+    expect(result!.summary).toContain('已截断至')
+    expect(result!.summary).toContain('30000') // 全章字数
+    expect(result!.summary).toContain('写作/正文/0001-初入宗门.md') // 全文路径
+  })
+
+  it('上限内章节 → 原文透传（不带截断提示）', async () => {
+    fake.setScript([
+      { type: 'tool', name: 'read_chapter', input: { chapter: 1 } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: join(bookRoot, '长篇', '长篇测试书'),
+      bookName: 'testP25b',
+      message: '读第 1 章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    expect(result!.summary).not.toContain('已截断至')
+    expect(result!.summary).toContain('林远踏入宗门') // fixture 原文
+  })
+})
+
+// ─── X-P2-12 check_chapter 章号回落 ─────────────────
 describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章', () => {
   it('input 无 chapter + opts.chapter=1 → 回落查第 1 章（不再「章号需为正整数」被拒）', async () => {
     fake.setScript([

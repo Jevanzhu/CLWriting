@@ -15,9 +15,9 @@ import { readChapterDir } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
-import { readBannedEntryWords, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
+import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { readFile } from '../format/frontmatter.js'
-import { parseIronRules, type IronRules } from '../format/iron-rules.js'
+import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 
@@ -76,26 +76,15 @@ const DEFAULT_DRIFT_WINDOW = 5
 /** 短篇趋势判定阈值（< 此值只报明细，文风方案 §4.5 / OQ-V2） */
 const SHORT_TREND_MIN = 5
 
-/** 文风铁律路径 */
-function ironRulesPath(bookRoot: string): string {
-  return join(bookRoot, '文风', '文风铁律.md')
-}
-
 /** 文风基线路径（进 git，作者可手改） */
 export function baselinePath(bookRoot: string): string {
   return join(bookRoot, '文风', '基线.json')
 }
 
-/** 读铁律阈值 + 条目库禁词合并（S5 收口：禁词知识在条目库，铁律瘦身为纯配置）；皆无 → 空规则 */
-export function readIronRules(bookRoot: string): IronRules {
-  const p = ironRulesPath(bookRoot)
-  const rules = existsSync(p) ? parseIronRules(readFileSync(p, 'utf-8')) : {}
-  const entryWords = readBannedEntryWords(bookRoot)
-  if (entryWords.length > 0) {
-    rules.bannedWords = [...new Set([...(rules.bannedWords ?? []), ...entryWords])]
-  }
-  return rules
-}
+/** 读铁律阈值 + 条目库禁词合并（S5 收口：禁词知识在条目库，铁律瘦身为纯配置）；皆无 → 空规则。
+ *  RB-KN-P1-1：实现下沉 format/iron-rules.ts 单一真相源（check/runner 与本模块共用，
+ *  原先 runner 用私有不合并版，迁移书禁词红项失效）——此处转发导出保持既有 import 兼容。 */
+export { readIronRules }
 
 /**
  * 读一章正文的 body（readChapterDir 返回 ChapterMeta 不含 body，订正第 4 条）。

@@ -367,6 +367,37 @@ test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('RB-KN-P2-9: 反向漂移——状态已标终态但末条仍是推进动词 → 黄（lead-status-drift）', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '悬念-032', 标题: 'x', 类型: '悬念', 状态: '已收尾', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '递进', 证据: 'a' }], // 已标收尾但足迹仍在推进
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['悬念'])
+  const drift = r.items.find((i) => i.checkId === 'lead-status-drift')
+  expect(drift).toBeDefined()
+  expect(drift!.level).toBe('yellow') // 提示不拦截（作者显式收口是合法场景）
+  expect(drift!.message).toContain('悬念-032')
+  // 正向红项不受影响（末条非收尾动词 → 无 lead-status-open）
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(false)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('RB-KN-P2-9: 状态终态 + 末条收尾动词（一致）→ 无漂移项', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '悬念-033', 标题: 'x', 类型: '悬念', 状态: '已收尾', 开启章: 1,
+    履历: [{ 章号: 5, 动词: '揭晓', 证据: 'a' }],
+    _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 10, ['悬念'])
+  expect(r.items.some((i) => i.checkId === 'lead-status-drift')).toBe(false)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('checkLeadsForm: 成长线 resolve 动词（突破/跃迁）末条 + 状态进行中 → 不报（阶段性升级合理）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {

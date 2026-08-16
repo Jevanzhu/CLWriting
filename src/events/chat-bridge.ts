@@ -208,8 +208,9 @@ export class SessionRecorder {
       for (const s of segs) {
         const carry = summary !== undefined && !carried
         if (carry) carried = true
-        const before = this.store.lastSeq()
-        this.store.appendEvents(this.sessionId, [
+        // RB-IF-P1-2：archiveSeq 取数据库真实分配的 seq（appendEvents INSERT RETURNING），
+        // 不再 lastSeq()+2 推算——多窗口并发写事件库时推算可错链到别窗事件（AA-P3-7 同理）
+        const seqs = this.store.appendEvents(this.sessionId, [
           { type: 'compaction/start', data: { count: s.end - s.start + 1 } },
           {
             type: 'compaction/end',
@@ -222,7 +223,7 @@ export class SessionRecorder {
             sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
           },
         ])
-        if (carry) archiveSeq = before + 2
+        if (carry) archiveSeq = seqs[1]! // 批内第 2 个 = compaction/end（存档节点）
       }
     } finally {
       // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）

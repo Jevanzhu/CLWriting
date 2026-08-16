@@ -273,6 +273,47 @@ describe('B-2 首字节超时', () => {
   })
 })
 
+// ── RB-AI-P2-3：超时 abort 底层请求（不再只放弃消费迭代器）──
+
+describe('RB-AI-P2-3 超时 abort 底层 signal', () => {
+  it('首字节超时 → 传给底层的 signal.aborted === true（在途 HTTP 被终止）', async () => {
+    let seen: AbortSignal | undefined
+    const p: ModelProvider = {
+      conf: CONF,
+      async *stream(_req, signal) {
+        seen = signal
+        await new Promise<never>(() => {}) // 挂死流：接受连接但不发数据
+      },
+    }
+    process.env.CLWRITING_FIRST_BYTE_TIMEOUT_MS = '20'
+    try {
+      await expect(generate(p, { systemPrompt: '', messages: [] }, signal())).rejects.toThrow('响应超时')
+    } finally {
+      delete process.env.CLWRITING_FIRST_BYTE_TIMEOUT_MS
+    }
+    expect(seen).toBeDefined()
+    expect(seen!.aborted).toBe(true)
+  })
+
+  it('外层用户 signal abort → 联动 abort 底层 signal（行为不回退）', async () => {
+    let seen: AbortSignal | undefined
+    const p: ModelProvider = {
+      conf: CONF,
+      async *stream(_req, signal) {
+        seen = signal
+        // 底层感知 abort 即报错（模拟 SDK 的 AbortError 路径）
+        await new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted-underlying'))))
+      },
+    }
+    const ctrl = new AbortController()
+    const genPromise = generate(p, { systemPrompt: '', messages: [] }, ctrl.signal)
+    await new Promise((r) => setTimeout(r, 20)) // 等 stream 已启动（signal 已被底层捕获）
+    ctrl.abort()
+    await expect(genPromise).rejects.toThrow('aborted-underlying')
+    expect(seen!.aborted).toBe(true)
+  })
+})
+
 describe('B-3 stopReason 传递', () => {
   it('generateTool 返回值含 stopReason（max_tokens 截断可检测）', async () => {
     const r = await generateTool(

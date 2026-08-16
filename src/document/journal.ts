@@ -26,6 +26,18 @@ export interface JournalPending {
   content: string // 发起时的全文快照（防丢字）
 }
 
+/** 移动/重命名 pending（P3-10：rename 与清单更新之间的非原子窗口兜底）。
+ *  内容不变仅路径变——恢复是确定性的（按磁盘现状收口清单），无需作者决断。 */
+export interface JournalMovePending {
+  opId: string
+  docId: string
+  ts: string
+  status: 'pending'
+  kind: 'move'
+  oldPath: string
+  newPath: string
+}
+
 export interface JournalSettled {
   opId: string
   ts: string
@@ -40,7 +52,15 @@ export interface JournalAborted {
   reason: string
 }
 
-export type JournalEntry = JournalPending | JournalSettled | JournalAborted
+export type JournalEntry = JournalPending | JournalMovePending | JournalSettled | JournalAborted
+
+/** 未结算 pending（保存类或移动类）——恢复方按 kind 分流处理。 */
+export type JournalAnyPending = JournalPending | JournalMovePending
+
+/** 类型守卫：JournalPending（保存类）无 kind 字段，联合上取 kind 须经此收窄。 */
+export function isMovePending(p: JournalAnyPending): p is JournalMovePending {
+  return (p as JournalMovePending).kind === 'move'
+}
 
 type RawLine = { [k: string]: unknown }
 
@@ -58,6 +78,26 @@ export function appendPending(
     ts: new Date().toISOString(),
     status: 'pending',
     content,
+  }
+  appendLine(journalPath, JSON.stringify(entry))
+  return entry.opId
+}
+
+/** 追加移动/重命名 pending 行（P3-10）。返回 opId 供配对 settle/abort。 */
+export function appendMovePending(
+  journalPath: string,
+  docId: string,
+  oldPath: string,
+  newPath: string,
+): string {
+  const entry: JournalMovePending = {
+    opId: ulid(),
+    docId,
+    ts: new Date().toISOString(),
+    status: 'pending',
+    kind: 'move',
+    oldPath,
+    newPath,
   }
   appendLine(journalPath, JSON.stringify(entry))
   return entry.opId
@@ -92,7 +132,7 @@ export function appendAborted(journalPath: string, opId: string, reason: string)
 }
 
 /** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。 */
-export function findUnsettled(journalPath: string): JournalPending[] {
+export function findUnsettled(journalPath: string): JournalAnyPending[] {
   if (!existsSync(journalPath)) return []
   let text: string
   try {
@@ -100,7 +140,7 @@ export function findUnsettled(journalPath: string): JournalPending[] {
   } catch {
     return []
   }
-  const pending = new Map<string, JournalPending>()
+  const pending = new Map<string, JournalAnyPending>()
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (!line) continue
@@ -112,8 +152,18 @@ export function findUnsettled(journalPath: string): JournalPending[] {
     }
     if (obj.status === 'pending' && typeof obj.opId === 'string') {
       // 字段校验（P2-A3）：损坏 journal 缺字段的 pending 行不救（内容快照不完整，恢复无意义）。
-      // baseRevision 允许 null（无基线场景合法），docId/ts/content 必须为 string。
-      if (
+      // baseRevision 允许 null（无基线场景合法），docId/ts/content 必须为 string；
+      // move 类（P3-10）按 kind 分流——oldPath/newPath 必须为 string。
+      if (obj.kind === 'move') {
+        if (
+          typeof obj.docId === 'string' &&
+          typeof obj.ts === 'string' &&
+          typeof obj.oldPath === 'string' &&
+          typeof obj.newPath === 'string'
+        ) {
+          pending.set(obj.opId, obj as unknown as JournalMovePending)
+        }
+      } else if (
         typeof obj.docId === 'string' &&
         (obj.baseRevision == null || typeof obj.baseRevision === 'string') &&
         typeof obj.ts === 'string' &&

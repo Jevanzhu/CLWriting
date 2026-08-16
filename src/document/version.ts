@@ -151,8 +151,16 @@ export function writeVersion(
   if (latest) {
     // 节流：窗口内已有版本 → 跳过（force 时不限）
     if (!force && policy.throttleMinutes > 0) {
-      const age = Date.now() - decodeUlidTime(latest.id)
-      if (age < policy.throttleMinutes * 60_000) return null
+      // RB-KN-P2-6：节流按 origin 分域（与 X-P2-3 去重语义对齐）——原先按「最新任意
+      // origin」版本判窗口，刚写过 finalize/ai 版本后窗口内的 autosave 修改前留底
+      // 会被静默吞掉，跨 origin 误节流。
+      for (const s of existing) {
+        const prev = readVersion(versionsDir, docId, s.id)
+        if (!prev || prev.meta.origin !== meta.origin) continue
+        const age = Date.now() - decodeUlidTime(s.id)
+        if (age < policy.throttleMinutes * 60_000) return null
+        break // 最新同 origin 版本已出窗 → 不节流
+      }
     }
     // X-P2-3：去重按 origin 分域——ai 轨迹（origin 'ai'，X-P2-3 无 git 书库后端）与编辑快照/
     // 覆写留底共处同一档案但语义不同：跨 origin 同内容去重会把「覆写留底」吞掉（snapshotted

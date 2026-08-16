@@ -48,12 +48,17 @@ export const useDocStore = defineStore('doc', () => {
   /** 加载中文档的防并发锁（同一 docId 不重复发起请求） */
   const loading = new Set<string>()
   const bookName = ref<string | null>(null)
+  /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫） */
+  let bookGen = 0
 
   /** 切书：清空缓存（不同书的 docId 不通用）。 */
   function setBook(name: string): void {
     if (bookName.value === name) return
     bookName.value = name
     docs.value = new Map()
+    // RB-FE-P2-1：清 loading 锁 + bump 代数——在途 open 的旧书响应不得注入新书缓存
+    loading.clear()
+    bookGen++
   }
 
   function get(docId: string): DocEntry | undefined {
@@ -65,8 +70,14 @@ export const useDocStore = defineStore('doc', () => {
     if (!node.docId) throw new Error('节点无 docId')
     if (docs.value.has(node.docId) || loading.has(node.docId)) return
     loading.add(node.docId)
+    // RB-FE-P2-1：进入时代数——await 期间切书（setBook bump bookGen）则丢弃结果，
+    // 防旧书 doc 注入新书缓存（后续 save 会用新书名写旧书内容）
+    const gen = bookGen
+    const book = bookName.value!
     try {
-      const content = await getContent(bookName.value!, node.path)
+      const content = await getContent(book, node.path)
+      const baselineRevision = await sha256Revision(content)
+      if (gen !== bookGen) return
       docs.value.set(node.docId, {
         docId: node.docId,
         path: node.path,
@@ -74,7 +85,7 @@ export const useDocStore = defineStore('doc', () => {
         role: node.role,
         mode: modeOf(node.path),
         content,
-        baselineRevision: await sha256Revision(content),
+        baselineRevision,
         dirty: false,
         saving: false,
         savedAt: null,

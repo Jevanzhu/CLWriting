@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰。
 // 意见点击定位 CodeMirror、进度 SSE、verdict 联动 → 切片3 增强。
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { FileSearch, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Clock } from 'lucide-vue-next'
 import { useReviewStore } from '../../stores/review'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf, isBodyKind } from '../../shared/words'
+import { friendlyError } from '../../shared/error'
 import type { ReviewIssueFE } from '../../api/review'
 
 const props = defineProps<{ bookName: string }>()
@@ -66,11 +67,20 @@ const verdictBadgeLabel = computed(() => {
   if (!v) return '待审'
   return v.approved ? '通过' : '驳回'
 })
+const verdictSaving = ref(false)
 async function setVerdict(approved: boolean): Promise<void> {
-  if (!docId.value) return
-  await review.setVerdict(props.bookName, docId.value, approved)
-  // T9b：verdict 变化（驳回/通过）→ 刷新树红点
-  void tree.loadIssues(props.bookName)
+  if (!docId.value || verdictSaving.value) return
+  verdictSaving.value = true
+  try {
+    await review.setVerdict(props.bookName, docId.value, approved)
+    // T9b：verdict 变化（驳回/通过）→ 刷新树红点
+    void tree.loadIssues(props.bookName)
+  } catch (e) {
+    // RB-FE-P2-3：后端不可达时给出反馈（原先 unhandled rejection 只进 console，点击无响应）
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    verdictSaving.value = false
+  }
 }
 
 function severityClass(s: string): string {
@@ -108,11 +118,13 @@ function severityLabel(s: string): string {
         <button
           class="rev-verdict-btn"
           :class="{ active: review.verdict?.approved === true }"
+          :disabled="verdictSaving"
           @click="setVerdict(true)"
         >通过</button>
         <button
           class="rev-verdict-btn reject"
           :class="{ active: review.verdict?.approved === false }"
+          :disabled="verdictSaving"
           @click="setVerdict(false)"
         >驳回</button>
       </div>

@@ -4,7 +4,7 @@
  * 端到端验证 loadProviders/saveProviders 的 vault 加解密、
  * 明文迁移、半迁移收敛、删除清理、损坏不覆盖、版本守卫。
  */
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,8 +12,10 @@ import {
   loadProviders,
   saveProviders,
   emptySettings,
+  tierFromStore,
 } from '../../../src/ai/provider/store.js'
 import type { ProviderConf } from '../../../src/ai/provider/types.js'
+import type { ProviderStore } from '../../../src/ai/provider/store.js'
 
 /** 造一个 provider conf（含明文 apiKey） */
 function makeConf(overrides: Partial<ProviderConf> = {}): ProviderConf {
@@ -310,4 +312,54 @@ test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', () => {
   // 第二次 load（缓存命中）→ 不应看到 s1 的突变
   const s2 = loadProviders(dir)
   expect(s2.providers[0]!.name).toBe('测试供应商')
+})
+
+// ── RB-AI-P2-6：形状坏走 bak 恢复链 + tiers 缺键防御 ──
+
+test('RB-AI-P2-6: providers 非数组 + bak 可用 → 从 bak 恢复（不静默清空）', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ id: 'prov-shape', apiKey: 'sk-shape-key-12345' })]
+  store.currentId = 'prov-shape'
+  saveProviders(dir, store)
+  store.providers[0]!.apiKey = 'sk-shape-v2-67890'
+  saveProviders(dir, store) // 第二次 save 产生 bak（v1 内容）
+
+  // 主文件改成形状坏（JSON 合法但 providers 是对象）
+  writeFileSync(FP(), JSON.stringify({ providers: { oops: true }, currentId: 'x' }), 'utf8')
+
+  const loaded = loadProviders(dir)
+  expect(loaded.providers).toHaveLength(1)
+  expect(loaded.providers[0]!.id).toBe('prov-shape')
+  // bak = v1 内容（S5-D7 语义），Key 完整还原
+  expect(loaded.providers[0]!.apiKey).toBe('sk-shape-key-12345')
+})
+
+test('RB-AI-P2-6: providers 非数组且无 bak → 空配置 + console.warn（不静默）', () => {
+  writeFileSync(FP(), JSON.stringify({ providers: 'nope' }), 'utf8')
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const loaded = loadProviders(dir)
+    expect(loaded.providers).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('形状损坏')
+  } finally {
+    warn.mockRestore()
+  }
+})
+
+test('RB-AI-P2-6: tiers 缺 creative → tierFromStore 不抛，回落默认档位', () => {
+  // JSON 直灌形态：tiers 存在但缺 creative 键（类型层不合法，运行时须防御）
+  const s = {
+    providers: [],
+    currentId: null,
+    currentModel: 'm-default',
+    modelCaps: {},
+    tiers: { assistant: { model: 'm-a', effort: 'high' }, chat: null },
+    vault: null,
+    dek: null,
+  } as unknown as ProviderStore
+  expect(tierFromStore(s, 'creative')).toEqual({ model: 'm-default', effort: 'xhigh' })
+  expect(tierFromStore(s, 'chat')).toEqual({ model: 'm-default', effort: 'xhigh' })
+  // assistant 档完好 → 照常返回
+  expect(tierFromStore(s, 'assistant')).toEqual({ model: 'm-a', effort: 'high' })
 })

@@ -27,7 +27,7 @@ import { safeDocId } from '../fs/safe-path.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
-import { appendAborted, appendPending, appendSettled, findUnsettled, type JournalPending } from './journal.js'
+import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, type SnapshotPolicy } from './snapshot.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
@@ -61,10 +61,10 @@ export type SaveResult =
 /** 保存出队结果（含旧响应标记）。联合分配：保留 ok 判别标签，可正常 narrow。 */
 export type SaveOutcome = SaveResult & { superseded: boolean }
 
-/** 崩溃恢复报告：docId → 未结算的 pending 列表。 */
+/** 崩溃恢复报告：docId → 未结算的 pending 列表（保存类含全文快照 / 移动类含新旧路径）。 */
 export interface UnsettledReport {
   docId: string
-  pending: JournalPending[]
+  pending: JournalAnyPending[]
 }
 
 /** 新建文档输入（W2A §7）。 */
@@ -236,7 +236,18 @@ export class DocumentService {
     }
 
     // 步骤 4：journal pending（含全文快照，防丢字）
-    const opId = appendPending(journalPath, docId, currentRev, input.content)
+    // RB-KN-P2-2：pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），
+    // 且失败须走 SaveResult 契约（原在此处直接抛出，save() 变 rejected promise，调用方易 unhandled rejection）
+    let opId: string
+    try {
+      opId = appendPending(journalPath, docId, currentRev, input.content)
+    } catch (e) {
+      return Promise.resolve({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `journal 追加失败，保存未执行：${e instanceof Error ? e.message : String(e)}`,
+      })
+    }
 
     try {
       // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
@@ -523,8 +534,13 @@ export class DocumentService {
     if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
     if (existsSync(newSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
 
-    // snapshot 留底（移动/重命名前，W0-1 §7）
+    // P3-10：journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
+    // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
+    const journalPath = join(this.journalDir, `${docId}.jsonl`)
+    const opId = appendMovePending(journalPath, docId, oldPath, newPath)
+
     try {
+      // snapshot 留底（移动/重命名前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
       const oldContent = readFileSync(oldSafe, 'utf-8')
       writeSnapshot(this.snapshotsDir, docId, oldContent, {
@@ -535,11 +551,22 @@ export class DocumentService {
       mkdirSync(dirname(newSafe), { recursive: true })
       renameSync(oldSafe, newSafe)
     } catch (e) {
+      appendAborted(journalPath, opId, errMsg(e))
       return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名失败：${errMsg(e)}` }
     }
 
-    // 清单 path 更新（docId 不变，只改 path）
-    this.updateManifestPath(docId, newPath)
+    // 清单 path 更新（docId 不变，只改 path）——在 journal 保护段内：
+    // 此步失败/崩溃 → pending 悬置（文件已在新路径），下次进门 healthCheck 自动对齐清单
+    try {
+      this.updateManifestPath(docId, newPath)
+      appendSettled(journalPath, opId, computeRevision(newSafe))
+    } catch (e) {
+      return {
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `文件已移动到新路径，但清单更新失败（下次打开本书时自动对齐）：${errMsg(e)}`,
+      }
+    }
     invalidateTreeIndex(this.bookRoot)
     return { ok: true, docId, path: newPath }
   }

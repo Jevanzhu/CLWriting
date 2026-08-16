@@ -614,6 +614,15 @@ export function checkSectionCount(
   if (headings.length >= 2) {
     // 有 ## 标题：按标题数
     sections = headings.length
+  } else if (headings.length === 1) {
+    // RB-KN-P2-7：单标题给准确文案——原本文案说「未使用 ## 标注」失真（作者用了但只有 1 个），
+    // 严格模式下被提升为红时误导作者「完全没写标题」
+    items.push({
+      checkId: 'section-count-heading-missing',
+      level: 'yellow',
+      message: `正文仅检测到 1 个 ## 标题，不足以标注五段结构；建议写成 ## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵，本项不按自然段计节。`,
+    })
+    return { name: '节数守恒', items }
   } else {
     items.push({
       checkId: 'section-count-heading-missing',

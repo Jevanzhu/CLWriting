@@ -68,10 +68,14 @@ export function resolveFirstByteTimeoutMs(): number {
 /**
  * 包装 async iterable，对每个 chunk 加超时（B-2：首字节网络挂起 → 快速失败可重试；
  * P3-8：流中途挂起同样超时，防 provider 发部分数据后静默卡死靠 runner 10min 兜底）。
+ *
+ * RB-AI-P2-3：新增 onStall 钩子——超时/异常先回调（调用方借此 abort 底层 HTTP），
+ * 再做迭代器清理；仅放弃消费不 abort 时，重试期间旧请求继续在途生成计费。
  */
 export async function* withFirstByteTimeout(
   source: AsyncIterable<GenEvent>,
   timeoutMs: number,
+  onStall?: () => void,
 ): AsyncGenerator<GenEvent> {
   const it = source[Symbol.asyncIterator]()
   while (true) {
@@ -92,6 +96,9 @@ export async function* withFirstByteTimeout(
       // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
       // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
       // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
+      // RB-AI-P2-3：先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
+      // 只放弃消费不 abort 时旧请求仍服务端继续生成计费
+      onStall?.()
       void it.return?.()
       throw e
     } finally {
@@ -122,30 +129,46 @@ export async function generate(
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
 
-  for await (const ev of withFirstByteTimeout(provider.stream(effective, signal), resolveFirstByteTimeoutMs())) {
-    switch (ev.type) {
-      case 'text':
-        text += ev.delta
-        onText?.(ev.delta)
-        break
-      case 'reasoning':
-        reasoning.push(ev.delta)
-        break
-      case 'tool':
-        toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
-        break
-      case 'done':
-        usage = ev.usage
-        stopReason = ev.stopReason
-        break
-      case 'error':
-        throw new GenError(ev.message, ev.retryable, {
-          code: ev.code,
-          status: ev.status,
-          retryAfterMs: ev.retryAfterMs,
-          requestId: ev.requestId,
-        })
+  // RB-AI-P2-3：per-attempt abort——底层生成拿 attempt.signal（不再是外层 signal 本体）：
+  // - 外层用户/编排 signal abort → 联动 attempt.abort()（行为不变：SDK 断开 + 「已中断」）；
+  // - 首字节/chunk 超时 → onStall 先 attempt.abort()（终止在途 HTTP，服务端停止生成计费）
+  //   再抛可重试 GenError 进上层重试——此前只放弃消费迭代器，旧请求最多 3 次重试期间并存 4 条在途
+  const attempt = new AbortController()
+  const onOuterAbort = (): void => attempt.abort()
+  if (signal.aborted) attempt.abort()
+  else signal.addEventListener('abort', onOuterAbort)
+  try {
+    for await (const ev of withFirstByteTimeout(
+      provider.stream(effective, attempt.signal),
+      resolveFirstByteTimeoutMs(),
+      () => attempt.abort(),
+    )) {
+      switch (ev.type) {
+        case 'text':
+          text += ev.delta
+          onText?.(ev.delta)
+          break
+        case 'reasoning':
+          reasoning.push(ev.delta)
+          break
+        case 'tool':
+          toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
+          break
+        case 'done':
+          usage = ev.usage
+          stopReason = ev.stopReason
+          break
+        case 'error':
+          throw new GenError(ev.message, ev.retryable, {
+            code: ev.code,
+            status: ev.status,
+            retryAfterMs: ev.retryAfterMs,
+            requestId: ev.requestId,
+          })
+      }
     }
+  } finally {
+    signal.removeEventListener('abort', onOuterAbort)
   }
 
   return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason }

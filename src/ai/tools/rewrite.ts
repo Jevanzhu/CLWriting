@@ -1,12 +1,14 @@
 /**
  * 改写工具：rewrite_chapter（整章）/ rewrite_selection（选段）。
- * 遵循现有提案模型：产出改写稿回填对话，不直接落盘正文（作者确认后再保存）。
+ * 遵循现有提案模型：产出改写稿回填对话，不直接落盘正文（作者确认后再保存）；
+ * 全文 spill 暂存（RB-AI-P1-1）——确认保存时按 spill 路径取回全文。
  * 复用 buildRewritePrompt + REWRITE_SPEC（与 rewrite 端点同一链路）。
  */
 import { runSpec } from '../tasks/spec.js'
 import { REWRITE_SPEC } from '../tasks/specs.js'
 import { buildRewritePrompt, lineDiff } from '../../process/rewrite-prompt.js'
 import { readKind } from '../../format/kind.js'
+import { writeSpillFile } from '../../process/spill.js'
 import { readChapterBody } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
@@ -42,6 +44,14 @@ function chapterInput(input: Record<string, unknown>): number | null {
   return Number.isInteger(chapter) && chapter >= 1 ? chapter : null
 }
 
+/** RB-AI-P1-1：「未保存」提示——全文已 spill 时给出路径 + 字数（确认保存按路径取全文）；
+ *  落盘失败 best-effort 如实告知（不谎称可落盘） */
+function unsavedNote(locator: string | null, chars: number): string {
+  return locator
+    ? '【未保存】改写稿全文（' + chars + ' 字）已暂存：' + locator + '。确认满意后再说一声，我据此落盘。'
+    : '【未保存】改写稿全文暂存失败（磁盘异常），目前仅对话内有预览。'
+}
+
 export async function rewriteChapter(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
   const chapter = chapterInput(input)
   if (chapter === null) return { ok: false, summary: '缺少合法的章号 chapter（正整数）。' }
@@ -56,9 +66,13 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   const diff = lineDiff(body, r.produced)
   const changed = diff.filter((d) => d.type !== 'same').length
   const preview = r.produced.slice(0, 600) + (r.produced.length > 600 ? '\n……（全文共 ' + r.produced.length + ' 字）' : '')
+  // RB-AI-P1-1：全文落 spill（工作区/spills/<内容哈希>.md，幂等）——此前全文不落盘不 spill，
+  // 「确认满意后再说一声，我再落盘」物理不可兑现（预览外内容已丢失）；落盘后按路径可取回全文
+  const locator = writeSpillFile(ctx.bookRoot, r.produced)
   return {
     ok: true,
-    summary: '第 ' + chapter + ' 章改写完成（' + changed + ' 行有改动）。新稿开头：\n\n' + preview + '\n\n【未保存】改写稿仅在对话中，确认满意后再说一声，我再落盘。'
+    summary:
+      '第 ' + chapter + ' 章改写完成（' + changed + ' 行有改动）。新稿开头：\n\n' + preview + '\n\n' + unsavedNote(locator, r.produced.length)
   }
 }
 
@@ -76,9 +90,16 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
   const prompt = buildRewritePrompt('local', body, selection, instruction, [], chapter, kind)
   const r = await runRewriter(ctx, prompt, chapter)
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
+  // RB-AI-P1-1：同 rewrite_chapter——选段改写稿全文落 spill，确认保存按路径取回
+  const locator = writeSpillFile(ctx.bookRoot, r.produced)
   return {
     ok: true,
-    summary: '选段改写完成：\n\n' + r.produced.slice(0, 600) + (r.produced.length > 600 ? '\n……（改写稿共 ' + r.produced.length + ' 字）' : '') + '\n\n【未保存】确认满意后再说一声，我再落盘。'
+    summary:
+      '选段改写完成：\n\n' +
+      r.produced.slice(0, 600) +
+      (r.produced.length > 600 ? '\n……（改写稿共 ' + r.produced.length + ' 字）' : '') +
+      '\n\n' +
+      unsavedNote(locator, r.produced.length)
   }
 }
 

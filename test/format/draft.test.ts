@@ -140,4 +140,24 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     const r = resolveDraftPath(bookRoot, 50)
     expect(r.existed).toBe(true)
   })
+
+  it('RB-KN-P1-2: 清单条目为 4 位补零名（service 重命名产物 0005-x.md）→ 写同章号仍拦截', () => {
+    // 磁盘文件按 3 位约定写第 5 章；清单因 service 重命名挂的是 4 位补零 path
+    writeChapter(bookRoot, 5, '第五章')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      id: generateDocId(), nodeType: 'document', path: '写作/正文/0005-第五章.md', parentId: null,
+      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
+
+    // 修复前：3 位前缀 '005-' 不匹配 4 位名 '0005-' → 防线失守、静默覆盖定稿章
+    expect(() => resolveDraftPath(bookRoot, 5)).toThrow(/已定稿/)
+    // 数值口径不误伤：写第 6 章不受 0005 条目牵连
+    writeChapter(bookRoot, 6, '第六章')
+    const r = resolveDraftPath(bookRoot, 6)
+    expect(r.existed).toBe(true)
+  })
 })

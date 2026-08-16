@@ -4,6 +4,7 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -20,6 +21,13 @@ function tmpRoot(): string {
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
+
+/** 回拨事件时间戳越过孤儿修复宽限期（RB-IF-P2-2 后陈旧孤儿才补 end） */
+function backdateEvents(ud: string, bookRoot: string): void {
+  const db = new DatabaseSync(join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db'))
+  db.prepare('UPDATE events SET created_at = ?').run(Date.now() - 11 * 60 * 1000)
+  db.close()
+}
 
 describe('Y-P2-6 连接单例（引用计数）', () => {
   it('同路径重复 open 复用同一连接（写读互通）', () => {
@@ -44,6 +52,7 @@ describe('Y-P2-6 连接单例（引用计数）', () => {
     const sid = s2.createSession('书A')
     s2.appendEvent(sid, { type: 'session/start', data: {} })
     s2.close()
+    backdateEvents(ud, '/books/a') // RB-IF-P2-2：越过宽限期才补 end
     const s3 = openSessionStore(ud, '/books/a')!
     expect(s3.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     s3.close()
@@ -77,6 +86,7 @@ describe('Y-P1-1 活跃会话跳过孤儿修复', () => {
     expect(s2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
     s2.close()
     r.dispose()
+    backdateEvents(ud, '/books/a') // RB-IF-P2-2：越过宽限期后陈旧孤儿才补 end
     const s3 = openSessionStore(ud, '/books/a')!
     expect(s3.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     expect(s3.listEvents('书A').filter((e) => e.type === 'session/end')[0]!.data['reason']).toBe('interrupted')

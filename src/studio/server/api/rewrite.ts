@@ -31,6 +31,7 @@ import {
   appendRewritten,
   lineDiff,
 } from '../../../process/rewrite-prompt.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff, type DiffLine } from '../../../process/rewrite-prompt.js'
@@ -67,56 +68,63 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if (!ctx.workDir) return reply(res, 400, { ok: false, code: 'NO_WORKDIR', error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-    const reqBody = await readJson(req)
-    const instruction = String(reqBody['instruction'] ?? '').trim()
-    if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
-    // X-P2-13：选区保持原样（不 trim）参与定位——首尾空白是作者选区的一部分，
-    // trim 后匹配可能落到正文另一处；纯空白选区仍视为整章改写
-    const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
-    const append = reqBody['append'] === true
+    // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
+    const release = acquireTaskGate(params['name']!, 'rewrite')
+    if (!release) return reply(res, 409, { ok: false, code: 'BUSY', error: '本书已在改写中，请等待完成后再试' })
+    try {
+      const reqBody = await readJson(req)
+      const instruction = String(reqBody['instruction'] ?? '').trim()
+      if (!instruction) return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
+      // X-P2-13：选区保持原样（不 trim）参与定位——首尾空白是作者选区的一部分，
+      // trim 后匹配可能落到正文另一处；纯空白选区仍视为整章改写
+      const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
+      const append = reqBody['append'] === true
 
-    const bookRoot = join(ctx.workDir, entry.path)
-    const docId = params['docId'] ?? ''
-    const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
-    if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
-    const absPath = safeManifestPath(bookRoot, m.path)
-    if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
-    if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      const bookRoot = join(ctx.workDir, entry.path)
+      const docId = params['docId'] ?? ''
+      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      if (!m) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return reply(res, 400, { ok: false, code: 'BAD_PATH', error: '文档路径非法' })
+      if (!existsSync(absPath)) return reply(res, 404, { ok: false, code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-    const draft = readDraft(absPath)
-    if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
-    const original = draft.body
-    // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
-    const selection = selectionRaw || original
-    const mode: 'local' | 'whole' | 'append' = append ? 'append' : selectionRaw.trim() ? 'local' : 'whole'
-    // X-P2-13：显式定位选区（indexOf 取位置 + 唯一性校验）——String.replace 只换首个出现，
-    // 同文多处时作者选的可能不是第一处；出现多次时无法定位，报错让作者扩大选区
-    let selStart = -1
-    if (mode === 'local') {
-      selStart = original.indexOf(selectionRaw)
-      if (selStart < 0) {
-        return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+      const draft = readDraft(absPath)
+      if (!draft.ok) return reply(res, 400, { ok: false, code: 'NOT_CHAPTER', error: draft.reason })
+      const original = draft.body
+      // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
+      const selection = selectionRaw || original
+      const mode: 'local' | 'whole' | 'append' = append ? 'append' : selectionRaw.trim() ? 'local' : 'whole'
+      // X-P2-13：显式定位选区（indexOf 取位置 + 唯一性校验）——String.replace 只换首个出现，
+      // 同文多处时作者选的可能不是第一处；出现多次时无法定位，报错让作者扩大选区
+      let selStart = -1
+      if (mode === 'local') {
+        selStart = original.indexOf(selectionRaw)
+        if (selStart < 0) {
+          return reply(res, 400, { ok: false, code: 'BAD_INPUT', error: 'selection 不在正文内' })
+        }
+        if (original.indexOf(selectionRaw, selStart + 1) >= 0) {
+          return reply(res, 400, { ok: false, code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
+        }
       }
-      if (original.indexOf(selectionRaw, selStart + 1) >= 0) {
-        return reply(res, 400, { ok: false, code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
-      }
-    }
 
-    const prompt = append
-      ? buildAppendPrompt(original, instruction)
-      : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
-    const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
-    if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
-    const produced = result.produced
-    // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
-    const rewritten =
-      mode === 'append' ? appendRewritten(original, produced)
-      : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
-      : produced
-    if (rewritten === original) {
-      return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
+      const prompt = append
+        ? buildAppendPrompt(original, instruction)
+        : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
+      const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
+      if (!result.ok) return reply(res, 500, { ok: false, code: result.code, error: result.error })
+      const produced = result.produced
+      // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
+      const rewritten =
+        mode === 'append' ? appendRewritten(original, produced)
+        : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
+        : produced
+      if (rewritten === original) {
+        return reply(res, 500, { ok: false, code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
+      }
+      reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
+    } finally {
+      release()
     }
-    reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
   })
 
   // 改稿轨迹采集（文风S2）：作者接受改写时前端上报 AI 版全文 → 旁路 ref。

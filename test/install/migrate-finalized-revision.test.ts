@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -138,4 +138,30 @@ test('manifest 登记但文件不存在 → 跳过不建基线', () => {
 
   const n = migrateFinalizedRevisions(tmp)
   expect(n).toBe(1) // 只有存在的 0001
+})
+
+// ── RB-IF-P1-1：git 状态不可读 → fail-closed ──────
+// 空 .git 使 git status 失败（statusPorcelain → null）。修复前 fail-open 返回 ''，
+// 脏集为空 → dirty/untracked 的 entry 全部误写 finalizedRevision（正是头注释要避免的误判 final 断写）。
+
+test('RB-IF-P1-1: git 状态不可读 → 跳过迁移不写基线 + 告警', () => {
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n未 commit 的草稿']], true)
+  // 不 commit（全 dirty）且破坏 .git 使 porcelain 失败
+  rmSync(join(tmp, '.git'), { recursive: true, force: true })
+  mkdirSync(join(tmp, '.git'))
+
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const n = migrateFinalizedRevisions(tmp)
+    expect(n).toBe(0)
+    // 未 commit 的草稿不得被误标已定稿
+    const m = manifest()
+    for (const e of m.entries.values()) {
+      expect(e.finalizedRevision).toBeUndefined()
+    }
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('跳过定稿基线迁移')
+  } finally {
+    warn.mockRestore()
+  }
 })

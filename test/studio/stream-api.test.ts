@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { isSpawnRunning, __setSpawnRunning } from '../../src/studio/server/api/stream.js'
 
 const BOOK = '对话测试书'
 let workDir = ''
@@ -196,5 +197,30 @@ describe('stream fire-and-forget 正常响应', () => {
   it('POST /auto-write 正常 → 200', async () => {
     const r = await req({ method: 'POST', path: bp('/auto-write'), body: { chapter: 1 } })
     expect(r.status).toBe(200)
+  })
+})
+
+// ── RB-SV-P2-1：/spawn 并发闸 ──────────────────────────
+
+describe('RB-SV-P2-1 /spawn 并发闸', () => {
+  it('已在跑（闸被持有）→ 409；释放后 → 200', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      const busy = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '写一段' } })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('生成')
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
+    const ok = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '写一段' } })
+    expect(ok.status).toBe(200)
+  })
+
+  it('闸未启动的早退路径（空 prompt 400）不泄漏闸——后续 spawn 仍可 200', async () => {
+    const bad = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '  ' } })
+    expect(bad.status).toBe(400)
+    expect(isSpawnRunning(BOOK)).toBe(false)
+    const ok = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '写一段' } })
+    expect(ok.status).toBe(200)
   })
 })

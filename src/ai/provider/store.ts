@@ -152,7 +152,29 @@ export function loadProviders(userDataPath: string): ProviderStore {
       throw new Error(`providers.json 备份恢复后仍无法解析：${e2 instanceof Error ? e2.message : ''}`)
     }
   }
-  if (!Array.isArray(raw.providers)) return emptySettings()
+  // RB-AI-P2-6：JSON 合法但形状坏（providers 非数组）——不再静默 emptySettings
+  //（用户视角 = Key 无故消失、无任何损坏提示），走与解析失败相同的 bak 恢复链；
+  // bak 也不可用才重置为空，且 console.warn 显式告警（不静默）
+  if (!Array.isArray(raw.providers)) {
+    const bakErr = tryRestoreFromBak(fp, bakFp)
+    let restored: DiskFormat | null = null
+    if (!bakErr) {
+      try {
+        const reread = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
+        if (Array.isArray(reread.providers)) restored = reread
+      } catch {
+        /* bak 内容亦不可解析 */
+      }
+    }
+    if (restored) {
+      raw = restored
+    } else {
+      console.warn(
+        `[providers] providers.json 形状损坏（providers 非数组）${bakErr ? `，备份恢复失败：${bakErr}` : '，备份内容亦不可用'}——已重置为空配置（损坏文件保留，可从 providers.bak.json 手动恢复）`,
+      )
+      return emptySettings()
+    }
+  }
 
   const vault: Vault | null = raw.vault ?? null
   let dek: Buffer | null = null
@@ -317,13 +339,17 @@ export function setCurrentModel(userDataPath: string, model: string): void {
 /** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */
 export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant' | 'chat'): TierSlot {
   const fallback = s.currentModel ?? ''
-  if (kind === 'assistant' && s.tiers.assistant) {
+  // RB-AI-P2-6：tiers 缺 creative 键（providers.json 直灌/半迁移）防御性访问——
+  // 此前直接 .creative.model 抛 TypeError → API 500；缺键回落默认档位（currentModel + xhigh）
+  if (kind === 'assistant' && s.tiers?.assistant) {
     return s.tiers.assistant.model ? s.tiers.assistant : { ...s.tiers.assistant, model: fallback }
   }
-  if (kind === 'chat' && s.tiers.chat) {
+  if (kind === 'chat' && s.tiers?.chat) {
     return s.tiers.chat.model ? s.tiers.chat : { ...s.tiers.chat, model: fallback }
   }
-  return s.tiers.creative.model ? s.tiers.creative : { ...s.tiers.creative, model: fallback }
+  const creative = s.tiers?.creative
+  if (!creative) return { model: fallback, effort: 'xhigh' }
+  return creative.model ? creative : { ...creative, model: fallback }
 }
 
 /** 取档位配置（assistant/chat 未配 / model 为空 → 回落 creative + currentModel） */

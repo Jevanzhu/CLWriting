@@ -358,6 +358,7 @@ export async function runTask<T>(opts: {
           opts.onReset?.()
           // P2：llm/retry 重试记账（先落库后等待）——重试链可重放
           chain?.add(llmRetryEvent({ attempt, delayMs: delay, ...((e instanceof GenError && e.code) ? { errCode: e.code } : {}) }))
+          chain?.flush() // Z-P2-7：批缓冲下显式落盘，保住「先落库后等待」语义
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
             trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })

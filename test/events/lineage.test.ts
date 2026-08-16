@@ -237,12 +237,12 @@ describe('F1-P3 recordForeshadowChanges', () => {
         store,
         sessionId,
         [
-          { title: '古剑', 状态: '未回收' },
-          { title: '旧物', 状态: '已回收' },
+          { 标题: '古剑', 状态: '未回收' },
+          { 标题: '旧物', 状态: '已回收' },
         ],
         [
-          { title: '古剑', 状态: '已回收' },
-          { title: '新伏笔', 状态: '未回收' },
+          { 标题: '古剑', 状态: '已回收' },
+          { 标题: '新伏笔', 状态: '未回收' },
         ],
       )
       const evs = store.listEvents(bookHash(bookRoot))
@@ -264,8 +264,8 @@ describe('F1-P3 recordForeshadowChanges', () => {
       recordForeshadowChanges(
         store,
         sessionId,
-        [{ title: 'A', 状态: '未回收' }],
-        [{ title: 'A', 状态: '未回收' }],
+        [{ 标题: 'A', 状态: '未回收' }],
+        [{ 标题: 'A', 状态: '未回收' }],
       )
       expect(store.listEvents(bookHash(bookRoot))).toHaveLength(0)
       expect(() => recordForeshadowChanges(null, null, [], [])).not.toThrow()

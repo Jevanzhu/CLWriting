@@ -1,8 +1,10 @@
 import { test, expect } from 'vitest'
-// 从 ChapterTreePanel.vue 提取的菜单常量逻辑验证（真实文件用 grep 断言）
+// 菜单常量逻辑验证（真实文件用 grep 断言）。
+// Z-P2-10 拆分后菜单构建自 ChapterTreePanel.vue 迁至 composables/useTreeMenu.ts——
+// 断言目标同步迁移，语义不变。
 import { readFileSync } from 'node:fs'
 
-const src = readFileSync('src/studio/web-next/src/components/panels/ChapterTreePanel.vue', 'utf-8')
+const src = readFileSync('src/studio/web-next/src/composables/useTreeMenu.ts', 'utf-8')
 
 test('所有新建项 label 带「新建」前缀', () => {
   // 常量里的 label

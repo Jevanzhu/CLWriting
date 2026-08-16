@@ -12,7 +12,9 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
+import type { DatabaseSync } from 'node:sqlite'
 import { readRagConfig, readApiKey, writeApiKey, enableRag } from '../../src/rag/config.js'
+import { createRagTables } from '../../src/rag/schema.js'
 import { openRagDb, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 
@@ -183,6 +185,62 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
     expect(cosineSimilarity(new Float32Array([0, 0, 0]), a)).toBe(0)
     // 维度不一致不崩、不截断误算
     expect(cosineSimilarity(new Float32Array([1, 0]), a)).toBe(0)
+  })
+})
+
+// ── RB-IF-P2-3：createRagTables catch 分错误类型 ──────────────────────
+
+describe('createRagTables 错误分类（RB-IF-P2-3）', () => {
+  /** 假 db：记录全部 exec/prepare 语句；唯一索引语句按 failUnique 抛错；COUNT 查询返回 dupCount */
+  function fakeDb(
+    failUnique: (attempt: number) => Error | null,
+    dupCount: number,
+  ): { db: DatabaseSync; execs: string[] } {
+    const execs: string[] = []
+    let uniqueAttempts = 0
+    const db = {
+      exec(sql: string): void {
+        execs.push(sql)
+        if (sql.includes('idx_chunks_unique')) {
+          uniqueAttempts++
+          const err = failUnique(uniqueAttempts)
+          if (err) throw err
+        }
+      },
+      prepare(sql: string): { get: () => unknown } {
+        execs.push(sql)
+        return { get: () => (sql.includes('HAVING COUNT(*) > 1') ? { n: dupCount } : undefined) }
+      },
+    }
+    return { db: db as unknown as DatabaseSync, execs }
+  }
+
+  function uniqueErr(): Error {
+    return Object.assign(new Error('UNIQUE constraint failed: chunks.章号'), { errcode: 2067 })
+  }
+
+  it('非约束错误（磁盘满/IO/库被锁）→ 原样上抛，不执行 DELETE 去重', () => {
+    const { db, execs } = fakeDb(() => new Error('disk I/O error'), 1)
+    expect(() => createRagTables(db)).toThrow('disk I/O error')
+    expect(execs.some((s) => s.includes('DELETE FROM chunks'))).toBe(false)
+  })
+
+  it('约束错误但 COUNT 证实无重复行 → 上抛不删（防误删有效向量）', () => {
+    const { db, execs } = fakeDb(() => uniqueErr(), 0)
+    expect(() => createRagTables(db)).toThrow('UNIQUE constraint')
+    expect(execs.some((s) => s.includes('DELETE FROM chunks'))).toBe(false)
+  })
+
+  it('约束错误 + 确有重复行 → 先 DELETE 去重再重建唯一索引', () => {
+    let thrown = false
+    const { db, execs } = fakeDb(() => {
+      if (thrown) return null // 第二次建索引成功
+      thrown = true
+      return uniqueErr()
+    }, 3)
+    expect(() => createRagTables(db)).not.toThrow()
+    expect(execs.filter((s) => s.includes('DELETE FROM chunks'))).toHaveLength(1)
+    expect(execs.filter((s) => s.includes('idx_chunks_unique') && !s.includes('HAVING'))).toHaveLength(2)
   })
 })
 

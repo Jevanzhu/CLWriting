@@ -74,3 +74,8 @@ export async function getAudit(bookName: string, paging?: AuditPagingFE): Promis
     '/api/books/' + encodeURIComponent(bookName) + '/audit' + (qs ? '?' + qs : ''),
   )
 }
+
+/** 事件保留定版：清除本书事件史（销毁动作——对话 + 工作流两侧；调前需作者二次确认） */
+export async function clearAudit(bookName: string): Promise<void> {
+  await apiJson<{ ok: true }>('/api/books/' + encodeURIComponent(bookName) + '/audit', { method: 'DELETE' })
+}

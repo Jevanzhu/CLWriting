@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
-import { appendPending } from '../../src/document/journal.js'
+import { appendPending, type JournalPending } from '../../src/document/journal.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 
@@ -69,6 +69,19 @@ describe('DocumentService / 保存协议主路径', () => {
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
   })
 
+  it('RB-KN-P2-2: journal 追加失败 → SaveResult 契约（ok:false WRITE_ERROR），不 reject 不落盘', async () => {
+    // 占住 journal 文件路径（目录）→ appendPending 抛 EISDIR（模拟磁盘满/权限类故障）
+    mkdirSync(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'), { recursive: true })
+    const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
+      content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
+    if (!r.ok) expect(r.reason).toContain('journal')
+    // 正文未落盘（pending 记不上就不写，防无 journal 兜底的落盘）
+    expect(existsSync(join(bookRoot, '写作/正文/0001-开篇.md'))).toBe(false)
+  })
+
   it('路径越出（.. 穿越）→ PATH_ESCAPE，不落盘', async () => {
     const r = await svc.save('doc_x', '../../../etc/passwd', {
       content: 'x', expectedRevision: null, operationId: 'op1', origin: 'manual',
@@ -124,7 +137,7 @@ describe('DocumentService / journal 与崩溃恢复', () => {
     const reports = svc.recover()
     expect(reports.length).toBe(1)
     expect(reports[0]!.docId).toBe('doc_y')
-    expect(reports[0]!.pending[0]!.content).toBe('lost content')
+    expect((reports[0]!.pending[0] as JournalPending).content).toBe('lost content')
   })
 
   it('recover：aborted 不算未结算', () => {

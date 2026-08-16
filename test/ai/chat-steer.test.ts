@@ -7,7 +7,8 @@ import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { isChatRunning, abortChat, sendChatMessage } from '../../src/ai/orchestrate/chat.js'
+import { isChatRunning, abortChat, sendChatMessage, runChat, getHistory } from '../../src/ai/orchestrate/chat.js'
+import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
 let fake: FakeProvider
@@ -156,5 +157,125 @@ describe('E1a: steer 入队与续链', () => {
     await waitFor(() => !isChatRunning(bookName), 15_000)
     expect(events.filter((e) => e.type === 'chat_done').length).toBe(11)
   }, 25_000)
+})
+
+// ── RB-AI-P2-1：续链逐条字段不继承 base（regenerate/chapter 语义保真）──
+
+describe('RB-AI-P2-1: 续链字段污染', () => {
+  /** 跑一轮直连对话（setup 用，非队列路径），返回事件数组 */
+  async function runOne(ud: string, bookName: string, message: string, driver: StudioDriver): Promise<void> {
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName,
+      message,
+    })
+  }
+
+  /** 取本书首条 user/message 事件的全局 seq（regenerate 的 parentSeq 锚点） */
+  function firstUserSeq(ud: string, bookName: string): number {
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const seq = store.listEvents(bookName).find((e) => e.type === 'user/message')!.seq
+      return seq
+    } finally {
+      store.close()
+    }
+  }
+
+  it('运行中 regenerate → 排队的新消息正常入历史+写事件（不被 regenerate 分支吞掉）', async () => {
+    const ud = setup()
+    const bookName = 'steer-p21a'
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+
+    // 第一轮普通对话建立锚点 user 消息
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, bookName, '第一问', driver)
+    const userSeq = firstUserSeq(ud, bookName)
+
+    // regenerate 运行中（delayMs 制造窗口）→ 排队一条新消息
+    fake.setScript([
+      { type: 'text', content: '重写版回复。', delayMs: 1500 },
+      { type: 'text', content: '排队消息的回复。' },
+    ])
+    expect(
+      sendChatMessage({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName,
+        regenerate: { parentSeq: userSeq, branchId: 'r1' },
+      }),
+    ).toBe('started')
+    await waitFor(() => isChatRunning(bookName))
+    expect(sendMsg(ud, bookName, '排队的新消息', driver)).toBe('queued')
+
+    // setup 轮 + regenerate 轮 + 排队消息轮 = 3 个 chat_done，且收尾无残留
+    await waitFor(() => !isChatRunning(bookName) && events.filter((e) => e.type === 'chat_done').length >= 3, 8000)
+
+    // 排队消息必须入事件库（user/message）+ 产生回复——修复前续链继承 base.regenerate
+    // → 走「恢复旧历史」分支：不 push 不写事件，排队消息静默丢失
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const evs = store.listEvents(bookName)
+      expect(evs.some((e) => e.type === 'user/message' && e.data['message'] === '排队的新消息')).toBe(true)
+      expect(evs.some((e) => e.type === 'assistant/message' && e.data['message'] === '排队消息的回复。')).toBe(true)
+    } finally {
+      store.close()
+    }
+    // 内存历史同样含排队消息
+    expect(getHistory(bookName).some((m) => m.role === 'user' && m.content === '排队的新消息')).toBe(true)
+  }, 15_000)
+
+  it('运行中普通消息 → 排队的 regenerate 保持 regenerate 语义（不降级为空消息）', async () => {
+    const ud = setup()
+    const bookName = 'steer-p21b'
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+
+    fake.setScript([{ type: 'text', content: '第一轮回复。' }])
+    await runOne(ud, bookName, '第一问', driver)
+    const userSeq = firstUserSeq(ud, bookName)
+
+    // 普通消息运行中（delayMs 制造窗口）→ 排队一个 regenerate
+    fake.setScript([
+      { type: 'text', content: '第二轮回复。', delayMs: 1500 },
+      { type: 'text', content: '重生成版回复。' },
+    ])
+    expect(sendMsg(ud, bookName, '第二问', driver)).toBe('started')
+    await waitFor(() => isChatRunning(bookName))
+    expect(
+      sendChatMessage({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName,
+        regenerate: { parentSeq: userSeq, branchId: 'q1' },
+      }),
+    ).toBe('queued')
+
+    // setup 轮 + 第二问轮 + 排队 regenerate 轮 = 3 个 chat_done，且收尾无残留
+    await waitFor(() => !isChatRunning(bookName) && events.filter((e) => e.type === 'chat_done').length >= 3, 8000)
+
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const evs = store.listEvents(bookName)
+      // regenerate 语义保真：重生成 assistant 事件带 branchId=q1（修复前降级为空 message
+      // 的普通回合——无 branchId，且写一条空 user/message 事件）
+      const regen = evs.find((e) => e.type === 'assistant/message' && e.data['message'] === '重生成版回复。')
+      expect(regen).toBeDefined()
+      expect(regen!.data['branchId']).toBe('q1')
+      expect(regen!.data['parentSeq']).toBe(userSeq)
+      // 不得出现空消息事件（降级路径的痕迹）
+      expect(evs.filter((e) => e.type === 'user/message').every((e) => String(e.data['message'] ?? '') !== '')).toBe(true)
+    } finally {
+      store.close()
+    }
+  }, 15_000)
 })
 

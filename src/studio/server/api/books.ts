@@ -27,6 +27,8 @@ interface BookCtx {
   workDir: string | null
   /** session token(P0 defense-in-depth,boot 注入前端,写端点校验) */
   token: string
+  /** RB-SV-P1-1：Origin 是否可信（同源或 dev 白名单）——boot 据此决定是否回传 token */
+  isTrustedOrigin: (origin: string) => boolean
 }
 
 let initialBook: string | undefined
@@ -198,8 +200,13 @@ export function registerBookRoutes(ctx: BookCtx): void {
   )
 
   // 启动初始态（--book 直进 + session token 注入前端）
-  route('GET', '/api/boot', (_req: IncomingMessage, res: ServerResponse) => {
-    reply(res, 200, { initialBook, token: ctx.token })
+  route('GET', '/api/boot', (req: IncomingMessage, res: ServerResponse) => {
+    // RB-SV-P1-1：token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
+    // Origin（server/index.ts 注入）；外部 Origin 一律不给（防本地恶意页面免鉴权取 token
+    // 换取全部写权限）。initialBook 无敏感性，照常回传。
+    const origin = req.headers.origin
+    const trusted = !origin || ctx.isTrustedOrigin(origin)
+    reply(res, 200, trusted ? { initialBook, token: ctx.token } : { initialBook })
   })
 }
 

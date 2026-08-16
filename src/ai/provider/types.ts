@@ -6,8 +6,9 @@
  */
 
 /** 协议类型——决定走哪种 SDK / 线格式
- *  openai = Chat Completions（/v1/chat/completions），openai-responses = Responses API（/v1/responses） */
-export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
+ *  openai = Chat Completions（/v1/chat/completions）
+ *  （openai-responses 已停用拒配，Z-P2-1 拍板 2026-08-16；存量 conf 落 createProvider 迁移报错） */
+export type Protocol = 'anthropic' | 'openai'
 
 /**
  * 认证策略——与协议正交的独立维度。

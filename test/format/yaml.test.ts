@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -110,6 +110,30 @@ test('writeBookConfig + readBookConfig 往返', () => {
     expect(r.config.leads.enabled).toEqual(['布局线'])
     expect(r.config.leads.thresholds?.['布局线']).toBe(20)
   }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + 序列化往返', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const fp = join(dir, 'book.yaml')
+  writeBookConfig(fp, {
+    ...DEFAULT_CONFIG,
+    auto: { ...DEFAULT_CONFIG.auto, relation_auto_mine: false, relation_mine_threshold: 7 },
+  })
+  // 序列化包含两键（缺省不输出的红线只约束未配置的书）
+  const text = readFileSync(fp, 'utf-8')
+  expect(text).toContain('relation_auto_mine: false')
+  expect(text).toContain('relation_mine_threshold: 7')
+  // 读回不丢（修复前：解析不支持 → 永远回落默认）
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.config.auto.relation_auto_mine).toBe(false)
+    expect(r.config.auto.relation_mine_threshold).toBe(7)
+  }
+  // 缺省书不落两键（现有仓库零改动红线）
+  expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('relation_auto_mine')
+  expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('relation_mine_threshold')
   rmSync(dir, { recursive: true, force: true })
 })
 

@@ -26,6 +26,10 @@ const workDir = explicitDir ?? findWorkDir(process.cwd()) ?? undefined
 
 const userDataPath = defaultUserDataPath()
 
+// RB-SV-P1-1：dev Origin 白名单开关——server 生产态不再固定放行 5173，
+// 仅本 dev server 显式开启（Vite 5173 页面经代理调 /api 时带该 Origin）
+process.env['CLW_DEV_CORS'] = '1'
+
 const server = startServer({ port: PORT, workDir, userDataPath })
 
 server.on('listening', () => {

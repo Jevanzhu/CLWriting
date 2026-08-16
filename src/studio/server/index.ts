@@ -55,7 +55,12 @@ import { resetRouteSchemas } from './api/schema.js'
 import { createStaticHandler } from './static.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
-function buildRoutes(workDir: string | null, token: string, userDataPath: string | null): RouteTable {
+function buildRoutes(
+  workDir: string | null,
+  token: string,
+  userDataPath: string | null,
+  isTrustedOrigin: (origin: string) => boolean,
+): RouteTable {
   const routes = createRouteTable()
   // E2：schema 注册表随路由表生命周期重置（防跨 server 实例重复声明）
   resetRouteSchemas()
@@ -64,7 +69,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerAiStatusRoutes({ userDataPath })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
-    registerBookRoutes({ workDir, token })
+    registerBookRoutes({ workDir, token, isTrustedOrigin })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir })
     registerOverviewRoutes({ workDir })
@@ -77,7 +82,7 @@ function buildRoutes(workDir: string | null, token: string, userDataPath: string
     registerIoRoutes({ workDir, token })
     registerKnowledgeRoutes({ workDir, token })
     registerHeartbeatRoutes({ workDir })
-    registerDocumentRoutes({ workDir })
+    registerDocumentRoutes({ workDir, userDataPath }) // Z-P2-6：伏笔事件族接线（伏笔文档变更落 foreshadow/change）
     registerSnapshotRoutes({ workDir })
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir })
@@ -145,15 +150,22 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateLegacyForeshadows(bookPath)
     }
   }
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null)
+  // RB-SV-P1-1：Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
+  // dev Vite(5173) 仅 CLW_DEV_UI/CLW_DEV_CORS 显式开启时注入（scripts/dev-api.ts 设 env，
+  // dev:web/dev:app 链路保持可用）——生产态不再放行本地任意监听 5173 的页面。
+  const allowedOrigins = new Set<string>()
+  if (process.env['CLW_DEV_UI'] === '1' || process.env['CLW_DEV_CORS'] === '1') {
+    allowedOrigins.add('http://127.0.0.1:5173')
+    allowedOrigins.add('http://localhost:5173')
+  }
+  const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin)
   const host = opts.host ?? '127.0.0.1'
   const serveStatic = opts.staticDir ? createStaticHandler(opts.staticDir) : null
 
-  // Origin 白名单(防 localhost 跨站调用,P0):dev Vite(5173)固定 + 实际 listening 端口(下方补)
-  const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173'])
   const isAllowedOrigin = (req: IncomingMessage): boolean => {
     const origin = req.headers.origin
-    // 无 Origin(同源请求 / curl / 非浏览器)放行;浏览器带 Origin 则校验白名单
+    // 无 Origin(同源 GET 请求 / curl / 非浏览器)放行;浏览器带 Origin 则校验白名单
     return !origin || allowedOrigins.has(origin)
   }
 
@@ -229,11 +241,6 @@ export function startServer(opts: StudioServerOptions): http.Server {
     res.end(JSON.stringify({ error: 'not found' }))
   })
 
-  // 固定端口同步入白名单(避免 listen→listening 间毫秒级窗口校验失败);port 0 仍靠 listening 回调补实际端口
-  if (opts.port > 0) {
-    allowedOrigins.add(`http://127.0.0.1:${opts.port}`)
-    allowedOrigins.add(`http://localhost:${opts.port}`)
-  }
   // keep-alive 治理:Node 默认 keepAliveTimeout=5s,客户端连接池缓存的连接超过 5s 被服务端关掉,
   // 客户端复用已 FIN 的 socket 写入 → EPIPE(长生成后 POST 大草稿体时偶发)。
   // 拉长到 30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout(Node v19+ 硬约束)。

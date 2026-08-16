@@ -2,7 +2,7 @@ import { apiJson } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
-export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
+export type Protocol = 'anthropic' | 'openai'
 export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 
 /** 服务级能力（连通/认证/流式）——供应商「测试连接」探测所得 */

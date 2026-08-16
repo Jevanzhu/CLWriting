@@ -52,8 +52,8 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
 /**
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
- * 线格式选择由 UI 的 Protocol 值决定（openai = Chat Completions，
- * openai-responses = Responses API），不再靠 model 名自动猜测。
+ * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
+ * （openai-responses 协议线已随 Z-P2-1 拍板停用移除。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  */
 export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
@@ -140,12 +140,11 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     params['tools'] = req.tools.map(toOpenAITool)
   }
 
-  // W-P2-10：强制工具调用（non-auto）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
-  // 与 anthropic 线 disable_parallel_tool_use:true 同语义（W0 意图：强制工具名时避免并行发散），
-  // 对齐 quirks 表注释「parallel_tool_calls 可关」——此前 openai 线从不发，字段恒缺省（并行默认开）。
+  // W-P2-10：toolChoice 存在（含 'auto'）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
+  // RB-AI-P2-4：对齐 anthropic 线（toolChoice 存在即发 disable_parallel_tool_use）——契约 W0
+  // 「一轮最多一个工具调用」此前 openai 线仅 forced 才关并行，chat 的 toolChoice='auto' 恒不关。
   // 注意：parallel_tool_calls 是顶层 chat.completions 参数，不是 tool_choice 的子字段。
-  const forced = req.toolChoice && (req.toolChoice === 'any' || req.toolChoice === 'tool')
-  if (forced && q.parallelControl) params['parallel_tool_calls'] = false
+  if (req.toolChoice && q.parallelControl) params['parallel_tool_calls'] = false
   // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：
   // named → 指名/required/auto 原样；
   // required（Kimi k3：指名与思考不兼容）→ 强制意图转 required，不指名；
@@ -380,7 +379,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
-            // P2-AI-2：流异常截断无 finish_reason 时，补发 toolAccum 残留（与 responses-adapter 一致）
+            // P2-AI-2：流异常截断无 finish_reason 时，补发 toolAccum 残留
             if (!doneEmitted) {
               let fallbackIdx = 0
               for (const [, acc] of toolAccum) {

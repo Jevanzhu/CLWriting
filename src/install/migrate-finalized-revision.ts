@@ -38,7 +38,14 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   // X-P1-1：仅对有 .git 的 git 时代书库执行（无 git = 从未经历 git 时代 → 无状态可映射）。
   if (!existsSync(join(bookRoot, '.git'))) return 0
   // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）
-  const dirty = new Set(statusPorcelain(bookRoot, true).split('\n').filter(Boolean).map((l) => l.slice(3)))
+  const porcelain = statusPorcelain(bookRoot, true)
+  if (porcelain === null) {
+    // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
+    // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试
+    console.warn(`[migrate-finalized-revision] git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
+    return 0
+  }
+  const dirty = new Set(porcelain.split('\n').filter(Boolean).map((l) => l.slice(3)))
 
   let updated = 0
   const nowIso = new Date().toISOString()

@@ -14,7 +14,7 @@ import type { Protocol, AuthStrategy } from './types.js'
 
 /**
  * 归一化 baseUrl（方案 §4.5 P0，openai/chat 与 anthropic 行为不同）：
- * - openai（含 openai-responses）：**只去尾部斜杠**，不剥 /v1——openai SDK 不自拼 /v1，
+ * - openai：**只去尾部斜杠**，不剥 /v1——openai SDK 不自拼 /v1，
  *   剥了官方端点反而 404（models.list 会打 {base}/models）
  * - anthropic：去尾斜杠 + 剥尾部 /v1——anthropic SDK 自拼 /v1/messages，防 /v1/v1
  */

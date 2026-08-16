@@ -97,6 +97,40 @@ test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () =
   expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('时间静止'))).toBe(true)
 })
 
+// ── RB-KN-P1-1：迁移书的禁词数据源 ──────────────────
+
+test('RB-KN-P1-1: S5 迁移形态（铁律无禁词段 + 禁词在条目库）→ 机检禁词红项不失效', () => {
+  mkdirSync(join(tmp, '文风', '条目', '禁词'), { recursive: true })
+  // 迁移后的铁律：只剩可量化配置（禁词段已搬去条目库）
+  writeFileSync(join(tmp, '文风', '文风铁律.md'), [
+    '## 可量化约束',
+    '- 单句上限字数: 60',
+  ].join('\n'), 'utf-8')
+  writeFileSync(
+    join(tmp, '文风', '条目', '禁词', '通用-01.md'),
+    '---\n类型: 禁词\n场景: 通用\n来源: 作者标注\n---\n\n不由得心头一震\n',
+    'utf-8',
+  )
+  // AI 味标签的是软禁词——只注入不机检，不进红项
+  writeFileSync(
+    join(tmp, '文风', '条目', '禁词', '通用-02.md'),
+    '---\n类型: 禁词\n场景: 通用\n来源: 作者标注\n标签: [AI味]\n---\n\n某种意义上\n',
+    'utf-8',
+  )
+
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: shortConfig(),
+    chapter: ch,
+    body: '他不由得心头一震，某种意义上事情不对。',
+    fileName: '001-雪夜.md',
+  })
+  const red = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')
+  expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('不由得心头一震'))).toBe(true)
+  expect(red.some((i) => i.checkId === 'banned-word' && i.message.includes('某种意义上'))).toBe(false)
+})
+
 // ── X-P2-23：句长双阈值去重 ──────────────────────
 
 test('X-P2-23: 铁律配了单句上限 → 跳过汇总句式体检（不与逐句铁律双报）', () => {

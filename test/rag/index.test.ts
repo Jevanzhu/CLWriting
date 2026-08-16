@@ -2,7 +2,7 @@
  * RAG index 测试（建索引 + 召回，桩 embed 不联网）—— M7 #37 第 4/5 节。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -357,5 +357,125 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
     } finally {
       db.close()
     }
+  })
+})
+
+// ── RB-IF-P1-3：增量游标死锁自愈 ──────────────────────────────
+
+/** 读失败注入开关（vi.mock 工厂被提升到文件顶部，运行时状态须经 vi.hoisted 传递）。
+ *  第 1 次读取放行（readChapterDir 扫描建 chapters 列表），第 2 次起失败——
+ *  模拟「建索引中途文件被占用」的瞬时读失败。 */
+const readFailState = vi.hoisted(() => ({ path: null as string | null, seen: 0 }))
+vi.mock('../../src/format/frontmatter.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/format/frontmatter.js')>()
+  return {
+    ...orig,
+    readFile: (fp: string) => {
+      if (readFailState.path !== null && fp === readFailState.path) {
+        readFailState.seen++
+        if (readFailState.seen >= 2) {
+          return { ok: false as const, error: { file: fp, line: 0, message: '模拟文件占用' } }
+        }
+      }
+      return orig.readFile(fp)
+    },
+  }
+})
+
+import { openRagDb as openRagDbForMeta, getRagMeta } from '../../src/rag/store.js'
+
+describe('buildIndex 游标自愈（RB-IF-P1-3）', () => {
+  let bookRoot: string
+  const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-heal-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    readFailState.path = null
+    readFailState.seen = 0
+  })
+
+  afterEach(() => {
+    readFailState.path = null
+    readFailState.seen = 0
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(texts.map((t) => {
+      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+      return [norm, norm * 0.5, norm * 0.3]
+    }))
+  }
+
+  function addChapter(n: number): void {
+    const meta: ChapterMeta = {
+      章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+      _path: '', _wordCount: 100,
+    }
+    writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`)
+  }
+
+  function cursor(): string | null {
+    const db = openRagDbForMeta(bookRoot)
+    try {
+      return getRagMeta(db, 'indexed_max_chapter')
+    } finally {
+      db.close()
+    }
+  }
+
+  function hasFingerprint(n: number): boolean {
+    const db = openRagDbForMeta(bookRoot)
+    try {
+      return getRagMeta(db, `chapter_hash:${n}`) !== null
+    } finally {
+      db.close()
+    }
+  }
+
+  it('补写低章号章（<=indexedMax 无指纹）→ 下轮自动补索引成功，不再要求删库重建', async () => {
+    for (const n of [1, 3, 4, 5]) addChapter(n) // 第 2 章暂缺
+    const r1 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r1.ok).toBe(true)
+    expect(cursor()).toBe('5')
+
+    addChapter(2) // 补写低章号章
+    const r2 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r2.ok).toBe(true) // 修复前：「缺少第 2 章内容指纹，请删除 .rag.db 后重建索引」死锁
+    expect(r2.chapterCount).toBe(1)
+    expect(hasFingerprint(2)).toBe(true)
+    expect(cursor()).toBe('5') // 重索引低章号不回退游标
+
+    // 再跑一轮：全部已索引，0 新块；召回校验通过
+    const r3 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r3.ok).toBe(true)
+    expect(r3.chunkCount).toBe(0)
+    expect((await recall(bookRoot, config, 'key', '第2章', 5, stubEmbed)).length).toBeGreaterThan(0)
+  })
+
+  it('单章读取失败 → 游标不越过该章；恢复后重跑成功（瞬时故障可自愈）', async () => {
+    for (const n of [1, 2, 3, 4]) addChapter(n)
+    readFailState.path = join(bookRoot, '写作', '正文', '3-第3章.md')
+
+    const r1 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r1.ok).toBe(false)
+    expect(r1.error).toContain('第 3 章')
+    expect(r1.error).toContain('读取失败')
+    // 部分成功：1-2 已入库；游标停在 2 不越过失败章（修复前照常推到 4 → 永久缺指纹）
+    expect(r1.chunkCount).toBeGreaterThan(0)
+    expect(cursor()).toBe('2')
+    expect(hasFingerprint(3)).toBe(false)
+
+    // 占用解除 → 重跑补齐 3、4，指纹齐全
+    readFailState.path = null
+    readFailState.seen = 0
+    const r2 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r2.ok).toBe(true)
+    expect(cursor()).toBe('4')
+    for (const n of [1, 2, 3, 4]) expect(hasFingerprint(n)).toBe(true)
+    const r3 = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r3.ok).toBe(true)
+    expect(r3.chunkCount).toBe(0)
   })
 })

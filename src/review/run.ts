@@ -221,9 +221,20 @@ export function collectReviewIssues(input: {
       if (input.packet.tier !== 'combined') missingLenses.push(expected.lens)
       continue
     }
+    let text: string
+    try {
+      text = readFileSync(fp, 'utf-8')
+    } catch (e) {
+      // RB-KN-P2-8：读取失败与解析失败分类——并发删除/权限错误原先也被记成「JSON 损坏」
+      badEntries.push({
+        path: expected.file,
+        reason: `issues 文件读取失败：${e instanceof Error ? e.message : String(e)}`,
+      })
+      continue
+    }
     let parsed: unknown
     try {
-      parsed = JSON.parse(readFileSync(fp, 'utf-8'))
+      parsed = JSON.parse(text)
     } catch {
       badEntries.push({ path: expected.file, reason: 'issues JSON 损坏' })
       continue

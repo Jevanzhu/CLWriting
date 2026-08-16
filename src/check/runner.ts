@@ -8,7 +8,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { join, basename } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
 import { checkLeadsForm } from './leads.js'
@@ -30,7 +30,9 @@ import {
   checkOpeningNoEnv,
 } from './count.js'
 // P2-A1：parseIronRules 下沉到 format 层（消 format→check 循环依赖）
-import { parseIronRules } from '../format/iron-rules.js'
+// RB-KN-P1-1：改用合并版 readIronRules（铁律 + 条目库禁词）——S5 迁移把禁词知识
+// 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
+import { readIronRules } from '../format/iron-rules.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
@@ -245,11 +247,6 @@ function promoteStrictShort(report: CheckReport): void {
       }
     }
   }
-}
-
-function readIronRules(bookRoot: string) {
-  const ironPath = join(bookRoot, '文风', '文风铁律.md')
-  return existsSync(ironPath) ? parseIronRules(readFileSync(ironPath, 'utf-8')) : {}
 }
 
 function mergeBannedWords(...lists: Array<string[] | undefined>): string[] {

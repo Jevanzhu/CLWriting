@@ -140,7 +140,9 @@ export function exportBook(options: ExportOptions): ExportResult {
   const filtered: ExportUnit[] =
     finalizedPaths !== null
       ? units.filter((u) => {
-          if (finalizedPaths.has(relative(bookRoot, u.path))) return true
+          // RB-KN-P2-3：relative() 在 Windows 产反斜杠而 manifest path 是正斜杠——
+          // 不归一会把全部章误判未定稿、导出为空（对齐 state.ts 既有 slash 归一口径）
+          if (finalizedPaths.has(relative(bookRoot, u.path).replace(/\\/g, '/'))) return true
           skippedDrafts++
           return false
         })

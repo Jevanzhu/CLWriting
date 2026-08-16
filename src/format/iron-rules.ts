@@ -5,6 +5,9 @@
  * 纯文本解析、零依赖——format 基础层可安全引用（check/count.js 反向依赖 format，
  * 不可在 format 内 import check）。
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { readBannedEntryWords } from './style-entry.js'
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
 export interface IronRules {
@@ -36,6 +39,22 @@ export function parseIronRules(text: string): IronRules {
   if (/结尾总结体[:：]\s*(禁止|避免|少用)/.test(text)) rules.avoidSummaryEnding = true
   const bannedWords = parseAntiReconciliationWords(text)
   if (bannedWords.length > 0) rules.bannedWords = bannedWords
+  return rules
+}
+
+/**
+ * RB-KN-P1-1：读铁律阈值 + 条目库禁词合并——单一真相源（原先 check/runner 私有版
+ * 只读铁律不合并条目库，而 S5 迁移已把禁词知识搬进条目库并瘦身铁律，迁移书的
+ * checkBannedWords 红项因此恒空、禁词拦截与自愈打回整体失效）。
+ * metrics/style 与 check/runner 均消费此实现；皆无 → 空规则。
+ */
+export function readIronRules(bookRoot: string): IronRules {
+  const p = join(bookRoot, '文风', '文风铁律.md')
+  const rules = existsSync(p) ? parseIronRules(readFileSync(p, 'utf-8')) : {}
+  const entryWords = readBannedEntryWords(bookRoot)
+  if (entryWords.length > 0) {
+    rules.bannedWords = [...new Set([...(rules.bannedWords ?? []), ...entryWords])]
+  }
   return rules
 }
 

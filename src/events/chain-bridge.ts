@@ -112,8 +112,15 @@ export function layerForTask(task: string): LayerName {
   }
 }
 
-/** 链路事件录制器：薄封装 store + workspace session；写失败静默（观测层不拖累业务） */
+/** 链路事件录制器：薄封装 store + workspace session；写失败静默（观测层不拖累业务）。
+ *  Z-P2-7 批事务：add 只进内存缓冲，凑批/显式 flush/close 时走 appendEvents 单事务落库
+ *  （此前每事件一个 BEGIN/COMMIT，llm/call+retry 高频观测路径每条一次提交）。
+ *  退避等待等「先落库后等待」语义点由调用方显式 flush（runner.ts 重试 sleep 前）。 */
+const CHAIN_FLUSH_THRESHOLD = 32
+
 export class ChainRecorder {
+  private buffer: NewEvent[] = []
+
   constructor(
     private readonly store: SessionStore | null,
     private readonly sessionId: string | null,
@@ -121,14 +128,24 @@ export class ChainRecorder {
 
   add(ev: NewEvent): void {
     if (!this.store || !this.sessionId) return
+    this.buffer.push(ev)
+    if (this.buffer.length >= CHAIN_FLUSH_THRESHOLD) this.flush()
+  }
+
+  /** 显式持久化点：把缓冲一次事务落库（调用方在长等待/关键节点前调；失败静默）。 */
+  flush(): void {
+    if (!this.store || !this.sessionId || this.buffer.length === 0) return
+    const evs = this.buffer
+    this.buffer = []
     try {
-      this.store.appendEvent(this.sessionId, ev)
+      this.store.appendEvents(this.sessionId, evs)
     } catch {
       // 观测层：写失败不炸业务流程（与 appendTrace 一致）
     }
   }
 
   close(): void {
+    this.flush()
     try {
       this.store?.close()
     } catch {
@@ -140,28 +157,30 @@ export class ChainRecorder {
 // ── F1-P3 伏笔状态变化登记（foreshadow/change）──────────────────
 
 /** 对比新旧伏笔列表，把状态变化登记为 foreshadow/change 事件（create/edit/complete/block/clear）。
- *  伏笔条目由文件系统驱动（无写 API），此函数供未来写点复用；store/session 缺失静默跳过。 */
+ *  Z-P2-6 接线：字段形状与 document/foreshadow.ts ForeshadowEntry 对齐（标题/状态），
+ *  由 documents API 的保存/PATCH/新建/软删四个变更点调用（快照-差分）。
+ *  store/session 缺失静默跳过。 */
 export function recordForeshadowChanges(
   store: SessionStore | null,
   sessionId: string | null,
-  prev: { title: string; 状态: string }[],
-  next: { title: string; 状态: string }[],
+  prev: { 标题: string; 状态: string }[],
+  next: { 标题: string; 状态: string }[],
 ): void {
   if (!store || !sessionId) return
-  const prevMap = new Map(prev.map((p) => [p.title, p]))
+  const prevMap = new Map(prev.map((p) => [p.标题, p]))
   const events: NewEvent[] = []
   for (const n of next) {
-    const p = prevMap.get(n.title)
+    const p = prevMap.get(n.标题)
     if (!p) {
-      events.push(foreshadowChangeEvent({ operation: 'create', title: n.title }))
+      events.push(foreshadowChangeEvent({ operation: 'create', title: n.标题 }))
     } else if (p.状态 !== n.状态) {
       const op = n.状态 === '已回收' ? 'complete' : n.状态 === '已废弃' ? 'block' : 'edit'
-      events.push(foreshadowChangeEvent({ operation: op, title: n.title }))
+      events.push(foreshadowChangeEvent({ operation: op, title: n.标题 }))
     }
   }
-  const nextTitles = new Set(next.map((n) => n.title))
+  const nextTitles = new Set(next.map((n) => n.标题))
   for (const p of prev) {
-    if (!nextTitles.has(p.title)) events.push(foreshadowChangeEvent({ operation: 'clear', title: p.title }))
+    if (!nextTitles.has(p.标题)) events.push(foreshadowChangeEvent({ operation: 'clear', title: p.标题 }))
   }
   if (events.length === 0) return
   try {

@@ -188,5 +188,24 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       store.close()
     }
   })
+
+  // 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）：每书事件史清除入口。
+  // 对话会话（book=bookName）与工作流会话（book=bookHash）同库不同 book 键——两侧都清；
+  // 事件是 append-only 审计数据，清除是作者显式销毁动作，前端二次确认后才调本端点。
+  route('DELETE', '/api/books/:name/audit', (_req: IncomingMessage, res: ServerResponse, params) => {
+    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
+    if (!entry) return reply(res, 404, { error: '没有这本书：' + params['name'] })
+    const bookRoot = join(ctx.workDir, entry.path)
+    if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
+    const store = openSessionStore(ctx.userDataPath, bookRoot)!
+    try {
+      store.clearBook(params['name']!)
+      store.clearBook(bookHash(bookRoot))
+      reply(res, 200, { ok: true })
+    } finally {
+      store.close()
+    }
+  })
 }
 

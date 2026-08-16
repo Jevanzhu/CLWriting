@@ -64,4 +64,3 @@ export {
 export { detectFamily, quirksFor, type FamilyQuirks, type ModelFamily } from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
-export { createOpenAIResponsesProvider } from './responses-adapter.js'

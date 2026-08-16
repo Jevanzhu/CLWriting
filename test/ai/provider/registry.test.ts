@@ -45,19 +45,31 @@ describe('resolveAdapter 声明式路由', () => {
   it('主名精确命中', () => {
     expect(resolveAdapter('anthropic')?.name).toBe('anthropic')
     expect(resolveAdapter('openai')?.name).toBe('openai')
-    expect(resolveAdapter('openai-responses')?.name).toBe('openai-responses')
   })
 
   it('别名命中（中转/网关 adapterFamily 叫法），大小写与空白宽容', () => {
     expect(resolveAdapter('anthropic-messages')?.name).toBe('anthropic')
     expect(resolveAdapter(' Claude ')?.name).toBe('anthropic')
     expect(resolveAdapter('chat-completions')?.name).toBe('openai')
-    expect(resolveAdapter('responses')?.name).toBe('openai-responses')
   })
 
   it('未知键 → null（宁缺勿错，不猜测近邻）', () => {
     expect(resolveAdapter('grpc')).toBeNull()
     expect(resolveAdapter('')).toBeNull()
+  })
+
+  it('openai-responses 主名/别名均已摘除（Z-P2-1 拒配）→ null', () => {
+    expect(resolveAdapter('openai-responses')).toBeNull()
+    expect(resolveAdapter('responses')).toBeNull()
+    expect(resolveAdapter('openai-responses-api')).toBeNull()
+  })
+})
+
+describe('openai-responses 存量配置拒配（Z-P2-1）', () => {
+  it('createProvider 遇存量 openai-responses conf → 迁移报错（不猜测路由）', () => {
+    expect(() =>
+      createProvider({ ...CONF, protocol: 'openai-responses' as unknown as typeof CONF.protocol }),
+    ).toThrow(/已停用.*openai/)
   })
 })
 

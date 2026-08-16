@@ -2,7 +2,7 @@
 // CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：Obsidian 风格正文编辑器。
 // 无行号/无卡片边框、lineWrapping、正文字体（--prose-* 偏好）；md 模式加 markdown() 高亮。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, isolateHistory, undo, redo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import {
   HighlightStyle,
@@ -28,7 +28,7 @@ import {
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 
-const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean }>()
+const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean; historyKey?: string }>()
 const emit = defineEmits<{
   'update:modelValue': [string]
   'selectionChange': []
@@ -155,12 +155,17 @@ const typewriterConf = new Compartment()
 // P1-9：mode/readonly 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
 const modeConf = new Compartment()
 const readonlyConf = new Compartment()
+// RB-FE-P1-1：history() 放 Compartment——historyKey（docId）变化时重配新实例，
+// 等价重置 historyField（undo/redo 栈清空），旧文档历史不再驻留复用的编辑器实例。
+// （isolateHistory annotation 只防事件合并不清栈，实测 6.10.4 需重配才是硬保证）
+const historyConf = new Compartment()
 
 onMounted(() => {
   if (!el.value) return
   view = new EditorView({
     doc: props.modelValue,
     extensions: [
+      historyConf.of(history()),
       editorSetup,
       editorTheme,
       EditorView.lineWrapping,
@@ -196,15 +201,32 @@ watch(
 
 // 外部 modelValue 变（切文档 / doc.refresh / SSE sync）→ 同步；仅当差异时，避免光标跳
 // F-P1-3：addToHistory.of(false) 标记为外部同步，不清空 undo 历史（标题提交后 ⌘Z 仍可回退）
+// RB-FE-P1-1：historyKey（docId）变化 = 切文档——替换事务标 isolateHistory('full') 历史边界，
+// 并重配 historyConf 重建 undo/redo 栈：⌘Z 不再把旧文档历史回灌进新文档（autosave 不落盘污染内容）
+let lastHistoryKey: string | undefined = props.historyKey
 watch(
-  () => props.modelValue,
-  (v) => {
-    if (view && v !== view.state.doc.toString()) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: v },
-        annotations: Transaction.addToHistory.of(false),
-      })
+  [() => props.modelValue, () => props.historyKey],
+  ([v, key]) => {
+    if (!view) return
+    const docSwitch = key !== lastHistoryKey
+    lastHistoryKey = key
+    if (!docSwitch) {
+      if (v !== view.state.doc.toString()) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: v },
+          annotations: Transaction.addToHistory.of(false),
+        })
+      }
+      return
     }
+    // 切文档：先重置 undo/redo 栈（内容相同也要重置——历史不再属于当前文档）
+    view.dispatch({
+      effects: historyConf.reconfigure(history()),
+      ...(v !== view.state.doc.toString()
+        ? { changes: { from: 0, to: view.state.doc.length, insert: v } }
+        : {}),
+      annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
+    })
   },
 )
 
