@@ -91,6 +91,72 @@ export function readChapterDir(
   dirPath: string,
   includeBody?: boolean,
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
+  // includeBody=true（导出/短篇索引等低频「meta+body 都要」路径）：正文原文不驻留缓存，
+  // 走现读原实现，避免缓存大 body 占内存。默认（false）走 stat 级缓存热路径。
+  if (includeBody) return readChapterDirUncached(dirPath, includeBody)
+
+  // CC-P1-3：stat 级章节元数据缓存——热路径（GET /books、GET /overview、机检、树红点聚合等）
+  // 对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。此处按 (mtimeMs,size)
+  // 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除由每轮 walk 自愈。
+  // 与 document/tree.ts probeCache 同口径（含 mtime+size 撞车理论窗口）。
+  // 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）。
+  const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
+  chapterDirCache.set(dirPath, cache)
+  const chapters: ChapterMeta[] = []
+  const errors: ParseError[] = []
+  const seen = new Set<string>()
+  const walk = (dir: string): void => {
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      if (name.startsWith('._')) continue
+      const fp = join(dir, name)
+      let st: ReturnType<typeof statSync>
+      try {
+        st = statSync(fp)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        walk(fp) // 递归子目录（卷）
+      } else if (name.endsWith('.md')) {
+        const hit = cache.get(fp)
+        if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+          chapters.push({ ...hit.chapter }) // 浅拷贝：调用方改字段不污染缓存
+        } else {
+          const r = readChapter(fp)
+          if (r.ok) {
+            cache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, chapter: r.chapter })
+            chapters.push({ ...r.chapter })
+          } else {
+            errors.push(r.error)
+            cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
+          }
+        }
+        seen.add(fp)
+      }
+    }
+  }
+  walk(dirPath)
+  // 清理已删除文件条目（结构变化自愈：删章/移章下一轮 walk 即失效）
+  for (const key of cache.keys()) {
+    if (!seen.has(key)) cache.delete(key)
+  }
+  return { chapters, errors }
+}
+
+/**
+ * readChapterDir 的现读版本（includeBody=true 用）——原实现逻辑原样保留。
+ * 正文原文（_body）不驻留缓存：导出/短篇索引低频，避免大 body 占内存。
+ */
+function readChapterDirUncached(
+  dirPath: string,
+  includeBody?: boolean,
+): { chapters: ChapterMeta[]; errors: ParseError[] } {
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
   const walk = (dir: string): void => {
@@ -120,6 +186,22 @@ export function readChapterDir(
   }
   walk(dirPath)
   return { chapters, errors }
+}
+
+/** CC-P1-3：章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
+interface ChapterDirEntry {
+  mtimeMs: number
+  size: number
+  chapter: ChapterMeta
+}
+
+/** CC-P1-3：进程级章节元数据缓存（dirPath → 文件路径 → 条目）。
+ *  无上限（按书隔离，键含绝对路径；每章仅 fm 元数据 + 字数，数百章 KB 级）——与 tree probeCache 同策略。 */
+const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
+
+/** 清空章节元数据缓存（结构性 mutation 后防御性调用；正常由每轮 walk 自愈，测试用）。 */
+export function clearChapterDirCache(): void {
+  chapterDirCache.clear()
 }
 
 // re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）

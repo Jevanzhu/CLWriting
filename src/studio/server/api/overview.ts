@@ -25,10 +25,11 @@ interface OverviewCtx {
 
 // G3：state 判定结果短时缓存。detectState 内部全量 rebuild index.db（clearAllTables 清空重建），
 // overview 每次请求都触发会慢（大书几百 ms~秒级）。概览页 stale 5s 可接受；精确态走 /state 或 enter。
+// CC-P1-3：原单条目缓存多书交替访问永 miss（P3 观察项）——改多书 Map（key=bookRoot）+ FIFO 上限。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
-interface StateEntry { bookRoot: string; result: StateOutput; ts: number }
-let stateCache: StateEntry | null = null
+const stateCache = new Map<string, { result: StateOutput; ts: number }>()
 const STATE_CACHE_TTL = 5000
+const STATE_CACHE_MAX = 32
 
 export function registerOverviewRoutes(ctx: OverviewCtx): void {
   route('GET', '/api/books/:name/overview', (_req: IncomingMessage, res: ServerResponse, params) => {
@@ -44,8 +45,9 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild
     const now = Date.now()
     let state: StateOutput
-    if (stateCache && stateCache.bookRoot === bookRoot && now - stateCache.ts < STATE_CACHE_TTL) {
-      state = stateCache.result
+    const cachedState = stateCache.get(bookRoot)
+    if (cachedState && now - cachedState.ts < STATE_CACHE_TTL) {
+      state = cachedState.result
     } else {
       try {
         const detected = detectState(bookRoot, config)
@@ -58,7 +60,12 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           detail: { error: redactSecret(e instanceof Error ? e.message : String(e)) },
         }
       }
-      stateCache = { bookRoot, result: state, ts: now }
+      // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+      if (stateCache.size >= STATE_CACHE_MAX) {
+        const oldest = stateCache.keys().next().value
+        if (oldest !== undefined) stateCache.delete(oldest)
+      }
+      stateCache.set(bookRoot, { result: state, ts: now })
     }
 
     const timeline = computeTimeline(bookRoot)
