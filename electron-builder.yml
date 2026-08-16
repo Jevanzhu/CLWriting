@@ -3,9 +3,12 @@ appId: com.clwriting.studio
 productName: CLWriting
 directories:
   output: dist-electron
-# asar 内容：主进程 + chunks + 前端
+# asar 内容：主进程 + chunks + 前端 + 捆绑资源（CC-P1-7：resources/ 缺席时打包态
+# resourcesRoot() 必抛错——内置 prompt/技巧包全在 asar 根 resources/ 下，
+# 与 dist/desktop/main.js 的「上两级」推导正好对齐，Electron asar fs 补丁可直读）
 files:
   - dist/**/*
+  - resources/**/*
   - package.json
 asar: true
 mac:

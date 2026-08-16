@@ -45,6 +45,10 @@ jobs:
       - name: 发布产物门（dist/web/index.html + package.main 必须存在）
         run: node -e "const fs=require('fs');const p=require('./package.json');for(const f of ['dist/web/index.html',p.main]){if(!fs.existsSync(f)){console.error(f+' 缺失,发布包不完整');process.exit(1)}}"
 
+      # CC-P1-7：打包资源门——resources/ 缺席打包清单时打包态 AI 链路必挂（dev 形态测不出）
+      - name: 打包资源门（check:packaging）
+        run: npm run check:packaging
+
       - name: 测试（含 node:sqlite smoke）
         run: npm test
 
