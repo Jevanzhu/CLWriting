@@ -261,7 +261,7 @@ describe('buildIndex + recall（桩 embed）', () => {
 // ── V-P2-3：中断重跑不得重复入库（唯一键 + 事务）──────────────────────
 
 import { DatabaseSync } from 'node:sqlite'
-import { openRagDb, readAllChunks, setRagMeta, storeChunk } from '../../src/rag/store.js'
+import { openRagDb, readAllChunks, setRagMeta, storeChunk, getIndexedChapterNumbers } from '../../src/rag/store.js'
 
 describe('buildIndex 去重与事务（V-P2-3）', () => {
   let bookRoot: string
@@ -354,6 +354,110 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
       storeChunk(db, input)
       const row = db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
       expect(row.n).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+})
+
+// ── cc 批4：P1-9 分批 embed / P1-31 空库不烧 API / P1-28 删除章残留 ─────
+
+describe('cc批4（P1-9 分批 / P1-31 空库 / P1-28 删除残留）', () => {
+  let bookRoot: string
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-cc4-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(
+      texts.map((t) => {
+        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+        return [norm, norm * 0.5, norm * 0.3]
+      }),
+    )
+  }
+
+  it('P1-9：超 100 块分多批 embed，每批 ≤100（修复前单次全量 POST 必超端点上限）', async () => {
+    // 2 章 × 每章 60 块（无空行 6 万字段细分）= 120 块 → 必须 ≥2 批
+    for (const n of [1, 2]) {
+      const meta: ChapterMeta = {
+        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, '字'.repeat(60000))
+    }
+    const batchSizes: number[] = []
+    const trackingEmbed: typeof stubEmbed = (_e, _m, _k, texts) => {
+      batchSizes.push(texts.length)
+      return Promise.resolve(
+        texts.map((t) => {
+          const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+          return [norm, norm * 0.5, norm * 0.3]
+        }),
+      )
+    }
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    const r = await buildIndex(bookRoot, config, 'key', trackingEmbed)
+    expect(r.ok).toBe(true)
+    expect(r.chunkCount).toBeGreaterThan(100) // 120 块
+    expect(batchSizes.length).toBeGreaterThan(1) // 已分批
+    expect(batchSizes.every((n) => n <= 100)).toBe(true) // 每批封顶
+    expect(batchSizes.reduce((a, b) => a + b, 0)).toBe(r.chunkCount) // 无块丢失
+  })
+
+  it('P1-31：空库 recall 不调用 embed（修复前先 embed 再查空，白烧一次 API）', async () => {
+    let embedCalls = 0
+    const countingEmbed: typeof stubEmbed = (_e, _m, _k, texts) => {
+      embedCalls++
+      return Promise.resolve(
+        texts.map((t) => {
+          const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+          return [norm, norm * 0.5, norm * 0.3]
+        }),
+      )
+    }
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    // 无正文 → 无索引 → 空库：直接返回空命中，embed 一次都不调
+    const hits = await recall(bookRoot, config, 'key', '查询', 5, countingEmbed)
+    expect(hits).toEqual([])
+    expect(embedCalls).toBe(0)
+  })
+
+  it('P1-28：已索引章被删 → 重建时清其残留向量与指纹（不再参与召回）', async () => {
+    for (const n of [1, 2, 3]) {
+      const meta: ChapterMeta = {
+        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
+      )
+    }
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'key', stubEmbed)
+
+    // 删除第 2 章正文文件
+    rmSync(join(bookRoot, '写作', '正文', '2-第2章.md'))
+
+    const r = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(r.ok).toBe(true)
+
+    const db = openRagDb(bookRoot)
+    try {
+      const chapterNums = getIndexedChapterNumbers(db)
+      expect(chapterNums).not.toContain(2) // 向量残留已清
+      expect(getRagMeta(db, 'chapter_hash:2')).toBeNull() // 指纹 meta 已清
+      // 章 1/3 指纹保留（未误伤存活章）
+      expect(getRagMeta(db, 'chapter_hash:1')).not.toBeNull()
+      expect(getRagMeta(db, 'chapter_hash:3')).not.toBeNull()
     } finally {
       db.close()
     }

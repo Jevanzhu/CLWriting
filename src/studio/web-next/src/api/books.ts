@@ -74,3 +74,32 @@ export async function renameBook(name: string, newName: string): Promise<RenameB
     body: JSON.stringify({ name: newName }),
   })
 }
+
+// ── RAG 接线（cc 批4 P1-8）──────────────────────────────────────────
+// 建索引是长任务：POST build 后台跑完，前端轮询 GET status。
+export interface RagStatus {
+  running: boolean
+  indexedChapters: number
+  chunkCount: number
+  model: string | null
+  ragConfig: { enabled?: boolean; endpoint?: string; model?: string }
+  lastResult: { ok: boolean; chunkCount: number; chapterCount: number; error?: string } | null
+}
+
+export async function getRagStatus(name: string): Promise<RagStatus> {
+  return apiJson<RagStatus>(`/api/books/${encodeURIComponent(name)}/rag/status`)
+}
+
+export async function triggerRagBuild(name: string): Promise<{ started: true }> {
+  return apiJson<{ started: true }>(`/api/books/${encodeURIComponent(name)}/rag/build`, {
+    method: 'POST',
+  })
+}
+
+export async function setRagApiKey(name: string, apiKey: string): Promise<void> {
+  await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/rag/key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  })
+}

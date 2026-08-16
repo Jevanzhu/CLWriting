@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // 设置 · AI tab：对话助手/文风注入/调用预算/自动写作/关系图/知识检索。
-import { ref, watch, inject } from 'vue'
+import { ref, watch, inject, onUnmounted } from 'vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig, putConfig } from '../../api/books'
+import { getConfig, putConfig, getRagStatus, triggerRagBuild, setRagApiKey, type RagStatus } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
 
@@ -24,6 +24,13 @@ const relationMineThreshold = ref(3)
 const ragEnabled = ref(false)
 const ragEndpoint = ref('')
 const ragModel = ref('')
+// RAG 建索引状态（cc 批4 P1-8）：api_key 不入 book.yaml（落 rag.secret），单独输入
+const ragApiKey = ref('')
+const ragStatus = ref<RagStatus | null>(null)
+const ragBuilding = ref(false)
+const ragStatusText = ref('')
+let ragPollTimer: ReturnType<typeof setInterval> | undefined
+let ragPolling = false
 
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
@@ -40,6 +47,8 @@ watch(
       ragEnabled.value = cfg.rag?.enabled ?? false
       ragEndpoint.value = cfg.rag?.endpoint ?? ''
       ragModel.value = cfg.rag?.model ?? ''
+      // 拉一次建索引状态（不阻塞配置读取）
+      void refreshRagStatus(name)
     } catch {
       /* 读不到就用默认值展示 */
     }
@@ -116,6 +125,91 @@ async function saveRagConfig(): Promise<void> {
     ui.toast(friendlyError(e), 'error')
   }
 }
+
+// ── RAG 建索引（cc 批4 P1-8）：api_key 落 rag.secret，建索引后台跑 + 轮询 ──
+
+/** api_key 单独保存：落 .clwriting/rag.secret（gitignore 区，H1 绝不进 book.yaml） */
+async function saveRagApiKey(): Promise<void> {
+  const name = ws.bookName
+  const key = ragApiKey.value.trim()
+  if (!name || !key) return
+  try {
+    await setRagApiKey(name, key)
+    ragApiKey.value = '' // 不回显（凭据）
+    ui.toast('API Key 已保存', 'success')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
+/** 刷新建索引状态（读 .rag.db 现状 + 最近结果） */
+async function refreshRagStatus(name?: string): Promise<void> {
+  const book = name ?? ws.bookName
+  if (!book) return
+  try {
+    const s = await getRagStatus(book)
+    ragStatus.value = s
+    ragBuilding.value = s.running
+    if (s.running) {
+      ragStatusText.value = '索引构建中…'
+    } else if (s.lastResult && s.lastResult.ok) {
+      // 增量结果：本次有新增报本次数，纯增量（0 新块）报库内总数
+      ragStatusText.value =
+        s.lastResult.chapterCount > 0
+          ? `已索引 ${s.lastResult.chapterCount} 章 / ${s.lastResult.chunkCount} 块`
+          : `索引已是最新：共 ${s.indexedChapters} 章 / ${s.chunkCount} 块`
+    } else if (s.lastResult) {
+      ragStatusText.value = `索引失败：${s.lastResult.error ?? '未知错误'}`
+    } else if (s.indexedChapters > 0) {
+      ragStatusText.value = `已索引 ${s.indexedChapters} 章 / ${s.chunkCount} 块`
+    } else {
+      ragStatusText.value = '尚未建立索引'
+    }
+  } catch {
+    /* 状态拉不到不打扰（如书未配置） */
+  }
+}
+
+/** 触发建索引：后台任务，轮询 status 直到完成（组件卸载时清理定时器） */
+async function startRagBuild(): Promise<void> {
+  const name = ws.bookName
+  if (!name || ragBuilding.value) return
+  try {
+    await triggerRagBuild(name)
+    ragBuilding.value = true
+    ragStatusText.value = '索引构建中…'
+    void pollRagStatus(name)
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
+async function pollRagStatus(name: string): Promise<void> {
+  if (ragPolling) return
+  ragPolling = true
+  ragPollTimer = setInterval(async () => {
+    if (!ragBuilding.value) {
+      clearInterval(ragPollTimer)
+      ragPollTimer = undefined
+      ragPolling = false
+      return
+    }
+    await refreshRagStatus(name)
+    if (!ragBuilding.value) {
+      clearInterval(ragPollTimer)
+      ragPollTimer = undefined
+      ragPolling = false
+    }
+  }, 1500)
+}
+
+onUnmounted(() => {
+  if (ragPollTimer) {
+    clearInterval(ragPollTimer)
+    ragPollTimer = undefined
+  }
+  ragPolling = false
+})
 </script>
 
 <template>
@@ -251,8 +345,22 @@ async function saveRagConfig(): Promise<void> {
           <input v-model="ragModel" class="text-input" type="text" placeholder="如 text-embedding-3-small" />
         </div>
       </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">API Key</div>
+          <div class="setting-item-desc">嵌入服务密钥，落 .clwriting/rag.secret（不进 book.yaml）</div>
+        </div>
+        <div class="setting-item-control">
+          <input v-model="ragApiKey" class="text-input" type="password" placeholder="留空则用环境变量 CLWRITING_RAG_API_KEY" />
+        </div>
+      </div>
       <div class="rag-save-row">
         <button class="save-btn" @click="saveRagConfig">保存检索设置</button>
+        <button class="save-btn" @click="saveRagApiKey" :disabled="!ragApiKey.trim()">保存 API Key</button>
+      </div>
+      <div class="rag-build-row">
+        <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
+        <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
       </div>
     </template>
   </section>
@@ -267,5 +375,21 @@ async function saveRagConfig(): Promise<void> {
   border-radius: 99px;
   background: var(--background-modifier-hover);
   color: var(--text-faint);
+}
+
+.rag-build-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rag-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+
+.rag-status.running {
+  color: var(--text-accent);
 }
 </style>

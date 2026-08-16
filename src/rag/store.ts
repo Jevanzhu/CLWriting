@@ -106,6 +106,22 @@ export function setRagMeta(db: DatabaseSync, key: string, value: string): void {
   stmt.run(key, value)
 }
 
+/** 删 rag_meta 单键（P1-28：清理已删除章的指纹残留） */
+export function deleteRagMeta(db: DatabaseSync, key: string): void {
+  db.prepare('DELETE FROM rag_meta WHERE key = ?').run(key)
+}
+
+/** 删某章全部向量块（P1-28：已索引章被删后清理残留，防其向量继续参与召回） */
+export function deleteChunksByChapter(db: DatabaseSync, 章号: number): void {
+  db.prepare('DELETE FROM chunks WHERE 章号 = ?').run(章号)
+}
+
+/** 已索引过的章号集合（chunks 去重；P1-28 删除检测用） */
+export function getIndexedChapterNumbers(db: DatabaseSync): number[] {
+  const rows = db.prepare('SELECT DISTINCT 章号 FROM chunks').all() as Array<{ 章号: number }>
+  return rows.map((r) => r.章号)
+}
+
 /**
  * 纯 JS 余弦相似度（#37 第 5 节，不引向量库）。
  * cos = dot(a,b) / (||a|| * ||b||)

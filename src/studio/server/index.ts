@@ -18,6 +18,7 @@ import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revis
 import { migrateLegacyForeshadows } from '../../document/foreshadow.js'
 import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
+import { registerRagRoutes } from './api/rag.js'
 import { registerHealthRoutes } from './api/health.js'
 import { registerFileRoutes } from './api/files.js'
 import { registerOverviewRoutes } from './api/overview.js'
@@ -70,6 +71,8 @@ function buildRoutes(
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath })
+    // cc 批4（P1-8）：RAG 建索引/状态/api_key 端点——buildIndex 生产入口
+    registerRagRoutes({ workDir })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir })
     registerOverviewRoutes({ workDir })

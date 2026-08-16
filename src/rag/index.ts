@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
-import { openRagDb, storeChunk, readAllChunks, getRagMeta, setRagMeta, cosineSimilarity } from './store.js'
+import { openRagDb, storeChunk, readAllChunks, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, cosineSimilarity, type RagChunk } from './store.js'
 import { embed } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -192,6 +192,35 @@ export async function buildIndex(
       }
     }
 
+    // P1-28：清理已删除章的残留向量/指纹——增量游标只看章号上限，删中间章
+    //（或整章内容被移走）会永久残留其向量参与召回。以 chunks 实际章号反推已索引集，
+    // 与当前正文章号差集即残留 → 删向量 + 指纹（幂等；事务包裹防中断半删）。
+    {
+      const indexedChapterNums = getIndexedChapterNumbers(db)
+      if (indexedChapterNums.length > 0) {
+        const currentChapterNums = new Set(chapters.map((ch) => ch.章号))
+        const stale = indexedChapterNums.filter((n) => !currentChapterNums.has(n))
+        if (stale.length > 0) {
+          db.exec('BEGIN IMMEDIATE')
+          try {
+            for (const n of stale) {
+              deleteChunksByChapter(db, n)
+              deleteRagMeta(db, chapterHashKey(n))
+            }
+            db.exec('COMMIT')
+          } catch (e) {
+            db.exec('ROLLBACK')
+            return {
+              ok: false,
+              chunkCount: 0,
+              chapterCount: 0,
+              error: `清理已删除章索引失败（已回滚，可重跑）：${errStr(e)}`,
+            }
+          }
+        }
+      }
+    }
+
     // 增量：读已索引到第几章，跳过已索引的
     const indexedChStr = getRagMeta(db, 'indexed_max_chapter')
     const indexedMax = indexedChStr ? Number(indexedChStr) : 0
@@ -285,11 +314,18 @@ async function commitIndexBatch(
   embedFn: typeof embed,
   apiKey: string,
 ): Promise<BuildIndexResult> {
-  // 批量 embed
-  const texts = allChunks.map((c) => c.chunk.text)
-  const vectors = allChunks.length > 0 ? await embedFn(config.endpoint!, config.model!, apiKey, texts) : []
-  if (vectors === null) {
-    return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+  // 批量 embed——P1-9：分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
+  // 必超常见 embedding 端点的单请求上限（静默失败/截断）。分批按块数封顶
+  //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量），任一批失败即整体失败。
+  const EMBED_BATCH_SIZE = 100
+  const vectors: number[][] = []
+  for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
+    const batchTexts = allChunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.chunk.text)
+    const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts)
+    if (batchVec === null) {
+      return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+    }
+    vectors.push(...batchVec)
   }
   const indexedDim = getRagMeta(db, 'embedding_dim')
   if (allChunks.length > 0) {
@@ -364,21 +400,20 @@ export async function recall(
 ): Promise<RecallHit[]> {
   if (!config.enabled || !config.endpoint || !config.model) return []
 
+  // P1-31：先取数后联网——db 数据（chunks/元信息/指纹校验）全部在 close 前完成，
+  // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用（修复前
+  // 先 embed 再查空：空库也白烧一次 embedding 费用）。
   const db = openRagDb(bookRoot)
+  let chunks!: RagChunk[]
+  let indexedDim: string | null = null
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) return []
 
-    // query embed
-    const qVec = await embedFn(config.endpoint, config.model, apiKey, [query])
-    if (qVec === null || qVec.length === 0) return []
-    const queryVec = Float32Array.from(qVec[0]!)
+    chunks = readAllChunks(db)
+    if (chunks.length === 0) return [] // 空库：无向量可召回，先判空不烧 API
 
-    const indexedDim = getRagMeta(db, 'embedding_dim')
-    if (indexedDim && Number(indexedDim) !== queryVec.length) return []
-
-    const chunks = readAllChunks(db)
-    if (chunks.length === 0) return []
+    indexedDim = getRagMeta(db, 'embedding_dim')
 
     const bodyDir = join(bookRoot, '写作', '正文')
     const { chapters } = readChapterDir(bodyDir)
@@ -388,19 +423,26 @@ export async function recall(
       chapters.filter((ch) => chapterNumbers.has(ch.章号)),
     )
     if (fingerprintIssue) return []
-
-    const hits: RecallHit[] = chunks
-      .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
-      .map((c) => ({
-        章号: c.章号,
-        start_offset: c.start_offset,
-        end_offset: c.end_offset,
-        score: cosineSimilarity(queryVec, c.embedding),
-      }))
-
-    hits.sort((a, b) => b.score - a.score)
-    return hits.slice(0, topK)
   } finally {
     db.close()
   }
+
+  // 网络段（无 db 句柄）
+  const qVec = await embedFn(config.endpoint, config.model, apiKey, [query])
+  if (qVec === null || qVec.length === 0) return []
+  const queryVec = Float32Array.from(qVec[0]!)
+
+  if (indexedDim && Number(indexedDim) !== queryVec.length) return []
+
+  const hits: RecallHit[] = chunks
+    .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
+    .map((c) => ({
+      章号: c.章号,
+      start_offset: c.start_offset,
+      end_offset: c.end_offset,
+      score: cosineSimilarity(queryVec, c.embedding),
+    }))
+
+  hits.sort((a, b) => b.score - a.score)
+  return hits.slice(0, topK)
 }
