@@ -24,14 +24,14 @@ useFocusTrap(modalRef)
 
 type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'providers' | 'history'
 const activeTab = ref<Tab>('appearance')
-/** 顶栏副标题：当前 tab 的一句话说明 */
+/** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */
 const TAB_SUBTITLES: Record<Tab, string> = {
-  appearance: '主题、字体与界面显示',
-  editor: '编辑区排版与自动保存',
-  book: '本书信息与写作目标',
-  ai: 'AI 写作行为与预算',
-  providers: 'AI 服务服务商与档位',
-  history: '版本保留与定稿档案',
+  appearance: '主题、界面字体、紧凑模式与书架视图',
+  editor: '编辑器字体、排版（字号/行距/段距）、纸张与自动保存',
+  book: '书名、题材、写作模式、目标字数与书库目录',
+  ai: '对话助手、文风注入、调用预算、自动写作、关系图与知识检索',
+  providers: '服务商增删、模型清单、测试连接与任务档位',
+  history: '版本保留规则、定稿版本统计与快照清理',
 }
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
 /** 当前 tab 的配置归属：外观/编辑器/AI/服务商 → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
@@ -96,22 +96,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <!-- 左侧分类导航 -->
           <nav class="settings-nav">
             <button :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
-              <Palette :size="16" /><span>外观</span>
+              <Palette :size="16" /><span>外观与主题</span>
             </button>
             <button :class="{ active: activeTab === 'editor' }" @click="activeTab = 'editor'">
-              <Type :size="16" /><span>编辑器</span>
+              <Type :size="16" /><span>编辑器排版</span>
             </button>
             <button :class="{ active: activeTab === 'book' }" @click="activeTab = 'book'">
-              <BookOpen :size="16" /><span>书籍</span>
+              <BookOpen :size="16" /><span>书籍与目标</span>
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-              <Sparkles :size="16" /><span>AI</span>
+              <Sparkles :size="16" /><span>AI 写作行为</span>
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
-              <Server :size="16" /><span>服务商</span>
+              <Server :size="16" /><span>AI 服务商</span>
             </button>
             <button :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-              <History :size="16" /><span>版本历史</span>
+              <History :size="16" /><span>版本与定稿</span>
             </button>
           </nav>
 

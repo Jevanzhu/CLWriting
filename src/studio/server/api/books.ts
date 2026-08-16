@@ -9,19 +9,29 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, realpathSync } from 'node:fs'
+import { rmSync, realpathSync, renameSync, existsSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply } from '../http.js'
-import { readBooks, removeBookEntry } from '../../../install/books.js'
+import {
+  readBooks,
+  removeBookEntry,
+  bookStoragePath,
+  readActive,
+  writeActive,
+  writeBooks,
+} from '../../../install/books.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { readBookConfig } from '../../../format/yaml.js'
+import { readBookConfig, stringifyBookConfig } from '../../../format/yaml.js'
 import { doInit } from '../../../install/init.js'
-import { computeBookSummary } from './progress.js'
+import { atomicWriteFile } from '../../../fs/atomic.js'
+import { computeBookSummary, invalidateBookSummary } from './progress.js'
+import { migrateBookSession } from '../../../events/store.js'
 
 interface BookCtx {
   workDir: string | null
@@ -29,6 +39,8 @@ interface BookCtx {
   token: string
   /** RB-SV-P1-1：Origin 是否可信（同源或 dev 白名单）——boot 据此决定是否回传 token */
   isTrustedOrigin: (origin: string) => boolean
+  /** APP 级数据目录（Electron userData / CLI 模式跨平台约定路径）——事件库迁移用 */
+  userDataPath: string | null
 }
 
 let initialBook: string | undefined
@@ -169,6 +181,107 @@ export function registerBookRoutes(ctx: BookCtx): void {
     invalidateTreeIndex(bookAbs)
     clearChatHistory(name)
     reply(res, 200, { ok: true, name })
+  })
+
+  // 改书名（全量同步：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 一起改，
+  // 防「书名/文件夹/登记名」三分歧。body {name} = 新书名；校验复用建书净化规则。
+  // E2：新路由走 defineRoute（input 形状 parse 声明，失败统一 400 {error} 信封）。
+  defineRoute('book.rename', {
+    method: 'POST',
+    path: '/api/books/:name/rename',
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
+      // 路径穿越净化（与建书一致）：书名直接用作目录名
+      if (!name) throw new Error('书名不能为空')
+      if (name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') {
+        throw new Error('书名不能包含路径分隔符或特殊路径段（/ \\ . ..）')
+      }
+      return { name }
+    },
+    handler: ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
+      if (!ctx.workDir) {
+        reply(res, 400, { error: '未定位到工作目录' })
+        return
+      }
+      const oldName = params['name'] ?? ''
+      const entry = readBooks(ctx.workDir).find((b) => b.name === oldName)
+      if (!entry) {
+        reply(res, 404, { error: `没有这本书：${oldName}` })
+        return
+      }
+      const newName = input.name
+      const oldRoot = join(ctx.workDir, entry.path)
+      const newPath = bookStoragePath(newName, entry.kind)
+      const newRoot = join(ctx.workDir, newPath)
+      const folderMove = newRoot !== oldRoot
+
+      // 重名冲突（排除自身）；目录级冲突只在真正要移动目录时检查
+      if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
+        reply(res, 400, { error: `已有一本叫「${newName}」的书，换个名字` })
+        return
+      }
+      if (folderMove && existsSync(newRoot) && readdirSync(newRoot).length > 0) {
+        reply(res, 400, { error: `目录「${newName}」已存在且非空，换个名字` })
+        return
+      }
+
+      /** 同步 book.yaml title（改名闭环的一部分；失败不阻塞——目录/登记已可自愈）。 */
+      const writeTitle = (root: string): void => {
+        try {
+          const { config } = readBookConfig(join(root, 'book.yaml'))
+          config.book.title = newName
+          atomicWriteFile(join(root, 'book.yaml'), stringifyBookConfig(config))
+        } catch (e) {
+          console.error('[api] rename: 写 book.yaml title 失败:', e)
+        }
+      }
+
+      // 同名（或目录未动）→ 只同步 title（兜底历史分歧：title≠name 的书存配置时回正），不做目录搬家
+      if (!folderMove || newName === oldName) {
+        writeTitle(oldRoot)
+        reply(res, 200, { ok: true, renamed: false, name: oldName, path: entry.path })
+        return
+      }
+
+      // 全量改名：中断在途 AI（同删书，防改名后继续落盘重建旧目录/白耗费用）
+      if (isSelfHealRunning(oldName)) abortSelfHeal(oldName)
+      if (isChatRunning(oldName)) abortChat(oldName)
+      // 清内存对话态 + 迁移事件库（尽力而为：失败留旧库可找回，不删数据）
+      clearChatHistory(oldName)
+      migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
+      // 清缓存（service/driver 会话/树索引/书架摘要）
+      forgetService(oldRoot)
+      forgetSession(oldName)
+      invalidateTreeIndex(oldRoot)
+      invalidateBookSummary(oldRoot)
+
+      // 移动磁盘目录
+      try {
+        renameSync(oldRoot, newRoot)
+      } catch (e) {
+        console.error('[api] rename: 改目录名失败:', e)
+        reply(res, 500, { error: '改目录名失败' })
+        return
+      }
+      writeTitle(newRoot)
+
+      // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）
+      const books = readBooks(ctx.workDir)
+      const idx = books.findIndex((b) => b.name === oldName)
+      if (idx >= 0) {
+        books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
+        writeBooks(ctx.workDir, books)
+      }
+      // active 指针指向旧名 → 换新
+      if (readActive(ctx.workDir) === oldName) {
+        writeActive(ctx.workDir, newName)
+      }
+      // --book 直进指针同步（second-instance --book 旧名不再命中）
+      if (initialBook === oldName) setInitialBook(newName)
+
+      reply(res, 200, { ok: true, renamed: true, name: newName, path: newPath })
+    },
   })
 
   // 单书身份

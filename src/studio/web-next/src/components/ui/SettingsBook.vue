@@ -1,14 +1,21 @@
 <script setup lang="ts">
 // 设置 · 书籍 tab：书名/题材/每卷章数/写作模式/目标字数/书库目录。
+// 书名改动走全量改名（POST /rename：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 同步），
+// 成功后路由切到新名——防「书名/文件夹/登记名」三分歧。
 import { ref, computed, watch, inject } from 'vue'
+import { useRouter } from 'vue-router'
 import { BookOpen } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
-import { getConfig } from '../../api/books'
+import { useDocStore } from '../../stores/doc'
+import { getConfig, renameBook } from '../../api/books'
+import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
+const router = useRouter()
+const doc = useDocStore()
 const saveConfig = inject(SAVE_CONFIG_KEY)!
 
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
@@ -21,6 +28,8 @@ const volumeSize = ref<number | null>(null)
 const targetWords = ref<number | null>(null)
 const chapterTargetWords = ref<number | null>(null)
 const workflow = ref<'free' | 'assist' | 'strict'>('free')
+/** 打开设置时读到的书名基线：判断是否真的改了名（防同名重存触发无谓改名）。 */
+const titleBaseline = ref('')
 
 async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
@@ -34,6 +43,7 @@ watch(
     try {
       const cfg = await getConfig(name)
       bookTitle.value = cfg.book?.title ?? ''
+      titleBaseline.value = bookTitle.value
       bookGenre.value = cfg.book?.genre ?? ''
       bookKind.value = cfg.kind ?? 'long'
       volumeSize.value = cfg.book?.volume_size ?? null
@@ -47,11 +57,32 @@ watch(
   { immediate: true },
 )
 
-function onBookTitleChange(): void {
-  void saveConfig((c) => {
-    if (!c.book) c.book = {}
-    c.book.title = bookTitle.value
-  })
+async function onBookTitleChange(): Promise<void> {
+  const name = ws.bookName
+  if (!name) return
+  const next = bookTitle.value.trim()
+  // 空书名 → 回退显示当前名（book.yaml 校验非空）
+  if (!next) {
+    bookTitle.value = titleBaseline.value
+    return
+  }
+  if (next === titleBaseline.value) return
+  // 改名 = 磁盘目录+登记+active 一起搬；先落盘未保存的正文编辑，
+  // 防目录搬家后旧名 URL 404 导致编辑丢失
+  await doc.flushDirty()
+  try {
+    const res = await renameBook(name, next)
+    titleBaseline.value = res.name
+    ui.toast('已保存', 'success')
+    if (res.renamed && res.name !== name) {
+      // 全量切换：路由换新名 → Book.vue watch 统一清 store / 载 prefs / seed 对话
+      router.replace(`/book/${encodeURIComponent(res.name)}`)
+    }
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+    // 失败回退输入框为当前书名
+    bookTitle.value = titleBaseline.value
+  }
 }
 function onBookGenreChange(): void {
   void saveConfig((c) => {

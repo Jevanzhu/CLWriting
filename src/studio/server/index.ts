@@ -69,7 +69,7 @@ function buildRoutes(
     registerAiStatusRoutes({ userDataPath })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
-    registerBookRoutes({ workDir, token, isTrustedOrigin })
+    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir })
     registerOverviewRoutes({ workDir })

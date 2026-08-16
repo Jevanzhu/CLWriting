@@ -11,7 +11,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, SurfaceOp } from './types.js'
@@ -325,5 +325,52 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   entry.store = store
   openStores.set(dbPath, entry)
   return store
+}
+
+/**
+ * 改书（书名/目录路径变更）时迁移事件库：<hash(oldRoot)>.db → <hash(newRoot)>.db，
+ * 并把会话 book 字段改名——对话会话 book=oldName → newName，工作区会话
+ * book=bookHash(oldRoot) → bookHash(newRoot)（对齐 clearChatHistory 的双钥匙口径）。
+ *
+ * 尽力而为：任一步失败只记日志不抛——数据留在旧库（孤儿但可找回），绝不删。
+ * 前置：调用方须先中止该书在途对话/自愈（释放引用后再强制关库，避免打断写入）。
+ */
+export function migrateBookSession(
+  userDataPath: string | null | undefined,
+  oldRoot: string,
+  newRoot: string,
+  oldName: string,
+  newName: string,
+): void {
+  if (!userDataPath) return
+  const dir = join(userDataPath, 'clwriting', 'session')
+  const oldDb = join(dir, bookHash(oldRoot) + '.db')
+  const newDb = join(dir, bookHash(newRoot) + '.db')
+  if (oldDb === newDb) return
+  try {
+    if (!existsSync(oldDb)) return
+    // 1) 强制关掉旧库缓存连接（置 refs=0 → close 归零即真关+清缓存）
+    const entry = openStores.get(oldDb)
+    if (entry && !entry.closed) {
+      entry.refs = 0
+      entry.store.close()
+    }
+    // 2) 移动主库 + WAL/SHM 侧车（已 checkpoint 的库可能只有主库）
+    for (const suffix of ['', '-wal', '-shm'] as const) {
+      const from = oldDb + suffix
+      const to = newDb + suffix
+      if (existsSync(from)) renameSync(from, to)
+    }
+    // 3) 在新库上改会话 book 字段（对话 + 工作区两把钥匙）
+    const db = new DatabaseSync(newDb)
+    try {
+      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
+      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
+    } finally {
+      db.close()
+    }
+  } catch (e) {
+    console.error('[events] 事件库迁移失败（旧库数据保留可找回）:', e)
+  }
 }
 

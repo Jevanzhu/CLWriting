@@ -2,7 +2,7 @@
  * 供应商配置全流程（审查 §八⑨：e2e 补供应商配置 spec）。
  *
  * 独立 server（端口 19001 + CLWRITING_DRIVER=mock + 显式 userDataPath），不污染 globalSetup 的 18999。
- * 路径：设置 → AI tab → 添加供应商 → 测试连接（mock 短路返回全能力）→ 设为当前 → ai-status 可达 → 工作台解灰。
+ * 路径：设置 → AI 服务商 tab → 添加供应商 → 测试连接（mock 短路返回全能力）→ 设为当前 → ai-status 可达 → 工作台解灰。
  */
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
@@ -39,9 +39,9 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
-  // 打开设置 → 服务商 tab（AI 服务商面板在「服务商」tab，非「AI」行为 tab）
+  // 打开设置 → AI 服务商 tab（服务商面板在「AI 服务商」tab，非「AI 写作行为」tab）
   await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
-  await page.locator('.settings-nav button', { hasText: '服务商' }).click()
+  await page.locator('.settings-nav button', { hasText: 'AI 服务商' }).click()
 
   // 空态 → 添加第一个供应商（协议默认 OpenAI 兼容格式）
   await page.locator('.ai-service-panel .add-btn', { hasText: '添加' }).click()

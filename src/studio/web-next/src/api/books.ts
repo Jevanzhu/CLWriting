@@ -56,3 +56,20 @@ export async function postBaseline(name: string, baseline: number): Promise<void
     body: JSON.stringify({ baseline }),
   })
 }
+
+// POST /api/books/:name/rename { name } → 全量改名（磁盘目录 + books.jsonl 登记 + active 指针 +
+// book.yaml title 一起同步）。renamed=false = 同名 no-op（仅 title 回正）；true = 目录已搬家，
+// 前端须把当前书切换到新名（res.name），否则旧名 URL 全部失效。
+export interface RenameBookResult {
+  ok: true
+  renamed: boolean
+  name: string
+  path: string
+}
+export async function renameBook(name: string, newName: string): Promise<RenameBookResult> {
+  return apiJson<RenameBookResult>(`/api/books/${encodeURIComponent(name)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  })
+}
