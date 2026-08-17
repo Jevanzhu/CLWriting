@@ -184,7 +184,7 @@ function cancelEdit(): void {
   editId.value = null
 }
 
-/** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai→bearer） */
+/** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai/openai-responses→bearer） */
 function selectProtocol(p: Protocol): void {
   form.value.protocol = p
   form.value.auth = p === 'anthropic' ? 'anthropic' : 'bearer'
@@ -461,7 +461,7 @@ function timeAgo(ts: number | undefined): string {
                 <span class="provider-row-avatar"><Bot :size="16" /></span>
                 <span class="provider-row-name">{{ p.name }}</span>
                 <span v-if="p.id === currentId" class="current-badge">当前</span>
-                <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
+                <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : p.protocol === 'openai-responses' ? 'Responses' : 'OpenAI' }}</span>
                 <span class="provider-status">
                   <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
                   <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
@@ -685,6 +685,13 @@ function timeAgo(ts: number | undefined): string {
               :class="{ on: form.protocol === 'anthropic' }"
               @click="selectProtocol('anthropic')"
             >Anthropic</button>
+            <!-- Responses 启用批（缺口 15）：协议栏三选一，Responses 排最后（日常推荐 Chat 兼容） -->
+            <button
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'openai-responses' }"
+              title="OpenAI 新线（gpt-5/o 系列深度用）；日常推荐 OpenAI 兼容"
+              @click="selectProtocol('openai-responses')"
+            >Responses</button>
           </div>
         </div>
         <div class="form-row">

@@ -124,3 +124,32 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
   await expect(page.getByRole('button', { name: '生成', exact: true })).toBeEnabled()
 })
+// Responses 启用批（T16，缺口 15）：协议栏三选一——第三按钮可选 openai-responses、
+// 保存持久化、卡片 tag 显示 Responses（后端 parseProviderInput 放行三选一）
+test('Responses 协议三选一：添加 openai-responses 供应商保存成功', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+
+  await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
+  await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
+  await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
+
+  // 协议栏第三按钮（排最后）——选中后 auth 自动定 bearer
+  await page.locator('.ai-service-panel .protocol-btn', { hasText: 'Responses' }).click()
+  const inputs = page.locator('.ai-service-panel > .form .text-input')
+  await inputs.nth(0).fill('Responses 官方')
+  await inputs.nth(1).fill('https://api.openai.local/v1')
+  await inputs.nth(2).fill('sk-test-key-resp')
+  await page.locator('.ai-service-panel > .form .save-btn').click()
+
+  const card = page.locator('.ai-service-panel .provider-row', { hasText: 'Responses 官方' })
+  await expect(card).toHaveCount(1)
+  // tag 三值映射：openai-responses → 'Responses'（非 'OpenAI'）
+  await expect(card.locator('.tag')).toHaveText('Responses')
+
+  // 持久化核验：GET /api/providers 返回该条目且 protocol 字段保真
+  const j = await (await page.request.get(`${BASE}/api/providers`)).json()
+  const saved = j.providers.find((p: { name: string }) => p.name === 'Responses 官方')
+  expect(saved).toMatchObject({ protocol: 'openai-responses', auth: 'bearer' })
+  expect(saved.apiKey).toBe('')
+})

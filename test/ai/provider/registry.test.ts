@@ -58,18 +58,28 @@ describe('resolveAdapter 声明式路由', () => {
     expect(resolveAdapter('')).toBeNull()
   })
 
-  it('openai-responses 主名/别名均已摘除（Z-P2-1 拒配）→ null', () => {
-    expect(resolveAdapter('openai-responses')).toBeNull()
-    expect(resolveAdapter('responses')).toBeNull()
-    expect(resolveAdapter('openai-responses-api')).toBeNull()
+  // Responses 启用批（2026-08-17）反转 Z-P2-1 拒配：主名回接注册表
+  it('openai-responses 主名命中（Responses 启用批 2026-08-17 反转 Z-P2-1 拒配）', () => {
+    const entry = resolveAdapter('openai-responses')
+    expect(entry).not.toBeNull()
+    expect(entry?.name).toBe('openai-responses')
+  })
+
+  it('别名 openai-responses-api 命中同一 entry（Responses 启用批 2026-08-17 反转 Z-P2-1 拒配）', () => {
+    expect(resolveAdapter('openai-responses-api')?.name).toBe('openai-responses')
+    expect(resolveAdapter('openai-responses-api')).toBe(resolveAdapter('openai-responses'))
   })
 })
 
-describe('openai-responses 存量配置拒配（Z-P2-1）', () => {
-  it('createProvider 遇存量 openai-responses conf → 迁移报错（不猜测路由）', () => {
-    expect(() =>
-      createProvider({ ...CONF, protocol: 'openai-responses' as unknown as typeof CONF.protocol }),
-    ).toThrow(/已停用.*openai/)
+describe('openai-responses 存量配置创建（Responses 启用批 2026-08-17 反转 Z-P2-1 拒配）', () => {
+  it('createProvider 对 openai-responses conf 返回带 stream 函数的实例（不再迁移报错）', () => {
+    const provider = createProvider({
+      ...CONF,
+      protocol: 'openai-responses',
+      auth: 'bearer',
+      model: 'gpt-5',
+    })
+    expect(typeof provider.stream).toBe('function')
   })
 })
 

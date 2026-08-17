@@ -56,6 +56,29 @@ function isKimiK3(model: string): boolean {
 }
 
 /**
+ * Responses 线（/v1/responses）格式档——家族表内嵌子表（Responses 启用批 R2a）。
+ *
+ * 必须保持**纯数据**（无函数维度）：catalog.ts 探测白名单不含本子表，
+ * 塞函数会迫使目录维度扩列 + 重新生成 catalog.gen.ts（catalog-sync 双向校验红线）。
+ * 设计定型「格式级 profile × 家族覆盖」（cherry reasoningProfiles 同构），出处见
+ * 《Responses格式适配》设计第六节。
+ */
+export interface ResponsesWireQuirks {
+  /** 三值语义同 FamilyQuirks.toolChoiceMode（responsesWire 视图覆盖基表值），无 'none'——协议本身有 tool_choice */
+  toolChoiceMode: 'named' | 'required' | 'auto'
+  /** effort 落点：openai reasoning:{effort} / grok 顶层 reasoning_effort / deepseek output_config:{effort} */
+  effortWire: 'reasoning-effort' | 'reasoning_effort' | 'output_config'
+  /** 结构化输出档位（json_object/none 不发 text.format，prompt 约束兜底） */
+  structuredMode: 'json_schema' | 'json_object' | 'none'
+  /** 多轮工具调用的推理延续（缺口 11）：encrypted=回传加密推理项；strip=剥除；none=未测不发 */
+  echoReasoning: 'encrypted' | 'strip' | 'none'
+  /** Responses 独有 text.verbosity 支持（缺口 13，留位不发——true 的家未来才可能发） */
+  verbosity: boolean
+  /** max_output_tokens 是否含推理 token（缺口 8，grok=true；首版只标记不换算，reasoningTokens 观测积累后另批定） */
+  maxTokensIncludesReasoning: boolean
+}
+
+/**
  * 模型系列参数表项——能力 × 线格式二维（表驱动重构 §5.1）。
  *
  * 批次 2 起，三适配器从此表读取决策，不再各自硬编码。
@@ -70,7 +93,8 @@ export interface FamilyQuirks {
    *  named   = 可强制指定函数名（OpenAI/Anthropic/DeepSeek…）
    *  required= 只能"必须调某个"不能点名（Kimi k3）
    *  auto    = 仅支持 auto（GLM 类）
-   *  none    = 无此参数（openai-responses 协议已停用；保留枚举位防生成物 schema 漂移）
+   *  none    = 该线无此参数（保留枚举位防生成物 schema 漂移；Responses 线有 tool_choice，
+   *            由 responsesWire 子表接管，不落此值）
    */
   toolChoiceMode: 'named' | 'required' | 'auto' | 'none'
   /**
@@ -115,6 +139,8 @@ export interface FamilyQuirks {
   parallelControl: boolean
   /** 多轮带 tools 时须回传 reasoning_content（DeepSeek/Kimi 硬要求，否则 400） */
   echoReasoning: boolean
+  /** Responses 线（/v1/responses）格式档——只对 openai-responses 协议生效，Chat/Anthropic 线不读 */
+  responsesWire: ResponsesWireQuirks
 }
 
 // ── 档位映射工具 ──
@@ -155,6 +181,7 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: 'output_config', // 原生支持 output_config.effort
         parallelControl: true, // disable_parallel_tool_use 支持
         echoReasoning: false, // 原生端点无 reasoning_content 回传要求
+        responsesWire: FALLBACK_RESPONSES_WIRE, // claude 无 /v1/responses 端点，中转转发场景按 unknown 保守
       }
 
     case 'gpt':
@@ -172,6 +199,15 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: null, // gpt 不走 anthropic 协议
         parallelControl: true,
         echoReasoning: false,
+        responsesWire: {
+          toolChoiceMode: 'named',
+          effortWire: 'reasoning-effort',
+          structuredMode: 'json_schema',
+          // codex 后端强制 include encrypted_content + reasoning item 回传（cherry codex.ts 印证）
+          echoReasoning: 'encrypted',
+          verbosity: true, // Responses 独有 text.verbosity（留位不发）
+          maxTokensIncludesReasoning: false, // 待核实（观测 reasoningTokens 后定，缺口 8）
+        },
       }
 
     case 'grok':
@@ -191,6 +227,15 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: null, // Grok anthropic 端点已完全弃用
         parallelControl: true, // parallel_tool_calls 可关
         echoReasoning: false,
+        responsesWire: {
+          toolChoiceMode: 'named',
+          effortWire: 'reasoning_effort', // 顶层参数（与 Chat 线同款）
+          structuredMode: 'json_schema',
+          // CLI 代理语义（拒绝回传 reasoning item，cherry grokCli.ts 剥除处理）；官方线实测后翻档
+          echoReasoning: 'strip',
+          verbosity: false,
+          maxTokensIncludesReasoning: true, // 含推理 token（官方文档：上限计入推理消耗）
+        },
       }
 
     case 'deepseek':
@@ -213,6 +258,14 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: 'output_config', // anthropic 端点支持 effort
         parallelControl: false, // 并行恒开不可关 → disable_parallel_tool_use 被忽略
         echoReasoning: true, // 多轮带 tools 时必须完整回传 reasoning_content
+        responsesWire: {
+          toolChoiceMode: 'required', // /v1/responses 同样无指名
+          effortWire: 'output_config',
+          structuredMode: 'json_object', // 不发 text.format，避免首发 400 再降级（缺口 7）
+          echoReasoning: 'none', // 未测（缺口 16），首版不发
+          verbosity: false,
+          maxTokensIncludesReasoning: false, // 待核实
+        },
       }
 
     case 'glm': {
@@ -232,6 +285,7 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: null, // anthropic 端点零参数级文档 → 保守不发
         parallelControl: false, // 并行控制未声明
         echoReasoning: true, // 有 reasoning_content
+        responsesWire: FALLBACK_RESPONSES_WIRE, // GLM 官方无 /v1/responses（设计第二节支持面）
       }
     }
 
@@ -252,6 +306,7 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: null, // anthropic 端点零参数级文档 → 保守不发
         parallelControl: true, // 并行工具调用支持
         echoReasoning: true, // 多轮/工具必须原样回传完整 assistant 消息
+        responsesWire: FALLBACK_RESPONSES_WIRE, // Kimi 官方无 /v1/responses（设计第二节支持面）
       }
     }
 
@@ -269,6 +324,33 @@ export function quirksFor(model: string): FamilyQuirks {
         anthropicEffortWire: null,
         parallelControl: false,
         echoReasoning: false,
+        responsesWire: FALLBACK_RESPONSES_WIRE,
       }
+  }
+}
+
+/** Responses 线保守兜底档——unknown 家族 / 无 /v1/responses 官方端点的家族共用 */
+const FALLBACK_RESPONSES_WIRE: ResponsesWireQuirks = {
+  toolChoiceMode: 'auto', // 非 auto 意图不发（prompt 引导 + 契约层校验重试兜底）
+  effortWire: 'reasoning-effort',
+  structuredMode: 'none',
+  echoReasoning: 'strip',
+  verbosity: false,
+  maxTokensIncludesReasoning: false,
+}
+
+/**
+ * responses 协议视图（Responses 启用批 R2a，缺口 5「gen 层静默丢弃」消除）：
+ * 基表 + responsesWire 覆盖 toolChoiceMode / structuredMode 并挂子表。
+ *
+ * gen 层意图翻译与适配器 toParams 都走本视图——Chat/Anthropic 线走 quirksFor
+ * （签名与行为不动，零风险）；本函数只被 openai-responses 协议的调用方触达。
+ */
+export function responsesQuirksFor(model: string): FamilyQuirks & { responsesWire: ResponsesWireQuirks } {
+  const base = quirksFor(model)
+  return {
+    ...base,
+    toolChoiceMode: base.responsesWire.toolChoiceMode,
+    structuredMode: base.responsesWire.structuredMode,
   }
 }

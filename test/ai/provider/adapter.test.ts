@@ -10,7 +10,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProvider, createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
-import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
+import { generateTool } from '../../../src/ai/gen.js'
+import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
 import type { ProviderStore } from '../../../src/ai/provider/store.js'
 
 const CONF = {
@@ -787,5 +789,319 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { cacheReadTokens: 7 } })
+  })
+})
+
+// ── Responses 适配器（Responses 启用批 R1-R4，2026-08-17）──
+// 被测契约：createOpenAIResponsesProvider(conf, client?, store?)，
+// client 形状 { responses: { create } }；事件循环翻译 /v1/responses 流事件为 GenEvent。
+
+/** Responses 协议 CONF（R1） */
+const RCONF: ProviderConf = { ...CONF, protocol: 'openai-responses', model: 'gpt-5' }
+
+/** 正常收尾的 completed 事件（output 含 message item → 非空产出 → done） */
+function completedEvent(): unknown {
+  return {
+    type: 'response.completed',
+    response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } },
+  }
+}
+
+/** 假 Responses SDK 客户端：c.responses.create 形状（fakeSend 同款手法 + 入参捕获 + 按调用序可抛） */
+function fakeResponsesClient(
+  handle: (params: unknown, call: number) => unknown[],
+): { client: OpenAI; params: Record<string, unknown>[] } {
+  const params: Record<string, unknown>[] = []
+  let call = 0
+  const client = {
+    responses: {
+      create: async (p: unknown): Promise<AsyncGenerator<unknown>> => {
+        call += 1
+        params.push(p as Record<string, unknown>)
+        const events = handle(p, call)
+        return (async function* () {
+          for (const e of events) yield e
+        })()
+      },
+    },
+  } as unknown as OpenAI
+  return { client, params }
+}
+
+/** 最小空 store（降级记忆双写断言用，同 registry.test.ts emptyStore） */
+function emptyResponsesStore(): ProviderStore {
+  return {
+    providers: [],
+    currentId: null,
+    currentModel: null,
+    modelCaps: {},
+    ragProviders: [],
+    tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
+    vault: null,
+    dek: null,
+  }
+}
+
+describe('Responses 适配器（R1-R4）', () => {
+  // T1 流只发 response.failed → terminal='failed'，error 取 response.error.message，不发 done
+  it('T1 response.failed → error 含 boom，无 done', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.failed', response: { error: { code: 'server_error', message: 'boom' } } },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    const err = evs.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ type: 'error', retryable: false })
+    if (err && err.type === 'error') expect(err.message).toContain('boom')
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+
+  // T2 delta 后流自然结束（无 completed/incomplete/failed）→ 传输截断（retryable=true），不发 done
+  it('T2 无终止事件流结束 → error「传输截断」retryable=true，无 done', async () => {
+    const { client } = fakeResponsesClient(() => [{ type: 'response.output_text.delta', delta: 'hi' }])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: 'hi' }])
+    const err = evs.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ type: 'error', retryable: true })
+    if (err && err.type === 'error') expect(err.message).toContain('传输截断')
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+
+  // T3 completed 但 response.output=[] → 空产出（retryable=false），不发 done
+  it('T3 completed 空产出 → error 含「空产出」，无 done', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.completed', response: { output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    const err = evs.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ type: 'error', retryable: false })
+    if (err && err.type === 'error') expect(err.message).toContain('空产出')
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+
+  // T4 incomplete 且 reason 非 max_output_tokens → error 含该 reason，不发 done
+  it('T4 incomplete content_filter → error 含 content_filter，无 done', async () => {
+    const { client } = fakeResponsesClient(() => [
+      {
+        type: 'response.incomplete',
+        response: {
+          status: 'incomplete',
+          incomplete_details: { reason: 'content_filter' },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    const err = evs.find((e) => e.type === 'error')
+    expect(err).toBeDefined()
+    if (err && err.type === 'error') expect(err.message).toContain('content_filter')
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+
+  // T5 reasoning_text / reasoning_summary_text 双事件流 → reasoning 事件拼装
+  it('T5 reasoning_text + reasoning_summary_text delta → reasoning 事件', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.reasoning_text.delta', delta: '思考' },
+      { type: 'response.reasoning_summary_text.delta', delta: '摘要' },
+      completedEvent(),
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'reasoning')).toEqual([
+      { type: 'reasoning', delta: '思考' },
+      { type: 'reasoning', delta: '摘要' },
+    ])
+    expect(evs.some((e) => e.type === 'done')).toBe(true)
+  })
+
+  // T6 gpt-5 参数面：reasoning:{effort} / store:false / include encrypted / parallel_tool_calls:false
+  it('T6 gpt-5 + effort + tools → reasoning.effort / store:false / include / parallel_tool_calls:false', async () => {
+    const { client, params } = fakeResponsesClient(() => [completedEvent()])
+    await collect(createOpenAIResponsesProvider(RCONF, client), {
+      ...REQ,
+      effort: 'high',
+      toolChoice: 'auto',
+      tools: [{ name: 'read_chapter', description: '读章', input_schema: { type: 'object', properties: {} } }],
+    })
+    const p = params[0]!
+    expect(p).toMatchObject({ model: 'gpt-5', stream: true })
+    expect(p['reasoning']).toEqual({ effort: 'high' })
+    expect(p['store']).toBe(false)
+    expect(p['include'] as string[]).toContain('reasoning.encrypted_content')
+    expect(p['parallel_tool_calls']).toBe(false)
+  })
+
+  // T7 grok：effort → 顶层 reasoning_effort（effortWire 'reasoning_effort'，不嵌 reasoning 对象）
+  it('T7 grok-4 effort → 顶层 reasoning_effort', async () => {
+    const { client, params } = fakeResponsesClient(() => [completedEvent()])
+    await collect(createOpenAIResponsesProvider({ ...RCONF, model: 'grok-4' }, client), { ...REQ, effort: 'high' })
+    const p = params[0]!
+    expect(p['reasoning_effort']).toBe('high')
+    expect('reasoning' in p).toBe(false)
+  })
+
+  // T8 deepseek：effortWire 'output_config' + 基表档位收敛（medium→high）；json_object 不发 text.format
+  it('T8 deepseek-v4 effort:medium → output_config:{effort:"high"}，不发 text', async () => {
+    const { client, params } = fakeResponsesClient(() => [completedEvent()])
+    await collect(createOpenAIResponsesProvider({ ...RCONF, model: 'deepseek-v4' }, client), {
+      ...REQ,
+      effort: 'medium',
+      structured: { schema: { type: 'object' } },
+    })
+    const p = params[0]!
+    expect(p['output_config']).toEqual({ effort: 'high' })
+    expect('text' in p).toBe(false)
+  })
+
+  // T9 tool_choice 表驱动翻译：named（gpt）any→required / tool→指名对象；required（deepseek）tool→required
+  it('T9 tool_choice：gpt any→required / tool→指名；deepseek tool→required', async () => {
+    const mk = async (model: string, toolChoice: 'any' | 'tool', toolName?: string): Promise<unknown> => {
+      const { client, params } = fakeResponsesClient(() => [completedEvent()])
+      await collect(
+        createOpenAIResponsesProvider({ ...RCONF, model }, client),
+        {
+          ...REQ,
+          toolChoice,
+          ...(toolName ? { toolName } : {}),
+          tools: [{ name: 'submit_chapter', description: '交章', input_schema: { type: 'object', properties: {} } }],
+        },
+      )
+      return params[0]!['tool_choice']
+    }
+    expect(await mk('gpt-5', 'any')).toBe('required')
+    expect(await mk('gpt-5', 'tool', 'submit_chapter')).toEqual({ type: 'function', name: 'submit_chapter' })
+    expect(await mk('deepseek-v4', 'tool', 'submit_chapter')).toBe('required')
+  })
+
+  // T10 多轮回插：gpt（echoReasoning encrypted）回插加密 reasoning item 且先于 function_call；grok（strip）剥除
+  it('T10 assistant reasoning 块：gpt 回插（先于 function_call）/ grok 剥除', async () => {
+    const req: GenRequest = {
+      systemPrompt: '',
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '回答' },
+            { type: 'reasoning', text: '推理', encrypted: 'ENC', itemId: 'rs_1' },
+            { type: 'tool_use', id: 'c1', name: 'submit', input: { a: 1 } },
+          ],
+        },
+      ],
+    }
+    const mkInput = async (model: string): Promise<Record<string, unknown>[]> => {
+      const { client, params } = fakeResponsesClient(() => [completedEvent()])
+      await collect(createOpenAIResponsesProvider({ ...RCONF, model }, client), req)
+      return params[0]!['input'] as Record<string, unknown>[]
+    }
+
+    const gptInput = await mkInput('gpt-5')
+    const rsIdx = gptInput.findIndex((i) => i['type'] === 'reasoning')
+    expect(rsIdx).toBeGreaterThanOrEqual(0)
+    expect(gptInput[rsIdx]).toEqual({ type: 'reasoning', id: 'rs_1', encrypted_content: 'ENC', summary: [] })
+    const fcIdx = gptInput.findIndex((i) => i['type'] === 'function_call')
+    expect(fcIdx).toBeGreaterThan(rsIdx)
+    expect(gptInput[fcIdx]).toMatchObject({ type: 'function_call', name: 'submit' })
+
+    const grokInput = await mkInput('grok-4')
+    expect(grokInput.some((i) => i['type'] === 'reasoning')).toBe(false)
+    expect(grokInput.some((i) => i['type'] === 'function_call')).toBe(true)
+  })
+
+  // T11 output_item.done(reasoning, encrypted_content) → reasoning_item 事件（缺口 11）
+  it('T11 reasoning item done 带 encrypted_content → reasoning_item 事件', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_9', encrypted_content: 'ENC9' } },
+      completedEvent(),
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.find((e) => e.type === 'reasoning_item')).toEqual({
+      type: 'reasoning_item',
+      encrypted: 'ENC9',
+      itemId: 'rs_9',
+    })
+  })
+
+  // T12 usage 四分量：input/output + cached_tokens → cacheReadTokens + reasoning_tokens → reasoningTokens
+  it('T12 completed usage → cacheReadTokens=5 / reasoningTokens=7', async () => {
+    const { client } = fakeResponsesClient(() => [
+      {
+        type: 'response.completed',
+        response: {
+          output: [{ type: 'message' }],
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            input_tokens_details: { cached_tokens: 5 },
+            output_tokens_details: { reasoning_tokens: 7 },
+          },
+        },
+      },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 5, reasoningTokens: 7 },
+    })
+  })
+
+  // T13 structured 首发 400（照 OpenAI 适配器 400 降级链）→ 剥 structured 重试成功 + 降级记忆双写
+  it('T13 结构化首发 400 → 第二次 create 无 text 键且流正常完成', async () => {
+    const { client, params } = fakeResponsesClient((_p, call) => {
+      if (call === 1) {
+        throw new OpenAI.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
+      }
+      return [
+        { type: 'response.output_text.delta', delta: 'ok' },
+        completedEvent(),
+      ]
+    })
+    const store = emptyResponsesStore()
+    const evs = await collect(
+      createOpenAIResponsesProvider(RCONF, client, store),
+      { ...REQ, structured: { schema: { type: 'object' } } },
+    )
+    expect(params).toHaveLength(2)
+    expect('text' in params[0]!).toBe(true) // 首发 gpt（json_schema 档）带 text.format
+    expect('text' in params[1]!).toBe(false) // 降级剥除 structured
+    expect(evs.some((e) => e.type === 'text')).toBe(true)
+    expect(evs.some((e) => e.type === 'done')).toBe(true)
+    expect(evs.some((e) => e.type === 'error')).toBe(false)
+    // 降级记忆（persistDegraded + store.modelCaps 双写，照 anthropic 适配器）
+    expect(store.modelCaps['t1/gpt-5']).toEqual({ structured: false })
+  })
+
+  // T14 gen 层意图翻译（缺口 5）：generateTool requireTool 按 toolChoiceMode 翻译（fake provider 不走 HTTP）
+  it("T14 generateTool requireTool：gpt-5 → req.toolChoice='tool'；deepseek-v4 → 'any'", async () => {
+    const capture = (model: string): { provider: ModelProvider; seen: GenRequest[] } => {
+      const seen: GenRequest[] = []
+      const provider: ModelProvider = {
+        conf: { ...RCONF, model },
+        stream: (req: GenRequest) => {
+          seen.push(req)
+          return (async function* (): AsyncGenerator<GenEvent> {
+            yield { type: 'tool', id: 'c1', name: 'submit_chapter', input: { ok: true } }
+            yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'tool_use' }
+          })()
+        },
+      }
+      return { provider, seen }
+    }
+    const gpt = capture('gpt-5')
+    await generateTool(gpt.provider, { ...REQ, requireTool: true, toolName: 'submit_chapter' }, new AbortController().signal)
+    expect(gpt.seen[0]?.toolChoice).toBe('tool')
+
+    const ds = capture('deepseek-v4')
+    await generateTool(ds.provider, { ...REQ, requireTool: true, toolName: 'submit_chapter' }, new AbortController().signal)
+    expect(ds.seen[0]?.toolChoice).toBe('any')
+  })
+
+  // T15 正常路径：output_text.delta + completed（非空 output）→ done stopReason 'stop'
+  it('T15 正常流 → done stopReason stop', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.output_text.delta', delta: 'ok' },
+      completedEvent(),
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: 'ok' }])
+    expect(evs.some((e) => e.type === 'error')).toBe(false)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', stopReason: 'stop' })
   })
 })

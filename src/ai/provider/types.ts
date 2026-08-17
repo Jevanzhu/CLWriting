@@ -7,8 +7,9 @@
 
 /** 协议类型——决定走哪种 SDK / 线格式
  *  openai = Chat Completions（/v1/chat/completions）
- *  （openai-responses 已停用拒配，Z-P2-1 拍板 2026-08-16；存量 conf 落 createProvider 迁移报错） */
-export type Protocol = 'anthropic' | 'openai'
+ *  openai-responses = OpenAI Responses API（/v1/responses，gpt-5/grok 深度用）——
+ *  曾随 Z-P2-1 误判停用（2026-08-17 作者澄清本意暂缓非不做），Responses 启用批回接 */
+export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 
 /**
  * 认证策略——与协议正交的独立维度。
@@ -143,10 +144,14 @@ export interface ChatMsg {
  * reasoning：模型思维链（DeepSeek/Kimi 思考模型的 reasoning_content）。
  * 多轮带 tools 时 assistant 消息必须完整回传 reasoning_content，否则 DeepSeek/Kimi 400
  * （方案 §4.2）。Anthropic 原生端点无此回传要求，收到即静默丢弃。
+ *
+ * encrypted/itemId（Responses 线缺口 11）：OpenAI store:false + 工具调用场景的
+ * 加密推理项载体——reasoning_item 事件收集入 GenResult，chat.ts 组装 assistant 轮
+ * 带上，适配器下轮回插 input 维持推理状态；Chat/Anthropic 线恒 undefined。
  */
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string }
+  | { type: 'reasoning'; text: string; encrypted?: string; itemId?: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
 
@@ -160,6 +165,12 @@ export interface ToolDef {
 export type GenEvent =
   | { type: 'text'; delta: string }
   | { type: 'reasoning'; delta: string }
+  /**
+   * 加密推理项透出（Responses 线缺口 11）：output_item.done(reasoning, encrypted_content)
+   * → 适配器发出 → gen 收集入 GenResult → orchestrate 存回 assistant 消息 reasoning 块，
+   * 下轮请求回插 input 维持多轮工具调用的推理延续。Chat/Anthropic 线不发此事件。
+   */
+  | { type: 'reasoning_item'; encrypted: string; itemId?: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage; stopReason: string }
   | {
@@ -213,6 +224,8 @@ export interface TokenUsage {
   cacheReadTokens?: number
   /** 前缀缓存写入量（仅 Anthropic 协议下发） */
   cacheWriteTokens?: number
+  /** 推理 token 消耗量（Responses 线 usage.output_tokens_details.reasoning_tokens，缺口 8 校准源；已含于 outputTokens） */
+  reasoningTokens?: number
 }
 
 /** Provider 接口——适配器实现 */

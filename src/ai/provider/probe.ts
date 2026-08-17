@@ -87,5 +87,10 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
     details.push(`流式探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
   }
 
+  // Responses 线提示（启用批 R4 缺口 17）：参数语义差异提前告知作者
+  if (conf.protocol === 'openai-responses') {
+    details.push('Responses 线提示：stop 序列被忽略；响应不留存（store:false）；effort 参数名按厂商自动适配')
+  }
+
   return { caps, details }
 }

@@ -12,11 +12,13 @@ import { clearProviderCache } from '../../../src/ai/provider/registry.js'
 import { listModels } from '../../../src/ai/provider/models.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 
 // 自动 mock：模块的导出全部替换为 vi.fn()
 vi.mock('../../../src/ai/provider/models.js')
 vi.mock('../../../src/ai/provider/anthropic-adapter.js')
 vi.mock('../../../src/ai/provider/openai-adapter.js')
+vi.mock('../../../src/ai/provider/responses-adapter.js')
 
 const SAVE_DRIVER = process.env['CLWRITING_DRIVER']
 
@@ -73,6 +75,13 @@ describe('createProvider', () => {
     createProvider(conf({ protocol: 'openai', auth: 'bearer' }))
     expect(createOpenAIProviderChat).toHaveBeenCalledTimes(1)
   })
+
+  // Responses 启用批（2026-08-17）：openai-responses 协议回接注册表 → 走 Responses 工厂
+  it('openai-responses 协议 → 走 Responses 工厂（Responses 启用批）', () => {
+    vi.mocked(createOpenAIResponsesProvider).mockReturnValue(fakeProvider([]))
+    createProvider(conf({ protocol: 'openai-responses', auth: 'bearer', model: 'gpt-5' }))
+    expect(createOpenAIResponsesProvider).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('probeCapabilities', () => {
@@ -97,5 +106,15 @@ describe('probeCapabilities', () => {
     const r = await probeCapabilities(conf())
     expect(r.caps).toEqual({ connected: false, streaming: false })
     expect(r.details.join()).toContain('连通失败')
+  })
+
+  // Responses 启用批（2026-08-17）：openai-responses 协议探测 → details 含 Responses 线提示
+  //（提示逻辑在 probe.ts 就位前该用例红——主线程统一回归时绿）
+  it('openai-responses 协议探测 → details 含「Responses 线」提示（Responses 启用批）', async () => {
+    vi.mocked(listModels).mockResolvedValue(['gpt-5'])
+    vi.mocked(createOpenAIResponsesProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
+    const r = await probeCapabilities(conf({ protocol: 'openai-responses', auth: 'bearer', model: 'gpt-5' }))
+    expect(r.caps).toEqual({ connected: true, streaming: true })
+    expect(r.details.join()).toContain('Responses 线')
   })
 })

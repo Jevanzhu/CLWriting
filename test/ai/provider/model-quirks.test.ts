@@ -7,7 +7,7 @@
  * （2026-08-14 定稿：effortValues 死字段已删；effortMap 仅 deepseek 保留）
  */
 import { describe, expect, it } from 'vitest'
-import { detectFamily, quirksFor } from '../../../src/ai/provider/model-quirks.js'
+import { detectFamily, quirksFor, responsesQuirksFor } from '../../../src/ai/provider/model-quirks.js'
 
 describe('detectFamily 系列判定', () => {
   it('按模型名前缀判定', () => {
@@ -278,5 +278,51 @@ describe('Anthropic 线格式：anthropicEffortWire / parallelControl / echoReas
     expect(q.anthropicEffortWire).toBeNull()
     expect(q.parallelControl).toBe(false)
     expect(q.echoReasoning).toBe(false)
+  })
+})
+
+// ── Responses 线格式子表（Responses 启用批 R2a，2026-08-17）──
+
+describe('responsesWire 子表（R2a）', () => {
+  it('gpt-5：responsesQuirksFor 覆盖后 named / json_schema / echoReasoning encrypted', () => {
+    const q = responsesQuirksFor('gpt-5')
+    expect(q.toolChoiceMode).toBe('named')
+    expect(q.structuredMode).toBe('json_schema')
+    expect(q.responsesWire.echoReasoning).toBe('encrypted')
+  })
+
+  it('grok-4：effortWire reasoning_effort + maxTokensIncludesReasoning true + echoReasoning strip', () => {
+    const q = responsesQuirksFor('grok-4')
+    expect(q.responsesWire.effortWire).toBe('reasoning_effort')
+    expect(q.responsesWire.maxTokensIncludesReasoning).toBe(true)
+    expect(q.responsesWire.echoReasoning).toBe('strip')
+  })
+
+  it('deepseek-v4：覆盖后 toolChoiceMode required / structuredMode json_object（不发 text.format）', () => {
+    const q = responsesQuirksFor('deepseek-v4')
+    expect(q.toolChoiceMode).toBe('required')
+    expect(q.structuredMode).toBe('json_object')
+  })
+
+  it('未知模型 some-model：保守兜底 auto / none / strip', () => {
+    const q = responsesQuirksFor('some-model')
+    expect(q.toolChoiceMode).toBe('auto')
+    expect(q.structuredMode).toBe('none')
+    expect(q.responsesWire.echoReasoning).toBe('strip')
+  })
+
+  it('quirksFor 原值不受影响（覆盖只发生在 responsesQuirksFor 视图）', () => {
+    // gpt 基表 toolChoiceMode 本就是 named（Chat 线视角不漂移）
+    expect(quirksFor('gpt-5').toolChoiceMode).toBe('named')
+    // deepseek 基表 structuredMode 与 responsesWire 子表一致（json_object，无漂移）
+    const ds = quirksFor('deepseek-v4')
+    expect(ds.structuredMode).toBe('json_object')
+    expect(ds.structuredMode).toBe(ds.responsesWire.structuredMode)
+    // gpt 基表 structuredMode（json_schema）与子表一致
+    const gpt = quirksFor('gpt-5')
+    expect(gpt.structuredMode).toBe(gpt.responsesWire.structuredMode)
+    // unknown 基表 structuredMode=none 与兜底子表一致
+    const unk = quirksFor('some-model')
+    expect(unk.structuredMode).toBe(unk.responsesWire.structuredMode)
   })
 })

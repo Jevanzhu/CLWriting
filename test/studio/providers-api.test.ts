@@ -184,27 +184,28 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     expect(r.json.error).toBe('apiKey 必填')
   })
 
-  it('POST openai-responses 协议 → 400 拒配（Z-P2-1：已停用，提示改用 openai）', async () => {
-    const r = await req<{ error: string }>({
+  // Responses 启用批（2026-08-17）反转 Z-P2-1 拒配：openai-responses 协议放行
+  it('POST openai-responses 协议 → 200 放行（Responses 启用批 2026-08-17 反转 Z-P2-1 拒配）', async () => {
+    const r = await req<{ provider: ProviderDto }>({
       method: 'POST',
       path: '/api/providers',
       body: { ...CONF, protocol: 'openai-responses' },
     })
-    expect(r.status).toBe(400)
-    expect(r.json.error).toContain('openai-responses 协议已停用')
-    expect(r.json.error).toContain('openai')
+    expect(r.status).toBe(200)
+    expect(r.json.provider.protocol).toBe('openai-responses')
   })
 
-  it('PUT 编辑为 openai-responses 协议 → 同样拒配 400', async () => {
+  it('PUT 编辑为 openai-responses 协议 → 同样放行（Responses 启用批 2026-08-17 反转 Z-P2-1 拒配）', async () => {
     const a = await req<{ provider: ProviderDto }>({ method: 'POST', path: '/api/providers', body: CONF })
+    expect(a.status).toBe(200)
     const pid = a.json.provider.id
-    const r = await req<{ error: string }>({
+    const r = await req<{ provider: ProviderDto }>({
       method: 'PUT',
       path: `/api/providers/${pid}`,
       body: { ...CONF, protocol: 'openai-responses' },
     })
-    expect(r.status).toBe(400)
-    expect(r.json.error).toContain('已停用')
+    expect(r.status).toBe(200)
+    expect(r.json.provider.protocol).toBe('openai-responses')
   })
 
   it('POST /:id/test 对不存在的 id → 404（不涉真网络）', async () => {

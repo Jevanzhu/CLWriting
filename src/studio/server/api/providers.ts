@@ -324,15 +324,10 @@ function parseProviderInput(
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
   const protocolRaw = String(body['protocol'] ?? '')
-  // Z-P2-1 拍板（2026-08-16）：openai-responses 协议后端拒配——UI 已无入口、适配器存在
-  // failed 伪装成功与 store:true 默认留存缺口；gpt-5 系列经 openai（Chat Completions）可用。
-  // 存量 conf 在 createProvider 处给迁移报错（registry 已摘除该条目）。
-  if (protocolRaw === 'openai-responses') {
-    return { ok: false, error: 'openai-responses 协议已停用，请改用 openai 协议' }
-  }
+  // Responses 启用批（2026-08-17）：openai-responses 恢复放行，三选一校验（曾随 Z-P2-1 误判拒配）
   const protocol = protocolRaw as Protocol
-  if (protocol !== 'anthropic' && protocol !== 'openai') {
-    return { ok: false, error: 'protocol 需为 anthropic / openai' }
+  if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
+    return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
   }
   // auth 从 body 读（UI 已暴露 3 种认证方式）；缺省回落协议推断（兼容旧配置）
   const authRaw = String(body['auth'] ?? '')

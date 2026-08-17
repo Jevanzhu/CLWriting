@@ -13,7 +13,7 @@ import type {
   TokenUsage,
   GenErrorCode,
 } from './provider/types.js'
-import { quirksFor } from './provider/model-quirks.js'
+import { quirksFor, responsesQuirksFor } from './provider/model-quirks.js'
 
 /** 生成错误（A5：结构化字段与 GenEvent.error 对齐；code 供 failureAction 决策表分流） */
 export class GenError extends Error {
@@ -47,6 +47,9 @@ export interface GenResult {
   toolCalls: { id: string; name: string; input: unknown }[]
   usage: TokenUsage
   stopReason: string
+  /** 加密推理项（Responses 线缺口 11：reasoning_item 事件收集，chat.ts 组装回传用） */
+  reasoningEncrypted?: string
+  reasoningItemId?: string
 }
 
 /** B-2：chunk 超时默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
@@ -121,10 +124,15 @@ export async function generate(
 ): Promise<GenResult> {
   // #6（表驱动重构）：模型不支持工具调用（chat 路径直调 generate）→ 剥掉 tools，
   // 防不支持工具的模型收到 tools 数组 → 400 或静默忽略（学 canModelConsumeTools）
-  const q = quirksFor(provider.conf.model ?? '')
+  // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
+  const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
   const effective: GenRequest = !q.toolUse && req.tools?.length ? { ...req, tools: undefined } : req
   let text = ''
   const reasoning: string[] = []
+  // Responses 线缺口 11：加密推理项收集（reasoning_item 事件）——chat.ts 组装 reasoning 块入历史，
+  // 下轮回传维持推理状态；多轮每回合独立 generate，取最后一个即可
+  let reasoningEncrypted: string | undefined
+  let reasoningItemId: string | undefined
   const toolCalls: { id: string; name: string; input: unknown }[] = []
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
@@ -151,6 +159,11 @@ export async function generate(
         case 'reasoning':
           reasoning.push(ev.delta)
           break
+        case 'reasoning_item':
+          // Responses 线缺口 11：覆盖式取最后一个（一回合一条加密推理项）
+          reasoningEncrypted = ev.encrypted
+          reasoningItemId = ev.itemId
+          break
         case 'tool':
           toolCalls.push({ id: ev.id, name: ev.name, input: ev.input })
           break
@@ -171,7 +184,7 @@ export async function generate(
     signal.removeEventListener('abort', onOuterAbort)
   }
 
-  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason }
+  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason, reasoningEncrypted, reasoningItemId }
 }
 
 /**
@@ -203,7 +216,8 @@ export async function generateTool(
   onText?: (delta: string) => void,
 ): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string }> {
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
-  const q = quirksFor(provider.conf.model ?? '')
+  // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
+  const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
   // P0-2：模型不支持工具调用 → 提前拒绝（避免进入生成阶段拿不到 tool_use 再降级失败浪费 token）
   if (!q.toolUse) {
     throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false, { code: 'UNSUPPORTED' })

@@ -64,6 +64,14 @@ export {
   ADAPTER_REGISTRY,
   type AdapterEntry,
 } from './registry.js'
-export { detectFamily, quirksFor, type FamilyQuirks, type ModelFamily } from './model-quirks.js'
+export {
+  detectFamily,
+  quirksFor,
+  responsesQuirksFor,
+  type FamilyQuirks,
+  type ModelFamily,
+  type ResponsesWireQuirks,
+} from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
+export { createOpenAIResponsesProvider } from './responses-adapter.js'

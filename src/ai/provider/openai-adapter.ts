@@ -53,7 +53,7 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
  * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
- * （openai-responses 协议线已随 Z-P2-1 拍板停用移除。）
+ * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——2026-08-17 启用批回接。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  */
 export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {

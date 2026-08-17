@@ -142,8 +142,8 @@ export function resolveProvider(
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG }
   // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
   // store 传入适配器供降级记忆读写（§6.5）
-  // dd-P2：createProvider 对存量坏 conf 会 throw（openai-responses 停用迁移报错 /
-  // 未知协议）——
+  // dd-P2：createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
+  // 停用期的迁移报错曾属此列，2026-08-17 启用批已随注册回接移除）——
   // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
   // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
   try {
