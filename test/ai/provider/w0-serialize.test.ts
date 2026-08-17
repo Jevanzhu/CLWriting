@@ -1,16 +1,17 @@
 /**
  * W0 协议层出站序列化测试。
  *
- * 验证 ChatMsg（纯文本 + ContentBlock 数组）→ 两协议线格式的转换正确性。
+ * 验证 ChatMsg（纯文本 + ContentBlock 数组）→ 三协议线格式的转换正确性。
  * 假 SDK client 记录 create() 入参，断言线格式——不导出 toParams，不破坏封装。
  *
- * 验收红线：纯文本 messages 与改动前逐字节一致；block 数组在两协议下各自正确。
+ * 验收红线：纯文本 messages 与改动前逐字节一致；block 数组在三协议下各自正确。
  */
 import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIResponsesProvider } from '../../../src/ai/provider/index.js'
 import type { GenRequest, ProviderConf, ChatMsg } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -69,6 +70,41 @@ async function runAnthropic(req: GenRequest, model = CONF.model): Promise<Record
 async function runOpenAI(req: GenRequest): Promise<Record<string, unknown>> {
   const client = captureOpenAI()
   const prov = createOpenAIProvider(CONF, client)
+  for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
+  return (client as unknown as { _captured: Record<string, unknown> })._captured
+}
+
+/** Responses 线 conf：gpt-5 走 gpt 族 quirks（echoReasoning=encrypted / effortWire=reasoning-effort） */
+const RCONF = {
+  ...CONF,
+  protocol: 'openai-responses' as const,
+  auth: 'bearer' as const,
+  model: 'gpt-5',
+} as ProviderConf
+
+/** 捕获型假 Responses client：create() 记录第一参数后吐 response.completed 收尾流 */
+function captureResponses(): OpenAI {
+  let captured: Record<string, unknown> = {}
+  const client = {
+    responses: {
+      create: async function* (params: Record<string, unknown>): AsyncGenerator<unknown> {
+        captured = params
+        // R1 终止事件契约：completed 收尾（带 message 产出项，避免被判空产出）
+        yield {
+          type: 'response.completed',
+          response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } },
+        }
+      },
+    },
+  } as unknown as OpenAI
+  Object.defineProperty(client, '_captured', { get: () => captured })
+  return client
+}
+
+/** 跑完流并返回捕获的线格式 params（OpenAI Responses） */
+async function runResponses(req: GenRequest): Promise<Record<string, unknown>> {
+  const client = captureResponses()
+  const prov = createOpenAIResponsesProvider(RCONF, client)
   for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }
@@ -270,5 +306,188 @@ describe('W0: disable_parallel_tool_use', () => {
       toolChoice: 'auto',
     })
     expect(params['tool_choice']).toEqual({ type: 'auto' })
+  })
+})
+
+// ── 纯文本 / 基础参数 → Responses 线格式 ──────────
+
+describe('W0: Responses 线基础参数（gpt-5）', () => {
+  it('纯文本 → developer + user 直传；maxTokens→max_output_tokens；store:false 恒存在', async () => {
+    const params = await runResponses({
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'hello' }],
+      maxTokens: 1024,
+    })
+    // systemPrompt → developer 角色（OpenAI 新约定）；user 纯文本直传
+    const input = params['input'] as { role: string; content: string }[]
+    expect(input).toEqual([
+      { role: 'developer', content: 'sys' },
+      { role: 'user', content: 'hello' },
+    ])
+    expect(params['model']).toBe('gpt-5')
+    expect(params['stream']).toBe(true)
+    expect(params['max_output_tokens']).toBe(1024)
+    // 缺口 9：store:false 恒存在（书稿全文上行场景响应不得留存）
+    expect(params['store']).toBe(false)
+  })
+
+  it('无 tools/toolChoice → 不发 include / parallel_tool_calls / tools 键', async () => {
+    const params = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
+    expect(params['include']).toBeUndefined()
+    expect(params['parallel_tool_calls']).toBeUndefined()
+    expect(params['tools']).toBeUndefined()
+  })
+})
+
+// ── 工具往返重排 → Responses 线格式（缺口 11）──────────
+
+describe('W0: 工具往返 → Responses 线格式', () => {
+  it('assistant reasoning+text+tool_use → reasoning item 先于 text/function_call；tool_result → function_call_output', async () => {
+    const messages: ChatMsg[] = [
+      { role: 'user', content: '帮我查第5章' },
+      {
+        role: 'assistant',
+        content: [
+          // block 顺序故意 text 在前——线格式重排为 reasoning 先行（Responses 语义）
+          { type: 'text', text: '好的' },
+          { type: 'reasoning', text: '思考中', encrypted: 'enc-1', itemId: 'rs_1' },
+          { type: 'tool_use', id: 'call_1', name: 'check_chapter', input: { chapter: 5 } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', toolUseId: 'call_1', content: '机检全绿' },
+        ],
+      },
+    ]
+    const params = await runResponses({ systemPrompt: '', messages })
+    const input = params['input'] as Record<string, unknown>[]
+
+    // user 纯文本直传
+    expect(input[0]).toEqual({ role: 'user', content: '帮我查第5章' })
+
+    // assistant 轮展开顺序：reasoning item → text → function_call
+    expect(input[1]).toEqual({ type: 'reasoning', id: 'rs_1', encrypted_content: 'enc-1', summary: [] })
+    expect(input[2]).toEqual({ role: 'assistant', content: '好的' })
+    expect(input[3]).toEqual({
+      type: 'function_call',
+      call_id: 'call_1',
+      name: 'check_chapter',
+      arguments: '{"chapter":5}',
+    })
+    // arguments 必须是 JSON 字符串，不是对象
+    expect(typeof input[3]!['arguments']).toBe('string')
+
+    // user 轮 tool_result → function_call_output（call_id 关联）
+    expect(input[4]).toEqual({ type: 'function_call_output', call_id: 'call_1', output: '机检全绿' })
+  })
+})
+
+// ── reasoning 回插双条件（缺口 11）──────────
+
+describe('W0: reasoning 回插双条件', () => {
+  it('缺 itemId → 不回插 reasoning item（id 缺失回传会被拒）', async () => {
+    const messages: ChatMsg[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: '无 id', encrypted: 'enc-1' },
+          { type: 'text', text: 'ok' },
+        ],
+      },
+    ]
+    const params = await runResponses({ systemPrompt: '', messages })
+    const input = params['input'] as Record<string, unknown>[]
+    expect(input.some((it) => it['type'] === 'reasoning')).toBe(false)
+    expect(input).toEqual([{ role: 'assistant', content: 'ok' }])
+  })
+
+  it('缺 encrypted → 不回插 reasoning item', async () => {
+    const messages: ChatMsg[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: '无密文', itemId: 'rs_1' },
+          { type: 'text', text: 'ok' },
+        ],
+      },
+    ]
+    const params = await runResponses({ systemPrompt: '', messages })
+    const input = params['input'] as Record<string, unknown>[]
+    expect(input.some((it) => it['type'] === 'reasoning')).toBe(false)
+    expect(input).toEqual([{ role: 'assistant', content: 'ok' }])
+  })
+})
+
+// ── Responses 线杂项参数 ──────────
+
+describe('W0: Responses 线 stop / tools / effort / tool_choice', () => {
+  // 缺口 10：stop_sequences 无对应参数，静默忽略
+  it('stopSequences → 无任何 stop 相关键', async () => {
+    const params = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      stopSequences: ['END', '\n\n'],
+    })
+    expect(params['stop']).toBeUndefined()
+    expect(Object.keys(params).some((k) => k.toLowerCase().includes('stop'))).toBe(false)
+  })
+
+  it('tools + effort（gpt 族）→ include 深等 + reasoning.effort 落位', async () => {
+    const params = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ name: 'check_chapter', description: '机检章节', input_schema: { type: 'object', properties: { chapter: { type: 'number' } } } }],
+      effort: 'high',
+    })
+    // 缺口 11 前半：store:false + 工具调用 → include 让响应携带加密推理项
+    expect(params['include']).toEqual(['reasoning.encrypted_content'])
+    // gpt 族 effortWire='reasoning-effort' → params.reasoning.effort（档位透传）
+    expect(params['reasoning']).toEqual({ effort: 'high' })
+    // tools 形状：扁平 {type,name,description,parameters}
+    const tools = params['tools'] as Record<string, unknown>[]
+    expect(tools).toEqual([
+      {
+        type: 'function',
+        name: 'check_chapter',
+        description: '机检章节',
+        parameters: { type: 'object', properties: { chapter: { type: 'number' } } },
+      },
+    ])
+  })
+
+  it('toolChoice=any/auto → tool_choice 字符串形态；parallel_tool_calls:false（一轮最多一个调用）', async () => {
+    const paramsAny = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ name: 't', input_schema: {} }],
+      toolChoice: 'any',
+    })
+    // named 档：any → required
+    expect(paramsAny['tool_choice']).toBe('required')
+    expect(paramsAny['parallel_tool_calls']).toBe(false)
+
+    const paramsAuto = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ name: 't', input_schema: {} }],
+      toolChoice: 'auto',
+    })
+    expect(paramsAuto['tool_choice']).toBe('auto')
+  })
+
+  it('toolChoice=tool+toolName → 扁平指名 {type:"function",name}（非 Chat 线嵌套形态）', async () => {
+    const params = await runResponses({
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ name: 'check_chapter', input_schema: {} }],
+      toolChoice: 'tool',
+      toolName: 'check_chapter',
+    })
+    expect(params['tool_choice']).toEqual({ type: 'function', name: 'check_chapter' })
   })
 })
