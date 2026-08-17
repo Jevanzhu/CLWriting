@@ -146,7 +146,12 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const ids = new Set(manifest.entries.keys())
       try {
         for (const d of readdirSync(versionsDir)) {
-          if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
+          // dd-P3：readdir 后目录项可能并发消失——单项失败跳过，防裸 ENOENT 中断整轮 prune
+          try {
+            if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
+          } catch {
+            continue
+          }
         }
       } catch {
         /* 目录读取失败用 manifest 集合 */

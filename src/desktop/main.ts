@@ -389,6 +389,12 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     console.error('PRELOAD-ERROR', p, err.message)
   })
+  // dd-P3（C-P3-15）：渲染进程崩溃兜底——GPU/内存崩了不能停在白屏，重载窗口自愈
+  const win = mainWindow
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('RENDER-GONE', details.reason, details.exitCode)
+    if (!win.isDestroyed()) win.webContents.reload()
+  })
   // 纵深防御：禁止页面导航外部 URL + 禁止弹新窗口（contextIsolation+sandbox 已降险，此为兜底）
   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault())
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

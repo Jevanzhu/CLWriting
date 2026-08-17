@@ -20,7 +20,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm # dd-P3（E-P3-2）：npm 缓存（两条 lockfile 入键）
+          cache-dependency-path: |
+            package-lock.json
+            src/studio/web-next/package-lock.json
       - run: npm ci
+      # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
+      # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
+      - run: npm --prefix src/studio/web-next ci
       # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）
       - run: npm run build:desktop
       - uses: actions/upload-artifact@v4

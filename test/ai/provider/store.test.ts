@@ -5,7 +5,7 @@
  * 明文迁移、半迁移收敛、删除清理、损坏不覆盖、版本守卫。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -249,6 +249,20 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
   expect(JSON.parse(bak).vault).toBeTypeOf('object')
 })
 
+// ── ee-P2-1：凭据文件权限 0600 创建即生效（无 umask 窗口）────────
+
+test('ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ apiKey: 'sk-mode-first-12345' })]
+  saveProviders(dir, store) // 首次（主文件创建）
+  store.providers[0]!.apiKey = 'sk-mode-second-123'
+  saveProviders(dir, store) // 二次（bak 创建 + 主文件覆盖 rename，权限位不应回退）
+
+  // POSIX 权限位断言（参照 CC-P2-3 先例 test/ai/calls.test.ts；Windows 不在 CI 矩阵）
+  expect(statSync(FP()).mode & 0o777).toBe(0o600)
+  expect(statSync(join(dir, 'providers.bak.json')).mode & 0o777).toBe(0o600)
+})
+
 // ── W-P2-9：主文件损坏 → 自动从 bak 恢复 ────────────
 
 test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留配置', () => {
@@ -362,4 +376,56 @@ test('RB-AI-P2-6: tiers 缺 creative → tierFromStore 不抛，回落默认档�
   expect(tierFromStore(s, 'chat')).toEqual({ model: 'm-default', effort: 'xhigh' })
   // assistant 档完好 → 照常返回
   expect(tierFromStore(s, 'assistant')).toEqual({ model: 'm-a', effort: 'high' })
+})
+
+// ── dd-E-P2-2：chat + rag 混合保存往返，两把 key 均完整还原 ──
+
+test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且落盘无明文', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ id: 'prov-chat', apiKey: 'sk-chat-mixed-0001' })]
+  store.currentId = 'prov-chat'
+  store.ragProviders = [
+    {
+      id: 'rag-embed-1', name: '嵌入供应商', endpoint: 'https://api.test.com/v1/embeddings',
+      model: 'embed-test', apiKey: 'sk-rag-mixed-0002', caps: null, sortIndex: 0,
+    },
+  ]
+  saveProviders(dir, store)
+
+  // 落盘无明文（chat 与 rag 两把 key 都不出现）
+  const raw = readFileSync(FP(), 'utf8')
+  expect(raw).not.toContain('sk-chat-mixed-0001')
+  expect(raw).not.toContain('sk-rag-mixed-0002')
+  const parsed = JSON.parse(raw)
+  expect(parsed.vault.keys['prov-chat']).toBeTypeOf('object')
+  expect(parsed.vault.keys['rag-embed-1']).toBeTypeOf('object')
+  expect(parsed.ragProviders[0].apiKey).toBeUndefined()
+
+  // load 还原：两把 key 都从 vault 解出
+  const loaded = loadProviders(dir)
+  expect(loaded.providers[0]!.apiKey).toBe('sk-chat-mixed-0001')
+  expect(loaded.ragProviders).toHaveLength(1)
+  expect(loaded.ragProviders[0]!.apiKey).toBe('sk-rag-mixed-0002')
+})
+
+// ── dd-E-P2-2 附：只删 chat provider，rag key 不受牵连 ──
+
+test('dd-E-P2-2: 删除 chat provider 后再 save/load，rag key 仍在', () => {
+  const store = emptySettings()
+  store.providers = [makeConf({ id: 'prov-chat2', apiKey: 'sk-chat-keep-0003' })]
+  store.ragProviders = [
+    {
+      id: 'rag-embed-2', name: '嵌入供应商', endpoint: 'https://api.test.com/v1/embeddings',
+      model: 'embed-test', apiKey: 'sk-rag-keep-0004', caps: null, sortIndex: 0,
+    },
+  ]
+  saveProviders(dir, store)
+
+  // 删掉 chat provider 再保存（vault.keys 以 providers + ragProviders 合集重建）
+  store.providers = []
+  store.currentId = null
+  saveProviders(dir, store)
+
+  const loaded = loadProviders(dir)
+  expect(loaded.ragProviders[0]!.apiKey).toBe('sk-rag-keep-0004')
 })

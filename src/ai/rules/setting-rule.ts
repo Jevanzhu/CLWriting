@@ -15,6 +15,7 @@ import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat, splitFrontMatter } from '../../format/frontmatter.js'
 import type { WritingRule, RuleViolation } from './types.js'
+import { ruleStripFm } from './types.js'
 
 /** 设定子目录/文件相对路径 */
 const SETTING_DIR = '设定'
@@ -108,7 +109,9 @@ export const settingConsistencyRule: WritingRule = {
 
     const violations: RuleViolation[] = []
     const seen = new Set<string>()
-    for (const m of body.matchAll(QUOTED_NAME_RE)) {
+    // dd-P3：正文型规则先剥 fm（types.ts 契约）——fm 短行（摘要/备注）中被引号包裹的
+    // 2-4 字词此前会误入专名核对，产生假阳/假阴
+    for (const m of ruleStripFm(body).matchAll(QUOTED_NAME_RE)) {
       const name = m[1]!.trim()
       if (name.length < 2 || name.length > 4) continue
       if (seen.has(name)) continue // 同名去重

@@ -39,6 +39,30 @@ export interface ProviderConf {
   notes?: string
 }
 
+/**
+ * RAG（嵌入）服务商配置——应用级多服务商，书里按 rag.provider 引用。
+ *
+ * 与 ProviderConf 同住 providers.json（key 共用 vault 加密），但结构独立：
+ * 嵌入服务无协议/档位概念，caps 只测连通（embed 一次 'ping'）。
+ */
+export interface RagProviderConf {
+  id: string // rag- 前缀（newRagProviderId），与 chat 服务商 id 不撞 vault 槽
+  name: string
+  /** embeddings 完整 URL（OpenAI 兼容 POST 端点，支持中转/自建） */
+  endpoint: string
+  /** 嵌入模型名 */
+  model: string
+  apiKey: string // 内存明文；落盘走 vault（同 ProviderConf.apiKey）
+  caps: RagProviderCaps | null // null = 尚未测试连接
+  capsProbedAt?: number
+  sortIndex?: number
+}
+
+/** 嵌入服务商能力——只测连通（embed 调用成功即通过，无流式概念） */
+export interface RagProviderCaps {
+  connected: boolean
+}
+
 /** 应用级供应商设置（userDataPath/providers.json） */
 export interface ProviderSettings {
   providers: ProviderConf[]

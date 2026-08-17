@@ -138,36 +138,54 @@ export function checkLeadsForm(
 
   // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
   // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
+  // ee-P1-3：比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
+  // （document/finalize.ts）与机检复用同一段代码，避免两处口径漂移后闸门漏拦/误拦。
   if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
-    const declared = new Set(declaredLeadIds)
-    const actual = new Set(actualLeadIds)
-    // 声明了没做
-    for (const id of declared) {
-      if (!actual.has(id)) {
-        items.push({
-          checkId: 'lead-declared-not-done',
-          level: 'red',
-          message: `细纲声明本章推进 ${id}，但本章未写入其履历（声明了没做）`,
-          leadId: id,
-          chapter: currentChapter,
-        })
-      }
-    }
-    // 做了没声明
-    for (const id of actual) {
-      if (!declared.has(id)) {
-        items.push({
-          checkId: 'lead-done-not-declared',
-          level: 'red',
-          message: `本章为 ${id} 写入履历，但细纲未声明推进它（做了没声明）`,
-          leadId: id,
-          chapter: currentChapter,
-        })
-      }
-    }
+    items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, currentChapter))
   }
 
   return { name: '账本形式三检', items }
+}
+
+/**
+ * #3 两端闭合（#3 第 7 节）比对：细纲声明的本章推进 ⟷ 本章实际写入的履历。
+ * 声明了没做（lead-declared-not-done）/ 做了没声明（lead-done-not-declared）各成一条红。
+ * ee-P1-3 从 checkLeadsForm 抽出为导出纯函数（逻辑逐字保留）：
+ * 手工/批量定稿的防吃书闸只拦这两条账本结构红，与机检共享同一实现作单一真相源。
+ */
+export function leadClosureItems(
+  declaredLeadIds: string[],
+  actualLeadIds: string[],
+  currentChapter: number,
+): CheckItem[] {
+  const items: CheckItem[] = []
+  const declared = new Set(declaredLeadIds)
+  const actual = new Set(actualLeadIds)
+  // 声明了没做
+  for (const id of declared) {
+    if (!actual.has(id)) {
+      items.push({
+        checkId: 'lead-declared-not-done',
+        level: 'red',
+        message: `细纲声明本章推进 ${id}，但本章未写入其履历（声明了没做）`,
+        leadId: id,
+        chapter: currentChapter,
+      })
+    }
+  }
+  // 做了没声明
+  for (const id of actual) {
+    if (!declared.has(id)) {
+      items.push({
+        checkId: 'lead-done-not-declared',
+        level: 'red',
+        message: `本章为 ${id} 写入履历，但细纲未声明推进它（做了没声明）`,
+        leadId: id,
+        chapter: currentChapter,
+      })
+    }
+  }
+  return items
 }
 
 /** 找某章的正文文件（写作/正文/<章号>-*.md，章号补零与否均匹配）。

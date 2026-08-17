@@ -339,7 +339,7 @@ const recent = computed(() => wb.log.slice(-200))
     <template v-else>
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用服务商。
+      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用提供方。
     </div>
     <!-- 任务档位（只读显示，配置在设置 → AI） -->
     <section v-if="tierCreative" class="card model-bar">

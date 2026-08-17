@@ -21,7 +21,7 @@ export interface BookConfig {
   auto?: { confirm_outline?: boolean; batch_size?: number; relation_auto_mine?: boolean; relation_mine_threshold?: number; [k: string]: unknown }
   /** 快照保留策略（单章版本回滚）；缺省 = 后端默认 14 天 / 30 个 */
   snapshots?: { max_days?: number; max_count?: number }
-  rag?: { enabled?: boolean; endpoint?: string; model?: string; [k: string]: unknown }
+  rag?: { enabled?: boolean; provider?: string; endpoint?: string; model?: string; [k: string]: unknown }
   /** 短篇集机检配置（题材预设阈值 + strict 严格模式） */
   short?: { strict?: boolean; word_min?: number; word_max?: number; body_part_threshold?: number; simile_threshold?: number; section_count?: number; opening_env_chars?: number; [k: string]: unknown }
   [k: string]: unknown
@@ -77,12 +77,17 @@ export async function renameBook(name: string, newName: string): Promise<RenameB
 
 // ── RAG 接线（cc 批4 P1-8）──────────────────────────────────────────
 // 建索引是长任务：POST build 后台跑完，前端轮询 GET status。
+// 服务商化：endpoint/model/key 归应用级 RAG 服务商管（api/providers.ts），书只存 provider 引用 + enabled。
 export interface RagStatus {
   running: boolean
   indexedChapters: number
   chunkCount: number
   model: string | null
-  ragConfig: { enabled?: boolean; endpoint?: string; model?: string }
+  ragConfig: { enabled?: boolean; provider?: string; endpoint?: string; model?: string }
+  /** 生效服务商名（旧版内联配置时为 null + legacy=true） */
+  providerName: string | null
+  /** true = 书还在用旧版内联 endpoint/model（未迁移到服务商引用） */
+  legacy: boolean
   lastResult: { ok: boolean; chunkCount: number; chapterCount: number; error?: string } | null
 }
 
@@ -93,13 +98,5 @@ export async function getRagStatus(name: string): Promise<RagStatus> {
 export async function triggerRagBuild(name: string): Promise<{ started: true }> {
   return apiJson<{ started: true }>(`/api/books/${encodeURIComponent(name)}/rag/build`, {
     method: 'POST',
-  })
-}
-
-export async function setRagApiKey(name: string, apiKey: string): Promise<void> {
-  await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/rag/key`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey }),
   })
 }

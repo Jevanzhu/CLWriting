@@ -19,6 +19,14 @@ const MOCK_TOOL_INPUT: Record<string, unknown> = {
   submit_infer_meta: { 目标情绪: 'mock 从压抑到释然的救赎', 核心反转: 'mock 真相藏在细节里' },
   submit_issues: { issues: [{ category: 'pacing', severity: 'S3', evidence: '正文原句', issue: 'mock 问题', fix: 'mock 修复' }] },
   submit_text: { 正文: '这是 mock 改写后的正文文本，保持了原有的叙事风格。' },
+  // 关系梳理（RELATION_MINE_SPEC 声明的 mock 快路——dd-P2：此前缺键导致 mock 驱动
+  // 下快路永不命中，配了 provider 就在 mock 模式发真实计费调用，破坏零成本契约）
+  submit_relations: {
+    relations: [
+      { from: '角色甲', to: '角色乙', type: '同门师兄弟', note: 'mock 关系' },
+      { from: '角色甲', to: '角色丙', type: '夺宝仇敌', note: 'mock 关系' },
+    ],
+  },
   // 写稿契约（self-heal mock 快路，审查 §六 self-heal 独缺 → runTask 补齐）
   submit_chapter: {
     标题: 'mock 章节标题',

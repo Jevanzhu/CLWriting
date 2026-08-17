@@ -11,11 +11,11 @@ import { friendlyError } from '../shared/error'
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
 // 模块级单例：ChatPanel + ChatDock 共享，避免重复 getProviders/fetchModels（P2-N）
-let _instance: { tier: ReturnType<typeof _createChatTier>; loaded: boolean } | null = null
+let _instance: { tier: ReturnType<typeof _createChatTier> } | null = null
 export function useChatTier() {
   if (!_instance) {
     const tier = _createChatTier()
-    _instance = { tier, loaded: false }
+    _instance = { tier }
     // P2-10：模块单例首次创建即加载（不绑 onMounted——那是组件生命周期，单例命令首次调用组件）
     void tier.refresh()
   }

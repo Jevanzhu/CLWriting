@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
-import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
+import { acquireTaskGate, isTaskGateHeld, heldTaskGatesFor } from '../../src/studio/server/api/task-gate.js'
 
 const BOOK = '闸测试书'
 let workDir = ''
@@ -116,6 +116,28 @@ describe('acquireTaskGate 单元语义', () => {
   })
 })
 
+describe('heldTaskGatesFor（dd-P2：按书聚合持闸动作）', () => {
+  it('返回该书全部持闸动作，不含其他书', () => {
+    const ra = acquireTaskGate('聚合书', 'rag-build')
+    const rb = acquireTaskGate('聚合书', 'analyze')
+    const rc = acquireTaskGate('别的书', 'rag-build') // 同 action 不同书
+    expect(heldTaskGatesFor('聚合书').sort()).toEqual(['analyze', 'rag-build'])
+    expect(heldTaskGatesFor('别的书')).toEqual(['rag-build'])
+    expect(heldTaskGatesFor('无闸书')).toEqual([])
+    ra!()
+    rb!()
+    rc!()
+    expect(heldTaskGatesFor('聚合书')).toEqual([])
+  })
+
+  it('书名本身含冒号也不误判（键格式 action:book）', () => {
+    const r = acquireTaskGate('带:冒号:书', 'rag-build')
+    expect(heldTaskGatesFor('带:冒号:书')).toEqual(['rag-build'])
+    expect(heldTaskGatesFor('冒号:书')).toEqual([])
+    r!()
+  })
+})
+
 describe('端点并发闸接线（409）', () => {
   it('relations/mine 闸被持有 → 409；释放 → 非 409', async () => {
     const release = acquireTaskGate(BOOK, 'relations-mine')
@@ -136,6 +158,42 @@ describe('端点并发闸接线（409）', () => {
     expect(busy.status).toBe(409)
     release!()
     const ok = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    expect(ok.status).toBe(200)
+    expect((ok.json as { ok: boolean }).ok).toBe(true)
+  })
+
+  // dd-P2：删书/改名在持闸时拒改——task-gate 任务无 abort 通道，
+  // 放行会在收尾落盘时重建孤儿目录 / 写旧路径
+  it('任意闸被持有 → 删书 409；释放 → 200', async () => {
+    const release = acquireTaskGate(BOOK, 'rag-build')
+    expect(release).not.toBeNull()
+    const busy = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
+    expect(busy.status).toBe(409)
+    expect((busy.json as { error: string }).error).toContain('rag-build')
+    release!()
+    const ok = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
+    expect(ok.status).toBe(200)
+  })
+
+  it('任意闸被持有 → 改名 409；释放 → 可改名（本测用书自建自删）', async () => {
+    // 自建一本独立书，避免影响上方共享 BOOK 的用例顺序
+    const NAME = '闸改名测试书'
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
+        JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n',
+    )
+    const bookRoot = join(workDir, '长篇', NAME)
+    mkdirSync(join(bookRoot, '大纲'), { recursive: true })
+    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 闸改名测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
+
+    const release = acquireTaskGate(NAME, 'analyze')
+    expect(release).not.toBeNull()
+    const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: '闸改名新名' })
+    expect(busy.status).toBe(409)
+    expect((busy.json as { error: string }).error).toContain('analyze')
+    release!()
+    const ok = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: '闸改名新名' })
     expect(ok.status).toBe(200)
     expect((ok.json as { ok: boolean }).ok).toBe(true)
   })

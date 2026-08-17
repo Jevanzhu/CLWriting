@@ -4,6 +4,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { CornerDownLeft } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
+import { friendlyError } from '../../shared/error'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -71,8 +72,8 @@ async function openDoc(node: TreeNode): Promise<void> {
   try {
     await doc.open(node)
     ws.openTab(node.docId)
-  } catch {
-    /* 打开失败静默 */
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
   }
 }
 

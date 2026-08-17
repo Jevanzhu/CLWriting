@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, HttpError } from '../http.js'
 import {
   loadProviders,
   saveProviders,
@@ -64,7 +64,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       baseUrl: parsed.baseUrl,
       apiKey: parsed.apiKey,
       caps: null,
-      sortIndex: s.providers.length,
+      // dd-P3：max+1 防撞号——s.providers.length 在删过中间项后与存量 sortIndex 重复，排序不稳
+      sortIndex: nextSortIndex(s.providers.map((p) => p.sortIndex)),
     }
     s.providers.push(conf)
     // 首个供应商自动设为当前
@@ -169,11 +170,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   route('PUT', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''
+    // dd-P2：读 body 先于 loadProviders——load→mutate→save 三段必须同步无 await
+    //（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
+    const body = await readJson(req)
     const s = loadProviders(ctx.userDataPath)
     const idx = s.providers.findIndex((p) => p.id === id)
     if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
 
-    const body = await readJson(req)
     const parsed = parseProviderInput(body)
     if (!parsed.ok) return reply(res, 400, { error: parsed.error })
 
@@ -266,27 +269,41 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   route('POST', '/api/providers/:id/test', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''
-    const s = loadProviders(ctx.userDataPath)
-    const conf = s.providers.find((p) => p.id === id)
-    if (!conf) return reply(res, 404, { error: '供应商不存在' })
 
     try {
       // 前端可指定测试模型；未指定则用全局当前模型；都无则回落 conf.model（废弃旧值）
+      //（dd-P2：body 先读；探测是 10s+ 网络往返，load 克隆不能跨它存活——探测后重载再写）
       let body: Record<string, unknown> = {}
-      try { body = await readJson(req) } catch { /* 无 body（旧客户端兼容）*/ }
+      try { body = await readJson(req) } catch (e) {
+        if (e instanceof HttpError) throw e // 413 等透传，只容错无 body/坏 JSON
+      }
+      const snapshot = loadProviders(ctx.userDataPath)
+      const conf = snapshot.providers.find((p) => p.id === id)
+      if (!conf) return reply(res, 404, { error: '供应商不存在' })
       const probeModel = typeof body['model'] === 'string' && body['model']
-        ? body['model'] : (s.currentModel ?? conf.model)
+        ? body['model'] : (snapshot.currentModel ?? conf.model)
       const { caps, details } = await probeCapabilities({ ...conf, model: probeModel })
-      // 写回探测结果
-      conf.caps = caps
-      conf.capsProbedAt = Date.now()
-      saveProviders(ctx.userDataPath, s)
+      // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
+      const s2 = loadProviders(ctx.userDataPath)
+      const target = s2.providers.find((p) => p.id === id)
+      if (target) {
+        target.caps = caps
+        target.capsProbedAt = Date.now()
+        saveProviders(ctx.userDataPath, s2)
+      }
       reply(res, 200, { ok: true, caps, details })
     } catch (e) {
       // P2-4：错误脱敏
       reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
     }
   })
+}
+
+/** 下一可用排序号：max(现有)+1（dd-P3，防删除中间项后 length 撞号） */
+function nextSortIndex(existing: Array<number | undefined>): number {
+  let max = -1
+  for (const x of existing) max = Math.max(max, x ?? 0)
+  return max + 1
 }
 
 /** API 返回前遮蔽 apiKey */
@@ -325,6 +342,8 @@ function parseProviderInput(
       : protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
+  // dd-P3：scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
+  if (!/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'baseUrl 须以 http(s):// 开头' }
   const apiKey = String(body['apiKey'] ?? '').trim()
   return { ok: true, name, protocol, auth, baseUrl, apiKey }
 }

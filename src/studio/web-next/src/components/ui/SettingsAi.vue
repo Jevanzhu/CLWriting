@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 设置 · AI tab：对话助手/文风注入/调用预算/自动写作/关系图/知识检索。
-import { ref, watch, inject, onUnmounted } from 'vue'
+import { ref, watch, inject, onUnmounted, onDeactivated, onActivated } from 'vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig, putConfig, getRagStatus, triggerRagBuild, setRagApiKey, type RagStatus } from '../../api/books'
+import { getConfig, getRagStatus, triggerRagBuild, type RagStatus } from '../../api/books'
+import { getRagProviders, type RagProviderDto } from '../../api/providers'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
 
@@ -20,12 +21,13 @@ const batchSize = ref(1)
 // 关系图 AI 梳理：手动按钮为主（控成本，方案③决策）；自动梳理默认关，作者可自行开启
 const relationAutoMine = ref(false)
 const relationMineThreshold = ref(3)
-// AI 配置（RAG 保留在 book.yaml）
+// 知识检索：书里只存「选哪个提供方 + 开不开启」；endpoint/model/key 归应用级 RAG 提供方管
 const ragEnabled = ref(false)
-const ragEndpoint = ref('')
-const ragModel = ref('')
-// RAG 建索引状态（cc 批4 P1-8）：api_key 不入 book.yaml（落 rag.secret），单独输入
-const ragApiKey = ref('')
+const ragProvider = ref('')
+/** 旧版内联配置（endpoint/model 直存 book.yaml）——展示「沿用」项，选中提供方即迁移清除 */
+const ragLegacy = ref(false)
+const ragProviders = ref<RagProviderDto[]>([])
+// RAG 建索引状态
 const ragStatus = ref<RagStatus | null>(null)
 const ragBuilding = ref(false)
 const ragStatusText = ref('')
@@ -45,16 +47,26 @@ watch(
       relationAutoMine.value = cfg.auto?.relation_auto_mine ?? false
       relationMineThreshold.value = cfg.auto?.relation_mine_threshold ?? 3
       ragEnabled.value = cfg.rag?.enabled ?? false
-      ragEndpoint.value = cfg.rag?.endpoint ?? ''
-      ragModel.value = cfg.rag?.model ?? ''
-      // 拉一次建索引状态（不阻塞配置读取）
+      ragProvider.value = cfg.rag?.provider ?? ''
+      ragLegacy.value = !!(cfg.rag?.endpoint && !cfg.rag?.provider)
+      // 拉一次建索引状态 + 提供方列表（都不阻塞配置读取）
       void refreshRagStatus(name)
+      void loadRagProviders()
     } catch {
       /* 读不到就用默认值展示 */
     }
   },
   { immediate: true },
 )
+
+async function loadRagProviders(): Promise<void> {
+  try {
+    const r = await getRagProviders()
+    ragProviders.value = r.ragProviders
+  } catch {
+    /* 列表拉不到不打扰（下拉为空 + 引导文案） */
+  }
+}
 
 function setStyleInjection(mode: 'light' | 'heavy'): void {
   styleInjection.value = mode
@@ -102,44 +114,28 @@ function onMineThresholdInput(e: Event): void {
   })
 }
 
-// RAG 配置操作（RAG 保留在 book.yaml）
+// RAG 配置操作（书级：enabled + provider 引用；提供方本体在「AI 提供方」页管理）
 function onRagToggle(e: Event): void {
   ragEnabled.value = (e.target as HTMLInputElement).checked
   void saveConfig((c) => {
-    if (!c.rag) c.rag = {}
+    if (!c.rag) c.rag = { enabled: false }
     c.rag.enabled = ragEnabled.value
   })
 }
-/** RAG 地址/模型显式保存：只提交已打开弹窗时缓冲的 v-model 值 */
-async function saveRagConfig(): Promise<void> {
-  const name = ws.bookName
-  if (!name) return
-  try {
-    const cfg = await getConfig(name)
-    if (!cfg.rag) cfg.rag = {}
-    cfg.rag.endpoint = ragEndpoint.value || undefined
-    cfg.rag.model = ragModel.value || undefined
-    await putConfig(name, cfg)
-    ui.toast('检索设置已保存', 'success')
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
-  }
-}
 
-// ── RAG 建索引（cc 批4 P1-8）：api_key 落 rag.secret，建索引后台跑 + 轮询 ──
-
-/** api_key 单独保存：落 .clwriting/rag.secret（gitignore 区，H1 绝不进 book.yaml） */
-async function saveRagApiKey(): Promise<void> {
-  const name = ws.bookName
-  const key = ragApiKey.value.trim()
-  if (!name || !key) return
-  try {
-    await setRagApiKey(name, key)
-    ragApiKey.value = '' // 不回显（凭据）
-    ui.toast('API Key 已保存', 'success')
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
-  }
+/** 选检索提供方：写 rag.provider 并清旧内联 endpoint/model（一次性迁移；
+ *  选「未选择」= 清干净 → 本书不再检索） */
+function onRagProviderChange(e: Event): void {
+  const v = (e.target as HTMLSelectElement).value
+  if (v === '__legacy__') return // 「旧版内联配置（沿用）」= 保持现状
+  ragProvider.value = v
+  ragLegacy.value = false
+  void saveConfig((c) => {
+    if (!c.rag) c.rag = { enabled: true }
+    c.rag.provider = v || undefined
+    delete c.rag.endpoint
+    delete c.rag.model
+  })
 }
 
 /** 刷新建索引状态（读 .rag.db 现状 + 最近结果） */
@@ -188,7 +184,7 @@ async function pollRagStatus(name: string): Promise<void> {
   if (ragPolling) return
   ragPolling = true
   ragPollTimer = setInterval(async () => {
-    if (!ragBuilding.value) {
+    if (!ragBuilding.value || ws.bookName !== name) {
       clearInterval(ragPollTimer)
       ragPollTimer = undefined
       ragPolling = false
@@ -203,13 +199,26 @@ async function pollRagStatus(name: string): Promise<void> {
   }, 1500)
 }
 
-onUnmounted(() => {
+function stopRagPolling(): void {
   if (ragPollTimer) {
     clearInterval(ragPollTimer)
     ragPollTimer = undefined
   }
   ragPolling = false
+}
+
+// dd-P2：SettingsModal 用 keep-alive 包 tab——关弹窗只 deactivated 不 unmount，
+// 此前轮询挂 onUnmounted = 关窗后 1.5s interval 继续打旧书 status 直到构建结束；
+// 改 deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）
+onDeactivated(stopRagPolling)
+onActivated(() => {
+  const name = ws.bookName
+  if (!name) return
+  void refreshRagStatus(name).then(() => {
+    if (ragBuilding.value) void pollRagStatus(name)
+  })
 })
+onUnmounted(stopRagPolling)
 </script>
 
 <template>
@@ -290,7 +299,7 @@ onUnmounted(() => {
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理 <span class="tag-soon">即将支持</span></div>
+          <div class="setting-item-name">自动梳理</div>
           <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
         </div>
         <div class="setting-item-control">
@@ -302,7 +311,7 @@ onUnmounted(() => {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值 <span class="tag-soon">即将支持</span></div>
+          <div class="setting-item-name">章节增量阈值</div>
           <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
         </div>
         <div class="setting-item-control">
@@ -329,34 +338,23 @@ onUnmounted(() => {
     <template v-if="ragEnabled">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">嵌入服务地址</div>
-          <div class="setting-item-desc">向量嵌入服务的网址</div>
+          <div class="setting-item-name">检索提供方</div>
+          <div class="setting-item-desc">
+            {{ ragProviders.length ? '嵌入提供方在「AI 提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「AI 提供方」页添加 RAG 提供方' }}
+          </div>
         </div>
         <div class="setting-item-control">
-          <input v-model="ragEndpoint" class="text-input" type="text" placeholder="https://..." />
+          <select
+            class="rag-prov-select"
+            aria-label="检索提供方"
+            :value="ragProvider || (ragLegacy ? '__legacy__' : '')"
+            @change="onRagProviderChange($event)"
+          >
+            <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
+            <option v-if="ragLegacy" value="__legacy__">旧版内联配置（沿用）</option>
+            <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
+          </select>
         </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">嵌入模型</div>
-          <div class="setting-item-desc">向量嵌入模型名称</div>
-        </div>
-        <div class="setting-item-control">
-          <input v-model="ragModel" class="text-input" type="text" placeholder="如 text-embedding-3-small" />
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">API Key</div>
-          <div class="setting-item-desc">嵌入服务密钥，落 .clwriting/rag.secret（不进 book.yaml）</div>
-        </div>
-        <div class="setting-item-control">
-          <input v-model="ragApiKey" class="text-input" type="password" placeholder="留空则用环境变量 CLWRITING_RAG_API_KEY" />
-        </div>
-      </div>
-      <div class="rag-save-row">
-        <button class="save-btn" @click="saveRagConfig">保存检索设置</button>
-        <button class="save-btn" @click="saveRagApiKey" :disabled="!ragApiKey.trim()">保存 API Key</button>
       </div>
       <div class="rag-build-row">
         <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
@@ -375,6 +373,29 @@ onUnmounted(() => {
   border-radius: 99px;
   background: var(--background-modifier-hover);
   color: var(--text-faint);
+}
+
+/* 检索提供方下拉（对齐设置页输入控件风格） */
+.rag-prov-select {
+  max-width: 260px;
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.rag-prov-select:hover {
+  border-color: var(--interactive-accent);
+}
+
+.rag-prov-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 
 .rag-build-row {

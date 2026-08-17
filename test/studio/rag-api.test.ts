@@ -1,14 +1,15 @@
 /**
  * cc 批4（P1-8）RAG 接线端点集成测：buildIndex 从零生产调用方变为 GUI 可触发。
+ * 服务商化改版：书存 rag.provider 引用应用级 RAG 服务商；旧版内联 endpoint/model 回落仍可用。
  *
- * 覆盖：api_key 落 .clwriting/rag.secret（H1 不入 book.yaml）/ status 初始态 /
- * build 前置校验（未配置 → 400、缺 key → 400）/ build 成功后台跑完 → status 反映。
+ * 覆盖：status 初始态 / build 前置校验（未配置 → 400）/ 旧版内联 + rag.secret 回落 build /
+ * 服务商引用 build（status 回显 providerName）/ 增量幂等。
  * embed 用 vi.mock 桩（确定性向量，不联网）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
@@ -26,12 +27,21 @@ vi.mock('../../src/rag/embed.js', () => ({
 
 const BOOK = 'RAG测试书'
 let workDir = ''
+let userData = ''
 let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
 function api(path: string, init?: RequestInit): Promise<{ status: number; json: Record<string, unknown> }> {
   return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
+    ...init,
+    headers: { 'x-studio-token': token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
+  }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
+}
+
+/** 全局路径请求（rag-providers 管理端点不在 /api/books 下） */
+function gapi(path: string, init?: RequestInit): Promise<{ status: number; json: Record<string, unknown> }> {
+  return fetch(`${baseUrl}${path}`, {
     ...init,
     headers: { 'x-studio-token': token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
   }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
@@ -51,8 +61,19 @@ async function waitForStatus(
   throw new Error('waitForStatus 超时')
 }
 
+/** PUT 全量 config（GET 现有完整 config → 改 rag → PUT） */
+async function putRagCfg(rag: Record<string, unknown>): Promise<void> {
+  const get = await api('/config')
+  expect(get.status).toBe(200)
+  const cfg = get.json['config'] as Record<string, unknown>
+  ;(cfg as { rag: unknown })['rag'] = rag
+  const put = await api('/config', { method: 'PUT', body: JSON.stringify({ config: cfg }) })
+  expect(put.status).toBe(200)
+}
+
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-rag-api-'))
+  userData = mkdtempSync(join(tmpdir(), 'clwriting-rag-user-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   // 登记名 = book.yaml title = 目录名（启动 repair 以 title 为真相源，构造对齐避免被改）
   writeFileSync(
@@ -78,7 +99,7 @@ beforeAll(async () => {
     )
   }
 
-  server = startServer({ port: 0, workDir })
+  server = startServer({ port: 0, workDir, userDataPath: userData })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
@@ -92,50 +113,56 @@ afterAll(async () => {
     await new Promise<void>((r) => server!.close(() => r()))
   }
   if (workDir) rmSync(workDir, { recursive: true, force: true })
+  if (userData) rmSync(userData, { recursive: true, force: true })
 })
 
-describe('cc批4 RAG 接线（P1-8）', () => {
-  it('api_key 端点：写 .clwriting/rag.secret（gitignore 区，不入 book.yaml）', async () => {
-    const r = await api('/rag/key', { method: 'POST', body: JSON.stringify({ apiKey: 'sk-test-123' }) })
-    expect(r.status).toBe(200)
-    expect(readFileSync(join(workDir, '.clwriting', 'rag.secret'), 'utf-8').trim()).toBe('sk-test-123')
-    // H1：key 绝不进 book.yaml
-    expect(readFileSync(join(workDir, BOOK, 'book.yaml'), 'utf-8')).not.toContain('sk-test-123')
-    // 空 key → 400
-    const bad = await api('/rag/key', { method: 'POST', body: JSON.stringify({ apiKey: '' }) })
-    expect(bad.status).toBe(400)
-  })
-
+describe('RAG 接线（P1-8 服务商化）', () => {
   it('status 初始态：未建过索引 → 全零 + lastResult null', async () => {
     const r = await api('/rag/status')
     expect(r.status).toBe(200)
-    expect(r.json).toMatchObject({ running: false, indexedChapters: 0, chunkCount: 0, lastResult: null })
+    expect(r.json).toMatchObject({ running: false, indexedChapters: 0, chunkCount: 0, lastResult: null, providerName: null })
   })
 
   it('build 未配置 RAG（book.yaml 无 rag 段）→ 400 前置校验', async () => {
     const r = await api('/rag/build', { method: 'POST', body: '{}' })
     expect(r.status).toBe(400)
-    expect(String(r.json['error'])).toContain('RAG 未完整配置')
+    expect(String(r.json['error'])).toContain('知识检索未启用')
   })
 
-  it('配置 rag 段后 build：后台跑完 → status 反映已索引章/块', async () => {
-    // 配置 rag 段：GET 现有完整 config → 加 rag → PUT（stringifyBookConfig 需要全结构）
-    const get = await api('/config')
-    expect(get.status).toBe(200)
-    const cfg = get.json['config'] as Record<string, unknown>
-    ;(cfg as { rag: unknown })['rag'] = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
-    const put = await api('/config', { method: 'PUT', body: JSON.stringify({ config: cfg }) })
-    expect(put.status).toBe(200)
+  it('旧版内联（endpoint/model 直存 + rag.secret 落 key）→ build 可用（存量兼容回落）', async () => {
+    writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'sk-legacy-key\n', 'utf8')
+    await putRagCfg({ enabled: true, endpoint: 'http://stub-legacy', model: 'stub-model' })
 
     const r = await api('/rag/build', { method: 'POST', body: '{}' })
     expect(r.status).toBe(200)
-    expect(r.json).toMatchObject({ started: true })
-
-    // 后台任务完成 → status 反映
     const done = await waitForStatus((s) => s['running'] === false && (s['chunkCount'] as number) > 0)
     expect(done['indexedChapters']).toBeGreaterThanOrEqual(1)
     expect(done['lastResult']).toMatchObject({ ok: true })
     expect(done['model']).toBe('stub-model')
+    // 旧版：legacy=true、无 providerName
+    expect(done['legacy']).toBe(true)
+    expect(done['providerName']).toBeNull()
+  })
+
+  it('书级 rag.provider 引用应用级服务商 → build 走服务商（status 回显 providerName）', async () => {
+    // 造一个 RAG 服务商（key 走 vault，模型名与旧索引一致避免触发重建拦截）
+    const create = await gapi('/api/rag-providers', {
+      method: 'POST',
+      body: JSON.stringify({ name: '测试嵌入', endpoint: 'http://stub-prov', model: 'stub-model', apiKey: 'sk-rag-test-123' }),
+    })
+    expect(create.status).toBe(200)
+    const providerId = (create.json['provider'] as { id: string }).id
+    expect(providerId.startsWith('rag-')).toBe(true)
+
+    await putRagCfg({ enabled: true, provider: providerId })
+
+    const r = await api('/rag/build', { method: 'POST', body: '{}' })
+    expect(r.status).toBe(200)
+    const done = await waitForStatus((s) => s['running'] === false && (s['lastResult'] as { ok: boolean })?.ok === true)
+    expect(done['providerName']).toBe('测试嵌入')
+    expect(done['legacy']).toBe(false)
+    // 书的 rag 段只剩 enabled + provider（endpoint/model 已由迁移语义清掉）
+    expect(done['ragConfig']).toMatchObject({ enabled: true, provider: providerId })
   })
 
   it('build 再跑：增量无新块（幂等）', async () => {
@@ -143,5 +170,16 @@ describe('cc批4 RAG 接线（P1-8）', () => {
     expect(r.status).toBe(200)
     const done = await waitForStatus((s) => s['running'] === false && (s['lastResult'] as { ok: boolean })?.ok === true)
     expect((done['lastResult'] as { chunkCount: number }).chunkCount).toBe(0) // 增量：无新块
+  })
+
+  it('引用的服务商被删 → build 400（提示重选，不回落旧内联）', async () => {
+    const list = await gapi('/api/rag-providers')
+    const id = (list.json['ragProviders'] as Array<{ id: string }>)[0]!.id
+    const del = await gapi(`/api/rag-providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    expect(del.status).toBe(200)
+
+    const r = await api('/rag/build', { method: 'POST', body: '{}' })
+    expect(r.status).toBe(400)
+    expect(String(r.json['error'])).toContain('提供方不存在')
   })
 })

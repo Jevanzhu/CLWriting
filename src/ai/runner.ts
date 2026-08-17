@@ -124,7 +124,17 @@ export function resolveProvider(
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
-  const s = loadProviders(userDataPath)
+  // ee-P1-1：loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
+  // GCM 认证失败等场景会直接 throw——与下方 dd-P2 的 createProvider 同为取 provider 的
+  // 入口，却裸穿 {ok:false} 封套（此前 step/start 已落成孤儿、API 层变裸 500），
+  // 故收进封套同判 NO_PROVIDER。（上方两个降级回调内的 loadProviders 在生成期才执行，
+  // 已被 runTask 主 try 包住，保持不动。）
+  let s: ReturnType<typeof loadProviders>
+  try {
+    s = loadProviders(userDataPath)
+  } catch (e) {
+    return { ok: false, code: 'NO_PROVIDER', error: `供应商配置读取失败：${e instanceof Error ? e.message : String(e)}` }
+  }
   const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null
   if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG }
   // D 档：模型从任务档位取（creative/assistant），档位未配模型时回落 currentModel
@@ -132,7 +142,15 @@ export function resolveProvider(
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG }
   // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
   // store 传入适配器供降级记忆读写（§6.5）
-  return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s), tier }
+  // dd-P2：createProvider 对存量坏 conf 会 throw（openai-responses 停用迁移报错 /
+  // 未知协议）——
+  // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
+  // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
+  try {
+    return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s), tier }
+  } catch (e) {
+    return { ok: false, code: 'NO_PROVIDER', error: e instanceof Error ? e.message : '供应商初始化失败' }
+  }
 }
 
 /**
@@ -275,10 +293,19 @@ export async function runTask<T>(opts: {
     return r
   }
 
-  const ctrl = opts.ctrl ?? new AbortController()
-  if (opts.register) opts.register(ctrl)
+  // ee-P1-2：外部 ctrl（opts.ctrl / register / TaskOk.ctrl 的对外契约）与内部 ctrl 分离——
+  // 整体超时只 abort 内部 ctrl 终止本次 runTask，不再污染编排级共享 ctrl（self-heal 一个
+  // ctrl 跑多章：此前超时 abort 共享 ctrl 后被其 `state.ctrl.signal.aborted` 判吞成用户
+  // 中断，超时文案丢失且后续章静默停摆）。外部中断经 forwardAbort 转发进内部 ctrl，
+  // 下方运行与 catch 判定全走内部（对外契约不变，timedOut 标志区分超时 vs 中断）。
+  const external = opts.ctrl ?? new AbortController()
+  const ctrl = new AbortController()
+  const forwardAbort = (): void => ctrl.abort()
+  if (external.signal.aborted) ctrl.abort()
+  else external.signal.addEventListener('abort', forwardAbort, { once: true })
+  if (opts.register) opts.register(external)
 
-  // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort ctrl，由下方 catch 区分超时 vs 用户中断
+  // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort 内部 ctrl，由下方 catch 区分超时 vs 用户中断
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
   const tier = r.tier
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -302,7 +329,8 @@ export async function runTask<T>(opts: {
         }
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
-        return { ok: true, data, ctrl, usage, runId }
+        // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
+        return { ok: true, data, ctrl: external, usage, runId }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
         if (ctrl.signal.aborted) {
@@ -388,6 +416,9 @@ export async function runTask<T>(opts: {
     }
   } finally {
     clearTimeout(totalTimer)
+    // ee-P1-2：摘掉外部 ctrl 上的转发监听——self-heal 一个 ctrl 跑多章，不摘会在长寿命
+    // ctrl 上逐章累积 listener 触发 MaxListenersExceededWarning（once 触发后此调用为无害 no-op）
+    external.signal.removeEventListener('abort', forwardAbort)
     // P2：step/end 结构化终止原因（先落库后清理）——五层链路终止可查
     if (chain) {
       if (stepReason) chain.add(stepEndEvent(task!, layerForTask(task!), stepReason))

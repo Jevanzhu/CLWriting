@@ -346,3 +346,45 @@ describe('doc store · refresh 本地正文保护（CC-P2-15）', () => {
     expect(e.dirty).toBe(false)
   })
 })
+
+// ── ee-P1-7：refresh 净分支 sha256 await 窗口竞态 ──────────────────────
+
+describe('doc store · refresh 净分支 sha256 窗口竞态（ee-P1-7）', () => {
+  it('窗口内键入：dirty 不被误清、键入内容保留（修复前：autosave/beforeunload 双兜底同跳过，关窗即丢编辑）', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '旧内容')
+    const e = doc.get('d1')!
+    const oldBase = e.baselineRevision
+    // 手动可控 deferred：getContent 归来后才打开净分支的 sha256 竞态窗口
+    let resolveGet!: (v: string) => void
+    vi.mocked(getContent).mockReturnValueOnce(new Promise<string>((r) => (resolveGet = r)))
+    const p = doc.refresh('d1') // 不 await：refresh 此刻挂在 getContent 上
+    resolveGet('服务端内容')
+    // 微任务泵推进到净分支窗口内：content 已指向服务端值、baselineRevision 尚未推进。
+    // 二者同时成立 ⇔ refresh 正挂在 await sha256Revision 上（crypto.subtle 跨宏任务才会归来），
+    // patch 必须精确落在这个窗口里才复现本 bug（落早了走 dirty 分支、落晚了修复前后行为一致）
+    for (let i = 0; i < 1000 && !(e.content === '服务端内容' && e.baselineRevision === oldBase); i++) {
+      await Promise.resolve()
+    }
+    expect(e.content).toBe('服务端内容') // 已进入净分支（e.content = content 已执行）
+    expect(e.baselineRevision).toBe(oldBase) // sha256 未归来：确在窗口内
+    doc.patch('d1', '作者键入的内容') // 模拟窗口内作者键入（patch 置 dirty）
+    await p
+    expect(e.dirty).toBe(true) // 修复点：不得误清 dirty（否则状态条谎报「已保存」）
+    expect(e.content).toBe('作者键入的内容') // 键入内容未被覆盖/丢弃
+    // baseline 仍推进为磁盘内容指纹（冲突检测的「已知磁盘态」），与本地是否分叉无关
+    expect(e.baselineRevision).toBe(await sha256Revision('服务端内容'))
+  })
+
+  it('反向对照：窗口内无键入 → dirty 归位 false、内容对齐磁盘、baseline 推进', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '旧内容')
+    const e = doc.get('d1')!
+    let resolveGet!: (v: string) => void
+    vi.mocked(getContent).mockReturnValueOnce(new Promise<string>((r) => (resolveGet = r)))
+    const p = doc.refresh('d1')
+    resolveGet('服务端内容')
+    await p
+    expect(e.content).toBe('服务端内容')
+    expect(e.dirty).toBe(false)
+    expect(e.baselineRevision).toBe(await sha256Revision('服务端内容'))
+  })
+})

@@ -234,3 +234,66 @@ test('parseLeadFileName', () => {
   expect(parseLeadFileName('成长线-003-林晚修为.md')).toEqual({ 编号: '成长线-003', 标题: '林晚修为' })
   expect(parseLeadFileName('乱七八糟.md')).toBeNull()
 })
+
+// ── dd-P2：履历段后的人工正文（备注/关联线索）回写保留 ──
+
+test('writeLead: 履历段后的 ## 尾段在回写后原样保留', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-001-暗格.md')
+  const original = [
+    '---',
+    '编号: 悬念-001',
+    '标题: 暗格',
+    '类型: 悬念',
+    '状态: 进行中',
+    '开启章: 12',
+    '---',
+    '',
+    '祠堂暗格的来历说明（履历段前人工正文）。',
+    '',
+    '## 履历',
+    '',
+    '- 第012章 埋下：林家祠堂暗格被一笔带过。',
+    '',
+    '## 关联线索',
+    '',
+    '- 与 悬念-002 灭门夜共享时间线（作者手写备注）。',
+    '',
+  ].join('\n')
+  writeFileSync(fp, original)
+
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 追加一条履历再回写——尾段必须还在
+  r.lead.履历.push({ 章号: 47, 动词: '推进', 证据: '管家提到那夜后门的狗没叫' })
+  writeLead(fp, r.lead)
+
+  const after = readFileSync(fp, 'utf8')
+  expect(after).toContain('## 关联线索')
+  expect(after).toContain('与 悬念-002 灭门夜共享时间线')
+  expect(after).toContain('祠堂暗格的来历说明')
+  expect(after).toContain('第047章 推进')
+  // 再读一轮：履历两条、编号不变（可继续往返）
+  const r2 = readLead(fp)
+  expect(r2.ok).toBe(true)
+  if (r2.ok) expect(r2.lead.履历).toHaveLength(2)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('writeLead: 无尾段时回写不引入空段（与旧格式字节等价语义）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-002-狗.md')
+  writeFileSync(
+    fp,
+    ['---', '编号: 悬念-002', '标题: 狗', '类型: 悬念', '状态: 进行中', '开启章: 47', '---', '', '## 履历', '', '- 第047章 埋下：狗没叫。', ''].join('\n'),
+  )
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  writeLead(fp, r.lead)
+  const after = readFileSync(fp, 'utf8')
+  expect(after).not.toContain('\n\n\n') // 无连续空行残留
+  expect(after.trimEnd().endsWith('- 第047章 埋下：狗没叫。')).toBe(true)
+  rmSync(dir, { recursive: true, force: true })
+})

@@ -13,6 +13,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { startServer } from '../studio/server/index.js'
+import { defaultUserDataPath } from '../fs/user-data-path.js'
 
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
@@ -24,7 +25,9 @@ const workDir = argValue('--dir') ?? undefined
 // 静态前端与 Electron 态同一落点：dist/web（相对编译产物的本文件定位）
 const staticDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web')
 
-const server = startServer({ port, workDir, staticDir })
+// dd-P3（C-P3-16）：APP 级数据目录与 Electron 态同源（providers/全局偏好/RAG 提供方都在这里），
+// 缺省时 startServer 视为未定位 → 发布冒烟读不到真实配置，验证面就窄了一截
+const server = startServer({ port, workDir, staticDir, userDataPath: defaultUserDataPath() })
 // RB-SV-P2-3：监听错误兜底——EADDRINUSE 等给出可读中文后退出，而非未捕获异常崩溃
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {

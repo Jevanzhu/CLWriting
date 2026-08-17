@@ -144,8 +144,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       res.end('no book')
       return
     }
-    // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token
-    // 防本地恶意进程扫描端口窃听创作内容
+    // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token。
+    // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程 GET /boot 即可拿
+    // token，此处不承诺防本机进程；token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的
+    // 客户端，配合 Host/Origin 校验（server/index.ts）防远端网页窃听创作内容。
     const queryToken = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? undefined
     if (!safeTokenCompare(queryToken, ctx.studioToken)) {
       res.writeHead(403)
@@ -220,6 +222,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const bookName = params['name']!
     if (spawnRunning.has(bookName)) {
       return reply(res, 409, { error: '本书正在生成，先等它跑完或中断' })
+    }
+    // dd-P2：与全自动写章互斥——/auto-write 已查 spawnRunning，反向此前缺失：
+    // self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
+    if (isSelfHealRunning(bookName)) {
+      return reply(res, 409, { error: '本书正在全自动写章，先等它跑完或中断' })
     }
     spawnRunning.set(bookName, true)
     let launched = false

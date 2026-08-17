@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
 import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply, readJson } from '../http.js'
+import { reply, readJson, HttpError } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
@@ -80,7 +80,11 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if (!release) return reply(res, 409, { error: '本书正在梳理角色关系，请等待完成后再试' })
     try {
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
-      const body = (await readJson(req).catch(() => ({}))) as { force?: boolean }
+      //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
+      const body = (await readJson(req).catch((e: unknown) => {
+        if (e instanceof HttpError) throw e
+        return {}
+      })) as { force?: boolean }
       const force = body?.force === true
       const bookRoot = join(ctx.workDir, entry.path)
       const cachePath = join(bookRoot, RELATION_CACHE)

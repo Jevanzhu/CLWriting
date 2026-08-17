@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import process from 'node:process'
 import type { DatabaseSync } from 'node:sqlite'
 import { readRagConfig, readApiKey, writeApiKey, enableRag } from '../../src/rag/config.js'
+import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
 import { openRagDb, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
 import { readBookConfig } from '../../src/format/yaml.js'
@@ -100,6 +101,87 @@ describe('RAG config（红线 H1：key 不进 git）', () => {
     } finally {
       if (oldEnv !== undefined) process.env.CLWRITING_RAG_API_KEY = oldEnv
     }
+  })
+})
+
+describe('resolveRag（服务商化：书级引用 + 应用级服务商 + 旧版内联回落）', () => {
+  const PROVIDERS = [
+    { id: 'rag-a', name: 'A 家嵌入', endpoint: 'https://a.example/v1/embeddings', model: 'embed-a', apiKey: 'key-a' },
+    { id: 'rag-b', name: 'B 家嵌入', endpoint: 'https://b.example/v1/embeddings', model: 'embed-b', apiKey: '' },
+  ]
+  let bookRoot: string
+  let workDir: string
+
+  beforeEach(() => {
+    workDir = join(tmpdir(), `rag-res-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    bookRoot = join(workDir, 'mybook')
+    mkdirSync(bookRoot, { recursive: true })
+    mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    delete process.env.CLWRITING_RAG_API_KEY
+  })
+
+  it('readRagConfig：rag.provider 解析（yaml rag 段新键）', () => {
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'book:\n  title: 测试\nrag:\n  enabled: true\n  provider: rag-a\n',
+      'utf-8',
+    )
+    const cfg = readRagConfig(bookRoot)
+    expect(cfg).toMatchObject({ enabled: true, provider: 'rag-a' })
+  })
+
+  it('未启用 → null（不管配了什么）', () => {
+    expect(resolveRag({ enabled: false, provider: 'rag-a' }, PROVIDERS, workDir)).toBeNull()
+  })
+
+  it('书级 provider 命中 → 服务商的 endpoint/model/key，legacy=false', () => {
+    const r = resolveRag({ enabled: true, provider: 'rag-a' }, PROVIDERS, workDir)
+    expect(r).toMatchObject({
+      endpoint: 'https://a.example/v1/embeddings',
+      model: 'embed-a',
+      apiKey: 'key-a',
+      providerId: 'rag-a',
+      providerName: 'A 家嵌入',
+    })
+    expect(r!.legacy).toBeUndefined()
+  })
+
+  it('env CLWRITING_RAG_API_KEY 覆盖一切落盘 key（服务商/旧内联两链同权）', () => {
+    process.env.CLWRITING_RAG_API_KEY = 'env-key'
+    const byProvider = resolveRag({ enabled: true, provider: 'rag-a' }, PROVIDERS, workDir)
+    expect(byProvider!.apiKey).toBe('env-key')
+    const byLegacy = resolveRag({ enabled: true, endpoint: 'https://x', model: 'm' }, PROVIDERS, workDir)
+    expect(byLegacy!.apiKey).toBe('env-key')
+  })
+
+  it('服务商 key 缺失 → apiKey 空串（调用方按场景报错），不误判为未配置', () => {
+    const r = resolveRag({ enabled: true, provider: 'rag-b' }, PROVIDERS, workDir)
+    expect(r).not.toBeNull()
+    expect(r!.apiKey).toBe('')
+  })
+
+  it('服务商被删（id 无命中）→ null：不静默回落旧内联（防换端点烧钱）', () => {
+    expect(resolveRag({ enabled: true, provider: 'rag-gone' }, PROVIDERS, workDir)).toBeNull()
+  })
+
+  it('旧版内联回落：endpoint/model + rag.secret，legacy=true', () => {
+    writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'legacy-key\n', 'utf8')
+    const r = resolveRag({ enabled: true, endpoint: 'https://legacy.example/v1/embeddings', model: 'old-model' }, PROVIDERS, workDir)
+    expect(r).toMatchObject({
+      endpoint: 'https://legacy.example/v1/embeddings',
+      model: 'old-model',
+      apiKey: 'legacy-key',
+      legacy: true,
+    })
+  })
+
+  it('两条链都不完整 → null', () => {
+    expect(resolveRag({ enabled: true }, PROVIDERS, workDir)).toBeNull()
+    expect(resolveRag({ enabled: true, endpoint: 'https://only-endpoint' }, PROVIDERS, workDir)).toBeNull()
   })
 })
 

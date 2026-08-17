@@ -74,9 +74,13 @@ export function readSamplesByScene(
   sampleDir: string, // 文风/样章库/
   scene: string,
 ): { samples: StyleSample[]; errors: ParseError[] } {
-  const sceneDir = join(sampleDir, scene)
   const samples: StyleSample[] = []
   const errors: ParseError[] = []
+  // dd-P3：scene 防御——调用方之一（prepare.ts）的 scene 来自外部参数，拒绝路径段
+  if (scene.includes('/') || scene.includes('\\') || scene === '.' || scene === '..') {
+    return { samples, errors: [{ file: join(sampleDir, scene), line: 0, message: '场景名不能包含路径分隔符' }] }
+  }
+  const sceneDir = join(sampleDir, scene)
   let files: string[]
   try {
     files = readdirSync(sceneDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))

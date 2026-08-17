@@ -155,7 +155,14 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const outcome = finalizeRevision(r.bookRoot, params['docId'] ?? '')
       if (!outcome.ok) {
-        const status = outcome.code === 'NOT_FOUND' ? 404 : 400
+        // ee-P1-3：LEAD_GATE → 409（可修复的账实状态冲突，语义与 structStatus 的
+        // REVISION_CONFLICT/OCCUPIED 冲突族一致）；ee-P1-4：LEAD_WRITE_ERROR → 500
+        // （服务端 IO 故障，作者修复环境后重试）。error 人话原样透传给前端 toast。
+        const status =
+          outcome.code === 'NOT_FOUND' ? 404
+          : outcome.code === 'LEAD_GATE' ? 409
+          : outcome.code === 'LEAD_WRITE_ERROR' ? 500
+          : 400
         return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
       }
       reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
@@ -186,6 +193,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           return reply(res, 400, { code: 'BAD_INPUT', error: 'docIds 必须为非空字符串数组' })
         }
         const results = docIds.map((docId) => {
+          // ee-P1-3/ee-P1-4：LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
+          // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
           const o = finalizeRevision(r.bookRoot, docId)
           return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
         })

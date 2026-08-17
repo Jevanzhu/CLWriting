@@ -88,10 +88,8 @@ async function saveRules(): Promise<void> {
   if (rulesSaving.value) return
   rulesSaving.value = true
   try {
-    if (rulesMissing.value) {
-      await putContent(props.bookName, RULES_PATH, '')
-      rulesMissing.value = false
-    }
+    // dd-P3：去首次空写——putContent 本身可创建文件，空写多余
+    rulesMissing.value = false
     await putContent(props.bookName, RULES_PATH, rulesText.value)
     rulesOrig.value = rulesText.value
     ui.toast('文风铁律已保存', 'success')

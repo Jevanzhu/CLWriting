@@ -295,4 +295,17 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
     })
     expect(r.ok).toBe(true)
   })
+
+  it('ee-P1-5：journal pending 写失败 → {ok:false} 契约而非裸异常（Promise.resolve 不捕同步 throw）', async () => {
+    const created = await svc.createDocument({ relPath: '写作/正文/0008-journal.md', content: 'a' })
+    if (!created.ok) throw new Error('prereq create')
+    // 把 .journal 目录槽位占成普通文件 → appendMovePending 落盘必失败（ENOTDIR）
+    writeFileSync(join(bookRoot, '工作区', '.journal'), '占用目录槽位的文件')
+    // 修复前：appendMovePending 在 try 外同步 throw，renameDocument 直接抛裸异常；
+    // 修复后：收进 {ok:false, code:WRITE_ERROR} 契约（调用方 API 层按信封回 4xx/5xx）
+    const p = svc.renameDocument({ docId: created.docId, newName: '0009-改名.md' })
+    await expect(p).resolves.toMatchObject({ ok: false, code: 'WRITE_ERROR' })
+    // 源文件未被移动（rename 从未执行）
+    expect(existsSync(join(bookRoot, '写作/正文/0008-journal.md'))).toBe(true)
+  })
 })

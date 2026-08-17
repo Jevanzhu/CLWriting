@@ -132,3 +132,70 @@ export async function setChatTier(slot: TierSlot | null): Promise<{ ok: boolean;
     body: JSON.stringify(slot),
   })
 }
+
+// ── RAG（嵌入）服务商管理（应用级，跨书共享；书在 book.yaml rag.provider 引用） ──
+
+export interface RagProviderCaps {
+  connected: boolean
+}
+
+export interface RagProviderDto {
+  id: string
+  name: string
+  endpoint: string // embeddings 完整 URL（OpenAI 兼容 POST 端点）
+  model: string
+  apiKey: string // 返回时为空串（不回传原始 key）
+  apiKeyMasked: string
+  caps: RagProviderCaps | null
+  capsProbedAt?: number
+  sortIndex?: number
+}
+
+export async function getRagProviders(): Promise<{ ragProviders: RagProviderDto[] }> {
+  return apiJson('/api/rag-providers')
+}
+
+export async function createRagProvider(body: {
+  name: string
+  endpoint: string
+  model: string
+  apiKey: string
+}): Promise<{ provider: RagProviderDto }> {
+  return apiJson('/api/rag-providers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更后服务端清 caps 要求重测 */
+export async function updateRagProvider(
+  id: string,
+  body: { name: string; endpoint: string; model: string; apiKey: string },
+): Promise<{ provider: RagProviderDto }> {
+  return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** 删除不级联改书：引用它的书此后解析为「未配置」（AI 功能页提示重选） */
+export async function deleteRagProvider(id: string): Promise<{ ok: boolean }> {
+  return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface RagTestResult {
+  ok: boolean
+  caps?: RagProviderCaps
+  error?: string
+}
+
+/** 测试连接：真实 embed 一次 'ping'（15s） */
+export async function testRagProvider(id: string): Promise<RagTestResult> {
+  return apiJson(`/api/rag-providers/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }, 30_000)
+}

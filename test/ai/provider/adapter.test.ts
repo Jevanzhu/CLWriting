@@ -379,6 +379,7 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
       currentId: null,
       currentModel: null,
       modelCaps: {},
+      ragProviders: [],
       tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
       vault: null,
       dek: null,

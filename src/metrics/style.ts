@@ -287,7 +287,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
     let invalidSampleCount = 0
     for (const scene of sceneEntries) {
       const scenePath = join(sampleDir, scene)
-      if (!statSync(scenePath).isDirectory()) continue
+      // dd-P3：readdir 后目录可能被删——statSync 用 throwIfNoEntry 容错，防裸 ENOENT 中断冻结
+      const st = statSync(scenePath, { throwIfNoEntry: false })
+      if (!st || !st.isDirectory()) continue
       const { samples, errors } = readSamplesByScene(sampleDir, scene)
       invalidSampleCount += errors.length
       if (samples.length === 0) continue // 空场景目录跳过

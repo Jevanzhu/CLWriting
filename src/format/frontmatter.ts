@@ -98,7 +98,8 @@ export function stringifyValue(val: unknown): string {
   const s = String(val)
   // 需要加引号的情形：纯数字串（防被当 int）、空、特殊字符
   // X-P2-18：补 `,`——内联数组的分隔符本身，含逗号项不引号则解析端切错位
-  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,]/.test(s)) {
+  // dd-P3：首尾空白也加引号——不引号则往返后空白被 trim 丢失
+  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,]/.test(s) || /^\s|\s$/.test(s)) {
     return '"' + s.replace(/"/g, '\\"') + '"'
   }
   return s
@@ -209,9 +210,9 @@ export function readFile(
   return { ok: true, fmRaw: split.fmRaw, body: split.body }
 }
 
-/** 写入 front matter + 正文到文件 */
-export function writeFile(filePath: string, fmText: string, body: string): void {
-  atomicWriteFile(filePath, joinFrontMatter(fmText, body))
+/** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee-P1-6 账本写点用 fsync） */
+export function writeFile(filePath: string, fmText: string, body: string, opts?: { fsync?: boolean }): void {
+  atomicWriteFile(filePath, joinFrontMatter(fmText, body), opts)
 }
 
 // ── 境界体系嵌套解析（#6 第 2 节）────────────────

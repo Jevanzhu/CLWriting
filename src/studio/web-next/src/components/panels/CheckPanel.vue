@@ -7,7 +7,7 @@ import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf, isBodyKind } from '../../shared/words'
+import { isBodyKind } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
 const check = useCheckStore()

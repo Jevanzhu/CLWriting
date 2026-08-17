@@ -22,6 +22,7 @@ import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { buildIndex } from '../../src/rag/index.js'
 import { enableRag } from '../../src/rag/config.js'
+import { emptySettings, saveProviders } from '../../src/ai/provider/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
 import type { RagConfig } from '../../src/rag/config.js'
@@ -276,6 +277,39 @@ test('已配 RAG 但无 key → 降级（无召回段，ragNote 标注）', asyn
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('服务商化：书存 rag.provider 引用应用级服务商 → 召回可用（key 来自服务商）', async () => {
+  const { root, workDir, db } = makeBook()
+  const userData = mkdtempSync(join(tmpdir(), 'mat-ud-'))
+  try {
+    delete process.env.CLWRITING_RAG_API_KEY
+    // 应用级服务商 fixture（key 走 vault 落 providers.json）
+    const store = emptySettings()
+    store.ragProviders = [{
+      id: 'rag-stub', name: '测试嵌入', endpoint: 'http://stub-prov', model: 'stub-model',
+      apiKey: 'prov-key', caps: null,
+    }]
+    saveProviders(userData, store)
+
+    // 书只存 enabled + provider 引用（服务商化后的新形态）
+    writeBookConfig(join(root, 'book.yaml'), {
+      ...DEFAULT_CONFIG,
+      rag: { enabled: true, provider: 'rag-stub' },
+    })
+    await buildIndex(root, { enabled: true, endpoint: 'http://stub-prov', model: 'stub-model' }, 'prov-key', stubEmbed)
+
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], embedFn: stubEmbed, userDataPath: userData,
+    })
+    expect(r.ragUsed).toBe(true)
+    expect(r.ragHitCount).toBeGreaterThan(0)
+    expect(r.sections.find((s) => s.title === 'RAG 召回')).toBeDefined()
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userData, { recursive: true, force: true })
   }
 })
 

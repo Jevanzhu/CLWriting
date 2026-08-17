@@ -1,4 +1,4 @@
-import { apiJson } from './client'
+import { apiJson, ApiError } from './client'
 
 // 三审结果类型（镜像后端 src/review/run.ts CollectedReview + normalized 精简）。
 export interface ReviewIssueFE {
@@ -74,7 +74,8 @@ export async function getReviewEnvelope(
       `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analysis/review`,
     )
     return { envelope: r.envelope, stale: r.stale }
-  } catch {
-    return null
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null // 确无存量信封
+    throw e // 服务端故障/网络错误上抛（调用方 toast）
   }
 }

@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
 import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
@@ -28,8 +28,8 @@ afterEach(() => {
   resetDegradedChannels()
 })
 
-/** 写最小 providers.json（明文 apiKey，loadProviders 自动迁移加密） */
-function writeProviders(userDataPath: string): void {
+/** 写最小 providers.json（明文 apiKey，loadProviders 自动迁移加密）；timeoutMs 可选注入档位总超时 */
+function writeProviders(userDataPath: string, timeoutMs?: number): void {
   writeFileSync(
     join(userDataPath, 'providers.json'),
     JSON.stringify({
@@ -46,6 +46,9 @@ function writeProviders(userDataPath: string): void {
       ],
       currentId: 'prov-test',
       currentModel: 'gpt-4o',
+      ...(timeoutMs !== undefined
+        ? { tiers: { creative: { model: 'gpt-4o', effort: 'high', timeoutMs }, assistant: null, chat: null } }
+        : {}),
     }),
   )
 }
@@ -120,6 +123,24 @@ describe('runTask provider 解析与统一错误文案', () => {
     })
     expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG })
   })
+
+  // ee-P1-1：loadProviders 对损坏 providers.json（且无 bak）会直接 throw——此前裸穿
+  // {ok:false} 封套到 API 层变裸 500，且已落的 step/start 成孤儿；现收进封套同判 NO_PROVIDER
+  it('ee-P1-1：providers.json 损坏且无 bak → NO_PROVIDER（供应商配置读取失败），不裸穿异常', async () => {
+    const ud = tempUserData()
+    writeFileSync(join(ud, 'providers.json'), '{ not valid json') // 损坏且无 providers.bak.json
+    let ran = false
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: (_p, _s) => {
+        ran = true
+        return Promise.resolve('never') // 不应触达 run（provider 解析即失败）
+      },
+    })
+    expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
+    if (!out.ok) expect(out.error).toContain('供应商配置读取失败')
+    expect(ran).toBe(false)
+  })
 })
 
 describe('resolveProvider 独立行为', () => {
@@ -152,19 +173,25 @@ describe('runTask B-1 指数退避重试', () => {
     const ud = tempUserData()
     writeProviders(ud)
     let calls = 0
-    const startedAt = Date.now()
-    const out = await runTask<string>({
-      userDataPath: ud,
-      run: () => {
-        calls++
-        if (calls < 2) throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 60 })
-        return Promise.resolve('ok')
-      },
-    })
-    expect(out.ok).toBe(true)
-    expect(calls).toBe(2)
-    // 服务端明示 60ms → 实际等待即 60ms（指数基数 1000ms 不参与）
-    expect(Date.now() - startedAt).toBeLessThan(900)
+    // 墙钟断言（elapsed<900ms）在全量套件负载下实测漂到 2.8s 偶发红——改捕获 setTimeout
+    // 延迟实参：退避 sleep(60) 即「服务端值生效、指数基数 1000ms 不参与」的确定性证据
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    try {
+      const out = await runTask<string>({
+        userDataPath: ud,
+        run: () => {
+          calls++
+          if (calls < 2) throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 60 })
+          return Promise.resolve('ok')
+        },
+      })
+      expect(out.ok).toBe(true)
+      expect(calls).toBe(2)
+      const delays = spy.mock.calls.map((c) => c[1]).filter((ms): ms is number => typeof ms === 'number')
+      expect(delays).toContain(60)
+    } finally {
+      spy.mockRestore()
+    }
   }, 10_000)
 
   it('B4：Retry-After 超封顶（> 30s）→ 不重试，终态 GEN_FAIL 带人话', async () => {
@@ -330,11 +357,52 @@ describe('runTask B-1 指数退避重试', () => {
       onRetry: () => {
         triggered = true
       },
-      run: () => Promise.resolve('ok'),
+      run: (_p, _s) => Promise.resolve('ok'),
     })
     expect(out.ok).toBe(true)
     expect(triggered).toBe(false)
   })
+})
+
+describe('ee-P1-2：整体超时与外部 ctrl 隔离', () => {
+  // 前置：run 回调挂起不 resolve、只在 signal abort 时 reject——模拟真实 provider
+  // 流式行为（在途 HTTP 随 abort 终止），与 chain-events.test.ts 超时用例同款搭法
+
+  it('单次生成超时只杀内部 ctrl → TIMEOUT_TOTAL，外部共享 ctrl 不被污染', async () => {
+    const ud = tempUserData()
+    writeProviders(ud, 60) // 档位 timeoutMs=60ms：制造真实总超时
+    const ctrl = new AbortController() // 编排级共享 ctrl（self-heal 一个 ctrl 跑多章场景）
+    const out = await runTask<string>({
+      userDataPath: ud,
+      ctrl,
+      run: (_p, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('timeout')))
+        }),
+    })
+    expect(out).toMatchObject({ ok: false, code: 'TIMEOUT_TOTAL' })
+    if (!out.ok) expect(out.error).toContain('生成超时')
+    // 关键断言：超时不得 abort 外部 ctrl——否则 self-heal 判 signal.aborted 吞掉超时文案、
+    // 误归因为用户中断，批量连写静默停摆
+    expect(ctrl.signal.aborted).toBe(false)
+  }, 10_000)
+
+  it('外部中断仍生效：external.abort() 经转发 → ABORTED（转发链不被修坏）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud) // 不设 timeoutMs：默认 10min，本用例只测外部中断路径
+    const ctrl = new AbortController()
+    setTimeout(() => ctrl.abort(), 20) // 模拟 self-heal abortSelfHeal / driver.interrupt
+    const out = await runTask<string>({
+      userDataPath: ud,
+      ctrl,
+      run: (_p, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
+    })
+    expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+    expect(ctrl.signal.aborted).toBe(true)
+  }, 10_000)
 })
 
 describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {

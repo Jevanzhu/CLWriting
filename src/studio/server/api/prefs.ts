@@ -63,7 +63,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!r.ok) return reply(res, r.code, { error: r.error })
     const body = await readJson(req)
     const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object') return reply(res, 400, { error: 'prefs 必填' })
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return reply(res, 400, { error: 'prefs 必填且须为对象' })
     try {
       mkdirSync(dirname(r.path), { recursive: true })
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
@@ -100,7 +100,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!r.ok) return reply(res, r.code, { error: r.error })
     const body = await readJson(req)
     const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object') return reply(res, 400, { error: 'prefs 必填' })
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return reply(res, 400, { error: 'prefs 必填且须为对象' })
     try {
       mkdirSync(dirname(r.path), { recursive: true })
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')

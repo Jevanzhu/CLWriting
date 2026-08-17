@@ -17,6 +17,9 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:18999',
     headless: true,
     actionTimeout: 10_000,
+    // dd-P3（E-P3-1）：失败留 trace——CI 已有 failure 上传 test-results/ 步骤，
+    // 不录 trace 时该工件是空目录，失败只能靠日志猜
+    trace: 'retain-on-failure',
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },

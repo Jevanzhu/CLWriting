@@ -196,8 +196,11 @@ export const useDocStore = defineStore('doc', () => {
         return
       }
       e.content = content
-      e.baselineRevision = await sha256Revision(content)
-      e.dirty = false
+      const rev = await sha256Revision(content)
+      // ee-P1-7：await 窗口内作者键入（patch 置 dirty）时不得清 dirty——否则 autosave/
+      // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
+      e.baselineRevision = rev
+      if (e.content === content) e.dirty = false
     } catch {
       /* 静默失败（best-effort 对齐磁盘） */
     }

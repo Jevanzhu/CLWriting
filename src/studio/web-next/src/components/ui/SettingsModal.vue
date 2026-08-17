@@ -30,11 +30,11 @@ const TAB_SUBTITLES: Record<Tab, string> = {
   editor: '编辑器字体、排版（字号/行距/段距）、纸张与自动保存',
   book: '书名、题材、写作模式、目标字数与书库目录',
   ai: '对话助手、文风注入、调用预算、自动写作、关系图与知识检索',
-  providers: '服务商增删、模型清单、测试连接与任务档位',
+  providers: 'AI 与 RAG 提供方增删、测试连接与任务档位',
   history: '版本保留规则、定稿版本统计与快照清理',
 }
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
-/** 当前 tab 的配置归属：外观/编辑器/AI/服务商 → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：外观/编辑器/AI/提供方 → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
 const tabScope = computed<'global' | 'book'>(() =>
   activeTab.value === 'history' || activeTab.value === 'book' ? 'book' : 'global',
 )
@@ -108,7 +108,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <Sparkles :size="16" /><span>AI 功能</span>
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
-              <Server :size="16" /><span>AI 服务商</span>
+              <Server :size="16" /><span>服务提供方</span>
             </button>
             <button :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
               <History :size="16" /><span>版本与定稿</span>

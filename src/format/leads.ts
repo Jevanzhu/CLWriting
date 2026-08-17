@@ -111,6 +111,23 @@ function bodyBeforeHistory(body: string): string {
   return lines.slice(0, idx).join('\n').trim()
 }
 
+/** 履历段之后的人工正文（下一个非履历 ## 标题起，到文末；无则空）——dd-P2 回写保真用 */
+function bodyAfterHistory(body: string): string {
+  const lines = body.split('\n')
+  let inHistory = false
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!.trim()
+    if (!inHistory) {
+      if (/^##\s*履历/.test(t)) inHistory = true
+      continue
+    }
+    if (/^##\s/.test(t) && !/^##\s*履历/.test(t)) {
+      return lines.slice(i).join('\n').trim()
+    }
+  }
+  return ''
+}
+
 // ── 单个账本条目读写 ────────────────────────────
 
 /** 已知 front matter 字段（用于区分已知 vs 未知/容错保留） */
@@ -150,6 +167,7 @@ export function readLead(
     开启章: Number(map.get('开启章') ?? 0),
     履历: parseHistory(r.body),
     _bodyBeforeHistory: bodyBeforeHistory(r.body),
+    _bodyAfterHistory: bodyAfterHistory(r.body),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,
@@ -187,7 +205,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 
   // #1 按源 md 原始顺序回写（保序，减少无谓 git diff）
   for (const key of lead._fmOrder ?? []) {
-    if (key in knownVal) {
+    if (Object.hasOwn(knownVal, key)) {
       map.set(key, knownVal[key])
       emitted.add(key)
     } else if (lead._raw && key in lead._raw) {
@@ -198,7 +216,7 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 
   // #2 原始顺序未覆盖的已知字段（内存新增）按 #3 第 3 节标准顺序追加
   for (const key of ['编号', '标题', '类型', '状态', '开启章', '境界体系', '当前境界', '父布局线', '欠方', '债主']) {
-    if (key in knownVal && !emitted.has(key)) {
+    if (Object.hasOwn(knownVal, key) && !emitted.has(key)) {
       map.set(key, knownVal[key])
       emitted.add(key)
     }
@@ -222,8 +240,14 @@ export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
   const historyText = stringifyHistory(lead.履历)
   const preserved = lead._bodyBeforeHistory?.trim()
-  const body = preserved ? `\n${preserved}\n\n${historyText}\n` : `\n${historyText}\n`
-  writeFile(filePath, fmText, body)
+  // dd-P2：履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
+  // 都会把作者手写在 ## 履历 之后的内容静默删掉
+  const after = lead._bodyAfterHistory?.trim()
+  const parts = [...(preserved ? [preserved] : []), historyText, ...(after ? [after] : [])]
+  const body = `\n${parts.join('\n\n')}\n`
+  // ee-P1-6：账本是防吃书根基，写入与 manifest/version/journal 同级 fsync——tmp+rename
+  // 防半截文件，但不防掉电时 rename 元数据先于内容持久化（账本整体回退旧状态的窗口）
+  writeFile(filePath, fmText, body, { fsync: true })
 }
 
 // ── 目录扫描（重建器/精准读取用）────────────────
@@ -248,7 +272,14 @@ export function readLeadDir(
 
   for (const f of files) {
     const fp = join(dirPath, f)
-    if (!statSync(fp).isFile()) continue
+    // dd-P3：readdir 与 stat 之间文件可能被删——单文件失败跳过（与「单文件解析失败不中断」契约一致），此前裸 ENOENT 会中断整扫描
+    let isFile = false
+    try {
+      isFile = statSync(fp).isFile()
+    } catch {
+      continue
+    }
+    if (!isFile) continue
     const parsedName = parseLeadFileName(f)
     if (parsedName === null) {
       errors.push({ file: fp, line: 0, message: '账本文件名必须是 <编号>-<标题>.md，如 悬念-031-灭门真凶.md' })

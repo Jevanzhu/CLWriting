@@ -61,7 +61,7 @@ export function evaluateRetry(
   }
 }
 
-/** 打回状态 → 人话（供 CLI 输出） */
+/** 打回状态 → 人话（测试与调试输出用；生产提示走 state 卡人话） */
 export function formatRetryState(s: RetryState): string {
   switch (s.state) {
     case 'pass':

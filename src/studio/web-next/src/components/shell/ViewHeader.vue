@@ -13,9 +13,10 @@ const VIEW_LABELS: Record<string, string> = {
   workbench: '工作台',
   onboard: '开书',
   overview: '总览',
-  rhythm: '节奏',
   relations: '关系图',
   learn: '文风收割',
+  style: '文风',
+  audit: '事件审计',
 }
 const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
 </script>

@@ -93,7 +93,8 @@ claim(/npm test\s+#\s*(\d+)\s*单测/, actual.unitTests, 'npm test 单测数')
 // 「vitest（1536 单测）+ Playwright（25 specs / 37 用例）」
 claim(/vitest（(\d+) 单测）/, actual.unitTests, '技术栈单测数')
 claim(/Playwright（(\d+) specs/, actual.e2eSpecs, 'Playwright spec 数')
-claim(/(\d+) 用例）/, actual.e2eCases, 'Playwright 用例数')
+// dd-P3（E-P3-3）：锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
+claim(/Playwright（\d+ specs \/ (\d+) 用例）/, actual.e2eCases, 'Playwright 用例数')
 // 「167 个测试文件 / 1536 单测全绿」
 claim(/(\d+) 个测试文件 \/ \d+ 单测全绿/, actual.unitFiles, '测试文件数')
 claim(/\d+ 个测试文件 \/ (\d+) 单测全绿/, actual.unitTests, '状态段单测数')

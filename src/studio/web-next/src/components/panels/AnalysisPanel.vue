@@ -30,16 +30,20 @@ const isReviewable = computed(() => {
 const tagging = ref(false)
 async function analyzeTags(): Promise<void> {
   if (!docId.value || tagging.value) return
+  // dd-P1：入口捕获 docId——await（AI 调用可达 60s）后 docId.value 可能已切到别的文档，
+  // 届时用新 id 写回 = 把 A 的标签写进 B 的 fm、把 A 的正文 patch 进 B（dirty → 落盘覆盖）
+  const id = docId.value
   tagging.value = true
   try {
     // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（与 MetaFormPanel.onSave 同口径）
     const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
-    const tags = await autotag(props.bookName, docId.value)
-    await updateDocMeta(props.bookName, docId.value, tags)
-    await doc.refresh(docId.value)
-    const refreshed = doc.get(docId.value)
+    const tags = await autotag(props.bookName, id)
+    await updateDocMeta(props.bookName, id, tags)
+    if (docId.value !== id) return // 已切文档：标签已落 A 的 fm，放弃本地正文拼回
+    await doc.refresh(id)
+    const refreshed = doc.get(id)
     if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(docId.value, mergeFm(refreshed.content, localBody))
+      doc.patch(id, mergeFm(refreshed.content, localBody))
     }
     ui.toast('标签分析完成', 'success')
   } catch (err) {
@@ -79,16 +83,19 @@ const metaValues = computed<Record<string, string>>(() => {
 const inferring = ref(false)
 async function inferChapterMeta(): Promise<void> {
   if (!docId.value || inferring.value) return
+  // dd-P1：入口捕获 docId（同 analyzeTags——await 后切档会把 A 的推断写进 B）
+  const id = docId.value
   inferring.value = true
   try {
     // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回
     const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
-    const meta = await inferMeta(props.bookName, docId.value)
-    await updateDocMeta(props.bookName, docId.value, meta)
-    await doc.refresh(docId.value)
-    const refreshed = doc.get(docId.value)
+    const meta = await inferMeta(props.bookName, id)
+    await updateDocMeta(props.bookName, id, meta)
+    if (docId.value !== id) return // 已切文档：放弃本地正文拼回
+    await doc.refresh(id)
+    const refreshed = doc.get(id)
     if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(docId.value, mergeFm(refreshed.content, localBody))
+      doc.patch(id, mergeFm(refreshed.content, localBody))
     }
     ui.toast('情绪/反转推断完成', 'success')
   } catch (err) {

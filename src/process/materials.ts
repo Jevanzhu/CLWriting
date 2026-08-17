@@ -18,7 +18,9 @@ import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { prepare, type PrepareResult } from './prepare.js'
-import { readRagConfig, readApiKey } from '../rag/config.js'
+import { readRagConfig } from '../rag/config.js'
+import { resolveRag } from '../rag/resolve.js'
+import { loadProviders } from '../ai/provider/index.js'
 import { recall, type RecallHit } from '../rag/index.js'
 import { embed } from '../rag/embed.js'
 import { findWorkDir } from '../install/books.js'
@@ -75,8 +77,10 @@ function findChapterBodyRecursive(dir: string, candidates: string[]): string | n
 export interface PrepareMaterialsOptions {
   /** 书仓库根（定稿正文在这读） */
   bookRoot: string
-  /** 工作目录（RAG api_key 落在 .clwriting/，由 workDir 定位） */
+  /** 工作目录（旧版内联 RAG 的 key 落 .clwriting/，由 workDir 定位） */
   workDir: string
+  /** 应用数据目录（RAG 服务商存 providers.json；缺省只走旧版内联回落） */
+  userDataPath?: string
   /** 本章细纲声明推进的账本条目 id（源头限流） */
   chapterLeadIds: string[]
   /** RAG 召回的 query（默认用本章细纲/标题；调用方可显式传） */
@@ -148,20 +152,21 @@ export async function prepareMaterials(
   const sampleScene = opts.sampleScene ?? (outlineScenes.length > 0 ? outlineScenes : undefined)
   // G3 留痕判定用：实际生效的场景（空 = 无声明，不留痕）
   const effectiveScenes = sampleScene === undefined ? [] : Array.isArray(sampleScene) ? sampleScene : [sampleScene]
+  // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
+  // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
+  // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
   const ragConfig = readRagConfig(bookRoot)
+  const ragProviders = opts.userDataPath ? loadProviders(opts.userDataPath).ragProviders : []
+  const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
+  const resolved = resolveRag(ragConfig, ragProviders, realWorkDir)
 
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
-  if (!ragConfig.enabled || !ragConfig.endpoint || !ragConfig.model) {
+  if (!resolved) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
     return { ...base, ragUsed: false, ragHitCount: 0, ...styleNoteOf(effectiveScenes, base) }
   }
 
-  // 已配 RAG → 读 key（环境变量 > .clwriting/rag.secret）
-  // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
-  // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
-  const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
-  const apiKey = readApiKey(realWorkDir)
-  if (!apiKey) {
+  if (!resolved.apiKey) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
     return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(effectiveScenes, base) }
   }
@@ -173,7 +178,7 @@ export async function prepareMaterials(
   let hits: RecallHit[] = []
   let ragNote: string | undefined
   try {
-    hits = await recall(bookRoot, ragConfig, apiKey, query, opts.topK ?? 5, opts.embedFn ?? embed)
+    hits = await recall(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model }, resolved.apiKey, query, opts.topK ?? 5, opts.embedFn ?? embed)
   } catch {
     hits = []
     ragNote = 'RAG 召回异常（降级回落精准读取）'

@@ -51,13 +51,20 @@ export const useReviewStore = defineStore('review', () => {
   /** 打开文档时读存量信封；无 recent collected 时用信封 payload 展示。 */
   async function loadEnvelope(name: string, docId: string): Promise<void> {
     const gen = ++opGen
-    const env = await getReviewEnvelope(name, docId)
-    if (gen !== opGen) return
-    envelope.value = env?.envelope ?? null
-    stale.value = env?.stale ?? false
-    lastDocId.value = env ? docId : null
-    if (env && !collected.value) {
-      collected.value = env.envelope.payload.collected
+    // dd-P2：getReviewEnvelope 现在只把 404 归 null、其余上抛——此处兜住进 error
+    //（watch 调用方无 catch，不兜会变未处理拒绝）
+    try {
+      const env = await getReviewEnvelope(name, docId)
+      if (gen !== opGen) return
+      envelope.value = env?.envelope ?? null
+      stale.value = env?.stale ?? false
+      lastDocId.value = env ? docId : null
+      if (env && !collected.value) {
+        collected.value = env.envelope.payload.collected
+      }
+    } catch (e) {
+      if (gen !== opGen) return
+      error.value = friendlyError(e)
     }
   }
 

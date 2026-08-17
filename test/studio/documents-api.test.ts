@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 const BOOK = '保存测试书'
 let workDir = ''
@@ -168,5 +169,44 @@ describe('PATCH /documents/:docId meta（章号）', () => {
     const newPath = join(bodyDir, '0005-开篇.md')
     expect(existsSync(newPath)).toBe(true)
     expect(readFileSync(newPath, 'utf-8')).toMatch(/章号: 5/)
+  })
+})
+
+// ── ee-P1-3：定稿防吃书闸 API 层（LEAD_GATE → 409 + error 信封） ────────────
+
+describe('POST /documents/:docId/finalize（ee-P1-3 防吃书闸）', () => {
+  it('声明了没做 → 409 + code LEAD_GATE + error 人话透传，manifest 基线未写', async () => {
+    const bookRoot = join(workDir, BOOK)
+    // 装配闸门触发条件：正文章 + 布线悬念线 + 细纲声明推进（账本推进.md 缺失 → 未兑现）
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0009-闸门章.md'),
+      '---\n章号: 9\n标题: 闸门章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n玉佩在火光里泛出微芒。\n',
+      'utf-8',
+    )
+    mkdirSync(join(bookRoot, '布线', '悬念'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '布线', '悬念', '悬念-001-玉佩.md'),
+      '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      'utf-8',
+    )
+    mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+    writeFileSync(join(bookRoot, '工作区', '细纲.md'), '---\n章号: 9\n推进: 悬念-001\n---\n\n本章细纲。\n', 'utf-8')
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, { id: 'doc_gate', nodeType: 'document', path: '写作/正文/0009-闸门章.md', parentId: null })
+    writeManifest(manifestPath, m)
+
+    const r = await request('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_gate/finalize`, {
+      'x-studio-token': token,
+    })
+    expect(r.status).toBe(409)
+    const j = r.json as { ok: boolean; code: string; error: string }
+    expect(j.ok).toBe(false)
+    expect(j.code).toBe('LEAD_GATE')
+    expect(j.error).toContain('悬念-001')
+    expect(j.error).toContain('声明了没做')
+    // 定稿未生效：manifest 无定稿基线
+    const e = readManifest(manifestPath).entries.get('doc_gate')!
+    expect(e.finalizedRevision).toBeUndefined()
   })
 })

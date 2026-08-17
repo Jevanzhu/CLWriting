@@ -13,7 +13,8 @@
  * 幂等：定稿 skipped（指纹未变）时不重复回写；回写后再定稿同一章（内容已改）时
  * 账本推进.md 已被清空 → 无新条目 → 天然不重复追加。
  */
-import { existsSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { readLeadUpdatesAt, readLeadUpdateChapterTag, type ChapterLeadUpdate } from '../check/lead-updates.js'
@@ -79,7 +80,9 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
   if (applied > 0) {
     if (mainIsThisChapter && existsSync(mainPath)) {
       try {
-        writeFileSync(mainPath, '', 'utf-8')
+        // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
+        // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
+        atomicWriteFile(mainPath, '', { fsync: true })
       } catch {
         /* 清空失败不阻断定稿主流程 */
       }

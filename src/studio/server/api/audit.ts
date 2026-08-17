@@ -24,6 +24,7 @@ import { readBooks } from '../../../install/books.js'
 import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
+import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
 interface AuditCtx {
@@ -196,6 +197,10 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
     const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
     if (!entry) return reply(res, 404, { error: '没有这本书：' + params['name'] })
+    // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
+    if (isChatRunning(params['name']!)) {
+      return reply(res, 409, { error: '本书对话仍在运行，先停止后再清除事件史' })
+    }
     const bookRoot = join(ctx.workDir, entry.path)
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
     const store = openSessionStore(ctx.userDataPath, bookRoot)!

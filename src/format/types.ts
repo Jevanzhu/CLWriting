@@ -54,6 +54,8 @@ export interface Lead {
   _raw?: Record<string, string>
   /** 履历段前的人工说明正文（如人物/设定简介），回写时保留 */
   _bodyBeforeHistory?: string
+  /** 履历段之后的人工正文（备注/关联线索等，dd-P2：回写时保留——此前被静默删除） */
+  _bodyAfterHistory?: string
   /** 源 md 的 front matter 字段顺序（回写保序用，#3 第 8 节"不重排已有字段顺序"） */
   _fmOrder?: string[]
   /** 源 md 路径（重建时回填，非 front matter 字段） */
@@ -279,8 +281,9 @@ export interface BookConfig {
   /** RAG 可选插件配置（#37，非密段；api_key 不入此、不入 git） */
   rag?: {
     enabled: boolean
-    endpoint?: string // embedding 端点 base_url（非密）
-    model?: string // embedding 模型名（非密）
+    provider?: string // RAG 服务商 id（应用级 providers.json 引用；设此键时 endpoint/model 不再写）
+    endpoint?: string // 旧版内联 embedding 端点（存量兼容，resolver 回落用）
+    model?: string // 旧版内联 embedding 模型名（存量兼容）
   }
   _raw?: Record<string, unknown> // 容错：未知顶层段保留
 }

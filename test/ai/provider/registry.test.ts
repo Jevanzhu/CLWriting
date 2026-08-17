@@ -172,6 +172,7 @@ function emptyStore() {
     currentId: null,
     currentModel: null,
     modelCaps: {},
+    ragProviders: [],
     tiers: { creative: { model: '', effort: 'high' as const }, assistant: null, chat: null },
     vault: null,
     dek: null,

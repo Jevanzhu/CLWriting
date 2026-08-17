@@ -537,9 +537,13 @@ export class DocumentService {
     // P3-10：journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
     // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
     const journalPath = join(this.journalDir, `${docId}.jsonl`)
-    const opId = appendMovePending(journalPath, docId, oldPath, newPath)
-
+    // ee-P1-5：pending 写入收进 try——appendMovePending 同步抛（磁盘满/权限）此前在 try 外
+    // 裸穿，而调用方以 Promise.resolve 包裹本方法（不捕获同步 throw），拿到的是裸异常而非
+    // {ok:false} 契约（save 路径同类已修 RB-KN-P2-2，此处对齐）。pending 仍先于
+    // snapshot+rename，P3-10 崩溃恢复语义不变。
+    let opId: string | undefined
     try {
+      opId = appendMovePending(journalPath, docId, oldPath, newPath)
       // snapshot 留底（移动/重命名前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
       const oldContent = readFileSync(oldSafe, 'utf-8')
@@ -551,7 +555,8 @@ export class DocumentService {
       mkdirSync(dirname(newSafe), { recursive: true })
       renameSync(oldSafe, newSafe)
     } catch (e) {
-      appendAborted(journalPath, opId, errMsg(e))
+      // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
+      if (opId !== undefined) appendAborted(journalPath, opId, errMsg(e))
       return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名失败：${errMsg(e)}` }
     }
 

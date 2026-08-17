@@ -6,6 +6,8 @@
  * 不等后台 AI 执行（那部分由底层单测 + e2e 兜底）。
  *
  * 测试环境无 provider 配置 → 后台任务因 NO_PROVIDER 快速失败，无副作用。
+ *
+ * ee-P2-11：/spawn 在途闸 × 删书/改名 409（经 __setSpawnRunning 夹具，不起真实生成）。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -222,5 +224,66 @@ describe('RB-SV-P2-1 /spawn 并发闸', () => {
     expect(isSpawnRunning(BOOK)).toBe(false)
     const ok = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '写一段' } })
     expect(ok.status).toBe(200)
+  })
+})
+
+// ── ee-P2-11：删书/改名查 /spawn 在途闸 ────────────────
+// spawn 是分钟级网络任务且 runWriterSpawn 持 bookRoot 闭包——漏查闸则删/改名后
+// 收尾写旧路径（重建孤儿目录）+ 白烧费用。驱动方式：__setSpawnRunning 确定性夹具
+// （模块导出的并发 409 测试钩子，见 stream.ts），不起真实生成。
+
+describe('ee-P2-11 删书/改名查 /spawn 在途闸', () => {
+  /** 登记一本独立测试书（保留共享 BOOK 条目），返回其目录绝对路径。 */
+  function registerBook(name: string): string {
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
+        JSON.stringify({ name, path: `长篇/${name}`, kind: 'long' }) + '\n',
+    )
+    const bookRoot = join(workDir, '长篇', name)
+    mkdirSync(bookRoot, { recursive: true })
+    writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`)
+    return bookRoot
+  }
+
+  it('spawn 运行中删书 → 409；释放后 → 200（本测自建自删，不动共享 BOOK）', async () => {
+    const NAME = 'spawn闸删书测试书'
+    registerBook(NAME)
+
+    __setSpawnRunning(NAME, true)
+    try {
+      const busy = await req({ method: 'DELETE', path: `/api/books/${encodeURIComponent(NAME)}` })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('生成')
+    } finally {
+      __setSpawnRunning(NAME, false)
+    }
+    const ok = await req({ method: 'DELETE', path: `/api/books/${encodeURIComponent(NAME)}` })
+    expect(ok.status).toBe(200)
+  })
+
+  it('spawn 运行中改名 → 409；释放后 → 200', async () => {
+    const NAME = 'spawn闸改名测试书'
+    registerBook(NAME)
+
+    __setSpawnRunning(NAME, true)
+    try {
+      const busy = await req({
+        method: 'POST',
+        path: `/api/books/${encodeURIComponent(NAME)}/rename`,
+        body: { name: 'spawn闸改名新名' },
+      })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('生成')
+    } finally {
+      __setSpawnRunning(NAME, false)
+    }
+    const ok = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent(NAME)}/rename`,
+      body: { name: 'spawn闸改名新名' },
+    })
+    expect(ok.status).toBe(200)
+    expect((ok.json as { ok: boolean }).ok).toBe(true)
   })
 })

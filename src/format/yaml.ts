@@ -37,14 +37,16 @@ export const DEFAULT_CONFIG: BookConfig = {
 interface RawSection {
   indent: number // 缩进空格数
   key: string
-  value: string // 行内值（子段为空）
+  value: string // 行内值（子段为空；块列表项后处理时拼成内联数组）
   children: RawSection[]
+  listItems?: string[] // dd-P2：块式列表项（`- xxx` 行）暂存，循环后拼进 value
 }
 
 /** 解析 YAML 文本为段树（支持 2 空格缩进） */
 function parseSections(text: string): RawSection[] {
   const roots: RawSection[] = []
   const stack: RawSection[] = [] // 按缩进维护
+  const listNodes: RawSection[] = [] // 收集了块列表项的节点（循环后统一拼值）
   const make = (indent: number, key: string, value: string): RawSection => ({
     indent, key, value, children: [],
   })
@@ -54,7 +56,20 @@ function parseSections(text: string): RawSection[] {
     const indent = line.length - line.trimStart().length
     const content = line.trim()
     const colonIdx = content.indexOf(':')
-    if (colonIdx === -1) continue
+    if (colonIdx === -1) {
+      // dd-P2：块式列表项（`- xxx`，无冒号）——挂到最近一个「空值父键」（如
+      // target_emotions:\n  - 惊悚），拼成内联数组值由 parseValue 原生解析；
+      // 此前这类行被静默丢弃，作者手改块列表风格时配置无声失效
+      if (content.startsWith('- ')) {
+        const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
+        const item = content.slice(2).trim()
+        if (parent && parent.value === '' && item) {
+          parent.listItems = [...(parent.listItems ?? []), item]
+          if (!listNodes.includes(parent)) listNodes.push(parent)
+        }
+      }
+      continue
+    }
     const key = content.slice(0, colonIdx).trim()
     const value = content.slice(colonIdx + 1).trim()
 
@@ -72,6 +87,12 @@ function parseSections(text: string): RawSection[] {
     // 有子段潜力（value 为空且是 map）的入栈
     if (value === '') {
       stack.push(node)
+    }
+  }
+  // 块列表项拼成内联数组（[a, b, c] —— parseValue 原生支持，含引号项）
+  for (const node of listNodes) {
+    if (node.listItems && node.listItems.length > 0 && node.value === '') {
+      node.value = `[${node.listItems.join(', ')}]`
     }
   }
   return roots
@@ -242,14 +263,16 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (Object.keys(snapshotsConfig).length > 0) cfg.snapshots = snapshotsConfig
   }
 
-  // RAG 可选段（#37，非密：enabled/endpoint/model；api_key 不入此）
+  // RAG 可选段（#37，非密：enabled/provider/endpoint/model；api_key 不入此）
   const rag = find('rag')
   if (rag) {
     const en = rag.children.find((c) => c.key === 'enabled')
+    const pv = rag.children.find((c) => c.key === 'provider')
     const ep = rag.children.find((c) => c.key === 'endpoint')
     const md = rag.children.find((c) => c.key === 'model')
     if (en) cfg.rag = {
       enabled: String(parseValue(en.value)) === 'true',
+      ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
       ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
       ...(md ? { model: String(parseValue(md.value)) } : {}),
     }
@@ -385,14 +408,16 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     lines.push('', 'growth:', `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`)
   }
 
-  // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）
+  // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）。
+  // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清
   if (cfg.rag) {
     lines.push(
       '',
       'rag:',
       `  enabled: ${cfg.rag.enabled}`,
-      ...(cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
-      ...(cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
+      ...(cfg.rag.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []),
+      ...(!cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
+      ...(!cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
     )
   }
   // 快照保留策略（缺省不输出——现有仓库零改动红线）

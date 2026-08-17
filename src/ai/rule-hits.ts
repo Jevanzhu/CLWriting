@@ -70,18 +70,21 @@ export function recordRuleHits(bookRoot: string, violations: RuleViolation[], us
   }
   // P3 事件化（rule/hit）：可选 userDataPath 时双写事件（审计单一事实源；观测层静默）
   if (userDataPath) {
+    let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      const store = openSessionStore(userDataPath, bookRoot)
+      store = openSessionStore(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
         store.appendEvents(
           sessionId,
           violations.map((v) => ruleHitEvent({ ruleId: v.ruleId, task: 'check', message: v.message })),
         )
-        store.close()
       }
     } catch {
       // 观测层失败静默
+    } finally {
+      // dd-P2：close 挪进 finally——appendEvents 抛错时此前被跳过，句柄泄漏（同 author-signal）
+      store?.close()
     }
   }
 }

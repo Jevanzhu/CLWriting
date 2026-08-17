@@ -1,7 +1,7 @@
 /**
  * Trace 指标聚合（AI Harness T3）。
  *
- * 从 .cache/ai-trace.jsonl（含轮转代）聚合产出统计 JSON：
+ * 从事件库（openSessionStore → readLlmCalls）聚合产出统计 JSON：
  * 按 task 分组的通过率 / 平均 attempt / 耗时 p50-p95 / token 合计与趋势（按天）。
  *
  * 不做 UI（第二波）；本模块只产数据，由 API 端点薄接线透出。

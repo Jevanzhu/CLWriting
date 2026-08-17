@@ -16,7 +16,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson } from '../http.js'
+import { readJson, HttpError } from '../http.js'
 
 /** defineRoute 的 handler 上下文：path 参数 + 解析后的 input */
 export interface RouteContext<I> {
@@ -54,7 +54,10 @@ export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchem
       try {
         input = schema.parse(req.method === 'GET' ? undefined : await readJson(req))
       } catch (e) {
-        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+        // dd-P2：HttpError（如 readJson 的 413 请求体过大）透传自身状态码——
+        // 一律压 400 会让同一资源在裸 route / defineRoute 两种注册下状态码分叉
+        const status = e instanceof HttpError ? e.status : 400
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ error: e instanceof Error ? e.message : '请求体校验失败' }))
         return
       }

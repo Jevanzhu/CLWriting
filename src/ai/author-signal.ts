@@ -44,18 +44,22 @@ export function recordAuthorSignal(
   recordRuleHits(bookRoot, violations, userDataPath)
   // P3 事件化（author/signal）：作者删除信号入事件流（观测层静默）
   if (userDataPath && violations.length > 0) {
+    let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      const store = openSessionStore(userDataPath, bookRoot)
+      store = openSessionStore(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
         store.appendEvents(
           sessionId,
           violations.map((v) => authorSignalEvent({ ruleId: v.ruleId, message: v.message, task })),
         )
-        store.close()
       }
     } catch {
       // 观测层失败静默
+    } finally {
+      // dd-P2：close 挪进 finally——appendEvents 抛错时此前被跳过，openSessionStore
+      // 引用计数泄漏、SQLite 句柄在长驻服务里永不释放
+      store?.close()
     }
   }
 }

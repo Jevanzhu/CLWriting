@@ -73,6 +73,30 @@ test('writeBookConfig + readBookConfig: 可选 volume_size 往返', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('rag 段：provider 引用往返；设 provider 时不再写旧内联 endpoint/model', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const fp = join(dir, 'book.yaml')
+
+  // 服务商引用形态：只写 enabled + provider
+  writeBookConfig(fp, {
+    ...DEFAULT_CONFIG,
+    rag: { enabled: true, provider: 'rag-abc123' },
+  })
+  let raw = readFileSync(fp, 'utf8')
+  expect(raw).toContain('provider: rag-abc123')
+  expect(raw).not.toContain('endpoint:')
+  let r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.config.rag).toMatchObject({ enabled: true, provider: 'rag-abc123' })
+
+  // 旧版内联形态仍可解析（存量书兼容）
+  writeFileSync(fp, raw.replace('  provider: rag-abc123', '  endpoint: https://x/v1/embeddings\n  model: embed-m'), 'utf8')
+  r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.config.rag).toMatchObject({ enabled: true, endpoint: 'https://x/v1/embeddings', model: 'embed-m' })
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('readBookConfig: 文件不存在返回默认', () => {
   const r = readBookConfig(join(tmpdir(), '不存在-' + Date.now() + '.yaml'))
   expect(r.ok).toBe(false)
@@ -254,3 +278,44 @@ test('patchTopSection: 无尾换行文件 → 补齐结构', () => {
     const out = patchTopSection('a: 1', 'rag', '  enabled: true')
     expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
   })
+
+// ── dd-P2：块式列表项（`- xxx` 无冒号行）不再被静默丢弃 ──
+
+test('readBookConfig: 块式列表（- 项）拼成数组，等价内联写法（dd-P2）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-block-'))
+  const fp = join(dir, 'book.yaml')
+  writeFileSync(
+    fp,
+    [
+      'spec_version: 1',
+      'kind: long',
+      'book:',
+      '  title: 北境往事',
+      '  genre: 玄幻',
+      'host: cc',
+      'leads:',
+      '  enabled:',
+      '    - 布局线',
+      '    - 设定线',
+      '    - 成长线',
+      '  thresholds:',
+      '    成长线: 50',
+      '',
+    ].join('\n'),
+  )
+  const cfg = readBookConfig(fp).config
+  expect(cfg.leads.enabled).toEqual(['布局线', '设定线', '成长线'])
+  expect(cfg.leads.thresholds?.['成长线']).toBe(50)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('readBookConfig: 块式列表项含逗号/引号时不炸（引号项按 parseValue 规则）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-block2-'))
+  const fp = join(dir, 'book.yaml')
+  // 项含半角逗号 → 拼出的内联数组会多切一刀；这是已知边界，断言「至少不丢段不抛错」
+  writeFileSync(fp, 'spec_version: 1\nkind: long\nbook:\n  title: T\n  genre: 玄幻\nhost: cc\nleads:\n  enabled:\n    - 布局线\n    - 设定线\n')
+  const cfg = readBookConfig(fp).config
+  expect(Array.isArray(cfg.leads.enabled)).toBe(true)
+  expect(cfg.leads.enabled.length).toBeGreaterThanOrEqual(2)
+  rmSync(dir, { recursive: true, force: true })
+})

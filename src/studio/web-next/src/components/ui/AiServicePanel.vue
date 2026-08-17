@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// AI 服务服务商管理面板（设置页「服务商」tab 的内容）。
+// AI 提供方管理面板（设置页「AI 提供方」tab 的内容）。
 // 应用级配置，跨书共享，存 userData/providers.json。
 import { ref, onMounted } from 'vue'
-import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil, RefreshCw } from 'lucide-vue-next'
+import { Plus, Trash2, Check, Zap, Loader2, AlertTriangle, Pencil, RefreshCw, MessageSquare, Database, Bot } from 'lucide-vue-next'
 import {
   getProviders,
   createProvider,
@@ -13,12 +13,18 @@ import {
   fetchModels,
   setTiers,
   setChatTier,
+  getRagProviders,
+  createRagProvider,
+  updateRagProvider,
+  deleteRagProvider,
+  testRagProvider,
   type ProviderConfDto,
   type ProviderCaps,
   type Protocol,
   type AuthStrategy,
   type TestResult,
   type TierSlot,
+  type RagProviderDto,
 } from '../../api/providers'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
@@ -26,13 +32,15 @@ import { useChatTier } from '../../composables/useChatTier'
 
 const ui = useUiStore()
 
+// 内部分页：AI 提供方（聊天模型 + 任务档位）/ RAG 提供方（嵌入检索）
+const panelTab = ref<'ai' | 'rag'>('ai')
+
 const providers = ref<ProviderConfDto[]>([])
 const currentId = ref<string | null>(null)
 const loading = ref(false)
 const testing = ref<string | null>(null)
 const testResults = ref<Map<string, TestResult>>(new Map())
-// 测试连接用的模型——按服务商分卡独立（默认当前模型，可手动切换；
-// 不选时后端回落该服务商的 conf.model）
+// 测试连接用模型——按提供方分卡独立（默认当前模型，可手动切换；不选后端回落该提供方 conf.model）
 const probeModels = ref<Map<string, string>>(new Map())
 
 function probeModelOf(p: ProviderConfDto): string {
@@ -42,8 +50,13 @@ function setProbeModel(p: ProviderConfDto, e: Event): void {
   probeModels.value.set(p.id, (e.target as HTMLSelectElement).value)
 }
 
+/** 提供方 p 的模型清单（未拉取 → 空，模板据此显示引导文案）。 */
+function modelsOf(p: ProviderConfDto): string[] {
+  return modelsByProvider.value.get(p.id) ?? []
+}
+
 // 任务档位（D 档：创作档/助手档/对话档）
-// V-P2-26：模型清单按服务商分存——共享单份清单时，非当前供应商的「测试模型」
+// V-P2-26：模型清单按提供方分存——共享单份清单时，非当前供应商的「测试模型」
 // 下拉显示的是别家模型，选中即 404 且看不出原因。
 const modelsByProvider = ref<Map<string, string[]>>(new Map())
 const fetchingModelIds = new Set<string>()
@@ -57,17 +70,12 @@ const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
 const fetchingModels = ref(false)
 
-/** 服务商 p 的模型清单（未拉取 → 空，模板据此显示引导文案）。 */
-function modelsOf(p: ProviderConfDto): string[] {
-  return modelsByProvider.value.get(p.id) ?? []
-}
-
 /** 档位下拉用：当前供应商的模型清单。 */
 const currentModels = (): string[] =>
   (currentId.value ? (modelsByProvider.value.get(currentId.value) ?? []) : [])
 
 /**
- * 拉取服务商模型清单（幂等去重 + 探测模型回落）。
+ * 拉取提供方模型清单（幂等去重 + 探测模型回落 + 手动重试）。
  * @param opts.fallbackModel 全局当前模型在清单内时优先作探测默认
  * @param opts.force 已有缓存也重拉（「获取模型列表」手动重试）
  */
@@ -92,7 +100,8 @@ async function ensureModels(
     if (!opts.silent) ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
   } catch (e) {
     if (!opts.silent) ui.toast(friendlyError(e), 'error')
-    if (opts.force) modelsByProvider.value.set(p.id, [])
+    // dd-P2：失败保留旧缓存——此前 force 重拉失败会把已成功的清单清成空，
+    // 档位区 select 退回占位态（网络抖动丢好数据）
   } finally {
     fetchingModelIds.delete(p.id)
   }
@@ -138,7 +147,7 @@ async function refresh(): Promise<void> {
       const cur = providers.value.find((x) => x.id === currentId.value)
       if (cur) {
         try {
-          // V-P2-26：清单按服务商入缓存（拉取失败不崩，档位区可手动重试）
+          // V-P2-26：清单按提供方入缓存（拉取失败不崩，档位区可手动重试）
           await ensureModels(cur, { fallbackModel: data.currentModel ?? undefined, silent: true })
         } catch {
           /* 静默：fetchModelList 可重试 */
@@ -154,6 +163,7 @@ async function refresh(): Promise<void> {
 
 onMounted(() => {
   void refresh()
+  void refreshRag()
 })
 
 function startAdd(): void {
@@ -196,7 +206,7 @@ async function save(): Promise<void> {
     }
     editing.value = false
     editId.value = null
-    // P0-2：服务商表已变 → 刷新 AI 可达性（新增后未测连接按钮仍灰，语义正确）
+    // P0-2：提供方表已变 → 刷新 AI 可达性（新增后未测连接按钮仍灰，语义正确）
     void ui.probeAiStatus()
     await refresh()
   } catch (e) {
@@ -206,7 +216,7 @@ async function save(): Promise<void> {
 
 async function remove(p: ProviderConfDto): Promise<void> {
   const ok = await ui.ask({
-    title: '删除服务商',
+    title: '删除提供方',
     message: `确认删除「${p.name}」？删除后不可恢复。`,
     confirmText: '删除',
     danger: true,
@@ -215,7 +225,7 @@ async function remove(p: ProviderConfDto): Promise<void> {
   try {
     const r = await deleteProvider(p.id)
     currentId.value = r.currentId
-    // P0-2：删除可能翻转可达性（删除当前服务商 + 无兜底 → 不可达）
+    // P0-2：删除可能翻转可达性（删除当前提供方 + 无兜底 → 不可达）
     void ui.probeAiStatus()
     await refresh()
     ui.toast('已删除', 'success')
@@ -229,9 +239,9 @@ async function activate(p: ProviderConfDto): Promise<void> {
   try {
     await setCurrentProvider(p.id)
     currentId.value = p.id
-    // P0-2：切换当前服务商后工作台/开书按钮应立即可用
+    // P0-2：切换当前提供方后工作台/开书按钮应立即可用
     void ui.probeAiStatus()
-    // 切服务商 → 模型清单/探测模型跟随新服务商（否则测试下拉仍是旧服务商清单，
+    // 切提供方 → 模型清单/探测模型跟随新提供方（否则测试下拉仍是旧提供方清单，
     // 测旧模型名会 404 且看不出原因）
     try {
       await ensureModels(p, { force: true, silent: true })
@@ -251,9 +261,11 @@ async function test(p: ProviderConfDto): Promise<void> {
     testResults.value.set(p.id, r)
     // P0-2：测试通过 → caps 落库 → 可达性翻转，工作台按钮即时解灰
     void ui.probeAiStatus()
-    await refresh()
+    // dd-P3：结果先 toast——refresh 内含静默拉模型清单（30s 超时），结果出来了
+    // 再等它会让按钮白转圈数十秒
     if (r.ok && r.caps?.connected) ui.toast(`${p.name} 测试通过`, 'success')
     else ui.toast(r.error ?? '测试失败', 'error')
+    void refresh()
   } catch (e) {
     testResults.value.set(p.id, { ok: false, error: friendlyError(e) })
     ui.toast(friendlyError(e), 'error')
@@ -304,6 +316,96 @@ function capsBadge(caps: ProviderCaps | null): { text: string; cls: string } | n
   return { text: '已连接', cls: 'ok' }
 }
 
+// ── RAG（嵌入）提供方：应用级多提供方，书在「AI 功能」页选引用 ──
+const ragProviders = ref<RagProviderDto[]>([])
+const ragLoading = ref(false)
+const ragTesting = ref<string | null>(null)
+const ragEditing = ref(false)
+const ragEditId = ref<string | null>(null)
+const ragForm = ref({ name: '', endpoint: '', model: '', apiKey: '' })
+
+async function refreshRag(): Promise<void> {
+  ragLoading.value = true
+  try {
+    const r = await getRagProviders()
+    ragProviders.value = r.ragProviders
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    ragLoading.value = false
+  }
+}
+
+function startRagAdd(): void {
+  ragEditing.value = true
+  ragEditId.value = null
+  ragForm.value = { name: '', endpoint: '', model: '', apiKey: '' }
+}
+
+function startRagEdit(p: RagProviderDto): void {
+  ragEditing.value = true
+  ragEditId.value = p.id
+  ragForm.value = { name: p.name, endpoint: p.endpoint, model: p.model, apiKey: '' }
+}
+
+function cancelRagEdit(): void {
+  ragEditing.value = false
+  ragEditId.value = null
+}
+
+async function saveRag(): Promise<void> {
+  const f = ragForm.value
+  if (!f.name.trim()) return ui.toast('名称必填', 'error')
+  if (!f.endpoint.trim()) return ui.toast('嵌入服务地址必填', 'error')
+  if (!f.model.trim()) return ui.toast('嵌入模型必填', 'error')
+  if (!ragEditId.value && !f.apiKey.trim()) return ui.toast('API Key 必填', 'error')
+  try {
+    if (ragEditId.value) {
+      await updateRagProvider(ragEditId.value, f)
+      ui.toast('已保存', 'success')
+    } else {
+      await createRagProvider(f)
+      ui.toast('已添加', 'success')
+    }
+    ragEditing.value = false
+    ragEditId.value = null
+    await refreshRag()
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
+async function removeRag(p: RagProviderDto): Promise<void> {
+  const ok = await ui.ask({
+    title: '删除 RAG 提供方',
+    message: `确认删除「${p.name}」？引用它的书将无法建索引，需在「AI 功能」页重新选择。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await deleteRagProvider(p.id)
+    await refreshRag()
+    ui.toast('已删除', 'success')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
+async function testRag(p: RagProviderDto): Promise<void> {
+  ragTesting.value = p.id
+  try {
+    const r = await testRagProvider(p.id)
+    await refreshRag()
+    if (r.ok) ui.toast(`${p.name} 测试通过`, 'success')
+    else ui.toast(r.error ?? '测试失败', 'error')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    ragTesting.value = null
+  }
+}
+
 function timeAgo(ts: number | undefined): string {
   if (!ts) return ''
   const diff = Date.now() - ts
@@ -314,175 +416,260 @@ function timeAgo(ts: number | undefined): string {
 }
 </script>
 
+
 <template>
   <div class="ai-service-panel">
-    <!-- 服务商列表 -->
+    <!-- 提供方列表（含内部分页：AI 提供方 / RAG 提供方） -->
     <template v-if="!editing">
-      <div class="group-title">
-        AI 服务服务商
-        <button class="add-btn" @click="startAdd"><Plus :size="14" />添加</button>
+      <!-- 内部分页：AI 提供方 / RAG 提供方（柔光分段切换） -->
+      <div class="panel-tabs" role="tablist" aria-label="提供方分页">
+        <button class="panel-tab" :class="{ on: panelTab === 'ai' }" role="tab" :aria-selected="panelTab === 'ai'" @click="panelTab = 'ai'">
+          <span class="tab-icon"><MessageSquare :size="15" /></span>
+          <span>AI 提供方</span>
+        </button>
+        <button class="panel-tab" :class="{ on: panelTab === 'rag' }" role="tab" :aria-selected="panelTab === 'rag'" @click="panelTab = 'rag'">
+          <span class="tab-icon"><Database :size="15" /></span>
+          <span>RAG 提供方</span>
+        </button>
       </div>
 
-      <div v-if="loading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
+      <!-- ═══════════ AI 提供方（聊天模型 + 任务档位） ═══════════ -->
+      <template v-if="panelTab === 'ai'">
+        <div class="group-title">
+          <span class="group-title-text">AI 提供方</span>
+          <button class="add-btn" @click="startAdd"><Plus :size="14" />添加</button>
+        </div>
 
-      <div v-else-if="providers.length === 0" class="empty">
-        <p>尚未配置任何 AI 服务商</p>
-        <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加服务商</button>
-      </div>
+        <div v-if="loading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
 
-      <template v-else>
-        <div v-for="p in providers" :key="p.id" class="provider-card" :class="{ active: p.id === currentId }">
-          <div class="provider-head">
-            <div class="provider-name">
-              <span class="dot" :class="p.id === currentId ? 'on' : 'off'" />
-              {{ p.name }}
-            </div>
-            <div class="provider-actions">
-              <button
-                v-if="p.id !== currentId && p.caps?.connected"
-                class="mini-btn"
-                data-tip="设为当前启用"
-                @click="activate(p)"
-              >
-                <Check :size="13" />
-              </button>
-              <!-- 测试模型 + 下拉（挪到测试按钮前，与按钮同行） -->
-              <span class="probe-inline" :title="modelsOf(p).length ? '测试连接用模型' : '点击下拉获取该服务商的模型清单'">
-                <span class="probe-hint">测试模型</span>
-                <select
-                  :value="probeModelOf(p)"
-                  class="probe-select"
-                  :disabled="!modelsOf(p).length"
-                  @focus="ensureModels(p, { silent: true })"
-                  @change="setProbeModel(p, $event)"
+        <div v-else-if="providers.length === 0" class="empty">
+          <div class="empty-icon"><MessageSquare :size="26" /></div>
+          <p>尚未配置任何 AI 提供方</p>
+          <button class="add-btn-lg" @click="startAdd"><Plus :size="16" />添加提供方</button>
+        </div>
+
+        <template v-else>
+          <div class="provider-list">
+            <div
+              v-for="p in providers"
+              :key="p.id"
+              class="provider-row"
+              :class="{ active: p.id === currentId }"
+            >
+              <div class="provider-row-main">
+                <span class="dot" :class="p.id === currentId ? 'on' : 'off'" />
+                <span class="provider-row-avatar"><Bot :size="16" /></span>
+                <span class="provider-row-name">{{ p.name }}</span>
+                <span v-if="p.id === currentId" class="current-badge">当前</span>
+                <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
+                <span class="provider-status">
+                  <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
+                  <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
+                  <span v-if="!p.caps" class="unchecked-hint">未测试</span>
+                </span>
+              </div>
+              <div class="provider-actions">
+                <button
+                  v-if="p.id !== currentId && p.caps?.connected"
+                  class="mini-btn enable"
+                  data-tip="设为当前启用"
+                  @click="activate(p)"
                 >
-                  <option value="" disabled>{{ modelsOf(p).length ? '选择模型' : '点此获取清单' }}</option>
-                  <option v-for="m in modelsOf(p)" :key="m" :value="m">{{ m }}</option>
+                  <Check :size="13" />
+                </button>
+                <!-- 测试模型下拉（与测试按钮同行）：未拉清单可点开引导拉取；选择后再测 -->
+                <span class="probe-inline" :title="modelsOf(p).length ? '测试连接用模型' : '点击下拉获取该提供方的模型清单'">
+                  <select
+                    :value="probeModelOf(p)"
+                    class="probe-select"
+                    :disabled="!modelsOf(p).length"
+                    @focus="ensureModels(p, { silent: true })"
+                    @change="setProbeModel(p, $event)"
+                  >
+                    <option value="" disabled>{{ modelsOf(p).length ? '选择模型' : '点此获取清单' }}</option>
+                    <option v-for="m in modelsOf(p)" :key="m" :value="m">{{ m }}</option>
+                  </select>
+                </span>
+                <button class="mini-btn" :class="{ testing: testing === p.id }" :disabled="testing === p.id" data-tip="测试连接" @click="test(p)">
+                  <Loader2 v-if="testing === p.id" :size="13" class="spin" />
+                  <Zap v-else :size="13" />
+                </button>
+                <button class="mini-btn" data-tip="编辑" @click="startEdit(p)"><Pencil :size="13" /></button>
+                <button class="mini-btn danger" data-tip="删除" @click="remove(p)"><Trash2 :size="13" /></button>
+              </div>
+              <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
+                <div v-for="(d, i) in testResults.get(p.id)?.details" :key="i" class="detail-line">{{ d }}</div>
+                <div v-if="testResults.get(p.id)?.error" class="detail-line err">
+                  <AlertTriangle :size="12" /> {{ testResults.get(p.id)?.error }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 任务档位 -->
+        <div v-if="currentId" class="tier-section">
+          <div class="group-title">
+            <span class="group-title-text">任务档位</span>
+            <button class="add-btn" :disabled="fetchingModels" @click="fetchModelList">
+              <Loader2 v-if="fetchingModels" :size="14" class="spin" />
+              <RefreshCw v-else :size="14" />
+              {{ fetchingModels ? '获取中…' : '获取模型列表' }}
+            </button>
+          </div>
+          <div class="tier-grid">
+            <div class="tier-card">
+              <div class="tier-head">
+                <span class="tier-name">创作档</span>
+              </div>
+              <div class="tier-desc">写正文 / 改写 / 大纲</div>
+              <div class="tier-fields">
+                <select v-model="tierForm.creative.model" class="tier-select">
+                  <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+                  <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
                 </select>
-              </span>
-              <button
-                class="mini-btn"
-                :class="{ testing: testing === p.id }"
-                :disabled="testing === p.id"
-                data-tip="测试连接"
-                @click="test(p)"
-              >
-                <Loader2 v-if="testing === p.id" :size="13" class="spin" />
-                <Zap v-else :size="13" />
-              </button>
-              <button class="mini-btn" data-tip="编辑" @click="startEdit(p)">
-                <Pencil :size="13" />
-              </button>
-              <button class="mini-btn danger" data-tip="删除" @click="remove(p)">
-                <Trash2 :size="13" />
-              </button>
+                <select v-model="tierForm.creative.effort" class="tier-select sm">
+                  <option value="max">max</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                </select>
+              </div>
+            </div>
+            <div class="tier-card">
+              <div class="tier-head">
+                <span class="tier-name">助手档</span>
+                <label class="tier-toggle">
+                  <input type="checkbox" v-model="assistantEnabled" @change="toggleAssistant(assistantEnabled)" />
+                  <span class="tier-toggle-text">启用</span>
+                </label>
+              </div>
+              <div class="tier-desc">三审 / 分析 · 不配则与创作档相同</div>
+              <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
+                <select v-model="tierForm.assistant.model" class="tier-select">
+                  <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+                  <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <select v-model="tierForm.assistant.effort" class="tier-select sm">
+                  <option value="max">max</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                </select>
+              </div>
+            </div>
+            <div class="tier-card">
+              <div class="tier-head">
+                <span class="tier-name">对话档</span>
+                <label class="tier-toggle">
+                  <input type="checkbox" v-model="chatTierEnabled" @change="toggleChatTier(chatTierEnabled)" />
+                  <span class="tier-toggle-text">启用</span>
+                </label>
+              </div>
+              <div class="tier-desc">对话助手 · 不配则与创作档相同</div>
+              <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
+                <select v-model="tierForm.chat.model" class="tier-select">
+                  <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
+                  <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <select v-model="tierForm.chat.effort" class="tier-select sm">
+                  <option value="max">max</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="provider-meta">
-            <span class="tag">{{ p.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI' }}</span>
-            <span class="base-url" :title="p.baseUrl">{{ p.baseUrl }}</span>
-            <span class="key">{{ p.apiKeyMasked }}</span>
-          </div>
-          <!-- caps 徽章（测试模型已挪到测试按钮前） -->
-          <div class="provider-meta">
-            <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
-            <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
-          </div>
-          <!-- 测试结果详情 -->
-          <div v-if="testResults.get(p.id)" class="test-detail" :class="{ fail: !testResults.get(p.id)?.ok }">
-            <div v-for="(d, i) in testResults.get(p.id)?.details" :key="i" class="detail-line">{{ d }}</div>
-            <div v-if="testResults.get(p.id)?.error" class="detail-line err">
-              <AlertTriangle :size="12" /> {{ testResults.get(p.id)?.error }}
-            </div>
-          </div>
-          <div v-if="!p.caps" class="caps-hint">
-            <AlertTriangle :size="12" /> 尚未测试连接——未测试的服务商不能启用
-          </div>
+          <button class="save-btn tier-save" :disabled="tierSaving" @click="saveTiers">
+            <Loader2 v-if="tierSaving" :size="14" class="spin" /> 保存档位
+          </button>
         </div>
       </template>
 
-      <!-- 任务档位 -->
-      <div v-if="currentId" class="tier-section">
-        <div class="group-title">
-          任务档位
-          <button class="add-btn" :disabled="fetchingModels" @click="fetchModelList">
-            <Loader2 v-if="fetchingModels" :size="14" class="spin" />
-            <RefreshCw v-else :size="14" />
-            {{ fetchingModels ? '获取中…' : '获取模型列表' }}
-          </button>
+      <!-- ═══════════ RAG（嵌入）提供方 ═══════════ -->
+      <template v-else>
+        <div class="rag-provider-section">
+          <div class="group-title">
+            <span class="group-title-text">RAG 提供方</span>
+            <button v-if="!ragEditing" class="add-btn" @click="startRagAdd"><Plus :size="14" />添加</button>
+          </div>
+
+          <template v-if="!ragEditing">
+            <div v-if="ragLoading" class="empty"><Loader2 :size="20" class="spin" /> 加载中...</div>
+
+            <div v-else-if="ragProviders.length === 0" class="empty">
+              <div class="empty-icon"><Database :size="26" /></div>
+              <p>尚未配置嵌入提供方——「AI 功能」页的知识检索需要至少一个</p>
+              <button class="add-btn-lg" @click="startRagAdd"><Plus :size="16" />添加 RAG 提供方</button>
+            </div>
+
+            <template v-else>
+              <div class="provider-list">
+                <div v-for="p in ragProviders" :key="p.id" class="provider-row">
+                  <div class="provider-row-main">
+                    <span class="provider-row-avatar rag"><Database :size="16" /></span>
+                    <span class="provider-row-name">{{ p.name }}</span>
+                    <span class="model-tag" :title="p.model">{{ p.model }}</span>
+                    <span class="provider-status">
+                      <span v-if="p.caps" class="caps-badge" :class="p.caps.connected ? 'ok' : 'bad'">{{ p.caps.connected ? '已连接' : '连接失败' }}</span>
+                      <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
+                      <span v-if="!p.caps" class="unchecked-hint">未测试</span>
+                    </span>
+                  </div>
+                  <div class="provider-actions">
+                    <button class="mini-btn" :class="{ testing: ragTesting === p.id }" :disabled="ragTesting === p.id" data-tip="测试连接" @click="testRag(p)">
+                      <Loader2 v-if="ragTesting === p.id" :size="13" class="spin" />
+                      <Zap v-else :size="13" />
+                    </button>
+                    <button class="mini-btn" data-tip="编辑" @click="startRagEdit(p)"><Pencil :size="13" /></button>
+                    <button class="mini-btn danger" data-tip="删除" @click="removeRag(p)"><Trash2 :size="13" /></button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <!-- RAG 新增/编辑表单 -->
+          <template v-else>
+            <div class="form">
+              <div class="form-row">
+                <label>名称</label>
+                <input v-model="ragForm.name" type="text" placeholder="如「OpenAI 官方」" class="text-input" />
+              </div>
+              <div class="form-row">
+                <label>嵌入服务地址</label>
+                <input v-model="ragForm.endpoint" type="text" placeholder="https://api.example.com/v1/embeddings（完整 URL）" class="text-input" />
+              </div>
+              <div class="form-row">
+                <label>嵌入模型</label>
+                <input v-model="ragForm.model" type="text" placeholder="如 text-embedding-3-small" class="text-input" />
+              </div>
+              <div class="form-row">
+                <label>API Key</label>
+                <input
+                  v-model="ragForm.apiKey"
+                  type="password"
+                  :placeholder="ragEditId ? '不改则保留原 Key' : '粘贴你的 API Key'"
+                  class="text-input"
+                />
+              </div>
+              <div class="form-actions">
+                <button class="cancel-btn" @click="cancelRagEdit">取消</button>
+                <button class="save-btn" @click="saveRag">保存</button>
+              </div>
+            </div>
+          </template>
         </div>
-        <div class="tier-card">
-          <div class="tier-head">
-            <span class="tier-name">创作档</span>
-            <span class="tier-desc">写正文 / 改写 / 大纲</span>
-          </div>
-          <div class="tier-fields">
-            <select v-model="tierForm.creative.model" class="tier-select">
-              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
-            </select>
-            <select v-model="tierForm.creative.effort" class="tier-select sm">
-              <option value="max">max</option>
-              <option value="xhigh">xhigh</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-            </select>
-          </div>
-        </div>
-        <div class="tier-card">
-          <div class="tier-head">
-            <label class="tier-toggle">
-              <input type="checkbox" v-model="assistantEnabled" @change="toggleAssistant(assistantEnabled)" />
-              <span class="tier-name">助手档</span>
-            </label>
-            <span class="tier-desc">三审 / 分析 · 不配则与创作档相同</span>
-          </div>
-          <div v-if="assistantEnabled && tierForm.assistant" class="tier-fields">
-            <select v-model="tierForm.assistant.model" class="tier-select">
-              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
-            </select>
-            <select v-model="tierForm.assistant.effort" class="tier-select sm">
-              <option value="max">max</option>
-              <option value="xhigh">xhigh</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-            </select>
-          </div>
-        </div>
-        <div class="tier-card">
-          <div class="tier-head">
-            <label class="tier-toggle">
-              <input type="checkbox" v-model="chatTierEnabled" @change="toggleChatTier(chatTierEnabled)" />
-              <span class="tier-name">对话档</span>
-            </label>
-            <span class="tier-desc">对话助手 · 不配则与创作档相同</span>
-          </div>
-          <div v-if="chatTierEnabled && tierForm.chat" class="tier-fields">
-            <select v-model="tierForm.chat.model" class="tier-select">
-              <option value="" disabled>{{ currentModels().length ? '选择模型' : '请先获取模型列表' }}</option>
-              <option v-for="m in currentModels()" :key="m" :value="m">{{ m }}</option>
-            </select>
-            <select v-model="tierForm.chat.effort" class="tier-select sm">
-              <option value="max">max</option>
-              <option value="xhigh">xhigh</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-            </select>
-          </div>
-        </div>
-        <button class="save-btn" :disabled="tierSaving" @click="saveTiers">
-          <Loader2 v-if="tierSaving" :size="14" class="spin" /> 保存档位
-        </button>
-      </div>
+      </template>
     </template>
 
-    <!-- 新增/编辑表单 -->
+    <!-- AI 新增/编辑表单 -->
     <template v-else>
-      <div class="group-title">{{ editId ? '编辑服务商' : '新增服务商' }}</div>
+      <div class="group-title">{{ editId ? '编辑提供方' : '新增提供方' }}</div>
       <div class="form">
         <!-- 协议类型选择 -->
         <div class="form-row">
@@ -500,7 +687,6 @@ function timeAgo(ts: number | undefined): string {
             >Anthropic</button>
           </div>
         </div>
-
         <div class="form-row">
           <label>名称</label>
           <input v-model="form.name" type="text" placeholder="如「我的中转」" class="text-input" />
@@ -518,7 +704,6 @@ function timeAgo(ts: number | undefined): string {
             class="text-input"
           />
         </div>
-
         <div class="form-actions">
           <button class="cancel-btn" @click="cancelEdit">取消</button>
           <button class="save-btn" @click="save">保存</button>
@@ -529,6 +714,57 @@ function timeAgo(ts: number | undefined): string {
 </template>
 
 <style scoped>
+/* ── 内部分页（AI 提供方 / RAG 提供方）——柔光分段切换，配色对齐「书籍名」强调色 ── */
+.panel-tabs {
+  display: inline-flex;
+  /* grid 子项默认拉伸占满整行，导致灰底比两个标签宽——收回到内容宽度 */
+  justify-self: start;
+  gap: 4px;
+  padding: 4px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  margin-bottom: var(--size-4-4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 18px;
+  font-size: var(--font-size-s);
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.panel-tab:hover {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 6%, transparent);
+  border-color: transparent;
+}
+.panel-tab.on {
+  /* 与书籍名 book-banner 同款强调色配色：描边 + 浅铺底 + 强调色文字 */
+  border-color: color-mix(in srgb, var(--text-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--text-accent) 7%, transparent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+.tab-icon {
+  display: flex;
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.panel-tab:hover .tab-icon {
+  color: var(--text-accent);
+}
+.panel-tab.on .tab-icon {
+  color: var(--text-accent);
+}
+
 /* ── 分组标题（对齐设置页 cfg-card-head 风格） ── */
 .group-title {
   display: flex;
@@ -538,11 +774,10 @@ function timeAgo(ts: number | undefined): string {
   font-weight: 600;
   color: var(--text-normal);
   padding: 0 var(--size-4-1);
-  margin-top: var(--size-4-5);
   margin-bottom: var(--size-4-2);
 }
-.group-title:first-child {
-  margin-top: 0;
+.group-title-text {
+  letter-spacing: 0.02em;
 }
 
 /* ── 添加按钮 ── */
@@ -550,7 +785,7 @@ function timeAgo(ts: number | undefined): string {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
+  padding: 4px 12px;
   font-size: var(--font-size-xs);
   font-weight: 600;
   border: 1px solid var(--background-modifier-border);
@@ -559,32 +794,36 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-muted);
   cursor: pointer;
   transition: all var(--dur-fast) var(--ease-out);
-  text-transform: none;
-  letter-spacing: 0;
 }
-.add-btn:hover {
+.add-btn:hover:not(:disabled) {
   color: var(--text-normal);
   border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 6%, transparent);
+}
+.add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .add-btn-lg {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 20px;
+  padding: 8px 22px;
   font-size: var(--font-size-s);
+  font-weight: 500;
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: 10px;
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-fast) var(--ease-out);
 }
 .add-btn-lg:hover {
   background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover);
 }
 
-
-/* ── 空状态（对齐设置页 .empty-tab） ── */
+/* ── 空状态 ── */
 .empty {
   display: flex;
   flex-direction: column;
@@ -597,35 +836,100 @@ function timeAgo(ts: number | undefined): string {
 .empty p {
   margin: 0;
 }
-
-/* ── 服务商卡片（对齐设置页 cfg-card 风格：12px 圆角 + 项 hover） ── */
-.provider-card {
-  padding: var(--size-4-3) var(--size-4-4);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  margin-bottom: var(--size-4-2);
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-}
-.provider-card:hover {
-  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
-}
-.provider-card.active {
-  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 4%, transparent);
-}
-
-.provider-head {
+.empty-icon {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--background-secondary);
+  color: var(--text-faint);
+  border: 1px solid var(--background-modifier-border);
 }
-.provider-name {
+/* ── 提供方列表：紧凑单列，多提供方时不占纵向空间 ──
+ * 每行只显示 状态点/名称/标签/状态/操作，测试详情仅在需要时展开。 */
+.ai-service-panel {
+  display: grid;
+  gap: var(--size-4-2);
+}
+.ai-service-panel > .panel-tabs,
+.ai-service-panel > .group-title,
+.ai-service-panel > .empty,
+.ai-service-panel > .tier-section,
+.ai-service-panel > .rag-provider-section,
+.ai-service-panel > .form,
+.ai-service-panel > .provider-list {
+  grid-column: 1 / -1;
+}
+
+.provider-list {
+  display: grid;
+  gap: var(--size-4-1);
+}
+.provider-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.provider-row:hover {
+  border-color: var(--background-modifier-border-hover);
+}
+.provider-row.active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 3%, transparent);
+}
+.provider-row-main {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.provider-row-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+}
+.provider-row-avatar.rag {
+  background: color-mix(in srgb, var(--dv-good) 14%, transparent);
+  color: var(--dv-good);
+}
+.provider-row-name {
   font-size: var(--font-size-s);
   font-weight: 600;
   color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-right: 2px;
+}
+.unchecked-hint {
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  color: var(--text-faint);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  padding: 2px 9px;
+  border-radius: 99px;
 }
 .dot {
   width: 8px;
@@ -640,19 +944,29 @@ function timeAgo(ts: number | undefined): string {
 .dot.off {
   background: var(--text-faint);
 }
-
+.current-badge {
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  padding: 1px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
 .provider-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 .mini-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-m);
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
@@ -664,59 +978,24 @@ function timeAgo(ts: number | undefined): string {
 }
 .mini-btn.danger:hover {
   color: var(--dv-bad);
+  background: color-mix(in srgb, var(--dv-bad) 10%, transparent);
+}
+.mini-btn.enable {
+  color: var(--dv-good);
+}
+.mini-btn.enable:hover {
+  background: color-mix(in srgb, var(--dv-good) 14%, transparent);
+  color: var(--dv-good);
 }
 .mini-btn.testing {
   pointer-events: none;
-}
-
-.provider-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  flex-wrap: wrap;
-}
-.tag {
-  padding: 1px 7px;
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
-  color: var(--text-accent);
-}
-.tag.dim {
-  background: var(--background-modifier-hover);
-  color: var(--text-faint);
-}
-.key {
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.base-url {
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── 测试模型选择（与测试按钮同行，同高协调） ── */
 .probe-inline {
   display: flex;
   align-items: center;
-  gap: 4px; /* 与 provider-actions 按钮间距同步 */
-  margin-right: 0;
-}
-.probe-hint {
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-normal);
-  white-space: nowrap;
+  gap: 4px;
 }
 .probe-select {
   max-width: 150px;
@@ -742,17 +1021,30 @@ function timeAgo(ts: number | undefined): string {
   cursor: default;
 }
 
-/* ── caps 徽章 ── */
-.caps-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+.tag {
+  padding: 1px 7px;
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+  flex-shrink: 0;
 }
+.model-tag {
+  font-family: var(--font-monospace);
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── caps 徽章 ── */
 .caps-badge {
   font-size: var(--font-size-xxs);
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 99px;
 }
 .caps-badge.ok {
@@ -768,18 +1060,10 @@ function timeAgo(ts: number | undefined): string {
   color: var(--text-faint);
 }
 
-.caps-hint {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--color-orange, var(--text-muted));
-}
-
 /* ── 测试详情 ── */
 .test-detail {
-  margin-top: 6px;
+  flex-basis: 100%;
+  margin-top: 2px;
   padding: 6px 10px;
   border-radius: var(--radius-s);
   background: var(--background-secondary);
@@ -804,6 +1088,10 @@ function timeAgo(ts: number | undefined): string {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-3);
+  padding: var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
 }
 .form-row {
   display: flex;
@@ -815,10 +1103,9 @@ function timeAgo(ts: number | undefined): string {
   font-weight: 600;
   color: var(--text-muted);
 }
-/* 表单输入框对齐设置页全局 .text-input（设置弹窗全局类已定义，此处仅随 scoped 兜底） */
 .text-input {
   width: 100%;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-size: var(--font-size-s);
   color: var(--text-normal);
   background: var(--background-secondary);
@@ -854,6 +1141,7 @@ function timeAgo(ts: number | undefined): string {
   border-color: var(--interactive-accent);
   background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
   color: var(--text-normal);
+  font-weight: 600;
 }
 
 .form-actions {
@@ -870,6 +1158,7 @@ function timeAgo(ts: number | undefined): string {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 .cancel-btn:hover {
   background: var(--background-modifier-hover);
@@ -903,39 +1192,60 @@ function timeAgo(ts: number | undefined): string {
 .tier-section {
   margin-top: var(--size-4-6);
 }
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--size-4-2);
+}
 .tier-card {
   padding: var(--size-4-3) var(--size-4-4);
   border: 1px solid var(--background-modifier-border);
   border-radius: 12px;
-  margin-bottom: var(--size-4-2);
-  transition: background var(--dur-fast) var(--ease-out);
+  background: var(--background-primary);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .tier-card:hover {
-  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+  border-color: var(--background-modifier-border-hover);
+  box-shadow: var(--shadow-s);
+}
+.tier-grid .tier-fields {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+.tier-save {
+  margin-top: var(--size-4-3);
 }
 .tier-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-bottom: var(--size-4-2);
+  margin-bottom: var(--size-4-1);
 }
 .tier-name {
   font-size: var(--font-size-s);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-normal);
 }
 .tier-desc {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
+  margin-bottom: var(--size-4-2);
 }
 .tier-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
+  flex: none;
 }
 .tier-toggle input {
   accent-color: var(--interactive-accent);
+}
+.tier-toggle-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
 }
 .tier-fields {
   display: flex;
@@ -962,5 +1272,18 @@ function timeAgo(ts: number | undefined): string {
 .tier-select.sm {
   flex: 0 0 auto;
   min-width: 80px;
+}
+
+/* ── RAG（嵌入）提供方区：内部单列紧凑行列表 ── */
+.rag-provider-section {
+  margin-top: 0;
+  display: grid;
+  gap: var(--size-4-2);
+}
+.rag-provider-section > .group-title,
+.rag-provider-section > .empty,
+.rag-provider-section > .form,
+.rag-provider-section > .provider-list {
+  grid-column: 1 / -1;
 }
 </style>

@@ -21,6 +21,9 @@ const ENV_KEY = 'CLWRITING_RAG_API_KEY'
 /** RAG 配置（从 book.yaml 读，非密段） */
 export interface RagConfig {
   enabled: boolean
+  /** RAG 服务商 id（应用级 providers.json ragProviders[].id，书里只存引用） */
+  provider?: string
+  /** 旧版内联（服务商标应用级前的存量配置；resolver 回落用，不再写入） */
   endpoint?: string
   model?: string
 }
@@ -31,6 +34,7 @@ export function readRagConfig(bookRoot: string): RagConfig {
   if (!cfg.ok || !cfg.config.rag) return { enabled: false }
   return {
     enabled: cfg.config.rag.enabled,
+    provider: cfg.config.rag.provider,
     endpoint: cfg.config.rag.endpoint,
     model: cfg.config.rag.model,
   }
@@ -44,16 +48,23 @@ export function readRagConfig(bookRoot: string): RagConfig {
  */
 export function readApiKey(workDir: string): string | null {
   // 优先级 1：环境变量
-  const envKey = process.env[ENV_KEY]
-  if (envKey && envKey.trim()) return envKey.trim()
+  const envKey = envRagApiKey()
+  if (envKey) return envKey
 
   // 优先级 2：工作目录/.clwriting/rag.secret（.clwriting 非 git）
   const secretPath = join(workDir, '.clwriting', RAG_SECRET_FILE)
   if (existsSync(secretPath)) {
-    const key = readFileSync(secretPath, 'utf-8').trim()
+    const key = readFileSync(secretPath, 'utf8').trim()
     return key || null
   }
   return null
+}
+
+/** 读环境变量 CLWRITING_RAG_API_KEY（trim 后为空 → ''）。
+ *  服务商/旧版两条解析链共用：env 永远最高优先（运维覆盖一切落盘 key）。 */
+export function envRagApiKey(): string {
+  const k = process.env[ENV_KEY]
+  return k && k.trim() ? k.trim() : ''
 }
 
 /** 写 api_key 到 .clwriting/rag.secret（gitignore 区，绝不写 book.yaml） */
@@ -107,6 +118,9 @@ export function enableRag(
   const prev = cfgResult.config.rag
   const endpoint = opts.endpoint ?? prev?.endpoint
   const model = opts.model ?? prev?.model
+  // dd-P2：provider 引用同样保留——ragBody 此前不含 provider 行，整段替换后
+  // 服务商引用被静默抹掉、resolve 链回落旧内联端点（换端点烧钱）
+  const provider = prev?.provider
 
   // 2. 写回 book.yaml——V-P2-4：文本级补丁只重写 rag 段，作者的 # 注释、未知段、
   //    未知子键逐字保留（此前 stringifyBookConfig 全量重生成会静默丢掉）。
@@ -115,6 +129,7 @@ export function enableRag(
   const raw = existsSync(yamlPath) ? readFileSync(yamlPath, 'utf-8') : ''
   const ragBody = [
     '  enabled: true',
+    ...(provider ? [`  provider: ${stringifyValue(provider)}`] : []),
     ...(endpoint ? [`  endpoint: ${stringifyValue(endpoint)}`] : []),
     ...(model ? [`  model: ${stringifyValue(model)}`] : []),
   ].join('\n')

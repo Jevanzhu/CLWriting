@@ -10,12 +10,12 @@
  * - 上层 API（providers.ts）零改动
  * - load 时自动迁移明文→密文 + 半迁移状态收敛（§五）
  *
- * 写入健壮性（原子写/备份/损坏不静默）属于 S5，本文件仅做 chmod 0600。
+ * 写入健壮性（原子写/备份/损坏不静默）属于 S5；凭据文件权限统一 0600 且随创建即生效（ee-P2-1）。
  */
 import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, TierSlot, TierConfig } from './types.js'
+import type { ProviderConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
@@ -59,6 +59,8 @@ export interface ProviderStore {
   modelCaps: Record<string, { structured: false }>
   /** 任务档位（D 档：创作档/助手档；端点按任务类型取档） */
   tiers: TierConfig
+  /** RAG（嵌入）服务商——应用级多服务商，书按 rag.provider 引用（key 同走 vault） */
+  ragProviders: RagProviderConf[]
   vault: Vault | null
   dek: Buffer | null
 }
@@ -74,7 +76,7 @@ function defaultTiers(model: string | null): TierConfig {
 
 /** 空 store（首次启动 / 文件缺失时） */
 export function emptySettings(): ProviderStore {
-  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), vault: null, dek: null }
+  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), ragProviders: [], vault: null, dek: null }
 }
 
 
@@ -86,6 +88,8 @@ interface DiskFormat {
   /** 400 降级记忆槽（表驱动重构后复用原 modelCaps 槽，见 ProviderStore.modelCaps） */
   modelCaps?: Record<string, { structured: false }>
   tiers?: TierConfig
+  /** RAG（嵌入）服务商（同 vault 加密；形状坏容错为 []，不触发整文件 bak 恢复） */
+  ragProviders?: Array<Omit<RagProviderConf, 'apiKey'> & { apiKey?: string }>
   vault?: Vault
 }
 
@@ -206,7 +210,25 @@ export function loadProviders(userDataPath: string): ProviderStore {
     needsRewrite = true
   }
 
-  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), vault, dek }
+  // RAG（嵌入）服务商——同款解密/明文迁移规则。形状坏容错为 []：
+  // ragProviders 是后加段，不能因它拖累 chat providers 走整文件 bak 恢复链。
+  const ragRaw = Array.isArray(raw.ragProviders) ? raw.ragProviders : []
+  const ragProviders: RagProviderConf[] = ragRaw.map((p) => {
+    const conf = { ...p, apiKey: '' } as RagProviderConf
+    if (vault && dek && vault.keys[conf.id]) {
+      conf.apiKey = openKey(dek, vault.keys[conf.id]!)
+      if (p.apiKey) needsRewrite = true
+    } else if (p.apiKey) {
+      conf.apiKey = p.apiKey
+      needsRewrite = true
+    }
+    return conf
+  })
+  if (!vault && ragProviders.some((p) => p.apiKey)) {
+    needsRewrite = true
+  }
+
+  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), ragProviders, vault, dek }
 
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
@@ -224,7 +246,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
 }
 
 /**
- * 写 providers.json——加密 apiKey 进 vault + 剥离明文 + chmod 0600。
+ * 写 providers.json——加密 apiKey 进 vault + 剥离明文 + mode 0600 创建即生效（ee-P2-1）。
  *
  * 每次 save 以 providers 列表为准重建 vault.keys（D4：删除的 provider 自动清除密文）。
  * 若 store 无 vault（首次 / 迁移），创建新 vault + 随机 DEK。
@@ -244,37 +266,38 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
     store.dek = dek
   }
 
-  // 以 providers 为准重建 vault.keys——加密每个 apiKey
+  // 以 providers + ragProviders 为准重建 vault.keys——加密每个 apiKey。
+  // 两类 key 必须同批收齐：漏收任一类 = 存另一类时静默抹掉它的密文。
   vault.keys = {}
+  const sealKeyOf = (id: string, apiKey: string): void => {
+    if (apiKey) vault!.keys[id] = sealKey(dek!, apiKey)
+  }
   const diskProviders = store.providers.map((p) => {
-    if (p.apiKey) {
-      vault!.keys[p.id] = sealKey(dek!, p.apiKey)
-    }
+    sealKeyOf(p.id, p.apiKey)
     // 剥离明文 apiKey（落盘不含）
     return { ...p, apiKey: undefined } as Omit<ProviderConf, 'apiKey'>
   })
+  const ragProviders = store.ragProviders ?? []
+  const diskRagProviders = ragProviders.map((p) => {
+    sealKeyOf(p.id, p.apiKey)
+    return { ...p, apiKey: undefined } as Omit<RagProviderConf, 'apiKey'>
+  })
 
-  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, vault }
+  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, ragProviders: diskRagProviders, vault }
   const json = JSON.stringify(disk, null, 2) + '\n'
 
-  // D7：写前备份（文件已存在时）——同权限 0600
+  // D7：写前备份（文件已存在时）。ee-P2-1：bak 改走 atomicWriteFile + mode 0600 创建即生效——
+  // 此前 copyFileSync 建文件后再补 chmodSync，chmod 前受 umask 影响（默认 0644 短暂全局可读，
+  // 虽是密文仍是纪律缺口）；与主文件统一到「mode 随临时文件创建生效」纪律（CC-P2-3 / RB-IF-P2-6），
+  // 且顺带获得原子性（不再可能留下半截 bak）。
   if (existsSync(fp)) {
-    const bak = join(dirname(fp), 'providers.bak.json')
-    copyFileSync(fp, bak)
-    try {
-      chmodSync(bak, 0o600)
-    } catch {
-      // Windows / 某些 FS 不支持 chmod；备份成功即可
-    }
+    atomicWriteFile(join(dirname(fp), 'providers.bak.json'), readFileSync(fp, 'utf8'), { fsync: true, mode: 0o600 })
   }
 
-  // D5+D8：原子写（atomicWriteFile: PID+UUID tmp 防冲突 + fsync 落盘）→ chmod 0600 收敛凭据权限
-  atomicWriteFile(fp, json, { fsync: true })
-  try {
-    chmodSync(fp, 0o600)
-  } catch {
-    // Windows / 某些 FS 不支持 chmod
-  }
+  // D5+D8：原子写（atomicWriteFile: PID+UUID tmp 防冲突 + fsync 落盘）。
+  // ee-P2-1：mode 0600 随临时文件创建即生效（rename 保留 mode），删除写后 chmodSync——
+  // 后者存在 umask 窗口（默认 0644 短暂全局可读），与 CC-P2-3（src/ai/calls.ts 记账文件）同款修法。
+  atomicWriteFile(fp, json, { fsync: true, mode: 0o600 })
 
   // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存）
   _cache = null
@@ -361,6 +384,11 @@ export function resolveTier(userDataPath: string | null, kind: 'creative' | 'ass
 /** 新供应商 ID */
 export function newProviderId(): string {
   return `prov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** 新 RAG 服务商 ID（rag- 前缀与 chat 服务商区分，vault 槽天然不撞） */
+export function newRagProviderId(): string {
+  return `rag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 }
 
 /** key 遮蔽：只留前 4 后 4，不足 8 位 → *** */

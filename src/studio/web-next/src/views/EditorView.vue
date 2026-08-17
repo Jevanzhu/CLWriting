@@ -260,6 +260,10 @@ const titleSaving = ref(false)
 async function onTitleCommit(): Promise<void> {
   const e = entry.value
   if (!e || !ws.activeDocId || titleSaving.value) return
+  // dd-P2：入口捕获 docId——await（updateChapterMetaDoc + tree.load 大书较慢）期间
+  // 切 tab 后 ws.activeDocId 已指向新文档，届时取 fresh 回填会把新文档的 path/name
+  // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
+  const id = ws.activeDocId
   const newTitle = titleModel.value.trim() || '未命名'
   const current = parseFmFields(e.content).标题 ?? e.name
   if (newTitle === current) return
@@ -271,20 +275,21 @@ async function onTitleCommit(): Promise<void> {
     const pieceNum = e.role === 'piece-body'
       ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
       : undefined
-    await updateChapterMetaDoc(doc.bookName!, ws.activeDocId, {
+    await updateChapterMetaDoc(doc.bookName!, id, {
       标题: newTitle,
       ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
     await tree.load(doc.bookName!)
-    const fresh = tree.byDocId.get(ws.activeDocId)
+    if (ws.activeDocId !== id) return // 已切文档：fm 已落盘，树已全量刷新，放弃对旧条目的回填
+    const fresh = tree.byDocId.get(id)
     if (fresh) {
       e.path = fresh.path
       e.name = fresh.name
     }
     // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
-    await doc.refresh(ws.activeDocId)
+    await doc.refresh(id)
     // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记
-    const refreshed = doc.get(ws.activeDocId)
+    const refreshed = doc.get(id)
     if (refreshed) refreshed.conflict = false
   } catch (err) {
     ui.toast(friendlyError(err), 'error')

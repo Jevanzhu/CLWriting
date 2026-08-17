@@ -191,10 +191,17 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       payload.verdict = { approved, at: new Date().toISOString() }
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
+      // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
+      let body = ''
+      try {
+        body = readFileSync(absPath, 'utf-8')
+      } catch {
+        return reply(res, 500, { code: 'IO', error: '读不到正文文件（可能已被移动或删除），请刷新后再试' })
+      }
       writeAnalysis(bookRoot, docId, 'review', {
         generatedAt: existing?.generatedAt ?? new Date().toISOString(),
         model: 'author',
-        sourceHash: existing?.sourceHash ?? sourceHashOf(readFileSync(absPath, 'utf-8')),
+        sourceHash: existing?.sourceHash ?? sourceHashOf(body),
         payload,
       })
       reply(res, 200, { ok: true, verdict: payload.verdict })

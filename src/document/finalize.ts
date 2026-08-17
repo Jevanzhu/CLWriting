@@ -18,10 +18,14 @@ import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { applyLeadUpdates } from './lead-finalize.js'
+import { readOutlineLeads } from '../check/outline-leads.js'
+import { readChapterLeadUpdates, leadEvidenceMatchesBody } from '../check/lead-updates.js'
+import { leadClosureItems } from '../check/leads.js'
+import { readDraft } from '../format/draft.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
-  | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; error: string }
+  | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR' | 'LEAD_GATE' | 'LEAD_WRITE_ERROR'; error: string }
 
 /**
  * 定稿确认：写 pinned 定稿版本 + manifest 更新定稿基线 → 回 final。
@@ -57,6 +61,23 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   const chapterNo = rd.ok ? rd.chapter.章号 : inferChapterFromName(relPath)
   const title = rd.ok && rd.chapter.标题 ? rd.chapter.标题 : basenameNoExt(relPath)
 
+  // 定稿正文章（长篇有布线）判定——ee-P1-3 防吃书闸与 ee-P1-4 账本回写共用同一条件，
+  // 保持两处口径一致（任一单独漂移都会让闸门拦了不回写、或回写了不拦）。
+  const isChapter = relPath.startsWith('写作/正文/')
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  const isWiredChapter = isChapter && hasWiring && chapterNo > 0
+
+  // ee-P1-3：手工/批量定稿防吃书闸——正文章跑账本「两端闭合」两条结构红
+  // （声明了没做 / 做了没声明），非空则阻断定稿。此前红项只在 AI 自愈循环（retry）拦截，
+  // 作者手工定稿主路径失守（README「账实不符阻断定稿」失效）。只拦这两条：复读/文风/
+  // 禁词等其余红项不拦定稿，定稿前树红点/机检面板仍可见。
+  if (isWiredChapter) {
+    const blockers = finalGateBlockers(bookRoot, absPath, chapterNo)
+    if (blockers.length > 0) {
+      return { ok: false, code: 'LEAD_GATE', error: blockers.join('\n') }
+    }
+  }
+
   // ① 写定稿版本（永久保留，pinned）
   try {
     const content = readFileSync(absPath, 'utf-8')
@@ -73,7 +94,29 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
     return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${e instanceof Error ? e.message : String(e)}` }
   }
 
-  // ② manifest 更新定稿基线（entry 无则补建——旧书未登记首次定稿时落盘）
+  // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
+  // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
+  // ee-P1-4：回写提前到 manifest 基线落盘**之前**，失败 → LEAD_WRITE_ERROR（manifest 不落盘，
+  // 重试必然重新回写）。这推翻了 X-P2-5 的 best-effort 决策：叠加上面「指纹==基线 → skipped」
+  // 幂等短路，原顺序下回写中途失败（如磁盘满）后基线已落盘、账本推进.md 未清空，下次定稿
+  // skipped 永不再回写——账本履历**永久丢失**。skipped 造成的永久丢失 > 误导作者重试的害处
+  // （X-P2-5 当初担心的「实际已生效，报失败误导重试」不再成立：现在报失败后重试是真实
+  // 需要的，且重试安全——版本追加无害，回写自带同章号+动词+证据去重）。
+  if (isWiredChapter) {
+    try {
+      applyLeadUpdates(bookRoot, chapterNo)
+    } catch (e) {
+      return {
+        ok: false,
+        code: 'LEAD_WRITE_ERROR',
+        error: `账本履历回写失败（定稿未生效，修复后可重试）：${e instanceof Error ? e.message : String(e)}`,
+      }
+    }
+  }
+
+  // ② manifest 更新定稿基线（entry 无则补建——旧书未登记首次定稿时落盘）。
+  // ee-P1-4：必须等账本回写成功后才写——基线在位即触发上方 skipped 幂等，先写基线会把
+  // 回写失败变成「下次定稿永不再回写」的永久丢失窗口。
   if (!entry) {
     manifest.entries.set(docId, { id: docId, nodeType: 'document', path: relPath, parentId: null })
   }
@@ -82,22 +125,34 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   next.finalizedAt = new Date().toISOString()
   writeManifest(manifestPath, manifest)
 
-  // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
-  // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
-  // X-P2-5：账本回写降级为 best-effort——此时定稿主流程（版本+清单基线）已落盘，账本侧 IO
-  // 异常不应让 API 报「定稿失败」（实际已生效，误导作者重试）；对齐 appendWordsDelta 先例。
-  const isChapter = relPath.startsWith('写作/正文/')
-  const hasWiring = existsSync(join(bookRoot, '布线'))
-  if (isChapter && hasWiring && chapterNo > 0) {
-    try {
-      applyLeadUpdates(bookRoot, chapterNo)
-    } catch (e) {
-      console.error(`[finalize] 账本履历回写失败（定稿已生效，不回滚）ch${chapterNo}: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
   invalidateTreeIndex(bookRoot)
   return { ok: true, status: 'final', skipped: false }
+}
+
+/**
+ * ee-P1-3 定稿防吃书闸：算出阻断定稿的账本结构红（人话 message 列表，空 = 放行）。
+ *
+ * 数据源与 checkWithDb（src/check/run.ts）完全同口径，不自创：
+ * - 声明侧：readOutlineLeads（细纲 fm「推进」；章号不匹配的旧细纲自动置空不比对）
+ * - 兑现侧：readChapterLeadUpdates 过滤 leadEvidenceMatchesBody（证据核心须在 fm 剥离
+ *   后的当前正文命中才算兑现），比对逻辑复用 check 层导出的 leadClosureItems
+ * （单一真相源，防与机检口径漂移）。
+ *
+ * 整体 try/catch fail-open：闸门自身故障（读盘异常等）返回 [] 不阻断定稿——闸门是防
+ * 吃书增强而非定稿的必要条件，与 X-P2-5 降级哲学一致（观测/防护层故障不应锁死作者）。
+ */
+function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number): string[] {
+  try {
+    const declared = readOutlineLeads(bookRoot, chapterNo)
+    const draft = readDraft(absPath)
+    if (!draft.ok) return []
+    const actual = readChapterLeadUpdates(bookRoot)
+      .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
+      .map((u) => u.leadId)
+    return leadClosureItems(declared, actual, chapterNo).map((i) => i.message)
+  } catch {
+    return []
+  }
 }
 
 /** 清单 docId → relPath（容错：缺文件/未登记 → null）。 */

@@ -20,6 +20,8 @@ export type {
   TokenUsage,
   ModelProvider,
   ProbeResult,
+  RagProviderConf,
+  RagProviderCaps,
 } from './types.js'
 
 
@@ -32,6 +34,7 @@ export {
   tierFromStore,
   emptySettings,
   newProviderId,
+  newRagProviderId,
   maskKey,
   registerDegradedPersist,
   persistDegraded,

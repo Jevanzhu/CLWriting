@@ -154,46 +154,45 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const kind = readKind(bookRoot)
   // P2-3：批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）
   const chapters = opts.chapters
-  const isBatch = chapters !== undefined && chapters.length > 1
-
-  // 前端：running=true + 清空旧正文
-  emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
-  if (isBatch) {
-    emit(opts, { type: 'self_heal_batch', total: chapters!.length })
-    emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
-  }
-
-  // P3-6：book.yaml 只解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
-  // 写 8 章重复解析 8 次同一文件）
-  const config = readBookConfig(join(bookRoot, 'book.yaml')).config
-  const hasWiring = existsSync(join(bookRoot, '布线'))
-  if (hasWiring) {
-    const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
-    if (rebuilt.errors.length > 0) {
-      return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
-    }
-  }
-  // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）
-  const db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
-  const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
-
-  // F2：单章/批量共享同一套 ctx（消除双路径重复）
-  const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain, config }
-
-  // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
-  // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
-  if (isBatch) {
-    try {
-      return await orchestrateBatch(opts, state, ctx, chapters!)
-    } finally {
-      if (db) db.close()
-      chain?.close()
-    }
-  }
-
-  // F2：单章统一走 runChapter（与批量同源，消除双路径重复 + 语义统一：
-  // 无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿））
+  // dd-P2：length>0 即批量——单元素 [N] 此前被静默忽略改跑 opts.chapter，与注释语义矛盾
+  const isBatch = chapters !== undefined && chapters.length > 0
+  // dd-P2：db 声明提前 + 单一 finally 收口——此前「源文件解析失败」早返回与
+  // DatabaseSync 打开失败抛错都绕过两个内层 finally，chain（openSessionStore
+  // 引用计数）与 db 句柄在长驻 studio 服务里永久泄漏、重试持续累加
+  let db: InstanceType<typeof DatabaseSync> | null = null
   try {
+    // 前端：running=true + 清空旧正文
+    emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+    if (isBatch) {
+      emit(opts, { type: 'self_heal_batch', total: chapters!.length })
+      emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
+    }
+
+    // P3-6：book.yaml 只解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
+    // 写 8 章重复解析 8 次同一文件）
+    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+    const hasWiring = existsSync(join(bookRoot, '布线'))
+    if (hasWiring) {
+      const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
+      if (rebuilt.errors.length > 0) {
+        return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
+      }
+    }
+    // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）
+    db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
+    const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
+
+    // F2：单章/批量共享同一套 ctx（消除双路径重复）
+    const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain, config }
+
+    // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
+    // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
+    if (isBatch) {
+      return await orchestrateBatch(opts, state, ctx, chapters!)
+    }
+
+    // F2：单章统一走 runChapter（与批量同源，消除双路径重复 + 语义统一：
+    // 无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿））
     const run = await runChapter(opts, state, ctx, opts.chapter)
     if (run.outcome === 'aborted') return { outcome: 'aborted' }
     if (run.outcome === 'failed') return { outcome: 'failed', error: run.error }

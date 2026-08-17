@@ -28,6 +28,12 @@ export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+    // dd-P3：静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('Method Not Allowed')
+      return
+    }
     let decodedPathname: string
     try {
       decodedPathname = decodeURIComponent(pathname)

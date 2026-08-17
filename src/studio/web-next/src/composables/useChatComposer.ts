@@ -5,6 +5,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useWorkbenchStore } from '../stores/workbench'
+import { friendlyError } from '../shared/error'
 import { useUiStore } from '../stores/ui'
 import { sendChat, clearChatHistory } from '../api/chat'
 import { interrupt } from '../api/stream'
@@ -100,7 +101,13 @@ export function useChatComposer(
     })
     if (!ok) return
     if (chat.running) await stopChat()
-    try { await clearChatHistory(bookName()) } catch { /* 忽略 */ }
+    // dd-P3：失败即中止本地清空并提示——否则前端显示已清、事件库保留，刷新后旧对话复活
+    try {
+      await clearChatHistory(bookName())
+    } catch (e) {
+      useUiStore().toast(friendlyError(e), 'error')
+      return
+    }
     chat.clear()
   }
 

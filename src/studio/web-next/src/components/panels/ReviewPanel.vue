@@ -7,7 +7,7 @@ import { useReviewStore } from '../../stores/review'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf, isBodyKind } from '../../shared/words'
+import { isBodyKind } from '../../shared/words'
 import { friendlyError } from '../../shared/error'
 import type { ReviewIssueFE } from '../../api/review'
 

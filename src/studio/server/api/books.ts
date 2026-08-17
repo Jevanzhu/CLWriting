@@ -33,6 +33,9 @@ import { doInit } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
 import { migrateBookSession } from '../../../events/store.js'
+import { heldTaskGatesFor } from './task-gate.js'
+import { forgetRagBuildTask } from './rag.js'
+import { isSpawnRunning } from './stream.js'
 
 interface BookCtx {
   workDir: string | null
@@ -153,6 +156,18 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
     if (isSelfHealRunning(name)) abortSelfHeal(name)
     if (isChatRunning(name)) abortChat(name)
+    // ee-P2-11：/spawn 手动写稿在途闸——分钟级网络任务且 runWriterSpawn 持 bookRoot 闭包，
+    // books 侧无直接 abort 通道（与 task-gate 同类），持闸时拒删：放行则收尾落盘写已删除的
+    // 旧路径重建孤儿目录 + 白烧 API 费用（用户可先经 POST /interrupt 中断生成再删）
+    if (isSpawnRunning(name)) {
+      return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再删' })
+    }
+    // dd-P2：task-gate 分钟级任务（analyze/rewrite/rag-build 等）无 abort 通道——
+    // 持闸时拒删（409），防收尾落盘在删除后重建孤儿目录 + 白烧 API 费用
+    const held = heldTaskGatesFor(name)
+    if (held.length > 0) {
+      return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再删` })
+    }
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
     // symlink realpath 校验：防 entry.path 中间组件是符号链接 → rmSync 删到书库外
@@ -181,6 +196,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetSession(name)
     invalidateTreeIndex(bookAbs)
     clearChatHistory(name)
+    forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
     reply(res, 200, { ok: true, name })
   })
 
@@ -193,9 +209,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
       const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
-      // 路径穿越净化（与建书一致）：书名直接用作目录名
+      // dd-P3：书名校验复用单一真相源（isInvalidBookName，与建书/删书同源）——
+      // 此前内联复制规则，两处将来会漂移
       if (!name) throw new Error('书名不能为空')
-      if (name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') {
+      if (isInvalidBookName(name)) {
         throw new Error('书名不能包含路径分隔符或特殊路径段（/ \\ . ..）')
       }
       return { name }
@@ -248,6 +265,29 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 全量改名：中断在途 AI（同删书，防改名后继续落盘重建旧目录/白耗费用）
       if (isSelfHealRunning(oldName)) abortSelfHeal(oldName)
       if (isChatRunning(oldName)) abortChat(oldName)
+      // ee-P2-11：/spawn 在途闸——runWriterSpawn 持改名前的 bookRoot 闭包，放行则收尾
+      // 落盘写旧路径（目录已搬走 → 重建孤儿目录）+ 白烧 API 费用；与删书同口径拒改（409）
+      if (isSpawnRunning(oldName)) {
+        return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再改名' })
+      }
+      // dd-P2：task-gate 分钟级任务无 abort 通道——持闸时拒改（409），防改名后收尾写旧路径
+      const held = heldTaskGatesFor(oldName)
+      if (held.length > 0) {
+        return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后改名` })
+      }
+
+      // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
+      // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名（migrate 对
+      // 「新库已存在」静默跳过），对话历史/审计从此永久失联且无回滚。先改名失败 =
+      // 纯净 500 可安全重试。
+      try {
+        renameSync(oldRoot, newRoot)
+      } catch (e) {
+        console.error('[api] rename: 改目录名失败:', e)
+        reply(res, 500, { error: '改目录名失败' })
+        return
+      }
+
       // 清内存对话态 + 迁移事件库（尽力而为：失败留旧库可找回，不删数据）
       clearChatHistory(oldName)
       migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
@@ -256,15 +296,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       forgetSession(oldName)
       invalidateTreeIndex(oldRoot)
       invalidateBookSummary(oldRoot)
-
-      // 移动磁盘目录
-      try {
-        renameSync(oldRoot, newRoot)
-      } catch (e) {
-        console.error('[api] rename: 改目录名失败:', e)
-        reply(res, 500, { error: '改目录名失败' })
-        return
-      }
+      forgetRagBuildTask(oldName) // dd-P3：模块级索引任务表随改名清理（rag-build 已被闸拒绝，不会运行中改名）
       writeTitle(newRoot)
 
       // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）
@@ -316,8 +348,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
   // 启动初始态（--book 直进 + session token 注入前端）
   route('GET', '/api/boot', (req: IncomingMessage, res: ServerResponse) => {
     // RB-SV-P1-1：token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
-    // Origin（server/index.ts 注入）；外部 Origin 一律不给（防本地恶意页面免鉴权取 token
-    // 换取全部写权限）。initialBook 无敏感性，照常回传。
+    // Origin（server/index.ts 注入）；外部 Origin 一律不给。initialBook 无敏感性，照常回传。
+    // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程无 Origin 直连
+    // 本端点即可拿 token，故 token 不承诺防本机进程；其实际作用是把写端点/SSE 可驱动面
+    // 收敛到拿到 boot 的客户端，配合 Host/Origin 校验（server/index.ts）防远端网页驱动。
     const origin = req.headers.origin
     const trusted = !origin || ctx.isTrustedOrigin(origin)
     reply(res, 200, trusted ? { initialBook, token: ctx.token } : { initialBook })

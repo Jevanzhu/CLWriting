@@ -1,4 +1,4 @@
-import { apiJson } from './client'
+import { apiJson, ApiError } from './client'
 
 // 分析载荷种类（review 走独立三审端点，不在此）。
 export type AnalysisKindFE = 'score' | 'emotion' | 'hooks' | 'style'
@@ -31,8 +31,9 @@ export async function getAnalysisEnvelope(
       `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analysis/${kind}`,
     )
     return { envelope: r.envelope, stale: r.stale }
-  } catch {
-    return null
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null // 确无存量信封
+    throw e // 服务端故障/网络错误上抛（调用方 toast）
   }
 }
 

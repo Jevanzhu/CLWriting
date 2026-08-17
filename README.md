@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-2171%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-2225%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/AI%20provider-Anthropic%20%2B%20OpenAI-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -80,7 +80,7 @@ npm run dev:app
 ```bash
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面构建 + 前端构建
-npm test                   # 2171 单测
+npm test                   # 2225 单测
 npm run test:e2e           # Playwright e2e（mock 驱动，25 specs / 37 用例）
 npm run dev:api            # Studio API :7878（配合 dev:web 前端调试）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
@@ -100,7 +100,7 @@ npm run build:desktop      # electron-builder 打包 dmg
   → 设定界：大纲（卷纲 / 章纲 / 总纲）+ 角色 + 世界观 + 物品
   → 写作：编辑器写稿；「全自动写章」= AI 写稿 → 机检 → 报红自动重写 → 全绿交你
   → 三审（读者 / 编辑 / 设定）→ 作者裁决
-  → 批量审稿：待定稿逐章/逐篇定稿或整批回滚
+  → 批量定稿：待定稿逐章/逐篇定稿确认
   → 下一章
 ```
 
@@ -131,7 +131,7 @@ budget:
   calls_per_chapter: 8
 ```
 
-自动连写把多章/多篇草稿攒进 `工作区/待定稿/`，作者在「批量审稿」界面逐章/逐篇定稿或整批回滚。
+自动连写把多章/多篇草稿攒进 `工作区/待定稿/`，作者在「批量定稿」中逐章/逐篇确认定稿；需要回退时用章节历史版本恢复。
 
 ---
 
@@ -148,7 +148,7 @@ budget:
 | 对话助手 | 工作台「对话」tab：Agent 化助手调白名单工具（含确认闸）；对话历史事件化持久化，刷新自动恢复。 |
 | 编辑器 | CodeMirror 6 三栏工作区；专注模式（打字机）；选段改写；AI 分析。 |
 | 章节树 | 文档滑动（灵感 / 大纲 / 设定 / 写作 / 待定稿），机检红点逐级冒泡。 |
-| 三审 / 批量审稿 | 读者 / 编辑 / 设定三视角审稿；待定稿逐章定稿或整批回滚。 |
+| 三审 / 批量定稿 | 读者 / 编辑 / 设定三视角审稿；待定稿逐章/逐篇定稿（定稿前防吃书闸拦账实不符）。 |
 | 文风系统 | 四段式 StyleView：条目库 / 候选箱 / 定标基线 / 铁律；样章与金句收割导入。 |
 | 总览 | 进度、节奏、伏笔、文风四区仪表盘。 |
 | 关系图 | 角色 / 世界观 / 伏笔径向层次关系图。 |
@@ -173,7 +173,7 @@ budget:
 | AI 编排 | `runTask` 统一编排层：任务档位（创作 / 助手）、韧性重试、首字节超时、计量闸 |
 | 凭据 | Vault 信封加密（HKDF-SHA256 → AES-256-GCM）+ 原子写 + 备份 |
 | 构建 | tsup（桌面主进程）+ Vite（前端） |
-| 测试 | vitest（2171 单测）+ Playwright（25 specs / 37 用例） |
+| 测试 | vitest（2225 单测）+ Playwright（25 specs / 37 用例） |
 
 设计红线：
 
@@ -202,7 +202,7 @@ budget:
 | 文风系统 | 已完成 | 条目模型 + 四源管线，StyleView 四段式。 |
 | AI Harness | 已完成 | 内核重整：fake provider + trace + 规则命中统计 + 作者信号 + 自愈闭环。 |
 
-- **241 个测试文件 / 2171 单测全绿 + 25 个 e2e spec / 37 用例全绿（35 过 + 2 发布门控跳过）**，`tsc --noEmit` 与 `vue-tsc` 双端通过，`build:all` 构建通过。
+- **245 个测试文件 / 2225 单测全绿 + 25 个 e2e spec / 37 用例**，`tsc --noEmit` 与 `vue-tsc` 双端通过，`build:all` 构建通过。
 - 短篇全流程定稿验证已通过；AI 产出经 tool_use 结构化约束，front matter 零漂移。
 - 作者侧全程自然语言：设置里添加供应商 → 测试连接 → 全自动写章 / 编辑器写作 / 三审 / 定稿，零命令行。
 - 架构红线：**不再 spawn 任何 CLI 子进程**；全部 AI 流量经 provider 直连，确定性操作直接 import 内核模块。

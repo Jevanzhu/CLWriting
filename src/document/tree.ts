@@ -50,11 +50,6 @@ export interface BookTreeIndex {
 /** 全局跳过目录（任何层级都不扫：运行时 / 版本库 / 依赖 / 系统垃圾 / 幕后资产）。
  *  v2：工作区（运行时资产）、文风（幕后）、定稿（仅剩摘要/脚本产物）、项目（元数据）不进树。 */
 const SKIP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '.DS_Store', '工作区', '文风', '定稿', '项目'])
-/** 工作区/ 下跳过的内部资产（W0 §9 注）——目录与文件名混合，按名匹配。 */
-const SKIP_WORKDIR_ENTRIES = new Set([
-  '.trash', '.journal', '.版本', '.snapshots', '待定稿', '.confirm.json', '.ai-calls.json',
-])
-
 /** 扫描书库 → 嵌套 TreeNode（目录优先 + localeCompare zh-Hans-CN 排序）。 */
 export function scanBookTree(bookRoot: string): TreeNode[] {
   return scanDir(bookRoot, '')
@@ -69,10 +64,8 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
     return [] // 目录不存在 / 无读权限 → 空（容错）
   }
   const nodes: TreeNode[] = []
-  const inWorkdir = relDir === '工作区'
   for (const e of entries) {
     if (SKIP_DIRS.has(e.name)) continue
-    if (inWorkdir && SKIP_WORKDIR_ENTRIES.has(e.name)) continue
     const rel = relDir ? `${relDir}/${e.name}` : e.name
     if (e.isDirectory()) {
       nodes.push({

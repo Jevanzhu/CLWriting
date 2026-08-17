@@ -77,8 +77,10 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
       v === undefined ? undefined : typeof v === 'number' ? v : NaN
     // X-P3a：tasks 逐条校验形状——盲 cast 遇坏条目（used 非数字）会让后续
     // 累加变 NaN 静默烂账，且绕过「损坏保守阻断」承诺；坏条目按损坏处理
+    //（dd-P3：字段存在但非对象〔如被写成字符串〕同样按损坏处理，不静默取空）
     const tasks: Record<string, TaskUsage> = {}
-    if (typeof raw['tasks'] === 'object' && raw['tasks'] !== null) {
+    if (raw['tasks'] !== undefined && raw['tasks'] !== null) {
+      if (typeof raw['tasks'] !== 'object') return { rec: null, corrupt: true }
       for (const [k, v] of Object.entries(raw['tasks'] as Record<string, unknown>)) {
         const t = v as Partial<TaskUsage> | null
         if (!t || typeof t.used !== 'number' || typeof t.inputTokens !== 'number' || typeof t.outputTokens !== 'number') {
