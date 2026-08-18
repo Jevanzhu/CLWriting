@@ -301,16 +301,16 @@ test('exportBook: 短篇投稿视图同口径滤未定稿', () => {
 
 // ── X-P2-4：超长文件名截断 + 单章级问题降级为警告 ──
 
-test('X-P2-4: 超长章标题文件名截断（80 码位 + 255 字节双封顶），不再因文件名过长写失败', () => {
+test('X-P2-4: 超长章标题文件名截断（80 码位封顶，ASCII 不触字节封顶），不再因文件名过长写失败', () => {
   const root = makeLongBook('长标题书')
-  const longTitle = '长'.repeat(120)
+  const longTitle = 'a'.repeat(300)
   writeLongChapter(root, 1, longTitle, '正文。', 'long-title')
   try {
     const r = exportBook({ bookRoot: root, format: 'split' })
     expect(r.ok).toBe(true)
     const names = readdirSync(join(root, '工作区', '导出', '分章'))
     expect(names).toHaveLength(1)
-    // `001-` + 标题截 80 码位（3 字节字符 × 80 = 240 字节，未触字节封顶）+ `.md`
+    // 码位封顶：`001-` + 标题截 80 码位（ASCII 80 字节，远未触字节封顶）+ `.md`；字节封顶见 FF-F3
     expect(Array.from(names[0]!).length).toBe('001-'.length + 80 + '.md'.length)
     expect(Buffer.byteLength(names[0]!, 'utf8')).toBeLessThanOrEqual(255)
     // 只有文件名截，内容里标题完整
@@ -330,9 +330,13 @@ test('FF-F3: 4 字节字符标题按字节封顶——码位 80 × 4B = 320B 超
     expect(r.ok).toBe(true)
     const names = readdirSync(join(root, '工作区', '导出', '分章'))
     expect(names).toHaveLength(1)
-    // 字节预算 = 255 - 4('001-') - 3('.md') = 248 → 62 个 4 字节字符（62×4=248）
+    // 字节预算 = (255 - 52 原子写临时名预留) - 4('001-') - 3('.md') = 196B → 49 个 4 字节字符
+    // （临时名 `.{名}.{pid}.{uuid}.tmp` 会再占 ≤49B，故最终名不能贴 255B 截——ext4 CI 实证）
     expect(Buffer.byteLength(names[0]!, 'utf8')).toBeLessThanOrEqual(255)
-    expect(Array.from(names[0]!).length).toBe('001-'.length + 62 + '.md'.length)
+    expect(Array.from(names[0]!).length).toBe('001-'.length + 49 + '.md'.length)
+    // 不变量自查（平台无关）：最终名 + 最长临时后缀 `.{pid7}.{uuid36}.tmp` 仍须 ≤255B，
+    // 否则 ext4 上 ENAMETOOLONG 而 APFS 本地恒绿
+    expect(Buffer.byteLength(names[0]!, 'utf8') + 1 + 7 + 1 + 36 + 4).toBeLessThanOrEqual(255)
     // 内容里标题完整不截
     const body = readFileSync(join(root, '工作区', '导出', '分章', names[0]!), 'utf-8')
     expect(body.startsWith(`# ${emojiTitle}`)).toBe(true)

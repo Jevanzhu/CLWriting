@@ -46,20 +46,24 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
   await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
 
-  // 空态 → 添加第一个供应商（协议默认 OpenAI 兼容格式）
+  // 空态 → 添加第一个供应商（DSH 编辑器：主字段 = API Key；「自定义设置」折叠内含名称/API 地址）
   await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
-  let inputs = page.locator('.ai-service-panel > .form .text-input')
-  await inputs.nth(0).fill('我的中转')
-  await inputs.nth(1).fill('https://openai.local/v1')
-  await inputs.nth(2).fill('sk-test-key-1234')
-  await page.locator('.ai-service-panel > .form .save-btn').click()
+  const addCard = page.locator('.ai-service-panel .add-provider-card')
+  // 主字段：API Key（details 折叠时唯一可见的 text-input）
+  await addCard.locator('.form .text-input').nth(0).fill('sk-test-key-1234')
+  // 展开「自定义设置」→ 填名称 + API 地址（text-input 次序：API Key, 名称, API 地址）
+  await addCard.locator('.adv-summary').click()
+  await addCard.locator('.form .text-input').nth(1).fill('我的中转')
+  await addCard.locator('.form .text-input').nth(2).fill('https://openai.local/v1')
+  await addCard.locator('.form .save-btn').click()
 
   let card = page.locator('.ai-service-panel .provider-row')
   await expect(card).toHaveCount(1)
   await expect(card).toContainText('我的中转')
 
-  // 第一个自动成为当前（POST 首条语义）：dot.on + 无「启用」按钮
-  await expect(card.locator('.dot.on')).toBeVisible()
+  // 第一个自动成为当前（POST 首条语义）：「当前」徽章 + 无「设为当前启用」按钮
+  //（阶段 14 IA 重组：旧 .dot.on 指示点改为 .current-badge 徽章——AiProviderList）
+  await expect(card.locator('.current-badge')).toContainText('当前')
 
   // 测试连接：mock 短路返回全能力 → caps 徽章出现
   await card.locator('.mini-btn[data-tip="测试连接"]').click()
@@ -67,11 +71,12 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 
   // 添加第二个供应商
   await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
-  inputs = page.locator('.ai-service-panel > .form .text-input')
-  await inputs.nth(0).fill('备用中转')
-  await inputs.nth(1).fill('https://backend.local/v1')
-  await inputs.nth(2).fill('sk-test-key-9999')
-  await page.locator('.ai-service-panel > .form .save-btn').click()
+  const addCard2 = page.locator('.ai-service-panel .add-provider-card')
+  await addCard2.locator('.form .text-input').nth(0).fill('sk-test-key-9999')
+  await addCard2.locator('.adv-summary').click()
+  await addCard2.locator('.form .text-input').nth(1).fill('备用中转')
+  await addCard2.locator('.form .text-input').nth(2).fill('https://backend.local/v1')
+  await addCard2.locator('.form .save-btn').click()
 
   await expect(page.locator('.ai-service-panel .provider-row')).toHaveCount(2)
   card = page.locator('.ai-service-panel .provider-row', { hasText: '备用中转' })
@@ -79,7 +84,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await card.locator('.mini-btn[data-tip="测试连接"]').click()
   await expect(card.locator('.caps-badge')).toContainText('已连接', { timeout: 10_000 })
   await card.locator('.mini-btn[data-tip="设为当前启用"]').click()
-  await expect(card.locator('.dot.on')).toBeVisible()
+  await expect(card.locator('.current-badge')).toContainText('当前')
 
   // 后端 ai-status 即刻可达（P0-2 无缓存）
   const j = await (await page.request.get(`${BASE}/api/ai-status`)).json()
@@ -87,15 +92,16 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 
   // —— RAG 提供方：切到面板内「RAG 提供方」分页管理 ——
   await page.locator('.panel-tab', { hasText: 'RAG 提供方' }).click()
-  await page.locator('.rag-provider-section .add-btn', { hasText: '添加' }).click()
-  const ragInputs = page.locator('.rag-provider-section .form .text-input')
+  //（阶段 14 IA 重组：列表挂 .group-title；.rag-provider-section 现为编辑器卡内层）
+  await page.locator('.group-title .add-btn', { hasText: '添加' }).click()
+  const ragInputs = page.locator('.ai-service-panel .add-provider-card .form .text-input')
   await ragInputs.nth(0).fill('嵌入验证')
   await ragInputs.nth(1).fill('https://embed.local/v1/embeddings')
   await ragInputs.nth(2).fill('text-embedding-3-small')
   await ragInputs.nth(3).fill('sk-embed-key-1')
-  await page.locator('.rag-provider-section .form .save-btn').click()
+  await page.locator('.ai-service-panel .add-provider-card .form .save-btn').click()
 
-  const ragCard = page.locator('.rag-provider-section .provider-row')
+  const ragCard = page.locator('.ai-service-panel .provider-row')
   await expect(ragCard).toHaveCount(1)
   await expect(ragCard).toContainText('嵌入验证')
   await expect(ragCard).toContainText('text-embedding-3-small')
@@ -103,13 +109,16 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await expect(ragCard).not.toContainText('sk-embed-key-1')
   await expect(ragCard).not.toContainText('sk-e...')
 
-  // —— 「AI 功能」页：启用检索 + 选用刚建的 RAG 提供方 → book.yaml 落 rag.provider ——
-  await page.locator('.settings-nav button', { hasText: 'AI 功能' }).click()
-  // input opacity:0/0宽高，点外层 .switch label 触发（同 export-ai-settings.spec.ts）
-  await page.locator('.setting-item', { hasText: '启用检索' }).locator('.switch').click()
+  // —— 「本书」页：知识检索「本书使用独立设定」+ 启用检索 + 选刚建的 RAG 提供方 → book.yaml 落 rag ——
+  // （IA 重组：全局默认在「智能分析」页写 global.json 不落 book.yaml；书级引用走本书覆盖组——
+  //   全书三组「本书使用独立设定」，须先用组头（cfg-card-head 知识检索）收窄再点组内开关）
+  await page.locator('.settings-nav button', { hasText: '本书' }).click()
+  const ragGroup = page.locator('.cfg-card-head', { hasText: '知识检索' }).locator(' + .cfg-card')
+  await ragGroup.locator('.setting-item', { hasText: '本书使用独立设定' }).locator('.switch').click()
+  await ragGroup.locator('.setting-item', { hasText: '启用检索' }).locator('.switch').click()
   const ragList = await (await page.request.get(`${BASE}/api/rag-providers`)).json()
   expect(ragList.ragProviders).toHaveLength(1)
-  await page.locator('.rag-prov-select').selectOption(ragList.ragProviders[0].id)
+  await ragGroup.locator('.rag-prov-select').selectOption(ragList.ragProviders[0].id)
 
   // GET 信封是 {config}；saveConfig 的 PUT 串行但在途，用 poll 等落盘
   await expect
@@ -133,14 +142,15 @@ test('Responses 协议三选一：添加 openai-responses 供应商保存成功'
   await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
   await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
   await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
-
-  // 协议栏第三按钮（排最后）——选中后 auth 自动定 bearer
-  await page.locator('.ai-service-panel .protocol-btn', { hasText: 'Responses' }).click()
-  const inputs = page.locator('.ai-service-panel > .form .text-input')
-  await inputs.nth(0).fill('Responses 官方')
-  await inputs.nth(1).fill('https://api.openai.local/v1')
-  await inputs.nth(2).fill('sk-test-key-resp')
-  await page.locator('.ai-service-panel > .form .save-btn').click()
+  const addCard = page.locator('.ai-service-panel .add-provider-card')
+  // 主字段：API Key（先填，details 折叠）
+  await addCard.locator('.form .text-input').nth(0).fill('sk-test-key-resp')
+  // 展开「自定义设置」→ 协议栏第三按钮（排最后）——选中后 auth 自动定 bearer
+  await addCard.locator('.adv-summary').click()
+  await addCard.locator('.protocol-btn', { hasText: 'Responses' }).click()
+  await addCard.locator('.form .text-input').nth(1).fill('Responses 官方')
+  await addCard.locator('.form .text-input').nth(2).fill('https://api.openai.local/v1')
+  await addCard.locator('.form .save-btn').click()
 
   const card = page.locator('.ai-service-panel .provider-row', { hasText: 'Responses 官方' })
   await expect(card).toHaveCount(1)

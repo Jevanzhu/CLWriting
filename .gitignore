@@ -25,6 +25,7 @@ Dev/
 .codex/
 .agents/
 .vscode/
+.zcode/
 
 # Playwright（e2e 产物 / 缓存，本地生成）
 /test-results/
