@@ -20,9 +20,11 @@ function makeLongBook(title: string): string {
 }
 
 /** 写一章长篇定稿（front matter + 正文） */
-function writeLongChapter(root: string, num: number, title: string, body: string): void {
+function writeLongChapter(root: string, num: number, title: string, body: string, fileName = title): void {
+  // ff-P1-2：源文件名单段须 ≤255 字节可移植（ext4 CI 腿按字节判，APFS 按码位判）——
+  // 超长标题只进 front matter 内容，不进源文件名；导出侧截断由 fm 标题驱动，不受影响。
   writeFileSync(
-    join(root, '写作', '正文', `${num}-${title}.md`),
+    join(root, '写作', '正文', `${num}-${fileName}.md`),
     `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
     'utf-8',
   )
@@ -299,20 +301,41 @@ test('exportBook: 短篇投稿视图同口径滤未定稿', () => {
 
 // ── X-P2-4：超长文件名截断 + 单章级问题降级为警告 ──
 
-test('X-P2-4: 超长章标题文件名截断（80 码位封顶），不再因文件名过长写失败', () => {
+test('X-P2-4: 超长章标题文件名截断（80 码位 + 255 字节双封顶），不再因文件名过长写失败', () => {
   const root = makeLongBook('长标题书')
   const longTitle = '长'.repeat(120)
-  writeLongChapter(root, 1, longTitle, '正文。')
+  writeLongChapter(root, 1, longTitle, '正文。', 'long-title')
   try {
     const r = exportBook({ bookRoot: root, format: 'split' })
     expect(r.ok).toBe(true)
     const names = readdirSync(join(root, '工作区', '导出', '分章'))
     expect(names).toHaveLength(1)
-    // `001-` + 标题截 80 码位 + `.md`
+    // `001-` + 标题截 80 码位（3 字节字符 × 80 = 240 字节，未触字节封顶）+ `.md`
     expect(Array.from(names[0]!).length).toBe('001-'.length + 80 + '.md'.length)
+    expect(Buffer.byteLength(names[0]!, 'utf8')).toBeLessThanOrEqual(255)
     // 只有文件名截，内容里标题完整
     const body = readFileSync(join(root, '工作区', '导出', '分章', names[0]!), 'utf-8')
     expect(body.startsWith(`# ${longTitle}`)).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('FF-F3: 4 字节字符标题按字节封顶——码位 80 × 4B = 320B 超限，截到单段 ≤255 字节', () => {
+  const root = makeLongBook('字节截断书')
+  const emojiTitle = '🎉'.repeat(120)
+  writeLongChapter(root, 1, emojiTitle, '正文。', 'emoji-title')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'split' })
+    expect(r.ok).toBe(true)
+    const names = readdirSync(join(root, '工作区', '导出', '分章'))
+    expect(names).toHaveLength(1)
+    // 字节预算 = 255 - 4('001-') - 3('.md') = 248 → 62 个 4 字节字符（62×4=248）
+    expect(Buffer.byteLength(names[0]!, 'utf8')).toBeLessThanOrEqual(255)
+    expect(Array.from(names[0]!).length).toBe('001-'.length + 62 + '.md'.length)
+    // 内容里标题完整不截
+    const body = readFileSync(join(root, '工作区', '导出', '分章', names[0]!), 'utf-8')
+    expect(body.startsWith(`# ${emojiTitle}`)).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

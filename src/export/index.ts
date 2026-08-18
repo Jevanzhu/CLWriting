@@ -84,16 +84,28 @@ function purifyBody(body: string): string {
     .trim()
 }
 
-/** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（X-P2-4）。
+/** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（X-P2-4 码位 + FF-F3 字节双封顶）。
  *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化——
- *  AI 产出标题可任意长，超 255 字节文件名在 macOS/NTFS 直接写失败，整本导出被一章拖垮。 */
+ *  AI 产出标题可任意长，超 255 字节文件名在 macOS/NTFS 直接写失败，整本导出被一章拖垮。
+ *  FF-F3：ext4/NTFS 单段上限按 255 **字节**判（APFS 按码位判，本地恒绿会掩盖 CI 红）——
+ *  码位封顶挡不住 4 字节字符（emoji 类 AI 标题 × 80 码位 = 320 字节），须再按字节截断；
+ *  字节预算按各拼接点实际前后缀计算（分章序号 / 全本- / 投稿视图-平台后缀 长度不一），截断不切多字节字符。 */
 const FILENAME_MAX_CP = 80
+const FILENAME_MAX_BYTES = 255
 
-function sanitizeFileName(name: string): string {
+function sanitizeFileName(name: string, maxBytes: number): string {
   const cleaned = name.replace(/[\\/]/g, '_').trim()
-  return Array.from(cleaned).length > FILENAME_MAX_CP
-    ? Array.from(cleaned).slice(0, FILENAME_MAX_CP).join('')
-    : cleaned
+  const cps = Array.from(cleaned)
+  let out = ''
+  let used = 0
+  for (let i = 0; i < cps.length; i++) {
+    if (i >= FILENAME_MAX_CP) break
+    const b = Buffer.byteLength(cps[i]!, 'utf8')
+    if (used + b > maxBytes) break
+    out += cps[i]!
+    used += b
+  }
+  return out
 }
 
 export function exportBook(options: ExportOptions): ExportResult {
@@ -194,7 +206,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     const mergedContent = purified
       .map((unit) => `# ${unit.title}\n\n${unit.body}`)
       .join('\n\n---\n\n')
-    const fileName = `全本-${sanitizeFileName(bookTitle)}.md`
+    const fileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
     atomicWriteFile(join(exportDir, fileName), mergedContent)
     files.push(`工作区/导出/${fileName}`)
   }
@@ -205,7 +217,8 @@ export function exportBook(options: ExportOptions): ExportResult {
     const splitDir = join(exportDir, splitName)
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
-      const fileName = `${String(unit.num).padStart(3, '0')}-${sanitizeFileName(unit.title)}.md`
+      const prefix = `${String(unit.num).padStart(3, '0')}-`
+      const fileName = `${prefix}${sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))}.md`
       atomicWriteFile(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`)
       files.push(`工作区/导出/${splitName}/${fileName}`)
     }
@@ -215,7 +228,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     // 文件名与内容标题一致：非 generic 平台带模板 label（多平台产物不互相覆盖）
     const template = SUBMISSION_TEMPLATES[platform]
     const platformSuffix = template && platform !== 'generic' ? `-${template.label}` : ''
-    const submissionName = `投稿视图-${sanitizeFileName(bookTitle)}${platformSuffix}.md`
+    const submissionName = `投稿视图-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength(`投稿视图-${platformSuffix}.md`))}${platformSuffix}.md`
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）
     const exportableNums = new Set(exportable.map((u) => u.num))
     const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))
