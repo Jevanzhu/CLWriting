@@ -15,22 +15,29 @@ import { parseValue, stringifyValue } from './frontmatter.js'
 import { LEAD_TYPES } from './leads.js'
 
 // ── 默认值（#9 第 3 节，待 beta 的给占位）────────
+//
+// 书级设定全局托底（13 键）：style 段、auto 段、budget.calls_per_chapter、book.genre
+// 从 DEFAULT_CONFIG 摘除——readBookConfig 起步值里带着默认值的话，书文件没写 = 解析结果
+// 恒有值，「书级未设 → 回落全局」永远被遮蔽（解析层看不见「未设」）。这些键的默认值
+// 迁移到 GLOBAL_FALLBACK_DEFAULTS（format/global-defaults.ts），由运行时合并层
+// applyGlobalDefaults 兜底；错误回落分支（readBookConfig !ok）也因此只带必填骨架。
+// budget 其余三键（input/summary 长程预算）不进全局托底，照旧在此预填。
 
 export const DEFAULT_CONFIG: BookConfig = {
   spec_version: 1,
   host: 'cc',
-  book: { title: '', genre: '' },
+  book: { title: '' },
   leads: { enabled: [] },
   budget: {
-    calls_per_chapter: 8,
     input_per_chapter: 80000,
     summary_chapter_max: 200,
     summary_volume_max: 500,
   },
-  style: { injection: 'light' },
-  auto: { confirm_outline: false, batch_size: 8 },
   growth: { realm_span_max: 2 },
 }
+
+/** budget 段已知键白名单（解析用；calls_per_chapter 已可选化，不能再用 `in 起步值` 判定） */
+const BUDGET_KEYS = new Set(['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max'])
 
 // ── 解析：段 + 缩进子字段 ────────────────────────
 
@@ -98,9 +105,11 @@ function parseSections(text: string): RawSection[] {
   return roots
 }
 
-/** 段树 → BookConfig（#9 第 2 节） */
+/** 段树 → BookConfig（#9 第 2 节）。
+ *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
+ *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。 */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
-  const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, style: { ...DEFAULT_CONFIG.style }, auto: { ...DEFAULT_CONFIG.auto }, growth: { ...DEFAULT_CONFIG.growth } }
+  const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
 
   if (find('spec_version')) cfg.spec_version = parseFiniteNumber(find('spec_version')!.value, 1)
@@ -129,7 +138,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const vs = book.children.find((c) => c.key === 'volume_size')
     const tw = book.children.find((c) => c.key === 'target_words')
     if (t) cfg.book.title = String(parseValue(t.value))
-    if (g) cfg.book.genre = String(parseValue(g.value))
+    // 全局托底：genre 空串归一 undefined（`genre: ''` 是旧 scaffold 烘焙的默认占位，
+    // 与「没写」同义）——否则空串永远盖住 global.json 的 defaultGenre
+    if (g) {
+      const genre = String(parseValue(g.value))
+      if (genre !== '') cfg.book.genre = genre
+    }
     if (vs) {
       const volumeSize = parseFiniteNumber(vs.value, NaN)
       if (Number.isSafeInteger(volumeSize) && volumeSize > 0) cfg.book.volume_size = volumeSize
@@ -172,18 +186,25 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   const budget = find('budget')
   if (budget) {
+    // 全局托底：白名单键 + 坏值不设键（留 undefined 给合并层回落）。
+    // 此前 `c.key in cfg.budget` 靠起步值里预填的键当白名单——calls_per_chapter
+    // 摘出 DEFAULT_CONFIG 后 in 检查永远 false，旧行内值会被静默丢弃
     for (const c of budget.children) {
-      if (c.key in cfg.budget) {
-        const budget = cfg.budget as Record<string, number>
-        budget[c.key] = parseFiniteNumber(c.value, budget[c.key] ?? 0)
+      if (BUDGET_KEYS.has(c.key)) {
+        const v = parseFiniteNumber(c.value, NaN)
+        if (Number.isFinite(v)) (cfg.budget as Record<string, number | undefined>)[c.key] = v
       }
     }
   }
 
+  // 全局托底：style 段从零构建——书里写了合法值才设，未写 = undefined（回落全局）
   const style = find('style')
   if (style) {
     const inj = style.children.find((c) => c.key === 'injection')
-    if (inj) cfg.style.injection = String(parseValue(inj.value)) as 'light' | 'heavy'
+    if (inj) {
+      const v = String(parseValue(inj.value))
+      if (v === 'light' || v === 'heavy') cfg.style = { injection: v }
+    }
   }
 
   const short = find('short')
@@ -226,18 +247,27 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (Object.keys(shortConfig).length > 0) cfg.short = shortConfig
   }
 
+  // 全局托底：auto 段从零构建——有键才设（段内全没写 = 整段 undefined，回落全局链）
   const auto = find('auto')
   if (auto) {
+    const autoConfig: NonNullable<BookConfig['auto']> = {}
     const co = auto.children.find((c) => c.key === 'confirm_outline')
-    if (co) cfg.auto.confirm_outline = String(parseValue(co.value)) === 'true'
+    if (co) autoConfig.confirm_outline = String(parseValue(co.value)) === 'true'
     const bs = auto.children.find((c) => c.key === 'batch_size')
-    if (bs) cfg.auto.batch_size = parseFiniteNumber(bs.value, DEFAULT_CONFIG.auto.batch_size)
+    if (bs) {
+      const v = parseFiniteNumber(bs.value, NaN)
+      if (Number.isFinite(v)) autoConfig.batch_size = v
+    }
     // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
     // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
     const ram = auto.children.find((c) => c.key === 'relation_auto_mine')
-    if (ram) cfg.auto.relation_auto_mine = String(parseValue(ram.value)) === 'true'
+    if (ram) autoConfig.relation_auto_mine = String(parseValue(ram.value)) === 'true'
     const rmt = auto.children.find((c) => c.key === 'relation_mine_threshold')
-    if (rmt) cfg.auto.relation_mine_threshold = parseFiniteNumber(rmt.value, DEFAULT_CONFIG.auto.relation_mine_threshold ?? 3)
+    if (rmt) {
+      const v = parseFiniteNumber(rmt.value, NaN)
+      if (Number.isFinite(v)) autoConfig.relation_mine_threshold = v
+    }
+    if (Object.keys(autoConfig).length > 0) cfg.auto = autoConfig
   }
 
   const growth = find('growth')
@@ -311,14 +341,23 @@ export function readBookConfig(
       error: { file: filePath, line: 0, message: `读取失败：${e instanceof Error ? e.message : String(e)}` },
     }
   }
+  return parseBookConfig(text, filePath)
+}
+
+/** 从 YAML 文本解析 BookConfig（readBookConfig 的字符串版）。
+ *  供文本级读改写场景（migrate-defaults 等）在内存里判定配置值，免落盘临时文件。 */
+export function parseBookConfig(
+  text: string,
+  file = '<text>',
+): { ok: true; config: BookConfig } | { ok: false; config: BookConfig; error: ParseError } {
   try {
     const roots = parseSections(text)
     return { ok: true, config: sectionsToConfig(roots) }
   } catch (e) {
     return {
       ok: false,
-      config: freshDefault(),
-      error: { file: filePath, line: 0, message: `解析失败：${e instanceof Error ? e.message : String(e)}` },
+      config: structuredClone(DEFAULT_CONFIG),
+      error: { file, line: 0, message: `解析失败：${e instanceof Error ? e.message : String(e)}` },
     }
   }
 }
@@ -333,8 +372,11 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     `host: ${cfg.host ?? 'cc'}`,
     'book:',
     `  title: ${stringifyValue(cfg.book.title)}`,
-    `  genre: ${stringifyValue(cfg.book.genre)}`,
   ]
+  // 全局托底：genre 未设（含空串）不落行——空行 = 旧默认占位，写了就盖住全局默认
+  if (cfg.book.genre !== undefined && cfg.book.genre !== '') {
+    lines.push(`  genre: ${stringifyValue(cfg.book.genre)}`)
+  }
   if (cfg.book.volume_size !== undefined) {
     lines.push(`  volume_size: ${cfg.book.volume_size}`)
   }
@@ -356,21 +398,27 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     }
   }
 
-  // budget 段：长短共用 calls_per_chapter；长篇额外含 summary 长程项（短篇无分层摘要）
-  lines.push('', 'budget:', `  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)
-  if (!isShort) {
-    lines.push(
-      `  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`,
-      `  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`,
-      `  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`,
-    )
+  // budget 段：长短共用 calls_per_chapter；长篇额外含 summary 长程项（短篇无分层摘要）。
+  // 全局托底：calls_per_chapter 条件行（未设不烘焙 8，回落交给运行时合并层）；短篇段内
+  // 只剩这一键，未设时整段不输出；长篇 summary 三键照旧恒写（不进全局托底）
+  if (!isShort || cfg.budget.calls_per_chapter !== undefined) {
+    lines.push('', 'budget:')
+    if (cfg.budget.calls_per_chapter !== undefined) {
+      lines.push(`  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)
+    }
+    if (!isShort) {
+      lines.push(
+        `  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`,
+        `  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`,
+        `  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`,
+      )
+    }
   }
 
-  lines.push(
-    '',
-    'style:',
-    `  injection: ${cfg.style.injection}`,
-  )
+  // 全局托底：style 段仅当 injection 有值才输出（写法照 snapshots 段的条件输出范式）
+  if (cfg.style?.injection !== undefined) {
+    lines.push('', 'style:', `  injection: ${cfg.style.injection}`)
+  }
 
   if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
     lines.push('', 'short:')
@@ -379,7 +427,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     if (cfg.short.target_reversal_types) lines.push(`  target_reversal_types: ${stringifyValue(cfg.short.target_reversal_types)}`)
     if (cfg.short.target_ending_flavors) lines.push(`  target_ending_flavors: ${stringifyValue(cfg.short.target_ending_flavors)}`)
     if (cfg.short.series_motifs) lines.push(`  series_motifs: ${stringifyValue(cfg.short.series_motifs)}`)
-    if (cfg.short.strict) lines.push('  strict: true')
+    // 全局托底：显式 false 也照写（roundtrip 零 diff 红线——此前只写 true，
+    // `strict: false` 旧文件重存会丢行；未设不输出）
+    if (cfg.short.strict !== undefined) lines.push(`  strict: ${cfg.short.strict}`)
     for (const key of [
       'word_min',
       'word_max',
@@ -393,15 +443,15 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     }
   }
 
-  lines.push(
-    '',
-    'auto:',
-    `  confirm_outline: ${cfg.auto.confirm_outline}`,
-    `  batch_size: ${cfg.auto.batch_size}`,
+  // 全局托底：auto 段只输出已定义键，全未定义省段（写法照 snapshots 段的条件输出范式）
+  const autoLines: string[] = [
+    ...(cfg.auto?.confirm_outline !== undefined ? [`  confirm_outline: ${cfg.auto.confirm_outline}`] : []),
+    ...(cfg.auto?.batch_size !== undefined ? [`  batch_size: ${cfg.auto.batch_size}`] : []),
     // RB-KN-P2-10：显式配置过的关系图两键随写回（缺省不输出——现有仓库零改动红线）
-    ...(cfg.auto.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
-    ...(cfg.auto.relation_mine_threshold !== undefined ? [`  relation_mine_threshold: ${cfg.auto.relation_mine_threshold}`] : []),
-  )
+    ...(cfg.auto?.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
+    ...(cfg.auto?.relation_mine_threshold !== undefined ? [`  relation_mine_threshold: ${cfg.auto.relation_mine_threshold}`] : []),
+  ]
+  if (autoLines.length > 0) lines.push('', 'auto:', ...autoLines)
 
   // growth 段：长篇输出（成长线/境界）；短篇无（无成长线）
   if (!isShort) {

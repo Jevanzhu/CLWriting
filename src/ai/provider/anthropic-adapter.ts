@@ -19,7 +19,7 @@ import type {
   ContentBlock as ClwContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded, lookupDegraded } from './store.js'
+import { persistDegraded, lookupDegraded, modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 import { anthropicClientOpts } from './models.js'
@@ -82,7 +82,9 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
     // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192
-    max_tokens: req.maxTokens ?? q.maxOutputTokens ?? MAX_TOKENS,
+    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192。
+    // 阶段 14 §7.2 显式 resolve：调用方 cap（req.maxTokens）→ 模型行覆盖（用户声明）→ quirks 表 → 协议兜底。
+    max_tokens: req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? q.maxOutputTokens ?? MAX_TOKENS,
     messages: req.messages.map(toAnthropicMessage),
     stream: true,
     // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）

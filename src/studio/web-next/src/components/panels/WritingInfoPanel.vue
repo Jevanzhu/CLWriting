@@ -5,6 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
 import type { TreeNode } from '../../types/tree'
@@ -14,6 +15,8 @@ const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+// 每章字数的全局默认托底（书级未设时生效；ref 初值 0=未设，服务端合并同链）
+const prefs = usePrefsStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) : undefined))
@@ -49,13 +52,13 @@ const volumeWords = computed(() => {
   walk(tree.raw)
   return sum
 })
-// 章级目标优先级：fm「字数目标」> 全局每章字数（book.yaml chapter_target_words）
+// 章级目标优先级：fm「字数目标」> 书级每章字数（book.yaml chapter_target_words）> 全局默认（0=未设，三级同语义）
 const chapterTarget = computed(() => {
   if (entry.value) {
     const v = parseFmFields(entry.value.content)['字数目标']
     if (v) return Number(v)
   }
-  return config.value.book?.chapter_target_words ?? 0
+  return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords
 })
 const chapterProgress = computed(() =>
   chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,

@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig } from '../format/types.js'
+import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
 
 /** chapter 块（预算闸专用） */
@@ -155,7 +156,9 @@ export function checkAiCallBudget(
   chapter: number,
   config: BookConfig,
 ): { ok: true; used: number; limit: number } | { ok: false; used: number; limit: number; reason: string } {
-  const limit = config.budget.calls_per_chapter
+  // 全局托底：calls_per_chapter 已可选化——常规路径（self-heal orchestrate）传入的 config
+  // 已过 applyGlobalDefaults，这里是直调/测试路径的最终回落（8 与 global.json 缺省一致）
+  const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
   const { rec, corrupt } = readRecord(bookRoot)
 
   if (corrupt) {

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readBookConfig, patchTopSection } from '../format/yaml.js'
+import { readGlobalBookDefaults } from '../format/global-defaults.js'
 import { stringifyValue } from '../format/frontmatter.js'
 
 const RAG_SECRET_FILE = 'rag.secret'
@@ -28,15 +29,30 @@ export interface RagConfig {
   model?: string
 }
 
-/** 读 RAG 配置（book.yaml rag 段；缺段 → 未启用） */
-export function readRagConfig(bookRoot: string): RagConfig {
+/**
+ * 读 RAG 配置（book.yaml rag 段；缺段 → 未启用）。
+ * 全局托底：enabled/provider 书级未设时回落 global.json 的 ragEnabled/ragProvider
+ * （userDataPath 缺省/无 global.json → 行为与此前完全一致）。书级显式关闭（enabled: false）
+ * 永远赢——全局默认只托「未设」，不翻「本书已关」的案。
+ */
+export function readRagConfig(bookRoot: string, userDataPath?: string | null): RagConfig {
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfg.ok || !cfg.config.rag) return { enabled: false }
+  const global = readGlobalBookDefaults(userDataPath ?? null)
+  if (!cfg.ok || !cfg.config.rag) {
+    // 书级未设：enabled 回落 global（无则关）；provider 无硬编码回落，global 没有就不带
+    if (global.ragEnabled === undefined && global.ragProvider === undefined) return { enabled: false }
+    return {
+      enabled: global.ragEnabled ?? false,
+      ...(global.ragProvider !== undefined ? { provider: global.ragProvider } : {}),
+    }
+  }
+  const rag = cfg.config.rag
   return {
-    enabled: cfg.config.rag.enabled,
-    provider: cfg.config.rag.provider,
-    endpoint: cfg.config.rag.endpoint,
-    model: cfg.config.rag.model,
+    enabled: rag.enabled,
+    // provider 引用未设时回落 global.ragProvider（无回落——服务商无法凭空选）
+    provider: rag.provider ?? global.ragProvider,
+    endpoint: rag.endpoint,
+    model: rag.model,
   }
 }
 

@@ -68,7 +68,8 @@ export function resolveAdapter(key: string): AdapterEntry | null {
 
 /**
  * settings hash——适配器消费的全部 conf 字段（id 进降级记忆键、model 进参数表
- * 查询、protocol/auth/baseUrl/apiKey 决定客户端），固定字段序 → stringify 稳定。
+ * 查询、protocol/auth/baseUrl/apiKey 决定客户端；models 行影响 maxTokens/contextWindow 解析），
+ * 固定字段序 → stringify 稳定。
  * name/notes/caps/sortIndex 等展示字段不入键（不影响适配器行为，入键白白击穿缓存）。
  */
 function settingsHash(conf: ProviderConf): string {
@@ -79,6 +80,7 @@ function settingsHash(conf: ProviderConf): string {
     baseUrl: conf.baseUrl,
     apiKey: conf.apiKey,
     model: conf.model ?? null,
+    models: conf.models ?? null,
   })
   return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }

@@ -93,6 +93,39 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
   rmSync(wd, { recursive: true, force: true })
 })
 
+test('init: 全局托底——新书不烘焙 13 键默认值（未设语义存活到运行时合并层）', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-global-'))
+  const r = doInit({ workDir: wd, name: '托底书', genre: '玄幻' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const yamlPath = join(r.bookRoot, 'book.yaml')
+  const text = readFileSync(yamlPath, 'utf-8')
+  // 有 genre：照写（作者选过的题材是书级覆盖）
+  expect(text).toContain('genre: 玄幻')
+  // 无键不烘焙：style/auto 段不输出、budget 无 calls_per_chapter 行——
+  // 写了默认值 = 书级「永远已设」，global.json 全局默认永远被遮蔽
+  expect(text).not.toContain('style:')
+  expect(text).not.toContain('auto:')
+  expect(text).not.toContain('calls_per_chapter')
+  // 解析侧同样全 undefined（喂运行时才由 applyGlobalDefaults 回落）
+  const cfg = readBookConfig(yamlPath).config
+  expect(cfg.style).toBeUndefined()
+  expect(cfg.auto).toBeUndefined()
+  expect(cfg.budget.calls_per_chapter).toBeUndefined()
+  rmSync(wd, { recursive: true, force: true })
+})
+
+test('init: 不传 genre 时 book.yaml 不写 genre 空占位行', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-nogenre-'))
+  const r = doInit({ workDir: wd, name: '无题材书' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const text = readFileSync(join(r.bookRoot, 'book.yaml'), 'utf-8')
+  // 空串占位会盖住 global.json defaultGenre——不写
+  expect(text).not.toContain('genre')
+  rmSync(wd, { recursive: true, force: true })
+})
+
 test('init: 题材驱动 leads 推荐（玄幻 → 设定线+成长线）', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init2-'))
   const r = doInit({ workDir: wd, name: '仙缘', genre: '仙侠修仙' })

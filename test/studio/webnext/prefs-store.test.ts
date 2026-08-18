@@ -138,7 +138,6 @@ describe('prefs: setter 应用 + 持久化调度', () => {
     const prefs = usePrefsStore()
     prefs.setSize(18)
     prefs.setLh(2.0)
-    prefs.setGap(1.5)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
     vi.advanceTimersByTime(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
@@ -196,5 +195,177 @@ describe('prefs: 紧凑模式', () => {
     expect(document.documentElement.classList.contains('compact')).toBe(true)
     prefs.setCompact(false)
     expect(document.documentElement.classList.contains('compact')).toBe(false)
+  })
+})
+
+describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守卫）', () => {
+  it('空 prefs → 保持硬编码回落初值（消费者直接读 ref 即回落）', async () => {
+    getGlobalPrefsMock.mockResolvedValue({})
+    const prefs = usePrefsStore()
+    await prefs.init()
+    expect(prefs.defaultGenre).toBe('')
+    expect(prefs.defaultVolumeSize).toBe(50)
+    expect(prefs.defaultTargetWords).toBe(0)
+    expect(prefs.defaultChapterTargetWords).toBe(0)
+    expect(prefs.defaultShortStrict).toBe(false)
+    expect(prefs.styleInjection).toBe('light')
+    expect(prefs.autoConfirmOutline).toBe(false)
+    expect(prefs.aiBatchSize).toBe(8)
+    expect(prefs.callsPerChapter).toBe(8)
+    expect(prefs.relationAutoMine).toBe(false)
+    expect(prefs.relationMineThreshold).toBe(3)
+    expect(prefs.ragEnabled).toBe(false)
+    expect(prefs.ragProvider).toBe('')
+  })
+
+  it('13 键全设 → 逐键应用到 ref', async () => {
+    getGlobalPrefsMock.mockResolvedValue({
+      defaultGenre: '玄幻',
+      defaultVolumeSize: 30,
+      defaultTargetWords: 2_000_000,
+      defaultChapterTargetWords: 3000,
+      defaultShortStrict: true,
+      styleInjection: 'heavy',
+      autoConfirmOutline: true,
+      autoBatchSize: 5,
+      callsPerChapter: 12,
+      relationAutoMine: true,
+      relationMineThreshold: 6,
+      ragEnabled: true,
+      ragProvider: 'rag-a',
+    })
+    const prefs = usePrefsStore()
+    await prefs.init()
+    expect(prefs.defaultGenre).toBe('玄幻')
+    expect(prefs.defaultVolumeSize).toBe(30)
+    expect(prefs.defaultTargetWords).toBe(2_000_000)
+    expect(prefs.defaultChapterTargetWords).toBe(3000)
+    expect(prefs.defaultShortStrict).toBe(true)
+    expect(prefs.styleInjection).toBe('heavy')
+    expect(prefs.autoConfirmOutline).toBe(true)
+    expect(prefs.aiBatchSize).toBe(5)
+    expect(prefs.callsPerChapter).toBe(12)
+    expect(prefs.relationAutoMine).toBe(true)
+    expect(prefs.relationMineThreshold).toBe(6)
+    expect(prefs.ragEnabled).toBe(true)
+    expect(prefs.ragProvider).toBe('rag-a')
+  })
+
+  it('回读守卫：类型/枚举/范围非法值忽略，保持回落', async () => {
+    getGlobalPrefsMock.mockResolvedValue({
+      defaultGenre: '   ',           // 空白串 = 未设
+      defaultVolumeSize: 3,          // < 5 越界
+      defaultTargetWords: -5,        // 负数
+      defaultChapterTargetWords: 0,  // JSON 层只存正整数（0=未设由 ref 初值表达）
+      defaultShortStrict: 'yes',     // 类型错
+      styleInjection: 'x',           // 枚举外
+      autoConfirmOutline: 1,
+      autoBatchSize: 0,
+      callsPerChapter: -1,
+      relationAutoMine: 'on',
+      relationMineThreshold: 0,
+      ragEnabled: 1,
+      ragProvider: 42,
+    } as never)
+    const prefs = usePrefsStore()
+    await prefs.init()
+    expect(prefs.defaultGenre).toBe('')
+    expect(prefs.defaultVolumeSize).toBe(50)
+    expect(prefs.defaultTargetWords).toBe(0)
+    expect(prefs.defaultChapterTargetWords).toBe(0)
+    expect(prefs.defaultShortStrict).toBe(false)
+    expect(prefs.styleInjection).toBe('light')
+    expect(prefs.autoConfirmOutline).toBe(false)
+    expect(prefs.aiBatchSize).toBe(8)
+    expect(prefs.callsPerChapter).toBe(8)
+    expect(prefs.relationAutoMine).toBe(false)
+    expect(prefs.relationMineThreshold).toBe(3)
+    expect(prefs.ragEnabled).toBe(false)
+    expect(prefs.ragProvider).toBe('')
+  })
+
+  it('setter clamp：每卷 5-500 / 批量 1-20 / 上限 1-50 / 阈值 1-20 / 字数 0 或正整数 / 文本 trim', () => {
+    const prefs = usePrefsStore()
+    prefs.setDefaultGenre('  都市 ')
+    expect(prefs.defaultGenre).toBe('都市')
+    prefs.setDefaultVolumeSize(2)
+    expect(prefs.defaultVolumeSize).toBe(5)
+    prefs.setDefaultVolumeSize(999)
+    expect(prefs.defaultVolumeSize).toBe(500)
+    prefs.setDefaultTargetWords(-3)
+    expect(prefs.defaultTargetWords).toBe(0)
+    prefs.setDefaultTargetWords(1234.6)
+    expect(prefs.defaultTargetWords).toBe(1235)
+    prefs.setDefaultChapterTargetWords(3000.4)
+    expect(prefs.defaultChapterTargetWords).toBe(3000)
+    prefs.setAiBatchSize(0)
+    expect(prefs.aiBatchSize).toBe(1)
+    prefs.setAiBatchSize(99)
+    expect(prefs.aiBatchSize).toBe(20)
+    prefs.setCallsPerChapter(0)
+    expect(prefs.callsPerChapter).toBe(1)
+    prefs.setCallsPerChapter(99)
+    expect(prefs.callsPerChapter).toBe(50)
+    prefs.setRelationMineThreshold(0)
+    expect(prefs.relationMineThreshold).toBe(1)
+    prefs.setRelationMineThreshold(99)
+    expect(prefs.relationMineThreshold).toBe(20)
+    prefs.setRagProvider(' rag-b ')
+    expect(prefs.ragProvider).toBe('rag-b')
+    prefs.setDefaultShortStrict(true)
+    prefs.setStyleInjection('heavy')
+    prefs.setRelationAutoMine(true)
+    prefs.setRagEnabled(true)
+    expect(prefs.defaultShortStrict).toBe(true)
+    expect(prefs.styleInjection).toBe('heavy')
+    expect(prefs.relationAutoMine).toBe(true)
+    expect(prefs.ragEnabled).toBe(true)
+  })
+
+  it('setter 走防抖持久化：buildCache 全量带上 13 键（JSON 键名 autoBatchSize 等）', () => {
+    const prefs = usePrefsStore()
+    prefs.setDefaultGenre('都市')
+    prefs.setDefaultVolumeSize(40)
+    prefs.setDefaultTargetWords(1_500_000)
+    prefs.setDefaultChapterTargetWords(2500)
+    prefs.setDefaultShortStrict(true)
+    prefs.setStyleInjection('heavy')
+    prefs.setAutoConfirmOutline(true)
+    prefs.setAiBatchSize(6)
+    prefs.setCallsPerChapter(15)
+    prefs.setRelationAutoMine(true)
+    prefs.setRelationMineThreshold(5)
+    prefs.setRagEnabled(true)
+    prefs.setRagProvider('rag-a')
+    expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 未到 500ms
+    vi.advanceTimersByTime(600)
+    expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
+    expect(putGlobalPrefsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultGenre: '都市',
+        defaultVolumeSize: 40,
+        defaultTargetWords: 1_500_000,
+        defaultChapterTargetWords: 2500,
+        defaultShortStrict: true,
+        styleInjection: 'heavy',
+        autoConfirmOutline: true,
+        autoBatchSize: 6,
+        callsPerChapter: 15,
+        relationAutoMine: true,
+        relationMineThreshold: 5,
+        ragEnabled: true,
+        ragProvider: 'rag-a',
+      }),
+    )
+  })
+
+  it('多次 setter 合并为一次写回（debounce，同 snapDays 先例）', () => {
+    const prefs = usePrefsStore()
+    prefs.setAiBatchSize(9)
+    prefs.setCallsPerChapter(20)
+    prefs.setRelationMineThreshold(7)
+    expect(putGlobalPrefsMock).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(600)
+    expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
   })
 })

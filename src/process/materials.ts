@@ -155,7 +155,8 @@ export async function prepareMaterials(
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
   // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
   // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
-  const ragConfig = readRagConfig(bookRoot)
+  // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由调用方注入）
+  const ragConfig = readRagConfig(bookRoot, opts.userDataPath ?? null)
   const ragProviders = opts.userDataPath ? loadProviders(opts.userDataPath).ragProviders : []
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
   const resolved = resolveRag(ragConfig, ragProviders, realWorkDir)

@@ -383,6 +383,7 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
       modelCaps: {},
       ragProviders: [],
       tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
+      revision: 0,
       vault: null,
       dek: null,
     }
@@ -837,6 +838,7 @@ function emptyResponsesStore(): ProviderStore {
     modelCaps: {},
     ragProviders: [],
     tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
+    revision: 0,
     vault: null,
     dek: null,
   }

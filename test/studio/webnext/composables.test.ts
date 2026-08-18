@@ -123,17 +123,18 @@ describe('useChatComposer', () => {
 })
 
 describe('useChatTier', () => {
-  it('refresh 加载 providers + fetchModels', async () => {
+  it('refresh 加载 providers（模型清单来自 store 已配置行，不打上游）', async () => {
     getProvidersMock.mockResolvedValue({
       tiers: { chat: { model: 'm1', effort: 'high' }, creative: { model: 'm2', effort: 'low' } },
       currentId: 'prov-1',
     })
-    fetchModelsMock.mockResolvedValue({ models: ['m1', 'm2'] })
     const t = useChatTier()
     await t.refresh()
     expect(t.activeModel).toBe('m1')
     expect(t.activeEffort).toBe('high')
-    expect(fetchModelsMock).toHaveBeenCalledWith({ id: 'prov-1' })
+    // 阶段 14 store 化后此层是薄视图：refresh 只拉 providers，模型清单取已配置行——
+    // 不再 fetchModels 打上游（预热归 ModelListEditor 按需「获取模型」）
+    expect(fetchModelsMock).not.toHaveBeenCalled()
   })
 
   it('refresh 无 chat 档 → 回落 creative 档', async () => {
@@ -148,11 +149,13 @@ describe('useChatTier', () => {
   })
 
   it('applyTier 更新本地 + 写对话档', async () => {
-    setTierMock.mockResolvedValue({})
+    // 阶段 14 store 化后：applyTier → store.applyChatTier → setChatTier(slot, revision)，
+    // 响应带回完整 tiers——mock 须按新契约返回，否则档位不更新（chatTier 停留 null）
+    setTierMock.mockResolvedValue({ ok: true, tiers: { chat: { model: 'new-model', effort: 'low' } }, revision: 2 })
     const t = useChatTier()
     await t.applyTier('new-model', 'low')
     expect(t.chatTier).toEqual({ model: 'new-model', effort: 'low' })
-    expect(setTierMock).toHaveBeenCalledWith({ model: 'new-model', effort: 'low' })
+    expect(setTierMock).toHaveBeenCalledWith({ model: 'new-model', effort: 'low' }, undefined)
   })
 })
 

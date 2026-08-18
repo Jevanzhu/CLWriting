@@ -7,6 +7,7 @@ import {
   writeBookConfig,
   stringifyBookConfig,
   patchTopSection,
+  parseBookConfig,
   DEFAULT_CONFIG,
 } from '../../src/format/yaml.js'
 
@@ -52,7 +53,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
     expect(r.config.leads.enabled).toEqual(['布局线', '设定线', '成长线'])
     expect(r.config.leads.thresholds?.['成长线']).toBe(50)
     expect(r.config.budget.calls_per_chapter).toBe(8)
-    expect(r.config.auto.confirm_outline).toBe(false)
+    expect(r.config.auto?.confirm_outline).toBe(false)
     expect(r.config.growth.realm_span_max).toBe(2)
   }
   rmSync(dir, { recursive: true, force: true })
@@ -151,8 +152,8 @@ test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + �
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
   if (r.ok) {
-    expect(r.config.auto.relation_auto_mine).toBe(false)
-    expect(r.config.auto.relation_mine_threshold).toBe(7)
+    expect(r.config.auto?.relation_auto_mine).toBe(false)
+    expect(r.config.auto?.relation_mine_threshold).toBe(7)
   }
   // 缺省书不落两键（现有仓库零改动红线）
   expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('relation_auto_mine')
@@ -160,7 +161,7 @@ test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + �
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('readBookConfig: 数字字段坏值回落默认，不注入 NaN', () => {
+test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落），不注入 NaN', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, [
@@ -181,10 +182,11 @@ test('readBookConfig: 数字字段坏值回落默认，不注入 NaN', () => {
   expect(r.ok).toBe(true)
   if (r.ok) {
     expect(r.config.spec_version).toBe(1)
-    expect(r.config.budget.calls_per_chapter).toBe(DEFAULT_CONFIG.budget.calls_per_chapter)
+    // 全局托底：坏值 = 未设（undefined），运行时合并层回落 global.json → 硬编码
+    expect(r.config.budget.calls_per_chapter).toBeUndefined()
     expect(r.config.budget.input_per_chapter).toBe(90000)
-    expect(r.config.auto.batch_size).toBe(DEFAULT_CONFIG.auto.batch_size)
-    expect(r.config.growth.realm_span_max).toBe(DEFAULT_CONFIG.growth.realm_span_max)
+    expect(r.config.auto?.batch_size).toBeUndefined()
+    expect(r.config.growth.realm_span_max).toBe(2)
     expect(r.config.leads.thresholds?.['成长线']).toBeUndefined()
   }
   rmSync(dir, { recursive: true, force: true })
@@ -318,4 +320,133 @@ test('readBookConfig: 块式列表项含逗号/引号时不炸（引号项按 pa
   expect(Array.isArray(cfg.leads.enabled)).toBe(true)
   expect(cfg.leads.enabled.length).toBeGreaterThanOrEqual(2)
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ── 书级设定全局托底：键可选化 + 条件输出（现有仓库零改动红线）────────
+
+test('全局托底: 无键新文件 roundtrip 不新增 13 键（未设语义存活）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-global-'))
+  const fp = join(dir, 'book.yaml')
+  // 新 scaffold 产物：无 genre 空占位、无 style/auto 段、budget 无 calls_per_chapter
+  writeFileSync(fp, [
+    'spec_version: 1',
+    'host: cc',
+    'book:',
+    '  title: 新书',
+    '',
+    'leads:',
+    '  enabled: []',
+    '',
+    'budget:',
+    '  input_per_chapter: 80000',
+    '  summary_chapter_max: 200',
+    '  summary_volume_max: 500',
+    '',
+    'growth:',
+    '  realm_span_max: 2',
+    '',
+  ].join('\n'), 'utf-8')
+
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 解析侧：未设键保持 undefined（喂运行时才由 applyGlobalDefaults 回落）
+  expect(r.config.book.genre).toBeUndefined()
+  expect(r.config.style).toBeUndefined()
+  expect(r.config.auto).toBeUndefined()
+  expect(r.config.budget.calls_per_chapter).toBeUndefined()
+  // 写侧：undefined 不落行——roundtrip 文本零新增
+  const out = stringifyBookConfig(r.config)
+  expect(out).not.toContain('genre')
+  expect(out).not.toContain('style')
+  expect(out).not.toContain('auto')
+  expect(out).not.toContain('calls_per_chapter')
+  // 再 parse 一遍仍全 undefined（往返不漂移）
+  const r2 = parseBookConfig(out)
+  expect(r2.ok).toBe(true)
+  if (r2.ok) {
+    expect(r2.config.book.genre).toBeUndefined()
+    expect(r2.config.style).toBeUndefined()
+    expect(r2.config.auto).toBeUndefined()
+    expect(r2.config.budget.calls_per_chapter).toBeUndefined()
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('全局托底: 有键旧文件 roundtrip 零 diff（值不变照写）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-global2-'))
+  const fp = join(dir, 'book.yaml')
+  // 旧 scaffold 烘焙形态（迁移前的存量书）：13 键齐备
+  const oldFile = [
+    'spec_version: 1',
+    '',
+    'host: cc',
+    'book:',
+    '  title: 旧书',
+    '  genre: 玄幻',
+    '',
+    'leads:',
+    '  enabled: [设定线]',
+    '',
+    'budget:',
+    '  calls_per_chapter: 8',
+    '  input_per_chapter: 80000',
+    '  summary_chapter_max: 200',
+    '  summary_volume_max: 500',
+    '',
+    'style:',
+    '  injection: light',
+    '',
+    'auto:',
+    '  confirm_outline: false',
+    '  batch_size: 8',
+    '',
+    'growth:',
+    '  realm_span_max: 2',
+    '',
+  ].join('\n')
+  writeFileSync(fp, oldFile, 'utf-8')
+
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 有键旧文件：解析有值 + 重写零 diff（作者显式设置的值绝不能丢）
+  expect(r.config.book.genre).toBe('玄幻')
+  expect(r.config.style?.injection).toBe('light')
+  expect(r.config.auto?.confirm_outline).toBe(false)
+  expect(r.config.auto?.batch_size).toBe(8)
+  expect(r.config.budget.calls_per_chapter).toBe(8)
+  expect(stringifyBookConfig(r.config)).toBe(oldFile)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('全局托底: genre 空串归一 undefined（`genre: \'\'` 与缺失同义）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境往事-global3-'))
+  const fp = join(dir, 'book.yaml')
+  writeFileSync(fp, 'spec_version: 1\nbook:\n  title: 空题材\n  genre: \'\'\n', 'utf-8')
+  const r = readBookConfig(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    // 空串 = 旧默认占位 → 视为未设（否则永远盖住 global.json defaultGenre）
+    expect(r.config.book.genre).toBeUndefined()
+    // 写侧也不落行
+    expect(stringifyBookConfig(r.config)).not.toContain('genre')
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('全局托底: DEFAULT_CONFIG 不再预填 13 键（未设语义的解析起点）', () => {
+  expect(DEFAULT_CONFIG.book.genre).toBeUndefined()
+  expect(DEFAULT_CONFIG.style).toBeUndefined()
+  expect(DEFAULT_CONFIG.auto).toBeUndefined()
+  expect(DEFAULT_CONFIG.budget.calls_per_chapter).toBeUndefined()
+  // budget 其余三键照旧预填（不进全局托底）
+  expect(DEFAULT_CONFIG.budget.input_per_chapter).toBe(80000)
+  expect(DEFAULT_CONFIG.book.title).toBe('')
+})
+
+test('parseBookConfig: readBookConfig 的字符串版（坏文本返默认 + 错误）', () => {
+  const r = parseBookConfig('spec_version: 1\nbook:\n  title: T\n')
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.config.book.title).toBe('T')
 })

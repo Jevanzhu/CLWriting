@@ -29,6 +29,7 @@ import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { readBookConfig, stringifyBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInit } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
@@ -65,15 +66,18 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const bookRoot = join(ctx.workDir!, b.path)
       try {
         const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-        // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）
+        // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
+        // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
+        // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
+        const effective = applyGlobalDefaults(config, ctx.userDataPath)
         const summary = computeBookSummary(bookRoot)
         return {
           ...b,
-          title: config.book.title,
+          title: effective.book.title,
           chapters: summary.chapters,
           words: summary.words,
           lastEdited: summary.lastEdited,
-          targetWords: config.book.target_words,
+          targetWords: effective.book.target_words,
           latestChapter: summary.latestChapter,
           createdAt: b.created_at,
         }
@@ -244,7 +248,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
         return
       }
 
-      /** 同步 book.yaml title（改名闭环的一部分；失败不阻塞——目录/登记已可自愈）。 */
+      /** 同步 book.yaml title（改名闭环的一部分；失败不阻塞——目录/登记已可自愈）。
+       *  写路径不过 applyGlobalDefaults：合并视图写回会把全局默认烘焙进书文件，
+       *  反过来遮蔽全局托底——保持 raw 读改写（stringify 条件输出保证已有键原样保留）。 */
       const writeTitle = (root: string): void => {
         try {
           const { config } = readBookConfig(join(root, 'book.yaml'))
@@ -333,6 +339,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
         return
       }
       const { config } = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
+      // 单书身份回显：保持 raw（与 GET /api/books/:name/config 同口径——身份 = 书文件里
+      // 实际写的值；genre 未设 = undefined 由前端自行回落全局默认，服务端不代答）
       reply(res, 200, {
         name: entry.name,
         kind: entry.kind,

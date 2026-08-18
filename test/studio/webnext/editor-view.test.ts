@@ -87,9 +87,9 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
 
     // tree.load 完成：byDocId 出现 d1 → watch 重触发补开（修复前：永不触发）
     tree.raw = [makeNode('d1')]
-    await flushPromises()
-    await flushPromises()
-    expect(doc.get('d1')).toBeDefined()
+    // 固定次数 flushPromises 在并行 worker 负载下偶发竞态（watch 补链多轮微任务），
+    // 改 vi.waitFor 轮询到断言成立——语义不变（同 chat-store.test.ts 先例）
+    await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
     expect(mocks.getContent).toHaveBeenCalledWith(BOOK, '写作/正文/第1章-标题.md')
   })
 
@@ -102,10 +102,8 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
     const w = mount(EditorView, { props: { docId: null } })
     await flushPromises()
     await w.setProps({ docId: 'd1' })
-    await flushPromises()
-    await flushPromises()
-
-    expect(doc.get('d1')).toBeDefined()
+    // 同上：waitFor 轮询替代固定 flush 次数（防并行负载下偶发未结算）
+    await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
     expect(mocks.getContent).toHaveBeenCalledTimes(1)
   })
 })

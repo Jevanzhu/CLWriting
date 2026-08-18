@@ -61,10 +61,11 @@ function startRagBuild(
   const release = acquireTaskGate(bookName, 'rag-build')
   if (!release) return { ok: false, reason: '本书的索引任务已在运行中，请稍候' }
 
-  const config = readRagConfig(bookRoot)
+  // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由 RagCtx 注入）
+  const config = readRagConfig(bookRoot, userDataPath)
   if (!config.enabled) {
     release()
-    return { ok: false, reason: '知识检索未启用：请在设置的「AI 功能」页开启' }
+    return { ok: false, reason: '知识检索未启用：请在「设置 · 本书」页开启' }
   }
   const resolved = resolveRag(config, ragProvidersOf(userDataPath), workDir)
   if (!resolved) {
@@ -72,8 +73,8 @@ function startRagBuild(
     return {
       ok: false,
       reason: config.provider
-        ? '所选 RAG 提供方不存在（可能已被删除）：请在设置的「AI 功能」页重新选择'
-        : 'RAG 未完整配置：请在设置的「AI 功能」页选择检索提供方',
+        ? '所选 RAG 提供方不存在（可能已被删除）：请在「设置 · 本书」页重新选择'
+        : 'RAG 未完整配置：请在「设置 · 本书」页选择检索提供方',
     }
   }
   if (!resolved.apiKey) {
@@ -82,7 +83,7 @@ function startRagBuild(
       ok: false,
       reason: resolved.legacy
         ? '未配置 embedding API key：请用环境变量 CLWRITING_RAG_API_KEY，或在 .clwriting/rag.secret 落 key'
-        : '所选 RAG 提供方未配置 API Key：请在设置的「AI 提供方」页补填',
+        : '所选 RAG 提供方未配置 API Key：请在设置的「服务提供方」页补填',
     }
   }
 
@@ -129,8 +130,9 @@ export function registerRagRoutes(ctx: RagCtx): void {
         db.close()
       }
     }
-    // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）
-    const ragConfig = readRagConfig(bookRoot)
+    // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。
+    // 全局托底：读生效配置（enabled/provider 书级未设回落 global.json）
+    const ragConfig = readRagConfig(bookRoot, ctx.userDataPath)
     const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), ctx.workDir)
     reply(res, 200, {
       running,

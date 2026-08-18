@@ -15,6 +15,8 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readKind } from '../../../format/kind.js'
+import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { saveDraft, buildDraftPrompt } from '../../../process/draft-pipeline.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
@@ -70,6 +72,8 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     const chapter = Number(url.searchParams.get('chapter') ?? '1')
     if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
     const bookRoot = join(ctx.workDir, entry.path)
-    reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot)) })
+    // P1 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
+    const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath ?? null)
+    reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config) })
   })
 }

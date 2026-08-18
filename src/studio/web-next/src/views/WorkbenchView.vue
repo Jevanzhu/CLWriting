@@ -19,8 +19,8 @@ import {
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
+import { useProviderStore } from '../stores/provider'
 import { getConfig } from '../api/books'
-import { getProviders, type TierSlot } from '../api/providers'
 import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
@@ -50,17 +50,10 @@ const state = ref<BookState | null>(null)
 const prompt = ref('')
 const err = ref<string | null>(null)
 
-// 任务档位信息（只读显示，配置在设置 → AI）
-const tierCreative = ref<TierSlot | null>(null)
-
-async function loadTier(): Promise<void> {
-  try {
-    const data = await getProviders()
-    tierCreative.value = data.tiers?.creative ?? null
-  } catch {
-    /* 静默——档位显示不阻断主流程 */
-  }
-}
+// 任务档位信息（只读显示，配置在「设置 · 服务提供方」页）
+// 阶段 14 §6.3：读统一 provider store（与设置页/对话档共享一份，不再独立 getProviders）
+const pstore = useProviderStore()
+const tierCreative = computed(() => pstore.tiers?.creative ?? null)
 
 // B3：规则命中统计（高频违规，供作者自查常见问题）
 const ruleHits = ref<RuleHitEntry[]>([])
@@ -122,7 +115,8 @@ watch(
 // Y-P2-3：切书重载规则命中（原仅 onMounted 拉一次，切书后残留旧书统计；初载仍走 onMounted）
 watch(() => props.bookName, () => void loadRuleHits())
 onMounted(() => {
-  void loadTier()
+  // 档位走统一 store（静默——档位显示不阻断主流程；设置页/ChatDock 已拉过则零请求）
+  void pstore.refresh()
   void loadRuleHits()
 })
 // 生成结束（running false 跳变）刷新状态卡
@@ -189,7 +183,8 @@ async function onAutoWrite(): Promise<void> {
   err.value = null
   try {
     const cfg = await getConfig(props.bookName)
-    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? 1)))
+    // 书级未设回落全局默认（prefs.aiBatchSize 初值即硬编码回落 8；服务端合并同链）
+    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.aiBatchSize)))
     const r = await autoWrite(props.bookName, chapter.value, batchSize)
     const msg = (r.batchSize ?? 1) > 1 ? `第 ${chapter.value} 章起连写 ${r.batchSize} 章已开始` : `第 ${chapter.value} 章已开始全自动写稿`
     ui.toast(msg, 'info')
@@ -339,9 +334,9 @@ const recent = computed(() => wb.log.slice(-200))
     <template v-else>
     <!-- G4：AI 不可达置灰提示 -->
     <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 服务暂不可用（未配置或连接失败），请在设置 → AI 中添加并启用提供方。
+      AI 服务暂不可用（未配置或连接失败），请在「设置 · 服务提供方」页添加并启用提供方。
     </div>
-    <!-- 任务档位（只读显示，配置在设置 → AI） -->
+    <!-- 任务档位（只读显示，配置在「设置 · 服务提供方」页） -->
     <section v-if="tierCreative" class="card model-bar">
       <span class="model-label">创作档</span>
       <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>

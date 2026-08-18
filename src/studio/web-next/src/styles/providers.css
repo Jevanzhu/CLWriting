@@ -1,0 +1,317 @@
+/* ============================================================================
+ * providers.css —— 「服务提供方」面板（AI + RAG + 任务档位）的共享控件语言。
+ * 由 AiServicePanel.vue 引入（非 scoped，只注入一次）；所有选择器挂
+ * .ai-service-panel 前缀：优先级压过 SettingsModal 的全局设置页类
+ * （.text-input / .save-btn），且样式不外泄到其他 tab。
+ * 例外：ModelListEditor 的 Teleport 候选弹窗挂在 body 下，吃不到前缀，
+ * 其样式保留在该组件 scoped 内。
+ * 规约（见 tokens.css 头注）：组件只引 var()；hover 用 color-mix 就地表达；
+ * 圆角走 token（控件 --radius-m / 卡片 --radius-l / 胶囊 99px）。
+ * ========================================================================== */
+
+/* ── 分组标题（层级约定：组标题 13/600 > 选项 12/500 > caption 11 > 徽章 10） ── */
+.ai-service-panel .group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 var(--size-4-1);
+  margin-bottom: var(--size-4-1);
+}
+.ai-service-panel .group-title-text {
+  letter-spacing: 0.02em;
+}
+
+/* ── 添加按钮（ghost 胶囊，hover 转 accent） ── */
+.ai-service-panel .add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.ai-service-panel .add-btn:hover:not(:disabled) {
+  color: var(--text-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 7%, transparent);
+}
+.ai-service-panel .add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 空态 CTA：accent 实底胶囊——空页面唯一的强按钮 */
+.ai-service-panel .add-btn-lg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 20px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  border: none;
+  border-radius: 99px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: filter var(--dur-fast) var(--ease-out);
+}
+.ai-service-panel .add-btn-lg:hover {
+  filter: brightness(1.08);
+}
+
+/* ── 加载中（列表刷新的一行提示；零数据空态用 EmptyState 组件） ── */
+.ai-service-panel .empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: var(--size-4-6) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-s);
+}
+
+/* ── 行卡信息位 ── */
+.ai-service-panel .row-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ai-service-panel .provider-row-name {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  /* 固定行高与徽章对齐（tag 16px / 胶囊 18px 的中点），消除基线错位 */
+  line-height: 17px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 当前徽章：唯一保留的强调胶囊（accent 淡底） */
+.ai-service-panel .current-badge {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  padding: 1px 7px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+/* 协议标签：按接口线着色（绿 = 日常推荐的 Chat Completions / 紫 = Responses 新线 /
+ * 橙 = Anthropic Messages），淡底 + 同色描边，与连接徽章同一上色语言 */
+.ai-service-panel .tag {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  padding: 0 6px;
+  border-radius: var(--radius-s);
+  flex-shrink: 0;
+}
+.ai-service-panel .tag.proto-openai {
+  color: var(--dv-good);
+  background: color-mix(in srgb, var(--dv-good) 10%, transparent);
+  border-color: color-mix(in srgb, var(--dv-good) 26%, transparent);
+}
+.ai-service-panel .tag.proto-openai-responses {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--text-accent) 26%, transparent);
+}
+.ai-service-panel .tag.proto-anthropic {
+  color: var(--dv-warn);
+  background: color-mix(in srgb, var(--dv-warn) 10%, transparent);
+  border-color: color-mix(in srgb, var(--dv-warn) 26%, transparent);
+}
+.ai-service-panel .model-tag {
+  font-family: var(--font-monospace);
+  font-size: var(--font-size-xs);
+  line-height: 17px;
+  color: var(--text-faint);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+/* 模型行数（淡字，有配置才显示——地址不占行，编辑卡里可查） */
+.ai-service-panel .row-count {
+  font-size: var(--font-size-xxs);
+  line-height: 17px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── 状态区（首行右对齐：徽章 + 时间 / 未测试） ── */
+.ai-service-panel .provider-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: var(--size-4-2);
+  flex-shrink: 0;
+}
+.ai-service-panel .caps-badge {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.ai-service-panel .caps-badge.ok {
+  background: color-mix(in srgb, var(--dv-good) 13%, transparent);
+  color: var(--dv-good);
+}
+.ai-service-panel .caps-badge.bad {
+  background: color-mix(in srgb, var(--dv-bad) 13%, transparent);
+  color: var(--dv-bad);
+}
+.ai-service-panel .probed-at {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ai-service-panel .unchecked-hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
+
+/* ── 测试组合控件：已拆分——行卡只留测试按钮，模型选择移入编辑卡 ── */
+
+/* ── 操作分组竖线：测试/启用组与 编辑/删除 之间的 hairline ── */
+.ai-service-panel .row-action-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+/* ── 展开区预览文案 ── */
+.ai-service-panel .row-expand-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  padding: 2px 0;
+}
+.ai-service-panel .row-expand-model-count {
+  color: var(--text-muted);
+}
+.ai-service-panel .row-expand-placeholder {
+  color: var(--text-faint);
+}
+
+/* ── 表单骨架（AI / RAG 编辑器共用） ── */
+/* 分组说明（dsh intro）：标题下的一行灰字 */
+.ai-service-panel .group-intro {
+  margin: -2px 0 var(--size-4-1);
+  padding: 0 var(--size-4-1);
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+.ai-service-panel .form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+.ai-service-panel .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ai-service-panel .form-row label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.ai-service-panel .key-error {
+  font-size: var(--font-size-xxs);
+  color: var(--dv-bad);
+}
+/* 输入框：面板内统一全宽 + 圆角 m（覆盖 SettingsModal 全局 .text-input 的 220px 定宽） */
+.ai-service-panel .text-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ai-service-panel .text-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+/* ── 胶囊按钮（保存 / 取消，h≈32 r99 控件语言；覆盖全局 .save-btn 的直角矩形） ── */
+.ai-service-panel .save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 20px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  border: none;
+  border-radius: 99px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: filter var(--dur-fast) var(--ease-out);
+}
+.ai-service-panel .save-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.ai-service-panel .cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 18px;
+  font-size: var(--font-size-s);
+  font-weight: 500;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.ai-service-panel .cancel-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* ── 旋转动画（整个面板一份；Teleport 弹窗外的组件各自保留本地定义） ── */
+.ai-service-panel .spin {
+  animation: clw-provider-spin 0.8s linear infinite;
+}
+@keyframes clw-provider-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

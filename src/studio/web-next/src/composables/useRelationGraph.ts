@@ -14,6 +14,7 @@ import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { useUiStore } from '../stores/ui'
+import { usePrefsStore } from '../stores/prefs'
 import { friendlyError } from '../shared/error'
 
 export interface SimNode {
@@ -131,6 +132,8 @@ export function useRelationGraph(bookName: string): RelationGraph {
   const ws = useWorkspaceStore()
   const tree = useTreeStore()
   const ui = useUiStore()
+  // 关系图自动梳理的全局默认托底（书级未设时生效；ref 初值即硬编码回落，服务端合并同链）
+  const prefs = usePrefsStore()
 
   const nodes = ref<SimNode[]>([])
   const edges = ref<SimEdge[]>([])
@@ -401,9 +404,9 @@ export function useRelationGraph(bookName: string): RelationGraph {
     if (ui.aiAvailable === false) return
     try {
       const cfg = await getConfig(bookName)
-      // 自动梳理默认关闭（方案③：手动按钮控成本）；作者在 AI 设置开启后才自动
-      if (!(cfg.auto?.relation_auto_mine ?? false)) return
-      const threshold = cfg.auto?.relation_mine_threshold ?? 3
+      // 自动梳理默认关闭（方案③：手动按钮控成本）；作者开启（书级 ?? 全局默认）后才自动
+      if (!(cfg.auto?.relation_auto_mine ?? prefs.relationAutoMine)) return
+      const threshold = cfg.auto?.relation_mine_threshold ?? prefs.relationMineThreshold
       const last = cache.chapterCount ?? 0
       if (cache.currentChapters - last < threshold) return
       await onMine()

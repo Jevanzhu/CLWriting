@@ -16,10 +16,10 @@ import { parseChapterFileName } from '../format/words.js'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../format/read.js'
 import { readFile } from '../format/frontmatter.js'
-import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
-import { buildStyleEssentials, pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
-import type { BookConfig, StyleSample } from '../format/types.js'
+import { buildStyleEssentials } from '../format/style-inject.js'
+import { pickStyleSamples } from './style-samples.js'
+import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 
@@ -245,28 +245,13 @@ function buildStyleSections(
   }
 
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
-  // 条目库路（S5）：pickSampleEntries 保持 G2 跨场景语义（每场景 1 条保代表 + 主场景补满）；
-  // 未迁移书走旧样章库。总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
-  const maxTotal = config.style.injection === 'heavy' ? 3 : 1
-  let sampleParts: string[] = []
-  if (hasEntryLib) {
-    sampleParts = pickSampleEntries(entryLib, scenes, maxTotal).map(sampleEntryText)
-  } else {
-    const sampleDir = join(bookRoot, '文风', '样章库')
-    const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
-    // 第一轮：每场景各取 1（保证次场景有代表）；第二轮：主场景补满到 maxTotal
-    const picked: StyleSample[] = []
-    for (const samples of perScene) {
-      if (samples.length > 0) picked.push(samples[0]!)
-    }
-    for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
-      picked.push(perScene[0]![i]!)
-    }
-    sampleParts = picked.slice(0, maxTotal).map((s) => {
-      if (!s.技法指令) return s.正文
-      return `技法指令：${s.技法指令}\n${s.正文}`
-    })
-  }
+  // 条目库路（S5）与旧样章库路的跨场景挑选见 style-samples.ts（与 draft-prompt 生产链共用）。
+  // 总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
+  // 全局托底：injection 已可选化——书级未设（undefined ≠ 'heavy'）按轻度处理；
+  // 喂本函数的 config 在运行链路上已过 applyGlobalDefaults（有效值），这里 ?? 'light'
+  // 只是直调/测试路径的双保险
+  const maxTotal = (config.style?.injection ?? 'light') === 'heavy' ? 3 : 1
+  const sampleParts = pickStyleSamples(bookRoot, scenes, maxTotal)
   if (sampleParts.length > 0) {
     sections.push({
       title: '文风样章',

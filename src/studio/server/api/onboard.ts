@@ -18,6 +18,7 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
@@ -91,7 +92,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       const bookRoot = join(ctx.workDir, entry.path)
       const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
       if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
-      const config = (cfgResult as { config: { book: { title: string; genre: string }; kind?: string; leads?: { enabled?: string[] } } }).config
+      // 全局托底：genre 喂 onboard AI prompt（运行时值）——书级未设回落 global.json
+      // defaultGenre → ''，AI 设定生成拿到的是有效题材而非 undefined
+      const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
       const title = config.book.title
       const genre = config.book.genre
       const kind = config.kind ?? 'long'

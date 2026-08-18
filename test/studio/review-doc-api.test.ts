@@ -73,7 +73,7 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(
     join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 三审测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\nbudget:\n  calls_per_chapter: 8\n',
+    'spec_version: 1\nkind: long\nbook:\n  title: 三审测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\nbudget:\n  calls_per_chapter: 6\n' /* 6≠旧默认 8：启动迁移不删此行（下个用例的文本替换基准须存活） */,
     'utf8',
   )
   writeFileSync(
@@ -131,7 +131,7 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
     // 长篇无布线 = 2 视角；calls_per_chapter: 1 < 2 → selectReviewTier 降 combined（单文件单调用）
     const bookYaml = join(bookRoot, 'book.yaml')
     const origYaml = readFileSync(bookYaml, 'utf8')
-    writeFileSync(bookYaml, origYaml.replace('calls_per_chapter: 8', 'calls_per_chapter: 1'), 'utf8')
+    writeFileSync(bookYaml, origYaml.replace('calls_per_chapter: 6', 'calls_per_chapter: 1'), 'utf8')
     try {
       const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
       expect(r.status).toBe(200)

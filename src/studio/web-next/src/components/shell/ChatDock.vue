@@ -142,7 +142,7 @@ function onExpandChat(): void {
                 >
                   <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">{{ tier.activeModel }}</option>
                   <option value="" disabled>选择模型</option>
-                  <option v-for="m in tier.models" :key="m" :value="m">{{ m }}</option>
+                  <option v-for="m in tier.modelsOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
                 <ChevronDown :size="10" />
               </label>

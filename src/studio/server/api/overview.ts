@@ -13,6 +13,7 @@ import { route } from '../router.js'
 import { reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
@@ -21,6 +22,8 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 
 interface OverviewCtx {
   workDir: string | null
+  /** APP 级数据目录：genre/target_words/volume_size 喂运行时（状态机+完成度）走全局托底链 */
+  userDataPath: string | null
 }
 
 // G3：state 判定结果短时缓存。detectState 内部全量 rebuild index.db（clearAllTables 清空重建），
@@ -39,7 +42,12 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     if (!entry) return reply(res, 404, { error: `没有这本书：${name}` })
 
     const bookRoot = join(ctx.workDir, entry.path)
-    const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
+    // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
+    // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
+    const config = applyGlobalDefaults(
+      readBookConfig(join(bookRoot, 'book.yaml')).config,
+      ctx.userDataPath,
+    )
     const kind = config.kind === 'short' ? 'short' : 'long'
 
     // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild

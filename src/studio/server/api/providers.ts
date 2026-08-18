@@ -19,8 +19,8 @@ import {
   newProviderId,
   maskKey,
   probeCapabilities,
-  setCurrentModel,
   type ProviderConf,
+  type ModelConf,
   type Protocol,
   type AuthStrategy,
   type TierSlot,
@@ -43,6 +43,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       currentId: s.currentId,
       currentModel: s.currentModel,
       tiers: s.tiers,
+      revision: s.revision,
     })
   })
 
@@ -56,6 +57,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!parsed.apiKey) return reply(res, 400, { error: 'apiKey 必填' })
 
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const conf: ProviderConf = {
       id: newProviderId(),
       name: parsed.name,
@@ -63,6 +66,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       auth: parsed.auth,
       baseUrl: parsed.baseUrl,
       apiKey: parsed.apiKey,
+      ...(parsed.models !== undefined ? { models: parsed.models } : {}),
       caps: null,
       // dd-P3：max+1 防撞号——s.providers.length 在删过中间项后与存量 sortIndex 重复，排序不稳
       sortIndex: nextSortIndex(s.providers.map((p) => p.sortIndex)),
@@ -71,7 +75,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     // 首个供应商自动设为当前
     if (!s.currentId) s.currentId = conf.id
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskProvider(conf) })
+    reply(res, 200, { provider: maskProvider(conf), revision: s.revision })
   })
 
   // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
@@ -80,6 +84,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const body = await readJson(req)
     const id = String(body['id'] ?? '')
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const target = id ? s.providers.find((p) => p.id === id) : undefined
     if (id && !target) {
       return reply(res, 404, { error: '供应商不存在' })
@@ -90,23 +96,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
     s.currentId = id || null
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { ok: true, currentId: s.currentId })
-  })
-
-  // 全局当前模型（方案 A：model 独立于供应商，工作台选择）
-  // 表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应携带降级记忆（structured 支持）
-  route('PUT', '/api/ai-model', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
-    const body = await readJson(req)
-    const model = String(body['model'] ?? '').trim()
-    if (!model) return reply(res, 400, { error: 'model 必填' })
-    setCurrentModel(ctx.userDataPath, model)
-
-    // 降级记忆（structured 已确认不支持时存在）
-    const s = loadProviders(ctx.userDataPath)
-    const conf = s.providers.find((p) => p.id === s.currentId)
-    const degraded = conf ? s.modelCaps[`${conf.id}/${model}`] ?? null : null
-    reply(res, 200, { ok: true, model, modelCaps: degraded, details: undefined })
+    // saveProviders bump revision——回传新值，前端 activate() 同步，否则后续写因陈旧 expectedRevision 409（P4）
+    reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
@@ -132,13 +123,15 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
 
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     s.tiers = { creative: creative.slot, assistant, chat: s.tiers.chat }
     // 同步 currentModel（兼容 resolveTier 回落逻辑）
     s.currentModel = creative.slot.model || null
     saveProviders(ctx.userDataPath, s)
 
     // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
-    reply(res, 200, { ok: true, tiers: s.tiers, details: {} })
+    reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision, details: {} })
   })
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
@@ -147,23 +140,27 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const body = await readJson(req)
 
-    // null = 清除 chat 档（回落 creative）
-    if (body === null || body === undefined) {
+    // null / {clear:true} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision
+    if (body === null || body === undefined || body['clear'] === true) {
       const s = loadProviders(ctx.userDataPath)
+      const revErr = revisionError(body?.['expectedRevision'], s.revision)
+      if (revErr) return reply(res, 409, { error: revErr })
       s.tiers = { ...s.tiers, chat: null }
       saveProviders(ctx.userDataPath, s)
-      return reply(res, 200, { ok: true, tiers: s.tiers })
+      return reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
     }
 
     const parsed = parseTierSlot(body as Record<string, unknown>)
     if (!parsed.ok) return reply(res, 400, { error: parsed.error })
 
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     s.tiers = { ...s.tiers, chat: parsed.slot }
     saveProviders(ctx.userDataPath, s)
 
     // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
-    reply(res, 200, { ok: true, tiers: s.tiers })
+    reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
   })
 
   // 编辑
@@ -174,6 +171,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     //（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
     const body = await readJson(req)
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const idx = s.providers.findIndex((p) => p.id === id)
     if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
 
@@ -197,6 +196,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       auth: parsed.auth,
       baseUrl: parsed.baseUrl,
       apiKey: newKey,
+      // P9：models 未传 = 保留原模型行；传 [] = 清空
+      models: parsed.models !== undefined ? parsed.models : existing.models,
       caps: fieldsChanged ? null : existing.caps,
       capsProbedAt: fieldsChanged ? undefined : existing.capsProbedAt,
     }
@@ -208,14 +209,18 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       }
     }
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskProvider(s.providers[idx]!) })
+    reply(res, 200, { provider: maskProvider(s.providers[idx]!), revision: s.revision })
   })
 
   // 删除
-  route('DELETE', '/api/providers/:id', (_req: IncomingMessage, res: ServerResponse, params) => {
+  route('DELETE', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const id = params['id'] ?? ''
+    // P4：DELETE 无 body 常规场景容错——有 body 才读 expectedRevision（旧客户端/脚本无 body 放行）
+    const expected = await readExpectedRevisionOrNull(req)
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(expected, s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const idx = s.providers.findIndex((p) => p.id === id)
     if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
     s.providers.splice(idx, 1)
@@ -230,7 +235,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       if (key.startsWith(mcPrefix)) delete s.modelCaps[key]
     }
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { ok: true, currentId: s.currentId })
+    reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
   })
 
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
@@ -291,7 +296,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         target.capsProbedAt = Date.now()
         saveProviders(ctx.userDataPath, s2)
       }
-      reply(res, 200, { ok: true, caps, details })
+      // 探测写回会 bump revision——回传新 revision，前端 test() 同步，
+      // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（P4 竞态）
+      reply(res, 200, { ok: true, caps, details, revision: s2.revision })
     } catch (e) {
       // P2-4：错误脱敏
       reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
@@ -306,7 +313,7 @@ function nextSortIndex(existing: Array<number | undefined>): number {
   return max + 1
 }
 
-/** API 返回前遮蔽 apiKey */
+/** key 遮蔽——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留） */
 function maskProvider(conf: ProviderConf): ProviderConf & { apiKeyMasked: string } {
   return {
     ...conf,
@@ -315,11 +322,34 @@ function maskProvider(conf: ProviderConf): ProviderConf & { apiKeyMasked: string
   }
 }
 
-/** 解析供应商输入（增/改共用） */
+/** P4：写端点并发守卫——expectedRevision 缺失放行（旧客户端/脚本）；存在且不匹配 → 409 文案 */
+function revisionError(expected: unknown, current: number): string | null {
+  if (expected === undefined || expected === null) return null
+  if (typeof expected !== 'number' || expected !== current) {
+    return '配置已在其他窗口被修改，请刷新'
+  }
+  return null
+}
+
+/** P4：DELETE 无 body 场景的 best-effort 读取（同 POST /providers/:id/test 容错口径） */
+async function readExpectedRevisionOrNull(req: IncomingMessage): Promise<unknown> {
+  try {
+    const body = await readJson(req)
+    return body['expectedRevision']
+  } catch (e) {
+    if (e instanceof HttpError) throw e
+    return undefined
+  }
+}
+
+/** 解析供应商输入（增/改共用）
+ *  P9 §7.1：models 行——id 必填且供应商内唯一（trim 后）；contextWindow / maxTokens 若有须为正整数。
+ *  models 缺省（undefined）= 不改模型行（编辑保留原值 / 新增不设）；传 [] = 清空。
+ */
 function parseProviderInput(
   body: Record<string, unknown>,
 ):
-  | { ok: true; name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string }
+  | { ok: true; name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string; models?: ModelConf[] }
   | { ok: false; error: string } {
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
@@ -329,7 +359,7 @@ function parseProviderInput(
   if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
     return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
   }
-  // auth 从 body 读（UI 已暴露 3 种认证方式）；缺省回落协议推断（兼容旧配置）
+  // auth 从 body 读（UI 无该控件，兼容手改 providers.json 的旧数据）；缺省回落协议推断
   const authRaw = String(body['auth'] ?? '')
   const auth: AuthStrategy =
     authRaw === 'anthropic' || authRaw === 'claudeAuth' || authRaw === 'bearer'
@@ -340,10 +370,43 @@ function parseProviderInput(
   // dd-P3：scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
   if (!/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'baseUrl 须以 http(s):// 开头' }
   const apiKey = String(body['apiKey'] ?? '').trim()
-  return { ok: true, name, protocol, auth, baseUrl, apiKey }
+  const models = parseModels(body['models'])
+  if (models === 'invalid') return { ok: false, error: 'models 行不合法：id 必填且供应商内唯一，容量须为正整数' }
+  return { ok: true, name, protocol, auth, baseUrl, apiKey, models: models === undefined ? undefined : models }
 }
 
-/** 解析档位槽输入（模型 + 推理等级） */
+/** 解析并校验模型行数组；undefined=未传，'invalid'=不合法 */
+function parseModels(raw: unknown): ModelConf[] | undefined | 'invalid' {
+  if (raw === undefined || raw === null) return undefined
+  if (!Array.isArray(raw)) return 'invalid'
+  const ids = new Set<string>()
+  const out: ModelConf[] = []
+  for (const r of raw) {
+    if (typeof r !== 'object' || r === null) return 'invalid'
+    const row = r as Record<string, unknown>
+    const id = String(row['id'] ?? '').trim()
+    if (!id || ids.has(id)) return 'invalid'
+    ids.add(id)
+    if (row['contextWindow'] !== undefined && row['contextWindow'] !== null) {
+      if (typeof row['contextWindow'] !== 'number' || !Number.isInteger(row['contextWindow']) || row['contextWindow'] <= 0) {
+        return 'invalid'
+      }
+    }
+    if (row['maxTokens'] !== undefined && row['maxTokens'] !== null) {
+      if (typeof row['maxTokens'] !== 'number' || !Number.isInteger(row['maxTokens']) || row['maxTokens'] <= 0) {
+        return 'invalid'
+      }
+    }
+    const m: ModelConf = { id }
+    if (typeof row['name'] === 'string' && row['name'].trim()) m.name = row['name'].trim()
+    if (row['contextWindow'] !== undefined && row['contextWindow'] !== null) m.contextWindow = row['contextWindow']
+    if (row['maxTokens'] !== undefined && row['maxTokens'] !== null) m.maxTokens = row['maxTokens']
+    out.push(m)
+  }
+  return out
+}
+
+/** 解析档位槽输入（模型 + 推理等级 + 可选超时） */
 function parseTierSlot(raw: Record<string, unknown>): { ok: true; slot: TierSlot } | { ok: false; error: string } {
   const model = String(raw['model'] ?? '').trim()
   if (!model) return { ok: false, error: 'model 必填' }
@@ -352,5 +415,13 @@ function parseTierSlot(raw: Record<string, unknown>): { ok: true; slot: TierSlot
   if (!VALID.includes(effort)) {
     return { ok: false, error: `effort 需为 ${VALID.join('/')}` }
   }
-  return { ok: true, slot: { model, effort: effort as EffortLevel } }
+  const slot: TierSlot = { model, effort: effort as EffortLevel }
+  // P10：timeoutMs 可选——正整数 ms；非法显式拒绝（不静默丢用户输入）
+  if (raw['timeoutMs'] !== undefined && raw['timeoutMs'] !== null) {
+    if (typeof raw['timeoutMs'] !== 'number' || !Number.isInteger(raw['timeoutMs']) || raw['timeoutMs'] <= 0) {
+      return { ok: false, error: 'timeoutMs 须为正整数毫秒' }
+    }
+    slot.timeoutMs = raw['timeoutMs']
+  }
+  return { ok: true, slot }
 }

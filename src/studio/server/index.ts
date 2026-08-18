@@ -15,6 +15,7 @@ import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
 import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
+import { migrateBookDefaults } from '../../install/migrate-defaults.js'
 import { migrateLegacyForeshadows } from '../../document/foreshadow.js'
 import { migrateVersionsDir } from '../../document/snapshot.js'
 import { registerBookRoutes } from './api/books.js'
@@ -78,7 +79,7 @@ function buildRoutes(
     registerRagProviderRoutes({ userDataPath })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir })
-    registerOverviewRoutes({ workDir })
+    registerOverviewRoutes({ workDir, userDataPath }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir })
     registerSettingsRoutes({ workDir, userDataPath })
     registerDraftRoutes({ workDir, userDataPath })
@@ -89,12 +90,12 @@ function buildRoutes(
     registerKnowledgeRoutes({ workDir, token })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir, userDataPath }) // Z-P2-6：伏笔事件族接线（伏笔文档变更落 foreshadow/change）
-    registerSnapshotRoutes({ workDir })
+    registerSnapshotRoutes({ workDir, userDataPath }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
     registerSearchRoutes({ workDir })
-    registerCheckRoutes({ workDir })
+    registerCheckRoutes({ workDir, userDataPath }) // 全局托底：机检 short.strict 吃生效值
     registerAnalysisRoutes({ workDir, userDataPath })
     registerForeshadowRoutes({ workDir })
-    registerStyleRoutes({ workDir })
+    registerStyleRoutes({ workDir, userDataPath }) // 全局托底：注入强度喂写作链路合并 global.json
     registerProvidersRoutes({ userDataPath })
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath })
@@ -169,6 +170,17 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateFinalizedRevisions(bookPath)
       // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
       migrateLegacyForeshadows(bookPath)
+    }
+  }
+  // 书级默认值一次性迁移（全局托底配套）：旧 scaffold 把 13 键默认值烘焙进了 book.yaml，
+  // 不删掉的话书级「永远已设」、全局托底被遮蔽。文本级补丁（保注释保未知段）、逐书容错、
+  // 幂等——启动即跑，listen 前（workDir 就绪后）。详情见 migrate-defaults.ts。
+  if (opts.workDir) {
+    try {
+      migrateBookDefaults(opts.workDir)
+    } catch (e) {
+      // 整体异常不阻断启动（逐书失败已在内部 warn 过；这里兜编译期不可见的故障）
+      console.error(`[migrate-defaults] ${e instanceof Error ? e.message : String(e)}`)
     }
   }
   // RB-SV-P1-1：Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；

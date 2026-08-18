@@ -34,6 +34,8 @@ export {
 
 interface CheckCtx {
   workDir: string | null
+  /** 全局托底：short.strict 等书级未设键回落 global.json（喂机检的生效值） */
+  userDataPath: string | null
 }
 
 export function registerCheckRoutes(ctx: CheckCtx): void {
@@ -54,7 +56,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
       if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
 
-      const outcome = runCheckForDocument(bookRoot, absPath)
+      const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
       if (!outcome.ok) {
         return reply(res, checkOutcomeStatus(outcome.code), {
           ok: false,
@@ -84,7 +86,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined
-      })
+      }, ctx.userDataPath)
       reply(res, 200, {
         ok: true,
         issues,

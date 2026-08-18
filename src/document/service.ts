@@ -28,7 +28,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
-import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, type SnapshotPolicy } from './snapshot.js'
+import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
@@ -123,6 +123,8 @@ export type TrashResult =
 
 export interface DocumentServiceOptions {
   bookRoot: string
+  /** APP 级数据目录（Electron userData）：写时清理读 global.json 全局保留策略（版本保留三层链）。 */
+  userDataPath?: string | null
   /** 注入队列（测试桩）；默认新建 per-docId 串行队列。 */
   queue?: SaveQueue<SaveResult>
 }
@@ -130,6 +132,7 @@ export interface DocumentServiceOptions {
 /** 文档保存服务（绑定 bookRoot）。 */
 export class DocumentService {
   private readonly bookRoot: string
+  private readonly userDataPath: string | null
   private readonly queue: SaveQueue<SaveResult>
   private readonly journalDir: string
   private readonly snapshotsDir: string
@@ -137,6 +140,7 @@ export class DocumentService {
 
   constructor(opts: DocumentServiceOptions) {
     this.bookRoot = opts.bookRoot
+    this.userDataPath = opts.userDataPath ?? null
     this.queue = opts.queue ?? new SaveQueue<SaveResult>()
     this.journalDir = join(this.bookRoot, '工作区', '.journal')
     this.snapshotsDir = join(this.bookRoot, '工作区', '.版本')
@@ -318,13 +322,14 @@ export class DocumentService {
     )
   }
 
-  /** 快照保留策略：book.yaml 的 snapshots 段覆盖默认值（缺省 = 默认）。 */
+  /** 快照保留策略：三层链 book.yaml snapshots → global.json snapMax* → 硬编码默认。 */
   private snapshotPolicy(): SnapshotPolicy {
     const cfg = readBookConfig(join(this.bookRoot, 'book.yaml'))
     const s = cfg.ok ? cfg.config.snapshots : undefined
+    const global = readGlobalSnapshotPolicy(this.userDataPath)
     return {
-      maxDays: s?.max_days ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
-      maxCount: s?.max_count ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
+      maxDays: s?.max_days ?? global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
+      maxCount: s?.max_count ?? global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
       throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
     }
   }

@@ -15,7 +15,7 @@
 import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
-import type { ProviderConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
+import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
 import {
   createVault,
@@ -61,6 +61,8 @@ export interface ProviderStore {
   tiers: TierConfig
   /** RAG（嵌入）服务商——应用级多服务商，书按 rag.provider 引用（key 同走 vault） */
   ragProviders: RagProviderConf[]
+  /** 并发修订号（P4）：save 写前 +1，读侧无该键视为 0；写端点带 expectedRevision 校验 */
+  revision: number
   vault: Vault | null
   dek: Buffer | null
 }
@@ -76,7 +78,7 @@ function defaultTiers(model: string | null): TierConfig {
 
 /** 空 store（首次启动 / 文件缺失时） */
 export function emptySettings(): ProviderStore {
-  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), ragProviders: [], vault: null, dek: null }
+  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), ragProviders: [], revision: 0, vault: null, dek: null }
 }
 
 
@@ -90,6 +92,8 @@ interface DiskFormat {
   tiers?: TierConfig
   /** RAG（嵌入）服务商（同 vault 加密；形状坏容错为 []，不触发整文件 bak 恢复） */
   ragProviders?: Array<Omit<RagProviderConf, 'apiKey'> & { apiKey?: string }>
+  /** 并发修订号（P4）；存量文件无该键 → 0 */
+  revision?: number
   vault?: Vault
 }
 
@@ -228,7 +232,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
     needsRewrite = true
   }
 
-  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), ragProviders, vault, dek }
+  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), ragProviders, revision: raw.revision ?? 0, vault, dek }
 
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
@@ -283,7 +287,9 @@ export function saveProviders(userDataPath: string, store: ProviderStore): void 
     return { ...p, apiKey: undefined } as Omit<RagProviderConf, 'apiKey'>
   })
 
-  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, ragProviders: diskRagProviders, vault }
+  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, ragProviders: diskRagProviders, revision: (store.revision ?? 0) + 1, vault }
+  // P4：写前 +1，内存 store 同步（调用方随后刷新时读到新号）
+  store.revision = disk.revision!
   const json = JSON.stringify(disk, null, 2) + '\n'
 
   // D7：写前备份（文件已存在时）。ee-P2-1：bak 改走 atomicWriteFile + mode 0600 创建即生效——
@@ -352,13 +358,6 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   return s.providers.find((p) => p.id === s.currentId) ?? null
 }
 
-/** 设置全局当前模型 */
-export function setCurrentModel(userDataPath: string, model: string): void {
-  const s = loadProviders(userDataPath)
-  s.currentModel = model
-  saveProviders(userDataPath, s)
-}
-
 /** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */
 export function tierFromStore(s: ProviderStore, kind: 'creative' | 'assistant' | 'chat'): TierSlot {
   const fallback = s.currentModel ?? ''
@@ -395,4 +394,13 @@ export function newRagProviderId(): string {
 export function maskKey(key: string): string {
   if (key.length < 8) return '***'
   return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+/**
+ * 当前供应商 + 当前模型的模型行覆盖（P9 §7.2 显式 resolve 链第 1 层）。
+ * 运行时 `provider.conf.model` 已由 resolveProvider 注入实际档位模型。
+ * 无行（供应商没配 / 行没有该 id）→ undefined，消费者回落 quirks 表/协议兜底。
+ */
+export function modelConfOf(conf: ProviderConf): ModelConf | undefined {
+  return conf.models?.find((m) => m.id === conf.model)
 }

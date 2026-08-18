@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 设置 · 编辑器 tab：编辑器字体、排版（字号/行距/段距）、纸张（宽度/自动保存）。
+// 设置 · 编辑器 tab：编辑器字体、排版（字号/行距）、纸张（宽度/自动保存）。
 import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
@@ -79,17 +79,6 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
         <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />
         <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @change="numInput(1.4, 2.4, prefs.setLh, $event)" />
         <span class="val-suffix">×</span>
-      </div>
-    </div>
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">段距</div>
-        <div class="setting-item-desc">段落间距</div>
-      </div>
-      <div class="setting-item-control">
-        <input type="range" min="0.5" max="2.5" step="0.1" :value="prefs.proseGap" @input="prefs.setGap(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="0.5" max="2.5" step="0.1" :value="prefs.proseGap" @change="numInput(0.5, 2.5, prefs.setGap, $event)" />
-        <span class="val-suffix">em</span>
       </div>
     </div>
   </section>

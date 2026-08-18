@@ -32,12 +32,31 @@ export interface ProviderConf {
   protocol: Protocol
   auth: AuthStrategy
   baseUrl: string
-  model?: string // 方案 A：model 移至全局（工作台选），供应商不再绑死
+  model?: string // 方案 A：model 移至全局（工作台选），供应商不再绑死；运行时由 resolveProvider 注入实际档位模型
   apiKey: string // 存 userData（见 store.ts）
+  /**
+   * 模型行（P9 加性扩展，阶段 14 §7.1）——可选；缺省 = 无模型编辑器覆盖，行为与旧版完全一致。
+   * 用于自定义网关：手写模型 + 行展开 contextWindow / maxTokens（K/M 输入），空值 = 回落 quirks 表/协议兜底。
+   * 行结构开放：未知/未来字段原样存活，编辑不整行重建（DSH 教训）。
+   */
+  models?: ModelConf[]
   caps: ProviderCaps | null // 服务级能力（连通/流式）；null = 尚未测试连接
   capsProbedAt?: number
   sortIndex?: number
   notes?: string
+}
+
+/** 模型行（阶段 14 §7.1）——P7 已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
+export interface ModelConf {
+  id: string
+  /** 显示名（选择器回落显示 id） */
+  name?: string
+  /** 上下文窗口（token）；缺省 = 未声明（消费者自取回落） */
+  contextWindow?: number
+  /** 单次输出上限（token）；缺省 = 未声明（回落 quirks.maxOutputTokens / 协议兜底） */
+  maxTokens?: number
+  /** 行结构开放：未知/未来字段原样存活（DSH 教训） */
+  [key: string]: unknown
 }
 
 /**

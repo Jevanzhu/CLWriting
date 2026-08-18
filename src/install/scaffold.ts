@@ -40,22 +40,35 @@ export interface BookScaffoldOpts {
 export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void {
   mkdirSync(bookRoot, { recursive: true })
 
-  // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）
+  // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）。
+  // 全局托底：新书不再烘焙 13 键默认值（style/auto 段、budget.calls_per_chapter、genre
+  // 空占位）——写进去 = 书级「永远已设」，global.json 全局默认永远被遮蔽；运行时由
+  // applyGlobalDefaults 兜底。例外：短篇 auto.batch_size: 1 是有意的产品默认（逐篇确认
+  // 再续写），与全局默认（长篇连写 8 章）语义不同，保留显式值。
   const config: BookConfig = opts.kind === 'short'
     ? {
         ...DEFAULT_CONFIG,
         // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
-        // P2-3：短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）
-        auto: { ...DEFAULT_CONFIG.auto, batch_size: 1 },
-        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
+        // P2-3：短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）——显式覆盖，不走全局托底
+        auto: { batch_size: 1 },
+        book: {
+          title: opts.name,
+          // genre 行仅当 opts.genre 非空才写（空串占位会盖住 global.json defaultGenre）
+          ...(opts.genre ? { genre: opts.genre } : {}),
+          ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
+        },
         short: recommendShortChecks(opts.genre),
       }
     : {
         ...DEFAULT_CONFIG,
         host: opts.host ?? 'cc',
-        book: { ...DEFAULT_CONFIG.book, title: opts.name, genre: opts.genre, ...(opts.targetWords ? { target_words: opts.targetWords } : {}) },
+        book: {
+          title: opts.name,
+          ...(opts.genre ? { genre: opts.genre } : {}),
+          ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
+        },
         leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
       }
   writeBookConfig(join(bookRoot, 'book.yaml'), config)

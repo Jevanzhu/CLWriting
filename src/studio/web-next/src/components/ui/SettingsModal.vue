@@ -3,7 +3,7 @@
 // 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
 // 各 tab 内容拆分到 Settings*.vue 子组件。
 import { ref, computed, onMounted, onBeforeUnmount, provide } from 'vue'
-import { X, Palette, Type, History, BookOpen, Sparkles, Server } from 'lucide-vue-next'
+import { X, Palette, Type, NotebookPen, Sparkles, ScanSearch, History, BookOpen, Server } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfig, putConfig, type BookConfig } from '../../api/books'
@@ -12,9 +12,11 @@ import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import SettingsAppearance from './SettingsAppearance.vue'
 import SettingsEditor from './SettingsEditor.vue'
-import SettingsBook from './SettingsBook.vue'
+import SettingsWriting from './SettingsWriting.vue'
 import SettingsAi from './SettingsAi.vue'
-import SettingsHistory from './SettingsHistory.vue'
+import SettingsAnalysis from './SettingsAnalysis.vue'
+import SettingsRetention from './SettingsRetention.vue'
+import SettingsBook from './SettingsBook.vue'
 import AiServicePanel from './AiServicePanel.vue'
 
 const ui = useUiStore()
@@ -22,30 +24,39 @@ const ws = useWorkspaceStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-type Tab = 'appearance' | 'editor' | 'book' | 'ai' | 'providers' | 'history'
+// IA 重组：全局默认按选项类别拆 4 个独立一级页（写作默认/AI 写作/智能分析/版本保留），
+// 「本书」收敛为单页（书名 + 各领域的本书独立设定覆盖组 + 定稿版本 + 存储）——共 8 项导航。
+// 「本书」置顶；其余 7 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方）
+// 三组小节标题分组（Obsidian 设置导航范式：靠命名分组，无线条）。
+type Tab = 'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'book' | 'providers'
 const activeTab = ref<Tab>('appearance')
 /** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */
 const TAB_SUBTITLES: Record<Tab, string> = {
   appearance: '主题、界面字体、紧凑模式与书架视图',
   editor: '编辑器字体、排版（字号/行距/段距）、纸张与自动保存',
-  book: '书名、题材、写作模式、目标字数与书库目录',
-  ai: '对话助手、文风注入、调用预算、自动写作、关系图与知识检索',
+  writing: '题材、每卷章数、目标字数、每章字数的全局默认——未单独设定的书使用',
+  ai: '对话助手与 AI 写作默认：文风注入、批量章数、调用上限',
+  analysis: 'AI 机检、关系图、知识检索的全局默认',
+  retention: '版本保留全局默认：天数与数量上限',
+  book: '书名与各领域的本书独立设定、定稿版本、存储',
   providers: 'AI 与 RAG 提供方增删、测试连接与任务档位',
-  history: '版本保留规则、定稿版本统计与快照清理',
 }
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
-/** 当前 tab 的配置归属：外观/编辑器/AI/提供方 → 全局（跨书共享）；版本历史/书籍 → 本书（跟随当前书） */
+/** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 7 页均为 global（跨书共享）。
+ * 绑在 settings-content 上即可覆盖整页——本书页内的条目得「本书」徽章，全局页条目得「全局」徽章。 */
 const tabScope = computed<'global' | 'book'>(() =>
-  activeTab.value === 'history' || activeTab.value === 'book' ? 'book' : 'global',
+  activeTab.value === 'book' ? 'book' : 'global',
 )
 
 const tabComponents = {
   appearance: SettingsAppearance,
   editor: SettingsEditor,
-  book: SettingsBook,
+  writing: SettingsWriting,
   ai: SettingsAi,
+  analysis: SettingsAnalysis,
+  retention: SettingsRetention,
+  book: SettingsBook,
   providers: AiServicePanel,
-  history: SettingsHistory,
 }
 const currentTabComponent = computed(() => tabComponents[activeTab.value])
 
@@ -95,27 +106,37 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="settings-split">
           <!-- 左侧分类导航 -->
           <nav class="settings-nav">
+            <button class="nav-book" :class="{ active: activeTab === 'book' }" @click="activeTab = 'book'">
+              <span class="nav-book-icon"><BookOpen :size="15" /></span>
+              <span>本书</span>
+            </button>
+            <div class="nav-section-label">界面</div>
             <button :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
               <Palette :size="16" /><span>外观与主题</span>
             </button>
             <button :class="{ active: activeTab === 'editor' }" @click="activeTab = 'editor'">
               <Type :size="16" /><span>编辑器排版</span>
             </button>
-            <button :class="{ active: activeTab === 'book' }" @click="activeTab = 'book'">
-              <BookOpen :size="16" /><span>书籍与目标</span>
+            <div class="nav-section-label">写作</div>
+            <button :class="{ active: activeTab === 'writing' }" @click="activeTab = 'writing'">
+              <NotebookPen :size="16" /><span>写作默认</span>
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-              <Sparkles :size="16" /><span>AI 功能</span>
+              <Sparkles :size="16" /><span>AI 写作</span>
+            </button>
+            <button :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
+              <ScanSearch :size="16" /><span>智能分析</span>
+            </button>
+            <div class="nav-section-label">系统</div>
+            <button :class="{ active: activeTab === 'retention' }" @click="activeTab = 'retention'">
+              <History :size="16" /><span>版本保留</span>
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
               <Server :size="16" /><span>服务提供方</span>
             </button>
-            <button :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-              <History :size="16" /><span>版本与定稿</span>
-            </button>
           </nav>
 
-          <!-- 右侧设置内容 -->
+          <!-- 右侧设置内容：data-tab-scope 驱动整页徽章（book 页条目得「本书」，其余 7 页得「全局」） -->
           <div class="settings-content" :data-tab-scope="tabScope">
             <div class="tab-pane">
               <!-- mode="out-in" + keep-alive + :key 是 Vue 3 已知竞态组合：
@@ -148,11 +169,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   animation: clw-overlay var(--dur-norm) var(--ease-out);
 }
 .settings-modal {
-  width: min(1024px, calc(100vw - 32px));
-  height: min(760px, calc(100vh - 48px));
+  /* 面板尺寸对齐 dsh SettingsRoot：figma 1080 缩到 800 宽，高度上限 800 取视口，
+   * 四周留 24px 呼吸位（100vw-48）；高度不随内容跳（超长在 settings-content 滚） */
+  width: min(800px, calc(100vw - 48px));
+  height: min(800px, calc(100vh - 48px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
+  border-radius: var(--radius-xl);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
@@ -197,7 +220,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   border: none;
   background: transparent;
   color: var(--text-faint);
-  border-radius: var(--radius-s);
+  /* dsh Modal 关闭钮为圆形 */
+  border-radius: 50%;
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -213,24 +237,45 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   overflow: hidden;
 }
 
-/* ── 左侧导航 ── */
+/* ── 左侧导航 ──
+   新版 UI：次级底色锚定导航列（与内容区形成图底关系）；
+   「本书」= 强调卡片入口（唯一书级页，实底图标章 + 描边淡底）；
+   全局 7 页 = 常规条目，按 界面/写作/系统 三组小节标题分组。 */
 .settings-nav {
-  width: 184px;
+  /* 导航列宽对齐 dsh nav rail（188px） */
+  width: 188px;
   flex-shrink: 0;
   border-right: 1px solid var(--background-modifier-border);
-  padding: var(--size-4-4) var(--size-4-3);
+  background: var(--background-secondary);
+  padding: 14px 10px 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
+}
+/* 导航小节标题（界面/写作/系统）：11px 注释级 + 字距 + 淡色，与 12px 条目拉开层级 */
+.settings-nav .nav-section-label {
+  padding: 12px 12px 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--text-faint);
+  cursor: default;
+  user-select: none;
+}
+/* 首枚标题紧跟「本书」卡片，收掉顶部留白（卡片自身 margin 已负责分隔） */
+.settings-nav .nav-section-label:first-of-type {
+  padding-top: 4px;
 }
 .settings-nav button {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  gap: 9px;
+  padding: 7px 10px;
   border: none;
-  border-radius: var(--radius-m);
+  /* dsh navCell 12px */
+  border-radius: var(--radius-l);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-size-s);
@@ -241,6 +286,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .settings-nav button svg {
   color: var(--text-faint);
+  flex-shrink: 0;
   transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .settings-nav button:hover {
@@ -266,16 +312,60 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 18px;
+  height: 16px;
   border-radius: 0 2px 2px 0;
   background: var(--interactive-accent);
 }
 
-/* ── 右侧内容 ── */
+/* 「本书」卡片入口：描边 + 淡强调底（hover/active 逐级加深）；图标章用实底强调色 */
+.settings-nav .nav-book {
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  color: var(--text-normal);
+  font-size: var(--font-size-m);
+  font-weight: 600;
+}
+.settings-nav .nav-book:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-normal);
+}
+.settings-nav .nav-book.active {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  color: var(--text-accent);
+}
+/* 卡片自带描边/底色，常规条目的左指示条在卡片里多余 */
+.settings-nav .nav-book.active::before {
+  display: none;
+}
+.nav-book-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  flex-shrink: 0;
+}
+/* 图标章内的 svg 永远保持章配色：优先级必须压过 button.active/hover 的 svg 染色
+   （否则激活时主题紫图标叠在主题紫章上会隐形） */
+.settings-nav .nav-book .nav-book-icon svg {
+  color: var(--text-on-accent);
+}
+.settings-nav .nav-book.active .nav-book-icon {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+/* ── 右侧内容 ──（内边距对齐 dsh options 区 24px） */
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--size-4-8) var(--size-4-8);
+  padding: var(--size-4-6) var(--size-4-6);
 }
 .tab-pane {
   position: relative;
@@ -325,8 +415,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .cfg-card:last-child {
   margin-bottom: 0;
 }
+/* 字阶（三档梯度，全弹窗统一）：
+   组标题 13/600（本书卡片 + 页内 cfg-card-head）> 选项 12/500（导航条目 + 设置项名）
+   > 注释 11（分类小标题/副标题/描述）> 徽章 10 */
 .cfg-card-head {
-  font-size: var(--font-size-s);
+  font-size: var(--font-size-m);
   font-weight: 600;
   color: var(--text-normal);
   padding: 0 var(--size-4-1);
@@ -418,8 +511,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-weight: 500;
   color: var(--text-normal);
 }
-/* 配置归属标签（::after 由 data-tab-scope 驱动，非 .sub 项才显示） */
-.settings-content[data-tab-scope] .setting-item:not(.sub) .setting-item-name::after {
+/* 配置归属标签（::after 由最近的 data-tab-scope 祖先驱动——即 settings-content，8 页统一；
+   非 .sub 项才显示。IA 重组后无 item 级 data-scope 覆盖特例：全局页全页 global，本书页全页 book） */
+[data-tab-scope] .setting-item:not(.sub) .setting-item-name::after {
   font-size: var(--font-size-xxs);
   font-weight: 600;
   padding: 1px 7px;
@@ -428,12 +522,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   white-space: nowrap;
   flex-shrink: 0;
 }
-.settings-content[data-tab-scope="global"] .setting-item:not(.sub) .setting-item-name::after {
+[data-tab-scope="global"] .setting-item:not(.sub) .setting-item-name::after {
   content: "全局";
   color: var(--text-faint);
   background: var(--background-modifier-hover);
 }
-.settings-content[data-tab-scope="book"] .setting-item:not(.sub) .setting-item-name::after {
+[data-tab-scope="book"] .setting-item:not(.sub) .setting-item-name::after {
   content: "本书";
   color: var(--text-on-accent);
   background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
@@ -475,10 +569,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .setting-item.sub {
   padding-left: var(--size-4-4);
 }
+/* 子选项名与主项同级可读（层级靠缩进表达，不再压字重降灰） */
 .setting-item.sub .setting-item-name {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  font-weight: 400;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  font-weight: 500;
 }
 
 /* ── 数值标签 ── */

@@ -20,6 +20,7 @@ import { route } from '../router.js'
 import { reply, readJson } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
 import { readBaseline, freezeBaseline } from '../../../metrics/style.js'
 import {
@@ -44,6 +45,8 @@ import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.j
 
 interface StyleCtx {
   workDir: string | null
+  /** APP 级数据目录：注入强度走「书级 → global.json → 硬编码」三层链时读全局默认 */
+  userDataPath: string | null
 }
 
 /** 服务端今天（候选 创建/过期口径统一在服务端） */
@@ -201,7 +204,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
   })
 
-  // 定标数据：铁律阈值（纯配置本身，不合并条目禁词）+ 基线摘要 + 注入强度
+  // 定标数据：铁律阈值（纯配置本身，不合并条目禁词）+ 基线摘要 + 注入强度。
+  // 注入强度是喂写作链路的有效值——readBookConfig 结果过 applyGlobalDefaults
+  // （书级未设 → global.json styleInjection → 硬编码 'light'；raw 判断归 /config 端点）
   route('GET', '/api/books/:name/style/config', (_req: IncomingMessage, res: ServerResponse, params) => {
     const bookRoot = resolveBook(res, params)
     if (!bookRoot) return
@@ -209,7 +214,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
     const baseline = readBaseline(bookRoot)
     const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-    const injection = cfg.ok && cfg.config.style?.injection === 'heavy' ? 'heavy' : 'light'
+    const injection = applyGlobalDefaults(cfg.config, ctx.userDataPath).style.injection
     reply(res, 200, {
       ok: true,
       rules,

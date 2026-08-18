@@ -184,6 +184,7 @@ function emptyStore() {
     modelCaps: {},
     ragProviders: [],
     tiers: { creative: { model: '', effort: 'high' as const }, assistant: null, chat: null },
+    revision: 0,
     vault: null,
     dek: null,
   }

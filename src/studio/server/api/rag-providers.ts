@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, HttpError } from '../http.js'
 import {
   loadProviders,
   saveProviders,
@@ -45,24 +45,37 @@ function parseRagInput(
   return { ok: true, name, endpoint, model, apiKey }
 }
 
+/** P4：写端点并发守卫——expectedRevision 缺失放行（旧客户端/脚本）；存在且不匹配 → 409（与 /api/providers 同口径） */
+function revisionError(expected: unknown, current: number): string | null {
+  if (expected === undefined || expected === null) return null
+  if (typeof expected !== 'number' || expected !== current) {
+    return '配置已在其他窗口被修改，请刷新'
+  }
+  return null
+}
+
 export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
-  // 列表（key 遮蔽）
+  // 列表（key 遮蔽；顺带回 revision 供前端并发守卫）
   route('GET', '/api/rag-providers', (_req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
       ragProviders: s.ragProviders.map(maskRagProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
+      revision: s.revision,
     })
   })
 
   // 新增（apiKey 必填——编辑才允许留空保留）
   route('POST', '/api/rag-providers', async (req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
-    const parsed = parseRagInput(await readJson(req))
+    const body = await readJson(req)
+    const parsed = parseRagInput(body)
     if (!parsed.ok) return reply(res, 400, { error: parsed.error })
     if (!parsed.apiKey) return reply(res, 400, { error: 'apiKey 必填' })
 
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const conf: RagProviderConf = {
       id: newRagProviderId(),
       name: parsed.name,
@@ -75,15 +88,18 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     }
     s.ragProviders.push(conf)
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskRagProvider(conf) })
+    reply(res, 200, { provider: maskRagProvider(conf), revision: s.revision })
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
   route('PUT', '/api/rag-providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
     // dd-P2：body 先读——load→mutate→save 三段同步无 await（单事件循环内原子），防并发丢更新
-    const parsed = parseRagInput(await readJson(req))
+    const body = await readJson(req)
+    const parsed = parseRagInput(body)
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const target = s.ragProviders.find((p) => p.id === params['id'])
     if (!target) return reply(res, 404, { error: 'RAG 提供方不存在' })
     if (!parsed.ok) return reply(res, 400, { error: parsed.error })
@@ -99,18 +115,29 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       target.capsProbedAt = undefined
     }
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskRagProvider(target) })
+    reply(res, 200, { provider: maskRagProvider(target), revision: s.revision })
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
-  route('DELETE', '/api/rag-providers/:id', (_req: IncomingMessage, res: ServerResponse, params) => {
+  route('DELETE', '/api/rag-providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    // P4：DELETE 无 body 常规场景容错（旧客户端/脚本放行）
+    let expected: unknown
+    try {
+      const body = await readJson(req)
+      expected = body['expectedRevision']
+    } catch (e) {
+      if (e instanceof HttpError) throw e
+      expected = undefined
+    }
     const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(expected, s.revision)
+    if (revErr) return reply(res, 409, { error: revErr })
     const idx = s.ragProviders.findIndex((p) => p.id === params['id'])
     if (idx === -1) return reply(res, 404, { error: 'RAG 提供方不存在' })
     s.ragProviders.splice(idx, 1)
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { ok: true })
+    reply(res, 200, { ok: true, revision: s.revision })
   })
 
   // 测试连接：真实 embed 一次 'ping'（15s）——embed 失败返回 null 不带原因，

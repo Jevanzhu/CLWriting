@@ -27,7 +27,7 @@ import type {
   ContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded, lookupDegraded } from './store.js'
+import { persistDegraded, lookupDegraded, modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { quirksFor } from './model-quirks.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
@@ -131,9 +131,12 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     messages,
     stream: true,
   }
-  // 输出上限参数名（各家新旧名不同；缺省则不发，让模型用自己的默认值）
-  if (req.maxTokens) {
-    params[q.maxTokensKey] = req.maxTokens
+  // 输出上限参数名（各家新旧名不同；缺省则不发，让模型用自己的默认值）。
+  // 阶段 14 §7.2：调用方显式 cap（req.maxTokens）优先；其次用户模型行覆盖（modelConfOf）；
+  // 仍无 → 不发（OpenAI 线维持旧行为——quirks 表值不自动补发，防改变请求形状）。
+  const tokenCap = req.maxTokens ?? modelConfOf(conf)?.maxTokens
+  if (tokenCap) {
+    params[q.maxTokensKey] = tokenCap
   }
 
   if (req.tools?.length) {

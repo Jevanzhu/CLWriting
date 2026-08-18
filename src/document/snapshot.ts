@@ -5,6 +5,8 @@
  * 目录 `工作区/.版本/`（原 .snapshots 首次启动自动迁移）。本模块薄委托 version.ts，
  * 保持既有调用方（service.ts / draft.ts / snapshots API）零改动。
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   writeVersion,
   readVersion,
@@ -67,6 +69,23 @@ export function pruneSnapshots(
   now: number = Date.now(),
 ): number {
   return pruneVersions(snapshotsDir, docId, policy, now)
+}
+
+/** 读全局保留策略（userData/global.json 的 snapMaxDays / snapMaxCount，三层链的中间层：
+ *  book.yaml snapshots → global.json snapMax* → 硬编码默认）。
+ *  容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非正整数 → 该项 undefined（上层继续回退）。 */
+export function readGlobalSnapshotPolicy(userDataPath: string | null): { maxDays?: number; maxCount?: number } {
+  if (!userDataPath) return {}
+  const p = join(userDataPath, 'global.json')
+  if (!existsSync(p)) return {}
+  try {
+    const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
+    const posInt = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined
+    return { maxDays: posInt(raw['snapMaxDays']), maxCount: posInt(raw['snapMaxCount']) }
+  } catch {
+    return {}
+  }
 }
 
 export { migrateVersionsDir }

@@ -6,6 +6,7 @@ import { Tag } from 'lucide-vue-next'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
+import { usePrefsStore } from '../../stores/prefs'
 import { parseFmFields, formKindOf } from '../../shared/words'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
@@ -114,6 +115,8 @@ const props = defineProps<{ bookName: string }>()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
+// 每章字数的全局默认托底（书级未设时生效；ref 初值 0=未设，服务端合并同链）
+const prefs = usePrefsStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 // 短篇正文（role=piece-body）与长篇正文 path 相同（写作/正文/），
@@ -162,14 +165,15 @@ const tagValues = computed<Record<string, string>>(() => {
   return out
 })
 
-// 全局每章字数目标（book.yaml）—— 字数目标字段的 placeholder
+// 每章字数目标（书级 chapter_target_words ?? 全局默认；0=未设）—— 字数目标字段的 placeholder
 const globalChapterTarget = ref<number | undefined>(undefined)
 watch(
   () => props.bookName,
   async (n) => {
     if (!n) return
     try {
-      globalChapterTarget.value = (await getConfig(n)).book?.chapter_target_words
+      globalChapterTarget.value =
+        (await getConfig(n)).book?.chapter_target_words ?? prefs.defaultChapterTargetWords
     } catch {
       /* 用默认 */
     }

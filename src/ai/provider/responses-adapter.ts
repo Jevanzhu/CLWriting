@@ -27,7 +27,7 @@ import type {
   ContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded, lookupDegraded } from './store.js'
+import { persistDegraded, lookupDegraded, modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
@@ -100,7 +100,9 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     //（cherry openai 线无条件 store:false 印证）；DeepSeek 恒 false 天然兼容、grok 无状态。
     store: false,
   }
-  if (req.maxTokens) params['max_output_tokens'] = req.maxTokens
+  // 阶段 14 §7.2：调用方显式 cap（req.maxTokens）优先；其次用户模型行覆盖；仍无 → 不发（同 OpenAI 线行为）
+  const tokenCap = req.maxTokens ?? modelConfOf(conf)?.maxTokens
+  if (tokenCap) params['max_output_tokens'] = tokenCap
 
   // 缺口 6：effort 落点按 rw.effortWire 分家（档位映射复用基表 reasoningEffort——
   // gpt/grok 透传、deepseek trimEffort）

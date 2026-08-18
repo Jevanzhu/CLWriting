@@ -15,10 +15,11 @@ export interface ProviderCaps {
 /** 推理等级档位（与 reasoning_effort API 参数对齐） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-/** 任务档位槽——模型 + 推理等级 */
+/** 任务档位槽——模型 + 推理等级 + 可选超时（P10，ms） */
 export interface TierSlot {
   model: string
   effort: EffortLevel
+  timeoutMs?: number
 }
 
 /** 任务档位配置（应用级，存 providers.json） */
@@ -26,6 +27,18 @@ export interface TierConfig {
   creative: TierSlot
   assistant: TierSlot | null
   chat: TierSlot | null
+}
+
+/**
+ * 模型行（P9 §7.1 对齐 DSH 四字段）——id 必填 / name 可选 + 行展开 contextWindow / maxTokens。
+ * 行结构开放：未知字段服务端原样存盘（DSH 教训），前端仅编辑声明的字段。
+ */
+export interface ModelConfDto {
+  id: string
+  name?: string
+  contextWindow?: number
+  maxTokens?: number
+  [key: string]: unknown
 }
 
 export interface ProviderConfDto {
@@ -37,12 +50,22 @@ export interface ProviderConfDto {
   model?: string // 方案 A：model 移至全局，供应商不再绑死
   apiKey: string // 返回时为空串（不回传原始 key）
   apiKeyMasked: string
+  models?: ModelConfDto[]
   caps: ProviderCaps | null
   capsProbedAt?: number
   sortIndex?: number
 }
 
-export async function getProviders(): Promise<{ providers: ProviderConfDto[]; currentId: string | null; currentModel: string | null; tiers: TierConfig }> {
+export interface ProvidersResponse {
+  providers: ProviderConfDto[]
+  currentId: string | null
+  currentModel: string | null
+  tiers: TierConfig
+  /** 并发修订号（P4）：写端点 expectedRevision 依据 */
+  revision: number
+}
+
+export async function getProviders(): Promise<ProvidersResponse> {
   return apiJson('/api/providers')
 }
 
@@ -60,7 +83,9 @@ export async function createProvider(body: {
   auth?: AuthStrategy
   baseUrl: string
   apiKey: string
-}): Promise<{ provider: ProviderConfDto }> {
+  models?: ModelConfDto[]
+  expectedRevision?: number
+}): Promise<{ provider: ProviderConfDto; revision: number }> {
   return apiJson('/api/providers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -70,8 +95,8 @@ export async function createProvider(body: {
 
 export async function updateProvider(
   id: string,
-  body: { name: string; protocol: Protocol; auth?: AuthStrategy; baseUrl: string; apiKey: string },
-): Promise<{ provider: ProviderConfDto }> {
+  body: { name: string; protocol: Protocol; auth?: AuthStrategy; baseUrl: string; apiKey: string; models?: ModelConfDto[]; expectedRevision?: number },
+): Promise<{ provider: ProviderConfDto; revision: number }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -79,15 +104,19 @@ export async function updateProvider(
   })
 }
 
-export async function deleteProvider(id: string): Promise<{ ok: boolean; currentId: string | null }> {
-  return apiJson(`/api/providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export async function deleteProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; currentId: string | null; revision: number }> {
+  return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: expectedRevision !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: expectedRevision !== undefined ? JSON.stringify({ expectedRevision }) : undefined,
+  })
 }
 
-export async function setCurrentProvider(id: string): Promise<{ ok: boolean; currentId: string | null }> {
+export async function setCurrentProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; currentId: string | null; revision?: number }> {
   return apiJson('/api/providers/current', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
+    body: JSON.stringify({ id, expectedRevision }),
   })
 }
 
@@ -96,6 +125,8 @@ export interface TestResult {
   caps?: ProviderCaps
   details?: string[]
   error?: string
+  /** 探测写回会 bump 服务端 revision——回传供前端 test() 同步（P4 竞态：否则测试后任意写 409） */
+  revision?: number
 }
 
 export async function testProvider(id: string, model?: string): Promise<TestResult> {
@@ -106,18 +137,8 @@ export async function testProvider(id: string, model?: string): Promise<TestResu
   }, 60_000)
 }
 
-/** 设置全局当前模型（方案 A：model 独立于供应商，工作台选择）。
- *  表驱动重构（§6.3）：模型能力不再探测——静态表判定；响应仅携带降级记忆（structured 支持状态）。 */
-export async function setAiModel(model: string): Promise<{ ok: boolean; model: string; modelCaps?: { structured: false } | null; details?: unknown }> {
-  return apiJson('/api/ai-model', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model }),
-  })
-}
-
 /** 更新任务档位配置（D 档：创作档/助手档） */
-export async function setTiers(body: { creative: TierSlot; assistant: TierSlot | null }): Promise<{ ok: boolean; tiers: TierConfig; details?: Record<string, string[]> }> {
+export async function setTiers(body: { creative: TierSlot; assistant: TierSlot | null; expectedRevision?: number }): Promise<{ ok: boolean; tiers: TierConfig; revision: number; details?: Record<string, string[]> }> {
   return apiJson('/api/tiers', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -126,11 +147,14 @@ export async function setTiers(body: { creative: TierSlot; assistant: TierSlot |
 }
 
 /** 更新对话档位（单档端点，不碰 creative/assistant/currentModel；null = 清除回落创作档） */
-export async function setChatTier(slot: TierSlot | null): Promise<{ ok: boolean; tiers: TierConfig }> {
+export async function setChatTier(slot: TierSlot | null, expectedRevision?: number): Promise<{ ok: boolean; tiers: TierConfig; revision: number }> {
+  const body = slot
+    ? { ...slot, expectedRevision }
+    : (expectedRevision !== undefined ? { clear: true, expectedRevision } : null)
   return apiJson('/api/tiers/chat', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(slot),
+    body: JSON.stringify(body),
   })
 }
 
@@ -152,7 +176,12 @@ export interface RagProviderDto {
   sortIndex?: number
 }
 
-export async function getRagProviders(): Promise<{ ragProviders: RagProviderDto[] }> {
+export interface RagProvidersResponse {
+  ragProviders: RagProviderDto[]
+  revision: number
+}
+
+export async function getRagProviders(): Promise<RagProvidersResponse> {
   return apiJson('/api/rag-providers')
 }
 
@@ -161,7 +190,8 @@ export async function createRagProvider(body: {
   endpoint: string
   model: string
   apiKey: string
-}): Promise<{ provider: RagProviderDto }> {
+  expectedRevision?: number
+}): Promise<{ provider: RagProviderDto; revision: number }> {
   return apiJson('/api/rag-providers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -172,8 +202,8 @@ export async function createRagProvider(body: {
 /** 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更后服务端清 caps 要求重测 */
 export async function updateRagProvider(
   id: string,
-  body: { name: string; endpoint: string; model: string; apiKey: string },
-): Promise<{ provider: RagProviderDto }> {
+  body: { name: string; endpoint: string; model: string; apiKey: string; expectedRevision?: number },
+): Promise<{ provider: RagProviderDto; revision: number }> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -181,9 +211,13 @@ export async function updateRagProvider(
   })
 }
 
-/** 删除不级联改书：引用它的书此后解析为「未配置」（AI 功能页提示重选） */
-export async function deleteRagProvider(id: string): Promise<{ ok: boolean }> {
-  return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+/** 删除不级联改书：引用它的书此后解析为「未配置」（「设置 · 本书」页提示重选） */
+export async function deleteRagProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; revision: number }> {
+  return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: expectedRevision !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: expectedRevision !== undefined ? JSON.stringify({ expectedRevision }) : undefined,
+  })
 }
 
 export interface RagTestResult {

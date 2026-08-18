@@ -80,9 +80,11 @@ test('init short: book.yaml 含 kind: short、无 leads/growth 段', () => {
     expect(text).toMatch(/^kind: short$/m)
     expect(text).not.toContain('leads:')
     expect(text).not.toContain('growth:')
-    // 保留 style/budget.calls/auto
-    expect(text).toContain('style:')
-    expect(text).toContain('calls_per_chapter')
+    // 全局托底：新书不再烘焙 13 键默认值——无 style 段、budget 无 calls_per_chapter 行；
+    // 唯一例外是短篇 auto.batch_size: 1（有意产品默认：逐篇确认再续写，不走全局托底）
+    expect(text).not.toContain('style:')
+    expect(text).not.toContain('calls_per_chapter')
+    expect(text).toContain('batch_size: 1')
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }

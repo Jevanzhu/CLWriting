@@ -61,10 +61,24 @@ test('stringify: kind === short 时输出 kind: short 行；长篇/缺省不输�
   expect(shortYaml).not.toContain('leads:')
   expect(shortYaml).not.toContain('growth:')
   expect(shortYaml).not.toContain('summary_') // 无长程摘要预算
-  // 短篇保留：style / budget.calls / auto
-  expect(shortYaml).toContain('style:')
-  expect(shortYaml).toContain('calls_per_chapter')
-  expect(shortYaml).toContain('auto:')
+  // 全局托底：DEFAULT_CONFIG 不再预填 style/auto/calls_per_chapter——未设不输出
+  // （回落交给运行时 applyGlobalDefaults；短篇产物与长篇同为「只写作者设过的键」）
+  expect(shortYaml).not.toContain('style:')
+  expect(shortYaml).not.toContain('calls_per_chapter')
+  expect(shortYaml).not.toContain('auto:')
+  // 显式设了才写（书级覆盖态可见）
+  const withOverrides = stringifyBookConfig({
+    ...DEFAULT_CONFIG,
+    kind: 'short',
+    book: { title: '集', genre: '悬疑' },
+    budget: { calls_per_chapter: 5 },
+    style: { injection: 'heavy' },
+    auto: { batch_size: 1 },
+  })
+  expect(withOverrides).toContain('budget:')
+  expect(withOverrides).toContain('calls_per_chapter: 5')
+  expect(withOverrides).toContain('injection: heavy')
+  expect(withOverrides).toContain('batch_size: 1')
 })
 
 test('stringify → parse 往返：短篇 kind 不丢', () => {

@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
+import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import type { BookConfig } from '../../format/types.js'
 import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/retry.js'
 import { getRedItems } from '../../check/types.js'
@@ -169,8 +170,11 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     }
 
     // P3-6：book.yaml 只解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
-    // 写 8 章重复解析 8 次同一文件）
-    const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+    // 写 8 章重复解析 8 次同一文件）。
+    // 全局托底：orchestrate 内自读 config 喂 budget 检查——统一过 applyGlobalDefaults
+    // （书级未设 calls_per_chapter 等回落 global.json → 硬编码，喂 checkAiCallBudget 的
+    // 是有效值而非 undefined）
+    const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, opts.userDataPath)
     const hasWiring = existsSync(join(bookRoot, '布线'))
     if (hasWiring) {
       const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
@@ -311,7 +315,7 @@ async function runChapter(
   const budget = checkAiCallBudget(bookRoot, chapter, config)
   if (!budget.ok) return { chapter, outcome: 'failed', error: budget.reason, attempts: 0 }
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind), chapter)
+  const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind, config), chapter)
   if (first.status === 'aborted') return { outcome: 'aborted' }
   if (first.status !== 'ok') return { chapter, outcome: 'failed', error: first.error, attempts: 0 }
   let current = first.text

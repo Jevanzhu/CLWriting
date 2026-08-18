@@ -16,6 +16,8 @@ import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
+import { pickStyleSamples } from './style-samples.js'
+import type { BookConfig } from '../format/types.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
@@ -169,22 +171,58 @@ function buildSettingsInjection(bookRoot: string, worldView: string): string {
   return assembleSettingsInjection(layers, { maxChars: SETTINGS_BUDGET_CHARS }).text
 }
 
-/** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 要求(方案 6.6,长短篇 front matter 分支)*/
-export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
+/**
+ * 每章字数目标 → prompt 字数区间（目标 ±20%，取整到百）。
+ * 未设（config 缺省 / 0）→ 长短篇硬编码区间（2000-4000 / 8000-20000）。
+ * target 来自 config.book.chapter_target_words（调用方传 applyGlobalDefaults 合并值，
+ * 全局默认 defaultChapterTargetWords 已流入；不传 config 的直调/测试路径走硬编码回落）。
+ */
+function wordRange(kind: 'long' | 'short', target: number | undefined): string {
+  if (target && target > 0) {
+    const lo = Math.max(500, Math.round((target * 0.8) / 100) * 100)
+    const hi = Math.max(lo + 100, Math.round((target * 1.2) / 100) * 100)
+    return `${lo}-${hi} 字`
+  }
+  return kind === 'short' ? '8000-20000 字' : '2000-4000 字'
+}
+
+/**
+ * 文风样章段（style.injection 接线）：注入档 轻=1 段 / 重=3 段，双路选取见 style-samples.ts。
+ * 场景缺省「战斗」与 prepare 备料口径一致；无库/无命中 → ''（跳段）。
+ */
+function buildStyleSampleInjection(bookRoot: string, config: BookConfig | undefined): string {
+  const maxTotal = (config?.style?.injection ?? 'light') === 'heavy' ? 3 : 1
+  const parts = pickStyleSamples(bookRoot, ['战斗'], maxTotal)
+  if (parts.length === 0) return ''
+  return `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${parts.join('\n\n')}`
+}
+
+/** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 文风样章(注入档) + 要求(方案 6.6,长短篇 front matter 分支)
+ *  config：applyGlobalDefaults 合并值（书级 book.yaml → global.json → 硬编码）。
+ *  缺省时字数区间回落硬编码、文风注入按轻度——与不接线的旧行为一致（直调/测试路径）。 */
+export function buildDraftPrompt(
+  bookRoot: string,
+  chapter: number,
+  kind: 'long' | 'short',
+  config?: BookConfig,
+): string {
   const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
   const chapterOutline = readChapterOutline(bookRoot, chapter)
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   const settingsInjection = buildSettingsInjection(bookRoot, worldView)
+  const styleSampleInjection = buildStyleSampleInjection(bookRoot, config)
+  const range = wordRange(kind, config?.book?.chapter_target_words)
   if (kind === 'short') {
     const parts: string[] = [
-      `## 任务\n写第 ${chapter} 章正文(短篇,8000-20000 字,单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
+      `## 任务\n写第 ${chapter} 章正文(短篇,${range},单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
     ]
     if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
     if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
     if (materials) parts.push(`## 备料\n${materials}`)
     if (settingsInjection) parts.push(settingsInjection)
+    if (styleSampleInjection) parts.push(styleSampleInjection)
     parts.push(
       // CC-P2-22：短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
       // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
@@ -194,12 +232,13 @@ export function buildDraftPrompt(bookRoot: string, chapter: number, kind: 'long'
     return parts.join('\n\n')
   }
   const parts: string[] = [
-    `## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,2000-4000 字,单章一主场景,章尾留钩)。`,
+    `## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`,
   ]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
   if (settingsInjection) parts.push(settingsInjection)
+  if (styleSampleInjection) parts.push(styleSampleInjection)
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )

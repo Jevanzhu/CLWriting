@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/types.js'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../provider/types.js'
+import { modelConfOf } from '../provider/store.js'
 import { generate } from '../gen.js'
 import { runTask } from '../runner.js'
 import { chatTools, TOOL_RISK } from '../contract/chat.js'
@@ -339,7 +340,7 @@ async function executeChatTool(
         if (!existsSync(draftPath)) {
           return { ok: false, summary: `第${chapter}章草稿不存在。` }
         }
-        const outcome = runCheckForDocument(opts.bookRoot, draftPath)
+        const outcome = runCheckForDocument(opts.bookRoot, draftPath, opts.userDataPath)
         return formatCheckResult(outcome)
       }
       case 'read_chapter': {
@@ -470,7 +471,8 @@ async function summarizeCheckpoint(
           systemPrompt: sys,
           messages: [...sanitized, { role: 'user', content: instruction }],
           tools: chatTools,
-          maxTokens: clampCheckpointOutputTokens(),
+          // P8：摘要输出预算按模型上下文窗口吃 clamp——模型行未声明 contextWindow → 维持旧上限 16384
+          maxTokens: clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow),
           effort: tier.effort,
         },
         signal,

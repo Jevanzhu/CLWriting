@@ -1,367 +1,94 @@
 <script setup lang="ts">
-// 设置 · AI tab：对话助手/文风注入/调用预算/自动写作/关系图/知识检索。
-import { ref, watch, inject, onUnmounted, onDeactivated, onActivated } from 'vue'
-import { useWorkspaceStore } from '../../stores/workspace'
-import { useUiStore } from '../../stores/ui'
+// 设置 · AI 写作页（全局）：AI 对话（对话助手）+ AI 写作全局默认（文风注入/自动确认细纲/批量章数/单章上限）。
+// IA 重组后独立成页——本页只承载全局层（不依赖当前书），本书独立设定在「本书」页的 AI 写作组：
+// 生效链 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落。
+// 分析侧在「智能分析」页；提供方在「服务提供方」页。
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig, getRagStatus, triggerRagBuild, type RagStatus } from '../../api/books'
-import { getRagProviders, type RagProviderDto } from '../../api/providers'
-import { friendlyError } from '../../shared/error'
-import { SAVE_CONFIG_KEY } from './settings-context'
 
-const ui = useUiStore()
-const ws = useWorkspaceStore()
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
 const prefs = usePrefsStore()
-const saveConfig = inject(SAVE_CONFIG_KEY)!
 
-const styleInjection = ref<'light' | 'heavy'>('light')
-const callsPerChapter = ref(10)
-const autoConfirmOutline = ref(false)
-const batchSize = ref(1)
-// 关系图 AI 梳理：手动按钮为主（控成本，方案③决策）；自动梳理默认关，作者可自行开启
-const relationAutoMine = ref(false)
-const relationMineThreshold = ref(3)
-// 知识检索：书里只存「选哪个提供方 + 开不开启」；endpoint/model/key 归应用级 RAG 提供方管
-const ragEnabled = ref(false)
-const ragProvider = ref('')
-/** 旧版内联配置（endpoint/model 直存 book.yaml）——展示「沿用」项，选中提供方即迁移清除 */
-const ragLegacy = ref(false)
-const ragProviders = ref<RagProviderDto[]>([])
-// RAG 建索引状态
-const ragStatus = ref<RagStatus | null>(null)
-const ragBuilding = ref(false)
-const ragStatusText = ref('')
-let ragPollTimer: ReturnType<typeof setInterval> | undefined
-let ragPolling = false
+// ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
 
-watch(
-  () => [ui.settingsOpen, ws.bookName] as const,
-  async ([open, name]) => {
-    if (!open || !name) return
-    try {
-      const cfg = await getConfig(name)
-      styleInjection.value = cfg.style?.injection ?? 'light'
-      callsPerChapter.value = cfg.budget?.calls_per_chapter ?? 10
-      autoConfirmOutline.value = cfg.auto?.confirm_outline ?? false
-      batchSize.value = cfg.auto?.batch_size ?? 1
-      relationAutoMine.value = cfg.auto?.relation_auto_mine ?? false
-      relationMineThreshold.value = cfg.auto?.relation_mine_threshold ?? 3
-      ragEnabled.value = cfg.rag?.enabled ?? false
-      ragProvider.value = cfg.rag?.provider ?? ''
-      ragLegacy.value = !!(cfg.rag?.endpoint && !cfg.rag?.provider)
-      // 拉一次建索引状态 + 提供方列表（都不阻塞配置读取）
-      void refreshRagStatus(name)
-      void loadRagProviders()
-    } catch {
-      /* 读不到就用默认值展示 */
-    }
-  },
-  { immediate: true },
-)
-
-async function loadRagProviders(): Promise<void> {
-  try {
-    const r = await getRagProviders()
-    ragProviders.value = r.ragProviders
-  } catch {
-    /* 列表拉不到不打扰（下拉为空 + 引导文案） */
-  }
+function onGlobalConfirmToggle(e: Event): void {
+  prefs.setAutoConfirmOutline((e.target as HTMLInputElement).checked)
 }
-
-function setStyleInjection(mode: 'light' | 'heavy'): void {
-  styleInjection.value = mode
-  void saveConfig((c) => {
-    if (!c.style) c.style = { injection: 'light' }
-    c.style.injection = mode
-  })
-}
-function onCallsInput(e: Event): void {
+function onGlobalBatchInput(e: Event): void {
   const raw = Number((e.target as HTMLInputElement).value)
-  callsPerChapter.value = Math.min(50, Math.max(1, Math.round(raw)))
-  void saveConfig((c) => {
-    if (!c.budget) c.budget = { calls_per_chapter: 10 }
-    c.budget.calls_per_chapter = callsPerChapter.value
-  })
+  if (Number.isFinite(raw)) prefs.setAiBatchSize(raw)
 }
-function onAutoConfirmToggle(e: Event): void {
-  autoConfirmOutline.value = (e.target as HTMLInputElement).checked
-  void saveConfig((c) => {
-    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
-    c.auto.confirm_outline = autoConfirmOutline.value
-  })
-}
-function onBatchSizeInput(e: Event): void {
+function onGlobalCallsInput(e: Event): void {
   const raw = Number((e.target as HTMLInputElement).value)
-  batchSize.value = Math.min(20, Math.max(1, Math.round(raw)))
-  void saveConfig((c) => {
-    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
-    c.auto.batch_size = batchSize.value
-  })
+  if (Number.isFinite(raw)) prefs.setCallsPerChapter(raw)
 }
-function onRelationAutoMineToggle(e: Event): void {
-  relationAutoMine.value = (e.target as HTMLInputElement).checked
-  void saveConfig((c) => {
-    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
-    c.auto.relation_auto_mine = relationAutoMine.value
-  })
-}
-function onMineThresholdInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  relationMineThreshold.value = Math.min(20, Math.max(1, Math.round(raw)))
-  void saveConfig((c) => {
-    if (!c.auto) c.auto = { confirm_outline: false, batch_size: 1 }
-    c.auto.relation_mine_threshold = relationMineThreshold.value
-  })
-}
-
-// RAG 配置操作（书级：enabled + provider 引用；提供方本体在「AI 提供方」页管理）
-function onRagToggle(e: Event): void {
-  ragEnabled.value = (e.target as HTMLInputElement).checked
-  void saveConfig((c) => {
-    if (!c.rag) c.rag = { enabled: false }
-    c.rag.enabled = ragEnabled.value
-  })
-}
-
-/** 选检索提供方：写 rag.provider 并清旧内联 endpoint/model（一次性迁移；
- *  选「未选择」= 清干净 → 本书不再检索） */
-function onRagProviderChange(e: Event): void {
-  const v = (e.target as HTMLSelectElement).value
-  if (v === '__legacy__') return // 「旧版内联配置（沿用）」= 保持现状
-  ragProvider.value = v
-  ragLegacy.value = false
-  void saveConfig((c) => {
-    if (!c.rag) c.rag = { enabled: true }
-    c.rag.provider = v || undefined
-    delete c.rag.endpoint
-    delete c.rag.model
-  })
-}
-
-/** 刷新建索引状态（读 .rag.db 现状 + 最近结果） */
-async function refreshRagStatus(name?: string): Promise<void> {
-  const book = name ?? ws.bookName
-  if (!book) return
-  try {
-    const s = await getRagStatus(book)
-    ragStatus.value = s
-    ragBuilding.value = s.running
-    if (s.running) {
-      ragStatusText.value = '索引构建中…'
-    } else if (s.lastResult && s.lastResult.ok) {
-      // 增量结果：本次有新增报本次数，纯增量（0 新块）报库内总数
-      ragStatusText.value =
-        s.lastResult.chapterCount > 0
-          ? `已索引 ${s.lastResult.chapterCount} 章 / ${s.lastResult.chunkCount} 块`
-          : `索引已是最新：共 ${s.indexedChapters} 章 / ${s.chunkCount} 块`
-    } else if (s.lastResult) {
-      ragStatusText.value = `索引失败：${s.lastResult.error ?? '未知错误'}`
-    } else if (s.indexedChapters > 0) {
-      ragStatusText.value = `已索引 ${s.indexedChapters} 章 / ${s.chunkCount} 块`
-    } else {
-      ragStatusText.value = '尚未建立索引'
-    }
-  } catch {
-    /* 状态拉不到不打扰（如书未配置） */
-  }
-}
-
-/** 触发建索引：后台任务，轮询 status 直到完成（组件卸载时清理定时器） */
-async function startRagBuild(): Promise<void> {
-  const name = ws.bookName
-  if (!name || ragBuilding.value) return
-  try {
-    await triggerRagBuild(name)
-    ragBuilding.value = true
-    ragStatusText.value = '索引构建中…'
-    void pollRagStatus(name)
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
-  }
-}
-
-async function pollRagStatus(name: string): Promise<void> {
-  if (ragPolling) return
-  ragPolling = true
-  ragPollTimer = setInterval(async () => {
-    if (!ragBuilding.value || ws.bookName !== name) {
-      clearInterval(ragPollTimer)
-      ragPollTimer = undefined
-      ragPolling = false
-      return
-    }
-    await refreshRagStatus(name)
-    if (!ragBuilding.value) {
-      clearInterval(ragPollTimer)
-      ragPollTimer = undefined
-      ragPolling = false
-    }
-  }, 1500)
-}
-
-function stopRagPolling(): void {
-  if (ragPollTimer) {
-    clearInterval(ragPollTimer)
-    ragPollTimer = undefined
-  }
-  ragPolling = false
-}
-
-// dd-P2：SettingsModal 用 keep-alive 包 tab——关弹窗只 deactivated 不 unmount，
-// 此前轮询挂 onUnmounted = 关窗后 1.5s interval 继续打旧书 status 直到构建结束；
-// 改 deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）
-onDeactivated(stopRagPolling)
-onActivated(() => {
-  const name = ws.bookName
-  if (!name) return
-  void refreshRagStatus(name).then(() => {
-    if (ragBuilding.value) void pollRagStatus(name)
-  })
-})
-onUnmounted(stopRagPolling)
 </script>
 
 <template>
-  <!-- 单根包裹：见 SettingsBook.vue 说明 -->
+  <!-- 单根包裹：多根 fragment 在 <Transition> 下无法动画（Vue warn） -->
   <div class="settings-tab">
-  <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">对话助手</div>
-        <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
-      </div>
-      <div class="setting-item-control">
-        <label class="switch">
-          <input type="checkbox" aria-label="对话助手" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-    </div>
-  </section>
-
-  <div class="cfg-card-head">写作风格</div>
-  <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">文风注入</div>
-        <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
-      </div>
-      <div class="setting-item-control">
-        <div class="seg">
-          <button :class="{ on: styleInjection === 'light' }" @click="setStyleInjection('light')">轻</button>
-          <button :class="{ on: styleInjection === 'heavy' }" @click="setStyleInjection('heavy')">重</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <div class="cfg-card-head">AI 预算</div>
-  <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">单章调用上限</div>
-        <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
-      </div>
-      <div class="setting-item-control">
-        <input class="num-input" type="number" min="1" max="50" step="1" :value="callsPerChapter" @change="onCallsInput($event)" />
-        <span class="val-suffix">次</span>
-      </div>
-    </div>
-  </section>
-
-  <div class="cfg-card-head">自动写作</div>
-  <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
-        <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
-      </div>
-      <div class="setting-item-control">
-        <label class="switch">
-          <input type="checkbox" aria-label="自动确认细纲" :checked="autoConfirmOutline" @change="onAutoConfirmToggle($event)" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-    </div>
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">批量写作章数</div>
-        <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
-      </div>
-      <div class="setting-item-control">
-        <input class="num-input" type="number" min="1" max="20" step="1" :value="batchSize" @change="onBatchSizeInput($event)" />
-        <span class="val-suffix">章</span>
-      </div>
-    </div>
-  </section>
-
-  <div class="cfg-card-head">关系图</div>
+    <div class="cfg-card-head">AI 对话</div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
-          <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
+          <div class="setting-item-name">对话助手</div>
+          <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
-            <input type="checkbox" aria-label="关系图自动梳理" :checked="relationAutoMine" @change="onRelationAutoMineToggle($event)" />
+            <input type="checkbox" aria-label="对话助手" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <div class="cfg-card-head">AI 写作</div>
+    <section class="cfg-card">
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">文风注入</div>
+          <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
+        </div>
+        <div class="setting-item-control">
+          <div class="seg">
+            <button :class="{ on: prefs.styleInjection === 'light' }" @click="prefs.setStyleInjection('light')">轻</button>
+            <button :class="{ on: prefs.styleInjection === 'heavy' }" @click="prefs.setStyleInjection('heavy')">重</button>
+          </div>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
+          <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
+        </div>
+        <div class="setting-item-control">
+          <label class="switch">
+            <input type="checkbox" aria-label="自动确认细纲（全局默认）" :checked="prefs.autoConfirmOutline" @change="onGlobalConfirmToggle($event)" />
             <span class="switch-slider"></span>
           </label>
         </div>
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
-          <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
+          <div class="setting-item-name">批量写作章数</div>
+          <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
         </div>
         <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="20" step="1" :value="relationMineThreshold" @change="onMineThresholdInput($event)" />
+          <input class="num-input" type="number" min="1" max="20" step="1" aria-label="批量写作章数（全局默认）" :value="prefs.aiBatchSize" @change="onGlobalBatchInput($event)" />
           <span class="val-suffix">章</span>
         </div>
       </div>
-    </section>
-
-  <div class="cfg-card-head">知识检索</div>
-  <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">启用检索</div>
-        <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
-      </div>
-      <div class="setting-item-control">
-        <label class="switch">
-          <input type="checkbox" aria-label="启用知识检索" :checked="ragEnabled" @change="onRagToggle($event)" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-    </div>
-    <template v-if="ragEnabled">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">检索提供方</div>
-          <div class="setting-item-desc">
-            {{ ragProviders.length ? '嵌入提供方在「AI 提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「AI 提供方」页添加 RAG 提供方' }}
-          </div>
+          <div class="setting-item-name">单章调用上限</div>
+          <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
         </div>
         <div class="setting-item-control">
-          <select
-            class="rag-prov-select"
-            aria-label="检索提供方"
-            :value="ragProvider || (ragLegacy ? '__legacy__' : '')"
-            @change="onRagProviderChange($event)"
-          >
-            <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
-            <option v-if="ragLegacy" value="__legacy__">旧版内联配置（沿用）</option>
-            <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
-          </select>
+          <input class="num-input" type="number" min="1" max="50" step="1" aria-label="单章调用上限（全局默认）" :value="prefs.callsPerChapter" @change="onGlobalCallsInput($event)" />
+          <span class="val-suffix">次</span>
         </div>
       </div>
-      <div class="rag-build-row">
-        <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
-        <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
-      </div>
-    </template>
-  </section>
+    </section>
   </div>
 </template>
 
@@ -373,44 +100,5 @@ onUnmounted(stopRagPolling)
   border-radius: 99px;
   background: var(--background-modifier-hover);
   color: var(--text-faint);
-}
-
-/* 检索提供方下拉（对齐设置页输入控件风格） */
-.rag-prov-select {
-  max-width: 260px;
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.rag-prov-select:hover {
-  border-color: var(--interactive-accent);
-}
-
-.rag-prov-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-}
-
-.rag-build-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.rag-status {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-
-.rag-status.running {
-  color: var(--text-accent);
 }
 </style>

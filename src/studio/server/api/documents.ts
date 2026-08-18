@@ -33,11 +33,12 @@ interface DocumentCtx {
 const services = new Map<string, DocumentService>()
 
 /** per-bookRoot DocumentService 缓存（跨请求共享串行队列）。
- *  snapshots.ts 的恢复端点复用同一实例——两个队列会破坏串行写保证。 */
-export function getOrCreateService(bookRoot: string): DocumentService {
+ *  snapshots.ts 的恢复端点复用同一实例——两个队列会破坏串行写保证。
+ *  userDataPath 供写时清理读 global.json 全局保留策略（版本保留三层链）。 */
+export function getOrCreateService(bookRoot: string, userDataPath: string | null = null): DocumentService {
   let svc = services.get(bookRoot)
   if (!svc) {
-    svc = new DocumentService({ bookRoot })
+    svc = new DocumentService({ bookRoot, userDataPath })
     services.set(bookRoot, svc)
   }
   return svc
@@ -95,7 +96,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
 
       const docId = params['docId'] ?? ''
-      const svc = getOrCreateService(r.bookRoot)
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
       const path = svc.resolvePath(docId)
       if (!path) {
@@ -246,7 +247,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         reply(res, 400, { code: 'BAD_INPUT', error: 'relPath 缺失' })
         return
       }
-      const svc = getOrCreateService(r.bookRoot)
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：新建伏笔（create）前快照
       const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath)
       const result = await svc.createDocument({
@@ -267,7 +268,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
-      const svc = getOrCreateService(r.bookRoot)
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
       const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
       let result
@@ -324,7 +325,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         reply(res, 400, { code: 'BAD_INPUT', error: 'relPath 缺失' })
         return
       }
-      const svc = getOrCreateService(r.bookRoot)
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
       reply(res, result.ok ? 201 : structStatus(result.code), result)
     },
@@ -338,7 +339,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return reply(res, r.status, { error: r.error })
       const docId = params['docId'] ?? ''
-      const svc = getOrCreateService(r.bookRoot)
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：软删伏笔（clear 事件）前快照
       const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
       const result = await svc.trashDocument({ docId })

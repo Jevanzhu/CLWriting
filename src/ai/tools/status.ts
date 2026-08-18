@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus, formatStatus } from '../../process/assemble.js'
 import { readBookConfig } from '../../format/yaml.js'
+import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>): ToolResult {
@@ -22,7 +23,9 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
   }
   try {
     const cfg = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
-    const snapshot = assembleStatus(db, cfg.config)
+    // 全局托底：volume_size 等喂 assembleStatus 的运行时值——书级未设回落 global.json
+    // → 硬编码（与 overview 喂 detectState 同一口径）
+    const snapshot = assembleStatus(db, applyGlobalDefaults(cfg.config, ctx.userDataPath))
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {
     return { ok: false, summary: '读取章节状态失败：' + (e instanceof Error ? e.message : String(e)) }

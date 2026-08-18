@@ -21,6 +21,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
 import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
@@ -90,7 +91,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
 
         // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
-        const outcome = runCheckForDocument(bookRoot, absPath)
+        const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
         if (!outcome.ok) {
           return reply(res, checkOutcomeStatus(outcome.code), {
             ok: false,
@@ -101,7 +102,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         }
         const { report, chapter, body } = outcome
   
-        const config = readBookConfig(join(bookRoot, 'book.yaml')).config
+        // 三审运行时喂值：readBookConfig 结果统一过 applyGlobalDefaults（书级未设回落
+        // global.json → 硬编码；budget.calls_per_chapter 喂 remaining_calls，不能是 undefined）
+        const config = applyGlobalDefaults(
+          readBookConfig(join(bookRoot, 'book.yaml')).config,
+          ctx.userDataPath,
+        )
         const hasWiring = existsSync(join(bookRoot, '布线'))
         const hasShort = config.kind === 'short'
   

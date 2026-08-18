@@ -171,6 +171,7 @@ export function withFakeProvider(
     modelCaps: structuredOk === false ? { 'fake-prov/fake-model': { structured: false } } : {},
     ragProviders: [],
     tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
+    revision: 0,
     vault: null,
     dek: null,
   }

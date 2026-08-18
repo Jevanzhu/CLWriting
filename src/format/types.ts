@@ -213,7 +213,10 @@ export interface BookConfig {
   host?: 'cc' | 'codex'
   book: {
     title: string
-    genre: string
+    /** 题材。书级设定全局托底改可选：未设 = 跟随 global.json defaultGenre → 硬编码 ''。
+     *  解析侧把空串归一为 undefined（`genre: ''` 与缺失同义），写侧 undefined 不落行——
+     *  这样书文件里只保留作者真正选过的题材，设置页据 raw 值判断「本书是否覆盖」。 */
+    genre?: string
     volume_size?: number
     /** 全书/整集目标字数（决策 14）；完成度 = 已写字数 / target_words */
     target_words?: number
@@ -225,14 +228,17 @@ export interface BookConfig {
     thresholds?: Record<string, number> // 各类「悬太久」阈值覆盖
   }
   budget: {
-    /** 长篇为每章调用上限；kind: short 时按每篇调用上限解释。 */
-    calls_per_chapter: number
+    /** 长篇为每章调用上限；kind: short 时按每篇调用上限解释。
+     *  书级设定全局托底改可选：未设 = global.json callsPerChapter → 硬编码 8（运行时
+     *  applyGlobalDefaults 合并，见 format/global-defaults.ts）。 */
+    calls_per_chapter?: number
     input_per_chapter?: number
     summary_chapter_max?: number
     summary_volume_max?: number
   }
-  style: {
-    injection: 'light' | 'heavy'
+  /** 文风注入强度。整段可选：书级未设 injection = global.json styleInjection → 硬编码 'light' */
+  style?: {
+    injection?: 'light' | 'heavy'
   }
   /** 短篇集专属配置；长篇缺省忽略 */
   short?: {
@@ -260,12 +266,13 @@ export interface BookConfig {
     /** 开头零环境检查的前 N 字；缺省 300 */
     opening_env_chars?: number
   }
-  auto: {
-    confirm_outline: boolean
-    batch_size: number
-    /** 关系图自动 AI 梳理（缺省 true） */
+  /** 自动化偏好。整段可选：书级未设的键 = global.json 对应键 → 硬编码回落（全局托底） */
+  auto?: {
+    confirm_outline?: boolean
+    batch_size?: number
+    /** 关系图自动 AI 梳理（缺省 false；global relationAutoMine 托底） */
     relation_auto_mine?: boolean
-    /** 自动梳理的章节增量阈值（缺省 3） */
+    /** 自动梳理的章节增量阈值（缺省 3；global relationMineThreshold 托底） */
     relation_mine_threshold?: number
   }
   growth: {

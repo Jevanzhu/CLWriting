@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 /**
- * SettingsBook 书名改名交互测试：书名改动 → 全量改名 API（目录+登记+active 一起搬），
- * renamed=true → 路由切新名；同名 no-op 不切路由；失败回退输入框。
+ * SettingsBook（「设置 · 本书」单页，IA 重组后为父组件）交互测试：
+ * - 书名全量改名：书名改动 → renameBook API（目录+登记+active 一起搬），renamed=true → 路由切新名；
+ *   同名 no-op 不切路由；失败回退输入框（书名现为基本信息组唯一纯书级项）
+ * - 四个覆盖子组件（写作默认/AI 写作/智能分析/版本保留）在此 stub 掉——它们各自的
+ *   两层组交互有专属测试文件（settings-book-writing / -ai / -analysis），父组件只管书名/存储/空态
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick } from 'vue'
 import SettingsBook from '../../../src/studio/web-next/src/components/ui/SettingsBook.vue'
 import { SAVE_CONFIG_KEY } from '../../../src/studio/web-next/src/components/ui/settings-context'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
@@ -29,14 +31,18 @@ vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({
   useRouter: () => ({ replace: mocks.routerReplace }),
 }))
 
-/** 打开设置 + 切到一本书（触发 watch 拉配置）。 */
+/** 打开设置 + 切到一本书（触发 watch 拉书名基线）。
+ *  四个覆盖子组件 stub 掉：避免拉 getConfig/getRagStatus/getVersionStats 等依赖（各有专属测试）。 */
 async function mountOpen(): Promise<ReturnType<typeof mount>> {
   const ui = useUiStore()
   const ws = useWorkspaceStore()
   ui.settingsOpen = true
   ws.bookName = '旧名'
   const wrapper = mount(SettingsBook, {
-    global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    global: {
+      provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig },
+      stubs: { SettingsBookWriting: true, SettingsBookAi: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
+    },
   })
   await flushPromises()
   return wrapper
@@ -45,9 +51,10 @@ async function mountOpen(): Promise<ReturnType<typeof mount>> {
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  // 父组件只读书名（覆盖组子组件已 stub）；title 缺省即最小 config
   mocks.getConfig.mockResolvedValue({
     kind: 'long',
-    book: { title: '旧名', genre: '玄幻' },
+    book: { title: '旧名' },
   } satisfies BookConfig)
 })
 
@@ -57,7 +64,7 @@ describe('SettingsBook 书名全量改名', () => {
     const ui = useUiStore()
     const wrapper = await mountOpen()
 
-    const input = wrapper.find('input.text-input')
+    const input = wrapper.find('input[aria-label="书名"]')
     expect((input.element as HTMLInputElement).value).toBe('旧名')
 
     await input.setValue('新名')
@@ -73,7 +80,7 @@ describe('SettingsBook 书名全量改名', () => {
     mocks.renameBook.mockResolvedValue({ ok: true, renamed: false, name: '旧名', path: '长篇/旧名' })
     const wrapper = await mountOpen()
 
-    const input = wrapper.find('input.text-input')
+    const input = wrapper.find('input[aria-label="书名"]')
     await input.setValue('新名')
     await input.trigger('change')
     await flushPromises()
@@ -84,7 +91,7 @@ describe('SettingsBook 书名全量改名', () => {
 
   it('书名与基线相同 → 不调 renameBook', async () => {
     const wrapper = await mountOpen()
-    const input = wrapper.find('input.text-input')
+    const input = wrapper.find('input[aria-label="书名"]')
     await input.setValue('旧名')
     await input.trigger('change')
     await flushPromises()
@@ -96,7 +103,7 @@ describe('SettingsBook 书名全量改名', () => {
     const ui = useUiStore()
     const wrapper = await mountOpen()
 
-    const input = wrapper.find('input.text-input')
+    const input = wrapper.find('input[aria-label="书名"]')
     await input.setValue('新名')
     await input.trigger('change')
     await flushPromises()
@@ -108,7 +115,7 @@ describe('SettingsBook 书名全量改名', () => {
 
   it('空书名 → 回退基线，不调 renameBook', async () => {
     const wrapper = await mountOpen()
-    const input = wrapper.find('input.text-input')
+    const input = wrapper.find('input[aria-label="书名"]')
     await input.setValue('   ')
     await input.trigger('change')
     await flushPromises()
@@ -117,45 +124,33 @@ describe('SettingsBook 书名全量改名', () => {
   })
 })
 
-describe('SettingsBook 短篇严格模式（short.strict）', () => {
-  it('短篇书显示开关且反映已存值；切换写入 short.strict', async () => {
-    mocks.getConfig.mockResolvedValue({
-      kind: 'short',
-      short: { strict: false },
-      book: { title: '短篇', genre: '现实' },
-    } satisfies BookConfig)
+describe('SettingsBook 单页结构（IA 重组）', () => {
+  it('有书打开 → banner 展示书名 + 基本信息/存储组在位 + 四个覆盖子组件挂载', async () => {
     const wrapper = await mountOpen()
+    expect(wrapper.find('.book-banner').text()).toContain('旧名')
+    expect(wrapper.find('input[aria-label="书名"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('基本信息')
+    // stub 后仍是占位元素（settings-book-stub）——验证父层确实挂了四个子组件
+    expect(wrapper.find('settings-book-writing-stub').exists()).toBe(true)
+    expect(wrapper.find('settings-book-ai-stub').exists()).toBe(true)
+    expect(wrapper.find('settings-book-analysis-stub').exists()).toBe(true)
+    expect(wrapper.find('settings-book-retention-stub').exists()).toBe(true)
+  })
 
-    const sw = wrapper.find('input[aria-label="短篇严格模式"]')
-    expect(sw.exists()).toBe(true)
-    expect((sw.element as HTMLInputElement).checked).toBe(false)
-
-    // 捕获 saveConfig 的 mutator，验证写入 short.strict
-    let captured: ((c: BookConfig) => void) | undefined
-    mocks.saveConfig.mockImplementation((mut: (c: BookConfig) => void) => {
-      captured = mut
-      return Promise.resolve()
+  it('无书打开 → 整页空态（请先打开一本书），书名输入与覆盖组均不渲染', async () => {
+    const ui = useUiStore()
+    ui.settingsOpen = true
+    const ws = useWorkspaceStore()
+    ws.bookName = null
+    const wrapper = mount(SettingsBook, {
+      global: {
+        provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig },
+        stubs: { SettingsBookWriting: true, SettingsBookAi: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
+      },
     })
-    await sw.setValue(true)
     await flushPromises()
-    const cfg = { kind: 'short', short: {} } as BookConfig
-    captured!(cfg)
-    expect(cfg.short?.strict).toBe(true)
-  })
-
-  it('已存 strict:true 时开关为勾选态', async () => {
-    mocks.getConfig.mockResolvedValue({
-      kind: 'short',
-      short: { strict: true },
-      book: { title: '短篇', genre: '现实' },
-    } satisfies BookConfig)
-    const wrapper = await mountOpen()
-    const sw = wrapper.find('input[aria-label="短篇严格模式"]')
-    expect((sw.element as HTMLInputElement).checked).toBe(true)
-  })
-
-  it('长篇书不显示「短篇严格模式」开关', async () => {
-    const wrapper = await mountOpen() // beforeEach 默认长篇
-    expect(wrapper.find('input[aria-label="短篇严格模式"]').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="书名"]').exists()).toBe(false)
+    expect(wrapper.find('settings-book-writing-stub').exists()).toBe(false)
+    expect(wrapper.text()).toContain('请先打开一本书')
   })
 })

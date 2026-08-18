@@ -5,6 +5,8 @@
  * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（预览）
  * POST /api/books/:name/documents/:docId/snapshots/:id/restore → 恢复该版本
  *
+ * 保留策略三层链：book.yaml snapshots → global.json snapMax*（全局默认）→ 硬编码 14 天 / 30 个。
+ *
  * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底
  * （maybeSnapshot 的 restore 分支 force 不节流）——恢复本身可再撤销。
  * 复用 documents.ts 的 service 缓存：两个队列会破坏串行写保证。
@@ -16,7 +18,7 @@ import { route } from '../router.js'
 import { readJson, reply } from '../http.js'
 import { readBooks } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
-import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY } from '../../../document/snapshot.js'
+import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy } from '../../../document/snapshot.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
@@ -27,13 +29,17 @@ import type { Revision } from '../../../document/revision.js'
 
 interface SnapshotCtx {
   workDir: string | null
+  /** APP 级数据目录（Electron userData / CLI 约定路径）：global.json 存全局保留策略 */
+  userDataPath: string | null
 }
 
-/** 定位书 + 文档：返回 bookRoot 与文档相对路径。 */
+/** 定位书 + 文档：返回 bookRoot 与文档相对路径。userDataPath 传给 DocumentService
+ *  （缓存实例共享——先经此创建的实例也要带全局策略，否则恢复端点写时清理退化为两层链）。 */
 function resolveDoc(
   workDir: string | null,
   name: string | undefined,
   docId: string,
+  userDataPath: string | null = null,
 ): { bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number } {
   if (!workDir) return { error: '未定位到工作目录', status: 400 }
   if (!name) return { error: '缺少书名', status: 400 }
@@ -41,7 +47,7 @@ function resolveDoc(
   if (!entry) return { error: `没有这本书：${name}`, status: 404 }
   const bookRoot = join(workDir, entry.path)
   // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
-  const relPath = getOrCreateService(bookRoot).resolvePath(docId)
+  const relPath = getOrCreateService(bookRoot, userDataPath).resolvePath(docId)
   if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404 }
   return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.版本') }
 }
@@ -92,6 +98,8 @@ function scanVersionsDir(
   return { count, bytes, pinnedCount }
 }
 
+// 全局保留策略读取器已上移 document/snapshot.ts（service.ts 写时清理也走同一三层链）
+
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   // 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数
   route(
@@ -133,11 +141,12 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const versionsDir = join(bookRoot, '工作区', '.版本')
       if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
 
-      // 保留策略：读 book.yaml 的 snapshots 配置（缺省 14 天 / 30 个）
+      // 保留策略三层链：book.yaml snapshots → global.json snapMax*（全局默认）→ 硬编码 14 天 / 30 个
       const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
+      const global = readGlobalSnapshotPolicy(ctx.userDataPath)
       const policy = {
-        maxDays: cfg.snapshots?.max_days ?? 14,
-        maxCount: cfg.snapshots?.max_count ?? 30,
+        maxDays: cfg.snapshots?.max_days ?? global.maxDays ?? 14,
+        maxCount: cfg.snapshots?.max_count ?? global.maxCount ?? 30,
         throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
       }
 
@@ -177,7 +186,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     '/api/books/:name/documents/:docId/snapshots',
     (_req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId)
+      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
       reply(res, 200, { ok: true, entries: listSnapshotEntries(r.snapshotsDir, docId, countWords) })
     },
@@ -189,7 +198,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     '/api/books/:name/documents/:docId/snapshots/:id',
     (_req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId)
+      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return reply(res, 404, { error: '版本不存在' })
@@ -203,7 +212,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     '/api/books/:name/documents/:docId/snapshots/:id/restore',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId)
+      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return reply(res, 404, { error: '版本不存在' })
@@ -215,7 +224,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         return reply(res, 400, { code: 'BAD_INPUT', error: 'expectedRevision 必填' })
       }
 
-      const outcome = await getOrCreateService(r.bookRoot).save(docId, r.relPath, {
+      const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
         content: snap.content,
         expectedRevision,
         operationId: ulid(),

@@ -9,6 +9,7 @@ import { join, relative, basename } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { readBookConfig } from '../format/yaml.js'
+import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed } from './runner.js'
@@ -31,11 +32,13 @@ export type CheckOutcome =
  * 对单个文档跑机检（absPath → CheckReport）。
  * 三审端点 B0.2 复用：buildReviewPacket 的 checkReport 输入由此产出（byproducts.leadChanges 供账本核对）。
  */
-export function runCheckForDocument(bookRoot: string, absPath: string): CheckOutcome {
+export function runCheckForDocument(bookRoot: string, absPath: string, userDataPath?: string | null): CheckOutcome {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
-  const config = cfgResult.config
+  // 全局托底：short.strict 等未设时回落 global.json——runner 的 promoteStrictShort
+  // 读的是这里传下去的 config，服务端各入口须传 userDataPath（不传=书级直读，测试/CLI 兼容）
+  const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
   // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
   const hasWiring = existsSync(join(bookRoot, '布线'))
 
@@ -172,11 +175,13 @@ export function checkOutcomeStatus(code: 'NOT_CHAPTER' | 'REBUILD_FAIL' | 'CHECK
 export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
+  userDataPath?: string | null,
 ): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
-  const config = cfgResult.config
+  // 全局托底：同 runCheckForDocument——树红点聚合也吃 short.strict 生效值
+  const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | null = null
