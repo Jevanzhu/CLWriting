@@ -65,7 +65,8 @@ jobs:
       # 其余腿维持纯 npm test；coverage run 本身执行全部用例，不额外重复跑。
       - name: 测试（含 node:sqlite smoke）
         run: npm test
-        if: !(matrix.os == 'ubuntu-latest' && matrix.node == 24)
+        # 注意须 ${{ }} 包裹：裸 if 以 ! 开头会被 YAML 解析为标签（gg批0：CI 工作流启动级失败的根因）
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) }}
       - name: 测试 + 覆盖率阈值门（ubuntu·24 腿）
         run: npm run test:coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
