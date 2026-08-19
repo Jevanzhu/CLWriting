@@ -68,6 +68,9 @@ export interface SpecOpts {
   toolOverride?: { def: ToolDef; name: string }
   /** 覆盖 spec.mock（动态场景如 self-heal 的 kind 切换） */
   mockOverride?: { kind: 'tool'; toolName: string } | { kind: 'text'; text: string }
+  /** C1（批 2）：prompt 引用的材料文件（相对书根）——随 llm/call 事件 promptMeta.files
+   *  登记，满足「模型可见 ⟺ 已记录」（备料注入的章摘要等可回溯到源文件） */
+  promptFiles?: string[]
 }
 
 /** runSpec 产出（统一形状，调用方按需取字段） */
@@ -121,6 +124,7 @@ export async function runSpec(
     bookRoot: opts.bookRoot,
     chapter: opts.chapter,
     promptText: opts.userPrompt,
+    promptFiles: opts.promptFiles,
     ctrl: opts.ctrl ?? (opts.signal ? ctrlFromSignal(opts.signal) : undefined),
     register: opts.register,
     onReset: opts.onReset,

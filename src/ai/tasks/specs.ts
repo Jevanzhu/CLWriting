@@ -52,6 +52,24 @@ export const LEAD_UPDATE_SPEC: TaskSpec = {
   mock: { kind: 'text', text: '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。' },
 }
 
+/** 章摘要生成（C1 批 2）：定稿即生成 / 自愈按需补漏共用；低档廉价调用 */
+export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
+  name: 'summary-chapter',
+  tierKind: 'assistant',
+  genMode: 'text',
+  systemPrompt: `你是网文章节摘要器。为给定章节写金字塔式章摘要，供后续章节备料与规划使用。
+
+## 要求
+- 严格三行，每行一个维度，前缀照抄：
+  - 情节推进：
+  - 账本变动：
+  - 章尾钩子：
+- 只依据给定正文，不臆造、不评论、不复述全文。
+- 每行一句以内，总长遵守调用方给的字数上限。
+- 直接输出三行，不加标题、不加多余说明。`,
+  mock: { kind: 'text', text: '- 情节推进：林远初入宗门，玉佩初显异象。\n- 账本变动：无。\n- 章尾钩子：血中之物苏醒在即。' },
+}
+
 /**
  * 流式写稿工厂（role 决定 system prompt）。
  *

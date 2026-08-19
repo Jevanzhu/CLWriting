@@ -275,6 +275,11 @@ export interface BookConfig {
     /** 自动梳理的章节增量阈值（缺省 3；global relationMineThreshold 托底） */
     relation_mine_threshold?: number
   }
+  /** 摘要金字塔（C1 批 2）。缺省 auto=true：定稿即生成章摘要 + 自愈按需补漏。
+   *  summary.auto: false = 整体关闭，回到「作者手写约定」现状。 */
+  summary?: {
+    auto?: boolean
+  }
   growth: {
     realm_span_max?: number // 跃迁跨度上限（O1，#6）
   }

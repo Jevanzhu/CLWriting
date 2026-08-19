@@ -207,6 +207,9 @@ export async function runTask<T>(opts: {
   promptText?: string
   /** system prompt 文本（B-P2-2：trace hash 纳入 system prompt，防同 user prompt 不同规则状态 hash 冲突） */
   systemPrompt?: string
+  /** C1（批 2）：prompt 引用的材料文件（相对书根）——进 promptMeta.files，
+   *  备料注入（章摘要等）「模型可见 ⟺ 已记录」的登记通道 */
+  promptFiles?: string[]
   /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
   chapter?: number
 }): Promise<TaskResult<T>> {
@@ -243,7 +246,7 @@ export async function runTask<T>(opts: {
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
-          ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText) }
+          ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? []) }
           : {}),
       }),
     )

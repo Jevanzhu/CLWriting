@@ -334,9 +334,16 @@ async function orchestrateBatch(
  * - ctx.db 为空（无布线书，.cache/index.db 不存在）→ 近况/账本段无数据源，维持接线前行为；
  * - best-effort：备料抛错不挡写稿（buildDraftPrompt 读不到新文件 = prompt 少「备料」段）。
  * config 用 ctx 合并值（已过 applyGlobalDefaults，P3-6 解析一次）；leadIds 按本章细纲声明。
+ * C1（批 2）：返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）——
+ * 调用方经 runSpec promptFiles → llm/call promptMeta.files 登记（可见⟺已记录）。
  */
-async function prepareChapterMaterials(opts: SelfHealOpts, ctx: ChapterCtx, chapter: number): Promise<void> {
-  if (!ctx.db) return
+async function prepareChapterMaterials(
+  opts: SelfHealOpts,
+  ctx: ChapterCtx,
+  chapter: number,
+): Promise<string[]> {
+  if (!ctx.db) return []
+  const promptFiles = ['工作区/本章写作材料.md']
   try {
     const r = await prepareMaterials(ctx.db, ctx.config, {
       bookRoot: ctx.bookRoot,
@@ -348,9 +355,11 @@ async function prepareChapterMaterials(opts: SelfHealOpts, ctx: ChapterCtx, chap
       chapter,
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), r.text, { fsync: true })
+    promptFiles.push(...r.injectedSummaryFiles)
   } catch {
     // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）
   }
+  return promptFiles
 }
 
 /** 单章闭环的可变循环态（终稿文本/账本草稿尝试位/红项基线/轮次均跨轮演化） */
@@ -430,9 +439,10 @@ async function draftFirstChapter(
   // GG-F1①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
   // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
   // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
-  await prepareChapterMaterials(opts, ctx, chapter)
+  // C1（批 2）：备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
+  const promptFiles = await prepareChapterMaterials(opts, ctx, chapter)
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  const first = await runGenerate(opts, state, ctx.kind, buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config), chapter)
+  const first = await runGenerate(opts, state, ctx.kind, buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config), chapter, promptFiles)
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
   const firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
@@ -652,6 +662,7 @@ async function runGenerate(
   kind: 'long' | 'short',
   userPrompt: string,
   chapter = opts.chapter, // P2-3：批量时传当前章（单章缺省 = opts.chapter 不变）
+  promptFiles: string[] = [], // C1（批 2）：prompt 引用材料 → promptMeta.files 登记
 ): Promise<SpawnResult> {
   if (state.ctrl.signal.aborted) return { status: 'aborted' }
 
@@ -697,6 +708,7 @@ async function runGenerate(
     bookRoot: opts.bookRoot,
     chapter,
     userPrompt,
+    promptFiles,
     ctrl: state.ctrl,
     // Z-P2-5：登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning() 真值（SSE
     // sync 快照不再假空闲），/interrupt 的 driver.interrupt() 也能直接 abort 在途请求

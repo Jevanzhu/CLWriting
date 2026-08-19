@@ -11,11 +11,11 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { parseChapterFileName } from '../format/words.js'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../format/read.js'
-import { readFile } from '../format/frontmatter.js'
+import { readFile, splitFrontMatter } from '../format/frontmatter.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { buildStyleEssentials } from '../format/style-inject.js'
 import { pickStyleSamples } from './style-samples.js'
@@ -93,6 +93,9 @@ export interface PrepareResult {
   trimmed: boolean
   /** 裁剪记录（供留痕） */
   trimLog: string[]
+  /** C1（批 2）：本次实际注入材料的章摘要文件（相对书根）——「模型可见 ⟺ 已记录」
+   *  的 visible 侧清单，调用方经 runSpec promptFiles → llm/call promptMeta.files 登记 */
+  injectedSummaryFiles: string[]
 }
 
 /** token 粗估（#12 第 5 节：中文约 0.6 token/字） */
@@ -137,11 +140,13 @@ export function prepare(
   const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50)
   const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
 
+  // C1（批 2）：章摘要注入的 visible 侧收集（相对书根路径）
+  const injectedSummaryFiles: string[] = []
   const sections: MaterialSection[] = [
     ...buildStatusSection(snapshot),
     ...buildLedgerSection(db, chapterLeadIds),
     ...buildStyleSections(bookRoot, config, scenes),
-    ...buildEndingsSections(db, bookRoot, snapshot),
+    ...buildEndingsSections(db, bookRoot, snapshot, injectedSummaryFiles),
     ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText),
   ]
 
@@ -155,6 +160,7 @@ export function prepare(
     estimatedTokens,
     trimmed,
     trimLog,
+    injectedSummaryFiles,
   }
 }
 
@@ -163,16 +169,22 @@ function buildEndingsSections(
   db: DatabaseSync,
   bookRoot: string,
   snapshot: ReturnType<typeof assembleStatus>,
+  injectedSummaryFiles: string[],
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
   // 弹性#1 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
+  // C1（批 2）：摘要文件剥 fm 再注入（fm 是程序元数据非内容）；注入文件登记进
+  // injectedSummaryFiles（visible 侧——promptMeta.files 可回溯）
   const recentEndings = readChapterSummaries(db, Math.max(1, snapshot.currentChapter - 1), snapshot.currentChapter)
   if (recentEndings.length > 0) {
     const parts: string[] = []
     for (const r of recentEndings) {
       if (existsSync(r.path) && isWithinRoot(bookRoot, r.path)) {
-        parts.push(`【第${r.ref}章结尾】\n${readFileSync(r.path, 'utf-8').trim()}`)
+        const raw = readFileSync(r.path, 'utf-8').trim()
+        const split = splitFrontMatter(raw)
+        parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
+        injectedSummaryFiles.push(relative(bookRoot, r.path))
       }
     }
     if (parts.length > 0) {

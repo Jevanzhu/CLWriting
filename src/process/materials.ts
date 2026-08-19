@@ -19,6 +19,7 @@ import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
 import { prepare, type PrepareResult } from './prepare.js'
+import { selfHealRecentChapterSummaries } from './summary.js'
 import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
 import { loadProviders } from '../ai/provider/index.js'
@@ -105,6 +106,8 @@ export interface PrepareMaterialsResult extends PrepareResult {
   ragNote?: string
   /** 文风留痕（G3）：声明了场景却查无样章时提示去 learn 补；无声明/有样章则空 */
   styleNote?: string
+  /** C1（批 2）：自愈补漏实际生成/重生成的章摘要（相对书根路径；空 = 无补漏） */
+  summaryGenerated: string[]
 }
 
 /**
@@ -152,6 +155,14 @@ export async function prepareMaterials(
   // 文风样章场景（kk-P1-2 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
   // 回退（与 draft 链同一水源，全空→['通用']）；G3 留痕只看「已声明」场景（兜底不算声明）
   const { sampleScene, declaredScenes } = resolveScenes(bookRoot, opts)
+  // C1（批 2）自愈补漏：备料前发现近章（N-2/N-1）摘要缺失或过期 → 现场补生成
+  // （计入本章 calls_per_chapter 预算，既有预算闸口径）；失败不阻断备料（无近章结尾段降级）
+  let summaryGenerated: string[] = []
+  if (opts.chapter !== undefined) {
+    try {
+      summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter)
+    } catch { /* 补漏失败静默降级——prepare 无该段照常组装 */ }
+  }
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
   // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
   // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
@@ -164,12 +175,12 @@ export async function prepareMaterials(
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!resolved) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0, ...styleNoteOf(declaredScenes, base) }
+    return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ...styleNoteOf(declaredScenes, base) }
   }
 
   if (!resolved.apiKey) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
+    return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
   }
 
   // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」> 书名（兜底召回与本书相关的片段）
@@ -191,6 +202,7 @@ export async function prepareMaterials(
       ...base,
       ragUsed: false,
       ragHitCount: 0,
+      summaryGenerated,
       ragNote: ragNote ?? 'RAG 召回无命中（降级回落精准读取）',
       ...styleNoteOf(declaredScenes, base),
     }
@@ -203,6 +215,7 @@ export async function prepareMaterials(
     ...base,
     ragUsed: true,
     ragHitCount: hits.length,
+    summaryGenerated,
     ...styleNoteOf(declaredScenes, base),
   }
 }

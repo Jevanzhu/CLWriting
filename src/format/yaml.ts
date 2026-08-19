@@ -242,6 +242,17 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     }
   }
 
+  // C1（批 2）：摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定现状）。
+  // 仅认显式布尔；显式 true 也落 cfg（写侧序列化保真，round-trip 不归一）
+  const summary = find('summary')
+  if (summary) {
+    const auto = summary.children.find((c) => c.key === 'auto')
+    if (auto) {
+      const v = parseValue(auto.value)
+      if (typeof v === 'boolean') cfg.summary = { auto: v }
+    }
+  }
+
   const short = find('short')
   if (short) {
     const shortConfig: NonNullable<BookConfig['short']> = {}
@@ -479,6 +490,11 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   // 全局托底：style 段仅当 injection 有值才输出（写法照 snapshots 段的条件输出范式）
   if (cfg.style?.injection !== undefined) {
     lines.push('', 'style:', `  injection: ${cfg.style.injection}`)
+  }
+
+  // C1（批 2）：summary 段仅当显式设过才输出（默认 auto=true 不烘焙，关掉的人写的 false 保真）
+  if (cfg.summary?.auto !== undefined) {
+    lines.push('', 'summary:', `  auto: ${cfg.summary.auto}`)
   }
 
   if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
