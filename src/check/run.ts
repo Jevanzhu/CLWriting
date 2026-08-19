@@ -22,6 +22,7 @@ import { probeCachedRevision } from '../document/tree.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import type { ChapterLeadUpdate } from './lead-updates.js'
+import { log } from '../log/index.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
 export type CheckOutcome =
@@ -35,7 +36,7 @@ export type CheckOutcome =
 export function runCheckForDocument(bookRoot: string, absPath: string, userDataPath?: string | null): CheckOutcome {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
+  if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
   // 全局托底：short.strict 等未设时回落 global.json——runner 的 promoteStrictShort
   // 读的是这里传下去的 config，服务端各入口须传 userDataPath（不传=书级直读，测试/CLI 兼容）
   const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
@@ -179,7 +180,7 @@ export function collectTreeIssues(
 ): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfgResult.ok) console.warn(`[check] book.yaml 降级: ${cfgResult.error.message}`)
+  if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
   // 全局托底：同 runCheckForDocument——树红点聚合也吃 short.strict 生效值
   const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))

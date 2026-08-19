@@ -15,6 +15,7 @@ import { mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, SurfaceOp } from './types.js'
+import { log } from '../log/index.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径 */
 export function bookHash(bookRoot: string): string {
@@ -386,7 +387,7 @@ export function migrateBookSession(
       cp.exec('PRAGMA busy_timeout = 5000')
       const r = cp.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number } | undefined
       if (!r || r.busy !== 0) {
-        console.error(`[events] 事件库迁移前 checkpoint 忙（busy=${r?.busy ?? '未知'}），放弃迁移，源库原地保留`)
+        log.error('events', `事件库迁移前 checkpoint 忙（busy=${r?.busy ?? '未知'}），放弃迁移，源库原地保留`)
         return false
       }
     } finally {
@@ -399,7 +400,7 @@ export function migrateBookSession(
     //    供人工裁决，绝无声默覆盖
     for (const suffix of ['', '-wal', '-shm'] as const) {
       if (existsSync(newDb + suffix)) {
-        console.error(`[events] 事件库迁移目标已存在（${newDb + suffix}），放弃迁移避免覆盖，源库原地保留`)
+        log.error('events', `事件库迁移目标已存在（${newDb + suffix}），放弃迁移避免覆盖，源库原地保留`)
         return false
       }
     }
@@ -437,10 +438,10 @@ export function migrateBookSession(
       } catch (e2) {
         // 回滚单文件失败属 OS 级异常（权限/磁盘满）：如实记日志供人工找回，
         // 不在回滚路径里再抛新异常掩盖原始失败原因
-        console.error(`[events] 迁移回滚失败（${m.to} → ${m.from}），需人工找回:`, e2)
+        log.error('events', `迁移回滚失败（${m.to} → ${m.from}），需人工找回`, e2)
       }
     }
-    console.error('[events] 事件库迁移失败（已回滚，源库原地完整可找回）:', e)
+    log.error('events', '事件库迁移失败（已回滚，源库原地完整可找回）', e)
     return false
   }
 }

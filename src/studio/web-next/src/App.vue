@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
+import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
 
 // 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
 const router = useRouter()
@@ -35,6 +36,7 @@ onMounted(() => {
 
 <template>
   <ErrorBoundary>
+    <StartupNoticeBanner />
     <router-view />
   </ErrorBoundary>
 </template>

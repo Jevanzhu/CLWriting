@@ -13,6 +13,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
 import { LEAD_TYPES } from './leads.js'
+import { log } from '../log/index.js'
 
 // ── 默认值（#9 第 3 节，待 beta 的给占位）────────
 //
@@ -202,7 +203,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
         // X-P3a：未知账本类过滤 + 留痕——此前静默收下错别字值，作者以为启用了
         const valid = v.map(String).filter((s) => (LEAD_TYPES as readonly string[]).includes(s))
         if (valid.length < v.length) {
-          console.warn(`[book.yaml] leads.enabled 含未知账本类（合法值：${LEAD_TYPES.join('/')}），已忽略`)
+          log.warn('book.yaml', `leads.enabled 含未知账本类（合法值：${LEAD_TYPES.join('/')}），已忽略`)
         }
         cfg.leads.enabled = valid
       }
@@ -326,11 +327,11 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
         const items = value.map(String)
         const kept = items.map((v) => v.trim()).filter(Boolean)
         if (kept.length < items.length) {
-          console.warn(`[book.yaml] checks.${key} 含空白词条已剔除（${items.length} 项 → ${kept.length} 项）`)
+          log.warn('book.yaml', `checks.${key} 含空白词条已剔除（${items.length} 项 → ${kept.length} 项）`)
         }
         checksConfig[key] = kept
       } else {
-        console.warn(`[book.yaml] checks.${key} 值非数组（${node.value.trim()}），已忽略`)
+        log.warn('book.yaml', `checks.${key} 值非数组（${node.value.trim()}），已忽略`)
       }
     }
     if (Object.keys(checksConfig).length > 0) cfg.checks = checksConfig

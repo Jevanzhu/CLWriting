@@ -24,6 +24,7 @@ import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { log } from '../../../log/index.js'
 
 interface OnboardCtx {
   workDir: string | null
@@ -115,7 +116,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
         atomicWriteFile(join(bookRoot, relPath), content)
       } catch (e) {
-        console.error('[api] 落盘:', e)
+        log.error('api', `onboard 落盘失败（${step}）`, e)
         return replyError(res, 500, 'IO', '落盘失败')
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
@@ -138,7 +139,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
       atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
-      console.error('[api] 落盘:', e)
+      log.error('api', `onboard-save 落盘失败（${step}）`, e)
       return replyError(res, 500, 'IO', '落盘失败')
     }
     reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })

@@ -35,11 +35,12 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInit } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
-import { migrateBookSession } from '../../../events/store.js'
+import { migrateBookSession, bookHash } from '../../../events/store.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import { forgetRagBuildTask } from './rag.js'
 import { isSpawnRunning } from './stream.js'
+import { log } from '../../../log/index.js'
 
 interface BookCtx {
   workDir: string | null
@@ -49,6 +50,9 @@ interface BookCtx {
   isTrustedOrigin: (origin: string) => boolean
   /** APP 级数据目录（Electron userData / CLI 模式跨平台约定路径）——事件库迁移用 */
   userDataPath: string | null
+  /** A4（批 0）：启动通告投递口——事件库迁移失败等请求期故障进 App 级横幅（可选，
+   *  兼容既有调用方；缺失时仅日志留痕） */
+  onStartupNotice?: (kind: string, message: string) => void
 }
 
 let initialBook: string | undefined
@@ -197,7 +201,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     try {
       rmSync(bookAbs, { recursive: true, force: true })
     } catch (e) {
-      console.error('[api] 删除目录失败:', e)
+      log.error('api', `删除目录失败（${name}）`, e)
       replyError(res, 500, 'IO', '删除目录失败')
       return
     }
@@ -270,7 +274,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
           const raw = existsSync(cfgPath) ? readFileSync(cfgPath, 'utf8') : ''
           atomicWriteFile(cfgPath, setTopSectionKey(raw, 'book', 'title', stringifyValue(newName)))
         } catch (e) {
-          console.error('[api] rename: 写 book.yaml title 失败:', e)
+          log.error('api', `rename: 写 book.yaml title 失败（${newName}）`, e)
         }
       }
 
@@ -306,7 +310,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       try {
         renameSync(oldRoot, newRoot)
       } catch (e) {
-        console.error('[api] rename: 改目录名失败:', e)
+        log.error('api', `rename: 改目录名失败（${oldName} → ${newName}）`, e)
         replyError(res, 500, 'IO', '改目录名失败')
         return
       }
@@ -338,7 +342,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // --book 直进指针同步（second-instance --book 旧名不再命中）
       if (initialBook === oldName) setInitialBook(newName)
 
-      // 5.1-3：迁移失败随响应带回（成功时不带该键，对齐本文件「条件展开」的响应风格）
+      // 5.1-3：迁移失败随响应带回（成功时不带该键，对齐本文件「条件展开」的响应风格）；
+      // A4（批 0）：同步进启动通告——rename 响应只在设置页当场可见，App 级横幅保证
+      // 「对话历史/审计没跟过来」这件事跨页面不失明（横幅一次性，关闭即静默）
+      if (!eventsMigrated) {
+        const msg = `书「${oldName}」改名后事件库迁移失败：对话历史/审计暂未跟到新名下，旧库原地完整保留于 ${bookHash(oldRoot)}.db，可重试改名找回`
+        log.error('events-migration', msg)
+        ctx.onStartupNotice?.('events-migration', msg)
+      }
       reply(res, 200, {
         ok: true,
         renamed: true,

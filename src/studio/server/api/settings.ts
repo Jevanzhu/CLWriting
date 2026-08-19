@@ -44,6 +44,7 @@ function readFmNames(dir: string, field: string): string[] {
 
 /** 角色卡读取 + 设定上下文注入已下沉 src/process/settings-context.ts（P1-8 架构治理） */
 import { readCharacterCards } from '../../../process/settings-context.js'
+import { log } from '../../../log/index.js'
 
 export type { CharacterCard } from '../../../process/settings-context.js'
 
@@ -102,7 +103,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         mkdirSync(dirname(cachePath), { recursive: true })
         atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
       } catch (e) {
-        console.error('[api] 落盘缓存失败:', e)
+        log.error('api', '落盘缓存失败（角色关系）', e)
         return replyError(res, 500, 'IO', '落盘缓存失败')
       }
       reply(res, 200, { ok: true, cached: false, relations })

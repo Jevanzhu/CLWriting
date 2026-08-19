@@ -17,6 +17,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
+import { log } from '../log/index.js'
 
 /** chapter 块（预算闸专用） */
 interface ChapterUsage {
@@ -194,7 +195,7 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
   // W-P2-8：损坏不重置——静默覆盖等于绕过 checkAiCallBudget 的保守阻断；
   // 只允许人工删除文件恢复计数（阻断提示里已写明出路）
   if (corrupt) {
-    console.error('[calls] .cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    log.error('calls', '.cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
     return
   }
   if (!rec || rec.chapter.num !== chapter) {
@@ -231,7 +232,7 @@ export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsag
   const { rec, corrupt } = readRecord(bookRoot)
   // W-P2-8：与 recordAiCall 同口径——损坏不重置，保守阻断保持
   if (corrupt) {
-    console.error('[calls] .cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    log.error('calls', '.cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
     return
   }
   const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }

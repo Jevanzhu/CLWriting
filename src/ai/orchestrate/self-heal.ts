@@ -43,6 +43,7 @@ import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersion } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
+import { log } from '../../log/index.js'
 
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
@@ -118,9 +119,9 @@ async function logLeadDraftFailure(
 ): Promise<void> {
   try {
     const r = await p
-    if (!r.ok) console.error(`[self-heal] 账本推进草稿生成失败（${r.code}）：${r.error}`)
+    if (!r.ok) log.error('self-heal', `账本推进草稿生成失败（${r.code}）：${r.error}`)
   } catch (e) {
-    console.error('[self-heal] 账本推进草稿生成异常：', e instanceof Error ? e.message : String(e))
+    log.error('self-heal', `账本推进草稿生成异常：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 

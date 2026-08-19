@@ -37,6 +37,7 @@ import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
+import { log } from '../log/index.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
 const DEFAULT_VOLUME_SIZE = 50
@@ -678,7 +679,7 @@ export function enter(bookRoot: string): EnterResult {
   const cfgResult = readBookConfig(cfgPath)
   // P3-2：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
   if (!cfgResult.ok) {
-    console.warn(`[state] book.yaml 解析降级: ${cfgResult.error.message}`)
+    log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
   }
   const { config } = cfgResult
   // manifest 只读一次，detectState + buildRecap 复用（P2-BE-4：原先同一调用链读两次）

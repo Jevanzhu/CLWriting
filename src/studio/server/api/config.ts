@@ -16,6 +16,7 @@ import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig, parseBookConfig, patchBookConfigText, stringifyBookConfig } from '../../../format/yaml.js'
 import type { BookConfig } from '../../../format/types.js'
+import { log } from '../../../log/index.js'
 
 interface ConfigCtx {
   workDir: string | null
@@ -55,7 +56,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       }
       atomicWriteFile(yamlPath, yaml)
     } catch (e) {
-      console.error('[api] 写 book.yaml:', e)
+      log.error('api', '写 book.yaml 失败', e)
       return replyError(res, 500, 'IO', '写 book.yaml 失败')
     }
     reply(res, 200, { ok: true })

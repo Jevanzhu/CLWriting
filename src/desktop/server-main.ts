@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { startServer } from '../studio/server/index.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
+import { log } from '../log/index.js'
 
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
@@ -31,9 +32,9 @@ const server = startServer({ port, workDir, staticDir, userDataPath: defaultUser
 // RB-SV-P2-3：监听错误兜底——EADDRINUSE 等给出可读中文后退出，而非未捕获异常崩溃
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[server-main] 端口 ${port} 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口`)
+    log.error('server-main', `端口 ${port} 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口`, err)
   } else {
-    console.error(`[server-main] server 启动失败：${err.message}`)
+    log.error('server-main', `server 启动失败：${err.message}`, err)
   }
   process.exit(1)
 })

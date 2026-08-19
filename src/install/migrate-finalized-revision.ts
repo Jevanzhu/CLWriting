@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { readManifest, writeManifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { statusPorcelain } from '../git/exec.js'
+import { log } from '../log/index.js'
 
 /**
  * 迁移定稿基线（幂等）。返回更新了多少个 entry。
@@ -42,7 +43,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   if (porcelain === null) {
     // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
     // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试
-    console.warn(`[migrate-finalized-revision] git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
+    log.warn('migrate-finalized-revision', `git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
     return 0
   }
   const dirty = new Set(porcelain.split('\n').filter(Boolean).map((l) => l.slice(3)))

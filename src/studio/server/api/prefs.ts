@@ -23,6 +23,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
+import { log } from '../../../log/index.js'
 
 export interface BookPrefs {
   /** 可覆盖全局编辑器偏好 */
@@ -75,7 +76,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
-      console.error('[api] 写 prefs:', e)
+      log.error('api', '写 prefs 失败', e)
       replyError(res, 500, 'IO', '写 prefs 失败')
     }
   })
@@ -128,7 +129,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       atomicWriteFile(r.path, JSON.stringify({ ...prefs, revision: next }, null, 2) + '\n')
       reply(res, 200, { ok: true, revision: next })
     } catch (e) {
-      console.error('[api] 写全局偏好:', e)
+      log.error('api', '写全局偏好失败', e)
       replyError(res, 500, 'ERROR', '写全局偏好失败')
     }
   })

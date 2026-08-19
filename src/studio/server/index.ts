@@ -55,7 +55,10 @@ import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerChatBranchesRoutes } from './api/chat-branches.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 import { resetRouteSchemas } from './api/schema.js'
+// A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
+import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
 import { createStaticHandler } from './static.js'
+import { initLogging, log } from '../../log/index.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
 function buildRoutes(
@@ -63,6 +66,7 @@ function buildRoutes(
   token: string,
   userDataPath: string | null,
   isTrustedOrigin: (origin: string) => boolean,
+  sink: StartupNoticeSink,
 ): RouteTable {
   const routes = createRouteTable()
   // E2：schema 注册表随路由表生命周期重置（防跨 server 实例重复声明）
@@ -70,9 +74,11 @@ function buildRoutes(
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
     registerAiStatusRoutes({ userDataPath })
+    // 元：启动通告（A4 批 0）——启动链迁移失败 / 事件库迁移失败的用户可见出口
+    registerStartupNoticeRoutes({ sink })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
-    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath })
+    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add })
     // cc 批4（P1-8）：RAG 建索引/状态端点——buildIndex 生产入口；
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
     registerRagRoutes({ workDir, userDataPath })
@@ -122,19 +128,38 @@ export interface StudioServerOptions {
   workDir?: string | null
   /** APP 级数据目录（Electron userData / CLI 约定路径）；全局偏好 JSON 存储位置 */
   userDataPath?: string | null
+  /** 日志是否镜像 console（A4 批 0）——dev/CLI 态 true（看得见）；Electron 打包态
+   *  console 输出到无人看见的地方，传 false 只落 JSONL。缺省 true。 */
+  mirrorConsoleLog?: boolean
 }
 
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = randomUUID()
+  // A4（批 0）：结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
+  // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
+  initLogging({
+    logsDir: opts.userDataPath ? join(opts.userDataPath, 'logs') : null,
+    mirrorConsole: opts.mirrorConsoleLog ?? true,
+  })
+  // A4（批 0）：启动链通告收集——迁移失败不再是「console 失明出口」，统一进
+  // startupNotices 供 /api/startup-notices + App 横幅消费
+  const sink = createStartupNoticeSink()
+  const noticeOrLog = (kind: string, message: string, err?: unknown): void => {
+    sink.add(kind, message)
+    log.error(kind, message, err)
+  }
   // C2：内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
   // 用户改过的原样保留；A6「升级不覆盖用户改动」的落点）
   if (opts.userDataPath) {
     try {
       const r = migratePromptOverlays(opts.userDataPath)
-      if (r.upgraded.length > 0) console.error(`[migrate-prompts] 已升级未改动副本：${r.upgraded.join(', ')}`)
+      // 信息性留痕（非故障，不进横幅）：作者可见性无诉求，日志留诊断即可
+      if (r.upgraded.length > 0) {
+        log.warn('migrate-prompts', `已升级未改动 prompt 副本：${r.upgraded.join(', ')}`)
+      }
     } catch (e) {
-      console.error(`[migrate-prompts] ${e instanceof Error ? e.message : String(e)}`)
+      noticeOrLog('migrate-prompts', `prompt overlay 迁移失败：${e instanceof Error ? e.message : String(e)}`, e)
     }
   }
   // 书库自愈（P1-10）：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
@@ -144,12 +169,17 @@ export function startServer(opts: StudioServerOptions): http.Server {
     try {
       const r = repairBooks(opts.workDir)
       if (r.changed) {
-        console.error(
-          `[repair-books] 书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
+        log.warn(
+          'repair-books',
+          `书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
+        )
+        sink.add(
+          'repair-books',
+          `书库登记已自愈：重建 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
         )
       }
     } catch (e) {
-      console.error(`[repair-books] ${e instanceof Error ? e.message : String(e)}`)
+      noticeOrLog('repair-books', `书库登记自愈失败：${e instanceof Error ? e.message : String(e)}`, e)
     }
   }
   // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
@@ -158,11 +188,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
       const bookPath = join(opts.workDir, book.path)
       const v2Result = migrateLayoutV2(bookPath)
       if (v2Result.errors.length > 0) {
-        console.error(`[migrate-layout-v2] ${book.path}: ${v2Result.errors.length} 个错误\n${v2Result.errors.join('\n')}`)
+        noticeOrLog('migrate-layout-v2', `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`)
       }
       const v3Result = migrateLayoutV3(bookPath)
       if (v3Result.errors.length > 0) {
-        console.error(`[migrate-layout-v3] ${book.path}: ${v3Result.errors.length} 个错误\n${v3Result.errors.join('\n')}`)
+        noticeOrLog('migrate-layout-v3', `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`)
       }
       // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
       migrateVersionsDir(bookPath)
@@ -180,7 +210,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateBookDefaults(opts.workDir)
     } catch (e) {
       // 整体异常不阻断启动（逐书失败已在内部 warn 过；这里兜编译期不可见的故障）
-      console.error(`[migrate-defaults] ${e instanceof Error ? e.message : String(e)}`)
+      noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${e instanceof Error ? e.message : String(e)}`, e)
     }
   }
   // RB-SV-P1-1：Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
@@ -192,7 +222,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add('http://localhost:5173')
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin)
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink)
   // CC-P2-13：host 选项此前是陷阱——允许传任意监听地址，但下方 Host 白名单硬编码回环，
   // 传非回环 host 时全请求 403（参数存在即故障）。产品口径仅本机回环（本文件头注释），
   // 非回环值启动即拒——fail-fast 优于逐请求 403 的静默失效。
@@ -262,8 +292,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
         return
       } catch (e) {
         if (!res.headersSent) {
-          // P3-9：不向客户端泄漏 detail（含文件路径等），仅 console.error 留诊断
-          console.error('[api] unhandled error:', e)
+          // P3-9：不向客户端泄漏 detail（含文件路径等），仅日志留诊断
+          log.error('api', 'unhandled error: ' + req.method + ' ' + (req.url ?? ''), e)
           replyError(res, 500, 'ERROR', '服务器内部错误')
         }
         return

@@ -47,6 +47,7 @@ import {
   emptyStore,
 } from './workdir-store.js'
 import type { WorkDirStore } from './workdir-store.js'
+import { initLogging, log } from '../log/index.js'
 
 const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
 
@@ -66,6 +67,10 @@ const CLW_CSP = [
 // 侥幸同目录，Linux 上会分裂成两个目录导致配置不互通。见 src/fs/user-data-path.ts。
 // 必须在 app.getPath('userData') 首次调用（如下方 stateFile）之前执行。
 app.setPath('userData', defaultUserDataPath())
+// A4（批 0）：结构化日志——打包态 console 无人看见，尽早切到 JSONL 落盘
+// （userData/logs/app-YYYYMMDD.jsonl）；dev 态保留 console 镜像。后续 startServer
+// 会再 init 一次（幂等，参数一致）。
+initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !app.isPackaged })
 
 // Z-P2-8 单实例锁：双开实例会对同一 userData 的 workdir.json / window-state.json
 // 读改写互踩（atomic 写只防文件撕裂，防不了语义层竞态）。锁须在 setPath 之后请求，
@@ -340,7 +345,7 @@ async function bootstrap(): Promise<void> {
       }
     }
     const staticDir = resolveStaticDir()
-    const server = startServer({ port: 0, staticDir, workDir, userDataPath: app.getPath('userData') })
+    const server = startServer({ port: 0, staticDir, workDir, userDataPath: app.getPath('userData'), mirrorConsoleLog: !app.isPackaged })
     studioServer = server // RB-SV-P2-6：退出前 close 用
     const port = await listenPort(server)
     appUrl = `http://127.0.0.1:${port}`
@@ -379,12 +384,12 @@ async function bootstrap(): Promise<void> {
   })
   // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
-    console.error('PRELOAD-ERROR', p, err.message)
+    log.error('desktop', `preload 加载失败：${p}`, err)
   })
   // dd-P3（C-P3-15）：渲染进程崩溃兜底——GPU/内存崩了不能停在白屏，重载窗口自愈
   const win = mainWindow
   win.webContents.on('render-process-gone', (_e, details) => {
-    console.error('RENDER-GONE', details.reason, details.exitCode)
+    log.error('desktop', `渲染进程崩溃（${details.reason}，exit=${details.exitCode}），重载窗口自愈`)
     if (!win.isDestroyed()) win.webContents.reload()
   })
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
@@ -471,7 +476,7 @@ function registerIpc(): void {
     try {
       return await getSystemFontList({ disableQuoting: true })
     } catch (e) {
-      console.error('get-system-fonts 失败：', e instanceof Error ? e.message : String(e))
+      log.error('desktop', `get-system-fonts 失败：${e instanceof Error ? e.message : String(e)}`)
       return []
     }
   })
@@ -666,7 +671,7 @@ if (gotSingleInstanceLock) {
     registerIpc()
     buildMenu()
     runBootstrap((e) => {
-      console.error('✗ 启动失败：', e instanceof Error ? e.message : String(e))
+      log.error('desktop', `启动失败：${e instanceof Error ? e.message : String(e)}`, e)
       app.quit()
     })
   })
@@ -707,7 +712,7 @@ if (gotSingleInstanceLock) {
 
   app.on('activate', () => {
     if (mainWindow === null) {
-      runBootstrap((e) => console.error('✗ 重启失败：', e))
+      runBootstrap((e) => log.error('desktop', '重启失败', e))
     }
   })
 }

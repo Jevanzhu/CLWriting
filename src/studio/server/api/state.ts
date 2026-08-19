@@ -21,6 +21,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
 import { detectState, routeState, buildRecap, STATE_NAMES } from '../../../state/state.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { log } from '../../../log/index.js'
 
 interface StateCtx {
   workDir: string | null
@@ -41,7 +42,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
       // P3-2 同款：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
       if (!cfgResult.ok) {
-        console.warn(`[state] book.yaml 解析降级: ${cfgResult.error.message}`)
+        log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
       }
       const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
       const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))

@@ -17,6 +17,7 @@ import { atomicWriteFile } from '../../fs/atomic.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
+import { log } from '../../log/index.js'
 import {
   createVault,
   openVault,
@@ -162,7 +163,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
   }
   // RB-AI-P2-6：JSON 合法但形状坏（providers 非数组）——不再静默 emptySettings
   //（用户视角 = Key 无故消失、无任何损坏提示），走与解析失败相同的 bak 恢复链；
-  // bak 也不可用才重置为空，且 console.warn 显式告警（不静默）
+  // bak 也不可用才重置为空，且 log.warn 显式告警（不静默）
   if (!Array.isArray(raw.providers)) {
     const bakErr = tryRestoreFromBak(fp, bakFp)
     let restored: DiskFormat | null = null
@@ -177,8 +178,9 @@ export function loadProviders(userDataPath: string): ProviderStore {
     if (restored) {
       raw = restored
     } else {
-      console.warn(
-        `[providers] providers.json 形状损坏（providers 非数组）${bakErr ? `，备份恢复失败：${bakErr}` : '，备份内容亦不可用'}——已重置为空配置（损坏文件保留，可从 providers.bak.json 手动恢复）`,
+      log.warn(
+        'providers',
+        `providers.json 形状损坏（providers 非数组）${bakErr ? `，备份恢复失败：${bakErr}` : '，备份内容亦不可用'}——已重置为空配置（损坏文件保留，可从 providers.bak.json 手动恢复）`,
       )
       return emptySettings()
     }

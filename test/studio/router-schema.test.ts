@@ -105,9 +105,11 @@ describe('E2: route schema 单点声明', () => {
     srv.close()
   })
 
-  it('Z-P2-9：handler 抛非 HttpError → 500 {error} 信封 + console.error 留诊断日志', async () => {
+  it('Z-P2-9：handler 抛非 HttpError → 500 {error} 信封 + 日志留诊断（A4 批 0 起 log 模块承载）', async () => {
     // 异常被 dispatch 内部 catch 兜底（外层 index.ts 的 try 接不到），
-    // 若无日志则 500「内部错误」无从排障——验证日志已打且含 method/url/原始异常
+    // 若无日志则 500「内部错误」无从排障——验证日志已打且含 method/url/原始异常。
+    // A4 批 0：console.error → log.error('api', msg, err)，未 init 落盘时镜像
+    // console.error（单参 msg + err），tag 语义不变
     route('GET', '/e2/boom', () => {
       throw new Error('boom: api_key=sk-secret1234567890')
     })
@@ -119,12 +121,10 @@ describe('E2: route schema 单点声明', () => {
       // 客户端只见 500 信封（敏感 detail 不外泄）；hh §八-12 统一 {code, error}
       expect(resp.status).toBe(500)
       expect(await resp.json()).toEqual({ code: 'ERROR', error: '内部错误' })
-      // server 侧日志：前缀 + method + url + 原始异常
+      // server 侧日志镜像：tag 前缀 + method/url + 原始异常
       expect(errSpy).toHaveBeenCalledTimes(1)
-      const [prefix, method, url, err] = errSpy.mock.calls[0]!
-      expect(prefix).toBe('[api] handler error:')
-      expect(method).toBe('GET')
-      expect(url).toBe('/e2/boom')
+      const [msg, err] = errSpy.mock.calls[0]!
+      expect(msg).toBe('[api] handler error: GET /e2/boom')
       expect(err).toBeInstanceOf(Error)
       expect((err as Error).message).toContain('boom')
       srv.close()

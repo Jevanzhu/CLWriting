@@ -18,7 +18,7 @@
  * 这里照 patchTopSection（yaml.ts）的先例做「删段内 key 行 / 删整段」的文本操作。
  *
  * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、
- * 每本书独立 try/catch（单本失败 console.warn 不阻断）、汇总 console.log。
+ * 每本书独立 try/catch（单本失败 log.warn 不阻断）、汇总 log.info。
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readBooks } from './books.js'
 import { parseBookConfig } from '../format/yaml.js'
+import { log } from '../log/index.js'
 
 /** 迁移汇总（供测试断言 + 启动日志） */
 export interface MigrateBookDefaultsResult {
@@ -52,15 +53,15 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
       if (after !== before) {
         atomicWriteFile(yamlPath, after)
         changed++
-        console.warn(`[migrate-defaults] ${book.name}: 已清理书级默认值键（全局托底生效）`)
+        log.warn('migrate-defaults', `${book.name}: 已清理书级默认值键（全局托底生效）`)
       }
     } catch (e) {
       // 单本失败不阻断：迁移是「锦上添花」的清理，宁可留着旧默认也不能挡启动
       failed++
-      console.warn(`[migrate-defaults] ${book.name} 迁移失败（跳过）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('migrate-defaults', `${book.name} 迁移失败（跳过）：${e instanceof Error ? e.message : String(e)}`)
     }
   }
-  console.log(`[migrate-defaults] 书级默认值清理完成：检查 ${books.length} 本，改写 ${changed} 本，失败 ${failed} 本`)
+  log.info('migrate-defaults', `书级默认值清理完成：检查 ${books.length} 本，改写 ${changed} 本，失败 ${failed} 本`)
   return { books: books.length, changed, failed }
 }
 

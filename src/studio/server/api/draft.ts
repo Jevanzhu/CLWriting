@@ -20,6 +20,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { saveDraft, buildDraftPrompt } from '../../../process/draft-pipeline.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
+import { log } from '../../../log/index.js'
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { saveDraft, buildDraftPrompt, snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js'
@@ -50,7 +51,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
       recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
-      console.error('[api] 落盘失败:', e)
+      log.error('api', `落盘失败（章 ${chapter}）`, e)
       return replyError(res, 500, 'IO', '落盘失败')
     }
     reply(res, 200, {
