@@ -394,7 +394,7 @@ export class DocumentService {
     }
     // 结构性操作触发建清单（W0-1 §4.2）：无清单则建，加 entry
     this.upsertManifestEntry(docId, input.relPath)
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path: input.relPath, revision: computeRevision(safe) }
   }
 
@@ -431,7 +431,7 @@ export class DocumentService {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
     const 标题 = String(map.get('标题') ?? '')
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
 
     if (isPiece) {
       // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
@@ -504,7 +504,7 @@ export class DocumentService {
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path }
   }
 
@@ -575,7 +575,7 @@ export class DocumentService {
         reason: `文件已移动到新路径，但清单更新失败（下次打开本书时自动对齐）：${errMsg(e)}`,
       }
     }
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path: newPath }
   }
 
@@ -655,7 +655,7 @@ export class DocumentService {
     // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
     const newDocId = generateDocId()
     this.upsertManifestEntry(newDocId, input.relPath)
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
   }
 
@@ -735,7 +735,7 @@ export class DocumentService {
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
     }
-    invalidateTreeIndex(this.bookRoot)
+    invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, trashedPath: trashedRel }
   }
 }

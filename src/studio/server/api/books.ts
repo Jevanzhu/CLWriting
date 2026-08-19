@@ -211,7 +211,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetService(bookAbs)
     // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
     forgetSession(name)
-    invalidateTreeIndex(bookAbs)
+    invalidateTreeIndex(bookAbs, true)
     // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
     // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件
     clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
@@ -323,7 +323,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       forgetSession(oldName)
-      invalidateTreeIndex(oldRoot)
+      invalidateTreeIndex(oldRoot, true)
       invalidateBookSummary(oldRoot)
       forgetRagBuildTask(oldName) // dd-P3：模块级索引任务表随改名清理（rag-build 已被闸拒绝，不会运行中改名）
       writeTitle(newRoot)

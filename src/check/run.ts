@@ -7,7 +7,7 @@
  */
 import { join, relative, basename } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
@@ -19,6 +19,8 @@ import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { deriveStatusFull } from '../document/status.js'
 import { probeCachedRevision } from '../document/tree.js'
+import { analysisPath } from '../document/analysis.js'
+import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache } from './tree-issues-cache.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import type { ChapterLeadUpdate } from './lead-updates.js'
@@ -203,6 +205,18 @@ export function collectTreeIssues(
     for (const [docId, m] of manifest) pathToDocId.set(m.path, docId)
     const issues: Record<string, { hasRed: boolean; verdictRejected: boolean }> = {}
     const bodyDir = join(bookRoot, '写作', '正文')
+    // A1（批 1）：增量缓存——只重查指纹变过的章。仅对有布线的书启用（长篇才是
+    // 数百章规模；短篇不开 .cache/index.db，行为与从前完全一致）。表缺席/纪元
+    // 同步失败 → cacheEnabled=false 走现行全量路径（语义无损降级）。
+    let cacheEnabled = false
+    if (db) {
+      try {
+        syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null)
+        cacheEnabled = true
+      } catch {
+        cacheEnabled = false
+      }
+    }
     if (existsSync(bodyDir)) {
       const { chapters } = readChapterDir(bodyDir)
       // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
@@ -234,6 +248,31 @@ export function collectTreeIssues(
         if (st === 'final' || st === 'published') continue
         const docId = pathToDocId.get(relPath)
         if (!docId) continue
+        // A1（批 1）：章级指纹 = 正文 stat + 裁决信封 stat（信封改动=verdict 变，
+        // 自动失效；无信封=verdict_fp NULL）。全中 → 直接取缓存聚合，零机检零重读。
+        let chapterSt: { mtimeMs: number; size: number }
+        try {
+          chapterSt = statSync(ch._path)
+        } catch {
+          continue // 竞态消失（回收站/删除）：本条跳过
+        }
+        const envAbs = analysisPath(bookRoot, docId)
+        let verdictFp: string | null = null
+        if (envAbs) {
+          try {
+            const es = statSync(envAbs)
+            verdictFp = `${es.mtimeMs}:${es.size}`
+          } catch {
+            verdictFp = null // 信封竞态消失：按无信封处理
+          }
+        }
+        if (cacheEnabled && db) {
+          const cached = readTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp)
+          if (cached) {
+            if (cached.hasRed || cached.verdictRejected) issues[docId] = cached
+            continue
+          }
+        }
         let hasRed = false
         if (!rebuildFailed) {
           const outcome = checkWithDb(bookRoot, ch._path, db, config, batch)
@@ -241,7 +280,9 @@ export function collectTreeIssues(
         }
         const verdict = readReviewVerdict(docId)
         const verdictRejected = !!verdict && !verdict.approved
-        if (hasRed || verdictRejected) issues[docId] = { hasRed, verdictRejected }
+        const entryData = { hasRed, verdictRejected }
+        if (cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, entryData)
+        if (hasRed || verdictRejected) issues[docId] = entryData
       }
     }
     return { issues, rebuildFailed }

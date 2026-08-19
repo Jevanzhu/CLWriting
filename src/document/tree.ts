@@ -17,6 +17,7 @@ import { deriveStatus, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
+import { clearTreeIssuesCacheForBook } from '../check/tree-issues-cache.js'
 
 /** 树节点（扫描派生）。 */
 export interface TreeNode {
@@ -287,9 +288,17 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
   return index
 }
 
-/** 结构性 mutation 后失效缓存（下次 getBookTreeIndex 重建，revision 递增）。 */
-export function invalidateTreeIndex(bookRoot: string): void {
+/**
+ * 结构性 mutation 后失效缓存（下次 getBookTreeIndex 重建，revision 递增）。
+ *
+ * A1（批 1）structural=true：改名/移动/删章/书改名等改变 rel_path 集合的 mutation
+ * ——树红点缓存表按 rel_path 键控，旧行成垃圾，整表清空回收（残留不致错——
+ * 新路径必 miss——只是防膨胀）。内容保存（draft-pipeline/files）不传：章级
+ * (mtime,size) 指纹自会失效对应行，整表连坐会把「改 1 章只重查 1 章」打回全书。
+ */
+export function invalidateTreeIndex(bookRoot: string, structural = false): void {
   indexes.delete(bookRoot)
   // W-P2-4：文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希
   clearProbeCache()
+  if (structural) clearTreeIssuesCacheForBook(bookRoot)
 }

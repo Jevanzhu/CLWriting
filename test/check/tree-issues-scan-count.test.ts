@@ -5,9 +5,12 @@
  * O(N²) 文件读单请求阻塞事件循环秒级；修复后全书固定三次
  * （正文×2：聚合循环 + maxWritten 基准；章纲×1：循环外预扫）。
  * 另验证 batch 上下文传参后 targetWords（章纲 字数目标）接线不回归（W-P2-11 口径）。
+ *
+ * A1（批 1）增量缓存断言：二次请求正文整读次数（readDraft）= 变更章数——
+ * 章级 (mtime,size)+verdict 指纹全中的章直接取缓存聚合，零机检零重读。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,11 +19,18 @@ vi.mock('../../src/format/chapters.js', async (importOriginal) => {
   return { ...actual, readChapterDir: vi.fn(actual.readChapterDir) }
 })
 
+vi.mock('../../src/format/draft.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/format/draft.js')>()
+  return { ...actual, readDraft: vi.fn(actual.readDraft) }
+})
+
 import { readChapterDir } from '../../src/format/chapters.js'
+import { readDraft } from '../../src/format/draft.js'
 import { collectTreeIssues, checkWithDb, type BatchCheckContext } from '../../src/check/run.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
 
 /** 造一本 N 章正文书；wiring=true 加布线（测 maxWritten/账本路径），每章带禁词「玉佩」制造确定红源 */
 function makeBook(chapterCount: number, wiring = true): string {
@@ -117,6 +127,91 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
       const items = outcome.report.sections.flatMap((s) => s.items)
       // 正文 ~15 字 vs 目标 50000 → 大幅偏离，word-count 黄项应出现（targetWords 已接线）
       expect(items.some((i) => i.checkId === 'word-count')).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
+  const readDraftMock = vi.mocked(readDraft)
+
+  /** 触碰文件 mtime（不改内容也足以破指纹） */
+  function touch(p: string): void {
+    const t = new Date()
+    utimesSync(p, t, t)
+  }
+
+  it('二次请求零整读；改 1 章只整读那 1 章（O(全书) → O(变更章)）', () => {
+    const root = makeBook(5)
+    try {
+      // 首次：全量（5 章各一次 readDraft）+ 建缓存
+      readDraftMock.mockClear()
+      const first = collectTreeIssues(root, () => undefined)
+      expect(Object.keys(first.issues)).toHaveLength(5)
+      expect(readDraftMock.mock.calls.length).toBe(5)
+      // 二次：指纹全中 → 0 次正文整读
+      readDraftMock.mockClear()
+      const second = collectTreeIssues(root, () => undefined)
+      expect(second.issues).toEqual(first.issues) // 缓存与全量重算同构
+      expect(readDraftMock.mock.calls.length).toBe(0)
+      // 改 1 章（触碰 mtime）→ 只重查那章
+      touch(join(root, '写作', '正文', '003-第3章.md'))
+      readDraftMock.mockClear()
+      const third = collectTreeIssues(root, () => undefined)
+      expect(readDraftMock.mock.calls.length).toBe(1)
+      expect(readDraftMock.mock.calls[0]![0]).toContain('003-第3章.md')
+      expect(third.issues).toEqual(first.issues) // 内容没变 → 结果不变
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('verdict 信封变化 → 该章指纹失效重查（驳回升红点，零正文整读以外的开销）', () => {
+    const root = makeBook(3)
+    try {
+      const m = readManifest(join(root, '项目', '文档清单.jsonl'))
+      const docIds = [...m.entries.entries()]
+        .filter(([, e]) => e.nodeType === 'document')
+        .map(([id]) => id)
+      // 与 api/check.ts tree-issues 端点同款回线：verdict 来自 review 信封
+      const verdictOf = (docId: string): { approved: boolean } | undefined => {
+        const env = readAnalysis(root, docId, 'review')
+        const v = (env?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
+        return v ?? undefined
+      }
+      collectTreeIssues(root, verdictOf) // 建缓存（无信封 → verdict_fp NULL）
+      // 驳回第 2 章：写信封（生产链路 = review-verdict 端点），信封 stat 变 → 指纹破
+      writeAnalysis(root, docIds[1]!, 'review', {
+        generatedAt: new Date().toISOString(),
+        model: 'author',
+        sourceHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        payload: { verdict: { approved: false, at: new Date().toISOString() } },
+      })
+      readDraftMock.mockClear()
+      const r = collectTreeIssues(root, verdictOf)
+      expect(r.issues[docIds[1]!]).toEqual({ hasRed: true, verdictRejected: true })
+      // 信封变化只破一章：其余两章命中缓存零整读，被驳章重查 1 次
+      expect(readDraftMock.mock.calls.length).toBe(1)
+      expect(readDraftMock.mock.calls[0]![0]).toContain('002-第2章.md')
+      // 再跑一次：新指纹（含信封）全中 → 驳回红点来自缓存
+      readDraftMock.mockClear()
+      const again = collectTreeIssues(root, verdictOf)
+      expect(readDraftMock.mock.calls.length).toBe(0)
+      expect(again.issues[docIds[1]!]).toEqual({ hasRed: true, verdictRejected: true })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('章外全局输入变化 → 纪元失效整表重查（book.yaml 触碰）', () => {
+    const root = makeBook(4)
+    try {
+      collectTreeIssues(root, () => undefined)
+      touch(join(root, 'book.yaml'))
+      readDraftMock.mockClear()
+      collectTreeIssues(root, () => undefined)
+      expect(readDraftMock.mock.calls.length).toBe(4) // 纪元变化 → 全书重查
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

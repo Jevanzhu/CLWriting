@@ -164,7 +164,7 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
   } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
   }
-  invalidateTreeIndex(bookRoot)
+  invalidateTreeIndex(bookRoot, true)
   return { ok: true, id, path: entry.originalPath }
 }
 
