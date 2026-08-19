@@ -31,7 +31,7 @@ function onGlobalCallsInput(e: Event): void {
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">对话助手 <BetaBadge /></div>
+          <div class="setting-item-name">对话助手</div>
           <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
         </div>
         <div class="setting-item-control">
@@ -47,7 +47,7 @@ function onGlobalCallsInput(e: Event): void {
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">文风注入 <BetaBadge /></div>
+          <div class="setting-item-name">文风注入</div>
           <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
         </div>
         <div class="setting-item-control">
@@ -71,7 +71,7 @@ function onGlobalCallsInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">批量写作章数 <BetaBadge /></div>
+          <div class="setting-item-name">批量写作章数</div>
           <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
         </div>
         <div class="setting-item-control">
@@ -81,7 +81,7 @@ function onGlobalCallsInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">单章调用上限 <BetaBadge /></div>
+          <div class="setting-item-name">单章调用上限</div>
           <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
         </div>
         <div class="setting-item-control">

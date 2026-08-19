@@ -2,8 +2,9 @@
 // 可折叠分区：标题条点击 toggle，v-show 展开内容参与外层滚动（非内部固定高滚动）。
 import { ref } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
+import BetaBadge from './BetaBadge.vue'
 
-const props = withDefaults(defineProps<{ title: string; defaultOpen?: boolean }>(), {
+const props = withDefaults(defineProps<{ title: string; beta?: boolean; defaultOpen?: boolean }>(), {
   defaultOpen: true,
 })
 const open = ref(props.defaultOpen)
@@ -14,6 +15,7 @@ const open = ref(props.defaultOpen)
     <button class="collapse-head" @click="open = !open">
       <ChevronDown :size="14" class="collapse-arrow" :class="{ rotated: !open }" />
       <span class="collapse-title">{{ title }}</span>
+      <BetaBadge v-if="beta" />
     </button>
     <div v-show="open" class="collapse-body">
       <slot />

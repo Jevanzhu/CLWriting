@@ -7,6 +7,7 @@ import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { runStyleAnalysis, type StylePayload } from '../../api/analysis'
 import { friendlyError } from '../../shared/error'
+import BetaBadge from '../ui/BetaBadge.vue'
 
 const props = defineProps<{ bookName: string }>()
 const style = useStyleStore()
@@ -74,7 +75,7 @@ function fmtDate(iso: string): string {
 <template>
   <section class="panel">
     <div class="panel-head">
-      <ClipboardCheck :size="14" /> <span>验收</span>
+      <ClipboardCheck :size="14" /> <span>验收 <BetaBadge /></span>
       <span class="head-note">写出去的东西还像不像你</span>
     </div>
     <div class="accept-grid">

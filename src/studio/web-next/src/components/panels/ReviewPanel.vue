@@ -9,6 +9,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
 import { friendlyError } from '../../shared/error'
+import BetaBadge from '../ui/BetaBadge.vue'
 import type { ReviewIssueFE } from '../../api/review'
 
 const props = defineProps<{ bookName: string }>()
@@ -98,7 +99,7 @@ function severityLabel(s: string): string {
     <div class="rev-head">
       <div class="rev-title-row">
         <FileSearch :size="14" />
-        <span class="rev-title">三审</span>
+        <span class="rev-title">三审 <BetaBadge /></span>
       </div>
       <button
         class="rev-run-btn"

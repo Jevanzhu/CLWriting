@@ -93,7 +93,7 @@ const isReviewable = computed(() => {
         <CollapseSection title="伏笔追踪">
           <ForeshadowPanel :book-name="bookName" />
         </CollapseSection>
-        <CollapseSection v-if="isReviewable" title="AI 分析">
+        <CollapseSection v-if="isReviewable" title="AI 分析" beta>
           <AnalysisPanel :book-name="bookName" />
         </CollapseSection>
         <CollapseSection v-if="isReviewable" title="本章历史">

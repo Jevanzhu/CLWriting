@@ -128,7 +128,7 @@ async function saveRules(): Promise<void> {
         </template>
       </div>
       <div class="anchor-line">
-        <span class="al-label">参考强度 <BetaBadge /></span>
+        <span class="al-label">参考强度</span>
         <div class="seg">
           <button class="seg-btn" :class="{ on: injection === 'light' }" @click="onInjection('light')">轻</button>
           <button class="seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>

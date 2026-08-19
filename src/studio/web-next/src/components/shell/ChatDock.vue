@@ -8,6 +8,7 @@ import { ref } from 'vue'
 import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Square } from 'lucide-vue-next'
 import ChatPanel from '../panels/ChatPanel.vue'
 import ModelEffortBar from '../ui/ModelEffortBar.vue'
+import BetaBadge from '../ui/BetaBadge.vue'
 import { useChatStore } from '../../stores/chat'
 import { useChatComposer } from '../../composables/useChatComposer'
 
@@ -126,13 +127,13 @@ function onExpandChat(): void {
     <!-- 「对话」按钮：未开时在输入框上方；打开时融入对话框左上角 -->
     <button v-if="fabOpen" class="chat-expand" :class="{ on: chatOpen }" @click="onExpandChat">
       <MessageCircle :size="13" />
-      <span>对话</span>
+      <span>对话 <BetaBadge /></span>
       <ChevronDown v-if="chatOpen" :size="13" />
       <ChevronUp v-else :size="13" />
     </button>
 
     <!-- FAB（左下角，常驻 toggle） -->
-    <button class="fab" :class="{ on: fabOpen }" title="对话助手" @click="onFab">
+    <button class="fab" :class="{ on: fabOpen }" title="对话助手 Beta" @click="onFab">
       <X v-if="fabOpen" :size="18" />
       <MessageCircle v-else :size="21" />
     </button>

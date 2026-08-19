@@ -293,7 +293,7 @@ onUnmounted(stopRagPolling)
 <template>
   <!-- 本书组仅短篇书显示（严格模式只对短篇机检有意义） -->
   <template v-if="bookKind === 'short'">
-    <div class="cfg-card-head">AI 机检 <BetaBadge /></div>
+    <div class="cfg-card-head">AI 机检</div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
@@ -342,7 +342,7 @@ onUnmounted(stopRagPolling)
     <template v-if="relationOverride">
       <div class="setting-item sub">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理 <BetaBadge /></div>
+          <div class="setting-item-name">自动梳理</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
@@ -353,7 +353,7 @@ onUnmounted(stopRagPolling)
       </div>
       <div class="setting-item sub">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值 <BetaBadge /></div>
+          <div class="setting-item-name">章节增量阈值</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值" :value="bookMineThreshold ?? effMineThreshold" @change="onMineThresholdInput($event)" />
@@ -382,7 +382,7 @@ onUnmounted(stopRagPolling)
     <template v-if="ragOverride">
       <div class="setting-item sub">
         <div class="setting-item-info">
-          <div class="setting-item-name">启用检索 <BetaBadge /></div>
+          <div class="setting-item-name">启用检索</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
@@ -393,7 +393,7 @@ onUnmounted(stopRagPolling)
       </div>
       <div v-if="bookRagEnabled" class="setting-item sub">
         <div class="setting-item-info">
-          <div class="setting-item-name">检索提供方 <BetaBadge /></div>
+          <div class="setting-item-name">检索提供方</div>
           <div class="setting-item-desc">
             {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
           </div>

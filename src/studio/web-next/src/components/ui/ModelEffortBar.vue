@@ -45,7 +45,7 @@ onMounted(() => {
 
 <template>
   <div class="model-effort-bar">
-    <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
+    <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档 Beta">
       <Cpu :size="12" />
       <select
         ref="modelSelect"

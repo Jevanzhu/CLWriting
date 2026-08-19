@@ -70,7 +70,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'relations' }"
-        data-tip="角色关系图"
+        data-tip="角色关系图 Beta"
         @click="ws.setActiveView('relations')"
       >
         <Share2 :size="20" />
@@ -79,7 +79,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'onboard' }"
-        data-tip="开书对话（分步生成设定）"
+        data-tip="开书对话 Beta"
         @click="ws.setActiveView('onboard')"
       >
         <Compass :size="20" />
@@ -87,7 +87,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'workbench' }"
-        data-tip="工作台（AI 写作）"
+        data-tip="AI 工作台 Beta"
         @click="ws.setActiveView('workbench')"
       >
         <Wrench :size="20" />
@@ -95,7 +95,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.activeView === 'style' }"
-        data-tip="文风（条目库 / 候选箱 / 基准）"
+        data-tip="文风 Beta"
         @click="ws.setActiveView('style')"
       >
         <Feather :size="20" />

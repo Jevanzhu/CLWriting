@@ -10,7 +10,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 // 面包屑当前视图名：按 activeView 映射中文，切视图跟随（ribbon 点哪 Crumb 显哪）。
 const VIEW_LABELS: Record<string, string> = {
   editor: '编辑',
-  workbench: '工作台',
+  workbench: 'AI 工作台',
   onboard: '开书',
   overview: '总览',
   relations: '关系图',

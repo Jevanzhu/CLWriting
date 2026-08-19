@@ -5,6 +5,7 @@
 import { Search, Crosshair, Sparkles } from 'lucide-vue-next'
 import RelationGraph from '../components/relations/RelationGraph.vue'
 import RelationDetail from '../components/relations/RelationDetail.vue'
+import BetaBadge from '../components/ui/BetaBadge.vue'
 import { useRelationGraph } from '../composables/useRelationGraph'
 
 const props = defineProps<{ bookName: string }>()
@@ -25,7 +26,7 @@ const g = useRelationGraph(props.bookName)
       <!-- 顶部工具栏 -->
       <header class="rel-bar">
         <div class="rel-bar-left">
-          <h2 class="rel-title">关系网络</h2>
+          <h2 class="rel-title">关系网络 <BetaBadge /></h2>
           <span class="rel-count">
             <span class="kc">{{ g.visibleNodes.value.length }}</span><template v-if="g.hiddenCount.value > 0">/{{ g.nodeCount.value }}</template> 角色
             <span class="sep">·</span>

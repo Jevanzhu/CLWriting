@@ -11,6 +11,7 @@ import {
 import { getConfig } from '../api/books'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
+import BetaBadge from '../components/ui/BetaBadge.vue'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -154,7 +155,7 @@ onMounted(async () => {
     <section class="ob-hero">
       <div class="hero-top">
         <div class="hero-left">
-          <h1 class="hero-title">开书对话</h1>
+          <h1 class="hero-title">开书对话 <BetaBadge /></h1>
           <span class="hero-sub">分步 AI 生成设定 · 逐确认后保存</span>
         </div>
         <div class="hero-progress">

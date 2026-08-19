@@ -23,6 +23,7 @@ import { useProviderStore } from '../stores/provider'
 import { getConfig } from '../api/books'
 import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
 import EmptyState from '../components/ui/EmptyState.vue'
+import BetaBadge from '../components/ui/BetaBadge.vue'
 import CollapseSection from '../components/ui/CollapseSection.vue'
 import ChatPanel from '../components/panels/ChatPanel.vue'
 import { friendlyError } from '../shared/error'
@@ -476,7 +477,7 @@ const recent = computed(() => wb.log.slice(-200))
     <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
     <section class="card draft-card">
       <div class="card-head">
-        <span>生成正文</span>
+        <span>生成正文 <BetaBadge /></span>
         <span class="muted">{{ draftWords }} 字</span>
       </div>
       <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
