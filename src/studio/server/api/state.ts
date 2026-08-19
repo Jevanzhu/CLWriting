@@ -62,6 +62,9 @@ export function registerStateRoutes(ctx: StateCtx): void {
         kind: config.kind ?? 'long',
         // 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位（前端据此分流按钮）
         resumePoint: d.state === 4 ? d.resumePoint : undefined,
+        // kk-P1-4：连写暂停元状态（M6 #34）透传——buildRecap 已产出但此前在响应组装处被
+        // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
+        ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
       })
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹

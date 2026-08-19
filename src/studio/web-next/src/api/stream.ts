@@ -12,6 +12,9 @@ export interface BookState {
   kind?: string
   /** 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位 */
   resumePoint?: 'pre-commit' | 'post-commit-residue'
+  /** 连写暂停元状态（M6 #34 / kk-P1-4）：上次批量连写中途停（escalate/failed/aborted）
+   *  且此后未再开批 → 提示从哪章续起；重新开批服务端即清 */
+  batchPause?: { atChapter: number; reason: string; detail: string }
 }
 export async function getState(name: string): Promise<BookState> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/state`)

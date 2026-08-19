@@ -71,7 +71,13 @@ async function onBookTitleChange(): Promise<void> {
   try {
     const res = await renameBook(name, next)
     titleBaseline.value = res.name
-    ui.toast('已保存', 'success')
+    // kk-P1-3：改名成功但事件库迁移失败 → 警告而非静默成功（历史对话/审计暂留在旧名下，
+    // 服务端已保旧库原地完整，重试改名前先处理在跑任务）
+    if (res.eventsMigrationFailed) {
+      ui.toast('已改名，但历史对话/事件的迁移失败了（数据仍完整保留，可重试改名恢复关联）', 'error')
+    } else {
+      ui.toast('已保存', 'success')
+    }
     if (res.renamed && res.name !== name) {
       // 全量切换：路由换新名 → Book.vue watch 统一清 store / 载 prefs / seed 对话
       router.replace(`/book/${encodeURIComponent(res.name)}`)

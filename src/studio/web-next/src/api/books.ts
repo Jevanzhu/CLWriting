@@ -61,11 +61,14 @@ export async function postBaseline(name: string, baseline: number): Promise<void
 // POST /api/books/:name/rename { name } → 全量改名（磁盘目录 + books.jsonl 登记 + active 指针 +
 // book.yaml title 一起同步）。renamed=false = 同名 no-op（仅 title 回正）；true = 目录已搬家，
 // 前端须把当前书切换到新名（res.name），否则旧名 URL 全部失效。
+// eventsMigrationFailed=true（kk-P1-3）：会话/事件库迁移失败（旧库原地完整保留在旧名 hash 下，
+// 数据可找回但不再随新名可达）——改名成功与迁移失败可并存，UI 须出警告而非静默成功。
 export interface RenameBookResult {
   ok: true
   renamed: boolean
   name: string
   path: string
+  eventsMigrationFailed?: true
 }
 export async function renameBook(name: string, newName: string): Promise<RenameBookResult> {
   return apiJson<RenameBookResult>(`/api/books/${encodeURIComponent(name)}/rename`, {
