@@ -354,6 +354,8 @@ async function doClear(): Promise<void> {
 </template>
 
 <style scoped>
+/* 变量纪律：只引 tokens.css 既有 token（此前 --text-dim/--bg-elev/--border/--bg/--text
+ * 等短名变量全库无定义，静默回退 initial——已按语义映射到 Obsidian 命名体系）。 */
 .audit-scroll {
   max-width: 980px;
   margin: 0 auto;
@@ -381,7 +383,7 @@ async function doClear(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 .reload-btn {
@@ -390,9 +392,9 @@ async function doClear(): Promise<void> {
   gap: 5px;
   padding: 5px 12px;
   border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
   cursor: pointer;
   font-size: 0.82rem;
 }
@@ -415,7 +417,7 @@ async function doClear(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--danger, #d35400);
+  color: var(--text-error);
   margin-bottom: var(--size-4-3);
 }
 .tabbar {
@@ -429,15 +431,15 @@ async function doClear(): Promise<void> {
   gap: 5px;
   padding: 6px 14px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text-dim);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.85rem;
 }
 .tabbar button.on {
-  background: var(--accent);
-  color: var(--accent-contrast, #fff);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 .tab-total {
   margin-left: 5px;
@@ -455,7 +457,7 @@ async function doClear(): Promise<void> {
   flex-wrap: wrap;
 }
 .pager-hint {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.78rem;
 }
 .load-more {
@@ -464,9 +466,9 @@ async function doClear(): Promise<void> {
   gap: 5px;
   padding: 5px 14px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
   cursor: pointer;
   font-size: 0.8rem;
 }
@@ -490,15 +492,15 @@ async function doClear(): Promise<void> {
   gap: 4px;
   padding: 3px 10px;
   border-radius: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--background-modifier-border);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.75rem;
 }
 .seg button.on {
-  background: var(--accent);
-  color: var(--accent-contrast, #fff);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
   border-color: transparent;
 }
 .diff-list, .ev-list {
@@ -512,16 +514,16 @@ async function doClear(): Promise<void> {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
   font-size: 0.82rem;
 }
 .diff-row.shadowed {
   opacity: 0.55;
-  background: var(--bg);
+  background: var(--background-primary);
 }
 .seq, .ev-seq {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   min-width: 2.4em;
 }
@@ -532,57 +534,63 @@ async function doClear(): Promise<void> {
   text-transform: capitalize;
   font-size: 0.72rem;
 }
-.kind { color: var(--text-dim); font-size: 0.72rem; }
+.kind { color: var(--text-muted); font-size: 0.72rem; }
 .preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shadowed-mark {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: var(--danger, #d35400);
+  color: var(--text-error);
   font-size: 0.7rem;
 }
 .ev-row {
-  border: 1px solid var(--border);
+  border: 1px solid var(--background-modifier-border);
   border-radius: 7px;
-  background: var(--bg-elev);
+  background: var(--background-secondary);
   padding: 4px 10px;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 0.82rem;
   flex-wrap: wrap;
+  /* 列表渲染上限（起步方案）：「加载更多」跨页累积无上限，长书几千行全量布局会卡；
+   * content-visibility 让视口外行跳过渲染，进视口按需恢复。30px ≈ 未展开行的
+   * 量得高度（13px 字 × 1.5 行距 + 8px 内边距 + 2px 边框），作首渲染前占位；
+   * auto 前缀让浏览器记住实际渲染高度（展开 ev-detail 后不受占位束缚）。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 30px;
 }
 .ev-toggle {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--text-muted);
   display: inline-flex;
   padding: 0;
 }
-.ev-seq.shadowed { color: var(--danger, #d35400); }
+.ev-seq.shadowed { color: var(--text-error); }
 .ev-type {
-  font-family: var(--font-mono);
-  color: var(--accent);
+  font-family: var(--font-monospace);
+  color: var(--text-accent);
   font-size: 0.74rem;
 }
-.ev-type.shadowed { color: var(--text-dim); text-decoration: line-through; }
+.ev-type.shadowed { color: var(--text-muted); text-decoration: line-through; }
 .ev-op {
   font-size: 0.68rem;
   padding: 1px 6px;
   border-radius: 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--background-modifier-border);
 }
-.ev-op.replace { color: var(--danger, #d35400); border-color: var(--danger, #d35400); }
-.ev-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.ev-op.replace { color: var(--text-error); border-color: var(--text-error); }
+.ev-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .ev-shadow, .ev-lineage {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   font-size: 0.7rem;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
-.ev-shadow { color: var(--danger, #d35400); }
+.ev-shadow { color: var(--text-error); }
 .ev-detail {
   flex-basis: 100%;
   padding: 6px 0 4px;
@@ -592,14 +600,14 @@ async function doClear(): Promise<void> {
   max-height: 200px;
   overflow: auto;
   font-size: 0.72rem;
-  background: var(--bg);
+  background: var(--background-primary);
   border-radius: 6px;
   padding: 8px;
   white-space: pre-wrap;
   word-break: break-all;
 }
-.lineage-note { font-size: 0.72rem; color: var(--text-dim); margin: 4px 0 0; }
-.empty { color: var(--text-dim); font-size: 0.82rem; padding: 8px; }
+.lineage-note { font-size: 0.72rem; color: var(--text-muted); margin: 4px 0 0; }
+.empty { color: var(--text-muted); font-size: 0.82rem; padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
 
 /* F5：当前 goal/todo 面板 */
@@ -615,8 +623,8 @@ async function doClear(): Promise<void> {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
   font-size: 0.82rem;
   flex-wrap: wrap;
 }
@@ -624,15 +632,15 @@ async function doClear(): Promise<void> {
   font-size: 0.72rem;
   padding: 1px 8px;
   border-radius: 9px;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
   white-space: nowrap;
 }
-.goal-state[data-state='active'] { color: var(--accent); border-color: var(--accent); }
-.goal-state[data-state='blocked'] { color: var(--danger, #d35400); border-color: var(--danger, #d35400); }
-.goal-state[data-state='complete'] { color: var(--color-green, #3e9e51); border-color: var(--color-green, #3e9e51); }
+.goal-state[data-state='active'] { color: var(--text-accent); border-color: var(--text-accent); }
+.goal-state[data-state='blocked'] { color: var(--text-error); border-color: var(--text-error); }
+.goal-state[data-state='complete'] { color: var(--dv-good); border-color: var(--dv-good); }
 .goal-title { font-weight: 600; }
-.goal-meta { color: var(--text-dim); font-size: 0.75rem; }
+.goal-meta { color: var(--text-muted); font-size: 0.75rem; }
 .todo-list {
   display: flex;
   flex-wrap: wrap;
@@ -642,10 +650,10 @@ async function doClear(): Promise<void> {
   font-size: 0.78rem;
   padding: 3px 10px;
   border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
 }
-.todo-item[data-state='completed'] { color: var(--text-dim); }
-.todo-item[data-state='in_progress'] { border-color: var(--accent); }
+.todo-item[data-state='completed'] { color: var(--text-muted); }
+.todo-item[data-state='in_progress'] { border-color: var(--text-accent); }
 </style>

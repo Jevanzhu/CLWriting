@@ -89,7 +89,7 @@ describe('E2: route schema 单点声明', () => {
     srv.close()
   })
 
-  it('AA-P3-10: 路径参数损坏 % 编码 → 400 {error} 信封（不再 500）', async () => {
+  it('AA-P3-10: 路径参数损坏 % 编码 → 400 统一信封（不再 500）', async () => {
     // decodeURIComponent('%E4%') 抛 URIError——此前 decode 在 handler try 外，
     // URIError 逃出 dispatch → 外层 catch → 500；现 decode 入 try，解析失败归 400。
     const srv = createServer((req, res) => { void dispatch(req, res) })
@@ -100,7 +100,8 @@ describe('E2: route schema 单点声明', () => {
       body: JSON.stringify({ n: 1 }),
     })
     expect(resp.status).toBe(400)
-    expect(await resp.json()).toEqual({ error: '路径参数编码无效' })
+    // hh §八-12：错误信封统一 {code, error}
+    expect(await resp.json()).toEqual({ code: 'BAD_PATH', error: '路径参数编码无效' })
     srv.close()
   })
 
@@ -115,9 +116,9 @@ describe('E2: route schema 单点声明', () => {
       const srv = createServer((req, res) => { void dispatch(req, res) })
       const port = await listen(srv)
       const resp = await fetch(`http://127.0.0.1:${port}/e2/boom`)
-      // 客户端只见 500 信封（敏感 detail 不外泄）
+      // 客户端只见 500 信封（敏感 detail 不外泄）；hh §八-12 统一 {code, error}
       expect(resp.status).toBe(500)
-      expect(await resp.json()).toEqual({ error: '内部错误' })
+      expect(await resp.json()).toEqual({ code: 'ERROR', error: '内部错误' })
       // server 侧日志：前缀 + method + url + 原始异常
       expect(errSpy).toHaveBeenCalledTimes(1)
       const [prefix, method, url, err] = errSpy.mock.calls[0]!

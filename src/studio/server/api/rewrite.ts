@@ -13,16 +13,14 @@
  * diff 行级 LCS 自写(YAGNI,~50 行)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
-import { readManifest } from '../../../document/manifest.js'
 import { readDraft } from '../../../format/draft.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
 import {
@@ -65,9 +63,8 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
   route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')
     if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在改写中，请等待完成后再试' })
@@ -80,9 +77,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
       const append = reqBody['append'] === true
 
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      const m = resolveDocEntry(bookRoot, docId)
       if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
@@ -130,13 +127,12 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   // 改稿轨迹采集（文风S2）：作者接受改写时前端上报 AI 版全文 → 旁路 ref。
   // 只写 ref 不碰正文（「AI 永不落盘正文」红线不破）；失败静默——轨迹是旁路证据，不阻断接受。
   route('POST', '/api/books/:name/documents/:docId/ai-version', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const reqBody = await readJson(req)
     const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
     if (!content.trim()) return reply(res, 400, { code: 'BAD_INPUT', error: 'content 为空' })
-    const ref = recordAiVersion(join(ctx.workDir, entry.path), params['docId'] ?? '', content)
+    const ref = recordAiVersion(r.bookRoot, params['docId'] ?? '', content)
     reply(res, 200, { ok: true, recorded: ref !== null })
   })
 }

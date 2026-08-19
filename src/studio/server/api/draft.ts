@@ -12,8 +12,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readKind } from '../../../format/kind.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -31,19 +31,18 @@ interface DraftCtx {
 
 export function registerDraftRoutes(ctx: DraftCtx): void {
   route('POST', '/api/books/:name/draft-save', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
     if (!Number.isInteger(chapter) || chapter < 1) {
-      return reply(res, 400, { error: 'chapter 需为正整数' })
+      return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
     }
     const content = typeof body['content'] === 'string' ? (body['content'] as string) : ''
-    if (!content.trim()) return reply(res, 400, { error: 'content 为空' })
+    if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     let saved: ReturnType<typeof saveDraft>
     try {
       saved = saveDraft(bookRoot, chapter, content)
@@ -52,7 +51,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
       console.error('[api] 落盘失败:', e)
-      return reply(res, 500, { error: '落盘失败' })
+      return replyError(res, 500, 'IO', '落盘失败')
     }
     reply(res, 200, {
       ok: true,
@@ -65,13 +64,12 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn
   route('GET', '/api/books/:name/draft-prompt', (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const url = new URL(req.url ?? '/', 'http://localhost')
     const chapter = Number(url.searchParams.get('chapter') ?? '1')
-    if (!Number.isInteger(chapter) || chapter < 1) return reply(res, 400, { error: 'chapter 需为正整数' })
-    const bookRoot = join(ctx.workDir, entry.path)
+    if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+    const bookRoot = r.bookRoot
     // P1 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
     const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath ?? null)
     reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config) })

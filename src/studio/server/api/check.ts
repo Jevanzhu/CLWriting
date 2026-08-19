@@ -11,13 +11,11 @@
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply } from '../http.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
-import { readBooks } from '../../../install/books.js'
-import { readManifest } from '../../../document/manifest.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import {
   runCheckForDocument,
@@ -43,13 +41,12 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/check',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      const m = resolveDocEntry(bookRoot, docId)
       if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 
       const absPath = safeManifestPath(bookRoot, m.path)
@@ -76,11 +73,10 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     'GET',
     '/api/books/:name/tree-issues',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
       const { issues, rebuildFailed } = collectTreeIssues(bookRoot, (docId) => {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')

@@ -14,10 +14,9 @@
  * - 纯只读（重放纯函数），不产生副作用。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { defineRoute } from './schema.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { openSessionStore, type SessionStore } from '../../../events/store.js'
 import { loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
 import { buildBranchTree, defaultBranchId, selectBranch } from '../../../events/branch-tree.js'
@@ -65,11 +64,10 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
     method: 'GET',
     path: '/api/books/:name/chat/history',
     handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { error: '没有这本书：' + params['name'] })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       // userData 为空（无事件库）→ 空 messages，不报错（对话区留白可正常发起新对话）
       if (!ctx.userDataPath) return reply(res, 200, { messages: [], seqs: [], branchId: null })
 

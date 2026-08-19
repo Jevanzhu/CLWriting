@@ -27,10 +27,18 @@ import type {
   ContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded, lookupDegraded, modelConfOf } from './store.js'
+import { modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
-import { httpStatusToCode, headerErrorFields } from './failure.js'
+import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+
+/** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
+const toErrorEvent = makeToErrorEvent({
+  APIError: OpenAI.APIError,
+  APIUserAbortError: OpenAI.APIUserAbortError,
+  APIConnectionError: OpenAI.APIConnectionError,
+  label: 'OpenAI API',
+})
 
 /** tool_use 往返：user 的 tool_result → function_call_output 输出项（call_id 关联） */
 function toolOutputItem(toolUseId: string, content: string): Record<string, unknown> {
@@ -199,44 +207,21 @@ export function createOpenAIResponsesProvider(
         return { type: 'done', usage, stopReason }
       }
 
-      // 400 降级链（缺口 14，照 openai-adapter 当前实现）：structured → tools 两级剥除；
-      // 降级命中写记忆（providers.json modelCaps 槽），下次首发即剥。
-      const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
-      // D2：优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照）；
-      // 未注册查通道（单测直连适配器）→ 回落捕获 store 快照
-      const degraded = degradedKey
-        ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
-        : undefined
-      const stripStructured =
-        req.structured && q.structuredMode !== 'none' ? ({ ...req, structured: undefined } as GenRequest) : null
-      const stripTools = req.tools?.length
-        ? ({ ...req, tools: undefined, toolChoice: undefined, toolName: undefined } as GenRequest)
-        : null
-      let attempts: GenRequest[]
-      if (stripStructured && stripTools) {
-        attempts = degraded ? [stripStructured, stripTools] : [req, stripStructured, stripTools]
-      } else if (stripStructured) {
-        attempts = degraded ? [stripStructured] : [req, stripStructured]
-      } else if (stripTools) {
-        attempts = [req, stripTools]
-      } else {
-        attempts = [req]
-      }
+      // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
+      // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
+      // 判据 q.structuredMode 是 responsesQuirksFor 的 responsesWire 覆盖值（与 text.format
+      // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留（照搬原实现口径）。
+      const plan = buildDegradeAttempts(req, q.structuredMode, conf, store)
 
       try {
         let lastErr: unknown = null
-        for (const attempt of attempts) {
+        for (const attempt of plan.attempts) {
           try {
             const stream = await c.responses.create(
               toParams(conf, attempt) as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
               { signal },
             )
-            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因）；
-            // 剥 tools 的 attempt 不写 structured 记忆（归因不同，防污染）
-            if (attempt !== req && attempt === stripStructured && degradedKey) {
-              if (store) store.modelCaps[degradedKey] = { structured: false }
-              persistDegraded(degradedKey)
-            }
+            markStructuredDegrade(plan, attempt, store)
 
             // 分块拼装中的 function call：item_id → { callId, name, args }
             // （P2 复审：声明在 attempt 循环内每次新建——mid-stream 400 降级续跑时，
@@ -328,15 +313,18 @@ export function createOpenAIResponsesProvider(
                 case 'response.failed': {
                   terminal = 'failed'
                   // R1（缺口 1）：failed → error 不发 done（此前落穿被流结束兜底伪装成
-                  // done{stop, 0/0}）；message 脱敏后带上
+                  // done{stop, 0/0}）；message 脱敏后带上。
+                  // code：流中 failed 属协议层异常，无 HTTP status 可归因 → 与 toErrorEvent
+                  // 兜底同码 'PROTOCOL'（vendor 的 response.error.code 是自由字符串，无
+                  // GenErrorCode 映射表，不猜）
                   const msg = event.response.error?.message ?? `response.failed (status=${event.response.status ?? 'unknown'})`
-                  yield { type: 'error', message: redactSecret(msg), retryable: false }
+                  yield { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
                   return
                 }
                 case 'error': {
-                  // SDK 流中错误事件（网关 mid-stream error）——同 failed 处理
+                  // SDK 流中错误事件（网关 mid-stream error）——同 failed 处理，code 同上
                   terminal = 'failed'
-                  yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false }
+                  yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false, code: 'PROTOCOL' }
                   return
                 }
               }
@@ -361,8 +349,7 @@ export function createOpenAIResponsesProvider(
             }
             return
           } catch (e) {
-            // 非最后 attempt 的 400 → 尝试下一参数面；最后一个 400 透传原文
-            if (e instanceof OpenAI.APIError && e.status === 400 && attempt !== attempts[attempts.length - 1]) {
+            if (isMidChain400(e, OpenAI.APIError, attempt, plan)) {
               lastErr = e
               continue
             }
@@ -377,36 +364,9 @@ export function createOpenAIResponsesProvider(
   }
 }
 
+
 /** 归一化 baseUrl（方案 §4.5 P0）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }
 
-/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏；A5 附结构化 code） */
-function toErrorEvent(e: unknown): GenEvent {
-  // P2-AI-4：APIUserAbortError extends APIError（status undefined），须前置判定
-  if (e instanceof OpenAI.APIUserAbortError) {
-    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
-  }
-  // A5：连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
-  if (e instanceof OpenAI.APIConnectionError) {
-    return { type: 'error', message: redactSecret(e.message), retryable: false, code: 'NETWORK' }
-  }
-  if (e instanceof OpenAI.APIError) {
-    const retryable = e.status === 429 || (e.status ?? 0) >= 500
-    return {
-      type: 'error',
-      message: redactSecret(`OpenAI API ${e.status}: ${e.message}`),
-      retryable,
-      code: httpStatusToCode(e.status, e.message),
-      ...(e.status !== undefined ? { status: e.status } : {}),
-      ...headerErrorFields(e.headers),
-      ...(e.requestID ? { requestId: e.requestID } : {}),
-    }
-  }
-  if (e instanceof Error && e.name === 'AbortError') {
-    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
-  }
-  const msg = e instanceof Error ? e.message : String(e)
-  return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
-}

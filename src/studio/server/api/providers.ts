@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson, reply, HttpError } from '../http.js'
+import { readJson, reply, HttpError, replyError } from '../http.js'
 import {
   loadProviders,
   saveProviders,
@@ -36,7 +36,7 @@ interface ProvidersCtx {
 export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // 列表（key 遮蔽）
   route('GET', '/api/providers', (_req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
       providers: s.providers.map(maskProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
@@ -49,16 +49,16 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 新增
   route('POST', '/api/providers', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const parsed = parseProviderInput(body)
-    if (!parsed.ok) return reply(res, 400, { error: parsed.error })
+    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
     // D10：新增时 apiKey 必填（编辑时留空 = 保留原 key）
-    if (!parsed.apiKey) return reply(res, 400, { error: 'apiKey 必填' })
+    if (!parsed.apiKey) return replyError(res, 400, 'BAD_INPUT', 'apiKey 必填')
 
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(body['expectedRevision'], s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const conf: ProviderConf = {
       id: newProviderId(),
       name: parsed.name,
@@ -80,19 +80,19 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
   route('PUT', '/api/providers/current', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const id = String(body['id'] ?? '')
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(body['expectedRevision'], s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const target = id ? s.providers.find((p) => p.id === id) : undefined
     if (id && !target) {
-      return reply(res, 404, { error: '供应商不存在' })
+      return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
     }
     // P2-6：未探测不许启用——服务端校验 caps（前端守卫可绕过）
     if (target && !target.caps) {
-      return reply(res, 400, { error: `供应商「${target.name}」尚未测试连接，请先探测能力` })
+      return replyError(res, 400, 'BAD_INPUT', `供应商「${target.name}」尚未测试连接，请先探测能力`)
     }
     s.currentId = id || null
     saveProviders(ctx.userDataPath, s)
@@ -102,29 +102,29 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
   route('PUT', '/api/tiers', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const creativeRaw = body['creative']
     if (typeof creativeRaw !== 'object' || creativeRaw === null) {
-      return reply(res, 400, { error: 'creative 档位必填' })
+      return replyError(res, 400, 'BAD_INPUT', 'creative 档位必填')
     }
     const creative = parseTierSlot(creativeRaw as Record<string, unknown>)
-    if (!creative.ok) return reply(res, 400, { error: creative.error })
+    if (!creative.ok) return replyError(res, 400, 'BAD_INPUT', creative.error)
 
     let assistant: TierSlot | null = null
     const assistantRaw = body['assistant']
     if (assistantRaw !== null && assistantRaw !== undefined) {
       if (typeof assistantRaw !== 'object') {
-        return reply(res, 400, { error: 'assistant 档位需为对象或 null' })
+        return replyError(res, 400, 'BAD_INPUT', 'assistant 档位需为对象或 null')
       }
       const a = parseTierSlot(assistantRaw as Record<string, unknown>)
-      if (!a.ok) return reply(res, 400, { error: a.error })
+      if (!a.ok) return replyError(res, 400, 'BAD_INPUT', a.error)
       assistant = a.slot
     }
 
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(body['expectedRevision'], s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     s.tiers = { creative: creative.slot, assistant, chat: s.tiers.chat }
     // 同步 currentModel（兼容 resolveTier 回落逻辑）
     s.currentModel = creative.slot.model || null
@@ -137,25 +137,25 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
   // caps 探测改异步不阻塞（结果经后续 GET /providers 刷新）
   route('PUT', '/api/tiers/chat', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
 
     // null / {clear:true} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision
     if (body === null || body === undefined || body['clear'] === true) {
       const s = loadProviders(ctx.userDataPath)
       const revErr = revisionError(body?.['expectedRevision'], s.revision)
-      if (revErr) return reply(res, 409, { error: revErr })
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       s.tiers = { ...s.tiers, chat: null }
       saveProviders(ctx.userDataPath, s)
       return reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
     }
 
     const parsed = parseTierSlot(body as Record<string, unknown>)
-    if (!parsed.ok) return reply(res, 400, { error: parsed.error })
+    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
 
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(body['expectedRevision'], s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     s.tiers = { ...s.tiers, chat: parsed.slot }
     saveProviders(ctx.userDataPath, s)
 
@@ -165,19 +165,19 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 编辑
   route('PUT', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
     // dd-P2：读 body 先于 loadProviders——load→mutate→save 三段必须同步无 await
     //（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
     const body = await readJson(req)
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(body['expectedRevision'], s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const idx = s.providers.findIndex((p) => p.id === id)
-    if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
+    if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
 
     const parsed = parseProviderInput(body)
-    if (!parsed.ok) return reply(res, 400, { error: parsed.error })
+    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
 
     const existing = s.providers[idx]!
     // apiKey 为空 = 不改（保留原 key）
@@ -214,15 +214,15 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 删除
   route('DELETE', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
     // P4：DELETE 无 body 常规场景容错——有 body 才读 expectedRevision（旧客户端/脚本无 body 放行）
     const expected = await readExpectedRevisionOrNull(req)
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(expected, s.revision)
-    if (revErr) return reply(res, 409, { error: revErr })
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const idx = s.providers.findIndex((p) => p.id === id)
-    if (idx < 0) return reply(res, 404, { error: '供应商不存在' })
+    if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
     s.providers.splice(idx, 1)
     if (s.currentId === id) {
       // P2：回落首项也需校验 caps（与 PUT current 一致——未探测不许启用）
@@ -241,7 +241,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
   // 获取模型列表（新建传 protocol+baseUrl+apiKey；编辑传 id 用已存储凭据）
   route('POST', '/api/providers/models', async (req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     let protocol: Protocol
     let baseUrl: string
@@ -250,7 +250,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (typeof body['id'] === 'string' && body['id']) {
       const s = loadProviders(ctx.userDataPath)
       const p = s.providers.find((x) => x.id === body['id'])
-      if (!p) return reply(res, 404, { error: '供应商不存在' })
+      if (!p) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
       protocol = p.protocol
       baseUrl = p.baseUrl
       apiKey = p.apiKey
@@ -261,18 +261,18 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       apiKey = typeof body['apiKey'] === 'string' ? body['apiKey'] : ''
       auth = (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy
     }
-    if (!baseUrl || !apiKey) return reply(res, 400, { error: 'API 地址和 Key 必填' })
+    if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
     try {
       const models = await listModels(protocol, baseUrl, apiKey, auth)
       reply(res, 200, { models })
     } catch (e) {
       // P2-4：错误脱敏
-      reply(res, 500, { error: `获取模型列表失败：${redactSecret(e instanceof Error ? e.message : String(e))}` })
+      replyError(res, 500, 'GEN_FAIL', `获取模型列表失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
     }
   })
 
   route('POST', '/api/providers/:id/test', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到应用数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
 
     try {
@@ -284,7 +284,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       }
       const snapshot = loadProviders(ctx.userDataPath)
       const conf = snapshot.providers.find((p) => p.id === id)
-      if (!conf) return reply(res, 404, { error: '供应商不存在' })
+      if (!conf) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
       const probeModel = typeof body['model'] === 'string' && body['model']
         ? body['model'] : (snapshot.currentModel ?? conf.model)
       const { caps, details } = await probeCapabilities({ ...conf, model: probeModel })
@@ -300,8 +300,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（P4 竞态）
       reply(res, 200, { ok: true, caps, details, revision: s2.revision })
     } catch (e) {
-      // P2-4：错误脱敏
-      reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
+      // P2-4：错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
+      replyError(res, 500, 'GEN_FAIL', redactSecret(e instanceof Error ? e.message : String(e)))
     }
   })
 }

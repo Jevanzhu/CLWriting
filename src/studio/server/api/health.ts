@@ -7,7 +7,7 @@
  * 空书（count=0）照常返对象，前端渲染空态。
  */
 import { route } from '../router.js'
-import { reply } from '../http.js'
+import { reply, replyError } from '../http.js'
 import { readKind, resolveBook } from '../book-context.js'
 import { scanChapters, aggregateStyleTrend, readBaseline } from '../../../metrics/style.js'
 
@@ -20,7 +20,7 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
   // 文风
   route('GET', '/api/books/:name/health/style', (_req, res, params) => {
     const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return reply(res, r.status, { error: r.error })
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const kind = readKind(r.bookRoot)
     const samples = scanChapters(r.bookRoot)
     reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))

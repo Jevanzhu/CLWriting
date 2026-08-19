@@ -8,7 +8,7 @@
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Test](https://img.shields.io/badge/tests-2390%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
+[![Test](https://img.shields.io/badge/tests-2418%20all%20green-4FC08D?logo=vitest&logoColor=white)](#-项目状态)
 [![Deps](https://img.shields.io/badge/AI%20provider-Anthropic%20%2B%20OpenAI%20%2B%20Responses-e879f9)](#%EF%B8%8F-技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Status](https://img.shields.io/badge/status-v1.0%20RC%20candidate-orange)](#-项目状态)
@@ -27,6 +27,7 @@ AI 负责写和审，脚本负责数和记，作者只做三件事：**确认细
 - [快速开始](#-快速开始)
 - [工作流](#-工作流)
 - [作者交互面](#-作者交互面)
+- [本机安全模型](#-本机安全模型)
 - [技术栈](#%EF%B8%8F-技术栈)
 - [项目状态](#-项目状态)
 
@@ -80,8 +81,8 @@ npm run dev:app
 ```bash
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面构建 + 前端构建
-npm test                   # 2390 单测
-npm run test:e2e           # Playwright e2e（mock 驱动，25 specs / 38 用例）
+npm test                   # 2418 单测
+npm run test:e2e           # Playwright e2e（mock 驱动，26 specs / 39 用例）
 npm run dev:api            # Studio API :7878（配合 dev:web 前端调试）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
 npm run dev:electron       # 构建后起 Electron（非 HMR）
@@ -159,6 +160,26 @@ budget:
 
 ---
 
+## 🔒 本机安全模型
+
+Studio 桌面应用 = 前端页面 + 一个本机 HTTP 服务。服务只监听**本机回环地址**
+（`127.0.0.1`，也接受 `localhost` / `::1`；传入非回环监听地址会直接启动报错），
+不对局域网 / 外网开放。对远端网页（跨站脚本、DNS rebinding）的防线：
+
+| 防线 | 机制 |
+|---|---|
+| 回环监听 | 仅绑定本机回环地址，非回环监听地址启动即拒绝（fail-fast）。 |
+| Host 头校验 | 请求 Host 必须精确匹配「本机回环地址 + 实际监听端口」，否则 403——切断 DNS rebinding（攻击域名二次解析到 127.0.0.1 后借同源 GET 读书稿）。 |
+| Origin 白名单 | CORS 只放行白名单 Origin（实际监听 origin；开发态 Vite 5173 仅显式设 `CLW_DEV_UI` / `CLW_DEV_CORS` 时注入）；非白名单 Origin 的预检与写请求一律 403。 |
+| 写端点令牌 | POST / PUT / DELETE / PATCH 双闸：Origin 校验 + `x-studio-token` 会话令牌（启动时随机生成，恒时比较），跨站伪造写被双拦。 |
+| SSE 订阅令牌 | EventSource 不走写拦截，SSE 流单独校验 query `token`，把可订阅面收敛到拿到启动令牌的客户端，防远端网页窃听创作内容。 |
+
+**信任边界**：GET 读路径不校验令牌是设计口径而非遗漏——**本机进程与 Studio 同信任域**
+（本机进程 `GET /api/boot` 即可拿到会话令牌），本安全模型不承诺防御本机上的其他进程；
+令牌 + Host / Origin 校验防的是远端网页。API Key 的加密存储另见「凭据安全」。
+
+---
+
 ## 🛠️ 技术栈
 
 | 项 | 选择 |
@@ -173,7 +194,7 @@ budget:
 | AI 编排 | `runTask` 统一编排层：任务档位（创作 / 助手）、韧性重试、首字节超时、计量闸 |
 | 凭据 | Vault 信封加密（HKDF-SHA256 → AES-256-GCM）+ 原子写 + 备份 |
 | 构建 | tsup（桌面主进程）+ Vite（前端） |
-| 测试 | vitest（2390 单测）+ Playwright（25 specs / 38 用例） |
+| 测试 | vitest（2418 单测）+ Playwright（26 specs / 39 用例） |
 
 设计红线：
 
@@ -202,7 +223,7 @@ budget:
 | 文风系统 | 已完成 | 条目模型 + 四源管线，StyleView 四段式。 |
 | AI Harness | 已完成 | 内核重整：fake provider + trace + 规则命中统计 + 作者信号 + 自愈闭环。 |
 
-- **264 个测试文件 / 2390 单测全绿 + 25 个 e2e spec / 38 用例**，`tsc --noEmit` 与 `vue-tsc` 双端通过，`build:all` 构建通过。
+- **266 个测试文件 / 2418 单测全绿 + 26 个 e2e spec / 39 用例**，`tsc --noEmit` 与 `vue-tsc` 双端通过，`build:all` 构建通过。
 - 短篇全流程定稿验证已通过；AI 产出经 tool_use 结构化约束，front matter 零漂移。
 - 作者侧全程自然语言：设置里添加供应商 → 测试连接 → 全自动写章 / 编辑器写作 / 三审 / 定稿，零命令行。
 - 架构红线：**不再 spawn 任何 CLI 子进程**；全部 AI 流量经 provider 直连，确定性操作直接 import 内核模块。

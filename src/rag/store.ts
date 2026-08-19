@@ -1,11 +1,12 @@
 /**
  * RAG 向量存取 —— 依据 M7 #37 spec 第 3/4/5 节。
  *
- * per-book .rag.db 生命周期 + 向量 BLOB 序列化 + 余弦召回。
+ * per-book RAG 库（.cache/rag.db）生命周期 + 向量 BLOB 序列化 + 余弦召回。
  * 纯 node:sqlite + 纯 JS 余弦（零依赖，不引向量索引库）。
  */
 
 import { DatabaseSync } from 'node:sqlite'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
 
@@ -41,10 +42,60 @@ export function bufferToFloat32(blob: Uint8Array): Float32Array {
   return new Float32Array(bytes.buffer)
 }
 
-/** 打开 per-book .rag.db（书仓库内，gitignore，独立 .cache） */
+/** RAG 库落点（书仓库 .cache/ 派生缓存区，与 index.db 同惯例——hh §八-11 迁入） */
+function newRagDbPath(bookRoot: string): string {
+  return join(bookRoot, '.cache', 'rag.db')
+}
+
+/** 旧版落点（书根裸 .rag.db）——只作迁移探测，不再往这里新建 */
+function legacyRagDbPath(bookRoot: string): string {
+  return join(bookRoot, '.rag.db')
+}
+
+/** RAG 库是否已建（新路径或未迁移的旧路径任一在即算——status 轮询不误报「未建索引」） */
+export function ragDbExists(bookRoot: string): boolean {
+  return existsSync(newRagDbPath(bookRoot)) || existsSync(legacyRagDbPath(bookRoot))
+}
+
+/**
+ * 解析 RAG 库实际落点（hh §八-11：.rag.db → .cache/rag.db，openRagDb/存在性探测同源）。
+ *
+ * 兼容迁移：旧路径存在且新路径不存在 → 建好 .cache 后 renameSync 旧→新（同目录树
+ * 原子，不拷贝不重写）。新路径已存在则不迁（以新为准，旧文件视为残留不动）。
+ * 迁移失败（.cache 建不成 / rename 抛错，如跨卷 EXDEV、权限）降级：返回旧路径
+ * 继续开旧库——迁移是优化不是功能闸，绝不让建索引/召回因此整体失败。
+ */
+export function resolveRagDbPath(bookRoot: string): string {
+  const dbPath = newRagDbPath(bookRoot)
+  const legacyPath = legacyRagDbPath(bookRoot)
+  if (existsSync(dbPath) || !existsSync(legacyPath)) {
+    // 新库已就位 / 从未建过库：统一走新路径（DatabaseSync 建文件前目录必须在）
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    return dbPath
+  }
+  try {
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    renameSync(legacyPath, dbPath)
+  } catch {
+    return legacyPath
+  }
+  // WAL 侧车（崩溃残留的 -wal/-shm）随主库一并迁走——主库已在新路径，侧车留在旧处
+  // = WAL 里已提交的事务丢失。侧车迁不走不回滚也不改道（回落只会开出空库），尽力而为。
+  for (const ext of ['-wal', '-shm']) {
+    if (existsSync(legacyPath + ext)) {
+      try {
+        renameSync(legacyPath + ext, dbPath + ext)
+      } catch {
+        /* 见上：主库已迁，侧车失败无路可退 */
+      }
+    }
+  }
+  return dbPath
+}
+
+/** 打开 per-book RAG 库（.cache/rag.db，书仓库内派生缓存区） */
 export function openRagDb(bookRoot: string): DatabaseSync {
-  const dbPath = join(bookRoot, '.rag.db')
-  const db = new DatabaseSync(dbPath)
+  const db = new DatabaseSync(resolveRagDbPath(bookRoot))
   // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA busy_timeout = 5000')
@@ -72,7 +123,7 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 /**
  * 读全部块（召回用，全表线性扫描——#37 第 5 节）。
  * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
- * 700 章 / 3.5 万块 / 1536 维（.rag.db ~277MB）单次召回 ~320-350ms，含全表 BLOB 读回 +
+ * 700 章 / 3.5 万块 / 1536 维（rag.db ~277MB）单次召回 ~320-350ms，含全表 BLOB 读回 +
  * 逐块余弦 + 700 章指纹校验；线性外推：1 万块 ~100ms、几千块几十 ms（原「单本几千块 ms 级」
  * 成立）。结论：十万块内线性扫描可用，超出或要求 <100ms 交互时再议 FTS/向量索引（RC，
  * 需先量化收益）——在界值测试退化失败前明确不引索引。

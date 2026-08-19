@@ -17,8 +17,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
 import { rmSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply, readJson } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError, readJson } from '../http.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
@@ -39,7 +38,7 @@ import {
 } from '../../../format/style-candidate.js'
 import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidates } from '../../../process/style-harvest.js'
-import { readKind } from '../book-context.js'
+import { readKind, resolveBook } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
@@ -66,25 +65,22 @@ function insideDir(rel: string, dir: string): boolean {
 }
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
-  const resolveBook = (
+  // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
+  const resolveStyleBook = (
     res: ServerResponse,
     params: Record<string, string | undefined>,
   ): string | null => {
-    if (!ctx.workDir) {
-      reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) {
+      replyError(res, r.status, r.code, r.error)
       return null
     }
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) {
-      reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书:${params['name']}` })
-      return null
-    }
-    return join(ctx.workDir, entry.path)
+    return r.bookRoot
   }
 
   // 条目列表（老书首读自动迁移——幂等，常态 no-op；迁移发生时附结果供 toast）
   route('GET', '/api/books/:name/style/entries', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const migration = migrateStyleLibrary(bookRoot)
     const { entries, errors } = readEntries(join(bookRoot, ENTRIES_DIR))
@@ -98,7 +94,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 新增条目（源4 作者手动：选中存样章/反例、条目库直接新增）
   route('POST', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
     const kind = body['类型']
@@ -123,7 +119,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 删条目（限 文风/条目/ 内）
   route('DELETE', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
@@ -150,7 +146,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 候选列表（状态经 30 天过期呈现；文件不动，已忽略可翻出）
   route('GET', '/api/books/:name/style/candidates', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const t = today()
     const { candidates, errors } = readCandidates(join(bookRoot, CANDIDATES_DIR))
@@ -167,7 +163,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 确认候选 → 条目库
   route('POST', '/api/books/:name/style/candidates/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
@@ -183,7 +179,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 忽略候选（落盘留档）
   route('POST', '/api/books/:name/style/candidates/ignore', async (req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
@@ -198,7 +194,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 收割（零 AI：源1 轨迹比对 + 源2 漂移映射；查重闸保证可重复点）
   route('POST', '/api/books/:name/style/harvest', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const r = harvestStyleCandidates(bookRoot, readKind(bookRoot), today())
     reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
@@ -208,7 +204,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   // 注入强度是喂写作链路的有效值——readBookConfig 结果过 applyGlobalDefaults
   // （书级未设 → global.json styleInjection → 硬编码 'light'；raw 判断归 /config 端点）
   route('GET', '/api/books/:name/style/config', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const rulesFile = join(bookRoot, '文风', '文风铁律.md')
     const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
@@ -227,7 +223,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
 
   // 重新冻结基线（条目库样章按场景算指纹；无样章 → 400 诚实报错）
   route('POST', '/api/books/:name/style/baseline/freeze', (_req: IncomingMessage, res: ServerResponse, params) => {
-    const bookRoot = resolveBook(res, params)
+    const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     try {
       const b = freezeBaseline(bookRoot)

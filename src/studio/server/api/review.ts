@@ -16,14 +16,13 @@ import { join } from 'node:path'
 import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
-import { readBooks } from '../../../install/books.js'
+import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
-import { readManifest } from '../../../document/manifest.js'
 import { runCheckForDocument, checkOutcomeStatus } from './check.js'
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
@@ -82,14 +81,13 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/review',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
       if (!safeDocId(docId)) return reply(res, 400, { code: 'BAD_PATH', error: '文档 ID 非法' })
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      const m = resolveDocEntry(bookRoot, docId)
       if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
@@ -195,16 +193,15 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/review-verdict',
     async (req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const reqBody = await readJson(req)
       const approved = reqBody['approved'] === true
 
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       if (!safeDocId(docId)) return reply(res, 400, { code: 'BAD_PATH', error: '文档 ID 非法' })
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      const m = resolveDocEntry(bookRoot, docId)
       if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 
       // 合并写：保留 collected/lenses（若已三审），覆盖 verdict

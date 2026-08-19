@@ -15,8 +15,8 @@ import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -71,12 +71,11 @@ const STEP_PATH: Record<OnboardStep, string> = {
 
 export function registerOnboardRoutes(ctx: OnboardCtx): void {
   route('POST', '/api/books/:name/onboard-ai', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
     const release = acquireTaskGate(params['name']!, 'onboard-ai')
-    if (!release) return reply(res, 409, { error: '本书已有 AI 设定任务在跑，请等待完成后再试' })
+    if (!release) return replyError(res, 409, 'BUSY', '本书已有 AI 设定任务在跑，请等待完成后再试')
     try {
       const reqBody = await readJson(req)
       const step = String(reqBody['step'] ?? '') as OnboardStep
@@ -86,12 +85,12 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
       const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
       if (!(step in STEP_PATH)) {
-        return reply(res, 400, { error: `step 不支持:${step}` })
+        return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
       }
 
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-      if (!cfgResult.ok) return reply(res, 500, { error: '读 book.yaml 失败' })
+      if (!cfgResult.ok) return replyError(res, 500, 'IO', '读 book.yaml 失败')
       // 全局托底：genre 喂 onboard AI prompt（运行时值）——书级未设回落 global.json
       // defaultGenre → ''，AI 设定生成拿到的是有效题材而非 undefined
       const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
@@ -102,13 +101,13 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
       // realm 仅成长线书
       if (step === 'realm' && !leadsEnabled.includes('成长线')) {
-        return reply(res, 400, { error: 'realm 步仅成长线书(book.yaml leads 未启用成长线)' })
+        return replyError(res, 400, 'BAD_INPUT', 'realm 步仅成长线书(book.yaml leads 未启用成长线)')
       }
 
       const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
 
       const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { error: result.error })
+      if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
 
       const content = result.text || '(空产出)'
       const relPath = STEP_PATH[step]
@@ -117,7 +116,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         atomicWriteFile(join(bookRoot, relPath), content)
       } catch (e) {
         console.error('[api] 落盘:', e)
-        return reply(res, 500, { error: '落盘失败' })
+        return replyError(res, 500, 'IO', '落盘失败')
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
     } finally {
@@ -127,21 +126,20 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
   route('POST', '/api/books/:name/onboard-save', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
     const step = String(body['step'] ?? '') as OnboardStep
-    if (!(step in STEP_PATH)) return reply(res, 400, { error: `step 不支持:${step}` })
+    if (!(step in STEP_PATH)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
     const content = typeof body['content'] === 'string' ? body['content'] : ''
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     const relPath = STEP_PATH[step]
     try {
       mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
       atomicWriteFile(join(bookRoot, relPath), content)
     } catch (e) {
       console.error('[api] 落盘:', e)
-      return reply(res, 500, { error: '落盘失败' })
+      return replyError(res, 500, 'IO', '落盘失败')
     }
     reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
   })

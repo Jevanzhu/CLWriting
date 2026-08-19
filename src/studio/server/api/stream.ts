@@ -12,7 +12,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
 import { defineRoute } from './schema.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
@@ -129,19 +130,18 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const sseName = params['name']!
     const conns = sseConnections.get(sseName) ?? 0
     if (conns >= MAX_SSE_PER_BOOK) {
-      res.writeHead(429)
-      res.end('too many connections')
+      // hh §八-12：SSE 错误路径也走统一 JSON 信封（原裸文本 'too many connections'）——
+      // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
+      replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
       return
     }
     if (!ctx.workDir) {
-      res.writeHead(400)
-      res.end('no workdir')
+      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
     }
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) {
-      res.writeHead(404)
-      res.end('no book')
+    const bookR = resolveBook(ctx.workDir, params['name'])
+    if ('error' in bookR) {
+      replyError(res, bookR.status, bookR.code, bookR.error)
       return
     }
     // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token。
@@ -150,8 +150,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 客户端，配合 Host/Origin 校验（server/index.ts）防远端网页窃听创作内容。
     const queryToken = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? undefined
     if (!safeTokenCompare(queryToken, ctx.studioToken)) {
-      res.writeHead(403)
-      res.end('forbidden')
+      replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
     // 校验通过后才递增连接计数（P1-1：防 early return 路径泄漏计数器致 DoS）
@@ -214,19 +213,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流
   route('POST', '/api/books/:name/spawn', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    // resolveBook 成功 = workDir 非空（null 已在其 error 分支 NO_WORKDIR 覆盖）——
+    // 本文件后续 ctx.workDir! 断言据此成立（ensureSession 的 session.cwd 用 workDir 而非 bookRoot）
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     // RB-SV-P2-1：并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
     const bookName = params['name']!
     if (spawnRunning.has(bookName)) {
-      return reply(res, 409, { error: '本书正在生成，先等它跑完或中断' })
+      return replyError(res, 409, 'BUSY', '本书正在生成，先等它跑完或中断')
     }
     // dd-P2：与全自动写章互斥——/auto-write 已查 spawnRunning，反向此前缺失：
     // self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
     if (isSelfHealRunning(bookName)) {
-      return reply(res, 409, { error: '本书正在全自动写章，先等它跑完或中断' })
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
     spawnRunning.set(bookName, true)
     let launched = false
@@ -236,13 +236,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
       // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
       if (!prompt.trim()) {
-        return reply(res, 400, { error: 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）' })
+        return replyError(res, 400, 'BAD_INPUT', 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）')
       }
       if (prompt.length > 100_000) {
-        return reply(res, 400, { error: 'prompt 过长（上限 10 万字符）' })
+        return replyError(res, 400, 'BAD_INPUT', 'prompt 过长（上限 10 万字符）')
       }
 
-      const mainSession = await ensureSession(bookName, ctx.workDir)
+      const mainSession = await ensureSession(bookName, ctx.workDir!)
       const driver = getDriver('cc')
       launched = true
       // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
@@ -251,7 +251,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         driver,
         mainSession,
         userDataPath: ctx.userDataPath,
-        bookRoot: join(ctx.workDir, entry.path),
+        bookRoot: r.bookRoot,
         prompt,
         role,
       })
@@ -266,14 +266,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 中断当前生成：AbortController.abort() + 推 interrupted，session 保留可再 spawn
   route('POST', '/api/books/:name/interrupt', async (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
     // 先停自愈编排 + 对话编排
     abortSelfHeal(bookName)
     abortChat(bookName)
-    const session = await ensureSession(bookName, ctx.workDir)
+    const session = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver('cc')
     if (driver.interrupt) driver.interrupt(session)
     reply(res, 200, { ok: true })
@@ -282,37 +281,36 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   // 全自动写章(红项自愈闭环):AI 写稿 → 机检 → 红则自动退回重写 → 全绿或触顶交作者。
   // fire-and-forget(与 /spawn 同风格):编排最长可跑十几分钟,进度全程经主 session SSE 回流。
   route('POST', '/api/books/:name/auto-write', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
     // 并发保护（防御双闸之一，Z-P2-5 起与 driver.isRunning 并存）：本闸是编排级内存锁，
     // 覆盖 self-heal 完整生命周期——机检/账本草稿等阶段无在途 LLM 请求，driver.isRunning
     // 仍为 false，只有本闸拦得住重复触发（两个编排器会互相覆写草稿）。生成期两闸重叠冗余，
     // 保留无害：登记受 /interrupt 注销影响存在时序窗口，内存闸始终是可靠口径。
     if (isSelfHealRunning(bookName)) {
-      return reply(res, 409, { error: '本书正在全自动写章,先等它跑完或中断' })
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章,先等它跑完或中断')
     }
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
     if (!Number.isInteger(chapter) || chapter < 1) {
-      return reply(res, 400, { error: 'chapter 需为正整数' })
+      return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
     }
     // P2-3：批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
     const rawBatch = body['batchSize']
     const batchSize = rawBatch === undefined ? 1 : Number(rawBatch)
     if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 20) {
-      return reply(res, 400, { error: 'batchSize 需为 1-20 的整数' })
+      return replyError(res, 400, 'BAD_INPUT', 'batchSize 需为 1-20 的整数')
     }
     const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
 
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
-    const mainSession = await ensureSession(bookName, ctx.workDir)
+    const mainSession = await ensureSession(bookName, ctx.workDir!)
     // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
     if (isSelfHealRunning(bookName)) {
-      return reply(res, 409, { error: '本书正在全自动写章，先等它跑完或中断' })
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
     const driver = getDriver('cc')
     // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
@@ -324,8 +322,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       driver,
       mainSession,
       userDataPath: ctx.userDataPath!,
-      cwd: ctx.workDir,
-      bookRoot: join(ctx.workDir, entry.path),
+      cwd: ctx.workDir!,
+      bookRoot: r.bookRoot,
       bookName,
       chapter,
       ...(chapters ? { chapters } : {}),
@@ -364,13 +362,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       return { message, chapter }
     },
     handler: async ({ params, input }, _req, res) => {
-      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
-      if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
 
-      const mainSession = await ensureSession(bookName, ctx.workDir)
+      const mainSession = await ensureSession(bookName, ctx.workDir!)
       // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
       // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
       const driver = getDriver('cc')
@@ -378,7 +375,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         driver,
         mainSession,
         userDataPath: ctx.userDataPath!,
-        bookRoot: join(ctx.workDir, entry.path),
+        bookRoot: r.bookRoot,
         bookName,
         message: input.message,
         ...(input.chapter !== undefined ? { chapter: input.chapter } : {}),
@@ -390,41 +387,40 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 工具确认：作者点了确认/取消
   route('POST', '/api/books/:name/chat/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     const body = await readJson(req)
     const callId = String(body['callId'] ?? '')
     const ok = Boolean(body['ok'])
-    if (!callId) return reply(res, 400, { error: 'callId 必填' })
+    if (!callId) return replyError(res, 400, 'BAD_INPUT', 'callId 必填')
 
     const found = resolveChatConfirm(bookName, callId, ok)
-    if (!found) return reply(res, 404, { error: '未找到待确认的工具调用（已超时或已取消）' })
+    if (!found) return replyError(res, 404, 'NOT_FOUND', '未找到待确认的工具调用（已超时或已取消）')
     reply(res, 200, { ok: true })
   })
 
   // F1-P4：重新生成上一条回复——parentSeq = 触发 user 的全局 seq，branchId = 变体组
   route('POST', '/api/books/:name/chat/regenerate', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: '没有这本书:' + params['name'] })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
-    if (!ctx.userDataPath) return reply(res, 400, { error: '未定位到用户数据目录' })
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
     const body = await readJson(req)
     const rawParentSeq = Number(body['parentSeq'])
-    if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return reply(res, 400, { error: 'parentSeq 需为正整数' })
+    if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
     const branchId = String(body['branchId'] ?? '').trim()
-    if (!branchId) return reply(res, 400, { error: 'branchId 必填' })
+    if (!branchId) return replyError(res, 400, 'BAD_INPUT', 'branchId 必填')
     const rawChapter = body['chapter']
     const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
-    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return reply(res, 400, { error: 'chapter 需为正整数' })
+    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-    const mainSession = await ensureSession(bookName, ctx.workDir)
+    const mainSession = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver('cc')
     const outcome = sendChatMessage({
       driver,
       mainSession,
       userDataPath: ctx.userDataPath!,
-      bookRoot: join(ctx.workDir, entry.path),
+      bookRoot: r.bookRoot,
       bookName,
       regenerate: { parentSeq: rawParentSeq, branchId },
       ...(chapter !== undefined ? { chapter } : {}),
@@ -434,9 +430,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 清空本书对话历史（前端"清空对话"时调）
   route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
+    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
-    if (isChatRunning(bookName)) return reply(res, 409, { error: '对话进行中，请先停止再清空' })
+    if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
     // F1-P1：清内存 + 清事件库（userData/书路径缺失时只清内存）
     const entry = readBooks(ctx.workDir).find((b) => b.name === bookName)
     clearChatHistory(bookName, ctx.userDataPath ?? undefined, entry ? join(ctx.workDir, entry.path) : undefined)

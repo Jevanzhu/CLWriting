@@ -139,14 +139,14 @@ describe('buildIndex + recall（桩 embed）', () => {
     return Promise.resolve(texts.map(() => [0.1, 0.2]))
   }
 
-  it('建索引：分块 embed 存 .rag.db（增量，不重跑已索引章）', async () => {
+  it('建索引：分块 embed 存 .cache/rag.db（增量，不重跑已索引章）', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     const result = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
 
     expect(result.ok).toBe(true)
     expect(result.chapterCount).toBe(2)
     expect(result.chunkCount).toBeGreaterThan(0)
-    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db'))).toBe(true)
 
     // 再跑一次：增量，应 0 新块（已索引）
     const result2 = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
@@ -330,7 +330,7 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
     await buildIndex(bookRoot, config, 'key', stubEmbed)
 
     // 手工制造历史重复：删唯一索引 + 复制行（模拟旧版本库的崩溃遗留）
-    const db = new DatabaseSync(join(bookRoot, '.rag.db'))
+    const db = new DatabaseSync(join(bookRoot, '.cache', 'rag.db'))
     db.exec('DROP INDEX idx_chunks_unique')
     db.exec('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) SELECT 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
     db.close()

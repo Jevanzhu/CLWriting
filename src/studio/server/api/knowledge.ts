@@ -8,10 +8,9 @@
  * 均直接调内核函数（不 spawn CLI，非交互）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
-import { checkToken, readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { checkToken, readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes } from '../../../learn/commit.js'
 import type { SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
@@ -37,25 +36,25 @@ function isQuoteCandidate(v: unknown): v is QuoteCandidate {
 export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）
   route('POST', '/api/books/:name/learn', (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    if (!checkToken(req, ctx.token)) return reply(res, 403, { error: 'token 校验失败' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
-    const result = learnFromBook(join(ctx.workDir, entry.path))
-    if (!result.ok) return reply(res, 400, { error: result.error })
+    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+    if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const result = learnFromBook(r.bookRoot)
+    if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
     reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
   })
 
   // learn 入库（作者勾选后调内核 commitSamples/commitQuotes）
   route('POST', '/api/books/:name/learn-commit', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    if (!checkToken(req, ctx.token)) return reply(res, 403, { error: 'token 校验失败' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
+    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+    if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
     const samples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]).filter(isSampleCandidate) : []
     const quotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]).filter(isQuoteCandidate) : []
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     const sampleFiles = samples.length ? commitSamples(bookRoot, samples) : []
     const quoteFiles = quotes.length ? commitQuotes(bookRoot, quotes) : []
     reply(res, 200, { ok: true, sampleFiles, quoteFiles })

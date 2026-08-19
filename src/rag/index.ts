@@ -1,7 +1,7 @@
 /**
  * RAG 建索引 + 召回 —— 依据 M7 #37 spec 第 4/5 节。
  *
- * 分块 → 外部 embed → 存 .rag.db（增量）→ 召回（query embed → 全表余弦 topK）。
+ * 分块 → 外部 embed → 存 .cache/rag.db（增量）→ 召回（query embed → 全表余弦 topK）。
  *
  * 复用：readChapterDir 遍历定稿正文；召回返回位置（章号+偏移），原文交精准读取。
  * 红线：账本永走精准读取不走 RAG；端点挂/未配 key → 召回空（降级回落，不崩）。
@@ -135,10 +135,10 @@ function validateIndexedChapterFingerprints(
     if (!currentHash) continue
     const indexedHash = getRagMeta(db, chapterHashKey(ch.章号))
     if (!indexedHash) {
-      return `RAG 索引缺少第 ${ch.章号} 章内容指纹，请删除 .rag.db 后重建索引。`
+      return `RAG 索引缺少第 ${ch.章号} 章内容指纹，请删除 .cache/rag.db 后重建索引。`
     }
     if (indexedHash !== currentHash) {
-      return `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .rag.db 后重建索引。`
+      return `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .cache/rag.db 后重建索引。`
     }
   }
   return null
@@ -237,7 +237,7 @@ export async function buildIndex(
         continue
       }
       if (indexedHash !== currentHash) {
-        return { ok: false, chunkCount: 0, chapterCount: 0, error: `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .rag.db 后重建索引。` }
+        return { ok: false, chunkCount: 0, chapterCount: 0, error: `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .cache/rag.db 后重建索引。` }
       }
     }
 

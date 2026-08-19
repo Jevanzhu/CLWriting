@@ -11,8 +11,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
 import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply, readJson, HttpError } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, readJson, HttpError, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
@@ -49,21 +49,18 @@ export type { CharacterCard } from '../../../process/settings-context.js'
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
   route('GET', '/api/books/:name/settings', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const name = params['name']
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) return reply(res, 404, { error: `没有这本书:${name}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     reply(res, 200, settingsLong(bookRoot))
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
   route('GET', '/api/books/:name/completion-names', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const setDir = join(ctx.workDir, entry.path, '设定')
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const setDir = join(r.bookRoot, '设定')
     reply(res, 200, {
       characters: readFmNames(join(setDir, '角色'), '姓名'),
       items: readFmNames(join(setDir, '物品'), '名称'),
@@ -72,12 +69,11 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
 
   // AI 关系梳理：通读名册/角色卡/正文，提炼关系边 → 落盘 .clwriting/relations.json
   route('POST', '/api/books/:name/relations/mine', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'relations-mine')
-    if (!release) return reply(res, 409, { error: '本书正在梳理角色关系，请等待完成后再试' })
+    if (!release) return replyError(res, 409, 'BUSY', '本书正在梳理角色关系，请等待完成后再试')
     try {
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
       //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
@@ -86,19 +82,19 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         return {}
       })) as { force?: boolean }
       const force = body?.force === true
-      const bookRoot = join(ctx.workDir, entry.path)
+      const bookRoot = r.bookRoot
       const cachePath = join(bookRoot, RELATION_CACHE)
       if (!force && existsSync(cachePath)) {
         return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
       }
       const context = buildMineContext(bookRoot)
-      if (!context.trim()) return reply(res, 400, { error: '没有可梳理的材料（名册/角色卡/正文均空）' })
+      if (!context.trim()) return replyError(res, 400, 'BAD_INPUT', '没有可梳理的材料（名册/角色卡/正文均空）')
       const out = await runSpec(RELATION_MINE_SPEC, {
         userDataPath: ctx.userDataPath,
         bookRoot,
         userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
       })
-      if (!out.ok) return reply(res, 500, { error: `AI 梳理失败:${out.error}` })
+      if (!out.ok) return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
       const relations = input?.relations ?? []
       if (!relations.length) return reply(res, 200, { ok: true, cached: true, relations: [] })
@@ -107,7 +103,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
       } catch (e) {
         console.error('[api] 落盘缓存失败:', e)
-        return reply(res, 500, { error: '落盘缓存失败' })
+        return replyError(res, 500, 'IO', '落盘缓存失败')
       }
       reply(res, 200, { ok: true, cached: false, relations })
     } finally {

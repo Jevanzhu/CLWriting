@@ -14,8 +14,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -30,12 +30,10 @@ interface StateCtx {
 
 export function registerStateRoutes(ctx: StateCtx): void {
   route('GET', '/api/books/:name/state', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const name = params['name']
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) return reply(res, 404, { error: `没有这本书：${name}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     try {
       // GG-P2-5：enter() 的等价展开（见文件头注释），差异仅在读出的 config 过
       // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
@@ -67,7 +65,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
       })
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
-      reply(res, 500, { error: redactSecret(e instanceof Error ? e.message : String(e)) })
+      replyError(res, 500, 'ERROR', redactSecret(e instanceof Error ? e.message : String(e)))
     }
   })
 }

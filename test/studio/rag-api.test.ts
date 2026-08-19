@@ -9,10 +9,13 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { startServer } from '../../src/studio/server/index.js'
+import { createRagTables } from '../../src/rag/schema.js'
+import { storeChunk, setRagMeta } from '../../src/rag/store.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
@@ -181,5 +184,37 @@ describe('RAG 接线（P1-8 服务商化）', () => {
     const r = await api('/rag/build', { method: 'POST', body: '{}' })
     expect(r.status).toBe(400)
     expect(String(r.json['error'])).toContain('提供方不存在')
+  })
+
+  it('hh §八-11：旧版书根裸 .rag.db（未迁移）→ status 不误报未建索引，且顺手完成迁移', async () => {
+    // 第二本书：书根留旧版 .rag.db（升级前现场），无 .cache——books.jsonl 每请求
+    // 重读（readBooks 无缓存），中途追加登记即可被路由看到
+    const LEGACY = 'RAG迁移书'
+    const legacyRoot = join(workDir, LEGACY)
+    mkdirSync(legacyRoot, { recursive: true })
+    writeFileSync(
+      join(legacyRoot, 'book.yaml'),
+      `spec_version: 1\nkind: long\nbook:\n  title: ${LEGACY}\n  genre: 玄幻\nhost: cc\n`,
+      'utf8',
+    )
+    appendFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: LEGACY, path: LEGACY, kind: 'long' }) + '\n')
+    const db = new DatabaseSync(join(legacyRoot, '.rag.db'))
+    createRagTables(db)
+    storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'legacy-model' })
+    setRagMeta(db, 'embedding_model', 'legacy-model')
+    setRagMeta(db, 'indexed_max_chapter', '3')
+    db.close()
+
+    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(LEGACY)}/rag/status`, {
+      headers: { 'x-studio-token': token },
+    }).then(async (x) => ({ status: x.status, json: (await x.json()) as Record<string, unknown> }))
+    expect(r.status).toBe(200)
+    // 旧库还在未迁移时，存在性探测走同源 helper——不得误报全零「未建索引」
+    expect(r.json['chunkCount']).toBe(1)
+    expect(r.json['indexedChapters']).toBe(3)
+    expect(r.json['model']).toBe('legacy-model')
+    // status 内 openRagDb 已完成迁移：新路径在、旧路径消失
+    expect(existsSync(join(legacyRoot, '.cache', 'rag.db'))).toBe(true)
+    expect(existsSync(join(legacyRoot, '.rag.db'))).toBe(false)
   })
 })

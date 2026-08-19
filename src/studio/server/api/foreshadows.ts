@@ -8,10 +8,9 @@
  * CRUD 复用 documents 端点（伏笔就是 md 文件）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readForeshadows, scanForeshadowTrails, searchForeshadowTrails } from '../../../document/foreshadow.js'
 
 interface ForeshadowCtx {
@@ -21,10 +20,9 @@ interface ForeshadowCtx {
 export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
   // 伏笔列表（fm 字段 + 正文足迹 + 风险评估）
   route('GET', '/api/books/:name/foreshadows', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const bookRoot = join(ctx.workDir, entry.path)
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const bookRoot = r.bookRoot
     // F1-P3：?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
     const q = new URL(_req.url ?? '', 'http://local').searchParams.get('q') ?? undefined
     if (q) {

@@ -21,8 +21,8 @@ import { join, dirname } from 'node:path'
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 
 export interface BookPrefs {
   /** 可覆盖全局编辑器偏好 */
@@ -45,17 +45,16 @@ interface PrefsCtx {
 }
 
 export function registerPrefsRoutes(ctx: PrefsCtx): void {
-  /** 解析书库的 .clwriting/prefs.json 路径 */
-  function prefsPath(name: string): { ok: true; path: string } | { ok: false; code: number; error: string } {
-    if (!ctx.workDir) return { ok: false, code: 400, error: '未定位到工作目录' }
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) return { ok: false, code: 404, error: `没有这本书:${name}` }
-    return { ok: true, path: join(ctx.workDir, entry.path, '.clwriting', 'prefs.json') }
+  /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码） */
+  function prefsPath(name: string): { ok: true; path: string } | { ok: false; code: number; errCode: string; error: string } {
+    const r = resolveBook(ctx.workDir, name)
+    if ('error' in r) return { ok: false, code: r.status, errCode: r.code, error: r.error }
+    return { ok: true, path: join(r.bookRoot, '.clwriting', 'prefs.json') }
   }
 
   route('GET', '/api/books/:name/prefs', (_req: IncomingMessage, res: ServerResponse, params) => {
     const r = prefsPath(params['name']!)
-    if (!r.ok) return reply(res, r.code, { error: r.error })
+    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {} })
     try {
       const prefs = JSON.parse(readFileSync(r.path, 'utf8')) as BookPrefs
@@ -67,17 +66,17 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
 
   route('PUT', '/api/books/:name/prefs', async (req: IncomingMessage, res: ServerResponse, params) => {
     const r = prefsPath(params['name']!)
-    if (!r.ok) return reply(res, r.code, { error: r.error })
+    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     const body = await readJson(req)
     const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return reply(res, 400, { error: 'prefs 必填且须为对象' })
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
     try {
       mkdirSync(dirname(r.path), { recursive: true })
       atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
       console.error('[api] 写 prefs:', e)
-      reply(res, 500, { error: '写 prefs 失败' })
+      replyError(res, 500, 'IO', '写 prefs 失败')
     }
   })
 
@@ -85,14 +84,14 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
   // 跨书库共享的外观设置（主题/字体/字号/行距/段距/纸张宽度/自动保存）。
   // 放在 APP 数据目录（非书库目录），切书库不受影响——对齐 Obsidian 全局配置位置。
 
-  function globalPath(): { ok: true; path: string } | { ok: false; code: number; error: string } {
-    if (!ctx.userDataPath) return { ok: false, code: 400, error: '未定位到应用数据目录' }
+  function globalPath(): { ok: true; path: string } | { ok: false; code: number; errCode: string; error: string } {
+    if (!ctx.userDataPath) return { ok: false, code: 400, errCode: 'NO_USERDATA', error: '未定位到应用数据目录' }
     return { ok: true, path: join(ctx.userDataPath, 'global.json') }
   }
 
   route('GET', '/api/library/prefs', (_req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
-    if (!r.ok) return reply(res, r.code, { error: r.error })
+    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
     try {
       const raw = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
@@ -107,12 +106,12 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
 
   route('PUT', '/api/library/prefs', async (req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
-    if (!r.ok) return reply(res, r.code, { error: r.error })
+    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     // GG-P2-7（照 providers dd-P2 口径）：body 先读——读盘/比对/写盘三段必须同步无 await，
     // 单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
     const body = await readJson(req)
     const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return reply(res, 400, { error: 'prefs 必填且须为对象' })
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
     try {
       let disk: Record<string, unknown> = {}
       if (existsSync(r.path)) {
@@ -122,7 +121,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       }
       const current = typeof disk.revision === 'number' ? disk.revision : 0
       const revErr = revisionError(body['expectedRevision'], current)
-      if (revErr) return reply(res, 409, { error: revErr })
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
       // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘
@@ -130,7 +129,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       console.error('[api] 写全局偏好:', e)
-      reply(res, 500, { error: '写全局偏好失败' })
+      replyError(res, 500, 'ERROR', '写全局偏好失败')
     }
   })
 }

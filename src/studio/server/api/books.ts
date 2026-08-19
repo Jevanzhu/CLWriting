@@ -13,7 +13,7 @@ import { rmSync, realpathSync, renameSync, existsSync, readdirSync } from 'node:
 import { join, relative } from 'node:path'
 import { route } from '../router.js'
 import { defineRoute } from './schema.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import {
   readBooks,
   removeBookEntry,
@@ -23,6 +23,7 @@ import {
   writeBooks,
   isInvalidBookName,
 } from '../../../install/books.js'
+import { resolveBook } from '../book-context.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -93,7 +94,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
   // 建书（1.5 段 1 表单 → doInit）
   route('POST', '/api/books', async (req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
-      reply(res, 400, { error: '未定位到工作目录，无法建书' })
+      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录，无法建书')
       return
     }
     const body = (await readJson(req)) as {
@@ -107,12 +108,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     }
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     if (!name) {
-      reply(res, 400, { error: '书名不能为空' })
+      replyError(res, 400, 'BAD_INPUT', '书名不能为空')
       return
     }
     // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
     if (isInvalidBookName(name)) {
-      reply(res, 400, { error: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' })
+      replyError(res, 400, 'BAD_PATH', '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）')
       return
     }
     const genre = typeof body.genre === 'string' ? body.genre.trim() : ''
@@ -139,7 +140,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       brief,
     })
     if (!result.ok) {
-      reply(res, 400, { error: result.reason })
+      replyError(res, 400, 'BAD_INPUT', result.reason)
       return
     }
     reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
@@ -148,15 +149,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
   // 删书（物理删除：rmSync 书目录 + 移 books.jsonl 登记 + 清 active 指针）
   route('DELETE', '/api/books/:name', (_req: IncomingMessage, res: ServerResponse, params) => {
     if (!ctx.workDir) {
-      reply(res, 400, { error: '未定位到工作目录' })
+      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
     }
     const name = params['name'] ?? ''
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) {
-      reply(res, 404, { error: `没有这本书：${name}` })
+    const r = resolveBook(ctx.workDir, name)
+    if ('error' in r) {
+      replyError(res, r.status, r.code, r.error)
       return
     }
+    const entry = r.entry
     // U-P2-7：先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
     // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
     if (isSelfHealRunning(name)) abortSelfHeal(name)
@@ -165,18 +167,18 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // books 侧无直接 abort 通道（与 task-gate 同类），持闸时拒删：放行则收尾落盘写已删除的
     // 旧路径重建孤儿目录 + 白烧 API 费用（用户可先经 POST /interrupt 中断生成再删）
     if (isSpawnRunning(name)) {
-      return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再删' })
+      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再删')
     }
     // hh-P1：三审同为分钟级长任务（无 abort 通道），持闸拒删——与 spawn/task-gate 同模式，
     // 放行则三审收尾落盘写已删除的旧路径（重建孤儿目录 + 白烧 API 费用）
     if (isReviewRunningForBook(name)) {
-      return reply(res, 409, { error: '本书三审进行中，先等它完成后再删' })
+      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再删')
     }
     // dd-P2：task-gate 分钟级任务（analyze/rewrite/rag-build 等）无 abort 通道——
     // 持闸时拒删（409），防收尾落盘在删除后重建孤儿目录 + 白烧 API 费用
     const held = heldTaskGatesFor(name)
     if (held.length > 0) {
-      return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再删` })
+      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后再删`)
     }
     // 删书目录（递归，含 git 历史）
     const bookAbs = join(ctx.workDir, entry.path)
@@ -185,17 +187,17 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const realWorkDir = realpathSync(ctx.workDir)
       const realBookAbs = realpathSync(bookAbs)
       if (realBookAbs === realWorkDir || relative(realWorkDir, realBookAbs).startsWith('..')) {
-        return reply(res, 400, { error: '书路径非法（越出书库）' })
+        return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
       }
     } catch {
       // realpath 失败说明路径异常（文件不存在 / 权限），拒绝删除
-      return reply(res, 400, { error: '书路径异常' })
+      return replyError(res, 400, 'BAD_PATH', '书路径异常')
     }
     try {
       rmSync(bookAbs, { recursive: true, force: true })
     } catch (e) {
       console.error('[api] 删除目录失败:', e)
-      reply(res, 500, { error: '删除目录失败' })
+      replyError(res, 500, 'IO', '删除目录失败')
       return
     }
     // 移 books.jsonl 登记 + 清活动书指针
@@ -231,15 +233,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
     },
     handler: ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
       if (!ctx.workDir) {
-        reply(res, 400, { error: '未定位到工作目录' })
+        replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
         return
       }
       const oldName = params['name'] ?? ''
-      const entry = readBooks(ctx.workDir).find((b) => b.name === oldName)
-      if (!entry) {
-        reply(res, 404, { error: `没有这本书：${oldName}` })
+      const r = resolveBook(ctx.workDir, oldName)
+      if ('error' in r) {
+        replyError(res, r.status, r.code, r.error)
         return
       }
+      const entry = r.entry
       const newName = input.name
       const oldRoot = join(ctx.workDir, entry.path)
       const newPath = bookStoragePath(newName, entry.kind)
@@ -248,11 +251,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
 
       // 重名冲突（排除自身）；目录级冲突只在真正要移动目录时检查
       if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
-        reply(res, 400, { error: `已有一本叫「${newName}」的书，换个名字` })
+        replyError(res, 400, 'BAD_INPUT', `已有一本叫「${newName}」的书，换个名字`)
         return
       }
       if (folderMove && existsSync(newRoot) && readdirSync(newRoot).length > 0) {
-        reply(res, 400, { error: `目录「${newName}」已存在且非空，换个名字` })
+        replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在且非空，换个名字`)
         return
       }
 
@@ -282,16 +285,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // ee-P2-11：/spawn 在途闸——runWriterSpawn 持改名前的 bookRoot 闭包，放行则收尾
       // 落盘写旧路径（目录已搬走 → 重建孤儿目录）+ 白烧 API 费用；与删书同口径拒改（409）
       if (isSpawnRunning(oldName)) {
-        return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再改名' })
+        return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再改名')
       }
       // hh-P1：三审持闸拒改（同删书口径）——放行则收尾落盘写改名前旧路径
       if (isReviewRunningForBook(oldName)) {
-        return reply(res, 409, { error: '本书三审进行中，先等它完成后再改名' })
+        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再改名')
       }
       // dd-P2：task-gate 分钟级任务无 abort 通道——持闸时拒改（409），防改名后收尾写旧路径
       const held = heldTaskGatesFor(oldName)
       if (held.length > 0) {
-        return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后改名` })
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后改名`)
       }
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
@@ -302,7 +305,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
         renameSync(oldRoot, newRoot)
       } catch (e) {
         console.error('[api] rename: 改目录名失败:', e)
-        reply(res, 500, { error: '改目录名失败' })
+        replyError(res, 500, 'IO', '改目录名失败')
         return
       }
 
@@ -342,12 +345,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     (_req: IncomingMessage, res: ServerResponse, params: Record<string, string>) => {
       const name = params['name']
       if (!name || !ctx.workDir) {
-        reply(res, 400, { error: '未定位到工作目录' })
+        replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
         return
       }
       const entry = readBooks(ctx.workDir).find((b) => b.name === name)
       if (!entry) {
-        reply(res, 404, { error: `没有这本书：${name}` })
+        replyError(res, 404, 'NOT_FOUND', `没有这本书：${name}`)
         return
       }
       const { config } = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))

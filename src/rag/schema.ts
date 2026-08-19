@@ -1,7 +1,8 @@
 /**
- * RAG 向量库 schema（per-book .rag.db）—— 依据 M7 #37 spec 第 3 节。
+ * RAG 向量库 schema（per-book .cache/rag.db）—— 依据 M7 #37 spec 第 3 节。
  *
- * 落书仓库内、gitignore、独立于 .cache（删 .cache 不连带删向量，免重 embed）。
+ * 落书仓库内 .cache/ 派生缓存区（与 index.db 同惯例，hh §八-11 迁入；旧书根裸
+ * .rag.db 由 openRagDb 启动时自动迁移，见 store.ts resolveRagDbPath）。
  * 零依赖：node:sqlite 存 BLOB，纯 JS 读回算余弦。
  */
 

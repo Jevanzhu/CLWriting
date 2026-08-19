@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare } from './http.js'
+import { safeTokenCompare, replyError } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -218,8 +218,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     {
       const host = req.headers.host
       if (listeningPort === 0 || (host !== `127.0.0.1:${listeningPort}` && host !== `localhost:${listeningPort}` && host !== `[::1]:${listeningPort}`)) {
-        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: 'forbidden host' }))
+        replyError(res, 403, 'FORBIDDEN', 'forbidden host')
         return
       }
     }
@@ -234,8 +233,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 预检 OPTIONS:非白名单 Origin → 403(阻跨站实际请求)
     if (req.method === 'OPTIONS') {
       if (origin && !allowedOrigins.has(origin)) {
-        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: 'forbidden origin' }))
+        replyError(res, 403, 'FORBIDDEN', 'forbidden origin')
         return
       }
       res.writeHead(204)
@@ -245,14 +243,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 写端点(POST/PUT/DELETE/PATCH)Origin 校验:非白名单 → 403(防跨站写,即使 CORS 不阻简单请求)
     const isWrite = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH'
     if (isWrite && !isAllowedOrigin(req)) {
-      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ error: 'forbidden origin' }))
+      replyError(res, 403, 'FORBIDDEN', 'forbidden origin')
       return
     }
     // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
     if (isWrite && !safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
-      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ error: 'invalid or missing studio token' }))
+      // boot-token 回归断言 error 含 'token'（RB-SV-P2-4 用例），文案保持该词根
+      replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
       return
     }
 
@@ -261,15 +258,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
       try {
         const matched = await dispatch(req, res, routes)
         if (matched || res.headersSent) return
-        res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: 'not found' }))
+        replyError(res, 404, 'NOT_FOUND', 'not found')
         return
       } catch (e) {
         if (!res.headersSent) {
           // P3-9：不向客户端泄漏 detail（含文件路径等），仅 console.error 留诊断
           console.error('[api] unhandled error:', e)
-          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ error: '服务器内部错误' }))
+          replyError(res, 500, 'ERROR', '服务器内部错误')
         }
         return
       }
@@ -277,8 +272,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
 
     // 静态托管前端
     if (serveStatic) return serveStatic(req, res)
-    res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ error: 'not found' }))
+    replyError(res, 404, 'NOT_FOUND', 'not found')
   })
 
   // keep-alive 治理:Node 默认 keepAliveTimeout=5s,客户端连接池缓存的连接超过 5s 被服务端关掉,

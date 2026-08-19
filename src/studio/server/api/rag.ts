@@ -15,16 +15,14 @@
  * 避免长 HTTP 请求挂死前端 fetch。任务单飞（同书同一时刻仅一个，重入 409，RB-SV-P2-2）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, type BuildIndexResult } from '../../../rag/index.js'
-import { openRagDb, getRagMeta } from '../../../rag/store.js'
+import { openRagDb, getRagMeta, ragDbExists } from '../../../rag/store.js'
 import { acquireTaskGate } from './task-gate.js'
 
 interface RagCtx {
@@ -116,19 +114,20 @@ function startRagBuild(
 
 export function registerRagRoutes(ctx: RagCtx): void {
   route('GET', '/api/books/:name/rag/status', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const bookRoot = join(ctx.workDir, entry.path)
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const bookRoot = r.bookRoot
     const task = ragBuildTasks.get(params['name']!)
     const running = task?.running ?? false
 
-    // 读 .rag.db 现状（可能从未建过 → 全零）。块数用 COUNT 而非全表 BLOB 读回，
+    // 读 RAG 库现状（可能从未建过 → 全零）。块数用 COUNT 而非全表 BLOB 读回，
     // 大库（3.5 万块）下 status 轮询也不做重活。
     let indexedChapters = 0
     let chunkCount = 0
     let model: string | null = null
-    if (existsSync(join(bookRoot, '.rag.db'))) {
+    // hh §八-11：库已迁 .cache/rag.db；存在性探测走 openRagDb 同源 helper——
+    // 旧库还在未迁移时也不误报「未建索引」（随后 openRagDb 内完成迁移）
+    if (ragDbExists(bookRoot)) {
       const db = openRagDb(bookRoot)
       try {
         chunkCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n
@@ -142,7 +141,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。
     // 全局托底：读生效配置（enabled/provider 书级未设回落 global.json）
     const ragConfig = readRagConfig(bookRoot, ctx.userDataPath)
-    const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), ctx.workDir)
+    const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), ctx.workDir!)
     reply(res, 200, {
       running,
       indexedChapters,
@@ -156,15 +155,14 @@ export function registerRagRoutes(ctx: RagCtx): void {
   })
 
   route('POST', '/api/books/:name/rag/build', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const bookRoot = join(ctx.workDir, entry.path)
-    const start = startRagBuild(params['name']!, bookRoot, ctx.workDir, ctx.userDataPath)
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const bookRoot = r.bookRoot
+    const start = startRagBuild(params['name']!, bookRoot, ctx.workDir!, ctx.userDataPath)
     if (!start.ok) {
-      // 运行中 → 409（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400
-      const status = start.reason.includes('运行中') ? 409 : 400
-      return reply(res, status, { error: start.reason })
+      // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT
+      const busy = start.reason.includes('运行中')
+      return replyError(res, busy ? 409 : 400, busy ? 'BUSY' : 'BAD_INPUT', start.reason)
     }
     reply(res, 200, { started: true })
   })

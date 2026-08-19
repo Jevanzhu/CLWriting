@@ -17,10 +17,9 @@
  * 纯只读（重放纯函数），不产生副作用。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
@@ -169,11 +168,10 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
 
 export function registerAuditRoutes(ctx: AuditCtx): void {
   route('GET', '/api/books/:name/audit', (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: '没有这本书：' + params['name'] })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     if (!ctx.userDataPath) {
       return reply(res, 200, { conversation: null, workflowEvents: [], workflowTotal: 0, goals: [], todos: [] })
     }
@@ -196,23 +194,22 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
   // 对话会话（book=bookName）与工作流会话（book=bookHash）同库不同 book 键——两侧都清；
   // 事件是 append-only 审计数据，清除是作者显式销毁动作，前端二次确认后才调本端点。
   route('DELETE', '/api/books/:name/audit', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: '没有这本书：' + params['name'] })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
     if (isChatRunning(params['name']!)) {
-      return reply(res, 409, { error: '本书对话仍在运行，先停止后再清除事件史' })
+      return replyError(res, 409, 'BUSY', '本书对话仍在运行，先停止后再清除事件史')
     }
     // hh-P1（同族缺口）：task-gate 分钟级任务与 self-heal 批量写稿都会续写事件库——
     // 运行中清库同样「清不彻底」（任务收尾继续追加），补齐与 chat 相同的拒清口径
     const held = heldTaskGatesFor(params['name']!)
     if (held.length > 0) {
-      return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成后再清除事件史` })
+      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清除事件史`)
     }
     if (isSelfHealRunning(params['name']!)) {
-      return reply(res, 409, { error: '本书正在自动写稿，先等它完成或中断后再清除事件史' })
+      return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清除事件史')
     }
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
     const store = openSessionStore(ctx.userDataPath, bookRoot)!
     try {

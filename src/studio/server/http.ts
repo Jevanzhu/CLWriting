@@ -4,17 +4,40 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 export const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
 export class HttpError extends Error {
+  /** 机器可判别错误码（信封 {code,error} 的 code；缺省 'ERROR' 兜底） */
+  public code: string
   constructor(
     public status: number,
     message: string,
+    code = 'ERROR',
   ) {
     super(message)
+    this.code = code
   }
 }
 
 export function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
+}
+
+/**
+ * 统一错误出口（hh §八-12）：所有非 2xx JSON 错误响应的唯一信封形状 {code, error}。
+ * 为什么是独立函数而非 reply 加可选 code 参数：reply 的 body 形状自由（成功响应各异），
+ * 错误信封形状必须唯一——独立出口让「只传了 error 漏了 code」这类漂移在编译期就不可能，
+ * 且 grep replyError 即可盘点全部错误点。
+ * - error 保留中文人话（前端 toast 展示，client.ts 按 error 优先解析 → 前端零改动）
+ * - code 机器可判别（复用既有词表 NO_WORKDIR/NOT_FOUND/BAD_INPUT/BAD_PATH/BUSY/...，
+ *   无法归类的用 'ERROR' 兜底，禁止自创同义码）
+ */
+export function replyError(res: ServerResponse, status: number, code: string, error: string): void {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+  res.end(JSON.stringify({ code, error }))
+}
+
+/** HttpError → 统一信封（dispatch catch / readJson 抛错的兜底出口）。 */
+export function replyHttpError(res: ServerResponse, e: HttpError): void {
+  replyError(res, e.status, e.code, e.message)
 }
 
 /** 常量时间 token 比较，防 timing attack（长度不同直接返回 false）。 */
@@ -51,7 +74,7 @@ export function readJson(
         // 上层 catch 后据此回复 413。剩余数据排空丢弃——同步 req.destroy() 会抢在
         // 413 响应刷出前掐断 socket（客户端收到 ECONNRESET 而非 413）；排空让
         // 有限请求体自然到 end，连接随响应正常收口，同样不占 FD。
-        reject(new HttpError(413, '请求体过大'))
+        reject(new HttpError(413, '请求体过大', 'BAD_INPUT'))
         req.removeAllListeners('data')
         req.resume()
         return
@@ -66,7 +89,7 @@ export function readJson(
         // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
         resolve(data.trim() === '' ? {} : (JSON.parse(data) ?? {}))
       } catch (e) {
-        reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`))
+        reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`, 'BAD_INPUT'))
       }
     })
     req.on('error', (e) => reject(e))

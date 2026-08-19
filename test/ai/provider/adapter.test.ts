@@ -852,8 +852,26 @@ describe('Responses 适配器（R1-R4）', () => {
     ])
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
     const err = evs.find((e) => e.type === 'error')
-    expect(err).toMatchObject({ type: 'error', retryable: false })
+    expect(err).toMatchObject({ type: 'error', retryable: false, code: 'PROTOCOL' })
     if (err && err.type === 'error') expect(err.message).toContain('boom')
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+
+  // T1b（hh §八 条目 9）：流中 failed/error 裸 error 事件补 code——协议层无 status 可归因，
+  // 与 toErrorEvent 兜底同码 PROTOCOL（failureAction 语义不变：retryable=false → author）
+  it('T1b 流中 error 事件（网关 mid-stream）→ error 带 code PROTOCOL，无 done', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.output_text.delta', delta: '部分产出' },
+      { type: 'error', code: 'server_error', message: 'mid-stream boom' },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: '部分产出' }])
+    expect(evs.find((e) => e.type === 'error')).toMatchObject({
+      type: 'error',
+      message: 'mid-stream boom',
+      retryable: false,
+      code: 'PROTOCOL',
+    })
     expect(evs.some((e) => e.type === 'done')).toBe(false)
   })
 

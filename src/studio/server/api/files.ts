@@ -12,7 +12,7 @@ import { resolve, relative, isAbsolute, basename } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 
@@ -39,11 +39,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
   // 读 .md 全文
   route('GET', '/api/books/:name/file', (req: IncomingMessage, res: ServerResponse, params) => {
     const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return reply(res, r.status, { error: r.error })
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const file = queryParams(req).get('file') ?? ''
     const safe = editablePath(r.bookRoot, file)
-    if (!safe) return reply(res, 400, { error: '非法路径' })
-    if (!existsSync(safe)) return reply(res, 404, { error: '文件不存在' })
+    if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
+    if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
     reply(res, 200, { content: readFileSync(safe, 'utf-8') })
   })
 
@@ -53,16 +53,16 @@ export function registerFileRoutes(ctx: FileCtx): void {
     '/api/books/:name/file',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const file = queryParams(req).get('file') ?? ''
       // X-P2-14：路径寻址 PUT 不放行 写作/正文——正文保存必须走 /documents/:docId/content
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
       const safe = writablePath(r.bookRoot, file)
-      if (!safe) return reply(res, 400, { error: '非法路径（正文请走文档保存协议）' })
-      if (!existsSync(safe)) return reply(res, 404, { error: '文件不存在' })
+      if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
+      if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
       const body = (await readJson(req)) as { content?: unknown }
       if (typeof body.content !== 'string') {
-        reply(res, 400, { error: '缺少 content' })
+        replyError(res, 400, 'BAD_INPUT', '缺少 content')
         return
       }
       atomicWriteFile(safe, body.content)

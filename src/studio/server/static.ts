@@ -8,6 +8,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { join, normalize, extname, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { replyError } from './http.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -30,16 +31,15 @@ export function createStaticHandler(rootDir: string) {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost')
     // dd-P3：静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('Method Not Allowed')
+      // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）
+      replyError(res, 405, 'BAD_INPUT', 'Method Not Allowed')
       return
     }
     let decodedPathname: string
     try {
       decodedPathname = decodeURIComponent(pathname)
     } catch {
-      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('bad request')
+      replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
 
@@ -48,8 +48,7 @@ export function createStaticHandler(rootDir: string) {
     const abs = join(root, rel)
     // 路径边界检查:必须等于 root 或在其下(root+sep),防 root='dist' 时 'dist-evil' 前缀欺骗
     if (abs !== root && !abs.startsWith(root + sep)) {
-      res.writeHead(403)
-      res.end('forbidden')
+      replyError(res, 403, 'BAD_PATH', 'forbidden')
       return
     }
     try {
@@ -77,8 +76,7 @@ export function createStaticHandler(rootDir: string) {
         })
         res.end(data)
       } catch {
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-        res.end('前端尚未构建。请先运行：npm --prefix src/studio/web-next run build')
+        replyError(res, 404, 'NOT_FOUND', '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build')
       }
     }
   }

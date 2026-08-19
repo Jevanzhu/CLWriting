@@ -10,8 +10,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync } from 'node:fs'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { BookConfig } from '../../../format/types.js'
@@ -36,12 +36,11 @@ const STATE_CACHE_MAX = 32
 
 export function registerOverviewRoutes(ctx: OverviewCtx): void {
   route('GET', '/api/books/:name/overview', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const name = params['name']
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) return reply(res, 404, { error: `没有这本书：${name}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const entry = r.entry
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
     // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
     const config = applyGlobalDefaults(

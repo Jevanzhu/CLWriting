@@ -19,11 +19,18 @@ import type {
   ContentBlock as ClwContentBlock,
 } from './types.js'
 import type { ProviderStore } from './store.js'
-import { persistDegraded, lookupDegraded, modelConfOf } from './store.js'
-import { redactSecret } from './redact.js'
+import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
 import { anthropicClientOpts } from './models.js'
-import { httpStatusToCode, headerErrorFields } from './failure.js'
+import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+
+/** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
+const toErrorEvent = makeToErrorEvent({
+  APIError: Anthropic.APIError,
+  APIUserAbortError: Anthropic.APIUserAbortError,
+  APIConnectionError: Anthropic.APIConnectionError,
+  label: 'Anthropic API',
+})
 
 /**
  * 创建 Anthropic 客户端——按 auth 策略发对应认证 header（官方与中转分开）。
@@ -181,53 +188,19 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       }
 
       try {
-        // 400 降级链（方案 §6.5）：表驱动后首发即正确，只留「中转怪癖」兜底——
-        // output_config.format（json_schema）→ 剥 structured 重试一级。
-        // effort 不再入链（表已保证该发的才发）。连接期异常（未 yield）可安全重试。
-        // 降级命中 → 写记忆（providers.json 复用原 modelCaps 槽），下次首发即剥。
-        const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
-        // D2：优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，
-        // 会读到旧记忆）；未注册查通道（单测直连适配器）→ 回落捕获 store 快照
-        const degraded = degradedKey
-          ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
-          : undefined
+        // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
+        // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
         const q = quirksFor(conf.model ?? '')
-        // P3-5：400 降级链在「剥 structured」之外加末端「剥 tools → 纯文本」一环——
-        // unknown 系列（识别不出时 toolUse 保守为 true）若实际不支持工具调用，
-        // 纯 tools 请求 400 后不再同形状反复重试到放弃（此前无级可退）。
-        // 剥 tools 成功不写 structured 记忆（归因不同，防污染记忆）。
-        const stripStructured =
-          req.structured && q.structuredMode !== 'none' ? ({ ...req, structured: undefined } as GenRequest) : null
-        const stripTools = req.tools?.length
-          ? ({ ...req, tools: undefined, toolChoice: undefined, toolName: undefined } as GenRequest)
-          : null
-        let attempts: GenRequest[]
-        if (stripStructured && stripTools) {
-          // 记忆命中 → 首发即用剥除版（否则记忆反而关闭降级链、structured 照发 → 必败）
-          attempts = degraded ? [stripStructured, stripTools] : [req, stripStructured, stripTools]
-        } else if (stripStructured) {
-          attempts = degraded ? [stripStructured] : [req, stripStructured]
-        } else if (stripTools) {
-          attempts = [req, stripTools]
-        } else {
-          attempts = [req]
-        }
+        const plan = buildDegradeAttempts(req, q.structuredMode, conf, store)
         let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
         let lastErr: unknown = null
-        for (const attempt of attempts) {
+        for (const attempt of plan.attempts) {
           try {
             stream = await c.messages.create(toParams(conf, attempt), { signal })
-            // 仅当「剥 structured 的重试」建流成功才写记忆（防任意 400 误归因污染记忆）；
-            // P3-5：剥 tools 的 attempt 不写 structured 记忆（归因不同）。
-            // D2：落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写
-            if (attempt !== req && attempt === stripStructured && degradedKey) {
-              if (store) store.modelCaps[degradedKey] = { structured: false }
-              persistDegraded(degradedKey)
-            }
+            markStructuredDegrade(plan, attempt, store)
             break
           } catch (e) {
-            // 非最后 attempt 的 400 → 尝试下一参数面；最后一个 400 透传原文（不被降级掩盖）
-            if (e instanceof Anthropic.APIError && e.status === 400 && attempt !== attempts[attempts.length - 1]) {
+            if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {
               lastErr = e
               continue
             }
@@ -313,31 +286,3 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
   }
 }
 
-/** SDK 异常 → GenEvent.error（message 经 redactSecret 脱敏，§6.2 D9；A5 附结构化 code） */
-function toErrorEvent(e: unknown): GenEvent {
-  // P3-Q6：APIUserAbortError extends APIError（status undefined），须在 APIError 分支前判定
-  if (e instanceof Anthropic.APIUserAbortError) {
-    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
-  }
-  // A5：连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
-  if (e instanceof Anthropic.APIConnectionError) {
-    return { type: 'error', message: redactSecret(e.message), retryable: false, code: 'NETWORK' }
-  }
-  if (e instanceof Anthropic.APIError) {
-    const retryable = e.status === 429 || (e.status ?? 0) >= 500
-    return {
-      type: 'error',
-      message: redactSecret(`Anthropic API ${e.status}: ${e.message}`),
-      retryable,
-      code: httpStatusToCode(e.status, e.message),
-      ...(e.status !== undefined ? { status: e.status } : {}),
-      ...headerErrorFields(e.headers),
-      ...(e.requestID ? { requestId: e.requestID } : {}),
-    }
-  }
-  if (e instanceof Error && e.name === 'AbortError') {
-    return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
-  }
-  const msg = e instanceof Error ? e.message : String(e)
-  return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
-}

@@ -3,7 +3,7 @@
  *
  * 重点验证红线：
  * - H1：api_key 绝不进 git（readBookConfig 读不到 key；grep book.yaml 无 key）
- * - M1：.rag.db per-book、独立 .cache
+ * - M1：RAG 库 per-book（.cache/rag.db；旧书根裸 .rag.db 自动迁移，hh §八-11）
  * - 向量 BLOB 往返、余弦相似度
  */
 
@@ -12,11 +12,11 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
-import type { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { readRagConfig, readApiKey, writeApiKey, enableRag } from '../../src/rag/config.js'
 import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
-import { openRagDb, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
+import { openRagDb, ragDbExists, resolveRagDbPath, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 
 describe('RAG config（红线 H1：key 不进 git）', () => {
@@ -185,7 +185,7 @@ describe('resolveRag（服务商化：书级引用 + 应用级服务商 + 旧版
   })
 })
 
-describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => {
+describe('RAG store（per-book .cache/rag.db，向量 BLOB 往返，余弦）', () => {
   let bookRoot: string
 
   beforeEach(() => {
@@ -238,12 +238,11 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
     }
   })
 
-  it('.rag.db 落书仓库内（M1：per-book，独立 .cache）', () => {
+  it('RAG 库落 .cache/rag.db（M1：per-book，与 index.db 同区）', () => {
     const db = openRagDb(bookRoot)
     db.close()
-    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(true)
-    // .rag.db 和 .cache/index.db 是两个独立文件
-    expect(join(bookRoot, '.rag.db')).not.toBe(join(bookRoot, '.cache', 'index.db'))
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(false) // 不再往书根裸放
   })
 
   it('rag_meta 读写', () => {
@@ -267,6 +266,106 @@ describe('RAG store（per-book .rag.db，向量 BLOB 往返，余弦）', () => 
     expect(cosineSimilarity(new Float32Array([0, 0, 0]), a)).toBe(0)
     // 维度不一致不崩、不截断误算
     expect(cosineSimilarity(new Float32Array([1, 0]), a)).toBe(0)
+  })
+})
+
+// ── hh §八-11：.rag.db → .cache/rag.db 兼容迁移 ──────────────────────
+
+describe('RAG 库迁移（hh §八-11：.rag.db → .cache/rag.db）', () => {
+  let bookRoot: string
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-migrate-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(bookRoot, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  /** 在旧路径（书根裸 .rag.db）造一个有数据的库，模拟升级前版本留下的现场 */
+  function seedLegacyDb(): void {
+    const db = new DatabaseSync(join(bookRoot, '.rag.db'))
+    createRagTables(db)
+    storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'legacy-model' })
+    setRagMeta(db, 'embedding_model', 'legacy-model')
+    setRagMeta(db, 'indexed_max_chapter', '1')
+    db.close()
+  }
+
+  it('旧路径有库 → openRagDb 迁到新路径，旧路径消失，数据完好', () => {
+    seedLegacyDb()
+    // 迁移前 ragDbExists 就应为 true——status 存在性探测不得误报「未建索引」
+    expect(ragDbExists(bookRoot)).toBe(true)
+
+    const db = openRagDb(bookRoot)
+    try {
+      const chunks = readAllChunks(db)
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]!.model).toBe('legacy-model')
+      expect(getRagMeta(db, 'indexed_max_chapter')).toBe('1')
+      expect(getRagMeta(db, 'embedding_model')).toBe('legacy-model')
+    } finally {
+      db.close()
+    }
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(false)
+  })
+
+  it('WAL 侧车（崩溃残留的 -wal/-shm）随主库一并迁走，不留旧处', () => {
+    seedLegacyDb()
+    writeFileSync(join(bookRoot, '.rag.db-wal'), 'sidecar')
+    writeFileSync(join(bookRoot, '.rag.db-shm'), 'sidecar')
+
+    expect(resolveRagDbPath(bookRoot)).toBe(join(bookRoot, '.cache', 'rag.db'))
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db-wal'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db-shm'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.rag.db-wal'))).toBe(false)
+    expect(existsSync(join(bookRoot, '.rag.db-shm'))).toBe(false)
+  })
+
+  it('新路径已存在 → 不迁（旧库残留原样保留，走新库）', () => {
+    seedLegacyDb()
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    const fresh = new DatabaseSync(join(bookRoot, '.cache', 'rag.db'))
+    createRagTables(fresh)
+    storeChunk(fresh, { 章号: 9, start_offset: 0, end_offset: 10, embedding: new Float32Array([0, 1, 0]), model: 'new-model' })
+    fresh.close()
+
+    const db = openRagDb(bookRoot)
+    try {
+      const chunks = readAllChunks(db)
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]!.model).toBe('new-model') // 读的是新库，不是旧库
+    } finally {
+      db.close()
+    }
+    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(true) // 旧残留不动
+  })
+
+  it('迁移失败（.cache 建不成，模拟跨卷/权限）→ 降级开旧库，不抛错', () => {
+    seedLegacyDb()
+    // 把 .cache 占成普通文件 → mkdirSync 必失败，rename 无法进行
+    writeFileSync(join(bookRoot, '.cache'), 'not a dir')
+
+    const db = openRagDb(bookRoot)
+    try {
+      expect(readAllChunks(db)).toHaveLength(1) // 旧库数据照常可读
+      expect(getRagMeta(db, 'indexed_max_chapter')).toBe('1')
+    } finally {
+      db.close()
+    }
+    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(true) // 旧库原地未动
+    expect(ragDbExists(bookRoot)).toBe(true)
+  })
+
+  it('从未建过库 → ragDbExists false；openRagDb 建在 .cache/rag.db', () => {
+    expect(ragDbExists(bookRoot)).toBe(false)
+    const db = openRagDb(bookRoot)
+    db.close()
+    expect(ragDbExists(bookRoot)).toBe(true)
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db'))).toBe(true)
+    expect(existsSync(join(bookRoot, '.rag.db'))).toBe(false)
   })
 })
 

@@ -6,10 +6,9 @@
  * 薄接线——逻辑全在 trace-stats.ts / rule-hits.ts。B3 顺带透出规则命中统计。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { aggregateTrace } from '../../../ai/trace-stats.js'
 import { readRuleHits } from '../../../ai/rule-hits.js'
 
@@ -21,11 +20,10 @@ interface TraceStatsCtx {
 
 export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
   route('GET', '/api/books/:name/trace-stats', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     // P2：从事件库 llm/call 派生（接口不变；userDataPath 缺失 → total=0）
     const stats = aggregateTrace(ctx.userDataPath, bookRoot)
     // B3：规则命中统计（按 hits 降序）

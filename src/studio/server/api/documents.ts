@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
@@ -93,7 +93,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/:docId/content',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
@@ -134,7 +134,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/tree',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
       const refresh = new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh') === '1'
       const index = getBookTreeIndex(r.bookRoot, refresh)
@@ -153,7 +153,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/:docId/finalize',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const outcome = finalizeRevision(r.bookRoot, params['docId'] ?? '')
       if (!outcome.ok) {
         // ee-P1-3：LEAD_GATE → 409（可修复的账实状态冲突，语义与 structStatus 的
@@ -178,7 +178,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/batch-finalize',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // CC-P2-9：并发闸——必须在首个 await（readJson）前同步占位，覆盖 body 在途窗口：
       // handler 已持闸悬在 readJson 时，后到的完整请求 409（与 rewrite/outline 闸同口径）。
       // 注：定稿循环全程同步，body 已齐的双击会串行执行——由 finalize 幂等（已定稿 →
@@ -212,7 +212,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/words-diary',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const date = todayDate()
       reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date), delta: readTodayDelta(r.bookRoot, date) })
     },
@@ -223,7 +223,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/words-diary',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const body = await readJson(req)
       const baseline = Number(body?.baseline)
       if (!Number.isFinite(baseline) || baseline < 0) {
@@ -241,7 +241,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const body = await readJson(req)
       if (typeof body.relPath !== 'string' || !body.relPath) {
         reply(res, 400, { code: 'BAD_INPUT', error: 'relPath 缺失' })
@@ -265,7 +265,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/:docId',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
@@ -318,7 +318,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/:docId/copy',
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
       if (typeof body.relPath !== 'string' || !body.relPath) {
@@ -337,7 +337,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/documents/:docId',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：软删伏笔（clear 事件）前快照
@@ -354,7 +354,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/trash',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       reply(res, 200, { ok: true, entries: listTrash(r.bookRoot) })
     },
   )
@@ -364,7 +364,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/trash/:id/restore',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = restoreTrash(r.bookRoot, id)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
@@ -376,7 +376,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     '/api/books/:name/trash/:id',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
       const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return reply(res, r.status, { error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = purgeTrash(r.bookRoot, id)
       reply(res, result.ok ? 200 : structStatus(result.code), result)

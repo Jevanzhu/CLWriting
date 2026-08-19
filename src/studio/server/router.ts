@@ -9,7 +9,7 @@
  * GUI 后端同构；端点不多，手写分发器比引框架干净。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { HttpError } from './http.js'
+import { HttpError, replyError, replyHttpError } from './http.js'
 
 type Handler = (
   req: IncomingMessage,
@@ -86,10 +86,7 @@ export async function dispatch(
       })
     } catch {
       console.error('[api] bad path encoding:', req.method, req.url)
-      if (!res.headersSent) {
-        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: '路径参数编码无效' }))
-      }
+      if (!res.headersSent) replyError(res, 400, 'BAD_PATH', '路径参数编码无效')
       return true
     }
     try {
@@ -99,10 +96,10 @@ export async function dispatch(
       // 否则 500「内部错误」无从排障（前缀风格对齐 index.ts 的 '[api] unhandled error'）
       console.error('[api] handler error:', req.method, req.url, e)
       if (!res.headersSent) {
-        const status = e instanceof HttpError ? e.status : 500
-        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-        // 仅暴露 HttpError（应用级可控消息）；原始异常 message 可能含 API Key 等敏感信息
-        res.end(JSON.stringify({ error: e instanceof HttpError ? e.message : '内部错误' }))
+        // hh §八-12：错误信封统一 {code,error}——HttpError 自带 code（readJson 413/400 等），
+        // 原始异常 message 可能含 API Key 等敏感信息 → 不透传，500 'ERROR' 兜底
+        if (e instanceof HttpError) replyHttpError(res, e)
+        else replyError(res, 500, 'ERROR', '内部错误')
       }
     }
     return true

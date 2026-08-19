@@ -15,9 +15,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { readdirSync, statSync, existsSync } from 'node:fs'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBooks } from '../../../install/books.js'
-import { readBookConfig } from '../../../format/yaml.js'
 import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy } from '../../../document/snapshot.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
@@ -40,15 +40,15 @@ function resolveDoc(
   name: string | undefined,
   docId: string,
   userDataPath: string | null = null,
-): { bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number } {
-  if (!workDir) return { error: '未定位到工作目录', status: 400 }
-  if (!name) return { error: '缺少书名', status: 400 }
+): { bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string } {
+  if (!workDir) return { error: '未定位到工作目录', status: 400, code: 'NO_WORKDIR' }
+  if (!name) return { error: '缺少书名', status: 400, code: 'BAD_INPUT' }
   const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404 }
+  if (!entry) return { error: `没有这本书：${name}`, status: 404, code: 'NOT_FOUND' }
   const bookRoot = join(workDir, entry.path)
-  // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
+  // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc；这里不能换 resolveDocEntry——legacy 补登记是写操作）
   const relPath = getOrCreateService(bookRoot, userDataPath).resolvePath(docId)
-  if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404 }
+  if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404, code: 'NOT_FOUND' }
   return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.版本') }
 }
 
@@ -106,10 +106,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     'GET',
     '/api/books/:name/version-stats',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
       const versionsDir = join(bookRoot, '工作区', '.版本')
       const scan = scanVersionsDir(versionsDir)
       // 定稿章节数：manifest 中 finalizedRevision 非空的文档条目数
@@ -134,19 +133,18 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     'POST',
     '/api/books/:name/versions/prune',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
       const versionsDir = join(bookRoot, '工作区', '.版本')
       if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
 
-      // 保留策略三层链：book.yaml snapshots → global.json snapMax*（全局默认）→ 硬编码 14 天 / 30 个
-      const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
+      // 保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码 14 天 / 30 个；
+      // book.yaml snapshots 段已砍书级，不再参与（旧值忽略）。
       const global = readGlobalSnapshotPolicy(ctx.userDataPath)
       const policy = {
-        maxDays: cfg.snapshots?.max_days ?? global.maxDays ?? 14,
-        maxCount: cfg.snapshots?.max_count ?? global.maxCount ?? 30,
+        maxDays: global.maxDays ?? 14,
+        maxCount: global.maxCount ?? 30,
         throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
       }
 
@@ -187,7 +185,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     (_req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
-      if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       reply(res, 200, { ok: true, entries: listSnapshotEntries(r.snapshotsDir, docId, countWords) })
     },
   )
@@ -199,9 +197,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     (_req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
-      if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
-      if (!snap) return reply(res, 404, { error: '版本不存在' })
+      if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
       reply(res, 200, { ok: true, content: snap.content, meta: snap.meta })
     },
   )
@@ -213,9 +211,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     async (req: IncomingMessage, res: ServerResponse, params) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
-      if ('error' in r) return reply(res, r.status, { ok: false, error: r.error })
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
-      if (!snap) return reply(res, 404, { error: '版本不存在' })
+      if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
 
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =

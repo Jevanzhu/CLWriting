@@ -30,7 +30,8 @@ afterEach(async () => {
 test('static handler rejects malformed uri without killing server', async () => {
   const bad = await fetch(`${baseUrl}/%E0%A4%A`)
   expect(bad.status).toBe(400)
-  expect(await bad.text()).toBe('bad request')
+  // hh §八-12：静态层错误也走统一 JSON 信封 {code, error}
+  expect(JSON.parse(await bad.text())).toEqual({ code: 'BAD_INPUT', error: 'bad request' })
 
   const ok = await fetch(`${baseUrl}/`)
   expect(ok.status).toBe(200)

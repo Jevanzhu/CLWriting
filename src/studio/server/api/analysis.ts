@@ -14,9 +14,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
-import { readManifest } from '../../../document/manifest.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook, resolveDocEntry } from '../book-context.js'
+import { readManifest } from '../../../document/manifest.js' // analysis-overview 全量遍历（非 docId 单查）
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
@@ -65,13 +65,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'GET',
     '/api/books/:name/documents/:docId/analysis/:kind',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       const kind = (params['kind'] ?? '') as AnalysisKind
-      const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+      const m = resolveDocEntry(bookRoot, docId)
       if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
 
       const env = readAnalysis(bookRoot, docId, kind)
@@ -97,9 +96,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/analyze',
     async (req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
       const release = acquireTaskGate(params['name']!, 'analyze')
       if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已有分析任务在跑，请等待完成后再试' })
@@ -110,9 +108,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           return reply(res, 400, { code: 'BAD_KIND', error: 'kind 需为 score/emotion/hooks/style 之一' })
         }
 
-        const bookRoot = join(ctx.workDir, entry.path)
+        const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        const m = resolveDocEntry(bookRoot, docId)
         if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
         const absPath = safeManifestPath(bookRoot, m.path)
         if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
@@ -150,16 +148,15 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/autotag',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'autotag')
       if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在识别章节标签，请等待完成后再试' })
       try {
-        const bookRoot = join(ctx.workDir, entry.path)
+        const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        const m = resolveDocEntry(bookRoot, docId)
         if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
         const absPath = safeManifestPath(bookRoot, m.path)
         if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
@@ -207,16 +204,15 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'POST',
     '/api/books/:name/documents/:docId/infer-meta',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'infer-meta')
       if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在推断目标情绪，请等待完成后再试' })
       try {
-        const bookRoot = join(ctx.workDir, entry.path)
+        const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)
+        const m = resolveDocEntry(bookRoot, docId)
         if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
         const absPath = safeManifestPath(bookRoot, m.path)
         if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
@@ -257,10 +253,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'GET',
     '/api/books/:name/analysis-overview',
     (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
-      const bookRoot = join(ctx.workDir, entry.path)
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
       const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
       const analysisDir = join(bookRoot, '项目', '分析')
 
@@ -336,14 +331,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     'POST',
     '/api/books/:name/analyze-style',
     async (_req: IncomingMessage, res: ServerResponse, params) => {
-      if (!ctx.workDir) return reply(res, 400, { code: 'NO_WORKDIR', error: '未定位到工作目录' })
-      const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-      if (!entry) return reply(res, 404, { code: 'NOT_FOUND', error: `没有这本书：${params['name']}` })
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
       const release = acquireTaskGate(params['name']!, 'analyze-style')
       if (!release) return reply(res, 409, { code: 'BUSY', error: '本书正在做文风分析，请等待完成后再试' })
       try {
-        const bookRoot = join(ctx.workDir, entry.path)
+        const bookRoot = r.bookRoot
 
         // 读所有定稿正文章节（按章号排序）
         const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))

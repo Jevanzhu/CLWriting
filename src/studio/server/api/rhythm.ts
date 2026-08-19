@@ -9,8 +9,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { route } from '../router.js'
-import { reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
@@ -27,12 +27,10 @@ const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事
 
 export function registerRhythmRoutes(ctx: RhythmCtx): void {
   route('GET', '/api/books/:name/rhythm', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const name = params['name']
-    const entry = readBooks(ctx.workDir).find((b) => b.name === name)
-    if (!entry) return reply(res, 404, { error: `没有这本书：${name}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const bookRoot = join(ctx.workDir, entry.path)
+    const bookRoot = r.bookRoot
     const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
     reply(res, 200, config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot))
   })

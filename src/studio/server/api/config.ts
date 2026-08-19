@@ -10,8 +10,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { route } from '../router.js'
-import { readJson, reply } from '../http.js'
-import { readBooks } from '../../../install/books.js'
+import { readJson, reply, replyError } from '../http.js'
+import { resolveBook } from '../book-context.js'
 import { readBookConfig, stringifyBookConfig } from '../../../format/yaml.js'
 import type { BookConfig } from '../../../format/types.js'
 
@@ -21,31 +21,29 @@ interface ConfigCtx {
 
 export function registerConfigRoutes(ctx: ConfigCtx): void {
   route('GET', '/api/books/:name/config', (_req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
-    const cfgResult = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
-    if (!cfgResult.ok) return reply(res, 500, { error: `读 book.yaml 失败:${cfgResult.error}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
+    if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error}`)
     reply(res, 200, { config: (cfgResult as { config: BookConfig }).config })
   })
 
   route('PUT', '/api/books/:name/config', async (req: IncomingMessage, res: ServerResponse, params) => {
-    if (!ctx.workDir) return reply(res, 400, { error: '未定位到工作目录' })
-    const entry = readBooks(ctx.workDir).find((b) => b.name === params['name'])
-    if (!entry) return reply(res, 404, { error: `没有这本书:${params['name']}` })
+    const r = resolveBook(ctx.workDir, params['name'])
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
     const config = body['config'] as BookConfig | undefined
-    if (!config || typeof config !== 'object') return reply(res, 400, { error: 'config 必填' })
+    if (!config || typeof config !== 'object') return replyError(res, 400, 'BAD_INPUT', 'config 必填')
     // 结构校验（K6）：防畸形 config 写出损坏的 book.yaml
     if (typeof config.book?.title !== 'string' || !config.book.title.trim()) {
-      return reply(res, 400, { error: 'config.book.title 必填且须为非空字符串' })
+      return replyError(res, 400, 'BAD_INPUT', 'config.book.title 必填且须为非空字符串')
     }
     try {
       const yaml = stringifyBookConfig(config)
-      atomicWriteFile(join(ctx.workDir, entry.path, 'book.yaml'), yaml)
+      atomicWriteFile(join(r.bookRoot, 'book.yaml'), yaml)
     } catch (e) {
       console.error('[api] 写 book.yaml:', e)
-      return reply(res, 500, { error: '写 book.yaml 失败' })
+      return replyError(res, 500, 'IO', '写 book.yaml 失败')
     }
     reply(res, 200, { ok: true })
   })
