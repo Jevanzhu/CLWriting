@@ -15,8 +15,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile, parseFlat } from '../format/frontmatter.js'
+import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
+import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
 import { prepare, type PrepareResult } from './prepare.js'
 import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
@@ -83,9 +84,11 @@ export interface PrepareMaterialsOptions {
   userDataPath?: string
   /** 本章细纲声明推进的账本条目 id（源头限流） */
   chapterLeadIds: string[]
+  /** 本章章号（kk-P1-2）：文风样章场景据此走 readChapterScenes 三级回退（与 draft 链同源） */
+  chapter?: number
   /** RAG 召回的 query（默认用本章细纲/标题；调用方可显式传） */
   query?: string
-  /** 文风样章场景；可单值或多值（G2 跨场景）。缺省由 prepare 回落「战斗」 */
+  /** 文风样章场景显式覆盖；缺省且传了 chapter 时按三级回退推导（全空→['通用']） */
   sampleScene?: string | string[]
   /** 召回 topK（默认 5） */
   topK?: number
@@ -105,7 +108,7 @@ export interface PrepareMaterialsResult extends PrepareResult {
 }
 
 /**
- * G3 文风留痕：声明了场景（细纲/显式入参）却查无样章 → 提示去 learn 收割补。
+ * G3 文风留痕：声明了场景（三级水源/显式入参）却查无样章 → 提示去 learn 收割补。
  * 范文回落待知识层补数据（OQ2）。空声明（冷启动无场景）不留痕，保逐字节红线。
  */
 function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: string } {
@@ -115,23 +118,22 @@ function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: strin
 }
 
 /**
- * 从工作区细纲 front matter 读「场景」声明（G1 场景水源 + G2 多场景，OQ1 已定）。
- *
- * 细纲正文是 freeform，但 front matter 的「场景」是结构化声明——读它是「数」不是「判」。
- * 单值 `场景: 对话` → ['对话']；多值 `场景: [战斗, 对话]` → ['战斗','对话']（首为主场景）。
- * 缺省/无细纲/无 front matter → [] → prepare 回落默认「战斗」（逐字节不变红线）。
+ * 备料链场景水源（kk-P1-2 归一）：与 draft 链共用 readChapterScenes 三级回退
+ * （① 章纲 fm「场景」→ ② 正文 fm「场景」→ ③ 细纲「## 场景声明」段+章号门），全空回落 ['通用']。
+ * 此前备料链读细纲 fm「场景」字段——全仓无生产写入方（outline 端点只写 章号/推进），
+ * 恒空 → prepare 回落硬编码「战斗」，文风样章场景与本章实际场景脱节；G1/G3 特性未生效。
  */
-function readOutlineScenes(bookRoot: string): string[] {
-  const outlinePath = join(bookRoot, '工作区', '细纲.md')
-  if (!existsSync(outlinePath)) return []
-  const r = readFile(outlinePath)
-  if (!r.ok) return [] // 无 front matter → 安全回落
-  const scene = parseFlat(r.fmRaw).get('场景')
-  if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
-  if (Array.isArray(scene)) {
-    return scene.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+function resolveScenes(bookRoot: string, opts: PrepareMaterialsOptions): { sampleScene: string[] | undefined; declaredScenes: string[] } {
+  // 显式入参优先（测试/调用方覆盖）；未传 chapter 的旧调用维持「不推导」→ prepare 自行回落
+  if (opts.sampleScene !== undefined) {
+    const arr = Array.isArray(opts.sampleScene) ? opts.sampleScene : [opts.sampleScene]
+    return { sampleScene: arr, declaredScenes: arr }
   }
-  return []
+  if (opts.chapter === undefined) return { sampleScene: undefined, declaredScenes: [] }
+  return {
+    sampleScene: readChapterScenes(bookRoot, opts.chapter),
+    declaredScenes: readDeclaredChapterScenes(bookRoot, opts.chapter),
+  }
 }
 
 /**
@@ -147,11 +149,9 @@ export async function prepareMaterials(
   opts: PrepareMaterialsOptions,
 ): Promise<PrepareMaterialsResult> {
   const { bookRoot, workDir, chapterLeadIds } = opts
-  // 文风样章场景（G1/G2）：显式入参优先，否则从细纲 front matter 推导（OQ1）；空 → undefined → prepare 回落「战斗」
-  const outlineScenes = readOutlineScenes(bookRoot)
-  const sampleScene = opts.sampleScene ?? (outlineScenes.length > 0 ? outlineScenes : undefined)
-  // G3 留痕判定用：实际生效的场景（空 = 无声明，不留痕）
-  const effectiveScenes = sampleScene === undefined ? [] : Array.isArray(sampleScene) ? sampleScene : [sampleScene]
+  // 文风样章场景（kk-P1-2 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
+  // 回退（与 draft 链同一水源，全空→['通用']）；G3 留痕只看「已声明」场景（兜底不算声明）
+  const { sampleScene, declaredScenes } = resolveScenes(bookRoot, opts)
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
   // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
   // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
@@ -164,12 +164,12 @@ export async function prepareMaterials(
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!resolved) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0, ...styleNoteOf(effectiveScenes, base) }
+    return { ...base, ragUsed: false, ragHitCount: 0, ...styleNoteOf(declaredScenes, base) }
   }
 
   if (!resolved.apiKey) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
-    return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(effectiveScenes, base) }
+    return { ...base, ragUsed: false, ragHitCount: 0, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
   }
 
   // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」> 书名（兜底召回与本书相关的片段）
@@ -192,7 +192,7 @@ export async function prepareMaterials(
       ragUsed: false,
       ragHitCount: 0,
       ragNote: ragNote ?? 'RAG 召回无命中（降级回落精准读取）',
-      ...styleNoteOf(effectiveScenes, base),
+      ...styleNoteOf(declaredScenes, base),
     }
   }
 
@@ -203,6 +203,6 @@ export async function prepareMaterials(
     ...base,
     ragUsed: true,
     ragHitCount: hits.length,
-    ...styleNoteOf(effectiveScenes, base),
+    ...styleNoteOf(declaredScenes, base),
   }
 }

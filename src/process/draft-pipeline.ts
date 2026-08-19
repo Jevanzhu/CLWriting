@@ -155,8 +155,8 @@ function readChapterOutline(bookRoot: string, chapter: number): string {
 
 /**
  * front matter「场景」值 → 场景数组（水源①章纲/②正文共用的解析端）。
- * 单值 `场景: 对话` → ['对话']；多值 `[战斗, 对话]` → 数组（首为主场景，与 materials readOutlineScenes 同口径）；
- * 数组项过滤空串再 trim。空值/其他类型 → []——空结果表示「该水源未声明」，调用方据此继续回退而非直接落通用。
+ * 单值 `场景: 对话` → ['对话']；多值 `[战斗, 对话]` → 数组（首为主场景）；数组项过滤空串再
+ * trim。空值/其他类型 → []——空结果表示「该水源未声明」，调用方据此继续回退而非直接落通用。
  */
 function scenesOfFmValue(scene: unknown): string[] {
   if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
@@ -167,6 +167,14 @@ function scenesOfFmValue(scene: unknown): string[] {
   }
   return []
 }
+
+/**
+ * 细纲场景声明段的合法场景枚举（kk-P2：与 outline 端点短篇 prompt 的场景枚举同口径——
+ * 「战斗/对话/抒情/叙事铺陈/爽点高潮」。水源③是 AI 按 prompt 产出的段，段内引号项
+ * 过滤到枚举内，防 AI 写解释性引号词（如「此处注意」）被当场景串样章；
+ * 水源①②的 fm 字段是作者/AI 结构化声明，不过滤（自定义场景样章目录合法）。
+ */
+const OUTLINE_SCENE_ENUM = new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'])
 
 /**
  * 细纲正文「## 场景声明」段 → 场景数组（水源③的解析端）。解析规则确定性、不猜格式：
@@ -184,16 +192,17 @@ function scenesOfOutlineBody(body: string): string[] {
   if (start === -1) return []
   /** 行 i 是否仍在场景声明段内（越界或撞上下一个二级标题即出段） */
   const inSection = (i: number): boolean => i < lines.length && !/^##\s/.test(lines[i]!)
-  // 规则 2：段内「」引号项（按行扫描，出现序即主→次场景序）
+  // 规则 2：段内「」引号项（按行扫描，出现序即主→次场景序）；kk-P2：枚举内才收——
+  // AI 在段内写解释性引号词（非场景枚举值）会被当场景去样章库找目录（静默不命中），过滤之
   const quoted: string[] = []
   for (let i = start + 1; inSection(i); i++) {
     for (const m of lines[i]!.matchAll(/「([^」]+)」/g)) {
       const s = m[1]!.trim()
-      if (s) quoted.push(s)
+      if (s && OUTLINE_SCENE_ENUM.has(s)) quoted.push(s)
     }
   }
   if (quoted.length > 0) return [...new Set(quoted)]
-  // 规则 3：无引号 → 「主场景」行冒号后取词
+  // 规则 3：无引号 → 「主场景」行冒号后取词（同受枚举过滤）
   for (let i = start + 1; inSection(i); i++) {
     const m = lines[i]!.match(/^\s*(?:[-*]\s*)?主场景\s*[:：]\s*(.+?)\s*$/)
     if (m) {
@@ -202,7 +211,7 @@ function scenesOfOutlineBody(body: string): string[] {
         .replace(/^「/, '')
         .replace(/」$/, '')
         .trim()
-      if (s) return [s]
+      if (s && OUTLINE_SCENE_ENUM.has(s)) return [s]
     }
   }
   return []
@@ -220,7 +229,17 @@ function scenesOfOutlineBody(body: string): string[] {
  * 全空 → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，空场景列表连「通用」目录
  * 都不会碰，须显式点名；条目库路径两写法等价）。
  */
-function readChapterScenes(bookRoot: string, chapter: number): string[] {
+export function readChapterScenes(bookRoot: string, chapter: number): string[] {
+  const declared = readDeclaredChapterScenes(bookRoot, chapter)
+  return declared.length > 0 ? declared : ['通用']
+}
+
+/**
+ * 三级水源的「已声明」判定（无兜底版，kk-P1-2 随导出一并拆出）：
+ * materials 的 G3 留痕只对「作者/AI 声明了场景」负责——三级全空（冷启动）时不提示补样章；
+ * 与 readChapterScenes 的 ['通用'] 兜底分离，避免「兜底也被当声明」的误留痕。
+ */
+export function readDeclaredChapterScenes(bookRoot: string, chapter: number): string[] {
   // 水源①：本章章纲 front matter「场景」
   const outlinePath = findChapterOutlinePath(bookRoot, chapter)
   if (outlinePath) {
@@ -246,7 +265,7 @@ function readChapterScenes(bookRoot: string, chapter: number): string[] {
     const scenes = scenesOfOutlineBody(detail.body)
     if (scenes.length > 0) return scenes
   }
-  return ['通用']
+  return []
 }
 
 /** 设定注入预算（C3 / DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */

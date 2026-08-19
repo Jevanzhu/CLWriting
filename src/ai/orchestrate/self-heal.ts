@@ -342,6 +342,9 @@ async function prepareChapterMaterials(opts: SelfHealOpts, ctx: ChapterCtx, chap
       workDir: opts.cwd,
       userDataPath: opts.userDataPath,
       chapterLeadIds: readOutlineLeads(ctx.bookRoot, chapter),
+      // kk-P1-2：备料场景与 draft 链同源（readChapterScenes 三级回退）——
+      // 此前不传 → 备料恒按「战斗」选样章，与本章实际场景脱节
+      chapter,
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), r.text, { fsync: true })
   } catch {
@@ -675,8 +678,11 @@ async function runGenerate(
     state.usage.outputTokens += mock.usage.outputTokens
     const body = String((mock.input as { 正文?: string })['正文'] ?? '')
     if (body) {
-      for (let i = 0; i < body.length; i += 12) {
-        emit(opts, { type: 'text', text: body.slice(i, i + 12) })
+      // kk-P2：按码位切片（Array.from）——String.slice 按 UTF-16 code unit 会把 emoji/
+      // 扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法）
+      const chars = Array.from(body)
+      for (let i = 0; i < chars.length; i += 12) {
+        emit(opts, { type: 'text', text: chars.slice(i, i + 12).join('') })
       }
     }
     const assembled = assembleChapter(mock.input, chapter)

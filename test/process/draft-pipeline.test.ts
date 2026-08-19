@@ -377,4 +377,20 @@ describe('readChapterScenes: 场景水源三级回退（① 章纲 fm → ② �
     const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
     expect(p).not.toContain('## 文风样章')
   })
+
+  it('kk-P2 枚举门：场景声明段内非枚举引号词不收（AI 解释性引号词防串样章）', () => {
+    makeSampleLibrary(['战斗', '对话'])
+    makeChapterOutline(null)
+    makeChapterBody(null)
+    // 枚举值照收 + 解释性引号词「此处注意节奏」被滤掉
+    makeDetailedOutline(1, '## 场景声明\n本章主场景:「战斗」，穿插「对话」。补充:「此处注意节奏」。')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('战斗样章正文')
+    expect(p).toContain('对话样章正文')
+
+    // 全段皆非枚举 → 等价未声明 → 回落通用（战斗库不入选）
+    makeDetailedOutline(1, '## 场景声明\n本章「注意铺垫」与「节奏变化」。')
+    const p2 = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p2).not.toContain('## 文风样章')
+  })
 })
