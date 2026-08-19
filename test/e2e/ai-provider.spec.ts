@@ -130,7 +130,8 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 
   // 关设置 → 工作台「生成」按钮解灰（不再 disabled）
   await page.locator('.settings-modal .close-btn').click()
-  await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
+  // kk-P1-1：tooltip 同步 a20f8eb 新文案
+  await page.locator('.rbtn[data-tip="AI 工作台 Beta"]').click()
   await expect(page.getByRole('button', { name: '生成', exact: true })).toBeEnabled()
 })
 // Responses 启用批（T16，缺口 15）：协议栏三选一——第三按钮可选 openai-responses、

@@ -59,8 +59,8 @@ test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 �
   await expect(page.locator('.ws-shell')).toBeVisible()
 
   // ── 2. 开书对话：短篇步骤分流 ──
-  // 切「开书对话」tab
-  await page.locator('.rbtn[data-tip="开书对话（分步生成设定）"]').click()
+  // 切「开书对话」tab；kk-P1-1：tooltip 同步 a20f8eb 新文案
+  await page.locator('.rbtn[data-tip="开书对话 Beta"]').click()
   await expect(page.locator('.onboard')).toBeVisible()
   // 短篇：无「卷纲」步骤，有「短篇专属」组
   await expect(page.locator('.rail-item', { hasText: '卷纲' })).toHaveCount(0)
@@ -75,7 +75,8 @@ test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 �
   await expect(page.getByText('已保存')).toBeVisible({ timeout: 10_000 })
 
   // ── 3. 工作台：全自动写章 ──
-  await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
+  // kk-P1-1：tooltip 同步 a20f8eb 新文案
+  await page.locator('.rbtn[data-tip="AI 工作台 Beta"]').click()
   const autoBtn = page.locator('.workbench .btn.auto')
   await expect(autoBtn).toBeEnabled()
   await autoBtn.click()

@@ -26,7 +26,7 @@ test('短篇冒烟：开书 → 选篇 → 编辑器 → 关系图', async ({ pa
   await expect(page.locator('.cm-content')).toBeVisible()
   await expect(page.locator('.cm-content')).toContainText('门外没有脚印')
 
-  // 关系图视图可访问（短篇放开后不应拦截）
-  await page.locator('.rbtn[data-tip="角色关系图"]').click()
+  // 关系图视图可访问（短篇放开后不应拦截）；kk-P1-1：tooltip 同步 a20f8eb 新文案
+  await page.locator('.rbtn[data-tip="角色关系图 Beta"]').click()
   await expect(page.locator('.rel-scroll')).toBeVisible()
 })

@@ -46,6 +46,7 @@ test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // ③ 切工作台 → AI 降级警告条（生成按钮 v-if=!running，running 态不渲染，故以警告条为降级标志）
-  await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
+  // kk-P1-1：tooltip 同步 a20f8eb 新文案（工作台（AI 写作）→ AI 工作台 Beta）
+  await page.locator('.rbtn[data-tip="AI 工作台 Beta"]').click()
   await expect(page.locator('.ai-warn')).toContainText('不可用')
 })

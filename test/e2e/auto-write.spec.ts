@@ -41,7 +41,8 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // 工作台：mock 下 AI 可达，全自动写章可点
-  await page.locator('.rbtn[data-tip="工作台（AI 写作）"]').click()
+  // kk-P1-1：tooltip 同步 a20f8eb 新文案
+  await page.locator('.rbtn[data-tip="AI 工作台 Beta"]').click()
   const autoBtn = page.locator('.workbench .btn.auto')
   await expect(autoBtn).toBeEnabled()
 
