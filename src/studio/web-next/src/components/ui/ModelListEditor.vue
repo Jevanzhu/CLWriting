@@ -6,16 +6,19 @@
  * 编辑卡 Key 留空则回退已存 id 凭据；成功即弹勾选窗（未配置的预勾、已配置的不勾），
  * 采纳按 id 去重追加（用户调过的行原样保留）；失败就地报错不打断手填。
  * 校验交给父层（validateModels 纯函数 + abort)；本组件可被 v-model 双向草稿。
+ *
+ * hh §八-16 拆分：行卡片 → ModelRow.vue，候选弹窗 → ModelPicker.vue（纯搬家，
+ * DOM 结构不变）；本件留行状态/探测/采纳编排。
  */
 import { ref, computed } from 'vue'
-import { Plus, Trash2, ChevronRight, RefreshCw, Loader2, X, Check } from 'lucide-vue-next'
+import { Plus, RefreshCw, Loader2 } from 'lucide-vue-next'
 import type { Protocol } from '../../api/providers'
 import { fetchModels } from '../../api/providers'
 import {
-  parseCapacity,
-  formatCapacity,
   type ModelRowDraft,
 } from '../../shared/provider-format'
+import ModelRow from './ModelRow.vue'
+import ModelPicker from './ModelPicker.vue'
 
 const props = withDefaults(defineProps<{
   /** 外部模型行草稿（受控：父层保存前也读这里） */
@@ -107,7 +110,7 @@ async function fetchList(): Promise<void> {
   }
 }
 
-// ── 候选弹窗 ──
+// ── 候选弹窗（勾选集在此，采纳去重后并入行） ──
 const showPicker = ref(false)
 const picked = ref<Set<string>>(new Set())
 const candidates = ref<string[]>()
@@ -160,95 +163,29 @@ function adoptPicked(): void {
       尚未配置模型行。可手动添加，或点「获取模型列表」后从清单勾选。
     </div>
 
-    <div v-for="(r, i) in rows" :key="r._key" class="model-entry">
-      <div class="model-row">
-        <input
-          :value="r.id"
-          type="text"
-          placeholder="模型 id，如 gpt-5"
-          aria-label="模型 id"
-          class="compact-input row-input-id"
-          :disabled="disabled"
-          @input="rowChanged(i, { id: ($event.target as HTMLInputElement).value })"
-        />
-        <input
-          :value="r.name"
-          type="text"
-          placeholder="显示名（可选）"
-          aria-label="显示名"
-          class="compact-input"
-          :disabled="disabled"
-          @input="rowChanged(i, { name: ($event.target as HTMLInputElement).value })"
-        />
-        <button
-          class="row-icon-btn"
-          :class="{ open: expanded.has(r._key) }"
-          :aria-expanded="expanded.has(r._key)"
-          data-tip="容量（上下文 / 输出上限）"
-          :disabled="disabled"
-          @click="toggleRow(r._key)"
-        >
-          <ChevronRight :size="14" />
-        </button>
-        <button class="row-icon-btn danger" :disabled="disabled" data-tip="删除此模型行" @click="removeRow(i)">
-          <Trash2 :size="13" />
-        </button>
-      </div>
-      <div v-if="expanded.has(r._key)" class="model-advanced">
-        <div class="model-field">
-          <label>上下文窗口</label>
-          <input
-            :value="r.contextWindowText"
-            type="text"
-            placeholder="256K"
-            class="compact-input"
-            :disabled="disabled"
-            @input="rowChanged(i, { contextWindowText: ($event.target as HTMLInputElement).value })"
-          />
-          <span class="field-hint">空 = 默认 256K；支持 K/M</span>
-        </div>
-        <div class="model-field">
-          <label>最大输出 token</label>
-          <input
-            :value="r.maxTokensText"
-            type="text"
-            placeholder="128K"
-            class="compact-input"
-            :disabled="disabled"
-            @input="rowChanged(i, { maxTokensText: ($event.target as HTMLInputElement).value })"
-          />
-          <span class="field-hint">空 = 默认 128K；支持 K/M</span>
-        </div>
-      </div>
-    </div>
+    <ModelRow
+      v-for="(r, i) in rows"
+      :key="r._key"
+      :row="r"
+      :expanded="expanded.has(r._key)"
+      :disabled="disabled"
+      @change="(patch) => rowChanged(i, patch)"
+      @toggle="toggleRow(r._key)"
+      @remove="removeRow(i)"
+    />
 
     <button class="add-row-btn" :disabled="disabled" @click="addRow">
       <Plus :size="13" /> 添加模型行
     </button>
 
-    <!-- 候选弹窗：从已拉取清单勾选 -->
-    <Teleport to="body">
-      <div v-if="showPicker" class="picker-mask" @click.self="closePicker">
-        <div class="picker-pop">
-          <div class="picker-head">
-            <span>从模型清单选择</span>
-            <button class="close-btn" @click="closePicker"><X :size="15" /></button>
-          </div>
-          <div class="picker-list">
-            <label v-for="c in candidates ?? []" :key="c" class="picker-item">
-              <input type="checkbox" :checked="picked.has(c)" @change="togglePick(c)" />
-              <span>{{ c }}</span>
-            </label>
-          </div>
-          <div class="picker-actions">
-            <button class="cancel-btn" @click="closePicker">取消</button>
-            <button class="save-btn" :disabled="picked.size === 0" @click="adoptPicked">
-              <Check :size="14" /> 添加 {{ picked.size }} 个
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <ModelPicker
+      :show="showPicker"
+      :candidates="candidates ?? []"
+      :picked="picked"
+      @toggle="togglePick"
+      @close="closePicker"
+      @adopt="adoptPicked"
+    />
   </div>
 </template>
 
@@ -308,94 +245,6 @@ function adoptPicked(): void {
   margin: 0;
   padding: 0;
 }
-/* ── 模型行（dsh modelEntry/modelRow）：平铺输入行 + 展开容量 ── */
-.model-entry {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  padding: 6px;
-}
-.model-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 6px;
-}
-.row-input-id {
-  font-family: var(--font-monospace);
-}
-/* 行内幽灵图标钮（与行卡 .mini-btn 同语言）：无标签方格，含义由输入框自带 */
-.row-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  /* dsh iconButton 6px */
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform 120ms ease;
-}
-.row-icon-btn:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.row-icon-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.row-icon-btn.danger:hover:not(:disabled) {
-  color: var(--dv-bad);
-  background: color-mix(in srgb, var(--dv-bad) 10%, transparent);
-}
-/* 展开指示：右向箭头旋转 90° 朝下（dsh IconChevron） */
-.row-icon-btn.open {
-  transform: rotate(90deg);
-  color: var(--text-muted);
-}
-.model-advanced {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
-  padding: 8px 4px 2px;
-}
-.model-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.model-field label {
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.model-field label em {
-  font-style: normal;
-  color: var(--dv-bad);
-  font-weight: 500;
-}
-/* 紧凑输入（行内展开体）：独立类名避免与共享 .text-input 的优先级 tie */
-.compact-input {
-  width: 100%;
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-}
-.compact-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 16%, transparent);
-}
-.field-hint {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
 .add-row-btn {
   align-self: flex-start;
   display: inline-flex;
@@ -414,109 +263,6 @@ function adoptPicked(): void {
 .add-row-btn:hover:not(:disabled) {
   color: var(--text-normal);
   border-color: var(--interactive-accent);
-}
-/* ── 候选弹窗 ── */
-.picker-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: clw-overlay var(--dur-fast) var(--ease-out);
-}
-.picker-pop {
-  width: min(420px, 90vw);
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  /* dsh Modal 的 24px 大圆角 */
-  border-radius: var(--radius-xl);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-  animation: clw-appear var(--dur-norm) var(--ease-out);
-}
-.picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--size-4-2) var(--size-4-3);
-  font-weight: 600;
-  font-size: var(--font-size-s);
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.close-btn:hover {
-  background: var(--background-modifier-hover);
-}
-.picker-list {
-  flex: 1;
-  overflow: auto;
-  padding: var(--size-4-2);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.picker-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--radius-m);
-  cursor: pointer;
-  font-size: var(--font-size-s);
-  font-family: var(--font-monospace);
-}
-.picker-item input {
-  accent-color: var(--interactive-accent);
-}
-.picker-item:hover {
-  background: var(--background-modifier-hover);
-}
-.picker-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: var(--size-4-2) var(--size-4-3);
-  border-top: 1px solid var(--background-modifier-border);
-}
-.cancel-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
-  border: none;
-  border-radius: var(--radius-m);
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-weight: 600;
-  cursor: pointer;
-}
-.save-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 .spin {
   animation: models-editor-spin 0.8s linear infinite;

@@ -1,0 +1,686 @@
+/**
+ * 设置域共享样式（hh §八-16 自 SettingsModal.vue 原样搬出，纯搬家）。
+ * 全局（非 scoped）——SettingsModal 骨架 + 全部 Settings* 分域子件共用：
+ * 卡片容器（cfg-card/setting-item 族）、seg/switch/val/num-input 控件、
+ * data-tab-scope 归属徽章等。装载时机与 SFC style 块等价（组件模块加载即注入）。
+ */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: clw-overlay var(--dur-norm) var(--ease-out);
+}
+.settings-modal {
+  /* 面板尺寸对齐 dsh SettingsRoot：figma 1080 缩到 800 宽，高度上限 800 取视口，
+   * 四周留 24px 呼吸位（100vw-48）；高度不随内容跳（超长在 settings-content 滚） */
+  width: min(800px, calc(100vw - 48px));
+  height: min(800px, calc(100vh - 48px));
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: clw-appear var(--dur-norm) var(--ease-out);
+}
+
+/* ── 顶栏 ── */
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--size-4-4) var(--size-4-6);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+.modal-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.modal-title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text-normal);
+  letter-spacing: -0.01em;
+}
+.modal-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  /* dsh Modal 关闭钮为圆形 */
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.close-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* ── 左右分栏 ── */
+.settings-split {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── 左侧导航 ──
+   新版 UI：次级底色锚定导航列（与内容区形成图底关系）；
+   「本书」= 强调卡片入口（唯一书级页，实底图标章 + 描边淡底）；
+   全局 7 页 = 常规条目，按 界面/写作/系统 三组小节标题分组。 */
+.settings-nav {
+  /* 导航列宽对齐 dsh nav rail（188px） */
+  width: 188px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  padding: 14px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+/* 导航小节标题（界面/写作/系统）：11px 注释级 + 字距 + 淡色，与 12px 条目拉开层级 */
+.settings-nav .nav-section-label {
+  padding: 12px 12px 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--text-faint);
+  cursor: default;
+  user-select: none;
+}
+/* 首枚标题紧跟「本书」卡片，收掉顶部留白（卡片自身 margin 已负责分隔） */
+.settings-nav .nav-section-label:first-of-type {
+  padding-top: 4px;
+}
+.settings-nav button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: none;
+  /* dsh navCell 12px */
+  border-radius: var(--radius-l);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.settings-nav button svg {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.settings-nav button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.settings-nav button:hover svg {
+  color: var(--text-muted);
+}
+.settings-nav button.active {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+.settings-nav button.active svg {
+  color: var(--text-accent);
+}
+/* 激活项左侧指示条 */
+.settings-nav button.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 0 2px 2px 0;
+  background: var(--interactive-accent);
+}
+
+/* 「本书」卡片入口：描边 + 淡强调底（hover/active 逐级加深）；图标章用实底强调色 */
+.settings-nav .nav-book {
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  color: var(--text-normal);
+  font-size: var(--font-size-m);
+  font-weight: 600;
+}
+.settings-nav .nav-book:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-normal);
+}
+.settings-nav .nav-book.active {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  color: var(--text-accent);
+}
+/* 卡片自带描边/底色，常规条目的左指示条在卡片里多余 */
+.settings-nav .nav-book.active::before {
+  display: none;
+}
+.nav-book-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  flex-shrink: 0;
+}
+/* 图标章内的 svg 永远保持章配色：优先级必须压过 button.active/hover 的 svg 染色
+   （否则激活时主题紫图标叠在主题紫章上会隐形） */
+.settings-nav .nav-book .nav-book-icon svg {
+  color: var(--text-on-accent);
+}
+.settings-nav .nav-book.active .nav-book-icon {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+/* ── 右侧内容 ──（内边距对齐 dsh options 区 24px） */
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--size-4-6) var(--size-4-6);
+}
+.tab-pane {
+  position: relative;
+  min-height: 100%;
+  padding-bottom: var(--size-4-6);
+}
+/* tab 组件单根包裹层：继承 tab-pane 的宽度/居中约束 */
+.settings-tab {
+  min-height: 100%;
+}
+
+/* tab 切换过渡（并行模式）：离开面板绝对定位浮于上层 → 与进入面板交叉淡出，无双面板堆叠。
+   离开快（120ms 消失）→ 进入缓（200ms 浮现），形成干净的前后交接感。 */
+.tab-fade-enter-active {
+  transition: opacity var(--dur-norm) var(--ease-out);
+}
+.tab-fade-leave-active {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.tab-fade-enter-from {
+  opacity: 0;
+}
+.tab-fade-leave-to {
+  opacity: 0;
+}
+
+/* ── 空状态 ── */
+.empty-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--size-4-3);
+  padding: var(--size-4-8) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-s);
+}
+
+/* ── 卡片容器 ── */
+.cfg-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: var(--size-4-4);
+}
+.cfg-card:last-child {
+  margin-bottom: 0;
+}
+/* 字阶（三档梯度，全弹窗统一）：
+   组标题 13/600（本书卡片 + 页内 cfg-card-head）> 选项 12/500（导航条目 + 设置项名）
+   > 注释 11（分类小标题/副标题/描述）> 徽章 10 */
+.cfg-card-head {
+  font-size: var(--font-size-m);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding: 0 var(--size-4-1);
+  margin-top: var(--size-4-5);
+  margin-bottom: var(--size-4-2);
+}
+.cfg-card-head:first-child {
+  margin-top: 0;
+}
+
+/* 卡片内设置项：去掉圆角 + 缩进分割线 */
+.cfg-card .setting-item {
+  position: relative;
+  padding: var(--size-4-3) var(--size-4-4);
+  border-radius: 0;
+  gap: var(--size-4-4);
+}
+.cfg-card .setting-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: var(--size-4-4);
+  right: var(--size-4-4);
+  height: 1px;
+  background: var(--background-modifier-border);
+}
+.cfg-card .setting-item:hover {
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+}
+/* 卡片内 sub 项更大缩进 */
+.cfg-card .setting-item.sub {
+  padding-left: var(--size-4-8);
+}
+/* 卡片内非 setting-item 元素对齐 padding */
+.cfg-card .rag-save-row,
+.cfg-card .stats-hint {
+  padding-left: var(--size-4-4);
+  padding-right: var(--size-4-4);
+}
+
+/* ── 书籍 banner ── */
+.book-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-accent);
+  padding: var(--size-4-3) var(--size-4-4);
+  margin-bottom: var(--size-4-3);
+  border: 1px solid color-mix(in srgb, var(--text-accent) 22%, transparent);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--text-accent) 6%, transparent);
+}
+.book-banner svg {
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-accent) 14%, transparent);
+}
+.book-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 设置项（大间距、呼吸感）── */
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-5);
+  padding: var(--size-4-4) var(--size-4-3);
+  border-radius: var(--radius-s);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.setting-item:hover {
+  background: color-mix(in srgb, var(--text-normal) 2.5%, transparent);
+}
+.setting-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.setting-item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-s);
+  font-weight: 500;
+  color: var(--text-normal);
+}
+/* 配置归属标签（::after 由最近的 data-tab-scope 祖先驱动——即 settings-content，8 页统一；
+   非 .sub 项才显示。IA 重组后无 item 级 data-scope 覆盖特例：全局页全页 global，本书页全页 book） */
+[data-tab-scope] .setting-item:not(.sub) .setting-item-name::after {
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 99px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+[data-tab-scope="global"] .setting-item:not(.sub) .setting-item-name::after {
+  content: "全局";
+  color: var(--text-faint);
+  background: var(--background-modifier-hover);
+}
+[data-tab-scope="book"] .setting-item:not(.sub) .setting-item-name::after {
+  content: "本书";
+  color: var(--text-on-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+}
+.setting-item-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+/* "仅本书"覆盖开关 */
+.scope-btn {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.scope-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-active);
+}
+.scope-btn.on {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  border-color: transparent;
+  color: var(--text-on-accent);
+}
+.setting-item-control {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  flex-shrink: 0;
+}
+.setting-item.sub {
+  padding-left: var(--size-4-4);
+}
+/* 子选项名与主项同级可读（层级靠缩进表达，不再压字重降灰） */
+.setting-item.sub .setting-item-name {
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+/* ── 数值标签 ── */
+.val {
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xs);
+  min-width: 44px;
+  text-align: right;
+  font-weight: 500;
+}
+.val-suffix {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+.val-input {
+  width: 52px;
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  text-align: center;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.val-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+.val-input::-webkit-inner-spin-button,
+.val-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.backup-summary {
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.stats-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  padding: var(--size-4-3) 0;
+}
+
+/* ── range slider（跨平台统一，替代 accent-color）── */
+.setting-item input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 168px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  cursor: pointer;
+  outline: none;
+}
+.setting-item input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  border: 2px solid var(--background-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.setting-item input[type='range']::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+.setting-item input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  border: 2px solid var(--background-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+}
+.setting-item input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+.setting-item input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+}
+
+/* ── segmented control ── */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  gap: 2px;
+}
+.seg button {
+  padding: 5px 16px;
+  font-size: var(--font-size-s);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.seg button:hover:not(.on) {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.seg button.on {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ── number / text input ── */
+.num-input,
+.text-input {
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.num-input {
+  width: 104px;
+  font-variant-numeric: tabular-nums;
+}
+.text-input {
+  width: 220px;
+}
+.num-input:focus,
+.text-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+/* ── RAG 显式保存行 ── */
+.rag-save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--size-4-3) 0;
+}
+.save-btn {
+  padding: 7px 18px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+.save-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* ── link button ── */
+.link-btn {
+  padding: 6px 18px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.link-btn:hover {
+  background: var(--background-modifier-hover);
+}
+.link-btn.danger {
+  border-color: color-mix(in srgb, var(--text-error) 40%, var(--background-modifier-border));
+  color: var(--text-error);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.link-btn.danger:hover {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
+
+/* ── font pair ── */
+.font-pair {
+  display: flex;
+  gap: var(--size-4-2);
+}
+.font-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.font-select:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+/* ── toggle switch ── */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--background-modifier-border-active);
+  border-radius: 22px;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text-on-accent);
+  border-radius: 50%;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.switch input:checked + .switch-slider {
+  background: var(--interactive-accent);
+}
+.switch input:checked + .switch-slider::before {
+  transform: translateX(16px);
+}
+.switch-slider {
+  box-shadow: inset 0 0 0 1px transparent;
+}
+/* hover 反馈：未选中时轨道轻微提亮 */
+.switch:hover input:not(:checked) + .switch-slider {
+  background: color-mix(in srgb, var(--background-modifier-border-active) 80%, var(--interactive-accent) 20%);
+}
+/* 选中态 hover：轨道加深一档 */
+.switch:hover input:checked + .switch-slider {
+  background: var(--interactive-accent-hover);
+}
