@@ -17,15 +17,13 @@ import { readKind } from '../format/kind.js'
 import { runSpec } from '../ai/tasks/spec.js'
 import { LEAD_UPDATE_SPEC } from '../ai/tasks/specs.js'
 import { readOutlineLeads } from '../check/outline-leads.js'
+import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR } from '../check/lead-updates.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import { readOpenLeads } from './open-leads.js'
 import { pruneTextMiddle } from './prune.js'
 
-/** 账本推进文件路径（与 check/lead-updates.ts + document/lead-finalize.ts 读取常量一致） */
-export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
-
-/** 批量连写下按章归档目录（X-P2-6：上一章未定稿确认的草稿不被本章覆盖，finalize 按章号回收） */
-export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
+// ff-P1-1 常量归一：路径唯一出处 check/lead-updates.ts（闸/回写/草拟三方共用），此处再导出兼容既有导入方
+export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 
 /**
  * W-P1-3 右端：生成并落盘 账本推进.md（AI 草拟）。

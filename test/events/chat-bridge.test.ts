@@ -15,9 +15,10 @@ import {
   assistantMessageEvent,
   toolCallEvent,
   toolResultEvent,
+  turnStartEvent,
   turnEndEvent,
 } from '../../src/events/chat-bridge.js'
-import { deriveMessages } from '../../src/events/projection.js'
+import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
 
 const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
@@ -124,6 +125,30 @@ describe('F1-P1 SessionRecorder', () => {
     // 模拟失败：遮蔽本会话全部已写事件
     rec.close('error', rec.allSessionSeqs())
     expect(deriveMessages(store.listEvents('书A'))).toEqual([])
+    store.close()
+  })
+
+  it('GG-P2-1: 失败收尾含未落库半截组——closeMaskingAll 先 flush 再遮蔽，无幽灵消息', () => {
+    const { store } = openTmp()
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A'))
+    rec.add(turnStartEvent(0))
+    rec.flush()
+    // 首轮失败的真实形态：user + 半截 assistant 还在 pending 未 flush——
+    // 旧写法 close('error', allSessionSeqs()) 的遮蔽列表不含 pending 组，
+    // close 内部落库后投影重放出模型从未成功产出的「幽灵消息」
+    rec.add(turnStartEvent(1))
+    rec.add({ type: 'settings/snapshot', data: { scope: 'settings', digest: 'd' } })
+    rec.add(userMessageEvent('第一问'))
+    rec.add(assistantMessageEvent('半截回复'))
+    rec.closeMaskingAll('error')
+    // 全会话消息（含半截组）被遮蔽：投影零消息；结构事件不遮（骨架保留），
+    // session/end 保留为失败终态；遮蔽契约过校验链（只盖曾可见节点）
+    expect(deriveMessages(store.listEvents('书A'))).toEqual([])
+    const evs = store.listEvents('书A')
+    expect(evs.some((e) => e.type === 'session/end' && e.data['reason'] === 'error')).toBe(true)
+    expect(validateEventStream(evs)).toEqual([])
     store.close()
   })
 

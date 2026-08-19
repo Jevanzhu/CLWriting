@@ -85,7 +85,7 @@ function buildRoutes(
     registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
-    registerStateRoutes({ workDir })
+    registerStateRoutes({ workDir, userDataPath }) // GG-P2-5：状态机入口过全局托底链（volume_size 等喂生效值）
     registerIoRoutes({ workDir, token })
     registerKnowledgeRoutes({ workDir, token })
     registerHeartbeatRoutes({ workDir })

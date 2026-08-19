@@ -10,7 +10,7 @@
  * 恢复后重试同一文件 → 成功且履历包含该条（封死 skipped 幂等造成的永久丢失窗口）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finalizeRevision } from '../../src/document/finalize.js'
@@ -206,6 +206,58 @@ test('ee-P1-4: 账本回写失败 → LEAD_WRITE_ERROR 且基线未写；恢复�
     expect(typeof e2.finalizedRevision).toBe('string')
   } finally {
     chmodSync(leadDir, 0o755) // 双保险：中途 expect 失败也不留只读目录
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── ff-P1-1：闸与回写读取源单源化（归档章不再旁路） ──────────────────
+
+/** 批量连写形态：主文件载有**其他章**待确认条目（标签=第2章），本章推进在归档。 */
+function seedBatchArchive(root: string, archiveLine: string): void {
+  writeFileSync(
+    join(root, '工作区', '账本推进.md'),
+    '# 第2章 账本推进\n- 悬念-002 递进：别章待确认的证据。\n',
+    'utf-8',
+  )
+  mkdirSync(join(root, '工作区', '.账本推进暂存'), { recursive: true })
+  writeFileSync(join(root, '工作区', '.账本推进暂存', '第1章.md'), `# 第1章 账本推进\n${archiveLine}\n`, 'utf-8')
+}
+
+test('ff-P1-1: 归档「做了没声明」→ 闸拦得住（旧闸只读主文件 → 误放行，未审推进直落履历）', () => {
+  const { root, docId } = makeBook({ outlineLeads: null }) // 细纲无声明
+  try {
+    seedBatchArchive(root, `- 悬念-001 递进：${BODY_SENTENCE}`)
+    const r = finalizeRevision(root, docId)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe('LEAD_GATE')
+    expect(r.error).toContain('做了没声明')
+    // 闸红即拦：履历未被回写
+    const lead = readLead(join(root, '布线', '悬念', '悬念-001-玉佩.md'))
+    expect(lead.ok).toBe(true)
+    if (lead.ok) expect(lead.lead.履历).toEqual([])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('ff-P1-1: 归档两端一致 → 放行 + 从归档回写履历并清归档（旧闸误判「声明了没做」）', () => {
+  const { root, docId } = makeBook({ outlineLeads: '悬念-001' })
+  try {
+    seedBatchArchive(root, `- 悬念-001 递进：${BODY_SENTENCE}`)
+    const r = finalizeRevision(root, docId)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // 履历来自归档条目；主文件（第2章内容）不被清空
+    const lead = readLead(join(root, '布线', '悬念', '悬念-001-玉佩.md'))
+    expect(lead.ok).toBe(true)
+    if (lead.ok) {
+      expect(lead.lead.履历).toEqual([{ 章号: 1, 动词: '递进', 证据: BODY_SENTENCE }])
+    }
+    expect(existsSync(join(root, '工作区', '.账本推进暂存', '第1章.md'))).toBe(false)
+    const main = readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')
+    expect(main).toContain('第2章')
+  } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })

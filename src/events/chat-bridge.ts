@@ -11,6 +11,7 @@
  */
 import type { ChatMsg, ContentBlock } from '../ai/provider/types.js'
 import type { ChatEvent, SessionEndReason, TurnEndReason } from './types.js'
+import { SURFACE_EVENT_TYPES } from './types.js'
 import { foldSurface, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
 import { registerActiveChatSession, unregisterActiveChatSession } from './store.js'
@@ -135,6 +136,10 @@ export class SessionRecorder {
   private sessionId: string
   /** 已落库批次区间（失败回滚时遮蔽本会话全部已写事件用） */
   private flushedRanges: Array<{ first: number; last: number }> = []
+  /** 本批内 surface 类事件（user/assistant/tool_result）的批次内序号 */
+  private pendingSurfaceIdx: number[] = []
+  /** 本会话全部 surface 事件的绝对 seq（失败遮蔽唯一合法口径——遮蔽区间只许盖曾可见节点） */
+  private surfaceSeqs: number[] = []
   /** close 已执行（幂等） */
   private ended = false
 
@@ -147,6 +152,7 @@ export class SessionRecorder {
 
   /** 记录事件，返回该事件在本批次内的序号（0-based；flush 后 first + idx = seq） */
   add(ev: NewEvent): number {
+    if (SURFACE_EVENT_TYPES.has(ev.type)) this.pendingSurfaceIdx.push(this.pending.length)
     this.pending.push(ev)
     return this.pending.length - 1
   }
@@ -161,6 +167,8 @@ export class SessionRecorder {
     this.pending = []
     const range = { first: seqs[0]!, last: seqs[seqs.length - 1]! }
     this.flushedRanges.push(range)
+    for (const i of this.pendingSurfaceIdx) this.surfaceSeqs.push(range.first + i)
+    this.pendingSurfaceIdx = []
     return range
   }
 
@@ -171,6 +179,21 @@ export class SessionRecorder {
       for (let s = r.first; s <= r.last; s++) out.push(s)
     }
     return out
+  }
+
+  /**
+   * GG-P2-1：失败收尾遮蔽本会话全部消息事件。此前失败路径写 `close(reason, allSessionSeqs())`：
+   * ① 遮蔽列表取 close 内部 flush **前**的快照——pending 里未落库的半截 user/assistant
+   *   在 close 内才拿到 seq、不在遮蔽列表里，audit 重放出模型从未成功产出的「幽灵消息」
+   *   （破坏「模型可见⟺已记录」）；② 即便先 flush，allSessionSeqs() 也混入 turn/start、
+   *   快照等结构性事件——遮蔽区间只许盖「曾可见」节点（validateEventStream 契约）。
+   * 故按 surface 口径（user/assistant/tool_result）遮蔽：先 flush 让 pending 消息拿到 seq，
+   * 再遮蔽全会话消息 seq；结构事件不遮（投影本就无消息内容，审计保留完整骨架），
+   * session/end 由 close 随后分配新 seq、不进遮蔽（保留失败终态）。
+   */
+  closeMaskingAll(reason: SessionEndReason): number | null {
+    this.flush()
+    return this.close(reason, [...this.surfaceSeqs])
   }
 
   /**

@@ -636,15 +636,15 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         // F1-P1：本会话已落库事件遮蔽（防下次恢复出已回滚的废数据）
         // CC-P2-2：deadline 定时器触发的 abort 报「超时」（含嵌套 self-heal / 确认闸期间）
         if (state.timedOut) {
-          recorder.close('aborted', recorder.allSessionSeqs())
+          recorder.closeMaskingAll('aborted')
           return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
         }
-        recorder.close('interrupted', recorder.allSessionSeqs())
+        recorder.closeMaskingAll('interrupted')
         return void emit(opts, { type: 'chat_error', error: '已中断' })
       }
       if (Date.now() > state.deadline) {
         history.length = baseLen
-        recorder.close('aborted', recorder.allSessionSeqs())
+        recorder.closeMaskingAll('aborted')
         return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
       }
 
@@ -718,10 +718,10 @@ export async function runChat(opts: ChatOpts): Promise<void> {
         history.length = baseLen
         // CC-P2-2：deadline 定时器在 generate 期间触发 → 按超时收口（与轮首 aborted 分支同文案）
         if (state.timedOut) {
-          recorder.close('aborted', recorder.allSessionSeqs())
+          recorder.closeMaskingAll('aborted')
           return void emit(opts, { type: 'chat_error', error: '对话超时（超过 30 分钟），已停止' })
         }
-        recorder.close('error', recorder.allSessionSeqs())
+        recorder.closeMaskingAll('error')
         return void emit(opts, { type: 'chat_error', error: out.error })
       }
 
@@ -731,7 +731,7 @@ export async function runChat(opts: ChatOpts): Promise<void> {
       if (stopReason === 'max_tokens') {
         // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
         history.length = baseLen
-        recorder.close('max-tokens', recorder.allSessionSeqs())
+        recorder.closeMaskingAll('max-tokens')
         return void emit(opts, { type: 'chat_error', error: '回复达到长度上限被截断，请缩小问题范围重试' })
       }
 

@@ -58,14 +58,20 @@ export interface StatusSnapshot {
 /**
  * 组装近况快照。
  * @param db 书仓库的缓存
- * @param config book.yaml 配置（读 thresholds + leads.enabled）
- * @param volumeSize 每卷章数（用于推算当前卷号；默认 50）
+ * @param config book.yaml 配置（读 thresholds + leads.enabled；GG-P2-6 起第三参缺省时还读 book.volume_size）
+ * @param volumeSize 每卷章数（用于推算当前卷号）。显式传参优先；缺省回落
+ *   config.book.volume_size（调用方喂 applyGlobalDefaults 之后的生效配置时，此处即
+ *   书级 → global.json → 硬编码三层链的收口点），仍无才用 50
  */
 export function assembleStatus(
   db: DatabaseSync,
   config: BookConfig,
-  volumeSize = 50,
+  volumeSize?: number,
 ): StatusSnapshot {
+  // GG-P2-6：第三参缺省原先硬编码 50——chapter_status 工具按「只传 config」调用导致
+  // 卷号永远按 50 算（书级/global 配了别的值也读不到，断链）。改为缺省从生效配置收口。
+  const size = volumeSize ?? config.book.volume_size ?? 50
+
   // 已定稿最新章号
   const lastRow = db.prepare(
     'SELECT MAX(number) AS maxNum FROM chapters',
@@ -73,7 +79,7 @@ export function assembleStatus(
   const currentChapter = lastRow.maxNum ?? 0
 
   // 当前卷号
-  const currentVolume = currentChapter > 0 ? Math.ceil(currentChapter / volumeSize) : 1
+  const currentVolume = currentChapter > 0 ? Math.ceil(currentChapter / size) : 1
 
   // 账本阈值（#9 覆盖默认）
   const thresholds: Record<string, number> = { ...DEFAULT_THRESHOLDS }

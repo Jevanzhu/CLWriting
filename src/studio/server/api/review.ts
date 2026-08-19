@@ -45,6 +45,22 @@ interface ReviewCtx {
  */
 const reviewRunning = new Set<string>()
 
+/** hh-P1：本书任一文档三审在跑（books.ts 删书/改名持闸用）——三审是分钟级长任务，
+ * 闸内放行删书/改名会在旧路径重建孤儿目录并白烧 API 费用（与 spawn/task-gate 同模式）。 */
+export function isReviewRunningForBook(bookName: string): boolean {
+  const prefix = bookName + '/'
+  for (const k of reviewRunning) if (k.startsWith(prefix)) return true
+  return false
+}
+
+/** 测试钩子（同 stream.ts __setSpawnRunning 先例）：不经真实三审直接置/清本书运行闸，
+ * 供 books 删书/改名 409 接线测用。 */
+export function __setReviewRunning(bookName: string, running: boolean): void {
+  const key = `${bookName}/__test__`
+  if (running) reviewRunning.add(key)
+  else reviewRunning.delete(key)
+}
+
 const LENS_LABEL: Record<string, string> = {
   reader: '读者',
   editor: '编辑',

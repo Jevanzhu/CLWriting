@@ -17,13 +17,16 @@ import { existsSync, rmSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
-import { readLeadUpdatesAt, readLeadUpdateChapterTag, type ChapterLeadUpdate } from '../check/lead-updates.js'
+import {
+  readChapterUpdatesForChapter,
+  chapterUpdateSources,
+  LEAD_UPDATES_FILE,
+  LEAD_UPDATES_ARCHIVE_DIR,
+  type ChapterLeadUpdate,
+} from '../check/lead-updates.js'
 
-/** 账本推进文件路径（与 check/lead-updates.ts 读取常量一致） */
-export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
-
-/** 批量归档目录（与 process/lead-update-draft.ts 常量一致） */
-export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
+// ff-P1-1 常量归一：路径唯一出处移至 check/lead-updates.ts（闸与回写共用），此处再导出兼容既有导入方
+export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 
 /**
  * 把已确认的账本推进回写布线履历（找到对应条目按 编号 追加履历行），
@@ -34,16 +37,11 @@ export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
  * @returns 回写条数（无账本推进文件 → 0）
  */
 export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
-  // X-P2-6：主文件（标签匹配本章 / 无标签旧格式）+ 本章归档双源回收；
+  // ff-P1-1：读取走 readChapterUpdatesForChapter 单源（主文件属于本章时 + 本章归档）——
+  // 与定稿闸（finalize.ts finalGateBlockers）严格对称，闸看到的=回写要写的；
   // 主文件载有其他章待确认内容（批量连写）时不动它。
-  const mainPath = join(bookRoot, LEAD_UPDATES_FILE)
-  const mainTag = readLeadUpdateChapterTag(mainPath)
-  const mainIsThisChapter = mainTag === null || mainTag === chapterNo
-  const archivePath = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR, `第${chapterNo}章.md`)
-  const updates: ChapterLeadUpdate[] = [
-    ...(mainIsThisChapter ? readLeadUpdatesAt(mainPath) : []),
-    ...readLeadUpdatesAt(archivePath),
-  ]
+  const { mainPath, archivePath, mainIsThisChapter } = chapterUpdateSources(bookRoot, chapterNo)
+  const updates: ChapterLeadUpdate[] = readChapterUpdatesForChapter(bookRoot, chapterNo)
   if (updates.length === 0) return 0
 
   // 布线目录：基础类在 布线/{类}，关系线在 大纲/关系线（与 cache/rebuild.ts 同口径）

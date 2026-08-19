@@ -78,15 +78,20 @@ export interface GlobalPrefs {
   [k: string]: unknown
 }
 
-export async function getGlobalPrefs(): Promise<GlobalPrefs> {
-  const r = await apiJson<{ prefs: GlobalPrefs }>(`/api/library/prefs`)
-  return r.prefs
+export async function getGlobalPrefs(): Promise<{ prefs: GlobalPrefs; revision: number }> {
+  const r = await apiJson<{ prefs: GlobalPrefs; revision: number }>(`/api/library/prefs`)
+  return { prefs: r.prefs, revision: r.revision }
 }
 
-export async function putGlobalPrefs(prefs: GlobalPrefs): Promise<void> {
-  await apiJson<{ ok: true }>(`/api/library/prefs`, {
+/** GG-P2-7：expectedRevision 可选——服务端乐观并发守卫（不传 = 直通，向后兼容）；
+ *  成功回传自增后的 revision 供调用方同步，后续写不因陈旧号 409。 */
+export async function putGlobalPrefs(
+  prefs: GlobalPrefs,
+  expectedRevision?: number,
+): Promise<{ ok: true; revision: number }> {
+  return apiJson<{ ok: true; revision: number }>(`/api/library/prefs`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prefs }),
+    body: JSON.stringify({ prefs, expectedRevision }),
   })
 }

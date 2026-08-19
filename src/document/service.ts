@@ -661,7 +661,8 @@ export class DocumentService {
     return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
   }
 
-  /** 软删文档（移 .trash + 清单 removeEntry + trash manifest 记录 + snapshot + invalidate）。 */
+  /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；
+   *  GG-P2-6：登记不成则删不成——先写登记成功再移文件）。 */
   trashDocument(input: { docId: string }): Promise<TrashResult> {
     return Promise.resolve(this.doTrash(input.docId))
   }
@@ -690,9 +691,6 @@ export class DocumentService {
       const trashAbs = this.resolveSafePath(trashedRel)
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
       mkdirSync(dirname(trashAbs), { recursive: true })
-      renameSync(oldSafe, trashAbs)
-      // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
-      // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       // W-P2-1：软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
       let priorFinalized: { finalizedRevision?: string; finalizedAt?: string } = {}
       try {
@@ -703,6 +701,12 @@ export class DocumentService {
           }
         }
       } catch { /* 清单不可读：按从未定稿落账 */ }
+      // GG-P2-6：回收站登记先于移文件，且登记写失败即中止整个软删（宁删失败）——
+      // 原实现「先 rename 进 .trash、后补登记」，登记失败（磁盘满/登记路径被占）被
+      // catch {} 静默吞掉，结果是文件已删而回收站无记录，作者永远无法还原（静默丢稿）。
+      // 登记失败 → WRITE_ERROR（API 层 structStatus 映射 500），文件原地未动、清单条目保留。
+      // 反向残留（登记成功而 rename 失败）留下指向不存在 trashedPath 的孤儿条目——无害：
+      // 源文件未动，restore 报 NOT_FOUND、purge 可清。
       try {
         appendTrashEntry(this.bookRoot, {
           id: docId,
@@ -712,8 +716,16 @@ export class DocumentService {
           role: layoutOf(oldPath).role,
           ...priorFinalized,
         })
-      } catch { /* 磁盘满等：回收站 manifest 写失败不影响删除 */
+      } catch (e) {
+        return {
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
+        }
       }
+      renameSync(oldSafe, trashAbs)
+      // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
+      // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       try {
         if (existsSync(this.manifestPath)) {
           const m = readManifest(this.manifestPath)

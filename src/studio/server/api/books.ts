@@ -35,6 +35,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
 import { migrateBookSession } from '../../../events/store.js'
 import { heldTaskGatesFor } from './task-gate.js'
+import { isReviewRunningForBook } from './review.js'
 import { forgetRagBuildTask } from './rag.js'
 import { isSpawnRunning } from './stream.js'
 
@@ -166,6 +167,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
     if (isSpawnRunning(name)) {
       return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再删' })
     }
+    // hh-P1：三审同为分钟级长任务（无 abort 通道），持闸拒删——与 spawn/task-gate 同模式，
+    // 放行则三审收尾落盘写已删除的旧路径（重建孤儿目录 + 白烧 API 费用）
+    if (isReviewRunningForBook(name)) {
+      return reply(res, 409, { error: '本书三审进行中，先等它完成后再删' })
+    }
     // dd-P2：task-gate 分钟级任务（analyze/rewrite/rag-build 等）无 abort 通道——
     // 持闸时拒删（409），防收尾落盘在删除后重建孤儿目录 + 白烧 API 费用
     const held = heldTaskGatesFor(name)
@@ -199,7 +205,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
     forgetSession(name)
     invalidateTreeIndex(bookAbs)
-    clearChatHistory(name)
+    // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
+    // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件
+    clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
     forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
     reply(res, 200, { ok: true, name })
   })
@@ -275,6 +283,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 落盘写旧路径（目录已搬走 → 重建孤儿目录）+ 白烧 API 费用；与删书同口径拒改（409）
       if (isSpawnRunning(oldName)) {
         return reply(res, 409, { error: '本书正在生成（手动写稿），先等它完成或中断后再改名' })
+      }
+      // hh-P1：三审持闸拒改（同删书口径）——放行则收尾落盘写改名前旧路径
+      if (isReviewRunningForBook(oldName)) {
+        return reply(res, 409, { error: '本书三审进行中，先等它完成后再改名' })
       }
       // dd-P2：task-gate 分钟级任务无 abort 通道——持闸时拒改（409），防改名后收尾写旧路径
       const held = heldTaskGatesFor(oldName)

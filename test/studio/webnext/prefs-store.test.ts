@@ -50,8 +50,9 @@ beforeEach(() => {
   setActivePinia(createPinia())
   getGlobalPrefsMock.mockReset()
   putGlobalPrefsMock.mockReset()
-  getGlobalPrefsMock.mockResolvedValue({})
-  putGlobalPrefsMock.mockResolvedValue({})
+  // GG-P2-7 信封：GET 返回 { prefs, revision }，PUT 回传自增后 revision
+  getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 0 })
+  putGlobalPrefsMock.mockResolvedValue({ ok: true as const, revision: 1 })
 })
 
 afterEach(() => {
@@ -60,7 +61,7 @@ afterEach(() => {
 
 describe('prefs: init 从 API 加载', () => {
   it('空 prefs → 保持默认值', async () => {
-    getGlobalPrefsMock.mockResolvedValue({})
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.theme).toBe('light')
@@ -69,7 +70,7 @@ describe('prefs: init 从 API 加载', () => {
   })
 
   it('非空 prefs → 应用到 ref', async () => {
-    getGlobalPrefsMock.mockResolvedValue({ theme: 'dark', proseSize: 20, shelfView: 'list', chatEnabled: true })
+    getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'dark', proseSize: 20, shelfView: 'list', chatEnabled: true }, revision: 3 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.theme).toBe('dark')
@@ -79,7 +80,7 @@ describe('prefs: init 从 API 加载', () => {
   })
 
   it('非法值（负数/0/未知主题）→ 忽略用默认', async () => {
-    getGlobalPrefsMock.mockResolvedValue({ theme: 'purple', proseSize: 0, pageWidth: -5 } as never)
+    getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'purple', proseSize: 0, pageWidth: -5 } as never, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.theme).toBe('light')
@@ -131,7 +132,8 @@ describe('prefs: setter 应用 + 持久化调度', () => {
     expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 未到 500ms
     vi.advanceTimersByTime(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
-    expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }))
+    // 未 init 的实例 revision 初值 0 —— PUT 第二参带 expectedRevision（GG-P2-7）
+    expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }), 0)
   })
 
   it('多次 setter 合并为一次写回（debounce）', () => {
@@ -163,7 +165,7 @@ describe('prefs: localStorage 迁移', () => {
   it('空 API prefs + 有旧 localStorage → 迁移并写回', async () => {
     localStorage.setItem('clw-theme', 'dark')
     localStorage.setItem('clw.proseSize', '19')
-    getGlobalPrefsMock.mockResolvedValue({})
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.theme).toBe('dark')
@@ -173,7 +175,7 @@ describe('prefs: localStorage 迁移', () => {
 
   it('API 已有值 + 有旧 localStorage → 不迁移（API 优先）', async () => {
     localStorage.setItem('clw-theme', 'dark')
-    getGlobalPrefsMock.mockResolvedValue({ theme: 'light' })
+    getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.theme).toBe('light')
@@ -181,7 +183,7 @@ describe('prefs: localStorage 迁移', () => {
   })
 
   it('无旧 localStorage → 不迁移不写回', async () => {
-    getGlobalPrefsMock.mockResolvedValue({})
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
@@ -200,7 +202,7 @@ describe('prefs: 紧凑模式', () => {
 
 describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守卫）', () => {
   it('空 prefs → 保持硬编码回落初值（消费者直接读 ref 即回落）', async () => {
-    getGlobalPrefsMock.mockResolvedValue({})
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 0 })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.defaultGenre).toBe('')
@@ -220,7 +222,8 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
 
   it('13 键全设 → 逐键应用到 ref', async () => {
     getGlobalPrefsMock.mockResolvedValue({
-      defaultGenre: '玄幻',
+      prefs: {
+        defaultGenre: '玄幻',
       defaultVolumeSize: 30,
       defaultTargetWords: 2_000_000,
       defaultChapterTargetWords: 3000,
@@ -231,8 +234,10 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
       callsPerChapter: 12,
       relationAutoMine: true,
       relationMineThreshold: 6,
-      ragEnabled: true,
-      ragProvider: 'rag-a',
+        ragEnabled: true,
+        ragProvider: 'rag-a',
+      },
+      revision: 2,
     })
     const prefs = usePrefsStore()
     await prefs.init()
@@ -253,7 +258,8 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
 
   it('回读守卫：类型/枚举/范围非法值忽略，保持回落', async () => {
     getGlobalPrefsMock.mockResolvedValue({
-      defaultGenre: '   ',           // 空白串 = 未设
+      prefs: {
+        defaultGenre: '   ',           // 空白串 = 未设
       defaultVolumeSize: 3,          // < 5 越界
       defaultTargetWords: -5,        // 负数
       defaultChapterTargetWords: 0,  // JSON 层只存正整数（0=未设由 ref 初值表达）
@@ -266,7 +272,8 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
       relationMineThreshold: 0,
       ragEnabled: 1,
       ragProvider: 42,
-    } as never)
+      } as never,
+    })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.defaultGenre).toBe('')
@@ -340,6 +347,7 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
     expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 未到 500ms
     vi.advanceTimersByTime(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
+    // 未 init 的实例 revision 初值 0 —— PUT 第二参带 expectedRevision（GG-P2-7）
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         defaultGenre: '都市',
@@ -356,6 +364,7 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
         ragEnabled: true,
         ragProvider: 'rag-a',
       }),
+      0,
     )
   })
 

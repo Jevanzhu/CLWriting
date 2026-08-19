@@ -6,8 +6,15 @@
  *   PUT  /api/books/:name/prefs  body {prefs} → 写 .clwriting/prefs.json → {ok}
  *
  * 全局编辑器偏好（userData/global.json，APP 级，跨书库共享）：
- *   GET  /api/library/prefs                 → { prefs: GlobalPrefs }
- *   PUT  /api/library/prefs    body {prefs}  → 写 userData/global.json → {ok}
+ *   GET  /api/library/prefs                 → { prefs: GlobalPrefs, revision }
+ *   PUT  /api/library/prefs    body {prefs, expectedRevision?}
+ *                                          → 写 userData/global.json → {ok, revision}
+ *
+ * GG-P2-7（照 providers.ts P4 乐观并发模式）：global.json 内嵌服务端管理的保留键 revision
+ * （存量文件无该键视为 0，每次 PUT +1）——写端点带可选 expectedRevision 比对，失配回 409，
+ * 不带则放行（旧客户端/脚本向后兼容）。此前两面板同时保存后写静默覆盖先写，revision 形同虚设。
+ * 其余读 global.json 的模块（global-defaults / 快照保留策略 / rag 配置）按键读取，
+ * 忽略 revision 保留键，读路径不受影响。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
@@ -86,28 +93,54 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
   route('GET', '/api/library/prefs', (_req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
     if (!r.ok) return reply(res, r.code, { error: r.error })
-    if (!existsSync(r.path)) return reply(res, 200, { prefs: {} })
+    if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
     try {
-      const prefs = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
-      reply(res, 200, { prefs })
+      const raw = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+      // GG-P2-7：revision 是服务端管理的保留键——从 prefs 剥离后单独回传（不混入偏好语义），
+      // 供前端下次 PUT 带 expectedRevision；存量文件无该键视为 0
+      const { revision, ...prefs } = raw
+      reply(res, 200, { prefs, revision: typeof revision === 'number' ? revision : 0 })
     } catch {
-      reply(res, 200, { prefs: {} })
+      reply(res, 200, { prefs: {}, revision: 0 })
     }
   })
 
   route('PUT', '/api/library/prefs', async (req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
     if (!r.ok) return reply(res, r.code, { error: r.error })
+    // GG-P2-7（照 providers dd-P2 口径）：body 先读——读盘/比对/写盘三段必须同步无 await，
+    // 单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
     const body = await readJson(req)
     const prefs = body['prefs']
     if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return reply(res, 400, { error: 'prefs 必填且须为对象' })
     try {
+      let disk: Record<string, unknown> = {}
+      if (existsSync(r.path)) {
+        try {
+          disk = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+        } catch { /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */ }
+      }
+      const current = typeof disk.revision === 'number' ? disk.revision : 0
+      const revErr = revisionError(body['expectedRevision'], current)
+      if (revErr) return reply(res, 409, { error: revErr })
+      const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
-      atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
-      reply(res, 200, { ok: true })
+      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘
+      atomicWriteFile(r.path, JSON.stringify({ ...prefs, revision: next }, null, 2) + '\n')
+      reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       console.error('[api] 写全局偏好:', e)
       reply(res, 500, { error: '写全局偏好失败' })
     }
   })
+}
+
+/** GG-P2-7：写端点并发守卫（照 providers.ts P4 同款结构）——expectedRevision 缺失放行
+ *  （旧客户端/脚本向后兼容）；存在且与盘上 revision 不匹配 → 409 文案 */
+function revisionError(expected: unknown, current: number): string | null {
+  if (expected === undefined || expected === null) return null
+  if (typeof expected !== 'number' || expected !== current) {
+    return '全局偏好已在其他窗口被修改，请刷新'
+  }
+  return null
 }

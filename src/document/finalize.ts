@@ -19,7 +19,7 @@ import { splitFrontMatter } from '../format/frontmatter.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { applyLeadUpdates } from './lead-finalize.js'
 import { readOutlineLeads } from '../check/outline-leads.js'
-import { readChapterLeadUpdates, leadEvidenceMatchesBody } from '../check/lead-updates.js'
+import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
 
@@ -134,9 +134,11 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
  *
  * 数据源与 checkWithDb（src/check/run.ts）完全同口径，不自创：
  * - 声明侧：readOutlineLeads（细纲 fm「推进」；章号不匹配的旧细纲自动置空不比对）
- * - 兑现侧：readChapterLeadUpdates 过滤 leadEvidenceMatchesBody（证据核心须在 fm 剥离
+ * - 兑现侧：readChapterUpdatesForChapter 过滤 leadEvidenceMatchesBody（证据核心须在 fm 剥离
  *   后的当前正文命中才算兑现），比对逻辑复用 check 层导出的 leadClosureItems
- * （单一真相源，防与机检口径漂移）。
+ *   （单一真相源，防与机检口径漂移）。
+ *   ff-P1-1：兑现侧与回写（applyLeadUpdates）共用同一读取源（主文件属于本章时 +
+ *   本章归档）——此前闸只读主文件，批量连写下归档章推进绕过闸直接落履历。
  *
  * 整体 try/catch fail-open：闸门自身故障（读盘异常等）返回 [] 不阻断定稿——闸门是防
  * 吃书增强而非定稿的必要条件，与 X-P2-5 降级哲学一致（观测/防护层故障不应锁死作者）。
@@ -146,7 +148,7 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
     const declared = readOutlineLeads(bookRoot, chapterNo)
     const draft = readDraft(absPath)
     if (!draft.ok) return []
-    const actual = readChapterLeadUpdates(bookRoot)
+    const actual = readChapterUpdatesForChapter(bookRoot, chapterNo)
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
     return leadClosureItems(declared, actual, chapterNo).map((i) => i.message)

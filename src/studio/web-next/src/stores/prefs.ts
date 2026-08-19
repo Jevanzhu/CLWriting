@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
+import { ApiError } from '../api/client'
+import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
 /**
@@ -136,12 +138,18 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   let persistTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** 并发修订号（GG-P2-7）：PUT /api/library/prefs 的 expectedRevision 依据。
+   *  GET/写成功响应回传时同步（照 provider store P4 的维护方式），非响应式——仅供写路径用。 */
+  let revision = 0
+
   /** 异步初始化：从 global.json 加载（替代 localStorage）。
    *  首次为空时从旧 localStorage 自动迁移。main.ts 在 mount 前调一次。 */
   async function init(): Promise<void> {
     let prefs: GlobalPrefs = {}
     try {
-      prefs = await getGlobalPrefs()
+      const r = await getGlobalPrefs()
+      prefs = r.prefs
+      revision = r.revision
     } catch {
       /* API 不可达用默认 */
     }
@@ -149,7 +157,8 @@ export const usePrefsStore = defineStore('prefs', () => {
     // 迁移：prefs 为空（首次）时从旧 localStorage 读取
     if (Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
       prefs = buildCache()
-      void putGlobalPrefs(prefs).catch(() => {})
+      // GG-P2-7：迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
+      void putGlobalPrefs(prefs).then((r) => { revision = r.revision }).catch(() => {})
     } else {
       applyPrefs(prefs)
     }
@@ -263,7 +272,16 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (persistTimer) clearTimeout(persistTimer)
     const cache = buildCache()
     persistTimer = setTimeout(() => {
-      void putGlobalPrefs(cache).catch(() => {})
+      // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
+      void putGlobalPrefs(cache, revision)
+        .then((r) => { revision = r.revision })
+        .catch(async (e) => {
+          if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
+          // 冲突：本次改动放弃落盘，提示刷新（与 provider store 同口径，不自动覆盖他窗改动）；
+          // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败
+          useUiStore().toast('全局偏好已在其他窗口被修改，请刷新后重试', 'error')
+          try { revision = (await getGlobalPrefs()).revision } catch { /* 网络不可达保持现值 */ }
+        })
     }, 500)
   }
 

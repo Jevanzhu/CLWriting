@@ -23,8 +23,10 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
   }
   try {
     const cfg = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
-    // 全局托底：volume_size 等喂 assembleStatus 的运行时值——书级未设回落 global.json
-    // → 硬编码（与 overview 喂 detectState 同一口径）
+    // GG-P2-6 全局托底：config 过 applyGlobalDefaults 后 book.volume_size 已是生效值
+    // （书级未设回落 global.json → 硬编码，与 overview 喂 detectState 同一口径）；
+    // 第三参不传，assembleStatus 缺省即从该键收口——工具上下文 userDataPath 由 chat
+    // 编排传入（executeChatTool 构造 ToolContext），链路可达
     const snapshot = assembleStatus(db, applyGlobalDefaults(cfg.config, ctx.userDataPath))
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {

@@ -61,48 +61,57 @@ function startRagBuild(
   const release = acquireTaskGate(bookName, 'rag-build')
   if (!release) return { ok: false, reason: '本书的索引任务已在运行中，请稍候' }
 
-  // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由 RagCtx 注入）
-  const config = readRagConfig(bookRoot, userDataPath)
-  if (!config.enabled) {
-    release()
-    return { ok: false, reason: '知识检索未启用：请在「设置 · 本书」页开启' }
-  }
-  const resolved = resolveRag(config, ragProvidersOf(userDataPath), workDir)
-  if (!resolved) {
-    release()
-    return {
-      ok: false,
-      reason: config.provider
-        ? '所选 RAG 提供方不存在（可能已被删除）：请在「设置 · 本书」页重新选择'
-        : 'RAG 未完整配置：请在「设置 · 本书」页选择检索提供方',
+  // dd 批 4-2 残：拿到闸之后的同步准备段（读配置 → 解析提供方 → 验 key）若中途抛出，
+  // 此前闸不释放——该书从此所有 rag-build 永远 409 死锁（重启才能解）。同步段包
+  // try/finally：未交接给后台 buildIndex 的一切出口（含正常早退与异常上抛）都在此放闸；
+  // 异常由 dispatch 兜底 500（统一 { error } 信封），作者修好配置即可重试。
+  let handedOff = false
+  try {
+    // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由 RagCtx 注入）
+    const config = readRagConfig(bookRoot, userDataPath)
+    if (!config.enabled) {
+      return { ok: false, reason: '知识检索未启用：请在「设置 · 本书」页开启' }
     }
-  }
-  if (!resolved.apiKey) {
-    release()
-    return {
-      ok: false,
-      reason: resolved.legacy
-        ? '未配置 embedding API key：请用环境变量 CLWRITING_RAG_API_KEY，或在 .clwriting/rag.secret 落 key'
-        : '所选 RAG 提供方未配置 API Key：请在设置的「服务提供方」页补填',
+    const resolved = resolveRag(config, ragProvidersOf(userDataPath), workDir)
+    if (!resolved) {
+      return {
+        ok: false,
+        reason: config.provider
+          ? '所选 RAG 提供方不存在（可能已被删除）：请在「设置 · 本书」页重新选择'
+          : 'RAG 未完整配置：请在「设置 · 本书」页选择检索提供方',
+      }
     }
-  }
+    if (!resolved.apiKey) {
+      return {
+        ok: false,
+        reason: resolved.legacy
+          ? '未配置 embedding API key：请用环境变量 CLWRITING_RAG_API_KEY，或在 .clwriting/rag.secret 落 key'
+          : '所选 RAG 提供方未配置 API Key：请在设置的「服务提供方」页补填',
+      }
+    }
 
-  ragBuildTasks.set(bookName, { running: true, startedAt: new Date().toISOString() })
-  void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model }, resolved.apiKey)
-    .then((result) => {
-      ragBuildTasks.set(bookName, { running: false, startedAt: '', lastResult: result })
-    })
-    .catch((e) => {
-      ragBuildTasks.set(bookName, {
-        running: false,
-        startedAt: '',
-        lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: `建索引异常：${e instanceof Error ? e.message : String(e)}` },
+    ragBuildTasks.set(bookName, { running: true, startedAt: new Date().toISOString() })
+    void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model }, resolved.apiKey)
+      .then((result) => {
+        ragBuildTasks.set(bookName, { running: false, startedAt: '', lastResult: result })
       })
-    })
-    .finally(() => {
-      release()
-    })
-  return { ok: true }
+      .catch((e) => {
+        ragBuildTasks.set(bookName, {
+          running: false,
+          startedAt: '',
+          lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: `建索引异常：${e instanceof Error ? e.message : String(e)}` },
+        })
+      })
+      .finally(() => {
+        release()
+      })
+    handedOff = true
+    return { ok: true }
+  } finally {
+    // 仅同步段内未交接的出口在此放闸；已交接后台任务的闸由其 .finally 释放（勿双放——
+    // release 自身幂等，但语义上闸的生命周期归后台任务管）
+    if (!handedOff) release()
+  }
 }
 
 export function registerRagRoutes(ctx: RagCtx): void {

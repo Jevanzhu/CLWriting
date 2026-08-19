@@ -25,6 +25,8 @@ import { openSessionStore, bookHash, type SessionStore } from '../../../events/s
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
+import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { heldTaskGatesFor } from './task-gate.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
 interface AuditCtx {
@@ -200,6 +202,15 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
     if (isChatRunning(params['name']!)) {
       return reply(res, 409, { error: '本书对话仍在运行，先停止后再清除事件史' })
+    }
+    // hh-P1（同族缺口）：task-gate 分钟级任务与 self-heal 批量写稿都会续写事件库——
+    // 运行中清库同样「清不彻底」（任务收尾继续追加），补齐与 chat 相同的拒清口径
+    const held = heldTaskGatesFor(params['name']!)
+    if (held.length > 0) {
+      return reply(res, 409, { error: `本书有任务在跑（${held.join('、')}），先等它完成后再清除事件史` })
+    }
+    if (isSelfHealRunning(params['name']!)) {
+      return reply(res, 409, { error: '本书正在自动写稿，先等它完成或中断后再清除事件史' })
     }
     const bookRoot = join(ctx.workDir, entry.path)
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
