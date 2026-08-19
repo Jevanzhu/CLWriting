@@ -4,15 +4,17 @@
  *
  * A（工作台 tab）和 B（底部 dock）共用此组件，容器控制尺寸。
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
+ *
+ * hh §八-16 拆分：消息流（确认闸/变体切换/重新生成/滚动跟随）→ chat/ChatMessages.vue
+ * （纯搬家，DOM 不变）；本件留输入区 + useChatComposer 编排。公开契约
+ * （bookName/currentChapter/hideComposer）不变——ChatDock / WorkbenchView 零改动。
  */
-import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
-import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, BookOpen, ChevronDown, Square, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { useChatStore, type ChatMessage } from '../../stores/chat'
-import { confirmTool } from '../../api/chat'
-import { ApiError } from '../../api/client'
-import { useUiStore } from '../../stores/ui'
+import { ref, nextTick } from 'vue'
+import { Send, Trash2, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
+import { useChatStore } from '../../stores/chat'
 import { useChatComposer } from '../../composables/useChatComposer'
 import ModelEffortBar from '../ui/ModelEffortBar.vue'
+import ChatMessages from './chat/ChatMessages.vue'
 
 const props = defineProps<{
   bookName: string
@@ -24,25 +26,10 @@ const props = defineProps<{
 
 const chat = useChatStore()
 
-// ── 滚动（ChatPanel 独有）────────────────────────
-
-const scrollRef = ref<HTMLElement | null>(null)
-// rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次（P2-FE-7）
-let scrollRaf = 0
-function scrollToBottom(): void {
-  if (scrollRaf) return
-  scrollRaf = requestAnimationFrame(() => {
-    scrollRaf = 0
-    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
-  })
-}
-
-// 卸载时取消未完成的 rAF，防回调访问已销毁组件
-onBeforeUnmount(() => {
-  if (scrollRaf) cancelAnimationFrame(scrollRaf)
-})
-
 // ── 发送/停止/清空/章节选择（共享 composable）────
+
+/** 消息流子件句柄——发送后滚底（onPushed 回调经 defineExpose 调子件 scrollToBottom） */
+const messagesRef = ref<InstanceType<typeof ChatMessages> | null>(null)
 
 const {
   input, sending, busy, chatRunning, selectedChapter,
@@ -52,202 +39,17 @@ const {
 } = useChatComposer(
   () => props.bookName,
   () => props.currentChapter,
-  async () => { await nextTick(); scrollToBottom() },
+  async () => { await nextTick(); messagesRef.value?.scrollToBottom() },
 )
-
-const ui = useUiStore()
-
-// ── 工具确认 ────────────────────────────────────
-
-const confirmingCallId = ref<string | null>(null)
-
-async function handleConfirm(callId: string, ok: boolean): Promise<void> {
-  if (confirmingCallId.value) return // 防重复点击
-  confirmingCallId.value = callId
-  try {
-    await confirmTool(props.bookName, { callId, ok })
-  } catch (e) {
-    // 404 = 工具调用已超时，静默忽略；其他错误提示作者
-    if (e instanceof ApiError && e.status === 404) return
-    ui.toast('确认请求失败，请重试', 'error')
-  } finally {
-    confirmingCallId.value = null
-  }
-}
-
-// ── 消息流滚动跟随 ──────────────────────────────
-
-watch(
-  [() => chat.messages.length, () => chat.messages.at(-1)?.content],
-  () => void nextTick(scrollToBottom),
-)
-
-// ── 工具图标映射 ─────────────────────────────────
-
-const TOOL_ICONS: Record<string, typeof PenLine> = {
-  write_chapter: PenLine,
-  check_chapter: ShieldCheck,
-}
-
-const TOOL_LABELS: Record<string, string> = {
-  write_chapter: '自动写章',
-  check_chapter: '机检',
-}
-
-// ── G1：重新生成 + 变体切换 ─────────────────────
-
-/** 最后一条已完成的 assistant 气泡（「重新生成」按钮的挂载点；!running 才可点） */
-const lastDoneAssistant = computed(() => {
-  const last = chat.messages[chat.messages.length - 1]
-  return last && last.role === 'assistant' && last.done ? last : null
-})
-
-/** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体） */
-function handleRegenerate(): void {
-  void chat.regenerate(props.bookName, selectedChapter.value)
-}
-
-/**
- * 各助手消息的变体组定位（msgId → 当前序号/总数/同组分支 id 列表）。
- * 命中条件：消息 seq 落在某分支组区间（rootSeq ≤ seq ≤ lastSeq）且
- * 同 parentSeq 的变体组数 > 1（按 rootSeq 升序稳定排序）。
- */
-const variantGroups = computed(() => {
-  const map = new Map<string, { index: number; total: number; label: string; branchIds: string[] }>()
-  for (const msg of chat.messages) {
-    if (msg.role !== 'assistant' || msg.seq === undefined) continue
-    const seq = msg.seq
-    const group = chat.branches.find((b) => seq >= b.rootSeq && seq <= b.lastSeq)
-    if (!group) continue
-    const variants = chat.branches
-      .filter((b) => b.parentSeq === group.parentSeq)
-      .sort((a, b) => a.rootSeq - b.rootSeq)
-    const index = variants.findIndex((b) => b.branchId === group.branchId)
-    if (index < 0 || variants.length <= 1) continue
-    map.set(msg.id, {
-      index,
-      total: variants.length,
-      label: `${index + 1}/${variants.length}`,
-      branchIds: variants.map((v) => v.branchId),
-    })
-  }
-  return map
-})
-
-/** 切到相邻变体组（首尾循环；运行中禁用） */
-function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
-  if (chat.running) return
-  const g = variantGroups.value.get(msg.id)
-  if (!g) return
-  const total = g.branchIds.length
-  const next = g.branchIds[(g.index + dir + total) % total]
-  if (next) void chat.switchBranch(props.bookName, next)
-}
 </script>
 
 <template>
   <section class="chat-panel">
-    <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
-    <div ref="scrollRef" class="chat-messages">
-      <div v-if="!chat.hasMessages && !chat.running" class="chat-empty">
-        <MessageSquareText :size="32" class="chat-empty-icon" />
-        <p class="chat-empty-title">和 AI 聊聊你的故事</p>
-        <p class="chat-empty-sub">提问剧情走向、让 AI 机检章节，或直接写下一章</p>
-      </div>
-
-      <template v-for="msg in chat.messages" :key="msg.id">
-        <!-- 用户消息 -->
-        <div v-if="msg.role === 'user'" class="chat-msg chat-msg-user">
-          {{ msg.content }}
-        </div>
-
-        <!-- 助手消息 -->
-        <div v-else class="chat-msg chat-msg-assistant">
-          <!-- G1：变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
-          <div v-if="variantGroups.has(msg.id)" class="chat-variant">
-            <button
-              type="button"
-              class="chat-variant-btn"
-              :disabled="chat.running"
-              title="上一个变体"
-              @click="switchVariant(msg, -1)"
-            >
-              <ChevronLeft :size="13" />
-            </button>
-            <span class="chat-variant-label">{{ variantGroups.get(msg.id)?.label }}</span>
-            <button
-              type="button"
-              class="chat-variant-btn"
-              :disabled="chat.running"
-              title="下一个变体"
-              @click="switchVariant(msg, 1)"
-            >
-              <ChevronRight :size="13" />
-            </button>
-          </div>
-
-          <!-- 文本 -->
-          <div v-if="msg.content" class="chat-text">{{ msg.content }}</div>
-          <div v-else-if="!msg.done && msg.tools.length === 0" class="chat-typing">
-            <Loader2 :size="13" class="spin" />
-          </div>
-
-          <!-- 工具卡片 -->
-          <div
-            v-for="tool in msg.tools"
-            :key="tool.callId"
-            class="chat-tool-card"
-            :class="{
-              'tool-pending': tool.status === 'pending',
-              'tool-running': tool.status === 'running',
-              'tool-ok': tool.status === 'ok',
-              'tool-failed': tool.status === 'failed' || tool.status === 'cancelled',
-            }"
-          >
-            <div class="chat-tool-head">
-              <component :is="TOOL_ICONS[tool.name] ?? PenLine" :size="14" />
-              <span class="chat-tool-name">{{ TOOL_LABELS[tool.name] ?? tool.name }}</span>
-              <span v-if="tool.status === 'running'" class="chat-tool-badge">
-                <Loader2 :size="12" class="spin" /> 执行中
-              </span>
-              <span v-else-if="tool.status === 'ok'" class="chat-tool-badge ok">完成</span>
-              <span v-else-if="tool.status === 'failed'" class="chat-tool-badge bad">失败</span>
-              <span v-else-if="tool.status === 'cancelled'" class="chat-tool-badge bad">已取消</span>
-            </div>
-
-            <!-- 工具结果摘要 -->
-            <div v-if="tool.summary" class="chat-tool-summary">{{ tool.summary }}</div>
-
-            <!-- 确认按钮 -->
-            <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
-              <button class="chat-confirm-no" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, false)">取消</button>
-              <button class="chat-confirm-yes" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, true)">
-                <Loader2 v-if="confirmingCallId === tool.callId" :size="12" class="spin" />
-                确认执行
-              </button>
-            </div>
-          </div>
-
-          <!-- G1：最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
-          <button
-            v-if="lastDoneAssistant && msg.id === lastDoneAssistant.id"
-            type="button"
-            class="chat-regen-btn"
-            :disabled="chat.running"
-            @click="handleRegenerate"
-          >
-            <RefreshCw :size="12" />
-            <span>重新生成</span>
-          </button>
-        </div>
-      </template>
-
-      <!-- 错误 -->
-      <div v-if="chat.error" class="chat-error-msg">
-        <AlertCircle :size="14" />
-        <span>{{ chat.error }}</span>
-      </div>
-    </div>
+    <ChatMessages
+      ref="messagesRef"
+      :book-name="props.bookName"
+      :selected-chapter="selectedChapter"
+    />
 
     <!-- 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 -->
     <div v-if="!hideComposer" class="chat-composer">
@@ -319,243 +121,6 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-}
-
-/* ── 消息区 ── */
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--size-4-3) var(--size-4-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-3);
-  min-height: 0;
-}
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--size-4-1);
-  color: var(--text-faint);
-  text-align: center;
-  padding: var(--size-4-6);
-}
-.chat-empty-icon {
-  opacity: 0.45;
-  margin-bottom: var(--size-4-1);
-}
-.chat-empty-title {
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.chat-empty-sub {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  line-height: 1.5;
-}
-
-/* ── 消息：无气泡感 ── */
-.chat-msg {
-  max-width: 100%;
-  font-size: var(--font-size-m);
-  line-height: 1.7;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  animation: chat-pop var(--dur-norm) var(--ease-out);
-}
-@keyframes chat-pop {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.chat-msg-user {
-  align-self: flex-end;
-  max-width: 82%;
-  padding: var(--size-4-2) var(--size-4-4);
-  border-radius: var(--radius-l);
-  border-bottom-right-radius: var(--radius-s);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-normal);
-}
-.chat-msg-assistant {
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-}
-.chat-typing {
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  padding: 2px 0;
-}
-
-/* ── 工具卡片 ── */
-.chat-tool-card {
-  border: 1px solid var(--background-modifier-border);
-  border-left-width: 3px;
-  border-radius: var(--radius-s);
-  padding: var(--size-4-2) var(--size-4-3);
-  font-size: var(--font-size-s);
-  background: var(--background-secondary);
-}
-.tool-pending { border-left-color: var(--dv-warn); }
-.tool-running { border-left-color: var(--interactive-accent); }
-.tool-ok { border-left-color: var(--dv-good); }
-.tool-failed { border-left-color: var(--dv-bad); }
-
-.chat-tool-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-}
-.chat-tool-name {
-  color: var(--text-normal);
-}
-.chat-tool-badge {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--background-modifier-hover);
-}
-.chat-tool-badge.ok {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
-}
-.chat-tool-badge.bad {
-  color: var(--dv-bad);
-  background: color-mix(in srgb, var(--dv-bad) 12%, transparent);
-}
-.chat-tool-summary {
-  margin-top: var(--size-4-1);
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  line-height: 1.5;
-  font-size: var(--font-size-xs);
-}
-.chat-tool-confirm {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--size-4-2);
-  margin-top: var(--size-4-2);
-}
-.chat-confirm-no,
-.chat-confirm-yes {
-  font-size: var(--font-size-xs);
-  padding: 4px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--background-modifier-border);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.chat-confirm-no {
-  background: var(--background-primary);
-  color: var(--text-muted);
-}
-.chat-confirm-no:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.chat-confirm-yes {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: transparent;
-}
-.chat-confirm-yes:hover {
-  filter: brightness(1.1);
-}
-
-/* ── 错误 ── */
-.chat-error-msg {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--dv-bad);
-  font-size: var(--font-size-s);
-  padding: var(--size-4-2);
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
-}
-
-/* ── G1：变体切换器 + 重新生成 ── */
-.chat-variant {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  align-self: flex-start;
-  padding: 1px 3px;
-  border-radius: 999px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-}
-.chat-variant-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-s);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.chat-variant-btn:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.chat-variant-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.chat-variant-label {
-  padding: 0 3px;
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-  user-select: none;
-}
-.chat-regen-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: flex-start;
-  margin-top: var(--size-4-1);
-  padding: 3px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
-}
-.chat-regen-btn:hover:not(:disabled) {
-  border-color: var(--background-modifier-border-hover);
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.chat-regen-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 /* ── 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 ── */
@@ -759,13 +324,5 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 .chat-send-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-/* 动画 */
-.spin {
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 </style>
