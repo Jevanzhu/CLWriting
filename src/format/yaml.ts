@@ -322,7 +322,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       const value = parseValue(node.value)
       // Array.isArray 才收：显式 [] 原样保留（长度 0 也设键）；标量/坏值忽略
       if (Array.isArray(value)) {
-        checksConfig[key] = value.map(String).map((v) => v.trim()).filter(Boolean)
+        // kk-P2-13：空白词条剔除留痕——静默吞会让作者以为整份词表已按原样生效
+        const items = value.map(String)
+        const kept = items.map((v) => v.trim()).filter(Boolean)
+        if (kept.length < items.length) {
+          console.warn(`[book.yaml] checks.${key} 含空白词条已剔除（${items.length} 项 → ${kept.length} 项）`)
+        }
+        checksConfig[key] = kept
+      } else {
+        console.warn(`[book.yaml] checks.${key} 值非数组（${node.value.trim()}），已忽略`)
       }
     }
     if (Object.keys(checksConfig).length > 0) cfg.checks = checksConfig
@@ -649,4 +657,187 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
   // 键不在段内 → 插在段头后首行（先于既有子键，与 stringify 的 title 首位习惯一致）
   lines.splice(start + 1, 0, keyLine(childIndent))
   return lines.join('\n')
+}
+
+// ── kk-P1-5：PUT /config 的文本级补丁写 ──────────
+
+/**
+ * 文本级替换/删除/插入段内单个子键块（键行 + 其块列表 `- ` 项 / 嵌套映射子行）。
+ *
+ * setTopSectionKey 只重写键行本身——值是块列表（`- 项`）或嵌套映射（thresholds）
+ * 时，旧块行会残留成孤儿。本函数把键行连同其块行整段换掉；区间/缩进口径与
+ * setTopSectionKey 一致（下一个顶层 key 之前；段体内容行最小缩进 = 直接子键缩进）。
+ *
+ * @param keyLine 键行内容（不含缩进，如 `title: 新书名` / `thresholds:`）；null = 删除整个键块
+ * @param blockLines 键行后的块体行（不含缩进，函数按子键缩进+2 落位；仅嵌套映射用）
+ */
+export function setSectionKeyBlock(
+  raw: string,
+  section: string,
+  key: string,
+  keyLine: string | null,
+  blockLines: string[] = [],
+): string {
+  const lines = raw.split('\n')
+  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  if (start === -1) {
+    if (keyLine === null) return raw
+    const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)]
+    if (raw === '') return `${section}:\n${body.join('\n')}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
+    return `${prefix}\n${section}:\n${body.join('\n')}\n`
+  }
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]!
+    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
+      end = i
+      break
+    }
+  }
+  let childIndent = -1
+  for (let i = start + 1; i < end; i++) {
+    const l = lines[i]!
+    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
+    const ind = l.length - l.trimStart().length
+    if (childIndent === -1 || ind < childIndent) childIndent = ind
+  }
+  const pad = ' '.repeat(childIndent === -1 ? 2 : childIndent)
+  if (childIndent !== -1) {
+    const isKeyLine = (l: string): boolean => l === `${pad}${key}:` || l.startsWith(`${pad}${key}: `)
+    for (let i = start + 1; i < end; i++) {
+      if (!isKeyLine(lines[i]!)) continue
+      // 块体吞并：同缩进 `- ` 列表项（YAML 允许列表与键同列）或更深缩进的内容行
+      let blockEnd = i + 1
+      while (blockEnd < end) {
+        const l = lines[blockEnd]!
+        if (l.trim() === '' || l.trimStart().startsWith('#')) break
+        const ind = l.length - l.trimStart().length
+        if ((l.trimStart().startsWith('- ') && ind >= childIndent) || ind > childIndent) blockEnd++
+        else break
+      }
+      const replacement =
+        keyLine === null ? [] : [pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)]
+      lines.splice(i, blockEnd - i, ...replacement)
+      return lines.join('\n')
+    }
+  }
+  // 键不在段内：插入模式插在段头后；删除模式无键可删，原样返回
+  if (keyLine === null) return raw
+  lines.splice(start + 1, 0, pad + keyLine, ...blockLines.map((l) => pad + '  ' + l))
+  return lines.join('\n')
+}
+
+/** 顶层标量键（spec_version/kind/host）的替换/删除/插入（无缩进，含锚定插入） */
+function setTopScalarKey(raw: string, key: string, line: string | null): string {
+  const lines = raw.split('\n')
+  const idx = lines.findIndex((l) => l === `${key}:` || l.startsWith(`${key}: `))
+  if (idx !== -1) {
+    if (line === null) lines.splice(idx, 1)
+    else lines[idx] = line
+    return lines.join('\n')
+  }
+  if (line === null) return raw
+  // 插在 spec_version 行后（文件头惯例位置）；无则文件首行
+  const anchor = lines.findIndex((l) => l === 'spec_version:' || l.startsWith('spec_version: '))
+  lines.splice(anchor === -1 ? 0 : anchor + 1, 0, line)
+  return lines.join('\n')
+}
+
+/** 补丁叶子：段内单键 + 取有效值（undefined = 该键不落行——归一口径对齐 stringifyBookConfig） */
+interface ConfigPatchLeaf {
+  section: string
+  key: string
+  get: (c: BookConfig) => unknown
+}
+
+// genre 空串 ≡ 未设（解析侧同归一）；rag 设 provider 时 endpoint/model 不落行
+// （stringify 同规则——旧内联字段切服务商后即删）
+const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
+  { section: 'book', key: 'title', get: (c) => c.book.title },
+  { section: 'book', key: 'genre', get: (c) => (c.book.genre === '' ? undefined : c.book.genre) },
+  { section: 'book', key: 'volume_size', get: (c) => c.book.volume_size },
+  { section: 'book', key: 'target_words', get: (c) => c.book.target_words },
+  { section: 'book', key: 'chapter_target_words', get: (c) => c.book.chapter_target_words },
+  { section: 'leads', key: 'enabled', get: (c) => c.leads.enabled },
+  { section: 'budget', key: 'calls_per_chapter', get: (c) => c.budget.calls_per_chapter },
+  { section: 'budget', key: 'input_per_chapter', get: (c) => c.budget.input_per_chapter },
+  { section: 'budget', key: 'summary_chapter_max', get: (c) => c.budget.summary_chapter_max },
+  { section: 'budget', key: 'summary_volume_max', get: (c) => c.budget.summary_volume_max },
+  { section: 'style', key: 'injection', get: (c) => c.style?.injection },
+  { section: 'short', key: 'profile', get: (c) => c.short?.profile },
+  { section: 'short', key: 'target_emotions', get: (c) => c.short?.target_emotions },
+  { section: 'short', key: 'target_reversal_types', get: (c) => c.short?.target_reversal_types },
+  { section: 'short', key: 'target_ending_flavors', get: (c) => c.short?.target_ending_flavors },
+  { section: 'short', key: 'series_motifs', get: (c) => c.short?.series_motifs },
+  { section: 'short', key: 'strict', get: (c) => c.short?.strict },
+  { section: 'short', key: 'word_min', get: (c) => c.short?.word_min },
+  { section: 'short', key: 'word_max', get: (c) => c.short?.word_max },
+  { section: 'short', key: 'body_part_threshold', get: (c) => c.short?.body_part_threshold },
+  { section: 'short', key: 'simile_threshold', get: (c) => c.short?.simile_threshold },
+  { section: 'short', key: 'section_count', get: (c) => c.short?.section_count },
+  { section: 'short', key: 'opening_env_chars', get: (c) => c.short?.opening_env_chars },
+  { section: 'auto', key: 'confirm_outline', get: (c) => c.auto?.confirm_outline },
+  { section: 'auto', key: 'batch_size', get: (c) => c.auto?.batch_size },
+  { section: 'auto', key: 'relation_auto_mine', get: (c) => c.auto?.relation_auto_mine },
+  { section: 'auto', key: 'relation_mine_threshold', get: (c) => c.auto?.relation_mine_threshold },
+  { section: 'growth', key: 'realm_span_max', get: (c) => c.growth.realm_span_max },
+  { section: 'checks', key: 'imagery_words', get: (c) => c.checks?.imagery_words },
+  { section: 'checks', key: 'leak_keywords', get: (c) => c.checks?.leak_keywords },
+  { section: 'rag', key: 'enabled', get: (c) => c.rag?.enabled },
+  { section: 'rag', key: 'provider', get: (c) => c.rag?.provider },
+  { section: 'rag', key: 'endpoint', get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
+  { section: 'rag', key: 'model', get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
+  { section: 'snapshots', key: 'max_days', get: (c) => c.snapshots?.max_days },
+  { section: 'snapshots', key: 'max_count', get: (c) => c.snapshots?.max_count },
+]
+
+function renderScalar(v: unknown): string {
+  return typeof v === 'string' || Array.isArray(v) ? stringifyValue(v) : String(v)
+}
+
+function leafEquals(a: unknown, b: unknown): boolean {
+  if (a === undefined || b === undefined) return a === b
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
+ * kk-P1-5：PUT /config 的文本级补丁——对比旧解析值与新配置，只重写发生变化的键行，
+ * 其余原文（作者手写注释、未知段、未知子键、块列表/嵌套块的排版）逐字保留。
+ *
+ * 此前 PUT 走 stringifyBookConfig 全量重生成，与 migrate-defaults 修掉的红线同款：
+ * 解析模型只保已知字段，作者注释/未知段静默丢失。调用方须传「同一文件解析出的
+ * 旧配置」当基线（解析烘焙的默认值两边一致，diff 只会浮出用户真实改动——缺段
+ * 文件不会被默认值污染出一堆新行）。
+ */
+export function patchBookConfigText(raw: string, oldCfg: BookConfig, newCfg: BookConfig): string {
+  let text = raw
+  const top = (key: string, from: unknown, to: unknown): void => {
+    if (leafEquals(from, to)) return
+    text = to === undefined ? setTopScalarKey(text, key, null) : setTopScalarKey(text, key, `${key}: ${renderScalar(to)}`)
+  }
+  top('spec_version', oldCfg.spec_version, newCfg.spec_version)
+  top('kind', oldCfg.kind, newCfg.kind)
+  top('host', oldCfg.host ?? 'cc', newCfg.host ?? 'cc')
+
+  for (const leaf of CONFIG_PATCH_LEAVES) {
+    const from = leaf.get(oldCfg)
+    const to = leaf.get(newCfg)
+    if (leafEquals(from, to)) continue
+    text = setSectionKeyBlock(text, leaf.section, leaf.key, to === undefined ? null : `${leaf.key}: ${renderScalar(to)}`)
+  }
+
+  // thresholds 嵌套映射：键行 + 子行整块换（含删除）
+  const thFrom = oldCfg.leads.thresholds
+  const thTo = newCfg.leads.thresholds
+  if (!leafEquals(thFrom, thTo)) {
+    text = setSectionKeyBlock(
+      text,
+      'leads',
+      'thresholds',
+      thTo === undefined ? null : 'thresholds:',
+      thTo === undefined ? [] : Object.entries(thTo).map(([k, v]) => `${k}: ${v}`),
+    )
+  }
+  return text
 }

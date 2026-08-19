@@ -489,3 +489,175 @@ test('parseBookConfig: readBookConfig 的字符串版（坏文本返默认 + 错
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.config.book.title).toBe('T')
 })
+
+// ── kk-P1-5：PUT /config 文本级补丁 ──────────────
+
+import { patchBookConfigText, setSectionKeyBlock } from '../../src/format/yaml.js'
+
+/** 手写风格基线：注释、行尾注释、块列表、嵌套映射、未知子键、未知段俱全 */
+const PATCH_BASE = [
+  'spec_version: 1',
+  'host: cc',
+  '',
+  '# 作者注释：本书定位',
+  'book:',
+  '  title: 旧书名',
+  '  genre: 玄幻',
+  '  volume_size: 40   # 行尾注释',
+  '  unknown_sub: 保留我',
+  '',
+  'leads:',
+  '  enabled:',
+  '    - 悬念',
+  '    - 感情线',
+  '  thresholds:',
+  '    悬念: 40',
+  '',
+  '# 未知段整段保留',
+  'my_custom:',
+  '  foo: bar',
+  '',
+  'rag:',
+  '  enabled: true',
+  '  endpoint: https://old.example.com',
+  '  model: old-model',
+  '',
+  'budget:',
+  '  calls_per_chapter: 8',
+].join('\n') + '\n'
+
+function parseBase(): { raw: string; cfg: ReturnType<typeof parseBookConfig>['config'] } {
+  const parsed = parseBookConfig(PATCH_BASE)
+  if (!parsed.ok) throw new Error('基线解析失败')
+  return { raw: PATCH_BASE, cfg: parsed.config }
+}
+
+test('kk-P1-5: 改 title 只动该行——注释/未知段/未知子键/块列表逐字保留', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.book.title = '新书名'
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).toContain('  title: 新书名')
+  expect(out).not.toContain('旧书名')
+  // 区间外内容逐字保留
+  expect(out).toContain('# 作者注释：本书定位')
+  expect(out).toContain('  volume_size: 40   # 行尾注释')
+  expect(out).toContain('  unknown_sub: 保留我')
+  expect(out).toContain('# 未知段整段保留')
+  expect(out).toContain('my_custom:')
+  expect(out).toContain('  foo: bar')
+  // 块列表 + 嵌套映射原排版不动
+  expect(out).toContain('  enabled:')
+  expect(out).toContain('    - 悬念')
+  expect(out).toContain('    - 感情线')
+  expect(out).toContain('    悬念: 40')
+})
+
+test('kk-P1-5: 无变化 → 原文逐字节不动（默认烘焙值不产生新行）', () => {
+  const { raw, cfg } = parseBase()
+  expect(patchBookConfigText(raw, cfg, structuredClone(cfg))).toBe(raw)
+})
+
+test('kk-P1-5: 改块列表值——旧 `- ` 块行整块换，无孤儿残留', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.leads.enabled = ['布局线', '设定线']
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).toContain('  enabled: [布局线, 设定线]')
+  expect(out).not.toContain('- 悬念')
+  expect(out).not.toContain('- 感情线')
+  // thresholds 嵌套块不受连带吞并
+  expect(out).toContain('  thresholds:')
+  expect(out).toContain('    悬念: 40')
+})
+
+test('kk-P1-5: thresholds 嵌套映射整块换/可删', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.leads.thresholds = { 悬念: 60, 感情线: 30 }
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).toContain('  thresholds:')
+  expect(out).toContain('    悬念: 60')
+  expect(out).toContain('    感情线: 30')
+  expect(out).not.toContain('悬念: 40')
+
+  const next2 = structuredClone(cfg)
+  next2.leads.thresholds = undefined
+  const out2 = patchBookConfigText(raw, cfg, next2)
+  expect(out2).not.toContain('thresholds')
+  expect(out2).toContain('enabled:') // 段内其余子键不受影响
+})
+
+test('kk-P1-5: rag 切 provider → 旧内联 endpoint/model 行删除（与 stringify 同规）', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.rag!.provider = 'mySvc'
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).toContain('  provider: mySvc')
+  expect(out).not.toContain('old.example.com')
+  expect(out).not.toContain('old-model')
+  expect(out).toContain('  enabled: true')
+})
+
+test('kk-P1-5: 删键（genre → 空串/undefined 同效）落行为删除', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.book.genre = '' // UI 清空题材的常见形态
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).not.toContain('genre')
+})
+
+test('kk-P1-5: 缺段文件改值 → 追加只含该键的段，默认烘焙不落行', () => {
+  // budget 段缺失：解析烘焙 input=80000/summary=200/500，用户只改 calls → 只补一行
+  const raw = 'spec_version: 1\nbook:\n  title: 缺段书\n'
+  const parsed = parseBookConfig(raw)
+  if (!parsed.ok) throw new Error('解析失败')
+  const next = structuredClone(parsed.config)
+  next.budget.calls_per_chapter = 5
+  const out = patchBookConfigText(raw, parsed.config, next)
+  expect(out).toContain('budget:')
+  expect(out).toContain('  calls_per_chapter: 5')
+  // 烘焙默认值未变 → 不得落行（否则污染「未设=回落全局」语义）
+  expect(out).not.toContain('input_per_chapter')
+  expect(out).not.toContain('summary_chapter_max')
+})
+
+test('kk-P1-5: 顶层标量替换与锚定插入（host 缺失时插 spec_version 后）', () => {
+  const raw = 'spec_version: 1\nbook:\n  title: 无宿主\n'
+  const parsed = parseBookConfig(raw)
+  if (!parsed.ok) throw new Error('解析失败')
+  const next = structuredClone(parsed.config)
+  next.host = 'codex'
+  const out = patchBookConfigText(raw, parsed.config, next)
+  expect(out.split('\n')[1]).toBe('host: codex')
+})
+
+test('kk-P1-5: 补丁后语义保全——重解析等于新配置关键值', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.book.title = '语义书'
+  next.book.volume_size = 60
+  next.leads.enabled = ['成长线']
+  next.rag!.provider = 'mySvc'
+  next.rag!.endpoint = undefined
+  next.budget.calls_per_chapter = 6
+  const out = patchBookConfigText(raw, cfg, next)
+  const reparsed = parseBookConfig(out)
+  expect(reparsed.ok).toBe(true)
+  if (reparsed.ok) {
+    expect(reparsed.config.book.title).toBe('语义书')
+    expect(reparsed.config.book.volume_size).toBe(60)
+    expect(reparsed.config.leads.enabled).toEqual(['成长线'])
+    expect(reparsed.config.rag?.provider).toBe('mySvc')
+    expect(reparsed.config.rag?.endpoint).toBeUndefined()
+    expect(reparsed.config.budget.calls_per_chapter).toBe(6)
+    // 未知段在文本层保留（_raw 装载未实现——kk 报告勘误 6 已记录）
+    expect(out).toContain('my_custom:')
+  }
+})
+
+test('setSectionKeyBlock: 删除模式键不存在 → 原样返回；空段插入用 2 空格惯例', () => {
+  expect(setSectionKeyBlock('book:\n  title: T\n', 'book', 'genre', null)).toBe('book:\n  title: T\n')
+  expect(setSectionKeyBlock('book:\n  title: T\n', 'checks', 'imagery_words', 'imagery_words: [月]'))
+    .toBe('book:\n  title: T\n\nchecks:\n  imagery_words: [月]\n')
+})
