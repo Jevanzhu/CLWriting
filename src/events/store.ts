@@ -393,7 +393,16 @@ export function migrateBookSession(
       cp.close()
     }
     // 3) 移动主库 + 残留侧车（TRUNCATE checkpoint + 连接全关后通常只剩主库文件；
-    //    有竞态残留时一并搬走）。任一 rename 失败 → 外层 catch 逆序回滚已搬文件
+    //    有竞态残留时一并搬走）。任一 rename 失败 → 外层 catch 逆序回滚已搬文件。
+    //    kk-P2-3：目标位已有同名库/侧车 → 放弃迁移（false）——renameSync 在 POSIX 上
+    //    静默覆盖，会把目标位既有数据毁掉（hash 碰撞或旧书残库场景）；源库原地保留
+    //    供人工裁决，绝无声默覆盖
+    for (const suffix of ['', '-wal', '-shm'] as const) {
+      if (existsSync(newDb + suffix)) {
+        console.error(`[events] 事件库迁移目标已存在（${newDb + suffix}），放弃迁移避免覆盖，源库原地保留`)
+        return false
+      }
+    }
     for (const suffix of ['', '-wal', '-shm'] as const) {
       const from = oldDb + suffix
       const to = newDb + suffix
@@ -404,9 +413,12 @@ export function migrateBookSession(
     }
     // 4) 在新库上改会话 book 字段（对话 + 工作区两把钥匙）。两条 UPDATE 同事务：
     //    中途失败随连接关闭整体回滚，不留「一把钥匙已改、一把没改」的半改状态；
-    //    随后外层把文件搬移一并回滚——否则库在新位而钥匙是旧名，新旧两头都查不到
+    //    随后外层把文件搬移一并回滚——否则库在新位而钥匙是旧名，新旧两头都查不到。
+    //    kk-P2-4：busy_timeout 先于 BEGIN——同进程连接已全关，但另一进程（第二个
+    //    studio 实例）若恰在此窗口打开新库，裸 BEGIN 会立刻 SQLITE_BUSY 而非等待
     const db = new DatabaseSync(newDb)
     try {
+      db.exec('PRAGMA busy_timeout = 5000')
       db.exec('BEGIN')
       db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
       db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))

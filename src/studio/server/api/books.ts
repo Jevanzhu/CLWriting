@@ -300,9 +300,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
-      // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名（migrate 对
-      // 「新库已存在」静默跳过），对话历史/审计从此永久失联且无回滚。先改名失败 =
-      // 纯净 500 可安全重试。
+      // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名，对话历史/审计
+      // 从此永久失联且无回滚。先改名失败 = 纯净 500 可安全重试（migrate 现对「目标库
+      // 已存在」也是返回 false 防覆盖，kk-P2-3，不再静默跳过）。
       try {
         renameSync(oldRoot, newRoot)
       } catch (e) {

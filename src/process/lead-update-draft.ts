@@ -25,6 +25,11 @@ import { pruneTextMiddle } from './prune.js'
 // ff-P1-1 常量归一：路径唯一出处 check/lead-updates.ts（闸/回写/草拟三方共用），此处再导出兼容既有导入方
 export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 
+// kk-P2-12a：同书生成串行化队列——端点直调与 self-heal 写稿完成后两路并发时，
+// 「archive 旧章草稿 + 覆写主文件」的读改写序列会交错（A 归档后 B 无东西可归档、
+// 双写互相覆盖，作者未确认内容丢失）。按 bookRoot 排队执行，跨书不互相阻塞。
+const leadUpdateQueues = new Map<string, Promise<unknown>>()
+
 /**
  * W-P1-3 右端：生成并落盘 账本推进.md（AI 草拟）。
  * 端点与 self-heal 写稿完成后共用：读本章正文 + 细纲声明 + 进行中账本 → AI 声明实际履历行
@@ -37,6 +42,22 @@ export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
  *          （rejected=业务拒绝如短篇无布线；not-found=正文不存在；failed=AI/落盘失败）。
  */
 export async function generateLeadUpdateDraft(
+  bookRoot: string,
+  chapter: number,
+  userDataPath: string | null,
+  signal?: AbortSignal,
+): Promise<{ ok: true; count: number } | { ok: false; code: 'rejected' | 'not-found' | 'failed'; error: string }> {
+  const prev = leadUpdateQueues.get(bookRoot) ?? Promise.resolve()
+  const run = prev.catch(() => {}).then(() => generateLeadUpdateDraftInner(bookRoot, chapter, userDataPath, signal))
+  leadUpdateQueues.set(bookRoot, run)
+  try {
+    return await run
+  } finally {
+    if (leadUpdateQueues.get(bookRoot) === run) leadUpdateQueues.delete(bookRoot)
+  }
+}
+
+async function generateLeadUpdateDraftInner(
   bookRoot: string,
   chapter: number,
   userDataPath: string | null,

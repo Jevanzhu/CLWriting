@@ -339,6 +339,8 @@ export function pruneVersions(
   }
 
   let removed = 0
+  // kk-P2-6：本 doc 缓存条目的 key 前缀（删除版本时同步失效用——头注释承诺的第二道防线）
+  const cacheScope = `${versionsDir}\u0000${docId}\u0000`
   for (const s of all) {
     if (keep.has(s.id)) continue
     try {
@@ -346,6 +348,12 @@ export function pruneVersions(
       removed++
     } catch {
       continue // 已被别处删掉无妨
+    }
+    // 失效指向被删版本的指纹缓存条目（此前未实现：残留缓存会让「内容恰好等于被删
+    // 版本」的强制留底被去重吞掉，违背 W0-1 留底纪律——虽有读盘比对第一道防线，
+    // 但该防线只在写路径顺带查询时触发，删后到下次写之间存在错窗）
+    for (const [key, entry] of latestOriginHash) {
+      if (key.startsWith(cacheScope) && entry.id === s.id) latestOriginHash.delete(key)
     }
     // macOS AppleDouble 伴生文件一并清理
     try {

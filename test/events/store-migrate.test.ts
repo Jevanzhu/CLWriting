@@ -164,4 +164,33 @@ describe('migrateBookSession', () => {
     expect(migrated.listEvents('折甲')).toEqual([])
     migrated.close()
   })
+
+  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', () => {
+    const ud = tmpRoot()
+    const oldRoot = '/books/碰甲'
+    const newRoot = '/books/碰乙'
+    const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
+    const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+
+    // 源库有数据；目标位已有同名库（hash 碰撞/旧书残库场景），里面有一条不同数据
+    const store = openSessionStore(ud, oldRoot)!
+    const sid = store.createSession('碰甲')
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '源库数据' }, surfaceOp: 'append' }])
+    store.close()
+    const target = openSessionStore(ud, newRoot)!
+    const tsid = target.createSession('碰乙')
+    target.appendEvents(tsid, [{ type: 'user/message', data: { message: '目标库数据' }, surfaceOp: 'append' }])
+    target.close()
+    expect(existsSync(newDb)).toBe(true)
+
+    // 迁移放弃（false），绝不覆盖目标位
+    expect(migrateBookSession(ud, oldRoot, newRoot, '碰甲', '碰乙')).toBe(false)
+    expect(existsSync(oldDb)).toBe(true)
+    const probeOld = new DatabaseSync(oldDb)
+    expect((probeOld.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
+    probeOld.close()
+    const probeNew = new DatabaseSync(newDb)
+    expect((probeNew.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
+    probeNew.close()
+  })
 })

@@ -13,8 +13,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 
 export interface SpillThresholds {
@@ -41,8 +42,8 @@ export function writeSpillFile(bookRoot: string, text: string): string | null {
   try {
     const hash = createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
     const dir = join(bookRoot, '工作区', 'spills')
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, `${hash}.md`), text, 'utf8')
+    // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
+    atomicWriteFile(join(dir, `${hash}.md`), text)
     return `工作区/spills/${hash}.md`
   } catch {
     return null
