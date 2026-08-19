@@ -324,6 +324,218 @@ async function prepareChapterMaterials(opts: SelfHealOpts, ctx: ChapterCtx, chap
   }
 }
 
+/** 单章闭环的可变循环态（终稿文本/账本草稿尝试位/红项基线/轮次均跨轮演化） */
+interface HealLoop {
+  chapter: number
+  /** 首稿落盘路径（机检入口） */
+  draftPath: string
+  /** 当前终稿文本（重写成功后覆盖；persistFinal 调用时取当次值） */
+  current: string
+  /** X-P1-2：账本侧红补生成是否已试过（只试一次） */
+  leadDraftTried: boolean
+  /** A4：上一次机检红项集合 key（相同两次 → 换策略提醒） */
+  prevRedKey: string | null
+  attempt: number
+  hasWiring: boolean
+}
+
+/** 终态出口共享闭包组（终稿三连 + todo/goal 事件）——persistFinal 语义不动（ii 批口径） */
+interface ChapterTerminal {
+  persistFinal(): { docId: string; relPath: string }
+  writeTodos(draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void
+  writeGoal(op: GoalOperation, st: GoalState, extra?: { blockedReason?: string; rounds?: number }): void
+}
+
+/** F5 todo/goal + ii 批终稿三连的闭包工厂（chapter/goalId/goalNow 随单章闭包内固定） */
+function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): ChapterTerminal {
+  const { chapter } = loop
+  const goalId = 'self-heal:ch' + chapter
+  const goalNow = Date.now()
+  const writeTodos = (draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void => {
+    ctx.chain?.add(todoWriteEvent({
+      todos: [
+        { text: '写第' + chapter + '章首稿', state: draft },
+        { text: '机检第' + chapter + '章', state: check },
+        { text: '修复第' + chapter + '章红项', state: fix },
+      ],
+    }))
+  }
+  const writeGoal = (op: GoalOperation, state: GoalState, extra?: { blockedReason?: string; rounds?: number }): void => {
+    ctx.chain?.add(goalChangeEvent({
+      operation: op,
+      goal: {
+        id: goalId,
+        title: '修复第' + chapter + '章红项',
+        state,
+        roundsStarted: extra?.rounds ?? 0,
+        ...(ctx.maxAttempts !== undefined ? { maxGoalRounds: ctx.maxAttempts } : {}),
+        ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
+        createdAt: goalNow,
+        updatedAt: Date.now(),
+      },
+    }))
+  }
+  const persistFinal = () => {
+    const final = ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
+    recordAuthorSignal(ctx.bookRoot, final.docId, loop.current, 'self-heal', opts.userDataPath ?? undefined)
+    recordAiVersion(ctx.bookRoot, final.docId, loop.current)
+    return final
+  }
+  return { persistFinal, writeTodos, writeGoal }
+}
+
+/** ① 首稿相位：预算闸 → 备料 → 生成 → 落盘（status 非 ok 时 chapter 闭环即失败/中止） */
+async function draftFirstChapter(
+  opts: SelfHealOpts,
+  state: RunState,
+  ctx: ChapterCtx,
+  chapter: number,
+): Promise<
+  | { status: 'ok'; text: string; draftPath: string }
+  | { status: 'aborted' }
+  | { status: 'error'; error: string }
+> {
+  // C-1：预算闸——超限不跑；config 由 orchestrate 解析一次传入（P3-6）
+  const budget = checkAiCallBudget(ctx.bookRoot, chapter, ctx.config)
+  if (!budget.ok) return { status: 'error', error: budget.reason }
+  // GG-F1①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
+  // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
+  // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
+  await prepareChapterMaterials(opts, ctx, chapter)
+  emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
+  const first = await runGenerate(opts, state, ctx.kind, buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config), chapter)
+  if (first.status === 'aborted') return { status: 'aborted' }
+  if (first.status !== 'ok') return { status: 'error', error: first.error }
+  const firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
+  return { status: 'ok', text: first.text, draftPath: join(ctx.bookRoot, firstDraft.relPath) }
+}
+
+/** X-P1-2 账本复查相位：账本侧红（lead-declared-not-done）不可修——补生成账本推进草稿后
+ *  复查一次。返回 true = 已补且有效，轮循环 continue 重查；只试一次（leadDraftTried）。 */
+async function maybeLeadRedraft(
+  opts: SelfHealOpts,
+  state: RunState,
+  ctx: ChapterCtx,
+  loop: HealLoop,
+  outcome: CheckOutcome & { ok: true },
+  chapterNo: number,
+): Promise<boolean> {
+  if (!loop.hasWiring || loop.leadDraftTried) return false
+  if (!getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')) return false
+  loop.leadDraftTried = true
+  emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt: loop.attempt })
+  // Z-P1-1：编排级 signal 透传——中断自愈时账本草稿生成同步中止（不跑到总超时）
+  const gen = await generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)
+  return gen.ok && gen.count > 0
+}
+
+/** P2：打回评估事件化（重试链可重放；pass 不记） */
+function recordRetryAttempt(
+  chain: ChainRecorder | null,
+  st: ReturnType<typeof evaluateRetry>,
+  maxAttempts: number,
+  attempt: number,
+): void {
+  if (st.state !== 'pass') {
+    chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
+  }
+}
+
+/** ③ 重写调用相位：预算闸② → 进度/reset → 违规收集 → 换策略判定 → 重写生成 → 落盘。
+ *  ok 时 loop.current 已更新、attempt 已自增（轮循环回 ② 重查）。 */
+async function rewriteOnce(
+  opts: SelfHealOpts,
+  state: RunState,
+  ctx: ChapterCtx,
+  loop: HealLoop,
+  reds: string[],
+  redIssues: string[],
+  chapterNo: number,
+): Promise<
+  | { status: 'ok' }
+  | { status: 'aborted' }
+  | { status: 'error'; error: string }
+  | { status: 'budget'; reason: string }
+> {
+  // C-1：预算闸——超限则 escalate，保留当前稿
+  const budget2 = checkAiCallBudget(ctx.bookRoot, loop.chapter, ctx.config)
+  if (!budget2.ok) return { status: 'budget', reason: budget2.reason }
+  emit(opts, { type: 'self_heal_progress', attempt: loop.attempt + 1, maxAttempts: ctx.maxAttempts, remaining: reds })
+  emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: loop.attempt + 1 })
+  emit(opts, { type: 'self_heal_reset' })
+
+  const ruleViolations = collectRuleViolations(loop.current, 'self-heal', ctx.bookRoot, chapterNo)
+  recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath ?? undefined)
+  const allIssues = [
+    ...redIssues.map((s) => `[必须] ${s}`),
+    ...ruleViolations.map((v) => `[建议] ${v.message}`),
+  ]
+
+  // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
+  const redKey = redSetKey(redIssues)
+  const repeated = redKey !== '' && redKey === loop.prevRedKey
+  loop.prevRedKey = redKey
+
+  const prompt = buildRewritePrompt(
+    'whole',
+    loop.current,
+    '',
+    REWRITE_INSTRUCTION,
+    allIssues,
+    chapterNo,
+    ctx.kind,
+    repeated ? buildStrategyReminder(redIssues) : undefined,
+  )
+  const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter)
+  if (again.status === 'aborted') return { status: 'aborted' }
+  if (again.status !== 'ok') return { status: 'error', error: again.error }
+  loop.current = again.text
+  ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+  loop.attempt++
+  return { status: 'ok' }
+}
+
+// ── 终态出口（五路：pass / escalate×3 / 机检崩溃 failed / 中止 pause） ──
+
+/** F5 审阅批：中止时 goal 落 pause（非终态——重跑同 id 重新 create 覆盖） */
+function exitAborted(term: ChapterTerminal): ChapterRun {
+  term.writeGoal('pause', 'paused')
+  return { outcome: 'aborted' }
+}
+
+function exitPass(
+  opts: SelfHealOpts,
+  state: RunState,
+  ctx: ChapterCtx,
+  loop: HealLoop,
+  term: ChapterTerminal,
+  chapterNo: number,
+): ChapterRun {
+  const final = term.persistFinal()
+  // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
+  // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
+  // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）
+  if (loop.hasWiring && !loop.leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal))
+  const yellows = ruleYellows(loop.current, ctx.bookRoot, chapterNo)
+  term.writeTodos('completed', 'completed', 'completed')
+  term.writeGoal('complete', 'complete', { rounds: loop.attempt })
+  return { chapter: loop.chapter, outcome: 'pass', yellows, docId: final.docId, path: final.relPath, attempts: loop.attempt }
+}
+
+/** 有稿可交的统一出口（ok-escalate / 格式触顶 / 预算超限 / 重写失败四路同构） */
+function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: string[], blockedReason: string): ChapterRun {
+  const final = term.persistFinal()
+  term.writeTodos('completed', 'completed', 'in_progress')
+  term.writeGoal('block', 'blocked', { blockedReason, rounds: loop.attempt })
+  return { chapter: loop.chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: loop.attempt }
+}
+
+/** 机检崩溃出口：goal 落 block 附原因（todo 保持初始表：机检未完成——F5 审阅批口径） */
+function exitCheckCrash(term: ChapterTerminal, loop: HealLoop, error: string): ChapterRun {
+  term.writeGoal('block', 'blocked', { blockedReason: error, rounds: loop.attempt })
+  return { chapter: loop.chapter, outcome: 'failed', error, attempts: loop.attempt }
+}
+
 /**
  * 单章闭环（首稿→机检→重写→全绿/触顶）。批量与单章共用。
  * 返回 pass/escalate 时，终稿已由 save + recordAuthorSignal/recordAiVersion 落盘记录。
@@ -334,77 +546,31 @@ async function runChapter(
   ctx: ChapterCtx,
   chapter: number,
 ): Promise<ChapterRun> {
-  const { bookRoot, maxAttempts, save, kind, check, chain, config } = ctx
-  // ① 首稿（C-1：预算闸——超限不跑）；config 由 orchestrate 解析一次传入（P3-6）
-  const budget = checkAiCallBudget(bookRoot, chapter, config)
-  if (!budget.ok) return { chapter, outcome: 'failed', error: budget.reason, attempts: 0 }
-  // GG-F1①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
-  // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
-  // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
-  await prepareChapterMaterials(opts, ctx, chapter)
-  emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  const first = await runGenerate(opts, state, kind, buildDraftPrompt(bookRoot, chapter, kind, config), chapter)
+  // ① 首稿（C-1 预算闸——超限不跑；GG-F1① 备料接线）
+  const first = await draftFirstChapter(opts, state, ctx, chapter)
   if (first.status === 'aborted') return { outcome: 'aborted' }
   if (first.status !== 'ok') return { chapter, outcome: 'failed', error: first.error, attempts: 0 }
-  let current = first.text
-  const firstDraft = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-  const draftPath = join(bookRoot, firstDraft.relPath)
-  // ii 批：终稿落盘三连（save + 作者信号 + AI 版本）——5 个终态出口原样重复 5 份，
-  // 抽本地闭包防漂移（current 是 let，调用时取当次终稿）
-  const persistFinal = () => {
-    const final = save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-    recordAuthorSignal(bookRoot, final.docId, current, 'self-heal', opts.userDataPath ?? undefined)
-    recordAiVersion(bookRoot, final.docId, current)
-    return final
-  }
-  // X-P1-2/X-P2-6：批量模式与单章同口径——账本侧红补生成 + pass 后生成草稿
-  const hasWiring = existsSync(join(bookRoot, '布线'))
-  let leadDraftTried = false
 
-  // F5：章节任务清单（todo 整表快照）+ 修复目标（goal 状态机，完整快照 last-write-wins）
-  const goalId = 'self-heal:ch' + chapter
-  const goalNow = Date.now()
-  const writeTodos = (draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void => {
-    chain?.add(todoWriteEvent({
-      todos: [
-        { text: '写第' + chapter + '章首稿', state: draft },
-        { text: '机检第' + chapter + '章', state: check },
-        { text: '修复第' + chapter + '章红项', state: fix },
-      ],
-    }))
+  const loop: HealLoop = {
+    chapter,
+    draftPath: first.draftPath,
+    current: first.text,
+    leadDraftTried: false,
+    prevRedKey: null,
+    attempt: 0,
+    hasWiring: existsSync(join(ctx.bookRoot, '布线')),
   }
-  const writeGoal = (op: GoalOperation, state: GoalState, extra?: { blockedReason?: string; rounds?: number }): void => {
-    chain?.add(goalChangeEvent({
-      operation: op,
-      goal: {
-        id: goalId,
-        title: '修复第' + chapter + '章红项',
-        state,
-        roundsStarted: extra?.rounds ?? 0,
-        ...(maxAttempts !== undefined ? { maxGoalRounds: maxAttempts } : {}),
-        ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
-        createdAt: goalNow,
-        updatedAt: Date.now(),
-      },
-    }))
-  }
-  writeTodos('completed', 'in_progress', 'pending')
-  writeGoal('create', 'active')
+  const term = mkTerminal(opts, ctx, loop)
+  term.writeTodos('completed', 'in_progress', 'pending')
+  term.writeGoal('create', 'active')
 
   // ② 机检 → 红则重写 → 全绿或触顶
-  let attempt = 0
-  // A4：上一次机检的红项集合 key（与单章路径同口径）
-  let prevRedKey: string | null = null
   for (;;) {
-    // F5 审阅批：中止时 goal 落 pause（非终态——重跑同 id 重新 create 覆盖）
-    if (state.ctrl.signal.aborted) {
-      writeGoal('pause', 'paused')
-      return { outcome: 'aborted' }
-    }
-    emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt })
-    const outcome = check(draftPath)
+    if (state.ctrl.signal.aborted) return exitAborted(term)
+    emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt: loop.attempt })
+    const outcome = ctx.check(loop.draftPath)
     // P2：机检报告事件化（红项结构化，自愈打回判据来源）
-    chain?.add(
+    ctx.chain?.add(
       checkReportEvent({
         chapter,
         reds: outcome.ok ? redMessages(outcome) : [`草稿格式不合规：${outcome.error}`],
@@ -417,107 +583,28 @@ async function runChapter(
 
     if (outcome.ok) {
       chapterNo = outcome.chapter.章号
-      // X-P1-2：账本侧红重写不可修——补生成账本推进草稿后复查一次（同单章路径）
-      if (
-        hasWiring &&
-        !leadDraftTried &&
-        getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')
-      ) {
-        leadDraftTried = true
-        emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt })
-        // Z-P1-1：编排级 signal 透传——中断自愈时账本草稿生成同步中止（不跑到总超时）
-        const gen = await generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)
-        if (gen.ok && gen.count > 0) continue
-      }
-      const st = evaluateRetry(outcome.report, attempt, maxAttempts)
-      // P2：打回评估事件化（重试链可重放；pass 不记）
-      if (st.state !== 'pass') {
-        chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
-      }
-      if (st.state === 'pass') {
-        const final = persistFinal()
-        // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
-        // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
-        // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）
-        if (hasWiring && !leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal))
-        const yellows = ruleYellows(current, bookRoot, chapterNo)
-        writeTodos('completed', 'completed', 'completed')
-        writeGoal('complete', 'complete', { rounds: attempt })
-        return { chapter, outcome: 'pass', yellows, docId: final.docId, path: final.relPath, attempts: attempt }
-      }
-      if (st.state === 'escalate') {
-        const final = persistFinal()
-        writeTodos('completed', 'completed', 'in_progress')
-        writeGoal('block', 'blocked', { blockedReason: redMessages(outcome).join('；'), rounds: attempt })
-        return { chapter, outcome: 'escalate', reds: redMessages(outcome), docId: final.docId, path: final.relPath, attempts: attempt }
-      }
+      // X-P1-2：账本侧红重写不可修——补生成账本推进草稿后复查一次
+      if (await maybeLeadRedraft(opts, state, ctx, loop, outcome, chapterNo)) continue
+      const st = evaluateRetry(outcome.report, loop.attempt, ctx.maxAttempts)
+      recordRetryAttempt(ctx.chain, st, ctx.maxAttempts, loop.attempt)
+      if (st.state === 'pass') return exitPass(opts, state, ctx, loop, term, chapterNo)
+      if (st.state === 'escalate') return exitEscalateBlocked(term, loop, redMessages(outcome), redMessages(outcome).join('；'))
       redIssues = st.redIssues
       reds = redMessages(outcome)
     } else {
-      if (outcome.code !== 'NOT_CHAPTER') {
-        // F5 审阅批：机检崩溃是明确阻断事实——goal 落 block 附原因（todo 保持初始表：机检未完成）
-        writeGoal('block', 'blocked', { blockedReason: outcome.error, rounds: attempt })
-        return { chapter, outcome: 'failed', error: outcome.error, attempts: attempt }
-      }
+      if (outcome.code !== 'NOT_CHAPTER') return exitCheckCrash(term, loop, outcome.error)
       reds = [`草稿格式不合规：${outcome.error}`]
       redIssues = reds
-      if (attempt >= maxAttempts) {
-        const final = persistFinal()
-        writeTodos('completed', 'completed', 'in_progress')
-        writeGoal('block', 'blocked', { blockedReason: reds.join('；'), rounds: attempt })
-        return { chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: attempt }
+      if (loop.attempt >= ctx.maxAttempts) {
+        return exitEscalateBlocked(term, loop, reds, reds.join('；'))
       }
     }
 
-    // ③ 退回重写（C-1：预算闸——超限则 escalate，保留当前稿）
-    const budget2 = checkAiCallBudget(bookRoot, chapter, config)
-    if (!budget2.ok) {
-      const final = persistFinal()
-        writeTodos('completed', 'completed', 'in_progress')
-      writeGoal('block', 'blocked', { blockedReason: [...reds, budget2.reason].join('；'), rounds: attempt })
-      return { chapter, outcome: 'escalate', reds: [...reds, budget2.reason], docId: final.docId, path: final.relPath, attempts: attempt }
-    }
-    emit(opts, { type: 'self_heal_progress', attempt: attempt + 1, maxAttempts, remaining: reds })
-    emit(opts, { type: 'self_heal_phase', phase: 'rewriting', attempt: attempt + 1 })
-    emit(opts, { type: 'self_heal_reset' })
-
-    const ruleViolations = collectRuleViolations(current, 'self-heal', bookRoot, chapterNo)
-    recordRuleHits(bookRoot, ruleViolations, opts.userDataPath ?? undefined)
-    const allIssues = [
-      ...redIssues.map((s) => `[必须] ${s}`),
-      ...ruleViolations.map((v) => `[建议] ${v.message}`),
-    ]
-
-    // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
-    const redKey = redSetKey(redIssues)
-    const repeated = redKey !== '' && redKey === prevRedKey
-    prevRedKey = redKey
-
-    const prompt = buildRewritePrompt(
-      'whole',
-      current,
-      '',
-      REWRITE_INSTRUCTION,
-      allIssues,
-      chapterNo,
-      kind,
-      repeated ? buildStrategyReminder(redIssues) : undefined,
-    )
-    const again = await runGenerate(opts, state, kind, prompt, chapter)
-    if (again.status === 'aborted') {
-      writeGoal('pause', 'paused')
-      return { outcome: 'aborted' }
-    }
-    if (again.status !== 'ok') {
-      // F2：有稿可交——重写失败保留当前已落盘稿，escalate 附错误原因
-      const final = persistFinal()
-      writeTodos('completed', 'completed', 'in_progress')
-      writeGoal('block', 'blocked', { blockedReason: again.error, rounds: attempt })
-      return { chapter, outcome: 'escalate', reds: [again.error], docId: final.docId, path: final.relPath, attempts: attempt }
-    }
-    current = again.text
-    save(bookRoot, chapter, current, { snapshotOrigin: 'self-heal' })
-    attempt++
+    // ③ 退回重写（预算超限 escalate 保留当前稿；重写失败 escalate 保留当前已落盘稿 F2）
+    const again = await rewriteOnce(opts, state, ctx, loop, reds, redIssues, chapterNo)
+    if (again.status === 'aborted') return exitAborted(term)
+    if (again.status === 'budget') return exitEscalateBlocked(term, loop, [...reds, again.reason], [...reds, again.reason].join('；'))
+    if (again.status !== 'ok') return exitEscalateBlocked(term, loop, [again.error], again.error)
   }
 }
 
