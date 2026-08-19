@@ -154,22 +154,97 @@ function readChapterOutline(bookRoot: string, chapter: number): string {
 }
 
 /**
- * 本章场景声明（文风样章选取的场景水源）：读本章章纲 front matter「场景」。
- * 与节奏偏差对照（rhythm D3 章纲↔定稿）、章纲契约同一结构化字段——读它是「数」不是「判」。
- * 单值 `场景: 对话` → ['对话']；多值 `[战斗, 对话]` → 数组（首为主场景，与 materials readOutlineScenes 同口径）。
- * 无章纲/无声明/无 front matter → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，
- * 空场景列表连「通用」目录都不会碰，须显式点名；条目库路径两写法等价）。
+ * front matter「场景」值 → 场景数组（水源①章纲/②正文共用的解析端）。
+ * 单值 `场景: 对话` → ['对话']；多值 `[战斗, 对话]` → 数组（首为主场景，与 materials readOutlineScenes 同口径）；
+ * 数组项过滤空串再 trim。空值/其他类型 → []——空结果表示「该水源未声明」，调用方据此继续回退而非直接落通用。
  */
-function readChapterScenes(bookRoot: string, chapter: number): string[] {
-  const fp = findChapterOutlinePath(bookRoot, chapter)
-  if (!fp) return ['通用']
-  const r = readFile(fp)
-  if (!r.ok) return ['通用'] // 无 front matter → 安全回落
-  const scene = parseFlat(r.fmRaw).get('场景')
+function scenesOfFmValue(scene: unknown): string[] {
   if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
   if (Array.isArray(scene)) {
-    const scenes = scene.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
-    return scenes.length > 0 ? scenes : ['通用']
+    return scene
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s) => s.trim())
+  }
+  return []
+}
+
+/**
+ * 细纲正文「## 场景声明」段 → 场景数组（水源③的解析端）。解析规则确定性、不猜格式：
+ * 1. 定位段：首个以 `## 场景声明` 开头的标题行（容忍 `##场景声明` 无空格写法），
+ *    到下一个 `## ` 标题行前为止——段外的引号词不收，防串段；
+ * 2. 段内有「」引号项 → 按出现序全部提取（去重）。outline 短篇 prompt 要求 AI 用「」标出
+ *    主场景，这是主路径。如 `本章主场景:「战斗」。` → ['战斗']；
+ * 3. 全段无引号 → 找「主场景」行（容忍列表符前缀），取半/全角冒号后 trim 的词，
+ *    剥尾部句读与「」包裹。如 `主场景: 战斗。` → ['战斗']（AI 漏写引号时水源不整段失效）；
+ * 4. 无段/空段/两法皆空 → []（调用方继续回落）。
+ */
+function scenesOfOutlineBody(body: string): string[] {
+  const lines = body.split('\n')
+  const start = lines.findIndex((l) => /^##\s*场景声明/.test(l))
+  if (start === -1) return []
+  /** 行 i 是否仍在场景声明段内（越界或撞上下一个二级标题即出段） */
+  const inSection = (i: number): boolean => i < lines.length && !/^##\s/.test(lines[i]!)
+  // 规则 2：段内「」引号项（按行扫描，出现序即主→次场景序）
+  const quoted: string[] = []
+  for (let i = start + 1; inSection(i); i++) {
+    for (const m of lines[i]!.matchAll(/「([^」]+)」/g)) {
+      const s = m[1]!.trim()
+      if (s) quoted.push(s)
+    }
+  }
+  if (quoted.length > 0) return [...new Set(quoted)]
+  // 规则 3：无引号 → 「主场景」行冒号后取词
+  for (let i = start + 1; inSection(i); i++) {
+    const m = lines[i]!.match(/^\s*(?:[-*]\s*)?主场景\s*[:：]\s*(.+?)\s*$/)
+    if (m) {
+      const s = m[1]!
+        .replace(/[。，、；,;。]+$/, '')
+        .replace(/^「/, '')
+        .replace(/」$/, '')
+        .trim()
+      if (s) return [s]
+    }
+  }
+  return []
+}
+
+/**
+ * 本章场景声明（文风样章选取的场景水源），三级回退、一级命中即止，全空回落 ['通用']：
+ * ① 本章章纲 front matter「场景」——与节奏偏差对照（rhythm D3 章纲↔定稿）、章纲契约同一
+ *   结构化字段，读它是「数」不是「判」，优先级最高；
+ * ② 本章正文 front matter「场景」——重写/续写已存在正文的章时场景跟随实稿
+ *   （写作/正文/ 按章号定位本章文件，readChapterDir 与章纲同口径）；
+ * ③ 细纲「## 场景声明」段——带章号门：细纲 fm「章号」=== 被检章号才可信。细纲是覆盖写的
+ *   当前章文件（outline 端点落盘时确定性写 `章号: N` front matter），章号不符说明是别章
+ *   陈旧内容，直接用会串场景——门禁不过即弃用此水源。
+ * 全空 → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，空场景列表连「通用」目录
+ * 都不会碰，须显式点名；条目库路径两写法等价）。
+ */
+function readChapterScenes(bookRoot: string, chapter: number): string[] {
+  // 水源①：本章章纲 front matter「场景」
+  const outlinePath = findChapterOutlinePath(bookRoot, chapter)
+  if (outlinePath) {
+    const r = readFile(outlinePath)
+    if (r.ok) {
+      const scenes = scenesOfFmValue(parseFlat(r.fmRaw).get('场景'))
+      if (scenes.length > 0) return scenes
+    }
+  }
+  // 水源②：本章正文 front matter「场景」（readChapterDir 按章号定位，与章纲同口径）
+  const bodyPath = readChapterDir(join(bookRoot, '写作', '正文')).chapters.find((c) => c.章号 === chapter)?._path
+  if (bodyPath) {
+    const r = readFile(bodyPath)
+    if (r.ok) {
+      const scenes = scenesOfFmValue(parseFlat(r.fmRaw).get('场景'))
+      if (scenes.length > 0) return scenes
+    }
+  }
+  // 水源③：细纲「## 场景声明」段（章号门：fm 章号须与被检章号一致，防别章陈旧细纲串场景；
+  // Number() 归一——端点写的是 int，手写 "1" 带引号也认；缺字段 → NaN 不等 → 门禁不过）
+  const detail = readFile(join(bookRoot, '工作区', '细纲.md'))
+  if (detail.ok && Number(parseFlat(detail.fmRaw).get('章号')) === chapter) {
+    const scenes = scenesOfOutlineBody(detail.body)
+    if (scenes.length > 0) return scenes
   }
   return ['通用']
 }
@@ -213,7 +288,8 @@ function wordRange(kind: 'long' | 'short', target: number | undefined): string {
 
 /**
  * 文风样章段（style.injection 接线）：注入档 轻=1 段 / 重=3 段，双路选取见 style-samples.ts。
- * 场景水源 = 本章章纲 front matter「场景」声明；无声明 → 仅「通用」场景条目候选。
+ * 场景水源 = readChapterScenes 三级回退（① 章纲 fm「场景」→ ② 正文 fm「场景」→ ③ 细纲「## 场景声明」段）；
+ * 全空 → 仅「通用」场景条目候选。
  * （此前硬编码 ['战斗']：样章库场景与本章实际场景不符时永远选不中，注入静默空转——已除。）
  * 无库/无命中 → ''（跳段）。
  */

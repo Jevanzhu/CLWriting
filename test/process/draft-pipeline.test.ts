@@ -7,6 +7,9 @@
  *
  * C3（DSH-17）：设定注入改预算制——世界观/角色/境界共享 SETTINGS_BUDGET_CHARS，
  * 预算内世界观全文直入（B3 的 1200 阈值无差别 prune 在本链路被取代）。
+ *
+ * 场景水源三级回退（git 事故后重建）：文风样章场景 ① 章纲 fm「场景」→ ② 正文 fm「场景」
+ * → ③ 细纲「## 场景声明」段（带章号门：细纲 fm 章号 === 被检章号才可信）→ 全空回落「通用」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -267,5 +270,111 @@ describe('buildDraftPrompt: 文风样章（P1 接线 style.injection）', () => 
     const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
     expect(p).toContain('战斗样章')
     expect(p).toContain('对话样章')
+  })
+})
+
+describe('readChapterScenes: 场景水源三级回退（① 章纲 fm → ② 正文 fm → ③ 细纲场景声明段）', () => {
+  /** 建旧样章库（按需建场景目录，各 1 段——命中与否用「<场景>样章正文」是否出现判定） */
+  function makeSampleLibrary(scenes: string[]): void {
+    for (const sc of scenes) {
+      mkdirSync(join(dir, '文风', '样章库', sc), { recursive: true })
+      writeFileSync(join(dir, '文风', '样章库', sc, `${sc}-001.md`), `---\n场景: ${sc}\n来源: 作者原作\n---\n${sc}样章正文`)
+    }
+  }
+
+  /** 建第 1 章章纲（scene 传 null → 不写「场景」字段，模拟水源①无声明） */
+  function makeChapterOutline(scene: string | null): void {
+    mkdirSync(join(dir, '大纲', '章纲'), { recursive: true })
+    const fmScene = scene === null ? '' : `场景: ${scene}\n`
+    writeFileSync(join(dir, '大纲', '章纲', '0001-开篇.md'), `---\n章号: 1\n标题: 开篇\n${fmScene}---\n\n本章情节要点。`)
+  }
+
+  /** 建第 1 章正文（scene 传 null → 不写「场景」字段，模拟水源②无声明；写作/正文/ 与生产同位） */
+  function makeChapterBody(scene: string | null): void {
+    mkdirSync(join(dir, '写作', '正文'), { recursive: true })
+    const fmScene = scene === null ? '' : `场景: ${scene}\n`
+    writeFileSync(join(dir, '写作', '正文', '0001-开篇.md'), `---\n章号: 1\n标题: 开篇\n${fmScene}---\n\n本章正文。`)
+  }
+
+  /** 建细纲（outline 端点同构：确定性 fm 章号 + 可选「## 场景声明」段——水源③与章号门的载体） */
+  function makeDetailedOutline(chapterNo: number, sceneSection?: string): void {
+    mkdirSync(join(dir, '工作区'), { recursive: true })
+    const section = sceneSection ? `\n${sceneSection}\n` : ''
+    writeFileSync(join(dir, '工作区', '细纲.md'), `---\n章号: ${chapterNo}\n---\n\n## 情节骨架\n开篇/发展/收尾。${section}`)
+  }
+
+  it('水源①命中：章纲 fm「场景」→ 样章按它选', () => {
+    makeSampleLibrary(['战斗'])
+    makeChapterOutline('战斗')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('## 文风样章')
+    expect(p).toContain('战斗样章正文')
+  })
+
+  it('水源①优先于②：章纲场景与正文场景冲突 → 用章纲的（一级命中即止）', () => {
+    makeSampleLibrary(['战斗', '对话'])
+    makeChapterOutline('对话')
+    makeChapterBody('战斗')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('对话样章正文')
+    expect(p).not.toContain('战斗样章正文')
+  })
+
+  it('水源②回退：章纲无场景声明，正文 fm「场景」→ 用正文场景（重写/续写时场景跟随实稿）', () => {
+    makeSampleLibrary(['战斗'])
+    makeChapterOutline(null)
+    makeChapterBody('战斗')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('## 文风样章')
+    expect(p).toContain('战斗样章正文')
+  })
+
+  it('水源②优先于③：正文场景与细纲声明冲突 → 用正文的', () => {
+    makeSampleLibrary(['战斗', '对话'])
+    makeChapterOutline(null)
+    makeChapterBody('对话')
+    makeDetailedOutline(1, '## 场景声明\n本章主场景:「战斗」。')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('对话样章正文')
+    expect(p).not.toContain('战斗样章正文')
+  })
+
+  it('水源③回退：章纲与正文都无场景，细纲(fm 章号=本章)「## 场景声明」→ 用之；段外引号词不收', () => {
+    makeSampleLibrary(['战斗', '对话'])
+    makeChapterOutline(null)
+    makeChapterBody(null)
+    // 场景声明段夹在两个 ## 标题之间：「## 伏笔回收」后的「对话」在段外，不得入选
+    makeDetailedOutline(1, '## 场景声明\n本章主场景:「战斗」。\n## 伏笔回收\n- 「对话」级伏笔 → 回收于余韵')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('## 文风样章')
+    expect(p).toContain('战斗样章正文')
+    expect(p).not.toContain('对话样章正文')
+  })
+
+  it('水源③段内无引号 → 「主场景」行冒号后取词（AI 漏写「」时的回落解析）', () => {
+    makeSampleLibrary(['战斗'])
+    makeChapterOutline(null)
+    makeChapterBody(null)
+    makeDetailedOutline(1, '## 场景声明\n主场景: 战斗。')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('战斗样章正文')
+  })
+
+  it('章号门：细纲 fm 章号 ≠ 本章 → 不用细纲场景（别章陈旧细纲不串场，回落通用、战斗库不入选）', () => {
+    makeSampleLibrary(['战斗'])
+    makeChapterOutline(null)
+    makeChapterBody(null)
+    makeDetailedOutline(2, '## 场景声明\n本章主场景:「战斗」。')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).not.toContain('## 文风样章')
+  })
+
+  it('章号门通过但细纲无「## 场景声明」段 → 回落通用', () => {
+    makeSampleLibrary(['战斗'])
+    makeChapterOutline(null)
+    makeChapterBody(null)
+    makeDetailedOutline(1)
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).not.toContain('## 文风样章')
   })
 })
