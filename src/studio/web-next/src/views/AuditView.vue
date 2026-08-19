@@ -5,11 +5,13 @@
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
 import { ref, computed, onMounted } from 'vue'
 import {
-  ScrollText, Eye, EyeOff, GitBranch, RefreshCw, AlertCircle,
-  User, Bot, Wrench, ChevronRight, ChevronDown, MoreHorizontal,
+  ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle,
+  ChevronRight, ChevronDown, MoreHorizontal,
 } from 'lucide-vue-next'
-import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type AuditNodeFE, type GoalFE, type TodoFE } from '../api/audit'
+import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type GoalFE, type TodoFE } from '../api/audit'
 import { friendlyError } from '../shared/error'
+import AuditDiffPanel from '../components/audit/AuditDiffPanel.vue'
+import AuditGoalTodoPanel from '../components/audit/AuditGoalTodoPanel.vue'
 
 const props = defineProps<{ bookName: string }>()
 
@@ -130,11 +132,6 @@ function typeLabel(t: string): string {
   return t.replace('/', '·')
 }
 
-/** F5：goal 状态 → 中文标签 */
-function goalStateLabel(s: string): string {
-  return s === 'active' ? '进行中' : s === 'paused' ? '已暂停' : s === 'blocked' ? '被阻断' : s === 'complete' ? '已完成' : s
-}
-
 /** data 摘要（取几个常见字段，避免大对象撑爆列表） */
 function dataSummary(e: AuditEventFE): string {
   const d = e.data
@@ -154,18 +151,6 @@ function dataSummary(e: AuditEventFE): string {
   }
   return ''
 }
-
-/** 差异节点角色图标 */
-function roleIcon(n: AuditNodeFE): string {
-  return n.role === 'user' ? 'user' : 'assistant'
-}
-
-/** 差异列表：当前模式下的节点（model = 未遮蔽；human = 全量） */
-const diffNodes = computed<AuditNodeFE[]>(() => {
-  const c = conversation.value
-  if (!c) return []
-  return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
-})
 
 // ── 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）──────────────
 // 事件史默认 append-only 全量保留；此处是每书唯一清理入口，两步确认（销毁不可撤销）。
@@ -233,38 +218,7 @@ async function doClear(): Promise<void> {
       <template v-if="tab === 'convo'">
         <template v-if="conversation">
           <!-- 遮蔽差异：模型可见 vs 人类可见 对照 -->
-          <section class="sec">
-            <h2 class="sec-title">
-              遮蔽差异
-              <span class="seg">
-                <button :class="{ on: diffMode === 'model' }" @click="diffMode = 'model'">
-                  <Eye :size="13" /> 模型可见
-                </button>
-                <button :class="{ on: diffMode === 'human' }" @click="diffMode = 'human'">
-                  <EyeOff :size="13" /> 人类可见（含遮蔽）
-                </button>
-              </span>
-            </h2>
-            <div class="diff-list">
-              <div
-                v-for="n in diffNodes"
-                :key="n.seq"
-                class="diff-row"
-                :class="{ shadowed: n.shadowed }"
-              >
-                <span class="seq">#{{ n.seq }}</span>
-                <span class="role" :class="n.role">
-                  <User v-if="roleIcon(n) === 'user'" :size="12" />
-                  <Bot v-else :size="12" />
-                  {{ n.role }}
-                </span>
-                <span class="kind">{{ n.kind }}</span>
-                <span class="preview">{{ n.preview || '（空）' }}</span>
-                <span v-if="n.shadowed" class="shadowed-mark"><EyeOff :size="12" /> 被遮蔽</span>
-              </div>
-              <div v-if="diffNodes.length === 0" class="empty">无可视消息</div>
-            </div>
-          </section>
+          <AuditDiffPanel :conversation="conversation" />
 
           <!-- 事件重放（分页累积，含遮蔽标记 + 血缘） -->
           <section class="sec">
@@ -312,24 +266,7 @@ async function doClear(): Promise<void> {
       <!-- 工作流链路 -->
       <template v-else>
         <!-- F5：当前目标 / 任务清单（goal/todo 重放快照） -->
-        <section v-if="goals.length > 0 || todos.length > 0" class="sec">
-          <h2 class="sec-title">当前状态（goal / todo）</h2>
-          <div class="goal-list">
-            <div v-for="g in goals" :key="g.id" class="goal-row">
-              <span class="goal-state" :data-state="g.state">{{ goalStateLabel(g.state) }}</span>
-              <span class="goal-title">{{ g.title }}</span>
-              <span class="goal-meta">
-                轮次 {{ g.roundsStarted }}{{ g.maxGoalRounds !== undefined ? '/' + g.maxGoalRounds : '' }}
-                <template v-if="g.blockedReason"> · {{ g.blockedReason }}</template>
-              </span>
-            </div>
-          </div>
-          <div v-if="todos.length > 0" class="todo-list">
-            <span v-for="(t, i) in todos" :key="i" class="todo-item" :data-state="t.state">
-              {{ t.state === 'completed' ? '✓' : t.state === 'in_progress' ? '◐' : '○' }} {{ t.text }}
-            </span>
-          </div>
-        </section>
+        <AuditGoalTodoPanel :goals="goals" :todos="todos" />
 
         <section class="sec">
           <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
@@ -495,67 +432,15 @@ async function doClear(): Promise<void> {
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-.seg {
-  display: inline-flex;
-  gap: 4px;
-  margin-left: auto;
-}
-.seg button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.75rem;
-}
-.seg button.on {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: transparent;
-}
-.diff-list, .ev-list {
+.ev-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.diff-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  font-size: 0.82rem;
-}
-.diff-row.shadowed {
-  opacity: 0.55;
-  background: var(--background-primary);
-}
-.seq, .ev-seq {
+.ev-seq {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   min-width: 2.4em;
-}
-.role {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  text-transform: capitalize;
-  font-size: 0.72rem;
-}
-.kind { color: var(--text-muted); font-size: 0.72rem; }
-.preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shadowed-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--text-error);
-  font-size: 0.7rem;
 }
 .ev-row {
   border: 1px solid var(--background-modifier-border);
@@ -623,51 +508,4 @@ async function doClear(): Promise<void> {
 .lineage-note { font-size: 0.72rem; color: var(--text-muted); margin: 4px 0 0; }
 .empty { color: var(--text-muted); font-size: 0.82rem; padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
-
-/* F5：当前 goal/todo 面板 */
-.goal-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: var(--size-4-3);
-}
-.goal-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  font-size: 0.82rem;
-  flex-wrap: wrap;
-}
-.goal-state {
-  font-size: 0.72rem;
-  padding: 1px 8px;
-  border-radius: 9px;
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.goal-state[data-state='active'] { color: var(--text-accent); border-color: var(--text-accent); }
-.goal-state[data-state='blocked'] { color: var(--text-error); border-color: var(--text-error); }
-.goal-state[data-state='complete'] { color: var(--dv-good); border-color: var(--dv-good); }
-.goal-title { font-weight: 600; }
-.goal-meta { color: var(--text-muted); font-size: 0.75rem; }
-.todo-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.todo-item {
-  font-size: 0.78rem;
-  padding: 3px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-}
-.todo-item[data-state='completed'] { color: var(--text-muted); }
-.todo-item[data-state='in_progress'] { border-color: var(--text-accent); }
 </style>
