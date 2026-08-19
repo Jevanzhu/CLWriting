@@ -29,6 +29,7 @@ import WbStateCard from '../components/workbench/WbStateCard.vue'
 import WbAdvanced from '../components/workbench/WbAdvanced.vue'
 import WbHealCard from '../components/workbench/WbHealCard.vue'
 import WbDraftCard from '../components/workbench/WbDraftCard.vue'
+import WbUsageCard from '../components/workbench/WbUsageCard.vue'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -251,6 +252,9 @@ async function onSaveDraft(): Promise<void> {
     </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
     <WbStateCard :state="state" @spawn="onSpawn" />
+
+    <!-- D1（批 4）：AI 用量卡片（trace-stats byTask 渲染 + D2 金额口径） -->
+    <WbUsageCard :book-name="bookName" />
 
     <!-- 高级（流程可见：事件流 + 规则命中） -->
     <WbAdvanced :rule-hits="ruleHits" />
