@@ -33,6 +33,7 @@ import {
 // RB-KN-P1-1：改用合并版 readIronRules（铁律 + 条目库禁词）——S5 迁移把禁词知识
 // 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
 import { readIronRules } from '../format/iron-rules.js'
+import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
@@ -156,9 +157,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
   if (hasWiring) {
     const rosterPath = join(bookRoot, '设定', '名册.md')
     sections.push(checkNewNames(body, rosterPath))
-    // 信息差两级供给：入参 > book.yaml checks.leak_keywords；无内置默认（逐书的秘密
-    // 无通用词表），两级都未设 = 空表静默不启用（X-P2-22）
-    sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? []))
+    // 信息差三级供给（B4 批 6，P6-①）：入参 > book.yaml checks.leak_keywords >
+    // 账本 front matter leak_keywords 派生；无内置默认（逐书的秘密无通用词表），
+    // 三级都空 = 空表静默不启用（X-P2-22 语义不变）。账本扫描每章一次（布线目录
+    // 小、md 数十级，stat+读 fm 成本可忽略；跨请求结果只随账本编辑变化）
+    sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? deriveLeakKeywords(bookRoot)))
   }
 
   // AI 味检查（通用项，长短篇都跑）：身体部位词堆砌 + 比喻密度。

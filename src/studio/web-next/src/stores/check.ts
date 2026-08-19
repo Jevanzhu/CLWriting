@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { runCheck, type CheckReport, type CheckItem } from '../api/check'
+import { runCheck, markFalsePositive, type CheckReport, type CheckItem } from '../api/check'
 import { friendlyError } from '../shared/error'
 
 /**
@@ -21,6 +21,11 @@ export const useCheckStore = defineStore('check', () => {
   const yellowItems = computed<CheckItem[]>(() =>
     report.value ? report.value.sections.flatMap((s) => s.items.filter((i) => i.level === 'yellow')) : [],
   )
+
+  // B1（批 6）：误报标记态——按 checkId（同检查器一次标记即覆盖该检查器的全部同类命中）
+  const flagging = ref<string | null>(null)
+  const flagged = ref(new Set<string>())
+  const flagError = ref<string | null>(null)
 
   /** 操作代（X-P2-15，与 review store 同款）：run/clear 共用——切文档后旧请求结果不落 */
   let opGen = 0
@@ -53,5 +58,23 @@ export const useCheckStore = defineStore('check', () => {
     lastDocId.value = null
   }
 
-  return { report, loading, error, lastDocId, hasRed, redItems, yellowItems, run, clear }
+  /** B1（批 6）：标误报（幂等——已标过不重复请求）；错误置 flagError 供面板提示 */
+  async function flagFalsePositive(name: string, docId: string, checkId: string): Promise<void> {
+    if (flagging.value || flagged.value.has(checkId)) return
+    flagging.value = checkId
+    flagError.value = null
+    try {
+      await markFalsePositive(name, docId, checkId)
+      flagged.value = new Set([...flagged.value, checkId])
+    } catch (e) {
+      flagError.value = friendlyError(e)
+    } finally {
+      flagging.value = null
+    }
+  }
+
+  return {
+    report, loading, error, lastDocId, hasRed, redItems, yellowItems, run, clear,
+    flagging, flagged, flagError, flagFalsePositive,
+  }
 })

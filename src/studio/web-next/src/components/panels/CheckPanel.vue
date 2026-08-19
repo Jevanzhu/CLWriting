@@ -3,7 +3,7 @@
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
 // 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
 import { computed, watch } from 'vue'
-import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck } from 'lucide-vue-next'
+import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, ThumbsDown } from 'lucide-vue-next'
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
@@ -30,6 +30,14 @@ async function runCheck(): Promise<void> {
 
 // X-P2-15：切文档即清报告（store 注释声称「调用方 clear」但无人调——旧文档红项挂在新文档上）
 watch(docId, () => check.clear())
+
+// B1（批 6）：误报标记——一次 confirm 防误触（浏览器原生确认即可，不引弹窗组件）；
+// 按 checkId 幂等（已标灰显）。标记落 check/false-positive 事件 → 语料回归库燃料
+async function flagFalsePositive(checkId: string): Promise<void> {
+  if (!docId.value) return
+  if (!window.confirm('把「' + checkId + '」的这类命中标记为误报？\n（用于收集语料改进检查器，不影响本次结果）')) return
+  await check.flagFalsePositive(props.bookName, docId.value, checkId)
+}
 </script>
 
 <template>
@@ -78,6 +86,16 @@ watch(docId, () => check.clear())
           class="check-item check-item--red"
         >
           <div class="item-msg">{{ it.message }}</div>
+          <button
+            class="fp-btn"
+            :class="{ done: check.flagged.has(it.checkId) }"
+            :disabled="check.flagging !== null || check.flagged.has(it.checkId)"
+            :title="check.flagged.has(it.checkId) ? '已标记误报' : '标记为误报（喂语料回归库）'"
+            @click="flagFalsePositive(it.checkId)"
+          >
+            <ThumbsDown :size="12" />
+            {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
+          </button>
         </div>
       </div>
 
@@ -92,8 +110,20 @@ watch(docId, () => check.clear())
           class="check-item check-item--yellow"
         >
           <div class="item-msg">{{ it.message }}</div>
+          <button
+            class="fp-btn"
+            :class="{ done: check.flagged.has(it.checkId) }"
+            :disabled="check.flagging !== null || check.flagged.has(it.checkId)"
+            :title="check.flagged.has(it.checkId) ? '已标记误报' : '标记为误报（喂语料回归库）'"
+            @click="flagFalsePositive(it.checkId)"
+          >
+            <ThumbsDown :size="12" />
+            {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
+          </button>
         </div>
       </div>
+
+      <div v-if="check.flagError" class="check-hint fp-error">{{ check.flagError }}</div>
     </template>
 
     <div v-else class="check-hint">
@@ -204,5 +234,39 @@ watch(docId, () => check.clear())
 }
 .item-msg {
   color: var(--text-normal);
+}
+.check-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fp-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  font-size: var(--font-size-xxs);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.fp-btn:hover:not(:disabled) {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+}
+.fp-btn:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.fp-btn.done {
+  color: var(--text-accent, inherit);
+}
+.fp-error {
+  color: var(--text-error);
 }
 </style>

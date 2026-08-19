@@ -39,6 +39,17 @@ export function llmRetryEvent(data: { attempt: number; delayMs: number; errCode?
   return { type: 'llm/retry', data: { ...data } }
 }
 
+/** B1（批 6）：机检误报标记事件。excerpt 为命中区间 ±50 字摘录（语料本身）；
+ *  同章同 checkId 重复标记幂等——append 多条、查询侧按 (chapter, checkId) 取最近一条。 */
+export function checkFalsePositiveEvent(data: {
+  checkId: string
+  chapter: number
+  excerpt: string
+  docId?: string
+}): NewEvent {
+  return { type: 'check/false-positive', data: { ...data } }
+}
+
 export function retryAttemptEvent(data: {
   attempt: number;
   maxAttempts: number;

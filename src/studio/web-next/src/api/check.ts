@@ -37,3 +37,21 @@ export async function runCheck(name: string, docId: string): Promise<CheckResult
     60_000,
   )
 }
+
+/** B1（批 6）：标记误报——excerpt 服务端从正文切（±50 字、上限 200），落
+ *  check/false-positive 事件（语料回归库燃料入口）；幂等（同章同 checkId 最近一次为准） */
+export async function markFalsePositive(
+  name: string,
+  docId: string,
+  checkId: string,
+): Promise<{ ok: true; checkId: string; chapter: number; excerpt: string }> {
+  return apiJson(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/check-false-positive`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkId }),
+    },
+    60_000,
+  )
+}

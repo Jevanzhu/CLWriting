@@ -30,6 +30,8 @@ export type EventType =
   | 'llm/retry'
   | 'retry/attempt'
   | 'check/report'
+  // B1（批 6）：机检误报标记（作者裁决信号——语料回归库的燃料入口；workspace 会话承载）
+  | 'check/false-positive'
   // P3 血缘+检索（F1 方案 §二 v1 + §五 血缘设计）
   | 'revision/ref'
   | 'settings/snapshot'

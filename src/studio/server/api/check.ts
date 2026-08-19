@@ -17,6 +17,8 @@ import { reply, replyError } from '../http.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readAnalysis } from '../../../document/analysis.js'
+import { openSessionStore, bookHash } from '../../../events/store.js'
+import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import {
   runCheckForDocument,
   collectTreeIssues,
@@ -66,6 +68,58 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     },
   })
 
+  // ── B1（批 6）：机检误报标记 ──────────────────────────────────────
+  // POST /documents/:docId/check-false-positive  body { checkId }
+  // excerpt 服务端从正文切（命中区间 ±50 字、上限 200）——不信客户端传任意长文本。
+  // 落 check/false-positive 事件（workspace 会话）；同章同 checkId 重复标记幂等
+  //（append 多条、查询侧按 (chapter, checkId) 取最近一条）。
+  defineRoute('books.documents.check-false-positive', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/check-false-positive',
+    parse: (body) => {
+      const raw = body as Record<string, unknown>
+      const checkId = typeof raw['checkId'] === 'string' ? raw['checkId'].trim() : ''
+      if (!checkId) throw new Error('checkId 必填')
+      return { checkId }
+    },
+    handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const bookRoot = r.bookRoot
+      const docId = params['docId'] ?? ''
+      const m = resolveDocEntry(bookRoot, docId)
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
+      const absPath = safeManifestPath(bookRoot, m.path)
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
+      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', '文档不存在')
+
+      const checkId = input.checkId
+
+      // 复跑机检定位命中区间（机检零 token 纯函数，复跑成本可忽略）
+      const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
+      if (!outcome.ok) return reply(res, checkOutcomeStatus(outcome.code), { ok: false, code: outcome.code, error: outcome.error })
+      const items = outcome.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === checkId)
+      if (items.length === 0) {
+        return replyError(res, 409, 'CONFLICT', `当前机检结果中没有 checkId=${checkId} 的命中（可能已修复，刷新机检后再标）`)
+      }
+
+      const excerpt = cutExcerpt(outcome.body, items.map((i) => i.message))
+      if (ctx.userDataPath) {
+        try {
+          const store = openSessionStore(ctx.userDataPath, bookRoot)
+          if (store) {
+            const sessionId = store.workspaceSession(bookHash(bookRoot))
+            store.appendEvents(sessionId, [checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId })])
+            store.close()
+          }
+        } catch {
+          // 观测层：事件落库失败不阻断标记动作（toast 已反馈，语料损失可接受）
+        }
+      }
+      reply(res, 200, { ok: true, checkId, chapter: outcome.chapter.章号, excerpt })
+    },
+  })
+
   // GET /tree-issues（T9b 树红点冒泡）：扫定稿正文聚合机检 red + verdict 驳回，
   // 返 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId，余省略）。
   // rebuild 一次复用 db 循环 checkWithDb（避免每章 rebuild 的 O(N²)）；rebuild 失败降级空 issues（不阻塞树）。
@@ -90,4 +144,33 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       })
     },
   })
+}
+
+/**
+ * B1（批 6）：从正文切命中区间 ±50 字摘录（上限 200）。
+ * 命中词取机检 message 里的「」/『』/“”引号片段（禁词/意象/复读项均带），
+ * 在正文里定位首个出现；定位不到（如字数类无具体词）回落正文开头——
+ * 摘录仍可作为该章该检查的上下文语料。
+ */
+function cutExcerpt(body: string, messages: string[]): string {
+  const quoted: string[] = []
+  for (const msg of messages) {
+    for (const m of msg.matchAll(/[「『“]([^」』”]{1,40})[」』”]/g)) {
+      if (m[1]!) quoted.push(m[1]!)
+    }
+    // 堆砌类 message 形态：`眼睛×6`（词×次数）——锚点取 × 前的词
+    for (const m of msg.matchAll(/([\u4e00-\u9fffA-Za-z0-9·]{1,20})×\d+/g)) {
+      if (m[1]!) quoted.push(m[1]!)
+    }
+  }
+  for (const kw of quoted) {
+    const idx = body.indexOf(kw)
+    if (idx >= 0) {
+      const start = Math.max(0, idx - 50)
+      const end = Math.min(body.length, idx + kw.length + 50)
+      const excerpt = body.slice(start, end)
+      return excerpt.length > 200 ? excerpt.slice(0, 200) : excerpt
+    }
+  }
+  return body.slice(0, 200)
 }
