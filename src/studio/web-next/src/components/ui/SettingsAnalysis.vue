@@ -7,6 +7,7 @@ import { computed, watch, onActivated } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { useProviderStore } from '../../stores/provider'
+import BetaBadge from './BetaBadge.vue'
 
 const ui = useUiStore()
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
@@ -53,7 +54,7 @@ function onGlobalThresholdInput(e: Event): void {
 <template>
   <!-- 单根包裹：多根 fragment 在 <Transition> 下无法动画（Vue warn） -->
   <div class="settings-tab">
-    <div class="cfg-card-head">AI 机检</div>
+    <div class="cfg-card-head">AI 机检 <BetaBadge /></div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
@@ -69,11 +70,11 @@ function onGlobalThresholdInput(e: Event): void {
       </div>
     </section>
 
-    <div class="cfg-card-head">关系图</div>
+    <div class="cfg-card-head">关系图 <BetaBadge /></div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
+          <div class="setting-item-name">自动梳理 <BetaBadge /></div>
           <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
         </div>
         <div class="setting-item-control">
@@ -85,7 +86,7 @@ function onGlobalThresholdInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
+          <div class="setting-item-name">章节增量阈值 <BetaBadge /></div>
           <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
         </div>
         <div class="setting-item-control">
@@ -95,11 +96,11 @@ function onGlobalThresholdInput(e: Event): void {
       </div>
     </section>
 
-    <div class="cfg-card-head">知识检索</div>
+    <div class="cfg-card-head">知识检索 <BetaBadge /></div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">启用检索</div>
+          <div class="setting-item-name">启用检索 <BetaBadge /></div>
           <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
         </div>
         <div class="setting-item-control">

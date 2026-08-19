@@ -193,6 +193,16 @@ describe('buildDraftPrompt: 文风样章（P1 接线 style.injection）', () => 
     }
   }
 
+  /** 建第 1 章章纲（fm 场景声明——文风样章选取的场景水源） */
+  function makeChapterOutline(scene: string | string[]): void {
+    mkdirSync(join(dir, '大纲', '章纲'), { recursive: true })
+    const fmScene = Array.isArray(scene) ? `[${scene.join(', ')}]` : scene
+    writeFileSync(
+      join(dir, '大纲', '章纲', '0001-开篇.md'),
+      `---\n章号: 1\n标题: 开篇\n场景: ${fmScene}\n---\n\n本章情节要点。`,
+    )
+  }
+
   it('无样章库 → 跳段（不出现文风样章标题）', () => {
     const p = buildDraftPrompt(dir, 1, 'long')
     expect(p).not.toContain('## 文风样章')
@@ -200,6 +210,7 @@ describe('buildDraftPrompt: 文风样章（P1 接线 style.injection）', () => 
 
   it('默认/轻档 → 注入 1 段（注入档接线的核心行为）', () => {
     makeSampleLibrary()
+    makeChapterOutline('战斗')
     for (const c of [undefined, cfg({}), cfg({ injection: 'light' })]) {
       const p = buildDraftPrompt(dir, 1, 'long', c)
       expect(p).toContain('## 文风样章(模仿其叙事语感与节奏,不抄情节)')
@@ -211,6 +222,7 @@ describe('buildDraftPrompt: 文风样章（P1 接线 style.injection）', () => 
 
   it('重档 → 注入 3 段', () => {
     makeSampleLibrary()
+    makeChapterOutline('战斗')
     const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
     expect(p).toContain('样章正文甲')
     expect(p).toContain('样章正文乙')
@@ -219,8 +231,41 @@ describe('buildDraftPrompt: 文风样章（P1 接线 style.injection）', () => 
 
   it('短篇分支同链注入', () => {
     makeSampleLibrary()
+    makeChapterOutline('战斗')
     const p = buildDraftPrompt(dir, 1, 'short', cfg({ injection: 'heavy' }))
     expect(p).toContain('## 文风样章')
     expect(p).toContain('样章正文丙')
+  })
+
+  it('章纲场景与样章库不符 → 跳段（不再硬编码「战斗」无条件选中）', () => {
+    makeSampleLibrary()
+    makeChapterOutline('对话')
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).not.toContain('## 文风样章')
+  })
+
+  it('无章纲场景声明 → 仅「通用」场景候选（战斗库不入选）', () => {
+    makeSampleLibrary()
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).not.toContain('## 文风样章')
+  })
+
+  it('无章纲 + 通用样章 → 仍注入（通用场景恒候选）', () => {
+    mkdirSync(join(dir, '文风', '样章库', '通用'), { recursive: true })
+    writeFileSync(join(dir, '文风', '样章库', '通用', '通用-001.md'), `---\n场景: 通用\n---\n通用样章正文`)
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('## 文风样章')
+    expect(p).toContain('通用样章正文')
+  })
+
+  it('章纲多场景声明 → 场景命中各取代表', () => {
+    mkdirSync(join(dir, '文风', '样章库', '战斗'), { recursive: true })
+    writeFileSync(join(dir, '文风', '样章库', '战斗', '战斗-001.md'), `---\n场景: 战斗\n---\n战斗样章`)
+    mkdirSync(join(dir, '文风', '样章库', '对话'), { recursive: true })
+    writeFileSync(join(dir, '文风', '样章库', '对话', '对话-001.md'), `---\n场景: 对话\n---\n对话样章`)
+    makeChapterOutline(['战斗', '对话'])
+    const p = buildDraftPrompt(dir, 1, 'long', cfg({ injection: 'heavy' }))
+    expect(p).toContain('战斗样章')
+    expect(p).toContain('对话样章')
   })
 })

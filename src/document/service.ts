@@ -322,14 +322,12 @@ export class DocumentService {
     )
   }
 
-  /** 快照保留策略：三层链 book.yaml snapshots → global.json snapMax* → 硬编码默认。 */
+  /** 快照保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码默认；book.yaml snapshots 已砍书级。 */
   private snapshotPolicy(): SnapshotPolicy {
-    const cfg = readBookConfig(join(this.bookRoot, 'book.yaml'))
-    const s = cfg.ok ? cfg.config.snapshots : undefined
     const global = readGlobalSnapshotPolicy(this.userDataPath)
     return {
-      maxDays: s?.max_days ?? global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
-      maxCount: s?.max_count ?? global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
+      maxDays: global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
+      maxCount: global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
       throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
     }
   }

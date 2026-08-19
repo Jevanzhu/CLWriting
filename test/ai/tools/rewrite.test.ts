@@ -6,7 +6,8 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
-import { rewriteChapter, rewriteSelection } from '../../../src/ai/tools/rewrite.js'
+import { rewriteChapter, rewriteSelection, applySpill } from '../../../src/ai/tools/rewrite.js'
+import { writeSpillFile } from '../../../src/process/spill.js'
 import { runSpec } from '../../../src/ai/tasks/spec.js'
 import type { ToolContext } from '../../../src/ai/tools/context.js'
 
@@ -99,6 +100,42 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
     expect(readFileSync(join(bookRoot, '工作区', 'spills', files[0]!), 'utf8')).toBe(produced)
     expect(r.summary).toContain('工作区/spills/')
     expect(r.summary).toContain(String(produced.length))
+  })
+})
+
+
+// ── GG-P2-2：apply_spill 确认落盘通道（「确认满意后再说一声」承诺的兑现件）──
+
+describe('apply_spill 确认落盘', () => {
+  it('合法 locator → 全文替换正文落盘，front matter 原样保留', async () => {
+    const chapterPath = join(bookRoot, '写作/正文/0001-初入宗门.md')
+    const before = readFileSync(chapterPath, 'utf-8')
+    expect(before).toContain('章号: 1') // fixture 带fm
+    const produced = '确认后的改写全文。' + '新内容。'.repeat(50)
+    const locator = writeSpillFile(bookRoot, produced)!
+    const r = await applySpill(ctx(), { chapter: 1, locator })
+    expect(r.ok).toBe(true)
+    const after = readFileSync(chapterPath, 'utf-8')
+    expect(after).not.toContain(before.split('---').pop()!.trim().slice(0, 10)) // 旧正文已被替换
+    expect(after).toContain('确认后的改写全文。')
+    expect(after).toContain('章号: 1') // fm 保留（未随 body 丢失）
+  })
+  it('locator 形状不合法 → 拒绝（路径穿越防御）', async () => {
+    const r = await applySpill(ctx(), { chapter: 1, locator: '工作区/spills/../../book.yaml' })
+    expect(r.ok).toBe(false)
+    expect(r.summary).toContain('路径不合法')
+  })
+  it('locator 不存在 → 拒绝', async () => {
+    const r = await applySpill(ctx(), { chapter: 1, locator: '工作区/spills/0123456789abcdef.md' })
+    expect(r.ok).toBe(false)
+    expect(r.summary).toContain('不存在')
+  })
+  it('章不存在 → 拒绝', async () => {
+    const produced = 'x'
+    const locator = writeSpillFile(bookRoot, produced)!
+    const r = await applySpill(ctx(), { chapter: 99, locator })
+    expect(r.ok).toBe(false)
+    expect(r.summary).toContain('不存在')
   })
 })
 

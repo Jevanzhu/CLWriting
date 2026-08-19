@@ -1,14 +1,19 @@
 /**
- * 改写工具：rewrite_chapter（整章）/ rewrite_selection（选段）。
+ * 改写工具：rewrite_chapter（整章）/ rewrite_selection（选段）/ apply_spill（确认落盘）。
  * 遵循现有提案模型：产出改写稿回填对话，不直接落盘正文（作者确认后再保存）；
- * 全文 spill 暂存（RB-AI-P1-1）——确认保存时按 spill 路径取回全文。
+ * 全文 spill 暂存（RB-AI-P1-1）——确认保存时按 spill 路径取回全文（apply_spill，
+ * GG-P2-2 兑现「确认后落盘」承诺：write 级确认闸 → 按 locator 取回全文存为章草稿）。
  * 复用 buildRewritePrompt + REWRITE_SPEC（与 rewrite 端点同一链路）。
  */
 import { runSpec } from '../tasks/spec.js'
 import { REWRITE_SPEC } from '../tasks/specs.js'
 import { buildRewritePrompt, lineDiff } from '../../process/rewrite-prompt.js'
 import { readKind } from '../../format/kind.js'
-import { writeSpillFile } from '../../process/spill.js'
+import { writeSpillFile, readSpillFile } from '../../process/spill.js'
+import { saveDraft } from '../../process/draft-pipeline.js'
+import { resolveDraftPath } from '../../format/draft.js'
+import { readFile, joinFrontMatter } from '../../format/frontmatter.js'
+import { join } from 'node:path'
 import { readChapterBody } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
@@ -45,11 +50,37 @@ function chapterInput(input: Record<string, unknown>): number | null {
 }
 
 /** RB-AI-P1-1：「未保存」提示——全文已 spill 时给出路径 + 字数（确认保存按路径取全文）；
- *  落盘失败 best-effort 如实告知（不谎称可落盘） */
+ *  落盘失败 best-effort 如实告知（不谎称可落盘）。GG-P2-2：确认通道 = apply_spill 工具（write 级确认闸）。 */
 function unsavedNote(locator: string | null, chars: number): string {
   return locator
-    ? '【未保存】改写稿全文（' + chars + ' 字）已暂存：' + locator + '。确认满意后再说一声，我据此落盘。'
+    ? '【未保存】改写稿全文（' + chars + ' 字）已暂存：' + locator + '。确认满意后说一声，我调 apply_spill 按此路径落盘为章草稿。'
     : '【未保存】改写稿全文暂存失败（磁盘异常），目前仅对话内有预览。'
+}
+
+/** GG-P2-2：把已确认的改写 spill 落盘为章草稿（保留原章 front matter，只替换正文）。
+ *  读侧走 spill.ts 的 readSpillFile（形状校验 + isWithinRoot 双保险，null = 不存在/不合法）。 */
+export async function applySpill(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
+  const chapter = chapterInput(input)
+  if (chapter === null) return { ok: false, summary: '缺少合法的章号 chapter（正整数）。' }
+  const locator = String(input['locator'] ?? '').trim()
+  if (!locator) return { ok: false, summary: '缺少暂存路径 locator（改写结果返回的 工作区/spills/<哈希>.md）。' }
+  const produced = readSpillFile(ctx.bookRoot, locator)?.trim()
+  if (!produced) {
+    return { ok: false, summary: '暂存不可用：' + locator + '（不存在或路径不合法，可能已清理——请重新发起改写）。' }
+  }
+  // 章正文须存在（改写的前提）；定稿章由 saveDraft 的 resolveDraftPath 挡（V-P1-3 同口径）
+  if (readChapterBody(ctx.bookRoot, chapter) === null) {
+    return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
+  }
+  const { relPath } = resolveDraftPath(ctx.bookRoot, chapter)
+  const raw = readFile(join(ctx.bookRoot, relPath))
+  if (!raw.ok) return { ok: false, summary: '第 ' + chapter + ' 章正文读取失败：' + relPath }
+  // 改写稿是 body 维度产物——front matter（章号/标题/钩子等）原样保留，只换正文
+  const saved = saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), { snapshotOrigin: 'chat-rewrite' })
+  return {
+    ok: true,
+    summary: '已落盘：' + saved.relPath + '（' + saved.words + ' 字，改写前的旧稿已自动快照）。暂存原文保留在 ' + locator + ' 备查。',
+  }
 }
 
 export async function rewriteChapter(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {

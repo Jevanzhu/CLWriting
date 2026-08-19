@@ -6,17 +6,16 @@
  * 禁止随手加裸 route()——未来 channel/端点增多时防「加裸路由不声明」的漂移。
  *
  * 三个传输层纪律（第8.3节）：
- * 1. 错误信封（CC-P2-11 统一）：非 2xx 回复一律 { error: 人话, code?: 机器码 }——
- *    code 仅当前端需要机器分支时携带（如 REVISION_CONFLICT 冲突双出路）；禁止再造
- *    {ok:false,...}/{reason} 变体（200 业务结果体不在此列，按各端点自身契约）；
- *    parse 失败/抛错统一 {error}（dispatch 已有 HttpError 信封兜底）；
+ * 1. 错误信封（hh §八-12 统一）：非 2xx 回复一律 { code: 机器码, error: 人话 }——
+ *    经 http.ts replyError 单一出口（HttpError 自带 code；裸抛由 dispatch 兜底）；
+ *    禁止再造 {ok:false,...}/{reason} 变体（200 业务结果体不在此列，按各端点自身契约）；
  * 2. input 形状由 parse 声明（handler 拿解析后的类型，不裸 JSON）；
  * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会
  *    被解析成 truthy 值——cherry 用裸对象 + Object.hasOwn 的原因，Map 更干净）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route } from '../router.js'
-import { readJson, HttpError } from '../http.js'
+import { readJson, HttpError, replyError, replyHttpError } from '../http.js'
 
 /** defineRoute 的 handler 上下文：path 参数 + 解析后的 input */
 export interface RouteContext<I> {
@@ -28,7 +27,7 @@ export interface RouteContext<I> {
 export interface RouteSchema<I = unknown> {
   method: string
   path: string
-  /** 输入解析器：POST 接 JSON body，GET 接 undefined；抛错 → 400 {error}。缺省透传 raw */
+  /** 输入解析器：POST 接 JSON body，GET 接 undefined；抛错 → 400 {code,error}。缺省透传 raw */
   parse?: (raw: unknown) => I
   handler: (ctx: RouteContext<I>, req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 }
@@ -43,7 +42,7 @@ export function resetRouteSchemas(): void {
 
 /**
  * E2：route schema 单点声明。注册到 Map 并接线到现有分发器。
- * parse 失败 → 400 {error}（错误信封）；handler 抛错由 dispatch 的 HttpError 兜底统一 {error}。
+ * parse 失败 → 400 {code,error}（ii-3 补 code：统一信封单一出口）；handler 抛错由 dispatch 兜底。
  */
 export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchema<I> {
   if (registered.has(name)) throw new Error(`route 重复声明: ${name}`)
@@ -56,10 +55,8 @@ export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchem
       } catch (e) {
         // dd-P2：HttpError（如 readJson 的 413 请求体过大）透传自身状态码——
         // 一律压 400 会让同一资源在裸 route / defineRoute 两种注册下状态码分叉
-        const status = e instanceof HttpError ? e.status : 400
-        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : '请求体校验失败' }))
-        return
+        if (e instanceof HttpError) return replyHttpError(res, e)
+        replyError(res, 400, 'BAD_INPUT', e instanceof Error ? e.message : '请求体校验失败')
       }
     }
     await schema.handler({ params, input: input as I }, req, res)

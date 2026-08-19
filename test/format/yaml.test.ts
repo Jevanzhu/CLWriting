@@ -311,15 +311,54 @@ test('readBookConfig: 块式列表（- 项）拼成数组，等价内联写法�
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('readBookConfig: 块式列表项含逗号/引号时不炸（引号项按 parseValue 规则）', () => {
+test('readBookConfig: 块式列表项含逗号时精确解析（ii 批逐项转义）', () => {
   const dir = mkdtempSync(join(tmpdir(), '北境往事-block2-'))
   const fp = join(dir, 'book.yaml')
-  // 项含半角逗号 → 拼出的内联数组会多切一刀；这是已知边界，断言「至少不丢段不抛错」
-  writeFileSync(fp, 'spec_version: 1\nkind: long\nbook:\n  title: T\n  genre: 玄幻\nhost: cc\nleads:\n  enabled:\n    - 布局线\n    - 设定线\n')
+  // ii 批前裸 join：项含半角逗号 → 拼出的内联数组多切一刀（已知边界只断言不炸）；
+  // 现逐项走 stringifyValue 转义，含逗号/括号/引号项往返精确。
+  // 用 short.target_emotions 测（任意字符串数组；leads.enabled 有账本类白名单会过滤测试值）
+  writeFileSync(fp, 'spec_version: 1\nkind: short\nbook:\n  title: T\nshort:\n  profile: p\n  target_emotions:\n    - 惊悚\n    - 悬疑,推理\n    - [带括号]\n')
   const cfg = readBookConfig(fp).config
-  expect(Array.isArray(cfg.leads.enabled)).toBe(true)
-  expect(cfg.leads.enabled.length).toBeGreaterThanOrEqual(2)
+  expect(cfg.short?.target_emotions).toEqual(['惊悚', '悬疑,推理', '[带括号]'])
   rmSync(dir, { recursive: true, force: true })
+})
+
+test('readBookConfig: 行内注释剥离（ii 批）——空白前置 # 起注释，引号内/紧贴字的 # 保留', () => {
+  const out = parseBookConfig([
+    'spec_version: 1',
+    'kind: long',
+    'book:',
+    '  title: 北境往事 # 首部',
+    '  genre: "玄幻 # 悬" # 注释',
+    'rag:',
+    '  enabled: false',
+    '  endpoint: http://rag.local:8080/x#frag',
+    'host: cc',
+    '',
+  ].join('\n'))
+  expect(out.ok).toBe(true)
+  expect(out.config.book.title).toBe('北境往事')
+  expect(out.config.book.genre).toBe('玄幻 # 悬')
+  expect(out.config.rag?.endpoint).toBe('http://rag.local:8080/x#frag')
+  // 块列表项同样剥注释
+  const out2 = parseBookConfig('kind: long\nleads:\n  enabled:\n    - 布局线 # 高频\n    - 设定线\n')
+  expect(out2.ok).toBe(true)
+  expect(out2.config.leads.enabled).toEqual(['布局线', '设定线'])
+})
+
+test('readBookConfig: 有值键下的缩进子行显式报错，不再静默错挂（ff P2-2 / ii 批）', () => {
+  const out = parseBookConfig('host: cc\n  book: 误挂\n')
+  expect(out.ok).toBe(false)
+  if (!out.ok) {
+    expect(out.error.message).toContain('缩进子行')
+    expect(out.error.message).toContain('host')
+  }
+  // 块列表项跟在有值键后同样报错
+  const out2 = parseBookConfig('kind: long\nleads:\n  enabled: [布局线]\n    - 设定线\n')
+  expect(out2.ok).toBe(false)
+  if (!out2.ok) {
+    expect(out2.error.message).toContain('缩进子行')
+  }
 })
 
 // ── 书级设定全局托底：键可选化 + 条件输出（现有仓库零改动红线）────────

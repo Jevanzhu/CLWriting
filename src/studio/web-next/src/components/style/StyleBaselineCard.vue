@@ -3,15 +3,18 @@
 import { computed, ref } from 'vue'
 import { SlidersHorizontal, Snowflake } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
+import { usePrefsStore } from '../../stores/prefs'
 import { useUiStore } from '../../stores/ui'
-import { getConfig, putConfig } from '../../api/books'
 import { getContent, putContent } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
+import BetaBadge from '../ui/BetaBadge.vue'
 
 const props = defineProps<{ bookName: string }>()
 const style = useStyleStore()
 const ui = useUiStore()
+// 文风注入强度 2026-08-19 起只走全局：与设置「AI 写作」页同源（prefs store），不再写书级
+const prefs = usePrefsStore()
 
 const rules = computed(() => style.config?.rules ?? {})
 const baseline = computed(() => style.config?.baseline ?? null)
@@ -39,20 +42,13 @@ async function onFreeze(): Promise<void> {
   }
 }
 
-// 注入强度（book.yaml style.injection；从设置 AI 区挪入定标段）
-const injection = computed(() => style.config?.injection ?? 'light')
+// 注入强度：只走全局（prefs store），与设置「AI 写作」页同源——文风页和设置页显示同一值。
+// 2026-08-19 决策：砍掉书级覆盖，一律跟随 global.json styleInjection。
+const injection = computed(() => prefs.styleInjection)
 async function onInjection(v: 'light' | 'heavy'): Promise<void> {
   if (injection.value === v) return
-  try {
-    const cfg = await getConfig(props.bookName)
-    if (!cfg.style) cfg.style = {}
-    cfg.style.injection = v
-    await putConfig(props.bookName, cfg)
-    if (style.config) style.config.injection = v
-    ui.toast('参考强度已保存', 'success')
-  } catch (e) {
-    ui.toast(friendlyError(e), 'error')
-  }
+  prefs.setStyleInjection(v)
+  ui.toast('参考强度已保存', 'success')
 }
 
 // 铁律原文编辑（文风/文风铁律.md 纯配置；折叠展开，保存后重拉阈值）
@@ -105,7 +101,7 @@ async function saveRules(): Promise<void> {
 <template>
   <section class="panel">
     <div class="panel-head">
-      <SlidersHorizontal :size="14" /> <span>定标</span>
+      <SlidersHorizontal :size="14" /> <span>定标 <BetaBadge /></span>
       <span class="head-note">检测标准与参考方式</span>
     </div>
     <div class="anchor-body">
@@ -132,7 +128,7 @@ async function saveRules(): Promise<void> {
         </template>
       </div>
       <div class="anchor-line">
-        <span class="al-label">参考强度</span>
+        <span class="al-label">参考强度 <BetaBadge /></span>
         <div class="seg">
           <button class="seg-btn" :class="{ on: injection === 'light' }" @click="onInjection('light')">轻</button>
           <button class="seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>

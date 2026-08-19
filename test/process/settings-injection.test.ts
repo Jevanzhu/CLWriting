@@ -154,3 +154,33 @@ test('code point 度量——emoji 计 1 不劈 surrogate pair', () => {
   expect(tail!.startsWith('😀')).toBe(true)
   expect(cpLen(r.text)).toBeLessThanOrEqual(60)
 })
+
+// ── ii 批（评审 #19 残余）：readCharacterCards stat 级缓存 ────────────────────
+
+test('readCharacterCards 缓存：未变命中复用、变更重读、返回引用隔离', async () => {
+  const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'cards-cache-'))
+  try {
+    writeFileSync(join(dir, '林远.md'), '---\n姓名: 林远\n身份: 首席大弟子\n---\n\n冷面剑修。\n')
+    const bookRoot = dir
+    const a = readCharacterCards(dir, bookRoot)
+    expect(a[0]!.正文).toBe('冷面剑修。')
+    // 引用隔离：调用方 mutate 不污染缓存
+    a[0]!.正文 = '被改了'
+    const b = readCharacterCards(dir, bookRoot)
+    expect(b[0]!.正文).toBe('冷面剑修。')
+    // 内容变更（mtime 变）→ 重读新内容
+    writeFileSync(join(dir, '林远.md'), '---\n姓名: 林远\n身份: 首席大弟子\n---\n\n冷面剑修，剑心通明。\n')
+    const c = readCharacterCards(dir, bookRoot)
+    expect(c[0]!.正文).toBe('冷面剑修，剑心通明。')
+    // 新增卡：下一轮 readdir 自愈
+    writeFileSync(join(dir, '赵衡.md'), '---\n姓名: 赵衡\n---\n\n长老。\n')
+    expect(readCharacterCards(dir, bookRoot).length).toBe(2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    clearCharacterCardCache()
+  }
+})

@@ -53,10 +53,10 @@ describe('E2: route schema 单点声明', () => {
     const ok = await postJson(port, '/e2/book-a/echo', { n: 3 })
     expect(ok.status).toBe(200)
     expect(ok.json).toEqual({ name: 'book-a', n: 3 })
-    // 校验失败 → 400 {error} 信封
+    // 校验失败 → 400 {code, error} 信封（ii-3：defineRoute parse 失败也走统一双字段信封）
     const bad = await postJson(port, '/e2/book-a/echo', { n: -1 })
     expect(bad.status).toBe(400)
-    expect(bad.json['error']).toBe('n 需为非负数字')
+    expect(bad.json).toEqual({ code: 'BAD_INPUT', error: 'n 需为非负数字' })
     srv.close()
   })
 

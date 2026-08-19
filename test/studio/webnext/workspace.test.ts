@@ -186,3 +186,26 @@ describe('workspace · 新建信号', () => {
     expect(ws.createTick).toBe(t1 + 1)
   })
 })
+
+describe('workspace · 切书 debounce 竞态（ff 细节#11）', () => {
+  it('500ms 内切书 → 挂起的 A 书落盘作废，不污染 B 书 prefs', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook('book-a')
+    await flush() // A 书 prefs 加载完成 + watch 挂上
+    ws.openTab('doc-a') // 触发 watch → 排定 500ms 后写 A 书 prefs
+    ws.setBook('book-b') // 500ms 内切走（prefsLoaded=false + bookGen++）
+    await flush() // 挂起定时器 fire
+    // A 书的 activeDocId 不得写进 B 书（修复前：setTimeout 回调 fire 时读 bookName.value='book-b'）
+    expect(bookPrefs.get('book-b') ?? {}).not.toMatchObject({ activeDocId: 'doc-a' })
+    expect(bookPrefs.has('book-a')).toBe(false) // A 书也无残留写（切书即作废本次落盘）
+  })
+
+  it('不切书 → debounce 正常落盘（守卫不误伤常规路径）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    ws.openTab('d9')
+    await flush()
+    expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd9' })
+  })
+})

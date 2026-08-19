@@ -10,6 +10,7 @@ import { getConfig, putConfig, type BookConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
+import BetaBadge from './BetaBadge.vue'
 import SettingsAppearance from './SettingsAppearance.vue'
 import SettingsEditor from './SettingsEditor.vue'
 import SettingsWriting from './SettingsWriting.vue'
@@ -122,17 +123,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <NotebookPen :size="16" /><span>写作默认</span>
             </button>
             <button :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-              <Sparkles :size="16" /><span>AI 写作</span>
+              <Sparkles :size="16" /><span>AI 写作 <BetaBadge /></span>
             </button>
             <button :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
-              <ScanSearch :size="16" /><span>智能分析</span>
+              <ScanSearch :size="16" /><span>智能分析 <BetaBadge /></span>
             </button>
             <div class="nav-section-label">系统</div>
             <button :class="{ active: activeTab === 'retention' }" @click="activeTab = 'retention'">
               <History :size="16" /><span>版本保留</span>
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
-              <Server :size="16" /><span>服务提供方</span>
+              <Server :size="16" /><span>服务提供方 <BetaBadge /></span>
             </button>
           </nav>
 

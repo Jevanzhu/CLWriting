@@ -32,13 +32,15 @@ export function registerIoRoutes(ctx: IoCtx): void {
     const format: ExportFormat = EXPORT_FORMATS.has(String(body['format'])) ? (String(body['format']) as ExportFormat) : 'both'
     const platform: ExportPlatform = PLATFORMS.has(String(body['platform'])) ? (String(body['platform']) as ExportPlatform) : 'generic'
     const result = exportBook({ bookRoot: r.bookRoot, format, platform })
-    // 业务失败编码在 body.ok,不用 500（前端 apiJson 会当异常抛,吞诊断信息）
-    if (!result.ok) return reply(res, 200, { ok: false, code: 1, stdout: '', stderr: result.error ?? '导出失败' })
+    // 业务失败编码在 body.ok,不用 500（前端 apiJson 会当异常抛,吞诊断信息）。
+    // ii 批：域形状负载（chapterCount/unit/files）——此前透传 CLI 进程信封
+    // {code,stdout,stderr} 是跨层形状泄漏，HTTP 契约与其余端点统一为业务字段
+    if (!result.ok) return reply(res, 200, { ok: false, error: result.error ?? '导出失败' })
     reply(res, 200, {
       ok: true,
-      code: 0,
-      stdout: `已导出 ${result.chapterCount} ${result.unit}：\n${result.files.join('\n')}`,
-      stderr: '',
+      chapterCount: result.chapterCount,
+      unit: result.unit,
+      files: result.files,
     })
   })
 }

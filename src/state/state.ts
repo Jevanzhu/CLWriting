@@ -27,6 +27,7 @@ import { scanCloudCopies } from '../git/exec.js'
 import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
+import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
@@ -364,12 +365,17 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
   return walk(bodyDir)
 }
 
-/** 从文件 frontmatter 章号 或 文件名数字提取章号。 */
+/** 从文件 frontmatter 章号 或 文件名数字提取章号。
+ *  ii 批：全文正则 → splitFrontMatter + parseFlat——正则扫整个文件，正文里出现
+ *  「章号: N」字样（作者手记/引用）会抢先命中，章号错位；现只在 fm 块内查键。 */
 function chapterFromFile(absPath: string, name: string): number {
   try {
     const raw = readFileSync(absPath, 'utf-8')
-    const m = raw.match(/章号:\s*(\d+)/)
-    if (m) return Number(m[1])
+    const fm = splitFrontMatter(raw)
+    if (fm) {
+      const no = parseFlat(fm.fmRaw).get('章号')
+      if (typeof no === 'number' && Number.isSafeInteger(no)) return no
+    }
   } catch {
     // 读失败忽略
   }

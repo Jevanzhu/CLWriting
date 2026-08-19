@@ -124,6 +124,9 @@ export type EffectiveBookConfig = BookConfig & {
  * 规则：只填「书级未设」的键——书级有值一律保留（本书覆盖优先）；
  * 未设时先 global 有值用 global，再 fallback 有值用 fallback。
  * 无回落的三键（targetWords/chapterTargetWords/ragProvider）：global 没有就保持 undefined。
+ * 2026-08-19 起「全局固定」键（不参与书级覆盖，一律取 global → fallback，书级旧值忽略）：
+ * style.injection、budget.calls_per_chapter、auto.confirm_outline、auto.batch_size——
+ * 这些是作者习惯/成本/全局策略，已砍掉本书级选项。
  */
 export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null): EffectiveBookConfig {
   const g = readGlobalBookDefaults(userDataPath)
@@ -137,20 +140,21 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   if (cfg.book.target_words === undefined) cfg.book.target_words = g.defaultTargetWords
   if (cfg.book.chapter_target_words === undefined) cfg.book.chapter_target_words = g.defaultChapterTargetWords
 
-  if (cfg.budget.calls_per_chapter === undefined) {
-    cfg.budget.calls_per_chapter = g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
-  }
+  // 全局固定：单章调用上限只走全局（已砍书级覆盖，书级旧值忽略）
+  cfg.budget = { ...(cfg.budget ?? {}), calls_per_chapter: g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter }
 
-  if (cfg.style?.injection === undefined) {
-    cfg.style = { ...(cfg.style ?? {}), injection: g.styleInjection ?? GLOBAL_FALLBACK_DEFAULTS.styleInjection }
-  }
+  // 全局固定：文风注入强度只走全局（styleInjection → 'light'），不再参与书级覆盖。
+  // 决策（2026-08-19）：文风注入砍掉「本书」级选项，全书统一跟随全局——书级旧值忽略，避免
+  // 「设置轻、文风页重」双入口漂移（生效链唯一 = 全局，UI 双处同源）。
+  cfg.style = { ...(cfg.style ?? {}), injection: g.styleInjection ?? GLOBAL_FALLBACK_DEFAULTS.styleInjection }
 
-  if (cfg.auto?.confirm_outline === undefined) {
-    cfg.auto = { ...(cfg.auto ?? {}), confirm_outline: g.autoConfirmOutline ?? GLOBAL_FALLBACK_DEFAULTS.autoConfirmOutline }
+  // 全局固定：自动确认细纲 / 批量写作章数只走全局（已砍书级覆盖）
+  cfg.auto = {
+    ...(cfg.auto ?? {}),
+    confirm_outline: g.autoConfirmOutline ?? GLOBAL_FALLBACK_DEFAULTS.autoConfirmOutline,
+    batch_size: g.autoBatchSize ?? GLOBAL_FALLBACK_DEFAULTS.autoBatchSize,
   }
-  if (cfg.auto?.batch_size === undefined) {
-    cfg.auto = { ...(cfg.auto ?? {}), batch_size: g.autoBatchSize ?? GLOBAL_FALLBACK_DEFAULTS.autoBatchSize }
-  }
+  // 关系图（自动梳理/增量阈值）仍保留书级覆盖：属于书内分析策略
   if (cfg.auto?.relation_auto_mine === undefined) {
     cfg.auto = { ...(cfg.auto ?? {}), relation_auto_mine: g.relationAutoMine ?? GLOBAL_FALLBACK_DEFAULTS.relationAutoMine }
   }

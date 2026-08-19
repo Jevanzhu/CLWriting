@@ -64,6 +64,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     bookName.value = name
     prefsLoaded = false
     activeDocId.value = null
+    if (debounceTimer) clearTimeout(debounceTimer) // ff 细节#11：挂起的落盘随切书作废
+    debounceTimer = null
     const gen = ++bookGen
     void loadBookPrefs(gen)
   }
@@ -134,8 +136,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       () => {
         if (!prefsLoaded || !bookName.value) return
         if (debounceTimer) clearTimeout(debounceTimer)
+        // ff 细节#11：捕获排定时刻的书，fire 时复查（500ms 内切书 → 本次落盘作废，
+        // 防 A 书布局经 setTimeout 回调写进 B 书 prefs.json）
+        const gen = bookGen
+        const name = bookName.value
         debounceTimer = setTimeout(() => {
-          void putBookPrefs(bookName.value!, {
+          if (gen !== bookGen || !prefsLoaded || bookName.value !== name) return
+          void putBookPrefs(name, {
             leftWidth: leftWidth.value,
             leftOpen: leftOpen.value,
             rightOpen: rightOpen.value,

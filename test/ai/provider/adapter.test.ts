@@ -197,6 +197,31 @@ describe('OpenAI 适配器', () => {
     expect(tool).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x' } })
   })
 
+  // ii-1：首个 attempt 已消费流（已 yield 文本）后中途 400 —— 不再换参数面重跑（防重复增量），直接终态错误
+  it('ii-1 流中 400 不降级重跑（已消费 → 终态错误，无重复增量）', async () => {
+    let calls = 0
+    const client = {
+      chat: {
+        completions: {
+          create: async (): Promise<AsyncGenerator<unknown>> => {
+            calls += 1
+            return (async function* () {
+              yield { choices: [{ delta: { content: '半截' }, finish_reason: null }] }
+              throw new OpenAI.APIError(400, { type: 'error', message: 'mid-stream bad request' }, 'bad request', undefined)
+            })()
+          },
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(
+      createOpenAIProvider({ ...CONF, protocol: 'openai', model: 'gpt-5' }, client),
+      { ...REQ, structured: { schema: { type: 'object' } } }, // gpt 系列 json_schema 档 → 有降级链可续跑
+    )
+    expect(calls).toBe(1) // 若续跑第二个参数面，「半截」会对消费者重复一遍
+    expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: '半截' }])
+    expect(evs.some((e) => e.type === 'error')).toBe(true)
+  })
+
   it('usage-only chunk → done 带 usage（stream_options.include_usage）', async () => {
     const client = {
       chat: {
@@ -1086,6 +1111,29 @@ describe('Responses 适配器（R1-R4）', () => {
     expect(evs.some((e) => e.type === 'error')).toBe(false)
     // 降级记忆（persistDegraded + store.modelCaps 双写，照 anthropic 适配器）
     expect(store.modelCaps['t1/gpt-5']).toEqual({ structured: false })
+  })
+
+  // ii-1：首个 attempt 已消费流（已 yield 文本）后中途 400 —— 不换参数面重跑（防重复增量），直接终态错误
+  it('ii-1 流中 400 不降级重跑（已消费 → 终态错误，无重复增量）', async () => {
+    let calls = 0
+    const client = {
+      responses: {
+        create: async (): Promise<AsyncGenerator<unknown>> => {
+          calls += 1
+          return (async function* () {
+            yield { type: 'response.output_text.delta', delta: '半截' }
+            throw new OpenAI.APIError(400, { type: 'error', message: 'mid-stream bad request' }, 'bad request', undefined)
+          })()
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(
+      createOpenAIResponsesProvider(RCONF, client),
+      { ...REQ, structured: { schema: { type: 'object' } } }, // gpt 档有降级链可续跑
+    )
+    expect(calls).toBe(1) // 若续跑第二个参数面，「半截」会对消费者重复一遍
+    expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: '半截' }])
+    expect(evs.some((e) => e.type === 'error')).toBe(true)
   })
 
   // T14 gen 层意图翻译（缺口 5）：generateTool requireTool 按 toolChoiceMode 翻译（fake provider 不走 HTTP）

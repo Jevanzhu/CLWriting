@@ -58,10 +58,17 @@ function parseSections(text: string): RawSection[] {
     indent, key, value, children: [],
   })
 
-  for (const line of text.split('\n')) {
+  // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测（ff P2-2）
+  let lastNode: RawSection | undefined
+  for (const [lineNo, line] of text.split('\n').entries()) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue
     const indent = line.length - line.trimStart().length
     const content = line.trim()
+    // ii 批（ff P2-2）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
+    // 此前子行会被静默挂到更外层段上（配置无声错位）。改挂前显式报错，宁可红不可错
+    if (lastNode && lastNode.value !== '' && indent > lastNode.indent) {
+      throw new Error(`第 ${lineNo + 1} 行缩进子行不能挂在有值键「${lastNode.key}:」下（YAML 语法错误）：${content}`)
+    }
     const colonIdx = content.indexOf(':')
     if (colonIdx === -1) {
       // dd-P2：块式列表项（`- xxx`，无冒号）——挂到最近一个「空值父键」（如
@@ -69,7 +76,7 @@ function parseSections(text: string): RawSection[] {
       // 此前这类行被静默丢弃，作者手改块列表风格时配置无声失效
       if (content.startsWith('- ')) {
         const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
-        const item = content.slice(2).trim()
+        const item = stripComment(content.slice(2)).trim()
         if (parent && parent.value === '' && item) {
           parent.listItems = [...(parent.listItems ?? []), item]
           if (!listNodes.includes(parent)) listNodes.push(parent)
@@ -78,9 +85,10 @@ function parseSections(text: string): RawSection[] {
       continue
     }
     const key = content.slice(0, colonIdx).trim()
-    const value = content.slice(colonIdx + 1).trim()
+    const value = stripComment(content.slice(colonIdx + 1)).trim()
 
     const node = make(indent, key, value)
+    lastNode = node
 
     // 弹栈到父级（缩进比自己小的最近一个）
     while (stack.length > 0 && stack[stack.length - 1]!.indent >= indent) {
@@ -96,13 +104,39 @@ function parseSections(text: string): RawSection[] {
       stack.push(node)
     }
   }
-  // 块列表项拼成内联数组（[a, b, c] —— parseValue 原生支持，含引号项）
+  // 块列表项拼成内联数组——逐项走 stringifyValue 转义（含逗号/括号/引号项加引号），
+  // 与解析端 splitInlineArray 的引号跳过（K17）对称；此前裸 join 含逗号项拼完即错位
   for (const node of listNodes) {
     if (node.listItems && node.listItems.length > 0 && node.value === '') {
-      node.value = `[${node.listItems.join(', ')}]`
+      node.value = '[' + node.listItems.map((it) => stringifyValue(it)).join(', ') + ']'
     }
   }
   return roots
+}
+
+/** ii 批：剥行内注释——`#` 且前面是空白（或行首）即注释起点，引号内不算。
+ *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。
+ *  此前值原样保留 `# 备注`，标题/端点等字符串值全带注释尾巴。 */
+function stripComment(s: string): string {
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (quote === '"') {
+      if (c === '\\') i++ // 跳过转义字符
+      else if (c === '"') quote = null
+      continue
+    }
+    if (quote === "'") {
+      if (c === "'") quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      continue
+    }
+    if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
+  }
+  return s
 }
 
 /** 段树 → BookConfig（#9 第 2 节）。

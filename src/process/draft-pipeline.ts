@@ -11,7 +11,7 @@ import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
-import { bodyOf } from '../format/frontmatter.js'
+import { bodyOf, parseFlat, readFile } from '../format/frontmatter.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
@@ -141,12 +141,37 @@ export function syncChapterOutline(bookRoot: string, bodyRelPath: string): boole
   return true
 }
 
+/** 按章号定位本章章纲文件（大纲/章纲/000N-*.md，fm 章号匹配）——情节依据与场景声明共用 */
+function findChapterOutlinePath(bookRoot: string, chapter: number): string | null {
+  const { chapters } = readChapterDir(join(bookRoot, '大纲', '章纲'))
+  return chapters.find((c) => c.章号 === chapter)?._path ?? null
+}
+
 /** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据 */
 function readChapterOutline(bookRoot: string, chapter: number): string {
-  const { chapters } = readChapterDir(join(bookRoot, '大纲', '章纲'))
-  const hit = chapters.find((c) => c.章号 === chapter)
-  if (!hit?._path) return ''
-  return readSafe(hit._path)
+  const fp = findChapterOutlinePath(bookRoot, chapter)
+  return fp ? readSafe(fp) : ''
+}
+
+/**
+ * 本章场景声明（文风样章选取的场景水源）：读本章章纲 front matter「场景」。
+ * 与节奏偏差对照（rhythm D3 章纲↔定稿）、章纲契约同一结构化字段——读它是「数」不是「判」。
+ * 单值 `场景: 对话` → ['对话']；多值 `[战斗, 对话]` → 数组（首为主场景，与 materials readOutlineScenes 同口径）。
+ * 无章纲/无声明/无 front matter → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，
+ * 空场景列表连「通用」目录都不会碰，须显式点名；条目库路径两写法等价）。
+ */
+function readChapterScenes(bookRoot: string, chapter: number): string[] {
+  const fp = findChapterOutlinePath(bookRoot, chapter)
+  if (!fp) return ['通用']
+  const r = readFile(fp)
+  if (!r.ok) return ['通用'] // 无 front matter → 安全回落
+  const scene = parseFlat(r.fmRaw).get('场景')
+  if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
+  if (Array.isArray(scene)) {
+    const scenes = scene.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+    return scenes.length > 0 ? scenes : ['通用']
+  }
+  return ['通用']
 }
 
 /** 设定注入预算（C3 / DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */
@@ -188,11 +213,13 @@ function wordRange(kind: 'long' | 'short', target: number | undefined): string {
 
 /**
  * 文风样章段（style.injection 接线）：注入档 轻=1 段 / 重=3 段，双路选取见 style-samples.ts。
- * 场景缺省「战斗」与 prepare 备料口径一致；无库/无命中 → ''（跳段）。
+ * 场景水源 = 本章章纲 front matter「场景」声明；无声明 → 仅「通用」场景条目候选。
+ * （此前硬编码 ['战斗']：样章库场景与本章实际场景不符时永远选不中，注入静默空转——已除。）
+ * 无库/无命中 → ''（跳段）。
  */
-function buildStyleSampleInjection(bookRoot: string, config: BookConfig | undefined): string {
+function buildStyleSampleInjection(bookRoot: string, chapter: number, config: BookConfig | undefined): string {
   const maxTotal = (config?.style?.injection ?? 'light') === 'heavy' ? 3 : 1
-  const parts = pickStyleSamples(bookRoot, ['战斗'], maxTotal)
+  const parts = pickStyleSamples(bookRoot, readChapterScenes(bookRoot, chapter), maxTotal)
   if (parts.length === 0) return ''
   return `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${parts.join('\n\n')}`
 }
@@ -212,7 +239,7 @@ export function buildDraftPrompt(
   const chapterOutline = readChapterOutline(bookRoot, chapter)
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   const settingsInjection = buildSettingsInjection(bookRoot, worldView)
-  const styleSampleInjection = buildStyleSampleInjection(bookRoot, config)
+  const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config)
   const range = wordRange(kind, config?.book?.chapter_target_words)
   if (kind === 'short') {
     const parts: string[] = [

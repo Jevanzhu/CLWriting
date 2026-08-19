@@ -6,13 +6,13 @@
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  */
 import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
-import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, Cpu, MessageSquareText, BookOpen, ChevronDown, Square, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Send, Trash2, PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, BookOpen, ChevronDown, Square, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../stores/chat'
 import { confirmTool } from '../../api/chat'
 import { ApiError } from '../../api/client'
 import { useUiStore } from '../../stores/ui'
-import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 import { useChatComposer } from '../../composables/useChatComposer'
+import ModelEffortBar from '../ui/ModelEffortBar.vue'
 
 const props = defineProps<{
   bookName: string
@@ -55,7 +55,6 @@ const {
   async () => { await nextTick(); scrollToBottom() },
 )
 
-const tier = useChatTier()
 const ui = useUiStore()
 
 // ── 工具确认 ────────────────────────────────────
@@ -282,27 +281,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
             <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
           </div>
           <div class="composer-actions">
-            <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
-              <Cpu :size="12" />
-              <select
-                :value="tier.activeModel"
-                class="chat-select chat-model"
-                :disabled="tier.tierLoading"
-                @change="tier.onModelChange"
-              >
-                <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">{{ tier.activeModel }}</option>
-                <option value="" disabled>选择模型</option>
-                <option v-for="m in tier.modelsOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-              </select>
-            </label>
-            <select
-              :value="tier.activeEffort"
-              class="composer-chip chat-effort"
-              :disabled="tier.tierLoading || !tier.activeModel"
-              @change="tier.onEffortChange"
-            >
-              <option v-for="l in EFFORT_LEVELS" :key="l" :value="l">{{ l }}</option>
-            </select>
+            <ModelEffortBar />
             <button
               v-if="chat.hasMessages"
               class="composer-clear"
@@ -723,25 +702,6 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   align-items: center;
   gap: 5px;
 }
-.composer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.composer-chip:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.composer-chip.on {
-  color: var(--text-accent);
-}
 .composer-clear {
   display: flex;
   align-items: center;
@@ -758,29 +718,6 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 .composer-clear:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
-}
-.chat-select {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  font-family: inherit;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
-}
-.chat-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.chat-model {
-  max-width: 140px;
-  text-overflow: ellipsis;
-}
-.chat-effort {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
 }
 .chat-stop-btn {
   display: flex;

@@ -95,9 +95,11 @@ export interface DegradePlan {
  * effort 不入链（表已保证该发的才发）。降级命中 → 写记忆（providers.json 复用原
  * modelCaps 槽），下次首发即剥。
  *
- * 连接期异常（建流 create 抛出、未 yield 任何事件）可安全换参数面重试；
- * 流中异常（已 yield）不重跑——半截产出泄入下一 attempt 会污染拼装，由适配器的
- * 流循环结构保证（消费循环在 attempt 内、不捕获续跑）。
+ * 连接期异常（建流 create 抛出、尚未消费任何 chunk）可安全换参数面重试；
+ * 流中异常（已开始消费）不重跑——半截产出泄入下一 attempt 会污染拼装 / 重复增量。
+ * 结构保证双轨（ii-1）：anthropic 消费循环在 attempts 循环外（天然不重跑）；
+ * openai / responses 消费循环在 attempt 内，由适配器 catch 的 consumedAny 守卫
+ * （收到首个 chunk 后 isMidChain400 不再放行续跑）。
  */
 export function buildDegradeAttempts(
   req: GenRequest,

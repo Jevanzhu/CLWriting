@@ -53,7 +53,7 @@ export function writeSpillFile(bookRoot: string, text: string): string | null {
 const SPILL_LOCATOR_RE = /^工作区\/spills\/[0-9a-f]{16}\.md$/
 
 /**
- * GG-P2-2 读侧：按 locator 取回 spill 全文（save_spill 落盘通道共用）。
+ * GG-P2-2 读侧：按 locator 取回 spill 全文（apply_spill 落盘通道共用）。
  * locator 必须严格匹配内容寻址命名（writeSpillFile 的产物形态）+ isWithinRoot 双保险；
  * 文件不存在/校验不过/读盘失败 → null（调用方按「spill 不存在」语义回应）。
  */

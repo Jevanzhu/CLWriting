@@ -123,6 +123,24 @@ test('detectState: book.volume_size 覆盖每卷章数', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 fm 块内解析）', () => {
+  const root = makeGitBook()
+  stageIncompleteChapter(root, 1)
+  // 正文里出现「章号: 999」（作者手记/引用）——旧全文正则会抢先命中，工作区未完成报 999 章
+  writeFileSync(
+    join(root, '写作', '正文', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n（手记：旧版档位 章号: 999 已作废。）\n\n天脉异象惊动宗门。\n',
+    'utf-8',
+  )
+
+  const d = detectState(root, DEFAULT_CONFIG)
+  expect(d.state).toBe(4)
+  if (d.state === 4) {
+    expect(d.chapterNum).toBe(1)
+  }
+  rmSync(root, { recursive: true, force: true })
+})
+
 // ── 态 7: 起草新章（兜底）──────────────────────────
 
 test('detectState: 一切干净的空书 → 态 7 起草新章', () => {

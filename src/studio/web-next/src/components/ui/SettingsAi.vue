@@ -4,6 +4,7 @@
 // 生效链 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落。
 // 分析侧在「智能分析」页；提供方在「服务提供方」页。
 import { usePrefsStore } from '../../stores/prefs'
+import BetaBadge from './BetaBadge.vue'
 
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
 const prefs = usePrefsStore()
@@ -26,11 +27,11 @@ function onGlobalCallsInput(e: Event): void {
 <template>
   <!-- 单根包裹：多根 fragment 在 <Transition> 下无法动画（Vue warn） -->
   <div class="settings-tab">
-    <div class="cfg-card-head">AI 对话</div>
+    <div class="cfg-card-head">AI 对话 <BetaBadge /></div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">对话助手</div>
+          <div class="setting-item-name">对话助手 <BetaBadge /></div>
           <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
         </div>
         <div class="setting-item-control">
@@ -42,11 +43,11 @@ function onGlobalCallsInput(e: Event): void {
       </div>
     </section>
 
-    <div class="cfg-card-head">AI 写作</div>
+    <div class="cfg-card-head">AI 写作 <BetaBadge /></div>
     <section class="cfg-card">
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">文风注入</div>
+          <div class="setting-item-name">文风注入 <BetaBadge /></div>
           <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
         </div>
         <div class="setting-item-control">
@@ -70,7 +71,7 @@ function onGlobalCallsInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">批量写作章数</div>
+          <div class="setting-item-name">批量写作章数 <BetaBadge /></div>
           <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
         </div>
         <div class="setting-item-control">
@@ -80,7 +81,7 @@ function onGlobalCallsInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">单章调用上限</div>
+          <div class="setting-item-name">单章调用上限 <BetaBadge /></div>
           <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
         </div>
         <div class="setting-item-control">

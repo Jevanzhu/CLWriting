@@ -247,9 +247,8 @@ function buildStyleSections(
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
   // 条目库路（S5）与旧样章库路的跨场景挑选见 style-samples.ts（与 draft-prompt 生产链共用）。
   // 总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
-  // 全局托底：injection 已可选化——书级未设（undefined ≠ 'heavy'）按轻度处理；
-  // 喂本函数的 config 在运行链路上已过 applyGlobalDefaults（有效值），这里 ?? 'light'
-  // 只是直调/测试路径的双保险
+  // 2026-08-19 起文风注入只走全局（已取消书级覆盖）：applyGlobalDefaults 已把 style.injection
+  // 填成全局值，这里 ?? 'light' 只是直调/测试路径的双保险。
   const maxTotal = (config.style?.injection ?? 'light') === 'heavy' ? 3 : 1
   const sampleParts = pickStyleSamples(bookRoot, scenes, maxTotal)
   if (sampleParts.length > 0) {

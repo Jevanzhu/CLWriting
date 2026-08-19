@@ -111,7 +111,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   const defaultChapterTargetWords = ref(DEFAULTS.defaultChapterTargetWords)
   /** 短篇严格模式默认（仅短篇书生效；书级 short.strict） */
   const defaultShortStrict = ref(DEFAULTS.defaultShortStrict)
-  /** 文风注入强度默认（书级 style.injection） */
+  /** 文风注入强度默认（2026-08-19 起唯一生效源：全局，已取消书级覆盖） */
   const styleInjection = ref(DEFAULTS.styleInjection)
   /** 自动确认细纲默认（书级 auto.confirm_outline） */
   const autoConfirmOutline = ref(DEFAULTS.autoConfirmOutline)

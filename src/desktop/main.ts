@@ -24,6 +24,7 @@ import {
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
   type MessageBoxOptions,
+  type BrowserWindowConstructorOptions,
 } from 'electron'
 import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -231,6 +232,34 @@ function listenPort(server: ReturnType<typeof startServer>): Promise<number> {
   })
 }
 
+/** ii 批：安全基线窗口工厂——主窗/书架/书库三处 BrowserWindow 的安全五件套
+ *  （contextIsolation + sandbox + nodeIntegration:false + preload + hiddenInset 标题栏）
+ *  与纵深防御监听（禁外部导航 + 禁弹新窗）原样重复 3 份，安全配置改一处漏两处是
+ *  漂移风险，收敛到此。尺寸/标题/位置由 opts 传入，win 专属生命周期监听由调用方自挂。 */
+function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindow {
+  const win = new BrowserWindow({
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#f5f5f5',
+    ...opts,
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: join(here, 'preload.cjs'),
+      ...opts.webPreferences,
+    },
+  })
+  // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（contextIsolation+sandbox 已降险，此为兜底，
+  // 防 CSP 被 XSS 绕过后子窗口被导航到外部）
+  win.webContents.on('will-navigate', (e) => e.preventDefault())
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
+  if (process.env.CLW_DEV_UI) {
+    void win.webContents.session.setProxy({ proxyRules: 'direct://' })
+  }
+  return win
+}
+
 /** 打开独立书架窗口（工作区时管理/切换/建书；单例，重复调用聚焦已存在窗口）。*/
 function openShelfWindow(): void {
   if (shelfWindow && !shelfWindow.isDestroyed()) {
@@ -238,31 +267,17 @@ function openShelfWindow(): void {
     return
   }
   const wa = screen.getPrimaryDisplay().workAreaSize
-  shelfWindow = new BrowserWindow({
+  shelfWindow = createSecureWindow({
     width: Math.min(920, wa.width - 80),
     height: Math.min(640, wa.height - 80),
     minWidth: 760,
     minHeight: 500,
     title: '书架',
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: '#f5f5f5',
-    webPreferences: {
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      preload: join(here, 'preload.cjs'),
-    },
   })
-  // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（同 mainWindow 兜底，防 CSP 被 XSS 绕过后子窗口被导航到外部）
-  shelfWindow.webContents.on('will-navigate', (e) => e.preventDefault())
-  shelfWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`)
   shelfWindow.on('closed', () => {
     shelfWindow = null
   })
-  if (process.env.CLW_DEV_UI) {
-    void shelfWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
-  }
 }
 
 /** 打开独立书库管理窗口（切换/最近/新建书库；单例聚焦）。*/
@@ -282,7 +297,7 @@ function openLibraryWindow(): void {
     x = Math.round(b.x + (b.width - libW) / 2)
     y = Math.round(b.y + (b.height - libH) / 2)
   }
-  libraryWindow = new BrowserWindow({
+  libraryWindow = createSecureWindow({
     width: libW,
     height: libH,
     x,
@@ -290,25 +305,11 @@ function openLibraryWindow(): void {
     minWidth: 560,
     minHeight: 440,
     title: '书库',
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: '#f5f5f5',
-    webPreferences: {
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      preload: join(here, 'preload.cjs'),
-    },
   })
-  // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（同 mainWindow 兜底）
-  libraryWindow.webContents.on('will-navigate', (e) => e.preventDefault())
-  libraryWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   libraryWindow.loadURL(`${appUrl}/library?win=library`)
   libraryWindow.on('closed', () => {
     libraryWindow = null
   })
-  if (process.env.CLW_DEV_UI) {
-    void libraryWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
-  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -351,7 +352,7 @@ async function bootstrap(): Promise<void> {
   const wa = screen.getPrimaryDisplay().workAreaSize
   const winW = saved?.bounds.width ?? Math.min(1532, wa.width - 80)
   const winH = saved?.bounds.height ?? Math.min(1237, wa.height - 80)
-  mainWindow = new BrowserWindow({
+  mainWindow = createSecureWindow({
     width: winW,
     height: winH,
     x: saved?.bounds.x,
@@ -359,15 +360,6 @@ async function bootstrap(): Promise<void> {
     minWidth: 1200,
     minHeight: 760,
     title: 'CLWriting',
-    // macOS 自定义标题栏：隐藏原生标题文字+按钮，保留交通灯（inset 缩进）；Vue 画 .window-chrome（书信息+CLI 徽章）
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: '#f5f5f5', // paper 底色（亮色主题基底）
-    webPreferences: {
-      contextIsolation: true, // 渲染进程隔离（安全）
-      sandbox: true, // 沙箱（安全）
-      nodeIntegration: false, // 渲染进程不直连 Node（安全）
-      preload: join(here, 'preload.cjs'), // 书库管理 IPC（CJS:sandbox preload 不支持 ESM）
-    },
   })
   if (saved?.maximized) mainWindow.maximize()
   mainWindow.on('close', () => {
@@ -395,11 +387,8 @@ async function bootstrap(): Promise<void> {
     console.error('RENDER-GONE', details.reason, details.exitCode)
     if (!win.isDestroyed()) win.webContents.reload()
   })
-  // 纵深防御：禁止页面导航外部 URL + 禁止弹新窗口（contextIsolation+sandbox 已降险，此为兜底）
-  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault())
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  // dev 模式:本地 dev:web(5173)+dev:api(7878) 不经系统代理
-  // 防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流 / EventSource 反复重连
+  // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
+  // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {
     await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
@@ -508,7 +497,14 @@ function registerIpc(): void {
   // 在系统文件管理器中打开当前书库根目录
   ipcMain.handle('desktop:open-library-dir', () => {
     const workDir = readStore().current
-    if (workDir) void shell.openPath(workDir)
+    if (!workDir) return
+    // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
+    // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）
+    try {
+      void shell.openPath(realpathSync(workDir))
+    } catch {
+      // realpath 失败 = 目录不存在，无物可开
+    }
   })
   // ── 原生右键菜单 ──
   ipcMain.on('desktop:context-menu', (event, specs: unknown) => {

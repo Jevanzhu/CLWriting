@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 设置 · 本书页（单页，IA 重组后不再有页内子标签）：
-// 书名 banner + 基本信息（书名，唯一纯书级项）+ 四个领域的「本书使用独立设定」覆盖组
-// （写作默认/AI 写作/智能分析/版本保留——各全局默认已拆到对应独立一级页）+ 定稿版本 + 存储。
-// 覆盖组拆成子组件各自独立拉 config（设置打开时共 4 次 getConfig，可接受——不引入父级统一状态）。
+// 书名 banner + 基本信息（书名，唯一纯书级项）+ 覆盖组（写作默认/智能分析——各全局默认已拆到对应独立一级页）
+// + 定稿版本 + 存储。AI 写作与版本保留 2026-08-19 起砍掉书级（一律跟随全局），不再出现在本书页。
+// 覆盖组拆成子组件各自独立拉 config（设置打开时共 2 次 getConfig，可接受——不引入父级统一状态）。
 // 书名改动走全量改名（POST /rename：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 同步），
 // 成功后路由切到新名——防「书名/文件夹/登记名」三分歧。
 import { ref, computed, watch } from 'vue'
@@ -14,7 +14,6 @@ import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import SettingsBookWriting from './SettingsBookWriting.vue'
-import SettingsBookAi from './SettingsBookAi.vue'
 import SettingsBookAnalysis from './SettingsBookAnalysis.vue'
 import SettingsBookRetention from './SettingsBookRetention.vue'
 
@@ -108,9 +107,8 @@ async function onBookTitleChange(): Promise<void> {
         </div>
       </section>
 
-      <!-- 四个领域的本书覆盖组：各自独立 raw watch 拉配置（见各子组件头注释） -->
+      <!-- 覆盖组：写作默认 + 智能分析（AI 写作/版本保留已砍书级，见各组件头注释） -->
       <SettingsBookWriting />
-      <SettingsBookAi />
       <SettingsBookAnalysis />
       <SettingsBookRetention />
 

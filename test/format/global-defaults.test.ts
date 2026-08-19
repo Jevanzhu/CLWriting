@@ -205,11 +205,15 @@ test('applyGlobalDefaults: 书级优先——已设键不被 global/fallback 翻
   expect(eff.book.genre).toBe('玄幻') // 书级覆盖 global
   expect(eff.book.volume_size).toBe(40)
   expect(eff.book.target_words).toBe(888888)
-  expect(eff.budget.calls_per_chapter).toBe(6)
-  expect(eff.style.injection).toBe('light')
-  expect(eff.auto.batch_size).toBe(1)
+  // budget.calls_per_chapter（2026-08-19 起全局固定）：书级旧值 6 被忽略，只认全局 12
+  expect(eff.budget.calls_per_chapter).toBe(12)
+  // 文风注入（2026-08-19 起不参与书级覆盖）：书级 style.injection 被忽略，只认全局 heavy
+  expect(eff.style.injection).toBe('heavy')
+  // auto.batch_size（2026-08-19 起全局固定）：书级旧值 1 被忽略，只认全局 4
+  expect(eff.auto.batch_size).toBe(4)
+  // 关系图阈值仍保留书级覆盖：书级 9 赢过 global（global 无此键 → fallback 3）
   expect(eff.auto.relation_mine_threshold).toBe(9)
-  expect(eff.auto.confirm_outline).toBe(false) // 书级未设 → global 无此键 → fallback
+  expect(eff.auto.confirm_outline).toBe(false) // 全局无此键 → fallback
   expect(eff.auto.relation_auto_mine).toBe(false)
   // rag：书级显式关闭赢过 global ragEnabled；书级 provider 赢过 global provider
   expect(eff.rag?.enabled).toBe(false)

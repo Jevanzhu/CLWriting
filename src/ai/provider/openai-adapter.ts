@@ -267,6 +267,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       try {
         let lastErr: unknown = null
         for (const attempt of plan.attempts) {
+          // ii-1：本 attempt 是否已开始消费流。降级续跑只对「建连期 400」安全——
+          // 已收到 chunk 后换参数面重跑会让消费者收到重复增量，一律转终态错误。
+          let consumedAny = false
           try {
             const stream = await c.chat.completions.create(
               toParams(conf, attempt) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
@@ -276,6 +279,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
             const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
             for await (const chunk of stream) {
+              consumedAny = true
               const usage = chunk.usage
               // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
@@ -373,9 +377,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             }
             return
           } catch (e) {
-            if (isMidChain400(e, OpenAI.APIError, attempt, plan)) {
+            if (!consumedAny && isMidChain400(e, OpenAI.APIError, attempt, plan)) {
               lastErr = e
-              continue // 尝试下一个降级参数面
+              continue // 建连期 400 → 尝试下一个降级参数面（流已开始消费则不重跑，见 consumedAny 注释）
             }
             throw e
           }

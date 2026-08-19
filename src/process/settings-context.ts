@@ -8,7 +8,7 @@
  * 供 draft-pipeline 组装预算注入；buildSettingsContext 改为按层拼接，渲染格式不变。
  */
 import { join, basename, relative } from 'node:path'
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readRealmDoc } from '../format/realms.js'
 import type { SettingsLayer } from './settings-injection.js'
@@ -28,6 +28,22 @@ function normalizeProjectPath(file: string): string {
   return file.replace(/\\/g, '/').replace(/^\/+/, '')
 }
 
+// ii 批（评审 #19 残余）：角色卡 stat 级缓存——settings GET / 关系梳理输入每次全量
+// readFile+parseFlat 所有卡（大书几十张卡+长正文，同步 IO 阻塞事件循环）。与 chapters.ts
+// CC-P1-3 同口径：(mtimeMs,size) 命中跳过整读；变化/新增/删除由每轮 readdir 自愈；
+// 返回浅拷贝防调用方 mutate 污染缓存。含 mtime+size 撞车理论窗口（同 CC-P1-3，接受）。
+interface CardCacheEntry {
+  mtimeMs: number
+  size: number
+  card: CharacterCard
+}
+const cardCache = new Map<string, CardCacheEntry>()
+
+/** 清空角色卡缓存（测试用）。 */
+export function clearCharacterCardCache(): void {
+  cardCache.clear()
+}
+
 /** 读角色卡目录（front matter 结构化；无 fm 降级：姓名=文件名，正文=全文） */
 export function readCharacterCards(dirPath: string, bookRoot: string): CharacterCard[] {
   const out: CharacterCard[] = []
@@ -40,10 +56,22 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   }
   for (const f of files) {
     const fp = join(dirPath, f)
+    let st: ReturnType<typeof statSync>
+    try {
+      st = statSync(fp)
+    } catch {
+      continue
+    }
+    const hit = cardCache.get(fp)
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+      out.push({ ...hit.card }) // 浅拷贝：调用方改字段不污染缓存
+      continue
+    }
     const r = readFile(fp)
+    let card: CharacterCard
     if (r.ok) {
       const map = parseFlat(r.fmRaw)
-      out.push({
+      card = {
         file: normalizeProjectPath(relative(bookRoot, fp)),
         姓名: String(map.get('姓名') ?? basename(f, '.md')),
         身份: String(map.get('身份') ?? ''),
@@ -51,11 +79,11 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         境界: String(map.get('境界') ?? ''),
         关系: String(map.get('关系') ?? ''),
         正文: r.body.trim(),
-      })
+      }
     } else {
       // 降级:无 front matter(旧自由 MD),姓名=文件名,正文=全文
       const text = readFileSync(fp, 'utf8')
-      out.push({
+      card = {
         file: normalizeProjectPath(relative(bookRoot, fp)),
         姓名: basename(f, '.md'),
         身份: '',
@@ -63,8 +91,10 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         境界: '',
         关系: '',
         正文: text.trim(),
-      })
+      }
     }
+    cardCache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, card })
+    out.push({ ...card })
   }
   return out
 }

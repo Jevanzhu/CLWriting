@@ -22,11 +22,13 @@ export const EXPORT_PLATFORMS: { v: ExportPlatform; label: string }[] = [
   { v: 'xiaohongshu', label: '小红书' },
 ]
 
+/** ii 批：域形状负载（与后端 /export 契约同步收敛——旧 CLI 信封 code/stdout/stderr 已废） */
 export interface ExportResponse {
   ok: boolean
-  code?: number
-  stdout?: string
-  stderr?: string
+  chapterCount?: number
+  unit?: string
+  files?: string[]
+  error?: string
 }
 
 export async function exportBook(

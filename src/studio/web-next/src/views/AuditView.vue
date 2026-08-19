@@ -40,8 +40,14 @@ const tab = ref<'convo' | 'workflow'>('convo')
 /** 每页上限（与服务端 DEFAULT_PAGE_LIMIT 对齐） */
 const PAGE_LIMIT = 500
 
-const hasMoreConvo = computed(() => convoEvents.value.length < convoTotal.value)
-const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTotal.value)
+/** 渲染累积上限（ii-2）：「加载更多」跨页无界累积会让 DOM 线性膨胀（content-visibility
+ *  只省绘制不省节点）；到顶停载并提示——完整数据仍在事件库，可清史/换库后再查。 */
+const RENDER_CAP = 2000
+
+const hasMoreConvo = computed(() => convoEvents.value.length < convoTotal.value && convoEvents.value.length < RENDER_CAP)
+const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTotal.value && workflowEvents.value.length < RENDER_CAP)
+const convoCapHit = computed(() => !hasMoreConvo.value && convoEvents.value.length >= RENDER_CAP && convoEvents.value.length < convoTotal.value)
+const workflowCapHit = computed(() => !hasMoreWorkflow.value && workflowEvents.value.length >= RENDER_CAP && workflowEvents.value.length < workflowTotal.value)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -294,6 +300,10 @@ async function doClear(): Promise<void> {
                 {{ convoLoadingMore ? '加载中…' : '加载更多' }}
               </button>
             </div>
+            <!-- ii-2：渲染上限截断提示（防长书 DOM 无界膨胀） -->
+            <div v-else-if="convoCapHit" class="pager">
+              <span class="pager-hint">已达渲染上限 {{ RENDER_CAP }} 条（共 {{ convoTotal }}，为防卡顿截断）——更早日志仍在事件库，可清除本库事件史后重查</span>
+            </div>
           </section>
         </template>
         <div v-else class="empty big">本库尚无对话事件（先发一条对话消息）</div>
@@ -344,6 +354,10 @@ async function doClear(): Promise<void> {
               <MoreHorizontal :size="14" :class="{ spin: workflowLoadingMore }" />
               {{ workflowLoadingMore ? '加载中…' : '加载更多' }}
             </button>
+          </div>
+          <!-- ii-2：渲染上限截断提示（对称实现） -->
+          <div v-else-if="workflowCapHit" class="pager">
+            <span class="pager-hint">已达渲染上限 {{ RENDER_CAP }} 条（共 {{ workflowTotal }}，为防卡顿截断）</span>
           </div>
         </section>
       </template>

@@ -30,10 +30,10 @@ async function run(): Promise<void> {
       platform: platform.value,
     })
     if (r.ok) {
-      ui.toast('导出完成', 'success')
+      ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
       ui.closeExport()
     } else {
-      console.error('导出失败:', r.stderr || r.stdout)
+      console.error('导出失败:', r.error)
       ui.toast('导出失败，请重试', 'error')
     }
   } catch (e) {

@@ -3,8 +3,8 @@
  * SettingsBook（「设置 · 本书」单页，IA 重组后为父组件）交互测试：
  * - 书名全量改名：书名改动 → renameBook API（目录+登记+active 一起搬），renamed=true → 路由切新名；
  *   同名 no-op 不切路由；失败回退输入框（书名现为基本信息组唯一纯书级项）
- * - 四个覆盖子组件（写作默认/AI 写作/智能分析/版本保留）在此 stub 掉——它们各自的
- *   两层组交互有专属测试文件（settings-book-writing / -ai / -analysis），父组件只管书名/存储/空态
+ * - 覆盖子组件（写作默认/智能分析/版本保留）在此 stub 掉——它们各自的
+ *   两层组交互有专属测试文件（settings-book-writing / -analysis），父组件只管书名/存储/空态
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -32,7 +32,7 @@ vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({
 }))
 
 /** 打开设置 + 切到一本书（触发 watch 拉书名基线）。
- *  四个覆盖子组件 stub 掉：避免拉 getConfig/getRagStatus/getVersionStats 等依赖（各有专属测试）。 */
+ *  覆盖子组件 stub 掉：避免拉 getConfig/getRagStatus/getVersionStats 等依赖（各有专属测试）。 */
 async function mountOpen(): Promise<ReturnType<typeof mount>> {
   const ui = useUiStore()
   const ws = useWorkspaceStore()
@@ -41,7 +41,7 @@ async function mountOpen(): Promise<ReturnType<typeof mount>> {
   const wrapper = mount(SettingsBook, {
     global: {
       provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig },
-      stubs: { SettingsBookWriting: true, SettingsBookAi: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
+      stubs: { SettingsBookWriting: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
     },
   })
   await flushPromises()
@@ -125,16 +125,17 @@ describe('SettingsBook 书名全量改名', () => {
 })
 
 describe('SettingsBook 单页结构（IA 重组）', () => {
-  it('有书打开 → banner 展示书名 + 基本信息/存储组在位 + 四个覆盖子组件挂载', async () => {
+  it('有书打开 → banner 展示书名 + 基本信息/存储组在位 + 覆盖子组件挂载（AI 写作已砍书级，不在其中）', async () => {
     const wrapper = await mountOpen()
     expect(wrapper.find('.book-banner').text()).toContain('旧名')
     expect(wrapper.find('input[aria-label="书名"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('基本信息')
-    // stub 后仍是占位元素（settings-book-stub）——验证父层确实挂了四个子组件
+    // stub 后仍是占位元素（settings-book-stub）——验证父层确实挂了覆盖子组件
     expect(wrapper.find('settings-book-writing-stub').exists()).toBe(true)
-    expect(wrapper.find('settings-book-ai-stub').exists()).toBe(true)
     expect(wrapper.find('settings-book-analysis-stub').exists()).toBe(true)
     expect(wrapper.find('settings-book-retention-stub').exists()).toBe(true)
+    // AI 写作书级覆盖 2026-08-19 已删除
+    expect(wrapper.find('settings-book-ai-stub').exists()).toBe(false)
   })
 
   it('无书打开 → 整页空态（请先打开一本书），书名输入与覆盖组均不渲染', async () => {
@@ -145,7 +146,7 @@ describe('SettingsBook 单页结构（IA 重组）', () => {
     const wrapper = mount(SettingsBook, {
       global: {
         provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig },
-        stubs: { SettingsBookWriting: true, SettingsBookAi: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
+        stubs: { SettingsBookWriting: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
       },
     })
     await flushPromises()

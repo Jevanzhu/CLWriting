@@ -7,7 +7,7 @@ import type { ToolExecutor } from './context.js'
 import { bookSearch } from './search.js'
 import { chapterStatus } from './status.js'
 import { moveChapter, renameChapter, copyChapter, deleteChapter } from './tree.js'
-import { rewriteChapter, rewriteSelection } from './rewrite.js'
+import { rewriteChapter, rewriteSelection, applySpill } from './rewrite.js'
 import { leadUpdate } from './leads.js'
 import { harvestStyle } from './style.js'
 
@@ -22,6 +22,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   delete_chapter: deleteChapter,
   rewrite_chapter: rewriteChapter,
   rewrite_selection: rewriteSelection,
+  apply_spill: applySpill,
   lead_update: leadUpdate,
   harvest_style: harvestStyle,
 }

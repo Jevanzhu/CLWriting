@@ -4,11 +4,11 @@
  * 「对话」按钮未开时在输入框上方 6px；打开时融入对话框头部左上角（胶囊标签）。
  * 输入框为 Codex 风格（与工作台对话一致）：章节左下 + 模型/推理等级/清空/发送右下。
  */
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref } from 'vue'
 import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Square } from 'lucide-vue-next'
 import ChatPanel from '../panels/ChatPanel.vue'
+import ModelEffortBar from '../ui/ModelEffortBar.vue'
 import { useChatStore } from '../../stores/chat'
-import { useChatTier, EFFORT_LEVELS } from '../../composables/useChatTier'
 import { useChatComposer } from '../../composables/useChatComposer'
 
 const props = defineProps<{
@@ -17,7 +17,6 @@ const props = defineProps<{
 }>()
 
 const chat = useChatStore()
-const tier = useChatTier()
 
 /** 输入框是否展开 */
 const fabOpen = ref(false)
@@ -36,45 +35,6 @@ const {
   () => props.currentChapter,
   () => { chatOpen.value = true },
 )
-
-// ── 模型/推理等级下拉宽度贴合当前选中项 ──
-
-const modelSelect = ref<HTMLSelectElement | null>(null)
-const effortSelect = ref<HTMLSelectElement | null>(null)
-
-/** 用临时 span 测量当前选中文本宽度，写入 select 宽度（自适应当前内容） */
-function fitSelect(el: HTMLSelectElement | null): void {
-  if (!el) return
-  const span = document.createElement('span')
-  span.style.cssText = `font:${getComputedStyle(el).font};white-space:nowrap;position:absolute;visibility:hidden;padding:0 4px;`
-  span.textContent = el.value || '选择模型'
-  document.body.appendChild(span)
-  el.style.width = `${span.offsetWidth + 16}px`
-  document.body.removeChild(span)
-}
-
-watch(
-  () => [tier.activeModel, tier.activeEffort],
-  () => nextTick(() => {
-    fitSelect(modelSelect.value)
-    fitSelect(effortSelect.value)
-  }),
-)
-watch(
-  () => fabOpen,
-  (open) => {
-    if (open) nextTick(() => {
-      fitSelect(modelSelect.value)
-      fitSelect(effortSelect.value)
-    })
-  },
-)
-onMounted(() => {
-  nextTick(() => {
-    fitSelect(modelSelect.value)
-    fitSelect(effortSelect.value)
-  })
-})
 
 /** FAB toggle：开 → 收（收起时对话框一并收起） */
 function onFab(): void {
@@ -132,32 +92,7 @@ function onExpandChat(): void {
               <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
             </div>
             <div class="composer-actions">
-              <label class="composer-chip" :class="{ on: !!tier.chatTier }" data-tip="对话档 · 未配置时回落创作档">
-                <select
-                  ref="modelSelect"
-                  :value="tier.activeModel"
-                  class="chat-select chat-model"
-                  :disabled="tier.tierLoading"
-                  @change="tier.onModelChange"
-                >
-                  <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">{{ tier.activeModel }}</option>
-                  <option value="" disabled>选择模型</option>
-                  <option v-for="m in tier.modelsOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-                </select>
-                <ChevronDown :size="10" />
-              </label>
-              <label class="composer-chip" :class="{ on: !!tier.chatTier }">
-                <select
-                  ref="effortSelect"
-                  :value="tier.activeEffort"
-                  class="chat-select chat-effort"
-                  :disabled="tier.tierLoading || !tier.activeModel"
-                  @change="tier.onEffortChange"
-                >
-                  <option v-for="l in EFFORT_LEVELS" :key="l" :value="l">{{ l }}</option>
-                </select>
-                <ChevronDown :size="10" />
-              </label>
+              <ModelEffortBar />
               <button
                 v-if="chat.hasMessages"
                 class="composer-clear"
@@ -495,25 +430,6 @@ function onExpandChat(): void {
   align-items: center;
   gap: 5px;
 }
-.composer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.composer-chip:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.composer-chip.on {
-  color: var(--text-accent);
-}
 .composer-clear {
   display: flex;
   align-items: center;
@@ -530,34 +446,6 @@ function onExpandChat(): void {
 .composer-clear:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
-}
-.chat-select {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  font-family: var(--font-ui); /* UI 字体，清晰可读 */
-  font-weight: 500;
-  line-height: 1.4; /* line-height:1 会裁掉中文字体上下部（11px 盒高 < 13px 文字） */
-  letter-spacing: 0.01em;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
-}
-.chat-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-/* 宽度由 JS 测量贴合当前选中项（兜底上限防超长模型名溢出） */
-.chat-model {
-  max-width: 300px;
-  white-space: nowrap;
-}
-.chat-effort {
-  max-width: 96px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
 }
 .chat-stop-btn {
   display: flex;

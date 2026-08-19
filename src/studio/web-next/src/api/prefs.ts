@@ -59,7 +59,7 @@ export interface GlobalPrefs {
   defaultChapterTargetWords?: number
   /** 短篇严格模式默认（书级 short.strict，仅作用于短篇书） */
   defaultShortStrict?: boolean
-  /** 文风注入强度默认（'light' | 'heavy'；书级 style.injection） */
+  /** 文风注入强度默认（'light' | 'heavy'；2026-08-19 起唯一生效源：全局，已取消书级覆盖） */
   styleInjection?: 'light' | 'heavy'
   /** 自动确认细纲默认（书级 auto.confirm_outline） */
   autoConfirmOutline?: boolean

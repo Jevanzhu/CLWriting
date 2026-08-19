@@ -21,6 +21,7 @@ let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 let chapterDocId = ''
+let userDataDir = ''
 const prevDriver = process.env['CLWRITING_DRIVER']
 
 function post(path: string, body: unknown): Promise<{ status: number; json: unknown }> {
@@ -87,7 +88,11 @@ beforeAll(async () => {
   upsertEntry(m, { id: chapterDocId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null })
   writeManifest(manifestPath, m)
 
-  server = startServer({ port: 0, workDir })
+  // 2026-08-19 全局固定决策：calls_per_chapter 书级值被忽略（applyGlobalDefaults 一律
+  // global→fallback 覆盖）——预算用例改经 global.json 驱动，server 须传 userDataPath
+  userDataDir = mkdtempSync(join(tmpdir(), 'clwriting-review-doc-ud-'))
+  writeFileSync(join(userDataDir, 'global.json'), '{}', 'utf8')
+  server = startServer({ port: 0, workDir, userDataPath: userDataDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
@@ -97,6 +102,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()))
   if (workDir) rmSync(workDir, { recursive: true, force: true })
+  if (userDataDir) rmSync(userDataDir, { recursive: true, force: true })
   if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
   else process.env['CLWRITING_DRIVER'] = prevDriver
 })
@@ -128,10 +134,11 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
   })
 
   it('预算 1 → 降级合审档 → issues-combined.json 契约 + collected.ok（W-P1-1 回归）', async () => {
-    // 长篇无布线 = 2 视角；calls_per_chapter: 1 < 2 → selectReviewTier 降 combined（单文件单调用）
-    const bookYaml = join(bookRoot, 'book.yaml')
-    const origYaml = readFileSync(bookYaml, 'utf8')
-    writeFileSync(bookYaml, origYaml.replace('calls_per_chapter: 6', 'calls_per_chapter: 1'), 'utf8')
+    // 长篇无布线 = 2 视角；预算 1 < 2 → selectReviewTier 降 combined（单文件单调用）。
+    // 2026-08-19 起单章上限「全局固定」（书级值被 applyGlobalDefaults 忽略）——预算
+    // 只能经 global.json 的 callsPerChapter 下调，书 yaml 直写不再生效
+    const globalJson = join(userDataDir, 'global.json')
+    writeFileSync(globalJson, JSON.stringify({ callsPerChapter: 1 }), 'utf8')
     try {
       const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
       expect(r.status).toBe(200)
@@ -149,7 +156,7 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
       // 合审 = 单次调用，HTTP lenses 只含锚视角
       expect(j.lenses.length).toBe(1)
     } finally {
-      writeFileSync(bookYaml, origYaml, 'utf8')
+      writeFileSync(globalJson, '{}', 'utf8')
     }
   })
 

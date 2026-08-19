@@ -3,7 +3,7 @@
  * SettingsAi（「设置 · AI 写作」全局页）交互测试：
  * AI 对话（对话助手）+ AI 写作全局默认（文风注入/自动确认细纲/批量章数/单章上限）直写 prefs store
  * （clamp 在 store setter，防抖落 global.json），不触发 saveConfig。
- * IA 重组后本书覆盖组拆到 SettingsBookAi（「本书」页），其断言在 settings-book-ai.test.ts。
+ * 2026-08-19 起 AI 写作组已砍掉书级覆盖（SettingsBookAi 删除），这些键只走全局。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'

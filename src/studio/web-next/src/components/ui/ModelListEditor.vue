@@ -31,35 +31,32 @@ const emit = defineEmits<{
 }>()
 
 // 本地行副本（v-model 由父层传初值；内部变更同步 emit）
-const rows = ref<ModelRowDraft[]>(props.modelValue.map((r) => ({ ...r })))
+// _key 为本地稳定行标识（ii-4）：行可增删，v-for 用索引 key 会在删中间行时让行内
+// 输入态/展开态与数据错位——key 只活在组件内，sync 时剥除（不进 v-model 契约）。
+type LocalRow = ModelRowDraft & { _key: number }
+let keySeq = 0
+const rows = ref<LocalRow[]>(props.modelValue.map((r) => ({ ...r, _key: ++keySeq })))
 
 function sync(): void {
-  emit('update:modelValue', rows.value.map((r) => ({ ...r })))
+  emit('update:modelValue', rows.value.map(({ _key, ...rest }) => rest))
 }
 
 function addRow(): void {
-  rows.value.push({ id: '', name: '', contextWindowText: '', maxTokensText: '' })
+  rows.value.push({ id: '', name: '', contextWindowText: '', maxTokensText: '', _key: ++keySeq })
   sync()
 }
 
 function removeRow(i: number): void {
   rows.value.splice(i, 1)
-  // 展开态按行号记录：删行后把后面的行号前移，否则下一行会继承被删行的展开态（dsh 同款修复）
-  const next = new Set<number>()
-  for (const at of expanded.value) {
-    if (at < i) next.add(at)
-    else if (at > i) next.add(at - 1)
-  }
-  expanded.value = next
   sync()
 }
 
-/** 展开态（dsh：默认全折叠——id/名称就在行内可编，容量是例外才折叠） */
+/** 展开态（dsh：默认全折叠——id/名称就在行内可编，容量是例外才折叠；按 _key 记录，删行天然不错位） */
 const expanded = ref<Set<number>>(new Set())
-function toggleRow(i: number): void {
+function toggleRow(key: number): void {
   const n = new Set(expanded.value)
-  if (n.has(i)) n.delete(i)
-  else n.add(i)
+  if (n.has(key)) n.delete(key)
+  else n.add(key)
   expanded.value = n
 }
 
@@ -131,7 +128,7 @@ function adoptPicked(): void {
   const existing = new Set(rows.value.map((r) => r.id.trim()))
   for (const id of picked.value) {
     if (id && !existing.has(id)) {
-      rows.value.push({ id, name: '', contextWindowText: '', maxTokensText: '' })
+      rows.value.push({ id, name: '', contextWindowText: '', maxTokensText: '', _key: ++keySeq })
       existing.add(id)
     }
   }
@@ -163,7 +160,7 @@ function adoptPicked(): void {
       尚未配置模型行。可手动添加，或点「获取模型列表」后从清单勾选。
     </div>
 
-    <div v-for="(r, i) in rows" :key="i" class="model-entry">
+    <div v-for="(r, i) in rows" :key="r._key" class="model-entry">
       <div class="model-row">
         <input
           :value="r.id"
@@ -185,11 +182,11 @@ function adoptPicked(): void {
         />
         <button
           class="row-icon-btn"
-          :class="{ open: expanded.has(i) }"
-          :aria-expanded="expanded.has(i)"
+          :class="{ open: expanded.has(r._key) }"
+          :aria-expanded="expanded.has(r._key)"
           data-tip="容量（上下文 / 输出上限）"
           :disabled="disabled"
-          @click="toggleRow(i)"
+          @click="toggleRow(r._key)"
         >
           <ChevronRight :size="14" />
         </button>
@@ -197,7 +194,7 @@ function adoptPicked(): void {
           <Trash2 :size="13" />
         </button>
       </div>
-      <div v-if="expanded.has(i)" class="model-advanced">
+      <div v-if="expanded.has(r._key)" class="model-advanced">
         <div class="model-field">
           <label>上下文窗口</label>
           <input

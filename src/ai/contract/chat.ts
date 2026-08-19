@@ -27,6 +27,7 @@ export const TOOL_RISK: Record<string, ToolRisk> = {
   delete_chapter: 'write',
   rewrite_chapter: 'write',
   rewrite_selection: 'write',
+  apply_spill: 'write',
   lead_update: 'write',
   harvest_style: 'write',
 }
@@ -163,6 +164,18 @@ export const chatTools: ToolDef[] = [
         instruction: { type: 'string', description: '改写指令' },
       },
       required: ['chapter', 'selection', 'instruction'],
+    },
+  },
+  {
+    name: 'apply_spill',
+    description: '把改写工具暂存的全文（工作区/spills/<哈希>.md）落盘为指定章草稿（保留原 front matter，只替换正文；旧稿自动快照）。作者确认保存改写稿时调用。执行前作者需确认。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chapter: { type: 'number', description: '章号' },
+        locator: { type: 'string', description: '改写结果返回的暂存路径（工作区/spills/<16位哈希>.md）' },
+      },
+      required: ['chapter', 'locator'],
     },
   },
   {

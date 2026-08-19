@@ -488,3 +488,25 @@ test('X-P1-2：补生成失败（无 provider）→ 不死循环，按正常重�
     else process.env['CLWRITING_DRIVER'] = prev
   }
 })
+
+test('GG-F1①（ii 批）：首稿前备料接线——工作区/本章写作材料.md 落盘 + prompt 含备料段', async () => {
+  const prev = process.env['CLWRITING_DRIVER']
+  process.env['CLWRITING_DRIVER'] = 'mock'
+  try {
+    const { opts, prompts, bookRoot } = setupLongBook(() => greenOutcome())
+    const materialsPath = join(bookRoot, '工作区', '本章写作材料.md')
+    expect(existsSync(materialsPath)).toBe(false) // 接线前无人写材料槽
+    const r = await runSelfHeal(opts)
+
+    expect(r.outcome).toBe('pass')
+    // 备料已落盘（近况/文风等段经 prepareMaterials 组装，长篇 fixture 布线书 db 可用）
+    expect(existsSync(materialsPath)).toBe(true)
+    const materials = readFileSync(materialsPath, 'utf8')
+    expect(materials.length).toBeGreaterThan(0)
+    // buildDraftPrompt 读到材料 → 首稿 prompt 注入「备料」段（此前生产链永缺）
+    expect(prompts[0]).toContain('## 备料')
+  } finally {
+    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
+    else process.env['CLWRITING_DRIVER'] = prev
+  }
+})
