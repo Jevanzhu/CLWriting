@@ -17,7 +17,8 @@ const RAG_DDL = [
     end_offset   INTEGER NOT NULL,
     embedding    BLOB NOT NULL,
     model        TEXT NOT NULL,
-    indexed_at   TEXT NOT NULL
+    indexed_at   TEXT NOT NULL,
+    norm         REAL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chunks_chapter ON chunks(章号)`,
   `CREATE TABLE IF NOT EXISTS rag_meta (

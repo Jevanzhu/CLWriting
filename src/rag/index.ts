@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
-import { openRagDb, storeChunk, readAllChunks, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, cosineSimilarity, type RagChunk } from './store.js'
+import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, type RagChunk } from './store.js'
 import { embed } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -126,22 +126,20 @@ function readChapterFingerprint(ch: ChapterMeta): string | null {
   return hashChapterContent(r.fmRaw, r.body)
 }
 
-function validateIndexedChapterFingerprints(
-  db: DatabaseSync,
-  chapters: ChapterMeta[],
-): string | null {
-  for (const ch of chapters) {
-    const currentHash = readChapterFingerprint(ch)
-    if (!currentHash) continue
-    const indexedHash = getRagMeta(db, chapterHashKey(ch.章号))
-    if (!indexedHash) {
-      return `RAG 索引缺少第 ${ch.章号} 章内容指纹，请删除 .cache/rag.db 后重建索引。`
-    }
-    if (indexedHash !== currentHash) {
-      return `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .cache/rag.db 后重建索引。`
-    }
-  }
-  return null
+/**
+ * A3（批 7）惰性指纹校验的单章口径（recall 候选子集用）。
+ * 章 meta 缺失（正文文件不在了）→ false；指纹元数据缺失/不符 → false。
+ * 不合格只剔除该章（老口径整批拒绝——倒序校验后语义为过滤闸，见 recall）。
+ */
+function chapterFingerprintFresh(
+  ch: ChapterMeta | undefined,
+  indexedFingerprints: Map<number, string>,
+): boolean {
+  if (!ch) return false
+  const currentHash = readChapterFingerprint(ch)
+  if (!currentHash) return false
+  const indexedHash = indexedFingerprints.get(ch.章号)
+  return indexedHash === currentHash
 }
 
 export interface BuildIndexResult {
@@ -385,8 +383,15 @@ export interface RecallHit {
 }
 
 /**
- * 召回（query embed → 全表余弦 topK → 返回位置）。
+ * 召回（query embed → 全表点积排序 → 候选子集惰性指纹校验 → topK）。
  * 失败/降级返回空数组（#37 第 6.2 节，不崩）。
+ *
+ * A3（批 7，P4：K'=20 写死 + book.yaml rag.candidate_depth 可覆盖）：
+ * - 预存范数：chunks.norm 建索引时算好，余弦退化为 dot(q,c)/(||q||·c.norm)，数学量减半；
+ * - 倒序校验：先前每次召回对全书逐章读文件校验 SHA-256 指纹（700 章 = 700 次全文
+ *   读，大概率慢过余弦本身）——改为先排序，只校验命中候选的章（≤ K'），过期章剔除、
+ *   顺位递补至 topK；校验从「整批拒绝闸」变为「过滤闸」，召回质量不降（过期向量
+ *   本就不该命中），新鲜数据的 top-5 与全量校验口径逐一等价。
  *
  * @param embedFn 可选：注入 embed 函数（测试用桩）
  */
@@ -400,12 +405,15 @@ export async function recall(
 ): Promise<RecallHit[]> {
   if (!config.enabled || !config.endpoint || !config.model) return []
 
-  // P1-31：先取数后联网——db 数据（chunks/元信息/指纹校验）全部在 close 前完成，
-  // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用（修复前
-  // 先 embed 再查空：空库也白烧一次 embedding 费用）。
+  const candidateDepth = config.candidate_depth ?? 20
+
+  // P1-31：先取数后联网——db 数据（chunks/元信息/指纹元数据）全部在 close 前完成，
+  // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用。
   const db = openRagDb(bookRoot)
   let chunks!: RagChunk[]
   let indexedDim: string | null = null
+  let indexedFingerprints!: Map<number, string>
+  let chapterByNumber!: Map<number, ChapterMeta>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) return []
@@ -414,15 +422,16 @@ export async function recall(
     if (chunks.length === 0) return [] // 空库：无向量可召回，先判空不烧 API
 
     indexedDim = getRagMeta(db, 'embedding_dim')
-
+    // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
+    indexedFingerprints = readAllChapterFingerprints(db)
+    // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）
     const bodyDir = join(bookRoot, '写作', '正文')
-    const { chapters } = readChapterDir(bodyDir)
     const chapterNumbers = new Set(chunks.map((c) => c.章号))
-    const fingerprintIssue = validateIndexedChapterFingerprints(
-      db,
-      chapters.filter((ch) => chapterNumbers.has(ch.章号)),
+    chapterByNumber = new Map(
+      readChapterDir(bodyDir)
+        .chapters.filter((ch) => chapterNumbers.has(ch.章号))
+        .map((ch) => [ch.章号, ch] as const),
     )
-    if (fingerprintIssue) return []
   } finally {
     db.close()
   }
@@ -434,15 +443,38 @@ export async function recall(
 
   if (indexedDim && Number(indexedDim) !== queryVec.length) return []
 
+  const qNorm = l2Norm(queryVec)
   const hits: RecallHit[] = chunks
     .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
-    .map((c) => ({
-      章号: c.章号,
-      start_offset: c.start_offset,
-      end_offset: c.end_offset,
-      score: cosineSimilarity(queryVec, c.embedding),
-    }))
+    .map((c) => {
+      // 预存范数点积（排序序与全量余弦等价）；norm 异常缺失时现算兜底（不因迁移残缺弃块）
+      const cNorm = c.norm !== null && c.norm > 0 ? c.norm : l2Norm(c.embedding)
+      let dot = 0
+      for (let i = 0; i < queryVec.length; i++) dot += queryVec[i]! * c.embedding[i]!
+      return {
+        章号: c.章号,
+        start_offset: c.start_offset,
+        end_offset: c.end_offset,
+        score: qNorm === 0 || cNorm === 0 ? 0 : dot / (qNorm * cNorm),
+      }
+    })
 
   hits.sort((a, b) => b.score - a.score)
-  return hits.slice(0, topK)
+
+  // A3 倒序校验：按分数序逐章校验指纹，fresh 章 chunk 直接收，stale 章 chunk 剔除、
+  // 顺位递补；已判章不重复校验（同章多块只读一次文件）。候选章数达 K' 仍未凑满
+  // topK（重 staleness 场景）→ 返回已凑到的（宁缺毋滥，不放宽校验）
+  const verdict = new Map<number, boolean>()
+  const out: RecallHit[] = []
+  for (const h of hits) {
+    if (out.length >= topK) break
+    let fresh = verdict.get(h.章号)
+    if (fresh === undefined) {
+      if (verdict.size >= candidateDepth) break
+      fresh = chapterFingerprintFresh(chapterByNumber.get(h.章号), indexedFingerprints)
+      verdict.set(h.章号, fresh)
+    }
+    if (fresh) out.push(h)
+  }
+  return out
 }

@@ -218,7 +218,7 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(hits).toEqual([])
   })
 
-  it('召回：已索引章节正文变更时降级为空，避免返回旧向量位置', async () => {
+  it('召回（A3 批 7）：已索引章节正文变更 → 过期章剔除、新鲜章照常召回（过滤闸，不再整批拒绝）', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
     const meta: ChapterMeta = {
@@ -233,7 +233,10 @@ describe('buildIndex + recall（桩 embed）', () => {
 
     const hits = await recall(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed)
 
-    expect(hits).toEqual([])
+    // 过期章（第 1 章）的旧向量位置绝不再返回；新鲜章不受连坐
+    expect(hits.some((h) => h.章号 === 1)).toBe(false)
+    expect(hits.length).toBeGreaterThan(0) // fixture 其余章新鲜 → 照常召回
+    for (const h of hits) expect(h.章号).not.toBe(1)
   })
 
   it('未完整配置 → 建索引失败但不崩', async () => {

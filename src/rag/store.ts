@@ -18,6 +18,8 @@ export interface RagChunk {
   end_offset: number
   /** Float32Array（从 BLOB 读回） */
   embedding: Float32Array
+  /** A3（批 7）：预存 L2 范数（存量行由 ensureNormColumn 回填；异常缺失时召回侧现算兜底） */
+  norm: number | null
   model: string
   indexed_at: string
 }
@@ -100,15 +102,52 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA busy_timeout = 5000')
   createRagTables(db)
+  // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
+  ensureNormColumn(db)
   return db
 }
 
-/** 存一个块（embedding 序列化为 BLOB）。
+/** 向量 L2 范数（A3 预存范数：余弦退化为点积，召回数学量减半） */
+export function l2Norm(vec: Float32Array): number {
+  let sum = 0
+  for (let i = 0; i < vec.length; i++) sum += vec[i]! * vec[i]!
+  return Math.sqrt(sum)
+}
+
+/**
+ * A3（批 7）：chunks.norm 列迁移——旧库无列 → ALTER TABLE 加列；有列但存 NULL
+ * （加列后的存量行）→ 逐行算 L2 写回（一次性，打开库时自愈）。幂等：二次打开全
+ * 值在位 → 零写。回填失败（锁/IO）上抛给 openRagDb 调用方（RAG 各入口已有降级）。
+ */
+export function ensureNormColumn(db: DatabaseSync): void {
+  const cols = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'norm')) {
+    db.exec('ALTER TABLE chunks ADD COLUMN norm REAL')
+  }
+  const nullCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks WHERE norm IS NULL').get() as { n: number }).n
+  if (nullCount === 0) return
+  const rows = db
+    .prepare('SELECT id, embedding FROM chunks WHERE norm IS NULL')
+    .all() as Array<{ id: number; embedding: Uint8Array }>
+  const update = db.prepare('UPDATE chunks SET norm = ? WHERE id = ?')
+  db.exec('BEGIN')
+  try {
+    for (const r of rows) {
+      update.run(l2Norm(bufferToFloat32(r.embedding)), r.id)
+    }
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
+/** 存一个块（embedding 序列化为 BLOB；A3 同步预算 L2 范数——余弦退化为点积）。
  *  V-P2-3：INSERT OR REPLACE——(章号, 偏移, 模型) 有唯一键，同块重写幂等不重复。 */
 export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
   const stmt = db.prepare(
-    `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
   stmt.run(
     chunk.章号,
@@ -117,6 +156,7 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
     float32ToBuffer(chunk.embedding),
     chunk.model,
     new Date().toISOString(),
+    l2Norm(chunk.embedding),
   )
 }
 
@@ -129,10 +169,10 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
  * 需先量化收益）——在界值测试退化失败前明确不引索引。
  */
 export function readAllChunks(db: DatabaseSync): RagChunk[] {
-  const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
+  const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, norm, model, indexed_at FROM chunks')
   const rows = stmt.all() as Array<{
     id: number; 章号: number; start_offset: number; end_offset: number
-    embedding: Uint8Array; model: string; indexed_at: string
+    embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
   }>
   return rows.map((r) => ({
     id: r.id,
@@ -140,9 +180,24 @@ export function readAllChunks(db: DatabaseSync): RagChunk[] {
     start_offset: r.start_offset,
     end_offset: r.end_offset,
     embedding: bufferToFloat32(r.embedding),
+    norm: r.norm,
     model: r.model,
     indexed_at: r.indexed_at,
   }))
+}
+
+/** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
+ *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
+export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {
+  const rows = db
+    .prepare("SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
+    .all() as Array<{ key: string; value: string }>
+  const out = new Map<number, string>()
+  for (const r of rows) {
+    const n = Number(r.key.slice('chapter_hash:'.length))
+    if (Number.isFinite(n) && n > 0) out.set(n, r.value)
+  }
+  return out
 }
 
 /** rag_meta 读写（记维度/模型/已索引章号） */

@@ -372,11 +372,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const pv = rag.children.find((c) => c.key === 'provider')
     const ep = rag.children.find((c) => c.key === 'endpoint')
     const md = rag.children.find((c) => c.key === 'model')
+    const cd = rag.children.find((c) => c.key === 'candidate_depth')
+    const depth = cd ? Number(parseValue(cd.value)) : NaN
     if (en) cfg.rag = {
       enabled: String(parseValue(en.value)) === 'true',
       ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
       ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
       ...(md ? { model: String(parseValue(md.value)) } : {}),
+      // A3（批 7）：候选深度可覆盖（正整数才收，缺省 20 走 recall 侧兜底）
+      ...(Number.isInteger(depth) && depth > 0 ? { candidate_depth: depth } : {}),
     }
   }
 

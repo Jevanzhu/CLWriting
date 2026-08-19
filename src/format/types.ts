@@ -306,6 +306,7 @@ export interface BookConfig {
     provider?: string // RAG 服务商 id（应用级 providers.json 引用；设此键时 endpoint/model 不再写）
     endpoint?: string // 旧版内联 embedding 端点（存量兼容，resolver 回落用）
     model?: string // 旧版内联 embedding 模型名（存量兼容）
+    candidate_depth?: number // A3（批 7）：召回惰性指纹校验的候选章上限（缺省 20；P4 拍板写死可覆盖）
   }
   _raw?: Record<string, unknown> // 容错：未知顶层段保留
 }

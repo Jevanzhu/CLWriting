@@ -10,7 +10,7 @@
  * 降序、≤ topK、偏移精确命中原文）。
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -20,6 +20,14 @@ import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
 import type { RecallHit } from '../../src/rag/index.js'
+
+// A3（批 7）：数正文整读次数——惰性指纹校验的回归锚（旧口径每次召回全量校验 700 章）
+vi.mock('../../src/format/frontmatter.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/format/frontmatter.js')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
+import { readFile } from '../../src/format/frontmatter.js'
+const readFileMock = vi.mocked(readFile)
 
 // ── 规模参数（200 万字目标场景）──────────────────────────────────────
 /** 章数：700 章 × ~2850 字 ≈ 200 万字（网文单章 2000~4000 字取中） */
@@ -171,6 +179,18 @@ describe('RAG 召回规模界值（200 万字目标场景）', () => {
       expect(hits[i]!.score).toBeLessThanOrEqual(hits[i - 1]!.score) // 降序
       expect(hits[i]!.score).toBeLessThan(hits[0]!.score) // 无并列歧义
     }
+
+    // ── A3（批 7）：惰性指纹校验——单次召回正文文件整读 ≤ K'（20）────
+    // 旧口径：召回前对全部已索引章逐个读文件校验 SHA-256（700 次整读）；
+    // 新口径：排序后只校验命中候选章（topK 涉及 ≤ 5 章 + 同章去重）
+    readFileMock.mockClear()
+    const lazyHits = await recall(bookRoot, config, 'stub-key', plantedText, 5, stubEmbed)
+    expect(lazyHits.length).toBe(5)
+    const bodyFileReads = readFileMock.mock.calls.filter((args) =>
+      String(args[0]).includes(join('写作', '正文')),
+    ).length
+    expect(bodyFileReads).toBeLessThanOrEqual(20)
+    readFileMock.mockClear()
 
     // ── 耗时界值：3 次取最小（去冷启动/页缓存噪声），断言 < 界值 ──
     const durations: number[] = []

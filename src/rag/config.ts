@@ -27,6 +27,8 @@ export interface RagConfig {
   /** 旧版内联（服务商标应用级前的存量配置；resolver 回落用，不再写入） */
   endpoint?: string
   model?: string
+  /** A3（批 7）：召回惰性指纹校验候选章上限（book.yaml rag.candidate_depth，缺省 20） */
+  candidate_depth?: number
 }
 
 /**
@@ -53,6 +55,7 @@ export function readRagConfig(bookRoot: string, userDataPath?: string | null): R
     provider: rag.provider ?? global.ragProvider,
     endpoint: rag.endpoint,
     model: rag.model,
+    candidate_depth: rag.candidate_depth,
   }
 }
 
