@@ -23,6 +23,8 @@ test('版本恢复：改稿保存 → 历史面板 → 恢复旧版 → 内容�
   await page.getByText('玉佩之秘').first().click()
   const cm = page.locator('.cm-content')
   await expect(cm).toBeVisible()
+  // 等 fixture 内容真正渲染（可见≠已载入——无等待时同步 textContent 可取到空串，CI 假红）
+  await expect(cm).toContainText('玉佩', { timeout: 10_000 })
   const original = (await cm.textContent()) ?? ''
   expect(original.length).toBeGreaterThan(0)
 
@@ -39,8 +41,10 @@ test('版本恢复：改稿保存 → 历史面板 → 恢复旧版 → 内容�
   // 至少有一条历史版本（保存产生；.row 含首行「当前」，恢复按钮在版本行）
   const rows = history.locator('.row')
   await expect(rows.first()).toBeVisible()
-  // 恢复按钮 hover 才显形——hover 第一条版本行（跳过 .current 行）
-  const firstVersionRow = history.locator('.row:not(.current)').first()
+  // 恢复按钮 hover 才显形——hover 版本行（跳过 .current 行）。
+  // 取最旧一行：列表新→旧排列，而「恢复前留底」快照会插在更上方——取首行会被
+  // 同工作区上一轮恢复留下的中间稿污染（恢复它等于恢复现状，假失败 2/3 复现）
+  const firstVersionRow = history.locator('.row:not(.current)').last()
   await firstVersionRow.hover()
   const restoreBtn = firstVersionRow.locator('.restore-btn')
   await expect(restoreBtn).toBeVisible()
