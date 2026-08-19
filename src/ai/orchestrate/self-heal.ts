@@ -42,6 +42,7 @@ import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersion } from '../../git/ai-track.js'
+import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
 
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
@@ -262,20 +263,44 @@ async function orchestrateBatch(
   chapters: number[],
 ): Promise<SelfHealOutcome> {
   const total = chapters.length
+  // M6 #34 连写暂停元状态（驱动侧接线）：开批即清旧暂停记录（重开=作者已处置上次的停），
+  // 此后任何未跑完的停法（aborted/failed/escalate）重新落暂停——进书近况（state.ts
+  // readBatchPause → StatusRecap.batchPause）据此提示「连写暂停在第 N 章（原因）」。
+  // 观测性元数据：落盘失败静默降级，不挡写稿主线（与备料 best-effort 同口径）。
+  const recordPause = (atChapter: number, reason: string, detail: string): void => {
+    try {
+      writeBatchPause(opts.bookRoot, { atChapter, reason, detail })
+    } catch {
+      // 暂停记录失败不影响连写结果与回报
+    }
+  }
+  try {
+    clearBatchPause(opts.bookRoot)
+  } catch {
+    // 同上
+  }
   for (let i = 0; i < total; i++) {
     const ch = chapters[i]!
-    if (state.ctrl.signal.aborted) return { outcome: 'aborted' }
+    if (state.ctrl.signal.aborted) {
+      recordPause(ch, 'aborted', '用户中止连写')
+      return { outcome: 'aborted' }
+    }
 
     const run = await runChapter(opts, state, ctx, ch)
-    if (run.outcome === 'aborted') return { outcome: 'aborted' }
+    if (run.outcome === 'aborted') {
+      recordPause(ch, 'aborted', '用户中止连写')
+      return { outcome: 'aborted' }
+    }
     // F2 语义统一：无稿（首稿预算超限/生成失败）→ failed 停后续章；有稿 escalate 同样停
     if (run.outcome === 'failed') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
+      recordPause(ch, 'failed', run.error)
       return { outcome: 'failed', error: run.error }
     }
     // 单章 escalate → 停后续章，报批量进度（done=已完成章数）
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
+      recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
       return {
         outcome: 'escalate',
         chapter: ch,

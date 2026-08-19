@@ -35,6 +35,7 @@ import { readManifest, writeManifest, type Manifest } from '../document/manifest
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
+import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
@@ -500,19 +501,7 @@ function skipFinalizedChapters(n: number, finalized: Set<number>): number {
   return next
 }
 
-/** 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）。 */
-function readBatchPause(bookRoot: string): { atChapter: number; reason: string; detail: string } | undefined {
-  const fp = join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
-  if (!existsSync(fp)) return undefined
-  try {
-    const obj = JSON.parse(readFileSync(fp, 'utf-8')) as { paused?: { at_chapter?: number; reason?: string; detail?: string } | null }
-    const p = obj.paused
-    if (!p || typeof p.at_chapter !== 'number' || typeof p.reason !== 'string') return undefined
-    return { atChapter: p.at_chapter, reason: p.reason, detail: String(p.detail ?? '') }
-  } catch {
-    return undefined
-  }
-}
+/** 读 .auto-batch.json 的 paused 字段（M6 #34 暂停元状态）——实现移 batch-pause.ts（写侧 self-heal 共用）。 */
 
 /**
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
