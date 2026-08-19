@@ -20,6 +20,7 @@
  *   （prepare 返回 injectedSummaryFiles → self-heal runSpec promptFiles → llm/call 事件）。
  */
 import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
@@ -27,7 +28,7 @@ import { computeRevision } from '../document/revision.js'
 import { readManifest } from '../document/manifest.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runSpec } from '../ai/tasks/spec.js'
-import { SUMMARY_CHAPTER_SPEC } from '../ai/tasks/specs.js'
+import { SUMMARY_CHAPTER_SPEC, SUMMARY_VOLUME_SPEC } from '../ai/tasks/specs.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
@@ -270,4 +271,143 @@ export async function selfHealRecentChapterSummaries(
     }
   }
   return generated
+}
+
+// ── C2（批 3）：卷摘要按需生成 ─────────────────────────────────────────
+
+/** 卷摘要目录（相对书根） */
+export const VOLUME_SUMMARY_DIR = join('定稿', '摘要', '卷摘要')
+
+export function volumeSummaryPath(bookRoot: string, volume: number): string {
+  return join(bookRoot, VOLUME_SUMMARY_DIR, `${volume}.md`)
+}
+
+export function volumeSummaryRelPath(volume: number): string {
+  return join(VOLUME_SUMMARY_DIR, `${volume}.md`)
+}
+
+/** 第 volume 卷的章号区间（按 volume_size 划卷，与 assembleStatus 同口径） */
+export function volumeChapterRange(volume: number, volumeSize: number): { from: number; to: number } {
+  return { from: (volume - 1) * volumeSize + 1, to: volume * volumeSize }
+}
+
+export interface VolumeChainState {
+  /** 该卷全部已定稿章的章摘要（章号 → 摘要正文）；null = 链不全（有定稿章缺摘要） */
+  chain: Map<number, string> | null
+  /** 链不全时缺失摘要的章号（留痕用） */
+  missing: number[]
+}
+
+/**
+ * 卷摘要链完整性：该卷章号区间内每个**已定稿且正文存在**的章都要有章摘要文件。
+ * 章摘要不全 → chain=null（不强行生成——「摘要的摘要」二阶误差红线，逼着先补章摘要）。
+ */
+export function volumeChainState(bookRoot: string, volume: number, volumeSize: number): VolumeChainState {
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const { from, to } = volumeChapterRange(volume, volumeSize)
+  const chain = new Map<number, string>()
+  const missing: number[] = []
+  for (let ch = from; ch <= to; ch++) {
+    for (const e of manifest.entries.values()) {
+      if (e.nodeType !== 'document' || !e.finalizedRevision) continue
+      if (!e.path.startsWith('写作/正文/')) continue
+      const m = /^(\d+)-/.exec(e.path.split('/').pop() ?? '')
+      if (!m || Number(m[1]) !== ch) continue
+      // 该章已定稿：必须有章摘要
+      const body = readChapterSummaryBody(bookRoot, ch)
+      if (body === null) missing.push(ch)
+      else chain.set(ch, body)
+    }
+  }
+  return missing.length > 0 ? { chain: null, missing } : { chain, missing }
+}
+
+/** 卷摘要链输入指纹（任一章摘要变动 → 卷摘要过期重生成） */
+function volumeChainFingerprint(chain: Map<number, string>): string {
+  const h = createHash('sha256')
+  for (const ch of [...chain.keys()].sort((a, b) => a - b)) h.update(`${ch}:${chain.get(ch)}\n`)
+  return `sha256:${h.digest('hex')}`
+}
+
+/**
+ * C2（批 3）生成第 volume 卷摘要：输入 = 该卷完整章摘要链（N × summary_chapter_max 字）。
+ * 链不全 → 不强行生成（fail-closed，留痕 missing 章），返回 {ok:false}。
+ * 链指纹绑 fm.sourceHash——章摘要更新后卷摘要过期重生成。
+ */
+export async function generateVolumeSummary(opts: {
+  bookRoot: string
+  userDataPath: string | null
+  config: BookConfig
+  volume: number
+}): Promise<GenerateSummaryResult> {
+  const { bookRoot, config, volume } = opts
+  const volumeSize = config.book.volume_size ?? 50
+  const budget = config.budget.summary_volume_max ?? 500
+  const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
+  if (!chain || chain.size === 0) {
+    log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
+    return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、')} 章摘要），先补章摘要` }
+  }
+  const fp = volumeSummaryPath(bookRoot, volume)
+  const fingerprint = volumeChainFingerprint(chain)
+  // 已有且链未变 → skipped
+  if (existsSync(fp)) {
+    const m = /^sourceHash:\s*(\S+)/m.exec(readFileSync(fp, 'utf8'))
+    if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
+  }
+  const chainText = [...chain.keys()]
+    .sort((a, b) => a - b)
+    .map((ch) => `【第 ${ch} 章】${chain.get(ch)}`)
+    .join('\n')
+  const userPrompt = [
+    `请为第 ${volume} 卷写卷摘要（总长 ≤ ${budget} 字）。`,
+    '',
+    '## 本卷章摘要链',
+    chainText,
+  ].join('\n')
+  const out = await runSpec(SUMMARY_VOLUME_SPEC, {
+    userDataPath: opts.userDataPath,
+    userPrompt,
+    bookRoot,
+    promptFiles: [volumeSummaryRelPath(volume)],
+  })
+  if (!out.ok) return { ok: false, error: out.error }
+  let text = out.data.text.trim()
+  if (text.length > budget) text = text.slice(0, budget) + '…'
+  if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
+  mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
+  const fm = [
+    '---',
+    `volume: ${volume}`,
+    `generatedAt: ${new Date().toISOString()}`,
+    'model: summary-volume',
+    `sourceHash: ${fingerprint}`,
+    '---',
+    '',
+  ].join('\n')
+  atomicWriteFile(fp, fm + text + '\n')
+  return { ok: true, path: fp, skipped: false }
+}
+
+/**
+ * C2（批 3）挂点：备料 rank-3 段需要 `卷摘要/<当前卷-1>.md` 而缺失时按需生成。
+ * 与章摘要自愈同闸（summary.auto）。生成成功返回相对路径（prepare 直接读文件，无需 rebuild）。
+ */
+export async function selfHealVolumeSummary(
+  bookRoot: string,
+  userDataPath: string | null,
+  config: BookConfig,
+  currentChapter: number,
+): Promise<string | null> {
+  if (!summaryAutoEnabled(config)) return null
+  const volumeSize = config.book.volume_size ?? 50
+  const currentVolume = Math.ceil(currentChapter / volumeSize)
+  const targetVolume = currentVolume - 1
+  if (targetVolume < 1) return null // 第 1 卷写作中：无上一卷
+  const fp = volumeSummaryPath(bookRoot, targetVolume)
+  if (existsSync(fp)) return null // 已有（含手写——作者产物优先）
+  const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume })
+  if (r.ok) return volumeSummaryRelPath(targetVolume)
+  log.warn('summary', `上一卷（第 ${targetVolume} 卷）摘要按需生成失败：${r.error}`)
+  return null
 }

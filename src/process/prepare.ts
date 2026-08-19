@@ -98,9 +98,32 @@ export interface PrepareResult {
   injectedSummaryFiles: string[]
 }
 
-/** token 粗估（#12 第 5 节：中文约 0.6 token/字） */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length * 0.6)
+/**
+ * C4（批 3）：按模型的 chars→tokens 实测系数表（P8-①）。
+ * 校准来源：`npx tsx scripts/calibrate-tokens.ts` 读事件库 llm/call 的
+ * promptMeta.chars × usage.input 成对样本，按模型最小二乘拟合——产出报告后
+ * 人工把建议值写进本表并注明测定日期与样本量（低频动作，不做运行时配置）。
+ * 匹配规则：模型 id 最长前缀命中（如 'claude-sonnet' 覆盖 'claude-sonnet-4-5'）。
+ */
+export const TOKEN_COEFFICIENTS: Record<string, number> = {
+  // 测定日期：尚未实测（2026-08-20 建表）。首次跑校准脚本后填入，形如：
+  // 'claude-sonnet': 0.58, // 2026-08-20，n=1234，r=0.97
+}
+
+/** 全局兜底系数（校准前的既有口径：中文约 0.6 token/字） */
+export const DEFAULT_TOKEN_COEFF = 0.6
+
+/** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6 */
+export function estimateTokens(text: string, model?: string): number {
+  let coeff = DEFAULT_TOKEN_COEFF
+  if (model) {
+    let best = ''
+    for (const prefix of Object.keys(TOKEN_COEFFICIENTS)) {
+      if (model.startsWith(prefix) && prefix.length > best.length) best = prefix
+    }
+    if (best) coeff = TOKEN_COEFFICIENTS[best]!
+  }
+  return Math.ceil(text.length * coeff)
 }
 
 /**
@@ -135,6 +158,8 @@ export function prepare(
   chapterLeadIds: string[],
   ragRecallText?: string,
   sampleScene: string | string[] = '战斗',
+  /** C4（批 3）：写稿模型 id（token 系数按模型查表；未传 = 全局 0.6 兜底，行为与从前一致） */
+  model?: string,
 ): PrepareResult {
   // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
   const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50)
@@ -151,7 +176,7 @@ export function prepare(
   ]
 
   const trimLog: string[] = []
-  const { estimatedTokens, trimmed } = applyBudgetTrim(config, sections, trimLog)
+  const { estimatedTokens, trimmed } = applyBudgetTrim(config, sections, trimLog, model)
   const text = serializeSections(sections, trimmed, trimLog)
 
   return {
@@ -383,9 +408,10 @@ function applyBudgetTrim(
   config: BookConfig,
   sections: MaterialSection[],
   trimLog: string[],
+  model?: string,
 ): { estimatedTokens: number; trimmed: boolean } {
   const budget = config.budget.input_per_chapter ?? 80000
-  let totalTokens = sections.reduce((sum, s) => sum + estimateTokens(s.content), 0)
+  let totalTokens = sections.reduce((sum, s) => sum + estimateTokens(s.content, model), 0)
   let trimmed = false
 
   if (totalTokens > budget) {

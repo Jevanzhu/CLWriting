@@ -19,7 +19,8 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { OUTLINE_SPEC } from '../../../ai/tasks/specs.js'
 import { buildSettingsContext } from '../../../process/settings-context.js'
 import { countWords } from '../../../format/words.js'
-import { bodyOf } from '../../../format/frontmatter.js'
+import { bodyOf, splitFrontMatter } from '../../../format/frontmatter.js'
+import { readBookConfig } from '../../../format/yaml.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
@@ -29,13 +30,14 @@ interface OutlineCtx {
   userDataPath: string | null
 }
 
-/** 跑一次大纲生成（runSpec 统一编排）。 */
+/** 跑一次大纲生成（runSpec 统一编排）。C3（批 3）：promptFiles 随 llm/call promptMeta 登记。 */
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
+  promptFiles: string[] = [],
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
+  const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, promptFiles })
   if (!out.ok) return { ok: false, error: out.error }
   const text = out.data.text.trim()
   if (!text) return { ok: false, error: 'AI 产出为空' }
@@ -60,9 +62,11 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const bookRoot = r.bookRoot
       const kind = readKind(bookRoot)
       const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
+      // C3（批 3）：卷进展段注入时登记源文件（缺失 → files 空，promptMeta 可查「未注入」）
+      const progress = volumeProgressOf(bookRoot, chapter)
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
-      const result = await runOutline(ctx.userDataPath, prompt, bookRoot)
+      const result = await runOutline(ctx.userDataPath, prompt, bookRoot, progress.file ? [progress.file] : [])
       if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
 
       const content = result.text
@@ -93,7 +97,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** 组 outline prompt:长篇(总纲+前章+章细纲)/短篇(总纲+前章+章纲)分支 */
+/** 组 outline prompt:长篇(总纲+卷进展+前章+章细纲)/短篇(总纲+前章+章纲)分支 */
 export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
   const synopsis = readSafe(join(bookRoot, '大纲', '总纲.md'))
 
@@ -136,6 +140,12 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   // 长篇:连续章节,前章承接,章细纲要场景+账本推进+章尾钩
   const parts: string[] = [`## 任务\n为第 ${chapter} 章生成细纲。`]
   if (synopsis) parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
+
+  // C3（批 3）：当前卷进展——写到几百章时中间视野不能只靠总纲恒量。来源 = 最近
+  // 已完成卷（写作章所在卷的前一卷）的卷摘要（C2 按需生成的产物），≤800 字；
+  // 缺失则整段省略（promptMeta.files 可查「本次未注入」）
+  const progress = volumeProgressOf(bookRoot, chapter)
+  if (progress.section) parts.push(progress.section)
 
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   const recent = chapters
@@ -201,5 +211,27 @@ function readSafe(fp: string): string {
     return readFileSync(fp, 'utf8')
   } catch {
     return ''
+  }
+}
+
+/**
+ * C3（批 3）当前卷进展段：来源 = 最近已完成卷（写作章所在卷的前一卷）的卷摘要。
+ * ≤800 字（slice 硬上限）；剥 fm 只注入正文；缺失 → { section: null, file: null }
+ * （整段省略）。file 为相对书根路径（promptMeta.files 登记用）。
+ */
+export function volumeProgressOf(bookRoot: string, chapter: number): { section: string | null; file: string | null } {
+  const volumeSize = readBookConfig(join(bookRoot, 'book.yaml')).config.book.volume_size ?? 50
+  const vol = Math.ceil(chapter / volumeSize) - 1
+  if (vol < 1) return { section: null, file: null }
+  const fp = join(bookRoot, '定稿', '摘要', '卷摘要', `${vol}.md`)
+  if (!existsSync(fp)) return { section: null, file: null }
+  const raw = readFileSync(fp, 'utf8').trim()
+  if (!raw) return { section: null, file: null }
+  const split = splitFrontMatter(raw)
+  const body = (split ? split.body : raw).trim()
+  if (!body) return { section: null, file: null }
+  return {
+    section: `## 当前卷进展\n（第 ${vol} 卷摘要）\n${body.slice(0, 800)}`,
+    file: `定稿/摘要/卷摘要/${vol}.md`,
   }
 }

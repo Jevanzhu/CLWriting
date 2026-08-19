@@ -70,6 +70,21 @@ export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
   mock: { kind: 'text', text: '- 情节推进：林远初入宗门，玉佩初显异象。\n- 账本变动：无。\n- 章尾钩子：血中之物苏醒在即。' },
 }
 
+/** 卷摘要生成（C2 批 3）：从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
+export const SUMMARY_VOLUME_SPEC: TaskSpec = {
+  name: 'summary-volume',
+  tierKind: 'assistant',
+  genMode: 'text',
+  systemPrompt: `你是网文卷级摘要器。把给定的一卷章摘要链压缩成一份卷摘要，供远期备料与规划使用。
+
+## 要求
+- 覆盖本卷的主线推进、关键转折、开线/收线，一段到三段以内。
+- 只依据给定章摘要，不臆造、不补充新信息。
+- 总长遵守调用方给的字数上限。
+- 直接输出卷摘要正文，不加标题、不加多余说明。`,
+  mock: { kind: 'text', text: '本卷：林远入宗历练，玉佩之谜初启，与长老一脉结怨；悬念-001 埋下并推进一次；卷尾宗门大比在即。' },
+}
+
 /**
  * 流式写稿工厂（role 决定 system prompt）。
  *

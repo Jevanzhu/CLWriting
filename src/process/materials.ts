@@ -19,10 +19,10 @@ import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
 import { prepare, type PrepareResult } from './prepare.js'
-import { selfHealRecentChapterSummaries } from './summary.js'
+import { selfHealRecentChapterSummaries, selfHealVolumeSummary } from './summary.js'
 import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
-import { loadProviders } from '../ai/provider/index.js'
+import { loadProviders, resolveTier } from '../ai/provider/index.js'
 import { recall, type RecallHit } from '../rag/index.js'
 import { embed } from '../rag/embed.js'
 import { findWorkDir } from '../install/books.js'
@@ -155,6 +155,8 @@ export async function prepareMaterials(
   // 文风样章场景（kk-P1-2 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
   // 回退（与 draft 链同一水源，全空→['通用']）；G3 留痕只看「已声明」场景（兜底不算声明）
   const { sampleScene, declaredScenes } = resolveScenes(bookRoot, opts)
+  // C4（批 3）：写稿模型（creative 档）——prepare 的 token 系数按模型查表
+  const writeModel = resolveTier(opts.userDataPath ?? null, 'creative').model || undefined
   // C1（批 2）自愈补漏：备料前发现近章（N-2/N-1）摘要缺失或过期 → 现场补生成
   // （计入本章 calls_per_chapter 预算，既有预算闸口径）；失败不阻断备料（无近章结尾段降级）
   let summaryGenerated: string[] = []
@@ -162,6 +164,12 @@ export async function prepareMaterials(
     try {
       summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter)
     } catch { /* 补漏失败静默降级——prepare 无该段照常组装 */ }
+    // C2（批 3）：上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
+    // 卷摘要手写优先（文件存在即跳过）；prepare 直接读文件，无需 rebuild
+    try {
+      const vol = await selfHealVolumeSummary(bookRoot, opts.userDataPath ?? null, config, opts.chapter)
+      if (vol) summaryGenerated.push(vol)
+    } catch { /* 同上：备料降级 */ }
   }
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
   // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret
@@ -174,12 +182,12 @@ export async function prepareMaterials(
 
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!resolved) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
     return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ...styleNoteOf(declaredScenes, base) }
   }
 
   if (!resolved.apiKey) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
     return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
   }
 
@@ -197,7 +205,7 @@ export async function prepareMaterials(
   }
 
   if (hits.length === 0) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
     return {
       ...base,
       ragUsed: false,
@@ -210,7 +218,7 @@ export async function prepareMaterials(
 
   // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText
   const ragRecallText = renderRecallHits(bookRoot, hits)
-  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene)
+  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene, writeModel)
   return {
     ...base,
     ragUsed: true,
