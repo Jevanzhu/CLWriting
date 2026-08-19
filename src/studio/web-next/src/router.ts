@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 // 路由极简两级（M10 R2）：/shelf 书架、/book/:name 工作区；tab 态由 workspace store 自管。
-// T0.1 先接占位页；T0.5 落 Shelf.vue / Book.vue。
+// /library 书库管理、/welcome 首启引导为后补直挂路由（不在两级模型内，独立整页）。
 const router = createRouter({
   history: createWebHistory(),
   routes: [

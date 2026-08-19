@@ -32,10 +32,8 @@ const workflowLoadingMore = ref(false)
 const workflowOffset = ref(0)
 const goals = ref<GoalFE[]>([])
 const todos = ref<TodoFE[]>([])
-/** 事件重放展开的 seq 集合（点开看 data / 血缘） */
+/** 事件重放展开的 seq 集合（点开看 data / 血缘）；load/doClear 重置——重取后旧展开态不残留 */
 const expanded = ref<Set<number>>(new Set())
-/** 差异视图模式：'model' | 'human' */
-const diffMode = ref<'model' | 'human'>('model')
 /** 工作流 tab：'convo' | 'workflow' */
 const tab = ref<'convo' | 'workflow'>('convo')
 
@@ -63,6 +61,7 @@ async function load(): Promise<void> {
   workflowOffset.value = 0
   goals.value = []
   todos.value = []
+  expanded.value = new Set()
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
     conversation.value = v.conversation
