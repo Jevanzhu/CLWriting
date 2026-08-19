@@ -4,10 +4,12 @@
  */
 import { test, expect } from '@playwright/test'
 
-test('用量卡：工作台默认视图展示「AI 用量」卡（D1）', async ({ page }) => {
+test('用量卡：工作台视图展示「AI 用量」卡（D1）', async ({ page }) => {
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
-  // 工作台是开书默认视图；CI 慢速 runner 挂载放宽（与 check.spec 同口径）
+  // 开书默认进编辑器视图 → ribbon 切「工作台」
+  await page.getByRole('button', { name: '工作台' }).click()
+  // CI 慢速 runner 挂载放宽（与 check.spec 同口径）
   await expect(page.locator('.usage-card')).toBeVisible({ timeout: 20_000 })
   await expect(page.locator('.usage-card .usage-title')).toContainText('AI 用量')
   // 空书：要么空态文案、要么表格（fixture 书可能有历史事件库记录，两态都合法）
