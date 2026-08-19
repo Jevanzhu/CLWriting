@@ -4,15 +4,17 @@
 // 结构：①Hero(KPI) → ②热力(6):伏笔(4) → ③字数曲线(面积) →
 //       ④节奏分布(子弹图) → ⑤文风摘要卡（完整功能在文风工作台）
 // 短篇不显示 ③④（无章纲数据）；文风摘要 ⑤ 长短篇通用（有正文即可）。
+// hh §八-16 拆分：③ → overview/WordCurveChart，④ → overview/RhythmDistPanel，
+// 短篇画像缺口 → overview/ShortProfileGaps（纯搬家，DOM 不变）。
 import { ref, computed, onMounted } from 'vue'
 import {
   Flame, AlertTriangle,
   Feather, ArrowUpRight,
-  TrendingUp, BarChart3, PenLine, Info,
+  PenLine,
 } from 'lucide-vue-next'
 import { getOverview, type OverviewResult } from '../api/overview'
 import { getForeshadows, type Foreshadow } from '../api/foreshadows'
-import { getRhythm, type RhythmDist, type RhythmResult } from '../api/rhythm'
+import { getRhythm, type RhythmResult } from '../api/rhythm'
 import {
   getAnalysisOverview,
   type AnalysisOverview,
@@ -20,6 +22,9 @@ import {
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
+import WordCurveChart from '../components/overview/WordCurveChart.vue'
+import RhythmDistPanel from '../components/overview/RhythmDistPanel.vue'
+import ShortProfileGaps from '../components/overview/ShortProfileGaps.vue'
 
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -162,127 +167,8 @@ const fsStats = computed(() => {
   }
 })
 
-// ══ 短篇画像缺口 ══
-const shortProfile = computed(() => data.value?.shortProfile)
-/** 情绪缺口：target_emotions vs 已写章的目标情绪分布 */
-const emotionGap = computed(() => {
-  const profile = shortProfile.value
-  if (!profile?.targetEmotions?.length) return null
-  const dist = rhythmData.value?.kind === 'short' ? rhythmData.value.emotionDist : {}
-  return profile.targetEmotions.map((e) => ({
-    emotion: e,
-    count: dist[e] ?? 0,
-    missing: (dist[e] ?? 0) === 0,
-  }))
-})
-/** 跨章母题 */
-const seriesMotifs = computed(() => shortProfile.value?.seriesMotifs ?? [])
-
-/** 反转类型缺口：target_reversal_types vs 已写章核心反转归类（派生自 rhythm） */
-const reversalGap = computed(() => {
-  const profile = shortProfile.value
-  if (!profile?.targetReversalTypes?.length) return null
-  const d = rhythmData.value
-  if (d?.kind !== 'short') return null
-  return d.reversalGap
-})
-/** 未归类章数（规则未命中 / 池外类型） */
-const reversalUnrecognized = computed(() => {
-  const d = rhythmData.value
-  return d?.kind === 'short' ? (d.reversalUnrecognized ?? 0) : 0
-})
 
 
-// ══ ④⑤ 节奏派生（原 RhythmView）══════════════
-// 枚举顺序与服务端 rhythm.ts 一致（稳定渲染）
-const HOOK_TYPES = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
-const EMOTIONS = ['压抑', '铺垫', '小爽', '大爽', '转折']
-const SCENE_TYPES = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
-
-// ── 字数曲线 SVG 尺度（面积图）──
-const CHART_W = 880
-const CHART_H = 180
-const PAD_BOTTOM = 24 // 章号标签
-const PAD_LEFT = 38   // Y 轴刻度标签
-const DRAW_W = CHART_W - PAD_LEFT
-/** 字数曲线点（长短篇统一：章号 → no）。 */
-const curve = computed<{ no: number; 标题: string; 字数: number }[]>(() => {
-  const d = rhythmData.value
-  if (!d) return []
-  // 长短篇 wordCurve 均用 章号（短篇已统一），无需按 kind 分支
-  return d.wordCurve.map((p) => ({ no: p.章号, 标题: p.标题, 字数: p.字数 }))
-})
-const curveAvg = computed(() => {
-  const c = curve.value
-  return c.length ? Math.round(c.reduce((s, p) => s + p.字数, 0) / c.length) : 0
-})
-const maxWords = computed(() => Math.max(1, ...curve.value.map((p) => p.字数)))
-const Y_TICKS = [0.25, 0.5, 0.75]
-/** X 轴标签步长：控制在 ~20 个标签内。超 40 章就整排隐藏会让长篇横轴彻底失去参照。 */
-const tickStep = computed(() => {
-  const n = curve.value.length
-  return Math.max(1, Math.ceil(n / 20))
-})
-/** 字数简写：≥1万→X.X万，≥1千→X.Xk，其余原值 */
-function fmtWords(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return String(Math.round(n))
-}
-/** 面积/折线图点 x（章节槽中心）*/
-function ptX(i: number, n: number): number {
-  const slot = DRAW_W / Math.max(1, n)
-  return PAD_LEFT + i * slot + slot * 0.5
-}
-/** 点 y（字数→高度）*/
-function barY(字数: number): number {
-  const h = (字数 / maxWords.value) * (CHART_H - PAD_BOTTOM - 14)
-  return CHART_H - PAD_BOTTOM - h
-}
-const avgY = computed(() => {
-  const c = curve.value
-  return c.length ? barY(curveAvg.value) : 0
-})
-/** 面积路径 d（底→各点→底→闭合）*/
-const wordAreaD = computed(() => {
-  const pts = curve.value
-  if (!pts.length) return ''
-  const n = pts.length
-  const baseY = CHART_H - PAD_BOTTOM
-  const ptsStr = pts.map((p, i) => `${ptX(i, n)},${barY(p.字数)}`).join(' L ')
-  return `M ${ptX(0, n)},${baseY} L ${ptsStr} L ${ptX(n - 1, n)},${baseY} Z`
-})
-/** 折线路径 d */
-const wordLineD = computed(() => {
-  const pts = curve.value
-  if (!pts.length) return ''
-  const n = pts.length
-  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${ptX(i, n)},${barY(p.字数)}`).join(' ')
-})
-
-// ── 分布对比组 ──
-interface DistGroup { title: string; keys: string[]; written: RhythmDist; planned: RhythmDist }
-const distGroups = computed<DistGroup[]>(() => {
-  const d = rhythmData.value
-  if (!d) return []
-  if (d.kind === 'long') {
-    return [
-      { title: '钩子类型', keys: HOOK_TYPES, written: d.written.hookTypeDist, planned: d.planned.hookTypeDist },
-      { title: '情绪定位', keys: EMOTIONS, written: d.written.emotionDist, planned: d.planned.emotionDist },
-      { title: '场景分布', keys: SCENE_TYPES, written: d.written.sceneDist, planned: d.planned.sceneDist },
-    ]
-  }
-  // 短篇：有 written（连续故事）才显示节奏分布（独立短篇无 written → 空）
-  if (!d.written) return []
-  return [
-    { title: '钩子类型', keys: HOOK_TYPES, written: d.written.hookTypeDist, planned: {} },
-    { title: '情绪定位', keys: EMOTIONS, written: d.written.emotionDist, planned: {} },
-    { title: '场景分布', keys: SCENE_TYPES, written: d.written.sceneDist, planned: {} },
-  ]
-})
-function distMax(g: DistGroup): number {
-  return Math.max(1, ...g.keys.map((k) => Math.max(g.written[k] ?? 0, g.planned[k] ?? 0)))
-}
 </script>
 
 <template>
@@ -412,129 +298,14 @@ function distMax(g: DistGroup): number {
         </section>
       </div>
 
-      <!-- ── ③ 字数曲线（面积图）─────────────────── -->
-      <section v-if="rhythmData && curve.length" class="panel">
-        <div class="panel-head">
-          <TrendingUp :size="14" /> <span>字数曲线</span>
-          <span class="head-legend">{{ curve.length }} 章 · 均章 {{ curveAvg.toLocaleString() }} 字</span>
-        </div>
-        <div v-if="!curve.length" class="empty">尚无已写章节</div>
-        <svg
-          v-else
-          class="chart-svg"
-          :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
-          preserveAspectRatio="xMidYMid meet"
-          role="img"
-          aria-label="字数曲线"
-        >
-          <defs>
-            <linearGradient id="wordAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" style="stop-color: var(--interactive-accent); stop-opacity: 0.2;" />
-              <stop offset="100%" style="stop-color: var(--interactive-accent); stop-opacity: 0.01;" />
-            </linearGradient>
-          </defs>
-          <!-- Y 轴实线网格 -->
-          <g v-for="(t, idx) in Y_TICKS" :key="idx">
-            <line :x1="PAD_LEFT" :x2="CHART_W" :y1="barY(maxWords * t)" :y2="barY(maxWords * t)" class="grid-line" />
-            <text :x="PAD_LEFT - 8" :y="barY(maxWords * t) + 3" class="grid-label" text-anchor="end">{{ fmtWords(maxWords * t) }}</text>
-          </g>
-          <!-- 基线 -->
-          <line :x1="PAD_LEFT" :x2="CHART_W" :y1="CHART_H - PAD_BOTTOM" :y2="CHART_H - PAD_BOTTOM" class="axis-baseline" />
-          <!-- 面积填充 -->
-          <path :d="wordAreaD" fill="url(#wordAreaGrad)" />
-          <!-- 均章参考线 -->
-          <line :x1="PAD_LEFT" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
-          <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均章 {{ fmtWords(curveAvg) }}</text>
-          <!-- 折线 -->
-          <path :d="wordLineD" class="word-line" />
-          <!-- 端点 -->
-          <circle
-            v-for="(p, i) in curve"
-            :key="p.no"
-            :cx="ptX(i, curve.length)"
-            :cy="barY(p.字数)"
-            r="2.5"
-            class="word-dot"
-          >
-            <title>第{{ p.no }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
-          </circle>
-          <!-- X 轴编号（按 tickStep 降采样，长篇也保留横轴参照）-->
-          <template v-for="(p, i) in curve" :key="'wl'+p.no">
-            <text
-              v-if="i % tickStep === 0"
-              :x="ptX(i, curve.length)"
-              :y="CHART_H - 8"
-              class="axis-label-x"
-              text-anchor="middle"
-            >{{ p.no }}</text>
-          </template>
-        </svg>
-      </section>
+      <!-- ── ③ 字数曲线（面积图）── -->
+      <WordCurveChart :rhythm-data="rhythmData" />
 
-      <!-- ── 短篇画像缺口（短篇专属：情绪覆盖 + 反转覆盖 + 跨章母题）── -->
-      <section v-if="emotionGap || reversalGap || seriesMotifs.length" class="panel">
-        <div class="panel-head">
-          <BarChart3 :size="14" /> <span>画像缺口</span>
-          <span v-if="emotionGap" class="head-legend">{{ emotionGap.filter((g) => !g.missing).length }}/{{ emotionGap.length }} 情绪已覆盖</span>
-          <span v-if="reversalGap" class="head-legend">{{ reversalGap.filter((g) => !g.missing).length }}/{{ reversalGap.length }} 反转已覆盖</span>
-        </div>
-        <!-- 情绪覆盖 -->
-        <div v-if="emotionGap" class="gap-rows">
-          <div v-for="g in emotionGap" :key="g.emotion" class="gap-row" :class="{ 'is-missing': g.missing }">
-            <span class="gap-label">{{ g.emotion }}</span>
-            <div class="gap-bar">
-              <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
-            </div>
-            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 章</span>
-          </div>
-        </div>
-        <!-- 反转类型覆盖 -->
-        <div v-if="reversalGap" class="gap-rows">
-          <div v-for="g in reversalGap" :key="g.type" class="gap-row" :class="{ 'is-missing': g.missing }">
-            <span class="gap-label">{{ g.type }}</span>
-            <div class="gap-bar">
-              <div class="gap-fill" :style="{ width: Math.min(100, g.count * 25) + '%' }"></div>
-            </div>
-            <span class="gap-count" :class="{ 'is-zero': g.missing }">{{ g.count }} 章</span>
-          </div>
-          <div v-if="reversalUnrecognized > 0" class="gap-unrecognized">
-            <Info :size="12" /> {{ reversalUnrecognized }} 章未归类（规则未命中 / 池外类型）
-          </div>
-        </div>
-        <!-- 跨章母题 -->
-        <div v-if="seriesMotifs.length" class="motif-section">
-          <span class="motif-label">跨章母题</span>
-          <div class="motif-tags">
-            <span v-for="m in seriesMotifs" :key="m" class="motif-tag">{{ m }}</span>
-          </div>
-        </div>
-      </section>
+      <!-- ── 短篇画像缺口（短篇专属）── -->
+      <ShortProfileGaps :short-profile="data?.shortProfile" :rhythm-data="rhythmData" />
 
       <!-- ── ④ 节奏分布（emphasis：已写=accent，规划=灰）── -->
-      <section v-if="distGroups.length" class="panel">
-        <div class="panel-head">
-          <BarChart3 :size="14" /> <span>节奏分布</span>
-          <span v-if="rhythmData?.kind === 'long'" class="head-legend">柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span>
-          <span v-else class="head-legend">柱 已写 · {{ rhythmData?.written?.count ?? 0 }} 章</span>
-        </div>
-        <div class="dist-grid">
-          <div v-for="g in distGroups" :key="g.title" class="dist-group">
-            <div class="dist-title">{{ g.title }}</div>
-            <div v-for="k in g.keys" :key="k" class="dist-row">
-              <span class="dist-key">{{ k }}</span>
-              <div class="dist-bar">
-                <div class="dist-written" :style="{ width: ((g.written[k] ?? 0) / distMax(g) * 100) + '%' }"></div>
-                <div
-                  v-if="(g.planned[k] ?? 0) > 0"
-                  class="dist-target"
-                  :style="{ left: ((g.planned[k] ?? 0) / distMax(g) * 100) + '%' }"
-                ></div>
-              </div>
-              <span class="dist-val">{{ g.written[k] ?? 0 }}<span class="sep">/</span>{{ g.planned[k] ?? 0 }}</span>
-            </div>
-          </div>
-        </div>
-      </section>
+      <RhythmDistPanel :rhythm-data="rhythmData" />
 
       <!-- ── ⑤ 文风摘要（存量一句话+口癖；完整验收/收割在文风工作台）── -->
       <section v-if="chapters > 0" class="panel">
@@ -676,44 +447,6 @@ function distMax(g: DistGroup): number {
 .fs-t { font-size: var(--font-size-xs); color: var(--text-faint); }
 .fs-foot { margin-top: 10px; font-size: var(--font-size-xs); color: var(--text-faint); }
 
-/* ══ ③ 字数曲线 SVG（面积图）══ */
-.chart-svg { width: 100%; height: auto; display: block; }
-.grid-line { stroke: var(--background-modifier-border); stroke-width: 1; }
-.axis-baseline { stroke: var(--background-modifier-border); stroke-width: 1; }
-.grid-label { fill: var(--text-faint); font-size: var(--font-size-xxs); font-variant-numeric: tabular-nums; }
-.axis-label-x { fill: var(--text-faint); font-size: 9px; }
-.word-line { fill: none; stroke: var(--interactive-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.word-dot { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; }
-.avg-line { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.6; }
-.avg-text { fill: var(--text-faint); font-size: var(--font-size-xxs); }
-
-/* ══ 短篇画像缺口 ══ */
-.gap-rows { display: flex; flex-direction: column; gap: 8px; }
-.gap-row { display: grid; grid-template-columns: 72px 1fr 44px; align-items: center; gap: var(--size-4-2); }
-.gap-label { font-size: var(--font-size-xs); color: var(--text-muted); }
-.gap-bar { position: relative; height: 8px; background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent); border-radius: 4px; }
-.gap-fill { height: 100%; background: var(--interactive-accent); border-radius: 4px; transition: width var(--dur-slow) var(--ease-out); }
-.gap-row.is-missing .gap-fill { background: var(--text-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--text-warning) 40%, transparent); }
-.gap-count { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
-.gap-count.is-zero { color: var(--text-warning); font-weight: 600; }
-.gap-unrecognized { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-xxs); color: var(--text-faint); margin-top: 2px; }
-.motif-section { margin-top: 14px; display: flex; align-items: center; gap: var(--size-4-2); }
-.motif-label { font-size: var(--font-size-xs); color: var(--text-faint); flex-shrink: 0; }
-.motif-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.motif-tag { font-size: var(--font-size-xs); padding: 1px 10px; border-radius: 8px; background: color-mix(in srgb, var(--interactive-accent) 10%, transparent); color: var(--text-accent); }
-
-/* ══ ④ 节奏分布 ══ */
-.dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }
-.dist-group { display: flex; flex-direction: column; gap: 8px; }
-.dist-title { font-size: var(--font-size-s); font-weight: 600; color: var(--text-normal); padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid var(--background-modifier-border); }
-.dist-row { display: grid; grid-template-columns: 56px 1fr 38px; align-items: center; gap: var(--size-4-2); }
-.dist-key { font-size: var(--font-size-xs); color: var(--text-muted); }
-.dist-bar { position: relative; height: 14px; display: flex; align-items: center; background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent); border-radius: 4px; }
-.dist-written { height: 8px; background: var(--interactive-accent); border-radius: 3px; transition: width var(--dur-slow) var(--ease-out); }
-.dist-target { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text-muted); border-radius: 1px; transform: translateX(-1px); }
-.dist-val { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
-.dist-val .sep { margin: 0 2px; opacity: 0.5; }
-
 /* ══ ⑤ 文风摘要 ══ */
 .btn-style {
   display: inline-flex; align-items: center; gap: 4px;
@@ -740,7 +473,6 @@ function distMax(g: DistGroup): number {
 @media (max-width: 600px) {
   .hero-ring { display: none; }
   .bento-2 { grid-template-columns: 1fr; }
-  .dist-grid { grid-template-columns: 1fr; }
   .hero-kpis { flex-wrap: wrap; }
   .kpi { flex: 1 1 40%; }
   .kpi + .kpi::before { display: none; }
