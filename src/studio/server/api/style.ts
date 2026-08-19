@@ -99,10 +99,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const body = (await readJson(req)) as Record<string, unknown>
     const kind = body['类型']
     if (typeof kind !== 'string' || !(ENTRY_KINDS as readonly string[]).includes(kind)) {
-      return reply(res, 400, { code: 'BAD_INPUT', error: '类型须为 样章/手法/反例/禁词' })
+      return replyError(res, 400, 'BAD_INPUT', '类型须为 样章/手法/反例/禁词')
     }
     const text = typeof body['正文'] === 'string' ? body['正文'].trim() : ''
-    if (!text) return reply(res, 400, { code: 'BAD_INPUT', error: '正文为空' })
+    if (!text) return replyError(res, 400, 'BAD_INPUT', '正文为空')
     const scene = typeof body['场景'] === 'string' && body['场景'].trim() ? body['场景'].trim() : '通用'
     const source = body['来源']
     const entry: StyleEntry = {
@@ -124,7 +124,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
     if (!insideDir(p, ENTRIES_DIR)) {
-      return reply(res, 400, { code: 'BAD_INPUT', error: 'path 须在 文风/条目/ 内' })
+      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/条目/ 内')
     }
     const absPath = join(bookRoot, p)
     // symlink realpath 校验（防 entry.path 中间组件是符号链接 → rmSync 删到书库外）
@@ -134,10 +134,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
         const realBook = realpathSync(bookRoot)
         const realAbs = realpathSync(absPath)
         if (relative(realBook, realAbs).startsWith('..')) {
-          return reply(res, 400, { code: 'BAD_INPUT', error: '路径越出书库' })
+          return replyError(res, 400, 'BAD_INPUT', '路径越出书库')
         }
       } catch {
-        return reply(res, 400, { code: 'BAD_INPUT', error: '路径异常' })
+        return replyError(res, 400, 'BAD_INPUT', '路径异常')
       }
     }
     rmSync(absPath, { force: true })
@@ -168,11 +168,11 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
     if (!insideDir(p, CANDIDATES_DIR)) {
-      return reply(res, 400, { code: 'BAD_INPUT', error: 'path 须在 文风/候选/ 内' })
+      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
     }
     const entryPath = confirmCandidate(bookRoot, p)
     if (entryPath === null) {
-      return reply(res, 404, { code: 'NOT_FOUND', error: '候选不存在或已损坏' })
+      return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
     }
     reply(res, 200, { ok: true, entryPath })
   })
@@ -184,10 +184,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const body = (await readJson(req)) as Record<string, unknown>
     const p = typeof body['path'] === 'string' ? body['path'] : ''
     if (!insideDir(p, CANDIDATES_DIR)) {
-      return reply(res, 400, { code: 'BAD_INPUT', error: 'path 须在 文风/候选/ 内' })
+      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
     }
     if (!ignoreCandidate(bookRoot, p)) {
-      return reply(res, 404, { code: 'NOT_FOUND', error: '候选不存在或已损坏' })
+      return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
     }
     reply(res, 200, { ok: true })
   })
@@ -230,7 +230,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
     } catch (e) {
       // P2-4：API 错误脱敏
-      reply(res, 400, { code: 'NO_SAMPLES', error: redactSecret(e instanceof Error ? e.message : String(e)) })
+      replyError(res, 400, 'NO_SAMPLES', redactSecret(e instanceof Error ? e.message : String(e)))
     }
   })
 }

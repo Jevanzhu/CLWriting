@@ -219,7 +219,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
       if (expectedRevision === null) {
-        return reply(res, 400, { code: 'BAD_INPUT', error: 'expectedRevision 必填' })
+        return replyError(res, 400, 'BAD_INPUT', 'expectedRevision 必填')
       }
 
       const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {

@@ -86,16 +86,16 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
-      if (!safeDocId(docId)) return reply(res, 400, { code: 'BAD_PATH', error: '文档 ID 非法' })
+      if (!safeDocId(docId)) return replyError(res, 400, 'BAD_PATH', '文档 ID 非法')
       const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
-      if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
+      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
       // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
       const runKey = `${params['name']}/${docId}`
       if (reviewRunning.has(runKey)) {
-        return reply(res, 409, { code: 'REVIEW_RUNNING', error: '该文档三审进行中，请稍候完成后再试' })
+        return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
       reviewRunning.add(runKey)
       try {
@@ -142,7 +142,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         })
         if (!built.ok) {
           rmSync(reviewOutDir, { recursive: true, force: true })
-          return reply(res, 500, { code: 'PACKET_FAIL', error: built.reason })
+          return replyError(res, 500, 'PACKET_FAIL', built.reason)
         }
   
         // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
@@ -162,7 +162,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             outDir: built.packet.out_dir,
             onProgress: emitProgress,
           })
-          if (!loopResult.ok) return reply(res, 500, { code: 'LENS_FAIL', error: loopResult.error })
+          if (!loopResult.ok) return replyError(res, 500, 'LENS_FAIL', loopResult.error)
   
           // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
           const collected = collectReviewIssues({ packet: built.packet })
@@ -200,22 +200,22 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      if (!safeDocId(docId)) return reply(res, 400, { code: 'BAD_PATH', error: '文档 ID 非法' })
+      if (!safeDocId(docId)) return replyError(res, 400, 'BAD_PATH', '文档 ID 非法')
       const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 
       // 合并写：保留 collected/lenses（若已三审），覆盖 verdict
       const existing = readAnalysis(bookRoot, docId, 'review')
       const payload = (existing?.payload as { collected?: unknown; lenses?: string[]; verdict?: unknown } | undefined) ?? {}
       payload.verdict = { approved, at: new Date().toISOString() }
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
       // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
       let body = ''
       try {
         body = readFileSync(absPath, 'utf-8')
       } catch {
-        return reply(res, 500, { code: 'IO', error: '读不到正文文件（可能已被移动或删除），请刷新后再试' })
+        return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
       }
       writeAnalysis(bookRoot, docId, 'review', {
         generatedAt: existing?.generatedAt ?? new Date().toISOString(),

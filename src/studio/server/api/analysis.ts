@@ -71,14 +71,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const docId = params['docId'] ?? ''
       const kind = (params['kind'] ?? '') as AnalysisKind
       const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 
       const env = readAnalysis(bookRoot, docId, kind)
-      if (!env) return reply(res, 404, { code: 'NO_ENVELOPE', error: '无存量分析' })
+      if (!env) return replyError(res, 404, 'NO_ENVELOPE', '无存量分析')
 
       // stale：当前正文 hash 与信封 sourceHash 不符 → 过期
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
       let stale = false
       if (existsSync(absPath)) {
         try {
@@ -100,24 +100,24 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
       const release = acquireTaskGate(params['name']!, 'analyze')
-      if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已有分析任务在跑，请等待完成后再试' })
+      if (!release) return replyError(res, 409, 'BUSY', '本书已有分析任务在跑，请等待完成后再试')
       try {
         const reqBody = await readJson(req)
         const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
         if (!ANALYSIS_KINDS.has(kind)) {
-          return reply(res, 400, { code: 'BAD_KIND', error: 'kind 需为 score/emotion/hooks/style 之一' })
+          return replyError(res, 400, 'BAD_KIND', 'kind 需为 score/emotion/hooks/style 之一')
         }
 
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
         const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
         const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
-        if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
+        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
         const draft = readDraft(absPath)
-        if (!draft.ok) return reply(res, 400, { code: 'NOT_CHAPTER', error: draft.reason })
+        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
 
         // CC-P1-2：sourceHash 与进 prompt 的正文同刻同源——分钟级分析期间作者保存会让
@@ -126,7 +126,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
-        if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
+        if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload
 
         const envelope = {
@@ -152,18 +152,18 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'autotag')
-      if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在识别章节标签，请等待完成后再试' })
+      if (!release) return replyError(res, 409, 'BUSY', '本书已在识别章节标签，请等待完成后再试')
       try {
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
         const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
         const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
-        if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
+        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
         const draft = readDraft(absPath)
-        if (!draft.ok) return reply(res, 400, { code: 'NOT_CHAPTER', error: draft.reason })
+        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
 
         const prompt = [
@@ -175,7 +175,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         ].join('\n')
 
         const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot)
-        if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
+        if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload as Record<string, unknown>
 
         // 校验：只保留合法选项内的字段（防 AI 产出越界值）
@@ -208,18 +208,18 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'infer-meta')
-      if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在推断目标情绪，请等待完成后再试' })
+      if (!release) return replyError(res, 409, 'BUSY', '本书已在推断目标情绪，请等待完成后再试')
       try {
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
         const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
         const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径不合法' })
-        if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
+        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
         const draft = readDraft(absPath)
-        if (!draft.ok) return reply(res, 400, { code: 'NOT_CHAPTER', error: draft.reason })
+        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
 
         const prompt = [
@@ -233,7 +233,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         ].join('\n')
 
         const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot)
-        if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
+        if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
         const meta: Record<string, string> = {}
@@ -335,14 +335,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
       const release = acquireTaskGate(params['name']!, 'analyze-style')
-      if (!release) return reply(res, 409, { code: 'BUSY', error: '本书正在做文风分析，请等待完成后再试' })
+      if (!release) return replyError(res, 409, 'BUSY', '本书正在做文风分析，请等待完成后再试')
       try {
         const bookRoot = r.bookRoot
 
         // 读所有定稿正文章节（按章号排序）
         const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
         const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
-        if (!sorted.length) return reply(res, 400, { code: 'NO_CHAPTERS', error: '无定稿正文章节' })
+        if (!sorted.length) return replyError(res, 400, 'NO_CHAPTERS', '无定稿正文章节')
 
         // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
         const rules = readIronRules(bookRoot)
@@ -375,7 +375,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         ].join('\n')
 
         const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot)
-        if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
+        if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload
 
         const envelope = {

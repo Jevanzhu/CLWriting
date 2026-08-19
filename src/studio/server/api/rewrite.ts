@@ -67,11 +67,11 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')
-    if (!release) return reply(res, 409, { code: 'BUSY', error: '本书已在改写中，请等待完成后再试' })
+    if (!release) return replyError(res, 409, 'BUSY', '本书已在改写中，请等待完成后再试')
     try {
       const reqBody = await readJson(req)
       const instruction = String(reqBody['instruction'] ?? '').trim()
-      if (!instruction) return reply(res, 400, { code: 'BAD_INPUT', error: 'instruction(改写指令)必填' })
+      if (!instruction) return replyError(res, 400, 'BAD_INPUT', 'instruction(改写指令)必填')
       // X-P2-13：选区保持原样（不 trim）参与定位——首尾空白是作者选区的一部分，
       // trim 后匹配可能落到正文另一处；纯空白选区仍视为整章改写
       const selectionRaw = typeof reqBody['selection'] === 'string' ? (reqBody['selection'] as string) : ''
@@ -80,13 +80,13 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
-      if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
+      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
       const draft = readDraft(absPath)
-      if (!draft.ok) return reply(res, 400, { code: 'NOT_CHAPTER', error: draft.reason })
+      if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
       const original = draft.body
       // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
       const selection = selectionRaw || original
@@ -97,10 +97,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       if (mode === 'local') {
         selStart = original.indexOf(selectionRaw)
         if (selStart < 0) {
-          return reply(res, 400, { code: 'BAD_INPUT', error: 'selection 不在正文内' })
+          return replyError(res, 400, 'BAD_INPUT', 'selection 不在正文内')
         }
         if (original.indexOf(selectionRaw, selStart + 1) >= 0) {
-          return reply(res, 400, { code: 'AMBIGUOUS_SELECTION', error: 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）' })
+          return replyError(res, 400, 'AMBIGUOUS_SELECTION', 'selection 在正文中出现多次，无法定位（请扩大选区带上前后文再试）')
         }
       }
 
@@ -108,7 +108,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         ? buildAppendPrompt(original, instruction)
         : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
       const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
-      if (!result.ok) return reply(res, 500, { code: result.code, error: result.error })
+      if (!result.ok) return replyError(res, 500, result.code, result.error)
       const produced = result.produced
       // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
       const rewritten =
@@ -116,7 +116,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
         : produced
       if (rewritten === original) {
-        return reply(res, 500, { code: 'NO_CHANGE', error: '改写产出与原文相同（未发生变化）' })
+        return replyError(res, 500, 'NO_CHANGE', '改写产出与原文相同（未发生变化）')
       }
       reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
     } finally {
@@ -131,7 +131,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const reqBody = await readJson(req)
     const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
-    if (!content.trim()) return reply(res, 400, { code: 'BAD_INPUT', error: 'content 为空' })
+    if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
     const ref = recordAiVersion(r.bookRoot, params['docId'] ?? '', content)
     reply(res, 200, { ok: true, recorded: ref !== null })
   })

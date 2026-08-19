@@ -47,11 +47,11 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return reply(res, 404, { code: 'NOT_FOUND', error: `文档ID未登记：${docId}` })
+      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 
       const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return reply(res, 400, { code: 'BAD_PATH', error: '文档路径非法' })
-      if (!existsSync(absPath)) return reply(res, 404, { code: 'NOT_FOUND', error: `文档不存在：${m.path}` })
+      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
+      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
       const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
       if (!outcome.ok) {
