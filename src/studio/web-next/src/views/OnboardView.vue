@@ -2,43 +2,27 @@
 // 开书对话（重设计 · 向导式 master-detail）：
 // 左栏分组步骤列表 + 右栏详情/生成/编辑面板。
 // 点步骤 → 右栏展开详情（不直接生成）→ 点生成 → 编辑 → 落盘。
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { TriangleAlert, Check, Sparkles, FileText, Loader2, RotateCcw, BookOpen, PenLine } from 'lucide-vue-next'
-import {
-  onboardAi, onboardSave,
-  STEP_LABEL, STEP_PATH, STEP_DESC, type OnboardStep,
-} from '../api/onboard'
+// 巨石批 7c 拆分：梗概卡 → onboard/OnboardPremise、步骤列表 → OnboardStepRail、
+// 步骤面板 → OnboardStepPanel；本文件留 Hero 进度、书型过滤（isShort/isGrowthBook）
+// 与步骤状态机（active/phase/content 的 gen/save 编排）。
+import { ref, computed, onMounted } from 'vue'
+import { TriangleAlert } from 'lucide-vue-next'
+import { onboardAi, onboardSave, STEP_LABEL, STEP_PATH, type OnboardStep } from '../api/onboard'
 import { getConfig } from '../api/books'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
 import BetaBadge from '../components/ui/BetaBadge.vue'
+import OnboardPremise from '../components/onboard/OnboardPremise.vue'
+import OnboardStepRail from '../components/onboard/OnboardStepRail.vue'
+import OnboardStepPanel from '../components/onboard/OnboardStepPanel.vue'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
 const ui = useUiStore()
 const tree = useTreeStore()
 
-// ── 故事梗概（作者设想，AI 据其开书，localStorage 持久化）──
-const PREMISE_KEY = (n: string) => `clwriting:onboard-premise:${n}`
+// ── 故事梗概（作者设想，AI 据其开书；localStorage 持久化在 OnboardPremise 卡内）──
 const storyPremise = ref('')
-onMounted(() => {
-  try {
-    storyPremise.value = localStorage.getItem(PREMISE_KEY(props.bookName)) ?? ''
-  } catch { /* 隐私模式忽略 */ }
-})
-let premiseTimer: ReturnType<typeof setTimeout> | null = null
-watch(storyPremise, (v) => {
-  if (premiseTimer) clearTimeout(premiseTimer)
-  premiseTimer = setTimeout(() => {
-    premiseTimer = null
-    try {
-      localStorage.setItem(PREMISE_KEY(props.bookName), v)
-    } catch { /* 忽略 */ }
-  }, 300)
-})
-onBeforeUnmount(() => {
-  if (premiseTimer) { clearTimeout(premiseTimer); premiseTimer = null }
-})
 
 // ── 步骤分组（语义层次，非平铺）──
 const STEP_GROUPS: { label: string; steps: OnboardStep[] }[] = [
@@ -67,13 +51,6 @@ const visibleStepGroups = computed(() =>
 )
 
 const ALL_STEPS = computed<OnboardStep[]>(() => visibleStepGroups.value.flatMap((g) => g.steps))
-
-const stepIndex = computed(() => {
-  const m = new Map<OnboardStep, number>()
-  let n = 0
-  for (const g of visibleStepGroups.value) for (const s of g.steps) m.set(s, ++n)
-  return m
-})
 
 function isGenerated(step: OnboardStep): boolean {
   return tree.byPath.has(STEP_PATH[step])
@@ -169,115 +146,29 @@ onMounted(async () => {
     </section>
 
     <!-- 故事梗概（作者设想，AI 据此开书） -->
-    <section class="ob-premise">
-      <div class="premise-head">
-        <PenLine :size="14" />
-        <span class="premise-title">故事梗概</span>
-        <span class="premise-sub">输入你的设想，AI 将据此生成各步设定</span>
-      </div>
-      <textarea
-        v-model="storyPremise"
-        class="premise-input"
-        rows="3"
-        placeholder="例：少年林开出身微末，因一场灭门奇案卷入上古灵脉之争，在宗门、朝堂与江湖的暗流中步步为营……"
-      ></textarea>
-      <div class="premise-foot">
-        <span class="premise-hint">生成的每一步都会以此为基准，可随时修改</span>
-      </div>
-    </section>
+    <OnboardPremise v-model="storyPremise" :book-name="bookName" />
 
     <!-- 主体两栏 -->
     <div class="ob-layout">
       <!-- 左栏：分组步骤列表 -->
-      <nav class="ob-rail">
-        <div v-for="g in visibleStepGroups" :key="g.label" class="rail-group">
-          <div class="rail-group-label">{{ g.label }}</div>
-          <button
-            v-for="s in g.steps"
-            :key="s"
-            class="rail-item"
-            :class="{ on: active === s }"
-            :disabled="phase === 'loading'"
-            @click="selectStep(s)"
-          >
-            <span class="rail-no">{{ stepIndex.get(s) }}</span>
-            <span class="rail-label">{{ STEP_LABEL[s] }}</span>
-            <span v-if="isGenerated(s)" class="rail-dot" title="已生成"></span>
-          </button>
-        </div>
-      </nav>
+      <OnboardStepRail
+        :groups="visibleStepGroups"
+        :active="active"
+        :disabled="phase === 'loading'"
+        @select="selectStep"
+      />
 
       <!-- 右栏：详情 / 生成 / 编辑 -->
-      <section class="ob-panel">
-        <!-- 空状态 -->
-        <div v-if="!active" class="panel-empty">
-          <BookOpen :size="28" />
-          <p>选择左侧步骤开始</p>
-        </div>
-
-        <template v-else>
-          <!-- ① 详情确认 -->
-          <div v-if="phase === 'detail'" class="phase-detail">
-            <div class="panel-head">
-              <FileText :size="14" />
-              <span class="ph-title">{{ STEP_LABEL[active] }}</span>
-              <span v-if="isGenerated(active)" class="status done"><Check :size="11" /> 已生成</span>
-              <span v-else class="status">未生成</span>
-            </div>
-
-            <p class="detail-desc">{{ STEP_DESC[active] }}</p>
-
-            <div class="detail-meta">
-              <div class="meta-row">
-                <span class="meta-k">保存位置</span>
-                <code class="meta-v">{{ STEP_PATH[active] }}</code>
-              </div>
-              <div v-if="isGenerated(active)" class="meta-warn">
-                <TriangleAlert :size="12" /> 该文件已存在，重新生成将覆盖已有内容。
-              </div>
-            </div>
-
-            <div class="detail-actions">
-              <button class="btn primary" :disabled="ui.aiAvailable === false" @click="gen">
-                <Sparkles :size="14" />
-                <span>{{ isGenerated(active) ? '重新生成' : '生成' }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- ② 生成中 -->
-          <div v-else-if="phase === 'loading'" class="phase-loading">
-            <Loader2 :size="22" class="spin" />
-            <div class="loading-text">
-              <span class="loading-title">{{ STEP_LABEL[active] }} 生成中…</span>
-              <span class="loading-hint">AI 需要数十秒，请耐心等待</span>
-            </div>
-          </div>
-
-          <!-- ③ 编辑 + 落盘 -->
-          <div v-else class="phase-result">
-            <div class="panel-head">
-              <span class="ph-title">{{ STEP_LABEL[active] }}</span>
-              <span class="status done">完成 · {{ lastWords }} 字</span>
-            </div>
-            <textarea
-              v-model="content"
-              class="content-edit"
-              placeholder="可编辑后保存"
-            ></textarea>
-            <div class="actions">
-              <button class="btn primary" :disabled="saving" @click="save">
-                {{ saving ? '保存中…' : '保存' }}
-              </button>
-              <button class="btn" @click="gen">
-                <RotateCcw :size="13" /><span>重新生成</span>
-              </button>
-            </div>
-          </div>
-        </template>
-
-        <div v-if="err" class="err-msg">{{ err }}</div>
-      </section>
+      <OnboardStepPanel
+        v-model="content"
+        :active="active"
+        :phase="phase"
+        :last-words="lastWords"
+        :saving="saving"
+        :err="err"
+        @gen="gen"
+        @save="save"
+      />
     </div>
   </div>
 </template>
@@ -294,43 +185,6 @@ onMounted(async () => {
   gap: var(--size-4-4);
 }
 
-/* ══ 面板基础（与总览页同语言）══ */
-.ob-rail,
-.ob-panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow-s);
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
-}
-.ob-panel { animation-delay: 60ms; }
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
-
-/* panel-head（与总览页同模式：图标 + 标题，muted 色） */
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: var(--size-4-4);
-  padding: var(--size-4-4) var(--size-4-5) 0;
-}
-.panel-head svg {
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-.ph-title {
-  font-size: var(--font-size-l);
-  font-weight: 700;
-  color: var(--text-normal);
-  letter-spacing: -0.01em;
-}
-
 /* ══ Hero ══ */
 .ob-hero {
   background:
@@ -344,6 +198,10 @@ onMounted(async () => {
   padding: 22px 26px 16px;
   overflow: hidden;
   animation: fade-up 0.5s var(--ease-out) both;
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 .hero-top {
   display: flex;
@@ -401,70 +259,6 @@ onMounted(async () => {
   color: var(--text-warning);
 }
 
-/* ══ 故事梗概 ══ */
-.ob-premise {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow-s);
-  padding: var(--size-4-4) var(--size-4-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-3);
-  animation: fade-up 0.5s var(--ease-out) 120ms both;
-}
-.premise-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.premise-head svg {
-  opacity: 0.5;
-  flex-shrink: 0;
-  color: var(--text-muted);
-}
-.premise-title {
-  font-size: var(--font-size-m);
-  font-weight: 700;
-  color: var(--text-normal);
-  letter-spacing: -0.01em;
-}
-.premise-sub {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-}
-.premise-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: var(--size-4-3);
-  font-family: var(--prose-font);
-  font-size: var(--prose-size);
-  line-height: var(--prose-lh);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  resize: vertical;
-  outline: none;
-  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
-}
-.premise-input:focus {
-  border-color: var(--interactive-accent);
-  background: var(--background-primary);
-}
-.premise-input::placeholder {
-  color: var(--text-faint);
-}
-.premise-foot {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.premise-hint {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
-
 /* ══ 主体两栏 ══ */
 .ob-layout {
   display: grid;
@@ -473,281 +267,6 @@ onMounted(async () => {
   align-items: start;
 }
 
-/* ── 左栏 ── */
-.ob-rail {
-  position: sticky;
-  top: var(--size-4-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-1);
-  padding: var(--size-4-3);
-}
-.rail-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.rail-group:not(:first-child) {
-  margin-top: var(--size-4-2);
-  padding-top: var(--size-4-2);
-  border-top: 1px solid var(--background-modifier-border);
-}
-.rail-group-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: var(--size-4-1) 6px var(--size-4-2);
-  font-size: var(--font-size-s);
-  font-weight: 700;
-  color: var(--text-normal);
-}
-.rail-group-label::before {
-  content: '';
-  width: 3px;
-  height: 13px;
-  border-radius: 2px;
-  background: var(--interactive-accent);
-  opacity: 0.6;
-}
-.rail-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: none;
-  border-left: 2px solid transparent;
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
-  background: none;
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.rail-item:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.rail-item.on {
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
-  border-left-color: var(--interactive-accent);
-  color: var(--text-accent);
-  font-weight: 600;
-}
-.rail-item:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.rail-no {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  min-width: 16px;
-}
-.rail-item.on .rail-no {
-  color: var(--text-accent);
-}
-.rail-label {
-  flex: 1;
-}
-.rail-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--dv-good);
-  flex-shrink: 0;
-}
-
-/* ── 右栏 ── */
-.ob-panel {
-  min-height: 340px;
-  padding-bottom: var(--size-4-5);
-}
-
-/* 空状态 */
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--size-4-2);
-  min-height: 280px;
-  color: var(--text-faint);
-}
-.panel-empty p {
-  margin: 0;
-  font-size: var(--font-size-s);
-}
-
-/* 状态标签 */
-.status {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 8px;
-  border-radius: 99px;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  color: var(--text-muted);
-  background: var(--background-modifier-hover);
-}
-.status.done {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
-}
-
-/* ① 详情 */
-.phase-detail {
-  padding: 0 var(--size-4-5) var(--size-4-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-4);
-}
-.detail-desc {
-  margin: 0;
-  font-size: var(--font-size-m);
-  line-height: 1.8;
-  color: var(--text-muted);
-}
-.detail-meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  padding: var(--size-4-3);
-  background: var(--background-secondary);
-  border-radius: var(--radius-m);
-}
-.meta-row {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-}
-.meta-k {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.meta-v {
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-primary);
-  padding: 2px 8px;
-  border-radius: var(--radius-s);
-}
-.meta-warn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-xs);
-  color: var(--text-warning);
-}
-.detail-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-}
-
-/* ② 生成中 */
-.phase-loading {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-3);
-  padding: var(--size-4-8) var(--size-4-5);
-}
-.loading-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.loading-title {
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.loading-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-
-/* ③ 结果 */
-.phase-result {
-  padding: 0 var(--size-4-5) var(--size-4-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-3);
-}
-.content-edit {
-  width: 100%;
-  min-height: 300px;
-  box-sizing: border-box;
-  padding: var(--size-4-3);
-  font-family: var(--prose-font);
-  font-size: var(--prose-size);
-  line-height: var(--prose-lh);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  resize: vertical;
-  outline: none;
-  transition: border-color var(--dur-fast) var(--ease-out);
-}
-.content-edit:focus {
-  border-color: var(--interactive-accent);
-  background: var(--background-primary);
-}
-.actions {
-  display: flex;
-  gap: var(--size-4-2);
-}
-
-/* 按钮 */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 16px;
-  font-size: var(--font-size-m);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.btn.primary {
-  background: var(--interactive-accent);
-  border-color: transparent;
-  color: var(--text-on-accent);
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.btn:hover:not(:disabled) {
-  border-color: var(--background-modifier-border-hover);
-}
-.btn.primary:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
-}
-
-.spin {
-  animation: cw-spin 0.9s linear infinite;
-  color: var(--text-accent);
-}
-@keyframes cw-spin {
-  to { transform: rotate(360deg); }
-}
-
-.err-msg {
-  margin-top: var(--size-4-3);
-  padding: 0 var(--size-4-5);
-  font-size: var(--font-size-s);
-  color: var(--text-error);
-}
 .ai-warn {
   padding: 8px 14px;
   font-size: var(--font-size-s);
