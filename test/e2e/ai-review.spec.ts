@@ -10,7 +10,8 @@ test('三审：选章 → 审阅 tab → 三审 → 出 mock 意见', async ({ p
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
-  await expect(page.locator('.cm-content')).toBeVisible()
+  // kk 观察：CI 慢速 runner 冷启挂载可超默认 10s，编辑器挂载断言统一放宽（见 check.spec 注）
+  await expect(page.locator('.cm-content')).toBeVisible({ timeout: 20_000 })
 
   // 切右栏「审阅」tab（FileSearch 图标，第2个 .right-tab：信息/审阅/机检/分析）
   await page.locator('.right-tabs .right-tab').nth(1).click()

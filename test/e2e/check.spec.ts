@@ -10,8 +10,9 @@ test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
-  // 编辑区渲染（章节已打开）
-  await expect(page.locator('.cm-content')).toBeVisible()
+  // 编辑区渲染（章节已打开）。kk 观察：CI 慢速 runner 下冷启挂载可超默认 10s（首跑
+  // 抖动实证），与 ai-review/analysis/conflict 同模式的编辑器挂载断言统一放宽到 20s
+  await expect(page.locator('.cm-content')).toBeVisible({ timeout: 20_000 })
 
   // 切右栏「机检」tab（CheckSquare 图标，第3个 .right-tab：信息/审阅/机检/分析）
   await page.locator('.right-tabs .right-tab').nth(2).click()
