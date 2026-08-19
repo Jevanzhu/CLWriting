@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
@@ -37,10 +37,10 @@ interface CheckCtx {
 }
 
 export function registerCheckRoutes(ctx: CheckCtx): void {
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/check',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.check', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/check',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -64,15 +64,15 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       }
       reply(res, 200, { ok: true, report: outcome.report, hasRed: outcome.hasRed })
     },
-  )
+  })
 
   // GET /tree-issues（T9b 树红点冒泡）：扫定稿正文聚合机检 red + verdict 驳回，
   // 返 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId，余省略）。
   // rebuild 一次复用 db 循环 checkWithDb（避免每章 rebuild 的 O(N²)）；rebuild 失败降级空 issues（不阻塞树）。
-  route(
-    'GET',
-    '/api/books/:name/tree-issues',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.tree-issues', {
+    method: 'GET',
+    path: '/api/books/:name/tree-issues',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -89,5 +89,5 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         ...(rebuildFailed ? { warning: '机检索引构建失败，仅显示审稿驳回红点' } : {}),
       })
     },
-  )
+  })
 }

@@ -7,7 +7,7 @@
  * 前端 useHeartbeat mounted + setInterval 调 POST；unmount 调 DELETE。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { writeGuiActive, clearGuiActive } from '../../../process/gui-active.js'
@@ -17,17 +17,25 @@ interface HeartbeatCtx {
 }
 
 export function registerHeartbeatRoutes(ctx: HeartbeatCtx): void {
-  route('POST', '/api/books/:name/heartbeat', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.heartbeat.post', {
+    method: 'POST',
+    path: '/api/books/:name/heartbeat',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     writeGuiActive(r.bookRoot)
     reply(res, 200, { ok: true })
+  },
   })
 
-  route('DELETE', '/api/books/:name/heartbeat', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.heartbeat.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name/heartbeat',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     clearGuiActive(r.bookRoot)
     reply(res, 200, { ok: true })
+  },
   })
 }

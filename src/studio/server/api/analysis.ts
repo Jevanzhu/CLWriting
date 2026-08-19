@@ -13,7 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { readManifest } from '../../../document/manifest.js' // analysis-overview 全量遍历（非 docId 单查）
@@ -61,10 +61,10 @@ const ANALYSIS_LABEL: Record<AnalysisKind, string> = {
 
 export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
   // 读信封 + stale（无 AI 依赖；打开文档时读存量展示）
-  route(
-    'GET',
-    '/api/books/:name/documents/:docId/analysis/:kind',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.analysis', {
+    method: 'GET',
+    path: '/api/books/:name/documents/:docId/analysis/:kind',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -89,13 +89,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       }
       reply(res, 200, { ok: true, envelope: env, stale })
     },
-  )
+  })
 
   // 重新分析（B4.0）：kind → generateTool(submit_<kind>) → 落信封
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/analyze',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.analyze', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/analyze',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
@@ -141,13 +141,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         release()
       }
     },
-  )
+  })
 
   // AI 章节标签识别：generateTool(submit_tags) → 结构化返回（不落信封；前端拿结果写 fm）。
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/autotag',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.autotag', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/autotag',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
@@ -196,14 +196,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         release()
       }
     },
-  )
+  })
 
   // AI 推断目标情绪/核心反转：generateTool(submit_infer_meta) → 结构化返回（不落信封；前端写 fm）。
   // 与 autotag 同构——读正文 → AI 反推 → 返回；长短篇通用（正文 fm 均有这两字段）。
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/infer-meta',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.infer-meta', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/infer-meta',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸
@@ -246,13 +246,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         release()
       }
     },
-  )
+  })
 
   // ── 全书聚合趋势：遍历 分析/<docId>.json 拼趋势序列（无 AI 依赖）──
-  route(
-    'GET',
-    '/api/books/:name/analysis-overview',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.analysis-overview', {
+    method: 'GET',
+    path: '/api/books/:name/analysis-overview',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -324,13 +324,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const styleEnv = readBookAnalysis(bookRoot, 'style')
       reply(res, 200, { ok: true, scoreTrend, emotionTrend, hooksTrend, style: styleEnv?.payload ?? null, allChapters })
     },
-  )
+  })
 
   // ── 全书文风分析：全文 stats + 最近 10 章采样 → AI → __book__.json ──
-  route(
-    'POST',
-    '/api/books/:name/analyze-style',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.analyze-style', {
+    method: 'POST',
+    path: '/api/books/:name/analyze-style',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
@@ -400,7 +400,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         release()
       }
     },
-  )
+  })
 }
 
 /** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约 + 章纲/stats 为底）。 */

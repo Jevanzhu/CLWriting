@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve, relative, isAbsolute, basename } from 'node:path'
 import { readFileSync, existsSync, realpathSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -37,7 +37,10 @@ const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进
 
 export function registerFileRoutes(ctx: FileCtx): void {
   // 读 .md 全文
-  route('GET', '/api/books/:name/file', (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.file.get', {
+    method: 'GET',
+    path: '/api/books/:name/file',
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const file = queryParams(req).get('file') ?? ''
@@ -45,13 +48,14 @@ export function registerFileRoutes(ctx: FileCtx): void {
     if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
     if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
     reply(res, 200, { content: readFileSync(safe, 'utf-8') })
+  },
   })
 
   // 写 .md 全文
-  route(
-    'PUT',
-    '/api/books/:name/file',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.file.put', {
+    method: 'PUT',
+    path: '/api/books/:name/file',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const file = queryParams(req).get('file') ?? ''
@@ -71,7 +75,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
       invalidateTreeIndex(r.bookRoot)
       reply(res, 200, { ok: true })
     },
-  )
+  })
 
 }
 

@@ -10,7 +10,6 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { route } from '../router.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -125,7 +124,10 @@ function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): voi
 
 export function registerStreamRoutes(ctx: StreamCtx): void {
   // SSE 订阅 driver 事件流
-  route('GET', '/api/books/:name/stream', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.stream', {
+    method: 'GET',
+    path: '/api/books/:name/stream',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     // P2-2：per-book 连接数限制
     const sseName = params['name']!
     const conns = sseConnections.get(sseName) ?? 0
@@ -209,10 +211,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     clearInterval(heartbeat)
     if (!res.writableEnded) res.end()
+  },
   })
 
   // 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流
-  route('POST', '/api/books/:name/spawn', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.spawn', {
+    method: 'POST',
+    path: '/api/books/:name/spawn',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     // resolveBook 成功 = workDir 非空（null 已在其 error 分支 NO_WORKDIR 覆盖）——
     // 本文件后续 ctx.workDir! 断言据此成立（ensureSession 的 session.cwd 用 workDir 而非 bookRoot）
     const r = resolveBook(ctx.workDir, params['name'])
@@ -262,10 +268,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     } finally {
       if (!launched) spawnRunning.delete(bookName)
     }
+  },
   })
 
   // 中断当前生成：AbortController.abort() + 推 interrupted，session 保留可再 spawn
-  route('POST', '/api/books/:name/interrupt', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.interrupt', {
+    method: 'POST',
+    path: '/api/books/:name/interrupt',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
@@ -276,11 +286,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const driver = getDriver('cc')
     if (driver.interrupt) driver.interrupt(session)
     reply(res, 200, { ok: true })
+  },
   })
 
   // 全自动写章(红项自愈闭环):AI 写稿 → 机检 → 红则自动退回重写 → 全绿或触顶交作者。
   // fire-and-forget(与 /spawn 同风格):编排最长可跑十几分钟,进度全程经主 session SSE 回流。
-  route('POST', '/api/books/:name/auto-write', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.auto-write', {
+    method: 'POST',
+    path: '/api/books/:name/auto-write',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
@@ -338,6 +352,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       })
 
     reply(res, 200, { ok: true, chapter, ...(batchSize > 1 ? { batchSize, chapters } : {}) })
+  },
   })
 
   // 对话助手：fire-and-forget + SSE 回流（与 /spawn 同模式）
@@ -386,7 +401,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   })
 
   // 工具确认：作者点了确认/取消
-  route('POST', '/api/books/:name/chat/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.chat.confirm', {
+    method: 'POST',
+    path: '/api/books/:name/chat/confirm',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     const body = await readJson(req)
@@ -397,10 +415,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const found = resolveChatConfirm(bookName, callId, ok)
     if (!found) return replyError(res, 404, 'NOT_FOUND', '未找到待确认的工具调用（已超时或已取消）')
     reply(res, 200, { ok: true })
+  },
   })
 
   // F1-P4：重新生成上一条回复——parentSeq = 触发 user 的全局 seq，branchId = 变体组
-  route('POST', '/api/books/:name/chat/regenerate', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.chat.regenerate', {
+    method: 'POST',
+    path: '/api/books/:name/chat/regenerate',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
@@ -426,10 +448,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       ...(chapter !== undefined ? { chapter } : {}),
     })
     reply(res, 200, { ok: true, queued: outcome === 'queued' })
+  },
   })
 
   // 清空本书对话历史（前端"清空对话"时调）
-  route('POST', '/api/books/:name/chat/clear', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.chat.clear', {
+    method: 'POST',
+    path: '/api/books/:name/chat/clear',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
@@ -437,5 +463,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const entry = readBooks(ctx.workDir).find((b) => b.name === bookName)
     clearChatHistory(bookName, ctx.userDataPath ?? undefined, entry ? join(ctx.workDir, entry.path) : undefined)
     reply(res, 200, { ok: true })
+  },
   })
 }

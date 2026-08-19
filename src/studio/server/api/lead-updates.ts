@@ -8,7 +8,7 @@
  * prompt 自含任务说明（system prompt 为空），纯文本产出。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { generateLeadUpdateDraft } from '../../../process/lead-update-draft.js'
@@ -20,7 +20,10 @@ interface LeadUpdateCtx {
 }
 
 export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
-  route('POST', '/api/books/:name/lead-updates', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.lead-updates', {
+    method: 'POST',
+    path: '/api/books/:name/lead-updates',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（AI 草拟分钟级，覆盖落盘 工作区/账本推进.md）
@@ -44,5 +47,6 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     } finally {
       release()
     }
+  },
   })
 }

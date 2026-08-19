@@ -11,7 +11,7 @@
  * 供应商配置落 userDataPath/providers.json（应用级，跨书共享，不进 git）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
 import {
   loadProviders,
@@ -35,7 +35,10 @@ interface ProvidersCtx {
 
 export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // 列表（key 遮蔽）
-  route('GET', '/api/providers', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('providers.get', {
+    method: 'GET',
+    path: '/api/providers',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
@@ -45,10 +48,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       tiers: s.tiers,
       revision: s.revision,
     })
+  },
   })
 
   // 新增
-  route('POST', '/api/providers', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('providers.post', {
+    method: 'POST',
+    path: '/api/providers',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const parsed = parseProviderInput(body)
@@ -76,10 +83,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!s.currentId) s.currentId = conf.id
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskProvider(conf), revision: s.revision })
+  },
   })
 
   // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
-  route('PUT', '/api/providers/current', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('providers.current', {
+    method: 'PUT',
+    path: '/api/providers/current',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const id = String(body['id'] ?? '')
@@ -98,10 +109,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     saveProviders(ctx.userDataPath, s)
     // saveProviders bump revision——回传新值，前端 activate() 同步，否则后续写因陈旧 expectedRevision 409（P4）
     reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
+  },
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
-  route('PUT', '/api/tiers', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('tiers', {
+    method: 'PUT',
+    path: '/api/tiers',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const creativeRaw = body['creative']
@@ -132,11 +147,15 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
     // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision, details: {} })
+  },
   })
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
   // caps 探测改异步不阻塞（结果经后续 GET /providers 刷新）
-  route('PUT', '/api/tiers/chat', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('tiers.chat', {
+    method: 'PUT',
+    path: '/api/tiers/chat',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
 
@@ -161,10 +180,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
     // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
+  },
   })
 
   // 编辑
-  route('PUT', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('providers.put', {
+    method: 'PUT',
+    path: '/api/providers/:id',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
     // dd-P2：读 body 先于 loadProviders——load→mutate→save 三段必须同步无 await
@@ -210,10 +233,14 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskProvider(s.providers[idx]!), revision: s.revision })
+  },
   })
 
   // 删除
-  route('DELETE', '/api/providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('providers.delete', {
+    method: 'DELETE',
+    path: '/api/providers/:id',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
     // P4：DELETE 无 body 常规场景容错——有 body 才读 expectedRevision（旧客户端/脚本无 body 放行）
@@ -236,11 +263,15 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     }
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
+  },
   })
 
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
   // 获取模型列表（新建传 protocol+baseUrl+apiKey；编辑传 id 用已存储凭据）
-  route('POST', '/api/providers/models', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('providers.models', {
+    method: 'POST',
+    path: '/api/providers/models',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     let protocol: Protocol
@@ -269,9 +300,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // P2-4：错误脱敏
       replyError(res, 500, 'GEN_FAIL', `获取模型列表失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
     }
+  },
   })
 
-  route('POST', '/api/providers/:id/test', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('providers.test', {
+    method: 'POST',
+    path: '/api/providers/:id/test',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
 
@@ -303,6 +338,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // P2-4：错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
       replyError(res, 500, 'GEN_FAIL', redactSecret(e instanceof Error ? e.message : String(e)))
     }
+  },
   })
 }
 

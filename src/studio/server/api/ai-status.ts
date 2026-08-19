@@ -10,7 +10,7 @@
  * 代价可忽略；缓存会让「供应商刚配置好」落在 10s 旧结果上，按钮仍置灰。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { currentProvider, resolveTier } from '../../../ai/provider/index.js'
 
@@ -25,7 +25,10 @@ interface AiStatusCtx {
 }
 
 export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
-  route('GET', '/api/ai-status', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('ai-status', {
+    method: 'GET',
+    path: '/api/ai-status',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     // e2e AI-DOWN：跳全部逻辑直接判定
     if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
       reply(res, 200, probeAi(null))
@@ -33,6 +36,7 @@ export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
     }
     // 每次实时探测（P0-2：无缓存，供应商增改/测试/切换后立即可达）
     reply(res, 200, probeAi(ctx.userDataPath))
+  },
   })
 }
 

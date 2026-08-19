@@ -9,7 +9,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -35,7 +35,10 @@ const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
 
 export function registerOverviewRoutes(ctx: OverviewCtx): void {
-  route('GET', '/api/books/:name/overview', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.overview', {
+    method: 'GET',
+    path: '/api/books/:name/overview',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const entry = r.entry
@@ -95,6 +98,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       streak: computeStreak(timeline),
       ...(shortProfile ? { shortProfile } : {}),
     })
+  },
   })
 }
 

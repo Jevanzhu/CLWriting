@@ -11,7 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readKind } from '../../../format/kind.js'
@@ -31,7 +31,10 @@ interface DraftCtx {
 }
 
 export function registerDraftRoutes(ctx: DraftCtx): void {
-  route('POST', '/api/books/:name/draft-save', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.draft-save', {
+    method: 'POST',
+    path: '/api/books/:name/draft-save',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -61,10 +64,14 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       docId: saved.docId,
       snapshotted: saved.snapshotted,
     })
+  },
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn
-  route('GET', '/api/books/:name/draft-prompt', (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.draft-prompt', {
+    method: 'GET',
+    path: '/api/books/:name/draft-prompt',
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const url = new URL(req.url ?? '/', 'http://localhost')
@@ -74,5 +81,6 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     // P1 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
     const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath ?? null)
     reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config) })
+  },
   })
 }

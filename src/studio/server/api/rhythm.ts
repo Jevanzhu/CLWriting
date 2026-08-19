@@ -8,7 +8,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -26,13 +26,17 @@ const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '�
 const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
 export function registerRhythmRoutes(ctx: RhythmCtx): void {
-  route('GET', '/api/books/:name/rhythm', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.rhythm', {
+    method: 'GET',
+    path: '/api/books/:name/rhythm',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const bookRoot = r.bookRoot
     const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
     reply(res, 200, config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot))
+  },
   })
 }
 

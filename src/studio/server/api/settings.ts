@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
 import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, readJson, HttpError, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
@@ -49,16 +49,23 @@ import { log } from '../../../log/index.js'
 export type { CharacterCard } from '../../../process/settings-context.js'
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
-  route('GET', '/api/books/:name/settings', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.settings', {
+    method: 'GET',
+    path: '/api/books/:name/settings',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const bookRoot = r.bookRoot
     reply(res, 200, settingsLong(bookRoot))
+  },
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
-  route('GET', '/api/books/:name/completion-names', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.completion-names', {
+    method: 'GET',
+    path: '/api/books/:name/completion-names',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const setDir = join(r.bookRoot, '设定')
@@ -66,10 +73,14 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       characters: readFmNames(join(setDir, '角色'), '姓名'),
       items: readFmNames(join(setDir, '物品'), '名称'),
     })
+  },
   })
 
   // AI 关系梳理：通读名册/角色卡/正文，提炼关系边 → 落盘 .clwriting/relations.json
-  route('POST', '/api/books/:name/relations/mine', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.relations.mine', {
+    method: 'POST',
+    path: '/api/books/:name/relations/mine',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
@@ -110,6 +121,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     } finally {
       release()
     }
+  },
   })
 }
 

@@ -14,7 +14,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
@@ -62,7 +62,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ generateTool(submit_text) → lineDiff
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // M2 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
-  route('POST', '/api/books/:name/documents/:docId/rewrite', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.rewrite', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/rewrite',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
@@ -122,11 +125,15 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     } finally {
       release()
     }
+  },
   })
 
   // 改稿轨迹采集（文风S2）：作者接受改写时前端上报 AI 版全文 → 旁路 ref。
   // 只写 ref 不碰正文（「AI 永不落盘正文」红线不破）；失败静默——轨迹是旁路证据，不阻断接受。
-  route('POST', '/api/books/:name/documents/:docId/ai-version', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.ai-version', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/ai-version',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const reqBody = await readJson(req)
@@ -134,5 +141,6 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
     const ref = recordAiVersion(r.bookRoot, params['docId'] ?? '', content)
     reply(res, 200, { ok: true, recorded: ref !== null })
+  },
   })
 }

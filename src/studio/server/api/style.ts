@@ -16,7 +16,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
 import { rmSync, existsSync, readFileSync, realpathSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError, readJson } from '../http.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -79,7 +79,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   }
 
   // 条目列表（老书首读自动迁移——幂等，常态 no-op；迁移发生时附结果供 toast）
-  route('GET', '/api/books/:name/style/entries', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.entries.get', {
+    method: 'GET',
+    path: '/api/books/:name/style/entries',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const migration = migrateStyleLibrary(bookRoot)
@@ -90,10 +93,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       errors,
       migration: migration.migrated > 0 ? migration : null,
     })
+  },
   })
 
   // 新增条目（源4 作者手动：选中存样章/反例、条目库直接新增）
-  route('POST', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.entries.post', {
+    method: 'POST',
+    path: '/api/books/:name/style/entries',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
@@ -115,10 +122,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       正文: text,
     }
     reply(res, 200, { ok: true, path: addEntry(bookRoot, entry) })
+  },
   })
 
   // 删条目（限 文风/条目/ 内）
-  route('DELETE', '/api/books/:name/style/entries', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.entries.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name/style/entries',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
@@ -142,10 +153,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     }
     rmSync(absPath, { force: true })
     reply(res, 200, { ok: true })
+  },
   })
 
   // 候选列表（状态经 30 天过期呈现；文件不动，已忽略可翻出）
-  route('GET', '/api/books/:name/style/candidates', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.candidates', {
+    method: 'GET',
+    path: '/api/books/:name/style/candidates',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const t = today()
@@ -159,10 +174,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       })),
       errors,
     })
+  },
   })
 
   // 确认候选 → 条目库
-  route('POST', '/api/books/:name/style/candidates/confirm', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.candidates.confirm', {
+    method: 'POST',
+    path: '/api/books/:name/style/candidates/confirm',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
@@ -175,10 +194,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
     }
     reply(res, 200, { ok: true, entryPath })
+  },
   })
 
   // 忽略候选（落盘留档）
-  route('POST', '/api/books/:name/style/candidates/ignore', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.candidates.ignore', {
+    method: 'POST',
+    path: '/api/books/:name/style/candidates/ignore',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const body = (await readJson(req)) as Record<string, unknown>
@@ -190,20 +213,28 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
     }
     reply(res, 200, { ok: true })
+  },
   })
 
   // 收割（零 AI：源1 轨迹比对 + 源2 漂移映射；查重闸保证可重复点）
-  route('POST', '/api/books/:name/style/harvest', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.harvest', {
+    method: 'POST',
+    path: '/api/books/:name/style/harvest',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const r = harvestStyleCandidates(bookRoot, readKind(bookRoot), today())
     reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+  },
   })
 
   // 定标数据：铁律阈值（纯配置本身，不合并条目禁词）+ 基线摘要 + 注入强度。
   // 注入强度是喂写作链路的有效值——readBookConfig 结果过 applyGlobalDefaults
   // （书级未设 → global.json styleInjection → 硬编码 'light'；raw 判断归 /config 端点）
-  route('GET', '/api/books/:name/style/config', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.config', {
+    method: 'GET',
+    path: '/api/books/:name/style/config',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     const rulesFile = join(bookRoot, '文风', '文风铁律.md')
@@ -219,10 +250,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
         : null,
       injection,
     })
+  },
   })
 
   // 重新冻结基线（条目库样章按场景算指纹；无样章 → 400 诚实报错）
-  route('POST', '/api/books/:name/style/baseline/freeze', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.style.baseline.freeze', {
+    method: 'POST',
+    path: '/api/books/:name/style/baseline/freeze',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
     try {
@@ -232,5 +267,6 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       // P2-4：API 错误脱敏
       replyError(res, 400, 'NO_SAMPLES', redactSecret(e instanceof Error ? e.message : String(e)))
     }
+  },
   })
 }

@@ -14,7 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -71,7 +71,10 @@ const STEP_PATH: Record<OnboardStep, string> = {
 }
 
 export function registerOnboardRoutes(ctx: OnboardCtx): void {
-  route('POST', '/api/books/:name/onboard-ai', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.onboard-ai', {
+    method: 'POST',
+    path: '/api/books/:name/onboard-ai',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
@@ -123,10 +126,14 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     } finally {
       release()
     }
+  },
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
-  route('POST', '/api/books/:name/onboard-save', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.onboard-save', {
+    method: 'POST',
+    path: '/api/books/:name/onboard-save',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
@@ -143,6 +150,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       return replyError(res, 500, 'IO', '落盘失败')
     }
     reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
+  },
   })
 }
 

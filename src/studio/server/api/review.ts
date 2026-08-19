@@ -15,7 +15,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -77,10 +77,10 @@ export function lensToRole(lens: string): string {
 
 export function registerReviewRoutes(ctx: ReviewCtx): void {
   // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/review',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.review', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/review',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -185,14 +185,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         reviewRunning.delete(runKey)
       }
     },
-  )
+  })
 
   // 裁决直读（M12 B1.3，docId 线，方案 A）：落 review 信封 payload.verdict（不改 fm / deriveStatus）。
   // 手写线不走 finalize；verdict 是作者基于三审意见的裁决，纯展示标记 + 信封存档。
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/review-verdict',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.review-verdict', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/review-verdict',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const reqBody = await readJson(req)
@@ -225,7 +225,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       })
       reply(res, 200, { ok: true, verdict: payload.verdict })
     },
-  )
+  })
 }
 
 /**

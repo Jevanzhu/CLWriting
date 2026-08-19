@@ -10,7 +10,7 @@
  * 人工介入优先（方向方案 A4 边界）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 
 export interface StartupNotice {
@@ -39,7 +39,11 @@ export function createStartupNoticeSink(): StartupNoticeSink {
 }
 
 export function registerStartupNoticeRoutes(ctx: { sink: StartupNoticeSink }): void {
-  route('GET', '/api/startup-notices', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('startup-notices', {
+    method: 'GET',
+    path: '/api/startup-notices',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     reply(res, 200, { notices: ctx.sink.notices })
+  },
   })
 }

@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -43,7 +43,10 @@ async function runOutline(
 }
 
 export function registerOutlineRoutes(ctx: OutlineCtx): void {
-  route('POST', '/api/books/:name/outline', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.outline', {
+    method: 'POST',
+    path: '/api/books/:name/outline',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // RB-SV-P2-2：长任务并发闸（细纲生成分钟级，且落盘为覆盖写）
@@ -86,6 +89,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     } finally {
       release()
     }
+  },
   })
 }
 

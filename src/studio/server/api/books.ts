@@ -11,7 +11,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { rmSync, realpathSync, renameSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { route } from '../router.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import {
@@ -59,7 +58,10 @@ let initialBook: string | undefined
 
 export function registerBookRoutes(ctx: BookCtx): void {
   // 书架列表
-  route('GET', '/api/books', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('books.get', {
+    method: 'GET',
+    path: '/api/books',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
       reply(res, 200, {
         books: [],
@@ -94,10 +96,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
     })
     reply(res, 200, { books, workDir: true })
+  },
   })
 
   // 建书（1.5 段 1 表单 → doInit）
-  route('POST', '/api/books', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('books.post', {
+    method: 'POST',
+    path: '/api/books',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录，无法建书')
       return
@@ -149,10 +155,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
+  },
   })
 
   // 删书（物理删除：rmSync 书目录 + 移 books.jsonl 登记 + 清 active 指针）
-  route('DELETE', '/api/books/:name', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
@@ -217,6 +227,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
     forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
     reply(res, 200, { ok: true, name })
+  },
   })
 
   // 改书名（全量同步：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 一起改，
@@ -361,10 +372,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
   })
 
   // 单书身份
-  route(
-    'GET',
-    '/api/books/:name',
-    (_req: IncomingMessage, res: ServerResponse, params: Record<string, string>) => {
+  defineRoute('books.by-name.get', {
+    method: 'GET',
+    path: '/api/books/:name',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const name = params['name']
       if (!name || !ctx.workDir) {
         replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
@@ -388,10 +399,13 @@ export function registerBookRoutes(ctx: BookCtx): void {
         host: config.host ?? 'cc',
       })
     },
-  )
+  })
 
   // 启动初始态（--book 直进 + session token 注入前端）
-  route('GET', '/api/boot', (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('boot', {
+    method: 'GET',
+    path: '/api/boot',
+    handler: (_, req: IncomingMessage, res: ServerResponse) => {
     // RB-SV-P1-1：token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
     // Origin（server/index.ts 注入）；外部 Origin 一律不给。initialBook 无敏感性，照常回传。
     // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程无 Origin 直连
@@ -400,6 +414,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     const origin = req.headers.origin
     const trusted = !origin || ctx.isTrustedOrigin(origin)
     reply(res, 200, trusted ? { initialBook, token: ctx.token } : { initialBook })
+  },
   })
 }
 

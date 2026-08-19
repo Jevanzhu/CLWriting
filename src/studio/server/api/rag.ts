@@ -15,7 +15,7 @@
  * 避免长 HTTP 请求挂死前端 fetch。任务单飞（同书同一时刻仅一个，重入 409，RB-SV-P2-2）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readRagConfig } from '../../../rag/config.js'
@@ -113,7 +113,10 @@ function startRagBuild(
 }
 
 export function registerRagRoutes(ctx: RagCtx): void {
-  route('GET', '/api/books/:name/rag/status', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.rag.status', {
+    method: 'GET',
+    path: '/api/books/:name/rag/status',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookRoot = r.bookRoot
@@ -152,9 +155,13 @@ export function registerRagRoutes(ctx: RagCtx): void {
       legacy: resolved?.legacy ?? false,
       lastResult: task?.lastResult ?? null,
     })
+  },
   })
 
-  route('POST', '/api/books/:name/rag/build', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.rag.build', {
+    method: 'POST',
+    path: '/api/books/:name/rag/build',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookRoot = r.bookRoot
@@ -165,5 +172,6 @@ export function registerRagRoutes(ctx: RagCtx): void {
       return replyError(res, busy ? 409 : 400, busy ? 'BUSY' : 'BAD_INPUT', start.reason)
     }
     reply(res, 200, { started: true })
+  },
   })
 }

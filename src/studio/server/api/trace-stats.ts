@@ -6,7 +6,7 @@
  * 薄接线——逻辑全在 trace-stats.ts / rule-hits.ts。B3 顺带透出规则命中统计。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { aggregateTrace } from '../../../ai/trace-stats.js'
@@ -19,7 +19,10 @@ interface TraceStatsCtx {
 }
 
 export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
-  route('GET', '/api/books/:name/trace-stats', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.trace-stats', {
+    method: 'GET',
+    path: '/api/books/:name/trace-stats',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -28,5 +31,6 @@ export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
     const stats = aggregateTrace(ctx.userDataPath, bookRoot)
     // B3：规则命中统计（按 hits 降序）
     reply(res, 200, { ...stats, ruleHits: readRuleHits(bookRoot) })
+  },
   })
 }

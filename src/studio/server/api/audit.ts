@@ -17,7 +17,7 @@
  * 纯只读（重放纯函数），不产生副作用。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
@@ -167,7 +167,10 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
 }
 
 export function registerAuditRoutes(ctx: AuditCtx): void {
-  route('GET', '/api/books/:name/audit', (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.audit.get', {
+    method: 'GET',
+    path: '/api/books/:name/audit',
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
@@ -188,12 +191,16 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     } finally {
       store.close()
     }
+  },
   })
 
   // 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）：每书事件史清除入口。
   // 对话会话（book=bookName）与工作流会话（book=bookHash）同库不同 book 键——两侧都清；
   // 事件是 append-only 审计数据，清除是作者显式销毁动作，前端二次确认后才调本端点。
-  route('DELETE', '/api/books/:name/audit', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.audit.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name/audit',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
@@ -219,6 +226,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     } finally {
       store.close()
     }
+  },
   })
 }
 

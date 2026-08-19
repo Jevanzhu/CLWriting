@@ -11,7 +11,7 @@
  * 与 /api/providers 分开一组路由：无「设为当前」概念（选用权在书），无档位/协议维度。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
 import {
   loadProviders,
@@ -56,17 +56,24 @@ function revisionError(expected: unknown, current: number): string | null {
 
 export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   // 列表（key 遮蔽；顺带回 revision 供前端并发守卫）
-  route('GET', '/api/rag-providers', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('rag-providers.get', {
+    method: 'GET',
+    path: '/api/rag-providers',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
       ragProviders: s.ragProviders.map(maskRagProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
       revision: s.revision,
     })
+  },
   })
 
   // 新增（apiKey 必填——编辑才允许留空保留）
-  route('POST', '/api/rag-providers', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('rag-providers.post', {
+    method: 'POST',
+    path: '/api/rag-providers',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
     const parsed = parseRagInput(body)
@@ -89,10 +96,14 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     s.ragProviders.push(conf)
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskRagProvider(conf), revision: s.revision })
+  },
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
-  route('PUT', '/api/rag-providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('rag-providers.put', {
+    method: 'PUT',
+    path: '/api/rag-providers/:id',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     // dd-P2：body 先读——load→mutate→save 三段同步无 await（单事件循环内原子），防并发丢更新
     const body = await readJson(req)
@@ -116,10 +127,14 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     }
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskRagProvider(target), revision: s.revision })
+  },
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
-  route('DELETE', '/api/rag-providers/:id', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('rag-providers.delete', {
+    method: 'DELETE',
+    path: '/api/rag-providers/:id',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     // P4：DELETE 无 body 常规场景容错（旧客户端/脚本放行）
     let expected: unknown
@@ -138,11 +153,15 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     s.ragProviders.splice(idx, 1)
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { ok: true, revision: s.revision })
+  },
   })
 
   // 测试连接：真实 embed 一次 'ping'（15s）——embed 失败返回 null 不带原因，
   // connected=false 时只能给笼统提示（网络/鉴权/模型名三选一，前端文案照此引导）
-  route('POST', '/api/rag-providers/:id/test', async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('rag-providers.test', {
+    method: 'POST',
+    path: '/api/rag-providers/:id/test',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const snapshot = loadProviders(ctx.userDataPath)
     const target = snapshot.ragProviders.find((p) => p.id === params['id'])
@@ -163,5 +182,6 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       caps: { connected },
       ...(connected ? {} : { error: '嵌入端点调用失败：请检查地址 / API Key / 模型名' }),
     })
+  },
   })
 }

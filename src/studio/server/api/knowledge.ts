@@ -8,7 +8,7 @@
  * 均直接调内核函数（不 spawn CLI，非交互）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { checkToken, readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
@@ -35,7 +35,10 @@ function isQuoteCandidate(v: unknown): v is QuoteCandidate {
 
 export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）
-  route('POST', '/api/books/:name/learn', (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.learn', {
+    method: 'POST',
+    path: '/api/books/:name/learn',
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
     const r = resolveBook(ctx.workDir, params['name'])
@@ -43,10 +46,14 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const result = learnFromBook(r.bookRoot)
     if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
     reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
+  },
   })
 
   // learn 入库（作者勾选后调内核 commitSamples/commitQuotes）
-  route('POST', '/api/books/:name/learn-commit', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.learn-commit', {
+    method: 'POST',
+    path: '/api/books/:name/learn-commit',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
     const r = resolveBook(ctx.workDir, params['name'])
@@ -58,5 +65,6 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const sampleFiles = samples.length ? commitSamples(bookRoot, samples) : []
     const quoteFiles = quotes.length ? commitQuotes(bookRoot, quotes) : []
     reply(res, 200, { ok: true, sampleFiles, quoteFiles })
+  },
   })
 }

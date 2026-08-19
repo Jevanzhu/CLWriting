@@ -8,7 +8,7 @@
  * 不复制逻辑）；本文件只做 HTTP 壳。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { searchBook } from '../../../process/book-search.js'
@@ -18,7 +18,10 @@ interface SearchCtx {
 }
 
 export function registerSearchRoutes(ctx: SearchCtx): void {
-  route('GET', '/api/books/:name/search', (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.search', {
+    method: 'GET',
+    path: '/api/books/:name/search',
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -30,5 +33,6 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
     const out = searchBook(bookRoot, q, scope)
     if (out.truncated) reply(res, 200, { results: out.results, truncated: true })
     else reply(res, 200, { results: out.results })
+  },
   })
 }

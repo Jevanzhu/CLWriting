@@ -14,7 +14,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { readdirSync, statSync, existsSync } from 'node:fs'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBooks } from '../../../install/books.js'
@@ -102,10 +102,10 @@ function scanVersionsDir(
 
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   // 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数
-  route(
-    'GET',
-    '/api/books/:name/version-stats',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.version-stats', {
+    method: 'GET',
+    path: '/api/books/:name/version-stats',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -125,14 +125,14 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         finalizedDocs,
       })
     },
-  )
+  })
 
   // 立即清理过期编辑快照（改动 10b S24）：按保留策略（max_days/max_count）扫全书所有
   // docId 的版本目录 prune 一遍。pinned 定稿版本永久保留不清理。返回清理的文件数。
-  route(
-    'POST',
-    '/api/books/:name/versions/prune',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.versions.prune', {
+    method: 'POST',
+    path: '/api/books/:name/versions/prune',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -176,25 +176,25 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       }
       reply(res, 200, { ok: true, removed })
     },
-  )
+  })
 
   // 版本列表（新的在前）
-  route(
-    'GET',
-    '/api/books/:name/documents/:docId/snapshots',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.snapshots', {
+    method: 'GET',
+    path: '/api/books/:name/documents/:docId/snapshots',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       reply(res, 200, { ok: true, entries: listSnapshotEntries(r.snapshotsDir, docId, countWords) })
     },
-  )
+  })
 
   // 单个版本内容（预览用）
-  route(
-    'GET',
-    '/api/books/:name/documents/:docId/snapshots/:id',
-    (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.snapshots.get', {
+    method: 'GET',
+    path: '/api/books/:name/documents/:docId/snapshots/:id',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
@@ -202,13 +202,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
       reply(res, 200, { ok: true, content: snap.content, meta: snap.meta })
     },
-  )
+  })
 
   // 恢复：用该版本内容覆盖当前正文（当前内容自动留底）
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/snapshots/:id/restore',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.snapshots.restore', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/snapshots/:id/restore',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
       const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
@@ -235,5 +235,5 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       }
       reply(res, 200, { ok: true, revision: outcome.revision, content: snap.content })
     },
-  )
+  })
 }

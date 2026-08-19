@@ -7,7 +7,7 @@
  * 写端点带 session token 校验（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { checkToken, readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { exportBook, type ExportFormat, type ExportPlatform } from '../../../export/index.js'
@@ -23,7 +23,10 @@ const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
 export function registerIoRoutes(ctx: IoCtx): void {
   // 导出定稿
-  route('POST', '/api/books/:name/export', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.export', {
+    method: 'POST',
+    path: '/api/books/:name/export',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
     const r = resolveBook(ctx.workDir, params['name'])
@@ -42,5 +45,6 @@ export function registerIoRoutes(ctx: IoCtx): void {
       unit: result.unit,
       files: result.files,
     })
+  },
   })
 }

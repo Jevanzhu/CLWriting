@@ -9,12 +9,13 @@
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
+import { afterFinalizeGenerateSummary } from '../../../process/summary.js'
 import { invalidateBookSummary } from './progress.js'
 import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -88,10 +89,10 @@ function recordForeshadowDelta(
 
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── W1：保存内容 ──────────────────────────────
-  route(
-    'PUT',
-    '/api/books/:name/documents/:docId/content',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.content', {
+    method: 'PUT',
+    path: '/api/books/:name/documents/:docId/content',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -123,13 +124,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // CC-P2-11：错误信封统一 {error, code?}——save 结构化失败码保留 code，人话进 error
       reply(res, structStatus(outcome.code), { code: outcome.code, error: outcome.reason })
     },
-  )
+  })
 
   // ── W2A：文件树 ──────────────────────────────
-  route(
-    'GET',
-    '/api/books/:name/tree',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.tree', {
+    method: 'GET',
+    path: '/api/books/:name/tree',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
@@ -142,13 +143,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         validatedAt: index.validatedAt,
       })
     },
-  )
+  })
 
   // ── 定稿确认（P1：revision → final，git commit 锁定版本）────────
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/finalize',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.finalize', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/finalize',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const outcome = finalizeRevision(r.bookRoot, params['docId'] ?? '')
@@ -163,17 +164,20 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           : 400
         return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
       }
+      // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
+      // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发
+      if (!outcome.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '')
       reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
     },
-  )
+  })
 
   // ── 批量定稿（P2-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
   // body { docIds: string[] }；逐个 finalizeRevision（同步串行，天然无 SQLite 写锁冲突）。
   // 单条失败不中断：返回逐条结果，前端汇总 toast。
-  route(
-    'POST',
-    '/api/books/:name/documents/batch-finalize',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.batch-finalize', {
+    method: 'POST',
+    path: '/api/books/:name/documents/batch-finalize',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // CC-P2-9：并发闸——必须在首个 await（readJson）前同步占位，覆盖 body 在途窗口：
@@ -194,6 +198,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           // ee-P1-3/ee-P1-4：LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
           // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
           const o = finalizeRevision(r.bookRoot, docId)
+          // C1（批 2）：批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环）
+          if (o.ok && !o.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, docId)
           return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
         })
         reply(res, 200, { ok: true, results })
@@ -201,24 +207,24 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         release()
       }
     },
-  )
+  })
 
   // ── 字数日记（§5.4 今日基线）──────────────────────
-  route(
-    'GET',
-    '/api/books/:name/words-diary',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.words-diary.get', {
+    method: 'GET',
+    path: '/api/books/:name/words-diary',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const date = todayDate()
       reply(res, 200, { ok: true, date, baseline: readBaseline(r.bookRoot, date), delta: readTodayDelta(r.bookRoot, date) })
     },
-  )
+  })
 
-  route(
-    'POST',
-    '/api/books/:name/words-diary',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.words-diary.post', {
+    method: 'POST',
+    path: '/api/books/:name/words-diary',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const body = await readJson(req)
@@ -230,13 +236,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       appendBaseline(r.bookRoot, todayDate(), baseline)
       reply(res, 200, { ok: true })
     },
-  )
+  })
 
   // ── W2A：新建文档 ──────────────────────────────
-  route(
-    'POST',
-    '/api/books/:name/documents',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents', {
+    method: 'POST',
+    path: '/api/books/:name/documents',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const body = await readJson(req)
@@ -254,13 +260,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 201 : structStatus(result.code), result)
     },
-  )
+  })
 
   // ── W2A：移动 / 重命名 ──────────────────────────
-  route(
-    'PATCH',
-    '/api/books/:name/documents/:docId',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.patch', {
+    method: 'PATCH',
+    path: '/api/books/:name/documents/:docId',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
@@ -307,13 +313,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
-  )
+  })
 
   // ── E3.3：复制文档（源 docId + 目标 relPath → 新 docId）──────────
-  route(
-    'POST',
-    '/api/books/:name/documents/:docId/copy',
-    async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.copy', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/copy',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
@@ -326,13 +332,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
       reply(res, result.ok ? 201 : structStatus(result.code), result)
     },
-  )
+  })
 
   // ── W2A：软删（→ 回收站）────────────────────────
-  route(
-    'DELETE',
-    '/api/books/:name/documents/:docId',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.documents.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name/documents/:docId',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
@@ -343,42 +349,42 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
-  )
+  })
 
   // ── W2A：回收站 ──────────────────────────────
-  route(
-    'GET',
-    '/api/books/:name/trash',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.trash', {
+    method: 'GET',
+    path: '/api/books/:name/trash',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       reply(res, 200, { ok: true, entries: listTrash(r.bookRoot) })
     },
-  )
+  })
 
-  route(
-    'POST',
-    '/api/books/:name/trash/:id/restore',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.trash.restore', {
+    method: 'POST',
+    path: '/api/books/:name/trash/:id/restore',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = restoreTrash(r.bookRoot, id)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
-  )
+  })
 
-  route(
-    'DELETE',
-    '/api/books/:name/trash/:id',
-    async (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.trash.delete', {
+    method: 'DELETE',
+    path: '/api/books/:name/trash/:id',
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = purgeTrash(r.bookRoot, id)
       reply(res, result.ok ? 200 : structStatus(result.code), result)
     },
-  )
+  })
 }
 
 const ORIGINS = new Set(['manual', 'autosave', 'restore', 'external-merge'])

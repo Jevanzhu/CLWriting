@@ -20,7 +20,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { route } from '../router.js'
+import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { log } from '../../../log/index.js'
@@ -53,7 +53,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     return { ok: true, path: join(r.bookRoot, '.clwriting', 'prefs.json') }
   }
 
-  route('GET', '/api/books/:name/prefs', (_req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.prefs.get', {
+    method: 'GET',
+    path: '/api/books/:name/prefs',
+    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = prefsPath(params['name']!)
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {} })
@@ -63,9 +66,13 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     } catch {
       reply(res, 200, { prefs: {} })
     }
+  },
   })
 
-  route('PUT', '/api/books/:name/prefs', async (req: IncomingMessage, res: ServerResponse, params) => {
+  defineRoute('books.prefs.put', {
+    method: 'PUT',
+    path: '/api/books/:name/prefs',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = prefsPath(params['name']!)
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     const body = await readJson(req)
@@ -79,6 +86,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       log.error('api', '写 prefs 失败', e)
       replyError(res, 500, 'IO', '写 prefs 失败')
     }
+  },
   })
 
   // ── 全局编辑器偏好（userData/global.json，APP 级）──
@@ -90,7 +98,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     return { ok: true, path: join(ctx.userDataPath, 'global.json') }
   }
 
-  route('GET', '/api/library/prefs', (_req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('library.prefs.get', {
+    method: 'GET',
+    path: '/api/library/prefs',
+    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
@@ -103,9 +114,13 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     } catch {
       reply(res, 200, { prefs: {}, revision: 0 })
     }
+  },
   })
 
-  route('PUT', '/api/library/prefs', async (req: IncomingMessage, res: ServerResponse) => {
+  defineRoute('library.prefs.put', {
+    method: 'PUT',
+    path: '/api/library/prefs',
+    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
     const r = globalPath()
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     // GG-P2-7（照 providers dd-P2 口径）：body 先读——读盘/比对/写盘三段必须同步无 await，
@@ -132,6 +147,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       log.error('api', '写全局偏好失败', e)
       replyError(res, 500, 'ERROR', '写全局偏好失败')
     }
+  },
   })
 }
 
