@@ -226,17 +226,20 @@ export function checkNewNames(
 /**
  * 高频意象检查（#10 项 7，🟡 黄）。
  * 套路词/意象表命中频次超阈 → 提示（PRD 问题 9，"空气仿佛凝固"）。
- * 意象表默认空——初始数据靠 M4 知识层平移 / book.yaml 配置（#10 第 4/8 节待 beta）。
+ * 词表三级供给（数据源接线后由 runner 解析，本函数只吃现成表）：入参显式 >
+ * book.yaml checks.imagery_words > 内置种子表（imagery-seed.ts）；书级/入参写了
+ * 词表即整体替换（不合并），显式空数组 = 彻底关。入参 readonly——runner 直收
+ * 种子表的 readonly 字面量，免调用方拷贝。
  */
 export function checkImagery(
   body: string,
-  imageryWords: string[] = [],
+  imageryWords: readonly string[] = [],
   threshold = 3,
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (imageryWords.length === 0) {
-    // X-P2-22：词表未配置即静默跳过——恒久「未启用」黄项只会训练作者无视机检面板；
-    // 检查器本体保留，待数据源（知识层/book.yaml）接入后自然生效
+    // X-P2-22：空表（未启用或显式关）静默跳过——恒久「未启用」黄项只会训练作者
+    // 无视机检面板；数据源接线后空表只剩「作者明确关掉」一种来源，仍不产黄
     return { name: '高频意象', items }
   }
   for (const word of imageryWords) {
@@ -475,15 +478,18 @@ function summaryEndingRegex(): RegExp {
 /**
  * 信息差泄密候选（#10 项 11，🟡 黄）。
  * 关键词命中 → 只出候选、不拦截（真伪归阶段 6 三审，PRD 问题 3）。
- * 关键词源默认空——由信息差设定 / book.yaml 提供（#10 第 2 节项 11）。
+ * 关键词两级供给（数据源接线后由 runner 解析，本函数只吃现成表）：入参显式 >
+ * book.yaml checks.leak_keywords；无内置默认（逐书的秘密无通用词表），
+ * 未设 = 空表静默不启用。入参 readonly——与 checkImagery 同口径。
  */
 export function checkInfoLeak(
   body: string,
-  leakKeywords: string[] = [],
+  leakKeywords: readonly string[] = [],
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (leakKeywords.length === 0) {
-    // X-P2-22：同高频意象——关键词源未配置静默跳过，不再产恒久黄项
+    // X-P2-22：空表（未配置）静默跳过——恒久「未启用」黄项只会训练作者无视机检面板；
+    // 信息差无内置默认词表，空表 = 本书没配关键词，属正常态不产黄
     return { name: '信息差候选', items }
   }
   for (const kw of leakKeywords) {

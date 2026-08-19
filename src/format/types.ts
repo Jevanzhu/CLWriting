@@ -278,6 +278,16 @@ export interface BookConfig {
   growth: {
     realm_span_max?: number // 跃迁跨度上限（O1，#6）
   }
+  /** 机检扩展词表（#10 项 7/11 数据源接线）。整段可选：未设 = 各检查走默认供给链
+   *  （高频意象回落内置种子表 check/imagery-seed.ts；信息差无内置默认、静默不启用）。
+   *  书级写了词表即整体替换默认供给（显式覆盖，不合并——可预期）。 */
+  checks?: {
+    /** 高频意象词表。undefined = 回落内置种子表；显式 [] = 彻底关（与「未设」语义不同，
+     *  解析/序列化都必须保真这个显式空数组，round-trip 不得归一为 undefined） */
+    imagery_words?: string[]
+    /** 信息差关键词。无内置默认（逐书的秘密无通用词表）；未设 = 静默不启用 */
+    leak_keywords?: string[]
+  }
   /** 快照保留策略（单章版本回滚）；缺省 = 14 天 / 30 个。分层保留桶为内部规则，不暴露 */
   snapshots?: {
     /** 超期删除（天） */

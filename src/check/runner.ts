@@ -37,6 +37,8 @@ import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
+// #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
+import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
 
 /** 机检输入 */
@@ -52,8 +54,13 @@ export interface CheckInput {
   bannedWords?: string[] // 禁词表
   declaredLeadIds?: string[] // 本章细纲声明推进的账本编号（两端闭合，#10 项 1）
   actualLeadIds?: string[] // 本章实际写入履历的账本编号（两端闭合对照侧）
-  imageryWords?: string[] // 高频意象表（#10 项 7，默认空，数据待 M4 知识层平移）
-  leakKeywords?: string[] // 信息差关键词（#10 项 11，默认空，数据源待定）
+  /** 高频意象表（#10 项 7）。三级供给的顶级：入参显式 > book.yaml checks.imagery_words
+   *  > 内置种子表（imagery-seed.ts）。传了（含空数组）即整体生效不回落；readonly——
+   *  直收种子表的 as const 字面量，免调用方拷贝 */
+  imageryWords?: readonly string[]
+  /** 信息差关键词（#10 项 11）。两级供给的顶级：入参 > book.yaml checks.leak_keywords；
+   *  无内置默认（逐书的秘密无通用词表），未设 = 空表静默不启用 */
+  leakKeywords?: readonly string[]
   /** 短篇严格模式：把短篇专属黄项提升为红项，用于真实生产硬闸 */
   strictShort?: boolean
   /**
@@ -130,8 +137,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // #10 项 6 复读（黄）
   sections.push(checkRepeat(body))
 
-  // #10 项 7 高频意象（黄）
-  sections.push(checkImagery(body, input.imageryWords ?? []))
+  // #10 项 7 高频意象（黄）—— 三级供给（数据源接线）：入参显式 > book.yaml
+  // checks.imagery_words > 内置种子表（imagery-seed.ts）。?? 链上空数组非 nullish：
+  // 入参/书级写了 []（显式关）就停在 [] 不回落种子表；书级非空词表整体替换不合并
+  const imageryWords = input.imageryWords ?? config.checks?.imagery_words ?? DEFAULT_IMAGERY_WORDS
+  sections.push(checkImagery(body, imageryWords))
 
   // #10 项 8 句式体检（黄）—— X-P2-23：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
   // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总
@@ -146,7 +156,9 @@ export function runAllChecks(input: CheckInput): CheckReport {
   if (hasWiring) {
     const rosterPath = join(bookRoot, '设定', '名册.md')
     sections.push(checkNewNames(body, rosterPath))
-    sections.push(checkInfoLeak(body, input.leakKeywords ?? []))
+    // 信息差两级供给：入参 > book.yaml checks.leak_keywords；无内置默认（逐书的秘密
+    // 无通用词表），两级都未设 = 空表静默不启用（X-P2-22）
+    sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? []))
   }
 
   // AI 味检查（通用项，长短篇都跑）：身体部位词堆砌 + 比喻密度。

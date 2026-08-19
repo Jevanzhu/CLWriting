@@ -310,6 +310,24 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (rs) cfg.growth.realm_span_max = parseFiniteNumber(rs.value, DEFAULT_CONFIG.growth.realm_span_max ?? 2)
   }
 
+  // checks 段（机检扩展词表，#10 项 7/11 数据源接线）：显式空数组 = 关（不得归一为
+  // undefined——它与「未设」语义不同：未设才回落内置种子表，显式空数组是作者明确
+  // 关掉）；段缺失 = 整段 undefined。项级 trim + 去空串与 short 段词表同口径
+  const checks = find('checks')
+  if (checks) {
+    const checksConfig: NonNullable<BookConfig['checks']> = {}
+    for (const key of ['imagery_words', 'leak_keywords'] as const) {
+      const node = checks.children.find((c) => c.key === key)
+      if (!node) continue
+      const value = parseValue(node.value)
+      // Array.isArray 才收：显式 [] 原样保留（长度 0 也设键）；标量/坏值忽略
+      if (Array.isArray(value)) {
+        checksConfig[key] = value.map(String).map((v) => v.trim()).filter(Boolean)
+      }
+    }
+    if (Object.keys(checksConfig).length > 0) cfg.checks = checksConfig
+  }
+
   // 快照保留策略（单章版本回滚）：缺省不写字段 → 用代码默认值
   const snapshots = find('snapshots')
   if (snapshots) {
@@ -491,6 +509,19 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   if (!isShort) {
     lines.push('', 'growth:', `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`)
   }
+
+  // checks 段（机检扩展词表）：键存在即输出——含显式空数组（round-trip 保真：显式空
+  // = 关掉内置回落，与「未设」语义不同，重存不得丢）；整段未设不落段（现有仓库零改动红线）。
+  // 长短篇皆可选（高频意象/信息差机检长短都跑）。写法照 auto 段的条件输出范式
+  const checksLines: string[] = [
+    ...(cfg.checks?.imagery_words !== undefined
+      ? [`  imagery_words: ${stringifyValue(cfg.checks.imagery_words)}`]
+      : []),
+    ...(cfg.checks?.leak_keywords !== undefined
+      ? [`  leak_keywords: ${stringifyValue(cfg.checks.leak_keywords)}`]
+      : []),
+  ]
+  if (checksLines.length > 0) lines.push('', 'checks:', ...checksLines)
 
   // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）。
   // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清
