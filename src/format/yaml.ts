@@ -530,3 +530,58 @@ export function patchTopSection(raw: string, section: string, body: string): str
     ...lines.slice(end),
   ].join('\n')
 }
+
+/**
+ * GG-P2-8：文本级替换顶层段内单个子键行（只动 `key:` 那一行，段内其余行含未知子键、
+ * 缩进注释逐字保留；段外内容更是零触碰）。
+ *
+ * 与 patchTopSection（整段替换）的取舍：改名/单项改值场景单键行替换更小更稳——
+ * 整段替换须重排段体（未知子键会丢），单键行替换天然保形。区间口径与 patchTopSection
+ * 一致（下一个顶层 key 之前）；直接子键缩进 = 段体内容行最小缩进（嵌套更深的行不碰）。
+ *
+ * 键不存在 → 插在段头之后（body 空时用 2 空格惯例）；段不存在 → 追加只含该键的段
+ * （与 patchTopSection 追加分支同风格）。title 行若带行尾注释会随行重写丢失（值本身
+ * 罕见带注释，接受；整段保注释的目标由「其余行不动」达成）。
+ */
+export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
+  const lines = raw.split('\n')
+  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
+  if (start === -1) {
+    if (raw === '') return `${section}:\n${keyLine(2)}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
+    return `${prefix}\n${section}:\n${keyLine(2)}\n`
+  }
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]!
+    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
+      end = i
+      break
+    }
+  }
+  // 直接子键缩进 = 段体内容行最小缩进（与 migrate-defaults 的 deleteSectionKey 同判定）
+  let childIndent = -1
+  for (let i = start + 1; i < end; i++) {
+    const l = lines[i]!
+    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
+    const ind = l.length - l.trimStart().length
+    if (childIndent === -1 || ind < childIndent) childIndent = ind
+  }
+  if (childIndent === -1) {
+    // 段体无内容行 → 键插在段头后
+    lines.splice(start + 1, 0, keyLine(2))
+    return lines.join('\n')
+  }
+  const pad = ' '.repeat(childIndent)
+  const isKeyLine = (l: string): boolean => l === `${pad}${key}:` || l.startsWith(`${pad}${key}: `)
+  for (let i = start + 1; i < end; i++) {
+    if (isKeyLine(lines[i]!)) {
+      lines[i] = keyLine(childIndent)
+      return lines.join('\n')
+    }
+  }
+  // 键不在段内 → 插在段头后首行（先于既有子键，与 stringify 的 title 首位习惯一致）
+  lines.splice(start + 1, 0, keyLine(childIndent))
+  return lines.join('\n')
+}

@@ -13,8 +13,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isWithinRoot } from '../fs/safe-path.js'
 
 export interface SpillThresholds {
   /** 超过该 code point 数才外置（≤ 则原文透传） */
@@ -43,6 +44,26 @@ export function writeSpillFile(bookRoot: string, text: string): string | null {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, `${hash}.md`), text, 'utf8')
     return `工作区/spills/${hash}.md`
+  } catch {
+    return null
+  }
+}
+
+/** spill locator 白名单：内容寻址命名（16 位 hex）——严于通用路径校验，路径穿越/任意读天然拒 */
+const SPILL_LOCATOR_RE = /^工作区\/spills\/[0-9a-f]{16}\.md$/
+
+/**
+ * GG-P2-2 读侧：按 locator 取回 spill 全文（save_spill 落盘通道共用）。
+ * locator 必须严格匹配内容寻址命名（writeSpillFile 的产物形态）+ isWithinRoot 双保险；
+ * 文件不存在/校验不过/读盘失败 → null（调用方按「spill 不存在」语义回应）。
+ */
+export function readSpillFile(bookRoot: string, locator: string): string | null {
+  if (!SPILL_LOCATOR_RE.test(locator)) return null
+  const abs = join(bookRoot, locator)
+  if (!isWithinRoot(bookRoot, abs)) return null
+  try {
+    if (!existsSync(abs)) return null
+    return readFileSync(abs, 'utf8')
   } catch {
     return null
   }

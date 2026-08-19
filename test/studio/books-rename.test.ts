@@ -109,6 +109,39 @@ describe('POST /api/books/:name/rename 全量改名', () => {
     expect((nb.json as { title: string }).title).toBe(NEW)
   })
 
+  it('GG-P2-8：改名走文本级单键替换——# 注释 / 未知段 / 未知子键逐字保留', async () => {
+    const NAME = '注释保形书'
+    const root = join(workDir, '长篇', NAME)
+    mkdirSync(root, { recursive: true })
+    // 登记追加（readBooks 每请求读盘，beforeAll 已写的两行之上补第三本）
+    const reg = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n')
+    const rich =
+      [
+        'spec_version: 1',
+        '# 作者手写总注释：改名不许丢我',
+        'kind: long',
+        'book:',
+        `  title: ${NAME}`,
+        '  genre: 玄幻',
+        '  custom_key: 自定义子键',
+        '  # 段内注释',
+        'host: cc',
+        'unknown_section:',
+        '  keep: me',
+        'budget:',
+        '  calls_per_chapter: 6',
+      ].join('\n') + '\n'
+    writeFileSync(join(root, 'book.yaml'), rich)
+
+    const r = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: '注释保形书2' })
+    expect(r.status).toBe(200)
+
+    // 唯一改动 = title 行（原实现 readBookConfig→stringify 全量重生成会丢注释/未知段/未知子键）
+    const after = readFileSync(join(workDir, '长篇', '注释保形书2', 'book.yaml'), 'utf8')
+    expect(after).toBe(rich.replace(`  title: ${NAME}`, '  title: 注释保形书2'))
+  })
+
   it('重名冲突 → 400', async () => {
     const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: '别的书' })
     expect(r.status).toBe(400)

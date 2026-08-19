@@ -4,12 +4,13 @@
  * - 超阈值：头尾预览 + 通知行（省略量 / locator / 取回指引），全文落盘幂等
  * - 预算纪律：预览总长 ≤ maxInlineChars（砍头砍尾收敛）
  * - best-effort：落盘失败回退原文
+ * - readSpillFile（GG-P2-2 读侧）：locator 形状白名单 + isWithinRoot 双保险，按路径取回全文
  */
 import { describe, it, expect } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spillIfLarge, writeSpillFile, type SpillThresholds } from '../../src/process/spill.js'
+import { spillIfLarge, writeSpillFile, readSpillFile, type SpillThresholds } from '../../src/process/spill.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
 
@@ -105,6 +106,51 @@ describe('writeSpillFile', () => {
       } finally {
         rmSync(root2, { recursive: true, force: true })
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('readSpillFile', () => {
+  it('writeSpillFile 的 locator 可取回全文（写读同源），不存在的文件返回 null', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-read-'))
+    try {
+      const text = '改写稿全文' + 'q'.repeat(2500)
+      const locator = writeSpillFile(root, text)!
+      expect(readSpillFile(root, locator)).toBe(text)
+      // 形状合法但文件不存在（哈希对不上任何产物）
+      expect(readSpillFile(root, '工作区/spills/0000000000000000.md')).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('locator 形状白名单：穿越 / 绝对路径 / 缺段 / 非 hex / 非 md 一律 null（不碰盘）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-badloc-'))
+    try {
+      // 预埋可被穿越命中的真实文件，验证校验在任何读盘之前拦下
+      writeFileSync(join(root, 'book.yaml'), 'book:')
+      const bad = [
+        '工作区/spills/../../book.yaml',
+        '/etc/passwd',
+        '工作区/spills/abc.md',
+        '工作区/spills/zzzzzzzzzzzzzzzz.md', // 非 hex
+        '工作区/spills/0123456789abcdef.txt',
+        '工作区/spill/0123456789abcdef.md',
+        '',
+      ]
+      for (const loc of bad) expect(readSpillFile(root, loc)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('spills 下越出书库的路径（isWithinRoot 兜底）：null', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-within-'))
+    try {
+      // 正则已拦 .. ；isWithinRoot 是对 join 语义的双保险——形状合法但根外场景由该层兜住
+      expect(readSpillFile(root, '工作区/spills/feedfacefeedface.md')).toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

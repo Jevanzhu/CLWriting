@@ -32,6 +32,7 @@ import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
 import { readManifest, writeManifest, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
+import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 
@@ -292,9 +293,11 @@ function detectHandEdits(bookRoot: string, manifest: Manifest): string[] {
     if (entry.nodeType !== 'document') continue
     if (!entry.finalizedRevision) continue // 从未定稿 → 不是手改（是正常草稿流程）
     if (!handEditPrefixes.some((p) => entry.path.startsWith(p))) continue
-    const abs = join(bookRoot, entry.path)
-    if (!existsSync(abs)) continue
-    const rev = computeRevision(abs)
+    // ff P2-3：走 probeCachedRevision（mtime+size 命中免整读+哈希）——enter() 每次进门
+    // 对全部定稿文档全量读盘是大书同步阻塞点；null 兼「文件不存在」跳过语义，
+    // 与 check/run.ts 树红点聚合（CC-P1-3）同缓存同口径，随 invalidateTreeIndex 失效。
+    const rev = probeCachedRevision(bookRoot, entry.path)
+    if (rev === null) continue
     if (rev !== entry.finalizedRevision) out.push(entry.path)
   }
   return out

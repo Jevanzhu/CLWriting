@@ -9,7 +9,7 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, realpathSync, renameSync, existsSync, readdirSync } from 'node:fs'
+import { rmSync, realpathSync, renameSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { route } from '../router.js'
 import { defineRoute } from './schema.js'
@@ -29,7 +29,8 @@ import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { readBookConfig, stringifyBookConfig } from '../../../format/yaml.js'
+import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
+import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInit } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
@@ -260,13 +261,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
 
       /** 同步 book.yaml title（改名闭环的一部分；失败不阻塞——目录/登记已可自愈）。
-       *  写路径不过 applyGlobalDefaults：合并视图写回会把全局默认烘焙进书文件，
-       *  反过来遮蔽全局托底——保持 raw 读改写（stringify 条件输出保证已有键原样保留）。 */
+       *  GG-P2-8：文本级单键行替换（setTopSectionKey）——原实现 readBookConfig→stringify
+       *  全量重生成会静默丢作者 # 注释与未知段/未知子键（旧注释「已有键原样保留」口径失真）；
+       *  文件缺失时落最小段（书架建书必有完整 book.yaml，此为兜底）。 */
       const writeTitle = (root: string): void => {
         try {
-          const { config } = readBookConfig(join(root, 'book.yaml'))
-          config.book.title = newName
-          atomicWriteFile(join(root, 'book.yaml'), stringifyBookConfig(config))
+          const cfgPath = join(root, 'book.yaml')
+          const raw = existsSync(cfgPath) ? readFileSync(cfgPath, 'utf8') : ''
+          atomicWriteFile(cfgPath, setTopSectionKey(raw, 'book', 'title', stringifyValue(newName)))
         } catch (e) {
           console.error('[api] rename: 写 book.yaml title 失败:', e)
         }
