@@ -224,6 +224,31 @@ describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
       store.close()
     }
   })
+
+  // hh §八-18：批内 sourceSeqs 越界无防御的回归——seqs[s]! 断言曾把 undefined 写成 null 血缘
+  it('越界/负数/非整数索引：抛错回滚整批零残留；合法批随后照常', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/y')!
+    try {
+      const sessionId = store.createSession('y', { book: 'y' })
+      const mk = (sourceSeqs?: number[]): NewEvent[] => [
+        sessionStartEvent('y'),
+        assistantMessageEvent('hi', undefined, undefined, sourceSeqs),
+      ]
+      for (const bad of [[2], [-1], [0.5], [Number.NaN], [0, 99]]) {
+        expect(() => store.appendEventsResolveLineage(sessionId, mk(bad))).toThrow(/血缘引用越界/)
+      }
+      // 事务回滚：非法批一行不落（listEvents 首参是 book，会话限定走双参）
+      expect(store.listEvents('y', sessionId)).toHaveLength(0)
+      // 合法批照常：批内 [0] → 全局首个 seq，回写可读回
+      const seqs = store.appendEventsResolveLineage(sessionId, mk([0]))
+      expect(seqs).toHaveLength(2)
+      const asst = store.listEvents('y', sessionId).find((e) => e.type === 'assistant/message')!
+      expect(asst.sourceSeqs).toEqual([seqs[0]])
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('F1-P3 recordForeshadowChanges', () => {

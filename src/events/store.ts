@@ -239,9 +239,18 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
           ) as { seq: number }
           seqs.push(row.seq)
         }
-        // 血缘回写：批内序号（0-based 同批前驱引用）→ 真实全局 seq，与插入同事务
+        // 血缘回写：批内序号（0-based 同批前驱引用）→ 真实全局 seq，与插入同事务。
+        // hh §八-18：越界索引 = 生产者 bug——显式抛错回滚整批（宁可红不可错），
+        // 绝不把 seqs[s]! 断言掩盖的 undefined 序列化成 null 血缘静默写库
         evs.forEach((e, idx) => {
           if (e.sourceSeqs && e.sourceSeqs.length > 0) {
+            for (const s of e.sourceSeqs) {
+              if (!Number.isInteger(s) || s < 0 || s >= seqs.length) {
+                throw new Error(
+                  `appendEventsResolveLineage：批内 sourceSeqs 索引非法（${s}，批大小 ${seqs.length}）——事件 ${idx}「${e.type}」血缘引用越界`,
+                )
+              }
+            }
             const resolved = e.sourceSeqs.map((s) => seqs[s]!)
             upd.run(JSON.stringify(resolved), sessionId, seqs[idx]!)
           }
