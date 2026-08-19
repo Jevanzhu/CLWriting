@@ -311,9 +311,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
         return
       }
 
-      // 清内存对话态 + 迁移事件库（尽力而为：失败留旧库可找回，不删数据）
+      // 清内存对话态 + 迁移事件库（5.1-3：失败不再静默——migrate 返回 false 时源库
+      // 原地完整可重试，但必须让用户看得见：改名后书在新目录，事件库却没跟过来，
+      // 对话历史/审计在 UI 上无声消失）
       clearChatHistory(oldName)
-      migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
+      const eventsMigrated = migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       forgetSession(oldName)
@@ -336,7 +338,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // --book 直进指针同步（second-instance --book 旧名不再命中）
       if (initialBook === oldName) setInitialBook(newName)
 
-      reply(res, 200, { ok: true, renamed: true, name: newName, path: newPath })
+      // 5.1-3：迁移失败随响应带回（成功时不带该键，对齐本文件「条件展开」的响应风格）
+      reply(res, 200, {
+        ok: true,
+        renamed: true,
+        name: newName,
+        path: newPath,
+        ...(eventsMigrated ? {} : { eventsMigrationFailed: true }),
+      })
     },
   })
 

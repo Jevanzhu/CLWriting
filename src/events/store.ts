@@ -341,7 +341,17 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
  * 并把会话 book 字段改名——对话会话 book=oldName → newName，工作区会话
  * book=bookHash(oldRoot) → bookHash(newRoot)（对齐 clearChatHistory 的双钥匙口径）。
  *
- * 尽力而为：任一步失败只记日志不抛——数据留在旧库（孤儿但可找回），绝不删。
+ * 返回布尔（5.1-3）：true = 成功，或无需迁移的 no-op（无 userDataPath / 新旧同路径 /
+ * 旧库不存在——没有数据要搬，对调用方不构成失败）；false = 迁移尝试失败，源库
+ * 原地完整可用（可安全重试）。失败不再只有 console.error 一个出口——调用方
+ * （books.ts 改名端点）把 false 传进响应让用户感知，不再静默吞掉。
+ *
+ * 5.1-3（WAL 窗口修复）失败路径纪律：
+ * - 搬移前先对源库 wal_checkpoint(TRUNCATE)，把未落盘事务折进主库文件——此前先搬
+ *   主库再搬 WAL/SHM 侧车，侧车搬移失败时未 checkpoint 的事务随 WAL 一起丢失；
+ * - checkpoint 忙（busy=1：另有连接持读/写/EXCLUSIVE 锁，busy_timeout 5000ms 内
+ *   等不到）或搬移/改钥匙任一步失败 → 整体放弃：已搬文件逆序搬回源位，绝不留
+ *   「主库已走、侧车滞留」的半搬状态。
  * 前置：调用方须先中止该书在途对话/自愈（释放引用后再强制关库，避免打断写入）。
  */
 export function migrateBookSession(
@@ -350,36 +360,76 @@ export function migrateBookSession(
   newRoot: string,
   oldName: string,
   newName: string,
-): void {
-  if (!userDataPath) return
+): boolean {
+  if (!userDataPath) return true
   const dir = join(userDataPath, 'clwriting', 'session')
   const oldDb = join(dir, bookHash(oldRoot) + '.db')
   const newDb = join(dir, bookHash(newRoot) + '.db')
-  if (oldDb === newDb) return
+  if (oldDb === newDb) return true
+  // 已完成搬移的记录（from=源位 to=新位）：任一步失败时逆序搬回，保证源库原地完整
+  const moves: Array<{ from: string; to: string }> = []
   try {
-    if (!existsSync(oldDb)) return
-    // 1) 强制关掉旧库缓存连接（置 refs=0 → close 归零即真关+清缓存）
+    if (!existsSync(oldDb)) return true
+    // 1) 强制关掉旧库缓存连接（置 refs=0 → close 归零即真关+清缓存）。
+    //    必须先于 checkpoint：自家连接不关，其 WAL 归属/折叠时机不受本函数控制
     const entry = openStores.get(oldDb)
     if (entry && !entry.closed) {
       entry.refs = 0
       entry.store.close()
     }
-    // 2) 移动主库 + WAL/SHM 侧车（已 checkpoint 的库可能只有主库）
+    // 2) 5.1-3：搬移前折叠 WAL——TRUNCATE 模式把未 checkpoint 事务折进主库并截断
+    //    -wal，此后即使只搬走主库文件数据也完整。busy_timeout 与库打开纪律一致
+    //    （5000ms）：给短暂并发的写方留收尾时间；等不到（另有连接持锁）返回
+    //    busy=1 → 整体放弃，此时一个文件都还没动，源库原地完整
+    const cp = new DatabaseSync(oldDb)
+    try {
+      cp.exec('PRAGMA busy_timeout = 5000')
+      const r = cp.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number } | undefined
+      if (!r || r.busy !== 0) {
+        console.error(`[events] 事件库迁移前 checkpoint 忙（busy=${r?.busy ?? '未知'}），放弃迁移，源库原地保留`)
+        return false
+      }
+    } finally {
+      cp.close()
+    }
+    // 3) 移动主库 + 残留侧车（TRUNCATE checkpoint + 连接全关后通常只剩主库文件；
+    //    有竞态残留时一并搬走）。任一 rename 失败 → 外层 catch 逆序回滚已搬文件
     for (const suffix of ['', '-wal', '-shm'] as const) {
       const from = oldDb + suffix
       const to = newDb + suffix
-      if (existsSync(from)) renameSync(from, to)
+      if (existsSync(from)) {
+        renameSync(from, to)
+        moves.push({ from, to })
+      }
     }
-    // 3) 在新库上改会话 book 字段（对话 + 工作区两把钥匙）
+    // 4) 在新库上改会话 book 字段（对话 + 工作区两把钥匙）。两条 UPDATE 同事务：
+    //    中途失败随连接关闭整体回滚，不留「一把钥匙已改、一把没改」的半改状态；
+    //    随后外层把文件搬移一并回滚——否则库在新位而钥匙是旧名，新旧两头都查不到
     const db = new DatabaseSync(newDb)
     try {
+      db.exec('BEGIN')
       db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
       db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
+      db.exec('COMMIT')
     } finally {
+      // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
       db.close()
     }
+    return true
   } catch (e) {
-    console.error('[events] 事件库迁移失败（旧库数据保留可找回）:', e)
+    // 整体放弃：逆序把已搬文件搬回源位——源库原地完整、可读、可重试
+    for (let i = moves.length - 1; i >= 0; i--) {
+      const m = moves[i]!
+      try {
+        renameSync(m.to, m.from)
+      } catch (e2) {
+        // 回滚单文件失败属 OS 级异常（权限/磁盘满）：如实记日志供人工找回，
+        // 不在回滚路径里再抛新异常掩盖原始失败原因
+        console.error(`[events] 迁移回滚失败（${m.to} → ${m.from}），需人工找回:`, e2)
+      }
+    }
+    console.error('[events] 事件库迁移失败（已回滚，源库原地完整可找回）:', e)
+    return false
   }
 }
 
