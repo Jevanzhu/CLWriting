@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // 书架全屏页（独立窗口或主窗口路由，ShelfGrid 去重 P2-5）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
-// 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件；本页只保留全屏布局 + hero + IPC 跳转。
+// 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件，hero 卡走 components/shelf/；
+// 本页只保留全屏布局 + hero + IPC 跳转。
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen, ArrowRight, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
-import { useShelf, formatWords, formatRelative, progressPercent, onCardMove } from '../composables/useShelf'
+import { Sun, Moon, BookOpen, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
+import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
+import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CreateBookModal from '../components/ui/CreateBookModal.vue'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
@@ -172,50 +174,12 @@ function openBook(name: string): void {
         <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
       </EmptyState>
       <template v-else>
-        <section
-          v-if="latestBook && viewMode === 'grid' && !batchMode"
-          class="hero-card"
-          @mousemove="onCardMove"
-          @click="openBook(latestBook.name)"
-        >
-          <div class="hero-top">
-            <span class="hero-label">继续写作</span>
-            <ArrowRight :size="18" class="hero-arrow" />
-          </div>
-          <h2 class="hero-title">{{ latestBook.title ?? latestBook.name }}</h2>
-          <p v-if="latestBook.latestChapter" class="hero-recent">
-            最近 · {{ latestBook.latestChapter }}
-          </p>
-          <div v-if="latestBook.targetWords" class="hero-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: progressPercent(latestBook) + '%' }" />
-            </div>
-            <span class="progress-text">
-              {{ formatWords(latestBook.words) }} / {{ formatWords(latestBook.targetWords) }}
-            </span>
-          </div>
-          <div class="hero-foot">
-            <span>{{ latestBook.chapters ?? 0 }} 章</span>
-            <span v-if="latestBook.lastEdited" class="hero-time"
-              ><span class="dot">·</span>{{ formatRelative(latestBook.lastEdited) }}</span
-            >
-          </div>
-        </section>
-        <section
-          v-else-if="latestBook && !batchMode"
-          class="hero-list"
-          @mousemove="onCardMove"
-          @click="openBook(latestBook.name)"
-        >
-          <span class="hero-list-label">继续写作</span>
-          <span class="hero-list-name">{{ latestBook.title ?? latestBook.name }}</span>
-          <span v-if="latestBook.latestChapter" class="hero-list-recent">最近 · {{ latestBook.latestChapter }}</span>
-          <span class="hero-list-meta">
-            <span>{{ latestBook.chapters ?? 0 }} 章</span>
-            <span v-if="latestBook.lastEdited">{{ formatRelative(latestBook.lastEdited) }}</span>
-          </span>
-          <ArrowRight :size="15" class="hero-list-arrow" />
-        </section>
+        <ShelfHeroCard
+          v-if="latestBook && !batchMode"
+          :book="latestBook"
+          :view-mode="viewMode"
+          @open="openBook"
+        />
         <ShelfGrid
           :groups="groups"
           :view-mode="viewMode"
@@ -484,176 +448,6 @@ function openBook(name: string): void {
   font-size: var(--font-size-s);
   color: var(--text-faint);
 }
-/* 继续写作 hero 卡：横跨整宽，最近编辑书的快捷入口 + 字数进度可视化 */
-.hero-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  padding: var(--size-4-6);
-  margin-bottom: var(--size-4-10);
-  border-radius: var(--radius-l);
-  background: linear-gradient(135deg, var(--background-secondary-alt), var(--background-secondary));
-  border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-m);
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
-}
-.hero-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(600px circle at var(--mx, 30%) var(--my, 30%), color-mix(in srgb, var(--text-accent) 10%, transparent), transparent 50%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.hero-card:hover::before {
-  opacity: 1;
-}
-.hero-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
-  box-shadow: var(--shadow-l);
-}
-.hero-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.hero-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-accent);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-}
-.hero-arrow {
-  color: var(--text-accent);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
-}
-.hero-card:hover .hero-arrow {
-  opacity: 1;
-  transform: translateX(0);
-}
-.hero-title {
-  margin: 0;
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
-  color: var(--text-normal);
-}
-.hero-recent {
-  margin: 0;
-  font-size: var(--font-size-m);
-  color: var(--text-muted);
-}
-.hero-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: var(--size-4-2);
-}
-.progress-bar {
-  height: 4px;
-  border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  border-radius: var(--radius-s);
-  background: var(--text-accent);
-  transition: width var(--dur-slow) var(--ease-out);
-}
-.progress-text {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-.hero-foot {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin-top: var(--size-4-2);
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.hero-foot .dot {
-  color: var(--text-faint);
-}
-
-/* 列表模式的 hero：紧凑单行，匹配列表风格（无大渐变/进度条）*/
-.hero-list {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-3);
-  padding: var(--size-4-3) var(--size-4-4);
-  margin-bottom: var(--size-4-6);
-  border-radius: var(--radius-m);
-  border: 1px solid var(--background-modifier-border);
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-normal);
-  overflow: hidden;
-  transition: border-color var(--dur-fast) var(--ease-out);
-}
-.hero-list::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(400px circle at var(--mx, 30%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.hero-list:hover::before {
-  opacity: 1;
-}
-.hero-list:hover {
-  border-color: color-mix(in srgb, var(--text-accent) 30%, var(--background-modifier-border));
-}
-.hero-list-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-accent);
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  flex-shrink: 0;
-}
-.hero-list-name {
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-normal);
-  white-space: nowrap;
-}
-.hero-list-recent {
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.hero-list-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-3);
-  margin-left: auto;
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-.hero-list-arrow {
-  color: var(--text-accent);
-  flex-shrink: 0;
-}
 
 /* ── 批量模式：header 内联 ── */
 .batch-count-inline {
@@ -722,14 +516,4 @@ function openBook(name: string): void {
   to   { opacity: 1; transform: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hero-card:hover {
-    transform: none;
-  }
-  .hero-arrow {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-}
 </style>
