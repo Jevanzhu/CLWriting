@@ -235,6 +235,11 @@ export interface BookConfig {
     input_per_chapter?: number
     summary_chapter_max?: number
     summary_volume_max?: number
+    /** D3（批 5）：单章 token 预算上限（input+output+cache 全口径累计；未设 = 不拦） */
+    tokens_per_chapter?: number
+    /** D3（批 5）：单章金额预算上限（需配价格表才生效——未配价时静默不生效，
+     *  与信息差未配置静默跳过同语义；未设 = 不拦） */
+    cost_per_chapter?: number
   }
   /** 文风注入强度。整段可选：书级未设 injection = global.json styleInjection → 硬编码 'light' */
   style?: {

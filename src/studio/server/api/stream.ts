@@ -22,6 +22,8 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { resolveTier } from '../../../ai/provider/index.js'
+import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 
 interface StreamCtx {
@@ -102,7 +104,19 @@ async function runWriterSpawn(opts: {
       if (out.data.stopReason === 'max_tokens') {
         emit({ type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
       }
-      emit({ type: 'done', cost: 0, usage: out.usage?.outputTokens ?? 0, reason: 'success' })
+      // D2（批 5）：有价格表算单次金额（input+output 按写稿模型四档分计），
+      // 未配价省略 cost 字段——不再发恒 0（mock 遗留口径修正）
+      const model = resolveTier(opts.userDataPath, 'creative').model
+      const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
+      const cost = out.usage && pricing
+        ? computeCallCost(pricing, {
+            inputTokens: out.usage.inputTokens,
+            outputTokens: out.usage.outputTokens,
+            ...(out.usage.cacheReadTokens !== undefined ? { cacheReadTokens: out.usage.cacheReadTokens } : {}),
+            ...(out.usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: out.usage.cacheWriteTokens } : {}),
+          })
+        : null
+      emit({ type: 'done', usage: out.usage?.outputTokens ?? 0, reason: 'success', ...(cost !== null ? { cost } : {}) })
     } else {
       emit({ type: 'error', kind: 'provider', message: out.error, recoverable: false })
     }

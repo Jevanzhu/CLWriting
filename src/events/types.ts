@@ -217,6 +217,9 @@ export interface LlmCallData {
   ok: boolean
   errCode?: string
   promptMeta?: { chars: number; files: string[]; hash: string }
+  /** D2（批 5）：调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
+   *  旧事件无此键按无章归集） */
+  chapter?: number
 }
 
 /** llm/retry —— 重试记账（先落库后等待） */

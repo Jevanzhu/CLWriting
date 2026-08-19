@@ -27,7 +27,7 @@ export type DriverEvent =
   | { type: 'notice'; message: string }
   | { type: 'tool_use'; tool: string; input: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
-  | { type: 'usage'; cost: number; tokens: number }
+  | { type: 'usage'; tokens: number; cost?: number }
   | { type: 'error'; kind: string; message: string; recoverable: boolean }
   | { type: 'interrupted'; reason: string }
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
@@ -52,7 +52,7 @@ export type DriverEvent =
       path?: string
       error?: string
     }
-  | { type: 'done'; cost: number; usage: number; reason: 'success' | 'cancelled' | 'error' }
+  | { type: 'done'; usage: number; reason: 'success' | 'cancelled' | 'error'; cost?: number }
   // 对话助手(chat.ts 经 emit 推主 session)
   | { type: 'chat_start' }
   | { type: 'chat_turn'; turn: number }

@@ -31,6 +31,7 @@ import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/ana
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
+import { effectiveRemainingCalls } from '../../../ai/calls.js'
 
 interface ReviewCtx {
   workDir: string | null
@@ -135,7 +136,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           chapter: chapter.章号,
           workDir: reviewOutDir,
           capabilities: { parallel_subagents: false, multiple_calls: true },
-          remaining_calls: config.budget.calls_per_chapter,
+          // D3（批 5）：三口径（次数/tokens/cost）取最紧折算剩余调用数（未设=次数上限，旧行为）
+          remaining_calls: effectiveRemainingCalls(bookRoot, chapter.章号, config),
           high_risk: outcome.hasRed,
           hasWiring,
           hasShort,

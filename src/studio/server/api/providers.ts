@@ -236,6 +236,49 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
+  // D2（批 5）：provider 级价格表——独立端点而非并入编辑主链路（价格不影响连通性，
+  // 不该连带 caps 重置/重新探测；解析也独立：四档单价均为正数或省略，null = 清除）
+  defineRoute('providers.pricing', {
+    method: 'PUT',
+    path: '/api/providers/:id/pricing',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+    const id = params['id'] ?? ''
+    const body = await readJson(req)
+    const s = loadProviders(ctx.userDataPath)
+    const revErr = revisionError(body['expectedRevision'], s.revision)
+    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+    const idx = s.providers.findIndex((p) => p.id === id)
+    if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
+
+    const raw = body['pricing']
+    if (raw === null || raw === undefined) {
+      s.providers[idx] = { ...s.providers[idx]!, pricing: undefined }
+      saveProviders(ctx.userDataPath, s)
+      return reply(res, 200, { ok: true, pricing: null, revision: s.revision })
+    }
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+      return replyError(res, 400, 'BAD_INPUT', 'pricing 需为对象或 null')
+    }
+    const p = raw as Record<string, unknown>
+    const pos = (v: unknown): number | undefined | 'bad' =>
+      v === undefined || v === null || v === '' ? undefined : typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 'bad'
+    const pricing: NonNullable<import('../../../ai/provider/types.js').ProviderConf['pricing']> = {}
+    for (const key of ['inputPerMTok', 'outputPerMTok', 'cacheReadPerMTok', 'cacheWritePerMTok'] as const) {
+      const v = pos(p[key])
+      if (v === 'bad') return replyError(res, 400, 'BAD_INPUT', `pricing.${key} 需为非负数字`)
+      if (v !== undefined) pricing[key] = v
+    }
+    if (typeof p['currency'] === 'string' && p['currency'].trim()) pricing.currency = p['currency'].trim()
+    if (Object.keys(pricing).length === 0) {
+      return replyError(res, 400, 'BAD_INPUT', 'pricing 至少需要一个单价键（inputPerMTok/outputPerMTok/cacheReadPerMTok/cacheWritePerMTok，单位：每百万 token）')
+    }
+    s.providers[idx] = { ...s.providers[idx]!, pricing }
+    saveProviders(ctx.userDataPath, s)
+    reply(res, 200, { ok: true, pricing, revision: s.revision })
+  },
+  })
+
   // 删除
   defineRoute('providers.delete', {
     method: 'DELETE',

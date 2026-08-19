@@ -30,6 +30,7 @@ export function llmCallEvent(data: {
   ok: boolean
   errCode?: string
   promptMeta?: { chars: number; files: string[]; hash: string }
+  chapter?: number
 }): NewEvent {
   return { type: 'llm/call', data: { ...data } }
 }

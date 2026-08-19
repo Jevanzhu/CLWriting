@@ -3,9 +3,10 @@
 // 主字段 = API Key（P6 前端校验）；「自定义设置」折叠 = 类型/名称/API 地址 + 模型行编辑器（P9）。
 // 校验与 API 写入留在父层（AiServicePanel.save）；本组件 emit 草稿（含 modelDrafts 供父层 validateModels）。
 // 表单骨架/输入/胶囊按钮用 providers.css 共享类；此处只留折叠器与协议分段。
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import type { ProviderConfDto, Protocol, AuthStrategy, ModelConfDto } from '../../api/providers'
+import { updateProviderPricing } from '../../api/providers'
 import { apiKeyFailure, dtoToModelDrafts, modelDraftToDto, type ModelRowDraft } from '../../shared/provider-format'
 import ModelListEditor from './ModelListEditor.vue'
 
@@ -82,6 +83,64 @@ function submit(): void {
     modelDrafts: modelDrafts.value.map((r) => ({ ...r })),
   })
 }
+
+// ── D2（批 5）价格表：自包含小节——独立端点独立保存（价格不影响连通性，
+//    不与主表单保存/expectedRevision 耦合）；仅编辑卡显示 ──
+const pricingForm = reactive({
+  inputPerMTok: props.initial?.pricing?.inputPerMTok?.toString() ?? '',
+  outputPerMTok: props.initial?.pricing?.outputPerMTok?.toString() ?? '',
+  cacheReadPerMTok: props.initial?.pricing?.cacheReadPerMTok?.toString() ?? '',
+  cacheWritePerMTok: props.initial?.pricing?.cacheWritePerMTok?.toString() ?? '',
+  currency: props.initial?.pricing?.currency ?? 'USD',
+})
+const pricingState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const pricingError = ref('')
+
+const pricingConfigured = computed(() => !!props.initial?.pricing)
+
+async function savePricing(clear = false): Promise<void> {
+  if (!props.initial) return
+  pricingState.value = 'saving'
+  pricingError.value = ''
+  try {
+    const num = (v: string): number | undefined => {
+      const t = v.trim()
+      if (!t) return undefined
+      const n = Number(t)
+      return Number.isFinite(n) && n >= 0 ? n : NaN
+    }
+    const pricing = clear
+      ? null
+      : {
+          inputPerMTok: num(pricingForm.inputPerMTok),
+          outputPerMTok: num(pricingForm.outputPerMTok),
+          cacheReadPerMTok: num(pricingForm.cacheReadPerMTok),
+          cacheWritePerMTok: num(pricingForm.cacheWritePerMTok),
+          ...(pricingForm.currency.trim() ? { currency: pricingForm.currency.trim() } : {}),
+        }
+    if (pricing && Object.values(pricing).some((v) => Number.isNaN(v))) {
+      pricingState.value = 'error'
+      pricingError.value = '单价需为非负数字'
+      return
+    }
+    if (pricing && ![pricing.inputPerMTok, pricing.outputPerMTok, pricing.cacheReadPerMTok, pricing.cacheWritePerMTok].some((v) => v !== undefined)) {
+      pricingState.value = 'error'
+      pricingError.value = '至少填一个单价（或点「清除价格」）'
+      return
+    }
+    await updateProviderPricing(props.initial.id, pricing)
+    pricingState.value = 'saved'
+    if (clear) {
+      pricingForm.inputPerMTok = ''
+      pricingForm.outputPerMTok = ''
+      pricingForm.cacheReadPerMTok = ''
+      pricingForm.cacheWritePerMTok = ''
+    }
+  } catch (e) {
+    pricingState.value = 'error'
+    pricingError.value = e instanceof Error ? e.message : String(e)
+  }
+}
 </script>
 
 <template>
@@ -154,6 +213,30 @@ function submit(): void {
           :probe="probe"
           @update:model-value="onModelDrafts"
         />
+
+        <!-- D2（批 5）价格表：每百万 token 单价；配价后用量面板显示金额、预算可用 cost 口径 -->
+        <div v-if="initial" class="pricing-block">
+          <div class="pricing-title">
+            价格表（每百万 token）
+            <span v-if="pricingConfigured" class="pricing-on">已配置</span>
+            <span v-else class="pricing-off">未配置（不显示金额）</span>
+          </div>
+          <div class="pricing-grid">
+            <label>输入<input v-model="pricingForm.inputPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
+            <label>输出<input v-model="pricingForm.outputPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
+            <label>缓存读<input v-model="pricingForm.cacheReadPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
+            <label>缓存写<input v-model="pricingForm.cacheWritePerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
+            <label>币种<input v-model="pricingForm.currency" type="text" placeholder="USD" /></label>
+          </div>
+          <div class="pricing-actions">
+            <button class="save-btn" :disabled="pricingState === 'saving'" @click="savePricing(false)">
+              {{ pricingState === 'saving' ? '保存中…' : '保存价格' }}
+            </button>
+            <button v-if="pricingConfigured" class="cancel-btn" :disabled="pricingState === 'saving'" @click="savePricing(true)">清除价格</button>
+            <span v-if="pricingState === 'saved'" class="pricing-ok">已保存</span>
+            <span v-else-if="pricingState === 'error'" class="key-error">{{ pricingError }}</span>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -272,5 +355,60 @@ function submit(): void {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-3);
+}
+
+/* D2（批 5）价格表小节 */
+.pricing-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.pricing-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pricing-on {
+  font-weight: 400;
+  color: var(--text-accent, inherit);
+}
+.pricing-off {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+.pricing-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+.pricing-grid input {
+  padding: 5px 8px;
+  font-size: var(--font-size-s);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.pricing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pricing-ok {
+  font-size: var(--font-size-xs);
+  color: var(--text-accent, green);
 }
 </style>

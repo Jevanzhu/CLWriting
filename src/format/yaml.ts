@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG: BookConfig = {
 }
 
 /** budget 段已知键白名单（解析用；calls_per_chapter 已可选化，不能再用 `in 起步值` 判定） */
-const BUDGET_KEYS = new Set(['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max'])
+const BUDGET_KEYS = new Set(['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter'])
 
 // ── 解析：段 + 缩进子字段 ────────────────────────
 
@@ -481,6 +481,13 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     lines.push('', 'budget:')
     if (cfg.budget.calls_per_chapter !== undefined) {
       lines.push(`  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)
+    }
+    // D3（批 5）：双口径预算键——设了才输出（未设不烘焙，回落交运行时合并层）
+    if (cfg.budget.tokens_per_chapter !== undefined) {
+      lines.push(`  tokens_per_chapter: ${cfg.budget.tokens_per_chapter}`)
+    }
+    if (cfg.budget.cost_per_chapter !== undefined) {
+      lines.push(`  cost_per_chapter: ${cfg.budget.cost_per_chapter}`)
     }
     if (!isShort) {
       lines.push(

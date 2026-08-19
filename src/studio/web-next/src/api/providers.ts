@@ -54,6 +54,17 @@ export interface ProviderConfDto {
   caps: ProviderCaps | null
   capsProbedAt?: number
   sortIndex?: number
+  /** D2（批 5）：provider 级价格表（每百万 token 单价；未配 = undefined，cost 口径不生效） */
+  pricing?: PricingConfDto
+}
+
+/** 价格表（D2 批 5；models[].pricing 同形状覆盖 provider 级） */
+export interface PricingConfDto {
+  inputPerMTok?: number
+  outputPerMTok?: number
+  cacheReadPerMTok?: number
+  cacheWritePerMTok?: number
+  currency?: string
 }
 
 export interface ProvidersResponse {
@@ -233,4 +244,17 @@ export async function testRagProvider(id: string): Promise<RagTestResult> {
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
   }, 30_000)
+}
+
+/** D2（批 5）：写 provider 级价格表（独立端点——不影响连通 caps；null = 清除） */
+export async function updateProviderPricing(
+  id: string,
+  pricing: PricingConfDto | null,
+  expectedRevision?: number,
+): Promise<{ ok: true; pricing: PricingConfDto | null; revision: number }> {
+  return apiJson(`/api/providers/${encodeURIComponent(id)}/pricing`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pricing, ...(expectedRevision !== undefined ? { expectedRevision } : {}) }),
+  })
 }

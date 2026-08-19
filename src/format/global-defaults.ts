@@ -58,6 +58,10 @@ export interface GlobalBookDefaults {
   relationMineThreshold?: number
   ragEnabled?: boolean
   ragProvider?: string
+  /** D3（批 5）：单章 token 预算全局默认（无硬编码回落——global 没有就 undefined=不拦） */
+  tokensPerChapter?: number
+  /** D3（批 5）：单章金额预算全局默认（需配价格表才生效） */
+  costPerChapter?: number
 }
 
 /**
@@ -74,6 +78,8 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
   try {
     const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
     // 校验器：非法值 → undefined（与「没写」同义，走回落链）
+    const posNum = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined
     const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined)
     const nonEmptyStr = (v: unknown): string | undefined =>
       typeof v === 'string' && v.trim().length > 0 ? v : undefined
@@ -98,6 +104,8 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       relationMineThreshold: intAtLeast(raw['relationMineThreshold'], 1, 20),
       ragEnabled: bool(raw['ragEnabled']),
       ragProvider: nonEmptyStr(raw['ragProvider']),
+      tokensPerChapter: posNum(raw['tokensPerChapter']),
+      costPerChapter: posNum(raw['costPerChapter']),
     }
   } catch {
     // JSON 损坏 / 读失败 → 全空（逐项回落第三层），不阻断调用方
@@ -142,6 +150,13 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
 
   // 全局固定：单章调用上限只走全局（已砍书级覆盖，书级旧值忽略）
   cfg.budget = { ...(cfg.budget ?? {}), calls_per_chapter: g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter }
+  // D3（批 5）：token/金额双口径预算——书级未设回落 global（无硬编码回落；都未设 = 不拦）
+  if (cfg.budget.tokens_per_chapter === undefined && g.tokensPerChapter !== undefined) {
+    cfg.budget.tokens_per_chapter = g.tokensPerChapter
+  }
+  if (cfg.budget.cost_per_chapter === undefined && g.costPerChapter !== undefined) {
+    cfg.budget.cost_per_chapter = g.costPerChapter
+  }
 
   // 全局固定：文风注入强度只走全局（styleInjection → 'light'），不再参与书级覆盖。
   // 决策（2026-08-19）：文风注入砍掉「本书」级选项，全书统一跟随全局——书级旧值忽略，避免

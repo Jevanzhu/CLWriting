@@ -50,6 +50,7 @@ import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { registerTraceStatsRoutes } from './api/trace-stats.js'
+import { registerCostStatsRoutes } from './api/cost-stats.js' // D2（批 5）：llm/call × 价格表聚合
 import { registerAuditRoutes } from './api/audit.js'
 import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerChatBranchesRoutes } from './api/chat-branches.js'
@@ -104,6 +105,7 @@ function buildRoutes(
     registerStyleRoutes({ workDir, userDataPath }) // 全局托底：注入强度喂写作链路合并 global.json
     registerProvidersRoutes({ userDataPath })
     registerTraceStatsRoutes({ workDir, userDataPath })
+    registerCostStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath })
     registerChatHistoryRoutes({ workDir, userDataPath }) // Y-P2-5：对话历史只读端点（editor 组，同 audit 事件读取模式）
     registerChatBranchesRoutes({ workDir, userDataPath }) // G1：分支列表只读端点（editor 组，分支 UI 服务端支撑）

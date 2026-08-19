@@ -40,6 +40,15 @@ export interface ProviderConf {
    * 行结构开放：未知/未来字段原样存活，编辑不整行重建（DSH 教训）。
    */
   models?: ModelConf[]
+  /** D2（批 5）：provider 级价格表（每百万 token 单价；models[].pricing 同键覆盖）。
+   *  加性可选——未配置时一切行为与从前一致（cost 口径静默不生效）。 */
+  pricing?: {
+    inputPerMTok?: number
+    outputPerMTok?: number
+    cacheReadPerMTok?: number
+    cacheWritePerMTok?: number
+    currency?: string
+  }
   caps: ProviderCaps | null // 服务级能力（连通/流式）；null = 尚未测试连接
   capsProbedAt?: number
   sortIndex?: number
@@ -55,6 +64,14 @@ export interface ModelConf {
   contextWindow?: number
   /** 单次输出上限（token）；缺省 = 未声明（回落 quirks.maxOutputTokens / 协议兜底） */
   maxTokens?: number
+  /** D2（批 5）：模型级价格表（同名键覆盖 provider 级——同网关混挂不同价模型是现实场景） */
+  pricing?: {
+    inputPerMTok?: number
+    outputPerMTok?: number
+    cacheReadPerMTok?: number
+    cacheWritePerMTok?: number
+    currency?: string
+  }
   /** 行结构开放：未知/未来字段原样存活（DSH 教训） */
   [key: string]: unknown
 }

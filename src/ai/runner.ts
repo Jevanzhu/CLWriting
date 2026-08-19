@@ -15,6 +15,7 @@ import { tryMockTool } from './mock-tool.js'
 import { GenError } from './gen.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
+import { resolveModelPricing, computeCallCost } from './pricing.js'
 import { openSessionStore, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
@@ -248,6 +249,7 @@ export async function runTask<T>(opts: {
         ...(opts.promptText
           ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? []) }
           : {}),
+        ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
       }),
     )
   }
@@ -325,10 +327,12 @@ export async function runTask<T>(opts: {
       try {
         const data = await opts.run(r.provider, ctrl.signal, r.tier)
         const usage = extractUsage(data)
-        // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）
+        // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
+        // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
+        const callCost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage) : undefined
         if (bookRoot) {
           if (task) recordTaskUsage(bookRoot, task, usage)
-          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, usage)
+          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, usage, callCost ?? undefined)
         }
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'

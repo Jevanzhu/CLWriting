@@ -28,6 +28,9 @@ interface ChapterUsage {
   /** D4：cache 记账（可选——旧记录无此字段按 0；端点不下发则不累计） */
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /** D3（批 5）：本章金额累计（可选——runTask 按价格表算入；未配价全书不累计=口径不生效）。
+   *  币种随价格表 currency（缺省 USD）；数值口径假设全书一致（混币属配置错误） */
+  costAccum?: number
 }
 
 /** task 块（全端点覆盖） */
@@ -103,6 +106,8 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
     const chapterCr = cacheNum(chapter.cacheReadTokens)
     const chapterCw = cacheNum(chapter.cacheWriteTokens)
     if (Number.isNaN(chapterCr) || Number.isNaN(chapterCw)) return { rec: null, corrupt: true }
+    const chapterCost = cacheNum(chapter.costAccum)
+    if (Number.isNaN(chapterCost)) return { rec: null, corrupt: true }
     return {
       rec: {
         chapter: {
@@ -112,6 +117,7 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
           ...(chapterCr !== undefined ? { cacheReadTokens: chapterCr } : {}),
           ...(chapterCw !== undefined ? { cacheWriteTokens: chapterCw } : {}),
+          ...(chapterCost !== undefined ? { costAccum: chapterCost } : {}),
         },
         tasks,
       },
@@ -151,15 +157,41 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
   atomicWriteFile(fp, JSON.stringify(rec, null, 2) + '\n', { fsync: true, mode: 0o600 })
 }
 
-/** 预算判定：超限 → ok=false + 人话提示（三条出路在文档 §五）；损坏 → 保守阻断（V-P2-10） */
-export function checkAiCallBudget(
-  bookRoot: string,
-  chapter: number,
-  config: BookConfig,
-): { ok: true; used: number; limit: number } | { ok: false; used: number; limit: number; reason: string } {
+/** 预算判定（D3 批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示
+ *  （三条出路在文档 §五）；损坏 → 保守阻断（V-P2-10）。
+ *  - tokens 口径 = input+output+cacheRead+cacheWrite 全口径累计（长上下文章正是拦截对象）；
+ *  - cost 口径仅当已配价格表（记账里有 costAccum）才生效——未配价静默不拦截
+ *   （与信息差未配置静默跳过同语义，不做半吊子拦截，P10-①）。 */
+/** 判别联合：ok=false 必带 reason（调用方 narrowing 后 reason 恒为 string，零改动消费） */
+export type BudgetCheckResult =
+  | {
+      ok: true
+      used: number
+      limit: number
+      /** D3：token 口径用量/上限（未设预算时 undefined） */
+      usedTokens?: number
+      limitTokens?: number
+      /** D3：cost 口径用量/上限（未配价或未设预算时 undefined） */
+      usedCost?: number
+      limitCost?: number
+    }
+  | {
+      ok: false
+      used: number
+      limit: number
+      reason: string
+      usedTokens?: number
+      limitTokens?: number
+      usedCost?: number
+      limitCost?: number
+    }
+
+export function checkAiCallBudget(bookRoot: string, chapter: number, config: BookConfig): BudgetCheckResult {
   // 全局托底：calls_per_chapter 已可选化——常规路径（self-heal orchestrate）传入的 config
   // 已过 applyGlobalDefaults，这里是直调/测试路径的最终回落（8 与 global.json 缺省一致）
   const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
+  const limitTokens = config.budget.tokens_per_chapter
+  const limitCost = config.budget.cost_per_chapter
   const { rec, corrupt } = readRecord(bookRoot)
 
   if (corrupt) {
@@ -182,15 +214,77 @@ export function checkAiCallBudget(
       reason: `本章已调用 ${rec.chapter.used} 次（上限 ${limit}）。可临时提高 book.yaml 的 budget.calls_per_chapter，或降低重写次数`,
     }
   }
-  return { ok: true, used: rec.chapter.used, limit }
+  // D3：token 口径（全口径累计：input+output+cache 读写）
+  if (limitTokens !== undefined) {
+    const usedTokens =
+      rec.chapter.inputTokens +
+      rec.chapter.outputTokens +
+      (rec.chapter.cacheReadTokens ?? 0) +
+      (rec.chapter.cacheWriteTokens ?? 0)
+    if (usedTokens >= limitTokens) {
+      return {
+        ok: false,
+        used: rec.chapter.used,
+        limit,
+        usedTokens,
+        limitTokens,
+        reason: `本章已消耗 ${usedTokens} tokens（上限 ${limitTokens}，一次长上下文调用可能顶普通章十次）。可临时提高 book.yaml 的 budget.tokens_per_chapter，或收紧本章备料`,
+      }
+    }
+  }
+  // D3：cost 口径（记账有 costAccum = 已配价格表才拦）
+  if (limitCost !== undefined && rec.chapter.costAccum !== undefined && rec.chapter.costAccum >= limitCost) {
+    return {
+      ok: false,
+      used: rec.chapter.used,
+      limit,
+      usedCost: rec.chapter.costAccum,
+      limitCost,
+      reason: `本章已消耗 ${rec.chapter.costAccum.toFixed(4)}（上限 ${limitCost}，按价格表计）。可临时提高 book.yaml 的 budget.cost_per_chapter，或降低重写次数`,
+    }
+  }
+  // 放行：带三口径用量（effectiveRemainingCalls 折算最紧档用）
+  const totalTokens =
+    rec.chapter.inputTokens +
+    rec.chapter.outputTokens +
+    (rec.chapter.cacheReadTokens ?? 0) +
+    (rec.chapter.cacheWriteTokens ?? 0)
+  return {
+    ok: true,
+    used: rec.chapter.used,
+    limit,
+    ...(limitTokens !== undefined ? { usedTokens: totalTokens, limitTokens } : {}),
+    ...(limitCost !== undefined && rec.chapter.costAccum !== undefined ? { usedCost: rec.chapter.costAccum, limitCost } : {}),
+  }
+}
+
+/**
+ * D3（批 5）：三审降档用的「有效剩余调用数」——三口径（次数/tokens/cost）各算
+ * 已用比例，取最紧（最高比例）的一档折算剩余次数。未设/未配的口径不参与。
+ * 三口径都未设 → 返回次数上限（与旧行为一致）。
+ */
+export function effectiveRemainingCalls(bookRoot: string, chapter: number, config: BookConfig): number {
+  const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
+  const check = checkAiCallBudget(bookRoot, chapter, config)
+  if (!check.ok || !check.used) return limit
+  const ratios: number[] = [check.used / limit]
+  if (check.limitTokens !== undefined && check.usedTokens !== undefined) {
+    ratios.push(check.usedTokens / check.limitTokens)
+  }
+  if (check.limitCost !== undefined && check.usedCost !== undefined) {
+    ratios.push(check.usedCost / check.limitCost)
+  }
+  const tightest = Math.max(...ratios)
+  return Math.max(0, Math.ceil((1 - tightest) * limit))
 }
 
 /**
  * 记一次 chapter 维度 AI 调用（预算闸用；换章重置）。
  *
  * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
+ * D3（批 5）：costUsd 由 runner 按价格表现算传入（未配价不传——cost 口径静默不生效）。
  */
-export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null): void {
+export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
   const { rec, corrupt } = readRecord(bookRoot)
   // W-P2-8：损坏不重置——静默覆盖等于绕过 checkAiCallBudget 的保守阻断；
   // 只允许人工删除文件恢复计数（阻断提示里已写明出路）
@@ -200,16 +294,16 @@ export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsag
   }
   if (!rec || rec.chapter.num !== chapter) {
     const fresh: CallRecord = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
-    applyCall(fresh, usage)
+    applyCall(fresh, usage, costUsd)
     writeRecord(bookRoot, fresh)
     return
   }
-  applyCall(rec, usage)
+  applyCall(rec, usage, costUsd)
   writeRecord(bookRoot, rec)
 }
 
-/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；D4 含 cache 字段） */
-function applyCall(rec: CallRecord, usage: TokenUsage | null): void {
+/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；D4 含 cache 字段；D3 含 cost） */
+function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number): void {
   rec.chapter.used += 1
   if (usage) {
     rec.chapter.inputTokens += usage.inputTokens
@@ -220,6 +314,10 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null): void {
     if (usage.cacheWriteTokens !== undefined) {
       rec.chapter.cacheWriteTokens = (rec.chapter.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
     }
+  }
+  // D3（批 5）：金额累计（costUsd 仅在配价时由 runner 传入）
+  if (typeof costUsd === 'number' && Number.isFinite(costUsd)) {
+    rec.chapter.costAccum = Math.round(((rec.chapter.costAccum ?? 0) + costUsd) * 1e10) / 1e10
   }
 }
 
