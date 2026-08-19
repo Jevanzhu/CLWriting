@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards.js'
+import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards'
 
 /**
  * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。

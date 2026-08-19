@@ -15,5 +15,7 @@
   color: var(--text-on-accent);
   vertical-align: 1px;
   user-select: none;
+  /* 挂点宿主多为 uppercase 小节标题（如 CollapseSection 标题条）——徽章锁定原样大小写 */
+  text-transform: none;
 }
 </style>

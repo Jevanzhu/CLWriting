@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { str } from './sse-guards.js'
+import { str } from './sse-guards'
 import {
   fetchChatHistory,
   fetchChatBranches,
@@ -8,7 +8,7 @@ import {
   type ChatHistoryMessage,
   type ChatHistoryResult,
   type ChatBranchInfo,
-} from '../api/chat.js'
+} from '../api/chat'
 
 /**
  * 对话助手 store（方案 §3.7.3）。
