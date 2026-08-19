@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
 // 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（M4 去机器味：作者看文章，调试功能全保留）。
+// 巨石批 7a 拆分：高级折叠区 → workbench/WbAdvanced、自愈进度卡 → WbHealCard、
+// 生成正文卡 → WbDraftCard；本文件留状态卡 / 触发生成 / 数据加载编排。
 import { ref, watch, computed, onMounted } from 'vue'
-import { Activity, CircleCheck, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { Sparkles } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -22,20 +24,12 @@ import { usePrefsStore } from '../stores/prefs'
 import { useProviderStore } from '../stores/provider'
 import { getConfig } from '../api/books'
 import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
-import EmptyState from '../components/ui/EmptyState.vue'
-import BetaBadge from '../components/ui/BetaBadge.vue'
-import CollapseSection from '../components/ui/CollapseSection.vue'
 import ChatPanel from '../components/panels/ChatPanel.vue'
+import WbStateCard from '../components/workbench/WbStateCard.vue'
+import WbAdvanced from '../components/workbench/WbAdvanced.vue'
+import WbHealCard from '../components/workbench/WbHealCard.vue'
+import WbDraftCard from '../components/workbench/WbDraftCard.vue'
 import { friendlyError } from '../shared/error'
-
-/** 规则 ID → 中文标签（与后端 RULE_LABEL 一致） */
-const RULE_LABEL: Record<string, string> = {
-  'ai-cliche': 'AI高频套话',
-  'ai-flavor-words': 'AI味词',
-  'style-consistency': '文风偏离',
-  'setting-consistency': '设定偏离',
-  'plot-consistency': '情节偏离',
-}
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -67,40 +61,9 @@ async function loadRuleHits(): Promise<void> {
   }
 }
 
-// 态机 action → 可执行操作（每个建议动作都有 UI 按钮）。
-// CLI 确定性步骤（hand/rebook/health/review-batch/enter）随 CLI 退场：对应 action 不再有按钮，
-// 状态卡只展示 humanMsg；写章统一走「自动写章」或编辑器。
-const ACTION_RUNS: Record<string, { label: string; run: () => void | Promise<void> }> = {
-  'write-new-chapter':      { label: '开写新章', run: onSpawn },
-  'volume-review':          { label: '卷复盘', run: onSpawn },
-}
 const draftSaved = ref<{ path?: string; words: number } | null>(null)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
-const draftWords = computed(() => wb.textOut.length)
-// kk-P1-4：连写暂停提示（M6 #34）——上次批量连写中途停且未再开批时，状态卡提示从哪章续起
-const REASON_LABELS: Record<string, string> = {
-  escalate: 'AI 卡住上交裁决',
-  failed: '写稿失败',
-  aborted: '手动中止',
-}
-const batchPauseMsg = computed<string | null>(() => {
-  const p = state.value?.batchPause
-  if (!p) return null
-  const why = REASON_LABELS[p.reason] ?? p.reason
-  return `上次批量连写在第 ${p.atChapter} 章暂停（${why}），可从该章续写。${p.detail ? `详情：${p.detail}` : ''}`
-})
-// 当前建议操作（resume 续写；post-commit-residue 幂等清理无按钮，靠 humanMsg 提示）
-const currentAction = computed<{ label: string; run: () => void | Promise<void> } | null>(() => {
-  const a = state.value?.action
-  if (!a) return null
-  if (a === 'resume') {
-    return { label: '续写', run: onSpawn }
-  }
-  // repair 无确定性操作（humanMsg 已含错误列表，作者手修格式）
-  if (a === 'repair') return null
-  return ACTION_RUNS[a] ?? null
-})
 
 // RB-FE-P2-4：状态卡请求代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 状态（对齐本文件 kindReqId 风格）
 let stateGen = 0
@@ -231,24 +194,6 @@ async function onLeadUpdates(): Promise<void> {
   }
 }
 
-// 自愈进度人话（阶段 + 第 N/M 次重写 + 剩余红项数）
-// P2-3：批量连写时优先展示「第 X/Y 章」总进度（chapter_start/done + batch_progress）
-const healText = computed(() => {
-  const p = wb.healProgress
-  const bp = wb.batchProgress
-  if (wb.healPhase === 'chapter_start' && bp) return `批量连写：第 ${bp.done + 1}/${bp.total} 章开始`
-  if (wb.healPhase === 'chapter_done' && bp) return `批量连写：第 ${bp.done}/${bp.total} 章完成`
-  if (bp && bp.stoppedAt !== null) return `批量连写停在第 ${bp.stoppedAt} 章（已完成 ${bp.done}/${bp.total}）`
-  if (wb.healPhase === 'rewriting' && p) {
-    return `第 ${p.attempt}/${p.maxAttempts} 次重写（剩余 ${p.remaining.length} 条待修）`
-  }
-  if (wb.healPhase === 'drafting') return '正在写稿…'
-  if (wb.healPhase === 'checking') return '校对中…'
-  if (wb.healPhase === 'rewriting') return '正在重写…'
-  return ''
-})
-const healDone = computed(() => wb.healResult)
-
 // 存草稿并编辑（M3）：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
 async function onSaveDraft(): Promise<void> {
   if (!wb.textOut.trim()) {
@@ -267,59 +212,6 @@ async function onSaveDraft(): Promise<void> {
     ui.toast(err.value, 'error')
   }
 }
-
-// 事件流渲染：按 type 归类显示
-function evLabel(ev: { type: string; [k: string]: unknown }): string {
-  switch (ev.type) {
-    case 'text':
-      return String(ev.text ?? '')
-    case 'tool_use':
-      return `调用工具 ${ev.tool}${ev.role ? `（${ev.role}）` : ''}`
-    case 'role_spawn':
-      return `子角色 ${ev.role} 开始工作`
-    case 'usage':
-      return `用量：${ev.tokens} tokens${ev.cost ? `（${ev.cost}）` : ''}`
-    case 'review-progress':
-      return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
-    case 'self_heal_phase':
-      return ev.phase === 'chapter_start' ? `开始写第 ${ev.chapter} 章（${ev.done}/${ev.total}）`
-        : ev.phase === 'chapter_done' ? `第 ${ev.chapter} 章完成（${ev.done}/${ev.total}）`
-        : `自检进入「${ev.phase}」阶段`
-    case 'self_heal_batch':
-      return `批量连写 ${ev.total} 章`
-    case 'self_heal_batch_progress':
-      return `批量连写中断：已完成 ${ev.done}/${ev.total}，停在第 ${ev.stoppedAt} 章`
-    case 'self_heal_reset':
-      return '重新写稿（清空上一次草稿）'
-    case 'text_reset':
-      return '重试写稿（清空上一次草稿）'
-    case 'warning':
-      return `提示：${ev.message}`
-    case 'self_heal_progress':
-      return `第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余 ${(ev.remaining as string[] | undefined)?.length ?? 0} 条待修`
-    case 'self_heal_result': {
-      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断' }
-      return `自检结果：${m[ev.outcome as string] ?? ev.outcome}`
-    }
-    case 'done':
-      return '完成'
-    case 'error':
-      return `错误：${ev.message}`
-    case 'interrupted':
-      return `已中断${ev.reason ? `（${ev.reason}）` : ''}`
-    case 'init':
-      return '准备就绪'
-    default:
-      return ev.type
-  }
-}
-function evKind(ev: { type: string }): 'text' | 'meta' | 'done' | 'error' {
-  if (ev.type === 'text') return 'text'
-  if (ev.type === 'error' || ev.type === 'interrupted') return 'error'
-  if (ev.type === 'done') return 'done'
-  return 'meta'
-}
-const recent = computed(() => wb.log.slice(-200))
 </script>
 
 <template>
@@ -358,56 +250,10 @@ const recent = computed(() => wb.log.slice(-200))
       </span>
     </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
-    <section class="card">
-      <div class="card-head">
-        <span class="state-tag">{{ state?.stateName ?? '未知' }}</span>
-        <span class="conn" :class="{ on: wb.connected }">
-          {{ wb.connected ? '已连接' : '连接中' }}
-        </span>
-      </div>
-      <p class="human-msg">{{ state?.humanMsg ?? '读取状态中…' }}</p>
-      <p v-if="batchPauseMsg" class="pause-msg">{{ batchPauseMsg }}</p>
-      <div v-if="currentAction" class="action-row">
-        <span class="action-hint">建议下一步</span>
-        <button
-          class="btn mini primary"
-          :disabled="wb.running"
-          @click="currentAction.run"
-        >{{ currentAction.label }}</button>
-      </div>
-    </section>
+    <WbStateCard :state="state" @spawn="onSpawn" />
 
     <!-- 高级（流程可见：事件流 + 规则命中） -->
-    <section class="card">
-      <CollapseSection title="高级" :default-open="false">
-        <div class="adv-block">
-          <div class="adv-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
-          <div class="stream">
-            <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」开始" size="compact" />
-            <div
-              v-for="(ev, i) in recent"
-              :key="i"
-              class="ev"
-              :class="evKind(ev)"
-            >
-              <span class="ev-ts">{{ ev._ts }}</span>
-              <span class="ev-text">{{ evLabel(ev) }}</span>
-            </div>
-          </div>
-        </div>
-        <div class="adv-block">
-          <div class="adv-head"><span>规则命中</span><span class="muted">{{ ruleHits.length }} 条</span></div>
-          <div v-if="!ruleHits.length" class="muted">暂无规则命中（自动写章重写时统计）</div>
-          <div v-for="h in ruleHits" :key="h.ruleId" class="hit">
-            <div class="hit-head">
-              <span class="hit-id">{{ RULE_LABEL[h.ruleId] ?? h.ruleId }}</span>
-              <span class="hit-count">{{ h.hits }} 次</span>
-            </div>
-            <div v-if="h.recentMessages[0]" class="hit-msg">{{ h.recentMessages[0] }}</div>
-          </div>
-        </div>
-      </CollapseSection>
-    </section>
+    <WbAdvanced :rule-hits="ruleHits" />
 
     <!-- 触发生成 -->
     <section class="card">
@@ -452,55 +298,10 @@ const recent = computed(() => wb.log.slice(-200))
     </section>
 
     <!-- 全自动写章：进度 + 终局（红项只在重试触顶后才流到作者） -->
-    <section v-if="healText || healDone" class="card heal-card">
-      <div v-if="healText" class="heal-row running">
-        <span class="heal-dot" />
-        <span>{{ healText }}</span>
-      </div>
-      <template v-if="healDone">
-        <!-- W1 终局黄项复查：yellows 空 = 文风已收敛；非空 = 仍剩黄项（建议手改，不 gate） -->
-        <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
-          <CircleCheck :size="16" />
-          <div class="heal-detail">
-            <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
-            <ul v-if="healDone.yellows?.length" class="heal-reds">
-              <li v-for="(y, i) in healDone.yellows" :key="i">{{ y }}</li>
-            </ul>
-          </div>
-        </div>
-        <div v-else-if="healDone.outcome === 'escalate'" class="heal-row warn">
-          <TriangleAlert :size="16" />
-          <div class="heal-detail">
-            <div>AI 已重试到上限仍有待修问题，需要你来定夺</div>
-            <ul class="heal-reds">
-              <li v-for="(r, i) in healDone.reds ?? []" :key="i">{{ r }}</li>
-            </ul>
-          </div>
-        </div>
-        <div v-else-if="healDone.outcome === 'aborted'" class="heal-row">
-          <span>已中断，草稿保留最后一次产出</span>
-        </div>
-        <div v-else class="heal-row warn">
-          <TriangleAlert :size="16" />
-          <span>{{ healDone.error ?? '写稿失败' }}</span>
-        </div>
-      </template>
-    </section>
+    <WbHealCard />
 
     <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
-    <section class="card draft-card">
-      <div class="card-head">
-        <span>生成正文 <BetaBadge /></span>
-        <span class="muted">{{ draftWords }} 字</span>
-      </div>
-      <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
-      <div class="draft-actions">
-        <button class="btn primary" :disabled="!wb.textOut.trim()" @click="onSaveDraft">
-          存草稿并编辑
-        </button>
-        <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>
-      </div>
-    </section>
+    <WbDraftCard :draft-saved="draftSaved" @save="onSaveDraft" />
 
     <div v-if="err" class="err-msg">{{ err }}</div>
     </template>
@@ -553,54 +354,6 @@ const recent = computed(() => wb.log.slice(-200))
   border-radius: var(--radius-m);
   padding: var(--size-4-3);
   box-shadow: var(--shadow-s);
-}
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-normal);
-  margin-bottom: var(--size-4-2);
-}
-.state-tag {
-  color: var(--text-accent);
-}
-.conn {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.conn.on {
-  color: var(--dv-good);
-}
-.human-msg {
-  font-size: var(--font-size-m);
-  color: var(--text-normal);
-  line-height: 1.7;
-  white-space: pre-wrap;
-}
-/* kk-P1-4：连写暂停提示——弱于 humanMsg 的次级信息行 */
-.pause-msg {
-  font-size: var(--font-size-s);
-  color: var(--text-muted);
-  line-height: 1.6;
-  border-left: 2px solid var(--border-color);
-  padding-left: 8px;
-}
-.action-row {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin-top: var(--size-4-2);
-}
-.action-hint {
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-}
-.btn.mini {
-  height: 28px;
-  padding: 0 12px;
-  font-size: var(--font-size-s);
 }
 .model-bar {
   display: flex;
@@ -693,161 +446,9 @@ const recent = computed(() => wb.log.slice(-200))
   opacity: 0.5;
   cursor: not-allowed;
 }
-.heal-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-}
-.heal-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--size-4-2);
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-}
-.heal-row.ok {
-  color: var(--text-accent);
-}
-.heal-row.warn {
-  color: var(--text-error);
-}
-.heal-row.running {
-  color: var(--text-muted);
-}
-.heal-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 4px;
-  border-radius: 50%;
-  background: var(--interactive-accent);
-  animation: heal-pulse 1.4s ease-in-out infinite;
-  flex-shrink: 0;
-}
-@keyframes heal-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.heal-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.heal-reds {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-muted);
-}
-.heal-reds li {
-  margin: 2px 0;
-}
-.muted {
-  font-size: var(--font-size-xs);
-  font-weight: 400;
-  color: var(--text-faint);
-}
-.adv-block {
-  margin-bottom: var(--size-4-3);
-}
-.adv-block:last-child {
-  margin-bottom: 0;
-}
-.adv-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: var(--size-4-2);
-}
-.stream {
-  max-height: 240px;
-  overflow: auto;
-  font-family: var(--font-monospace);
-  font-size: var(--font-size-s);
-}
-.ev {
-  padding: 2px 0;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-.ev.text {
-  color: var(--text-normal);
-  white-space: pre-wrap;
-}
-.ev.done {
-  color: var(--dv-good);
-}
-.ev.error {
-  color: var(--text-error);
-}
-.ev-ts {
-  color: var(--text-faint);
-  margin-right: var(--size-4-2);
-}
-.ev-text {
-  word-break: break-all;
-}
-.hit {
-  padding: 6px 0;
-  border-top: 1px solid var(--background-modifier-border);
-  font-size: var(--font-size-s);
-}
-.hit:first-of-type {
-  border-top: none;
-}
-.hit-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--size-4-2);
-}
-.hit-id {
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.hit-count {
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
-.hit-msg {
-  margin-top: 2px;
-  color: var(--text-muted);
-  line-height: 1.5;
-  word-break: break-all;
-}
 .err-msg {
   font-size: var(--font-size-s);
   color: var(--text-error);
-}
-.draft-card {
-  flex: 1;
-  min-height: 240px;
-  display: flex;
-  flex-direction: column;
-}
-.draft-preview {
-  flex: 1;
-  min-height: 120px;
-  margin: var(--size-4-2) 0;
-  padding: var(--size-4-3);
-  font-family: var(--prose-font);
-  font-size: var(--prose-size);
-  line-height: var(--prose-lh);
-  color: var(--text-normal);
-  background: var(--background-primary);
-  border-radius: var(--radius-s);
-  white-space: pre-wrap;
-  overflow: auto;
-}
-.draft-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
 }
 .ai-warn {
   padding: 8px 12px;
