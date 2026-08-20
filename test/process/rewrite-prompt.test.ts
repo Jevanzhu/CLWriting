@@ -104,3 +104,26 @@ describe('lineDiff', () => {
     expect(d.some((l) => l.type === 'add' && l.text === '新内容')).toBe(true)
   })
 })
+
+describe('buildRewritePrompt targetWords（重写链与首稿链字数口径统一）', () => {
+  it('whole 模式传 targetWords → 区间 = 目标 ±20% 取整到百（与 wordRange 同口径）', () => {
+    const p = buildRewritePrompt('whole', '原文', '', '指令', [], 2, 'long', undefined, 5000)
+    expect(p).toContain('4000-6000 字')
+    expect(p).not.toContain('2000-4000')
+  })
+
+  it('whole 模式短篇同口径', () => {
+    const p = buildRewritePrompt('whole', '原文', '', '指令', [], 1, 'short', undefined, 10000)
+    expect(p).toContain('8000-12000 字')
+  })
+
+  it('不传 targetWords → 回落长短篇硬编码（与首稿链缺省一致，产物不变）', () => {
+    const p = buildRewritePrompt('whole', '原文', '', '指令', [], 2, 'long')
+    expect(p).toContain('2000-4000 字')
+  })
+
+  it('local 模式不受 targetWords 影响', () => {
+    const p = buildRewritePrompt('local', '原', '选段', '精简', [], 1, 'long', undefined, 5000)
+    expect(p).not.toContain('4000-6000')
+  })
+})

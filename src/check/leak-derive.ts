@@ -8,6 +8,7 @@
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { splitInlineArray } from '../format/frontmatter.js'
 
 /**
  * 扫描 布线/ 全部 md 账本的 front matter，收集 leak_keywords 数组值（去重、去空）。
@@ -51,7 +52,9 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
             const line = lines[i]!
             const inline = /^leak_keywords:\s*\[(.*)\]\s*$/.exec(line)
             if (inline) {
-              for (const item of inline[1]!.split(',')) collect(item.trim().replace(/^['"]|['"]$/g, ''))
+              // ① 单行数组：leak_keywords: [甲, 乙]——引号内逗号不劈（复用 frontmatter
+              //    splitInlineArray，K17 同构：["玉佩,旧案", 乙] 的「玉佩,旧案」是一个词）
+              for (const item of splitInlineArray(inline[1]!)) collect(item.trim().replace(/^['"]|['"]$/g, ''))
               break
             }
             if (/^leak_keywords:\s*$/.test(line)) {

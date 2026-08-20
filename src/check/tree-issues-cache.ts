@@ -9,6 +9,7 @@
  *    自动失效，无需专门通知）。mtime+size 撞车理论窗口与树 probeCache 同口径。
  * 2. 全局纪元（tree_issues_meta.global_fp）：机检还吃章外全局输入——book.yaml /
  *    global.json（配置与托底）、布线（账本 db 源）、大纲/章纲（targetWords）、
+ *    工作区/细纲.md（账本推进声明）、设定/境界体系.md（成长线）、文风/、
  *    工作区/账本推进.md、项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
  *    任一 stat 变化 → 整表清空重查（改配置/定稿/动账本是低频操作，可接受连坐）。
  *    章正文本身不在纪元里——改 1 章只破那 1 章的行指纹，这正是增量的意义。
@@ -76,6 +77,8 @@ function dirFp(p: string): string {
  * 全局纪元指纹：全部「章外输入」的 stat 摘要。userDataPath 传入时含 global.json
  * （applyGlobalDefaults 托底值影响 short.strict 等）。文风/ 含铁律与条目库禁词
  * （readIronRules 合并源）；大纲/章纲 含 targetWords；清单含 maxWritten 基准。
+ * 细纲.md 是 declaredLeadIds 的来源（两端闭合左侧）、设定/境界体系.md 是成长线
+ * 红项输入（growth-realm-*）——此前两者漏在纪元外，编辑后树红点不失效可陈旧。
  */
 export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string | null): string {
   const parts = [
@@ -86,6 +89,8 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
     dirFp(join(bookRoot, '大纲', '关系线')),
     dirFp(join(bookRoot, '大纲', '章纲')),
     dirFp(join(bookRoot, '文风')),
+    fileFp(join(bookRoot, '工作区', '细纲.md')),
+    fileFp(join(bookRoot, '设定', '境界体系.md')),
     fileFp(join(bookRoot, '工作区', '账本推进.md')),
     fileFp(join(bookRoot, '项目', '文档清单.jsonl')),
   ]

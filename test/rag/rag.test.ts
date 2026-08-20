@@ -496,4 +496,12 @@ describe('enableRag 保真（V-P2-4）', () => {
     expect(r.ok).toBe(true)
     expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, endpoint: 'http://keep-me', model: 'keep-model' })
   })
+
+  it('合并语义：已配 candidate_depth 不被整段替换抹掉（dd-P2 同款）', () => {
+    const raw = 'spec_version: 1\n\nrag:\n  enabled: false\n  endpoint: http://old\n  model: m1\n  candidate_depth: 7\n'
+    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
+    const r = enableRag(bookRoot, workDir, { endpoint: 'https://api.example.com/v1/embeddings', model: 'm2' })
+    expect(r.ok).toBe(true)
+    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, candidate_depth: 7, model: 'm2' })
+  })
 })

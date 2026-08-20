@@ -265,8 +265,13 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
  */
 export function effectiveRemainingCalls(bookRoot: string, chapter: number, config: BookConfig): number {
   const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
+  // limit ≤ 0（病态配置 calls_per_chapter: 0）→ 0：0/0 会产出 NaN，下游一切比较恒
+  // false 等同额度无限；次数上限本身就是「不可调用」，直接归 0
+  if (limit <= 0) return 0
   const check = checkAiCallBudget(bookRoot, chapter, config)
-  if (!check.ok || !check.used) return limit
+  // 超限/损坏 → 保守剩余 0（与 checkAiCallBudget 的拦截语义一致；此前误提前返回
+  // 满额 limit——预算耗尽时三审降档反而拿到「额度充足」不降档）
+  if (!check.ok) return 0
   const ratios: number[] = [check.used / limit]
   if (check.limitTokens !== undefined && check.usedTokens !== undefined) {
     ratios.push(check.usedTokens / check.limitTokens)

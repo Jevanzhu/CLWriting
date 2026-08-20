@@ -92,12 +92,15 @@ onUnmounted(() => void doc.flushDirty())
       <EditorView v-if="ws.activeView === 'editor'" :doc-id="ws.activeDocId" />
       <WorkbenchView v-else-if="ws.activeView === 'workbench'" :book-name="bookName" />
       <!-- :key=bookName —— 切书时强制重建（下列视图无 watch bookName、多为仅 onMounted 拉数；
-           无 key 复用组件会一直显示旧书数据）。Y-P2-3：StyleView 自带切书 watch、
-           WorkbenchView 由内部 watch 重载规则命中，均无需 key -->
+           无 key 复用组件会一直显示旧书数据）。Y-P2-3：WorkbenchView 由内部 watch 重载
+           规则命中，无需 key。H-2（二轮复审）：StyleView 改挂 key——store 层虽有切书
+           watch，但 StyleBaselineCard 铁律编辑框 / StyleAcceptancePanel 分析结果是组件
+           本地 ref 不随 store 重载，A 书展开编辑→切 B 书→保存会把 A 书铁律整段覆盖进
+           B 书（跨书写坏），重建实例一并消灭显示残留 -->
       <OverviewView v-else-if="ws.activeView === 'overview'" :key="bookName" :book-name="bookName" />
       <RelationsView v-else-if="ws.activeView === 'relations'" :key="bookName" :book-name="bookName" />
       <LearnView v-else-if="ws.activeView === 'learn'" :key="bookName" :book-name="bookName" />
-      <StyleView v-else-if="ws.activeView === 'style'" :book-name="bookName" />
+      <StyleView v-else-if="ws.activeView === 'style'" :key="bookName" :book-name="bookName" />
       <AuditView v-else-if="ws.activeView === 'audit'" :key="bookName" :book-name="bookName" />
       <OnboardView v-else :key="bookName" :book-name="bookName" />
     </Transition>

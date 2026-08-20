@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare, replyError } from './http.js'
+import { safeTokenCompare, replyError, urlPathOnly } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -294,8 +294,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
         return
       } catch (e) {
         if (!res.headersSent) {
-          // P3-9：不向客户端泄漏 detail（含文件路径等），仅日志留诊断
-          log.error('api', 'unhandled error: ' + req.method + ' ' + (req.url ?? ''), e)
+          // P3-9：不向客户端泄漏 detail（含文件路径等），仅日志留诊断。M3：只记路径段
+          // （SSE token 走 query，完整 url 入日志 = 凭证明文留存 app-*.jsonl）
+          log.error('api', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
           replyError(res, 500, 'ERROR', '服务器内部错误')
         }
         return

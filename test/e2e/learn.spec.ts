@@ -2,8 +2,9 @@
  * 文风收割 e2e（M12 后置）：ribbon 文风收割 → 收割候选 → 勾选 → 入库。
  *
  * learn 规则打分（借 #10 机检）**不涉大模型**——始终可用，不依赖 mock driver。
- * fixture 长篇 0001 正文含 ≥50 字叙事段（样章候选）+「忽然…痛」特征句（金句候选），
- * 确保产合格候选。候选制：作者勾选才入库（learnFromBook 不自动入库）。
+ * fixture 长篇 0004（已定稿章，收割只认 finalizedRevision 的章——H-1）正文含
+ * ≥50 字叙事段（样章候选）+「忽然…痛」特征句（金句候选），确保产合格候选。
+ * 候选制：作者勾选才入库（learnFromBook 不自动入库）。
  */
 import { test, expect } from '@playwright/test'
 

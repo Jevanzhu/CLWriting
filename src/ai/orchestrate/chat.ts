@@ -58,9 +58,20 @@ export interface ChatOpts {
 
 const running = new Map<string, ChatRunState>()
 
+/** #7：在途 runChat 的收尾 Promise（改名/删书/退出等待用；finally 清理完才 resolve） */
+const settling = new Map<string, Promise<unknown>>()
+
 /** 本书是否正在对话 */
 export function isChatRunning(bookName: string): boolean {
   return running.has(bookName)
+}
+
+/** #7：等本书在途对话收尾（无在途立即返回）。abort 只是异步信号——straggler 编排要
+ * 跑到下一个 await 点才解旋，期间的收尾写库在改名/删书的同步段之后恢复就会对已关库/
+ * 已搬走路径写（对话以 error 收尾）。改名/删书/优雅退出在 abort 后等这里。 */
+export function waitChatSettled(bookName: string): Promise<void> {
+  const p = settling.get(bookName)
+  return p ? p.then(() => undefined) : Promise.resolve()
 }
 
 /** E1a（steer / B5 Inbox 合流）：per-book 待处理消息队列。
@@ -164,7 +175,18 @@ export function resolveChatConfirm(bookName: string, callId: string, ok: boolean
 
 // ── 主入口（编排） ────────────────────────────────
 
-export async function runChat(opts: ChatOpts): Promise<void> {
+export function runChat(opts: ChatOpts): Promise<void> {
+  // #7：收尾 Promise 登记——外层包装不改内部语义；then 双臂清理防派生 promise 悬挂
+  const p = runChatInner(opts)
+  settling.set(opts.bookName, p)
+  const cleanup = (): void => {
+    if (settling.get(opts.bookName) === p) settling.delete(opts.bookName)
+  }
+  p.then(cleanup, cleanup)
+  return p
+}
+
+async function runChatInner(opts: ChatOpts): Promise<void> {
   const deadlineMs = opts.deadlineMs ?? AGENT_DEADLINE_MS
   const state: ChatRunState = {
     ctrl: new AbortController(),

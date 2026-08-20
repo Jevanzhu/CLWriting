@@ -424,9 +424,12 @@ function applyBudgetTrim(
     for (const s of flexSections) {
       if (totalTokens <= budget) break
       if (s.degradedContent !== undefined && s.content !== s.degradedContent) {
-        const before = estimateTokens(s.content)
+        // #8（中级遗留）：降档两轮与初始累计同传 model——TOKEN_COEFFICIENTS 填入
+        // 非默认系数后，漏传的两轮按 0.6 计会与累计口径分裂（节省被高/低估，
+        // 提前停裁或过度裁剪）
+        const before = estimateTokens(s.content, model)
         s.content = s.degradedContent
-        totalTokens -= before - estimateTokens(s.content)
+        totalTokens -= before - estimateTokens(s.content, model)
         trimmed = true
         trimLog.push(`${s.title}（降档）`)
       }
@@ -437,7 +440,7 @@ function applyBudgetTrim(
       if (totalTokens <= budget) break
       const idx = sections.indexOf(s)
       if (idx === -1) continue
-      const sectionTokens = estimateTokens(s.content)
+      const sectionTokens = estimateTokens(s.content, model)
       sections.splice(idx, 1)
       totalTokens -= sectionTokens
       trimmed = true

@@ -296,7 +296,7 @@ function buildSettingsInjection(bookRoot: string, worldView: string): string {
  * target 来自 config.book.chapter_target_words（调用方传 applyGlobalDefaults 合并值，
  * 全局默认 defaultChapterTargetWords 已流入；不传 config 的直调/测试路径走硬编码回落）。
  */
-function wordRange(kind: 'long' | 'short', target: number | undefined): string {
+export function wordRange(kind: 'long' | 'short', target: number | undefined): string {
   if (target && target > 0) {
     const lo = Math.max(500, Math.round((target * 0.8) / 100) * 100)
     const hi = Math.max(lo + 100, Math.round((target * 1.2) / 100) * 100)

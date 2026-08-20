@@ -210,6 +210,16 @@ export function probeCachedRevision(bookRoot: string, relPath: string): `sha256:
 }
 
 /**
+ * #6 配套：published 的缓存版（readPublished 的 final 分支语义，stat 级复用 probeCache）。
+ * 树红点聚合对 final 章逐章判定 published——此前 deriveStatusFull → readPublished 每章
+ * 整读定稿稿且不吃缓存，成熟书 O(final 章数) 整读/请求；与 probeCachedRevision 同一
+ * probe（一次 stat 两用，零额外读），口径与树视图（annotate）一致。
+ */
+export function probeCachedPublished(bookRoot: string, relPath: string): boolean {
+  return probeFile(bookRoot, relPath)?.published ?? false
+}
+
+/**
  * 单次读取文件 → { rev, wordCount, published }。
  * - rev：文件字节 SHA-256（computeRevision 同源 hashFile 语义）
  * - wordCount：剥 fm 后码点数（原 countWordsOf）

@@ -49,6 +49,15 @@ export function safeTokenCompare(received: string | string[] | undefined, expect
   return timingSafeEqual(a, b)
 }
 
+/** M3（二轮复审）：日志用的请求路径（去 query）——SSE 会话令牌走 query（EventSource
+ * 不能带 header，设计无奈之举），完整 req.url 进错误日志会把全部写端点的凭证明文落
+ * app-*.jsonl 留存 7 天；日志被导出/同步/上报排障时凭证随之外流。 */
+export function urlPathOnly(url: string | undefined): string {
+  if (!url) return ''
+  const i = url.indexOf('?')
+  return i === -1 ? url : url.slice(0, i)
+}
+
 export function checkToken(req: IncomingMessage, token: string): boolean {
   return safeTokenCompare(req.headers['x-studio-token'], token)
 }

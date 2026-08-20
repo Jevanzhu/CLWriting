@@ -9,7 +9,7 @@
  * GUI 后端同构；端点不多，手写分发器比引框架干净。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { HttpError, replyError, replyHttpError } from './http.js'
+import { HttpError, replyError, replyHttpError, urlPathOnly } from './http.js'
 import { log } from '../../log/index.js'
 
 type Handler = (
@@ -86,7 +86,7 @@ export async function dispatch(
         if (typeof v === 'string') params[k] = decodeURIComponent(v)
       })
     } catch {
-      log.error('api', `bad path encoding: ${req.method} ${req.url ?? ''}`)
+      log.error('api', `bad path encoding: ${req.method} ${urlPathOnly(req.url)}`)
       if (!res.headersSent) replyError(res, 400, 'BAD_PATH', '路径参数编码无效')
       return true
     }
@@ -94,8 +94,9 @@ export async function dispatch(
       await r.handler(req, res, params)
     } catch (e) {
       // Z-P2-9：异常在 dispatch 内兜底后外层 try 接不到，必须在此留诊断日志，
-      // 否则 500「内部错误」无从排障（前缀风格对齐 index.ts 的 'unhandled error'）
-      log.error('api', `handler error: ${req.method} ${req.url ?? ''}`, e)
+      // 否则 500「内部错误」无从排障（前缀风格对齐 index.ts 的 'unhandled error'）。
+      // M3：日志只记路径段——SSE token 走 query，完整 url 入日志 = 凭证明文留存
+      log.error('api', `handler error: ${req.method} ${urlPathOnly(req.url)}`, e)
       if (!res.headersSent) {
         // hh §八-12：错误信封统一 {code,error}——HttpError 自带 code（readJson 413/400 等），
         // 原始异常 message 可能含 API Key 等敏感信息 → 不透传，500 'ERROR' 兜底

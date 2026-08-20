@@ -14,6 +14,7 @@
 import { openSessionStore, bookHash } from '../events/store.js'
 import type { LlmCallData } from '../events/types.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
+import { localDayKey } from '../log/index.js'
 
 /** 单维度聚合条目 */
 export interface CostBucket {
@@ -67,7 +68,8 @@ function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string)
           usageOut: d.usage?.output ?? 0,
           ...(d.usage?.cacheRead !== undefined ? { cacheRead: d.usage.cacheRead } : {}),
           ...(d.usage?.cacheWrite !== undefined ? { cacheWrite: d.usage.cacheWrite } : {}),
-          day: new Date(e.createdAt).toISOString().slice(0, 10),
+          // M2（二轮复审）：本地日分桶（与日志文件日同口径；此前 UTC 切日，东八区 0-8 点记前一日）
+          day: localDayKey(e.createdAt),
         })
       }
       return out

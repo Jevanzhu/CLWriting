@@ -80,20 +80,30 @@ try {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+  // manifest 路径 → docId 一次建索引（原每章全量扫 entries，O(章×条目)）
+  const docIdByPath = new Map<string, string>()
+  for (const [id, e] of manifest.entries) {
+    if (e.nodeType === 'document') docIdByPath.set(e.path, id)
+  }
 
   for (const ch of chapters) {
     if (!ch._path) continue
     const relPath = relative(bookRoot, ch._path).split('\\').join('/')
-    let docId: string | null = null
-    for (const [id, e] of manifest.entries) {
-      if (e.nodeType === 'document' && e.path === relPath) {
-        docId = id
+    const docId = docIdByPath.get(relPath)
+    if (!docId) continue
+    const versions = existsSync(versionsDir) ? listVersions(versionsDir, docId) : []
+    // 幸存者基准 = 最后一次定稿内容（pinned finalize 版本，新的在前取首个）——正文
+    // 文件是「当前草稿」，定稿后继续写会让基准漂移（草稿又改丢 ≠ 作者否定命中）；
+    // 从未定稿 → 现行文件即最近内容，退化为原口径
+    let finalBody: string | null = null
+    for (const v of versions) {
+      const fr = readVersion(versionsDir, docId, v.id)
+      if (fr?.meta.pinned && fr.meta.origin === 'finalize') {
+        finalBody = fr.content.replace(/^---[\s\S]*?---\n?/, '')
         break
       }
     }
-    if (!docId) continue
-    const finalBody = readFileSync(ch._path, 'utf8').replace(/^---[\s\S]*?---\n?/, '')
-    const versions = existsSync(versionsDir) ? listVersions(versionsDir, docId) : []
+    if (finalBody === null) finalBody = readFileSync(ch._path, 'utf8').replace(/^---[\s\S]*?---\n?/, '')
     for (const v of versions) {
       const r = readVersion(versionsDir, docId, v.id)
       if (!r || !r.content.trim()) continue

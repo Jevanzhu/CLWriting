@@ -1,7 +1,7 @@
 /**
  * F1-P1 事件库存取层单测：建库/写入/读取/清空/启动修复。
  */
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
@@ -174,6 +174,34 @@ describe('F1-P1 启动修复', () => {
     const store2 = openSessionStore(ud, '/books/a')!;
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     store2.close()
+  })
+
+  it('打开时仍在宽限期内的孤儿：长跑进程不重开库，写路径按 TTL 惰性补 end', () => {
+    // 原缺陷：孤儿修复只在 openSessionStore 首次打开跑一次——崩溃残留若打开时
+    // 距最后活动 <10min 被宽限期跳过，此后单例连接长开（refs>0）不再触发修复，
+    // 孤儿 end 永远补不上（审计流缺收尾），除非进程重启。
+    const ud = tmpRoot()
+    const t0 = Date.now()
+    vi.useFakeTimers({ now: t0 })
+    try {
+      const store = openSessionStore(ud, '/books/a')!;
+      const sid = store.createSession('书A')
+      store.appendEvent(sid, { type: 'session/start', data: {} })
+      store.close()
+      // 重开：孤儿最后活动 = t0（宽限期内）→ 打开修复跳过
+      const store2 = openSessionStore(ud, '/books/a')!;
+      expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
+      // 宽限期过后（库保持打开，长跑进程）：写路径（createSession）触发 TTL 惰性修复
+      vi.setSystemTime(t0 + 11 * 60 * 1000)
+      store2.createSession('书A')
+      const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
+      expect(ends).toHaveLength(1)
+      expect(ends[0]!.sessionId).toBe(sid)
+      expect(ends[0]!.data['reason']).toBe('interrupted')
+      store2.close()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

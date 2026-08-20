@@ -12,13 +12,13 @@
 
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, renameSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, renameSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncChapter } from '../../src/cache/sync.js'
 import { prepareMaterials } from '../../src/process/materials.js'
-import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { writeBookConfig, DEFAULT_CONFIG, setSectionKeyBlock } from '../../src/format/yaml.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { buildIndex } from '../../src/rag/index.js'
 import { enableRag } from '../../src/rag/config.js'
@@ -369,6 +369,55 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
     expect(r.sections.find((s) => s.title === '近况')).toEqual(expect.objectContaining({ title: '近况' }))
     expect(r.sections.find((s) => s.title === '文风铁律')).toEqual(expect.objectContaining({ title: '文风铁律' }))
     expect(r.text.length).toBeGreaterThan(0)
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回（此前断链恒用缺省 20）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // 第 2 章正文以「乙」开头——定向桩按此给两条不同方向：
+    // 含「乙」→ [0.12,0.4,0.9]，其余（含查询与第 1 章）→ [0.9,0.4,0.12]。
+    // 查询与第 1 章同向（余弦 1.0）排首位，第 2 章 ≈0.38 排次位——排序确定性可控
+    const meta2: ChapterMeta = {
+      章号: 2, 标题: '次章', 钩子类型: '悬念钩', 钩子强弱: '中',
+      情绪定位: '铺垫', _path: '', _wordCount: 100,
+    }
+    writeChapter(join(root, '写作', '正文', '2-次章.md'), meta2, '乙字号开头的次章正文，讲述另一方阵营的动向与布局，与首章方向完全不同。')
+    const dirEmbed = (_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> =>
+      Promise.resolve(texts.map((t) => (t.includes('乙') ? [0.12, 0.4, 0.9] : [0.9, 0.4, 0.12])))
+
+    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    await buildIndex(root, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'stub-key', dirEmbed)
+
+    // 建索引后整段改写第 1 章 → 指纹过期（它仍是余弦首位命中）
+    writeChapter(join(root, '写作', '正文', '1-前章.md'), {
+      章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
+      情绪定位: '铺垫', _path: '', _wordCount: 100,
+    }, '首章内容已被整段改写，指纹与索引时不一致。')
+
+    const yamlPath = join(root, 'book.yaml')
+    const patchDepth = (keyLine: string | null): void =>
+      writeFileSync(yamlPath, setSectionKeyBlock(readFileSync(yamlPath, 'utf8'), 'rag', 'candidate_depth', keyLine))
+
+    // candidate_depth: 1 → 只允许校验首位命中章（过期）→ 宁缺毋滥空手而归
+    patchDepth('candidate_depth: 1')
+    const shallow = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], query: '主线推进', embedFn: dirEmbed,
+    })
+    expect(shallow.ragUsed).toBe(false)
+    expect(shallow.ragHitCount).toBe(0)
+    expect(shallow.ragNote).toContain('无命中')
+
+    // 去掉该键（缺省 20）→ 次位新鲜章递补 → 命中
+    patchDepth(null)
+    const deep = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], query: '主线推进', embedFn: dirEmbed,
+    })
+    expect(deep.ragUsed).toBe(true)
+    expect(deep.ragHitCount).toBeGreaterThan(0)
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })

@@ -116,11 +116,14 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
 // 此前每次 openSessionStore 都重跑 mkdir+PRAGMA+DDL×2+全表修复聚合（一次自愈写章
 // 十次级连接开关），且修复会在活跃会话进行中注入虚假 session/end。现按 dbPath
 // 缓存连接：缓存命中只计引用；close() 为「释放引用」，归零才真关库+清缓存。
-// DDL 与孤儿修复只在首次打开（或归零重开后）执行一次。
+// DDL 只在首次打开（或归零重开后）执行一次；孤儿修复除打开时一次外，写路径按
+// TTL 惰性重跑（见 maybeRepairOrphans）——打开时仍在宽限期内的崩溃残留，长跑
+// 进程不重开库也能在宽限期过后被补上 end。
 interface StoreEntry {
   store: SessionStore
   refs: number
   closed: boolean
+  lastOrphanRepairAt: number
 }
 const openStores = new Map<string, StoreEntry>()
 const activeChatSessions = new Set<string>()
@@ -180,10 +183,18 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
 
   repairOrphanSessions(db, activeChatSessions)
 
-  const entry: StoreEntry = { store: null!, refs: 1, closed: false }
+  const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now() }
+  /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 10 分钟一次）：打开时仍在
+   *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */
+  const maybeRepairOrphans = (): void => {
+    if (Date.now() - entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
+    entry.lastOrphanRepairAt = Date.now()
+    repairOrphanSessions(db, activeChatSessions)
+  }
   const store: SessionStore = {
     dbPath,
     createSession(book: string, header?: Record<string, unknown>): string {
+      maybeRepairOrphans()
       const sid = ulid()
       const now = Date.now()
       db.prepare(
@@ -193,6 +204,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       return sid
     },
     appendEvents(sessionId: string, evs: NewEvent[]): number[] {
+      maybeRepairOrphans()
       const now = Date.now()
       // RB-IF-P1-2：INSERT RETURNING 取真实 seq——close() 写 compaction 事件后据此
       // 定位 archiveSeq，不再 lastSeq()+2 推算（多窗口并发写时可错链到别窗事件）
@@ -223,6 +235,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     // AA-P3-7：INSERT RETURNING 取真实 seq，sourceSeqs 批内索引同事务回写解析——
     // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
     appendEventsResolveLineage(sessionId: string, evs: NewEvent[]): number[] {
+      maybeRepairOrphans()
       const now = Date.now()
       const ins = db.prepare(
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)

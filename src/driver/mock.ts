@@ -31,6 +31,10 @@ const channels = new Map<string, Channel>()
 const sessions = new Map<string, Session>()
 let sessionSeq = 0
 
+/** AA-P3-2 同构（cc.ts 同款）：无消费者期间 pre 暂存上限——首个消费者接入前
+ *  长流不再无限增堆内存；超出只留最近 N 个（旧事件进 sync 快照兜底） */
+const MAX_PRE_EVENTS = 200
+
 function channel(id: string): Channel {
   let ch = channels.get(id)
   if (!ch) {
@@ -45,7 +49,11 @@ function push(id: string, ev: DriverEvent): void {
   if (ch.consumers.size === 0) {
     // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
     // （SSE 有 sync 快照兜底，重连不重放历史）
-    if (!ch.preTaken) ch.pre.push(ev)
+    if (!ch.preTaken) {
+      ch.pre.push(ev)
+      // AA-P3-2 同构：pre cap——超出只留最近 N 个（首个消费者只接管最近 N 个）
+      if (ch.pre.length > MAX_PRE_EVENTS) ch.pre.shift()
+    }
     return
   }
   for (const c of ch.consumers) {

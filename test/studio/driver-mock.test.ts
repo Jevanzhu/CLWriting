@@ -119,4 +119,24 @@ describe('mock driver 契约', () => {
     // 只收到加入后的 done,不重放靠前的 drafting/checking
     expect(events.map((e) => e.type)).toEqual(['done'])
   })
+
+  it('AA-P3-2 同构: 无消费者期间 pre 暂存上限 200——超出只留最近 N 个', async () => {
+    const session = (await mockDriver.startSession('/tmp')) as S
+    // init 已进 pre（1 条）；再无消费者连发 205 条 → pre 上限 200，
+    // 挤掉最早的 6 条（init + attempt 1..5），首消费者只接管最近 200 个
+    for (let i = 1; i <= 205; i++) {
+      mockDriver.emit?.(session, { type: 'self_heal_phase', phase: 'drafting', attempt: i })
+    }
+    const gen = mockDriver.stream(session) as AsyncGenerator<DriverEvent>
+    const evs: DriverEvent[] = []
+    for (let i = 0; i < 200; i++) {
+      const r = await gen.next()
+      if (r.done) break
+      evs.push(r.value)
+    }
+    mockDriver.dispose(session)
+    expect(evs).toHaveLength(200)
+    expect((evs[0] as { attempt?: number }).attempt).toBe(6)
+    expect((evs[199] as { attempt?: number }).attempt).toBe(205)
+  })
 })

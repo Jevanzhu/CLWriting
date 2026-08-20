@@ -27,6 +27,29 @@ export const useCheckStore = defineStore('check', () => {
   const flagged = ref(new Set<string>())
   const flagError = ref<string | null>(null)
 
+  // M-1（二轮复审）：误报标记按 书+文档 存 localStorage——服务端无查询端点，前端灰显态
+  // 刷新即失；in-memory Set 只在 run→clear 生命周期内存活（checkId 是检查器级 id、跨文档
+  // 同名，不随 clear 清会把 A 文档的标记灰显到 B 文档同名命中上、误报按钮被禁用）
+  function fpKey(name: string, docId: string): string {
+    return `clw-fp:${name}:${docId}`
+  }
+  function loadFlagged(name: string, docId: string): Set<string> {
+    try {
+      const raw = localStorage.getItem(fpKey(name, docId))
+      const arr = raw ? (JSON.parse(raw) as unknown) : []
+      return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  }
+  function saveFlagged(name: string, docId: string): void {
+    try {
+      localStorage.setItem(fpKey(name, docId), JSON.stringify([...flagged.value]))
+    } catch {
+      /* 配额/隐私模式：灰显态降级为不持久（标记本身已落服务端事件库） */
+    }
+  }
+
   /** 操作代（X-P2-15，与 review store 同款）：run/clear 共用——切文档后旧请求结果不落 */
   let opGen = 0
 
@@ -40,6 +63,9 @@ export const useCheckStore = defineStore('check', () => {
       report.value = r.report
       hasRed.value = r.hasRed
       lastDocId.value = docId
+      // M-1：灰显态从 localStorage 按书+文档回填（刷新后已标误报仍灰显）
+      flagged.value = loadFlagged(name, docId)
+      flagError.value = null
     } catch (e) {
       if (gen !== opGen) return
       error.value = friendlyError(e)
@@ -56,6 +82,11 @@ export const useCheckStore = defineStore('check', () => {
     error.value = null
     hasRed.value = false
     lastDocId.value = null
+    // M-1：checkId 是检查器级 id（跨文档/跨书同名）——不清会让旧文档的标记灰显到
+    // 新文档同名命中上、误报按钮被禁用（标记的真相在服务端，这里只清展示态）
+    flagging.value = null
+    flagged.value = new Set()
+    flagError.value = null
   }
 
   /** B1（批 6）：标误报（幂等——已标过不重复请求）；错误置 flagError 供面板提示 */
@@ -66,6 +97,7 @@ export const useCheckStore = defineStore('check', () => {
     try {
       await markFalsePositive(name, docId, checkId)
       flagged.value = new Set([...flagged.value, checkId])
+      saveFlagged(name, docId) // M-1：刷新后灰显态可回填
     } catch (e) {
       flagError.value = friendlyError(e)
     } finally {

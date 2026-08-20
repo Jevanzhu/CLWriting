@@ -8,6 +8,7 @@
  */
 import { openSessionStore, bookHash } from '../events/store.js'
 import type { LlmCallData } from '../events/types.js'
+import { localDayKey } from '../log/index.js'
 
 /** 单个 task 的聚合统计 */
 export interface TaskStat {
@@ -39,9 +40,9 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, idx)]!
 }
 
-/** 取日期 key（YYYY-MM-DD） */
-function dayKey(ts: string): string {
-  return ts.slice(0, 10)
+/** 取日期 key（YYYY-MM-DD，本地日——M2 二轮复审与日志/成本同口径） */
+function dayKey(ts: number | string): string {
+  return localDayKey(ts)
 }
 
 /**
@@ -92,7 +93,7 @@ function readLlmCalls(
           attempt: d.attempt,
           usageIn: d.usage?.input ?? 0,
           usageOut: d.usage?.output ?? 0,
-          day: dayKey(new Date(e.createdAt).toISOString()),
+          day: dayKey(e.createdAt),
         })
       }
       return out

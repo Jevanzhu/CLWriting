@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { safeManifestPath } from '../../src/fs/safe-path.js'
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync } from 'node:fs'
+import { safeManifestPath, resolveWithinRoot } from '../../src/fs/safe-path.js'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -68,6 +68,59 @@ describe('safeManifestPath', () => {
       expect(safeManifestPath(dir, 'target.md')).toBeNull()
     } finally {
       spy.mockReset()
+    }
+  })
+})
+
+// 批 6（二轮复审）统一 canonical：各 safePath 变体（service/files/trash/desktop/style/books）
+// 全部委托此处，行为契约在此集中回归
+describe('resolveWithinRoot', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'clw-rwr-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('拒绝空串 / NUL / .. 穿越 / 绝对路径输入', () => {
+    expect(resolveWithinRoot(dir, '')).toBeNull()
+    expect(resolveWithinRoot(dir, 'a\0b.md')).toBeNull()
+    expect(resolveWithinRoot(dir, '../../etc/passwd')).toBeNull()
+    expect(resolveWithinRoot(dir, '/etc/passwd')).toBeNull()
+  })
+
+  it('拒绝落到 root 自身的输入（. / a/..）——书路径=书库自身即非法', () => {
+    expect(resolveWithinRoot(dir, '.')).toBeNull()
+    expect(resolveWithinRoot(dir, 'a/..')).toBeNull()
+  })
+
+  it('目标不存在 → 返回 resolve 结果 + posix 规范化 rel（新建场景）', () => {
+    const r = resolveWithinRoot(dir, '写作/正文/0001-测试.md')
+    expect(r).not.toBeNull()
+    expect(r!.abs.startsWith(dir)).toBe(true)
+    expect(r!.rel).toBe('写作/正文/0001-测试.md')
+    // 段内 .. 规范化后仍在 root 内 → 放行且 rel 为规范化结果
+    const r2 = resolveWithinRoot(dir, '设定/子/../总纲.md')
+    expect(r2!.rel).toBe('设定/总纲.md')
+  })
+
+  it('目标存在 → abs 为 realpath、rel 为真实相对路径', () => {
+    mkdirSync(join(dir, '设定'), { recursive: true })
+    writeFileSync(join(dir, '设定', '总纲.md'), 'x')
+    const r = resolveWithinRoot(dir, '设定/总纲.md')
+    expect(r!.abs).toBe(realpathSync(join(dir, '设定', '总纲.md')))
+    expect(r!.rel).toBe('设定/总纲.md')
+  })
+
+  it('symlink 指向 root 外 → null（双侧 realpath 消解 /var→/private/var 前缀差）', () => {
+    symlinkSync(tmpdir(), join(dir, 'evil'))
+    writeFileSync(join(tmpdir(), 'secret-rwr.md'), 'test')
+    try {
+      expect(resolveWithinRoot(dir, 'evil/secret-rwr.md')).toBeNull()
+    } finally {
+      rmSync(join(tmpdir(), 'secret-rwr.md'), { force: true })
     }
   })
 })

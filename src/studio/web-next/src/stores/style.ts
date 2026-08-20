@@ -40,8 +40,14 @@ export const useStyleStore = defineStore('style', () => {
     return m
   })
 
+  /** 请求代守卫（M-2 二轮复审，words store reqGen 同款）：切书时 Book.vue 先 clear()
+   *  再 load(新书)——无守卫时 A 书慢响应可在 clear/load(B) 之后落地，B 书文风页显示
+   *  （B 加载失败则长时显示）A 书的条目库/候选/定标配置。后调者胜 */
+  let reqGen = 0
+
   /** 进入视图 / 切书加载；返回迁移结果（发生迁移时非 null，视图 toast） */
   async function load(name: string): Promise<StyleMigrationFE | null> {
+    const gen = ++reqGen
     bookName.value = name
     loading.value = true
     try {
@@ -50,6 +56,7 @@ export const useStyleStore = defineStore('style', () => {
         listStyleCandidates(name),
         getStyleConfig(name),
       ])
+      if (gen !== reqGen) return null
       entries.value = er.entries
       entryErrors.value = er.errors.length
       candidates.value = cr.candidates
@@ -57,7 +64,7 @@ export const useStyleStore = defineStore('style', () => {
       loaded.value = true
       return er.migration
     } finally {
-      loading.value = false
+      if (gen === reqGen) loading.value = false
     }
   }
 
@@ -108,6 +115,7 @@ export const useStyleStore = defineStore('style', () => {
 
   /** 切书清空（Book.vue watch(bookName) 调；缺此方法切书渲染崩溃） */
   function clear(): void {
+    reqGen++ // 旧书在途 load 全部作废
     bookName.value = ''
     entries.value = []
     entryErrors.value = 0

@@ -103,6 +103,10 @@ export function buildAuditView(
   let conversation: AuditConversation | null = null
   if (convoEvents.length > 0) {
     const nodes = foldSurface(convoEvents)
+    // M1（二轮复审）：shadowed 查表一次建 Set——此前每事件线性扫全部 nodes（O(events×nodes)，
+    // 长书几万事件一次请求数十亿次比较，同步阻塞事件循环）；节点 seq 唯一，语义严格等价
+    const shadowedSeqs = new Set<number>()
+    for (const n of nodes) if (n.shadowed) shadowedSeqs.add(n.seq)
     // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页
     conversation = {
       events: pageSlice(
@@ -111,7 +115,7 @@ export function buildAuditView(
           sessionId: e.sessionId,
           type: e.type,
           ...(e.surfaceOp !== undefined ? { surfaceOp: e.surfaceOp } : {}),
-          shadowed: nodes.some((n) => n.seq === e.seq && n.shadowed),
+          shadowed: shadowedSeqs.has(e.seq),
           ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
           data: e.data,
         })),

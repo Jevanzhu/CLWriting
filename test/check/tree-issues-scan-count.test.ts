@@ -10,7 +10,7 @@
  * 章级 (mtime,size)+verdict 指纹全中的章直接取缓存聚合，零机检零重读。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,8 +24,17 @@ vi.mock('../../src/format/draft.js', async (importOriginal) => {
   return { ...actual, readDraft: vi.fn(actual.readDraft) }
 })
 
+// 二轮复审 #6 回归锚：published 判定不得回到 deriveStatusFull → readPublished 的
+// 每章整读路径（成熟书 O(final 章数) 整读/请求）——collectTreeIssues 应走 probeCache
+vi.mock('../../src/document/status.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/document/status.js')>()
+  return { ...actual, readPublished: vi.fn(actual.readPublished) }
+})
+
 import { readChapterDir } from '../../src/format/chapters.js'
 import { readDraft } from '../../src/format/draft.js'
+import { readPublished } from '../../src/document/status.js'
+import { createHash } from 'node:crypto'
 import { collectTreeIssues, checkWithDb, type BatchCheckContext } from '../../src/check/run.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -212,6 +221,72 @@ describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
       readDraftMock.mockClear()
       collectTreeIssues(root, () => undefined)
       expect(readDraftMock.mock.calls.length).toBe(4) // 纪元变化 → 全书重查
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('collectTreeIssues 缺陷修复回归（二轮复审）', () => {
+  const readDraftMock = vi.mocked(readDraft)
+  const readPublishedMock = vi.mocked(readPublished)
+
+  /** manifest 里 path → docId 的查表（issues 以 docId 为键） */
+  function docIdOf(root: string, path: string): string {
+    const m = readManifest(join(root, '项目', '文档清单.jsonl'))
+    const hit = [...m.entries.entries()].find(([, e]) => e.nodeType === 'document' && e.path === path)
+    if (!hit) throw new Error(`manifest 无 ${path}`)
+    return hit[0]
+  }
+
+  it('检查瞬态失败不落缓存：失败章下轮重查红点恢复（此前固化为 hasRed=false 假阴性）', () => {
+    const root = makeBook(5)
+    try {
+      const orig = readDraftMock.getMockImplementation()!
+      // 第一轮：003 章读稿瞬态失败（模拟 SQLITE_BUSY/ENOENT 竞态类异常出口）——
+      // issues 不含 003（可见的临时缺失），且关键是不写它的缓存
+      readDraftMock.mockImplementation((p: string) =>
+        p.includes('003')
+          ? ({ ok: false, reason: '瞬态读稿失败' } as ReturnType<typeof readDraft>)
+          : orig(p),
+      )
+      const first = collectTreeIssues(root, () => undefined)
+      expect(Object.keys(first.issues)).toHaveLength(4)
+      expect(first.issues[docIdOf(root, '写作/正文/003-第3章.md')]).toBeUndefined()
+      // 第二轮：读稿恢复 → 003 未入缓存 → 恰重查它 1 次（其余 4 章命中缓存零整读）
+      readDraftMock.mockImplementation(orig)
+      readDraftMock.mockClear()
+      const second = collectTreeIssues(root, () => undefined)
+      expect(readDraftMock.mock.calls.length).toBe(1)
+      expect(readDraftMock.mock.calls[0]![0]).toContain('003-第3章.md')
+      // 修复前：003 命中投毒缓存（hasRed=false 固化）→ 红点永久消失；修复后恢复
+      expect(second.issues[docIdOf(root, '写作/正文/003-第3章.md')]).toEqual({ hasRed: true, verdictRejected: false })
+    } finally {
+      readDraftMock.mockImplementation(readDraftMock.getMockImplementation()!) // 还原兜底
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('#6：published 章跳过且零 readPublished 整读（走 probeCache，不再 deriveStatusFull）', () => {
+    const root = makeBook(2)
+    try {
+      // 第 1 章定稿 + 已发布：fm 加 已发布: true 后按最终字节算指纹，写入 manifest 基线
+      const chPath = join(root, '写作', '正文', '001-第1章.md')
+      const raw = readFileSync(chPath, 'utf8').replace('---\n', '---\n已发布: true\n')
+      writeFileSync(chPath, raw, 'utf8')
+      const rev = 'sha256:' + createHash('sha256').update(readFileSync(chPath)).digest('hex')
+      const m = readManifest(join(root, '项目', '文档清单.jsonl'))
+      const id = docIdOf(root, '写作/正文/001-第1章.md')
+      upsertEntry(m, { ...m.entries.get(id)!, finalizedRevision: rev })
+      writeManifest(join(root, '项目', '文档清单.jsonl'), m)
+
+      readPublishedMock.mockClear()
+      const r = collectTreeIssues(root, () => undefined)
+      // published 章（= 作者已确认）不进聚合；第 2 章照常受检（禁词红源）
+      expect(Object.keys(r.issues)).toHaveLength(1)
+      expect(r.issues[docIdOf(root, '写作/正文/002-第2章.md')]).toEqual({ hasRed: true, verdictRejected: false })
+      // 回归锚：published 判定未走 readPublished 整读路径（修复前每 final 章一整读）
+      expect(readPublishedMock.mock.calls.length).toBe(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

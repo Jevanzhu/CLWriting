@@ -88,12 +88,14 @@ function migrateBookYamlText(raw: string): string {
   if (cfg.short?.strict === false) out = deleteSectionKey(out, 'short', 'strict')
 
   // rag 段：仅当恰为 {enabled: false} 纯净态才整段删——带 provider/endpoint/model 的
-  // 是作者真实配置（或旧内联存量），整段删会让 resolve 链落空
+  // 是作者真实配置（或旧内联存量），整段删会让 resolve 链落空；candidate_depth（A3 批 7）
+  // 同属作者配置，带上它整段删会静默丢已配候选深度（启用后回落缺省 20）
   if (
     cfg.rag?.enabled === false &&
     cfg.rag.provider === undefined &&
     cfg.rag.endpoint === undefined &&
-    cfg.rag.model === undefined
+    cfg.rag.model === undefined &&
+    cfg.rag.candidate_depth === undefined
   ) {
     out = deleteTopSection(out, 'rag')
   }

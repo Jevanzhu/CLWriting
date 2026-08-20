@@ -14,9 +14,9 @@
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
 import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs'
-import { join, dirname, relative, isAbsolute } from 'node:path'
+import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { isWithinRoot } from '../fs/safe-path.js'
+import { resolveWithinRoot } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -185,14 +185,10 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
 }
 
 /** 路径安全：rel 须相对 bookRoot 且不越出（防 trash-manifest 篡改后 restore/purge 越出书仓库）。
- *  返回绝对路径或 null（非法）。fail-closed：realpath 失败 → 拒绝（与其他 safePath 一致）。 */
+ *  批 6 统一：委托 resolveWithinRoot（防穿越 + symlink 双侧 realpath，fail-closed）。
+ *  返回绝对路径或 null（非法）。 */
 function safePathWithin(bookRoot: string, rel: string): string | null {
-  if (!rel || rel === '.' || rel.includes('\0') || isAbsolute(rel)) return null
-  const abs = join(bookRoot, rel)
-  if (relative(bookRoot, abs).startsWith('..')) return null
-  // symlink 防御——统一引用 isWithinRoot（fail-closed，与其他 safePath 一致）
-  if (!isWithinRoot(bookRoot, abs)) return null
-  return abs
+  return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
 
 function errMsg(e: unknown): string {

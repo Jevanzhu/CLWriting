@@ -169,10 +169,22 @@ test('迁移：rag 段恰为 {enabled:false} 纯净态才整段删；带配置�
     '  provider: rag-abc', // 有服务商引用：整段保留
     '',
   ].join('\n'))
+  // 二轮复审：只配 candidate_depth（A3 批 7 书级键）也非纯净态——整段删会静默丢候选深度
+  const depthOnly = makeBook('深度rag', '长篇/深度rag', [
+    'spec_version: 1',
+    'book:',
+    '  title: 深度rag',
+    '',
+    'rag:',
+    '  enabled: false',
+    '  candidate_depth: 30',
+    '',
+  ].join('\n'))
   migrateBookDefaults(tmp)
   expect(read(pure)).not.toMatch(/^rag:/m)
   expect(read(configured)).toContain('rag:')
   expect(read(configured)).toContain('provider: rag-abc')
+  expect(read(depthOnly)).toContain('candidate_depth: 30')
 })
 
 test('迁移：幂等——二跑无 diff（文件字节级不变）', () => {

@@ -15,12 +15,13 @@
  */
 
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
+import { finalizedPathSet } from '../document/manifest.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
 import type { IronRules } from '../format/iron-rules.js'
@@ -60,6 +61,8 @@ export interface LearnResult {
   /** 候选明细（供 CLI 交互挑选用） */
   samples?: SampleCandidate[]
   quotes?: QuoteCandidate[]
+  /** H-1（二轮复审）：因未定稿被跳过的章数（草稿不进候选池的可见性口径） */
+  skippedDrafts?: number
   error?: string
 }
 
@@ -117,14 +120,33 @@ export function learnFromBook(bookRoot: string): LearnResult {
   // 铁律阈值 + 条目库禁词（S5 收口：统一走 readIronRules）
   const ironRules: IronRules = readIronRules(bookRoot)
 
-  // 3. 读正文
+  // 3. 读正文。H-1（二轮复审）：只收定稿正文（模块契约「从定稿正文产候选」）——
+  // 未定稿草稿/在写章不进候选池（流水线刚写出的段会被勾选入库污染文风基准与注入
+  // 素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
+  // 旧书无清单 → null 无法判定，保持全量（与导出降级一致）
+  const finalized = finalizedPathSet(bookRoot)
+  let skippedDrafts = 0
   const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []
   for (const ch of chapters) {
     const path = ch._path
     if (!path) continue
+    if (finalized && !finalized.has(relative(bookRoot, path).replace(/\\/g, '/'))) {
+      skippedDrafts++
+      continue
+    }
     const r = readFile(path)
     if (!r.ok) continue
     chapterBodies.push({ 章号: ch.章号, 标题: ch.标题, body: r.body.trim() })
+  }
+  if (chapterBodies.length === 0) {
+    return {
+      ok: false,
+      sampleCount: 0,
+      quoteCount: 0,
+      candidateDir: '',
+      skippedDrafts,
+      error: '没有定稿正文可收割。',
+    }
   }
 
   // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
@@ -212,5 +234,6 @@ export function learnFromBook(bookRoot: string): LearnResult {
     candidateDir: CANDIDATE_DIR,
     samples: topSamples,
     quotes: topQuotes,
+    skippedDrafts,
   }
 }

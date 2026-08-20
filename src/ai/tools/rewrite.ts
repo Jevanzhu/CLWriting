@@ -9,6 +9,8 @@ import { runSpec } from '../tasks/spec.js'
 import { REWRITE_SPEC } from '../tasks/specs.js'
 import { buildRewritePrompt, lineDiff } from '../../process/rewrite-prompt.js'
 import { readKind } from '../../format/kind.js'
+import { readBookConfig } from '../../format/yaml.js'
+import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { writeSpillFile, readSpillFile } from '../../process/spill.js'
 import { saveDraft } from '../../process/draft-pipeline.js'
 import { resolveDraftPath } from '../../format/draft.js'
@@ -16,6 +18,17 @@ import { readFile, joinFrontMatter } from '../../format/frontmatter.js'
 import { join } from 'node:path'
 import { readChapterBody } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
+
+/** 整章重写的字数目标（书级 book.yaml → global.json → 硬编码，与首稿链同口径）。
+ *  读失败回落 undefined → wordRange 硬编码区间（与 readKind 的容错风格一致）。 */
+function chapterTargetWords(ctx: ToolContext): number | undefined {
+  try {
+    const r = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
+    return applyGlobalDefaults(r.config, ctx.userDataPath).book.chapter_target_words
+  } catch {
+    return undefined
+  }
+}
 
 /** 跑一次 writer 改写（与 rewrite 端点 runRewriter 同口径：tool_use 产出 → input.正文，降级 text）。
  *  Z-P1-1：ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
@@ -91,7 +104,7 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   const body = readChapterBody(ctx.bookRoot, chapter)
   if (body === null) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
   const kind = readKind(ctx.bookRoot)
-  const prompt = buildRewritePrompt('whole', body, '', instruction, [], chapter, kind)
+  const prompt = buildRewritePrompt('whole', body, '', instruction, [], chapter, kind, undefined, chapterTargetWords(ctx))
   const r = await runRewriter(ctx, prompt, chapter)
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   const diff = lineDiff(body, r.produced)

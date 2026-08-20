@@ -39,7 +39,7 @@ describe('双轨回归 · 书架', () => {
 })
 
 describe('双轨回归 · 长篇八阶段数据链', () => {
-  it('总览：身份 + 进度(3章) + 状态机 + 卷结构', async () => {
+  it('总览：身份 + 进度(4章) + 状态机 + 卷结构', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/overview`)
     const d = (await r.json()) as {
       identity: { title: string; kind: string }
@@ -47,17 +47,18 @@ describe('双轨回归 · 长篇八阶段数据链', () => {
       state: { state: number }
     }
     expect(d.identity.title).toBe('长篇测试书')
-    expect(d.progress.chapters).toBe(3)
+    // 4 章 = 0001/0002 + 定稿观察 0003（finalize e2e 源）+ 收割样源 0004（learn e2e 源）
+    expect(d.progress.chapters).toBe(4)
     expect(typeof d.state.state).toBe('number')
   })
 
-  it('节奏：字数曲线 3 章 + 钩子/情绪分布', async () => {
+  it('节奏：字数曲线 4 章 + 钩子/情绪分布', async () => {
     const r = await fetch(`${baseUrl}/api/books/${enc(LONG_BOOK)}/rhythm`)
     const d = (await r.json()) as { kind: string; wordCurve: unknown[]; written: { hookTypeDist: Record<string, number>; sceneDist: Record<string, number> } }
     expect(d.kind).toBe('long')
-    expect(d.wordCurve).toHaveLength(3)
-    expect(d.written.hookTypeDist['悬念钩']).toBe(2) // 0001 + 0003
-    expect(d.written.sceneDist['对话']).toBe(1)
+    expect(d.wordCurve).toHaveLength(4)
+    expect(d.written.hookTypeDist['悬念钩']).toBe(3) // 0001 + 0003 + 0004
+    expect(d.written.sceneDist['对话']).toBe(2) // 0001 + 0004
     expect(d.written.sceneDist['战斗']).toBe(1)
   })
 

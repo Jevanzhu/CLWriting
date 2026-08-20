@@ -8,8 +8,9 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { resolve, relative, isAbsolute, basename } from 'node:path'
-import { readFileSync, existsSync, realpathSync } from 'node:fs'
+import { basename } from 'node:path'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
@@ -84,44 +85,27 @@ function queryParams(req: IncomingMessage): URLSearchParams {
   return new URL(req.url ?? '/', 'http://localhost').searchParams
 }
 
-/** 防穿越：file 相对 bookRoot，resolve 后 relative 必须非空、不以 .. 开头、非绝对（跨盘）。
- *  symlink 二次校验（与其他 3 套 safePath 实现一致）：文件存在时解析 realpath，防符号链接指向 bookRoot 外。 */
-function safePath(bookRoot: string, file: string): string | null {
-  if (!file || file.includes('\0')) return null
-  const root = resolve(bookRoot)
-  const abs = resolve(root, file)
-  const rel = relative(root, abs)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
-  // symlink 防御：文件存在时 realpath 仍须在 root 内（两边都 realpath 防 macOS /var → /private/var 前缀差异）
-  if (existsSync(abs)) {
-    try {
-      const realRoot = realpathSync(root)
-      if (relative(realRoot, realpathSync(abs)).startsWith('..')) return null
-    } catch {
-      return null
-    }
-  }
-  return abs
-}
-
-/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+ W-P1-3 工作区确认文件白名单）。 */
+/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+ W-P1-3 工作区确认文件白名单）。
+ *  防穿越批 6 统一：resolveWithinRoot（resolve+relative 防穿越 + symlink 双侧 realpath 校验，
+ *  目标存在时返回 realpath；fail-closed）——安全判定与 rel 提取共用同一次解析结果。 */
 function editablePath(bookRoot: string, file: string): string | null {
   if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
-  const abs = safePath(bookRoot, file)
-  if (!abs) return null
-  const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
-  const allowed = EDIT_DIRS.some(({ dir }) => rel === dir || rel.startsWith(`${dir}/`))
+  const safe = resolveWithinRoot(bookRoot, file)
+  if (!safe) return null
+  const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
   // W-P1-3 作者确认位：细纲.md（推进声明）与 账本推进.md（实际履历行）放行编辑器读写
-  if (!allowed && WORKDIR_EDITABLE.has(rel)) return abs
-  return allowed ? abs : null
+  if (!allowed && WORKDIR_EDITABLE.has(safe.rel)) return safe.abs
+  return allowed ? safe.abs : null
 }
 
 /** X-P2-14：写侧白名单 = editablePath 去掉 写作/正文——正文 PUT 走文档保存协议（读侧 doc store 仍按路径读正文）。 */
 function writablePath(bookRoot: string, file: string): string | null {
-  const abs = editablePath(bookRoot, file)
-  if (!abs) return null
-  const rel = relative(resolve(bookRoot), abs).split('\\').join('/')
-  if (rel === '写作/正文' || rel.startsWith('写作/正文/')) return null
-  return abs
+  const safe = resolveWithinRoot(bookRoot, file)
+  if (!safe) return null
+  if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
+  if (safe.rel === '写作/正文' || safe.rel.startsWith('写作/正文/')) return null
+  const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
+  if (!allowed && !WORKDIR_EDITABLE.has(safe.rel)) return null
+  return safe.abs
 }
 

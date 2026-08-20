@@ -79,9 +79,14 @@ function recordForeshadowDelta(
   try {
     const store = openSessionStore(userDataPath, bookRoot)
     if (!store) return
-    const sessionId = store.workspaceSession(bookHash(bookRoot))
-    recordForeshadowChanges(store, sessionId, prev, readForeshadows(bookRoot))
-    store.close()
+    try {
+      const sessionId = store.workspaceSession(bookHash(bookRoot))
+      recordForeshadowChanges(store, sessionId, prev, readForeshadows(bookRoot))
+    } finally {
+      // L2（二轮复审）：openSessionStore 是引用计数单例——中途抛错（如跨进程 SQLITE_BUSY
+      // 超时）不 close 则 refs 永不归零，连接泄漏；同文件其他调用方均为 try/finally 配对
+      store.close()
+    }
   } catch {
     // 观测层：写失败不炸文档操作
   }

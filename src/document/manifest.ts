@@ -7,6 +7,7 @@
  * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
  */
 import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
@@ -91,6 +92,19 @@ function parseEntry(obj: RawLine): ManifestEntry {
 }
 
 /** 幂等合并：同 id 后写覆盖（清单行序无语义）。 */
+/** 已定稿路径集合（V-P2-2 导出 / learn 收割 H-1 共用的单一判定）：
+ *  文档条目且有 finalizedRevision（曾定稿）→ 其 path 入集合。
+ *  旧书无清单 / 清单无任何文档条目（损坏降级）→ null（无法判定，调用方保持全量，
+ *  与历史行为一致）。路径为 manifest 口径的正斜杠相对路径。 */
+export function finalizedPathSet(bookRoot: string): Set<string> | null {
+  const entries = [...readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.values()]
+  const docs = entries.filter((e) => e.nodeType === 'document')
+  if (docs.length === 0) return null
+  const set = new Set<string>()
+  for (const e of docs) if (e.finalizedRevision) set.add(e.path)
+  return set
+}
+
 export function upsertEntry(manifest: Manifest, entry: ManifestEntry): void {
   manifest.entries.set(entry.id, entry)
 }

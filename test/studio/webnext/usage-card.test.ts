@@ -109,4 +109,27 @@ describe('WbUsageCard（D1 批 4）', () => {
     await flushPromises()
     expect(w.text()).toContain('暂无 AI 调用记录')
   })
+
+  it('切书重拉：bookName prop 变化 → 重取数，旧书用量/金额不残留（Y-P2-3 同类）', async () => {
+    mocks.getTraceStats.mockResolvedValueOnce({ total: 15, byTask: BY_TASK, ruleHits: [] })
+    mocks.getTraceStats.mockResolvedValueOnce({ total: 2, byTask: { outline: BY_TASK.outline! }, ruleHits: [] })
+    mocks.getCostStats.mockResolvedValueOnce({ enabled: true, currency: 'USD', total: 1.2345, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    mocks.getCostStats.mockResolvedValueOnce({ enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+
+    const w = mount(WbUsageCard, { props: { bookName: '旧书' } })
+    await flushPromises()
+    expect(w.text()).toContain('15 次调用')
+    expect(w.text()).toContain('1.2345')
+
+    // 切书：WorkbenchView 不加 :key、组件实例复用——此前仅挂载拉一次，
+    // 旧书的调用量与金额会残留挂在新书工作台（金额属敏感数据错位）
+    await w.setProps({ bookName: '新书' })
+    await flushPromises()
+    expect(mocks.getTraceStats).toHaveBeenLastCalledWith('新书')
+    expect(mocks.getCostStats).toHaveBeenLastCalledWith('新书')
+    expect(w.text()).toContain('2 次调用')
+    expect(w.text()).not.toContain('15 次调用')
+    expect(w.text()).not.toContain('1.2345')
+    expect(w.text()).toContain('未配置价格表')
+  })
 })

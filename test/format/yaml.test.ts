@@ -198,6 +198,19 @@ test('stringifyBookConfig: leads.enabled 为空数组时合法', () => {
   expect(text).toContain('spec_version: 1')
 })
 
+test('stringifyBookConfig: rag.candidate_depth 随段输出且可回读（PUT /config 回退全量重生成分支不丢键）', () => {
+  const cfg = structuredClone(DEFAULT_CONFIG)
+  cfg.rag = { enabled: true, endpoint: 'http://e', model: 'm', candidate_depth: 30 }
+  const text = stringifyBookConfig(cfg)
+  expect(text).toContain('candidate_depth: 30')
+  // 回读闭环：解析能收回（修复前 stringify 漏写 → 全量重生成静默抹掉已配深度）
+  const r = parseBookConfig(text)
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.config.rag?.candidate_depth).toBe(30)
+  // 缺省不落键（现有仓库零改动红线）
+  expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('candidate_depth')
+})
+
 // ── workflow 字段已删除（W0 §2 废弃）──
 // 存量 book.yaml 里的 workflow 行是未知字段：解析不赋值、输出不写，
 // 下次存配置 stringifyBookConfig 重建时自然丢弃（无行为字段，无兼容负担）。
@@ -597,6 +610,37 @@ test('kk-P1-5: rag 切 provider → 旧内联 endpoint/model 行删除（与 str
   expect(out).not.toContain('old.example.com')
   expect(out).not.toContain('old-model')
   expect(out).toContain('  enabled: true')
+})
+
+test('白名单补全: D3 双口径预算键 / summary.auto / rag.candidate_depth 落行且可回读（此前静默丢失）', () => {
+  const { raw, cfg } = parseBase()
+  const next = structuredClone(cfg)
+  next.budget.tokens_per_chapter = 50_000
+  next.budget.cost_per_chapter = 0.5
+  next.summary = { auto: false }
+  next.rag = { ...next.rag!, candidate_depth: 30 }
+  const out = patchBookConfigText(raw, cfg, next)
+  expect(out).toContain('  tokens_per_chapter: 50000')
+  expect(out).toContain('  cost_per_chapter: 0.5')
+  expect(out).toContain('  auto: false')
+  expect(out).toContain('  candidate_depth: 30')
+  // 区间外内容仍逐字保留
+  expect(out).toContain('# 作者注释：本书定位')
+  expect(out).toContain('my_custom:')
+  // 回读：改动能被 parse 收回（配置真的生效，而非只改了文本）
+  const reparsed = parseBookConfig(out)
+  expect(reparsed.ok).toBe(true)
+  if (reparsed.ok) {
+    expect(reparsed.config.budget.tokens_per_chapter).toBe(50_000)
+    expect(reparsed.config.budget.cost_per_chapter).toBe(0.5)
+    expect(reparsed.config.summary?.auto).toBe(false)
+    expect(reparsed.config.rag?.candidate_depth).toBe(30)
+  }
+  // 删键方向：candidate_depth 设回 undefined → 行被移除
+  const back = structuredClone(next)
+  delete back.rag!.candidate_depth
+  const out2 = patchBookConfigText(out, next, back)
+  expect(out2).not.toContain('candidate_depth')
 })
 
 test('kk-P1-5: 删键（genre → 空串/undefined 同效）落行为删除', () => {

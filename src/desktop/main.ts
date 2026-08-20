@@ -26,7 +26,7 @@ import {
   type MessageBoxOptions,
   type BrowserWindowConstructorOptions,
 } from 'electron'
-import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
+import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import type { Server } from 'node:http'
@@ -34,6 +34,7 @@ import { startServer } from '../studio/server/index.js'
 import { setInitialBook } from '../studio/server/api/books.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { resolveWithinRoot } from '../fs/safe-path.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
@@ -398,7 +399,9 @@ async function bootstrap(): Promise<void> {
     await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
   await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
-  console.log(`✓ CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
+  // L1（二轮复审）：改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
+  // 完全不可见（终端无人看、又不进 JSONL 日志）
+  log.info('desktop', `CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────
@@ -431,24 +434,15 @@ function registerIpc(): void {
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
-    // 防路径穿越：relPath 必须落在 bookRoot 内（复刻 DocumentService.resolveSafePath 内含校验）
+    // 防路径穿越：relPath 必须落在 bookRoot 内（批 6 统一：resolveWithinRoot =
+    // resolve/relative 防穿越 + symlink 双侧 realpath 校验，存在时 abs 即 realpath）
     const bookRoot = resolve(workDir, entry.path)
     // 防 books.jsonl 被篡改致 bookRoot 越出 workDir（与 open-book-dir 同口径）
-    if (relative(workDir, bookRoot).startsWith('..')) return
-    const absPath = resolve(bookRoot, relPath)
-    const rel = relative(bookRoot, absPath)
-    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return
-    // symlink realpath 二次校验（与 HTTP API 层 safePath 一致）
-    if (existsSync(absPath)) {
-      try {
-        const realRoot = realpathSync(bookRoot)
-        const realAbs = realpathSync(absPath)
-        if (relative(realRoot, realAbs).startsWith('..')) return
-        shell.showItemInFolder(realAbs)
-      } catch {
-        /* realpath 失败忽略 */
-      }
-    }
+    if (!resolveWithinRoot(workDir, entry.path)) return
+    const safe = resolveWithinRoot(bookRoot, relPath)
+    if (!safe) return
+    // 目标存在才可在文件管理器中显示（abs 已是 realpath，无需再解析）
+    if (existsSync(safe.abs)) shell.showItemInFolder(safe.abs)
   })
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
   ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
@@ -457,19 +451,11 @@ function registerIpc(): void {
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
-    // 路径校验：entry.path 来自 books.jsonl，防 `..` 越出 workDir 打开任意目录
-    const target = resolve(workDir, entry.path)
-    if (relative(workDir, target).startsWith('..')) return
-    // X-P3a：symlink realpath 二次校验（与 show-in-folder / HTTP safePath 同口径——
-    // books.jsonl 被篡改成指向 workDir 外的 symlink 时，resolve/relative 看的是链接路径不是真实路径）
-    try {
-      const realWork = realpathSync(workDir)
-      const realTarget = realpathSync(target)
-      if (relative(realWork, realTarget).startsWith('..')) return
-      void shell.openPath(realTarget)
-    } catch {
-      // realpath 失败 = 目录不存在，无物可开
-    }
+    // 路径校验：entry.path 来自 books.jsonl，防 `..`/symlink 越出 workDir 打开任意目录
+    // （批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath，X-P3a 同口径）
+    const safe = resolveWithinRoot(workDir, entry.path)
+    if (!safe || !existsSync(safe.abs)) return // realpath 失败/不存在 = 无物可开
+    void shell.openPath(safe.abs)
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   ipcMain.handle('desktop:get-system-fonts', async () => {

@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
+import { splitFrontMatter } from '../format/frontmatter.js'
 
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
@@ -129,12 +130,35 @@ function validateMarkdownMetadata(
 ): void {
   const text = readFileSync(filePath, 'utf-8')
   const rel = entry.target
-  if (!text.includes(`source: ${entry.source}`)) {
-    issues.push({ path: rel, message: 'Markdown 文件缺少与 manifest 一致的 source 元信息' })
+  // M-5（二轮复审）：只认 front matter 块内的 source/license 键（fm 原文逐行前缀匹配）。
+  // 此前 text.includes 全文子串——正文任意位置出现「source: x」字样即通过（无 fm 也过），
+  // `source: X` 前缀可吞 `source: XYZ`，license 溯源 CI 门的信任度被架空
+  const fm = fmScalar(text, 'source')
+  if (fm !== entry.source) {
+    issues.push({ path: rel, message: 'Markdown 文件 front matter 缺少与 manifest 一致的 source 元信息' })
   }
-  if (!text.includes(`license: ${entry.license}`)) {
-    issues.push({ path: rel, message: 'Markdown 文件缺少与 manifest 一致的 license 元信息' })
+  const lic = fmScalar(text, 'license')
+  if (lic !== entry.license) {
+    issues.push({ path: rel, message: 'Markdown 文件 front matter 缺少与 manifest 一致的 license 元信息' })
   }
+}
+
+/** fm 块内取顶层标量键值（`key: value` 行，剥引号；无 fm / 无键 → null）。
+ *  只做逐行前缀匹配（值原样取到行尾），不递归列表/嵌套——知识层 fm 均为标量。 */
+function fmScalar(text: string, key: string): string | null {
+  const split = splitFrontMatter(text)
+  if (!split) return null
+  const prefix = `${key}:`
+  for (const raw of split.fmRaw.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith(prefix)) {
+      let v = line.slice(prefix.length).trim()
+      if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) v = v.slice(1, -1)
+      if (v.startsWith("'") && v.endsWith("'") && v.length >= 2) v = v.slice(1, -1)
+      return v
+    }
+  }
+  return null
 }
 
 function isSafeKnowledgeTarget(projectRoot: string, target: string): boolean {

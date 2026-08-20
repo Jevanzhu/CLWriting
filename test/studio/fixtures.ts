@@ -59,6 +59,13 @@ function makeLongBook(root: string): void {
     join(root, '写作', '正文', '0003-定稿观察.md'),
     '---\n章号: 3\n标题: 定稿观察\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 叙事铺陈\n---\n山洞深处，壁画在火光中浮现。\n\n他伸手触碰，指尖微凉，仿佛听见古老的低语。',
   )
+  // 0004：learn 收割专用章——已定稿（H-1 后收割只认 finalizedRevision 的章，0001/0002
+  // 是草稿不再进候选池）。正文带 ≥50 字叙事段（样章候选）+「忽然…痛」特征句（金句候选）。
+  // 指纹与内容不匹配无妨：收割判定只看「曾定稿」，与导出 V-P2-2 同口径
+  writeFileSync(
+    join(root, '写作', '正文', '0004-收割样源.md'),
+    '---\n章号: 4\n标题: 收割样源\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 对话\n---\n林远踏出山门，暮色四合，青石阶尽头的灯火次第亮起。玉佩在胸前微微发烫，像一颗不肯安分的心。他抬手覆上，那温度便缓缓沉下去，仿佛被什么驯服。\n\n"你要出宗？"长老立在阶上，目光落在玉佩上，忽然一颤。\n\n林远摇头，心中盘算玉佩的来历，却忽然感到一阵锥心之痛，仿佛有旧事在血里翻身。',
+  )
   // 设定伏笔：关联词「玉佩」命中 0001/0002 正文 → 足迹扫描有命中（e2e foreshadow spec 用）
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
   writeFileSync(
@@ -91,6 +98,15 @@ function makeLongBook(root: string): void {
         path: '写作/正文/0003-定稿观察.md',
         parentId: null,
         finalizedRevision: 'sha256:stale-baseline-for-finalize-e2e',
+        finalizedAt: '2026-08-01T00:00:00.000Z',
+      }),
+      // 0004 已定稿（收割判定只看曾定稿）——learn 收割源（H-1 过滤后 0001/0002 草稿出局）
+      JSON.stringify({
+        id: 'chap-e2e-0004',
+        nodeType: 'document',
+        path: '写作/正文/0004-收割样源.md',
+        parentId: null,
+        finalizedRevision: 'sha256:finalized-harvest-source',
         finalizedAt: '2026-08-01T00:00:00.000Z',
       }),
     ].join('\n') + '\n',

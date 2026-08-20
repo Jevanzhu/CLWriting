@@ -37,6 +37,8 @@ import { tryMockTool } from '../mock-tool.js'
 import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
 import { checkAiCallBudget } from '../calls.js'
+import { resolveTier } from '../provider/store.js'
+import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { chapterToolName, assembleChapter } from '../contract/index.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
@@ -91,14 +93,25 @@ export type SelfHealOutcome =
 /** 运行中的编排（book 级并发锁 + 中断句柄） */
 interface RunState {
   ctrl: AbortController
-  /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账） */
-  usage: { calls: number; inputTokens: number; outputTokens: number }
+  /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账）。
+   *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径 */
+  usage: { calls: number; inputTokens: number; outputTokens: number; cost: number }
 }
 const running = new Map<string, RunState>()
 
 /** 本书是否正在全自动写章 */
 export function isSelfHealRunning(bookName: string): boolean {
   return running.has(bookName)
+}
+
+/** #7：在途 runSelfHeal 的收尾 Promise（改名/删书/退出等待用；含 emitResult 后的完整收尾） */
+const settling = new Map<string, Promise<unknown>>()
+
+/** #7：等本书在途自愈收尾（无在途立即返回）。与 chat.ts waitChatSettled 同款——
+ * abort 是异步信号，straggler 的链路事件 flush 在关库/搬路径后恢复会丢/抛 */
+export function waitSelfHealSettled(bookName: string): Promise<void> {
+  const p = settling.get(bookName)
+  return p ? p.then(() => undefined) : Promise.resolve()
 }
 
 /** 中断本书的全自动写章 */
@@ -125,8 +138,19 @@ async function logLeadDraftFailure(
   }
 }
 
-export async function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
-  const state: RunState = { ctrl: new AbortController(), usage: { calls: 0, inputTokens: 0, outputTokens: 0 } }
+export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
+  // #7：收尾 Promise 登记（外层包装不改内部语义；含 emitResult 完整收尾后才 resolve）
+  const p = runSelfHealInner(opts)
+  settling.set(opts.bookName, p)
+  const cleanup = (): void => {
+    if (settling.get(opts.bookName) === p) settling.delete(opts.bookName)
+  }
+  p.then(cleanup, cleanup)
+  return p
+}
+
+async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
+  const state: RunState = { ctrl: new AbortController(), usage: { calls: 0, inputTokens: 0, outputTokens: 0, cost: 0 } }
   running.set(opts.bookName, state)
   let result: SelfHealOutcome
   try {
@@ -187,8 +211,10 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
         return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
       }
     }
-    // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）
+    // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）。
+    // busy_timeout 与 rebuild/机检端点同款——自愈与树红点聚合可并发，等锁而非 SQLITE_BUSY
     db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
+    if (db) db.exec('PRAGMA busy_timeout = 5000')
     const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
 
     // F2：单章/批量共享同一套 ctx（消除双路径重复）
@@ -524,6 +550,8 @@ async function rewriteOnce(
     chapterNo,
     ctx.kind,
     repeated ? buildStrategyReminder(redIssues) : undefined,
+    // 字数区间与首稿链同口径（ctx.config 已是 applyGlobalDefaults 合并值）
+    ctx.config.book.chapter_target_words,
   )
   const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter)
   if (again.status === 'aborted') return { status: 'aborted' }
@@ -730,11 +758,24 @@ async function runGenerate(
   }
   if (state.ctrl.signal.aborted) return { status: 'aborted' }
 
-  // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）
+  // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）。
+  // 金额按次现算累计（D2 同 stream.ts /spawn：写稿模型查价格表四档分计，未配价省略——
+  // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）
   state.usage.calls += 1
-  if (out.data.usage) {
-    state.usage.inputTokens += out.data.usage.inputTokens
-    state.usage.outputTokens += out.data.usage.outputTokens
+  const u = out.data.usage
+  if (u) {
+    state.usage.inputTokens += u.inputTokens
+    state.usage.outputTokens += u.outputTokens
+    const model = resolveTier(opts.userDataPath, 'creative').model
+    const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
+    if (pricing) {
+      state.usage.cost += computeCallCost(pricing, {
+        inputTokens: u.inputTokens,
+        outputTokens: u.outputTokens,
+        ...(u.cacheReadTokens !== undefined ? { cacheReadTokens: u.cacheReadTokens } : {}),
+        ...(u.cacheWriteTokens !== undefined ? { cacheWriteTokens: u.cacheWriteTokens } : {}),
+      }) ?? 0
+    }
   }
 
   // C-2：记账已下沉到 runTask（chapter + task 块自动记，避免双记）
@@ -779,7 +820,8 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
   emit(opts, ev)
   emit(opts, {
     type: 'done',
-    cost: 0,
+    // 未配价（cost 恒 0）省略字段——与 spawn 路径同口径，不再恒发 cost:0
+    ...(usage.cost > 0 ? { cost: usage.cost } : {}),
     // W-P2-7：真实 outputTokens 累计（与 stream.ts 口径一致），不再恒 0
     usage: usage.outputTokens,
     reason: result.outcome === 'aborted' ? 'cancelled' : result.outcome === 'failed' ? 'error' : 'success',

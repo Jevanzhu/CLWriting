@@ -15,9 +15,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { rmSync, existsSync, readFileSync, realpathSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError, readJson } from '../http.js'
+import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
@@ -137,21 +138,13 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, ENTRIES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/条目/ 内')
     }
-    const absPath = join(bookRoot, p)
-    // symlink realpath 校验（防 entry.path 中间组件是符号链接 → rmSync 删到书库外）
-    // P1-S1：realpathSync 须 try-catch（TOCTOU / 断链 → fail-closed，与其他 safePath 一致）
-    if (existsSync(absPath)) {
-      try {
-        const realBook = realpathSync(bookRoot)
-        const realAbs = realpathSync(absPath)
-        if (relative(realBook, realAbs).startsWith('..')) {
-          return replyError(res, 400, 'BAD_INPUT', '路径越出书库')
-        }
-      } catch {
-        return replyError(res, 400, 'BAD_INPUT', '路径异常')
-      }
+    // 批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
+    // （防 entry.path 中间组件是符号链接 → rmSync 删到书库外；realpath 抛 → fail-closed 拒删）
+    const safe = resolveWithinRoot(bookRoot, p)
+    if (!safe) {
+      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
     }
-    rmSync(absPath, { force: true })
+    rmSync(safe.abs, { force: true })
     reply(res, 200, { ok: true })
   },
   })

@@ -243,13 +243,16 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   }
 
   // C1（批 2）：摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定现状）。
-  // 仅认显式布尔；显式 true 也落 cfg（写侧序列化保真，round-trip 不归一）
+  // 仅认显式布尔；显式 true 也落 cfg（写侧序列化保真，round-trip 不归一）。
+  // parseValue 不产出布尔（无布尔字面量规则）——此前 typeof 守卫是死分支，
+  // 书里写 summary.auto: false 永远读不到（关闭开关静默失效），按 strict/confirm_outline
+  // 同款字符串比较归一
   const summary = find('summary')
   if (summary) {
     const auto = summary.children.find((c) => c.key === 'auto')
     if (auto) {
-      const v = parseValue(auto.value)
-      if (typeof v === 'boolean') cfg.summary = { auto: v }
+      const v = String(parseValue(auto.value))
+      if (v === 'true' || v === 'false') cfg.summary = { auto: v === 'true' }
     }
   }
 
@@ -560,7 +563,9 @@ export function stringifyBookConfig(cfg: BookConfig): string {
   if (checksLines.length > 0) lines.push('', 'checks:', ...checksLines)
 
   // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）。
-  // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清
+  // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清。
+  // candidate_depth（A3 批 7）随段输出——漏写则 PUT /config 解析失败回退分支走本函数全量
+  // 重生成时，已配的候选深度被静默抹掉（补丁白名单已认该键，两路口径须一致）
   if (cfg.rag) {
     lines.push(
       '',
@@ -569,6 +574,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
       ...(cfg.rag.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []),
       ...(!cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
       ...(!cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
+      ...(cfg.rag.candidate_depth !== undefined ? [`  candidate_depth: ${cfg.rag.candidate_depth}`] : []),
     )
   }
   // 快照保留策略（缺省不输出——现有仓库零改动红线）
@@ -789,10 +795,15 @@ const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
   { section: 'book', key: 'chapter_target_words', get: (c) => c.book.chapter_target_words },
   { section: 'leads', key: 'enabled', get: (c) => c.leads.enabled },
   { section: 'budget', key: 'calls_per_chapter', get: (c) => c.budget.calls_per_chapter },
+  // D3（批 5）双口径 + C1（批 2）开关 + A3（批 7）候选深度——此前漏登白名单，
+  // PUT /config 改这些键会静默不落盘（BUDGET_KEYS 与 stringify 侧均已认这些键）
+  { section: 'budget', key: 'tokens_per_chapter', get: (c) => c.budget.tokens_per_chapter },
+  { section: 'budget', key: 'cost_per_chapter', get: (c) => c.budget.cost_per_chapter },
   { section: 'budget', key: 'input_per_chapter', get: (c) => c.budget.input_per_chapter },
   { section: 'budget', key: 'summary_chapter_max', get: (c) => c.budget.summary_chapter_max },
   { section: 'budget', key: 'summary_volume_max', get: (c) => c.budget.summary_volume_max },
   { section: 'style', key: 'injection', get: (c) => c.style?.injection },
+  { section: 'summary', key: 'auto', get: (c) => c.summary?.auto },
   { section: 'short', key: 'profile', get: (c) => c.short?.profile },
   { section: 'short', key: 'target_emotions', get: (c) => c.short?.target_emotions },
   { section: 'short', key: 'target_reversal_types', get: (c) => c.short?.target_reversal_types },
@@ -816,6 +827,7 @@ const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
   { section: 'rag', key: 'provider', get: (c) => c.rag?.provider },
   { section: 'rag', key: 'endpoint', get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
   { section: 'rag', key: 'model', get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
+  { section: 'rag', key: 'candidate_depth', get: (c) => c.rag?.candidate_depth },
   { section: 'snapshots', key: 'max_days', get: (c) => c.snapshots?.max_days },
   { section: 'snapshots', key: 'max_count', get: (c) => c.snapshots?.max_count },
 ]

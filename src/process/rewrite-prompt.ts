@@ -1,6 +1,7 @@
 /**
  * 改写 prompt 组装 + 续写拼稿 + 行级 diff（P1-8 架构下沉：从 studio/server/api/rewrite 下沉内核）。
  */
+import { wordRange } from './draft-pipeline.js'
 
 /** 行级 diff 结果（add/del/same） */
 export interface DiffLine {
@@ -9,7 +10,10 @@ export interface DiffLine {
 }
 
 /** 组改写 prompt(local 选段 / whole 整章，AI 自愈 + rewrite 端点共用)。
- *  A4：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。 */
+ *  A4：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。
+ *  targetWords：书级 chapter_target_words（applyGlobalDefaults 合并值）——整章重写的字数
+ *  区间与首稿链同口径（wordRange ±20%）；缺省回落长短篇硬编码（与首稿链一致）。此前
+ *  硬编码 2000-4000/8000-20000，配了目标的书每次自愈/对话重写都被拉回默认区间。 */
 export function buildRewritePrompt(
   mode: 'local' | 'whole',
   original: string,
@@ -19,6 +23,7 @@ export function buildRewritePrompt(
   chapter: number,
   kind: 'long' | 'short',
   strategyHint?: string,
+  targetWords?: number,
 ): string {
   if (mode === 'local') {
     return [
@@ -53,8 +58,8 @@ export function buildRewritePrompt(
     '',
     '## 要求',
     kind === 'short'
-      ? '按指令重写整章正文(8000-20000 字,单章完整开合:铺垫→反转→收尾)。正文以 ## 标题分五段(## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵,与节数机检同口径),段内纯叙事文本。'
-      : '按指令重写整章正文(2000-4000 字,单章一主场景,章尾留钩)。',
+      ? `按指令重写整章正文(${wordRange('short', targetWords)},单章完整开合:铺垫→反转→收尾)。正文以 ## 标题分五段(## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵,与节数机检同口径),段内纯叙事文本。`
+      : `按指令重写整章正文(${wordRange('long', targetWords)},单章一主场景,章尾留钩)。`,
   )
   return parts.join('\n')
 }

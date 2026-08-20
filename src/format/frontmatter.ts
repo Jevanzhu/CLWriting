@@ -22,7 +22,7 @@ export { splitFrontMatter, bodyOf }
 
 /** 内联数组切分：引号外逗号才切，引号内逗号保留；`\"` 是转义引号不算引号边界。
  *  （K17 原正则的引号配对把 `\"` 也计入——串内同时存在转义引号与含逗号引号项时配对错乱，往返错位） */
-function splitInlineArray(inner: string): string[] {
+export function splitInlineArray(inner: string): string[] {
   const out: string[] = []
   let cur = ''
   let inQuote = false

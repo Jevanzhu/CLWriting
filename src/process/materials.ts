@@ -194,11 +194,13 @@ export async function prepareMaterials(
   // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」> 书名（兜底召回与本书相关的片段）
   const query = opts.query || chapterLeadIds.join(' ') || config.book.title
 
-  // 召回（失败/空命中 → 降级，不崩）。embedFn 可注入桩（测试），默认调真实 embed
+  // 召回（失败/空命中 → 降级，不崩）。embedFn 可注入桩（测试），默认调真实 embed。
+  // candidate_depth 从书级 ragConfig 显式透传（此前召回点重造字面量漏带该键，
+  // book.yaml 配了 rag.candidate_depth 恒不生效——缺省 20 静默兜底）
   let hits: RecallHit[] = []
   let ragNote: string | undefined
   try {
-    hits = await recall(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model }, resolved.apiKey, query, opts.topK ?? 5, opts.embedFn ?? embed)
+    hits = await recall(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, candidate_depth: ragConfig.candidate_depth }, resolved.apiKey, query, opts.topK ?? 5, opts.embedFn ?? embed)
   } catch {
     hits = []
     ragNote = 'RAG 召回异常（降级回落精准读取）'

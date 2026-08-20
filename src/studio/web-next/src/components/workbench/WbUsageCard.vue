@@ -2,7 +2,7 @@
 // D1（批 4）AI 用量卡片：消费既有 GET /trace-stats（aggregateTrace 的 byTask 聚合——
 // 此前端连 API 都引了没渲染，本卡补上渲染面）+ D2 的 cost-stats（配价书显示金额，
 // 未配价显示引导不显示 0）。自取数（挂载即拉），WorkbenchView 单点挂载零数据编排。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
 import { getTraceStats } from '../../api/trace-stats'
 import { getCostStats, type CostStats } from '../../api/cost-stats'
@@ -25,21 +25,38 @@ const total = ref(0)
 const cost = ref<CostStats | null>(null)
 const loaded = ref(false)
 
-onMounted(async () => {
+// 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据
+let loadGen = 0
+
+async function load(): Promise<void> {
+  const gen = ++loadGen
+  loaded.value = false
   try {
     const [trace, costStats] = await Promise.all([
       getTraceStats(props.bookName),
       getCostStats(props.bookName).catch(() => null),
     ])
+    if (gen !== loadGen) return
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
     cost.value = costStats
   } catch {
-    /* 离线/无数据：空态展示 */
+    // 离线/无数据：空态展示。失败也要清旧书数据（gen 匹配 = 本次请求属于当前书）——
+    // 否则新书请求失败时 finally 置 loaded，旧书的调用量/金额挂在新书名下（敏感数据错位
+    // 在失败路径复现，正是本卡要消灭的场景）
+    if (gen !== loadGen) return
+    byTask.value = {}
+    total.value = 0
+    cost.value = null
   } finally {
-    loaded.value = true
+    if (gen === loadGen) loaded.value = true
   }
-})
+}
+
+onMounted(() => void load())
+// Y-P2-3 同类：切书组件实例复用（WorkbenchView 不加 :key），此前仅挂载拉一次，
+// 旧书的调用量/金额会残留挂在新书工作台——金额属敏感数据错位
+watch(() => props.bookName, () => void load())
 
 const tasks = computed(() =>
   Object.entries(byTask.value)

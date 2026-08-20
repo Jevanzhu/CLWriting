@@ -140,6 +140,8 @@ export function enableRag(
   // dd-P2：provider 引用同样保留——ragBody 此前不含 provider 行，整段替换后
   // 服务商引用被静默抹掉、resolve 链回落旧内联端点（换端点烧钱）
   const provider = prev?.provider
+  // 同款保留：candidate_depth（A3 批 7）——整段替换会静默抹掉已配的候选深度
+  const candidateDepth = prev?.candidate_depth
 
   // 2. 写回 book.yaml——V-P2-4：文本级补丁只重写 rag 段，作者的 # 注释、未知段、
   //    未知子键逐字保留（此前 stringifyBookConfig 全量重生成会静默丢掉）。
@@ -151,6 +153,7 @@ export function enableRag(
     ...(provider ? [`  provider: ${stringifyValue(provider)}`] : []),
     ...(endpoint ? [`  endpoint: ${stringifyValue(endpoint)}`] : []),
     ...(model ? [`  model: ${stringifyValue(model)}`] : []),
+    ...(candidateDepth !== undefined ? [`  candidate_depth: ${candidateDepth}`] : []),
   ].join('\n')
   atomicWriteFile(yamlPath, patchTopSection(raw, 'rag', ragBody))
 

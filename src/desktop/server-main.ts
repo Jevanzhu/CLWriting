@@ -39,10 +39,11 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 server.on('listening', () => {
-  // 用实际监听端口（--port 0 随机端口时与配置值不同）
+  // 用实际监听端口（--port 0 随机端口时与配置值不同）。L1：走 logger 进 JSONL（此前
+  // console.log 绕过日志体系，同文件其余路径都用 log.error）
   const addr = server.address()
   const actualPort = addr && typeof addr === 'object' ? addr.port : port
-  console.log(`[server-main] ready on http://127.0.0.1:${actualPort} (static: ${staticDir})`)
+  log.info('server-main', `ready on http://127.0.0.1:${actualPort} (static: ${staticDir})`)
 })
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

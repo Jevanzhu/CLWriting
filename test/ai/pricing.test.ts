@@ -190,6 +190,21 @@ describe('D3 checkAiCallBudget 三口径', () => {
     expect(effectiveRemainingCalls(root, 3, cfg({ cost_per_chapter: 1 }))).toBe(1)
   })
 
+  it('effectiveRemainingCalls：超限 → 0（三审降档不误判额度充足）', () => {
+    // 次数口径耗尽（8/8 → ok=false）：此前误提前返回满额 limit，三审降档拿到
+    // 「额度充足」不降档——与「取最紧折算剩余」的注释语义相反
+    writeRecord(7, 8, {})
+    expect(effectiveRemainingCalls(root, 7, cfg({}))).toBe(0)
+    // token 口径超限（120k > 100k，次数未超）→ 同样 0
+    writeRecord(8, 2, { inputTokens: 120_000, outputTokens: 0 })
+    expect(effectiveRemainingCalls(root, 8, cfg({ tokens_per_chapter: 100_000 }))).toBe(0)
+  })
+
+  it('effectiveRemainingCalls：calls_per_chapter: 0 → 0（0/0 产出 NaN 等同额度无限）', () => {
+    // 病态配置防 NaN：limit=0 且无记录时 0/0=NaN，下游一切比较恒 false
+    expect(effectiveRemainingCalls(root, 9, cfg({ calls_per_chapter: 0 }))).toBe(0)
+  })
+
   it('recordAiCall 金额累计（costUsd 传入时；浮点噪声 1e-10 归一）', () => {
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.1)
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.2)

@@ -16,7 +16,7 @@ import { join, relative } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readBookConfig } from '../format/yaml.js'
-import { readManifest } from '../document/manifest.js'
+import { finalizedPathSet } from '../document/manifest.js'
 import {
   formatShortSubmissionView,
   scanShortCollection,
@@ -137,20 +137,8 @@ export function exportBook(options: ExportOptions): ExportResult {
 
   // V-P2-2：「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无 finalizedRevision；
   // 态7 流水线刚写出的在写章/坏 fm 草稿不再混进全本/分章/投稿视图）。
-  // 旧书无清单 / 清单无任何文档条目（损坏降级）→ 无法判定，保持全量（与历史行为一致）。
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const manifestEntries = existsSync(manifestPath)
-    ? [...readManifest(manifestPath).entries.values()]
-    : null
-  // X-P2-4：定稿路径先建 Set（O(n+m)），逐章 some() 扫全表在大书上白白 O(n×m)
-  const finalizedPaths =
-    manifestEntries && manifestEntries.some((e) => e.nodeType === 'document')
-      ? new Set(
-          manifestEntries
-            .filter((e) => e.nodeType === 'document' && e.finalizedRevision)
-            .map((e) => e.path),
-        )
-      : null
+  // 判定收敛到 manifest.finalizedPathSet 单一真相（learn 收割 H-1 同款，防两处漂移）
+  const finalizedPaths = finalizedPathSet(bookRoot)
   let skippedDrafts = 0
   const filtered: ExportUnit[] =
     finalizedPaths !== null

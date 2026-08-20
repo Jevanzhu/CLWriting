@@ -21,9 +21,9 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { safeDocId } from '../fs/safe-path.js'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
@@ -342,32 +342,10 @@ export class DocumentService {
     writeManifest(this.manifestPath, m)
   }
 
-  /** 路径安全：resolve + relative 防穿越，realpath 防 symlink 越出书仓库。
-   *  root 自身先 realpath（tmpdir 常是 /var→/private/var 符号链接），否则文件 realpath
-   *  会与未解析的 root 不一致而误判越出。 */
+  /** 路径安全：批 6 统一委托 resolveWithinRoot（symlink 防越出 + fail-closed，
+   *  目标存在时返回 realpath；此前本方法为各变体中语义最全的一份，canonical 即取自它） */
   private resolveSafePath(relPath: string): string | null {
-    if (!relPath || relPath.includes('\0')) return null
-    let root: string
-    try {
-      root = realpathSync(resolve(this.bookRoot))
-    } catch {
-      root = resolve(this.bookRoot)
-    }
-    const abs = resolve(root, relPath)
-    const rel = relative(root, abs)
-    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
-    // symlink 越出检查（目标存在时，返回 realpath 更安全）
-    if (existsSync(abs)) {
-      try {
-        const real = realpathSync(abs)
-        const realRel = relative(root, real)
-        if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null
-        return real
-      } catch {
-        return null
-      }
-    }
-    return abs
+    return resolveWithinRoot(this.bookRoot, relPath)?.abs ?? null
   }
 
   // ── 结构性操作（W2A §7，同步实现）──────────────────

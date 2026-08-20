@@ -285,7 +285,10 @@ function scanSummaries(
   const files = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
   for (const f of files) {
     const fp = join(dir, f)
-    if (!statSync(fp).isFile()) continue
+    // readdir 与 stat 之间文件可能被删（回收站/用户操作竞态）——无守卫 ENOENT 会把整个
+    // rebuild 事务抛穿，单章机检与树红点聚合请求直接 500（walkChapters 同文件有守卫，此处漏）
+    const st = statSync(fp, { throwIfNoEntry: false })
+    if (!st || !st.isFile()) continue
     // 文件名：<章号或卷号>.md
     const ref = Number(f.replace(/\.md$/, ''))
     if (!Number.isFinite(ref)) continue

@@ -7,6 +7,7 @@
  * - add/remove/confirm/ignore 本地状态同步
  * - harvest 有新增才 reloadCandidates
  * - freeze 更新 baseline / rescan 更新 trend
+ * - 切书竞态：clear 作废旧书在途 load，慢响应不污染新书（M-2 二轮复审）
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -240,5 +241,39 @@ describe('style: 收割 / 定标 / 趋势', () => {
     trendMock.mockResolvedValue(trend)
     await style.rescan()
     expect(style.trend).toStrictEqual(trend)
+  })
+})
+
+describe('style: 切书竞态（M-2 reqGen 守卫）', () => {
+  it('A 书三路慢响应在 clear+load(B) 之后落地 → 不污染 B 书状态', async () => {
+    // A 书三路全部挂起（门闩控制何时放行）
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    listEntriesMock.mockImplementationOnce(() =>
+      gate.then(() => ({ entries: [entry('a-book.md', '样章')], errors: [], migration: null })),
+    )
+    listCandidatesMock.mockImplementationOnce(() => gate.then(() => ({ candidates: [] })))
+    getConfigMock.mockImplementationOnce(() => gate.then(() => config()))
+
+    const style = useStyleStore()
+    const pA = style.load('bookA')
+
+    // 切书：clear 作废 A 的在途代数，load B 立即返回
+    style.clear()
+    listEntriesMock.mockResolvedValueOnce({ entries: [entry('b-book.md', '手法')], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [candidate('bc.md', '待确认')] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookB')
+    expect(style.bookName).toBe('bookB')
+    expect(style.entries[0]!._path).toBe('b-book.md')
+
+    // A 书慢响应落地：守卫直接 return null，条目/书名均不被 A 书覆盖
+    releaseA()
+    await expect(pA).resolves.toBeNull()
+    expect(style.bookName).toBe('bookB')
+    expect(style.entries[0]!._path).toBe('b-book.md')
+    expect(style.loading).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 /**
  * learn store 单测（第十一轮 P1-TST-1）：
- * 收割候选加载 / 勾选切换 / 入库提交 / 清空。
+ * 收割候选加载 / 勾选切换 / 入库提交 / 清空 / 切书竞态守卫（M-3 二轮复审）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -140,5 +140,32 @@ describe('learn: clear', () => {
     expect(s.pickedCount).toBe(0)
     expect(s.error).toBeNull()
     expect(s.commitMessage).toBeNull()
+  })
+})
+
+describe('learn: 切书竞态（M-3 reqGen 守卫）', () => {
+  it('A 书在途 harvest 在 clear 之后回填 → 被守卫拒绝，不污染候选列表', async () => {
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    learnMock.mockImplementationOnce(() =>
+      gate.then(() => ({ samples: [{ 场景: 'A 场', 正文: 'A 书正文候选', 出处: 'chA' }], quotes: [] })),
+    )
+    const s = useLearnStore()
+    const pA = s.harvest('bookA')
+
+    // 切书：clear 作废 A 的代数，B 书收割立即返回
+    s.clear()
+    learnMock.mockResolvedValueOnce({ samples: [{ 场景: 'B 场', 正文: 'B 书正文候选', 出处: 'chB' }], quotes: [] })
+    await s.harvest('bookB')
+    expect(s.samples[0]!.正文).toBe('B 书正文候选')
+
+    // A 书慢响应落地：守卫拦截，B 书候选不被覆盖（勾选入库即跨书污染，此处必须拦死）
+    releaseA()
+    await pA
+    expect(s.samples).toHaveLength(1)
+    expect(s.samples[0]!.正文).toBe('B 书正文候选')
+    expect(s.loading).toBe(false)
   })
 })

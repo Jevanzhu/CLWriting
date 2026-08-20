@@ -12,6 +12,25 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
+/** A1：树红点缓存两表 DDL 单源——DDL_STATEMENTS（全量建表）与
+ *  ensureTreeIssuesTables（旧库按需补建）共用；此前双份手抄，改列要同步两处易漂移。
+ *  注意：本表与 tree_issues_meta 不在 clearAllTables 清单里——rebuild 全量重建
+ *  清空的是「源文件派生索引」，机检缓存按章指纹自行失效，rebuild 不构成失效源
+ *  （改 1 章 → 只重查那 1 章，不能连坐全书）。 */
+const TREE_ISSUES_DDL = [
+  `CREATE TABLE IF NOT EXISTS tree_issues_cache (
+    rel_path    TEXT PRIMARY KEY,   -- 相对书根的章路径
+    mtime_ms    INTEGER NOT NULL,   -- 正文文件指纹
+    size        INTEGER NOT NULL,
+    verdict_fp  TEXT,               -- 项目/分析/<docId>.json 的 "mtime:size"；NULL=无信封
+    report_json TEXT NOT NULL       -- {hasRed, verdictRejected}（聚合输出同构）
+  )`,
+  `CREATE TABLE IF NOT EXISTS tree_issues_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+] as const
+
 /** 全部建表 DDL（#4 第 3 节） */
 const DDL_STATEMENTS = [
   // ── 账本主表：七类统一，type 区分 ──
@@ -68,37 +87,14 @@ const DDL_STATEMENTS = [
     value  TEXT NOT NULL
   )`,
 
-  // ── A1（批 1）：树红点增量缓存——按章 stat 指纹命中的机检结果缓存。
-  // 注意：本表与 tree_issues_meta 不在 clearAllTables 清单里——rebuild 全量重建
-  // 清空的是「源文件派生索引」，机检缓存按章指纹自行失效，rebuild 不构成失效源
-  // （改 1 章 → 只重查那 1 章，不能连坐全书）。
-  `CREATE TABLE IF NOT EXISTS tree_issues_cache (
-    rel_path    TEXT PRIMARY KEY,   -- 相对书根的章路径
-    mtime_ms    INTEGER NOT NULL,   -- 正文文件指纹
-    size        INTEGER NOT NULL,
-    verdict_fp  TEXT,               -- 项目/分析/<docId>.json 的 "mtime:size"；NULL=无信封
-    report_json TEXT NOT NULL       -- {hasRed, verdictRejected}（聚合输出同构）
-  )`,
-  `CREATE TABLE IF NOT EXISTS tree_issues_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )`,
+  // ── A1（批 1）：树红点增量缓存表（DDL 见 TREE_ISSUES_DDL 单源） ──
+  ...TREE_ISSUES_DDL,
 ] as const
 
 /** A1：树红点缓存表独立 ensure——增量 rebuild 跳过路径不跑 createAllTables，
  *  旧库（本表缺席）按需补建（幂等，IF NOT EXISTS）。 */
 export function ensureTreeIssuesTables(db: DatabaseSync): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS tree_issues_cache (
-    rel_path    TEXT PRIMARY KEY,
-    mtime_ms    INTEGER NOT NULL,
-    size        INTEGER NOT NULL,
-    verdict_fp  TEXT,
-    report_json TEXT NOT NULL
-  )`)
-  db.exec(`CREATE TABLE IF NOT EXISTS tree_issues_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )`)
+  for (const stmt of TREE_ISSUES_DDL) db.exec(stmt)
 }
 
 /** 在给定 db 上建全部表（幂等，IF NOT EXISTS） */

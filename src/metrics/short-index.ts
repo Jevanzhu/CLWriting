@@ -367,7 +367,9 @@ function collectBodyAnchors(body: string): string[] {
 function setupHasAnchor(position: string, anchors: string[]): boolean {
   const pos = normalize(position)
   if (!pos || isPlaceholder(position)) return false
-  if (anchors.length === 0) return true
+  // 正文无 ## 锚点时锚定不可校验——如实计 0（此前 return true 会把 anchoredSetupCount
+  // 虚报成全量铺垫数；评分侧已有 anchors.length > 0 卫语句不受影响，只纠报告口径）
+  if (anchors.length === 0) return false
   return anchors.some((anchor) => {
     const a = normalize(anchor)
     return a.includes(pos) || pos.includes(a)

@@ -51,6 +51,17 @@ function dayFile(logsDir: string, d = new Date()): string {
   return join(logsDir, `app-${y}${m}${day}.jsonl`)
 }
 
+/** 本地日期 key（YYYY-MM-DD）。M2（二轮复审）：成本/trace 按日分桶统一走本地日——
+ * 此前用 UTC ISO 切日，东八区 0-8 点的调用记到前一 UTC 日，与日志文件日（本地日）、
+ * 用户「今天」直觉三者错位。 */
+export function localDayKey(t: number | string | Date): string {
+  const d = t instanceof Date ? t : new Date(t)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 /** 解析 app-YYYYMMDD.jsonl 文件名日期；不匹配返回 null。 */
 function parseDay(name: string): Date | null {
   const m = /^app-(\d{4})(\d{2})(\d{2})\.jsonl$/.exec(name)

@@ -190,4 +190,32 @@ describe('tree-issues-cache 模块单元', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('纪元输入补全：细纲/境界体系变更 → 清表（此前漏输入，两端闭合/成长红点可陈旧）', () => {
+    const root = makeBook(1)
+    try {
+      // makeBook 不建这两个文件——补上（declaredLeadIds 与成长线的章外输入源）
+      mkdirSync(join(root, '工作区'), { recursive: true })
+      mkdirSync(join(root, '设定'), { recursive: true })
+      writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 2\n推进:\n  - 悬念-001\n---\n', 'utf-8')
+      writeFileSync(join(root, '设定', '境界体系.md'), '---\n体系:\n  - 名称: 测试\n---\n', 'utf-8')
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+      try {
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 首次：清+记
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false) // 稳定：no-op
+        // +5s 防同毫秒写撞车（fileFp 是 mtimeMs 粒度）
+        const later = new Date(Date.now() + 5000)
+        utimesSync(join(root, '工作区', '细纲.md'), later, later)
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 细纲推进声明变 → 清
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
+        utimesSync(join(root, '设定', '境界体系.md'), later, later)
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 境界体系变 → 清
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

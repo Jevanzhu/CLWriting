@@ -10,7 +10,7 @@
 import { test, expect, vi, describe, beforeEach } from 'vitest'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
-import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
+import { runSelfHeal, isSelfHealRunning, waitSelfHealSettled, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -129,6 +129,35 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
     expect(types).not.toContain('self_heal_progress')
     const res = emitted.find((e) => e.type === 'self_heal_result') as { outcome?: string } | undefined
     expect(res?.outcome).toBe('failed')
+  })
+
+  test('D2: done 事件未配价不带 cost 字段（不再恒发 cost:0，与 spawn 路径同口径）', async () => {
+    vi.mocked(checkAiCallBudget).mockReturnValue(budgetOk)
+    const { opts, emitted } = setup([FM + '正文'], () => greenOutcome())
+    const r = await runSelfHeal(opts)
+    expect(r.outcome).toBe('pass')
+    const done = emitted.filter((e) => e.type === 'done')
+    expect(done.length).toBeGreaterThanOrEqual(1)
+    // genFn 桩路径无 usage → 无金额可算 → 字段整个省略（修复前恒发 cost: 0）
+    for (const e of done) expect('cost' in e).toBe(false)
+  })
+
+  test('#7: waitSelfHealSettled 在 runSelfHeal 收尾后 resolve（改名/删书等待原语）', async () => {
+    vi.mocked(checkAiCallBudget).mockReturnValue(budgetOver)
+    const { opts } = setup([FM + '正文'], () => greenOutcome())
+    const p = runSelfHeal(opts)
+    // async 体首段同步执行 → running 已登记，settling Promise 同步可用
+    expect(isSelfHealRunning(opts.bookName)).toBe(true)
+    let settled = false
+    void waitSelfHealSettled(opts.bookName).then(() => {
+      settled = true
+    })
+    await p
+    await new Promise((r) => setTimeout(r, 20))
+    expect(settled).toBe(true)
+    expect(isSelfHealRunning(opts.bookName)).toBe(false)
+    // 无在途 → 立即 resolve（不悬挂）
+    await waitSelfHealSettled(opts.bookName)
   })
 
   test('批量首稿预算超限 → failed（与单章一致，非 escalate）+ batch_progress', async () => {

@@ -4,11 +4,51 @@
  * manifest 路径（文档清单.jsonl 中 m.path）与 books.jsonl 同属可篡改的本地数据文件，
  * 需统一校验防止 join(bookRoot, m.path) 越出 bookRoot。
  *
- * 本模块还导出 symlink 校验共享函数（isWithinRoot），供 trash.ts / files.ts 等
- * 各 safePath 变体统一引用，确保防护行为一致（fail-closed）。
+ * 本模块还导出 symlink 校验共享函数（isWithinRoot）与 canonical 路径解析
+ * （resolveWithinRoot），供 trash.ts / files.ts / service.ts / desktop 等各
+ * safePath 变体统一引用，确保防护行为一致（fail-closed）。
  */
-import { join, relative, isAbsolute } from 'node:path'
+import { relative, isAbsolute, resolve } from 'node:path'
 import { existsSync, realpathSync } from 'node:fs'
+
+export interface ResolvedWithinRoot {
+  /** 绝对路径；目标存在时为 realpath（symlink 已解析），不存在时为 resolve 结果 */
+  abs: string
+  /** abs 相对 bookRoot 的规范化相对路径（posix 分隔，白名单前缀匹配用） */
+  rel: string
+}
+
+/**
+ * canonical 防穿越解析（批 6 二轮复审统一）：relPath 解析到 bookRoot 内的绝对路径，
+ * 越出 / NUL / 空路径 / 落到 bookRoot 自身 → null（fail-closed：realpath 抛 → null）。
+ *
+ * 语义 = files.ts safePath / safeManifestPath 的多数派：root 平时只 resolve，目标
+ * 存在时才双侧 realpath 防 symlink 越出（macOS tmpdir /var→/private/var 场景由
+ * 双侧 realpath 消解，无需 root 预解析）。此前 6 处手写变体语义等价但实现漂移，
+ * 统一委托此处（service.resolveSafePath / files.safePath / trash.safePathWithin /
+ * desktop show-in-folder·open-book-dir / style·books 删路径守卫）。
+ */
+export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWithinRoot | null {
+  if (!relPath || relPath.includes('\0')) return null
+  const root = resolve(bookRoot)
+  const abs = resolve(root, relPath)
+  const rel = relative(root, abs)
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
+  if (existsSync(abs)) {
+    // 两边都 realpath：root 自身经符号链接时（tmpdir /var→/private/var），
+    // 只 realpath 文件会与未解析的 root 前缀不一致而误判越出
+    try {
+      const realRoot = realpathSync(root)
+      const real = realpathSync(abs)
+      const realRel = relative(realRoot, real)
+      if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null
+      return { abs: real, rel: realRel.replace(/\\/g, '/') }
+    } catch {
+      return null // realpath 失败（EACCES/ELOOP/断链）→ 拒绝（fail-closed）
+    }
+  }
+  return { abs, rel: rel.replace(/\\/g, '/') }
+}
 
 /**
  * symlink realpath 二次校验（防符号链接指向 bookRoot 外）。
@@ -38,24 +78,7 @@ export function safeDocId(docId: string): boolean {
   return !docId.includes('\0') && !docId.includes('/') && !docId.includes('\\') && !docId.includes('..')
 }
 
-/** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。 */
+/** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。批 6：委托 resolveWithinRoot。 */
 export function safeManifestPath(bookRoot: string, rel: string): string | null {
-  if (!rel || rel.includes('\0') || isAbsolute(rel)) return null
-  const abs = join(bookRoot, rel)
-  if (relative(bookRoot, abs).startsWith('..')) return null
-  // B-P1-4：symlink realpath 二次校验（同 DocumentService.resolveSafePath 模式）。
-  // 文件存在时解析符号链接目标，防止 symlink 指向 bookRoot 外；不存在（新建场景）只做路径校验。
-  // bookRoot 自身也需 realpath（macOS tmpdir 常是 /var→/private/var 符号链接，否则 relative 误判越出）。
-  if (existsSync(abs)) {
-    // P1-R2：realpathSync 可能抛（EACCES/ELOOP/断链），须 fail-closed（与 isWithinRoot 一致）
-    try {
-      const real = realpathSync(abs)
-      const realRoot = realpathSync(bookRoot)
-      if (relative(realRoot, real).startsWith('..')) return null
-      return real
-    } catch {
-      return null
-    }
-  }
-  return abs
+  return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }

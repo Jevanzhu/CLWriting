@@ -9,10 +9,11 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, realpathSync, renameSync, existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { rmSync, renameSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
+import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import {
   readBooks,
   removeBookEntry,
@@ -26,8 +27,8 @@ import { resolveBook } from '../book-context.js'
 import { forgetService } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
-import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
-import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../../../ai/orchestrate/chat.js'
+import { abortSelfHeal, isSelfHealRunning, waitSelfHealSettled } from '../../../ai/orchestrate/self-heal.js'
 import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
 import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -55,6 +56,17 @@ interface BookCtx {
 }
 
 let initialBook: string | undefined
+
+/** #7：等被 abort 的在途编排（chat / self-heal）真正收尾。abort 只是异步信号——
+ * straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移之后
+ * 恢复，会抛「连接未打开」或对已删/已搬路径重建孤儿目录。上限 10s：等待是尽善，
+ * 挂死编排不应阻塞删/改请求（超时后行为同旧版，事件库启动修复兜底）。 */
+async function awaitOrchestrationsSettled(name: string): Promise<void> {
+  await Promise.race([
+    Promise.all([waitChatSettled(name), waitSelfHealSettled(name)]),
+    new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+  ])
+}
 
 export function registerBookRoutes(ctx: BookCtx): void {
   // 书架列表
@@ -162,7 +174,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
   defineRoute('books.delete', {
     method: 'DELETE',
     path: '/api/books/:name',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
@@ -176,8 +188,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     const entry = r.entry
     // U-P2-7：先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
     // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
-    if (isSelfHealRunning(name)) abortSelfHeal(name)
-    if (isChatRunning(name)) abortChat(name)
+    const hadSelfHeal = isSelfHealRunning(name)
+    if (hadSelfHeal) abortSelfHeal(name)
+    const hadChat = isChatRunning(name)
+    if (hadChat) abortChat(name)
     // ee-P2-11：/spawn 手动写稿在途闸——分钟级网络任务且 runWriterSpawn 持 bookRoot 闭包，
     // books 侧无直接 abort 通道（与 task-gate 同类），持闸时拒删：放行则收尾落盘写已删除的
     // 旧路径重建孤儿目录 + 白烧 API 费用（用户可先经 POST /interrupt 中断生成再删）
@@ -195,21 +209,19 @@ export function registerBookRoutes(ctx: BookCtx): void {
     if (held.length > 0) {
       return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后再删`)
     }
-    // 删书目录（递归，含 git 历史）
-    const bookAbs = join(ctx.workDir, entry.path)
-    // symlink realpath 校验：防 entry.path 中间组件是符号链接 → rmSync 删到书库外
-    try {
-      const realWorkDir = realpathSync(ctx.workDir)
-      const realBookAbs = realpathSync(bookAbs)
-      if (realBookAbs === realWorkDir || relative(realWorkDir, realBookAbs).startsWith('..')) {
+    // #7：等被中断的编排收尾后再动磁盘/事件库——straggler 的 session/end 与链路
+    // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）
+    if (hadSelfHeal || hadChat) await awaitOrchestrationsSettled(name)
+      // 删书目录（递归，含 git 历史）
+      const bookAbs = join(ctx.workDir, entry.path)
+      // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
+      // 批 6 统一：resolveWithinRoot（防穿越 + symlink 双侧 realpath；书路径 = workDir 自身
+      // 时 rel='' 同判非法）。realpath 失败（不存在/权限）→ null → 拒绝删除
+      if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
       }
-    } catch {
-      // realpath 失败说明路径异常（文件不存在 / 权限），拒绝删除
-      return replyError(res, 400, 'BAD_PATH', '书路径异常')
-    }
-    try {
-      rmSync(bookAbs, { recursive: true, force: true })
+      try {
+        rmSync(bookAbs, { recursive: true, force: true })
     } catch (e) {
       log.error('api', `删除目录失败（${name}）`, e)
       replyError(res, 500, 'IO', '删除目录失败')
@@ -247,7 +259,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
       return { name }
     },
-    handler: ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
       if (!ctx.workDir) {
         replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
         return
@@ -297,8 +309,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
 
       // 全量改名：中断在途 AI（同删书，防改名后继续落盘重建旧目录/白耗费用）
-      if (isSelfHealRunning(oldName)) abortSelfHeal(oldName)
-      if (isChatRunning(oldName)) abortChat(oldName)
+      const hadSelfHeal = isSelfHealRunning(oldName)
+      if (hadSelfHeal) abortSelfHeal(oldName)
+      const hadChat = isChatRunning(oldName)
+      if (hadChat) abortChat(oldName)
       // ee-P2-11：/spawn 在途闸——runWriterSpawn 持改名前的 bookRoot 闭包，放行则收尾
       // 落盘写旧路径（目录已搬走 → 重建孤儿目录）+ 白烧 API 费用；与删书同口径拒改（409）
       if (isSpawnRunning(oldName)) {
@@ -313,11 +327,20 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后改名`)
       }
+      // #7：等被中断的编排收尾后再搬目录/关库——abort 是异步信号，straggler 的收尾
+      // 写库若在强制关库后恢复会抛「连接未打开」（对话以 error 收尾）；等待把这一窗
+      // 收敛为零（确定性时序：本 handler 的同步段此前必然先于 straggler 恢复执行）
+      if (hadSelfHeal || hadChat) await awaitOrchestrationsSettled(oldName)
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
       // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名，对话历史/审计
       // 从此永久失联且无回滚。先改名失败 = 纯净 500 可安全重试（migrate 现对「目标库
       // 已存在」也是返回 false 防覆盖，kk-P2-3，不再静默跳过）。
+      // 改名同删书补越出/symlink 守卫（批 6 统一 resolveWithinRoot；此前改名 handler
+      // 无此校验——books.jsonl 篡改 entry.path 后 renameSync 可把书库外目录搬进书库）
+      if (!resolveWithinRoot(ctx.workDir, entry.path)) {
+        return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
+      }
       try {
         renameSync(oldRoot, newRoot)
       } catch (e) {

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { initLogging, log, resetLoggingForTest, flushLogsForTest } from '../../src/log/index.js'
+import { initLogging, log, resetLoggingForTest, flushLogsForTest, localDayKey } from '../../src/log/index.js'
 
 let dir = ''
 
@@ -31,6 +31,19 @@ function readLines(): Array<Record<string, unknown>> {
 }
 
 describe('log 模块（A4 批 0）', () => {
+  it('localDayKey：按本地日切日（成本/trace 分桶与日志文件日同口径，M2 二轮复审）', () => {
+    // UTC 2026-08-20T20:00Z = 东八区 8-21 04:00 —— UTC 切日记 08-20，本地日应记 08-21。
+    // 断言用 Date 的本地分量构造期望，测试在任何时区都成立（不写死偏移）
+    const ts = Date.UTC(2026, 7, 20, 20, 0, 0)
+    const d = new Date(ts)
+    const expectKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    expect(localDayKey(ts)).toBe(expectKey)
+    expect(localDayKey(new Date(ts))).toBe(expectKey) // Date 入参同口径
+    expect(localDayKey(new Date(ts).toISOString())).toBe(expectKey) // ISO 字符串同口径
+    // 与日志文件名同一天（app-YYYYMMDD ↔ YYYY-MM-DD）
+    expect(localDayKey(Date.now()).replaceAll('-', '')).toMatch(/^\d{8}$/)
+  })
+
   it('未初始化：仅镜像 console，不落盘（与引入前行为一致）', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

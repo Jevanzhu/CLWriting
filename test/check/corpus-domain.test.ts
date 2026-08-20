@@ -88,6 +88,12 @@ describe('B4 信息差词表派生（P6-①）', () => {
     const root = makeBook(1, { wiring: true, leakFm: 'leak_keywords: [眼睛]\n' })
     expect(deriveLeakKeywords(root)).toContain('眼睛')
   })
+
+  it('单行数组引号内逗号不劈（K17 同构：["玉佩,旧案"] 是一个词）', () => {
+    // 原实现 bare split(',') 会把引号项劈成「玉佩」「旧案」两个关键词
+    const root = makeBook(1, { wiring: true, leakFm: 'leak_keywords: ["玉佩,旧案", 血脉之秘]\n' })
+    expect(deriveLeakKeywords(root)).toEqual(['玉佩,旧案', '血脉之秘'])
+  })
 })
 
 // ── B1 误报端点 ──────────────────────────────────────────────────────
@@ -217,5 +223,28 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     execSync(`npx tsx scripts/corpus-commit.ts "${root}" "${outDir}"`, { stdio: 'pipe' })
     const entries2 = JSON.parse(readFileSync(jsonPath, 'utf8')) as unknown[]
     expect(entries2.length).toBe(entries.length)
+  })
+
+  it('幸存者基准锚定 pinned finalize 版本——正文文件定稿后再改不改变判定', () => {
+    // 原实现拿现行正文文件当定稿基准：定稿后作者继续起草（命中词又被改掉）会把
+    // 「定稿时幸存」误判成「被作者改掉」。基准应是最后一次定稿内容（pinned
+    // finalize 版本），从未定稿才退化为现行文件。
+    const root = makeBook(1)
+    const docId = docIdOf(root, '001-第1章.md')
+    const versionsDir = join(root, '工作区', VERSIONS_DIR_NAME)
+    const piled = '她的眼睛望着他，眼睛里映着火光，眼睛发烫，眼睛深处藏着话，那双眼睛像星火，眼睛之外再无他物。\n'
+    // 旧稿命中身体部位堆砌；定稿版本（pinned）保留堆砌 ⇒ 命中词在定稿幸存 ⇒ 误报候选
+    writeVersion(versionsDir, docId, piled, { origin: 'ai-draft', reason: '旧稿' })
+    writeVersion(versionsDir, docId, piled, { origin: 'finalize', pinned: true })
+    // 定稿后作者又改了正文文件（清掉「眼睛」）——旧实现会据此误判「被改掉」
+    writeFileSync(
+      join(root, '写作', '正文', '001-第1章.md'),
+      '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n她望了他一眼，火光在眼底一闪而过。\n',
+    )
+    execSync(`npx tsx scripts/harvest-corpus.ts "${root}"`, { stdio: 'pipe' })
+    const fpText = readFileSync(join(root, '工作区', '语料候选', '误报候选.md'), 'utf8')
+    expect(fpText).toContain('判定：幸存')
+    const hitText = readFileSync(join(root, '工作区', '语料候选', '命中候选.md'), 'utf8')
+    expect(hitText).not.toContain('章号 1')
   })
 })

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter, syncSummary } from '../../src/cache/sync.js'
-import { prepare, estimateTokens } from '../../src/process/prepare.js'
+import { prepare, estimateTokens, TOKEN_COEFFICIENTS } from '../../src/process/prepare.js'
 import { addEntry } from '../../src/format/style-entry.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -168,6 +168,45 @@ test('estimateTokens: 中文 0.6 token/字', () => {
   expect(estimateTokens('')).toBe(0)
   const t = estimateTokens('一二三四五六七八九十') // 10 字
   expect(t).toBe(6) // 10 * 0.6
+})
+
+test('#8: 非默认 token 系数下，降档/移除扣减与累计同 model 口径（estimatedTokens == 剩余段真实和）', () => {
+  const root = mkdtempSync(join(tmpdir(), '口径-'))
+  mkdirSync(join(root, '.cache'), { recursive: true })
+  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+  createAllTables(db)
+  syncChapter(db, {
+    章号: 10, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 1000, _path: 'p10',
+  })
+  mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
+  const big = '刀'.repeat(1000)
+  for (let i = 1; i <= 3; i++) {
+    writeFileSync(
+      join(root, '文风', '样章库', '战斗', `战斗-00${i}.md`),
+      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`, 'utf-8',
+    )
+  }
+  // 注入非默认系数（>0.6）：修复前降档/移除两轮漏传 model 按 0.6 扣减，累计虚高
+  // → 过度裁剪 + estimatedTokens 与剩余段真实和分裂；填表即爆的潜伏缺陷回归锚
+  TOKEN_COEFFICIENTS['cal-test'] = 1.2
+  try {
+    const cfg: BookConfig = {
+      ...DEFAULT_CONFIG,
+      style: { injection: 'heavy' },
+      budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 2000 },
+    }
+    const r = prepare(db, cfg, root, [], undefined, '战斗', 'cal-test')
+    expect(r.trimmed).toBe(true)
+    expect(r.trimLog.some((l) => l.includes('降档'))).toBe(true)
+    // 不变量：预算扣减全程同 model 系数 → 返回的 estimatedTokens 恰等于剩余段之和
+    const trueSum = r.sections.reduce((sum, s) => sum + estimateTokens(s.content, 'cal-test'), 0)
+    expect(r.estimatedTokens).toBe(trueSum)
+  } finally {
+    delete TOKEN_COEFFICIENTS['cal-test']
+    db.close()
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('prepare: 超预算优先降档（文风样章降浓度保留）而非整段删', () => {

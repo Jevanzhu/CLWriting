@@ -17,8 +17,8 @@ import { readOutlineLeads } from './outline-leads.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
-import { deriveStatusFull } from '../document/status.js'
-import { probeCachedRevision } from '../document/tree.js'
+import { deriveStatus } from '../document/status.js'
+import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { analysisPath } from '../document/analysis.js'
 import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache } from './tree-issues-cache.js'
 import type { CheckReport } from './types.js'
@@ -59,6 +59,8 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
   }
 
   const db = hasWiring ? new DatabaseSync(cachePath) : null
+  // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
+  if (db) db.exec('PRAGMA busy_timeout = 5000')
   try {
     return checkWithDb(bookRoot, absPath, db, config)
   } finally {
@@ -197,6 +199,8 @@ export function collectTreeIssues(
       rebuildFailed = true
     } else {
       db = new DatabaseSync(cachePath)
+      // 同 runCheckForDocument：树红点聚合与机检端点/rebuild 可并发，等锁而非 SQLITE_BUSY
+      db.exec('PRAGMA busy_timeout = 5000')
     }
   }
   try {
@@ -244,7 +248,11 @@ export function collectTreeIssues(
         // CC-P1-3：字节指纹走 probeCache（stat 级命中零读零哈希，与树 W-P2-4 同口径），
         // 替代每章 computeRevision 整读 + SHA-256
         const rev = probeCachedRevision(bookRoot, relPath)
-        const st = deriveStatusFull(bookRoot, relPath, entry, rev)
+        // #6（中级遗留）：published 判定同样走 probeCache——此前 deriveStatusFull →
+        // readPublished 对 final 章整读定稿稿且不吃缓存，成熟书 O(final 章数) 整读/请求，
+        // 削弱 A1 收益。probe 的 published 与树视图同口径（W-P2-4 单次读探针）
+        const base = deriveStatus(relPath, entry, rev)
+        const st = base === 'final' && probeCachedPublished(bookRoot, relPath) ? 'published' : base
         if (st === 'final' || st === 'published') continue
         const docId = pathToDocId.get(relPath)
         if (!docId) continue
@@ -274,14 +282,19 @@ export function collectTreeIssues(
           }
         }
         let hasRed = false
+        let checkFailed = false
         if (!rebuildFailed) {
           const outcome = checkWithDb(bookRoot, ch._path, db, config, batch)
-          hasRed = outcome.ok ? outcome.hasRed : false
+          if (outcome.ok) hasRed = outcome.hasRed
+          else checkFailed = true
         }
         const verdict = readReviewVerdict(docId)
         const verdictRejected = !!verdict && !verdict.approved
         const entryData = { hasRed, verdictRejected }
-        if (cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, entryData)
+        // 检查失败（瞬态异常：SQLITE_BUSY 超时/名册 ENOENT 竞态）不落缓存——此前无条件
+        // writeTreeIssuesCache 会把「未检出」固化为假阴性，指纹不变期间红点永久消失、
+        // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带
+        if (!checkFailed && cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, entryData)
         if (hasRed || verdictRejected) issues[docId] = entryData
       }
     }
