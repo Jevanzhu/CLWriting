@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
-import { splitSentences } from '../format/sentences.js'
+import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
 import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
 // P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
@@ -111,24 +111,9 @@ export function checkRepeat(
   threshold = 0.15,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // 句子需 ≥ n-gram 长度才计入（过短句子无滑窗意义）
-  const sentences = splitSentences(body).filter((s) => s.length >= REPEAT_N_GRAM)
-  const counts = new Map<string, number>()
-  let total = 0
-  for (const s of sentences) {
-    for (let i = 0; i + REPEAT_N_GRAM <= s.length; i++) {
-      const gram = s.slice(i, i + REPEAT_N_GRAM)
-      counts.set(gram, (counts.get(gram) ?? 0) + 1)
-      total++
-    }
-  }
-  // 重复实例数 = 每个出现≥2次的 n-gram 的总出现次数 - 1
-  let repeatInstances = 0
-  for (const c of counts.values()) {
-    if (c >= 2) repeatInstances += c - 1
-  }
+  // M-12（第八轮）：滑窗口径收口到 format/sentences.ngramRepeatRate（与文风重扫共用）
+  const { rate, total, repeatInstances } = ngramRepeatRate(body, REPEAT_N_GRAM)
   if (total > 0) {
-    const rate = repeatInstances / total
     if (rate > threshold) {
       items.push({
         checkId: 'repeat',

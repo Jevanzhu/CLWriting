@@ -49,11 +49,14 @@ test('computeSentenceLenVariance: 句长方差口径（与 count.ts 同切句）
   expect(v).toBeGreaterThan(0)
 })
 
-test('computeRepeatRate: 重复句计入复读率', () => {
-  const body = '北风呼啸而过。北风呼啸而过。他走着。'
-  // 句子（≥6字）：北风呼啸而过 ×2、他走着（4字不计）
-  // repeatInstances = 2-1 = 1, sentences=2 → 0.5
+test('computeRepeatRate: 重复句计入复读率（M-12·第八轮口径变更：滑窗 n-gram，与 checkRepeat 同口径）', () => {
+  const body = '北风呼啸而过卷起残云。北风呼啸而过卷起残云。他走着。'
+  // 句子（≥8字才计入滑窗）：10 字句 ×2 → 每句 3 个 8-gram，全部重复
+  // repeatInstances = 3, total = 6 → 0.5；旧整句口径下此断言值相同，
+  // 但 6 字短句（<8）不再计入——「北风呼啸而过。」×2 现在计 0（见下）
   expect(computeRepeatRate(body)).toBeCloseTo(0.5, 5)
+  // 短于 n-gram 长度的重复句不计（过短句子无滑窗意义，与 count.ts 一致）
+  expect(computeRepeatRate('北风呼啸。北风呼啸。他走着。')).toBe(0)
 })
 
 test('computeFullStats: 对话标签占比 = 被标签对话行 / 对话行数', () => {
@@ -116,6 +119,22 @@ test('scanChapters: 逐章采样，按章号排序', () => {
   const samples = scanChapters(root)
   expect(samples).toHaveLength(5)
   expect(samples.map((s: ChapterSample) => s.num)).toEqual([1, 2, 3, 4, 5])
+  rmSync(root, { recursive: true, force: true })
+})
+
+// M-11（第八轮）：文风扫描只收定稿章——在写草稿不进样本（与 learn H-1 / 导出 V-P2-2
+// 同一红线：流水线刚写出的段会污染 health 文风趋势与 style-harvest 候选）
+test('M-11: scanChapters 只收清单在册的定稿章（草稿不计入）', () => {
+  const root = makeLongBookWithDrift(4, 999)
+  mkdirSync(join(root, '项目'), { recursive: true })
+  // 只 2、4 章登记 finalizedRevision；1 章不在清单、3 章在册未定稿
+  writeFileSync(join(root, '项目', '文档清单.jsonl'), [
+    '{"id":"d2","nodeType":"document","path":"写作/正文/2-第2章.md","parentId":null,"finalizedRevision":"r1"}',
+    '{"id":"d3","nodeType":"document","path":"写作/正文/3-第3章.md","parentId":null}',
+    '{"id":"d4","nodeType":"document","path":"写作/正文/4-第4章.md","parentId":null,"finalizedRevision":"r1"}',
+  ].join('\n') + '\n', 'utf-8')
+  const samples = scanChapters(root)
+  expect(samples.map((s: ChapterSample) => s.num)).toEqual([2, 4])
   rmSync(root, { recursive: true, force: true })
 })
 

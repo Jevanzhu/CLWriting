@@ -7,7 +7,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readBooks, readActive, appendBook, removeBookEntry, readBooksStrict } from '../../src/install/books.js'
+import { readBooks, readActive, appendBook, removeBookEntry, readBooksStrict, repairBooks } from '../../src/install/books.js'
 
 test('低级项（第六轮）：books.jsonl 读取失败（EISDIR）→ 降级空表，不裸抛', () => {
   const wd = mkdtempSync(join(tmpdir(), 'books-guard-'))
@@ -59,6 +59,24 @@ test('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（
   } finally {
     chmodSync(fp, 0o644)
     expect(readFileSync(fp, 'utf-8')).toContain('旧书') // 登记保留（repair 兜底可重建口径）
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
+test('M-8（第八轮）：repairBooks 读失败（EACCES）→ 跳过本轮自愈，不整写清掉登记', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'repair-skip-'))
+  const fp = join(wd, '.clwriting', 'books.jsonl')
+  try {
+    mkdirSync(join(wd, '.clwriting'), { recursive: true })
+    // 非标准深度登记（三级路径）——扫盘只扫顶层+二级，整写即被清掉
+    writeFileSync(fp, JSON.stringify({ name: '深层书', path: '分组/子库/深层书', kind: 'long' }) + '\n')
+    chmodSync(fp, 0o000)
+    const r = repairBooks(wd)
+    expect(r.skipped).toBe('read-failed')
+    expect(r.changed).toBe(false)
+  } finally {
+    chmodSync(fp, 0o644)
+    expect(readFileSync(fp, 'utf-8')).toContain('深层书') // 登记一字未动
     rmSync(wd, { recursive: true, force: true })
   }
 })

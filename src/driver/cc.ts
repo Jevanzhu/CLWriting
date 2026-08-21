@@ -43,8 +43,15 @@ interface Channel {
   execActive: boolean
 }
 const channels = new Map<string, Channel>()
-/** session → AbortController（interrupt 时 abort，替代 kill 子进程）。cc 无生成时为懒占位，dispose/interrupt 兜底用 */
-const sessionCtrl = new Map<string, AbortController>()
+/** session → owner 分槽的 AbortController（interrupt 时全部 abort，替代 kill 子进程）。
+ *  M-1（第八轮）：单槽改分槽——chat 与 self-heal 按设计可并发（纯问答），原先单槽
+ *  register 的 P2-6「换新先 abort 旧」会把在途 self-heal 的 ctrl 静默掐断；owner
+ *  分槽后同编排换新保持抢占语义，跨编排互不 abort，interrupt/dispose 兜底全量终止。 */
+interface CtrlSlot {
+  ctrl: AbortController
+  owner: string
+}
+const sessionCtrls = new Map<string, Map<string, CtrlSlot>>()
 let sessionSeq = 0
 
 function channel(id: string): Channel {
@@ -54,6 +61,16 @@ function channel(id: string): Channel {
     channels.set(id, ch)
   }
   return ch
+}
+
+/** M-1（第八轮）：终止 session 下全部在途 ctrl（interrupt/dispose 共用）——owner 分槽后
+ *  一个 session 可能同时挂 chat 与 self-heal/spawn 两路，用户中断语义是全停 */
+function abortAllCtrls(sessionId: string): void {
+  const byOwner = sessionCtrls.get(sessionId)
+  if (!byOwner) return
+  for (const slot of byOwner.values()) {
+    if (!slot.ctrl.signal.aborted) slot.ctrl.abort()
+  }
 }
 
 function push(id: string, ev: DriverEvent): void {
@@ -136,9 +153,8 @@ export const ccDriver: StudioDriver = {
 
   dispose(session: Session): void {
     session.closed = true
-    const ctrl = sessionCtrl.get(session.id)
-    if (ctrl) ctrl.abort()
-    sessionCtrl.delete(session.id)
+    abortAllCtrls(session.id)
+    sessionCtrls.delete(session.id)
     // 唤醒所有消费等待，令其检查 session.closed 退出
     const ch = channels.get(session.id)
     if (ch) {
@@ -155,28 +171,42 @@ export const ccDriver: StudioDriver = {
 
   interrupt(session: Session): void {
     // 推 interrupted（前端据此清 running；cc 无 driver 层生成可中断）
-    const ctrl = sessionCtrl.get(session.id)
-    if (ctrl) ctrl.abort()
-    // 中断即注销 ctrl：isRunning 立即归 false（与 dispose 同口径，防 SSE 快照假报「生成中」）
-    sessionCtrl.delete(session.id)
+    abortAllCtrls(session.id)
+    // 中断即注销全部 ctrl：isRunning 立即归 false（与 dispose 同口径，防 SSE 快照假报「生成中」）
+    sessionCtrls.delete(session.id)
     // 低级项（第六轮）：不再 channel(id) 懒建——push 已对已删 channel 短路，防复活
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })
   },
 
-  // P1-2：编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效
-  registerCtrl(session: Session, ctrl: AbortController): void {
+  // P1-2：编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效。
+  // M-1（第八轮）：owner 分槽——同 owner 换新 ctrl 保持 P2-6「先 abort 旧」（chat/
+  // self-heal 多轮循环每轮换新的既定语义）；跨 owner（chat 问答 × self-heal/spawn
+  // 写稿的既定并存）不互相 abort——原先单槽覆盖会把在途十几分钟的批量写章 ctrl
+  // 换成一句自然提问的 ctrl，旧请求被静默 abort（self-heal 报 aborted）。
+  registerCtrl(session: Session, ctrl: AbortController, owner?: string): void {
+    const own = owner ?? ''
+    let byOwner = sessionCtrls.get(session.id)
+    if (!byOwner) {
+      byOwner = new Map()
+      sessionCtrls.set(session.id, byOwner)
+    }
     // 同一 ctrl 重复登记（chat/self-heal 多轮循环每轮都注册同一个）→ 幂等跳过，不自 abort
-    const old = sessionCtrl.get(session.id)
-    if (old === ctrl) return
-    // P2-6：换新 ctrl 时先 abort 旧的（防并发时前者变不可中断僵尸）
-    if (old && !old.signal.aborted) old.abort()
-    sessionCtrl.set(session.id, ctrl)
+    const old = byOwner.get(own)
+    if (old?.ctrl === ctrl) return
+    // P2-6：同编排换新 ctrl 时先 abort 旧的（防并发时前者变不可中断僵尸）
+    if (old && !old.ctrl.signal.aborted) old.ctrl.abort()
+    byOwner.set(own, { ctrl, owner: own })
   },
 
   // X-P2-11：生成终态注销——isRunning 立即归 false（此前 done 后仍登记，SSE 快照假报「生成中」，
   // 前端误显不可生成）。只注销自己：晚到的 unregister 不得抹掉后来的新登记。
   unregisterCtrl(session: Session, ctrl: AbortController): void {
-    if (sessionCtrl.get(session.id) === ctrl) sessionCtrl.delete(session.id)
+    const byOwner = sessionCtrls.get(session.id)
+    if (!byOwner) return
+    for (const [owner, slot] of byOwner) {
+      if (slot.ctrl === ctrl) byOwner.delete(owner)
+    }
+    if (byOwner.size === 0) sessionCtrls.delete(session.id)
   },
 
   emit(session: Session, ev: DriverEvent): void {
@@ -184,9 +214,13 @@ export const ccDriver: StudioDriver = {
   },
 
   isRunning(session: Session): boolean {
-    const ctrl = sessionCtrl.get(session.id)
+    const byOwner = sessionCtrls.get(session.id)
+    if (!byOwner) return false
     // X-P2-11：aborted 的 ctrl 不算在途（编排层直接 abort 自身 ctrl 而非走 interrupt 的路径兜底）
-    return !!ctrl && !ctrl.signal.aborted && !session.closed
+    for (const slot of byOwner.values()) {
+      if (!slot.ctrl.signal.aborted) return !session.closed
+    }
+    return false
   },
 }
 

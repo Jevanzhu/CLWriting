@@ -66,6 +66,25 @@ export function prepareChatRun(
       msgSeqs = restored.seqsPerMsg
       msgSeqMap.set(opts.bookName, msgSeqs)
     }
+  } else if (opts.regenerate && !store) {
+    // L-A3（第八轮）：事件库降级（store=null，H-1 场景）时 regenerate 的「从事件重建到
+    // 触发 user 为止」不可达——内存 history 原样含将被重新生成的旧回答，模型看着旧答案
+    // 续写而非重答。退化口径：按内存 seq 对齐定位触发 user（parentSeq）截掉其后尾部；
+    // seq 对不上（降级期间产生）则截到最后一条 user 之后——至少不给模型「上文已有答案」。
+    let cut = -1
+    for (let i = 0; i < Math.min(msgSeqs.length, history.length); i++) {
+      if (msgSeqs[i]!.includes(opts.regenerate.parentSeq)) { cut = i; break }
+    }
+    if (cut < 0) {
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i]!.role === 'user') { cut = i; break }
+      }
+    }
+    if (cut >= 0) {
+      history.length = cut + 1
+      msgSeqs = msgSeqs.slice(0, cut + 1)
+      msgSeqMap.set(opts.bookName, msgSeqs)
+    }
   }
   // 防御：msgSeqs 与 history 长度错位（旧进程残留）→ 尾部补齐/截尾对齐，而非清空。
   // 清空会让后续 append 永久错位：finalizeHistory 的 trim 遮蔽 splice(0, cut) 拿到的

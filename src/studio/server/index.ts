@@ -170,7 +170,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
   if (opts.workDir) {
     try {
       const r = repairBooks(opts.workDir)
-      if (r.changed) {
+      if (r.skipped === 'read-failed') {
+        // M-8（第八轮）：读失败跳过自愈——告警而非报告自愈，防作者误以为登记刚被重建
+        log.warn('repair-books', 'books.jsonl 读取失败，本轮跳过书库自愈（登记未动）——请检查文件权限后重启')
+        sink.add('repair-books', 'books.jsonl 读取失败，本轮跳过书库自愈（登记未动）——请检查文件权限后重启')
+      } else if (r.changed) {
         log.warn(
           'repair-books',
           `书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
@@ -188,20 +192,28 @@ export function startServer(opts: StudioServerOptions): http.Server {
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       const bookPath = join(opts.workDir, book.path)
-      const v2Result = migrateLayoutV2(bookPath)
-      if (v2Result.errors.length > 0) {
-        noticeOrLog('migrate-layout-v2', `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`)
+      // M-10（第八轮）：逐书 try/catch——迁移函数内部仍有未收编的抛出点（migrateLayoutV3
+      // 的 readdirSync、migrateLayoutV2 的 mkdirSync、migrateLegacyForeshadows 的
+      // atomicWriteFile 等）：单本书目录权限故障（备份恢复/同步盘 EACCES）此前会炸整
+      // 个服务启动、全部书不可用；一本失败只降级该书（migrateBookDefaults 的先例）。
+      try {
+        const v2Result = migrateLayoutV2(bookPath)
+        if (v2Result.errors.length > 0) {
+          noticeOrLog('migrate-layout-v2', `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`)
+        }
+        const v3Result = migrateLayoutV3(bookPath)
+        if (v3Result.errors.length > 0) {
+          noticeOrLog('migrate-layout-v3', `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`)
+        }
+        // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
+        migrateVersionsDir(bookPath)
+        // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
+        migrateFinalizedRevisions(bookPath)
+        // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
+        migrateLegacyForeshadows(bookPath)
+      } catch (e) {
+        noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${e instanceof Error ? e.message : String(e)}`, e)
       }
-      const v3Result = migrateLayoutV3(bookPath)
-      if (v3Result.errors.length > 0) {
-        noticeOrLog('migrate-layout-v3', `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`)
-      }
-      // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
-      migrateVersionsDir(bookPath)
-      // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
-      migrateFinalizedRevisions(bookPath)
-      // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
-      migrateLegacyForeshadows(bookPath)
     }
   }
   // 书级默认值一次性迁移（全局托底配套）：旧 scaffold 把 13 键默认值烘焙进了 book.yaml，
@@ -320,6 +332,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (addr && typeof addr === 'object') {
       allowedOrigins.add(`http://127.0.0.1:${addr.port}`)
       allowedOrigins.add(`http://localhost:${addr.port}`)
+      // L-S6（第八轮）：与 Host 白名单（认 [::1]:port）对齐——当前 appUrl 固定 127.0.0.1
+      // 无实际影响，消两侧不对称漂移点
+      allowedOrigins.add(`http://[::1]:${addr.port}`)
       listeningPort = addr.port
     }
   })

@@ -10,9 +10,10 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
-import { splitSentences } from '../format/sentences.js'
+import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
+import { finalizedPathSet } from '../document/manifest.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
@@ -107,17 +108,10 @@ export function computeSentenceLenVariance(body: string): number {
   return variance
 }
 
-/** 复读率（与 count.ts checkRepeat 同口径：滑窗句级 n-gram 重复率） */
+/** 复读率（M-12·第八轮：真正与 count.ts checkRepeat 同口径——此前注释宣称滑窗 n-gram、
+ *  实现却是整句哈希（句长 ≥6 vs ≥8、分母为句数），复读率系统性低估）。 */
 export function computeRepeatRate(body: string): number {
-  const sentences = splitSentences(body).filter((s) => s.length >= 6)
-  if (sentences.length === 0) return 0
-  const counts = new Map<string, number>()
-  for (const s of sentences) counts.set(s, (counts.get(s) ?? 0) + 1)
-  let repeatInstances = 0
-  for (const c of counts.values()) {
-    if (c >= 2) repeatInstances += c - 1
-  }
-  return repeatInstances / sentences.length
+  return ngramRepeatRate(body).rate
 }
 
 /** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率） */
@@ -129,13 +123,21 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
   }
 }
 
-/** 重扫：扫 写作/正文/（递归卷目录）逐章算指纹，按章号排序 */
+/**
+ * 重扫：扫 写作/正文/（递归卷目录）逐章算指纹，按章号排序。
+ * M-11（第八轮）：只收定稿章——此前不过滤 finalized，在写草稿计入样本：health 文风
+ * 趋势被草稿污染、style-harvest 据草稿漂移产候选，违背 learn H-1「草稿不进候选池」
+ * 红线。判定与 learn/导出同一函数（manifest.finalizedPathSet，曾定稿=过）；旧书无
+ * 清单 → null 无法判定，保持全量（与 learn/导出降级一致）。
+ */
 export function scanChapters(bookRoot: string): ChapterSample[] {
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
+  const finalized = finalizedPathSet(bookRoot)
   const { chapters } = readChapterDir(textDir)
   const samples: ChapterSample[] = []
   for (const ch of chapters) {
+    if (finalized && ch._path && !finalized.has(relative(bookRoot, ch._path).replace(/\\/g, '/'))) continue
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })

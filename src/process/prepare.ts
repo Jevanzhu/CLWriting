@@ -167,6 +167,11 @@ export function prepare(
   sampleScene: string | string[] = '战斗',
   /** C4（批 3）：写稿模型 id（token 系数按模型查表；未传 = 全局 0.6 兜底，行为与从前一致） */
   model?: string,
+  /** L-P3（第八轮）：正在写的章号——卷首章上一卷摘要按「写作章推卷」对齐
+   *  selfHealVolumeSummary（其收的也是写作章）。快照 currentChapter 是最后定稿章：
+   *  写卷首章 N=volumeSize+1 时快照卷号仍是上一卷，门槛不成立 → 本章缺上卷摘要、
+   *  晚一章才注入。未传（重写等无章号场景）→ 沿用快照口径（行为与从前一致）。 */
+  writingChapter?: number,
 ): PrepareResult {
   // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
   // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）——
@@ -184,7 +189,7 @@ export function prepare(
     ...buildLedgerSection(db, chapterLeadIds),
     ...buildStyleSections(bookRoot, config, scenes),
     ...buildEndingsSections(db, bookRoot, snapshot),
-    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText),
+    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText, config.book.volume_size ?? 50, writingChapter),
   ]
 
   const trimLog: string[] = []
@@ -244,7 +249,8 @@ function buildEndingsSections(
   }
 
   // 弹性#1.5 前章正文结尾（C1：衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
-  // 来源：readChapterDir 递归扫描 写作/正文/（含 untracked 草稿）；都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
+  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录，W-P2-4——不再全树 readChapterDir）；
+  // 都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
   // PL-1（第七轮）：前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
   // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=N-1）拿到的是 N-2
   // 原文——N-2 已有摘要+原文双份覆盖，真正的前章 N-1 反而只有摘要转述。
@@ -385,19 +391,24 @@ function buildOutlookSections(
   snapshot: ReturnType<typeof assembleStatus>,
   chapterLeadIds: string[],
   ragRecallText?: string,
+  volumeSize = 50,
+  writingChapter?: number,
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
-  // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）
-  if (snapshot.currentVolume > 1) {
-    const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${snapshot.currentVolume - 1}.md`)
+  // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）。
+  // L-P3（第八轮）：卷号按写作章推（与 selfHealVolumeSummary 同口径）——写卷首章
+  // N=volumeSize+1 时本章就要上卷摘要，快照口径会晚一章
+  const outlookVolume = Math.ceil((writingChapter ?? snapshot.currentChapter) / volumeSize)
+  if (outlookVolume > 1) {
+    const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${outlookVolume - 1}.md`)
     if (existsSync(volSummaryPath)) {
       // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
       // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
       const raw = readFileSync(volSummaryPath, 'utf-8').trim()
       const split = splitFrontMatter(raw)
       sections.push({
-        title: `第${snapshot.currentVolume - 1}卷摘要`,
+        title: `第${outlookVolume - 1}卷摘要`,
         content: (split ? split.body : raw).trim(),
         essential: false,
         flexibleRank: 3,

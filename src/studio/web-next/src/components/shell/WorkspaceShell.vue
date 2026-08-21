@@ -8,7 +8,6 @@ import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
 import ChatDock from './ChatDock.vue'
 import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
-import PromptDialog from '../ui/PromptDialog.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
 import SettingsModal from '../ui/SettingsModal.vue'
 import ShelfModal from '../ui/ShelfModal.vue'
@@ -119,7 +118,6 @@ onUnmounted(() => resizeCleanup?.())
     </div>
     <StatusBar :book-name="bookName" />
     <ConfirmPrompt />
-    <PromptDialog />
     <CommandPalette />
     <SettingsModal />
     <ShelfModal />

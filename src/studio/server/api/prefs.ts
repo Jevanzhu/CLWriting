@@ -61,8 +61,13 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {} })
     try {
-      const prefs = JSON.parse(readFileSync(r.path, 'utf8')) as BookPrefs
-      reply(res, 200, { prefs })
+      const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+      // L-S1（第八轮）：GET 侧形状校验——PUT 侧第七轮已防（坏形状不再扩散），此处对齐：
+      // 数组/标量损坏形状原先裸 as 直接回显出网一轮，现回空对象
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return reply(res, 200, { prefs: {} })
+      }
+      reply(res, 200, { prefs: parsed as BookPrefs })
     } catch {
       reply(res, 200, { prefs: {} })
     }
@@ -119,7 +124,12 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
     if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
     try {
-      const raw = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+      const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+      // L-S1（第八轮）：GET 侧形状校验——数组形状解构会把索引键 {"0":..} 混进 prefs 回传
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return reply(res, 200, { prefs: {}, revision: 0 })
+      }
+      const raw = parsed as Record<string, unknown>
       // GG-P2-7：revision 是服务端管理的保留键——从 prefs 剥离后单独回传（不混入偏好语义），
       // 供前端下次 PUT 带 expectedRevision；存量文件无该键视为 0
       const { revision, ...prefs } = raw

@@ -50,13 +50,20 @@ export interface ChatHistoryResult {
   seqs?: number[][]
   /** 实际采用的分支（不带 branch 参数时 = 默认分支） */
   branchId?: string | null
+  /** L-S2（第八轮）：limit 尾窗生效时 true（更早消息在事件库/审计视图可查） */
+  truncated?: boolean
+  /** 投影前该分支消息总数 */
+  total?: number
 }
 
 /** GET /chat/history —— 事件库投影的对话历史（刷新后前端种子化用）。
  *  G1：可选 branchId 指定分支（缺省 = 默认分支：最新变体组 + 祖先链）。 */
 export async function fetchChatHistory(bookName: string, branchId?: string): Promise<ChatHistoryResult> {
-  const q = branchId ? `?branch=${encodeURIComponent(branchId)}` : ''
-  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history${q}`, undefined, 15_000)
+  // L-S2（第八轮）：尾窗 500——长书几万事件不再全量出网；messages 仅作展示种子
+  //（模型上下文由服务端从事件库重建，不经此端点）
+  const params = new URLSearchParams({ limit: '500' })
+  if (branchId) params.set('branch', encodeURIComponent(branchId))
+  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`, undefined, 15_000)
 }
 
 /** POST /chat/confirm {callId, ok} —— 工具确认/取消 */

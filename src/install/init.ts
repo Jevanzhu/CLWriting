@@ -72,7 +72,17 @@ export function doInit(opts: InitOptions): InitResult {
   if (existsSync(bookRoot) && !statSync(bookRoot).isDirectory()) {
     return { ok: false, reason: `路径「${bookName}」被同名文件占用（不是目录），换个书名或先移走它` }
   }
-  if (existsSync(bookRoot) && readdirSync(bookRoot).length > 0) {
+  // L-D2（第八轮）：readdirSync 收编——目录存在但 EACCES（同步盘/备份恢复中的权限
+  // 残留）时裸抛同样破坏 {ok:false,reason} 契约（与上方同名文件 ENOTDIR 同族）
+  let existingEntries: string[] = []
+  if (existsSync(bookRoot)) {
+    try {
+      existingEntries = readdirSync(bookRoot)
+    } catch (e) {
+      return { ok: false, reason: `目录「${bookName}」无法读取（${e instanceof Error ? e.message : String(e)}），请检查权限后重试` }
+    }
+  }
+  if (existingEntries.length > 0) {
     if (registered || !isResumableHalfScaffold(bookRoot)) {
       return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
     }

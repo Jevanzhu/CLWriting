@@ -25,12 +25,16 @@ function fmtDate(iso: string): string {
 }
 async function onFreeze(): Promise<void> {
   if (freezing.value) return
+  // M-4（第八轮）：M-8 类收敛——await 前捕获书名，弹窗滞留跨窗切书后确认不落 B 书
+  //（store 的 freeze() 在调用时刻读 bookName，此前空书名 400 或替换 B 书基准）
+  const book = style.bookName
   const ok = await ui.ask({
     title: baseline.value ? '重新建立文风基准' : '建立文风基准',
     message: '以当前样章按场景重新提取你的文风特征，替换之前的基准。后续偏差检测将以新基准为准。',
     confirmText: '建立',
   })
   if (!ok) return
+  if (style.bookName !== book) return // 弹窗期间已切书：中止
   freezing.value = true
   try {
     await style.freeze()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -52,6 +52,19 @@ async function run(): Promise<void> {
     if (gen === runGen) loading.value = false
   }
 }
+
+// M-7（第八轮）：切书清面板——SidebarLeft 常驻渲染不随切书重建，此前 A 书命中残留
+// 到 B 书界面（点击在 B 树找同路径，找到则开 B 书文档、找不到静默无响应）。左栏三面板
+// 中此前唯一没有 bookName watch 的（TrashPanel/ChapterTreePanel/ForeshadowPanel 均有）。
+watch(
+  () => props.bookName,
+  () => {
+    results.value = []
+    truncated.value = false
+    err.value = null
+    runGen++ // 在途搜索响应作废（gen 对不上即弃）
+  },
+)
 
 async function open(path: string): Promise<void> {
   const node = tree.byPath.get(path)

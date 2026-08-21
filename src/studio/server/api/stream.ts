@@ -25,6 +25,11 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import { heldTaskGatesFor } from './task-gate.js'
+// M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
+// import server 路由层）；此处再导出保持 books/audit/测试的既有导入不变
+import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
+
+export { isSpawnRunning, __setSpawnRunning }
 
 interface StreamCtx {
   workDir: string | null
@@ -40,17 +45,7 @@ const MAX_SSE_PER_BOOK = 5
 // RB-SV-P2-1：per-book spawn 运行闸（与 /auto-write 的 self-heal 闸同模式）——
 // 双标签页时序窗口并发双 spawn 会互相覆写草稿回流。占位在首个 await 前同步完成
 // （比 auto-write 的「检查→await→二次检查」更严，无 TOCTOU 窗口），终态 finally 释放。
-const spawnRunning = new Map<string, true>()
-
-export function isSpawnRunning(bookName: string): boolean {
-  return spawnRunning.has(bookName)
-}
-
-/** 测试用：直接置/清 spawn 运行闸（并发 409 用例的确定性夹具，同 __clearDocumentServices 风格）。 */
-export function __setSpawnRunning(bookName: string, running: boolean): void {
-  if (running) spawnRunning.set(bookName, true)
-  else spawnRunning.delete(bookName)
-}
+// （闸本体在 ai/orchestrate/spawn-registry.ts，M-2·第八轮移驻）
 
 /**
  * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
@@ -93,7 +88,7 @@ async function runWriterSpawn(opts: {
       userPrompt: opts.prompt,
       register: (ctrl) => {
         registered = ctrl
-        opts.driver.registerCtrl?.(opts.mainSession, ctrl)
+        opts.driver.registerCtrl?.(opts.mainSession, ctrl, 'spawn')
       },
       onReset: () => emit({ type: 'text_reset' }),
       onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
@@ -249,22 +244,23 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // RB-SV-P2-1：并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
     const bookName = params['name']!
-    if (spawnRunning.has(bookName)) {
+    if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在生成，先等它跑完或中断')
     }
-    // dd-P2：与全自动写章互斥——/auto-write 已查 spawnRunning，反向此前缺失：
-    // self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
+    // dd-P2：与全自动写章互斥——双向均已设闸（/auto-write 侧 M-2·第八轮补齐 spawnRunning
+    // 检查；此前该注释宣称「/auto-write 已查 spawnRunning」但该检查从未存在，git 考古
+    // c0b82be 起即失实）：self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
     // AI-1（第七轮）：与对话编排互斥——M-1（第六轮）只修了 chat→self-heal 单向，反向
     // 此前缺失：chat 在途（含 rewrite/write_chapter 等嵌套生成工具）时再启动 /spawn，
-    // 两路 runTask 以不同章号交替记账互覆预算章块；且后到的 ctrl register 触发
-    // driver「换新先 abort 旧」把在途对话静默掐断
+    // 两路 runTask 以不同章号交替记账互覆预算章块；跨编排 ctrl 并存虽已不互相 abort
+    // （M-1·第八轮 owner 分槽），但写手并发互覆草稿的根矛盾仍在，入口闸是正解
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再手动写稿')
     }
-    spawnRunning.set(bookName, true)
+    holdSpawnGate(bookName)
     let launched = false
     try {
       const body = await readJson(req)
@@ -292,11 +288,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         role,
       })
         .catch((e) => emitSpawnError(driver, mainSession, e))
-        .finally(() => spawnRunning.delete(bookName))
+        .finally(() => releaseSpawnGate(bookName))
 
       reply(res, 200, { ok: true, role })
     } finally {
-      if (!launched) spawnRunning.delete(bookName)
+      if (!launched) releaseSpawnGate(bookName)
     }
   },
   })
@@ -341,6 +337,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
     }
+    // M-2（第八轮）：与手动写稿互斥——互斥矩阵此前缺的最后一角（/spawn 侧 dd-P2 注释
+    // 自 c0b82be 起即失实地宣称此处已查 spawnRunning）。spawn 在途时启动 self-heal：
+    // 双写手并发流式产出互覆草稿（saveDraft 与前端保存竞争），正是本闸要防的场景
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
+    }
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
@@ -357,12 +359,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
     const mainSession = await ensureSession(bookName, ctx.workDir!)
-    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄；chat 闸同款补查
+    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄；chat/spawn 闸同款补查
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
+    }
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
     }
     const driver = getDriver('cc')
     // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
@@ -381,7 +386,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       ...(chapters ? { chapters } : {}),
       register: (c) => {
         registered = c
-        driver.registerCtrl?.(mainSession, c)
+        driver.registerCtrl?.(mainSession, c, 'self-heal')
       },
     })
       .catch((e) => emitSpawnError(driver, mainSession, e))

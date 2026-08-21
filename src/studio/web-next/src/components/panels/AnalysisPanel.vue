@@ -42,7 +42,9 @@ async function analyzeTags(): Promise<void> {
     const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
     const tags = await autotag(book, id)
     await updateDocMeta(book, id, tags)
-    if (docId.value !== id) return // 已切文档：标签已落 A 的 fm，放弃本地正文拼回
+    // M-6（第八轮）：守卫补书名项（对齐 MetaFormPanel.onSave 双条件）——legacy docId
+    // 纯路径派生跨书同路径，只查 docId 时 B 书同路径条目会被 A 书正文 patch → autosave 覆盖
+    if (docId.value !== id || props.bookName !== book) return
     await doc.refresh(id)
     const refreshed = doc.get(id)
     if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
@@ -96,7 +98,8 @@ async function inferChapterMeta(): Promise<void> {
     const book = props.bookName
     const meta = await inferMeta(book, id)
     await updateDocMeta(book, id, meta)
-    if (docId.value !== id) return // 已切文档：放弃本地正文拼回
+    // M-6（第八轮）：同上——双条件守卫
+    if (docId.value !== id || props.bookName !== book) return
     await doc.refresh(id)
     const refreshed = doc.get(id)
     if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {

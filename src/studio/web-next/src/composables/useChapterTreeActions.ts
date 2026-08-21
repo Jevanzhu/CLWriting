@@ -289,9 +289,12 @@ export function useChapterTreeActions(deps: {
         : `${c.fsDir}/${name}.md`
     // 按类型给初始模板（C5，降低空白页阻力）；volume=建卷即建首章，首章空正文即可
     const content = buildCreateContent(c.kind, name, c.seed)
+    // L-F2（第八轮）：await 前捕获书名——创建在途切书后 openTab 会在 B 书树命中同路径
+    const book = deps.bookName()
     try {
-      const r = await createDoc(deps.bookName(), { relPath, ...(content ? { content } : {}) })
-      await tree.load(deps.bookName())
+      const r = await createDoc(book, { relPath, ...(content ? { content } : {}) })
+      if (deps.bookName() !== book) return // 已切书：文档已落 A 书，不动 B 界面
+      await tree.load(book)
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)
@@ -404,9 +407,12 @@ export function useChapterTreeActions(deps: {
     const title = parsed?.标题 ?? node.name
     const no = String(nextChapterNo()).padStart(4, '0')
     const relPath = `写作/正文/${no}-${title} 副本.md`
+    // L-F2（第八轮）：同 onCreateCommit——await 前捕获书名 + 守卫
+    const book = deps.bookName()
     try {
-      const r = await copyDoc(deps.bookName(), node.docId, relPath)
-      await tree.load(deps.bookName())
+      const r = await copyDoc(book, node.docId, relPath)
+      if (deps.bookName() !== book) return
+      await tree.load(book)
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)

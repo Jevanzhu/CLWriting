@@ -230,6 +230,26 @@ describe('style: 收割 / 定标 / 趋势', () => {
     expect(style.config!.baseline).toEqual({ 创建: '2026-08-11', 版本: 2 })
   })
 
+  it('M-5（第八轮）：freeze 请求在途切书 → 响应不写入新书 config（代守卫）', async () => {
+    listEntriesMock.mockResolvedValue({ entries: [], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValue({ candidates: [] })
+    getConfigMock.mockResolvedValue(config())
+    const style = useStyleStore()
+    await style.load(BOOK)
+
+    // freeze 挂起期间切书（clear + load B 重建 config）
+    let release: ((v: { baseline: unknown }) => void) | null = null
+    freezeMock.mockImplementation(() => new Promise((res) => { release = res }))
+    const pending = style.freeze()
+    style.clear()
+    await style.load('书B')
+    release!({ baseline: { 创建: '2026-08-11', 版本: 9 } })
+    await pending
+    // B 书 config 未被 A 书 baseline 污染（无 baseline 或 B 自己的）
+    expect(style.bookName).toBe('书B')
+    if (style.config) expect(style.config.baseline).toBeFalsy()
+  })
+
   it('rescan → 更新 trend', async () => {
     listEntriesMock.mockResolvedValue({ entries: [], errors: [], migration: null })
     listCandidatesMock.mockResolvedValue({ candidates: [] })

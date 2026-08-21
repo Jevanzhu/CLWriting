@@ -65,3 +65,12 @@ describe('parseContextMenuSpecs', () => {
     expect(cur.label).toBe('层49994') // 最外层 层49999，下钻 5 层
   })
 })
+
+describe('L-S3（第八轮）：菜单平面项数上限', () => {
+  it('201 项 → null（不弹菜单）；200 项 → 正常净化', () => {
+    const many = Array.from({ length: 201 }, (_, i) => ({ label: `项${i}` }))
+    expect(parseContextMenuSpecs(many)).toBeNull()
+    const ok = parseContextMenuSpecs(many.slice(0, 200))
+    expect(ok).toHaveLength(200)
+  })
+})

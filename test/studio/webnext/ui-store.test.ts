@@ -5,7 +5,6 @@
  * - 四类弹窗 open/close 开关
  * - toast 分级时长（error 5s / 其余 1.8s）自动消失
  * - ask/resolveConfirm 命令式确认
- * - prompt/resolvePrompt 命令式输入
  * - probeAiStatus 成功停重试 / 失败定时重试（fake timers 推进）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -112,23 +111,7 @@ describe('ui: 命令式确认弹窗', () => {
   })
 })
 
-describe('ui: 命令式输入弹窗', () => {
-  it('prompt 返回 Promise → resolvePrompt 传值', async () => {
-    const ui = useUiStore()
-    const p = ui.prompt({ title: '书名', message: '输入书名', defaultValue: '未命名' })
-    expect(ui.promptState).toMatchObject({ defaultValue: '未命名' })
-    ui.resolvePrompt('我的新书')
-    await expect(p).resolves.toBe('我的新书')
-    expect(ui.promptState).toBeNull()
-  })
 
-  it('resolvePrompt(null) → resolve null（取消）', async () => {
-    const ui = useUiStore()
-    const p = ui.prompt({ title: '书名', message: '输入书名' })
-    ui.resolvePrompt(null)
-    await expect(p).resolves.toBeNull()
-  })
-})
 
 describe('ui: AI 可达性探测', () => {
   it('探测成功 → aiAvailable=true + 停重试', async () => {
@@ -172,13 +155,4 @@ describe('ui: ask/prompt 并发覆盖结清（CC-P1-5）', () => {
     await expect(p2).resolves.toBe(true)
   })
 
-  it('prompt 顶掉未决输入 → 旧 Promise 以 null 结清', async () => {
-    const ui = useUiStore()
-    const p1 = ui.prompt({ title: '第一个', message: 'm' })
-    const p2 = ui.prompt({ title: '第二个', message: 'm' })
-    await expect(p1).resolves.toBeNull()
-    expect(ui.promptState?.title).toBe('第二个')
-    ui.resolvePrompt('新值')
-    await expect(p2).resolves.toBe('新值')
-  })
 })

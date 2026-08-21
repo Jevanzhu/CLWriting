@@ -21,6 +21,7 @@ import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { isChatRunning } from '../../src/ai/orchestrate/chat.js'
 import { isSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
+import { __setSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
 
 vi.mock('../../src/ai/orchestrate/chat.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/ai/orchestrate/chat.js')>()
@@ -130,5 +131,17 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
     expect(aw.status).toBe(400) // chapter 校验——已过互斥闸
     expect((aw.json as { error: string }).error).toContain('chapter')
     expect(isSelfHealRunning(BOOK)).toBe(false) // 未实际启动
+  })
+
+  it('M-2（第八轮）：spawn 在途 → /auto-write 409（矩阵最后一角：auto-write × spawn）', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/auto-write`, { chapter: 3 })
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('手动写稿')
+      expect(isSelfHealRunning(BOOK)).toBe(false) // 未实际启动 self-heal
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
   })
 })

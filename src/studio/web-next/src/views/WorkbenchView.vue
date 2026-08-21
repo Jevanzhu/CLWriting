@@ -213,11 +213,15 @@ async function onSaveDraft(): Promise<void> {
     ui.toast('无正文可存', 'error')
     return
   }
+  // L-F1（第八轮）：await 前捕获书名——存草稿在途切书后 tree.load/openTab/toast 会
+  // 落到 B 书界面（legacy docId 可撞 B 书同路径），确认后守卫中止
+  const book = props.bookName
   try {
-    const r = await saveDraft(props.bookName, chapter.value, wb.textOut)
+    const r = await saveDraft(book, chapter.value, wb.textOut)
     draftSaved.value = { words: wb.textOut.length }
+    if (props.bookName !== book) return // 已切书：草稿已落 A 书盘，不再动 B 界面
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
-    await tree.load(props.bookName)
+    await tree.load(book)
     ws.openTab(r.docId)
     ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
   } catch (e) {

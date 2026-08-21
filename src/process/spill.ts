@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
@@ -44,6 +44,9 @@ export function writeSpillFile(bookRoot: string, text: string): string | null {
     const dir = join(bookRoot, '工作区', 'spills')
     // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
     atomicWriteFile(join(dir, `${hash}.md`), text)
+    // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
+    // 无限增长；清理失败不影响本次写入（best-effort）
+    pruneOldSpills(dir)
     return `工作区/spills/${hash}.md`
   } catch {
     return null
@@ -106,5 +109,24 @@ export function spillIfLarge(
   return {
     preview: chars.slice(0, head).join('') + note + chars.slice(total - tail).join(''),
     locator,
+  }
+}
+
+/** L-P8（第八轮）：删除 30 天未访问的 spill 产物（best-effort，失败静默） */
+const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
+function pruneOldSpills(dir: string): void {
+  try {
+    const now = Date.now()
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.md')) continue
+      const fp = join(dir, name)
+      try {
+        if (now - statSync(fp).mtimeMs > SPILL_TTL_MS) rmSync(fp, { force: true })
+      } catch {
+        /* 单个失败跳过 */
+      }
+    }
+  } catch {
+    /* 目录不存在/不可读 → 无可清理 */
   }
 }

@@ -26,9 +26,15 @@ const ACCELERATOR_RE =
  *  白名单的安全降级思路）。 */
 const MAX_SUBMENU_DEPTH = 5
 
+/** L-S3（第八轮）：平面项数上限——SV-1 修了深度未修宽度：被攻陷渲染进程可发数十万级
+ *  平面菜单项，净化线性建对象 + Menu.buildFromTemplate 构建原生菜单，主进程 CPU/内存
+ *  暴涨。超限整体拒收（null → 不弹菜单），对齐深度方向的 fail-closed 思路 */
+const MAX_MENU_ITEMS = 200
+
 /** 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。 */
 export function parseContextMenuSpecs(raw: unknown, depth = 0): ContextMenuSpec[] | null {
   if (!Array.isArray(raw)) return null
+  if (raw.length > MAX_MENU_ITEMS) return null
   const items: ContextMenuSpec[] = []
   for (const s of raw) {
     if (typeof s !== 'object' || s === null) continue

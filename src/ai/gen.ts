@@ -101,8 +101,11 @@ export async function* withFirstByteTimeout(
       // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
       // RB-AI-P2-3：先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
       // 只放弃消费不 abort 时旧请求仍服务端继续生成计费
+      // M-3（第八轮）：return() 触发的清理段（内层 SDK 流隐式 return）reject 时若被
+      // void 丢弃即 unhandledRejection 崩主进程（第六轮 stream.ts:186 同型收敛）——
+      // 吞清理段异常，外层 e 照常上抛走重试链
       onStall?.()
-      void it.return?.()
+      it.return?.().catch(() => { /* 清理段异常不外抛 */ })
       throw e
     } finally {
       if (timer) clearTimeout(timer)

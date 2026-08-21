@@ -66,7 +66,12 @@ export function isWithinRoot(bookRoot: string, abs: string): boolean {
   try {
     const realRoot = realpathSync(bookRoot)
     const real = realpathSync(abs)
-    return !relative(realRoot, real).startsWith('..')
+    const rel = relative(realRoot, real)
+    // L-D1（第八轮）：与 resolveWithinRoot 同段级判定——原先 startsWith('..') 把字面
+    // 以 .. 开头的合法文件名（..foo.md）误判越出（fail-closed 误报方向，兄弟函数
+    // 第七轮已换 ESCAPE_SEGMENT_RE，此处漏同步）；另补「rel 为空 = 目标即 root」放行，
+    // 与 resolveWithinRoot 语义一致（root 自身不越出）
+    return rel === '' || (!ESCAPE_SEGMENT_RE.test(rel) && !isAbsolute(rel))
   } catch {
     return false // realpath 失败 → 拒绝（fail-closed）
   }

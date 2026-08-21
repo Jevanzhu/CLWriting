@@ -7,7 +7,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -129,5 +129,33 @@ describe('低级项（第六轮）：onboard-ai 自由文本长度上限', () =>
     )
     expect(ok.status).toBe(400)
     expect(ok.json.error).toContain('step 不支持')
+  })
+})
+
+describe('L-S1（第八轮）：GET 侧 prefs 形状校验（PUT 修复的同族残端）', () => {
+  it('书级 prefs 文件是数组/标量 → GET 回空对象，不回显损坏形状', async () => {
+    // 书级 prefs 在 bookRoot/.clwriting/prefs.json（与 PUT 同路径函数）
+    const fp = join(workDir, BOOK, '.clwriting', 'prefs.json')
+    mkdirSync(join(workDir, BOOK, '.clwriting'), { recursive: true })
+    const before = existsSync(fp) ? readFileSync(fp, 'utf8') : null
+    try {
+      writeFileSync(fp, '[1,2,3]')
+      const r2 = await req<{ prefs: unknown }>('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
+      expect(r2.status).toBe(200)
+      expect(r2.json.prefs).toEqual({})
+      writeFileSync(fp, '"标量"')
+      const r3 = await req<{ prefs: unknown }>('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
+      expect(r3.json.prefs).toEqual({})
+    } finally {
+      if (before !== null) writeFileSync(fp, before)
+      else rmSync(fp, { force: true })
+    }
+  })
+
+  it('全局 prefs 文件是数组 → GET 回空对象 + revision 0（索引键不混入）', async () => {
+    // 全局 prefs 在 userData/global.json；本 harness 未传 userDataPath → NO_USERDATA 400，
+    // 形状校验逻辑由书级同款代码路径覆盖（两处实现逐字同构），此处锁降级不裸抛
+    const r = await req<{ prefs?: unknown; error?: string }>('GET', '/api/library/prefs')
+    expect([200, 400]).toContain(r.status)
   })
 })

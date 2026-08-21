@@ -9,8 +9,9 @@
  * 状态闭合（#3 第 5 节）：状态 ⟷ 履历末条动词一致。
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { walkMdFind } from '../fs/walk-md.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { readLeadHistory } from '../format/read.js'
@@ -238,23 +239,14 @@ function findChapterFile(正文dir: string, chapter: number): string | null {
   return findChapterFileRecursive(正文dir, chapter)
 }
 
+/** L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界），替换手写递归。 */
 function findChapterFileRecursive(dir: string, chapter: number): string | null {
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true })
-    for (const e of entries) {
-      if (e.name.startsWith('._')) continue
-      if (e.isDirectory()) {
-        const found = findChapterFileRecursive(join(dir, e.name), chapter)
-        if (found) return found
-      } else if (e.isFile() && e.name.endsWith('.md')) {
-        // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
-        if (Number(e.name.match(/^(\d+)-/)?.[1]) === chapter) return join(dir, e.name)
-      }
-    }
-    return null
-  } catch {
-    return null
-  }
+  return (
+    walkMdFind(dir, (abs, name) => {
+      // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
+      return Number(name.match(/^(\d+)-/)?.[1]) === chapter ? abs : undefined
+    }) ?? null
+  )
 }
 
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。 */

@@ -54,7 +54,7 @@ const NON_UTF8_REJECT = {
  *  判据用「盘上字节是否合法 UTF-8」（fatal 解码探测）而非「盘上是否已含 U+FFFD」：
  *  GBK 文件以 utf-8 读入本就产生 U+FFFD，后者会把最该拦的场景判成放行。盘上为合法
  *  UTF-8（含作者真实键入的 � 字符）时不受影响——那是普通编辑，无字节可毁。 */
-function isUtf8Bytes(buf: Buffer): boolean {
+export function isUtf8Bytes(buf: Buffer): boolean {
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(buf)
     return true

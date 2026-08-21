@@ -215,11 +215,13 @@ export const useDocStore = defineStore('doc', () => {
   /** 定稿确认（revision → final）：git commit 锁定当前版本。成功后刷新树（状态变 final）。 */
   async function finalize(docId: string): Promise<boolean> {
     if (!bookName.value) return false
+    // L-F3（第八轮）：入口快照——定稿在途切书后 load/toast 用重读书名会落 B 书界面
+    const book = bookName.value
     try {
-      const r = await finalizeDoc(bookName.value, docId)
+      const r = await finalizeDoc(book, docId)
       if (r.ok) {
         // 定稿后 git 干净 → 树节点 status 变 final；重拉树刷新状态标签
-        void useTreeStore().load(bookName.value, true)
+        void useTreeStore().load(book, true)
         const e = docs.value.get(docId)
         if (e) e.savedAt = Date.now()
         useUiStore().toast(r.skipped ? '已是定稿' : '已定稿', 'success')

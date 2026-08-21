@@ -38,13 +38,17 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+let statsGen = 0
 async function loadVersionStats(): Promise<void> {
   const name = ws.bookName
   if (!name) return
+  // L-F6（第八轮）：代守卫——慢响应在途切书后旧书版本统计覆盖 B 书「本书」页展示
+  const gen = ++statsGen
   try {
-    versionStats.value = await getVersionStats(name)
+    const r = await getVersionStats(name)
+    if (gen === statsGen) versionStats.value = r
   } catch {
-    versionStats.value = null
+    if (gen === statsGen) versionStats.value = null
   }
 }
 

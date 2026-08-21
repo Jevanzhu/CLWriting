@@ -252,8 +252,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetSession(name)
     invalidateTreeIndex(bookAbs, true)
     // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
-    // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件
-    clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
+    // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件。
+    // L-S4（第八轮）：删除主流程已完成（登记已移、目录已删），清史收尾若抛（SQLITE_BUSY
+    // 等）不该让客户端看到 500「内部错误」且跳过下方 db 文件清理留孤儿——防御性收编
+    try {
+      clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
+    } catch (e) {
+      console.warn(`[books] 删书清史失败（残留 db 文件将由下方清理兜底）：${e instanceof Error ? e.message : String(e)}`)
+    }
     // 二轮复审（低级）：事件库**文件**一并删（<hash>.db + WAL/SHM 伴生）——clearChatHistory
     // 只清行，库文件本体滞留 userData 成永久孤儿（每书一库）；settle 已保证无人持有句柄，
     // 清理失败不阻断删书（残留文件无读者）
@@ -361,6 +367,15 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const recheck = busyGate(oldName, '改名')
       if (recheck) {
         return replyError(res, 409, 'BUSY', recheck.error)
+      }
+      // L-S5（第八轮）：newName 冲突复查——入口检查在 10s settle await 之前（TOCTOU）：
+      // 等待窗口内并发建同名书后 POSIX renameSync 对已存在空目录静默替换 → 同名同
+      // path 双登记。复检到 renameSync 之间全同步
+      if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
+        return replyError(res, 400, 'BAD_INPUT', `已有一本叫「${newName}」的书，换个名字`)
+      }
+      if (folderMove && existsSync(newRoot) && readdirSync(newRoot).length > 0) {
+        return replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在且非空，换个名字`)
       }
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，

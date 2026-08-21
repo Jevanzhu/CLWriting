@@ -111,8 +111,11 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function freeze(): Promise<void> {
+    // M-5（第八轮）：代守卫——请求在途切书（clear→load 重建 config）后，响应落地会把
+    // A 书 baseline 写进 B 书展示态（对齐 harvest/rescan 的 reqGen 惯例）
+    const gen = reqGen
     const r = await freezeStyleBaseline(bookName.value)
-    if (config.value) config.value.baseline = r.baseline
+    if (gen === reqGen && config.value) config.value.baseline = r.baseline
   }
 
   /** 机检重扫（零 AI，全量重算，章多时秒级）。

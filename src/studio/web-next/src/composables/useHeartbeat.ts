@@ -1,7 +1,8 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { apiFetch } from '../api/client'
 
-// 协作心跳：进书后每 20s POST /heartbeat 续期；卸载/切书 DELETE 清除（单写者互斥）。
+// 协作心跳：进书后每 20s POST /heartbeat 续期；卸载（onUnmounted）DELETE 清除（单写者互斥）。
+// 切书不发 DELETE（依赖服务端过期回收）——L-F5（第八轮）注释校准：原「切书 DELETE」与实现不符。
 // serverOnline 为全局信号（状态栏连接徽章 + 右栏 AI 置灰消费）。
 const online = ref(true)
 export const serverOnline = online

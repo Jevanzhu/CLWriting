@@ -18,11 +18,18 @@ import { createFakeProvider, type FakeProvider } from '../fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
 import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js'
 import { isSelfHealRunning } from '../../../src/ai/orchestrate/self-heal.js'
+import { isSpawnRunning } from '../../../src/ai/orchestrate/spawn-registry.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
 
 vi.mock('../../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../../src/ai/orchestrate/self-heal.js')>()
   return { ...orig, isSelfHealRunning: vi.fn(() => false) }
+})
+
+// M-2（第八轮）：闸补查 spawn 手动写稿——mock spawn-registry 的判定函数
+vi.mock('../../../src/ai/orchestrate/spawn-registry.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../../src/ai/orchestrate/spawn-registry.js')>()
+  return { ...orig, isSpawnRunning: vi.fn(() => false) }
 })
 
 let fake: FakeProvider
@@ -43,6 +50,7 @@ beforeEach(() => {
   bookRoot = join(workDir, '长篇', LONG_BOOK)
   dirs.push(workDir)
   vi.mocked(isSelfHealRunning).mockReturnValue(false)
+  vi.mocked(isSpawnRunning).mockReturnValue(false)
 })
 
 afterEach(() => {
@@ -134,5 +142,19 @@ describe('M-1: AI 生成类 chat 工具与 self-heal 互斥', () => {
     expect(JSON.stringify(events)).not.toContain('无法同时改写')
     // 放行后真实走到嵌套生成：spill 产物存在
     expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(true)
+  })
+
+  it('M-2（第八轮）：spawn 手动写稿运行中 → rewrite_chapter 同样被闸', { timeout: 15_000 }, async () => {
+    vi.mocked(isSpawnRunning).mockReturnValue(true)
+    try {
+      const events = await runConfirmedToolChat([
+        { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
+        { type: 'text', content: '知道了。' },
+      ])
+      expect(JSON.stringify(events)).toContain('无法同时改写')
+      expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(false)
+    } finally {
+      vi.mocked(isSpawnRunning).mockReturnValue(false)
+    }
   })
 })

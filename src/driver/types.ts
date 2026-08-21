@@ -76,8 +76,11 @@ export interface StudioDriver {
   interrupt?(session: Session): void
   /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
-  /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。可选,mock 可不实现 */
-  registerCtrl?(session: Session, ctrl: AbortController): void
+  /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。
+   *  M-1（第八轮）：owner 标识编排归属（'chat'/'spawn'/'self-heal'）——同 owner 换新保持
+   *  「先 abort 旧」（P2-6），跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。
+   *  可选,mock 可不实现 */
+  registerCtrl?(session: Session, ctrl: AbortController, owner?: string): void
   /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。可选 */
   unregisterCtrl?(session: Session, ctrl: AbortController): void
   /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */

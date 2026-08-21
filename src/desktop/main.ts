@@ -84,7 +84,7 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on('second-instance', (_e, argv: string[]) => {
     // RB-SV-P2-4：第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
-    const workDir = readStore().current
+    const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     const ref = initialBookArg(argv)
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
       const name = resolveInitialBook(workDir, ref)
@@ -109,6 +109,14 @@ let studioServer: Server | null = null // 内嵌 server（dev HMR 态为 null）
 /** P5-服务端（第七轮）：bootstrap 实际采用的 workDir——before-quit 优雅退出回读用
  *  （readStore().current 可能为 null/失效而实际 workDir 由 findWorkDir 发现） */
 let bootstrappedWorkDir: string | null = null
+
+/** M-3（第八轮）：桌面侧统一取「实际运行的书库」——bootstrap 实际采用的 workDir 优先，
+ *  store 回读兜底。P5-服务端（第七轮）只修了 before-quit 一点；second-instance --book、
+ *  show-in-folder、open-book-dir、open-library-dir 四个入口仍单读 readStore().current，
+ *  store.current 为 null/失效而实际跑在 findWorkDir 发现的书库上时全部静默失明。 */
+function currentWorkDir(): string | null {
+  return bootstrappedWorkDir ?? readStore().current
+}
 
 /** 主窗口 bounds 持久化（userData/window-state.json）：关闭时存，启动时恢复。 */
 const stateFile = join(app.getPath('userData'), 'window-state.json')
@@ -438,7 +446,7 @@ function registerIpc(): void {
   ipcMain.handle('desktop:show-in-folder', (_e, bookName: unknown, relPath: unknown) => {
     if (typeof bookName !== 'string' || typeof relPath !== 'string') return
     if (relPath.includes('\0')) return
-    const workDir = readStore().current
+    const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
@@ -455,7 +463,7 @@ function registerIpc(): void {
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
   ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
     if (typeof bookName !== 'string' || bookName.includes('\0')) return
-    const workDir = readStore().current
+    const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
@@ -495,7 +503,7 @@ function registerIpc(): void {
   })
   // 在系统文件管理器中打开当前书库根目录
   ipcMain.handle('desktop:open-library-dir', () => {
-    const workDir = readStore().current
+    const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
     // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
     // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）

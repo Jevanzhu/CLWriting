@@ -229,3 +229,26 @@ test('P5-数据层（第七轮）：文件名含字面 " -> " 的 untracked 不�
   expect(byPath.get(rel)?.finalizedRevision).toBeUndefined()
   expect(byPath.get('写作/正文/0001-开篇.md')?.finalizedRevision).toMatch(/^sha256:/)
 })
+
+test('L-D7（第八轮）：R 行引号路径任一侧字面含 " -> " —— 引号外箭头定位不切引号内', () => {
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n---\n正文']], true)
+  execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
+  // 改名：旧名含字面箭头（引号内）→ git porcelain 输出 `"…旧 -> 名" -> "…新名"`。
+  // 首匹配 indexOf 会切在引号内箭头处，得残路径「名" -> "…新名"」→ rename 失配。
+  const oldRel = '写作/正文/0002-旧 -> 名.md'
+  const newRel = '写作/正文/0002-新名.md'
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  writeFileSync(join(tmp, ...oldRel.split('/')), '改名内容', 'utf-8')
+  execSync(`git add -A && git commit -m "添加待改名"`, { cwd: tmp, stdio: 'pipe' })
+  execSync(`git mv "${oldRel}" "${newRel}"`, { cwd: tmp, stdio: 'pipe' })
+  execSync('git commit -m "改名"', { cwd: tmp, stdio: 'pipe' }) // 提交后 R 历史在、工作区 clean
+  const m0 = manifest()
+  m0.entries.set('doc-r-arrow', { id: 'doc-r-arrow', nodeType: 'document', path: newRel, parentId: null })
+  writeManifest(join(tmp, '项目', '文档清单.jsonl'), m0)
+
+  const n = migrateFinalizedRevisions(tmp)
+  expect(n).toBe(2) // 0001 与改名后的 0002 均 clean 建基线（残路径场景会 rename 失配跳过 0002）
+  const m = manifest()
+  const byPath = new Map([...m.entries.values()].map((e) => [e.path, e]))
+  expect(byPath.get(newRel)?.finalizedRevision).toMatch(/^sha256:/)
+})

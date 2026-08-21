@@ -7,9 +7,10 @@
  * - readSpillFile（GG-P2-2 读侧）：locator 形状白名单 + isWithinRoot 双保险，按路径取回全文
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { spillIfLarge, writeSpillFile, readSpillFile, type SpillThresholds } from '../../src/process/spill.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
@@ -151,6 +152,27 @@ describe('readSpillFile', () => {
     try {
       // 正则已拦 .. ；isWithinRoot 是对 join 语义的双保险——形状合法但根外场景由该层兜住
       expect(readSpillFile(root, '工作区/spills/feedfacefeedface.md')).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('L-P8（第八轮）：spills 过期清理', () => {
+  it('30 天前的旧 spill 被清，新 spill 保留', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-gc-'))
+    try {
+      writeSpillFile(root, '新内容')
+      const dir = join(root, '工作区', 'spills')
+      // 造一个 40 天前的旧 spill（直接写文件 + 回拨 mtime）
+      const old = join(dir, 'deadbeefdeadbeef.md')
+      writeFileSync(old, '旧内容')
+      const past = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+      utimesSync(old, past, past)
+      // 再写一次触发 GC
+      writeSpillFile(root, '又一次新内容')
+      expect(existsSync(old)).toBe(false)
+      expect(existsSync(join(dir, `${createHash('sha256').update('新内容', 'utf8').digest('hex').slice(0, 16)}.md`))).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

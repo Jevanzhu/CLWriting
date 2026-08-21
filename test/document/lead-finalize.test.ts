@@ -307,3 +307,29 @@ test('X-P2-6: 其他章归档留存 + 无本章条目 → 0 且互不影响', ()
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('M-9（第八轮）：盘上非 UTF-8 的线索文件 → 拒绝回写（字节不损毁），条目留本章源', () => {
+  const root = mkdtempSync(join(tmpdir(), 'lead-gbk-'))
+  try {
+    mkdirSync(join(root, '布线', '悬念'), { recursive: true })
+    mkdirSync(join(root, '工作区'), { recursive: true })
+    // 编号行保持合法 UTF-8（readLead 可解析、可匹配 leadId），标题混入 GBK 字节——
+    // 整文件字节不合法 UTF-8 即触发防线
+    const leadPath = join(root, '布线', '悬念', '悬念-001-灭门真凶.md')
+    const head = Buffer.from('---\n编号: 悬念-001\n标题: ', 'utf-8')
+    const gbk = Buffer.from([0xd6, 0xd0]) // GBK「中」——非 UTF-8 字节
+    const tail = Buffer.from('\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
+    const raw = Buffer.concat([head, gbk, tail])
+    writeFileSync(leadPath, raw)
+
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n', 'utf-8')
+    const n = applyLeadUpdates(root, 3)
+    expect(n).toBe(0)
+    // 原始字节一字不动（utf-8 往返会永久丢 GBK 字节——正是本防线要拦的覆盖）
+    expect(readFileSync(leadPath)).toEqual(raw)
+    // 条目未消费：本章源原样保留（作者转码后下次定稿自动重试）
+    expect(readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')).toContain('悬念-001 递进')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

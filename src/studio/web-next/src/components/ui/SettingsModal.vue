@@ -85,10 +85,10 @@ function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<
 }
 provide(SAVE_CONFIG_KEY, saveConfig)
 
-// Esc 关闭（PromptDialog/ConfirmPrompt 打开时让位——层级更高，先关它们再关设置）
+// Esc 关闭（ConfirmPrompt 打开时让位——层级更高，先关它再关设置）
 function onKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || !ui.settingsOpen) return
-  if (ui.promptState || ui.confirmState) return
+  if (ui.confirmState) return
   ui.closeSettings()
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))

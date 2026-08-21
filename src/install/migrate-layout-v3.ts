@@ -19,11 +19,15 @@ import { roleOf } from '../document/layout.js'
 function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
   const trashDir = join(bookRoot, '工作区', '.trash')
   mkdirSync(trashDir, { recursive: true })
-  renameSync(srcAbs, join(trashDir, name))
+  // L-D3（第八轮）：目标占用不静默覆盖——POSIX renameSync 对已存在文件静默替换，
+  // 跨次迁移同名旧稿会被覆盖（doTrash 用 <docId>- 前缀正是防此）；追加 ULID 保全两代
+  let dstName = name
+  if (existsSync(join(trashDir, dstName))) dstName = `${ulid()}-${name}`
+  renameSync(srcAbs, join(trashDir, dstName))
   appendTrashEntry(bookRoot, {
     id: ulid(),
     originalPath: `写作/草稿/${name}`,
-    trashedPath: `工作区/.trash/${name}`,
+    trashedPath: `工作区/.trash/${dstName}`,
     trashedAt: new Date().toISOString(),
     role: roleOf(`写作/草稿/${name}`),
   })

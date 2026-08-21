@@ -39,12 +39,16 @@ export interface ChatHistoryMessage {
   content: string | ChatHistoryBlock[]
 }
 
-/** 历史视图（纯函数——route 薄接线 + 单测直喂 store） */
+/** 历史视图（纯函数——route 薄接线 + 单测直喂 store）。
+ *  L-S2（第八轮）：可选 limit 尾窗——长书几万事件全量投影一次进 HTTP 响应（与 audit
+ *  修 SV-2 前同病）。前端 messages 只做展示种子（模型上下文由服务端 restore 从事件库
+ *  重建，不经此端点），尾部窗口即可；truncated 标记 + total 供前端提示。 */
 export function buildChatHistoryView(
   store: SessionStore,
   bookName: string,
   branchId?: string,
-): { messages: ChatHistoryMessage[]; seqs: number[][]; branchId: string | null } {
+  limit?: number,
+): { messages: ChatHistoryMessage[]; seqs: number[][]; branchId: string | null; truncated: boolean; total: number } {
   const all = store.listEvents(bookName)
   // 实际采用的分支 id：给定 branchId ?? 默认分支；无分支元数据（线性书/空库）→ null
   const active = branchId ?? defaultBranchId(buildBranchTree(all))
@@ -54,7 +58,16 @@ export function buildChatHistoryView(
   // loadHistoryWithSeqs 已做遮蔽过滤 + 连续 tool-result 合成，输出即前端消息形状；
   // seqsPerMsg 与 msgs 平行透出（合成消息是多 seq 数组，分支 UI 锚点用）
   const { msgs, seqsPerMsg } = loadHistoryWithSeqs(events)
-  return { messages: msgs, seqs: seqsPerMsg, branchId: active }
+  if (limit === undefined || !Number.isFinite(limit) || limit < 1 || msgs.length <= limit) {
+    return { messages: msgs, seqs: seqsPerMsg, branchId: active, truncated: false, total: msgs.length }
+  }
+  return {
+    messages: msgs.slice(-limit),
+    seqs: seqsPerMsg.slice(-limit),
+    branchId: active,
+    truncated: true,
+    total: msgs.length,
+  }
 }
 
 export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
@@ -73,10 +86,13 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
 
       // GET query 自行解析（defineRoute 纪律：GET 无 body）；?branch= 缺省/空白 → 默认分支
       const branch = new URL(req.url ?? '/', 'http://localhost').searchParams.get('branch')?.trim() || undefined
+      // L-S2（第八轮）：?limit= 尾窗（正整数，上限 1000）——防长书全量投影出网
+      const rawLimit = Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit'))
+      const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
       // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
       const store = openSessionStore(ctx.userDataPath, bookRoot)!
       try {
-        reply(res, 200, buildChatHistoryView(store, bookName, branch))
+        reply(res, 200, buildChatHistoryView(store, bookName, branch, limit))
       } finally {
         store.close()
       }

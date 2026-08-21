@@ -286,6 +286,9 @@ export interface RepairResult {
   relinked: { name: string; from: string; to: string }[]
   /** 是否有变动（重建了或发现缺失） */
   changed: boolean
+  /** M-8（第八轮）：books.jsonl 读失败时跳过本轮自愈（防「降级空表 × 扫盘整写」清掉
+   *  非标准深度登记）——此时其余字段为空、changed=false，调用方应告警而非报告自愈 */
+  skipped?: 'read-failed'
 }
 
 /**
@@ -296,7 +299,15 @@ export interface RepairResult {
  * 真源是磁盘上的书仓库本身；books.jsonl 是「可从扫描重建的派生登记」（类比 .cache）。
  */
 export function repairBooks(workDir: string): RepairResult {
-  const existing = readBooks(workDir)
+  // M-8（第八轮）：读失败（EACCES 等）跳过本轮自愈——DA-3（第七轮）只收口了
+  // append/remove/rename 三个写点，本函数自称「兜底」却用降级空表起建：EACCES 挡
+  // readFileSync 不挡 atomicWriteFile 的 tmp+rename，扫盘整写会立即落盘；而
+  // scanBookCandidates 只扫顶层 + 长篇/短篇 二级，登记允许任意无 .. 相对路径——
+  // 非标准深度的书会被静默清出登记。读失败时留给下次启动或人工修复。
+  const existing = readBooksStrict(workDir)
+  if (existing === null) {
+    return { rebuilt: [], missing: [], relinked: [], changed: false, skipped: 'read-failed' }
+  }
   const rebuilt: BookEntry[] = existing.map((b) => ({ ...b }))
   const relinked: { name: string; from: string; to: string }[] = []
   let updated = false

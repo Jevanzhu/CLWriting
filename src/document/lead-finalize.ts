@@ -13,10 +13,11 @@
  * 幂等：定稿 skipped（指纹未变）时不重复回写；回写后再定稿同一章（内容已改）时
  * 账本推进.md 已被清空 → 无新条目 → 天然不重复追加。
  */
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, rmSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
+import { isUtf8Bytes } from './service.js'
 import {
   readChapterUpdatesForChapter,
   chapterUpdateSources,
@@ -69,6 +70,15 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
       (e) => e.章号 === chapterNo && e.动词 === u.动词 && e.证据 === u.证据,
     )
     if (dup) continue
+    // M-9（第八轮）：定稿回写的编码防线——盘上非 UTF-8（如 GBK 布线文件，utf-8 读入
+    // 即乱码）时拒绝写回：线索文件不在快照留底范围、writeVersion 只为被定稿章建档，
+    // 原子写回即原始字节永久丢失（save/updateChapterMeta/updateDocMeta 三写点之后的
+    // 最后一个无留底写点）。与「查无此线」同通道：条目留本章源 + 警告，作者转码后
+    // 下次定稿自动重试（回写按 章号+动词+证据 幂等）。
+    if (!isUtf8Bytes(readFileSync(leadFile.filePath))) {
+      unresolved.push(u)
+      continue
+    }
     lead.履历.push({ 章号: chapterNo, 动词: u.动词, 证据: u.证据 })
     // X-P2-8：按动词派生状态（仅 进行中 → 终态；作者显式标注的终态/其他值不覆盖）。
     // 成长线 resolve（突破/跨层/跃迁）是常态化升级，保持 进行中（与 checkStatusClosure 特判一致）。

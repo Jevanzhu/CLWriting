@@ -6,7 +6,7 @@
  * 其余目录占用场景的拒绝口径不变。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { doInit } from '../../src/install/init.js'
@@ -77,6 +77,21 @@ test('P5-数据层（第七轮）：同名文件占位（非目录）→ ok:fals
     if (r.ok) return
     expect(r.reason).toContain('同名文件')
   } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
+test('L-D2（第八轮）：目录存在但不可读（EACCES）→ 可读原因，不裸抛破坏契约', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'init-eacces-'))
+  try {
+    mkdirSync(join(wd, '长篇', '北境'), { recursive: true })
+    chmodSync(join(wd, '长篇', '北境'), 0o000)
+    const r = doInit({ workDir: wd, name: '北境' })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.reason).toContain('无法读取')
+  } finally {
+    chmodSync(join(wd, '长篇', '北境'), 0o755)
     rmSync(wd, { recursive: true, force: true })
   }
 })

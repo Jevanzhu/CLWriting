@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readManifest, writeManifest, upsertEntry, removeEntry } from '../../src/document/manifest.js'
+import { readManifest, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook } from '../../src/document/manifest.js'
 
 describe('manifest', () => {
   let dir: string
@@ -91,5 +91,24 @@ describe('manifest', () => {
     expect(e?.nodeType).toBe('folder')
     expect(e?.order).toBe(20)
     expect(e?.status).toBeUndefined()
+  })
+})
+
+describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefined（全量兜底），不误判真 0 章', () => {
+  it('读失败（EACCES）→ undefined', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-sentinel-'))
+    const fp = join(root, '项目', '文档清单.jsonl')
+    try {
+      mkdirSync(join(root, '项目'), { recursive: true })
+      writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
+      chmodSync(fp, 0o000)
+      expect(finalizedChapterSetOfBook(root)).toBeUndefined()
+      chmodSync(fp, 0o644)
+      // 恢复可读 → 真集合（清单在册，定稿章 1）
+      expect(finalizedChapterSetOfBook(root)).toEqual(new Set([1]))
+    } finally {
+      chmodSync(fp, 0o644)
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

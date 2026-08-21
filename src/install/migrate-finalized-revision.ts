@@ -83,8 +83,19 @@ function normalizePorcelainPath(raw: string, isRename = false): string {
   // P5-数据层（第七轮）：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
   // 改动行原先被首匹配 indexOf 误截成残路径
   if (isRename) {
-    const arrow = p.indexOf(' -> ')
-    if (arrow >= 0) p = p.slice(arrow + 4)
+    // L-D7（第八轮）：引号外扫描定位 " -> "——R 状态 + 引号路径且任一侧路径字面含
+    // " -> " 时，首匹配/末匹配都会切在引号内产出残路径；跟踪引号开合（含 \" 转义）
+    // 只认闭引号外的箭头
+    let inQuote = false
+    for (let i = 0; i < p.length - 3; i++) {
+      const c = p[i]
+      if (c === '\\') { i++; continue } // 转义字符（含 \"）跳过
+      if (c === '"') inQuote = !inQuote
+      if (!inQuote && p.slice(i, i + 4) === ' -> ') {
+        p = p.slice(i + 4)
+        break
+      }
+    }
   }
   if (p.startsWith('"') && p.endsWith('"') && p.length >= 2) {
     const body = p.slice(1, -1)

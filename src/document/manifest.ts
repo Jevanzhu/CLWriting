@@ -122,10 +122,19 @@ export function finalizedChapterNumbers(m: Manifest): Set<number> {
 /** PL-2（第七轮）：书级定稿章号集合——清单缺失 → undefined（无清单的旧书/测试夹具
  *  保持全量口径），清单在册 → 实际集合（可为空集 = 新书零定稿，assembleStatus 据此
  *  得 currentChapter=0，不再回落「含草稿全量」——此前空集与缺省同走全量分支，
- *  清单在册零定稿的新书会把写作中草稿计进「已定稿最新章号」）。 */
+ *  清单在册零定稿的新书会把写作中草稿计进「已定稿最新章号」）。
+ *  M-13（第八轮）：读失败（EACCES/EBUSY 瞬态）也返 undefined 走全量兜底——readManifest
+ *  吞掉读失败返空清单，哨兵会把「读不到」误判成「真 0 章」，成熟书 currentChapter=0、
+ *  近况复述「已写到第 0 章」。与 finalizedPathSet 对损坏返 null 的降级哲学对齐；
+ *  解析级损坏（个别行跳过）保持按已解析行给集合，不重开 PL-2。 */
 export function finalizedChapterSetOfBook(bookRoot: string): Set<number> | undefined {
   const fp = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(fp)) return undefined
+  try {
+    readFileSync(fp)
+  } catch {
+    return undefined
+  }
   return finalizedChapterNumbers(readManifest(fp))
 }
 

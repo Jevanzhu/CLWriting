@@ -90,6 +90,24 @@ test('M-7: 卷摘要剥 fm 注入 + 文件登记', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+// L-P3（第八轮）：卷首章上一卷摘要不错位一轮——卷号按「写作章」推（与
+// selfHealVolumeSummary 同口径），快照 currentChapter（最后定稿章）口径会晚一章
+test('L-P3: 写卷首章（writingChapter=volumeSize+1）→ 本章即注入上卷摘要', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 夹具当前卷 3（章 150 定稿、volumeSize 50）。写第 151 章（=3×50+1，卷 4 首章）：
+  // 旧快照口径 ceil(150/50)=3 → 门槛「>1」成立但找「第 2 卷」而非「第 3 卷」——
+  // selfHealVolumeSummary(151) 生成的是第 3 卷，本章注入不到
+  mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+  writeFileSync(join(root, '定稿', '摘要', '卷摘要', '3.md'),
+    '---\nvolume: 3\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第三卷剧情回顾正文。', 'utf-8')
+  const r = prepare(db, DEFAULT_CONFIG, root, [], undefined, '战斗', undefined, 151)
+  const sec = r.sections.find((s) => s.title === '第3卷摘要')
+  expect(sec).toBeTruthy()
+  expect(sec!.content).toContain('第三卷剧情回顾正文。')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('prepare: 超预算按优先级裁剪（弹性#4→#3→#2→#1），刚需不丢', () => {
   const { root, db } = makeBookWithMaterial()
   // 设极小预算（100 token），逼裁剪

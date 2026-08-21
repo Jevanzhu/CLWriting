@@ -15,6 +15,7 @@ import { chatTools, TOOL_RISK } from '../../contract/chat.js'
 // 工具面扩展：注册表分派（book_search/chapter_status/树操作/改写/账本/文风）
 import { TOOL_EXECUTORS, type ToolContext } from '../../tools/index.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from '../self-heal.js'
+import { isSpawnRunning } from '../spawn-registry.js'
 import { runCheckForDocument, type CheckOutcome } from '../../../check/run.js'
 import { resolveDraftPath } from '../../../format/draft.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
@@ -36,13 +37,15 @@ const READ_CHAPTER_MAX_CHARS = 20_000
 const READ_CHAPTER_HEAD_CHARS = 12_000
 const READ_CHAPTER_TAIL_CHARS = 6_000
 
-/** M-1（第六轮）：注册表工具里做嵌套 AI 生成的三件——与 self-heal 互斥面。
+/** M-1（第六轮）：注册表工具里做嵌套 AI 生成的三件——与写稿编排互斥面。
  *  calls.ts 的章预算块按「同书同时只有一路生成」记账（其头注释前提），write_chapter
  *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配。rewrite 两件传 chapter 按章
  *  记账：并发时章号互覆把对方账块 fresh 重置清零，used/tokens/cost 三口径全部低估，
  *  预算闸被绕过；lead_update 不传 chapter（只进 task 块），但账本推进与 self-heal
  *  并发同样撕裂口径——闸对三件统一防御（P5-AI·第七轮注释校准：原文「三件按章记账」
- *  与 lead-update-draft 的 runSpec 不符）。 */
+ *  与 lead-update-draft 的 runSpec 不符）。
+ *  M-2（第八轮）：互斥面补上 spawn 手动写稿——草稿互覆与章预算互覆同源，闸统一查
+ *  isSelfHealRunning || isSpawnRunning。 */
 const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
 
 // ── 等确认 ────────────────────────────────────────
@@ -88,9 +91,11 @@ async function executeChatTool(
     // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
     const executor = TOOL_EXECUTORS[call.name]
     if (executor) {
-      // M-1（第六轮）：嵌套 AI 生成 + 章记账的工具与 self-heal 互斥（write_chapter 同款闸）
-      if (AI_GEN_TOOLS.has(call.name) && isSelfHealRunning(opts.bookName)) {
-        return { ok: false, summary: '本书正在全自动写章，无法同时改写或生成账本推进——请等本轮写完再试。' }
+      // M-1（第六轮）+ M-2（第八轮）：嵌套 AI 生成 + 章记账的工具与两路写稿编排互斥
+      // （write_chapter 同款闸）——self-heal 之外，spawn 手动写稿同样流式产出互覆草稿、
+      // rewrite 两件按章记账与 spawn 并发同样互覆章预算块
+      if (AI_GEN_TOOLS.has(call.name) && (isSelfHealRunning(opts.bookName) || isSpawnRunning(opts.bookName))) {
+        return { ok: false, summary: '本书正在写稿（手动或全自动），无法同时改写或生成账本推进——请等本轮写完再试。' }
       }
       const tctx: ToolContext = {
         bookRoot: opts.bookRoot,
@@ -104,8 +109,8 @@ async function executeChatTool(
     }
     switch (call.name) {
       case 'write_chapter': {
-        if (isSelfHealRunning(opts.bookName)) {
-          return { ok: false, summary: '本书正在全自动写章，无法同时再起一轮。' }
+        if (isSelfHealRunning(opts.bookName) || isSpawnRunning(opts.bookName)) {
+          return { ok: false, summary: '本书正在写稿（手动或全自动），无法同时再起一轮。' }
         }
         const chapter = Number(input['chapter'])
         if (!Number.isInteger(chapter) || chapter < 1) {
@@ -305,7 +310,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       systemPrompt: sys,
       promptText: opts.message,
       ctrl: state.ctrl,
-      register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
+      // M-1（第八轮）：owner='chat'——self-heal/spawn 在途时 chat 纯问答允许并发，
+      // registerCtrl 按编排分槽不再互相抢占（此前单槽「换新先 abort 旧」会掐断在途写稿）
+      register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, 'chat'),
       onReset: () => emit(opts, { type: 'chat_reset' }),
       // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
       onRetry: (attempt, error) =>

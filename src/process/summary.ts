@@ -19,9 +19,10 @@
  * - 红线（设计总则 3）：摘要注入备料的「模型可见 ⟺ 已记录」经 promptMeta.files 登记
  *   （prepare 返回 injectedSummaryFiles → self-heal runSpec promptFiles → llm/call 事件）。
  */
-import { existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { walkMdFind } from '../fs/walk-md.js'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
 import { computeRevision } from '../document/revision.js'
@@ -76,29 +77,16 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
   return (m ? raw.slice(m[0].length) : raw).trim()
 }
 
-/** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null */
+/** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。
+ *  L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界）——原先手写递归无
+ *  visited（书内 symlink 环深递归）也无根界（书外 symlink 被跟随整读）。 */
 export function findChapterFile(bookRoot: string, chapter: number): string | null {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
   const prefixes = chapterNamePrefixes(chapter)
-  const walk = (dir: string): string | null => {
-    try {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        if (e.name.startsWith('._')) continue
-        const fp = join(dir, e.name)
-        if (e.isDirectory()) {
-          const found = walk(fp)
-          if (found) return found
-        } else if (e.isFile() && e.name.endsWith('.md') && prefixes.some((p) => e.name.startsWith(p))) {
-          return fp
-        }
-      }
-    } catch {
-      /* 不可读目录跳过 */
-    }
-    return null
-  }
-  return walk(bodyDir)
+  return walkMdFind(bodyDir, (abs, name) =>
+    prefixes.some((p) => name.startsWith(p)) ? abs : undefined,
+  ) ?? null
 }
 
 export interface GenerateChapterSummaryOpts {
@@ -274,7 +262,7 @@ export async function selfHealRecentChapterSummaries(
   bookRoot: string,
   userDataPath: string | null,
   config: BookConfig,
-  currentChapter: number,
+  writingChapter: number, // L-P3n（第八轮）：语义=正在写的章号 N（自愈 N-2/N-1），非 assembleStatus 的 currentChapter（最后定稿章）——同名不同义极易接错
 ): Promise<string[]> {
   if (!summaryAutoEnabled(config)) return []
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -287,7 +275,7 @@ export async function selfHealRecentChapterSummaries(
     if (m) finalizedByChapter.set(Number(m[1]), join(bookRoot, e.path))
   }
   const generated: string[] = []
-  for (const ch of [currentChapter - 2, currentChapter - 1]) {
+  for (const ch of [writingChapter - 2, writingChapter - 1]) {
     if (ch < 1) continue
     const bodyAbs = finalizedByChapter.get(ch)
     if (!bodyAbs) continue // 未定稿/不存在：不写摘要
@@ -299,7 +287,7 @@ export async function selfHealRecentChapterSummaries(
       config,
       chapter: ch,
       bodyAbsPath: bodyAbs,
-      budgetChapter: currentChapter,
+      budgetChapter: writingChapter,
     })
     if (r.ok && !r.skipped) generated.push(chapterSummaryRelPath(ch))
     else if (!r.ok) log.warn('summary', `自愈补漏失败（第 ${ch} 章）：${r.error}`)
@@ -351,16 +339,22 @@ export function volumeChainState(bookRoot: string, volume: number, volumeSize: n
   const chain = new Map<number, string>()
   const missing: number[] = []
   for (let ch = from; ch <= to; ch++) {
+    // L-P4（第八轮）：同章多条定稿条目（改名重定稿等）只计一次——原先每条都 push
+    // missing，错误文案重复；匹配到首条即跳出内层循环
+    let finalized = false
     for (const e of manifest.entries.values()) {
       if (e.nodeType !== 'document' || !e.finalizedRevision) continue
       if (!e.path.startsWith('写作/正文/')) continue
       const m = /^(\d+)-/.exec(e.path.split('/').pop() ?? '')
       if (!m || Number(m[1]) !== ch) continue
-      // 该章已定稿：必须有章摘要
-      const body = readChapterSummaryBody(bookRoot, ch)
-      if (body === null) missing.push(ch)
-      else chain.set(ch, body)
+      finalized = true
+      break
     }
+    if (!finalized) continue
+    // 该章已定稿：必须有章摘要
+    const body = readChapterSummaryBody(bookRoot, ch)
+    if (body === null) missing.push(ch)
+    else chain.set(ch, body)
   }
   return missing.length > 0 ? { chain: null, missing } : { chain, missing }
 }

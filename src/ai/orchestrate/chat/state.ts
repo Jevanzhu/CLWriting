@@ -99,8 +99,12 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
       log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
       return
     }
+    // L-A2（第八轮）：clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
+    // 同款降级留痕：内存已清，事件库残留待修复后重清，重试可自愈
     try {
       store?.clearBooks([bookName, bookHash(bookRoot)])
+    } catch (e) {
+      log.warn('chat', `清史清除事件库行失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       store?.close()
     }

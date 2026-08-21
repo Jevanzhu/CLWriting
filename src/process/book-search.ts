@@ -113,6 +113,9 @@ function walkMd(dir: string, bookRoot: string): string[] {
     } catch {
       return
     }
+    // L-P5（第八轮）：显式排序——readdirSync 顺序平台相关，MAX_RESULTS 截断后
+    // 「同一书库不同机器搜出不同前 50 条」；排序后截断结果确定
+    entries.sort()
     for (const name of entries) {
       if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
       const p = join(d, name)

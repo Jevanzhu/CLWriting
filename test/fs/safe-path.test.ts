@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { safeManifestPath, resolveWithinRoot } from '../../src/fs/safe-path.js'
+import { safeManifestPath, resolveWithinRoot, isWithinRoot } from '../../src/fs/safe-path.js'
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -132,5 +132,30 @@ describe('resolveWithinRoot', () => {
     } finally {
       rmSync(join(tmpdir(), 'secret-rwr.md'), { force: true })
     }
+  })
+})
+
+describe('L-D1（第八轮）：isWithinRoot 段级越出判定（与 resolveWithinRoot 同口径）', () => {
+  let dir = ''
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'safe-path-ld1-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('.. 开头的合法文件名（..foo.md）在 root 内 → 放行（此前 startsWith 误杀）', () => {
+    const p = join(dir, '..foo.md')
+    writeFileSync(p, 'x')
+    expect(isWithinRoot(dir, p)).toBe(true)
+  })
+
+  it('symlink 指向 root 外 → 拒绝', () => {
+    symlinkSync(tmpdir(), join(dir, 'evil2'))
+    expect(isWithinRoot(dir, join(dir, 'evil2'))).toBe(false)
+  })
+
+  it('root 自身 → 放行（rel 为空不越出）', () => {
+    expect(isWithinRoot(dir, dir)).toBe(true)
   })
 })

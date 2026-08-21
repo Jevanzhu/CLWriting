@@ -75,7 +75,8 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
   it('空库（无事件）→ 200 + 空 messages', async () => {
     const r = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history`)
     expect(r.status).toBe(200)
-    expect(r.json).toEqual({ messages: [], seqs: [], branchId: null })
+    // L-S2（第八轮）：响应新增 truncated/total（尾窗分页字段）
+    expect(r.json).toEqual({ messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
   })
 
   it('书名不存在 → 404 + 错误信封', async () => {
@@ -135,5 +136,29 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
     expect(j.messages).toHaveLength(4)
     expect(JSON.stringify(j.messages)).not.toContain('这条会被遮蔽')
     expect(j.seqs).toEqual([[1], [2], [3], [4]])
+  })
+})
+
+describe('L-S2（第八轮）：GET /chat/history ?limit= 尾窗', () => {
+  it('limit=2 → 只回最后 2 条 + truncated=true + total=全量数；limit 大于总数 → 全量', async () => {
+    // 事件库沿用上方用例预置（appendEvents 累积，总数动态取）
+    const full = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history`)
+    const total = (full.json as { total: number }).total
+    expect(total).toBeGreaterThanOrEqual(4)
+
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history?limit=2`)
+    expect(r.status).toBe(200)
+    const j = r.json as { messages: unknown[]; truncated: boolean; total: number }
+    expect(j.messages).toHaveLength(2)
+    expect(j.truncated).toBe(true)
+    expect(j.total).toBe(total)
+    // 尾窗取尾部：最后一条是收尾 assistant 文本
+    const last = j.messages[1] as { role: string; content: unknown }
+    expect(last.role).toBe('assistant')
+
+    const big = await get(`/api/books/${encodeURIComponent(BOOK)}/chat/history?limit=${total + 10}`)
+    const jb = big.json as { messages: unknown[]; truncated: boolean }
+    expect(jb.messages).toHaveLength(total)
+    expect(jb.truncated).toBe(false)
   })
 })

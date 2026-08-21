@@ -2,7 +2,7 @@
  * CC-P1-3 回归：collectTreeIssues 预扫提升——readChapterDir 调用次数与章数解耦。
  *
  * 修复前：每章 checkWithDb 内重扫 大纲/章纲 全量（readChapterDir），大书数百章
- * O(N²) 文件读单请求阻塞事件循环秒级；修复后全书固定三次
+ * O(N²) 文件读单请求阻塞事件循环秒级；P5-管线（第七轮）双扫合并后全书固定 2 次（正文×1 + 预扫×1）
  * （正文×2：聚合循环 + maxWritten 基准；章纲×1：循环外预扫）。
  * 另验证 batch 上下文传参后 targetWords（章纲 字数目标）接线不回归（W-P2-11 口径）。
  *

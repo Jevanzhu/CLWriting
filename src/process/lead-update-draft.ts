@@ -116,7 +116,11 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   if (tag === forChapter) return
   const dir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   mkdirSync(dir, { recursive: true })
-  renameSync(file, join(dir, `第${tag}章.md`))
+  // L-P6（第八轮）：目标已存在时不静默覆盖——同章旧「未确认推进草稿」无留痕丢失
+  // （POSIX renameSync 对已存在文件静默替换）；追加纳秒时间戳保全两代
+  let dst = join(dir, `第${tag}章.md`)
+  if (existsSync(dst)) dst = join(dir, `第${tag}章-${Date.now()}.md`)
+  renameSync(file, dst)
 }
 
 /**

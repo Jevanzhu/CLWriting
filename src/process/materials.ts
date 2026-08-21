@@ -13,8 +13,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { walkMdFind } from '../fs/walk-md.js'
 import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
@@ -60,20 +61,15 @@ function readChapterBodyByNumber(bookRoot: string, chapter: number): string | nu
 
 /** 递归扫描正文目录（含卷子目录），按文件名前缀匹配章号取正文。
  *  v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏（D1）。 */
+/** L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界），替换手写递归 */
 function findChapterBodyRecursive(dir: string, candidates: string[]): string | null {
-  try {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.name.startsWith('._')) continue
-      if (e.isDirectory()) {
-        const found = findChapterBodyRecursive(join(dir, e.name), candidates)
-        if (found) return found
-      } else if (e.isFile() && e.name.endsWith('.md') && candidates.some((p) => e.name.startsWith(p))) {
-        const r = readFile(join(dir, e.name))
-        if (r.ok) return r.body
-      }
-    }
-  } catch { /* 目录不存在或不可读 → null */ }
-  return null
+  return (
+    walkMdFind(dir, (abs, name) => {
+      if (!candidates.some((p) => name.startsWith(p))) return undefined
+      const r = readFile(abs)
+      return r.ok ? r.body : undefined
+    }) ?? null
+  )
 }
 
 export interface PrepareMaterialsOptions {
@@ -182,12 +178,12 @@ export async function prepareMaterials(
 
   // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
   if (!resolved) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
     return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ...styleNoteOf(declaredScenes, base) }
   }
 
   if (!resolved.apiKey) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
     return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
   }
 
@@ -220,7 +216,7 @@ export async function prepareMaterials(
 
   // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText
   const ragRecallText = renderRecallHits(bookRoot, hits)
-  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene, writeModel)
+  const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene, writeModel, opts.chapter)
   return {
     ...base,
     ragUsed: true,

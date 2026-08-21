@@ -67,6 +67,9 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
   const nodes: TreeNode[] = []
   for (const e of entries) {
     if (SKIP_DIRS.has(e.name)) continue
+    // L-D5（第八轮）：点开头文件/目录不入树——fs/atomic.ts 崩溃于 write-rename 之间
+    // 泄漏的 .<name>.<pid>.<uuid>.tmp 会以 chapter 角色混进树（作者可见幽灵节点）
+    if (e.name.startsWith('.')) continue
     const rel = relDir ? `${relDir}/${e.name}` : e.name
     if (e.isDirectory()) {
       nodes.push({
