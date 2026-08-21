@@ -113,13 +113,14 @@ export const useUiStore = defineStore('ui', () => {
     promptState.value = null
     s?.resolve(v)
   }
-  /** 弹 toast（1.8s 自动消失）。 */
+  /** 弹 toast（自动消失；时长按级别分级——低级项（第六轮）：错误 1.8s 读不完就消失，
+   *  作者看不到失败原因只能重复操作；成功/信息类保持 1.8s 轻提示）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
     const id = ++seq
     toasts.value.push({ id, msg, kind })
     setTimeout(() => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
-    }, 1800)
+    }, kind === 'error' ? 5000 : 1800)
   }
   /** G4：探测 AI 可达性（启动调一次；失败自动重试，重试成功即停）。 */
   let probeTimer: ReturnType<typeof setTimeout> | null = null

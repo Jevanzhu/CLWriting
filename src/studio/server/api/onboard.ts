@@ -88,6 +88,12 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
       /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
       const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
+      // 低级项（第六轮）：自由文本长度上限（对齐 chat 消息 5 万字符口径，stream.ts）——
+      // 无上限时粘贴超大文本直接拼进 prompt，打爆备料预算/模型上下文
+      const MAX_FREE_TEXT = 50_000
+      if (premise.length > MAX_FREE_TEXT || discussionContext.length > MAX_FREE_TEXT) {
+        return replyError(res, 400, 'BAD_INPUT', `premise / discussionContext 过长（上限 ${MAX_FREE_TEXT / 10_000} 万字符）`)
+      }
       // 第五轮：hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
       // 取出函数，join 路径抛 TypeError 落 500（纯客户端输入应 400）
       if (!Object.hasOwn(STEP_PATH, step)) {

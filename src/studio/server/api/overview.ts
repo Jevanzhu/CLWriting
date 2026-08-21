@@ -16,6 +16,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import { finalizedPathSet } from '../../../document/manifest.js'
 import { localDayKey } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgress } from './progress.js'
@@ -131,13 +132,18 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
 /**
  * 写作热力（#7.2）：已定稿文件 mtime 按日聚合（写作/正文）。
  * 返日期-计数列表供总览页日历热力图。mtime 反映定稿落盘时间（够用，git commit 时间更准但贵）。
+ * 低级项（第六轮）：只统计已定稿章——写作中的草稿保存也会刷 mtime，原先被计入
+ * 「定稿产出」，热力图/连续天数虚高且与字数日记口径打架。旧书无清单（无法判定）
+ * 保持全量口径（与历史行为一致）。
  */
 function computeTimeline(bookRoot: string): { date: string; count: number }[] {
   const files: string[] = []
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   for (const c of chapters) if (c._path) files.push(c._path)
+  const finalized = finalizedPathSet(bookRoot)
   const byDay = new Map<string, number>()
   for (const fp of files) {
+    if (finalized && !finalized.has(relative(bookRoot, fp).replace(/\\/g, '/'))) continue
     let mtime: Date
     try {
       mtime = statSync(fp).mtime

@@ -70,21 +70,21 @@ function parseSections(text: string): RawSection[] {
     if (lastNode && lastNode.value !== '' && indent > lastNode.indent) {
       throw new Error(`第 ${lineNo + 1} 行缩进子行不能挂在有值键「${lastNode.key}:」下（YAML 语法错误）：${content}`)
     }
-    const colonIdx = content.indexOf(':')
-    if (colonIdx === -1) {
-      // dd-P2：块式列表项（`- xxx`，无冒号）——挂到最近一个「空值父键」（如
-      // target_emotions:\n  - 惊悚），拼成内联数组值由 parseValue 原生解析；
-      // 此前这类行被静默丢弃，作者手改块列表风格时配置无声失效
-      if (content.startsWith('- ')) {
-        const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
-        const item = stripComment(content.slice(2)).trim()
-        if (parent && parent.value === '' && item) {
-          parent.listItems = [...(parent.listItems ?? []), item]
-          if (!listNodes.includes(parent)) listNodes.push(parent)
-        }
+    // 低级项（第六轮）：块式列表项（`- xxx`）判定先于冒号——`- 惊悚: 高` 含冒号但语义
+    // 是列表项文本，原先被当 key 行解析成键「- 惊悚」再被白名单静默吞掉（含冒号的
+    // 块列表风格整段无声失效）。挂到最近一个「空值父键」，拼成内联数组值由 parseValue
+    // 原生解析（dd-P2）
+    if (content.startsWith('- ')) {
+      const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
+      const item = stripComment(content.slice(2)).trim()
+      if (parent && parent.value === '' && item) {
+        parent.listItems = [...(parent.listItems ?? []), item]
+        if (!listNodes.includes(parent)) listNodes.push(parent)
       }
       continue
     }
+    const colonIdx = content.indexOf(':')
+    if (colonIdx === -1) continue
     const key = content.slice(0, colonIdx).trim()
     const value = stripComment(content.slice(colonIdx + 1)).trim()
 
@@ -377,8 +377,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const md = rag.children.find((c) => c.key === 'model')
     const cd = rag.children.find((c) => c.key === 'candidate_depth')
     const depth = cd ? Number(parseValue(cd.value)) : NaN
-    if (en) cfg.rag = {
-      enabled: String(parseValue(en.value)) === 'true',
+    // 低级项（第六轮）：rag 段存在但缺 enabled 键 → 不再整段静默丢弃——
+    // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）
+    if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0)) cfg.rag = {
+      enabled: en ? String(parseValue(en.value)) === 'true' : true,
       ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
       ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
       ...(md ? { model: String(parseValue(md.value)) } : {}),

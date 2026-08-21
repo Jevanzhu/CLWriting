@@ -57,7 +57,10 @@ function channel(id: string): Channel {
 }
 
 function push(id: string, ev: DriverEvent): void {
-  const ch = channel(id)
+  // 低级项（第六轮）：dispose 后的迟到 emit/interrupt 不复活已删除的 channel——
+  // 原先 channel(id) 懒建会把 Map 条目重新造出来且无人再清（微量资源残留）
+  const ch = channels.get(id)
+  if (!ch) return
   // E1b：维护活跃执行 ring——执行开始清空重开，执行中累积最近 N 个协议单元
   if (EXEC_START.has(ev.type)) {
     ch.execRing = []
@@ -101,6 +104,8 @@ export const ccDriver: StudioDriver = {
   },
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
+    // 低级项（第六轮）：已 dispose 的会话不再建 channel（原先懒建复活 Map 条目无人清）
+    if (session.closed) return
     const ch = channel(session.id)
     const consumer: Consumer = { queue: [], notify: null }
     ch.consumers.add(consumer)
@@ -154,7 +159,7 @@ export const ccDriver: StudioDriver = {
     if (ctrl) ctrl.abort()
     // 中断即注销 ctrl：isRunning 立即归 false（与 dispose 同口径，防 SSE 快照假报「生成中」）
     sessionCtrl.delete(session.id)
-    channel(session.id)
+    // 低级项（第六轮）：不再 channel(id) 懒建——push 已对已删 channel 短路，防复活
     push(session.id, { type: 'interrupted', reason: 'user_cancel' })
   },
 
@@ -183,4 +188,9 @@ export const ccDriver: StudioDriver = {
     // X-P2-11：aborted 的 ctrl 不算在途（编排层直接 abort 自身 ctrl 而非走 interrupt 的路径兜底）
     return !!ctrl && !ctrl.signal.aborted && !session.closed
   },
+}
+
+/** 测试钩子：活跃 channel 条目数（验证 dispose 后迟到 emit/interrupt/stream 不复活 Map 残留） */
+export function debugChannelCount(): number {
+  return channels.size
 }

@@ -188,11 +188,14 @@ interface FileProbe {
 }
 
 /**
- * 进程级哈希缓存：path + (mtimeMs,size) → probe。
+ * 进程级哈希缓存：path + (mtimeNs,size) → probe。
  * 文件未变（stat 级检测）→ 复用，跳过整文件读 + SHA-256（200 万字树的重灾区）。
- * 缓存无上限但按书隔离（键带 bookRoot），进程内树重建频次远低于文件量，可接受。
+ * 低级项（第六轮）：①缓存加上限（FIFO 淘汰，Map 保插入序）——键带 bookRoot 但长期
+ * 运行的桌面进程逐书累积无界；上限取单书树规模（200 万字书 ≈ 千级文件）的 4 倍余量。
+ * ②指纹 mtimeMs → bigint stat 的 mtimeNs——同 ms 内改回同长内容的撞车窗口收窄到 ns 级。
  */
-const probeCache = new Map<string, { mtimeMs: number; size: number; probe: FileProbe }>()
+const PROBE_CACHE_MAX = 4096
+const probeCache = new Map<string, { mtimeNs: bigint; size: bigint; probe: FileProbe }>()
 
 /** 清空哈希缓存（结构性 mutation 后由 invalidateTreeIndex 调用）。 */
 export function clearProbeCache(): void {
@@ -228,15 +231,15 @@ export function probeCachedPublished(bookRoot: string, relPath: string): boolean
  */
 function probeFile(bookRoot: string, rel: string): FileProbe | null {
   const full = join(bookRoot, rel)
-  let st: { mtimeMs: number; size: number }
+  let st: { mtimeNs: bigint; size: bigint }
   try {
-    st = statSync(full)
+    st = statSync(full, { bigint: true })
   } catch {
     return null
   }
   const key = bookRoot + '|' + rel
   const hit = probeCache.get(key)
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.probe
+  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.probe
 
   let raw: Buffer
   try {
@@ -255,7 +258,12 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
     published = v === true || v === 'true'
   }
   const probe: FileProbe = { rev, wordCount, published }
-  probeCache.set(key, { mtimeMs: st.mtimeMs, size: st.size, probe })
+  // FIFO 淘汰最旧（Map 保插入序）
+  if (probeCache.size >= PROBE_CACHE_MAX) {
+    const oldest = probeCache.keys().next().value
+    if (oldest !== undefined) probeCache.delete(oldest)
+  }
+  probeCache.set(key, { mtimeNs: st.mtimeNs, size: st.size, probe })
   return probe
 }
 

@@ -61,8 +61,17 @@ export function isInvalidBookName(name: string): boolean {
 export function readBooks(workDir: string): BookEntry[] {
   const fp = join(workDir, BOOKS_FILE)
   if (!existsSync(fp)) return []
+  let text: string
+  try {
+    text = readFileSync(fp, 'utf-8')
+  } catch {
+    // 低级项（第六轮）：existsSync 过但读取失败（EACCES/EISDIR 等）不裸抛——
+    // 书架/resolveBookRoot 等读路径降级为空表（与缺文件同口径）；若磁盘真有故障，
+    // 后续 writeBooks 的写错误自然浮现
+    return []
+  }
   const books: BookEntry[] = []
-  const lines = readFileSync(fp, 'utf-8').split('\n')
+  const lines = text.split('\n')
   for (const line of lines) {
     const trimmed = line.trim()
     if (trimmed === '') continue
@@ -138,7 +147,14 @@ export function removeBookEntry(workDir: string, name: string): void {
 export function readActive(workDir: string): string | null {
   const fp = join(workDir, ACTIVE_FILE)
   if (!existsSync(fp)) return null
-  const name = readFileSync(fp, 'utf-8').trim()
+  let name: string
+  try {
+    name = readFileSync(fp, 'utf-8')
+  } catch {
+    // 低级项（第六轮）：读取失败（EACCES/EISDIR 等）不裸抛——降级为未选书（null）
+    return null
+  }
+  name = name.trim()
   return name === '' ? null : name
 }
 

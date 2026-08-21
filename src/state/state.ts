@@ -31,7 +31,7 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, writeManifest, type Manifest } from '../document/manifest.js'
+import { readManifest, writeManifest, finalizedChapterNumbers, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -170,7 +170,8 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   try {
     const db = new DatabaseSync(cachePath)
     try {
-      snapshot = assembleStatus(db, config, volumeSize)
+      // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）
+      snapshot = assembleStatus(db, config, volumeSize, finalizedChapterNumbers(m))
     } finally {
       db.close()
     }
@@ -479,21 +480,11 @@ function maxFileNameChapter(bodyDir: string): number {
 }
 
 /**
- * 清单中已定稿条目的章号集合（文件名前缀数值口径，与 format/draft.ts
- * ensureChapterNotFinalized 的 RB-KN-P1-2 数值比对同源——定稿改名 3/4 位补零均命中）。
+ * 清单中的已定稿章号集合——低级项（第六轮）上移至 document/manifest.ts 共享
+ * （assembleStatus currentChapter 口径收口也要用），此处经 import 复用。
  * CC-P1-6：只跳定稿号，不跳草稿占号——V-P1-3 场景（坏 fm 草稿占号）的恢复语义
  * 就是落号覆盖草稿，跳草稿会把恢复流变成永久跳号。
  */
-function finalizedChapterNumbers(m: Manifest): Set<number> {
-  const out = new Set<number>()
-  for (const e of m.entries.values()) {
-    if (e.nodeType !== 'document' || !e.finalizedRevision) continue
-    const base = e.path.split('/').pop() ?? ''
-    const g = base.match(/^(\d+)-/)
-    if (g) out.add(Number(g[1]))
-  }
-  return out
-}
 
 /** CC-P1-6：n 起步跳过一切已定稿章号（「篇号永不复用」语义；连续定稿时 n+1 即空闲，零开销）。 */
 function skipFinalizedChapters(n: number, finalized: Set<number>): number {
@@ -640,7 +631,8 @@ function readRecapSnapshot(
   let db: DatabaseSync | undefined
   try {
     db = new DatabaseSync(cachePath)
-    return assembleStatus(db, config, volumeSizeOf(config))
+    // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）
+    return assembleStatus(db, config, volumeSizeOf(config), finalizedChapterNumbers(manifest))
   } catch {
     return fallbackRecapSnapshot(detected, volumeSizeOf(config))
   } finally {

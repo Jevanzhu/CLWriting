@@ -280,7 +280,8 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
     const sampleDir = join(bookRoot, '文风', '样章库')
     let sceneEntries: string[]
     try {
-      sceneEntries = readdirSync(sampleDir).filter((n) => !n.startsWith('._'))
+      // 低级项（第六轮）：显式排序——readdir 顺序随平台漂移，冻结基线需跨平台可复现
+      sceneEntries = readdirSync(sampleDir).filter((n) => !n.startsWith('._')).sort()
     } catch {
       throw new Error('样章库目录不存在（文风/样章库/），无法冻结基线')
     }

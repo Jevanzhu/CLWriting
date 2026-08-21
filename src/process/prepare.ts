@@ -21,6 +21,7 @@ import { buildStyleEssentials } from '../format/style-inject.js'
 import { pickStyleSamples } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
+import { readManifest, finalizedChapterNumbers } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 
 /**
@@ -79,6 +80,9 @@ export interface MaterialSection {
   flexibleRank?: number
   /** 降档版内容（减量保留，#12 第 4 节"按序降档"）；裁剪时先降档、仍超再整段移除 */
   degradedContent?: string
+  /** 低级项（第六轮）：本段注入的章/卷摘要文件（相对书根）——随段登记，预算裁剪
+   *  整段移除后由 prepare 统一回收（injectedSummaryFiles 不再虚报注入面） */
+  summaryFiles?: string[]
 }
 
 /** 备料结果 */
@@ -162,22 +166,32 @@ export function prepare(
   model?: string,
 ): PrepareResult {
   // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
-  const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50)
+  // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）——
+  // 备料快照的「已写到第 N 章」与近况复述/判态同口径
+  const snapshot = assembleStatus(
+    db,
+    config,
+    config.book.volume_size ?? 50,
+    finalizedChapterNumbers(readManifest(join(bookRoot, '项目', '文档清单.jsonl'))),
+  )
   const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
 
-  // C1（批 2）：章摘要注入的 visible 侧收集（相对书根路径）
-  const injectedSummaryFiles: string[] = []
   const sections: MaterialSection[] = [
     ...buildStatusSection(snapshot),
     ...buildLedgerSection(db, chapterLeadIds),
     ...buildStyleSections(bookRoot, config, scenes),
-    ...buildEndingsSections(db, bookRoot, snapshot, injectedSummaryFiles),
-    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText, injectedSummaryFiles),
+    ...buildEndingsSections(db, bookRoot, snapshot),
+    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText),
   ]
 
   const trimLog: string[] = []
   const { estimatedTokens, trimmed } = applyBudgetTrim(config, sections, trimLog, model)
   const text = serializeSections(sections, trimmed, trimLog)
+
+  // C1（批 2）：章摘要注入的 visible 侧清单（相对书根路径）。
+  // 低级项（第六轮）：裁剪整段移除后按存活段重算——段被移除即模型不可见，原先
+  // 留在清单里会虚报注入面（promptMeta.files 与实际 prompt 分裂）
+  const injectedSummaryFiles = sections.flatMap((s) => s.summaryFiles ?? [])
 
   return {
     sections,
@@ -194,22 +208,22 @@ function buildEndingsSections(
   db: DatabaseSync,
   bookRoot: string,
   snapshot: ReturnType<typeof assembleStatus>,
-  injectedSummaryFiles: string[],
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
   // 弹性#1 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
-  // C1（批 2）：摘要文件剥 fm 再注入（fm 是程序元数据非内容）；注入文件登记进
-  // injectedSummaryFiles（visible 侧——promptMeta.files 可回溯）
+  // C1（批 2）：摘要文件剥 fm 再注入（fm 是程序元数据非内容）；注入文件随段登记进
+  // summaryFiles（visible 侧——promptMeta.files 可回溯；整段被裁时随段回收）
   const recentEndings = readChapterSummaries(db, Math.max(1, snapshot.currentChapter - 1), snapshot.currentChapter)
   if (recentEndings.length > 0) {
     const parts: string[] = []
+    const files: string[] = []
     for (const r of recentEndings) {
       if (existsSync(r.path) && isWithinRoot(bookRoot, r.path)) {
         const raw = readFileSync(r.path, 'utf-8').trim()
         const split = splitFrontMatter(raw)
         parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
-        injectedSummaryFiles.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
+        files.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
       }
     }
     if (parts.length > 0) {
@@ -219,6 +233,7 @@ function buildEndingsSections(
         essential: false,
         flexibleRank: 1,
         degradedContent: parts.slice(-1).join('\n\n'),
+        summaryFiles: files,
       })
     }
   }
@@ -362,7 +377,6 @@ function buildOutlookSections(
   snapshot: ReturnType<typeof assembleStatus>,
   chapterLeadIds: string[],
   ragRecallText?: string,
-  injectedSummaryFiles: string[] = [],
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
@@ -371,7 +385,7 @@ function buildOutlookSections(
     const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${snapshot.currentVolume - 1}.md`)
     if (existsSync(volSummaryPath)) {
       // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
-      // 是元数据非内容）——与近章结尾同口径；注入文件登记（promptMeta.files 可回溯）
+      // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
       const raw = readFileSync(volSummaryPath, 'utf-8').trim()
       const split = splitFrontMatter(raw)
       sections.push({
@@ -379,8 +393,8 @@ function buildOutlookSections(
         content: (split ? split.body : raw).trim(),
         essential: false,
         flexibleRank: 3,
+        summaryFiles: [relative(bookRoot, volSummaryPath).replace(/\\/g, '/')],
       })
-      injectedSummaryFiles.push(relative(bookRoot, volSummaryPath).replace(/\\/g, '/'))
     }
   }
 

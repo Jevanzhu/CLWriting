@@ -78,8 +78,14 @@ async function load(): Promise<void> {
 async function openFile(file: string): Promise<void> {
   const node = tree.byPath.get(file)
   if (node?.docId) {
-    await doc.open(node)
-    ws.openTab(node.docId)
+    // 低级项（第六轮）：打开失败不再裸抛——模板点击处理器不接 async 错，
+    // 未捕获 rejection 且无任何提示（对齐 EditorView 的打开编排）
+    try {
+      await doc.open(node)
+      ws.openTab(node.docId)
+    } catch (err) {
+      ui.toast(friendlyError(err), 'error')
+    }
   }
 }
 

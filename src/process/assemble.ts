@@ -62,20 +62,29 @@ export interface StatusSnapshot {
  * @param volumeSize 每卷章数（用于推算当前卷号）。显式传参优先；缺省回落
  *   config.book.volume_size（调用方喂 applyGlobalDefaults 之后的生效配置时，此处即
  *   书级 → global.json → 硬编码三层链的收口点），仍无才用 50
+ * @param finalized 已定稿章号集合（低级项·第六轮：currentChapter 口径收口——chapters
+ *   缓存表含 写作/正文 全部 .md（写稿即入缓存的草稿也在内），此前 MAX(number) 把
+ *   写作中的草稿章也计进「已定稿最新章号」，与字段注释口径不符。传入即只数定稿章；
+ *   缺省保持全量口径（旧测试夹具兼容），生产调用方（prepare / state / chapter_status）均传）
  */
 export function assembleStatus(
   db: DatabaseSync,
   config: BookConfig,
   volumeSize?: number,
+  finalized?: ReadonlySet<number>,
 ): StatusSnapshot {
   // GG-P2-6：第三参缺省原先硬编码 50——chapter_status 工具按「只传 config」调用导致
   // 卷号永远按 50 算（书级/global 配了别的值也读不到，断链）。改为缺省从生效配置收口。
   const size = volumeSize ?? config.book.volume_size ?? 50
 
   // 已定稿最新章号
-  const lastRow = db.prepare(
-    'SELECT MAX(number) AS maxNum FROM chapters',
-  ).get() as { maxNum: number | null }
+  const lastRow = (
+    finalized && finalized.size > 0
+      ? db.prepare(
+          `SELECT MAX(number) AS maxNum FROM chapters WHERE number IN (${Array.from(finalized, () => '?').join(',')})`,
+        ).get(...finalized)
+      : db.prepare('SELECT MAX(number) AS maxNum FROM chapters').get()
+  ) as { maxNum: number | null }
   const currentChapter = lastRow.maxNum ?? 0
 
   // 当前卷号

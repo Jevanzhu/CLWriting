@@ -76,6 +76,17 @@ describe('ui: Toast 队列', () => {
     vi.advanceTimersByTime(1000)
     expect(ui.toasts).toHaveLength(0)
   })
+
+  // 低级项（第六轮）：错误 toast 分级 5s——1.8s 读不完失败原因就消失，作者只能反复操作
+  it('error toast 5s 后消失（分级时长；成功/信息保持 1.8s）', () => {
+    const ui = useUiStore()
+    ui.toast('保存失败：网络错误', 'error')
+    expect(ui.toasts).toHaveLength(1)
+    vi.advanceTimersByTime(1900) // 1.8s：错误仍在（旧一刀切口径此时已消失）
+    expect(ui.toasts).toHaveLength(1)
+    vi.advanceTimersByTime(3200) // 到 5.1s：消失
+    expect(ui.toasts).toHaveLength(0)
+  })
 })
 
 describe('ui: 命令式确认弹窗', () => {

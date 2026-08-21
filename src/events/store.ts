@@ -52,6 +52,8 @@ export interface SessionStore {
   /** 当前库最大 seq（recorder 算写入区间用） */
   lastSeq(): number
   clearBook(book: string): void
+  /** 多 book 键单事务清理（第六轮低级项）：全清或全不动 */
+  clearBooks(books: string[]): void
   close(): void
 }
 
@@ -328,6 +330,24 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
           `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
         ).run(book);
         db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
+    },
+    clearBooks(books: string[]): void {
+      // 低级项（第六轮）：多 book 键单事务清理——audit DELETE / chat 清史都是
+      // bookName + bookHash 双钥匙，两次 clearBook 各自事务：第二键失败时第一键已提交，
+      // 两侧一半清一半留。单 BEGIN 内循环两键的 DELETE，要么全清要么全不动
+      db.exec('BEGIN')
+      try {
+        for (const book of books) {
+          db.prepare(
+            `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
+          ).run(book);
+          db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+        }
         db.exec('COMMIT')
       } catch (err) {
         db.exec('ROLLBACK')

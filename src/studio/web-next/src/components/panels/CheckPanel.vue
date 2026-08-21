@@ -7,6 +7,7 @@ import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Thumbs
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
@@ -31,12 +32,22 @@ async function runCheck(): Promise<void> {
 // X-P2-15：切文档即清报告（store 注释声称「调用方 clear」但无人调——旧文档红项挂在新文档上）
 watch(docId, () => check.clear())
 
-// B1（批 6）：误报标记——一次 confirm 防误触（浏览器原生确认即可，不引弹窗组件）；
-// 按 checkId 幂等（已标灰显）。标记落 check/false-positive 事件 → 语料回归库燃料
+// B1（批 6）：误报标记——一次确认防误触；按 checkId 幂等（已标灰显）。标记落
+// check/false-positive 事件 → 语料回归库燃料。
+// 低级项（第六轮）：原生 confirm → ui.ask 统一弹窗（Electron 渲染层禁原生模态且样式割裂）；
+// 弹窗 await 期间可切书/切文档——上下文入口捕获，确认后已切走则放弃
 async function flagFalsePositive(checkId: string): Promise<void> {
-  if (!docId.value) return
-  if (!window.confirm('把「' + checkId + '」的这类命中标记为误报？\n（用于收集语料改进检查器，不影响本次结果）')) return
-  await check.flagFalsePositive(props.bookName, docId.value, checkId)
+  const book = props.bookName
+  const id = docId.value
+  if (!id) return
+  const ok = await useUiStore().ask({
+    title: '标记误报',
+    message: `把「${checkId}」的这类命中标记为误报？（用于收集语料改进检查器，不影响本次结果）`,
+    confirmText: '标记',
+  })
+  if (!ok) return
+  if (props.bookName !== book || docId.value !== id) return
+  await check.flagFalsePositive(book, id, checkId)
 }
 </script>
 

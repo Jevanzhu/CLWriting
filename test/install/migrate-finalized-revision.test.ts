@@ -165,3 +165,46 @@ test('RB-IF-P1-1: git 状态不可读 → 跳过迁移不写基线 + 告警', ()
     warn.mockRestore()
   }
 })
+// ── 低级项（第六轮）：porcelain 路径归一（空格/引号/rename）──────────────
+
+test('低级项（第六轮）：含空格路径的 dirty 文件不建基线（porcelain 引号转义失配）', () => {
+  scaffold(
+    [
+      ['写作/正文/0001-干净.md', '---\n章号: 1\n标题: 干净\n---\n正文'],
+      ['写作/正文/0002-带 空格.md', '---\n章号: 2\n标题: 带空格\n---\n正文'],
+    ],
+    true,
+  )
+  // 全部提交（clean 基线）后改写 0002（tracked → dirty；路径含空格 → porcelain 加引号）
+  execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
+  writeFileSync(join(tmp, '写作/正文/0002-带 空格.md'), '---\n章号: 2\n标题: 带空格\n---\n改过的正文', 'utf-8')
+
+  const n = migrateFinalizedRevisions(tmp)
+  expect(n).toBe(1) // 只给干净的 0001 建基线
+  const m = manifest()
+  const byPath = new Map([...m.entries.values()].map((e) => [e.path, e]))
+  expect(byPath.get('写作/正文/0001-干净.md')?.finalizedRevision).toMatch(/^sha256:/)
+  // 引号路径原先与 manifest 失配 → dirty 漏判 clean → 误标 final（断写红线）
+  expect(byPath.get('写作/正文/0002-带 空格.md')?.finalizedRevision).toBeUndefined()
+})
+
+test('低级项（第六轮）：非 ASCII 文件名的 untracked 不建基线（porcelain 八进制转义路径）', () => {
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n---\n正文']], true)
+  execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
+  // untracked 且文件名含非 ASCII + 空格（git core.quotePath 默认八进制转义 + 引号）
+  const rel = '写作/正文/0002-设定 章.md'
+  const segs = rel.split('/')
+  mkdirSync(join(tmp, ...segs.slice(0, -1)), { recursive: true })
+  writeFileSync(join(tmp, ...segs), '未跟踪草稿', 'utf-8')
+  // 补登记 manifest（untracked 文件也有清单条目）
+  const m0 = manifest()
+  m0.entries.set('doc-new', { id: 'doc-new', nodeType: 'document', path: rel, parentId: null })
+  writeManifest(join(tmp, '项目', '文档清单.jsonl'), m0)
+
+  const n = migrateFinalizedRevisions(tmp)
+  expect(n).toBe(1) // 只有 clean 的 0001 建基线
+  const m = manifest()
+  const byPath = new Map([...m.entries.values()].map((e) => [e.path, e]))
+  expect(byPath.get('写作/正文/0001-开篇.md')?.finalizedRevision).toMatch(/^sha256:/)
+  expect(byPath.get(rel)?.finalizedRevision).toBeUndefined()
+})

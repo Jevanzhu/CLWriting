@@ -7,15 +7,26 @@ import { Sparkles, FolderOpen, BookOpen, ArrowRight, Clock } from 'lucide-vue-ne
 const hasDesktop = !!window.clwritingDesktop
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
+// 低级项（第六轮）：IPC 失败不再永久「加载中…」——错误态 + 重试出口
+const loadError = ref<string | null>(null)
 
-onMounted(async () => {
+async function load(): Promise<void> {
   if (!hasDesktop) {
     loading.value = false
     return
   }
-  recents.value = await window.clwritingDesktop!.getRecentLibraries()
-  loading.value = false
-})
+  loading.value = true
+  loadError.value = null
+  try {
+    recents.value = await window.clwritingDesktop!.getRecentLibraries()
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => void load())
 
 // 新建 / 打开共用同一 IPC：pickLibrary 融合逻辑（是书库→直接用；空目录→问是否新建）
 async function chooseLibrary(): Promise<void> {
@@ -71,7 +82,12 @@ async function switchTo(path: string): Promise<void> {
       </div>
 
       <!-- 最近 -->
-      <section v-if="hasDesktop && recents.length" class="recent">
+      <!-- 低级项（第六轮）：最近列表 IPC 失败给错误态 + 重试（主入口按钮不依赖该数据，保持可用） -->
+      <section v-if="hasDesktop && loadError" class="recent">
+        <p class="no-desktop">最近书库加载失败：{{ loadError }}</p>
+        <button class="retry-btn" @click="void load()">重试</button>
+      </section>
+      <section v-else-if="hasDesktop && recents.length" class="recent">
         <h2 class="recent-title">
           <Clock :size="14" />
           <span>最近打开</span>
@@ -420,5 +436,19 @@ async function switchTo(path: string): Promise<void> {
 @media (max-width: 520px) {
   .brand-name { font-size: 38px; }
   .brand-mark { width: 68px; height: 68px; }
+}
+
+/* 低级项（第六轮）：最近列表加载失败的重试按钮 */
+.retry-btn {
+  padding: 6px 18px;
+  font-size: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.retry-btn:hover {
+  border-color: var(--interactive-accent);
 }
 </style>

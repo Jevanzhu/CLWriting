@@ -442,7 +442,11 @@ export class DocumentService {
     // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
     // 乱码正文原子覆盖回原文件，原始字节永久丢失（本路径无快照留底，用户没碰正文却
     // 被「盲改」）。检出即拒绝，先转码再改。
-    if (r.body.includes('\uFFFD')) return NON_UTF8_REJECT
+    // 低级项（第六轮）：判据从「body 含 U+FFFD」升级为「盘上字节非合法 UTF-8」（fatal
+    // 解码探测，与 save 主路径 M-5 同口径）——原判据对 fm 区（GBK 标题等）是盲区，且 fm
+    // 往返依赖 parse/stringify 非无损；盘上合法 UTF-8 时读出的 FFFD 是用户自粘内容，
+    // body 原样透传不构成损坏。
+    if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
     // piece-body / chapter 统一写「章号」字段

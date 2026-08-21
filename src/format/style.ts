@@ -83,7 +83,9 @@ export function readSamplesByScene(
   const sceneDir = join(sampleDir, scene)
   let files: string[]
   try {
-    files = readdirSync(sceneDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // 低级项（第六轮）：显式排序——readdir 顺序随平台/文件系统漂移，注入与冻结基线
+    // 需跨平台可复现（同一书在不同机器产出同一 prompt/基线）
+    files = readdirSync(sceneDir).filter((f) => f.endsWith('.md') && !f.startsWith('._')).sort()
   } catch {
     return { samples, errors } // 场景目录不存在，空
   }

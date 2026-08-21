@@ -79,8 +79,18 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     const prefs = body['prefs']
     if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
     try {
+      // 低级项（第六轮）：合并写（对齐 library.prefs.put 第五轮口径）——prefs.json 同样
+      // 可能存在端点 payload 之外的使用方（手工/脚本写入的键），整体覆写会静默清键。
+      // 盘上键 ← 客户端键覆盖；无删键场景（前端已知键全量回传）。读盘→写盘在
+      // await readJson 之后全同步，单事件循环内原子
+      let disk: Record<string, unknown> = {}
+      if (existsSync(r.path)) {
+        try {
+          disk = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+        } catch { /* 文件损坏视作空：本次整体重写（与原直写行为一致） */ }
+      }
       mkdirSync(dirname(r.path), { recursive: true })
-      atomicWriteFile(r.path, JSON.stringify(prefs, null, 2) + '\n')
+      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs }, null, 2) + '\n')
       reply(res, 200, { ok: true })
     } catch (e) {
       log.error('api', '写 prefs 失败', e)

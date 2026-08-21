@@ -114,6 +114,36 @@ describe('DocumentService / 保存协议主路径', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('低级项（第六轮）：GBK 只污染 fm 区（body 纯 ASCII）→ updateChapterMeta 同样拒绝，原始字节一字不动', async () => {
+    // 原判据只查 body：fm 区 GBK 标题读入 U+FFFD 但 body 干净 → 放行后 fm 往返把乱码写回
+    const r0 = await svc.createDocument({ relPath: '写作/正文/0002-风起.md', content: '---\n章号: 2\n标题: 风起\n---\nplain ascii body' })
+    if (!r0.ok) throw new Error('prereq')
+    const fp = join(bookRoot, '写作/正文/0002-风起.md')
+    const gbkFm = Buffer.concat([
+      Buffer.from('---\n章号: 2\n标题: ', 'utf-8'),
+      Buffer.from([0xb7, 0xe7]), // GBK「风」——utf-8 fatal 解码必炸、读入产生 U+FFFD
+      Buffer.from('\n---\nplain ascii body', 'utf-8'),
+    ])
+    writeFileSync(fp, gbkFm)
+
+    const r = svc.updateChapterMeta(r0.docId, { 标题: '新标题' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
+    // 原始字节一字不动（防线只拒绝不修改）
+    expect(readFileSync(fp).equals(gbkFm)).toBe(true)
+  })
+
+  it('低级项（第六轮）：盘上合法 UTF-8（body 含真实 �）→ updateChapterMeta 放行，与 save 主路径 M-5 同口径', async () => {
+    const r0 = await svc.createDocument({ relPath: '写作/正文/0003-开篇.md', content: '---\n章号: 3\n标题: 开篇\n---\n\uFFFD 旧内容' })
+    if (!r0.ok) throw new Error('prereq')
+    const r = svc.updateChapterMeta(r0.docId, { 标题: '改题' })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      // rename 跟随新标题；body 的真实 � 原样透传
+      expect(readFileSync(join(bookRoot, r.path), 'utf-8')).toContain('\uFFFD 旧内容')
+    }
+  })
+
   it('RB-KN-P2-2: journal 追加失败 → SaveResult 契约（ok:false WRITE_ERROR），不 reject 不落盘', async () => {
     // 占住 journal 文件路径（目录）→ appendPending 抛 EISDIR（模拟磁盘满/权限类故障）
     mkdirSync(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'), { recursive: true })

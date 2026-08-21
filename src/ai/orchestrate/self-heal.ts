@@ -95,8 +95,10 @@ export type SelfHealOutcome =
 interface RunState {
   ctrl: AbortController
   /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账）。
-   *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径 */
-  usage: { calls: number; inputTokens: number; outputTokens: number; cost: number }
+   *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径。
+   *  低级项（第六轮）：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
+   *  cost/outputTokens，单次明细已在事件库 llm/call 行） */
+  usage: { outputTokens: number; cost: number }
 }
 const running = new Map<string, RunState>()
 
@@ -155,7 +157,7 @@ export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 }
 
 async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
-  const state: RunState = { ctrl: new AbortController(), usage: { calls: 0, inputTokens: 0, outputTokens: 0, cost: 0 } }
+  const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } }
   running.set(opts.bookName, state)
   let result: SelfHealOutcome
   try {
@@ -724,8 +726,6 @@ async function runGenerate(
   // emit 模拟增量（前端/测试能见推进），终稿走 assembleChapter（与真实同 decode）。
   const mock = tryMockTool(chapterToolName())
   if (mock) {
-    state.usage.calls += 1
-    state.usage.inputTokens += mock.usage.inputTokens
     state.usage.outputTokens += mock.usage.outputTokens
     const body = String((mock.input as { 正文?: string })['正文'] ?? '')
     if (body) {
@@ -775,10 +775,8 @@ async function runGenerate(
   // 二轮复审留痕（不修）：此处只累计最终成功 attempt 的 usage——失败/重试/中断 attempt
   // 在 runTask 记账侧已按次入账（W-P2-8/X-P2-10），但 done 事件不含其 token（失败响应
   // 多无 usage，客观上不可得）；done 用量按「成功产出消耗」口径读，预算/成本以事件库为准
-  state.usage.calls += 1
   const u = out.data.usage
   if (u) {
-    state.usage.inputTokens += u.inputTokens
     state.usage.outputTokens += u.outputTokens
     const model = resolveTier(opts.userDataPath, 'creative').model
     const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null

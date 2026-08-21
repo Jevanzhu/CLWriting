@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import {
-  scanBookTree, buildTree, getBookTreeIndex, invalidateTreeIndex, probeCachedPublished,
+  scanBookTree, buildTree, getBookTreeIndex, invalidateTreeIndex, probeCachedPublished, probeCachedRevision,
   type TreeNode,
 } from '../../src/document/tree.js'
 
@@ -188,6 +188,23 @@ test('probeCachedPublished: fm 引号包 "true" 与 parseFlat 同口径判 publi
     // 非 true 值不误判
     writeFileSync(join(root, '0004-长夜.md'), '---\n章号: 4\n已发布: "false"\n---\n正文', 'utf-8')
     expect(probeCachedPublished(root, '0004-长夜.md')).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('低级项（第六轮）：同长改写后指纹不复用旧缓存（bigint stat 指纹 + FIFO 上限缓存）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tree-probe-'))
+  try {
+    const rel = '0001-开篇.md'
+    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nAAAA', 'utf-8')
+    const r1 = probeCachedRevision(root, rel)
+    expect(r1).toMatch(/^sha256:/)
+    // 同长度不同内容改写：stat 指纹（mtimeNs 级）变化 → 重算哈希，不吃旧缓存
+    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nBBBB', 'utf-8')
+    const r2 = probeCachedRevision(root, rel)
+    expect(r2).toMatch(/^sha256:/)
+    expect(r2).not.toBe(r1)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

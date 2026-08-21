@@ -229,8 +229,9 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
     const store = openSessionStore(ctx.userDataPath, bookRoot)!
     try {
-      store.clearBook(params['name']!)
-      store.clearBook(bookHash(bookRoot))
+      // 低级项（第六轮）：双键单事务（clearBooks）——两次 clearBook 各自事务，
+      // 第二键失败时对话侧已提交、工作流侧残留，清除一半
+      store.clearBooks([params['name']!, bookHash(bookRoot)])
       reply(res, 200, { ok: true })
     } finally {
       store.close()

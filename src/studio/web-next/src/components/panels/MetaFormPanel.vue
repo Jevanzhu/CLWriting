@@ -187,7 +187,12 @@ watch(
 
 const saving = ref(false)
 async function onSave(): Promise<void> {
-  if (!entry.value || !ws.activeDocId || !kind.value) return
+  // 低级项（第六轮）：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
+  // 已切走，await 后重读会 refresh 他 doc（refresh 内部按当前书名拼路径，旧 docId + 新书
+  // 名 = 错文件）、「已保存」提示打在别的书上
+  const book = props.bookName
+  const docId = ws.activeDocId
+  if (!entry.value || !docId || !kind.value) return
   saving.value = true
   try {
     const meta: Record<string, unknown> = {}
@@ -199,9 +204,9 @@ async function onSave(): Promise<void> {
     }
     // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
     // 此前在此手动 patch 回 body 的守卫已下沉到 doc store
-    await updateDocMeta(props.bookName, ws.activeDocId, meta)
-    await doc.refresh(ws.activeDocId)
-    ui.toast('已保存', 'success')
+    await updateDocMeta(book, docId, meta)
+    if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
+    if (props.bookName === book) ui.toast('已保存', 'success')
   } catch (err) {
     ui.toast(friendlyError(err), 'error')
   } finally {

@@ -7,7 +7,7 @@
  * 幂等：工作目录骨架已存在则复用；同名书已登记则报冲突不覆盖。
  */
 
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
 import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName } from './books.js'
@@ -61,12 +61,19 @@ export function doInit(opts: InitOptions): InitResult {
     return { ok: false, reason: `工作目录不能放在 git 仓库里：${gitAncestor}。请换一个非 git 目录再 init。` }
   }
 
-  // 幂等检查：同名书已登记或目录已存在 → 拒绝覆盖
-  if (existsSync(bookRoot) && readdirSync(bookRoot).length > 0) {
-    return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
-  }
+  // 幂等检查：同名书已登记或目录已存在 → 拒绝覆盖。
+  // 低级项（第六轮）：目录存在但「未登记 + 有骨架 + 正文零 .md」判为上次 init 在
+  // scaffold 与登记之间崩掉的半成品——复跑幂等 scaffold（覆盖自身占位）续走登记，
+  // 不再把用户卡死在「换个书名或先清空它」。
   const existingBooks = readBooks(workDir)
-  if (existingBooks.some((b) => b.name === bookName)) {
+  const registered = existingBooks.some((b) => b.name === bookName)
+  if (existsSync(bookRoot) && readdirSync(bookRoot).length > 0) {
+    if (registered || !isResumableHalfScaffold(bookRoot)) {
+      return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
+    }
+    // 半成品 → 落到下方 scaffold 复跑（幂等覆盖自身占位，正文零文件无用户内容可损失）
+  }
+  if (registered) {
     return { ok: false, reason: `已有一本叫「${bookName}」的书` }
   }
 
@@ -101,6 +108,31 @@ export function doInit(opts: InitOptions): InitResult {
 /** 步骤 5：工作目录骨架（非 git，幂等——已存在则复用）。 */
 function scaffoldWorkDir(workDir: string): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
+}
+
+/**
+ * 低级项（第六轮）：半成品 scaffold 判定。
+ * 判据：有 book.yaml（我们的骨架签名，区分用户自建目录）且 写作/正文 下零 .md
+ * （正文是唯一不可再生区——零文件即无用户内容可损失；骨架其余占位均幂等可重建）。
+ */
+function isResumableHalfScaffold(bookRoot: string): boolean {
+  if (!existsSync(join(bookRoot, 'book.yaml'))) return false
+  return countMarkdownFiles(join(bookRoot, '写作', '正文')) === 0
+}
+
+function countMarkdownFiles(dir: string): number {
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return 0 // 目录不存在（崩得更早）→ 按零文件计
+  }
+  let n = 0
+  for (const e of entries) {
+    if (e.isDirectory()) n += countMarkdownFiles(join(dir, e.name))
+    else if (e.name.endsWith('.md')) n += 1
+  }
+  return n
 }
 
 /** 把字符串数组收敛为合法扩展账本类（剔除基础类/未知类/去重）。 */

@@ -8,6 +8,7 @@
  */
 import { join } from 'node:path'
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { isWithinRoot } from '../fs/safe-path.js'
 
 /** 可搜目录全集（相对 bookRoot） */
 export const SEARCH_ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']
@@ -54,7 +55,7 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   for (const dir of dirs) {
     const abs = join(bookRoot, dir)
     if (!existsSync(abs)) continue
-    for (const fp of walkMd(abs)) {
+    for (const fp of walkMd(abs, bookRoot)) {
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
       const rel = fp.slice(bookRoot.length + 1).split('\\').join('/')
@@ -88,8 +89,11 @@ function searchFile(fp: string, lower: string): SearchMatch[] {
 /**
  * 递归列目录下所有 .md。
  * 排除点前缀系统目录与 node_modules / 导出（V-P2-25）。
+ * 低级项（第六轮）：递归前用 isWithinRoot（realpath 双侧比对）校验——书内一个指向
+ * 书根外的符号链接（目录或 .md）原先会被跟随，全书检索越出 bookRoot 读到外部文件
+ * （命中内容还会注入 AI 提示词）。越界 symlink 直接跳过。
  */
-function walkMd(dir: string): string[] {
+function walkMd(dir: string, bookRoot: string): string[] {
   const out: string[] = []
   const walk = (d: string): void => {
     let entries: string[]
@@ -107,6 +111,7 @@ function walkMd(dir: string): string[] {
       } catch {
         continue
       }
+      if (!isWithinRoot(bookRoot, p)) continue // 越界 symlink 跳过（fail-closed）
       if (s.isDirectory()) walk(p)
       else if (name.endsWith('.md')) out.push(p)
     }

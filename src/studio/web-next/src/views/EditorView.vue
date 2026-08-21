@@ -3,7 +3,7 @@
 // 巨石批 7b 拆分：顶栏整卡 → components/editor/EditorDocHead（标题编辑 v-model 双向），
 // AI 辅助指令表/执行器 → composables/useAiAssist（顶栏按钮与右键菜单双消费）；
 // 本文件留正文编辑（CmHost/正文 fm 剥离）、右键菜单、自动保存与文档打开编排。
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { PenLine } from 'lucide-vue-next'
 import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
@@ -150,20 +150,18 @@ async function onCtxSelect(key: string): Promise<void> {
   }
 }
 
-watch(
-  () => ws.pendingInsert,
-  (p) => {
-    if (!p) return
-    // P2-21：仅插入成功才消费，防无编辑器时文本静默丢失
-    // 第五轮：immediate——非编辑器视图下的点击信号在挂载后补消费（此前挂载晚于
-    // 赋值 + 同值赋值不触发，同名设定永远插不进正文）
-    if (cmHost.value) {
-      cmHost.value.insertText(p.text)
-      ws.consumeInsert()
-    }
-  },
-  { immediate: true },
-)
+// P2-21：仅插入成功才消费，防无编辑器时文本静默丢失。
+// 低级项（第六轮）：immediate 的回调在 setup 期执行时 cmHost 必为 null（模板 ref 未挂），
+// 「挂载后补消费」实际不达——挂载时（onMounted）与 doc 异步打开落位后（nextTick）各补一次
+function tryConsumeInsert(): void {
+  const p = ws.pendingInsert
+  if (!p) return
+  if (cmHost.value) {
+    cmHost.value.insertText(p.text)
+    ws.consumeInsert()
+  }
+}
+watch(() => ws.pendingInsert, () => tryConsumeInsert(), { immediate: true })
 
 watch(
   // CC-P1-4：同时挂 docId 和 tree.byDocId——恢复持久化 activeDocId 时 getBookPrefs（快）
@@ -178,6 +176,9 @@ watch(
     // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
     try {
       await doc.open(node)
+      // 低级项（第六轮）：doc 落位渲染出 CmHost 后补消费挂起中的插入信号
+      //（挂载时 entry 尚空 → onMounted 那次消费不到，此后同值不再触发 watch）
+      void nextTick().then(() => tryConsumeInsert())
     } catch (err) {
       ui.toast(friendlyError(err), 'error')
     }
@@ -198,6 +199,8 @@ function startTimer(): void {
 onMounted(() => {
   startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
+  // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
+  tryConsumeInsert()
 })
 watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {

@@ -45,7 +45,9 @@ function channel(id: string): Channel {
 }
 
 function push(id: string, ev: DriverEvent): void {
-  const ch = channel(id)
+  // 低级项（第六轮）：dispose 后的迟到 emit 不复活已删除的 channel（微量资源残留）
+  const ch = channels.get(id)
+  if (!ch) return
   if (ch.consumers.size === 0) {
     // 无消费者：仅 session 建立后首个消费者可接管前暂存；已被接管过则丢弃
     // （SSE 有 sync 快照兜底，重连不重放历史）
@@ -82,6 +84,8 @@ export const mockDriver: StudioDriver = {
   },
 
   async *stream(session: Session): AsyncIterable<DriverEvent> {
+    // 低级项（第六轮）：已 dispose 的会话不再建 channel（防复活 Map 残留）
+    if (session.closed) return
     const ch = channel(session.id)
     const consumer: Consumer = { queue: [], notify: null }
     ch.consumers.add(consumer)
@@ -118,8 +122,9 @@ export const mockDriver: StudioDriver = {
         }
       }
       channels.delete(session.id)
-      sessions.delete(session.id)
     }
+    // 低级项（第六轮）：sessions 注销移出 if(ch)——channel 缺席（理论路径）也不留登记
+    sessions.delete(session.id)
   },
 
   emit(session: Session, ev: DriverEvent): void {
@@ -133,4 +138,9 @@ export const mockDriver: StudioDriver = {
   unregisterCtrl(): void {
     // 同 registerCtrl：mock 无登记，注销亦 noop
   },
+}
+
+/** 测试钩子：活跃 channel / session 条目数（验证 dispose 后迟到 emit 不复活 Map 残留） */
+export function debugCounts(): { channels: number; sessions: number } {
+  return { channels: channels.size, sessions: sessions.size }
 }

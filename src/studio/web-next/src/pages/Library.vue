@@ -9,20 +9,31 @@ const hasDesktop = !!window.clwritingDesktop
 const current = ref<string | null>(null)
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
+// 低级项（第六轮）：IPC 失败不再永久「加载中…」——错误态 + 重试出口
+const loadError = ref<string | null>(null)
 
-onMounted(async () => {
+async function load(): Promise<void> {
   if (!hasDesktop) {
     loading.value = false
     return
   }
-  const [cur, rec] = await Promise.all([
-    window.clwritingDesktop!.getCurrentLibrary(),
-    window.clwritingDesktop!.getRecentLibraries(),
-  ])
-  current.value = cur
-  recents.value = rec
-  loading.value = false
-})
+  loading.value = true
+  loadError.value = null
+  try {
+    const [cur, rec] = await Promise.all([
+      window.clwritingDesktop!.getCurrentLibrary(),
+      window.clwritingDesktop!.getRecentLibraries(),
+    ])
+    current.value = cur
+    recents.value = rec
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => void load())
 
 // 选择目录（弹原生选择器；含非书库目录二次确认新建流程 → relaunch）
 async function chooseLibrary(): Promise<void> {
@@ -66,6 +77,10 @@ function openDir(): void {
       <div v-if="loading" class="lib-status">加载中…</div>
       <div v-else-if="!hasDesktop" class="lib-status">
         <p>书库管理仅在桌面版可用。</p>
+      </div>
+      <div v-else-if="loadError" class="lib-status">
+        <p>书库信息加载失败：{{ loadError }}</p>
+        <button class="btn" @click="void load()">重试</button>
       </div>
       <template v-else>
         <section v-if="current" class="current-card">

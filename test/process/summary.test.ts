@@ -81,7 +81,8 @@ describe('generateChapterSummary（C1 批 2）', () => {
     const raw = readFileSync(fp, 'utf-8')
     expect(raw).toContain(`chapter: 1`)
     expect(raw).toContain(`sourceHash: ${computeRevision(bodyOf(root, 1))}`)
-    expect(raw).toContain('model: summary-chapter')
+    // 低级项（第六轮）：model 落实际值（mock 快路无模型 → 'unknown'，不再是占位符）
+    expect(raw).toContain('model: unknown')
     expect(raw).toContain('情节推进') // mock 产出三行结构
   })
 

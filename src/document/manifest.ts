@@ -105,6 +105,20 @@ export function finalizedPathSet(bookRoot: string): Set<string> | null {
   return set
 }
 
+/** 已定稿章号集合（低级项·第六轮：assembleStatus currentChapter 口径收口的共享判定）：
+ *  文档条目且有 finalizedRevision（曾定稿）→ 按文件名前缀数值取章号（定稿改名 3/4 位
+ *  补零均命中，与 state.ts skipFinalizedChapters 同一口径）。 */
+export function finalizedChapterNumbers(m: Manifest): Set<number> {
+  const out = new Set<number>()
+  for (const e of m.entries.values()) {
+    if (e.nodeType !== 'document' || !e.finalizedRevision) continue
+    const base = e.path.split('/').pop() ?? ''
+    const g = base.match(/^(\d+)-/)
+    if (g) out.add(Number(g[1]))
+  }
+  return out
+}
+
 export function upsertEntry(manifest: Manifest, entry: ManifestEntry): void {
   manifest.entries.set(entry.id, entry)
 }

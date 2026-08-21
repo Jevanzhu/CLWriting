@@ -17,7 +17,7 @@ import { compactHistory } from '../../prompts/compaction.js'
 import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../prompts/checkpoint.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import type { ChatOpts } from '../chat.js'
-import { emit, histories, msgSeqMap, type ChatRunState } from './state.js'
+import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState } from './state.js'
 
 const MAX_HISTORY_TURNS = 10
 
@@ -49,8 +49,8 @@ export function finishTurn(
 
 // ── 收尾压缩（B1+B2 升级 F1-P1 的 trim 遮蔽点） ──────
 
-// B2：压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）
-const compactionSuppressed = new Set<string>()
+// B2 压缩抑制标记：低级项（第六轮）挪至 state.ts（与 histories 同生命周期，
+// LRU 逐出/清空时一并清理）
 
 /**
  * checkpoint 摘要调用（B2，KV-cache 友好形态）：同一 system + tools + 待压前缀原样重放，

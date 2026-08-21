@@ -80,6 +80,23 @@ describe('Anthropic 适配器', () => {
     expect(tool).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x', 正文: 'y' } })
   })
 
+  // 低级项（第六轮）：兼容端点不发 tool_use id → 按 block index 生成兜底（空 id 进
+  // 历史会被 tool_result 关联拒绝；对齐 OpenAI 线 P3-Q5 的 call_ 兜底）
+  it('低级项：tool_use 缺 id → 兜底 toolu_<index>，不留空串', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'submit_chapter' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'tool_use' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    const tool = evs.find((e) => e.type === 'tool')
+    expect(tool).toMatchObject({ type: 'tool', id: 'toolu_0', name: 'submit_chapter' })
+  })
+
   it('tool JSON 损坏 → input 降级 { _raw }，不崩', async () => {
     const client = {
       messages: {

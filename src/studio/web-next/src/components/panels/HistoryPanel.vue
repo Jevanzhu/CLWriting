@@ -81,6 +81,9 @@ watch(() => [ws.activeDocId, props.bookName], load, { immediate: true })
 watch(() => current.value?.savedAt, load)
 
 async function onRestore(e: SnapshotEntry): Promise<void> {
+  // 低级项（第六轮）：上下文入口捕获——确认弹窗 await 期间可切书/切文档，
+  // await 后重读 props.bookName 会把恢复请求发到别的书（docId 是旧书的）
+  const book = props.bookName
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
@@ -91,11 +94,12 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     danger: true,
   })
   if (!ok) return
+  if (props.bookName !== book || ws.activeDocId !== docId) return
   restoring.value = e.id
   try {
-    await restoreSnapshot(props.bookName, docId, e.id, cur.baselineRevision)
-    await doc.refresh(docId)
-    ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
+    await restoreSnapshot(book, docId, e.id, cur.baselineRevision)
+    if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
+    if (props.bookName === book) ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
     await load()
   } catch (error) {
     ui.toast(friendlyError(error), 'error')

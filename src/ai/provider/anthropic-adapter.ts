@@ -226,7 +226,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             case 'content_block_start': {
               const block = event.content_block
               if (block.type === 'tool_use') {
-                toolBlocks.set(event.index, { id: block.id ?? '', name: block.name, jsonBuf: '' })
+                // 低级项（第六轮）：非官方兼容端点可能不发 id——空 id 进历史会被
+                // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线 P3-Q5）
+                toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
               }
               break
             }

@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus, formatStatus } from '../../process/assemble.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
+import { readManifest, finalizedChapterNumbers } from '../../document/manifest.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>): ToolResult {
@@ -27,7 +28,14 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     // （书级未设回落 global.json → 硬编码，与 overview 喂 detectState 同一口径）；
     // 第三参不传，assembleStatus 缺省即从该键收口——工具上下文 userDataPath 由 chat
     // 编排传入（executeChatTool 构造 ToolContext），链路可达
-    const snapshot = assembleStatus(db, applyGlobalDefaults(cfg.config, ctx.userDataPath))
+    // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿），
+    // 与判态/近况复述/备料同口径
+    const snapshot = assembleStatus(
+      db,
+      applyGlobalDefaults(cfg.config, ctx.userDataPath),
+      undefined,
+      finalizedChapterNumbers(readManifest(join(ctx.bookRoot, '项目', '文档清单.jsonl'))),
+    )
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {
     return { ok: false, summary: '读取章节状态失败：' + (e instanceof Error ? e.message : String(e)) }

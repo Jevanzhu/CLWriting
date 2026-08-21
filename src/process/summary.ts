@@ -169,7 +169,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
       '---',
       `chapter: ${chapter}`,
       `generatedAt: ${new Date().toISOString()}`,
-      'model: summary-chapter',
+      // 低级项（第六轮）：占位符 'summary-chapter' 换成实际模型 id（TaskOk.model 透出；
+      // mock 快路无模型 → 'unknown'），留痕可追溯到生成源
+      `model: ${out.model ?? 'unknown'}`,
       `sourceHash: ${sourceHash}`,
       '---',
       '',
@@ -421,7 +423,8 @@ export async function generateVolumeSummary(opts: {
     '---',
     `volume: ${volume}`,
     `generatedAt: ${new Date().toISOString()}`,
-    'model: summary-volume',
+    // 低级项（第六轮）：占位符 'summary-volume' 换成实际模型 id（mock 快路 → 'unknown'）
+    `model: ${out.model ?? 'unknown'}`,
     `sourceHash: ${fingerprint}`,
     '---',
     '',

@@ -68,6 +68,7 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
       ctrl: new AbortController(),
       usage: null,
       runId: 'rb-ai-p1-1',
+      model: null,
     })
     const r = await rewriteChapter(ctx(), { chapter: 1, instruction: '压缩' })
     expect(r.ok).toBe(true)
@@ -88,6 +89,7 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
       ctrl: new AbortController(),
       usage: null,
       runId: 'rb-ai-p1-1',
+      model: null,
     })
     const r = await rewriteSelection(ctx(), {
       chapter: 1,

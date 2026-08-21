@@ -46,7 +46,15 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     log.warn('migrate-finalized-revision', `git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
     return 0
   }
-  const dirty = new Set(porcelain.split('\n').filter(Boolean).map((l) => l.slice(3)))
+  // 低级项（第六轮）：porcelain 路径归一后再入脏集——git 对含空格/非 ASCII 的路径加
+  // C 风格引号转义（`"a b/c.md"`），rename 行是 `old -> new` 形；manifest 路径是正斜杠
+  // 无引号，原先直接 has 比对会整段失配（脏文件漏判 clean → 误标 final 断写，本文件红线）
+  const dirty = new Set(
+    porcelain
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => normalizePorcelainPath(l.slice(3))),
+  )
 
   let updated = 0
   const nowIso = new Date().toISOString()
@@ -62,4 +70,36 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   }
   if (updated > 0) writeManifest(manifestPath, manifest)
   return updated
+}
+
+/**
+ * 低级项（第六轮）：porcelain 行路径归一。
+ * - 引号段：git 对含空格/非 ASCII/引号的路径整体 C 风格转义（`\"` `\\` `\t` `\n`
+ *   及八进制）——按 git core.quotePath 语义解回字面路径；
+ * - rename 行：`R  old -> new` 取箭头后的现路径（盘上现存的是它，脏判定应对它做）。
+ */
+function normalizePorcelainPath(raw: string): string {
+  let p = raw
+  const arrow = p.indexOf(' -> ')
+  if (arrow >= 0) p = p.slice(arrow + 4)
+  if (p.startsWith('"') && p.endsWith('"') && p.length >= 2) {
+    const body = p.slice(1, -1)
+    let out = ''
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i]!
+      if (c !== '\\') {
+        out += c
+        continue
+      }
+      const n = body[++i]
+      if (n === undefined) break
+      if (n === 'n') out += '\n'
+      else if (n === 't') out += '\t'
+      else if (n === '\\') out += '\\'
+      else if (n === '"') out += '"'
+      else out += n // 八进制 \nnn 等罕见转义按字面收（比整段失配好）
+    }
+    return out
+  }
+  return p
 }

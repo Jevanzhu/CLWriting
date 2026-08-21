@@ -24,7 +24,9 @@ import { log } from '../log/index.js'
 
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
- *  丢他键」的窗口越小）；失败不标记，下次 persistDegraded 自动重试。 */
+ *  丢他键」的窗口越小）；失败不标记，下次 persistDegraded 自动重试。
+ *  低级项（第六轮）留档不修：键空间 = userDataPath × 模型数（桌面单库个位数、测试进程
+ *  tmp 目录数），非书维度、天然有界，不设生命周期清理。 */
 const degradedPersistedKeys = new Set<string>()
 
 /** 未定位到应用数据目录（统一文案） */
@@ -50,6 +52,8 @@ export interface TaskOk<T> {
   usage: TokenUsage | null
   /** 本次调用的唯一标识（贯穿 trace/SSE/记账三路） */
   runId: string
+  /** 低级项（第六轮）：本次实际使用的模型 id（摘要 fm 等落盘留痕用；mock 快路为 null） */
+  model: string | null
 }
 
 export type TaskResult<T> = TaskOk<T> | TaskErr
@@ -280,14 +284,14 @@ export async function runTask<T>(opts: {
     if (mock) {
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
       finishMock()
-      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null, runId }
+      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null, runId, model: null }
     }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
   if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
     finishMock()
-    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, runId }
+    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, runId, model: null }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)
@@ -355,7 +359,7 @@ export async function runTask<T>(opts: {
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
-        return { ok: true, data, ctrl: external, usage, runId }
+        return { ok: true, data, ctrl: external, usage, runId, model: tier.model }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
         if (ctrl.signal.aborted) {

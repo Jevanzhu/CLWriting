@@ -42,6 +42,10 @@ export const msgSeqMap = new Map<string, number[][]>()
 // 仅成功回合激活（失败/中断的半截组已被遮蔽，激活会把续聊归因到幽灵组）；
 // 与 histories 同生命周期：LRU 逐出 / clearChatHistory 一并重置
 export const activeBranchByBook = new Map<string, string>()
+// B2：压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）。
+// 低级项（第六轮）：从 finish.ts 挪入并纳入同生命周期——原进程级 Set 无 LRU/清空挂钩，
+// 删书/换书后 suppress 标记残留（进程级无界，且幽灵标记会让复活书第一次溢出跳过摘要）
+export const compactionSuppressed = new Set<string>()
 const MAX_HISTORY_BOOKS = 8
 
 /** 取（或建）本书对话历史——命中重插（真 LRU，X-P2-24）。 */
@@ -61,6 +65,7 @@ export function getHistory(bookName: string): ChatMsg[] {
       histories.delete(oldest)
       msgSeqMap.delete(oldest)
       activeBranchByBook.delete(oldest)
+      compactionSuppressed.delete(oldest)
     }
   }
   const fresh: ChatMsg[] = []
@@ -76,13 +81,14 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
   activeBranchByBook.delete(bookName)
+  compactionSuppressed.delete(bookName)
   if (userDataPath && bookRoot) {
     // Y-P2-7：两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
-    // 此前只清前者，链路事件（step/llm/check）残留
+    // 此前只清前者，链路事件（step/llm/check）残留；
+    // 低级项（第六轮）：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）
     const store = openSessionStore(userDataPath, bookRoot)
     try {
-      store?.clearBook(bookName)
-      store?.clearBook(bookHash(bookRoot))
+      store?.clearBooks([bookName, bookHash(bookRoot)])
     } finally {
       store?.close()
     }
