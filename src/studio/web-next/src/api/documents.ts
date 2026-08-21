@@ -8,15 +8,36 @@ export async function getContent(name: string, path: string): Promise<string> {
   return data.content
 }
 
+// M-3（第六轮）：GET /file 附带字节指纹 revision——与 /documents 协议同源（服务端 hashFile）。
+// 编辑类调用方（如文风铁律卡）读时取走、存时回传，配合 putContent 的可选乐观锁。
+export async function getContentRevisioned(
+  name: string,
+  path: string,
+): Promise<{ content: string; revision: string }> {
+  return apiJson<{ content: string; revision: string }>(
+    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+  )
+}
+
 // PUT /file?file=<path> ← {content}（路径寻址写全文；文件须已存在）。
 // 用于无 docId 的资产文件（如 文风/文风铁律.md，撤出编辑树后在 SettingsModal 编辑）。
-export async function putContent(name: string, path: string, content: string): Promise<void> {
-  await apiJson<{ ok: true }>(
+// M-3：expectedRevision 可选——传入时服务端做乐观锁，基线不符抛 ApiError{code:'REVISION_CONFLICT'}；
+// 缺省保持旧「后写为准」语义（存量调用方零改动）。
+export async function putContent(
+  name: string,
+  path: string,
+  content: string,
+  expectedRevision?: string,
+): Promise<{ revision: string }> {
+  return apiJson<{ ok: true; revision: string }>(
     `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        content,
+        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
+      }),
     },
   )
 }

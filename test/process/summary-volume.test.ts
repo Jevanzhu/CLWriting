@@ -125,6 +125,34 @@ describe('C2 卷摘要按需生成', () => {
     // 第 1 卷写作中（章 1/2）→ 无上一卷
     expect(await selfHealVolumeSummary(root, null, config, 1)).toBeNull()
   })
+
+  // ── M-7（第六轮）：过期重生成在本挂点可达；手写产物不受侵扰 ──
+
+  it('M-7: 程序生成但链已变（章摘要更新）→ selfHealVolumeSummary 过期重生成', async () => {
+    const root = makeBook(2, 2)
+    const config = effectiveConfig(root, null)
+    await genChapterSummaries(root, config, [1, 2])
+    await selfHealVolumeSummary(root, null, config, 3) // 首次按需生成卷 1
+    const before = readFileSync(volumeSummaryPath(root, 1), 'utf8')
+    // 模拟章摘要重生成（链指纹变）——修复前此处因「文件存在」直接 return null，重生成不可达
+    writeFileSync(chapterSummaryPath(root, 1), '---\nchapter: 1\nsourceHash: 旧\n---\n新的第 1 章摘要内容。', 'utf-8')
+    const vol = await selfHealVolumeSummary(root, null, config, 3)
+    expect(vol).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+    const after = readFileSync(volumeSummaryPath(root, 1), 'utf8')
+    expect(after).not.toBe(before)
+    expect(after).toContain('sourceHash: sha256:') // 新链指纹落 fm
+  })
+
+  it('M-7: 手写卷摘要（无 sourceHash）→ 永不重生成，作者产物原样保留', async () => {
+    const root = makeBook(2, 2)
+    const config = effectiveConfig(root, null)
+    await genChapterSummaries(root, config, [1, 2])
+    const hand = '# 第 1 卷\n\n作者手写的卷摘要，一字不动。\n'
+    mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+    writeFileSync(volumeSummaryPath(root, 1), hand, 'utf-8')
+    expect(await selfHealVolumeSummary(root, null, config, 3)).toBeNull()
+    expect(readFileSync(volumeSummaryPath(root, 1), 'utf8')).toBe(hand)
+  })
 })
 
 describe('C3 细纲卷进展段', () => {

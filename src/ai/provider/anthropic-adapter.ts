@@ -274,10 +274,21 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
           }
         }
 
-        // 兜底：某些端点可能不推 message_delta usage → 用 message_start 缓存的 input_tokens
+        // 兜底（H-2 第六轮）：流结束未发 done 的两种情形必须分流——与 OpenAI 线 L5-1
+        // sawFinishReason / Responses 线 R1 同款契约：
+        // ① 到过 message_delta（stop_reason 已缓存）但无 usage → 网关完成不回 usage，
+        //    按 message_start 缓存的 input_tokens + 0 输出放行（0 成本是可得最优估计）；
+        // ② 连 message_delta 都没到 → 传输截断（中转/代理提前断流时 SDK 迭代器不抛错
+        //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
+        //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
+        //    被伪造成 end_turn 正常完成。
         if (!doneEmitted) {
-          const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, pendingStopReason ?? 'end_turn')
-          if (ev) yield ev
+          if (pendingStopReason !== null) {
+            const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, pendingStopReason)
+            if (ev) yield ev
+          } else {
+            yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
+          }
         }
       } catch (e) {
         yield toErrorEvent(e)

@@ -93,6 +93,74 @@ test('applyLeadUpdates: 无账本推进文件 → 0 且不清空', () => {
   }
 })
 
+// ── M-6（第六轮）：混合场景不静默丢弃查无此线的条目 ─────────────────────
+
+test('M-6: 一条成功 + 一条查无此线 → 成功的回写、查无的带警告写回源文件', () => {
+  const { root } = makeBook()
+  try {
+    writeFileSync(
+      join(root, '工作区', '账本推进.md'),
+      '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n- 悬念-999 递进：查无此线的证据。\n',
+      'utf-8',
+    )
+    const n = applyLeadUpdates(root, 3)
+    expect(n).toBe(1) // 成功条目已回写履历
+
+    // 成功条目确实落库
+    const r = readLead(join(root, '布线', '悬念', '悬念-001-灭门真凶.md'))
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.lead.履历).toEqual([{ 章号: 3, 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' }])
+
+    // 查无此线条目不再被整体清空吞掉：带警告写回，且保留本章章节标签
+    const after = readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')
+    expect(after).toContain('查无此线')
+    expect(after).toContain('- 悬念-999 递进：查无此线的证据。')
+    expect(after.startsWith('# 第3章 账本推进')).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('M-6: 归档场景（主文件属其他章）查无此线 → 残留写回归档而非删除', () => {
+  const { root } = makeBook()
+  try {
+    const main = join(root, '工作区', '账本推进.md')
+    const mainContent = '# 第5章 账本推进\n- 悬念-001 递进：第五章的证据。\n'
+    writeFileSync(main, mainContent, 'utf-8')
+    const archDir = join(root, '工作区', '.账本推进暂存')
+    mkdirSync(archDir, { recursive: true })
+    writeFileSync(join(archDir, '第3章.md'), '- 悬念-001 递进：好的证据。\n- 悬念-999 递进：查无此线。\n', 'utf-8')
+
+    expect(applyLeadUpdates(root, 3)).toBe(1)
+    // 其他章主文件不动；本章归档改写为警告残留（不删、不丢条目）
+    expect(readFileSync(main, 'utf-8')).toBe(mainContent)
+    const arch = readFileSync(join(archDir, '第3章.md'), 'utf-8')
+    expect(arch).toContain('查无此线')
+    expect(arch).toContain('- 悬念-999 递进：查无此线。')
+    expect(arch).not.toContain('- 悬念-001 递进：好的证据。') // 已兑现条目不再残留
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('M-6: 修好编号后再次定稿 → 残留条目自动重试回写（幂等链闭合）', () => {
+  const { root } = makeBook()
+  try {
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-999 递进：查无此线的证据。\n', 'utf-8')
+    applyLeadUpdates(root, 3) // applied=0，文件不动（X-P2-6 语义）
+    // 作者把编号改成真实存在的线
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：查无此线的证据。\n', 'utf-8')
+    const n = applyLeadUpdates(root, 3)
+    expect(n).toBe(1)
+    const r = readLead(join(root, '布线', '悬念', '悬念-001-灭门真凶.md'))
+    if (r.ok) expect(r.lead.履历).toEqual([{ 章号: 3, 动词: '递进', 证据: '查无此线的证据。' }])
+    // 全部回写完成 → 源文件清空
+    expect(readFileSync(join(root, '工作区', '账本推进.md'), 'utf-8')).toBe('')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 // ── X-P2-8：resolve/drop 动词落库同步派生条目状态 ────────────────────────
 
 /** 造一条成长线（进行中）——resolve 特判用 */

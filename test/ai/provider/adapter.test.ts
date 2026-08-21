@@ -109,6 +109,41 @@ describe('Anthropic 适配器', () => {
     expect(evs.filter((e) => e.type === 'done')).toHaveLength(1)
   })
 
+  // ── H-2（第六轮）：流结束兜底必须区分「有终止无 usage」与「传输截断」──
+
+  it('H-2：无 message_delta（传输截断）→ error 可重试，不发 done、不伪造 end_turn', async () => {
+    const client = {
+      messages: {
+        // 中转/代理提前断流的形态：yield 了半截文本后迭代器正常 return，无终止事件
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 7 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '半截' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    expect(evs.some((e) => e.type === 'done')).toBe(false) // 修复前：伪造 done{7,0,'end_turn'}
+    const err = evs.find((e) => e.type === 'error')
+    expect(err).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
+  })
+
+  it('H-2：有 message_delta（stop_reason）无 usage → done 放行（input 用 message_start 缓存）', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 7 } } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '回复' } },
+          { type: 'message_delta', delta: { stop_reason: 'max_tokens' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 0 }, stopReason: 'max_tokens' })
+    expect(evs.some((e) => e.type === 'error')).toBe(false)
+  })
+
   it('APIError 429 → error 事件 retryable=true', async () => {
     const err = new Anthropic.APIError(429, { type: 'error', message: 'rate limited' }, 'rate limited', undefined)
     const client = {

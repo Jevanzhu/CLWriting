@@ -109,20 +109,18 @@ export function buildAuditView(
     // 长书几万事件一次请求数十亿次比较，同步阻塞事件循环）；节点 seq 唯一，语义严格等价
     const shadowedSeqs = new Set<number>()
     for (const n of nodes) if (n.shadowed) shadowedSeqs.add(n.seq)
-    // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页
+    // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页。
+    // 低级项（第六轮）：先切片再投影——原 map 全量造投影对象后丢弃大半，长书每请求白造几万对象
     conversation = {
-      events: pageSlice(
-        convoEvents.map((e) => ({
-          seq: e.seq,
-          sessionId: e.sessionId,
-          type: e.type,
-          ...(e.surfaceOp !== undefined ? { surfaceOp: e.surfaceOp } : {}),
-          shadowed: shadowedSeqs.has(e.seq),
-          ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
-          data: e.data,
-        })),
-        paging,
-      ),
+      events: pageSlice(convoEvents, paging).map((e) => ({
+        seq: e.seq,
+        sessionId: e.sessionId,
+        type: e.type,
+        ...(e.surfaceOp !== undefined ? { surfaceOp: e.surfaceOp } : {}),
+        shadowed: shadowedSeqs.has(e.seq),
+        ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
+        data: e.data,
+      })),
       eventsTotal: convoEvents.length,
       modelVisible: nodes
         .filter((n) => !n.shadowed)
@@ -132,20 +130,17 @@ export function buildAuditView(
     }
   }
 
-  // 写作工作流（book = bookHash）：step/llm-call 链路事件
+  // 写作工作流（book = bookHash）：step/llm-call 链路事件（同上：先切片再投影）
   const wsEvents = store.listEvents(bookHash(bookRoot))
-  const workflowEvents: AuditEvent[] = pageSlice(
-    wsEvents.map((e) => ({
-      seq: e.seq,
-      sessionId: e.sessionId,
-      type: e.type,
-      ...(e.surfaceOp !== undefined ? { surfaceOp: e.surfaceOp } : {}),
-      shadowed: false,
-      ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
-      data: e.data,
-    })),
-    paging,
-  )
+  const workflowEvents: AuditEvent[] = pageSlice(wsEvents, paging).map((e) => ({
+    seq: e.seq,
+    sessionId: e.sessionId,
+    type: e.type,
+    ...(e.surfaceOp !== undefined ? { surfaceOp: e.surfaceOp } : {}),
+    shadowed: false,
+    ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
+    data: e.data,
+  }))
 
   // F5：goal/todo 当前态（goal/todo 事件随 self-heal 落工作流会话，重放即得）
   return { conversation, workflowEvents, workflowTotal: wsEvents.length, goals: foldGoals(wsEvents), todos: foldTodos(wsEvents) }

@@ -52,9 +52,17 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
   }
 
   let applied = 0
+  const unresolved: ChapterLeadUpdate[] = []
   for (const u of updates) {
     const leadFile = findLeadFile(dirs, u.leadId)
-    if (!leadFile) continue // 编号查无此线（作者手改/线已删）→ 跳过不崩
+    if (!leadFile) {
+      // M-6（第六轮）：查无此线不再随清空静默丢弃——此前混合场景（一条成功 + 一条查无）
+      // 下 applied>0 触发整体清空，被跳过的推进无 issue、无提示永久丢失，违反「不得
+      // 静默通过」红线（M5-C 同族）。改为写回本章源并留警告，作者可见可修，下次定稿
+      // 本章自动重试（回写按 章号+动词+证据 幂等）。
+      unresolved.push(u)
+      continue
+    }
     const { lead } = leadFile
     // 去重：同 章号+动词+证据 已在履历中（内容未变重复定稿）→ 跳过
     const dup = lead.履历.some(
@@ -74,26 +82,51 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
     applied++
   }
 
-  // 回写完成后清空本章源（作者已确认并落库，防重复追加）；其他章待确认内容保持原样
+  // 回写完成后清空本章源（作者已确认并落库，防重复追加）；其他章待确认内容保持原样。
+  // M-6：清空时查无此线的条目以警告形式写回本章源而非丢弃（residue 为空串 = 旧版清空；
+  // applied=0 时不动文件——纯未解析场景条目本就在盘上，作者原文原样保留，X-P2-6 语义不变）。
   if (applied > 0) {
+    const residue = unresolved.length > 0 ? unresolvedText(chapterNo, unresolved) : ''
     if (mainIsThisChapter && existsSync(mainPath)) {
       try {
         // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
         // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
-        atomicWriteFile(mainPath, '', { fsync: true })
+        atomicWriteFile(mainPath, residue, { fsync: true })
       } catch {
         /* 清空失败不阻断定稿主流程 */
       }
-    }
-    if (existsSync(archivePath)) {
+      if (existsSync(archivePath)) {
+        try {
+          rmSync(archivePath, { force: true })
+        } catch {
+          /* 归档清理失败不阻断定稿主流程 */
+        }
+      }
+    } else if (existsSync(archivePath)) {
+      // 主文件载有其他章待确认内容（X-P2-6）——主文件不动；本章归档全兑现则删，
+      // 有查无此线残留则改写为警告文本（不丢条目）
       try {
-        rmSync(archivePath, { force: true })
+        if (residue) atomicWriteFile(archivePath, residue, { fsync: true })
+        else rmSync(archivePath, { force: true })
       } catch {
-        /* 归档清理失败不阻断定稿主流程 */
+        /* 同上：失败不阻断定稿主流程 */
       }
     }
   }
   return applied
+}
+
+/** M-6：查无此线条目的写回文本——保住章节标签（chapterUpdateSources 仍归本章）+
+ *  警告注释（非列表行，不会被 parseLeadUpdateLines 当推进条目）+ 原条目行。 */
+function unresolvedText(chapterNo: number, unresolved: ChapterLeadUpdate[]): string {
+  const lines = unresolved.map((u) => `- ${u.leadId} ${u.动词}：${u.证据}`)
+  return (
+    `# 第${chapterNo}章 账本推进\n\n` +
+    `<!-- 以下 ${unresolved.length} 条未回写：编号在布线/大纲中查无此线（线索可能已被删除，或编号有误）。\n` +
+    `     修正编号或恢复线索文件后，下次定稿本章会自动重试回写。 -->\n` +
+    lines.join('\n') +
+    '\n'
+  )
 }
 
 /** 按 编号 在候选目录中找账本条目文件（无则 null）。 */

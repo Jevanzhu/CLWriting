@@ -231,6 +231,17 @@ export function exportBook(options: ExportOptions): ExportResult {
     const template = SUBMISSION_TEMPLATES[platform]
     const platformSuffix = template && platform !== 'generic' ? `-${template.label}` : ''
     const submissionName = `投稿视图-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength(`投稿视图-${platformSuffix}.md`))}${platformSuffix}.md`
+    // 低级项（第六轮）：投稿视图旧产物清理（对齐「全本-」第五轮口径）——书改名后旧
+    // 「投稿视图-旧名…」残留会让作者拿错稿。只清当前平台槽位：其他平台产物是
+    // 有意保留的多平台视图，不互删
+    const otherPlatformSuffixes = Object.entries(SUBMISSION_TEMPLATES)
+      .filter(([k]) => k !== 'generic' && k !== platform)
+      .map(([, t]) => `-${t.label}.md`)
+    for (const old of readdirSync(exportDir)) {
+      if (!old.startsWith('投稿视图-') || !old.endsWith('.md') || old === submissionName) continue
+      if (otherPlatformSuffixes.some((s) => old.endsWith(s))) continue
+      try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
+    }
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）
     const exportableNums = new Set(exportable.map((u) => u.num))
     const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))

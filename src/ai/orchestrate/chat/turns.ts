@@ -36,6 +36,13 @@ const READ_CHAPTER_MAX_CHARS = 20_000
 const READ_CHAPTER_HEAD_CHARS = 12_000
 const READ_CHAPTER_TAIL_CHARS = 6_000
 
+/** M-1（第六轮）：注册表工具里做嵌套 AI 生成且按章记账的三件——与 self-heal 互斥面。
+ *  calls.ts 的章预算块按「同书同时只有一路生成」记账（其头注释前提），write_chapter
+ *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配：并发时两编排以不同章号交替
+ *  调 recordAiCall，章号互覆把对方账块 fresh 重置清零——used/tokens/cost 三口径全部
+ *  低估，预算闸（防自动写章烧钱的那道）被绕过。 */
+const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
+
 // ── 等确认 ────────────────────────────────────────
 
 /** 等作者确认（导出供单测验证 abort 释放语义）。 */
@@ -75,6 +82,10 @@ async function executeChatTool(
     // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
     const executor = TOOL_EXECUTORS[call.name]
     if (executor) {
+      // M-1（第六轮）：嵌套 AI 生成 + 章记账的工具与 self-heal 互斥（write_chapter 同款闸）
+      if (AI_GEN_TOOLS.has(call.name) && isSelfHealRunning(opts.bookName)) {
+        return { ok: false, summary: '本书正在全自动写章，无法同时改写或生成账本推进——请等本轮写完再试。' }
+      }
       const tctx: ToolContext = {
         bookRoot: opts.bookRoot,
         bookName: opts.bookName,

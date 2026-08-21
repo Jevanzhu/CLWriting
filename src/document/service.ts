@@ -48,6 +48,27 @@ const NON_UTF8_REJECT = {
   reason: '检测到非 UTF-8 编码（正文含 U+FFFD 替换字符）：为防写回损坏原文，请先将该文件转为 UTF-8 再修改元数据',
 }
 
+/** M-5（第六轮）：save 主路径同款防线（含 autosave）——编辑器打开 GBK 文件显示乱码后
+ *  autosave 存回，乱码正文同样原子覆盖原文件；且设定/大纲等非 chapter 文档无快照
+ *  兜底（maybeSnapshot 只留底章文档），一旦覆盖原始字节无版本可恢复。
+ *  判据用「盘上字节是否合法 UTF-8」（fatal 解码探测）而非「盘上是否已含 U+FFFD」：
+ *  GBK 文件以 utf-8 读入本就产生 U+FFFD，后者会把最该拦的场景判成放行。盘上为合法
+ *  UTF-8（含作者真实键入的 � 字符）时不受影响——那是普通编辑，无字节可毁。 */
+function isUtf8Bytes(buf: Buffer): boolean {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const NON_UTF8_SAVE_REJECT = {
+  ok: false as const,
+  code: 'WRITE_ERROR' as const,
+  reason: '检测到非 UTF-8 文件（保存内容含 U+FFFD 替换字符且原文件不是合法 UTF-8）：可能是编辑器以错误编码打开了本文件，为防乱码覆盖原文已拒绝保存——请先将文件转为 UTF-8 再编辑',
+}
+
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
   content: string
@@ -251,6 +272,14 @@ export class DocumentService {
         ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
         : `期望基线 ${input.expectedRevision} 但文件不存在`
       return Promise.resolve({ ok: false, code: 'REVISION_CONFLICT', reason })
+    }
+
+    // M-5（第六轮）：非 UTF-8 覆写防线（save 主路径含 autosave）——新内容含 U+FFFD 且
+    // 盘上字节不是合法 UTF-8（fatal 解码探测）时拒绝：GBK 文件被错误编码打开后 autosave
+    // 把乱码原子覆盖回原文件，设定/大纲等非 chapter 文档无快照兜底（maybeSnapshot 只留
+    // 底章），原始字节永久丢失。盘上为合法 UTF-8 时放行（含真实 � 字符的普通编辑）。
+    if (existing && input.content.includes('\uFFFD') && !isUtf8Bytes(readFileSync(absPath))) {
+      return Promise.resolve(NON_UTF8_SAVE_REJECT)
     }
 
     // 步骤 4：journal pending（含全文快照，防丢字）

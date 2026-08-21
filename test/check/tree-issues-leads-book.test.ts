@@ -12,7 +12,7 @@
  * 章作用域检查（两端闭合等）。本文件锁两个方向：假红消除 + 漏红消除。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -183,6 +183,28 @@ describe('collectTreeIssues 账本全书性红项（H-1 跨章陈旧修复）', 
       expect(r.issues[docIds[1]!]).toBeUndefined()
       expect(r.issues[docIds[2]!]).toBeUndefined()
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('低级项（第六轮）：章文件在但读失败（权限）→ 不崩三检，落 unverifiable 黄项', () => {
+    const { root } = makeBook(true)
+    const ch2 = join(root, '写作', '正文', '002-第2章.md')
+    try {
+      collectTreeIssues(root, () => undefined) // 建库（缓存/布线），文件此刻可读
+      chmodSync(ch2, 0o000) // 读侧故障模拟：findChapterFile 找得到、readFileSync 抛 EACCES
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'), { readOnly: true })
+      try {
+        // 修复前：chapterTextOf 的裸 readFileSync 把 EACCES 上抛，整个三检 500
+        const items = checkLeadsBookItems(db, root, 3, ['悬念'])
+        const unverifiable = items.filter((i) => i.checkId === 'lead-evidence-unverifiable')
+        expect(unverifiable).toHaveLength(1)
+        expect(items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(false)
+      } finally {
+        db.close()
+      }
+    } finally {
+      chmodSync(ch2, 0o644)
       rmSync(root, { recursive: true, force: true })
     }
   })

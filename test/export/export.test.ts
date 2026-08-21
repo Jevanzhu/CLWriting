@@ -173,6 +173,30 @@ test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
   }
 })
 
+// 低级项（第六轮）：投稿视图旧产物清理（对齐「全本-」第五轮口径）——书改名后同槽位
+// 旧文件残留会让作者拿错稿；其他平台产物是有意保留的多平台视图，不互删
+test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平台产物保留', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-subm-clear-'))
+  const writeCfg = (title: string): void => {
+    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+  }
+  writeCfg('旧名书')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' }) // generic 槽位：投稿视图-旧名书.md
+    exportBook({ bookRoot: root, format: 'merged', platform: 'wechat' }) // 公众号槽位：投稿视图-旧名书-公众号.md
+    writeCfg('新名书')
+    exportBook({ bookRoot: root, format: 'merged' }) // generic 槽位：投稿视图-新名书.md
+    const names = readdirSync(join(root, '工作区', '导出')).filter((f) => f.startsWith('投稿视图-'))
+    expect(names).toContain('投稿视图-新名书.md')
+    expect(names).not.toContain('投稿视图-旧名书.md') // 同槽位旧产物已清（拿错稿防线）
+    expect(names).toContain('投稿视图-旧名书-公众号.md') // 他平台产物有意保留，不互删
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 // ── 空正文边界 ──────────────────────────────────
 
 test('exportBook: 无定稿目录 → ok:false', () => {

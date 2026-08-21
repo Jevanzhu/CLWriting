@@ -172,7 +172,7 @@ export function prepare(
     ...buildLedgerSection(db, chapterLeadIds),
     ...buildStyleSections(bookRoot, config, scenes),
     ...buildEndingsSections(db, bookRoot, snapshot, injectedSummaryFiles),
-    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText),
+    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText, injectedSummaryFiles),
   ]
 
   const trimLog: string[] = []
@@ -209,7 +209,7 @@ function buildEndingsSections(
         const raw = readFileSync(r.path, 'utf-8').trim()
         const split = splitFrontMatter(raw)
         parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
-        injectedSummaryFiles.push(relative(bookRoot, r.path))
+        injectedSummaryFiles.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
       }
     }
     if (parts.length > 0) {
@@ -362,6 +362,7 @@ function buildOutlookSections(
   snapshot: ReturnType<typeof assembleStatus>,
   chapterLeadIds: string[],
   ragRecallText?: string,
+  injectedSummaryFiles: string[] = [],
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
@@ -369,12 +370,17 @@ function buildOutlookSections(
   if (snapshot.currentVolume > 1) {
     const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${snapshot.currentVolume - 1}.md`)
     if (existsSync(volSummaryPath)) {
+      // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
+      // 是元数据非内容）——与近章结尾同口径；注入文件登记（promptMeta.files 可回溯）
+      const raw = readFileSync(volSummaryPath, 'utf-8').trim()
+      const split = splitFrontMatter(raw)
       sections.push({
         title: `第${snapshot.currentVolume - 1}卷摘要`,
-        content: readFileSync(volSummaryPath, 'utf-8').trim(),
+        content: (split ? split.body : raw).trim(),
         essential: false,
         flexibleRank: 3,
       })
+      injectedSummaryFiles.push(relative(bookRoot, volSummaryPath).replace(/\\/g, '/'))
     }
   }
 

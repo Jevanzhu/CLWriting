@@ -98,6 +98,9 @@ export function useChatComposer(
   }
 
   async function handleClear(): Promise<void> {
+    // M-8（第六轮）：书名入口捕获——确认弹窗 await 期间书可能已切换（弹窗可跨书滞留）。
+    // 弹窗按发起时的书提问，确认时已不在该书 → 中止：不删错书的服务端历史、不清错书的前端对话区
+    const book = bookName()
     // CC-P2-16：清空连服务端历史一起删（不可恢复）——danger 二次确认后才执行
     const ok = await useUiStore().ask({
       title: '清空对话',
@@ -106,15 +109,17 @@ export function useChatComposer(
       danger: true,
     })
     if (!ok) return
+    if (bookName() !== book) return
     if (chat.running) await stopChat()
     // dd-P3：失败即中止本地清空并提示——否则前端显示已清、事件库保留，刷新后旧对话复活
     try {
-      await clearChatHistory(bookName())
+      await clearChatHistory(book)
     } catch (e) {
       useUiStore().toast(friendlyError(e), 'error')
       return
     }
-    chat.clear()
+    // 清除请求在途切书 → 本地不清（B 书历史刚由切书流程恢复，clear 会把它清掉）
+    if (bookName() === book) chat.clear()
   }
 
   return {

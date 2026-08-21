@@ -5,7 +5,7 @@ import { SlidersHorizontal, Snowflake } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { usePrefsStore } from '../../stores/prefs'
 import { useUiStore } from '../../stores/ui'
-import { getContent, putContent } from '../../api/documents'
+import { getContentRevisioned, putContent } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
@@ -56,6 +56,8 @@ const RULES_PATH = '文风/文风铁律.md'
 const editingRules = ref(false)
 const rulesText = ref('')
 const rulesOrig = ref('')
+// M-3（第六轮）：读时取走字节指纹、存时回传——双窗口并发编辑铁律不再静默后写覆盖先写
+const rulesBaseRev = ref<string | null>(null)
 const rulesMissing = ref(false)
 const rulesSaving = ref(false)
 const rulesDirty = computed(() => rulesText.value !== rulesOrig.value)
@@ -66,13 +68,16 @@ async function toggleRulesEdit(): Promise<void> {
   }
   rulesMissing.value = false
   try {
-    rulesText.value = await getContent(props.bookName, RULES_PATH)
-    rulesOrig.value = rulesText.value
+    const r = await getContentRevisioned(props.bookName, RULES_PATH)
+    rulesText.value = r.content
+    rulesOrig.value = r.content
+    rulesBaseRev.value = r.revision
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {
       rulesMissing.value = true
       rulesText.value = ''
       rulesOrig.value = ''
+      rulesBaseRev.value = null
     } else {
       ui.toast(friendlyError(e), 'error')
       return
@@ -86,12 +91,26 @@ async function saveRules(): Promise<void> {
   try {
     // dd-P3：去首次空写——putContent 本身可创建文件，空写多余
     rulesMissing.value = false
-    await putContent(props.bookName, RULES_PATH, rulesText.value)
+    const r = await putContent(props.bookName, RULES_PATH, rulesText.value, rulesBaseRev.value ?? undefined)
     rulesOrig.value = rulesText.value
+    rulesBaseRev.value = r.revision
     ui.toast('文风铁律已保存', 'success')
     await style.load(props.bookName) // 阈值可能已改，重拉定标数据
   } catch (e) {
-    ui.toast(friendlyError(e), 'error')
+    if (e instanceof ApiError && e.code === 'REVISION_CONFLICT') {
+      // 双出路取「重载」：铁律是低频配置，重拉最新版让作者比对重写，比静默覆盖稳妥
+      ui.toast('铁律已在其他窗口修改——已为你重新加载最新版，请比对后再保存', 'error')
+      try {
+        const remote = await getContentRevisioned(props.bookName, RULES_PATH)
+        rulesText.value = remote.content
+        rulesOrig.value = remote.content
+        rulesBaseRev.value = remote.revision
+      } catch {
+        /* 重拉失败保留本地编辑，作者可再试 */
+      }
+    } else {
+      ui.toast(friendlyError(e), 'error')
+    }
   } finally {
     rulesSaving.value = false
   }

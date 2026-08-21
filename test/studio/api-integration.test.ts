@@ -172,6 +172,61 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(d.error).toContain('正文请走文档保存协议')
   })
 
+  // ── M-3（第六轮）：PUT /file 可选乐观锁（对齐 /documents 的 revision 协议）──
+
+  it('M-3: GET /file 附带 revision；PUT 带匹配基线 → 200 回新指纹', async () => {
+    const f = '大纲/总纲.md'
+    const g = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    expect(g.ok).toBe(true)
+    const gd = (await g.json()) as { content: string; revision: string }
+    expect(gd.revision).toMatch(/^sha256:/)
+
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\nM-3 乐观锁写入', expectedRevision: gd.revision }),
+    })
+    expect(ok.status).toBe(200)
+    const od = (await ok.json()) as { revision: string }
+    expect(od.revision).toMatch(/^sha256:/)
+    expect(od.revision).not.toBe(gd.revision)
+  })
+
+  it('M-3: PUT 基线不符（他窗已改）→ 409 REVISION_CONFLICT，文件一字不动', async () => {
+    const f = '大纲/总纲.md'
+    const g = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    const gd = (await g.json()) as { revision: string }
+    // 他窗先改了文件
+    await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\n他窗的新内容' }),
+    })
+    const stale = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\n本窗的旧基线内容', expectedRevision: gd.revision }),
+    })
+    expect(stale.status).toBe(409)
+    const sd = (await stale.json()) as { code: string; error: string }
+    expect(sd.code).toBe('REVISION_CONFLICT')
+    // 文件保持他窗内容（本窗写入被拒）
+    const after = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    const ad = (await after.json()) as { content: string }
+    expect(ad.content).toContain('他窗的新内容')
+    expect(ad.content).not.toContain('本窗的旧基线内容')
+  })
+
+  it('M-3: 缺省 expectedRevision → 旧「后写为准」语义（存量调用方零改动）', async () => {
+    const f = '大纲/总纲.md'
+    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      body: JSON.stringify({ content: '# 总纲\n无基线直写' }),
+    })
+    expect(ok.status).toBe(200)
+  })
+
   it('GET /api/books/:name/search?q= 全书扫描 + 行级匹配（W2A 收尾）', async () => {
     const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
     const d = (await r.json()) as { results: { path: string; matches: { line: number; text: string }[] }[] }

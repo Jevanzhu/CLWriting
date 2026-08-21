@@ -12,6 +12,7 @@ import { basename } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { hashFile } from '../../../fs/hash.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -48,7 +49,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
     const safe = editablePath(r.bookRoot, file)
     if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
     if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
-    reply(res, 200, { content: readFileSync(safe, 'utf-8') })
+    // M-3（第六轮）：附带字节指纹——与 /documents 协议的 revision 同源（hashFile），
+    // 客户端读时取走、存时回传，PUT 侧据此做乐观锁（此前 PUT /file 无任何并发控制）
+    reply(res, 200, { content: readFileSync(safe, 'utf-8'), revision: hashFile(safe) })
   },
   })
 
@@ -65,16 +68,27 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const safe = writablePath(r.bookRoot, file)
       if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
       if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
-      const body = (await readJson(req)) as { content?: unknown }
+      const body = (await readJson(req)) as { content?: unknown; expectedRevision?: unknown }
       if (typeof body.content !== 'string') {
         replyError(res, 400, 'BAD_INPUT', '缺少 content')
         return
+      }
+      // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409，双窗口
+      // 并发保存不再静默后写覆盖先写（正文协议 X-P2-14 已有，此通道对齐）。缺省时保持
+      // 旧「后写为准」语义（存量调用方零改动）；成功响应回新指纹供客户端滚动基线。
+      if (typeof body.expectedRevision === 'string' && body.expectedRevision !== hashFile(safe)) {
+        return replyError(
+          res,
+          409,
+          'REVISION_CONFLICT',
+          '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
+        )
       }
       atomicWriteFile(safe, body.content)
       // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
       // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
       invalidateTreeIndex(r.bookRoot)
-      reply(res, 200, { ok: true })
+      reply(res, 200, { ok: true, revision: hashFile(safe) })
     },
   })
 

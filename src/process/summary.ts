@@ -446,7 +446,15 @@ export async function selfHealVolumeSummary(
   const targetVolume = currentVolume - 1
   if (targetVolume < 1) return null // 第 1 卷写作中：无上一卷
   const fp = volumeSummaryPath(bookRoot, targetVolume)
-  if (existsSync(fp)) return null // 已有（含手写——作者产物优先）
+  if (existsSync(fp)) {
+    // M-7（第六轮）：区分手写与程序生成——手写（无 sourceHash）作者产物优先，永不动；
+    // 程序生成但链指纹已变（章摘要更新过）→ 过期，落到下方重生成（原「存在即跳过」
+    // 使过期重生成在本挂点不可达）；链不全时 generateVolumeSummary 同样会拒，保留现状
+    const m = /^sourceHash:\s*(\S+)/m.exec(readFileSync(fp, 'utf8'))
+    if (!m) return null
+    const { chain } = volumeChainState(bookRoot, targetVolume, volumeSize)
+    if (chain === null || m[1] === volumeChainFingerprint(chain)) return null
+  }
   const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume })
   if (r.ok) return volumeSummaryRelPath(targetVolume)
   log.warn('summary', `上一卷（第 ${targetVolume} 卷）摘要按需生成失败：${r.error}`)

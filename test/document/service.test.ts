@@ -6,6 +6,7 @@ import { DocumentService } from '../../src/document/service.js'
 import { appendPending, type JournalPending } from '../../src/document/journal.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -67,6 +68,50 @@ describe('DocumentService / 保存协议主路径', () => {
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
+  })
+
+  // ── M-5（第六轮）：非 UTF-8 覆写防线（save 主路径含 autosave）──
+
+  it('M-5: GBK 文件被错误编码打开后 autosave → 拒绝保存，原始字节一字不动', async () => {
+    // 非 chapter 文档（设定）——maybeSnapshot 只留底章，此路径无快照兜底，防线是唯一保护
+    const fp = join(bookRoot, '设定', '世界观.md')
+    mkdirSync(join(bookRoot, '设定'), { recursive: true })
+    // GBK「序」(0xD0F2) +「正文」(0xD5FD CEC4)：utf-8 读入产生 U+FFFD 替换符
+    const gbk = Buffer.concat([
+      Buffer.from('---\n名称: ', 'utf-8'),
+      Buffer.from([0xd0, 0xf2]),
+      Buffer.from('\n---\n', 'utf-8'),
+      Buffer.from([0xd5, 0xfd, 0xce, 0xc4]),
+    ])
+    writeFileSync(fp, gbk)
+    const before = readFileSync(fp)
+    // 模拟编辑器以 utf-8 读入（乱码含 U+FFFD）后 autosave 存回
+    const mojibake = readFileSync(fp, 'utf-8')
+    const r = await svc.save('doc_world', '设定/世界观.md', {
+      content: mojibake + '作者补的一句',
+      expectedRevision: computeRevision(fp),
+      operationId: 'op1',
+      origin: 'autosave',
+    })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe('WRITE_ERROR')
+    expect(r.reason).toContain('UTF-8')
+    // 原始字节一字不动（拒绝即零副作用）
+    expect(readFileSync(fp).equals(before)).toBe(true)
+  })
+
+  it('M-5: 盘上是合法 UTF-8（含真实 � 字符）→ 放行，普通编辑不受防线影响', async () => {
+    const fp = join(bookRoot, '设定', '世界观.md')
+    mkdirSync(join(bookRoot, '设定'), { recursive: true })
+    writeFileSync(fp, '\uFFFD 旧内容', 'utf-8') // 合法 UTF-8 编码的 U+FFFD 字符（0xEF 0xBF 0xBD）
+    const r = await svc.save('doc_world', '设定/世界观.md', {
+      content: '\uFFFD 旧内容 + 新内容',
+      expectedRevision: computeRevision(fp),
+      operationId: 'op2',
+      origin: 'autosave',
+    })
+    expect(r.ok).toBe(true)
   })
 
   it('RB-KN-P2-2: journal 追加失败 → SaveResult 契约（ok:false WRITE_ERROR），不 reject 不落盘', async () => {

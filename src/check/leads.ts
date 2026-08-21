@@ -87,7 +87,16 @@ export function checkLeadsBookItems(
       chapterPathCache.set(chapter, findChapterFile(正文dir, chapter))
     }
     const path = chapterPathCache.get(chapter) ?? null
-    const text = path !== null ? readFileSync(path, 'utf-8') : null
+    // 低级项（第六轮）：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
+    // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
+    let text: string | null = null
+    if (path !== null) {
+      try {
+        text = readFileSync(path, 'utf-8')
+      } catch {
+        text = null
+      }
+    }
     chapterTextCache.set(chapter, text)
     return text
   }

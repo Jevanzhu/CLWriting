@@ -24,6 +24,7 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
+import { heldTaskGatesFor } from './task-gate.js'
 
 interface StreamCtx {
   workDir: string | null
@@ -180,7 +181,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if (heartbeat) clearInterval(heartbeat)
       const c = sseConnections.get(sseName)
       if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
-      if (iter) void iter.return(undefined)
+      // 低级项（第六轮）：.return() 触发生成器 finally 段，其内部抛错会让该 promise
+      // reject——void 丢弃即 unhandledRejection（进程级崩溃），吞掉只留断连现场
+      if (iter) void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
       // E1c（后台继续，cherry backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
       // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放（E1b）恢复现场。
       // 显式停止仍走 POST /interrupt（用户主动取消）。
@@ -479,6 +482,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
+    // M-2（第六轮）：clearChatHistory 与 audit DELETE 同为双键清理（bookName + bookHash
+    // 工作流会话），audit 侧五闸（dd-P3/hh-P1/第五轮）已收口，此处此前只配两道——
+    // spawn 手动写稿 / self-heal 批量写稿 / task-gate 分钟级任务在途时清空同样清不彻底，
+    // 且任务收尾的 step/llm-call 事件追加到已被删 session 的行上成孤儿。对齐补三闸。
+    const held = heldTaskGatesFor(bookName)
+    if (held.length > 0) {
+      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清空对话`)
+    }
+    if (isSelfHealRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清空对话')
+    }
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再清空对话')
+    }
     // 第五轮：fire-and-forget 后台任务（定稿摘要等）持 workspace 会话续写事件——
     // clearChatHistory 双键同清工作流侧，在途清空同样清不彻底，补同口径闸
     if (hasBackgroundTasks(bookName)) {

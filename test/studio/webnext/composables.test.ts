@@ -131,6 +131,39 @@ describe('useChatComposer', () => {
     expect(chat.clear).not.toHaveBeenCalled()
   })
 
+  // M-8（第六轮）：清空确认弹窗 await 期间切书 → 确认后中止。修复前 clearChatHistory(bookName())
+  // 按确认时的当前书发请求——弹窗按 A 书提问、用户切到 B 后确认，会删掉 B 书的服务端历史
+  it('M-8: handleClear 弹窗滞留期间切书 → 确认后中止（不删服务端历史、不清本地对话区）', async () => {
+    let current = 'A书'
+    const c = useChatComposer(() => current, () => undefined)
+    const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
+    chat.clear = vi.fn()
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = c.handleClear()
+    current = 'B书' // 弹窗滞留期间切书（确认尚未发生）
+    ui.resolveConfirm(true)
+    await p
+    expect(clearMock).not.toHaveBeenCalled() // B 书（及任何书）的服务端历史不动
+    expect(chat.clear).not.toHaveBeenCalled() // B 书前端对话区不动
+  })
+
+  it('M-8: clearChatHistory 在途切书 → 服务端删发起书，本地不清新书对话区', async () => {
+    let current = 'A书'
+    clearMock.mockImplementation(() => {
+      current = 'B书' // 请求已发出（目标书 A 已捕获）——在途期间切书
+      return new Promise((resolve) => setTimeout(() => resolve({}), 10))
+    })
+    const c = useChatComposer(() => current, () => undefined)
+    const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
+    chat.clear = vi.fn()
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = c.handleClear()
+    ui.resolveConfirm(true)
+    await p
+    expect(clearMock).toHaveBeenCalledWith('A书') // 服务端删的是发起时的书
+    expect(chat.clear).not.toHaveBeenCalled() // B 书刚恢复的历史不被本地 clear 抹掉
+  })
+
   it('selectChapter 切换选中章节 + 关菜单', () => {
     const c = useChatComposer(() => '书', () => undefined)
     c.toggleChapterMenu()

@@ -180,7 +180,11 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `永久删失败：${errMsg(e)}` }
   }
-  writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  // 低级项（第六轮）：条目写回 best-effort——主文件已物理删除（不可逆动作已成），
+  // manifest 写失败（磁盘满/权限）不应把整端点打成 500；残留条目只是多余展示，无害
+  try {
+    writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+  } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }
   return { ok: true, id }
 }
 

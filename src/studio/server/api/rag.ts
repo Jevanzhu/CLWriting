@@ -55,9 +55,9 @@ function startRagBuild(
   bookRoot: string,
   workDir: string,
   userDataPath: string | null,
-): { ok: true } | { ok: false; reason: string } {
+): { ok: true } | { ok: false; reason: string; code: 'BUSY' | 'BAD_INPUT' } {
   const release = acquireTaskGate(bookName, 'rag-build')
-  if (!release) return { ok: false, reason: '本书的索引任务已在运行中，请稍候' }
+  if (!release) return { ok: false, reason: '本书的索引任务已在运行中，请稍候', code: 'BUSY' }
 
   // dd 批 4-2 残：拿到闸之后的同步准备段（读配置 → 解析提供方 → 验 key）若中途抛出，
   // 此前闸不释放——该书从此所有 rag-build 永远 409 死锁（重启才能解）。同步段包
@@ -68,12 +68,13 @@ function startRagBuild(
     // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由 RagCtx 注入）
     const config = readRagConfig(bookRoot, userDataPath)
     if (!config.enabled) {
-      return { ok: false, reason: '知识检索未启用：请在「设置 · 本书」页开启' }
+      return { ok: false, reason: '知识检索未启用：请在「设置 · 本书」页开启', code: 'BAD_INPUT' }
     }
     const resolved = resolveRag(config, ragProvidersOf(userDataPath), workDir)
     if (!resolved) {
       return {
         ok: false,
+        code: 'BAD_INPUT',
         reason: config.provider
           ? '所选 RAG 提供方不存在（可能已被删除）：请在「设置 · 本书」页重新选择'
           : 'RAG 未完整配置：请在「设置 · 本书」页选择检索提供方',
@@ -82,6 +83,7 @@ function startRagBuild(
     if (!resolved.apiKey) {
       return {
         ok: false,
+        code: 'BAD_INPUT',
         reason: resolved.legacy
           ? '未配置 embedding API key：请用环境变量 CLWRITING_RAG_API_KEY，或在 .clwriting/rag.secret 落 key'
           : '所选 RAG 提供方未配置 API Key：请在设置的「服务提供方」页补填',
@@ -167,9 +169,10 @@ export function registerRagRoutes(ctx: RagCtx): void {
     const bookRoot = r.bookRoot
     const start = startRagBuild(params['name']!, bookRoot, ctx.workDir!, ctx.userDataPath)
     if (!start.ok) {
-      // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT
-      const busy = start.reason.includes('运行中')
-      return replyError(res, busy ? 409 : 400, busy ? 'BUSY' : 'BAD_INPUT', start.reason)
+      // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT。
+      // 低级项（第六轮）：状态码由结构化 code 判定——原按文案子串 includes('运行中') 判，
+      // 文案一改即误判（文案属人机交互资产，不该承担协议语义）
+      return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
     }
     reply(res, 200, { started: true })
   },

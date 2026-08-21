@@ -14,6 +14,12 @@ export interface ContextMenuSpec {
   submenu?: ContextMenuSpec[]
 }
 
+/** 低级项（第六轮）：accelerator 白名单——Electron 对非法 accelerator 会在
+ *  Menu.buildFromTemplate 直接抛错（主进程崩溃）。渲染层合法输入只有修饰键组合 +
+ *  单键/F 键/具名键；白名单外的一律剥掉（菜单项保留，仅不显示快捷键——安全降级）。 */
+const ACCELERATOR_RE =
+  /^(?:(?:Command|Cmd|Super|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift)\+)*(?:[0-9A-Z]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Capslock|Numlock|Scrolllock|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause|PrintScreen)$/
+
 /** 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。 */
 export function parseContextMenuSpecs(raw: unknown): ContextMenuSpec[] | null {
   if (!Array.isArray(raw)) return null
@@ -29,7 +35,7 @@ export function parseContextMenuSpecs(raw: unknown): ContextMenuSpec[] | null {
     if (typeof r['label'] !== 'string' || r['label'] === '') continue
     const item: ContextMenuSpec = { label: r['label'], disabled: r['disabled'] === true }
     if (typeof r['key'] === 'string' && r['key']) item.key = r['key']
-    if (typeof r['accelerator'] === 'string' && r['accelerator']) item.accelerator = r['accelerator']
+    if (typeof r['accelerator'] === 'string' && ACCELERATOR_RE.test(r['accelerator'])) item.accelerator = r['accelerator']
     if (Array.isArray(r['submenu'])) {
       const sub = parseContextMenuSpecs(r['submenu'])
       if (sub && sub.length > 0) item.submenu = sub

@@ -57,7 +57,9 @@ function today(): string {
 /** 绝对 _path → 书内相对路径（前端确认/忽略/删除都用相对路径互传） */
 function relPath(bookRoot: string, p: string | undefined): string {
   if (!p) return ''
-  return isAbsolute(p) ? relative(bookRoot, p) : p
+  // M-4 收口（第六轮）：归一反斜杠——返回值回传前端后原样回来过 insideDir /
+  // resolveWithinRoot（正斜杠口径）；Windows 不归一时删条目/确认/忽略全部 400
+  return isAbsolute(p) ? relative(bookRoot, p).replace(/\\/g, '/') : p
 }
 
 /** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径、NUL 字节） */

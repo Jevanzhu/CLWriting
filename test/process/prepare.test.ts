@@ -71,6 +71,25 @@ test('prepare: 无裁剪时 trimmed=false', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+// M-7（第六轮）：卷摘要剥 fm 再注入——volume/generatedAt/model/sourceHash 是程序元数据
+// 非内容，进 prompt 是噪声；注入文件登记（promptMeta.files 可回溯），与近章结尾同口径
+test('M-7: 卷摘要剥 fm 注入 + 文件登记', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 章号 150 → 当前卷 3 → 注入第 2 卷摘要
+  mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+  writeFileSync(join(root, '定稿', '摘要', '卷摘要', '2.md'),
+    '---\nvolume: 2\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第二卷剧情回顾正文。', 'utf-8')
+  const r = prepare(db, DEFAULT_CONFIG, root, [])
+  const sec = r.sections.find((s) => s.title === '第2卷摘要')
+  expect(sec).toBeTruthy()
+  expect(sec!.content).toContain('第二卷剧情回顾正文。')
+  expect(sec!.content).not.toContain('sourceHash')
+  expect(sec!.content).not.toContain('generatedAt')
+  expect(r.injectedSummaryFiles).toContain('定稿/摘要/卷摘要/2.md')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('prepare: 超预算按优先级裁剪（弹性#4→#3→#2→#1），刚需不丢', () => {
   const { root, db } = makeBookWithMaterial()
   // 设极小预算（100 token），逼裁剪

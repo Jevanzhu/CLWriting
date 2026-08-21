@@ -97,7 +97,9 @@ function maxWrittenChapterOf(bookRoot: string): number | undefined {
   let max = 0
   for (const ch of chapters) {
     if (!ch._path) continue
-    const rel = relative(bookRoot, ch._path)
+    // M-4（第六轮）：relative() 在 Windows 产反斜杠而 manifest 键是正斜杠——不归一
+    // 全部章误判未定稿（同款已修：export/index.ts RB-KN-P2-3、state.ts relativePath）
+    const rel = relative(bookRoot, ch._path).replace(/\\/g, '/')
     if (!finalized.has(rel)) continue
     if (ch.章号 > max) max = ch.章号
   }
@@ -295,7 +297,8 @@ export function collectTreeIssues(
       }
       for (const ch of chapters) {
         if (!ch._path) continue
-        const relPath = relative(bookRoot, ch._path)
+        // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
+        const relPath = relative(bookRoot, ch._path).replace(/\\/g, '/')
         // 定稿态跳过——不在树上打扰已确认的章节
         const entry = entryByPath.get(relPath) ?? null
         // CC-P1-3：字节指纹走 probeCache（stat 级命中零读零哈希，与树 W-P2-4 同口径），

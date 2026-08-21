@@ -213,7 +213,23 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
   const confirmTimeout = opts.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS
   // F1-P1：事件库（userData 为空 → null，退化内存模式）；连接为进程内单例（引用计数），
   // finally 的 close() 是「释放引用」——归零才真关库
-  const store = openSessionStore(opts.userDataPath, opts.bookRoot)
+  // H-1（第六轮）：库打开必须包在降级 try/catch 里——磁盘满/目录只读/库文件损坏时
+  // DatabaseSync 与 PRAGMA 同步抛错，而此前裸调位于 running.set 之后、主 try 之前，
+  // finally 不执行：running 永不释放、deadline 定时器不清、drainNextChat 永不消费
+  //（该书对话死锁到进程重启）。降级 null 走内存模式（prepareChatRun 本就接受 null），
+  // 与 runner.ts / self-heal.ts 的 mkChain 同款；chat 面向作者，降级时 emit 提示。
+  let store: ReturnType<typeof openSessionStore> = null
+  try {
+    store = openSessionStore(opts.userDataPath, opts.bookRoot)
+  } catch (e) {
+    store = null
+    emit(opts, {
+      type: 'notice',
+      message: `事件库打开失败，本次对话将不留审计记录（重启应用或检查磁盘后重试）：${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    })
+  }
   // Y-P1-1：recorder 提前声明——异常路径 finally 兜底 dispose（注销活跃登记，防孤儿修复误伤）
   let recorder: SessionRecorder | undefined
 
