@@ -3,7 +3,7 @@
  *
  * 覆盖重点：
  * - 四类弹窗 open/close 开关
- * - toast 1.8s 自动消失
+ * - toast 分级时长（error 5s / 其余 1.8s）自动消失
  * - ask/resolveConfirm 命令式确认
  * - prompt/resolvePrompt 命令式输入
  * - probeAiStatus 成功停重试 / 失败定时重试（fake timers 推进）

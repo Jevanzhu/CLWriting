@@ -7,7 +7,7 @@
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  */
 import { join } from 'node:path'
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { isWithinRoot } from '../fs/safe-path.js'
 
 /** 可搜目录全集（相对 bookRoot） */
@@ -95,7 +95,18 @@ function searchFile(fp: string, lower: string): SearchMatch[] {
  */
 function walkMd(dir: string, bookRoot: string): string[] {
   const out: string[] = []
+  // P5-管线（第七轮）：书内 symlink 环（a→b、b→a，isWithinRoot 拦不住环在书内的形态）
+  // 会让递归无限下行栈溢出——以 realpath 为键记录已访目录，二次进入剪枝
+  const visited = new Set<string>()
   const walk = (d: string): void => {
+    let real: string
+    try {
+      real = realpathSync(d)
+    } catch {
+      return
+    }
+    if (visited.has(real)) return
+    visited.add(real)
     let entries: string[]
     try {
       entries = readdirSync(d)

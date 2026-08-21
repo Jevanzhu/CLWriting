@@ -27,7 +27,14 @@ interface DailyBaseline {
 export function readBaseline(bookRoot: string, date: string): number | null {
   const fp = wordsDiaryPath(bookRoot)
   if (!existsSync(fp)) return null
-  const lines = readFileSync(fp, 'utf-8').split('\n').filter(Boolean)
+  let lines: string[]
+  try {
+    lines = readFileSync(fp, 'utf-8').split('\n').filter(Boolean)
+  } catch {
+    // P5-数据层（第七轮）：读失败（EACCES/EISDIR）降级无基线（与缺文件同口径）——
+    // 原先裸抛，documents 端点直接 500
+    return null
+  }
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const rec = JSON.parse(lines[i]!) as DailyBaseline
@@ -88,9 +95,16 @@ export function appendWordsDelta(
 export function readTodayDelta(bookRoot: string, date: string): number | null {
   const fp = wordsDiaryPath(bookRoot)
   if (!existsSync(fp)) return null
+  let lines: string[]
+  try {
+    lines = readFileSync(fp, 'utf-8').split('\n')
+  } catch {
+    // P5-数据层（第七轮）：读失败降级无增量（与缺文件同口径，baseline 方案兜底）
+    return null
+  }
   let sum = 0
   let found = false
-  for (const line of readFileSync(fp, 'utf-8').split('\n')) {
+  for (const line of lines) {
     if (!line) continue
     try {
       const rec = JSON.parse(line) as { date?: unknown; delta?: unknown }

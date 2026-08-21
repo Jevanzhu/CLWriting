@@ -28,13 +28,22 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 新建 / 打开共用同一 IPC：pickLibrary 融合逻辑（是书库→直接用；空目录→问是否新建）
+// 新建 / 打开共用同一 IPC：pickLibrary 融合逻辑（是书库→直接用；空目录→问是否新建）。
+// P5-前端（第七轮）：交互路径 IPC 捕获（同 Library——加载路径第六轮已修，交互路径裸奔）
 async function chooseLibrary(): Promise<void> {
-  await window.clwritingDesktop?.openLibrary()
+  try {
+    await window.clwritingDesktop?.openLibrary()
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 async function switchTo(path: string): Promise<void> {
-  await window.clwritingDesktop?.switchLibrary(path)
+  try {
+    await window.clwritingDesktop?.switchLibrary(path)
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 </script>
 

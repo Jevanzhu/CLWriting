@@ -257,6 +257,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
+    // AI-1（第七轮）：与对话编排互斥——M-1（第六轮）只修了 chat→self-heal 单向，反向
+    // 此前缺失：chat 在途（含 rewrite/write_chapter 等嵌套生成工具）时再启动 /spawn，
+    // 两路 runTask 以不同章号交替记账互覆预算章块；且后到的 ctrl register 触发
+    // driver「换新先 abort 旧」把在途对话静默掐断
+    if (isChatRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再手动写稿')
+    }
     spawnRunning.set(bookName, true)
     let launched = false
     try {
@@ -329,6 +336,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章,先等它跑完或中断')
     }
+    // AI-1（第七轮）：chat 在途（嵌套生成工具按章记账）时启动 self-heal 会互覆预算
+    // 章块并掐断在途对话——与 /spawn 入口同款反向闸（M-1 的另一半）
+    if (isChatRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
+    }
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
@@ -345,9 +357,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
     const mainSession = await ensureSession(bookName, ctx.workDir!)
-    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄
+    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄；chat 闸同款补查
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
+    }
+    if (isChatRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
     }
     const driver = getDriver('cc')
     // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——

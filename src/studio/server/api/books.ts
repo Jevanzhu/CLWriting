@@ -16,6 +16,7 @@ import { readJson, reply, replyError } from '../http.js'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import {
   readBooks,
+  readBooksStrict,
   removeBookEntry,
   bookStoragePath,
   readActive,
@@ -392,12 +393,15 @@ export function registerBookRoutes(ctx: BookCtx): void {
       forgetRagBuildTask(oldName) // dd-P3：模块级索引任务表随改名清理（rag-build 已被闸拒绝，不会运行中改名）
       writeTitle(newRoot)
 
-      // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）
-      const books = readBooks(ctx.workDir)
-      const idx = books.findIndex((b) => b.name === oldName)
-      if (idx >= 0) {
-        books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
-        writeBooks(ctx.workDir, books)
+      // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）。
+      // DA-3（第七轮）：读失败（null）跳过整写——降级空表会把其余登记清掉；repair 兜底
+      const books = readBooksStrict(ctx.workDir)
+      if (books !== null) {
+        const idx = books.findIndex((b) => b.name === oldName)
+        if (idx >= 0) {
+          books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
+          writeBooks(ctx.workDir, books)
+        }
       }
       // active 指针指向旧名 → 换新
       if (readActive(ctx.workDir) === oldName) {

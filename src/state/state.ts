@@ -31,7 +31,7 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, writeManifest, finalizedChapterNumbers, type Manifest } from '../document/manifest.js'
+import { readManifest, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -170,8 +170,9 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   try {
     const db = new DatabaseSync(cachePath)
     try {
-      // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）
-      snapshot = assembleStatus(db, config, volumeSize, finalizedChapterNumbers(m))
+      // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）；
+      // PL-2（第七轮）：无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
+      snapshot = assembleStatus(db, config, volumeSize, finalizedChapterSetOfBook(bookRoot))
     } finally {
       db.close()
     }
@@ -479,13 +480,6 @@ function maxFileNameChapter(bodyDir: string): number {
   return max
 }
 
-/**
- * 清单中的已定稿章号集合——低级项（第六轮）上移至 document/manifest.ts 共享
- * （assembleStatus currentChapter 口径收口也要用），此处经 import 复用。
- * CC-P1-6：只跳定稿号，不跳草稿占号——V-P1-3 场景（坏 fm 草稿占号）的恢复语义
- * 就是落号覆盖草稿，跳草稿会把恢复流变成永久跳号。
- */
-
 /** CC-P1-6：n 起步跳过一切已定稿章号（「篇号永不复用」语义；连续定稿时 n+1 即空闲，零开销）。 */
 function skipFinalizedChapters(n: number, finalized: Set<number>): number {
   let next = n
@@ -631,8 +625,9 @@ function readRecapSnapshot(
   let db: DatabaseSync | undefined
   try {
     db = new DatabaseSync(cachePath)
-    // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）
-    return assembleStatus(db, config, volumeSizeOf(config), finalizedChapterNumbers(manifest))
+    // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）；
+    // PL-2（第七轮）：无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
+    return assembleStatus(db, config, volumeSizeOf(config), finalizedChapterSetOfBook(bookRoot))
   } catch {
     return fallbackRecapSnapshot(detected, volumeSizeOf(config))
   } finally {

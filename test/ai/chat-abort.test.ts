@@ -141,7 +141,7 @@ describe('Z-P1-1: 嵌套 rewrite 生成随 chat 中止', () => {
 // ─── Z-P1-1：waitConfirm 监听 abort（单元） ────────────────────────
 
 /** waitConfirm 的运行态（ChatRunState 结构等价物——接口未导出，按形状构造） */
-function mkState(): { ctrl: AbortController; deadline: number; pending: Map<string, (ok: boolean) => void> } {
+function mkState(): { ctrl: AbortController; deadline: number; pending: Map<string, (ok: boolean) => void>; confirmTimedOut?: Set<string> } {
   return { ctrl: new AbortController(), deadline: 0, pending: new Map() }
 }
 
@@ -155,6 +155,19 @@ describe('Z-P1-1: waitConfirm abort 即时释放', () => {
     expect(ok).toBe(false)
     expect(Date.now() - t0).toBeLessThan(1000)
     expect(state.pending.size).toBe(0)
+  })
+
+  it('P5-AI（第七轮）：超时终局标记 confirmTimedOut——「确认超时」与「作者取消」分开归因', async () => {
+    const state = mkState()
+    const ok = await waitConfirm(state, 'c9', 5)
+    expect(ok).toBe(false)
+    expect(state.confirmTimedOut?.has('c9')).toBe(true)
+    // 人工取消（pending 主动 resolve false）不标记
+    const s2 = mkState()
+    const p2 = waitConfirm(s2, 'c10', 8000)
+    s2.pending.get('c10')?.(false)
+    expect(await p2).toBe(false)
+    expect(s2.confirmTimedOut?.has('c10')).toBeFalsy()
   })
 
   it('abort 先于挂起到达（signal 已 aborted）→ 挂起即拒，不空等满超时', async () => {

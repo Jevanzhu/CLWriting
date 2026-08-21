@@ -59,8 +59,10 @@ async function open(path: string): Promise<void> {
   try {
     await doc.open(node)
     ws.openTab(node.docId)
-  } catch {
-    /* 打开失败静默 */
+  } catch (e) {
+    // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
+    // 原先零反馈，作者不知为何没反应
+    err.value = friendlyError(e)
   }
 }
 </script>

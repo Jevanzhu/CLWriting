@@ -66,3 +66,17 @@ test('低级项（第六轮）：已登记但目录被删 → 重试报「已有
     rmSync(wd, { recursive: true, force: true })
   }
 })
+
+test('P5-数据层（第七轮）：同名文件占位（非目录）→ ok:false 给可读原因（原 statSync ENOTDIR 直接抛）', () => {
+  const wd = mkdtempSync(join(tmpdir(), 'clw-init-file-'))
+  mkdirSync(join(wd, '长篇'), { recursive: true })
+  writeFileSync(join(wd, '长篇', '北境'), '一个同名普通文件', 'utf-8')
+  try {
+    const r = doInit({ workDir: wd, name: '北境' })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.reason).toContain('同名文件')
+  } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})

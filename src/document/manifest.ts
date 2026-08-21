@@ -119,6 +119,16 @@ export function finalizedChapterNumbers(m: Manifest): Set<number> {
   return out
 }
 
+/** PL-2（第七轮）：书级定稿章号集合——清单缺失 → undefined（无清单的旧书/测试夹具
+ *  保持全量口径），清单在册 → 实际集合（可为空集 = 新书零定稿，assembleStatus 据此
+ *  得 currentChapter=0，不再回落「含草稿全量」——此前空集与缺省同走全量分支，
+ *  清单在册零定稿的新书会把写作中草稿计进「已定稿最新章号」）。 */
+export function finalizedChapterSetOfBook(bookRoot: string): Set<number> | undefined {
+  const fp = join(bookRoot, '项目', '文档清单.jsonl')
+  if (!existsSync(fp)) return undefined
+  return finalizedChapterNumbers(readManifest(fp))
+}
+
 export function upsertEntry(manifest: Manifest, entry: ManifestEntry): void {
   manifest.entries.set(entry.id, entry)
 }

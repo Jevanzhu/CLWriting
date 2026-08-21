@@ -137,13 +137,17 @@ watch(
 
 async function onSpawn(): Promise<void> {
   err.value = null
+  // FE-9（第七轮）：书名入口捕获（M-8 类收敛）——拉写稿上下文的 await 期间切书后，
+  // 生成请求不能再发到切换后的书（A 书上下文的生成发进 B 书）
+  const book = props.bookName
   try {
     // P0-3：先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
     // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
-    const { prompt: ctx } = await getDraftPrompt(props.bookName, chapter.value)
+    const { prompt: ctx } = await getDraftPrompt(book, chapter.value)
     const userText = prompt.value.trim()
     const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
-    await spawnRole(props.bookName, { role: 'writer', prompt: final })
+    if (props.bookName !== book) return
+    await spawnRole(book, { role: 'writer', prompt: final })
     ui.toast('已开始生成', 'info')
   } catch (e) {
     err.value = friendlyError(e)
@@ -163,11 +167,14 @@ async function onInterrupt(): Promise<void> {
 // P2-3：批量连写——章数取配置 auto.batch_size（>1 时后端连写多章，进度经 self_heal_batch* 事件回流）。
 async function onAutoWrite(): Promise<void> {
   err.value = null
+  // FE-9（第七轮）：书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
+  const book = props.bookName
   try {
-    const cfg = await getConfig(props.bookName)
+    const cfg = await getConfig(book)
     // 书级未设回落全局默认（prefs.aiBatchSize 初值即硬编码回落 8；服务端合并同链）
     const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.aiBatchSize)))
-    const r = await autoWrite(props.bookName, chapter.value, batchSize)
+    if (props.bookName !== book) return
+    const r = await autoWrite(book, chapter.value, batchSize)
     const msg = (r.batchSize ?? 1) > 1 ? `第 ${chapter.value} 章起连写 ${r.batchSize} 章已开始` : `第 ${chapter.value} 章已开始全自动写稿`
     ui.toast(msg, 'info')
   } catch (e) {

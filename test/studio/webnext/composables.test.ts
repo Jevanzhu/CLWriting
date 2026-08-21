@@ -22,11 +22,22 @@ vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   setChatTier: vi.fn(),
   fetchModels: vi.fn(),
 }))
+vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
+  createDoc: vi.fn(),
+  renameDoc: vi.fn(),
+  moveDoc: vi.fn(),
+  copyDoc: vi.fn(),
+  deleteDoc: vi.fn(),
+  updateChapterMetaDoc: vi.fn(),
+  batchFinalizeDocs: vi.fn(),
+}))
 
 import { sendChat, clearChatHistory } from '../../../src/studio/web-next/src/api/chat'
 import { interrupt } from '../../../src/studio/web-next/src/api/stream'
 import { getProviders, setChatTier, fetchModels } from '../../../src/studio/web-next/src/api/providers'
+import { deleteDoc } from '../../../src/studio/web-next/src/api/documents'
 import { useChatComposer } from '../../../src/studio/web-next/src/composables/useChatComposer'
+import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { useChatTier } from '../../../src/studio/web-next/src/composables/useChatTier'
 import { useNativeMenu } from '../../../src/studio/web-next/src/composables/useNativeMenu'
 import { useSystemFonts, selValue } from '../../../src/studio/web-next/src/composables/useSystemFonts'
@@ -272,5 +283,44 @@ describe('useTheme', () => {
     expect(prefs.theme).toBe('dark')
     t.toggle()
     expect(prefs.theme).toBe('light')
+  })
+})
+
+// ── FE-1（第七轮）：doDelete 上下文捕获（M-8 类横向收敛）──────────────────
+describe('useChapterTreeActions · doDelete', () => {
+  const deleteMock = deleteDoc as ReturnType<typeof vi.fn>
+  function chNode(docId: string) {
+    return {
+      path: '写作/正文/第一卷/0001-开篇.md',
+      name: '0001-开篇.md',
+      docId,
+      isDirectory: false,
+      role: '',
+      children: [],
+    }
+  }
+
+  it('FE-1: 弹窗滞留期间切书 → 确认后中止（不删任何书的文档）', async () => {
+    let current = 'A书'
+    const actions = useChapterTreeActions({ bookName: () => current, openError: ref(null) })
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = actions.doDelete(chNode('legacy:abc123'))
+    current = 'B书' // 弹窗按 A 书提问，滞留期间跨窗切到 B 书——legacy docId 不分书，会命中 B 书同路径文件
+    ui.resolveConfirm(true)
+    await p
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('FE-1: 同书确认 → 删发起书的 docId + 刷同书树', async () => {
+    deleteMock.mockResolvedValue({})
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
+    const p = actions.doDelete(chNode('legacy:abc123'))
+    ui.resolveConfirm(true)
+    await p
+    expect(deleteMock).toHaveBeenCalledWith('A书', 'legacy:abc123')
+    expect(tree.load).toHaveBeenCalledWith('A书')
   })
 })

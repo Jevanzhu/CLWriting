@@ -36,11 +36,13 @@ const READ_CHAPTER_MAX_CHARS = 20_000
 const READ_CHAPTER_HEAD_CHARS = 12_000
 const READ_CHAPTER_TAIL_CHARS = 6_000
 
-/** M-1（第六轮）：注册表工具里做嵌套 AI 生成且按章记账的三件——与 self-heal 互斥面。
+/** M-1（第六轮）：注册表工具里做嵌套 AI 生成的三件——与 self-heal 互斥面。
  *  calls.ts 的章预算块按「同书同时只有一路生成」记账（其头注释前提），write_chapter
- *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配：并发时两编排以不同章号交替
- *  调 recordAiCall，章号互覆把对方账块 fresh 重置清零——used/tokens/cost 三口径全部
- *  低估，预算闸（防自动写章烧钱的那道）被绕过。 */
+ *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配。rewrite 两件传 chapter 按章
+ *  记账：并发时章号互覆把对方账块 fresh 重置清零，used/tokens/cost 三口径全部低估，
+ *  预算闸被绕过；lead_update 不传 chapter（只进 task 块），但账本推进与 self-heal
+ *  并发同样撕裂口径——闸对三件统一防御（P5-AI·第七轮注释校准：原文「三件按章记账」
+ *  与 lead-update-draft 的 runSpec 不符）。 */
 const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
 
 // ── 等确认 ────────────────────────────────────────
@@ -62,7 +64,11 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
       state.ctrl.signal.removeEventListener('abort', onAbort)
       resolve(ok)
     }
-    timer = setTimeout(() => finish(false), timeoutMs)
+    timer = setTimeout(() => {
+      // P5-AI（第七轮）：记录超时来源——turn 循环按此区分「确认超时」与「作者取消」
+      ;(state.confirmTimedOut ??= new Set<string>()).add(callId)
+      finish(false)
+    }, timeoutMs)
     state.pending.set(callId, finish)
     // abort 先于挂起到达（signal 已 aborted）→ 立即按取消处理，不等超时
     if (state.ctrl.signal.aborted) finish(false)
@@ -410,8 +416,16 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         emit(opts, { type: 'chat_tool_pending', callId: call.id, name: call.name, input: call.input })
         const ok = await waitConfirm(state, call.id, confirmTimeout)
         if (!ok) {
-          results.push({ type: 'tool_result', toolUseId: call.id, content: '作者取消了该操作。', isError: true })
-          emit(opts, { type: 'chat_tool_result', callId: call.id, summary: '已取消', ok: false })
+          // P5-AI（第七轮）：超时与人工取消分开归因——原先 deadline 触发的超时也回
+          // 「作者取消了该操作」，对模型归因误导（随后 chat_error 才给正确文案）
+          const timedOut = state.confirmTimedOut?.has(call.id) ?? false
+          results.push({
+            type: 'tool_result',
+            toolUseId: call.id,
+            content: timedOut ? '确认超时，本次操作未执行（可重发指令）。' : '作者取消了该操作。',
+            isError: true,
+          })
+          emit(opts, { type: 'chat_tool_result', callId: call.id, summary: timedOut ? '确认超时' : '已取消', ok: false })
           continue
         }
       }

@@ -28,12 +28,17 @@ export interface ResolvedWithinRoot {
  * 统一委托此处（service.resolveSafePath / files.safePath / trash.safePathWithin /
  * desktop show-in-folder·open-book-dir / style·books 删路径守卫）。
  */
+/** P5-数据层（第七轮）：越段判定——'..' 本体或以 '..' + 分隔符开头才算越出；
+ *  原先的 startsWith('..') 把字面以 .. 开头的合法文件名（..foo.md）误杀（fail-closed
+ *  方向安全但属误报）；两种分隔符都认（win 反斜杠）。 */
+const ESCAPE_SEGMENT_RE = /^\.\.([\\/]|$)/
+
 export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWithinRoot | null {
   if (!relPath || relPath.includes('\0')) return null
   const root = resolve(bookRoot)
   const abs = resolve(root, relPath)
   const rel = relative(root, abs)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null
+  if (rel === '' || ESCAPE_SEGMENT_RE.test(rel) || isAbsolute(rel)) return null
   if (existsSync(abs)) {
     // 两边都 realpath：root 自身经符号链接时（tmpdir /var→/private/var），
     // 只 realpath 文件会与未解析的 root 前缀不一致而误判越出
@@ -41,7 +46,7 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
       const realRoot = realpathSync(root)
       const real = realpathSync(abs)
       const realRel = relative(realRoot, real)
-      if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null
+      if (realRel === '' || ESCAPE_SEGMENT_RE.test(realRel) || isAbsolute(realRel)) return null
       return { abs: real, rel: realRel.replace(/\\/g, '/') }
     } catch {
       return null // realpath 失败（EACCES/ELOOP/断链）→ 拒绝（fail-closed）

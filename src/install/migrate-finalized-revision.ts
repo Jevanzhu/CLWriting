@@ -53,7 +53,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     porcelain
       .split('\n')
       .filter(Boolean)
-      .map((l) => normalizePorcelainPath(l.slice(3))),
+      .map((l) => normalizePorcelainPath(l.slice(3), l.slice(0, 2).includes('R'))),
   )
 
   let updated = 0
@@ -78,10 +78,14 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
  *   及八进制）——按 git core.quotePath 语义解回字面路径；
  * - rename 行：`R  old -> new` 取箭头后的现路径（盘上现存的是它，脏判定应对它做）。
  */
-function normalizePorcelainPath(raw: string): string {
+function normalizePorcelainPath(raw: string, isRename = false): string {
   let p = raw
-  const arrow = p.indexOf(' -> ')
-  if (arrow >= 0) p = p.slice(arrow + 4)
+  // P5-数据层（第七轮）：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
+  // 改动行原先被首匹配 indexOf 误截成残路径
+  if (isRename) {
+    const arrow = p.indexOf(' -> ')
+    if (arrow >= 0) p = p.slice(arrow + 4)
+  }
   if (p.startsWith('"') && p.endsWith('"') && p.length >= 2) {
     const body = p.slice(1, -1)
     let out = ''

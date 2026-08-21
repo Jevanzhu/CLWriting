@@ -20,8 +20,14 @@ export interface ContextMenuSpec {
 const ACCELERATOR_RE =
   /^(?:(?:Command|Cmd|Super|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift)\+)*(?:[0-9A-Z]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Capslock|Numlock|Scrolllock|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause|PrintScreen)$/
 
+/** SV-1（第七轮）：submenu 净化深度上限——被攻陷/异常渲染进程可经结构化克隆构造
+ *  数万层嵌套数组（不受 JSON.parse 深度限制），无上限递归净化自身先栈溢出崩主进程，
+ *  恰是本文件头宣称要防的威胁模型。超限剥 submenu（菜单项保留，对齐 accelerator
+ *  白名单的安全降级思路）。 */
+const MAX_SUBMENU_DEPTH = 5
+
 /** 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。 */
-export function parseContextMenuSpecs(raw: unknown): ContextMenuSpec[] | null {
+export function parseContextMenuSpecs(raw: unknown, depth = 0): ContextMenuSpec[] | null {
   if (!Array.isArray(raw)) return null
   const items: ContextMenuSpec[] = []
   for (const s of raw) {
@@ -36,8 +42,8 @@ export function parseContextMenuSpecs(raw: unknown): ContextMenuSpec[] | null {
     const item: ContextMenuSpec = { label: r['label'], disabled: r['disabled'] === true }
     if (typeof r['key'] === 'string' && r['key']) item.key = r['key']
     if (typeof r['accelerator'] === 'string' && ACCELERATOR_RE.test(r['accelerator'])) item.accelerator = r['accelerator']
-    if (Array.isArray(r['submenu'])) {
-      const sub = parseContextMenuSpecs(r['submenu'])
+    if (Array.isArray(r['submenu']) && depth < MAX_SUBMENU_DEPTH) {
+      const sub = parseContextMenuSpecs(r['submenu'], depth + 1)
       if (sub && sub.length > 0) item.submenu = sub
     }
     items.push(item)

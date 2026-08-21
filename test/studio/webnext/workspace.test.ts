@@ -231,4 +231,15 @@ describe('workspace · 插入信号（第五轮 {text, tick}）', () => {
     expect(ws.pendingInsert).toBeNull()
     expect(ws.consumeInsert()).toBeNull()
   })
+
+  // FE-4（第七轮）：切书清插入信号——非编辑器视图点「插入」后切书，A 书设定名
+  // 不能经新书编辑器 tryConsumeInsert 三口插进 B 书正文
+  it('FE-4（第七轮）：setBook 切书 → pendingInsert 随之作废', async () => {
+    const ws = useWorkspaceStore()
+    ws.requestInsert('玉佩')
+    expect(ws.pendingInsert).not.toBeNull()
+    ws.setBook('B书')
+    expect(ws.pendingInsert).toBeNull()
+    await flush()
+  })
 })

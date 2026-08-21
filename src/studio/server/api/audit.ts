@@ -110,7 +110,11 @@ export function buildAuditView(
     const shadowedSeqs = new Set<number>()
     for (const n of nodes) if (n.shadowed) shadowedSeqs.add(n.seq)
     // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页。
-    // 低级项（第六轮）：先切片再投影——原 map 全量造投影对象后丢弃大半，长书每请求白造几万对象
+    // 低级项（第六轮）：先切片再投影——原 map 全量造投影对象后丢弃大半，长书每请求白造几万对象。
+    // SV-2（第七轮）：modelVisible/humanVisible 是「遮蔽差异」面板的全量对照数据（首屏需要
+    // 完整列表），但「加载更多」的每页响应都在重发同一份全量投影（前端只追加 events、丢弃
+    // conversation 字段）——后续页省略投影只带 events 切片，长书翻页不再全量出网。
+    const firstPage = (paging.offset ?? 0) === 0
     conversation = {
       events: pageSlice(convoEvents, paging).map((e) => ({
         seq: e.seq,
@@ -122,10 +126,14 @@ export function buildAuditView(
         data: e.data,
       })),
       eventsTotal: convoEvents.length,
-      modelVisible: nodes
-        .filter((n) => !n.shadowed)
-        .map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: false, preview: toPreview(n.content) })),
-      humanVisible: nodes.map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: n.shadowed, preview: toPreview(n.content) })),
+      modelVisible: firstPage
+        ? nodes
+            .filter((n) => !n.shadowed)
+            .map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: false, preview: toPreview(n.content) }))
+        : [],
+      humanVisible: firstPage
+        ? nodes.map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: n.shadowed, preview: toPreview(n.content) }))
+        : [],
       shadowedCount: nodes.filter((n) => n.shadowed).length,
     }
   }

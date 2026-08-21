@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus, formatStatus } from '../../process/assemble.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
-import { readManifest, finalizedChapterNumbers } from '../../document/manifest.js'
+import { finalizedChapterSetOfBook } from '../../document/manifest.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>): ToolResult {
@@ -34,7 +34,7 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
       db,
       applyGlobalDefaults(cfg.config, ctx.userDataPath),
       undefined,
-      finalizedChapterNumbers(readManifest(join(ctx.bookRoot, '项目', '文档清单.jsonl'))),
+      finalizedChapterSetOfBook(ctx.bookRoot),
     )
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {

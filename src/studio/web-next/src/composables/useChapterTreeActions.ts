@@ -359,6 +359,9 @@ export function useChapterTreeActions(deps: {
   // --- 删除 ---
   async function doDelete(node: TreeNode): Promise<void> {
     if (!node.docId) return
+    // FE-1（第七轮）：书名入口捕获（M-8 类横向收敛）——legacy docId 纯路径派生不分书，
+    // 弹窗滞留期间跨窗切书后，A 书的确认会命中 B 书同路径文件（错书删除）
+    const book = deps.bookName()
     const ok = await ui.ask({
       title: '删除章节',
       message: `确认删除「${node.name}」？可从回收站恢复。`,
@@ -366,9 +369,10 @@ export function useChapterTreeActions(deps: {
       danger: true,
     })
     if (!ok) return
+    if (deps.bookName() !== book) return
     try {
-      await deleteDoc(deps.bookName(), node.docId)
-      await tree.load(deps.bookName())
+      await deleteDoc(book, node.docId)
+      if (deps.bookName() === book) await tree.load(book)
     } catch (e) {
       deps.openError.value = friendlyError(e)
     }

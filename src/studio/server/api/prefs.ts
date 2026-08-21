@@ -86,7 +86,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       let disk: Record<string, unknown> = {}
       if (existsSync(r.path)) {
         try {
-          disk = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+          // P5-服务端（第七轮）：形状校验——prefs.json 内容为数组/字符串/数字（损坏或
+          // 误写）时，{...disk, ...prefs} 会把索引键/字符位混入写回（损坏扩散一轮）
+          const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+          disk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
         } catch { /* 文件损坏视作空：本次整体重写（与原直写行为一致） */ }
       }
       mkdirSync(dirname(r.path), { recursive: true })
@@ -142,7 +145,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       let disk: Record<string, unknown> = {}
       if (existsSync(r.path)) {
         try {
-          disk = JSON.parse(readFileSync(r.path, 'utf8')) as Record<string, unknown>
+          // P5-服务端（第七轮）：形状校验（与 books.prefs.put 同款）——数组/标量损坏内容
+          // 不混入合并写
+          const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+          disk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
         } catch { /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */ }
       }
       const current = typeof disk.revision === 'number' ? disk.revision : 0

@@ -106,6 +106,9 @@ let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
 let studioServer: Server | null = null // 内嵌 server（dev HMR 态为 null）
+/** P5-服务端（第七轮）：bootstrap 实际采用的 workDir——before-quit 优雅退出回读用
+ *  （readStore().current 可能为 null/失效而实际 workDir 由 findWorkDir 发现） */
+let bootstrappedWorkDir: string | null = null
 
 /** 主窗口 bounds 持久化（userData/window-state.json）：关闭时存，启动时恢复。 */
 const stateFile = join(app.getPath('userData'), 'window-state.json')
@@ -328,6 +331,11 @@ async function bootstrap(): Promise<void> {
   } else {
     workDir = findWorkDir(process.cwd())
   }
+  // P5-服务端（第七轮）：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
+  // readStore().current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
+  // 退出拿到 null：不 abort 任何在途 chat/self-heal、不等后台任务（孤儿会话只能靠
+  // 10 分钟宽限修复）。退出以启动时实际值优先，store 回读兜底
+  bootstrappedWorkDir = workDir
   const needsWelcome = !workDir
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
@@ -660,6 +668,11 @@ if (gotSingleInstanceLock) {
       log.error('desktop', `启动失败：${e instanceof Error ? e.message : String(e)}`, e)
       app.quit()
     })
+  }).catch((e) => {
+    // P5-服务端（第七轮）：whenReady 回调同步段抛错原先变 unhandledRejection，绕过
+    // runBootstrap 的错误通道（app 挂无窗口态）——链尾兜底走同一出路
+    log.error('desktop', `whenReady 回调失败：${e instanceof Error ? e.message : String(e)}`, e)
+    app.quit()
   })
 
   // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
@@ -689,7 +702,7 @@ if (gotSingleInstanceLock) {
     shutdownStarted = true
     e.preventDefault()
     void Promise.race([
-      shutdownStudio(() => readStore().current, studioServer),
+      shutdownStudio(() => bootstrappedWorkDir ?? readStore().current, studioServer),
       new Promise<void>((r) => setTimeout(r, 2_000)),
     ]).finally(() => {
       app.quit()

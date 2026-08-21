@@ -335,6 +335,20 @@ test('copyDocument: 复制内容 + 新 docId + 清单登记 + 源不变', async 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('P5-数据层（第七轮）copyDocument: 非 UTF-8 原始字节原样复制（GBK 源不经 utf-8 往返转写）', async () => {
+  const { root, svc } = makeBookWithChapter()
+  // GBK「正文」= D5 FD CE C4（非法 UTF-8）：旧实现 utf-8 读 + utf-8 写会把这 4 字节
+  // 转写成 U+FFFD（EF BF BD），副本不再是源的字节级拷贝
+  const gbk = Buffer.concat([Buffer.from('---\n章号: 1\n---\n', 'utf-8'), Buffer.from([0xd5, 0xfd, 0xce, 0xc4])])
+  writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), gbk)
+  const r = await svc.copyDocument({ docId: 'doc_ch01', relPath: '写作/正文/第一卷/0002-开篇 副本.md' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const copied = readFileSync(join(root, '写作', '正文', '第一卷', '0002-开篇 副本.md'))
+  expect(Buffer.compare(copied, gbk)).toBe(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('copyDocument: 源 docId 未登记 → NOT_FOUND', async () => {
   const { root, svc } = makeBookWithChapter()
   const r = await svc.copyDocument({ docId: 'doc_unknown', relPath: '写作/正文/第一卷/0002-x.md' })

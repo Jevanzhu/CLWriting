@@ -84,16 +84,18 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
  * 无布线不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  */
-function maxWrittenChapterOf(bookRoot: string): number | undefined {
+function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): number | undefined {
   const bodyDir = join(bookRoot, '写作', '正文')
-  if (!existsSync(bodyDir)) return undefined
+  // P5-管线（第七轮）：接受调用方预扫的正文章列表（批量路径 bodyChapters 一扫两用），
+  // 原先内部再 readChapterDir 一遍 = 全书正文双遍扫描
+  const chapters = preScanned ?? (existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : [])
+  if (chapters.length === 0) return undefined
   // 排除未定稿（无 finalizedRevision）的草稿——不算"已写"基准（防账本「未来章」检查误判）
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const finalized = new Set<string>()
   for (const e of manifest.entries.values()) {
     if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(e.path)
   }
-  const { chapters } = readChapterDir(bodyDir)
   let max = 0
   for (const ch of chapters) {
     if (!ch._path) continue
@@ -252,9 +254,10 @@ export function collectTreeIssues(
     // 本轮按无红处理（下轮重试），不拦树。
     // 全书最高已定稿章号：一次预扫两处共用——leads 全书性红项的未来章基准 + 章循环
     // batch（H-1 新增消费方；不共用会把 readChapterDir 调用次数抬高回去，CC-P1-3 的
-    // 调用次数回归锚「全书固定 3 次」会红）
+    // 调用次数回归锚会红）。P5-管线（第七轮）：bodyChapters 列表直接传入
+    // maxWrittenChapterOf——原实现内部重扫一遍正文（「一次预扫」注释与实现漂移）
     const bodyChapters = existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : []
-    const maxWritten = maxWrittenChapterOf(bookRoot)
+    const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters)
     let leadsBookRed = false
     if (db && !rebuildFailed) {
       try {

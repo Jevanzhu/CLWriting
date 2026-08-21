@@ -96,14 +96,14 @@ function callCount(): number {
 }
 
 describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
-  it('readChapterDir 调用次数与章数解耦：3 章 → 全书固定 3 次（修复前 2+N 次）', () => {
+  it('readChapterDir 调用次数与章数解耦：3 章 → 全书固定 2 次（修复前 2+N 次）', () => {
     const root = makeBook(3)
     try {
       readChapterDirMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
       expect(Object.keys(issues)).toHaveLength(3) // 全部未定稿 → 逐章受检
-      // 正文×2（聚合循环 + maxWritten 基准）+ 章纲×1（循环外预扫）
-      expect(callCount()).toBe(3)
+      // 正文×1（聚合循环，maxWritten 基准复用同列表——P5-管线第七轮消双扫）+ 章纲×1（循环外预扫）
+      expect(callCount()).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -112,10 +112,10 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
   it('章数翻倍 → 调用次数不变（O(N²) → O(N)）', () => {
     const root = makeBook(6)
     try {
-      readChapterDirMock.mockClear()
-      const { issues } = collectTreeIssues(root, () => undefined)
-      expect(Object.keys(issues)).toHaveLength(6)
-      expect(callCount()).toBe(3)
+        readChapterDirMock.mockClear()
+        const { issues } = collectTreeIssues(root, () => undefined)
+        expect(Object.keys(issues)).toHaveLength(6)
+        expect(callCount()).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

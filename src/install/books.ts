@@ -57,18 +57,18 @@ export function isInvalidBookName(name: string): boolean {
   return name === '' || name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..'
 }
 
-/** 读 books.jsonl（容错：缺文件返回空；坏行跳过不崩）。 */
-export function readBooks(workDir: string): BookEntry[] {
+/** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
+ *  EISDIR 等）→ null——DA-3（第七轮）：写方据此拒绝重写，防「降级空表 × 后续整写」
+ *  把其余登记清掉（EACCES 挡 readFileSync 不挡 atomicWriteFile 的 tmp+rename）。
+ *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。 */
+export function readBooksStrict(workDir: string): BookEntry[] | null {
   const fp = join(workDir, BOOKS_FILE)
   if (!existsSync(fp)) return []
   let text: string
   try {
     text = readFileSync(fp, 'utf-8')
   } catch {
-    // 低级项（第六轮）：existsSync 过但读取失败（EACCES/EISDIR 等）不裸抛——
-    // 书架/resolveBookRoot 等读路径降级为空表（与缺文件同口径）；若磁盘真有故障，
-    // 后续 writeBooks 的写错误自然浮现
-    return []
+    return null
   }
   const books: BookEntry[] = []
   const lines = text.split('\n')
@@ -106,6 +106,11 @@ export function readBooks(workDir: string): BookEntry[] {
   return books
 }
 
+/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。 */
+export function readBooks(workDir: string): BookEntry[] {
+  return readBooksStrict(workDir) ?? []
+}
+
 /** 全量写 books.jsonl（一行一书）。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
@@ -119,7 +124,12 @@ export function appendBook(
   workDir: string,
   entry: BookEntry,
 ): { ok: true } | { ok: false; reason: string } {
-  const books = readBooks(workDir)
+  // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
+  // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
+  const books = readBooksStrict(workDir)
+  if (books === null) {
+    return { ok: false, reason: 'books.jsonl 读取失败（权限或磁盘故障），已拒绝改写以防清空书库登记——请修复后重试' }
+  }
   if (books.some((b) => b.name === entry.name)) {
     return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
   }
@@ -133,8 +143,11 @@ export function appendBook(
  * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
  */
 export function removeBookEntry(workDir: string, name: string): void {
-  const books = readBooks(workDir).filter((b) => b.name !== name)
-  writeBooks(workDir, books)
+  // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
+  // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
+  const books = readBooksStrict(workDir)
+  if (books === null) return
+  writeBooks(workDir, books.filter((b) => b.name !== name))
   // 活动书被删 → 清指针（下次进书架会提示选书）
   if (readActive(workDir) === name) {
     atomicWriteFile(join(workDir, ACTIVE_FILE), '')

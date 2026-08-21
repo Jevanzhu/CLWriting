@@ -65,7 +65,9 @@ export interface StatusSnapshot {
  * @param finalized 已定稿章号集合（低级项·第六轮：currentChapter 口径收口——chapters
  *   缓存表含 写作/正文 全部 .md（写稿即入缓存的草稿也在内），此前 MAX(number) 把
  *   写作中的草稿章也计进「已定稿最新章号」，与字段注释口径不符。传入即只数定稿章；
- *   缺省保持全量口径（旧测试夹具兼容），生产调用方（prepare / state / chapter_status）均传）
+ *   PL-2（第七轮）：空集 = 清单在册零定稿（新书）→ currentChapter=0，不再回落含
+ *   草稿全量；缺省（undefined，无清单旧书/旧测试夹具）保持全量口径。生产调用方
+ *   （prepare / state / chapter_status）经 finalizedChapterSetOfBook 传值）
  */
 export function assembleStatus(
   db: DatabaseSync,
@@ -78,14 +80,19 @@ export function assembleStatus(
   const size = volumeSize ?? config.book.volume_size ?? 50
 
   // 已定稿最新章号
-  const lastRow = (
-    finalized && finalized.size > 0
-      ? db.prepare(
-          `SELECT MAX(number) AS maxNum FROM chapters WHERE number IN (${Array.from(finalized, () => '?').join(',')})`,
-        ).get(...finalized)
-      : db.prepare('SELECT MAX(number) AS maxNum FROM chapters').get()
-  ) as { maxNum: number | null }
-  const currentChapter = lastRow.maxNum ?? 0
+  let maxNum: number | null
+  if (finalized === undefined) {
+    maxNum = (db.prepare('SELECT MAX(number) AS maxNum FROM chapters').get() as { maxNum: number | null }).maxNum
+  } else if (finalized.size === 0) {
+    maxNum = null // PL-2：清单在册但零定稿（新书）——真口径 0，不回落含草稿全量
+  } else {
+    maxNum = (
+      db.prepare(
+        `SELECT MAX(number) AS maxNum FROM chapters WHERE number IN (${Array.from(finalized, () => '?').join(',')})`,
+      ).get(...finalized) as { maxNum: number | null }
+    ).maxNum
+  }
+  const currentChapter = maxNum ?? 0
 
   // 当前卷号
   const currentVolume = currentChapter > 0 ? Math.ceil(currentChapter / size) : 1
@@ -120,11 +127,13 @@ export function assembleStatus(
       threshold: thresholds[s.type] ?? 30,
     }))
 
-  // 近 3 章钩子/情绪
+  // 近 3 章钩子/情绪。P5-管线（第七轮）：按定稿线过滤（number <= currentChapter）——
+  // chapters 表含在写草稿的钩子行，原先直接取最大 3 章会把未定稿草稿的钩子当
+  // 「已定稿近章节奏」复述给模型（与 currentChapter 口径分裂）
   const recentRows = db.prepare(
     `SELECT number, title, hook_type, emotion FROM chapters
-     ORDER BY number DESC LIMIT 3`,
-  ).all() as Record<string, unknown>[]
+     WHERE number <= ? ORDER BY number DESC LIMIT 3`,
+  ).all(currentChapter) as Record<string, unknown>[]
   const recentChapters = recentRows
     .map((r) => ({
       number: r['number'] as number,

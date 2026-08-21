@@ -42,6 +42,9 @@ async function restore(id: string): Promise<void> {
   }
 }
 async function purge(id: string): Promise<void> {
+  // FE-2（第七轮）：书名入口捕获（M-8 类收敛）——永久删除不可恢复，请求不能发到
+  // 确认弹窗滞留期间切换后的书
+  const book = props.bookName
   const ok = await ui.ask({
     title: '永久删除',
     message: '永久删除不可恢复，确认？',
@@ -49,9 +52,10 @@ async function purge(id: string): Promise<void> {
     danger: true,
   })
   if (!ok) return
+  if (props.bookName !== book) return
   try {
-    await purgeTrash(props.bookName, id)
-    await load()
+    await purgeTrash(book, id)
+    if (props.bookName === book) await load()
   } catch (e) {
     err.value = friendlyError(e)
   }

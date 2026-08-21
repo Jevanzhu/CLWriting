@@ -35,15 +35,25 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 选择目录（弹原生选择器；含非书库目录二次确认新建流程 → relaunch）
+// 选择目录（弹原生选择器；含非书库目录二次确认新建流程 → relaunch）。
+// P5-前端（第七轮）：交互路径 IPC 捕获——第六轮只修了加载路径，选择/切换失败
+// 原先 unhandled rejection 零反馈
 async function chooseLibrary(): Promise<void> {
-  await window.clwritingDesktop?.openLibrary()
+  try {
+    await window.clwritingDesktop?.openLibrary()
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 // 切换到最近列表中的书库 → relaunch
 async function switchTo(path: string): Promise<void> {
   if (path === current.value) return
-  await window.clwritingDesktop?.switchLibrary(path)
+  try {
+    await window.clwritingDesktop?.switchLibrary(path)
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 
 // 在文件管理器中打开当前书库根目录

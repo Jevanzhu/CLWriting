@@ -47,4 +47,21 @@ describe('parseContextMenuSpecs', () => {
     expect(r![5]!.accelerator).toBeUndefined()
     expect(r!.every((i) => i.label !== '')).toBe(true)
   })
+
+  it('SV-1（第七轮）：submenu 深度上限——数万层嵌套不栈溢出，超 5 层剥 submenu', () => {
+    // 被攻陷渲染进程可经结构化克隆构造任意深度（不受 JSON.parse 限制）——
+    // 无上限递归净化自身先 RangeError 崩主进程
+    let deep: unknown = { label: '底层' }
+    for (let i = 0; i < 50_000; i++) deep = { label: `层${i}`, submenu: [deep] }
+    let r: ReturnType<typeof parseContextMenuSpecs>
+    expect(() => { r = parseContextMenuSpecs([deep]) }).not.toThrow()
+    let edges = 0
+    let cur = r![0]!
+    while (cur.submenu && cur.submenu.length > 0) {
+      edges++
+      cur = cur.submenu[0]!
+    }
+    expect(edges).toBe(5) // 恰好 5 层 submenu 后截断，深层被剥（菜单项保留）
+    expect(cur.label).toBe('层49994') // 最外层 层49999，下钻 5 层
+  })
 })

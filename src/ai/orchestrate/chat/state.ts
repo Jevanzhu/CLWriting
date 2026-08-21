@@ -8,6 +8,7 @@
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/types.js'
 import type { ChatMsg } from '../../provider/types.js'
 import { openSessionStore, bookHash } from '../../../events/store.js'
+import { log } from '../../../log/index.js'
 
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
 
@@ -16,6 +17,9 @@ export interface ChatRunState {
   deadline: number
   /** CC-P2-2：deadline 定时器已触发——ctrl.abort 的来源区分（用户中断 vs 超时） */
   timedOut?: boolean
+  /** P5-AI（第七轮）：超时终局的确认 callId 集合——turn 循环据此区分「确认超时」与
+   *  「作者取消」两文案（原先一律回「作者取消了该操作」，对模型归因误导） */
+  confirmTimedOut?: Set<string>
   /** 挂起中的工具确认：callId → resolve */
   pending: Map<string, (ok: boolean) => void>
 }
@@ -85,8 +89,16 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
   if (userDataPath && bookRoot) {
     // Y-P2-7：两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
     // 此前只清前者，链路事件（step/llm/check）残留；
-    // 低级项（第六轮）：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）
-    const store = openSessionStore(userDataPath, bookRoot)
+    // 低级项（第六轮）：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）。
+    // P5-AI（第七轮）：openSessionStore 本身可抛（库损坏/磁盘满——H-1 同型残留在清史路径），
+    // 内存已清而事件库未清的半完成态若再 500，作者每次重试同样失败无从自助——降级留痕
+    let store: ReturnType<typeof openSessionStore>
+    try {
+      store = openSessionStore(userDataPath, bookRoot)
+    } catch (e) {
+      log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
     try {
       store?.clearBooks([bookName, bookHash(bookRoot)])
     } finally {

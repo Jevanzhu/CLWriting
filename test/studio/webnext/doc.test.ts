@@ -62,6 +62,15 @@ async function openDoc(docId: string, path: string, content: string) {
   return doc
 }
 
+/** P5-前端（第七轮）：save 成功分支书名守卫——请求在途切书，树字数/今日增量不落新书。 */
+async function openForSwitch(docId: string, path: string): Promise<ReturnType<typeof useDocStore>> {
+  const doc = useDocStore()
+  doc.setBook('A书')
+  vi.mocked(getContent).mockResolvedValueOnce('内容')
+  await doc.open(makeNode(path, docId))
+  return doc
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
@@ -386,5 +395,24 @@ describe('doc store · refresh 净分支 sha256 窗口竞态（ee-P1-7）', () =
     expect(e.content).toBe('服务端内容')
     expect(e.dirty).toBe(false)
     expect(e.baselineRevision).toBe(await sha256Revision('服务端内容'))
+  })
+})
+
+describe('P5-前端（第七轮）：save 在途切书 → 成功分支不写新书树/不弹新书 toast', () => {
+  it('bookName 已切 → updateWordCount 不被调用', async () => {
+    const { useTreeStore } = await import('../../../src/studio/web-next/src/stores/tree')
+    const tree = useTreeStore()
+    tree.updateWordCount = vi.fn()
+    const doc = await openForSwitch('d-sw', '写作/正文/第1章.md')
+    doc.patch('d-sw', '改后的内容')
+    let resolveSave: (v: SaveOk) => void = () => {}
+    vi.mocked(saveContent).mockImplementationOnce(
+      () => new Promise((r) => { resolveSave = r as (v: SaveOk) => void }) as Promise<SaveOk>,
+    )
+    const p = doc.save('d-sw', 'manual')
+    doc.setBook('B书') // 请求在途切书
+    resolveSave({ ok: true, revision: 'sha256:test' } as SaveOk)
+    expect(await p).toBe(true)
+    expect(tree.updateWordCount).not.toHaveBeenCalled() // B 树不吃 A 书字数
   })
 })

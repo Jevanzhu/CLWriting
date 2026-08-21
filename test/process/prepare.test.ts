@@ -286,13 +286,13 @@ test('prepare S5: 条目库存在 → 文风便宜段必带 + 条目样章弹性
 
 // ── C1 前章正文结尾（flexibleRank=1.5）──────────────
 
-/** 建前章（149章）定稿正文，返回正文末尾预期片段 */
+/** 建前章（PL-1 后前章 = currentChapter = 150 章）定稿正文，返回正文末尾预期片段 */
 function makePrevChapterFinal(root: string, words = 3000): string {
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   const body = '前章正文段落。'.repeat(Math.ceil(words / 6))
   writeFileSync(
-    join(root, '写作', '正文', '第一卷', '149-前章.md'),
-    `---\n章号: 149\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n${body}`,
+    join(root, '写作', '正文', '第一卷', '150-前章.md'),
+    `---\n章号: 150\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n${body}`,
     'utf-8',
   )
   return body
@@ -304,8 +304,8 @@ test('C1: 有前章定稿正文 → 「前章正文结尾」段出现，flexible
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   const sec = r.sections.find((s) => s.title === '前章正文结尾')
   expect(sec).toEqual(expect.objectContaining({ title: '前章正文结尾', essential: false, flexibleRank: 1.5 }))
-  // 内容以【第149章正文结尾】开头
-  expect(sec!.content).toContain('【第149章正文结尾】')
+  // 内容以【第150章正文结尾】开头（PL-1：前章 = currentChapter，不再 -1）
+  expect(sec!.content).toContain('【第150章正文结尾】')
   // 全量版取末尾约 1500 字（段落边界截断后 ≤ 1500 + 前缀）
   const bodyText = sec!.content.split('\n').slice(1).join('\n')
   expect(bodyText.length).toBeLessThanOrEqual(1500)
@@ -315,7 +315,7 @@ test('C1: 有前章定稿正文 → 「前章正文结尾」段出现，flexible
 
 test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
   const { root, db } = makeBookWithMaterial()
-  // makeBookWithMaterial 的 currentChapter=150，prev=149；149 正文/草稿皆缺
+  // makeBookWithMaterial 的 currentChapter=150，prev=150（PL-1）；150 正文/草稿皆缺
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   expect(r.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
   // 第 1 章场景：prevChapterNo=0，不进段
@@ -363,13 +363,44 @@ test('C1: 降档版 degradedContent = 末尾 500 字', () => {
   const sec = r.sections.find((s) => s.title === '前章正文结尾')
   expect(sec).toEqual(expect.objectContaining({ title: '前章正文结尾' }))
   expect(typeof sec!.degradedContent).toBe('string')
-  // 降档版以【第149章正文结尾】开头
-  expect(sec!.degradedContent).toContain('【第149章正文结尾】')
+  // 降档版以【第150章正文结尾】开头
+  expect(sec!.degradedContent).toContain('【第150章正文结尾】')
   // 降档正文 ≤ 500 字
   const degBody = sec!.degradedContent!.split('\n').slice(1).join('\n')
   expect(degBody.length).toBeLessThanOrEqual(500)
   // 降档版比全量短
   expect(sec!.degradedContent!.length).toBeLessThan(sec!.content.length)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('P5-管线（第七轮）：近章结尾降档（2 章→1 章）后 summaryFiles 同步收缩（不虚报注入面）', () => {
+  const { root, db } = makeBookWithMaterial()
+  // 补第 149 章摘要并把两章摘要加大——近章结尾段含 149+150 两文件且降档释放量可观
+  writeFileSync(join(root, '定稿', '摘要', '章摘要', '149.md'), '一'.repeat(1500), 'utf-8')
+  syncSummary(db, 'chapter', 149, join(root, '定稿', '摘要', '章摘要', '149.md'))
+  writeFileSync(join(root, '定稿', '摘要', '章摘要', '150.md'), '二'.repeat(1500), 'utf-8')
+  syncSummary(db, 'chapter', 150, join(root, '定稿', '摘要', '章摘要', '150.md'))
+
+  // 基准：默认预算跑一遍（无裁剪），拿近章结尾全量/降档的真实 token 差来钉预算
+  const r0 = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
+  expect(r0.trimmed).toBe(false)
+  const sec0 = r0.sections.find((s) => s.title === '近章结尾')!
+  expect(sec0.summaryFiles).toHaveLength(2)
+  const drop = estimateTokens(sec0.content) - estimateTokens(sec0.degradedContent!)
+  expect(drop).toBeGreaterThan(0)
+  // 预算 = 基准总量 - 释放量一半：降档前必超、降掉一章后必过 → 恰好停在降档态
+  const cfg: BookConfig = {
+    ...DEFAULT_CONFIG,
+    budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: Math.ceil(r0.estimatedTokens - drop / 2) },
+  }
+  const r = prepare(db, cfg, root, ['悬念-031'])
+  expect(r.trimLog.some((l) => l.includes('近章结尾') && l.includes('降档'))).toBe(true)
+  const sec = r.sections.find((s) => s.title === '近章结尾')!
+  expect(sec.content).toBe(sec0.degradedContent) // 确已降档（只留第 150 章）
+  // 修复前：summaryFiles 仍登记 149+150 两文件 → promptMeta.files 虚报注入面
+  expect(sec.summaryFiles).toEqual(['定稿/摘要/章摘要/150.md'])
+  expect(r.injectedSummaryFiles).toEqual(['定稿/摘要/章摘要/150.md'])
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

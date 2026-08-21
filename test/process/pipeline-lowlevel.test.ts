@@ -87,8 +87,9 @@ test('低级项（第六轮）：assembleStatus 传入定稿集 → currentChapt
       })
     }
     expect(assembleStatus(db, DEFAULT_CONFIG, 50, new Set([1, 2])).currentChapter).toBe(2)
-    // 空集 / 缺省 → 维持全量口径（旧夹具兼容）
-    expect(assembleStatus(db, DEFAULT_CONFIG, 50, new Set()).currentChapter).toBe(3)
+    // PL-2（第七轮）：空集 = 清单在册零定稿（新书）→ 0，不再回落含草稿全量；
+    // 缺省（undefined，无清单旧书/旧夹具）→ 维持全量口径
+    expect(assembleStatus(db, DEFAULT_CONFIG, 50, new Set()).currentChapter).toBe(0)
     expect(assembleStatus(db, DEFAULT_CONFIG, 50).currentChapter).toBe(3)
     db.close()
   } finally {
@@ -200,5 +201,26 @@ test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlin
   } finally {
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'search-cycle-'))
+  try {
+    const bodyDir = join(root, '写作', '正文')
+    mkdirSync(join(bodyDir, 'a'), { recursive: true })
+    mkdirSync(join(bodyDir, 'b'), { recursive: true })
+    writeFileSync(join(bodyDir, 'a', '0001-环内.md'), '环内命中 needle', 'utf-8')
+    try {
+      // 环完全在书内：isWithinRoot 拦不住，修复前 walkMd 无限递归直至栈溢出（RangeError）
+      symlinkSync(join(bodyDir, 'a'), join(bodyDir, 'b', 'back-a'))
+      symlinkSync(join(bodyDir, 'b'), join(bodyDir, 'a', 'back-b'))
+    } catch {
+      return // 平台不允许建 symlink（如 Windows 未开开发者模式）→ 跳过
+    }
+    const out = searchBook(root, 'needle', 'all')
+    expect(out.results.map((h) => h.path)).toContain('写作/正文/a/0001-环内.md')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })

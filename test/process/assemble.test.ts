@@ -91,6 +91,22 @@ test('assembleStatus: 近章钩子/情绪', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('P5-管线（第七轮）：recentChapters 按定稿线过滤——在写草稿（153 章）的钩子不进近章节奏', () => {
+  const { db, dir } = makeSeededDb()
+  // 模拟在写草稿：chapters 表已有 153 章的钩子行，但清单定稿线只到 152
+  syncChapter(db, {
+    章号: 153, 标题: '在写草稿', 钩子类型: '悬念钩', 钩子强弱: '强',
+    情绪定位: '铺垫', _wordCount: 500, _path: 'p153',
+  })
+  const s = assembleStatus(db, DEFAULT_CONFIG, undefined, new Set([150, 151, 152]))
+  expect(s.currentChapter).toBe(152)
+  // 修复前 ORDER BY number DESC LIMIT 3 直取 153/152/151——把在写草稿的钩子当
+  // 「已定稿近章节奏」复述给模型（与 currentChapter 口径分裂）
+  expect(s.recentChapters.map((c) => c.number)).toEqual([150, 151, 152])
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('assembleStatus: 空书（0 章）', () => {
   const dir = mkdtempSync(join(tmpdir(), '空书-'))
   const db = new DatabaseSync(join(dir, 'index.db'))

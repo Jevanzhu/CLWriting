@@ -98,6 +98,32 @@ describe('F1-P1 store 存取', () => {
     }
   })
 
+  it('P5-服务端（第七轮）：clearBooks 原子——第二键 DELETE 失败时第一键整体回滚', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    // 双钥匙两 book 键，各挂一条事件
+    const s1 = store.createSession('书A')
+    store.appendEvent(s1, { type: 'user/message', data: { message: '对话侧' }, surfaceOp: 'append' })
+    const s2 = store.createSession('书A#hash')
+    store.appendEvent(s2, { type: 'user/message', data: { message: '工作流侧' }, surfaceOp: 'append' })
+    // 触发器让 sessions 的 DELETE 必然失败——第一键已删、第二键炸 → 全回滚
+    const other = new DatabaseSync(store.dbPath)
+    other.exec(
+      `CREATE TRIGGER block_sessions_delete2 BEFORE DELETE ON sessions BEGIN
+         SELECT RAISE(ABORT, 'blocked');
+       END`,
+    )
+    try {
+      expect(() => store.clearBooks(['书A', '书A#hash'])).toThrow()
+      expect(store.listEvents('书A')).toHaveLength(1)
+      expect(store.listEvents('书A#hash')).toHaveLength(1)
+    } finally {
+      other.exec('DROP TRIGGER block_sessions_delete2')
+      other.close()
+      store.close()
+    }
+  })
+
   it('失败事务回滚——appendEvents 抛错后无部分写入', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;

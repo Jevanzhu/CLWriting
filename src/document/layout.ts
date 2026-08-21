@@ -17,7 +17,10 @@
  */
 import { LEAD_TYPES } from '../format/leads.js'
 
-/** 文档角色（W0-1 §2 DocumentRole）。 */
+/** 文档角色（W0-1 §2 DocumentRole）。
+ *  P5-数据层（第七轮）注释澄清：roleOf 对 写作/正文/ 恒返 'chapter'，从不产出
+ *  'piece-body'——短篇由消费方读 book.yaml(kind) 判定。该枚举位是历史 wire 兼容
+ *  保留（前端仍有判定分支），勿在新代码依赖它。 */
 export type DocumentRole =
   | 'chapter' | 'piece-body' | 'chapter-outline'
   | 'outline' | 'volume-outline'

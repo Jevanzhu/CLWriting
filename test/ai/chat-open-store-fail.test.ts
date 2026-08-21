@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
-import { runChat, isChatRunning, sendChatMessage } from '../../src/ai/orchestrate/chat.js'
+import { runChat, isChatRunning, sendChatMessage, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { bookHash } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
@@ -105,5 +105,15 @@ describe('H-1: 事件库打开失败不死锁（降级内存模式）', () => {
     expect(r).toBe('started')
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(isChatRunning(bookName)).toBe(false)
+  })
+})
+
+describe('P5-AI: clearChatHistory 打开事件库失败降级（H-1 同型残留收口）', () => {
+  it('库损坏 → 不抛（内存照清，不再半完成态 500）', () => {
+    const ud = tempUserData()
+    dirs.push(ud)
+    corruptSessionDb(ud, longRoot)
+    expect(() => clearChatHistory('corrupt-clear-book', ud, longRoot)).not.toThrow()
+    expect(isChatRunning('corrupt-clear-book')).toBe(false)
   })
 })

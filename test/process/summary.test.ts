@@ -247,7 +247,9 @@ describe('批量定稿串行摘要链 afterFinalizeGenerateSummaryBatch（第五
 
 describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () => {
   it('章摘要注入剥 fm + injectedSummaryFiles 登记（visible 侧清单）', async () => {
-    const root = makeBook(1)
+    // PL-2（第七轮）：定稿口径下清单在册零定稿 → currentChapter=0 不注入摘要——
+    // 夹具对齐生产语义（章摘要随定稿生成），第 1 章定稿
+    const root = makeBook(1, 1)
     await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
     // rebuild 让摘要进 index.db（生成器自愈路径内部已做；这里独立走 rebuild 同口径）
     const { rebuild } = await import('../../src/cache/rebuild.js')

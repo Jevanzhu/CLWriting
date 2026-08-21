@@ -58,6 +58,9 @@ async function submitAdd(): Promise<void> {
   }
 }
 async function onRemove(path: string, text: string): Promise<void> {
+  // FE-3（第七轮）：书名入口捕获（M-8 类收敛）——store.remove 在调用时刻取书名，
+  // 弹窗滞留切书后旧书条目路径会发到新书（条目路径两书可同名），或 clear() 后空书名裸抛
+  const book = style.bookName
   const ok = await ui.ask({
     title: '删除条目',
     message: `删除「${text.slice(0, 24)}${text.length > 24 ? '…' : ''}」？此操作不可撤销。`,
@@ -65,6 +68,7 @@ async function onRemove(path: string, text: string): Promise<void> {
     danger: true,
   })
   if (!ok) return
+  if (style.bookName !== book) return
   try {
     await style.remove(path)
     ui.toast('已删除', 'success')

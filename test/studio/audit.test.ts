@@ -194,6 +194,20 @@ describe('AA-P2-1/AA-P2-2: audit 分页', () => {
     })
   })
 
+  it('SV-2（第七轮）：visible 双投影只随首屏（offset=0）下发——「加载更多」后续页不再全量出网', () => {
+    withStore((store) => {
+      seedConvo(store, 10) // 20 条
+      const page1 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
+      expect(page1.conversation!.modelVisible.length).toBeGreaterThan(0)
+      expect(page1.conversation!.humanVisible.length).toBeGreaterThan(0)
+      const page2 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
+      expect(page2.conversation!.modelVisible).toEqual([]) // 后续页省略（前端只追加 events、丢弃 conversation）
+      expect(page2.conversation!.humanVisible).toEqual([])
+      expect(page2.conversation!.events).toHaveLength(8) // events 切片照常
+      expect(page2.conversation!.eventsTotal).toBe(20)
+    })
+  })
+
   it('offset 出界 → 自然空页（total 仍全量，不炸）', () => {
     withStore((store) => {
       seedConvo(store, 2) // 4 条

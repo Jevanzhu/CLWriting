@@ -174,8 +174,10 @@ test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
 })
 
 // 低级项（第六轮）：投稿视图旧产物清理（对齐「全本-」第五轮口径）——书改名后同槽位
-// 旧文件残留会让作者拿错稿；其他平台产物是有意保留的多平台视图，不互删
-test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平台产物保留', () => {
+// 旧文件残留会让作者拿错稿。P5-管线（第七轮）口径更新：槽位归属由「当前书名+平台后缀」
+// 精确名判定——他平台的「旧书名」残留同属拿错稿风险，一并清；各平台「当前书名」
+// 产物仍保留（多平台视图不互删，见下一样式的精确保护测试）
+test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平台旧书名产物同属拿错稿风险一并清', () => {
   const root = mkdtempSync(join(tmpdir(), 'export-subm-clear-'))
   const writeCfg = (title: string): void => {
     writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
@@ -191,7 +193,36 @@ test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平�
     const names = readdirSync(join(root, '工作区', '导出')).filter((f) => f.startsWith('投稿视图-'))
     expect(names).toContain('投稿视图-新名书.md')
     expect(names).not.toContain('投稿视图-旧名书.md') // 同槽位旧产物已清（拿错稿防线）
-    expect(names).toContain('投稿视图-旧名书-公众号.md') // 他平台产物有意保留，不互删
+    // 第七轮口径：旧名公众号产物与新名 generic 槽位同为「拿错稿」形态，不再按
+    // 尾部后缀猜测归属而永久保留
+    expect(names).not.toContain('投稿视图-旧名书-公众号.md')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// P5-管线（第七轮）：平台槽位归属「前缀（当前书名）+平台后缀」精确判定——书名恰以
+// 平台 label（如「-公众号」）结尾时，generic 旧产物在文件名上与他平台形态无异，
+// 旧 endsWith 判定把它永远当成他平台产物保留；各平台「当前书名」产物仍精确保留
+test('exportBook: 书名以平台 label 结尾时 generic 旧产物照清；各平台当前产物精确保留', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-subm-label-'))
+  const writeCfg = (title: string): void => {
+    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+  }
+  writeCfg('夜航-公众号')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' }) // generic 槽位：投稿视图-夜航-公众号.md
+    writeCfg('夜航贰')
+    // 模拟他平台「当前书名」产物在位（多平台视图，应精确保留）
+    writeFileSync(join(root, '工作区', '导出', '投稿视图-夜航贰-公众号.md'), '公众号当前产物', 'utf-8')
+    exportBook({ bookRoot: root, format: 'merged' }) // generic 槽位：投稿视图-夜航贰.md
+    const names = readdirSync(join(root, '工作区', '导出')).filter((f) => f.startsWith('投稿视图-'))
+    expect(names).toContain('投稿视图-夜航贰.md')
+    // 旧 endsWith 归属判定下，这个旧 generic 产物以 -公众号.md 结尾 → 被误当他平台产物永不清
+    expect(names).not.toContain('投稿视图-夜航-公众号.md')
+    expect(names).toContain('投稿视图-夜航贰-公众号.md') // 他平台当前产物精确保留
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -389,7 +389,7 @@ export async function generateVolumeSummary(opts: {
   const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
   if (!chain || chain.size === 0) {
     log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
-    return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、')} 章摘要），先补章摘要` }
+    return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、') || '全部'} 章摘要），先补章摘要` }
   }
   const fp = volumeSummaryPath(bookRoot, volume)
   const fingerprint = volumeChainFingerprint(chain)
@@ -398,39 +398,48 @@ export async function generateVolumeSummary(opts: {
     const m = /^sourceHash:\s*(\S+)/m.exec(readFileSync(fp, 'utf8'))
     if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
   }
-  const chainText = [...chain.keys()]
-    .sort((a, b) => a - b)
-    .map((ch) => `【第 ${ch} 章】${chain.get(ch)}`)
-    .join('\n')
-  const userPrompt = [
-    `请为第 ${volume} 卷写卷摘要（总长 ≤ ${budget} 字）。`,
-    '',
-    '## 本卷章摘要链',
-    chainText,
-  ].join('\n')
-  const out = await runSpec(SUMMARY_VOLUME_SPEC, {
-    userDataPath: opts.userDataPath,
-    userPrompt,
-    bookRoot,
-    promptFiles: [volumeSummaryRelPath(volume)],
-  })
-  if (!out.ok) return { ok: false, error: out.error }
-  let text = out.data.text.trim()
-  if (text.length > budget) text = text.slice(0, budget) + '…'
-  if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
-  mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
-  const fm = [
-    '---',
-    `volume: ${volume}`,
-    `generatedAt: ${new Date().toISOString()}`,
-    // 低级项（第六轮）：占位符 'summary-volume' 换成实际模型 id（mock 快路 → 'unknown'）
-    `model: ${out.model ?? 'unknown'}`,
-    `sourceHash: ${fingerprint}`,
-    '---',
-    '',
-  ].join('\n')
-  atomicWriteFile(fp, fm + text + '\n')
-  return { ok: true, path: fp, skipped: false }
+  // P5-管线（第七轮）：卷摘要并发去重（对齐章摘要 inFlight 模式）——定稿钩子与备料
+  // 自愈同时命中同一卷时，并发窗口内会重复调 AI 写同一文件
+  const volKey = `${bookRoot}#vol${volume}`
+  if (inFlight.has(volKey)) return { ok: false, error: `第 ${volume} 卷摘要生成已在途` }
+  inFlight.add(volKey)
+  try {
+    const chainText = [...chain.keys()]
+      .sort((a, b) => a - b)
+      .map((ch) => `【第 ${ch} 章】${chain.get(ch)}`)
+      .join('\n')
+    const userPrompt = [
+      `请为第 ${volume} 卷写卷摘要（总长 ≤ ${budget} 字）。`,
+      '',
+      '## 本卷章摘要链',
+      chainText,
+    ].join('\n')
+    const out = await runSpec(SUMMARY_VOLUME_SPEC, {
+      userDataPath: opts.userDataPath,
+      userPrompt,
+      bookRoot,
+      promptFiles: [volumeSummaryRelPath(volume)],
+    })
+    if (!out.ok) return { ok: false, error: out.error }
+    let text = out.data.text.trim()
+    if (text.length > budget) text = text.slice(0, budget) + '…'
+    if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
+    mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
+    const fm = [
+      '---',
+      `volume: ${volume}`,
+      `generatedAt: ${new Date().toISOString()}`,
+      // 低级项（第六轮）：占位符 'summary-volume' 换成实际模型 id（mock 快路 → 'unknown'）
+      `model: ${out.model ?? 'unknown'}`,
+      `sourceHash: ${fingerprint}`,
+      '---',
+      '',
+    ].join('\n')
+    atomicWriteFile(fp, fm + text + '\n')
+    return { ok: true, path: fp, skipped: false }
+  } finally {
+    inFlight.delete(volKey)
+  }
 }
 
 /**

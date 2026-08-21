@@ -208,3 +208,24 @@ test('低级项（第六轮）：非 ASCII 文件名的 untracked 不建基线�
   expect(byPath.get('写作/正文/0001-开篇.md')?.finalizedRevision).toMatch(/^sha256:/)
   expect(byPath.get(rel)?.finalizedRevision).toBeUndefined()
 })
+
+test('P5-数据层（第七轮）：文件名含字面 " -> " 的 untracked 不建基线（仅 R 状态才切箭头）', () => {
+  scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n---\n正文']], true)
+  execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
+  // untracked 文件名里就带 " -> "：旧代码对非 R 行也无条件按 indexOf(' -> ') 切，
+  // 路径被截成「新.md」→ dirty 失配 → 误判 clean 给未提交文件建定稿基线（断写红线）
+  const rel = '写作/正文/0002-旧 -> 新.md'
+  const segs = rel.split('/')
+  mkdirSync(join(tmp, ...segs.slice(0, -1)), { recursive: true })
+  writeFileSync(join(tmp, ...segs), '未跟踪草稿', 'utf-8')
+  const m0 = manifest()
+  m0.entries.set('doc-arrow', { id: 'doc-arrow', nodeType: 'document', path: rel, parentId: null })
+  writeManifest(join(tmp, '项目', '文档清单.jsonl'), m0)
+
+  const n = migrateFinalizedRevisions(tmp)
+  expect(n).toBe(1) // 只有 committed 干净的 0001 建基线
+  const m = manifest()
+  const byPath = new Map([...m.entries.values()].map((e) => [e.path, e]))
+  expect(byPath.get(rel)?.finalizedRevision).toBeUndefined()
+  expect(byPath.get('写作/正文/0001-开篇.md')?.finalizedRevision).toMatch(/^sha256:/)
+})

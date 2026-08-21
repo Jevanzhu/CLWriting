@@ -5,12 +5,15 @@ import { CornerDownLeft } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useUiStore } from '../../stores/ui'
+import { friendlyError } from '../../shared/error'
 import type { TreeNode } from '../../types/tree'
 
 defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
+const ui = useUiStore()
 
 // 设定区叶子（递归 设定 组）
 const settings = computed<TreeNode[]>(() => {
@@ -31,8 +34,9 @@ async function open(node: TreeNode): Promise<void> {
   try {
     await doc.open(node)
     ws.openTab(node.docId)
-  } catch {
-    /* 打开失败静默 */
+  } catch (e) {
+    // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）
+    ui.toast(friendlyError(e), 'error')
   }
 }
 

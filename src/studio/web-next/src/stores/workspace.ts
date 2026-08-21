@@ -68,6 +68,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     bookName.value = name
     prefsLoaded = false
     activeDocId.value = null
+    // FE-4（第七轮）：滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
+    // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
+    pendingInsert.value = null
     if (debounceTimer) clearTimeout(debounceTimer) // ff 细节#11：挂起的落盘随切书作废
     debounceTimer = null
     const gen = ++bookGen

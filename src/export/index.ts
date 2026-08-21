@@ -228,18 +228,25 @@ export function exportBook(options: ExportOptions): ExportResult {
 
   if (kind === 'short') {
     // 文件名与内容标题一致：非 generic 平台带模板 label（多平台产物不互相覆盖）
-    const template = SUBMISSION_TEMPLATES[platform]
-    const platformSuffix = template && platform !== 'generic' ? `-${template.label}` : ''
-    const submissionName = `投稿视图-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength(`投稿视图-${platformSuffix}.md`))}${platformSuffix}.md`
+    const submissionNameOf = (p: string, label: string | undefined): string => {
+      const suffix = label && p !== 'generic' ? `-${label}` : ''
+      return `投稿视图-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength(`投稿视图-${suffix}.md`))}${suffix}.md`
+    }
+    const submissionName = submissionNameOf(platform, SUBMISSION_TEMPLATES[platform]?.label)
     // 低级项（第六轮）：投稿视图旧产物清理（对齐「全本-」第五轮口径）——书改名后旧
-    // 「投稿视图-旧名…」残留会让作者拿错稿。只清当前平台槽位：其他平台产物是
-    // 有意保留的多平台视图，不互删
-    const otherPlatformSuffixes = Object.entries(SUBMISSION_TEMPLATES)
-      .filter(([k]) => k !== 'generic' && k !== platform)
-      .map(([, t]) => `-${t.label}.md`)
+    // 「投稿视图-旧名…」残留会让作者拿错稿。P5-管线（第七轮）：平台槽位归属由
+    // 「尾部 endsWith 平台后缀」猜测改为「当前书名 + 各平台后缀」精确名保护——
+    // 书名恰以「-公众号」等 label 结尾时，generic 旧产物会被误认成其他平台产物
+    // 永不清；其他平台的旧书名残留同样是拿错稿风险，一并清（只精确保留各平台
+    // 当前书名的最新产物）
+    const protectedNames = new Set(
+      Object.entries(SUBMISSION_TEMPLATES)
+        .filter(([k]) => k !== platform)
+        .map(([k, t]) => submissionNameOf(k, t.label)),
+    )
     for (const old of readdirSync(exportDir)) {
       if (!old.startsWith('投稿视图-') || !old.endsWith('.md') || old === submissionName) continue
-      if (otherPlatformSuffixes.some((s) => old.endsWith(s))) continue
+      if (protectedNames.has(old)) continue
       try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
     }
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）

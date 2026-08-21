@@ -231,7 +231,7 @@ function buildMineContext(bookRoot: string): string {
     const files = listMdRecursive(proseDir).slice(0, 8)
     if (files.length) {
       const excerpts = files.map((f) => {
-        const rel = relative(bookRoot, f)
+        const rel = relative(bookRoot, f).replace(/\\/g, '/') // P5-数据层（第七轮）：M-4 收口漏点（展示口径统一正斜杠）
         const t = readFileSync(f, 'utf8').replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ').trim().slice(0, 200)
         return `### ${rel}\n${t}`
       })

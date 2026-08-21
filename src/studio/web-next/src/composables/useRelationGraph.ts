@@ -650,8 +650,9 @@ export function useRelationGraph(bookName: string): RelationGraph {
     try {
       await doc.open(node)
       ws.openTab(node.docId)
-    } catch {
-      /* 打开失败忽略（best-effort） */
+    } catch (e) {
+      // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）
+      ui.toast(friendlyError(e), 'error')
     }
   }
 

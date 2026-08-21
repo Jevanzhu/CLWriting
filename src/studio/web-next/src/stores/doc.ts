@@ -30,7 +30,8 @@ export interface DocEntry {
   docId: string
   path: string
   name: string
-  /** 文档角色（v2 后端 buildTree 标注；短篇正文 role='piece-body'，与 path 无区分）。 */
+  /** 文档角色（后端 buildTree 标注；短篇判定读 book.yaml kind——role 恒 'chapter'，
+   *  'piece-body' 是历史 wire 兼容位，后端从不产出（P5-数据层·第七轮注释校准））。 */
   role: string
   mode: 'text' | 'md'
   content: string
@@ -116,6 +117,9 @@ export const useDocStore = defineStore('doc', () => {
     e.error = null
     // 快照本次落盘内容：await 期间的新输入不属于本次保存，成功后不得误清其 dirty
     const snapshot = e.content
+    // P5-前端（第七轮）：书名快照——保存请求在途切书后，成功分支的树字数/今日增量/
+    // toast 不再落到新书（B 书同路径节点会被写脏字数、错误提示出现在 B 书界面）
+    const book = bookName.value!
     try {
       const r = await saveContent(bookName.value!, docId, {
         content: snapshot,
@@ -127,11 +131,13 @@ export const useDocStore = defineStore('doc', () => {
       e.conflict = false
       if (e.content === snapshot) e.dirty = false
       e.savedAt = Date.now()
-      // 局部更新 tree 字数（避免重拉整树）
-      useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
-      // E4：刷新今日字数增量（fire-and-forget 重 GET delta）
-      void useWordsStore().ensureBaseline(bookName.value!)
-      if (origin === 'manual') useUiStore().toast('已保存', 'success')
+      if (bookName.value === book) {
+        // 局部更新 tree 字数（避免重拉整树）
+        useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
+        // E4：刷新今日字数增量（fire-and-forget 重 GET delta）
+        void useWordsStore().ensureBaseline(bookName.value!)
+        if (origin === 'manual') useUiStore().toast('已保存', 'success')
+      }
       return true
     } catch (err) {
       if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {

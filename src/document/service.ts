@@ -352,6 +352,10 @@ export class DocumentService {
       reason = '定稿章修改前留底（§6）'
     }
     if (!reason) return
+    // P5-数据层（第七轮）：restore/external-merge 到尚不存在的文件（expectedRevision=null
+    // 过基线校验）→ 无底可留，跳过快照正常新建落盘——原 readFileSync ENOENT 抛走
+    // WRITE_ERROR，本可成功的恢复被拒
+    if (!existsSync(absPath)) return
     // snapshot = 修改前的当前磁盘内容
     const currentContent = readFileSync(absPath, 'utf-8')
     // restore/external-merge 是"真要反悔"的时刻，必留；autosave 走节流
@@ -521,8 +525,10 @@ export class DocumentService {
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
     }
-    // 第五轮：非 UTF-8 防线（同 updateChapterMeta）——盲改覆盖会永久丢原始字节
-    if (raw.includes('\uFFFD')) return NON_UTF8_REJECT
+    // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
+    // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
+    // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
+    if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
     // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
     const split = splitFrontMatter(raw)
     const map = parseFlat(split ? split.fmRaw : '')
@@ -677,9 +683,11 @@ export class DocumentService {
     if (existsSync(dstSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
 
     try {
-      const content = readFileSync(srcSafe, 'utf-8')
+      // P5-数据层（第七轮）：按原始字节复制——原 utf-8 文本读写在非 UTF-8 源上会产出
+      // 乱码副本（M-5 同族防线未覆盖复制路径；原件无损但副本即损坏）
+      const raw = readFileSync(srcSafe)
       mkdirSync(dirname(dstSafe), { recursive: true })
-      atomicWriteFile(dstSafe, content, { fsync: true })
+      atomicWriteFile(dstSafe, raw, { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
     }

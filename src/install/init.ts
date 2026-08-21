@@ -7,7 +7,7 @@
  * 幂等：工作目录骨架已存在则复用；同名书已登记则报冲突不覆盖。
  */
 
-import { existsSync, mkdirSync, readdirSync, type Dirent } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
 import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName } from './books.js'
@@ -67,6 +67,11 @@ export function doInit(opts: InitOptions): InitResult {
   // 不再把用户卡死在「换个书名或先清空它」。
   const existingBooks = readBooks(workDir)
   const registered = existingBooks.some((b) => b.name === bookName)
+  // P5-数据层（第七轮）：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
+  // {ok:false,reason} 契约——先行判定给出可读原因
+  if (existsSync(bookRoot) && !statSync(bookRoot).isDirectory()) {
+    return { ok: false, reason: `路径「${bookName}」被同名文件占用（不是目录），换个书名或先移走它` }
+  }
   if (existsSync(bookRoot) && readdirSync(bookRoot).length > 0) {
     if (registered || !isResumableHalfScaffold(bookRoot)) {
       return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }

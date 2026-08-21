@@ -21,7 +21,7 @@ import { buildStyleEssentials } from '../format/style-inject.js'
 import { pickStyleSamples } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
-import { readManifest, finalizedChapterNumbers } from '../document/manifest.js'
+import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 
 /**
@@ -83,6 +83,9 @@ export interface MaterialSection {
   /** 低级项（第六轮）：本段注入的章/卷摘要文件（相对书根）——随段登记，预算裁剪
    *  整段移除后由 prepare 统一回收（injectedSummaryFiles 不再虚报注入面） */
   summaryFiles?: string[]
+  /** P5-管线（第七轮）：降档版对应的注入文件清单——降档只保留部分文件时同步收缩
+   *  summaryFiles（「可见⟺记录」红线），未设则降档不动原清单（单文件段降档仍整文件可见） */
+  degradedSummaryFiles?: string[]
 }
 
 /** 备料结果 */
@@ -172,7 +175,7 @@ export function prepare(
     db,
     config,
     config.book.volume_size ?? 50,
-    finalizedChapterNumbers(readManifest(join(bookRoot, '项目', '文档清单.jsonl'))),
+    finalizedChapterSetOfBook(bookRoot),
   )
   const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
 
@@ -234,14 +237,19 @@ function buildEndingsSections(
         flexibleRank: 1,
         degradedContent: parts.slice(-1).join('\n\n'),
         summaryFiles: files,
+        // P5-管线（第七轮）：降档只留最近 1 章结尾，清单同步收缩到同章文件
+        degradedSummaryFiles: files.slice(-1),
       })
     }
   }
 
   // 弹性#1.5 前章正文结尾（C1：衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
   // 来源：readChapterDir 递归扫描 写作/正文/（含 untracked 草稿）；都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
+  // PL-1（第七轮）：前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
+  // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=N-1）拿到的是 N-2
+  // 原文——N-2 已有摘要+原文双份覆盖，真正的前章 N-1 反而只有摘要转述。
   // flexibleRank=1.5：比近章结尾摘要（rank 1）先砍、比文风样章（rank 2）后砍；降档=末尾 500 字
-  const prevChapterNo = snapshot.currentChapter - 1
+  const prevChapterNo = snapshot.currentChapter
   if (prevChapterNo >= 1) {
     let prevBody: string | null = null
     // W-P2-4：只扫 正文根+卷目录 两层找前一章，不再全树 readChapterDir（为取一章读全书）
@@ -449,6 +457,9 @@ function applyBudgetTrim(
         // 提前停裁或过度裁剪）
         const before = estimateTokens(s.content, model)
         s.content = s.degradedContent
+        // P5-管线（第七轮）：降档同步收缩 summaryFiles——近章结尾降档只留最近 1 章，
+        // 清单若仍登记两章即 promptMeta.files 虚报注入面（「可见⟺记录」红线降档漏网）
+        if (s.degradedSummaryFiles) s.summaryFiles = s.degradedSummaryFiles
         totalTokens -= before - estimateTokens(s.content, model)
         trimmed = true
         trimLog.push(`${s.title}（降档）`)

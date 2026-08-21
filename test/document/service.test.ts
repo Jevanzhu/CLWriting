@@ -114,6 +114,23 @@ describe('DocumentService / 保存协议主路径', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('P5-数据层（第七轮）: restore 到尚不存在的文件 → 跳过快照正常落盘（原 ENOENT 抛 WRITE_ERROR）', async () => {
+    // 外部恢复/合并场景：目标文件已被清掉（expectedRevision=null 过基线校验），
+    // maybeSnapshot 无底可留应直接跳过——原实现 readFileSync(absPath) ENOENT 抛走，
+    // 本可成功的恢复性新建被拒
+    mkdirSync(join(bookRoot, '设定'), { recursive: true })
+    const fp = join(bookRoot, '设定', '世界观.md')
+    expect(existsSync(fp)).toBe(false)
+    const r = await svc.save('doc_world', '设定/世界观.md', {
+      content: '恢复出来的内容',
+      expectedRevision: null,
+      operationId: 'op-restore-missing',
+      origin: 'restore',
+    })
+    expect(r.ok).toBe(true)
+    expect(readFileSync(fp, 'utf-8')).toContain('恢复出来的内容')
+  })
+
   it('低级项（第六轮）：GBK 只污染 fm 区（body 纯 ASCII）→ updateChapterMeta 同样拒绝，原始字节一字不动', async () => {
     // 原判据只查 body：fm 区 GBK 标题读入 U+FFFD 但 body 干净 → 放行后 fm 往返把乱码写回
     const r0 = await svc.createDocument({ relPath: '写作/正文/0002-风起.md', content: '---\n章号: 2\n标题: 风起\n---\nplain ascii body' })
@@ -131,6 +148,31 @@ describe('DocumentService / 保存协议主路径', () => {
     if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
     // 原始字节一字不动（防线只拒绝不修改）
     expect(readFileSync(fp).equals(gbkFm)).toBe(true)
+  })
+
+  it('DA-1（第七轮）：GBK 污染 fm 区 → updateDocMeta 同款字节级拒绝，原始字节一字不动', async () => {
+    // 卷纲/总纲写回路径原先只查字符串 U+FFFD，与 updateChapterMeta 口径分裂
+    const r0 = await svc.createDocument({ relPath: '大纲/总纲.md', content: '---\ntype: 总纲\n---\nplain ascii body' })
+    if (!r0.ok) throw new Error('prereq')
+    const fp = join(bookRoot, '大纲/总纲.md')
+    const gbkFm = Buffer.concat([
+      Buffer.from('---\ntype: 总纲\n标题: ', 'utf-8'),
+      Buffer.from([0xb7, 0xe7]), // GBK「风」——utf-8 fatal 解码必炸
+      Buffer.from('\n---\nplain ascii body', 'utf-8'),
+    ])
+    writeFileSync(fp, gbkFm)
+    const r = svc.updateDocMeta(r0.docId, { 备注: 'x' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
+    expect(readFileSync(fp).equals(gbkFm)).toBe(true)
+  })
+
+  it('DA-1（第七轮）：盘上合法 UTF-8（含真实 � 字符）→ updateDocMeta 放行（升级判据消除误拒）', async () => {
+    const r0 = await svc.createDocument({ relPath: '大纲/卷纲/第一卷.md', content: '---\nvolume: 1\n---\n\uFFFD 卷内既有要点' })
+    if (!r0.ok) throw new Error('prereq')
+    const r = svc.updateDocMeta(r0.docId, { 备注: '已校' })
+    expect(r.ok).toBe(true) // 原字符串判据会把合法 UTF-8 的真实 � 误判为乱码而拒写
+    if (r.ok) expect(readFileSync(join(bookRoot, r.path), 'utf-8')).toContain('� 卷内既有要点')
   })
 
   it('低级项（第六轮）：盘上合法 UTF-8（body 含真实 �）→ updateChapterMeta 放行，与 save 主路径 M-5 同口径', async () => {

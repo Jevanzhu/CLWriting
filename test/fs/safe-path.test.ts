@@ -30,6 +30,16 @@ describe('safeManifestPath', () => {
     expect(safeManifestPath(dir, '../../../etc/passwd')).toBeNull()
   })
 
+  it('P5-数据层（第七轮）：字面 .. 开头文件名（..草稿.md）不再误杀，真穿越仍拦', () => {
+    // 旧 startsWith('..') 把目录内真实名为 ..xxx 的文件误判穿越（fail-closed 拒正常操作）；
+    // 段级判定后只拦 ../ 与 ..\（及裸 ..）两种真出根形态
+    mkdirSync(join(dir, '写作'), { recursive: true })
+    writeFileSync(join(dir, '写作', '..草稿.md'), 'x', 'utf-8')
+    expect(safeManifestPath(dir, '写作/..草稿.md')).not.toBeNull()
+    expect(safeManifestPath(dir, '../etc/passwd')).toBeNull()
+    expect(safeManifestPath(dir, '..\\etc\\passwd')).toBeNull() // Windows 分隔符形态
+  })
+
   it('拒绝 NUL 字节注入', () => {
     expect(safeManifestPath(dir, 'foo\0bar.md')).toBeNull()
   })

@@ -83,6 +83,15 @@ export async function listModels(
     }
   }
   const client = new OpenAI({ baseURL: url, apiKey })
-  const list = await client.models.list(signal ? { signal } : undefined)
-  return list.data.map((m) => m.id).sort()
+  try {
+    const list = await client.models.list(signal ? { signal } : undefined)
+    return list.data.map((m) => m.id).sort()
+  } catch (e) {
+    if (signal?.aborted) throw e
+    // P5-AI（第七轮）：OpenAI 兼容网关同样有不实现 /models 的形态（chat 端点可用）——
+    // 404/405 回退空列表（模型名手动输入），与 anthropic 分支同口径；否则「测试连接」
+    // 把实际可用的网关误报为「连通失败」
+    if (e instanceof OpenAI.APIError && (e.status === 404 || e.status === 405)) return []
+    throw e
+  }
 }
