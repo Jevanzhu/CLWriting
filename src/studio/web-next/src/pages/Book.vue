@@ -51,6 +51,11 @@ let bookGen = 0
 watch(bookName, async (n) => {
   // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
   const gen = ++bookGen
+  // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
+  // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
+  // running 错误复位（状态卡显示可再「生成」→ 双 spawn 窗）。clear 只清旧书内存态，
+  // 不依赖 doc 缓存，提前无副作用；新月 sync 快照在 await 之后必然重设权威值
+  workbench.clear()
   // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
   await doc.flushDirty()
   if (gen !== bookGen) return
@@ -62,7 +67,6 @@ watch(bookName, async (n) => {
   learn.clear()
   style.clear()
   rewrite.clear()
-  workbench.clear()
   chat.clear()
   // Y-P2-5：切书/刷新后从事件库恢复对话历史（store 内自带空判/竞态守卫，失败静默）
   if (n) void chat.seedHistory(n)

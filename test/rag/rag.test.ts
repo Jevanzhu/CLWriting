@@ -44,6 +44,23 @@ describe('RAG config（红线 H1：key 不进 git）', () => {
     expect(cfg.enabled).toBe(false)
   })
 
+  it('candidate_depth 非正整数不收（0 → undefined，防召回首轮恒空静默降级）', () => {
+    // 2026-08-21：candidate_depth: 0 会让惰性校验首轮 `verdict.size >= 0` 恒 break，
+    // 召回恒空且无告警——读侧与「缺省 20」同视为未配置
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  candidate_depth: 0\n',
+      'utf-8',
+    )
+    expect(readRagConfig(bookRoot).candidate_depth).toBeUndefined()
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  candidate_depth: 12\n',
+      'utf-8',
+    )
+    expect(readRagConfig(bookRoot).candidate_depth).toBe(12)
+  })
+
   it('enableRag：非密入 book.yaml，key 落 .clwriting/rag.secret（H1）', () => {
     const result = enableRag(bookRoot, workDir, {
       endpoint: 'https://api.example.com/v1/embeddings',

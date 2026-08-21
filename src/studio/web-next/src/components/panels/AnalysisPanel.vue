@@ -32,13 +32,16 @@ async function analyzeTags(): Promise<void> {
   if (!docId.value || tagging.value) return
   // dd-P1：入口捕获 docId——await（AI 调用可达 60s）后 docId.value 可能已切到别的文档，
   // 届时用新 id 写回 = 把 A 的标签写进 B 的 fm、把 A 的正文 patch 进 B（dirty → 落盘覆盖）
+  // 第五轮：bookName 同步捕获——props.bookName 在首个 await 后才求值，60s 内切书时
+  // 请求变为 updateDocMeta(B 书, A 的 docId)，legacy 反查命中 B 书同路径文件时跨书写坏
   const id = docId.value
+  const book = props.bookName
   tagging.value = true
   try {
     // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（与 MetaFormPanel.onSave 同口径）
     const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
-    const tags = await autotag(props.bookName, id)
-    await updateDocMeta(props.bookName, id, tags)
+    const tags = await autotag(book, id)
+    await updateDocMeta(book, id, tags)
     if (docId.value !== id) return // 已切文档：标签已落 A 的 fm，放弃本地正文拼回
     await doc.refresh(id)
     const refreshed = doc.get(id)
@@ -88,9 +91,11 @@ async function inferChapterMeta(): Promise<void> {
   inferring.value = true
   try {
     // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回
+    // 第五轮：bookName 入口捕获（同 analyzeTags 的跨书写坏面）
     const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
-    const meta = await inferMeta(props.bookName, id)
-    await updateDocMeta(props.bookName, id, meta)
+    const book = props.bookName
+    const meta = await inferMeta(book, id)
+    await updateDocMeta(book, id, meta)
     if (docId.value !== id) return // 已切文档：放弃本地正文拼回
     await doc.refresh(id)
     const refreshed = doc.get(id)
@@ -107,10 +112,16 @@ async function inferChapterMeta(): Promise<void> {
 
 // ── 全书速览（聚合 overview 摘要）──
 const overview = ref<AnalysisOverview | null>(null)
+// M-11：代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 的速览（含失败回填 null）
+let overviewGen = 0
 async function loadOverview(): Promise<void> {
+  const gen = ++overviewGen
   try {
-    overview.value = await getAnalysisOverview(props.bookName)
+    const r = await getAnalysisOverview(props.bookName)
+    if (gen !== overviewGen) return
+    overview.value = r
   } catch {
+    if (gen !== overviewGen) return
     overview.value = null
   }
 }

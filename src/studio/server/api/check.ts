@@ -108,9 +108,14 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         try {
           const store = openSessionStore(ctx.userDataPath, bookRoot)
           if (store) {
-            const sessionId = store.workspaceSession(bookHash(bookRoot))
-            store.appendEvents(sessionId, [checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId })])
-            store.close()
+            // M-6：close 收进 finally——workspaceSession/appendEvents 抛错时旧实现
+            // 跳过 close，引用计数单例的本次打开滞留到进程结束
+            try {
+              const sessionId = store.workspaceSession(bookHash(bookRoot))
+              store.appendEvents(sessionId, [checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId })])
+            } finally {
+              store.close()
+            }
           }
         } catch {
           // 观测层：事件落库失败不阻断标记动作（toast 已反馈，语料损失可接受）

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportBook } from '../../src/export/index.js'
@@ -390,6 +390,48 @@ test('X-P2-4: 全部章解析失败 → 整体失败并列出问题文件', () =
     expect(r.ok).toBe(false)
     expect(r.error).toContain('章解析失败')
     expect(r.error).toContain('0001-坏.md')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── 第五轮：导出目录清旧（防作者从旧导出残稿上错版本）──────
+
+test('第五轮: 书改名后 merged 导出 → 旧「全本-旧书名.md」被清掉不残留', () => {
+  const root = makeLongBook('旧书名')
+  writeLongChapter(root, 1, '第一章', '内容一。')
+  try {
+    const first = exportBook({ bookRoot: root, format: 'merged' })
+    expect(first.ok).toBe(true)
+    expect(existsSync(join(root, '工作区', '导出', '全本-旧书名.md'))).toBe(true)
+    // 改书名再导出：同前缀旧文件视为过期产物
+    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 新书名', '  genre: 玄幻'].join('\n'), 'utf-8')
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    const entries = readdirSync(join(root, '工作区', '导出'))
+    expect(entries).toContain('全本-新书名.md')
+    expect(entries).not.toContain('全本-旧书名.md')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('第五轮: 分章目录整目录重建——改章标题/删章后旧文件不残留', () => {
+  const root = makeLongBook('分章清旧')
+  writeLongChapter(root, 1, '旧标题', '内容一。')
+  writeLongChapter(root, 2, '第二章', '内容二。')
+  try {
+    const first = exportBook({ bookRoot: root, format: 'split' })
+    expect(first.ok).toBe(true)
+    const dir = join(root, '工作区', '导出', '分章')
+    expect(readdirSync(dir).sort()).toEqual(['001-旧标题.md', '002-第二章.md'])
+    // 第一章改标题（新文件名）+ 删第二章 → 旧导出必须整体重建不残留
+    rmSync(join(root, '写作', '正文', '1-旧标题.md'))
+    writeLongChapter(root, 1, '新标题', '内容一改。')
+    rmSync(join(root, '写作', '正文', '2-第二章.md'))
+    const r = exportBook({ bookRoot: root, format: 'split' })
+    expect(r.ok).toBe(true)
+    expect(readdirSync(dir).sort()).toEqual(['001-新标题.md'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

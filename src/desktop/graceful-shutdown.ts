@@ -10,6 +10,7 @@ import http from 'node:http'
 import { readBooks } from '../install/books.js'
 import { abortSelfHeal, waitSelfHealSettled } from '../ai/orchestrate/self-heal.js'
 import { abortChat, waitChatSettled } from '../ai/orchestrate/chat.js'
+import { waitBackgroundTasks } from '../ai/orchestrate/background.js'
 
 export interface ShutdownOptions {
   /** server.close 回调等待上限（SSE 长连接未断时悬置）；缺省 1.5s */
@@ -36,11 +37,13 @@ export async function shutdownStudio(
   // #7/L3（二轮复审）：等被中断的编排收尾（session/end 事件落库）——此前 abort 后不等
   // 编排解旋就 quit，被中断对话的收尾 flush 没机会落库，孤儿会话要等启动修复的 10 分钟
   // 宽限才补 synthetic end，快速重启窗口内 latestSession 可能选到未闭合会话。与 server.close
-  // 并行等待，总时长不叠加
+  // 并行等待，总时长不叠加。
+  // M-2：补 waitBackgroundTasks——定稿章摘要/账本草稿等无 abort 句柄的 fire-and-forget
+  // 后台任务，退出前给它们一个有界的收尾窗口（超时放行，磁盘是原子写）
   const settleWait = Promise.all(
     names.map((n) =>
       Promise.race([
-        Promise.all([waitChatSettled(n), waitSelfHealSettled(n)]),
+        Promise.all([waitChatSettled(n), waitSelfHealSettled(n), waitBackgroundTasks(n)]),
         new Promise<void>((resolveP) => setTimeout(resolveP, opts.settleTimeoutMs ?? 1_500)),
       ]),
     ),

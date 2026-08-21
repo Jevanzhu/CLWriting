@@ -176,12 +176,17 @@ function toResponsesTool(tool: ToolDef): Record<string, unknown> {
   return { type: 'function', name: tool.name, description: tool.description ?? '', parameters: tool.input_schema }
 }
 
-/** Responses usage 线格式 → TokenUsage（R3 缺口 12：细节计量） */
+/**
+ * Responses usage 线格式 → TokenUsage（R3 缺口 12：细节计量）。
+ * M-1：input_tokens **已含** cached_tokens（与 Chat 线 prompt_tokens 同协议语义），
+ * 边界处扣减归一成「inputTokens 不含 cache 读」的统一口径（Anthropic 语义），
+ * 下游计价/预算四档分计公式对两协议同时成立。
+ */
 function toUsage(u: OpenAI.Responses.ResponseUsage | null | undefined): TokenUsage {
   const cached = u?.input_tokens_details?.cached_tokens
   const reasoning = u?.output_tokens_details?.reasoning_tokens
   return {
-    inputTokens: u?.input_tokens ?? 0,
+    inputTokens: Math.max(0, (u?.input_tokens ?? 0) - (cached ?? 0)),
     outputTokens: u?.output_tokens ?? 0,
     ...(cached ? { cacheReadTokens: cached } : {}),
     ...(reasoning ? { reasoningTokens: reasoning } : {}),

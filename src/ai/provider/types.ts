@@ -246,17 +246,17 @@ export type GenErrorCode =
 /**
  * 统一 token 用量（批次 D4 补 cache 记账，学 cherry TokenUsage 三分）。
  *
- * 两种协议的 inputTokens 口径**不同**（换算已注明，勿混算成本）：
- * - OpenAI 兼容（含 DeepSeek）：prompt_tokens **已含** cache 命中部分，
- *   cacheReadTokens 是其中的命中量（OpenAI prompt_tokens_details.cached_tokens）；
- * - Anthropic：input_tokens **不含** cache 读写，cacheRead/cacheWrite 单列
- *   （cache_read_input_tokens / cache_creation_input_tokens）。
+ * inputTokens 口径已归一（M-1）：**不含** cache 命中读量——OpenAI 兼容线
+ * （Chat/Responses）的 prompt_tokens/input_tokens 原本已含 cached_tokens，
+ * 适配器边界处扣减（归一成 Anthropic 语义）；Anthropic 线天然不含，直传。
+ * 由此 computeCallCost 四档分计与预算 token 合计（input+output+cacheRead+cacheWrite）
+ * 对两协议同时成立，不再双计 OpenAI 的 cache 命中部分。
  * cacheWriteTokens 仅 Anthropic 协议有值（OpenAI 兼容线无此概念）。
  */
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
-  /** 前缀缓存命中读量（已含于 OpenAI 兼容的 inputTokens；Anthropic 则独立于 inputTokens） */
+  /** 前缀缓存命中读量（独立于 inputTokens 记账，两协议同口径） */
   cacheReadTokens?: number
   /** 前缀缓存写入量（仅 Anthropic 协议下发） */
   cacheWriteTokens?: number

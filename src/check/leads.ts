@@ -24,6 +24,7 @@ import { QUOTE_OPEN, QUOTE_CLOSE } from './quotes.js'
  * @param bookRoot 书仓库根（读正文 grep 引文）
  * @param currentChapter 当前定稿章号（章号一致校验用）
  * @param enabledTypes 已启用的账本类（只检这些类，#10 第 1 节原则 4）
+ * @param skipBookItems 跳过全书性条目（树红点聚合专用，见 checkLeadsBookItems 头注释）
  */
 export function checkLeadsForm(
   db: DatabaseSync,
@@ -32,7 +33,39 @@ export function checkLeadsForm(
   enabledTypes: string[],
   declaredLeadIds?: string[],
   actualLeadIds?: string[],
+  skipBookItems = false,
 ): CheckSectionResult {
+  const items: CheckItem[] = []
+  if (!skipBookItems) items.push(...checkLeadsBookItems(db, bookRoot, currentChapter, enabledTypes))
+
+  // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
+  // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
+  // ee-P1-3：比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
+  // （document/finalize.ts）与机检复用同一段代码，避免两处口径漂移后闸门漏拦/误拦。
+  if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
+    items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, currentChapter))
+  }
+
+  return { name: '账本形式三检', items }
+}
+
+/**
+ * 账本三检的「全书性」条目（H-1 拆分，2026-08-21）：章号一致 a/b + 引文命中 + 状态闭合。
+ *
+ * 这些条目的输入是布线 db + **任意章**的正文（引文 grep 按履历章号直读该章正文），
+ * 与被检章自身内容无关——却进每章 report 的 hasRed。树红点章级缓存行只按「本章
+ * stat + 纪元」失效，而纪元刻意不含 写作/正文（保住「改 1 章只重查 1 章」），导致
+ * 改第 N 章正文补/删引文后其余章的缓存红点陈旧（假红残留或漏红），违反「缓存命中
+ * = 全量重算等价」不变量。修复：单章机检端点照旧全量（本函数经 checkLeadsForm 调
+ * 用，报告完整）；树红点聚合改为本书一次计算、按「纪元 + 正文目录指纹」单独缓存，
+ * 章级缓存行经 skipBookItems 只留章作用域条目（两端闭合：细纲声明 + 本章正文）。
+ */
+export function checkLeadsBookItems(
+  db: DatabaseSync,
+  bookRoot: string,
+  currentChapter: number,
+  enabledTypes: string[],
+): CheckItem[] {
   const items: CheckItem[] = []
 
   // 取所有已启用类的 open 条目
@@ -91,18 +124,27 @@ export function checkLeadsForm(
       // #2 引文命中：证据须在该章正文 grep 命中
       if (!entry.回填 && entry.证据) {
         const text = chapterTextOf(entry.章号)
-        if (text) {
-          // 取引号内的核心片段 grep（#3 第 4 节：章内证据尽量是正文原文）
-          const evidenceCore = extractEvidenceCore(entry.证据)
-          if (evidenceCore && !text.includes(evidenceCore)) {
-            items.push({
-              checkId: 'lead-evidence-miss',
-              level: 'red',
-              message: `${id} 履历引文「${evidenceCore}」在第${entry.章号}章正文未命中`,
-              leadId: id,
-              chapter: entry.章号,
-            })
-          }
+        // 取引号内的核心片段 grep（#3 第 4 节：章内证据尽量是正文原文）
+        const evidenceCore = extractEvidenceCore(entry.证据)
+        if (text === null) {
+          // 第五轮：章文件缺失（被删/改名失去数字前缀）时不得静默通过——「防吃书」的
+          // 核心红项失明且无任何提示，删章后证据永远无法核验。报黄不报红：正文缺失
+          // ≠ 证据不存在（可能是章号写错或文件改名），提示作者处理而非拦截定稿。
+          items.push({
+            checkId: 'lead-evidence-unverifiable',
+            level: 'yellow',
+            message: `${id} 履历声称第${entry.章号}章有证据「${evidenceCore ?? entry.证据.slice(0, 20)}」，但找不到该章正文文件——证据无法核验（章被删或改名？）`,
+            leadId: id,
+            chapter: entry.章号,
+          })
+        } else if (evidenceCore && !text.includes(evidenceCore)) {
+          items.push({
+            checkId: 'lead-evidence-miss',
+            level: 'red',
+            message: `${id} 履历引文「${evidenceCore}」在第${entry.章号}章正文未命中`,
+            leadId: id,
+            chapter: entry.章号,
+          })
         }
       }
     }
@@ -136,15 +178,7 @@ export function checkLeadsForm(
     }
   }
 
-  // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
-  // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
-  // ee-P1-3：比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
-  // （document/finalize.ts）与机检复用同一段代码，避免两处口径漂移后闸门漏拦/误拦。
-  if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
-    items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, currentChapter))
-  }
-
-  return { name: '账本形式三检', items }
+  return items
 }
 
 /**

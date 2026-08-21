@@ -48,15 +48,22 @@ const reviewRunning = new Set<string>()
 /** hh-P1：本书任一文档三审在跑（books.ts 删书/改名持闸用）——三审是分钟级长任务，
  * 闸内放行删书/改名会在旧路径重建孤儿目录并白烧 API 费用（与 spawn/task-gate 同模式）。 */
 export function isReviewRunningForBook(bookName: string): boolean {
-  const prefix = bookName + '/'
+  // 二轮复审（低级）：NUL 分隔——书名/文档 ID 任一含 '/' 时 `${book}/${doc}` 的前缀
+  // 匹配理论可误报；NUL 不可能出现在两侧实值里（书名净化 + docId 为生成哈希）
+  const prefix = bookName + '\u0000'
   for (const k of reviewRunning) if (k.startsWith(prefix)) return true
   return false
+}
+
+/** 二轮复审（低级）：三审运行闸组键（NUL 分隔，与 isReviewRunningForBook 同判据） */
+function reviewRunKey(bookName: string, docId: string): string {
+  return `${bookName}\u0000${docId}`
 }
 
 /** 测试钩子（同 stream.ts __setSpawnRunning 先例）：不经真实三审直接置/清本书运行闸，
  * 供 books 删书/改名 409 接线测用。 */
 export function __setReviewRunning(bookName: string, running: boolean): void {
-  const key = `${bookName}/__test__`
+  const key = reviewRunKey(bookName, '__test__')
   if (running) reviewRunning.add(key)
   else reviewRunning.delete(key)
 }
@@ -94,7 +101,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
       if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
       // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
-      const runKey = `${params['name']}/${docId}`
+      const runKey = reviewRunKey(params['name']!, docId)
       if (reviewRunning.has(runKey)) {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -82,6 +82,22 @@ test('validateKnowledgeManifest: 拒绝知识层外路径', () => {
   expect(report.ok).toBe(false)
   expect(report.issues.some((issue) => issue.message.includes('target 必须位于知识层'))).toBe(true)
   rmSync(root, { recursive: true, force: true })
+})
+
+// 第五轮：单文件不可读（EACCES/竞态消失）记 issue 继续——修复前 readFileSync 抛出
+// 穿透 validateKnowledgeManifest，一个坏文件让整场校验崩掉
+test('validateKnowledgeManifest: 单文件读取失败 → 记 issue 不抛', () => {
+  const root = makeKnowledgeProject()
+  const target = join(root, '知识层', '题材', 'README.md')
+  try {
+    chmodSync(target, 0o000)
+    const report = validateKnowledgeManifest(root)
+    expect(report.ok).toBe(false)
+    expect(report.issues.some((issue) => issue.message.includes('无法校验'))).toBe(true)
+  } finally {
+    chmodSync(target, 0o644)
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('validateKnowledgeManifest: Markdown 文件必须保留 source/license 元信息', () => {

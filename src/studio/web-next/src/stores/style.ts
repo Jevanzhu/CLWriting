@@ -96,10 +96,17 @@ export const useStyleStore = defineStore('style', () => {
     if (c) c.状态 = '已忽略'
   }
 
-  /** 收割（零 AI）：返回 created/skipped 供视图 toast */
+  /** 收割（零 AI）：返回 created/skipped 供视图 toast。
+   *  M-11：收割慢响应 + 切书——落盘在服务端按调用时的书结算（无串），但回填
+   *  candidates 前查代，防 A 书收割结果回填到已切到 B 的视图 */
   async function harvest(): Promise<{ created: number; skipped: number }> {
-    const r = await runStyleHarvest(bookName.value)
-    if (r.created > 0) await reloadCandidates()
+    const gen = reqGen
+    const book = bookName.value
+    const r = await runStyleHarvest(book)
+    if (r.created > 0) {
+      const cs = await listStyleCandidates(book)
+      if (gen === reqGen) candidates.value = cs.candidates
+    }
     return r
   }
 
@@ -108,9 +115,13 @@ export const useStyleStore = defineStore('style', () => {
     if (config.value) config.value.baseline = r.baseline
   }
 
-  /** 机检重扫（零 AI，全量重算，章多时秒级） */
+  /** 机检重扫（零 AI，全量重算，章多时秒级）。
+   *  M-11：同 load 代守卫——重扫秒级在途时切书，旧书 trend 落地会顶掉新书的文风页 */
   async function rescan(): Promise<void> {
-    trend.value = await getStyleTrend(bookName.value)
+    const gen = reqGen
+    const book = bookName.value
+    const t = await getStyleTrend(book)
+    if (gen === reqGen) trend.value = t
   }
 
   /** 切书清空（Book.vue watch(bookName) 调；缺此方法切书渲染崩溃） */

@@ -2,7 +2,7 @@
  * 文风候选箱单测（文风系统重整 S4）：往返 / 过期 / 确认忽略 / 四源转换 / 查重落盘。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -133,6 +133,28 @@ describe('确认 / 忽略', () => {
     expect(r.ok && r.candidate.状态).toBe('已忽略')
     expect(existsSync(join(root, rel))).toBe(true)
     expect(confirmCandidate(root, '文风/候选/不存在.md')).toBeNull()
+  })
+
+  it('M-7：穿越 / 书外绝对路径 / symlink 越出 → confirm null + ignore false（内层统一委托 resolveWithinRoot）', () => {
+    // 字面穿越
+    expect(confirmCandidate(root, '../outside.md')).toBeNull()
+    expect(ignoreCandidate(root, '文风/候选/../../outside.md')).toBe(false)
+    // 书外绝对路径
+    expect(confirmCandidate(root, '/etc/passwd')).toBeNull()
+    // symlink：字面路径在候选目录内、realpath 指向书外——旧手写 relative 检查放行，
+    // confirm 会把书外文件内容读入条目库
+    const outside = join(root, '..', 'clwriting-candidate-outside.md')
+    writeFileSync(outside, '书外内容', 'utf8')
+    const linkRel = addCandidate(root, sampleCandidate)
+    rmSync(join(root, linkRel))
+    symlinkSync(outside, join(root, linkRel))
+    try {
+      expect(confirmCandidate(root, linkRel)).toBeNull()
+      expect(ignoreCandidate(root, linkRel)).toBe(false)
+      expect(existsSync(outside)).toBe(true) // 书外目标未被触碰
+    } finally {
+      rmSync(outside, { force: true })
+    }
   })
 })
 

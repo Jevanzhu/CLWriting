@@ -22,8 +22,10 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
 
-/** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。 */
-const CHECKER_GENERATION = 'a1-v1'
+/** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
+ *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
+ *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
+const CHECKER_GENERATION = 'a1-v2'
 
 export interface TreeIssueEntry {
   hasRed: boolean
@@ -40,13 +42,17 @@ function fileFp(p: string): string {
   }
 }
 
-/** 目录树指纹 "count:size:maxMtime"（递归文件，跳过 ._ 资源文件）。 */
+/** 目录树指纹 "count:size:maxMtime:nameHash"（递归文件，跳过 ._ 资源文件）。
+ *  nameHash = 相对路径 FNV-1a（2026-08-21 四轮复审）：纯改名 count/size/mtime 全不变，
+ *  但章节文件名是 findChapterFile 章号映射与引文 grep 的输入——改名不失效会让
+ *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。 */
 function dirFp(p: string): string {
   if (!existsSync(p)) return 'absent'
   let count = 0
   let size = 0
   let maxMtime = 0
-  const walk = (dir: string): void => {
+  let nameHash = 0x811c9dc5
+  const walk = (dir: string, prefix: string): void => {
     let entries
     try {
       entries = readdirSync(dir, { withFileTypes: true })
@@ -56,21 +62,26 @@ function dirFp(p: string): string {
     for (const e of entries) {
       if (e.name.startsWith('._') || e.name === '.DS_Store') continue
       const fp = join(dir, e.name)
-      if (e.isDirectory()) walk(fp)
+      if (e.isDirectory()) walk(fp, `${prefix}${e.name}/`)
       else if (e.isFile()) {
         try {
           const st = statSync(fp)
           count++
           size += st.size
           if (st.mtimeMs > maxMtime) maxMtime = st.mtimeMs
+          const rel = `${prefix}${e.name}`
+          for (let i = 0; i < rel.length; i++) {
+            nameHash ^= rel.charCodeAt(i)
+            nameHash = Math.imul(nameHash, 0x01000193) >>> 0
+          }
         } catch {
           /* 竞态消失：跳过 */
         }
       }
     }
   }
-  walk(p)
-  return `${count}:${size}:${maxMtime}`
+  walk(p, '')
+  return `${count}:${size}:${maxMtime}:${nameHash.toString(16)}`
 }
 
 /**
@@ -95,6 +106,50 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
     fileFp(join(bookRoot, '项目', '文档清单.jsonl')),
   ]
   return parts.join('|')
+}
+
+/**
+ * H-1（2026-08-21）：账本全书性红项（章号一致/引文命中/状态闭合）的缓存指纹。
+ * 这些条目 = 布线 db（纪元已含）× **任意章正文**（引文 grep 按履历章号直读），所以
+ * 指纹 = 纪元 + 写作/正文 目录 stat 摘要——改任何一章正文都会失效重算（正确性所需，
+ * 与章级行的增量性互不拖累：章级行只含章作用域检查）。存 tree_issues_meta 两个键：
+ * leads_book_fp / leads_book_red，无需 DDL 变更。
+ */
+export function computeLeadsBookFp(bookRoot: string, userDataPath: string | null): string {
+  return `${computeTreeIssuesGlobalFp(bookRoot, userDataPath)}|${dirFp(join(bookRoot, '写作', '正文'))}`
+}
+
+/** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。 */
+export function readLeadsBookRed(db: DatabaseSync, fp: string): boolean | null {
+  try {
+    const row = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('leads_book_fp') as
+      | { value: string }
+      | undefined
+    if (row?.value !== fp) return null
+    const red = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('leads_book_red') as
+      | { value: string }
+      | undefined
+    return red?.value === '1' ? true : red?.value === '0' ? false : null
+  } catch {
+    return null // 表异常/损坏：视为 miss 走重算（自愈）
+  }
+}
+
+/** 全书性红项缓存写（两键同事务；失败静默——缓存只是加速）。 */
+export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean): void {
+  try {
+    db.exec('BEGIN')
+    try {
+      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_fp', fp)
+      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_red', hasRed ? '1' : '0')
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+  } catch {
+    /* 写失败（锁/磁盘）：下轮 miss 重算 */
+  }
 }
 
 /**

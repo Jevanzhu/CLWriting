@@ -14,15 +14,22 @@ const ui = useUiStore()
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
 
+// M-10：回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
+// 不覆盖 B 的回收站列表（restore/purge 后的 load 同享守卫）
+let loadGen = 0
 async function load(): Promise<void> {
+  const gen = ++loadGen
   if (!props.bookName) {
     entries.value = []
     return
   }
   err.value = null
   try {
-    entries.value = await listTrash(props.bookName)
+    const list = await listTrash(props.bookName)
+    if (gen !== loadGen) return
+    entries.value = list
   } catch (e) {
+    if (gen !== loadGen) return
     err.value = friendlyError(e)
   }
 }

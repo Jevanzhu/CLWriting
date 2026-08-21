@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
@@ -170,6 +170,25 @@ describe('收割 + 候选箱端点（源1 闭环）', () => {
       body: JSON.stringify({ path: '文风/条目/样章/通用-001.md' }),
     })
     expect(evil.status).toBe(400)
+
+    // M-7：中间组件符号链接穿越——路径字面在 候选/ 内但 realpath 越出书库，
+    // confirm/ignore 都要拒（旧实现只挡字面穿越，symlink 可逃逸）
+    const outside = mkdtempSync(join(tmpdir(), 'clwriting-style-evil-'))
+    try {
+      writeFileSync(join(outside, 'evil.md'), '---\n场景: 战斗\n---\n逃逸正文', 'utf8')
+      symlinkSync(outside, join(bookRoot, '文风', '候选', '连结'))
+      for (const ep of ['confirm', 'ignore']) {
+        const r = await api(`/style/candidates/${ep}`, {
+          method: 'POST',
+          body: JSON.stringify({ path: '文风/候选/连结/evil.md' }),
+        })
+        expect(r.status).toBe(400)
+      }
+      // 逃逸目标文件未被动过（confirm 未搬入条目库 / ignore 未落档）
+      expect(existsSync(join(outside, 'evil.md'))).toBe(true)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 })
 

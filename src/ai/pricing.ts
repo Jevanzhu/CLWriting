@@ -44,8 +44,11 @@ export function pricingForProvider(provider: ProviderConf | undefined, model: st
 }
 
 /**
- * 全局解析：按模型 id 找所属 provider（models[] 含 id 者）→ 该行价格；
- * 无归属行 → 当前启用 provider 的 provider 级价格；两级皆无 → null（未配价）。
+ * 全局解析：按模型 id 找所属 provider（models[] 含 id 者）→ 该行价格——归属 provider
+ * 未配价即为未配价（宁缺毋滥），不得落到别家价格表（跨 provider 借价会让成本/预算
+ * 全按错误单价折算，切当前 provider 还会追溯改写历史折算）。
+ * 无归属行 → 当前启用 provider 的 provider 级价格（网关下未知模型按网关价）；
+ * currentId 失效或两级皆无 → null（未配价）。
  * 静默容错：providers.json 读失败 → null（价格是增强，不做故障源）。
  */
 export function resolveModelPricing(userDataPath: string | null | undefined, model: string): PricingConf | null {
@@ -53,12 +56,9 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
   try {
     const store = loadProviders(userDataPath)
     const owner = store.providers.find((p) => p.models?.some((m) => m.id === model))
-    if (owner) {
-      const hit = pricingForProvider(owner, model)
-      if (hit) return hit
-    }
-    const current = store.providers.find((p) => p.id === store.currentId) ?? store.providers[0]
-    return pricingForProvider(current, model)
+    if (owner) return pricingForProvider(owner, model)
+    const current = store.providers.find((p) => p.id === store.currentId)
+    return current ? pricingForProvider(current, model) : null
   } catch {
     return null
   }

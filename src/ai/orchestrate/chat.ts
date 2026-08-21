@@ -68,10 +68,16 @@ export function isChatRunning(bookName: string): boolean {
 
 /** #7：等本书在途对话收尾（无在途立即返回）。abort 只是异步信号——straggler 编排要
  * 跑到下一个 await 点才解旋，期间的收尾写库在改名/删书的同步段之后恢复就会对已关库/
- * 已搬走路径写（对话以 error 收尾）。改名/删书/优雅退出在 abort 后等这里。 */
-export function waitChatSettled(bookName: string): Promise<void> {
-  const p = settling.get(bookName)
-  return p ? p.then(() => undefined) : Promise.resolve()
+ * 已搬走路径写（对话以 error 收尾）。改名/删书/优雅退出在 abort 后等这里。
+ * M-3：循环等到表项真正清空——drainNextChat 续链会在旧 promise resolve 前同步
+ * 替换表项，只等一轮的旧实现拿到旧 promise 的 resolve 即返回，续链新 run 仍在途，
+ * 等待方随后的删库/改名就与新 run 的收尾写库竞争（续链链长 ≤ 队列上限 10，循环有界）。 */
+export async function waitChatSettled(bookName: string): Promise<void> {
+  for (;;) {
+    const p = settling.get(bookName)
+    if (!p) return
+    await p.catch(() => undefined)
+  }
 }
 
 /** E1a（steer / B5 Inbox 合流）：per-book 待处理消息队列。

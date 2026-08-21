@@ -55,16 +55,23 @@ const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废�
 /** 本章埋设的未回收伏笔（当前章节联动提醒） */
 const currentPlanted = computed(() => pending.value.filter((f) => f.埋设章号 === currentChapNo.value))
 
+// M-11：加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应不覆盖
+// B 的伏笔列表（create 后的 load 同享守卫）
+let loadGen = 0
 async function load(): Promise<void> {
+  const gen = ++loadGen
   if (!props.bookName) return
   loading.value = true
   error.value = null
   try {
-    list.value = await getForeshadows(props.bookName)
+    const r = await getForeshadows(props.bookName)
+    if (gen !== loadGen) return
+    list.value = r
   } catch (e) {
+    if (gen !== loadGen) return
     error.value = friendlyError(e)
   } finally {
-    loading.value = false
+    if (gen === loadGen) loading.value = false
   }
 }
 

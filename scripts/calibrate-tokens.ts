@@ -47,11 +47,15 @@ if (existsSync(sessionDir)) {
         try {
           const ev = JSON.parse(row.data) as {
             model?: string
-            usage?: { input?: number }
+            usage?: { input?: number; cacheRead?: number; cacheWrite?: number }
             promptMeta?: { chars?: number }
           }
           if (!ev.model || !ev.usage?.input || !ev.promptMeta?.chars) continue
-          samples.push({ model: ev.model, chars: ev.promptMeta.chars, inputTokens: ev.usage.input })
+          // M-1 归一后 usage.input 不含 cache 读/写——chars 是全 prompt 字数，
+          // 重建全量输入对齐规模（2026-08-21 前的 OpenAI 旧事件 input 已含 cache，会偏高，
+          // 由报告里 r 值与样本量体现，不做事件库迁移）
+          const fullInput = ev.usage.input + (ev.usage.cacheRead ?? 0) + (ev.usage.cacheWrite ?? 0)
+          samples.push({ model: ev.model, chars: ev.promptMeta.chars, inputTokens: fullInput })
         } catch {
           /* 单行损坏跳过 */
         }

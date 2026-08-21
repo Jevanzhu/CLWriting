@@ -15,7 +15,12 @@ export const useRewriteStore = defineStore('rewrite', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  /** M-11：代守卫——切书 clear() 后在途改写结果不再落地（accept 虽有 docId 兜底防跨书
+   *  patch，但 B 书改写面板不该显示 A 书的 diff 结果；error/loading 回填同样查代） */
+  let reqGen = 0
+
   async function run(name: string, docId: string, instruction: string, selection: string, append = false): Promise<void> {
+    const gen = ++reqGen
     loading.value = true
     error.value = null
     try {
@@ -30,6 +35,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
           return
         }
         const saved = await doc.save(docId, 'manual')
+        if (gen !== reqGen) return
         if (!saved) {
           error.value = entry.error ?? '改写前保存失败，已取消改写'
           result.value = null
@@ -38,12 +44,15 @@ export const useRewriteStore = defineStore('rewrite', () => {
       }
       // append（M2 续写解选区）：无选区纯追加；否则有选区 local / 无选区 whole
       const body = append ? { instruction, append: true } : selection ? { instruction, selection } : { instruction }
-      result.value = await runRewriteDoc(name, docId, body)
+      const r = await runRewriteDoc(name, docId, body)
+      if (gen !== reqGen) return
+      result.value = r
     } catch (e) {
+      if (gen !== reqGen) return
       error.value = friendlyError(e)
       result.value = null
     } finally {
-      loading.value = false
+      if (gen === reqGen) loading.value = false
     }
   }
 
@@ -74,6 +83,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
   }
 
   function clear(): void {
+    reqGen++ // M-11：在途 run 的结果/错误回填全部作废
     result.value = null
     error.value = null
   }

@@ -23,13 +23,20 @@ const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) :
 
 const config = ref<BookConfig>({})
 const err = ref<string | null>(null)
+// M-11：代守卫（reqGen 同款）——本面板常驻右侧栏（不随切书重建），快速切书 A→B 时
+// A 的慢响应不把 A 的字数目标/口径落到 B 的进度显示
+let configGen = 0
 watch(
   () => props.bookName,
   async (n) => {
+    const gen = ++configGen
     if (!n) return
     try {
-      config.value = await getConfig(n)
+      const c = await getConfig(n)
+      if (gen !== configGen) return
+      config.value = c
     } catch (e) {
+      if (gen !== configGen) return
       err.value = friendlyError(e)
     }
   },

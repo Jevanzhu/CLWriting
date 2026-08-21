@@ -167,13 +167,17 @@ const tagValues = computed<Record<string, string>>(() => {
 
 // 每章字数目标（书级 chapter_target_words ?? 全局默认；0=未设）—— 字数目标字段的 placeholder
 const globalChapterTarget = ref<number | undefined>(undefined)
+// M-11：代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder
+let targetGen = 0
 watch(
   () => props.bookName,
   async (n) => {
+    const gen = ++targetGen
     if (!n) return
     try {
-      globalChapterTarget.value =
-        (await getConfig(n)).book?.chapter_target_words ?? prefs.defaultChapterTargetWords
+      const v = (await getConfig(n)).book?.chapter_target_words ?? prefs.defaultChapterTargetWords
+      if (gen !== targetGen) return
+      globalChapterTarget.value = v
     } catch {
       /* 用默认 */
     }

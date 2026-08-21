@@ -80,6 +80,17 @@ export class SaveQueue<R> {
     return this.dq(docId).frozen
   }
 
+  /** 在途/排队中的保存任务数（跨全部 docId）。执行中的项已 shift 出 pending、由
+   * running 单独计——删书/改名前 drain 探询用（第五轮）。 */
+  inFlight(): number {
+    let n = 0
+    for (const q of this.docs.values()) {
+      if (q.running) n++
+      n += q.pending.length
+    }
+    return n
+  }
+
   /** 派发：未在跑 + 未冻结 + 有待跑 → 取下一个执行。 */
   private pump(q: DocQueue<R>): void {
     if (q.running || q.frozen || q.pending.length === 0) return

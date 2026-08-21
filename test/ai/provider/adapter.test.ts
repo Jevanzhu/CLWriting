@@ -786,7 +786,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
     expect(done && 'cacheReadTokens' in done.usage).toBe(false)
   })
 
-  it('OpenAI Chat：prompt_tokens_details.cached_tokens → cacheReadTokens（已含于 inputTokens）', async () => {
+  it('OpenAI Chat：cached_tokens 归一——inputTokens 扣减已含的 cache 命中（M-1 勿双计成本）', async () => {
     const client = {
       chat: {
         completions: {
@@ -797,8 +797,10 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
       },
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    // prompt_tokens 已含 cache 命中 → inputTokens=50-40=10（Anthropic 口径），cacheReadTokens 单列；
+    // 修复前 inputTokens:50 + cacheReadTokens:40 双计（成本/预算口径虚高一个命中量）
     expect(evs.find((e) => e.type === 'done')).toMatchObject({
-      usage: { inputTokens: 50, outputTokens: 3, cacheReadTokens: 40 },
+      usage: { inputTokens: 10, outputTokens: 3, cacheReadTokens: 40 },
     })
   })
 
@@ -815,6 +817,35 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { cacheReadTokens: 7 } })
+  })
+
+  it('OpenAI Chat：流结束无 finish_reason 无 usage → 传输截断报错，不发 done{0,0}（R1 对齐）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          // 非官方中转净空结束：有文本增量但既无 finish_reason 也无 usage chunk
+          create: fakeSend([{ choices: [{ delta: { content: '半截' } }] }]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    // 修复前：兜底 emitDone({0,0},'stop') → 真实计费调用按成功 0 成本入账
+    expect(evs.find((e) => e.type === 'done')).toBeUndefined()
+    expect(evs.find((e) => e.type === 'error')).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
+  })
+
+  it('OpenAI Chat：有 finish_reason 无 usage（include_usage 不兼容网关）→ done{0,0} 放行（有意保留）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([{ choices: [{ delta: { content: '完整' }, finish_reason: 'stop' }] }]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    // 网关完成但不回 usage——判错重试对这类网关是全量破坏，0 成本是可得最优估计
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'stop' })
+    expect(evs.find((e) => e.type === 'error')).toBeUndefined()
   })
 })
 
@@ -1065,7 +1096,8 @@ describe('Responses 适配器（R1-R4）', () => {
   })
 
   // T12 usage 四分量：input/output + cached_tokens → cacheReadTokens + reasoning_tokens → reasoningTokens
-  it('T12 completed usage → cacheReadTokens=5 / reasoningTokens=7', async () => {
+  // M-1：input_tokens 已含 cached → inputTokens=10-5=5（归一 Anthropic 口径，勿双计成本）
+  it('T12 completed usage → inputTokens=5（扣 cache）/ cacheReadTokens=5 / reasoningTokens=7', async () => {
     const { client } = fakeResponsesClient(() => [
       {
         type: 'response.completed',
@@ -1083,7 +1115,7 @@ describe('Responses 适配器（R1-R4）', () => {
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({
       type: 'done',
-      usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 5, reasoningTokens: 7 },
+      usage: { inputTokens: 5, outputTokens: 20, cacheReadTokens: 5, reasoningTokens: 7 },
     })
   })
 

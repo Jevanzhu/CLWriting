@@ -9,14 +9,13 @@
  * SSE / interrupt / auto-write 经 driver session；/spawn 走 gen.ts generateText + provider 直连。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { readBooks } from '../../../install/books.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
+import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isChatRunning, abortChat, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
@@ -175,7 +174,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 若 close 回调在其后才注册 → 计数器泄漏（连遭 DoS 上限）
     let heartbeat: ReturnType<typeof setInterval> | undefined
     let iter: AsyncGenerator<DriverEvent> | undefined
+    let clientGone = false
     req.on('close', () => {
+      clientGone = true
       if (heartbeat) clearInterval(heartbeat)
       const c = sseConnections.get(sseName)
       if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
@@ -186,6 +187,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     })
     // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
     const session = await ensureSession(params['name']!, ctx.workDir)
+    // 第五轮：ensureSession 的 await 窗口内客户端断开（页面刷新可触发）——close 回调
+    // 跑空（heartbeat/iter 尚未赋值）。若照常挂载：30s 心跳 interval + channel consumer
+    // 挂在 notify 上无人唤醒，泄漏到 session dispose。已断开（计数已由 close 回调减）
+    // 则直接放弃建流。
+    if (clientGone) return
     const driver = getDriver('cc')
 
     res.writeHead(200, {
@@ -473,9 +479,17 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
-    // F1-P1：清内存 + 清事件库（userData/书路径缺失时只清内存）
-    const entry = readBooks(ctx.workDir).find((b) => b.name === bookName)
-    clearChatHistory(bookName, ctx.userDataPath ?? undefined, entry ? join(ctx.workDir, entry.path) : undefined)
+    // 第五轮：fire-and-forget 后台任务（定稿摘要等）持 workspace 会话续写事件——
+    // clearChatHistory 双键同清工作流侧，在途清空同样清不彻底，补同口径闸
+    if (hasBackgroundTasks(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书有后台任务收尾中（如定稿摘要），稍等片刻再清空对话')
+    }
+    // 二轮复审（低级）：resolveBook 统一解析——旧 readBooks().find() 对不存在的书
+    // 静默落「只清内存」假成功（200），事件库原样残留；现与全文件其余路由同 404 口径
+    const r = resolveBook(ctx.workDir, bookName)
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // F1-P1：清内存 + 清事件库
+    clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot)
     reply(res, 200, { ok: true })
   },
   })

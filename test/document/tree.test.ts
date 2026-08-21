@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import {
-  scanBookTree, buildTree, getBookTreeIndex, invalidateTreeIndex,
+  scanBookTree, buildTree, getBookTreeIndex, invalidateTreeIndex, probeCachedPublished,
   type TreeNode,
 } from '../../src/document/tree.js'
 
@@ -173,4 +173,22 @@ test('buildTree: 有清单时叶子挂正式 docId（清单 path 带 .md 对齐�
   const chapter = findNode(buildTree(root), '写作/正文/第一卷/0001-开篇.md')
   expect(chapter!.docId).toBe('doc_01ABC') // 清单命中正式 ID（非 legacy）
   rmSync(root, { recursive: true, force: true })
+})
+
+test('probeCachedPublished: fm 引号包 "true" 与 parseFlat 同口径判 published（2026-08-21 口径分裂修复）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'w2a-pub-'))
+  try {
+    // 手写 fm 带引号：document 链路（parseFlat→parseValue unquote）判 published=true，
+    // 树 probe 链路此前原样返回 '"true"' 判 false——两链路状态口径分裂
+    writeFileSync(join(root, '0002-迷雾.md'), '---\n章号: 2\n已发布: "true"\n---\n正文', 'utf-8')
+    expect(probeCachedPublished(root, '0002-迷雾.md')).toBe(true)
+    // 无引号裸值维持原行为
+    writeFileSync(join(root, '0003-黎明.md'), '---\n章号: 3\n已发布: true\n---\n正文', 'utf-8')
+    expect(probeCachedPublished(root, '0003-黎明.md')).toBe(true)
+    // 非 true 值不误判
+    writeFileSync(join(root, '0004-长夜.md'), '---\n章号: 4\n已发布: "false"\n---\n正文', 'utf-8')
+    expect(probeCachedPublished(root, '0004-长夜.md')).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

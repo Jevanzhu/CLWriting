@@ -116,7 +116,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const entry: StyleEntry = {
       类型: kind as EntryKind,
       场景: scene,
-      来源: typeof source === 'string' && source in SOURCE_RANK ? (source as EntrySource) : '作者标注',
+      // 第五轮：hasOwn 防原型链穿透（'constructor' 会经 `in` 命中并写进条目，下游
+      // SOURCE_RANK[来源] 排序比较器恒 NaN）
+      来源: typeof source === 'string' && Object.hasOwn(SOURCE_RANK, source) ? (source as EntrySource) : '作者标注',
       ...(typeof body['说明'] === 'string' && body['说明'].trim() ? { 说明: body['说明'].trim() } : {}),
       ...(typeof body['出处'] === 'string' && body['出处'].trim() ? { 出处: body['出处'].trim() } : {}),
       ...(Array.isArray(body['标签']) ? { 标签: (body['标签'] as unknown[]).map(String) } : {}),
@@ -182,6 +184,11 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, CANDIDATES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
     }
+    // M-7：补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
+    // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
+    if (!resolveWithinRoot(bookRoot, p)) {
+      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
+    }
     const entryPath = confirmCandidate(bookRoot, p)
     if (entryPath === null) {
       return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
@@ -201,6 +208,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const p = typeof body['path'] === 'string' ? body['path'] : ''
     if (!insideDir(p, CANDIDATES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
+    }
+    // M-7：同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
+    if (!resolveWithinRoot(bookRoot, p)) {
+      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
     }
     if (!ignoreCandidate(bookRoot, p)) {
       return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')

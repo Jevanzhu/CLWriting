@@ -90,12 +90,15 @@ export interface SpecOutput {
  * Z-P1-1：signal → AbortController 桥接——runTask 形参是 ctrl（控制器），
  * 而工具层只能拿到编排方的 AbortSignal（chat 把 state.ctrl.signal 下发到 ToolContext），
  * 在此单点桥接，调用方不各抄一份。已 aborted 的信号直接落 abort（不发请求）。
+ * 二轮复审（低级）：detach 供 runSpec 收尾摘监听——长寿命编排 signal（chat/self-heal
+ * 跨章）上正常完成的调用不摘会在 signal 上逐次累积 listener（ee-P1-2 同构，once 触发后为 no-op）。
  */
-function ctrlFromSignal(signal: AbortSignal): AbortController {
+function ctrlFromSignal(signal: AbortSignal): { ctrl: AbortController; detach: () => void } {
   const ctrl = new AbortController()
+  const onAbort = (): void => ctrl.abort()
   if (signal.aborted) ctrl.abort()
-  else signal.addEventListener('abort', () => ctrl.abort(), { once: true })
-  return ctrl
+  else signal.addEventListener('abort', onAbort, { once: true })
+  return { ctrl, detach: () => signal.removeEventListener('abort', onAbort) }
 }
 
 /**
@@ -117,41 +120,48 @@ export async function runSpec(
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]
 
-  return runTask<SpecOutput>({
-    userDataPath: opts.userDataPath,
-    tierKind: spec.tierKind,
-    task: spec.name,
-    bookRoot: opts.bookRoot,
-    chapter: opts.chapter,
-    promptText: opts.userPrompt,
-    promptFiles: opts.promptFiles,
-    ctrl: opts.ctrl ?? (opts.signal ? ctrlFromSignal(opts.signal) : undefined),
-    register: opts.register,
-    onReset: opts.onReset,
-    onRetry: opts.onRetry,
-    ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
-    ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } as unknown as SpecOutput } : {}),
-    run: async (provider, signal, tier) => {
-      if (spec.genMode === 'tool' && tool) {
-        const r = await generateTool(
+  // 二轮复审（低级）：桥接监听随调用收尾摘除——正常完成的调用不再把 listener
+  // 留在 chat/self-heal 的长寿命 signal 上逐次累积
+  const bridge = !opts.ctrl && opts.signal ? ctrlFromSignal(opts.signal) : null
+  try {
+    return await runTask<SpecOutput>({
+      userDataPath: opts.userDataPath,
+      tierKind: spec.tierKind,
+      task: spec.name,
+      bookRoot: opts.bookRoot,
+      chapter: opts.chapter,
+      promptText: opts.userPrompt,
+      promptFiles: opts.promptFiles,
+      ctrl: opts.ctrl ?? bridge?.ctrl,
+      register: opts.register,
+      onReset: opts.onReset,
+      onRetry: opts.onRetry,
+      ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
+      ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } as unknown as SpecOutput } : {}),
+      run: async (provider, signal, tier) => {
+        if (spec.genMode === 'tool' && tool) {
+          const r = await generateTool(
+            provider,
+            { systemPrompt, messages, effort: tier.effort, tools: [tool.def], requireTool: true, toolName: tool.name },
+            signal,
+            opts.onText,
+          )
+          return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage }
+        }
+        // 文本型
+        const r = await generate(
           provider,
-          { systemPrompt, messages, effort: tier.effort, tools: [tool.def], requireTool: true, toolName: tool.name },
+          { systemPrompt, messages, effort: tier.effort },
           signal,
           opts.onText,
         )
-        return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage }
-      }
-      // 文本型
-      const r = await generate(
-        provider,
-        { systemPrompt, messages, effort: tier.effort },
-        signal,
-        opts.onText,
-      )
-      if (r.stopReason === 'max_tokens') {
-        throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
-      }
-      return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage }
-    },
-  })
+        if (r.stopReason === 'max_tokens') {
+          throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
+        }
+        return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage }
+      },
+    })
+  } finally {
+    bridge?.detach()
+  }
 }

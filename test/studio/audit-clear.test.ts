@@ -13,6 +13,7 @@ import { startServer } from '../../src/studio/server/index.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent, userMessageEvent } from '../../src/events/chat-bridge.js'
 import { stepStartEvent } from '../../src/events/chain-bridge.js'
+import { registerBackgroundTask, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 
 const BOOK = '清事件书'
 let workDir = ''
@@ -145,5 +146,38 @@ describe('DELETE /api/books/:name/audit（事件保留定版：手动清理）',
     const r = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)
     expect(r.status).toBe(200)
     expect(eventCounts()).toEqual({ convo: 0, workflow: 0 })
+  })
+
+  // 第五轮：fire-and-forget 后台任务（定稿摘要等）在途时拒清——任务收尾会向工作流
+  // 会话续写事件，「清完表又被写回」清不彻底；spawn 手动写稿同口径
+  it('后台任务在途 → 409 拒清；任务收尾后 → 200', async () => {
+    // 先补一点事件便于观察（上一用例已清空）
+    const bookRoot = join(workDir, BOOK)
+    const store = openSessionStore(userDataPath, bookRoot)!
+    try {
+      const wsSid = store.workspaceSession(bookHash(bookRoot))
+      store.appendEvents(wsSid, [stepStartEvent('chat', 'chat')])
+    } finally {
+      store.close()
+    }
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const neverReject = gate.then(() => undefined, () => undefined)
+    registerBackgroundTask(BOOK, neverReject)
+    try {
+      const busy = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('后台任务')
+      expect(eventCounts().workflow).toBe(1) // 未被清掉
+
+      release()
+      await waitBackgroundTasks(BOOK)
+      const ok = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)
+      expect(ok.status).toBe(200)
+      expect(eventCounts()).toEqual({ convo: 0, workflow: 0 })
+    } finally {
+      release()
+    }
   })
 })

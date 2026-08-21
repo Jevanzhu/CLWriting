@@ -46,8 +46,18 @@ server.on('listening', () => {
   log.info('server-main', `ready on http://127.0.0.1:${actualPort} (static: ${staticDir})`)
 })
 
+// M-8：close 对 SSE/keep-alive 长连接会悬置回调（graceful-shutdown 同因）——独立
+// server 入口此前无兜底，e2e 残留连接时进程挂在信号上杀不掉。2s 超时强制退出
+//（与 Electron 态 before-quit 的总超时同量级；幂等防双信号双触发）
+let exiting = false
+const exitNow = (): void => {
+  if (exiting) return
+  exiting = true
+  process.exit(0)
+}
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
-    server.close(() => process.exit(0))
+    server.close(exitNow)
+    setTimeout(exitNow, 2_000)
   })
 }

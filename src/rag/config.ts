@@ -55,7 +55,12 @@ export function readRagConfig(bookRoot: string, userDataPath?: string | null): R
     provider: rag.provider ?? global.ragProvider,
     endpoint: rag.endpoint,
     model: rag.model,
-    candidate_depth: rag.candidate_depth,
+    // 非正整数不收（2026-08-21）：0/负数会让召回首轮即 break 恒空（静默降级无告警），
+    // 与「缺省 20」同视为未配置
+    candidate_depth:
+      typeof rag.candidate_depth === 'number' && Number.isInteger(rag.candidate_depth) && rag.candidate_depth >= 1
+        ? rag.candidate_depth
+        : undefined,
   }
 }
 

@@ -88,7 +88,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
       /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
       const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
-      if (!(step in STEP_PATH)) {
+      // 第五轮：hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
+      // 取出函数，join 路径抛 TypeError 落 500（纯客户端输入应 400）
+      if (!Object.hasOwn(STEP_PATH, step)) {
         return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
       }
 
@@ -138,7 +140,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
     const step = String(body['step'] ?? '') as OnboardStep
-    if (!(step in STEP_PATH)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
+    if (!Object.hasOwn(STEP_PATH, step)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
     const content = typeof body['content'] === 'string' ? body['content'] : ''
     const bookRoot = r.bookRoot
     const relPath = STEP_PATH[step]

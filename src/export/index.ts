@@ -11,7 +11,7 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -198,6 +198,13 @@ export function exportBook(options: ExportOptions): ExportResult {
       .map((unit) => `# ${unit.title}\n\n${unit.body}`)
       .join('\n\n---\n\n')
     const fileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
+    // 第五轮：书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
+    // 拿错稿——同前缀其余文件视为过期产物清掉（清旧失败不阻断导出）
+    for (const old of readdirSync(exportDir)) {
+      if (old.startsWith('全本-') && old.endsWith('.md') && old !== fileName) {
+        try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
+      }
+    }
     atomicWriteFile(join(exportDir, fileName), mergedContent)
     files.push(`工作区/导出/${fileName}`)
   }
@@ -206,6 +213,10 @@ export function exportBook(options: ExportOptions): ExportResult {
   if (doSplit) {
     const splitName = '分章'
     const splitDir = join(exportDir, splitName)
+    // 第五轮：分章目录是纯派生产物，整目录重建——改章标题（文件名随 rename）/删章后
+    // 旧导出残留（003-旧标题.md 与 003-新标题.md 并存、已删章文件仍在）会让作者
+    // 从分章目录逐文件取稿时上错版本
+    rmSync(splitDir, { recursive: true, force: true })
     mkdirSync(splitDir, { recursive: true })
     for (const unit of purified) {
       const prefix = `${String(unit.num).padStart(3, '0')}-`

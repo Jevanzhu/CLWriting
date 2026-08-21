@@ -259,11 +259,14 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   return probe
 }
 
-/** 从 fm 原文提取 `已发布` 字段值（与原 readPublished/parseFlat 同口径，内联避免第三读）。 */
+/** 从 fm 原文提取 `已发布` 字段值（与原 readPublished/parseFlat 同口径，内联避免第三读）。
+ *  2026-08-21：剥首尾引号——`已发布: "true"` 手写带引号时，parseFlat→parseValue 会 unquote
+ *  得 'true'（document 链路判 published），此处原样返回 '"true"' 判 false，树/定稿两链路
+ *  口径分裂（注释宣称同口径不实）。 */
 function parsePublishedValue(fmRaw: string): boolean | string | undefined {
   const m = fmRaw.match(/^已发布[:：]\s*(.+?)\s*$/m)
   if (!m) return undefined
-  const v = m[1]!.trim()
+  const v = m[1]!.trim().replace(/^["'](.*)["']$/s, '$1')
   return v === 'true' ? true : v
 }
 
@@ -308,7 +311,12 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
  */
 export function invalidateTreeIndex(bookRoot: string, structural = false): void {
   indexes.delete(bookRoot)
-  // W-P2-4：文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希
-  clearProbeCache()
+  // W-P2-4：文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希。
+  // 2026-08-21：按书前缀清理（缓存键本就带 bookRoot）——此前 clearProbeCache() 全局清空，
+  // 任一书保存会让其他书首次树聚合退化为全量读（多书同开时的无谓读放大）
+  const prefix = bookRoot + '|'
+  for (const key of probeCache.keys()) {
+    if (key.startsWith(prefix)) probeCache.delete(key)
+  }
   if (structural) clearTreeIssuesCacheForBook(bookRoot)
 }

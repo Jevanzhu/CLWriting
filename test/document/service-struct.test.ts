@@ -170,6 +170,29 @@ test('updateChapterMeta: 未知 docId → NOT_FOUND', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', () => {
+  const { root, svc } = makeBookWithChapter()
+  const fp = join(root, '写作', '正文', '第一卷', '0001-开篇.md')
+  // GBK「序」(0xD0F2) +「正文」(0xD5FD CEC4)：utf-8 读入产生 U+FFFD 替换符
+  const gbk = Buffer.concat([
+    Buffer.from('---\n章号: 1\n标题: ', 'utf-8'),
+    Buffer.from([0xd0, 0xf2]),
+    Buffer.from('\n---\n', 'utf-8'),
+    Buffer.from([0xd5, 0xfd, 0xce, 0xc4]),
+  ])
+  writeFileSync(fp, gbk)
+  const before = readFileSync(fp)
+  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('WRITE_ERROR')
+  expect(r.reason).toContain('UTF-8')
+  // 原始字节一字不动（拒绝即零副作用——文件名/清单也不动）
+  expect(readFileSync(fp).equals(before)).toBe(true)
+  expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-新标.md'))).toBe(false)
+  rmSync(root, { recursive: true, force: true })
+})
+
 /** 造短篇书：写作/正文/1-原标.md + book.yaml(kind=short) + 清单登记 doc_p01。 */
 function makeBookWithPiece(): { root: string; svc: DocumentService } {
   const root = mkdtempSync(join(tmpdir(), 'w2a-piece-'))
@@ -247,6 +270,30 @@ test('updateDocMeta: 未知 docId → NOT_FOUND', () => {
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('updateDocMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', () => {
+  const { root, svc } = makeBookWithChapter()
+  writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '---\n卷名: 第一卷\n---\n卷纲正文', 'utf-8')
+  appendFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    '{"id":"doc_vol1","nodeType":"document","path":"大纲/卷纲/第一卷.md","parentId":null}\n',
+  )
+  // 覆写为 GBK 编码正文（「正文」= 0xD5FD CEC4，utf-8 读入产生 U+FFFD）
+  const fp = join(root, '大纲', '卷纲', '第一卷.md')
+  const gbk = Buffer.concat([
+    Buffer.from('---\n卷名: 第一卷\n---\n卷纲', 'utf-8'),
+    Buffer.from([0xd5, 0xfd, 0xce, 0xc4]),
+  ])
+  writeFileSync(fp, gbk)
+  const before = readFileSync(fp)
+  const r = svc.updateDocMeta('doc_vol1', { 卷主线: '主角崛起' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('WRITE_ERROR')
+  expect(r.reason).toContain('UTF-8')
+  expect(readFileSync(fp).equals(before)).toBe(true)
   rmSync(root, { recursive: true, force: true })
 })
 

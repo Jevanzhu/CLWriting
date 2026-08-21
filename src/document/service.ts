@@ -39,6 +39,15 @@ import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
 import { readBookConfig } from '../format/yaml.js'
 
+/** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
+ *  符，元数据路径会把乱码正文原子覆盖回原文件（原始字节永久丢失，且无快照留底，
+ *  用户没碰正文却被「盲改」）。检出即拒，先转码再改。 */
+const NON_UTF8_REJECT = {
+  ok: false as const,
+  code: 'WRITE_ERROR' as const,
+  reason: '检测到非 UTF-8 编码（正文含 U+FFFD 替换字符）：为防写回损坏原文，请先将该文件转为 UTF-8 再修改元数据',
+}
+
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
   content: string
@@ -181,6 +190,11 @@ export class DocumentService {
   /** 解冻。 */
   unfreeze(docId: string): void {
     this.queue.unfreeze(docId)
+  }
+
+  /** 在途/排队中的保存任务数（跨全部 docId；删书/改名前 drain 探询用，第五轮）。 */
+  inFlightSaves(): number {
+    return this.queue.inFlight()
   }
 
   /** 启动扫 journal，报 pending 无 settled/aborted（崩溃未结算）。 */
@@ -396,6 +410,10 @@ export class DocumentService {
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     const r = readDoc(abs)
     if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
+    // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
+    // 乱码正文原子覆盖回原文件，原始字节永久丢失（本路径无快照留底，用户没碰正文却
+    // 被「盲改」）。检出即拒绝，先转码再改。
+    if (r.body.includes('\uFFFD')) return NON_UTF8_REJECT
     const map = parseFlat(r.fmRaw)
     if (meta.标题 !== undefined) map.set('标题', meta.标题)
     // piece-body / chapter 统一写「章号」字段
@@ -470,6 +488,8 @@ export class DocumentService {
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
     }
+    // 第五轮：非 UTF-8 防线（同 updateChapterMeta）——盲改覆盖会永久丢原始字节
+    if (raw.includes('\uFFFD')) return NON_UTF8_REJECT
     // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
     const split = splitFrontMatter(raw)
     const map = parseFlat(split ? split.fmRaw : '')

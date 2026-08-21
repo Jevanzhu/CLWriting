@@ -28,6 +28,7 @@ import { computeRevision } from '../document/revision.js'
 import { readManifest } from '../document/manifest.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runSpec } from '../ai/tasks/spec.js'
+import { registerBackgroundTask } from '../ai/orchestrate/background.js'
 import { SUMMARY_CHAPTER_SPEC, SUMMARY_VOLUME_SPEC } from '../ai/tasks/specs.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -137,6 +138,11 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     const budget = opts.config.budget.summary_chapter_max ?? 200
     const draft = readDraft(bodyAbsPath)
     if (!draft.ok) return { ok: false, error: `读正文失败：${draft.reason}` }
+    // 第五轮：指纹在读取时点取——AI 生成窗口（数十秒）内正文若被再改并再次定稿（H2），
+    // 写盘时才算会把 H2 指纹绑给 H1 正文的摘要：过期判定从此恒 fresh，自愈与定稿
+    // 钩子都被挡住，过期摘要长期喂后续章节的「近章结尾」材料。取读取时点的 H1，
+    // H2 到来后过期判定正常触发重生成。
+    const sourceHash = computeRevision(bodyAbsPath)
     const userPrompt = [
       `请为第 ${chapter} 章写章摘要（三行：情节推进 / 账本变动 / 章尾钩子，总长 ≤ ${budget} 字）。`,
       '',
@@ -164,7 +170,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
       `chapter: ${chapter}`,
       `generatedAt: ${new Date().toISOString()}`,
       'model: summary-chapter',
-      `sourceHash: ${computeRevision(bodyAbsPath)}`,
+      `sourceHash: ${sourceHash}`,
       '---',
       '',
     ].join('\n')
@@ -189,36 +195,71 @@ export function summaryAutoEnabled(config: BookConfig): boolean {
  * 挂点一（定稿即生成，P7-①）：finalize 管线成功后由 API 层调用（依赖方向：document/
  * 禁止 import AI 层，钩子只能挂服务端）。best-effort：fire-and-forget，失败 log.warn
  * 留待自愈；不占章预算（定稿是作者动作，摘要失败不该吃下一章的写作预算）。
+ * M-2：bookName 在场时登记进后台任务表——删书/改名/优雅退出的 settle 等待能追上
+ * 本任务，不再对其落盘窗口逃逸（fire-and-forget 语义不变）。
  */
+/** 单次定稿摘要执行（单发/批量串行链共用；异常由调用方包裹留痕） */
+async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | null, docId: string): Promise<void> {
+  const config = effectiveConfig(bookRoot, userDataPath)
+  if (!summaryAutoEnabled(config)) return
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const entry = manifest.entries.get(docId)
+  if (!entry || !entry.path.startsWith('写作/正文/')) return
+  // 从文件名取章号（fm 解析在 findChapterFile 后由 readFile 兜底，这里只定位文件）
+  const bodyAbs = join(bookRoot, entry.path)
+  if (!existsSync(bodyAbs)) return
+  const parsed = parseChapterFileName(entry.path.split('/').pop() ?? '')
+  if (!parsed || parsed.章号 <= 0) return
+  const r = await generateChapterSummary({
+    bookRoot,
+    userDataPath,
+    config,
+    chapter: parsed.章号,
+    bodyAbsPath: bodyAbs,
+  })
+  if (!r.ok) log.warn('summary', `定稿章摘要生成失败（第 ${parsed.章号} 章，留待自愈）：${r.error}`)
+}
+
 export function afterFinalizeGenerateSummary(
   bookRoot: string,
   userDataPath: string | null,
   docId: string,
+  bookName?: string,
 ): void {
-  void (async () => {
+  const p: Promise<void> = (async () => {
     try {
-      const config = effectiveConfig(bookRoot, userDataPath)
-      if (!summaryAutoEnabled(config)) return
-      const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-      const entry = manifest.entries.get(docId)
-      if (!entry || !entry.path.startsWith('写作/正文/')) return
-      // 从文件名取章号（fm 解析在 findChapterFile 后由 readFile 兜底，这里只定位文件）
-      const bodyAbs = join(bookRoot, entry.path)
-      if (!existsSync(bodyAbs)) return
-      const parsed = parseChapterFileName(entry.path.split('/').pop() ?? '')
-      if (!parsed || parsed.章号 <= 0) return
-      const r = await generateChapterSummary({
-        bookRoot,
-        userDataPath,
-        config,
-        chapter: parsed.章号,
-        bodyAbsPath: bodyAbs,
-      })
-      if (!r.ok) log.warn('summary', `定稿章摘要生成失败（第 ${parsed.章号} 章，留待自愈）：${r.error}`)
+      await runFinalizeSummaryOnce(bookRoot, userDataPath, docId)
     } catch (e) {
       log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
     }
   })()
+  // M-2：整段 try-catch 自留痕（p 不 reject）——登记进 per-book 后台表供 settle 追赶
+  if (bookName) registerBackgroundTask(bookName, p)
+}
+
+/**
+ * 批量定稿的串行摘要链（第五轮）：逐章 fire-and-forget 会让一键定稿 N 章 = N 路摘要
+ * AI 并发发出（provider 限流整批失败 + 成本尖峰）；同书摘要互不依赖，串行即可。
+ * 整条链作为**一条**后台任务登记（M-2）：删书/改名的 settle 在链首即能追上全部在途
+ * 与排队中的摘要，「尚未轮到」的任务不产生逃逸窗口。
+ */
+export function afterFinalizeGenerateSummaryBatch(
+  bookRoot: string,
+  userDataPath: string | null,
+  docIds: string[],
+  bookName?: string,
+): void {
+  if (docIds.length === 0) return
+  const p: Promise<void> = (async () => {
+    for (const docId of docIds) {
+      try {
+        await runFinalizeSummaryOnce(bookRoot, userDataPath, docId)
+      } catch (e) {
+        log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  })()
+  if (bookName) registerBackgroundTask(bookName, p)
 }
 
 /**

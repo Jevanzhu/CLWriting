@@ -16,9 +16,12 @@ import {
   chapterSummaryPath,
   selfHealRecentChapterSummaries,
   afterFinalizeGenerateSummary,
+  afterFinalizeGenerateSummaryBatch,
   readChapterSummaryBody,
   effectiveConfig,
 } from '../../src/process/summary.js'
+import { SUMMARY_CHAPTER_SPEC } from '../../src/ai/tasks/specs.js'
+import { waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -127,6 +130,32 @@ describe('generateChapterSummary（C1 批 2）', () => {
     expect(r.ok && r.skipped).toBe(true)
     expect(readFileSync(chapterSummaryPath(root, 1), 'utf-8')).toContain('作者手写')
   })
+
+  it('sourceHash 绑 readDraft 时点（第五轮）：AI 调用期间正文被并发改写 → 绑旧指纹并标 stale', async () => {
+    const root = makeBook(1)
+    const oldRev = computeRevision(bodyOf(root, 1))
+    // mock.text 在 runSpec 调用时才取值（readDraft 之后）——用 getter 模拟「AI 生成期间
+    // 外部并发改写正文」：修复前 sourceHash 在落盘时才计算，会绑到新指纹 → 明明摘要
+    // 描述的是旧正文却被判 fresh；修复后绑 readDraft 时点，state 正确报 stale 留待重生成
+    const spec = SUMMARY_CHAPTER_SPEC as unknown as { mock: { kind: 'text'; text: string } }
+    const orig = spec.mock
+    try {
+      spec.mock = {
+        kind: 'text',
+        get text() {
+          appendFileSync(bodyOf(root, 1), '\n生成期间的并发改写段落。\n')
+          return orig.text
+        },
+      }
+      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      expect(r.ok).toBe(true)
+    } finally {
+      spec.mock = orig
+    }
+    const raw = readFileSync(chapterSummaryPath(root, 1), 'utf-8')
+    expect(raw).toContain(`sourceHash: ${oldRev}`)
+    expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('stale')
+  })
 })
 
 describe('自愈补漏 selfHealRecentChapterSummaries（挂点二）', () => {
@@ -180,6 +209,38 @@ describe('定稿即生成 afterFinalizeGenerateSummary（挂点一，best-effort
     afterFinalizeGenerateSummary(root, null, id)
     await new Promise((r) => setTimeout(r, 150))
     expect(existsSync(join(root, '定稿', '摘要', '章摘要'))).toBe(false)
+  })
+})
+
+describe('批量定稿串行摘要链 afterFinalizeGenerateSummaryBatch（第五轮 M-2）', () => {
+  /** 从清单取第 no 章的 docId */
+  const chapterDocId = (root: string, no: number): string => {
+    const m = readManifest(join(root, '项目', '文档清单.jsonl'))
+    const suffix = `${String(no).padStart(3, '0')}-第${no}章.md`
+    return [...m.entries.entries()].find(([, e]) => e.path.endsWith(suffix))![0]
+  }
+
+  it('整链单条登记：waitBackgroundTasks 追上后全部章摘要在盘（串行不撞 inFlight 去重）', async () => {
+    const root = makeBook(2, 2)
+    afterFinalizeGenerateSummaryBatch(root, null, [chapterDocId(root, 2), chapterDocId(root, 1)], '批量书')
+    await waitBackgroundTasks('批量书')
+    expect(readChapterSummaryBody(root, 1)).toBeTruthy()
+    expect(readChapterSummaryBody(root, 2)).toBeTruthy()
+  })
+
+  it('坏 docId 单点失败不拖链——后续章照常生成（逐章 try/catch 隔离）', async () => {
+    const root = makeBook(2, 2)
+    afterFinalizeGenerateSummaryBatch(root, null, ['doc_不存在', chapterDocId(root, 1)], '批量书2')
+    await waitBackgroundTasks('批量书2')
+    expect(readChapterSummaryBody(root, 1)).toBeTruthy()
+    expect(readChapterSummaryBody(root, 2)).toBeFalsy() // 不在链上的章不生成
+  })
+
+  it('空 docIds → 直接返回（无 AI 调用无登记）', async () => {
+    const root = makeBook(1)
+    afterFinalizeGenerateSummaryBatch(root, null, [], '空批量')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(existsSync(chapterSummaryPath(root, 1))).toBe(false)
   })
 })
 

@@ -20,6 +20,7 @@ import { openSessionStore, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
+import { log } from '../log/index.js'
 
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
@@ -176,12 +177,16 @@ function mkChain(
   task: string | undefined,
 ): ChainRecorder | null {
   if (!userDataPath || !bookRoot || !task) return null
+  let store: ReturnType<typeof openSessionStore> = null
   try {
-    const store = openSessionStore(userDataPath, bookRoot)
+    store = openSessionStore(userDataPath, bookRoot)
     if (!store) return null
     const sessionId = store.workspaceSession(bookHash(bookRoot))
     return new ChainRecorder(store, sessionId)
   } catch {
+    // 二轮复审（低级）：建链半途抛错先关库再降级——openSessionStore 是引用计数单例，
+    // workspaceSession/ChainRecorder 构造抛错若不关，本次打开的引用滞留到进程结束
+    store?.close()
     return null
   }
 }
@@ -317,6 +322,23 @@ export async function runTask<T>(opts: {
   let timedOut = false
   const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)
 
+  // 二轮复审（M 项）：记账 IO 防护——recordTaskUsage/recordAiCall 写库抛错（磁盘满/库锁/
+  // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
+  // 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
+  // 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
+  const recordUsageSafe = (usage: TokenUsage | null): void => {
+    if (!bookRoot) return
+    try {
+      if (task) recordTaskUsage(bookRoot, task, usage)
+      if (opts.chapter !== undefined) {
+        const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage) : undefined
+        recordAiCall(bookRoot, opts.chapter, usage, cost ?? undefined)
+      }
+    } catch (e) {
+      log.warn('runner', `任务记账写库失败（${task ?? '未知任务'}，本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   const timeoutAbort = (): TaskErr =>
     timedOut
       ? { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）` }
@@ -329,11 +351,7 @@ export async function runTask<T>(opts: {
         const usage = extractUsage(data)
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
-        const callCost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage) : undefined
-        if (bookRoot) {
-          if (task) recordTaskUsage(bookRoot, task, usage)
-          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, usage, callCost ?? undefined)
-        }
+        recordUsageSafe(usage)
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
@@ -343,10 +361,7 @@ export async function runTask<T>(opts: {
         if (ctrl.signal.aborted) {
           // X-P2-10：中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
           // 否则中断重跑可绕过预算闸（task/chapter 两块与成功/重试路径同口径）
-          if (bookRoot) {
-            if (task) recordTaskUsage(bookRoot, task, null)
-            if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
-          }
+          recordUsageSafe(null)
           trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
           // AA-P3-4：step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
           // 'interrupted'（执行被强制中止），用户中断记 'aborted'（审计可区分两类终止）
@@ -360,10 +375,7 @@ export async function runTask<T>(opts: {
           })
           // B4：服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
-            if (bookRoot) {
-              if (task) recordTaskUsage(bookRoot, task, null)
-              if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
-            }
+            recordUsageSafe(null)
             trace({
               model: tier.model,
               attempt,
@@ -381,10 +393,7 @@ export async function runTask<T>(opts: {
           }
           // W-P2-8：重试也是真实 API 消耗——按次入账（失败响应无 usage，token 记 0），
           // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
-          if (bookRoot) {
-            if (task) recordTaskUsage(bookRoot, task, null)
-            if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
-          }
+          recordUsageSafe(null)
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           // A5：errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
           trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: e.code ?? 'RETRYABLE' })
@@ -404,10 +413,7 @@ export async function runTask<T>(opts: {
           continue
         }
         // X-P2-10：终态失败的调用同样入账（成功/重试/中断/失败四路同口径，预算闸不再被失败路径绕过）
-        if (bookRoot) {
-          if (task) recordTaskUsage(bookRoot, task, null)
-          if (opts.chapter !== undefined) recordAiCall(bookRoot, opts.chapter, null)
-        }
+        recordUsageSafe(null)
         // A5：终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
         trace({
           model: tier.model,

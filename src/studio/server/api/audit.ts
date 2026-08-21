@@ -25,6 +25,8 @@ import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
+import { isSpawnRunning } from './stream.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
@@ -219,6 +221,14 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     }
     if (isSelfHealRunning(params['name']!)) {
       return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清除事件史')
+    }
+    // 第五轮：fire-and-forget 后台任务（定稿章摘要等）与 spawn 手动写稿同样向工作流
+    // 会话追加事件——在途清除会「清不彻底」（任务收尾事件复活），补齐同口径两闸
+    if (hasBackgroundTasks(params['name']!)) {
+      return replyError(res, 409, 'BUSY', '本书有后台任务收尾中（如定稿摘要），稍等片刻再清除事件史')
+    }
+    if (isSpawnRunning(params['name']!)) {
+      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再清除事件史')
     }
     const bookRoot = r.bookRoot
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op

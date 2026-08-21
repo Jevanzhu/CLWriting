@@ -234,11 +234,16 @@ interface WireUsage {
   prompt_tokens_details?: { cached_tokens?: number }
 }
 
-/** usage 线格式 → TokenUsage（D4：prompt_tokens_details.cached_tokens → cacheReadTokens） */
+/**
+ * usage 线格式 → TokenUsage（D4：prompt_tokens_details.cached_tokens → cacheReadTokens）。
+ * M-1：prompt_tokens **已含** cache 命中部分，边界处扣减归一成「inputTokens 不含 cache 读」
+ * 的统一口径（Anthropic 语义），下游计价/预算四档分计公式对两协议同时成立；
+ * 中转缺 prompt_tokens_details 时 cached=undefined，行为与旧口径一致。
+ */
 function toUsage(u: WireUsage | undefined | null): TokenUsage {
   const cached = u?.prompt_tokens_details?.cached_tokens
   return {
-    inputTokens: u?.prompt_tokens ?? 0,
+    inputTokens: Math.max(0, (u?.prompt_tokens ?? 0) - (cached ?? 0)),
     outputTokens: u?.completion_tokens ?? 0,
     ...(cached ? { cacheReadTokens: cached } : {}),
   }
@@ -254,6 +259,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
       let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
+      let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
@@ -353,6 +359,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   choice.finish_reason === 'tool_calls' ? 'tool_use'
                   : choice.finish_reason === 'length' ? 'max_tokens'
                   : choice.finish_reason
+                sawFinishReason = true
                 // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
                 if (effectiveUsage) {
                   const ev = emitDone(toUsage(effectiveUsage), pendingStopReason)
@@ -372,8 +379,16 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 fallbackIdx++
               }
               toolAccum.clear()
-              const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
-              if (ev) yield ev
+              if (sawFinishReason) {
+                // 网关完成了生成但不回 usage（include_usage 不兼容面）——按 0 用量记账
+                // 放行生成；判错重试对这类网关是全量破坏，0 成本是可得最优估计
+                const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
+                if (ev) yield ev
+              } else {
+                // R1 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
+                // done——真实计费调用不得按成功 0 成本入账
+                yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
+              }
             }
             return
           } catch (e) {

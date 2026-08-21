@@ -45,8 +45,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 新建信号（TabBar 触发 → ChapterTreePanel 监听执行）。createKind 标记类型，createTick 递增触发。 */
   const createKind = ref<CreateKind>('chapter')
   const createTick = ref(0)
-  /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。 */
-  const pendingInsert = ref<string | null>(null)
+  /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。
+   *  第五轮：{text, tick} 结构——纯字符串时同值再点不触发 watcher（ref 同值赋值短路），
+   *  「非编辑器视图下点插入 → 切回编辑器 → 再点同名」会永久丢失该信号；tick 递增保证
+   *  每次点击都是新引用，EditorView 挂载后的 watch(immediate) 也能补消费。 */
+  const pendingInsert = ref<{ text: string; tick: number } | null>(null)
+  let insertTick = 0
   /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
   const editorGetSelection = ref<(() => string) | null>(null)
   const bookName = ref<string | null>(null)
@@ -181,10 +185,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   /** 请求插入文本到编辑器光标（右栏速查「插入」用）。 */
   function requestInsert(text: string): void {
-    pendingInsert.value = text
+    pendingInsert.value = { text, tick: ++insertTick }
   }
   /** 消费待插入文本（EditorView 执行后清空信号）。 */
-  function consumeInsert(): string | null {
+  function consumeInsert(): { text: string; tick: number } | null {
     const t = pendingInsert.value
     pendingInsert.value = null
     return t

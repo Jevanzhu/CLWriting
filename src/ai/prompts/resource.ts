@@ -17,9 +17,10 @@
  * 纯函数 + 可注入 registry（测试用临时目录造 mini 捆绑源），默认读捆绑资源。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { bundledResource } from '../../fs/resources.js'
+import { atomicWriteFile } from '../../fs/atomic.js'
 
 /** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族） */
 export function promptHash(text: string): string {
@@ -129,7 +130,9 @@ export function migratePromptOverlays(
     const builtin = loadBuiltinPrompt(name, registry)
     if (hash === builtin.hash) continue
     mkdirSync(join(userDataPath, 'prompts'), { recursive: true })
-    writeFileSync(fp, builtin.text + '\n', 'utf8')
+    // 第五轮：走原子写（P1-6A 全仓纪律）——直写半截崩溃后哈希不命中历史表，
+    // 损坏的 overlay 会被当「用户改过」永久保留
+    atomicWriteFile(fp, builtin.text + '\n')
     report.upgraded.push(name)
   }
   return report

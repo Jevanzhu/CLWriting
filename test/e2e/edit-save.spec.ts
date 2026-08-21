@@ -7,12 +7,28 @@
  * - manual save 成功 → EditorView save-state 显「已保存」
  */
 import { test, expect } from '@playwright/test'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** 从状态栏「全书 N · 今日 +M」提取全书字数。 */
 function parseTotalWords(s: string | null): number {
   const m = (s ?? '').match(/全书\s*([\d,]+)/)
   return m ? Number((m[1] ?? '').replace(/,/g, '')) : 0
 }
+
+// 二轮复审（批 5）：收尾恢复 0001 原文——e2e 共享 globalSetup 的单一 workDir，
+// 残留的追加正文会被后续 spec（字数/机检/收割断言）读到，spec 间产生隐式顺序依赖
+test.afterAll(() => {
+  const workDir = process.env['CLWRITING_E2E_WORKDIR']
+  if (!workDir) return
+  try {
+    const fp = join(workDir, '长篇', '长篇测试书', '写作', '正文', '0001-初入宗门.md')
+    const src = readFileSync(fp, 'utf8')
+    if (src.includes('e2e 追加内容')) writeFileSync(fp, src.replace('e2e 追加内容', ''), 'utf8')
+  } catch {
+    /* 恢复失败不阻断（workDir 每次运行重建，最坏情形是本轮后续 spec 受影响） */
+  }
+})
 
 test('选章编辑 → ⌘S 保存 → 字数增加', async ({ page }) => {
   await page.goto('/')

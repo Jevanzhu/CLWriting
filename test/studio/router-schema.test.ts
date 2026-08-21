@@ -33,6 +33,7 @@ function postJson(port: number, path: string, body: unknown): Promise<{ status: 
 
 describe('E2: route schema 单点声明', () => {
   it('defineRoute：parse 校验失败 → 400 {error} 信封；合法 → handler 收类型化 input', async () => {
+    let handlerCalls = 0 // M-5：parse 失败后 handler 不得被调用（旧实现缺 return 继续进 handler）
     defineRoute('e2.echo', {
       method: 'POST',
       path: '/e2/:name/echo',
@@ -43,6 +44,7 @@ describe('E2: route schema 单点声明', () => {
         return { n }
       },
       handler: async ({ params, input }, _req, res) => {
+        handlerCalls += 1
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ name: params['name'], n: input.n }))
       },
@@ -53,10 +55,13 @@ describe('E2: route schema 单点声明', () => {
     const ok = await postJson(port, '/e2/book-a/echo', { n: 3 })
     expect(ok.status).toBe(200)
     expect(ok.json).toEqual({ name: 'book-a', n: 3 })
+    expect(handlerCalls).toBe(1)
     // 校验失败 → 400 {code, error} 信封（ii-3：defineRoute parse 失败也走统一双字段信封）
     const bad = await postJson(port, '/e2/book-a/echo', { n: -1 })
     expect(bad.status).toBe(400)
     expect(bad.json).toEqual({ code: 'BAD_INPUT', error: 'n 需为非负数字' })
+    // M-5：回复 400 后 handler 不进（input 停留 undefined，旧实现二次 write + 空跑）
+    expect(handlerCalls).toBe(1)
     srv.close()
   })
 

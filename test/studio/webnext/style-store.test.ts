@@ -276,4 +276,31 @@ describe('style: 切书竞态（M-2 reqGen 守卫）', () => {
     expect(style.entries[0]!._path).toBe('b-book.md')
     expect(style.loading).toBe(false)
   })
+
+  // M-11：rescan/harvest 同享代守卫——秒级重扫在途时切书，A 书 trend 不落到 B 书视图
+  it('M-11：A 书 rescan 慢响应在 clear+load(B) 之后落地 → trend 保持 null', async () => {
+    const style = useStyleStore()
+    listEntriesMock.mockResolvedValueOnce({ entries: [], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookA')
+
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    const trendA = { 漂移: [], 统计: {} } as unknown as StyleTrendFE
+    trendMock.mockImplementationOnce(() => gate.then(() => trendA))
+    const p = style.rescan()
+
+    style.clear()
+    listEntriesMock.mockResolvedValueOnce({ entries: [], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookB')
+
+    releaseA()
+    await p
+    expect(style.trend).toBeNull() // A 书 trend 未落地（旧实现会顶掉 B 书的空态）
+  })
 })

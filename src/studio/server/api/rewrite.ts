@@ -119,7 +119,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         : mode === 'local' ? original.slice(0, selStart) + produced + original.slice(selStart + selectionRaw.length)
         : produced
       if (rewritten === original) {
-        return replyError(res, 500, 'NO_CHANGE', '改写产出与原文相同（未发生变化）')
+        // 第五轮：AI 产出与原文相同是正常业务结果（模型未改动），非服务端故障——
+        // 5xx 会走前端「内部错误」通用路径，改 422 语义（客户端可处理的业务态）
+        return replyError(res, 422, 'NO_CHANGE', '改写产出与原文相同（未发生变化）')
       }
       reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
     } finally {

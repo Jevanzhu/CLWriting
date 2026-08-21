@@ -70,6 +70,19 @@ export interface CheckInput {
    * 否则高章履历规划会被单章低章号误判为「未来章」（T9b 修复）。
    */
   maxWrittenChapter?: number
+  /**
+   * H-1（2026-08-21）：跳过账本三检的「全书性」条目（章号一致/引文命中/状态闭合）。
+   * 树红点聚合专用——这些条目吃任意章正文，进章级缓存行会跨章陈旧；聚合侧改为
+   * 本书一次计算 + 独立指纹缓存（run.ts collectTreeIssues）。单章机检端点不传
+   * （报告完整）。章作用域的两端闭合条目不受影响，恒跑。
+   */
+  skipLeadsBookChecks?: boolean
+}
+
+/** 已启用账本类 = 基础两类 + book.yaml leads.enabled（与 rebuild.ts BASE_LEAD_TYPES 同口径；
+ *  树红点聚合的全书性红项计算共用，防三处手抄漂移）。 */
+export function enabledLeadTypes(config: BookConfig): string[] {
+  return ['悬念', '感情线', ...config.leads.enabled]
 }
 
 /**
@@ -92,7 +105,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // （V-P1-4：两者曾共用一个变量，三审的「本章账本变动」错拿了最高已定稿章的履历）。
   const futureBaselineChapter = input.maxWrittenChapter ?? chapter.章号
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
-  const enabledTypes = ['悬念', '感情线', ...config.leads.enabled]
+  const enabledTypes = enabledLeadTypes(config)
 
   // 有布线 → 账本类检查（db 强依赖；无布线 = 独立短篇，跳过）
   if (hasWiring) {
@@ -101,7 +114,15 @@ export function runAllChecks(input: CheckInput): CheckReport {
     }
     // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
     sections.push(
-      checkLeadsForm(db, bookRoot, futureBaselineChapter, enabledTypes, input.declaredLeadIds, input.actualLeadIds),
+      checkLeadsForm(
+        db,
+        bookRoot,
+        futureBaselineChapter,
+        enabledTypes,
+        input.declaredLeadIds,
+        input.actualLeadIds,
+        input.skipLeadsBookChecks === true,
+      ),
     )
 
     // #10 项 2 成长线语义（红）—— 仅启用成长线时

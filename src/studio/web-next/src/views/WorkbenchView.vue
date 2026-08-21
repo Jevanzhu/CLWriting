@@ -53,11 +53,16 @@ const tierCreative = computed(() => pstore.tiers?.creative ?? null)
 
 // B3：规则命中统计（高频违规，供作者自查常见问题）
 const ruleHits = ref<RuleHitEntry[]>([])
+// M-11：规则命中代守卫（stateGen 同文件先例）——快速切书 A→B 时 A 的慢响应不覆盖 B 统计
+let ruleHitsGen = 0
 async function loadRuleHits(): Promise<void> {
+  const gen = ++ruleHitsGen
   try {
     const data = await getTraceStats(props.bookName)
+    if (gen !== ruleHitsGen) return
     ruleHits.value = data.ruleHits ?? []
   } catch {
+    if (gen !== ruleHitsGen) return
     ruleHits.value = []
   }
 }

@@ -10,6 +10,10 @@
  * enabled=false（前端显示「未配置价格」引导，不显示 0）。
  * 展示粒度对齐作者心智：按日 / 按章（事件 chapter 字段，D2 起 runTask 记录）/
  * 按任务 / 本书累计。
+ *
+ * 历史口径边界（M-1，2026-08-21）：OpenAI 兼容线的旧事件 usage.input 已含 cache 命中
+ * （修复前口径），其后事件为归一口径（input 不含 cacheRead）——跨边界累计前段偏高。
+ * 事件库 append-only 不做迁移；确需精确口径可按事件时间切分。
  */
 import { openSessionStore, bookHash } from '../events/store.js'
 import type { LlmCallData } from '../events/types.js'
@@ -59,7 +63,7 @@ function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string)
       for (const e of events) {
         if (e.type !== 'llm/call') continue
         const d = e.data as unknown as LlmCallData
-        if (!d.ok) continue // 失败调用未产出——成本按成功调用口径统计（重试的成本在成功条目 attempt 里自然体现为多次调用）
+        if (!d.ok) continue // 失败调用不折算成本（失败响应多无 usage，客观不可得）；calls 只数成功计费调用——失败/重试次数不在此口径（预算闸 .cache/ai-calls.json 侧为全口径）
         out.push({
           task: d.task,
           model: d.model,

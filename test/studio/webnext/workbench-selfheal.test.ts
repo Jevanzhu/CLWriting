@@ -94,4 +94,14 @@ describe('workbench store 自愈闭环事件', () => {
     expect(wb.healResult).toBeNull()
     expect(wb.textOut).toBe('')
   })
+
+  // M-12 回归：切书 clear() 一并复位 running——旧实现残留 true 让新书工作台
+  // 无限显示「生成中」（新书 SSE connect 快照校正前的时间窗内按钮全被禁用）
+  it('M-12：running 中 clear() → running 复位 false', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+    expect(wb.running).toBe(true)
+    wb.clear()
+    expect(wb.running).toBe(false)
+  })
 })

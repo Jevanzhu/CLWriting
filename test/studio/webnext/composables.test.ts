@@ -74,6 +74,25 @@ describe('useChatComposer', () => {
     expect(c.input.value).toBe('')
   })
 
+  // 第五轮：书名入口捕获——发送在途期间切书，失败回滚不得作用于新书（Book.vue 已
+  // clear+seed 新书历史，盲弹 popUser 会弹掉新书末条用户消息、错误写进新书对话区）
+  it('handleSend 失败时已切书 → 不回滚新书（popUser 不调、error 不写）', async () => {
+    let current = 'A书'
+    sendMock.mockImplementation(
+      () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('慢失败')), 10)),
+    )
+    const c = useChatComposer(() => current, () => undefined)
+    const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
+    chat.popUser = vi.fn()
+    c.input.value = '给A的消息'
+    const pending = c.handleSend()
+    current = 'B书' // 发送在途时切书
+    await pending
+    expect(sendMock).toHaveBeenCalledWith('A书', { message: '给A的消息' }) // 消息发给发起时的书
+    expect(chat.popUser).not.toHaveBeenCalled() // 新书历史不受回滚
+    expect(chat.error).toBeNull() // 错误不写进新书对话区
+  })
+
   it('handleKeydown Enter 不 Shift → 发送并 preventDefault', async () => {
     sendMock.mockResolvedValue({})
     const c = useChatComposer(() => '书', () => undefined)

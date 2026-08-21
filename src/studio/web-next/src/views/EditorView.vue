@@ -152,14 +152,17 @@ async function onCtxSelect(key: string): Promise<void> {
 
 watch(
   () => ws.pendingInsert,
-  (text) => {
-    if (!text) return
+  (p) => {
+    if (!p) return
     // P2-21：仅插入成功才消费，防无编辑器时文本静默丢失
+    // 第五轮：immediate——非编辑器视图下的点击信号在挂载后补消费（此前挂载晚于
+    // 赋值 + 同值赋值不触发，同名设定永远插不进正文）
     if (cmHost.value) {
-      cmHost.value.insertText(text)
+      cmHost.value.insertText(p.text)
       ws.consumeInsert()
     }
   },
+  { immediate: true },
 )
 
 watch(

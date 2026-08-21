@@ -12,7 +12,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
-import { runAllChecks, hasRed } from './runner.js'
+import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
 import { readOutlineLeads } from './outline-leads.js'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -20,7 +20,8 @@ import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { analysisPath } from '../document/analysis.js'
-import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache } from './tree-issues-cache.js'
+import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed } from './tree-issues-cache.js'
+import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import type { ChapterLeadUpdate } from './lead-updates.js'
@@ -46,21 +47,31 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
   const hasWiring = existsSync(join(bookRoot, '布线'))
 
   const cachePath = join(bookRoot, '.cache', 'index.db')
+  let db: DatabaseSync | null = null
   if (hasWiring) {
-    const rebuilt = rebuild(bookRoot, cachePath)
-    if (rebuilt.errors.length > 0) {
+    // M-9（2026-08-21）：rebuild/开库硬异常归 REBUILD_FAIL 出口（此前穿透成 500 裸异常，
+    // 端点契约本就为这类失败预留了 code）
+    try {
+      const rebuilt = rebuild(bookRoot, cachePath)
+      if (rebuilt.errors.length > 0) {
+        return {
+          ok: false,
+          code: 'REBUILD_FAIL',
+          error: '源文件解析失败，先修这些文件',
+          details: rebuilt.errors.slice(0, 5),
+        }
+      }
+      db = new DatabaseSync(cachePath)
+      // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
+      db.exec('PRAGMA busy_timeout = 5000')
+    } catch (e) {
       return {
         ok: false,
         code: 'REBUILD_FAIL',
-        error: '源文件解析失败，先修这些文件',
-        details: rebuilt.errors.slice(0, 5),
+        error: `缓存库不可用：${e instanceof Error ? e.message : String(e)}`,
       }
     }
   }
-
-  const db = hasWiring ? new DatabaseSync(cachePath) : null
-  // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
-  if (db) db.exec('PRAGMA busy_timeout = 5000')
   try {
     return checkWithDb(bookRoot, absPath, db, config)
   } finally {
@@ -120,6 +131,7 @@ export function checkWithDb(
   db: DatabaseSync | null,
   config: BookConfig,
   batch?: BatchCheckContext,
+  opts?: { skipLeadsBookChecks?: boolean },
 ): CheckOutcome {
   const draft = readDraft(absPath)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
@@ -163,6 +175,7 @@ export function checkWithDb(
       actualLeadIds,
       maxWrittenChapter: maxChapter,
       targetWords,
+      skipLeadsBookChecks: opts?.skipLeadsBookChecks === true,
     })
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
@@ -192,15 +205,23 @@ export function collectTreeIssues(
   let db: DatabaseSync | null = null
   let rebuildFailed = false
   if (hasWiring) {
-    const rebuilt = rebuild(bookRoot, cachePath)
-    if (rebuilt.errors.length > 0) {
-      // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
-      // （verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
+    // M-9（2026-08-21）：rebuild / 开库 / PRAGMA 的硬异常按 fail-open 降级（warn + 留痕），
+    // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。此前只有
+    // 「rebuild 报错列表非空」这一种失败形态走了降级，库损坏/锁超时直接把树红点端点打挂。
+    try {
+      const rebuilt = rebuild(bookRoot, cachePath)
+      if (rebuilt.errors.length > 0) {
+        // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
+        // （verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
+        rebuildFailed = true
+      } else {
+        db = new DatabaseSync(cachePath)
+        // 同 runCheckForDocument：树红点聚合与机检端点/rebuild 可并发，等锁而非 SQLITE_BUSY
+        db.exec('PRAGMA busy_timeout = 5000')
+      }
+    } catch (e) {
       rebuildFailed = true
-    } else {
-      db = new DatabaseSync(cachePath)
-      // 同 runCheckForDocument：树红点聚合与机检端点/rebuild 可并发，等锁而非 SQLITE_BUSY
-      db.exec('PRAGMA busy_timeout = 5000')
+      log.warn('check', `树红点聚合降级（rebuild/开库失败，只算 verdict）：${e instanceof Error ? e.message : String(e)}`)
     }
   }
   try {
@@ -221,15 +242,47 @@ export function collectTreeIssues(
         cacheEnabled = false
       }
     }
+    // H-1（2026-08-21）：账本全书性红项（章号一致/引文命中/状态闭合）——本书一次计算，
+    // 按「纪元 + 正文目录指纹」独立缓存（tree_issues_meta leads_book_*），不进章级行。
+    // 此前它们进每章 report 的 hasRed，却只按本章 stat 失效：改第 N 章正文补/删引文后
+    // 其余章缓存红点陈旧（假红残留或漏红）。指纹含正文目录摘要——改任何一章都会重算
+    // 这一项（正确性所需），章级行的增量性不受拖累。计算失败 fail-open：不落缓存、
+    // 本轮按无红处理（下轮重试），不拦树。
+    // 全书最高已定稿章号：一次预扫两处共用——leads 全书性红项的未来章基准 + 章循环
+    // batch（H-1 新增消费方；不共用会把 readChapterDir 调用次数抬高回去，CC-P1-3 的
+    // 调用次数回归锚「全书固定 3 次」会红）
+    const bodyChapters = existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : []
+    const maxWritten = maxWrittenChapterOf(bookRoot)
+    let leadsBookRed = false
+    if (db && !rebuildFailed) {
+      try {
+        const leadsFp = computeLeadsBookFp(bookRoot, userDataPath ?? null)
+        const cachedRed = readLeadsBookRed(db, leadsFp)
+        if (cachedRed !== null) {
+          leadsBookRed = cachedRed
+        } else {
+          // 第五轮：零定稿章（新书/清单损坏）时 maxWritten 为 null——回退全书最高现存
+          // 章号，与单章侧 futureBaselineChapter ?? chapter.章号 同向；此前 ?? 0 会把
+          // 新书预写的全部非回填履历报 lead-chapter-future（聚合全树红 vs 单章面板
+          // 无红的口径分裂，首轮定稿后才自愈）
+          const maxExisting = bodyChapters.reduce((m, c) => Math.max(m, c.章号), 0)
+          leadsBookRed = checkLeadsBookItems(db, bookRoot, maxWritten ?? maxExisting, enabledLeadTypes(config)).some(
+            (i) => i.level === 'red',
+          )
+          writeLeadsBookRed(db, leadsFp, leadsBookRed)
+        }
+      } catch (e) {
+        log.warn('check', `账本全书性红项计算失败（本轮降级为无，不落缓存）：${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
     if (existsSync(bodyDir)) {
-      const { chapters } = readChapterDir(bodyDir)
+      const chapters = bodyChapters
       // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
       // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
       const entryByPath = new Map<string, import('../document/manifest.js').ManifestEntry>()
       for (const m of manifest.values()) entryByPath.set(m.path, m)
       // B-P1-1：统一用 maxWrittenChapterOf（仅计已定稿章），与单章 checkWithDb 端点一致。
       // 旧实现遍历所有 chapters（含未定稿草稿），导致树红点聚合与单章机检的"最高已写章号"基准不一致。
-      const maxWritten = maxWrittenChapterOf(bookRoot)
       // CC-P1-3：三项预扫提升到循环外——此前每章 checkWithDb 内各现扫一遍（大纲/章纲 全量
       // readChapterDir + 工作区/账本推进 整读），大书数百章 O(N²) 文件读阻塞事件循环秒级；
       // 单请求内共享一份（章纲/账本推进只在编辑时变，跨请求由增量 rebuild/probe 缓存兜住）
@@ -277,25 +330,32 @@ export function collectTreeIssues(
         if (cacheEnabled && db) {
           const cached = readTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp)
           if (cached) {
-            if (cached.hasRed || cached.verdictRejected) issues[docId] = cached
+            // 章级行只存章作用域 hasRed（H-1 拆分后），全书性红项在此合并展示
+            const mergedRed = cached.hasRed || leadsBookRed
+            if (mergedRed || cached.verdictRejected) {
+              issues[docId] = { hasRed: mergedRed, verdictRejected: cached.verdictRejected }
+            }
             continue
           }
         }
         let hasRed = false
         let checkFailed = false
         if (!rebuildFailed) {
-          const outcome = checkWithDb(bookRoot, ch._path, db, config, batch)
+          // H-1：树红点聚合的章级检查跳过账本全书性条目（独立缓存见上），章级行因此
+          // 只依赖「本章 stat + 纪元」，跨章陈旧窗口消除
+          const outcome = checkWithDb(bookRoot, ch._path, db, config, batch, { skipLeadsBookChecks: true })
           if (outcome.ok) hasRed = outcome.hasRed
           else checkFailed = true
         }
         const verdict = readReviewVerdict(docId)
         const verdictRejected = !!verdict && !verdict.approved
-        const entryData = { hasRed, verdictRejected }
         // 检查失败（瞬态异常：SQLITE_BUSY 超时/名册 ENOENT 竞态）不落缓存——此前无条件
         // writeTreeIssuesCache 会把「未检出」固化为假阴性，指纹不变期间红点永久消失、
-        // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带
-        if (!checkFailed && cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, entryData)
-        if (hasRed || verdictRejected) issues[docId] = entryData
+        // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带。
+        // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
+        if (!checkFailed && cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, { hasRed, verdictRejected })
+        const mergedRed = hasRed || leadsBookRed
+        if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }
     }
     return { issues, rebuildFailed }

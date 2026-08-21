@@ -140,8 +140,12 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
-      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘
-      atomicWriteFile(r.path, JSON.stringify({ ...prefs, revision: next }, null, 2) + '\n')
+      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘。
+      // 第五轮：合并写——global.json 存在前端 payload 之外的使用方（按文档手工/脚本
+      // 写入的 tokensPerChapter/costPerChapter 预算键等）。整体覆写会让任何一次面板
+      // 保存（500ms debounce）静默清掉这些键、预算闸随之失效。盘上键 ← 客户端键覆盖；
+      // 客户端无法经此端点显式删键是可接受代价（前端已知键全量回传，无删键场景）。
+      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
       reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       log.error('api', '写全局偏好失败', e)

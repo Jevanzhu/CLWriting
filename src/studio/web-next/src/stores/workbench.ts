@@ -137,6 +137,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healResult.value = null
     batchProgress.value = null
     warning.value = null
+    // M-12：running 一并复位——切书时不带走旧书在途标志（旧实现残留 true 让新书
+    // 工作台无限显示「生成中」；新书 SSE connect 快照会按服务端真实状态校正）
+    running.value = false
   }
   function setConnected(v: boolean): void {
     connected.value = v

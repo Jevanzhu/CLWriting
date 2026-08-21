@@ -36,12 +36,16 @@ export function useChatComposer(
   async function handleSend(): Promise<void> {
     const text = input.value.trim()
     if (!text || busy.value || sending.value) return
+    // 第五轮：书名入口捕获——onPushed await 后（以及错误慢返回时）bookName() 可能已
+    // 切到 B 书：消息会发进 B 书；失败回滚 popUser 盲弹「当前末条 user」会把 B 书
+    // 刚恢复的末条用户消息弹掉、错误写进 B 对话区
+    const book = bookName()
     input.value = ''
     chat.pushUser(text)
     if (onPushed) await onPushed()
     sending.value = true
     try {
-      const result = await sendChat(bookName(), {
+      const result = await sendChat(book, {
         message: text,
         ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),
       })
@@ -51,8 +55,10 @@ export function useChatComposer(
         chat.notice = '已加入队列——当前对话结束后会自动处理这条消息。'
       }
     } catch (e) {
-      chat.popUser()
-      chat.error = e instanceof Error ? e.message : String(e)
+      if (bookName() === book) {
+        chat.popUser()
+        chat.error = e instanceof Error ? e.message : String(e)
+      }
     } finally {
       sending.value = false
     }

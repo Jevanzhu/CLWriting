@@ -4,14 +4,16 @@
  * 模型口径：tokens ≈ coeff × chars（过原点最小二乘：coeff = Σ(c·t) / Σ(c²)）。
  * 过原点而非带截距：chars=0 必然 tokens=0（系统提示外的空 prompt 不存在计量），
  * 且预算闸只需要单系数可解释（「每字多少 token」），带截距反而不利人读。
- * 样本来源：事件库 llm/call 的 promptMeta.chars（系统+用户 prompt 字数）× usage.input。
+ * 样本来源：事件库 llm/call 的 promptMeta.chars（系统+用户 prompt 字数）× usage 全口径
+ * token（input + cacheRead + cacheWrite，M-1 归一后；calibrate 脚本按此口径喂入——预算
+ * 闸同口径，系数直接可比。注意不是裸 usage.input）。
  */
 
 export interface CalibrationSample {
   model: string
   /** prompt 字数（promptMeta.chars） */
   chars: number
-  /** 实际输入 token（usage.input） */
+  /** 输入 token（由调用方喂入；calibrate 脚本喂 M-1 全口径 input+cacheRead+cacheWrite，非裸 usage.input） */
   inputTokens: number
 }
 
@@ -73,7 +75,7 @@ export function renderCalibrationReport(fits: Map<string, CoefficientFit>, measu
     '# token 系数校准报告（C4）',
     '',
     `- 测定日期：${measuredAt}`,
-    '- 口径：tokens ≈ coeff × chars（过原点最小二乘；chars = promptMeta.chars，tokens = usage.input）',
+    '- 口径：tokens ≈ coeff × chars（过原点最小二乘；chars = promptMeta.chars，tokens = usage 全口径 input+cacheRead+cacheWrite，M-1 归一后）',
     '- 建议值写进 src/process/prepare.ts 的 TOKEN_COEFFICIENTS（注明测定日期与样本量）',
     '',
     '| 模型 | 样本量 | 建议 coeff | 相关 r | chars 范围 |',

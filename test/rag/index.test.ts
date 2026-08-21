@@ -184,6 +184,36 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(result.error).toContain('已变更')
   })
 
+  // 第五轮：missingFingerprint 自愈重索引须先清该章旧块——storeChunk 唯一键是
+  // （章号, 偏移, 模型），正文变更后偏移平移，旧偏移行按新偏移插不中而残留；残留块
+  // 被判 fresh → 召回返回指向现正文错误区间的 offset
+  it('missingFingerprint 重索引 → 该章旧偏移残块被清（修复前：新旧偏移并存）', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    // 模拟历史半截库：ch1 指纹 meta 丢失 + 留下一行旧偏移残块（当前正文远短于 99990）
+    const db = openRagDb(bookRoot)
+    try {
+      db.prepare("DELETE FROM rag_meta WHERE key = 'chapter_hash:1'").run()
+      storeChunk(db, { 章号: 1, start_offset: 99990, end_offset: 99999, embedding: new Float32Array([0.1, 0.2, 0.3]), model: 'stub-model' })
+    } finally {
+      db.close()
+    }
+
+    const result = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+    expect(result.ok).toBe(true)
+    expect(result.chapterCount).toBe(1) // ch1 自愈重索引
+
+    const db2 = openRagDb(bookRoot)
+    try {
+      const ch1Offsets = readAllChunks(db2).filter((c) => c.章号 === 1).map((c) => c.start_offset)
+      expect(ch1Offsets.length).toBeGreaterThan(0)
+      expect(ch1Offsets.every((o) => o < 99990)).toBe(true) // 残块已清，只剩现正文偏移
+    } finally {
+      db2.close()
+    }
+  })
+
   it('召回：query embed → 余弦 topK → 返回位置', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)

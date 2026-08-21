@@ -24,11 +24,12 @@ import {
   isInvalidBookName,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
-import { forgetService } from './documents.js'
+import { forgetService, drainDocumentSaves } from './documents.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning, waitSelfHealSettled } from '../../../ai/orchestrate/self-heal.js'
+import { waitBackgroundTasks, hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
 import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -57,15 +58,29 @@ interface BookCtx {
 
 let initialBook: string | undefined
 
-/** #7：等被 abort 的在途编排（chat / self-heal）真正收尾。abort 只是异步信号——
- * straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移之后
- * 恢复，会抛「连接未打开」或对已删/已搬路径重建孤儿目录。上限 10s：等待是尽善，
- * 挂死编排不应阻塞删/改请求（超时后行为同旧版，事件库启动修复兜底）。 */
+/** #7：等被 abort 的在途编排（chat / self-heal / M-2 后台任务）真正收尾。abort 只是异步
+ * 信号——straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移
+ * 之后恢复，会抛「连接未打开」或对已删/已搬路径重建孤儿目录。上限 10s：等待是尽善，
+ * 挂死编排不应阻塞删/改请求（超时后行为同旧版，事件库启动修复兜底）。
+ * M-2：补 waitBackgroundTasks——定稿章摘要/账本草稿等 fire-and-forget 后台任务同样
+ * 有对书根落盘的收尾窗口（无 abort 句柄，只能等或超时放行）。 */
 async function awaitOrchestrationsSettled(name: string): Promise<void> {
   await Promise.race([
-    Promise.all([waitChatSettled(name), waitSelfHealSettled(name)]),
+    Promise.all([waitChatSettled(name), waitSelfHealSettled(name), waitBackgroundTasks(name)]),
     new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
   ])
+}
+
+/** M-4：spawn/三审/task-gate 三闸联合检查——任一在途返回 BUSY 文案（否则 null）。
+ * 各闸背景：ee-P2-11 /spawn 手动写稿分钟级且持 bookRoot 闭包（收尾落盘写旧路径重建
+ * 孤儿目录）；hh-P1 三审同为分钟级长任务；dd-P2 task-gate（analyze/rewrite/rag-build
+ * 等）无 abort 通道——三者持闸时都只能拒删/拒改（409），白烧 API 费用同理。 */
+function busyGate(name: string, verb: '删' | '改名'): { error: string } | null {
+  if (isSpawnRunning(name)) return { error: `本书正在生成（手动写稿），先等它完成或中断后再${verb}` }
+  if (isReviewRunningForBook(name)) return { error: `本书三审进行中，先等它完成后再${verb}` }
+  const held = heldTaskGatesFor(name)
+  if (held.length > 0) return { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再${verb}` }
+  return null
 }
 
 export function registerBookRoutes(ctx: BookCtx): void {
@@ -192,26 +207,27 @@ export function registerBookRoutes(ctx: BookCtx): void {
     if (hadSelfHeal) abortSelfHeal(name)
     const hadChat = isChatRunning(name)
     if (hadChat) abortChat(name)
-    // ee-P2-11：/spawn 手动写稿在途闸——分钟级网络任务且 runWriterSpawn 持 bookRoot 闭包，
-    // books 侧无直接 abort 通道（与 task-gate 同类），持闸时拒删：放行则收尾落盘写已删除的
-    // 旧路径重建孤儿目录 + 白烧 API 费用（用户可先经 POST /interrupt 中断生成再删）
-    if (isSpawnRunning(name)) {
-      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再删')
-    }
-    // hh-P1：三审同为分钟级长任务（无 abort 通道），持闸拒删——与 spawn/task-gate 同模式，
-    // 放行则三审收尾落盘写已删除的旧路径（重建孤儿目录 + 白烧 API 费用）
-    if (isReviewRunningForBook(name)) {
-      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再删')
-    }
-    // dd-P2：task-gate 分钟级任务（analyze/rewrite/rag-build 等）无 abort 通道——
-    // 持闸时拒删（409），防收尾落盘在删除后重建孤儿目录 + 白烧 API 费用
-    const held = heldTaskGatesFor(name)
-    if (held.length > 0) {
-      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后再删`)
+    // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（busyGate 集中各闸口径）
+    const busy = busyGate(name, '删')
+    if (busy) {
+      return replyError(res, 409, 'BUSY', busy.error)
     }
     // #7：等被中断的编排收尾后再动磁盘/事件库——straggler 的 session/end 与链路
-    // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）
-    if (hadSelfHeal || hadChat) await awaitOrchestrationsSettled(name)
+    // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）。
+    // M-2 接线收口：后台任务须独立判定——定稿章摘要等 fire-and-forget 常发生在
+    // 无 chat/self-heal 在途时（hadSelfHeal/hadChat 均 false），漏判会让摘要任务
+    // 对已删路径重建孤儿目录
+    if (hadSelfHeal || hadChat || hasBackgroundTasks(name)) await awaitOrchestrationsSettled(name)
+    // 第五轮：drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
+    // rmSync 之后恢复，会对已删路径 atomicWriteFile 重建孤儿文件（窗口毫秒级但真实）
+    await drainDocumentSaves(join(ctx.workDir, entry.path))
+    // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
+    // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
+    // 窗归零（chat/self-heal 在窗内新起的情形由 10s settle 超时降级兜底，与旧版一致）
+    const recheck = busyGate(name, '删')
+    if (recheck) {
+      return replyError(res, 409, 'BUSY', recheck.error)
+    }
       // 删书目录（递归，含 git 历史）
       const bookAbs = join(ctx.workDir, entry.path)
       // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
@@ -237,6 +253,19 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
     // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件
     clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
+    // 二轮复审（低级）：事件库**文件**一并删（<hash>.db + WAL/SHM 伴生）——clearChatHistory
+    // 只清行，库文件本体滞留 userData 成永久孤儿（每书一库）；settle 已保证无人持有句柄，
+    // 清理失败不阻断删书（残留文件无读者）
+    if (ctx.userDataPath) {
+      const dbBase = join(ctx.userDataPath, 'clwriting', 'session', bookHash(bookAbs) + '.db')
+      for (const suffix of ['', '-wal', '-shm']) {
+        try {
+          rmSync(dbBase + suffix, { force: true })
+        } catch {
+          /* 单个伴生文件清理失败忽略 */
+        }
+      }
+    }
     forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
     reply(res, 200, { ok: true, name })
   },
@@ -313,24 +342,25 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (hadSelfHeal) abortSelfHeal(oldName)
       const hadChat = isChatRunning(oldName)
       if (hadChat) abortChat(oldName)
-      // ee-P2-11：/spawn 在途闸——runWriterSpawn 持改名前的 bookRoot 闭包，放行则收尾
-      // 落盘写旧路径（目录已搬走 → 重建孤儿目录）+ 白烧 API 费用；与删书同口径拒改（409）
-      if (isSpawnRunning(oldName)) {
-        return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再改名')
-      }
-      // hh-P1：三审持闸拒改（同删书口径）——放行则收尾落盘写改名前旧路径
-      if (isReviewRunningForBook(oldName)) {
-        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再改名')
-      }
-      // dd-P2：task-gate 分钟级任务无 abort 通道——持闸时拒改（409），防改名后收尾写旧路径
-      const held = heldTaskGatesFor(oldName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或稍后改名`)
+      // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（同删书口径，busyGate 集中各闸背景）
+      const busy = busyGate(oldName, '改名')
+      if (busy) {
+        return replyError(res, 409, 'BUSY', busy.error)
       }
       // #7：等被中断的编排收尾后再搬目录/关库——abort 是异步信号，straggler 的收尾
       // 写库若在强制关库后恢复会抛「连接未打开」（对话以 error 收尾）；等待把这一窗
-      // 收敛为零（确定性时序：本 handler 的同步段此前必然先于 straggler 恢复执行）
-      if (hadSelfHeal || hadChat) await awaitOrchestrationsSettled(oldName)
+      // 收敛为零（确定性时序：本 handler 的同步段此前必然先于 straggler 恢复执行）。
+      // M-2 接线收口：同删书——后台任务（定稿摘要等）独立判定，无 chat/self-heal
+      // 在途时也不能放走
+      if (hadSelfHeal || hadChat || hasBackgroundTasks(oldName)) await awaitOrchestrationsSettled(oldName)
+      // 第五轮：同删书——drain 串行保存队列，防在途 save 收尾对旧路径重建孤儿文件
+      await drainDocumentSaves(oldRoot)
+      // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
+      // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零；chat/self-heal 由超时降级兜底）
+      const recheck = busyGate(oldName, '改名')
+      if (recheck) {
+        return replyError(res, 409, 'BUSY', recheck.error)
+      }
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
       // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名，对话历史/审计

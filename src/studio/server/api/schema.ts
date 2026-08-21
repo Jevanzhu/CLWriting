@@ -56,7 +56,9 @@ export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchem
         // dd-P2：HttpError（如 readJson 的 413 请求体过大）透传自身状态码——
         // 一律压 400 会让同一资源在裸 route / defineRoute 两种注册下状态码分叉
         if (e instanceof HttpError) return replyHttpError(res, e)
-        replyError(res, 400, 'BAD_INPUT', e instanceof Error ? e.message : '请求体校验失败')
+        // M-5：补 return——parse 失败回复 400 后不得继续进 handler（input 停留 undefined，
+        // 旧实现对已回复的连接二次 write，且 handler 以未校验输入空跑一遍）
+        return replyError(res, 400, 'BAD_INPUT', e instanceof Error ? e.message : '请求体校验失败')
       }
     }
     await schema.handler({ params, input: input as I }, req, res)

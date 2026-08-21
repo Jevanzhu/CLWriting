@@ -12,10 +12,11 @@
  */
 
 import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { ulid } from '../fs/id.js'
+import { resolveWithinRoot } from '../fs/safe-path.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 
 /** 书内候选箱相对路径 */
@@ -160,9 +161,12 @@ export function addCandidate(bookRoot: string, c: StyleCandidate): string {
  * @returns 条目相对路径；候选读不出 → null
  */
 export function confirmCandidate(bookRoot: string, candidateRelPath: string): string | null {
-  // P2-SEC-1：内部路径校验（防裸调用绕过 API 层白名单）
-  if (!candidateRelPath || candidateRelPath.includes('\0') || relative(bookRoot, join(bookRoot, candidateRelPath)).startsWith('..')) return null
-  const fp = join(bookRoot, candidateRelPath)
+  // P2-SEC-1 / M-7 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
+  // ——此前手写 relative 穿越 check 是全库第五套平行实现，无 symlink 防护（API 层已补，
+  // 内层再收口防裸调用绕过 + 防后来者照抄弱实现）
+  const safe = resolveWithinRoot(bookRoot, candidateRelPath)
+  if (!safe) return null
+  const fp = safe.abs
   const r = readCandidate(fp)
   if (!r.ok) return null
   const c = r.candidate
@@ -182,8 +186,10 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
 
 /** 作者忽略：状态落盘为已忽略（保留文件，去重闸靠它记住「别再骚扰」） */
 export function ignoreCandidate(bookRoot: string, candidateRelPath: string): boolean {
-  if (!candidateRelPath || candidateRelPath.includes('\0') || relative(bookRoot, join(bookRoot, candidateRelPath)).startsWith('..')) return false
-  const fp = join(bookRoot, candidateRelPath)
+  // M-7 内层收口：同 confirmCandidate——resolveWithinRoot 统一委托（symlink fail-closed）
+  const safe = resolveWithinRoot(bookRoot, candidateRelPath)
+  if (!safe) return false
+  const fp = safe.abs
   const r = readCandidate(fp)
   if (!r.ok) return false
   writeCandidate(fp, { ...r.candidate, 状态: '已忽略' })

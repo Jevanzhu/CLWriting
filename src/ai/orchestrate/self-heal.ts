@@ -24,6 +24,7 @@ import { atomicWriteFile } from '../../fs/atomic.js'
 import { getRedItems } from '../../check/types.js'
 import { openSessionStore, bookHash } from '../../events/store.js'
 import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
+import { registerBackgroundTask } from './background.js'
 import type { GoalOperation, GoalState, Todo } from '../../events/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
@@ -108,10 +109,14 @@ export function isSelfHealRunning(bookName: string): boolean {
 const settling = new Map<string, Promise<unknown>>()
 
 /** #7：等本书在途自愈收尾（无在途立即返回）。与 chat.ts waitChatSettled 同款——
- * abort 是异步信号，straggler 的链路事件 flush 在关库/搬路径后恢复会丢/抛 */
-export function waitSelfHealSettled(bookName: string): Promise<void> {
-  const p = settling.get(bookName)
-  return p ? p.then(() => undefined) : Promise.resolve()
+ * abort 是异步信号，straggler 的链路事件 flush 在关库/搬路径后恢复会丢/抛。
+ * M-3：循环等到表项清空（防表项被替换后等待方拿旧 resolve 提前返回——与 chat 侧同构） */
+export async function waitSelfHealSettled(bookName: string): Promise<void> {
+  for (;;) {
+    const p = settling.get(bookName)
+    if (!p) return
+    await p.catch(() => undefined)
+  }
 }
 
 /** 中断本书的全自动写章 */
@@ -166,11 +171,14 @@ async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 
 /** P2：自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null） */
 function mkChain(opts: SelfHealOpts): ChainRecorder | null {
+  let store: ReturnType<typeof openSessionStore> = null
   try {
-    const store = openSessionStore(opts.userDataPath, opts.bookRoot)
+    store = openSessionStore(opts.userDataPath, opts.bookRoot)
     if (!store) return null
     return new ChainRecorder(store, store.workspaceSession(bookHash(opts.bookRoot)))
   } catch {
+    // 二轮复审（低级）：同 runner.ts mkChain——建链半途抛错先关库再降级，防引用滞留
+    store?.close()
     return null
   }
 }
@@ -581,8 +589,11 @@ function exitPass(
   const final = term.persistFinal()
   // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
   // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
-  // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）
-  if (loop.hasWiring && !loop.leadDraftTried) void logLeadDraftFailure(generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal))
+  // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
+  // M-2：登记进 per-book 后台表——waitSelfHealSettled 只等 runSelfHeal 本体收尾，
+  // 此前该任务逃逸出删书/改名/退出的 settle 等待，落盘窗口撞上目录搬移会重建孤儿目录
+  if (loop.hasWiring && !loop.leadDraftTried)
+    registerBackgroundTask(opts.bookName, logLeadDraftFailure(generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)))
   const yellows = ruleYellows(loop.current, ctx.bookRoot, chapterNo)
   term.writeTodos('completed', 'completed', 'completed')
   term.writeGoal('complete', 'complete', { rounds: loop.attempt })
@@ -760,7 +771,10 @@ async function runGenerate(
 
   // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）。
   // 金额按次现算累计（D2 同 stream.ts /spawn：写稿模型查价格表四档分计，未配价省略——
-  // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）
+  // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）。
+  // 二轮复审留痕（不修）：此处只累计最终成功 attempt 的 usage——失败/重试/中断 attempt
+  // 在 runTask 记账侧已按次入账（W-P2-8/X-P2-10），但 done 事件不含其 token（失败响应
+  // 多无 usage，客观上不可得）；done 用量按「成功产出消耗」口径读，预算/成本以事件库为准
   state.usage.calls += 1
   const u = out.data.usage
   if (u) {

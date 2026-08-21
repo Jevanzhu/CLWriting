@@ -209,3 +209,26 @@ describe('workspace · 切书 debounce 竞态（ff 细节#11）', () => {
     expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd9' })
   })
 })
+
+describe('workspace · 插入信号（第五轮 {text, tick}）', () => {
+  it('同文本两次 requestInsert → tick 递增两次触发（同值赋值不再短路丢信号）', () => {
+    const ws = useWorkspaceStore()
+    ws.requestInsert('玉佩')
+    const first = ws.pendingInsert
+    expect(first?.text).toBe('玉佩')
+    expect(first?.tick).toBeGreaterThan(0)
+    ws.requestInsert('玉佩') // 同名再点——修复前字符串同值赋值不触发 watcher
+    const second = ws.pendingInsert
+    expect(second?.tick).toBeGreaterThan(first!.tick)
+    expect(second).not.toBe(first) // 新引用，watcher 必触发
+  })
+
+  it('consumeInsert 取走并清空信号', () => {
+    const ws = useWorkspaceStore()
+    ws.requestInsert('设定名')
+    const got = ws.consumeInsert()
+    expect(got?.text).toBe('设定名')
+    expect(ws.pendingInsert).toBeNull()
+    expect(ws.consumeInsert()).toBeNull()
+  })
+})

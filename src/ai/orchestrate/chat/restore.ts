@@ -67,8 +67,23 @@ export function prepareChatRun(
       msgSeqMap.set(opts.bookName, msgSeqs)
     }
   }
-  // 防御：msgSeqs 与 history 长度不一致（旧进程残留）→ 重置，宁可遮蔽不精准也不误遮蔽
-  if (msgSeqs.length !== history.length) msgSeqs = []
+  // 防御：msgSeqs 与 history 长度错位（旧进程残留）→ 尾部补齐/截尾对齐，而非清空。
+  // 清空会让后续 append 永久错位：finalizeHistory 的 trim 遮蔽 splice(0, cut) 拿到的
+  // 是「保留消息」的 seq（误遮蔽 → 重放里活消息隐身），被裁消息反而无遮蔽（幽灵回归）。
+  // 不足（尾部缺）：唯一自然成因是回合 commit 点 flush 抛错——history 已 push 而 seq
+  // 未追加，缺口必在尾部。按尾部补 []（该消息 seq 未知，本就无法遮蔽），既有 seq 与
+  // 各自消息的对齐原样保留。前缀 unshift 会把全部 seq 整体后移 k 位——从此 s_i 声称
+  // 属于错误的消息，错位被固化而非修复。
+  // 超长（尾部多）：来自回合回滚——finish 把 history 截回 baseLen 而已 commit 的 seq
+  // 留在尾部（对应事件已被 closeMaskingAll 遮蔽，是死 seq），截尾即恢复活消息对齐。
+  if (msgSeqs.length !== history.length) {
+    if (msgSeqs.length < history.length) {
+      while (msgSeqs.length < history.length) msgSeqs.push([])
+    } else {
+      msgSeqs.length = history.length
+    }
+    msgSeqMap.set(opts.bookName, msgSeqs)
+  }
   // Z-P1-2（G1 写侧谱系）：本回合分支归属——regenerate = parentSeq + 新 branchId；
   // 普通回合延续本书活跃分支（只带 branchId 进组，不设 parentSeq——不是变体根）；
   // 无活跃分支（线性书/清空后）→ undefined，行为与旧版完全一致

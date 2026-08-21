@@ -191,10 +191,14 @@ export async function buildIndex(
     }
 
     // P1-28：清理已删除章的残留向量/指纹——增量游标只看章号上限，删中间章
-    //（或整章内容被移走）会永久残留其向量参与召回。以 chunks 实际章号反推已索引集，
-    // 与当前正文章号差集即残留 → 删向量 + 指纹（幂等；事务包裹防中断半删）。
+    //（或整章内容被移走）会永久残留其向量参与召回。已索引集 = chunks 实际章号 ∪
+    // 指纹键章号（零块章——trim 后全部 <20 字不成块——只写 chapter_hash 游标无 chunks，
+    // 单从 chunks 反推会漏其指纹残留，破坏「指纹集合 == 已索引章集合」），与当前正文
+    // 章号差集即残留 → 删向量 + 指纹（幂等；事务包裹防中断半删）。
     {
-      const indexedChapterNums = getIndexedChapterNumbers(db)
+      const indexedChapterNums = [
+        ...new Set([...getIndexedChapterNumbers(db), ...readAllChapterFingerprints(db).keys()]),
+      ]
       if (indexedChapterNums.length > 0) {
         const currentChapterNums = new Set(chapters.map((ch) => ch.章号))
         const stale = indexedChapterNums.filter((n) => !currentChapterNums.has(n))
@@ -340,6 +344,11 @@ async function commitIndexBatch(
 
   db.exec('BEGIN IMMEDIATE')
   try {
+    // 第五轮：重索引章先清旧块。storeChunk 的唯一键是（章号, 偏移, 模型）——正文变更后
+    // 偏移平移，旧块按新偏移插不中旧行而残留；missingFingerprint 自愈场景（历史半截库：
+    // chunks 在、指纹缺）正是「正文已变过的章」，残留旧偏移块会让召回返回指向现正文
+    // 错误区间的 offset。全新章无旧块，删除是空操作。
+    for (const ch of new Set(allChunks.map((c) => c.章号))) deleteChunksByChapter(db, ch)
     // 存向量
     for (let i = 0; i < allChunks.length; i++) {
       const { 章号, chunk } = allChunks[i]!
@@ -405,7 +414,9 @@ export async function recall(
 ): Promise<RecallHit[]> {
   if (!config.enabled || !config.endpoint || !config.model) return []
 
-  const candidateDepth = config.candidate_depth ?? 20
+  // 下界钳制（2026-08-21 低级项）：书里配 0/负数时首轮 `verdict.size >= 0` 恒 break，
+  // 召回恒空静默降级为「无 RAG」且无告警——读侧已拒非法值，这里再兜一层防直调/测试路径
+  const candidateDepth = Math.max(1, Math.floor(config.candidate_depth ?? 20))
 
   // P1-31：先取数后联网——db 数据（chunks/元信息/指纹元数据）全部在 close 前完成，
   // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用。

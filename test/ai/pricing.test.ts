@@ -81,6 +81,17 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(computeCallCost(null, { inputTokens: 100, outputTokens: 100 })).toBeNull()
   })
 
+  // M-1：OpenAI 线 usage 已在适配器边界归一成「inputTokens 不含 cache 命中」——同一
+  // 份四档公式对两协议同时成立。锚：OpenAI 真实 50 prompt（40 命中）= 归一 10+40，
+  // 金额 = 10×input价 + 40×cache读价，不得再按 50×input价 + 40×cache读价 双计
+  it('M-1 归一口径：OpenAI 形态（50 prompt / 40 cached）金额按 10×input + 40×cacheRead 计', () => {
+    const pricing = { inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3 }
+    const cost = computeCallCost(pricing, { inputTokens: 10, outputTokens: 3, cacheReadTokens: 40 })!
+    expect(cost).toBeCloseTo((10 * 3 + 40 * 0.3 + 3 * 15) / 1e6, 12)
+    const doubleCounted = computeCallCost(pricing, { inputTokens: 50, outputTokens: 3, cacheReadTokens: 40 })!
+    expect(cost).toBeLessThan(doubleCounted) // 修复前口径虚高一个命中量
+  })
+
   it('resolveModelPricing：models[] 归属优先 → 当前 provider 兜底；无 → null', () => {
     const ud = tmpDir('clw-pricing-ud-')
     const store: ProviderStore = {
@@ -124,6 +135,31 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(resolveModelPricing(ud, 'model-b')).toBeNull()
     expect(resolveModelPricing(ud, '')).toBeNull()
     expect(resolveModelPricing(null, 'model-b')).toBeNull()
+  })
+
+  // 第五轮 B-2：归属行存在但归属 provider 未配价 → 必须是未配价（null）——旧实现继续
+  // 落到「当前 provider」的价格表，A 家模型按 B 家单价折算成本/预算，切 provider 还会
+  // 追溯改写历史折算价。currentId 失效同理不得静默拿第一家兜底。
+  it('resolveModelPricing：归属 provider 未配价 / currentId 失效 → null（不借价、不拿第一家兜底）', () => {
+    const ud = tmpDir('clw-pricing-ud3-')
+    const mk = (currentId: string): ProviderStore =>
+      ({
+        providers: [
+          { id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a', pricing: { inputPerMTok: 3 } },
+          { id: 'p3', name: 'C', protocol: 'openai', auth: 'bearer', baseUrl: 'https://c.local', apiKey: 'sk-c', models: [{ id: 'model-c' }] },
+        ],
+        currentId,
+        tiers: { creative: { model: 'model-x', effort: 'high' }, assistant: null, chat: null },
+        currentModel: 'model-x',
+        revision: 0,
+        modelCaps: {},
+      }) as unknown as ProviderStore
+    // 当前启用 p1（有价）；model-c 归属 p3（未配价）→ null，不得按 p1 的 3 计价
+    saveProviders(ud, mk('p1'))
+    expect(resolveModelPricing(ud, 'model-c')).toBeNull()
+    // currentId 指向已删除的 provider；model-x 无归属行 → null，不得拿第一家 p1 兜底
+    saveProviders(ud, mk('gone'))
+    expect(resolveModelPricing(ud, 'model-x')).toBeNull()
   })
 })
 

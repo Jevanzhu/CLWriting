@@ -46,7 +46,10 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/studio/web-next/src/{components,types}/**'],
+      // 二轮复审（批 5）：web-next/src 顶层 main.ts/router.ts 显式排除——纯应用
+      // 引导/路由装配（createApp/use/plug），单测不可达；此前它们不落任何阈值桶
+      // 却进报告，分区口径留有「桶外文件」暗区
+      exclude: ['src/**/*.d.ts', 'src/studio/web-next/src/{components,types}/**', 'src/studio/web-next/src/{main,router}.ts'],
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // 首次实测 2026-08-20：lines 89.45 / branches 82.89 / functions 95.9）

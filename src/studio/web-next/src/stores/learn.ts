@@ -70,15 +70,19 @@ export const useLearnStore = defineStore('learn', () => {
     return pickedQuotes.value.has(body)
   }
 
-  /** 入库勾选项（样章入 文风/样章库；金句入 文风/样章库/金句） */
+  /** 入库勾选项（样章入 文风/样章库；金句入 文风/样章库/金句）。
+   *  M-11：commit 代守卫——入库在服务端按调用时的书落盘（无串），但回填提示/列表
+   *  过滤前查代，防 A 书的「已收录 N 条」提示落到已切到 B 的视图 */
   async function commit(name: string): Promise<void> {
     const sPicks = samples.value.filter((s) => pickedSamples.value.has(s.正文))
     const qPicks = quotes.value.filter((q) => pickedQuotes.value.has(q.正文))
     if (!sPicks.length && !qPicks.length) return
+    const gen = reqGen
     committing.value = true
     commitMessage.value = null
     try {
       const r = await runLearnCommit(name, { samples: sPicks, quotes: qPicks })
+      if (gen !== reqGen) return
       commitMessage.value = `已收录 ${r.sampleFiles.length} 章样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
       const sSet = new Set(sPicks.map((s) => s.正文))
@@ -88,6 +92,7 @@ export const useLearnStore = defineStore('learn', () => {
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
     } catch (e) {
+      if (gen !== reqGen) return
       commitMessage.value = '收录失败：' + friendlyError(e)
     } finally {
       committing.value = false

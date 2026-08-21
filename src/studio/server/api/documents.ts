@@ -15,7 +15,7 @@ import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevision } from '../../../document/finalize.js'
-import { afterFinalizeGenerateSummary } from '../../../process/summary.js'
+import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
 import { invalidateBookSummary } from './progress.js'
 import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -53,6 +53,19 @@ export function __clearDocumentServices(): void {
 /** 删书时清理对应 bookRoot 的 service 缓存（防同 path 重建复用旧实例）。 */
 export function forgetService(bookRoot: string): void {
   services.delete(bookRoot)
+}
+
+/** 第五轮：等该书串行保存队列清空（删书/改名前 drain 用）——在途 save 的收尾
+ * （journal+快照+fsync，慢盘几十 ms）若在 rmSync/renameSync 之后恢复，会对已删/
+ * 已搬路径 atomicWriteFile 重建孤儿文件。轮询到零或超时（保存秒级异常时放行，
+ * 与 settle 超时降级同口径）；无 service 或无在途 → 立即返回。 */
+export async function drainDocumentSaves(bookRoot: string, timeoutMs = 2_000): Promise<void> {
+  const svc = services.get(bookRoot)
+  if (!svc) return
+  const deadline = Date.now() + timeoutMs
+  while (svc.inFlightSaves() > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
 }
 
 // ── Z-P2-6：伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
@@ -170,8 +183,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
       }
       // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
-      // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发
-      if (!outcome.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '')
+      // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；
+      // M-2：带书名登记进后台表，删书/改名/退出的 settle 能追上其落盘
+      if (!outcome.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'])
       reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
     },
   })
@@ -199,14 +213,19 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
           return replyError(res, 400, 'BAD_INPUT', 'docIds 必须为非空字符串数组')
         }
+        const summarized: string[] = []
         const results = docIds.map((docId) => {
           // ee-P1-3/ee-P1-4：LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
           // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
           const o = finalizeRevision(r.bookRoot, docId)
-          // C1（批 2）：批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环）
-          if (o.ok && !o.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, docId)
+          // C1（批 2）：批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
+          // M-2：书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
+          if (o.ok && !o.skipped) summarized.push(docId)
           return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
         })
+        // 第五轮：批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
+        // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
+        afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'])
         reply(res, 200, { ok: true, results })
       } finally {
         release()

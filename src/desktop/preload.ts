@@ -9,6 +9,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 
+/** 右键菜单 pending 一次性监听（连开新菜单前摘旧，防 channel 广播串到旧回调） */
+let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | null = null
+
 contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。 */
   openLibrary: (): Promise<{ ok: true } | { ok: false; canceled: true }> =>
@@ -57,12 +60,20 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
       ipcRenderer.removeListener('desktop:menu-action', handler)
     }
   },
-  /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null */
+  /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null。
+   *  二轮复审（低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
+   *  窗口级广播，残留监听会收到新菜单的选择串到旧回调（首条消息双投递） */
   showContextMenu: (
     items: Array<Record<string, unknown>>,
     cb: (key: string | null) => void,
   ): void => {
-    ipcRenderer.once('desktop:context-menu-select', (_e, key: string | null) => cb(key))
+    if (pendingMenuSelect) ipcRenderer.removeListener('desktop:context-menu-select', pendingMenuSelect)
+    const handler = (_e: IpcRendererEvent, key: string | null): void => {
+      pendingMenuSelect = null
+      cb(key)
+    }
+    pendingMenuSelect = handler
+    ipcRenderer.once('desktop:context-menu-select', handler)
     ipcRenderer.send('desktop:context-menu', items)
   },
 })

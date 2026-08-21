@@ -16,6 +16,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import { localDayKey } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgress } from './progress.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
@@ -143,7 +144,7 @@ function computeTimeline(bookRoot: string): { date: string; count: number }[] {
     } catch {
       continue
     }
-    const day = mtime.toISOString().slice(0, 10) // YYYY-MM-DD
+    const day = localDayKey(mtime) // 第五轮：本地日分桶——与字数日记 todayDate 同口径（此前 UTC 切日，东八区 0-8 点记前一日，热力图/连续天数与日记打架）
     byDay.set(day, (byDay.get(day) ?? 0) + 1)
   }
   return [...byDay.entries()]
@@ -165,17 +166,17 @@ function getRecentDoc(bookRoot: string): { no: number; 标题: string; path: str
 function computeStreak(timeline: { date: string; count: number }[]): number {
   if (timeline.length === 0) return 0
   const dates = new Set(timeline.map((t) => t.date))
-  const cursor = new Date()
-  // 今天没写 → 从昨天起算（不因"今天还没动笔"就断 streak）
-  if (!dates.has(cursor.toISOString().slice(0, 10))) {
-    cursor.setDate(cursor.getDate() - 1)
+  let cursor = new Date()
+  // 今天没写 → 从昨天起算（不因"今天还没动笔"就断 streak）；日键与 timeline 同为本地日
+  if (!dates.has(localDayKey(cursor))) {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 1)
   }
   let streak = 0
   for (;;) {
-    const dayStr = cursor.toISOString().slice(0, 10)
+    const dayStr = localDayKey(cursor)
     if (dates.has(dayStr)) {
       streak++
-      cursor.setDate(cursor.getDate() - 1)
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 1)
     } else break
   }
   return streak

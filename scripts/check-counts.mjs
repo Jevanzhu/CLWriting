@@ -62,6 +62,24 @@ for (const fp of e2eSpecs) {
   e2eCases += m ? m.length : 0
 }
 
+// ── .only 拒绝（二轮复审门禁补强）──────────────────────
+// test.only/it.only/describe.only 会让该文件其余用例静默跳过——门禁照常绿但覆盖面
+// 骤减，vitest list 的枚举数不变、README 对账也发现不了。剥注释后再扫：文档/注释里
+// 提到「it.only(」的说明文字不算（保留 https:// 的协议斜杠不被误剥）
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+}
+const onlyHits = []
+for (const fp of [...unitFiles, ...e2eSpecs]) {
+  const m = stripComments(readFileSync(fp, 'utf8')).match(/(^|[^.\w])(?:it|test|describe)\.only\s*\(/g)
+  if (m) onlyHits.push(`${fp.replace(root, '')}（${m.length} 处）`)
+}
+if (onlyHits.length > 0) {
+  console.error('\ncheck:counts 失败：发现 .only 用例（提交前移除——其余用例会被静默跳过，门禁假绿）：')
+  for (const h of onlyHits) console.error('  - ' + h)
+  process.exit(1)
+}
+
 const actual = {
   unitFiles: unitFiles.length,
   unitTests,

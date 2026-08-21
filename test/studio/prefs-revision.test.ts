@@ -7,7 +7,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -168,5 +168,32 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
     const d = readGlobalBookDefaults(userDataPath)
     expect(d.defaultGenre).toBe('仙侠')
     expect(d.defaultVolumeSize).toBe(60)
+  })
+
+  // 第五轮：PUT 是合并写——global.json 存在前端 payload 之外的使用方（按文档手工/脚本
+  // 写入的 tokensPerChapter/costPerChapter 预算键）。修复前整体覆写：面板改一次主题
+  // （500ms debounce 即 PUT）预算键被静默清掉、预算闸失效
+  it('payload 之外的盘上键在 PUT 后存活（合并写，不整体覆写）', async () => {
+    // 手工按文档写入预算键（保留当前 revision）
+    const before = disk()
+    writeFileSync(
+      join(userDataPath, 'global.json'),
+      JSON.stringify({ ...before, tokensPerChapter: 600_000, costPerChapter: 1.5 }),
+      'utf8',
+    )
+
+    // 前端全量保存自己已知的键（不含预算键）
+    const w = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: '/api/library/prefs',
+      body: { prefs: { theme: 'sepia', proseSize: 21, shelfView: 'grid', defaultGenre: '仙侠', defaultVolumeSize: 60 } },
+    })
+    expect(w.status).toBe(200)
+
+    const after = disk()
+    expect(after['tokensPerChapter']).toBe(600_000) // 修复前：被覆写丢失
+    expect(after['costPerChapter']).toBe(1.5)
+    expect(after['theme']).toBe('sepia')
+    expect(after['revision']).toBe(w.json.revision)
   })
 })

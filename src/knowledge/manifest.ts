@@ -7,8 +7,9 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
+import { resolveWithinRoot } from '../fs/safe-path.js'
 
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
@@ -113,13 +114,19 @@ function validateEntry(
     return
   }
 
-  const actual = hashFileSha256(filePath)
-  if (actual !== entry.sha256) {
-    issues.push({ path: entry.target, message: `sha256 不匹配，manifest=${entry.sha256} actual=${actual}` })
-  }
+  // 第五轮：单文件读失败（EACCES/竞态 ENOENT）记 issue 继续——抛出会让整场校验崩掉，
+  // 一个坏文件遮蔽其余全部条目的结果
+  try {
+    const actual = hashFileSha256(filePath)
+    if (actual !== entry.sha256) {
+      issues.push({ path: entry.target, message: `sha256 不匹配，manifest=${entry.sha256} actual=${actual}` })
+    }
 
-  if (entry.target.endsWith('.md')) {
-    validateMarkdownMetadata(filePath, entry, issues)
+    if (entry.target.endsWith('.md')) {
+      validateMarkdownMetadata(filePath, entry, issues)
+    }
+  } catch (e) {
+    issues.push({ path: entry.target, message: `文件读取失败，无法校验：${e instanceof Error ? e.message : String(e)}` })
   }
 }
 
@@ -164,7 +171,8 @@ function fmScalar(text: string, key: string): string | null {
 function isSafeKnowledgeTarget(projectRoot: string, target: string): boolean {
   if (isAbsolute(target)) return false
   if (!target.startsWith(`${KNOWLEDGE_DIR}/`)) return false
-  const abs = join(projectRoot, target)
-  const rel = relative(projectRoot, abs).replace(/\\/g, '/')
-  return rel === target && !rel.startsWith('../')
+  // 四轮复审（M-7 同款收口）：统一委托 resolveWithinRoot——此前手写 join+relative 往返
+  // 校验是全库第六套平行实现，无 symlink 防护，知识层/ 内放指向库外的 symlink 可让
+  // 校验器读/哈希库外文件（realpath 抛 → 拒绝，fail-closed）
+  return resolveWithinRoot(projectRoot, target) !== null
 }
