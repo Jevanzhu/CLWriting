@@ -263,6 +263,9 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
       sandbox: true,
       nodeIntegration: false,
       preload: join(here, 'preload.cjs'),
+      // 资源项（非安全项）：纯中文写作应用，Hunspell 词典每渲染进程常驻几 MB
+      // 且参与编辑器按键路径——默认开启属纯耗，随工厂一处收敛三窗。
+      spellcheck: false,
       ...opts.webPreferences,
     },
   })

@@ -292,6 +292,8 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(wp.sandbox).toBe(true)
     expect(wp.nodeIntegration).toBe(false)
     expect(String(wp.preload)).toMatch(/preload\.cjs$/)
+    // 资源项：纯中文应用关 Hunspell 词典（每渲染进程几 MB 常驻 + 按键路径开销）
+    expect(wp.spellcheck).toBe(false)
   })
 
   it('纵深防御：will-navigate 阻断 + 弹新窗拒绝', () => {
