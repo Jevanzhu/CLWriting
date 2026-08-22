@@ -28,6 +28,7 @@ import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from './stream.js'
 import { heldTaskGatesFor } from './task-gate.js'
+import { isReviewRunningForBook } from './review.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
 interface AuditCtx {
@@ -224,6 +225,11 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     }
     if (isSelfHealRunning(params['name']!)) {
       return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清除事件史')
+    }
+    // 第九轮 M-1（busyGate 家族同族缺口）：三审是分钟级长任务，经 runSpec 追加 llm-call
+    // 事件并写 review 信封——在途清库同样「清不彻底」（任务收尾事件复活到已清 session）
+    if (isReviewRunningForBook(params['name']!)) {
+      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再清除事件史')
     }
     // 第五轮：fire-and-forget 后台任务（定稿章摘要等）与 spawn 手动写稿同样向工作流
     // 会话追加事件——在途清除会「清不彻底」（任务收尾事件复活），补齐同口径两闸

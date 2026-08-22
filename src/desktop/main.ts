@@ -689,6 +689,12 @@ if (gotSingleInstanceLock) {
   let bootstrapping = false
   function runBootstrap(onError?: (e: unknown) => void): void {
     if (bootstrapping) return
+    // 第九轮 L-3：上次 bootstrap 若在 startServer 之后失败（如 loadURL 抛错），重试会再起
+    // 新 server 覆盖变量，旧 server 的端口/SSE 计数滞留至进程退出——重试前先关旧的
+    if (mainWindow === null && studioServer !== null) {
+      studioServer.close()
+      studioServer = null
+    }
     bootstrapping = true
     void bootstrap()
       .catch((e) => onError?.(e))

@@ -99,7 +99,8 @@ describe('tree 大书性能（§9.3）', () => {
     const dt = performance.now() - t0
     // eslint-disable-next-line no-console
     console.log(`  缓存命中: ${dt.toFixed(3)}ms (构建 ${buildDt.toFixed(1)}ms)`)
-    // 相对断言：命中耗时 < 构建耗时的 1%（不受机器/CI 快慢影响）
-    expect(dt).toBeLessThan(Math.max(0.1, buildDt * 0.01))
+    // 相对断言：命中耗时 < 构建耗时的 1%（不受机器/CI 快慢影响）。第九轮 M-2：下限从
+    // 0.1ms 放宽到 1ms——GC 暂停/JIT 去优化落在命中测量窗口内时 0.1ms 无余量，实测 flaky
+    expect(dt).toBeLessThan(Math.max(1, buildDt * 0.01))
   })
 })

@@ -2,7 +2,7 @@
  * 工具面扩展单测：rewrite 工具入参校验与选段定位（不触发 AI）。
  * RB-AI-P1-1：补成功路径（mock runSpec）——改写全文 spill 落盘 + summary 带路径与字数。
  */
-import { readdirSync, readFileSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
@@ -81,7 +81,7 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
     expect(r.summary).toContain('【未保存】')
   })
 
-  it('rewrite_selection 成功 → 同样 spill 全文，summary 含路径与字数', async () => {
+  it('rewrite_selection 成功 → spill 拼回后的全文（第九轮 H-1：选段稿不得单独成文）', async () => {
     const produced = '改写后的选段。' + '润色稿。'.repeat(200)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
@@ -91,17 +91,35 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
       runId: 'rb-ai-p1-1',
       model: null,
     })
+    const selection = '玉佩在胸前微微发光'
     const r = await rewriteSelection(ctx(), {
       chapter: 1,
-      selection: '玉佩在胸前微微发光',
+      selection,
       instruction: '改',
     })
     expect(r.ok).toBe(true)
     const files = readdirSync(join(bookRoot, '工作区', 'spills'))
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(bookRoot, '工作区', 'spills', files[0]!), 'utf8')).toBe(produced)
+    const spilled = readFileSync(join(bookRoot, '工作区', 'spills', files[0]!), 'utf8')
+    // spill 是整章维度：选段前后的正文必须原样保留（旧实现只存选段稿 → apply_spill 整章覆盖）
+    const body = readFileSync(join(bookRoot, '写作/正文/0001-初入宗门.md'), 'utf-8').split('---').pop()!.trim()
+    const selStart = body.indexOf(selection)
+    expect(spilled).toBe(body.slice(0, selStart) + produced + body.slice(selStart + selection.length))
     expect(r.summary).toContain('工作区/spills/')
-    expect(r.summary).toContain(String(produced.length))
+    expect(r.summary).toContain(String(spilled.length))
+  })
+
+  it('rewrite_selection 选段出现多次 → 拒绝（AMBIGUOUS 同口径，第九轮 H-1 子项）', async () => {
+    const selection = '玉佩在胸前微微发光'
+    const chapterPath = join(bookRoot, '写作/正文/0001-初入宗门.md')
+    const raw = readFileSync(chapterPath, 'utf-8')
+    // 同选段在正文出现第二次 → 无法定位替换点
+    const doubled = raw.replace(selection, selection + '\n' + selection)
+    writeFileSync(chapterPath, doubled, 'utf-8')
+    const r = await rewriteSelection(ctx(), { chapter: 1, selection, instruction: '改' })
+    expect(r.ok).toBe(false)
+    expect(r.summary).toContain('出现多次')
+    writeFileSync(chapterPath, raw, 'utf-8')
   })
 })
 

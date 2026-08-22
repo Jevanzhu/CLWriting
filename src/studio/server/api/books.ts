@@ -458,7 +458,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
         replyError(res, 404, 'NOT_FOUND', `没有这本书：${name}`)
         return
       }
-      const { config } = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
+      // 第九轮 L-1：book.yaml 损坏/缺失时回落默认骨架会静默回传空 title——与
+      // GET /api/books/:name/config 的 500 IO 口径对齐（读失败显式报错，不代答默认身份）
+      const cfgResult = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
+      if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error}`)
+      const { config } = cfgResult
       // 单书身份回显：保持 raw（与 GET /api/books/:name/config 同口径——身份 = 书文件里
       // 实际写的值；genre 未设 = undefined 由前端自行回落全局默认，服务端不代答）
       reply(res, 200, {

@@ -78,8 +78,10 @@ export async function apiJson<T>(
   const controller = timeoutMs ? new AbortController() : undefined
   if (controller) {
     timer = setTimeout(() => { timedOut = true; controller!.abort() }, timeoutMs)
-    // 外部 signal 联动：外部 abort → 内部也 abort
-    init?.signal?.addEventListener('abort', () => controller!.abort(), { once: true })
+    // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
+    // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
+    if (init?.signal?.aborted) controller.abort()
+    else init?.signal?.addEventListener('abort', () => controller!.abort(), { once: true })
   }
   try {
     const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })

@@ -355,8 +355,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       }
     },
     close(): void {
-      // Y-P1-1/Y-P2-6：引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）
-      if (entry.closed) return
+      // Y-P1-1/Y-P2-6：引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）。
+      // 第九轮 L-5：refs 已归零再 close 直接忽略——防重复 close 把计数推负导致
+      // 后续 open 复用「负引用」条目（调用方纪律仍是一开一闭）
+      if (entry.closed || entry.refs <= 0) return
       entry.refs--
       if (entry.refs <= 0) {
         entry.closed = true
@@ -404,11 +406,15 @@ export function migrateBookSession(
   const moves: Array<{ from: string; to: string }> = []
   try {
     if (!existsSync(oldDb)) return true
-    // 1) 强制关掉旧库缓存连接（置 refs=0 → close 归零即真关+清缓存）。
-    //    必须先于 checkpoint：自家连接不关，其 WAL 归属/折叠时机不受本函数控制
+    // 1) 强制关掉旧库缓存连接（置 refs=1 → close 递减归零即真关+清缓存）。
+    //    必须先于 checkpoint：自家连接不关，其 WAL 归属/折叠时机不受本函数控制。
+    //    第十轮 M-1：不能置 refs=0——第九轮 L-5 守卫把「refs<=0 再 close」当
+    //    重复释放直接忽略，强制关会静默落空（僵尸条目滞留缓存，旧路径重开
+    //    拿到别名已迁走库的句柄，写入分裂到旧路径 -wal）；置 1 走正常递减路径，
+    //    真关语义不变
     const entry = openStores.get(oldDb)
     if (entry && !entry.closed) {
-      entry.refs = 0
+      entry.refs = 1
       entry.store.close()
     }
     // 2) 5.1-3：搬移前折叠 WAL——TRUNCATE 模式把未 checkpoint 事务折进主库并截断

@@ -25,6 +25,7 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import { heldTaskGatesFor } from './task-gate.js'
+import { isReviewRunningForBook } from './review.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
 // import server 路由层）；此处再导出保持 books/audit/测试的既有导入不变
 import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
@@ -515,6 +516,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再清空对话')
+    }
+    // 第九轮 M-1（对齐 audit DELETE 五闸收口）：三审在途时经 runSpec 向工作流会话追加
+    // llm-call 事件——在途清空同样清不彻底，补同口径闸
+    if (isReviewRunningForBook(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再清空对话')
     }
     // 第五轮：fire-and-forget 后台任务（定稿摘要等）持 workspace 会话续写事件——
     // clearChatHistory 双键同清工作流侧，在途清空同样清不彻底，补同口径闸

@@ -125,9 +125,10 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
   }
   mirror()
   if (!state.logsDir) return
-  const file = dayFile(state.logsDir)
   state.tail = state.tail
-    .then(() => appendFile(file, line + '\n', 'utf8'))
+    // 第九轮 L-6：日期文件在 flush 时重取——入队时取会在跨本地零点排队时把日志行
+    // 写进前一天的文件（轮转边界错位）
+    .then(() => appendFile(dayFile(state.logsDir!), line + '\n', 'utf8'))
     .catch(() => {
       // fail-open：落盘失败（磁盘满/目录被删）降级 console 保这条留痕可见；
       // 队列继续（catch 已吞），后续写入照常尝试

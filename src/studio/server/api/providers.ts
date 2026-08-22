@@ -159,8 +159,10 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const body = await readJson(req)
 
-    // null / {clear:true} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision
-    if (body === null || body === undefined || body['clear'] === true) {
+    // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
+    // 第九轮 L-2：readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
+    // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
+    if (body['clear'] === true || Object.keys(body).length === 0) {
       const s = loadProviders(ctx.userDataPath)
       const revErr = revisionError(body?.['expectedRevision'], s.revision)
       if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)

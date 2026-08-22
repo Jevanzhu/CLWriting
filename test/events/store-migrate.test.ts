@@ -165,6 +165,41 @@ describe('migrateBookSession', () => {
     migrated.close()
   })
 
+  it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', () => {
+    const ud = tmpRoot()
+    const oldRoot = '/books/僵甲'
+    const newRoot = '/books/僵乙'
+    const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
+    const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+
+    // 连接保持打开（缓存条目 refs=1）→ migrate 强制关库路径生效场景。
+    // L-5 守卫缺陷态（refs 置 0 后 close 被 early-return）：条目滞留缓存且
+    // refs=0/closed=false，旧路径重开 openSessionStore 会复用该僵尸条目——
+    // 句柄仍别名已迁走的库，且不落新库文件
+    const store = openSessionStore(ud, oldRoot)!
+    const sid = store.createSession('僵甲')
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '僵尸数据' }, surfaceOp: 'append' }])
+
+    expect(migrateBookSession(ud, oldRoot, newRoot, '僵甲', '僵乙')).toBe(true)
+    expect(existsSync(oldDb)).toBe(false)
+    expect(existsSync(newDb)).toBe(true)
+
+    // 旧路径重开：强制关若真生效（条目已清缓存），此处应新建空库文件——
+    // 缺陷态则复用僵尸条目、不建文件，oldDb 仍不存在
+    const reopened = openSessionStore(ud, oldRoot)!
+    expect(existsSync(oldDb)).toBe(true)
+    // 新库是空库：绝不能透过旧路径读到已迁走的数据
+    expect(reopened.listEvents('僵甲')).toEqual([])
+    reopened.close()
+
+    // 已迁数据只在新路径、且钥匙是新名；旧 store 句柄事后 close 幂等不抛
+    const migrated = openSessionStore(ud, newRoot)!
+    expect(migrated.listEvents('僵乙').map((e) => e.type)).toContain('user/message')
+    expect(migrated.listEvents('僵甲')).toEqual([])
+    migrated.close()
+    expect(() => store.close()).not.toThrow()
+  })
+
   it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', () => {
     const ud = tmpRoot()
     const oldRoot = '/books/碰甲'
