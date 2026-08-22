@@ -80,12 +80,19 @@ describe('apiKeyFailure（P6 Key 前端校验）', () => {
     expect(apiKeyFailure('')).toBe('API Key 必填')
     expect(apiKeyFailure('   ')).toBe('API Key 必填')
   })
-  it('控制字符 → 提示', () => {
-    expect(apiKeyFailure('sk-abc\u0000def')).toContain('控制字符')
+  it('charset 外字符（控制符/空格/非 ASCII）→ 提示（I6 与服务端 normalizeApiKey 同口径）', () => {
+    expect(apiKeyFailure('sk-abc\u0000def')).toContain('无法传输的字符')
+    expect(apiKeyFailure('sk-abc def')).toContain('无法传输的字符')
+    expect(apiKeyFailure('sk-密钥')).toContain('无法传输的字符')
   })
   it('误贴请求头（KEY=VALUE 形）→ 引导只填值', () => {
     expect(apiKeyFailure('Authorization=Bearer sk-abc')).toContain('请求头')
     expect(apiKeyFailure('OPENAI_API_KEY=sk-abc')).toContain('请求头')
+    expect(apiKeyFailure('Authorization: Bearer sk-abc')).toContain('请求头')
+  })
+  it('含 = 的合法 key 不误判为请求头（dsh ENV_LINE 收窄：= 后非 =，base64 尾垫不杀）', () => {
+    expect(apiKeyFailure('ABCD==')).toBeNull()
+    expect(apiKeyFailure('sk-abc=def')).toBeNull()
   })
   it('成对引号先剥离再判（复制带引号不算非法）', () => {
     expect(apiKeyFailure('"sk-abc123"')).toBeNull()

@@ -171,6 +171,7 @@ async function savePricing(clear = false): Promise<void> {
         class="text-input"
       />
       <span v-if="keyError && !initial" class="key-error">{{ keyError }}</span>
+      <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（vault 加密，留空即保留）</span>
     </div>
 
     <!-- 折叠自定义设置（类型/名称/API 地址 + 模型行） -->
@@ -249,6 +250,11 @@ async function savePricing(clear = false): Promise<void> {
 
 <style scoped>
 /* 表单骨架（.form/.form-row/.text-input/.key-error/胶囊按钮）用 providers.css 共享类。 */
+/* 凭据状态点（I6·P3）：hasKey 来自服务端 vault 存在性推导，不依赖明文字段 */
+.key-stored {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
 /* 下拉借用 .text-input 的盒子；原生箭头丑且贴边 → 去原生外观自绘浅灰箭头（与档位下拉同语言）。
  * 双类名提权：压过 .text-input 的 background 简写（简写会把 background-image 重置为 none） */
 .select-input.select-input {

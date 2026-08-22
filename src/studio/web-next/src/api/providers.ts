@@ -50,6 +50,8 @@ export interface ProviderConfDto {
   model?: string // 方案 A：model 移至全局，供应商不再绑死
   apiKey: string // 返回时为空串（不回传原始 key）
   apiKeyMasked: string
+  /** 凭据状态点（I6·P3）：以 vault 条目存在性推导，非内存明文非空——「已存 Key」显示用 */
+  hasKey: boolean
   models?: ModelConfDto[]
   caps: ProviderCaps | null
   capsProbedAt?: number
@@ -182,6 +184,8 @@ export interface RagProviderDto {
   model: string
   apiKey: string // 返回时为空串（不回传原始 key）
   apiKeyMasked: string
+  /** 凭据状态点（I6·P3）：以 vault 条目存在性推导（同 ProviderConfDto.hasKey） */
+  hasKey: boolean
   caps: RagProviderCaps | null
   capsProbedAt?: number
   sortIndex?: number

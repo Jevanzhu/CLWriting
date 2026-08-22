@@ -257,3 +257,82 @@ describe('P0-3 structured 降级记忆失效', () => {
     expect(after.modelCaps[`${pid}/test-model`]).toBeUndefined()
   })
 })
+
+describe('/api/providers API Key 单点 + vault 状态点（I6·dsh 口径）', () => {
+  it('POST charset 外 key（空格/控制符/非 ASCII）→ 400 且文案不回显 key 本体', async () => {
+    for (const bad of ['sk-abc def', 'sk-abc\ndef', 'sk-密钥']) {
+      const r = await req<{ error: string }>({
+        method: 'POST',
+        path: '/api/providers',
+        body: { ...CONF, name: '坏key供应商', apiKey: bad },
+      })
+      expect(r.status).toBe(400)
+      expect(r.json.error).toContain('无法传输的字符')
+      expect(r.json.error).not.toContain(bad.trim())
+    }
+  })
+
+  it('POST 首尾空白 key → trim 后入库；落盘无明文、vault 有条目、hasKey=true（I6 无明文残留回归）', async () => {
+    const r = await req<{ provider: ProviderDto & { hasKey: boolean } }>({
+      method: 'POST',
+      path: '/api/providers',
+      body: { ...CONF, name: '带空白供应商', apiKey: `  ${CONF.apiKey}  ` },
+    })
+    expect(r.status).toBe(200)
+    expect(r.json.provider.hasKey).toBe(true)
+
+    const disk = readFileSync(join(userDataPath, 'providers.json'), 'utf-8')
+    expect(disk.includes(CONF.apiKey)).toBe(false) // 明文绝不落盘
+    const parsed = JSON.parse(disk) as {
+      providers: { id: string; name: string; apiKey?: string }[]
+      vault?: { keys?: Record<string, unknown> }
+    }
+    const stored = parsed.providers.find((p) => p.name === '带空白供应商')!
+    expect(stored.apiKey ?? '').toBe('')
+    expect(parsed.vault?.keys?.[stored.id]).toBeTruthy() // 密文条目在
+  })
+
+  it('PUT 留空 = 保留原 key；PUT charset 外 → 400', async () => {
+    const list = await req<{ providers: (ProviderDto & { hasKey: boolean })[] }>({
+      method: 'GET',
+      path: '/api/providers',
+    })
+    const target = list.json.providers.find((p) => p.name === '带空白供应商')!
+    expect(target.hasKey).toBe(true)
+
+    const keep = await req<{ provider: ProviderDto & { hasKey: boolean } }>({
+      method: 'PUT',
+      path: `/api/providers/${target.id}`,
+      body: { ...CONF, name: '带空白供应商', apiKey: '' },
+    })
+    expect(keep.status).toBe(200)
+    expect(keep.json.provider.hasKey).toBe(true)
+
+    const bad = await req<{ error: string }>({
+      method: 'PUT',
+      path: `/api/providers/${target.id}`,
+      body: { ...CONF, name: '带空白供应商', apiKey: 'sk-密钥' },
+    })
+    expect(bad.status).toBe(400)
+    expect(bad.json.error).toContain('无法传输的字符')
+  })
+
+  it('GET hasKey 以 vault 存在性推导——无 vault 条目的 provider → false', async () => {
+    const sPath = join(userDataPath, 'providers.json')
+    const s = JSON.parse(readFileSync(sPath, 'utf-8')) as {
+      providers: { id: string; name: string; apiKey?: string }[]
+      vault?: { keys?: Record<string, unknown> }
+    }
+    s.providers.push({ id: 'p-nokey', name: '无key供应商', apiKey: '' })
+    delete s.vault?.keys?.['p-nokey']
+    writeFileSync(sPath, JSON.stringify(s))
+
+    const list = await req<{ providers: (ProviderDto & { hasKey: boolean })[] }>({
+      method: 'GET',
+      path: '/api/providers',
+    })
+    const nokey = list.json.providers.find((p) => p.name === '无key供应商')!
+    expect(nokey.hasKey).toBe(false)
+    expect(nokey.apiKeyMasked).toBe('***')
+  })
+})

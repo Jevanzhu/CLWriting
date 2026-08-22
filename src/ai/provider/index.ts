@@ -76,3 +76,4 @@ export {
 export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
 export { createOpenAIResponsesProvider } from './responses-adapter.js'
+export { normalizeApiKey, apiKeyRefusal, type ApiKeyCheck, type ApiKeyRejection } from './api-key.js'

@@ -166,3 +166,30 @@ describe('RAG 服务商管理端点', () => {
     expect(Object.keys(disk.vault.keys)).toHaveLength(0)
   })
 })
+
+describe('RAG 服务商 API Key 单点 + hasKey 状态点（I6·dsh）', () => {
+  it('POST charset 外 key（含空格/非 ASCII）→ 400 且文案不回显 key 本体', async () => {
+    for (const bad of ['sk-rag 密钥', 'sk-rag\nkey']) {
+      const r = await api('/api/rag-providers', {
+        method: 'POST',
+        body: JSON.stringify({ name: '坏key嵌入', endpoint: 'https://e/x', model: 'm', apiKey: bad }),
+      })
+      expect(r.status).toBe(400)
+      expect(String(r.json['error'])).toContain('无法传输的字符')
+      expect(String(r.json['error'])).not.toContain(bad.trim())
+    }
+  })
+
+  it('POST 合法 key（首尾空白 trim）→ hasKey=true；GET 列表同 vault 推导', async () => {
+    const ok = await api('/api/rag-providers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'I6嵌入', endpoint: 'https://stub.example/v1/embeddings', model: 'm2', apiKey: '  sk-rag-i6-123456  ' }),
+    })
+    expect(ok.status).toBe(200)
+    expect((ok.json['provider'] as Record<string, unknown>)['hasKey']).toBe(true)
+
+    const list = await api('/api/rag-providers')
+    const arr = list.json['ragProviders'] as Array<Record<string, unknown>>
+    expect(arr.find((p) => p['name'] === 'I6嵌入')!['hasKey']).toBe(true)
+  })
+})

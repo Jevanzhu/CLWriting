@@ -65,13 +65,14 @@ function provider(id: string, name: string, overrides: Partial<ProviderConfDto> 
     baseUrl: `https://${id}.local/v1`,
     apiKey: '',
     apiKeyMasked: 'sk-1...abcd',
+    hasKey: true,
     caps: null,
     ...overrides,
   }
 }
 
 function ragProvider(id: string, name: string): RagProviderDto {
-  return { id, name, endpoint: `https://${id}.local/v1/embeddings`, model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-e...abcd', caps: null }
+  return { id, name, endpoint: `https://${id}.local/v1/embeddings`, model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-e...abcd', hasKey: true, caps: null }
 }
 
 async function mountPanel(): Promise<ReturnType<typeof mount>> {

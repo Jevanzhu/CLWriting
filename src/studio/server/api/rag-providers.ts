@@ -18,17 +18,21 @@ import {
   saveProviders,
   newRagProviderId,
   maskKey,
+  normalizeApiKey,
+  apiKeyRefusal,
   type RagProviderConf,
 } from '../../../ai/provider/index.js'
+import type { Vault } from '../../../ai/provider/vault.js'
 import { embed } from '../../../rag/embed.js'
 
 interface RagProvidersCtx {
   userDataPath: string | null
 }
 
-/** key 遮蔽——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留） */
-function maskRagProvider(conf: RagProviderConf) {
-  return { ...conf, apiKey: '', apiKeyMasked: maskKey(conf.apiKey) }
+/** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
+ * hasKey 以 vault 条目存在性推导（I6·P3 口径，与 /api/providers maskProvider 同则） */
+function maskRagProvider(conf: RagProviderConf, vault: Vault | null) {
+  return { ...conf, apiKey: '', apiKeyMasked: maskKey(conf.apiKey), hasKey: vault?.keys[conf.id] != null }
 }
 
 function parseRagInput(
@@ -37,7 +41,12 @@ function parseRagInput(
   const name = String(body['name'] ?? '').trim()
   const endpoint = String(body['endpoint'] ?? '').trim()
   const model = String(body['model'] ?? '').trim()
-  const apiKey = String(body['apiKey'] ?? '').trim()
+  // I6（dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留）
+  const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
+  if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
+    return { ok: false, error: apiKeyRefusal('illegalCharacters') }
+  }
+  const apiKey = keyChecked.ok ? keyChecked.value : ''
   if (!name) return { ok: false, error: '名称必填' }
   if (!endpoint) return { ok: false, error: '嵌入服务地址必填' }
   if (!/^https?:\/\//i.test(endpoint)) return { ok: false, error: '嵌入服务地址须以 http(s):// 开头' }
@@ -63,7 +72,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
-      ragProviders: s.ragProviders.map(maskRagProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
+      ragProviders: s.ragProviders.map((p) => maskRagProvider(p, s.vault)).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
       revision: s.revision,
     })
   },
@@ -95,7 +104,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     }
     s.ragProviders.push(conf)
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskRagProvider(conf), revision: s.revision })
+    reply(res, 200, { provider: maskRagProvider(conf, s.vault), revision: s.revision })
   },
   })
 
@@ -126,7 +135,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       target.capsProbedAt = undefined
     }
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskRagProvider(target), revision: s.revision })
+    reply(res, 200, { provider: maskRagProvider(target, s.vault), revision: s.revision })
   },
   })
 

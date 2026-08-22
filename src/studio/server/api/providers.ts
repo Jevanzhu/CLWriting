@@ -19,6 +19,8 @@ import {
   newProviderId,
   maskKey,
   probeCapabilities,
+  normalizeApiKey,
+  apiKeyRefusal,
   type ProviderConf,
   type ModelConf,
   type Protocol,
@@ -26,6 +28,7 @@ import {
   type TierSlot,
   type EffortLevel,
 } from '../../../ai/provider/index.js'
+import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
@@ -42,7 +45,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
     reply(res, 200, {
-      providers: s.providers.map(maskProvider).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
+      providers: s.providers.map((p) => maskProvider(p, s.vault)).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
       currentId: s.currentId,
       currentModel: s.currentModel,
       tiers: s.tiers,
@@ -82,7 +85,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     // 首个供应商自动设为当前
     if (!s.currentId) s.currentId = conf.id
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskProvider(conf), revision: s.revision })
+    reply(res, 200, { provider: maskProvider(conf, s.vault), revision: s.revision })
   },
   })
 
@@ -240,7 +243,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       }
     }
     saveProviders(ctx.userDataPath, s)
-    reply(res, 200, { provider: maskProvider(s.providers[idx]!), revision: s.revision })
+    reply(res, 200, { provider: maskProvider(s.providers[idx]!, s.vault), revision: s.revision })
   },
   })
 
@@ -340,7 +343,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     } else {
       protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
       baseUrl = typeof body['baseUrl'] === 'string' ? body['baseUrl'] : ''
-      apiKey = typeof body['apiKey'] === 'string' ? body['apiKey'] : ''
+      // I6（dsh 口径）：手输 key 同过传输不变量——就地解释拒绝优于上游 opaque 401
+      const typed = normalizeApiKey(typeof body['apiKey'] === 'string' ? body['apiKey'] : '')
+      if (!typed.ok && typed.reason === 'illegalCharacters') {
+        return replyError(res, 400, 'BAD_INPUT', apiKeyRefusal('illegalCharacters'))
+      }
+      apiKey = typed.ok ? typed.value : ''
       auth = (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy
     }
     if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
@@ -400,12 +408,14 @@ function nextSortIndex(existing: Array<number | undefined>): number {
   return max + 1
 }
 
-/** key 遮蔽——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留） */
-function maskProvider(conf: ProviderConf): ProviderConf & { apiKeyMasked: string } {
+/** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
+ * hasKey 以 vault 条目存在性推导（I6·P3 口径）：状态不依赖内存明文，半迁移收敛后必然一致 */
+function maskProvider(conf: ProviderConf, vault: Vault | null): ProviderConf & { apiKeyMasked: string; hasKey: boolean } {
   return {
     ...conf,
     apiKey: '', // 不回传原始 key（前端编辑时如不改 key 则传回空=保留原 key）
     apiKeyMasked: maskKey(conf.apiKey),
+    hasKey: vault?.keys[conf.id] != null,
   }
 }
 
@@ -456,7 +466,12 @@ function parseProviderInput(
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
   // dd-P3：scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
   if (!/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'baseUrl 须以 http(s):// 开头' }
-  const apiKey = String(body['apiKey'] ?? '').trim()
+  // I6（dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留），由调用方按语义处理
+  const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
+  if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
+    return { ok: false, error: apiKeyRefusal('illegalCharacters') }
+  }
+  const apiKey = keyChecked.ok ? keyChecked.value : ''
   const models = parseModels(body['models'])
   if (models === 'invalid') return { ok: false, error: 'models 行不合法：id 必填且供应商内唯一，容量须为正整数' }
   return { ok: true, name, protocol, auth, baseUrl, apiKey, models: models === undefined ? undefined : models }

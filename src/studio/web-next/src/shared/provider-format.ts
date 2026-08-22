@@ -105,16 +105,22 @@ export function dtoToModelDrafts(rows: ModelConfDto[] | undefined): ModelRowDraf
 // ── P6 API Key 前端校验 ──
 
 /**
- * API Key 形状校验（新增/编辑共通）——返回错误文案，null = 通过。
- * 拒绝：仅空白；控制/非法字符（排除常见引号包裹后仍含不可见）；含 KEY= 形（常见误贴 header 行）。
+ * API Key 形状校验（新增/编辑共通，服务端 normalizeApiKey 的前端孪生）——返回错误文案，null = 通过。
+ * 拒绝：仅空白；charset 外字符（与服务端同口径：不含空格的可打印 ASCII，I6·dsh 对齐——
+ * 集合外的 key 过不了 HTTP 头，就地拒绝优于上游 opaque 401）；误贴请求头/环境行。
+ * 孪生纪律（dsh keep-the-two-in-step）：charset 规则改动须同步 src/ai/provider/api-key.ts。
  */
 export function apiKeyFailure(key: string): string | null {
   const s = key.trim()
   if (!s) return 'API Key 必填'
   // 剥掉首尾成对引号再检——引号包裹本身合法（少数字段值带引号）
   const inner = /^(['"])(.*)\1$/.test(s) ? s.slice(1, -1) : s
-  if (/[\u0000-\u001f\u007f]/.test(inner)) return 'API Key 含控制字符'
-  // 误贴请求头：KEY=... / KEY: ...（值可含空格，如 Authorization: Bearer x）
-  if (/^\S+\s*[=:]\s*\S+/.test(inner)) return '粘贴的是请求头（KEY=...），请只填 Key 值'
+  // 误贴请求头/环境行：NAME=... / Name: ...（值可含空格，如 Authorization: Bearer x）。
+  // = 形的名字不含连字符（真 key 如 sk-abc=def 的连字符断开名字段，不误杀），且 = 后
+  // 不紧跟另一个 =（base64 尾垫 ABCD== 不是赋值）——dsh ENV_LINE 同款收窄思路
+  if (/^[A-Za-z][A-Za-z0-9_]*=[^=\s]/.test(inner) || /^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(inner)) {
+    return '粘贴的是请求头/环境行（NAME=...），请只填 Key 值'
+  }
+  if (!/^[\x21-\x7E]+$/.test(inner)) return 'API Key 含无法传输的字符（须为不含空格的可打印 ASCII）'
   return null
 }

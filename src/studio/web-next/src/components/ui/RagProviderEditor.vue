@@ -53,6 +53,7 @@ const keyError = computed(() => {
           class="text-input"
         />
         <span v-if="keyError" class="key-error">{{ keyError }}</span>
+        <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（vault 加密，留空即保留）</span>
       </div>
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>
@@ -64,6 +65,11 @@ const keyError = computed(() => {
 
 <style scoped>
 /* 表单骨架/输入/胶囊按钮均来自 providers.css 共享类。 */
+/* 凭据状态点（I6·P3）：hasKey 来自服务端 vault 存在性推导（与 AiProviderEditor 同则） */
+.key-stored {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
 .rag-provider-section {
   display: grid;
   gap: var(--size-4-2);
