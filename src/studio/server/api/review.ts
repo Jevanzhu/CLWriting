@@ -115,12 +115,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
         const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
         if (!outcome.ok) {
-          return reply(res, checkOutcomeStatus(outcome.code), {
-            ok: false,
-            code: outcome.code,
-            error: outcome.error,
-            ...(outcome.details ? { details: outcome.details } : {}),
-          })
+          // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
+          return replyError(
+            res,
+            checkOutcomeStatus(outcome.code),
+            outcome.code,
+            outcome.error,
+            outcome.details ? { details: outcome.details } : undefined,
+          )
         }
         const { report, chapter, body } = outcome
   

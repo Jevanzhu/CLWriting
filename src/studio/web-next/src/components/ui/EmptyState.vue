@@ -77,6 +77,8 @@ const iconSize = computed(() =>
   z-index: -1;
 }
 .es-full .es-icon {
+  /* N-14（第十二轮）：clw-float 本就在全局家族；reduced-motion 由 base.css 全局
+     兜底统一裁剪（原先局部覆盖与全局重复） */
   animation: clw-float 3.5s var(--ease-std) infinite;
 }
 .es-full .es-title {
@@ -84,11 +86,6 @@ const iconSize = computed(() =>
 }
 .es-full .es-text {
   font-size: var(--font-size-m);
-}
-@media (prefers-reduced-motion: reduce) {
-  .es-full .es-icon {
-    animation: none;
-  }
 }
 
 /* block：区域级 */

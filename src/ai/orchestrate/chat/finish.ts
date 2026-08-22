@@ -147,7 +147,13 @@ export async function finalizeHistory(
     summarizeCheckpoint(opts, sys, state, toSum, prior),
   )
   if (outcome.summarizedCount > 0) {
-    const shadowSeqs = msgSeqs.splice(0, outcome.summarizedCount).flat()
+    // N-6（第十二轮）：先算后切——msgSeqs 与 msgSeqMap 是同一数组引用，close 的第二笔
+    // 落库（appendEvents 写 compaction 事件）可半途失败（SQLITE_BUSY/盘满），若 splice
+    // 先行则共享数组已缩短而 histories 未换，内存头部位错；重启 restore 只在尾部补 []，
+    // 错位永久化。close 成功后才突变（失败时数组/历史双未动，DB 无 compaction 事件、
+    // 投影回全量历史，退化为「压缩未发生」而非错位）。
+    const cut = outcome.summarizedCount
+    const shadowSeqs = msgSeqs.slice(0, cut).flat()
     // Y-P2-2：压缩存档并入 compaction/end 载荷（replace 在被遮蔽区间原位取代）——
     // 跨重启恢复经投影带回存档（此前摘要只在内存，重启丢被压上下文）
     const firstMsg = outcome.history[0]
@@ -155,6 +161,7 @@ export async function finalizeHistory(
       firstMsg !== undefined && typeof firstMsg.content === 'string'
         ? recorder.close('completed', shadowSeqs, firstMsg.content)
         : recorder.close('completed', shadowSeqs)
+    msgSeqs.splice(0, cut)
     msgSeqs.unshift(archiveSeq !== null ? [archiveSeq] : [])
     msgSeqMap.set(opts.bookName, msgSeqs)
     histories.set(opts.bookName, outcome.history)

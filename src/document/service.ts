@@ -468,10 +468,10 @@ export class DocumentService {
 
     if (isPiece) {
       // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
-      const 章号 = map.get('章号')
+      const no = normalizeChapterNo(map.get('章号'))
       const numPrefix =
-        typeof 章号 === 'number'
-          ? chapterFilePrefix(章号, 'piece')
+        no !== null
+          ? chapterFilePrefix(no, 'piece')
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
       // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
       const safeTitle = 标题.trim() || '未命名'
@@ -486,10 +486,10 @@ export class DocumentService {
     }
 
     // 长篇 chapter：文件名按 章号4位-标题.md
-    const 章号 = map.get('章号')
+    const no = normalizeChapterNo(map.get('章号'))
     const safeTitle = 标题.trim() || '未命名'
     const newName =
-      typeof 章号 === 'number' ? `${chapterFilePrefix(章号, 'chapter')}${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
+      no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
     if (basename(path) !== newName) {
       const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
       if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
@@ -515,7 +515,13 @@ export class DocumentService {
   }
 
   /** 短篇章纲同步重命名（章纲/Old.md → 章纲/New.md）：
-   *  正文已 rename，章纲同名文件跟随。章纲不存在时静默跳过（不阻断正文 rename）。 */
+   *  正文已 rename，章纲同名文件跟随。章纲不存在时静默跳过（不阻断正文 rename）。
+   *  N-7（第十二轮）：章纲已入清单（对其做过任何结构性操作即落）时委托 doMoveOrRename
+   *  ——裸 renameSync 既不更新 项目/文档清单.jsonl 也不写 move-pending journal，清单残留
+   *  指向旧路径的孤儿条目；tree 按旧 path 匹配 miss → docId 退化为 legacyId(新 path)，
+   *  编辑器按 docId 挂的标签页/分析信封/工作区/.版本/<docId>/ 版本历史全断链。委托后
+   *  journal + snapshot + 清单 path 更新 + 树索引失效与正文改名同一纪律。未登记（从未
+   *  做过结构性操作）时无条目可孤儿，保留裸 rename 回落。 */
   private syncRenamePieceList(oldBodyRel: string, newName: string): void {
     const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
     const newListRel = `大纲/章纲/${newName}`
@@ -523,9 +529,19 @@ export class DocumentService {
     const newSafe = this.resolveSafePath(newListRel)
     if (!oldSafe || !newSafe) return
     if (!existsSync(oldSafe)) return
+    if (existsSync(this.manifestPath)) {
+      const hit = [...readManifest(this.manifestPath).entries].find(([, e]) => e.path === oldListRel)
+      if (hit) {
+        const r = this.doMoveOrRename(hit[0], { kind: 'rename', newName })
+        if (r.ok) return
+        // 失败（含「文件已移、清单更新失败」半程态）不阻断正文 rename：前者落回裸
+        // rename 兜底配对，后者 healthCheck 按悬置 pending 收口（P3-10 语义）
+      }
+    }
     try {
       mkdirSync(dirname(newSafe), { recursive: true })
       renameSync(oldSafe, newSafe)
+      invalidateTreeIndex(this.bookRoot, true)
     } catch {
       // 清单同步失败不阻断正文 rename
     }
@@ -815,6 +831,16 @@ function isPieceBody(relPath: string, bookRoot: string): boolean {
   if (roleOf(relPath) !== 'chapter') return false
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   return cfg.ok ? (cfg.config.kind ?? 'long') === 'short' : false
+}
+
+/** N-11（第十二轮）：fm 章号归一——引号包裹的纯数字串（作者手写/外部工具写回的
+ *  `章号: "12"`）与数字同等参与文件名派生；此前 typeof === 'number' 判不过就回落
+ *  basename 前缀提取，改标题后章号段静默劣化。非数字（含小数/空/杂串）→ null 走
+ *  原回落；仅用于文件名派生，fm 原值不回写（M-2 字节级忠实口径）。 */
+function normalizeChapterNo(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isInteger(v)) return v
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim())
+  return null
 }
 
 /** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */

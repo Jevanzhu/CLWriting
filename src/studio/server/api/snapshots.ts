@@ -231,7 +231,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       })
       if (!outcome.ok) {
         const status = outcome.code === 'REVISION_CONFLICT' ? 409 : 400
-        return reply(res, status, { ok: false, code: outcome.code, error: outcome.reason })
+        // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
+        return replyError(res, status, outcome.code, outcome.reason)
       }
       reply(res, 200, { ok: true, revision: outcome.revision, content: snap.content })
     },

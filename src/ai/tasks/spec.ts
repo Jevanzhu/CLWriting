@@ -130,6 +130,10 @@ export async function runSpec(
       task: spec.name,
       bookRoot: opts.bookRoot,
       chapter: opts.chapter,
+      // N-10（第十二轮）：动态 system（内置解析 + rules 拼接终值）落 trace——promptMeta
+      // 哈希此前只有 userPrompt（铁律②重放口径：resolve 出的最终 system 不进哈希 = 不可
+      // 精确重建）；chat 轮（turns.ts）与 checkpoint（finish.ts）已传，此处漏
+      systemPrompt,
       promptText: opts.userPrompt,
       promptFiles: opts.promptFiles,
       ctrl: opts.ctrl ?? bridge?.ctrl,

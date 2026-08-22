@@ -91,17 +91,10 @@ const healDone = computed(() => wb.healResult)
   margin-top: 4px;
   border-radius: 50%;
   background: var(--interactive-accent);
-  animation: heal-pulse 1.4s ease-in-out infinite;
+  /* N-14（第十二轮）：局部 heal-pulse 收编全局家族 clw-pulse（reduced-motion 由
+     base.css 全局兜底统一裁剪，不另设局部覆盖） */
+  animation: clw-pulse 1.4s ease-in-out infinite;
   flex-shrink: 0;
-}
-@keyframes heal-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 .heal-detail {
   display: flex;

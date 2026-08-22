@@ -65,6 +65,9 @@ vi.mock('electron', () => {
     send(...a: [string, ...unknown[]]): void {
       this.sent.push(a)
     }
+    isDestroyed(): boolean {
+      return false // FakeWin.close 只置 win.closed；webContents 层由各用例自带假件覆盖
+    }
     setWindowOpenHandler(fn: () => { action: string }): void {
       this.windowOpenHandler = fn
     }
@@ -435,6 +438,40 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     const sent = win.webContents.sent[n0]!
     expect(sent[0]).toBe('desktop:context-menu-select')
     expect(sent[1]).toBe('copy')
+  })
+
+  it('N-4（第十二轮）：菜单滞留期间窗口销毁 → click/关闭回调晚到不再向已毁 webContents send', async () => {
+    // 独立假窗（不动共享 mainWin——后续用例复用它）：fromWebContents 按 webContents 身份反查
+    const wc = {
+      sent: [] as Array<[string, ...unknown[]]>,
+      on(): void {},
+      destroyed: false,
+      isDestroyed(): boolean {
+        return this.destroyed
+      },
+    }
+    const win = {
+      webContents: wc,
+      closed: false,
+      isDestroyed(): boolean {
+        return this.closed
+      },
+      close(): void {
+        this.closed = true
+        wc.destroyed = true // webContents 随窗销毁（sendOnce 判 event.sender 本体）
+      },
+    }
+    M.windows.push(win as unknown as Record<string, any>)
+    M.ipcOn['desktop:context-menu']!({ sender: wc }, [{ label: '删除', key: 'delete' }])
+    const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
+    win.close() // 菜单仍开着，窗口先关（isDestroyed → true）——点选晚到
+    const n0 = wc.sent.length
+    // 修复前：对已销毁 webContents send 抛「Object has been destroyed」进主进程
+    expect(() => item.click!()).not.toThrow()
+    // popup 关闭回调（延后一拍补发 null）同守卫覆盖
+    M.popupCb?.()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(wc.sent.length).toBe(n0) // 两路都无回传
   })
 })
 

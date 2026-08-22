@@ -29,10 +29,18 @@ export function reply(res: ServerResponse, status: number, body: unknown): void 
  * - error 保留中文人话（前端 toast 展示，client.ts 按 error 优先解析 → 前端零改动）
  * - code 机器可判别（复用既有词表 NO_WORKDIR/NOT_FOUND/BAD_INPUT/BAD_PATH/BUSY/...，
  *   无法归类的用 'ERROR' 兜底，禁止自创同义码）
+ * - extra（N-2，第十二轮）：可选诊断扩展字段（如机检失败带 details）——仍走本单一
+ *   出口，不回退到手拼 reply({ok:false,...}) 混合信封
  */
-export function replyError(res: ServerResponse, status: number, code: string, error: string): void {
+export function replyError(
+  res: ServerResponse,
+  status: number,
+  code: string,
+  error: string,
+  extra?: Record<string, unknown>,
+): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify({ code, error }))
+  res.end(JSON.stringify({ code, error, ...(extra ?? {}) }))
 }
 
 /** HttpError → 统一信封（dispatch catch / readJson 抛错的兜底出口）。 */

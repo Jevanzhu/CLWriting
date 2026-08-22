@@ -200,8 +200,9 @@ describe('POST /documents/:docId/finalize（ee-P1-3 防吃书闸）', () => {
       'x-studio-token': token,
     })
     expect(r.status).toBe(409)
-    const j = r.json as { ok: boolean; code: string; error: string }
-    expect(j.ok).toBe(false)
+    // N-2（第十二轮）：finalize 错误信封收编 replyError——{code,error} 无 ok 冗余位
+    const j = r.json as { code: string; error: string }
+    expect(j).not.toHaveProperty('ok')
     expect(j.code).toBe('LEAD_GATE')
     expect(j.error).toContain('悬念-001')
     expect(j.error).toContain('声明了没做')

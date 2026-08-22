@@ -9,9 +9,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
-import { getBookTreeIndex } from '../../src/document/tree.js'
+import { getBookTreeIndex, type TreeNode } from '../../src/document/tree.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { findUnsettled } from '../../src/document/journal.js'
+
+/** 深度优先按 docId 找叶子（树索引验证用）。 */
+function findNodeByDocId(nodes: TreeNode[], docId: string): TreeNode | undefined {
+  for (const n of nodes) {
+    if (!n.isDirectory && n.docId === docId) return n
+    const hit = findNodeByDocId(n.children, docId)
+    if (hit) return hit
+  }
+  return undefined
+}
 
 /** 造书：写作/正文/第一卷/0001-开篇 + 项目清单登记 doc_ch01 + git init。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
@@ -243,6 +253,105 @@ test('updateChapterMeta（短篇）: 改章号 → fm 章号 + 文件名 rename�
   const fm = readFileSync(join(root, '写作', '正文', '012-原标.md'), 'utf-8')
   expect(fm).toContain('章号: 12')
   expect(fm).toContain('标题: 原标')
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── N-7（第十二轮）：短篇章纲跟随改名走清单/journal 纪律 ──
+
+/** 造短篇书 + 已登记章纲（大纲/章纲/1-原标.md → doc_pl01）。 */
+function makeBookWithPieceList(): { root: string; svc: DocumentService } {
+  const { root, svc } = makeBookWithPiece()
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(join(root, '大纲', '章纲', '1-原标.md'), '---\n标题: 原标\n---\n章纲内容', 'utf-8')
+  appendFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    '{"id":"doc_pl01","nodeType":"document","path":"大纲/章纲/1-原标.md","parentId":null}\n',
+  )
+  execSync('git add -A && git commit -m piece-list', { cwd: root, stdio: 'pipe' })
+  return { root, svc }
+}
+
+test('N-7: 章纲已登记 → 跟随改名走 doMoveOrRename——清单 path 同步、docId 稳定、journal 收口、无孤儿条目', () => {
+  const { root, svc } = makeBookWithPieceList()
+  getBookTreeIndex(root) // 预热缓存（验证 rename 后索引重建按新路径挂 docId）
+  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+
+  // 章纲文件跟随改名（修复前裸 rename 也做到）
+  expect(existsSync(join(root, '大纲', '章纲', '001-新标.md'))).toBe(true)
+  expect(existsSync(join(root, '大纲', '章纲', '1-原标.md'))).toBe(false)
+
+  // 修复点①：清单条目 path 同步更新——修复前残留指向旧路径的孤儿条目
+  const m = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(m).toContain('"id":"doc_pl01"')
+  expect(m).toContain('大纲/章纲/001-新标.md')
+  expect(m).not.toContain('大纲/章纲/1-原标.md')
+
+  // 修复点②：docId 稳定——树索引重建后按 docId 反查命中新路径（修复前 miss → 退化 legacyId）
+  const byId = findNodeByDocId(getBookTreeIndex(root).nodes, 'doc_pl01')
+  expect(byId?.path).toBe('大纲/章纲/001-新标.md')
+
+  // 修复点③：journal 收口（无悬置 pending）+ snapshot 留底（doMoveOrRename 纪律）
+  const jDir = join(root, '工作区', '.journal')
+  const journals = readdirSync(jDir).filter((n) => n.startsWith('doc_pl01'))
+  expect(journals).toHaveLength(1)
+  expect(findUnsettled(join(jDir, journals[0]!))).toHaveLength(0)
+  expect(existsSync(join(root, '工作区', '.版本', 'doc_pl01'))).toBe(true)
+
+  // 正文 rename 契约不变：路径同样换新
+  expect(r.ok && r.path).toBe('写作/正文/001-新标.md')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('N-7: 章纲未登记（从未结构性操作）→ 裸 rename 回落：文件跟随改名、清单无章纲条目、正文 rename ok', () => {
+  const { root, svc } = makeBookWithPiece()
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(join(root, '大纲', '章纲', '1-原标.md'), '章纲内容（未登记）', 'utf-8')
+
+  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+  expect(existsSync(join(root, '大纲', '章纲', '001-新标.md'))).toBe(true)
+  expect(existsSync(join(root, '大纲', '章纲', '1-原标.md'))).toBe(false)
+  // 无条目可孤儿：清单里只有正文条目（path 已随 doMoveOrRename 更新），无章纲行
+  const m = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+  expect(m).toContain('写作/正文/001-新标.md')
+  expect(m).not.toContain('大纲/章纲/')
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── N-11（第十二轮）：引号章号归一（文件名派生不吃字符串劣化）──
+
+test('N-11: 短篇 fm 章号为引号数字串（"7"）→ 文件名仍按 3 位补零派生（007-）', () => {
+  const { root, svc } = makeBookWithPiece()
+  // 作者手写/外部工具写回的引号包裹章号——parseFlat 读回 string，旧 typeof 判不过
+  writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n章号: "7"\n标题: 原标\n---\n短篇正文', 'utf-8')
+  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('写作/正文/007-新标.md')
+  // fm 原值不回写（字节级忠实）：仍是引号串
+  expect(readFileSync(join(root, '写作', '正文', '007-新标.md'), 'utf-8')).toContain('章号: "7"')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('N-11: 长篇 fm 章号为引号数字串（"12"）→ 文件名仍按 4 位补零派生（0012-）', () => {
+  const { root, svc } = makeBookWithChapter()
+  writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: "12"\n标题: 开篇\n---\n正文', 'utf-8')
+  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('写作/正文/第一卷/0012-新标.md')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀回落，不误派生', () => {
+  const { root, svc } = makeBookWithPiece()
+  writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n章号: "3.5"\n标题: 原标\n---\n短篇正文', 'utf-8')
+  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 回落 basename 前缀 1-（原文件名的章号段），不产 3.5 派生名
+  expect(r.path).toBe('写作/正文/1-新标.md')
   rmSync(root, { recursive: true, force: true })
 })
 

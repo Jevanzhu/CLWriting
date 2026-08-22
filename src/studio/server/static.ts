@@ -77,7 +77,15 @@ export function createStaticHandler(rootDir: string) {
           : 'no-cache',
       })
       res.end(data)
-    } catch {
+    } catch (e) {
+      // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
+      // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html
+      // （存在的文件被静默换成 SPA 入口、无任何报错），现如实回 500
+      const err = e as NodeJS.ErrnoException
+      if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+        replyError(res, 500, 'IO_ERROR', `静态文件读取失败：${err.code ?? err.message}`)
+        return
+      }
       // SPA fallback：非文件路径回 index.html（前端路由接管）
       try {
         const data = await readFile(join(root, 'index.html'))

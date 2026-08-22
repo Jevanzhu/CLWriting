@@ -319,7 +319,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
 
   const p = baselinePath(bookRoot)
   mkdirSync(dirname(p), { recursive: true })
-  atomicWriteFile(p, JSON.stringify(baseline, null, 2))
+  // N-12（第十二轮）：冻结基线是重建成本最高的落盘之一（全库样章统计），对齐
+  // service 元数据写的 fsync: true 口径——断电窗口内 rename 只进页缓存会丢基线
+  atomicWriteFile(p, JSON.stringify(baseline, null, 2), { fsync: true })
   return baseline
 }
 

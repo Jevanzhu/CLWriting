@@ -140,7 +140,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
       // CC-P2-11：错误信封统一 {error, code?}——save 结构化失败码保留 code，人话进 error
-      reply(res, structStatus(outcome.code), { code: outcome.code, error: outcome.reason })
+      // N-2（第十二轮）：收编 replyError 单一出口（信封形状不变，去 reply 手拼）
+      replyError(res, structStatus(outcome.code), outcome.code, outcome.reason)
     },
   })
 
@@ -180,7 +181,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           : outcome.code === 'LEAD_GATE' ? 409
           : outcome.code === 'LEAD_WRITE_ERROR' ? 500
           : 400
-        return reply(res, status, { ok: false, code: outcome.code, error: outcome.error })
+        // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
+        return replyError(res, status, outcome.code, outcome.error)
       }
       // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
       // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；

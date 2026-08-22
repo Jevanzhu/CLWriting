@@ -88,12 +88,14 @@ export function useChapterTreeActions(deps: {
   const creating = ref<Creating>(null)
   const renamePath = ref<string | null>(null)
   // 块2.2 篇章信息弹窗：编辑 标题 + 章号（落 fm + 路径同步 rename；长篇改文件名 / 短篇改文件名）
-  // isPiece 标记短篇正文（3 位补零）
+  // isPiece 标记短篇正文（3 位补零）；N-8（第十二轮）：bookName 开弹窗时捕获——
+  // 弹窗滞留期间切书后提交，deps.bookName() 是新书而 docId 属旧书（错书写入）
   const metaEditing = ref<{
     docId: string
     标题: string
     num: number | null
     isPiece: boolean
+    bookName: string
   } | null>(null)
   const draggedPath = ref<string | null>(null)
 
@@ -148,6 +150,7 @@ export function useChapterTreeActions(deps: {
         标题: m?.标题 ?? node.name,
         num: m?.章号 ?? null,
         isPiece,
+        bookName: deps.bookName(),
       }
     } else if (key === 'copy') void doCopy(node)
     else if (key === 'copy-path') void onCopyPath(node)
@@ -196,9 +199,13 @@ export function useChapterTreeActions(deps: {
     const e = metaEditing.value
     if (!e) return
     metaEditing.value = null
+    // N-8（第十二轮）：书名取开弹窗时的捕获值（同 doDelete FE-1 口径）——弹窗滞留期间
+    // 切书后提交，deps.bookName() 已是 B 书而 docId 属 A 书，会错书落 fm/rename
+    const book = e.bookName
     try {
-      await updateChapterMetaDoc(deps.bookName(), e.docId, { 标题: meta.标题, 章号: meta.num })
-      await tree.load(deps.bookName())
+      await updateChapterMetaDoc(book, e.docId, { 标题: meta.标题, 章号: meta.num })
+      if (deps.bookName() !== book) return // 已切书：不动 B 书界面
+      await tree.load(book)
       // 路径可能变（长篇/短篇文件名）→ 同步 doc entry.path
       const entry = doc.get(e.docId)
       if (entry) {
@@ -231,6 +238,7 @@ export function useChapterTreeActions(deps: {
       const template =
         relPath === '大纲/总纲.md' ? synopsisTemplate() : relPath === '设定/世界观.md' ? worldviewTemplate() : undefined
       await createDoc(bookName, { relPath, ...(template !== undefined ? { content: template } : {}) })
+      if (deps.bookName() !== bookName) return // N-9（第十二轮）：已切书——文件已落 A 书，不动 B 界面
       await tree.load(bookName)
       const fresh = tree.byPath.get(relPath)
       if (fresh?.docId) {
@@ -444,12 +452,23 @@ export function useChapterTreeActions(deps: {
     return pendingChaptersUpToIn(target, tree.raw)
   }
 
+  /** N-13（第十二轮）：清内联编辑态（新建命名/重命名/篇章弹窗/拖拽）——切书时由
+   *  ChapterTreePanel 调用：这些 ref 挂的是旧书路径/docId，留着会在新书的树上
+   *  渲染出指向不存在节点的输入框/弹窗（重则旧书 docId 提交进新书，N-8/N-9 同族）。 */
+  function resetInlineState(): void {
+    creating.value = null
+    renamePath.value = null
+    metaEditing.value = null
+    draggedPath.value = null
+  }
+
   return {
     // 状态（模板绑定）
     creating,
     renamePath,
     metaEditing,
     draggedPath,
+    resetInlineState,
     // 动作
     onMenuSelect,
     doBatchFinalize,

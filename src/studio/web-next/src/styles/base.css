@@ -113,10 +113,21 @@ button:disabled {
 }
 
 /* 全局动效家族（收敛自 13 个组件逐份复制的同名异体 keyframes；scoped 样式可直接
-   引用全局动画名，同 clw-appear 先例）。时长/缓动由各消费点自持，此处只定动画体。 */
+   引用全局动画名，同 clw-appear 先例）。时长/缓动由各消费点自持，此处只定动画体。
+   N-14（第十二轮）：clw-float（上方）与本族同规（无限循环、reduced-motion 由文末
+   全局兜底统一裁剪）；heal-pulse 由 WbHealCard 局部收编为 clw-pulse 入族。 */
 @keyframes clw-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes clw-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
   }
 }
 @keyframes clw-fade-up {

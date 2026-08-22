@@ -79,7 +79,11 @@ function onBlankContextMenu(e: MouseEvent): void {
 
 watch(
   () => props.bookName,
-  async (name) => {
+  async (name, old) => {
+    // N-13（第十二轮）：切书先清内联编辑态——creating/renamePath/metaEditing/draggedPath
+    // 挂的是旧书路径/docId，留着会在新树渲染出无主输入框/弹窗（immediate 首跑 old 为
+    // undefined 时无旧态可清，跳过）
+    if (old !== undefined && old !== name) actions.resetInlineState()
     if (!name) return
     await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
     // 首次打开（无持久化展开状态）→ 一级目录 + 写作/正文

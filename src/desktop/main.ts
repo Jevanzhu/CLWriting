@@ -527,6 +527,11 @@ function registerIpc(): void {
     function sendOnce(key: string | null): void {
       if (sent) return
       sent = true
+      // N-4（第十二轮）：菜单滞留期间窗口可被关闭（click 晚于菜单关闭、popup 回调的
+      // setTimeout 也晚一拍）——webContents 随窗销毁后再 send 会抛「Object has been
+      // destroyed」（判 send 的目标本体 event.sender，比 win 更精确；同文件
+      // second-instance/open-book 的 isDestroyed 守卫同款）
+      if (event.sender.isDestroyed()) return
       event.sender.send('desktop:context-menu-select', key)
     }
     function build(s: ContextMenuSpec): MenuItemConstructorOptions {

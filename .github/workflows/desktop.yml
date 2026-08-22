@@ -12,7 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # M-3（第十一轮）：20→30——tag 门补 typecheck+test 前置步后（发布物验证门），
     # mac 单腿跑全量 vitest + electron-builder 需要更宽的预算
-    timeout-minutes: 30
+    # N-1（第十二轮）：30→40——tag 门再补 check:packaging + release-smoke（自带一次
+    # build:all + playwright），与 ci.yml e2e job 同预算量级
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +41,23 @@ jobs:
         run: npm --prefix src/studio/web-next run typecheck
       - name: 单元测试（vitest run）
         run: npm test
+      # N-1（第十二轮）：M-3 修得不完整——tag 门只补了 typecheck+test，check:packaging
+      # （打包资源完整性门）与 release-smoke（编译产物真实起服验证）仍只在 ci.yml 分支
+      # push 跑；tag 若指 ci.yml 跳过/失败的提交（CC-P1-7 场景），DMG 仍可产出未验发布
+      # 形态。此处把两门焊进 tag 工作流本体（与 ci.yml e2e job 同款步骤）
+      - name: 打包资源门（check:packaging）
+        run: npm run check:packaging
+      - name: 装 playwright chromium
+        run: npx playwright install chromium
+      - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
+        run: npm run test:e2e:release
+      - name: 上传 playwright trace（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace-desktop
+          path: test-results/
+          retention-days: 7
       # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）。
       # --publish never：electron-builder 26 在 tag 提交上会隐式尝试发 GitHub Release（缺
       # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布

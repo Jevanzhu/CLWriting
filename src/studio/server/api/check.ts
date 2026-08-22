@@ -57,12 +57,14 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
       if (!outcome.ok) {
-        return reply(res, checkOutcomeStatus(outcome.code), {
-          ok: false,
-          code: outcome.code,
-          error: outcome.error,
-          ...(outcome.details ? { details: outcome.details } : {}),
-        })
+        // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
+        return replyError(
+          res,
+          checkOutcomeStatus(outcome.code),
+          outcome.code,
+          outcome.error,
+          outcome.details ? { details: outcome.details } : undefined,
+        )
       }
       reply(res, 200, { ok: true, report: outcome.report, hasRed: outcome.hasRed })
     },
@@ -97,7 +99,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       // 复跑机检定位命中区间（机检零 token 纯函数，复跑成本可忽略）
       const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
-      if (!outcome.ok) return reply(res, checkOutcomeStatus(outcome.code), { ok: false, code: outcome.code, error: outcome.error })
+      if (!outcome.ok) return replyError(res, checkOutcomeStatus(outcome.code), outcome.code, outcome.error)
       const items = outcome.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === checkId)
       if (items.length === 0) {
         return replyError(res, 409, 'CONFLICT', `当前机检结果中没有 checkId=${checkId} 的命中（可能已修复，刷新机检后再标）`)

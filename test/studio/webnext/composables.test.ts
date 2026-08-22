@@ -35,7 +35,7 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
 import { sendChat, clearChatHistory } from '../../../src/studio/web-next/src/api/chat'
 import { interrupt } from '../../../src/studio/web-next/src/api/stream'
 import { getProviders, setChatTier, fetchModels } from '../../../src/studio/web-next/src/api/providers'
-import { deleteDoc, createDoc, copyDoc } from '../../../src/studio/web-next/src/api/documents'
+import { deleteDoc, createDoc, copyDoc, updateChapterMetaDoc } from '../../../src/studio/web-next/src/api/documents'
 import { useChatComposer } from '../../../src/studio/web-next/src/composables/useChatComposer'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { useChatTier } from '../../../src/studio/web-next/src/composables/useChatTier'
@@ -368,5 +368,76 @@ describe('useChapterTreeActions · createSingleton / doCopy', () => {
       children: [],
     })
     expect(copyMock).toHaveBeenCalledWith('A书', 'legacy:abc123', '写作/正文/0001-开篇 副本.md')
+  })
+})
+
+// ── N-8/N-9/N-13（第十二轮）：切书竞态守卫 + 内联态清理 ──────────
+describe('useChapterTreeActions · 切书守卫（N-8/N-9/N-13）', () => {
+  const updateMetaMock = updateChapterMetaDoc as ReturnType<typeof vi.fn>
+  const createMock2 = createDoc as ReturnType<typeof vi.fn>
+
+  function metaNode(docId: string) {
+    return {
+      path: '写作/正文/0001-开篇.md',
+      name: '0001-开篇.md',
+      docId,
+      isDirectory: false,
+      role: 'chapter',
+      children: [],
+    }
+  }
+
+  it('N-8: 篇章弹窗滞留期间切书 → 提交写开弹窗时的书（不写 B 书），不刷 B 树', async () => {
+    updateMetaMock.mockResolvedValue({})
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    let current = 'A书'
+    const actions = useChapterTreeActions({ bookName: () => current, openError: ref(null) })
+    actions.onMenuSelect('meta', metaNode('doc_p01'))
+    expect(actions.metaEditing.value?.docId).toBe('doc_p01')
+    current = 'B书' // 弹窗按 A 书的 docId 打开，滞留期间切到 B 书——deps.bookName() 已是 B
+    await actions.onSaveMeta({ 标题: '新标', num: 3 })
+    // 修复点：书名取开弹窗时的捕获值——修复前 updateChapterMetaDoc(B书, doc_p01) 错书落 fm
+    expect(updateMetaMock).toHaveBeenCalledWith('A书', 'doc_p01', { 标题: '新标', 章号: 3 })
+    // 已切书：不刷 B 书树、不动 B 界面
+    expect(tree.load).not.toHaveBeenCalled()
+  })
+
+  it('N-8: 同书提交 → 写该书 + 刷该书树（守卫不误伤正常路径）', async () => {
+    updateMetaMock.mockResolvedValue({})
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    actions.onMenuSelect('meta', metaNode('doc_p01'))
+    await actions.onSaveMeta({ 标题: '新标', num: 2 })
+    expect(updateMetaMock).toHaveBeenCalledWith('A书', 'doc_p01', { 标题: '新标', 章号: 2 })
+    expect(tree.load).toHaveBeenCalledWith('A书')
+  })
+
+  it('N-9: createSingleton 建档在途切书 → 文件落发起书，不刷/不开 B 书界面', async () => {
+    createMock2.mockResolvedValue({ path: '大纲/总纲.md' })
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    let current = 'A书'
+    const actions = useChapterTreeActions({ bookName: () => current, openError: ref(null) })
+    const p = actions.createSingleton('大纲/总纲.md', '总纲')
+    current = 'B书' // createDoc 在途切书——修复前 tree.load(B书) 把 A 书树盖进 B 界面
+    await p
+    expect(createMock2).toHaveBeenCalledWith('A书', expect.objectContaining({ relPath: '大纲/总纲.md' }))
+    expect(tree.load).not.toHaveBeenCalled()
+  })
+
+  it('N-13: resetInlineState 清四内联态（切书由 ChapterTreePanel watch 调用）', async () => {
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    actions.onMenuSelect('meta', metaNode('doc_p01'))
+    actions.renamePath.value = '写作/正文/0001-开篇.md'
+    actions.draggedPath.value = '写作/正文/0001-开篇.md'
+    actions.creating.value = { kind: 'doc', renderDir: '设定', fsDir: '设定', seed: '' }
+    expect(actions.metaEditing.value).not.toBeNull()
+    actions.resetInlineState()
+    expect(actions.metaEditing.value).toBeNull()
+    expect(actions.renamePath.value).toBeNull()
+    expect(actions.draggedPath.value).toBeNull()
+    expect(actions.creating.value).toBeNull()
   })
 })

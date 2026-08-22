@@ -1,7 +1,21 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+// N-12（第十二轮）：捕获 atomicWriteFile 的 opts（透传真实写盘），断言基线冻结走 fsync
+const AT = vi.hoisted(() => ({ writeOpts: [] as Array<{ fsync?: boolean } | undefined> }))
+vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/atomic.js')>()
+  return {
+    ...actual,
+    atomicWriteFile: (p: string, d: string | Uint8Array, o?: { fsync?: boolean }) => {
+      AT.writeOpts.push(o)
+      return actual.atomicWriteFile(p, d, o)
+    },
+  }
+})
+
 import {
   computeFullStats,
   computeSentenceLenVariance,
@@ -278,6 +292,18 @@ test('freezeBaseline: 有样章 → 生成基线.json 含各场景 + overall', (
   expect(existsSync(baselinePath(root))).toBe(true)
   expect(Object.keys(baseline.byScene).sort()).toEqual(['对话', '战斗'])
   expect(baseline.overall.sentenceLenVariance).toBeGreaterThan(0)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('N-12: 基线冻结落盘走 fsync（断电窗口不丢基线，对齐 service 元数据写口径）', () => {
+  const root = makeBookWithSamples()
+  const n0 = AT.writeOpts.length
+  freezeBaseline(root)
+  expect(existsSync(baselinePath(root))).toBe(true)
+  // 修复前：opts undefined（atomicWriteFile 第三参没传）——基线只进页缓存
+  const writes = AT.writeOpts.slice(n0)
+  expect(writes.length).toBeGreaterThanOrEqual(1)
+  expect(writes.every((o) => o?.fsync === true)).toBe(true)
   rmSync(root, { recursive: true, force: true })
 })
 

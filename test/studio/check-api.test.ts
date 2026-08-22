@@ -117,8 +117,9 @@ describe('POST /documents/:docId/check 机检（M12 块3 B3.1）', () => {
   it('非章节文档（设定，fm 无章号/钩子）→ 400 NOT_CHAPTER', async () => {
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${nonChapterDocId}/check`, {})
     expect(r.status).toBe(400)
-    const j = r.json as { ok: boolean; code: string }
-    expect(j.ok).toBe(false)
+    // N-2（第十二轮）：机检错误信封收编 replyError——{code,error} 无 ok 冗余位
+    const j = r.json as { code: string }
+    expect(j).not.toHaveProperty('ok')
     expect(j.code).toBe('NOT_CHAPTER')
   })
 
