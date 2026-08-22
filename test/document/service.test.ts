@@ -244,6 +244,40 @@ describe('DocumentService / 保存协议主路径', () => {
     if (!r.ok) expect(r.code).toBe('CAPABILITY_DENIED')
   })
 
+  it('P-1（第十四轮）: 内部簿记/系统路径经 save/create/move 通道全拒绝（fail-closed）', async () => {
+    // save：伪 journal pending / 清单 / 回收站账本 / book.yaml / .confirm.json 均不可覆写
+    for (const relPath of [
+      '工作区/.journal/01HVICTIM.jsonl',
+      '工作区/.trash/.trash-manifest.jsonl',
+      '项目/文档清单.jsonl',
+      'book.yaml',
+      '.confirm.json',
+      '.cache/ai-calls.json',
+      '工作区/spills/a1b2c3d4e5f60718.md',
+    ]) {
+      const r = await svc.save('doc_p1', relPath, {
+        content: '伪造 pending', expectedRevision: null, operationId: 'op-p1', origin: 'manual',
+      })
+      expect(r.ok, relPath).toBe(false)
+      if (!r.ok) expect(r.code, relPath).toBe('CAPABILITY_DENIED')
+    }
+    // create：不可在簿记目录内新建
+    const c = await svc.createDocument({ relPath: '工作区/.journal/新账.jsonl', content: 'x' })
+    expect(c.ok).toBe(false)
+    if (!c.ok) expect(c.code).toBe('CAPABILITY_DENIED')
+    // move：合法文档不可移入内部目录（newPath = toDir/原文件名 → 工作区/.trash/原位.md）
+    const r0 = await svc.createDocument({ relPath: '笔记/原位.md', content: 'x' })
+    if (!r0.ok) throw new Error('prereq r0')
+    const m = await svc.moveDocument({ docId: r0.docId, toDir: '工作区/.trash' })
+    expect(m.ok).toBe(false)
+    if (!m.ok) expect(m.code).toBe('CAPABILITY_DENIED')
+    // 对照：工作区作者确认位（细纲）不在 deny 清单——legacy 语义维持
+    const w = await svc.save('doc_p1w', '工作区/细纲.md', {
+      content: '推进声明', expectedRevision: null, operationId: 'op-p1w', origin: 'manual',
+    })
+    expect(w.ok).toBe(true)
+  })
+
   it('save settled 记今日字数 delta（E4：新建 + 修改累加，strip fm 口径）', async () => {
     // 新建 save（expectedRevision null）→ delta = 新内容正文字数（fm 已剥）
     const r0 = await svc.save('doc_w', '写作/正文/0001-初稿.md', {

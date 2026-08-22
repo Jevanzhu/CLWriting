@@ -5,6 +5,10 @@
  * （writerSystem kind 选择、reviewSystem 未知 lens fallback、chat trimHistory 截断）。
  */
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname } from 'node:path'
+import { resolveDraftPath } from '../../src/format/draft.js'
 import { ANALYST_SYSTEM } from '../../src/ai/prompts/analyst.js'
 import { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem } from '../../src/ai/prompts/writer.js'
 import { REVIEW_SYSTEMS, reviewSystem } from '../../src/ai/prompts/review.js'
@@ -90,6 +94,36 @@ describe('chat.ts', () => {
   it('buildChatContext chapter<1 → 不读文件', () => {
     const c = buildChatContext('/nonexist', 0)
     expect(c.currentChapter).toBeUndefined()
+  })
+
+  it('P-6（第十四轮）无 fm 但正文含 --- 字样的手写稿 → 预览不吞段（bodyOf 同源剥 fm）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clw-p6-'))
+    try {
+      const rel = resolveDraftPath(root, 3).relPath
+      mkdirSync(dirname(join(root, rel)), { recursive: true })
+      // 无 fm：正文里的 --- 均非「整行独立 ---」（表格分隔行 |---|---| / 场景分隔线后接文字）。
+      // 修复前宽松正则 /^---[\s\S]*?---\n?/ 的闭合 --- 不锚定行首尾——从首行 --- 一路
+      // 吞到表格分隔行里的 ---，开场段与表头全丢
+      writeFileSync(
+        join(root, rel),
+        '---\n雨夜开场，主角登场。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n结尾钩子。',
+      )
+      const c = buildChatContext(root, 3)
+      expect(c.currentChapter).toContain('雨夜开场')
+      expect(c.currentChapter).toContain('破庙')
+      expect(c.currentChapter).toContain('结尾钩子')
+      // 对照 1：合法 fm 章（首行 --- + 独立 --- 闭合行）——fm 剥离、正文进预览
+      writeFileSync(join(root, rel), '---\n章号: 3\n标题: 测试\n---\n正文本体。')
+      const c2 = buildChatContext(root, 3)
+      expect(c2.currentChapter).toContain('正文本体。')
+      expect(c2.currentChapter).not.toContain('标题: 测试')
+      // 对照 2：裸 md 无任何 --- → 原样进预览
+      writeFileSync(join(root, rel), '普通开场没有任何分隔线。')
+      const c3 = buildChatContext(root, 3)
+      expect(c3.currentChapter).toContain('普通开场没有任何分隔线。')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('trimHistory 保留最近 maxTurns 完整回合', () => {

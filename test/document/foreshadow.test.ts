@@ -90,6 +90,23 @@ describe('scanForeshadowTrails', () => {
     expect(t.hits[0]!.命中片段).toContain('玉佩')
   })
 
+  test('P-4（第十四轮）: 同前缀长短词并存 → 长词有独立足迹（交替左优先遮蔽修复）', () => {
+    // 插入序让短词先进 Set（「玉佩」在「玉佩锁」前）——修复前联合正则左优先
+    // 使「玉佩锁」三字永不独立命中，其足迹/风险评级漏检
+    writeForeshadow('玉佩线', { 重要性: '高', 关联词: '玉佩', 埋设章号: '1' })
+    writeForeshadow('玉佩锁线', { 重要性: '高', 关联词: '玉佩锁', 埋设章号: '1' })
+    writeChapter(1, '埋', '他戴上玉佩，锁好门。又看了一眼那把玉佩锁。')
+    writeChapter(40, '远', '岁月流逝。')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const long = trails.get('玉佩锁线')!
+    const hit = long.hits.find((h) => h.命中词 === '玉佩锁')
+    expect(hit, '「玉佩锁」应有独立命中（不被「玉佩」遮蔽）').toBeDefined()
+    expect(hit!.命中片段).toContain('玉佩锁')
+    // 短词足迹不受影响
+    expect(trails.get('玉佩线')!.hits.some((h) => h.命中词 === '玉佩')).toBe(true)
+  })
+
   test('无命中 → firstHit/lastHit 回退 fm 埋设章号', () => {
     writeForeshadow('预言', { 重要性: '中', 埋设章号: '5' })
     writeChapter(5, '测试', '这里完全没有关联词。')

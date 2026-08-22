@@ -120,7 +120,9 @@ export const TOKEN_COEFFICIENTS: Record<string, number> = {
 /** 全局兜底系数（校准前的既有口径：中文约 0.6 token/字） */
 export const DEFAULT_TOKEN_COEFF = 0.6
 
-/** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6 */
+/** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6。
+ *  P-7（第十四轮）：长度按 code points 计（Array.from）——与 spill/compaction 全库
+ *  口径统一；此前 text.length 是 UTF-16 码元，含 emoji/增补平面文本预算估长偏差至多 2 倍。 */
 export function estimateTokens(text: string, model?: string): number {
   let coeff = DEFAULT_TOKEN_COEFF
   if (model) {
@@ -130,7 +132,7 @@ export function estimateTokens(text: string, model?: string): number {
     }
     if (best) coeff = TOKEN_COEFFICIENTS[best]!
   }
-  return Math.ceil(text.length * coeff)
+  return Math.ceil(Array.from(text).length * coeff)
 }
 
 /**

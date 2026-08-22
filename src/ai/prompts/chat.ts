@@ -12,6 +12,9 @@ import { resolveDraftPath } from '../../format/draft.js'
 import { normalizeMaxMessages } from './window.js'
 import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
 import { listSkills, formatSkillIndex } from '../../process/skills.js'
+// P-6（第十四轮）：章正文剥 fm 与 format 层同源——此前手写宽松正则
+// /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
+import { bodyOf } from '../../format/frontmatter-core.js'
 // G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
@@ -87,8 +90,9 @@ export function buildChatContext(
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')
-      // 剥离 front matter，取正文
-      const body = raw.replace(/^---[\s\S]*?---\n?/, '')
+      // 剥离 front matter，取正文（P-6：bodyOf 同源结构化解析——首行必须 --- 且逐行找闭合，
+      // 无 fm 的裸 md 原样返回；不再用宽松正则误吞正文中的 --- 分隔线）
+      const body = bodyOf(raw)
       // B3：超长正文外置（工作区/spills/）+ 头尾预览 + read_chapter 取回指引，
       // 替代 slice(0,2000) 无通知硬切（可切半句、章尾不可见）
       parts.push(

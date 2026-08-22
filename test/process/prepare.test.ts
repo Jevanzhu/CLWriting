@@ -207,6 +207,11 @@ test('estimateTokens: 中文 0.6 token/字', () => {
   expect(t).toBe(6) // 10 * 0.6
 })
 
+test('P-7（第十四轮）: 估长按 code points——增补平面字符（emoji）不按 UTF-16 双码元计', () => {
+  // 10 个 emoji = 10 code points = 20 UTF-16 码元；0.6 系数下 6 vs 12
+  expect(estimateTokens('😀😀😀😀😀😀😀😀😀😀')).toBe(6)
+})
+
 test('#8: 非默认 token 系数下，降档/移除扣减与累计同 model 口径（estimatedTokens == 剩余段真实和）', () => {
   const root = mkdtempSync(join(tmpdir(), '口径-'))
   mkdirSync(join(root, '.cache'), { recursive: true })

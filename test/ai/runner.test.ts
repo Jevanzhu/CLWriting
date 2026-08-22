@@ -420,6 +420,38 @@ describe('ee-P1-2：整体超时与外部 ctrl 隔离', () => {
     // 修复前：ok:true data='possibly-truncated'——成功契约让给了可能被截断的流
     expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
   }, 10_000)
+
+  it('P-5（第十四轮）用户先中断、总超时定时器晚到仍触发 → 归因 ABORTED（不再误标 TIMEOUT_TOTAL）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud, 60) // 总超时 60ms
+    const ctrl = new AbortController()
+    setTimeout(() => ctrl.abort(), 20) // t=20 外部中断（先登记 cause 'external'）
+    const out = await runTask<string>({
+      userDataPath: ud,
+      ctrl,
+      run: (_p, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          // run 在 abort 后「晚归队」（模拟在途流清场耗时）：等总超时定时器也已触发后才 reject
+          signal.addEventListener('abort', () => setTimeout(() => reject(new Error('late')), 120))
+        }),
+    })
+    // t=20 外部中断 → t=60 定时器触发（cause 已占，不改写）→ t=140 run reject 进 catch。
+    // 修复前 catch 只看 timedOut=true → 误标 TIMEOUT_TOTAL
+    expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+  }, 10_000)
+
+  it('P-5 对照：无外部中断、run 晚归队 → 仍 TIMEOUT_TOTAL（归因修复不误伤真超时）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud, 60)
+    const out = await runTask<string>({
+      userDataPath: ud,
+      run: (_p, signal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => setTimeout(() => reject(new Error('late')), 120))
+        }),
+    })
+    expect(out).toMatchObject({ ok: false, code: 'TIMEOUT_TOTAL' })
+  }, 10_000)
 })
 
 describe('O-6（第十三轮）降级回调注册幂等化', () => {

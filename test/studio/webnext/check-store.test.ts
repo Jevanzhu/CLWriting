@@ -166,4 +166,39 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     await s.run('book1', 'doc_2')
     expect(s.flagged.size).toBe(0)
   })
+
+  it('P-9（第十四轮）标记在途时切文档（clear→新 run）→ 迟到响应不污染新文档灰显集与 localStorage', async () => {
+    const store = stubLocalStorage()
+    checkMock.mockResolvedValue({ ok: true, hasRed: true, report: { sections: [] } })
+    // markFalsePositive 挂起：给竞态留窗口
+    let release!: (v: { ok: boolean }) => void
+    fpMock.mockReturnValue(new Promise<{ ok: boolean }>((r) => { release = r }))
+    const s = useCheckStore()
+    await s.run('book1', 'doc_1')
+
+    const flagP = s.flagFalsePositive('book1', 'doc_1', 'r1') // A 文档标记在途
+    s.clear() // 切文档：opGen 推进
+    await s.run('book1', 'doc_2') // B 报告回填（flagged 空）
+    expect(s.flagged.size).toBe(0)
+
+    release({ ok: true }) // A 的迟到成功响应
+    await flagP
+    // 修复前：checkId 'r1' 被追加进 B 的灰显集，且 B 场景下把污染集写进 A 的 localStorage 键
+    expect(s.flagged.size).toBe(0)
+    expect(s.flagged.has('r1')).toBe(false)
+    expect(store.get('clw-fp:book1:doc_1')).toBeUndefined()
+    expect(s.flagging).toBeNull()
+    expect(s.flagError).toBeNull()
+  })
+
+  it('P-9 对照：无切换时标记正常落地（守卫不误伤常规路径）', async () => {
+    const store = stubLocalStorage()
+    checkMock.mockResolvedValue({ ok: true, hasRed: true, report: { sections: [] } })
+    fpMock.mockResolvedValue({ ok: true })
+    const s = useCheckStore()
+    await s.run('book1', 'doc_1')
+    await s.flagFalsePositive('book1', 'doc_1', 'r1')
+    expect(s.flagged.has('r1')).toBe(true)
+    expect(JSON.parse(store.get('clw-fp:book1:doc_1')!)).toEqual(['r1'])
+  })
 })

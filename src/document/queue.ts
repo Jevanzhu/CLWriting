@@ -34,6 +34,7 @@ interface PendingItem<R> {
 }
 
 interface DocQueue<R> {
+  docId: string
   maxToken: number
   frozen: boolean
   running: boolean
@@ -47,7 +48,7 @@ export class SaveQueue<R> {
   private dq(docId: string): DocQueue<R> {
     let q = this.docs.get(docId)
     if (!q) {
-      q = { maxToken: 0, frozen: false, running: false, pending: [] }
+      q = { docId, maxToken: 0, frozen: false, running: false, pending: [] }
       this.docs.set(docId, q)
     }
     return q
@@ -102,13 +103,27 @@ export class SaveQueue<R> {
         (result) => {
           q.running = false
           item.resolve({ result, token: item.token, superseded: item.token < q.maxToken })
-          this.pump(q)
+          this.afterPump(q)
         },
         (e) => {
           q.running = false
           item.reject(e)
-          this.pump(q)
+          this.afterPump(q)
         },
       )
+  }
+
+  /** P-3（第十四轮）：队列排空后回收 docId 条目——per-docId Map 原先永不删除，
+   *  长会话多书下条目随历史 docId 无界累积（每条几十字节，纯卫生）。
+   *  仅在 未在跑 + 未冻结 + 无待跑 时删：冻结态的条目是 unfreeze 的状态载体，保留。
+   *  maxToken 随条目重置无害——回收时该 docId 无未决 promise，superseded 比较不跨回收窗口。 */
+  private afterPump(q: DocQueue<R>): void {
+    if (!q.running && !q.frozen && q.pending.length === 0) this.docs.delete(q.docId)
+    else this.pump(q)
+  }
+
+  /** 在册 docId 条目数（P-3 回收行为的测试观测口）。 */
+  queuedDocCount(): number {
+    return this.docs.size
   }
 }

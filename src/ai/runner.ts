@@ -331,11 +331,20 @@ export async function runTask<T>(opts: {
   // 整体超时只 abort 内部 ctrl 终止本次 runTask，不再污染编排级共享 ctrl（self-heal 一个
   // ctrl 跑多章：此前超时 abort 共享 ctrl 后被其 `state.ctrl.signal.aborted` 判吞成用户
   // 中断，超时文案丢失且后续章静默停摆）。外部中断经 forwardAbort 转发进内部 ctrl，
-  // 下方运行与 catch 判定全走内部（对外契约不变，timedOut 标志区分超时 vs 中断）。
+  // 下方运行与 catch 判定全走内部（对外契约不变，abortCause 按触发序区分超时 vs 中断）。
   const external = opts.ctrl ?? new AbortController()
   const ctrl = new AbortController()
-  const forwardAbort = (): void => ctrl.abort()
-  if (external.signal.aborted) ctrl.abort()
+  // P-5（第十四轮）：中断/超时归因按「谁先触发」记录——外部中断闭包与总超时定时器
+  // 各自先登记 abortCause 再 abort()（JS 单线程下登记序 = 触发序）。此前 catch 里只看
+  // timedOut 布尔：用户恰在超时边界主动中断（timer 晚半拍仍触发）会被 trace 记成
+  // TIMEOUT_TOTAL——行为（abort/重试豁免/入账）不变，仅修诊断口径。
+  let abortCause: 'external' | 'total-timeout' | null = null
+  const abortedByUser = (): boolean => abortCause === 'external'
+  const forwardAbort = (): void => {
+    if (!abortCause) abortCause = 'external'
+    ctrl.abort()
+  }
+  if (external.signal.aborted) forwardAbort()
   else external.signal.addEventListener('abort', forwardAbort, { once: true })
   if (opts.register) opts.register(external)
 
@@ -345,8 +354,10 @@ export async function runTask<T>(opts: {
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
   resolvedEffort = tier.effort
   resolvedTimeoutMs = timeoutMs
-  let timedOut = false
-  const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)
+  const totalTimer = setTimeout(() => {
+    if (!abortCause) abortCause = 'total-timeout'
+    ctrl.abort()
+  }, timeoutMs)
 
   // 二轮复审（M 项）：记账 IO 防护——recordTaskUsage/recordAiCall 写库抛错（磁盘满/库锁/
   // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
@@ -366,9 +377,9 @@ export async function runTask<T>(opts: {
   }
 
   const timeoutAbort = (): TaskErr =>
-    timedOut
-      ? { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）` }
-      : { ok: false, code: 'ABORTED', error: '已中断' }
+    abortedByUser()
+      ? { ok: false, code: 'ABORTED', error: '已中断' }
+      : { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）` }
 
   try {
     for (let attempt = 0; ; attempt++) {
@@ -381,8 +392,8 @@ export async function runTask<T>(opts: {
         if (ctrl.signal.aborted) {
           const abortedUsage = extractUsage(data)
           recordUsageSafe(abortedUsage)
-          trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: abortedUsage, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
-          stepReason = timedOut ? 'interrupted' : 'aborted'
+          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: abortedUsage, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
+          stepReason = abortedByUser() ? 'aborted' : 'interrupted'
           return timeoutAbort()
         }
         const usage = extractUsage(data)
@@ -399,10 +410,10 @@ export async function runTask<T>(opts: {
           // X-P2-10：中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
           // 否则中断重跑可绕过预算闸（task/chapter 两块与成功/重试路径同口径）
           recordUsageSafe(null)
-          trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: null, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
           // AA-P3-4：step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
           // 'interrupted'（执行被强制中止），用户中断记 'aborted'（审计可区分两类终止）
-          stepReason = timedOut ? 'interrupted' : 'aborted'
+          stepReason = abortedByUser() ? 'aborted' : 'interrupted'
           return timeoutAbort()
         }
         // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
@@ -442,9 +453,9 @@ export async function runTask<T>(opts: {
           chain?.flush() // Z-P2-7：批缓冲下显式落盘，保住「先落库后等待」语义
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
-            trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: null, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+            trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: null, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
             // AA-P3-4：同第一处——超时 'interrupted' vs 用户中断 'aborted'
-            stepReason = timedOut ? 'interrupted' : 'aborted'
+            stepReason = abortedByUser() ? 'aborted' : 'interrupted'
             return timeoutAbort()
           }
           continue

@@ -89,19 +89,27 @@ export const useCheckStore = defineStore('check', () => {
     flagError.value = null
   }
 
-  /** B1（批 6）：标误报（幂等——已标过不重复请求）；错误置 flagError 供面板提示 */
+  /** B1（批 6）：标误报（幂等——已标过不重复请求）；错误置 flagError 供面板提示。
+   *  P-9（第十四轮）：入口捕获 opGen、落态前查代——与同文件 run/clear 的既有纪律
+   *  对齐：标记在途时切文档/切书（clear→新报告 run 回填），迟到的成功响应不再把
+   *  A 文档的 checkId 追加进 B 文档灰显集（checkId 跨文档同名），也不再污染 localStorage 键。 */
   async function flagFalsePositive(name: string, docId: string, checkId: string): Promise<void> {
     if (flagging.value || flagged.value.has(checkId)) return
+    // 只快照不推进：flag 不废在途的 run（run 结果仍应落地）；clear/新 run 会推进 opGen，
+    // 迟到回填由此被挡
+    const gen = opGen
     flagging.value = checkId
     flagError.value = null
     try {
       await markFalsePositive(name, docId, checkId)
+      if (gen !== opGen) return // 在途期间已 clear/切文档：结果不落新文档
       flagged.value = new Set([...flagged.value, checkId])
       saveFlagged(name, docId) // M-1：刷新后灰显态可回填
     } catch (e) {
+      if (gen !== opGen) return
       flagError.value = friendlyError(e)
     } finally {
-      flagging.value = null
+      if (gen === opGen) flagging.value = null
     }
   }
 

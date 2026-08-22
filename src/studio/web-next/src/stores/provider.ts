@@ -62,8 +62,10 @@ export const useProviderStore = defineStore('provider', () => {
   const probeModels = ref<Map<string, string>>(new Map())
   /** 拉取到的模型清单（按提供方分存，V-P2-26） */
   const modelsByProvider = ref<Map<string, string[]>>(new Map())
-  const fetchingModels = ref(false)
-  /** 入模重入锁：同一提供方正在拉取则不重复发请求 */
+  /** 入模重入锁：同一提供方正在拉取则不重复发请求。
+   *  P-10（第十四轮）：删除 fetchingModels 单布尔死状态——并发拉取时先完成者会把
+   *  共享布尔置 false（语义失真），且全前端零消费方；「任一在拉」如需可由
+   *  fetchingModelIds.size>0 派生。 */
   const fetchingModelIds = new Set<string>()
 
   // ── RAG 提供方 ──
@@ -139,7 +141,6 @@ export const useProviderStore = defineStore('provider', () => {
     if (fetchingModelIds.has(p.id)) return
     if (!opts.force && modelsByProvider.value.has(p.id)) return
     fetchingModelIds.add(p.id)
-    fetchingModels.value = true
     try {
       const r = await fetchModels({ id: p.id })
       modelsByProvider.value.set(p.id, r.models)
@@ -154,7 +155,6 @@ export const useProviderStore = defineStore('provider', () => {
       // dd-P2：失败保留旧缓存——force 重拉失败不清空已成功清单
     } finally {
       fetchingModelIds.delete(p.id)
-      fetchingModels.value = false
     }
   }
 
@@ -339,7 +339,7 @@ export const useProviderStore = defineStore('provider', () => {
 
   return {
     // state
-    providers, currentId, currentModel, tiers, revision, loading, testing, testResults, probeModels, modelsByProvider, fetchingModels,
+    providers, currentId, currentModel, tiers, revision, loading, testing, testResults, probeModels, modelsByProvider,
     ragProviders, ragLoading, ragTesting, ragTestResults,
     // getters
     currentProvider, configModels, currentModels, chatActiveModel, chatActiveEffort,

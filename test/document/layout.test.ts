@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { roleOf, capabilitiesOf, layoutOf } from '../../src/document/layout.js'
+import { roleOf, capabilitiesOf, layoutOf, isInternalBookPath } from '../../src/document/layout.js'
 
 describe('layout / roleOf 按路径判 role', () => {
   it('正文 + 设定（v2 目录结构）', () => {
@@ -103,5 +103,48 @@ describe('layout / layoutOf 组合', () => {
     expect(info.role).toBe('ledger')
     expect(info.capabilities.trash).toBe(false)
     expect(info.capabilities.write).toBe(true)
+  })
+})
+
+describe('layout / P-1（第十四轮）内部簿记与系统路径 deny', () => {
+  it('工作区内部簿记子路径命中清单（含 .snapshots 旧名）', () => {
+    for (const p of [
+      '工作区/.journal/01J8.jsonl',
+      '工作区/.trash/.trash-manifest.jsonl',
+      '工作区/.版本/01J8/01J8ULID.md',
+      '工作区/.snapshots/01J8/旧.md',
+      '工作区/.账本推进暂存/第3章.md',
+      '工作区/spills/a1b2c3d4e5f60718.md',
+      '工作区/待定稿/.auto-batch.json',
+      './工作区/.journal/x.jsonl',
+    ]) {
+      expect(isInternalBookPath(p), p).toBe(true)
+    }
+  })
+
+  it('书根系统文件/目录命中清单', () => {
+    for (const p of ['.confirm.json', 'book.yaml', '项目/文档清单.jsonl', '.cache/ai-calls.json', '.git/config', '.clwriting/rag.secret', 'node_modules/x/y.js']) {
+      expect(isInternalBookPath(p), p).toBe(true)
+    }
+  })
+
+  it('作者可编辑面不误伤：工作区确认位 / 笔记 / 素材 / 正文 / 设定', () => {
+    for (const p of ['工作区/细纲.md', '工作区/账本推进.md', '笔记/随手.md', '素材/灵感.md', '写作/正文/0001-开篇.md', '设定/世界观.md']) {
+      expect(isInternalBookPath(p), p).toBe(false)
+    }
+  })
+
+  it('内部簿记路径 capabilities 全结构性拒绝（write/rename/move/copy/trash 均 false，read 保持）', () => {
+    const c = layoutOf('工作区/.journal/01J8.jsonl').capabilities
+    expect(c.write).toBe(false)
+    expect(c.rename).toBe(false)
+    expect(c.move).toBe(false)
+    expect(c.copy).toBe(false)
+    expect(c.trash).toBe(false)
+    expect(c.read).toBe(true)
+    // 书根系统文件同口径
+    const m = layoutOf('项目/文档清单.jsonl').capabilities
+    expect(m.write).toBe(false)
+    expect(m.trash).toBe(false)
   })
 })

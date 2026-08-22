@@ -318,8 +318,13 @@ function buildKeywordIndex(
   }
   if (keywords.size === 0) return index
 
-  // 联合正则：`kw1|kw2|...`，一次扫描提取全部命中
-  const re = new RegExp([...keywords].map(escapeRegExp).join('|'), 'g')
+  // 联合正则：`kw1|kw2|...`，一次扫描提取全部命中。
+  // P-4（第十四轮）：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
+  // 永久遮蔽同前缀长词（「玉佩」先匹配，「玉佩锁」无独立命中），风险评级漏检长关联词。
+  const re = new RegExp(
+    [...keywords].map(escapeRegExp).sort((a, b) => b.length - a.length).join('|'),
+    'g',
+  )
   for (const [章号, text] of chapters) {
     if (text.length === 0) continue
     re.lastIndex = 0

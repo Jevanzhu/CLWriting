@@ -91,6 +91,35 @@ describe('F1-P1 replace 遮蔽（压缩走遮蔽）', () => {
     ])
     expect(deriveMessages(events)).toEqual([{ role: 'user', content: '新' }])
   })
+
+  it('P-15（第十四轮）插入位兜底分支锁定：全部可见节点早于遮蔽区间 → 存档消息追加尾部', () => {
+    // 默认分支（insertAt 维持 visible.length）仅当「无节点落在遮蔽区间内、也无节点晚于
+    // 区间尾」时触达——即全部可见节点 seq < shadowStart（合法流不产生此形态，仅脏流
+    // 可达；锁定现行为：存档消息原样追加尾部、可见节点无遮蔽）。
+    // 对照：「节点晚于区间尾」走 insertAt=i 分支——存档插在该节点之前（区间语义）。
+    const events: ChatEvent[] = [
+      ev(2, 'user/message', { message: '更早的可见消息' }, { surfaceOp: 'append' }),
+      ev(6, 'compaction/end', { reason: 'completed', message: '后续不可见回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 4, shadowEnd: 5, sourceSeqs: [4, 5] }),
+    ]
+    const nodes = foldSurface(events)
+    expect(nodes.map((n) => n.seq)).toEqual([2, 6])
+    expect(nodes.every((n) => n.shadowed === false)).toBe(true)
+    expect(nodes[1]).toMatchObject({ kind: 'user-text', content: '后续不可见回合的存档摘要' })
+    expect(deriveMessages(events)).toEqual([
+      { role: 'user', content: '更早的可见消息' },
+      { role: 'user', content: '后续不可见回合的存档摘要' },
+    ])
+  })
+
+  it('P-15 对照：可见节点晚于遮蔽区间尾 → 存档消息插到该节点之前（区间语义，非兜底）', () => {
+    const events: ChatEvent[] = [
+      ev(5, 'user/message', { message: '后来的' }, { surfaceOp: 'append' }),
+      ev(6, 'compaction/end', { reason: 'completed', message: '更早回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 3, sourceSeqs: [1, 2, 3] }),
+    ]
+    const nodes = foldSurface(events)
+    expect(nodes.map((n) => n.seq)).toEqual([6, 5])
+    expect(nodes[0]).toMatchObject({ kind: 'user-text', content: '更早回合的存档摘要' })
+  })
 })
 
 describe('F1-P1 校验链', () => {

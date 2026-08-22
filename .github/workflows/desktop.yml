@@ -47,6 +47,13 @@ jobs:
       # 形态。此处把两门焊进 tag 工作流本体（与 ci.yml e2e job 同款步骤）
       - name: 打包资源门（check:packaging）
         run: npm run check:packaging
+      # P-2（第十四轮）：tag 门与 ci.yml 门集合对齐——counts（README 账实对账）与
+      # knowledge（知识层 manifest 校验，check:knowledge 是其唯一自动执行通道）补进
+      # 发布工作流；tag 指未经分支 CI 的提交时 DMG 不再携带文档失真/manifest 失配出包
+      - name: 计数对账门（check:counts）
+        run: npm run check:counts
+      - name: 知识层门（check:knowledge）
+        run: npm run check:knowledge
       - name: 装 playwright chromium
         run: npx playwright install chromium
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）

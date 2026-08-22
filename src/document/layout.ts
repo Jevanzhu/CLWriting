@@ -59,6 +59,29 @@ const ALL_TRUE: Capabilities = {
 /** 账本六类目录名集合（大纲/<六类>/，#3 第 2 节；伏笔已独立为设定伏笔系统）。 */
 const LEDGER_DIRS = new Set<string>(LEAD_TYPES)
 
+/** P-1（第十四轮）：工作区内部簿记子路径前缀（头注「工作区内部目录」清单的机器可读版，
+ *  另收 .snapshots 迁移前旧名）。这些是崩溃恢复账本 / 回收站清单 / 版本库 / 批量暂存 /
+ *  spill 外置介质，只能由各自模块的专用写通道维护。 */
+const WORKSPACE_INTERNAL_DIR_PREFIXES = [
+  '工作区/.journal/', '工作区/.trash/', '工作区/.版本/', '工作区/.snapshots/',
+  '工作区/.账本推进暂存/', '工作区/spills/', '工作区/待定稿/',
+]
+
+/** P-1（第十四轮）：书根系统文件/目录——文档清单、book 元数据、确认位、AI 记账、
+ *  git/clwriting 内部目录。tree.ts SKIP_DIRS 同族（能力层只挡顶层段命中）。 */
+const BOOK_SYSTEM_TOP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '项目'])
+const BOOK_SYSTEM_FILES = new Set(['.confirm.json', 'book.yaml'])
+
+/** 内部簿记/系统路径判定（P-1）：文档 CRUD 通道对其拒绝全部结构性与写能力。
+ *  工作区/ 下的作者确认位（细纲.md / 账本推进.md）不在清单内——编辑白名单走
+ *  files.ts WORKDIR_EDITABLE，文档通道未登记路径维持既有 legacy 语义，均不受影响。 */
+export function isInternalBookPath(relPath: string): boolean {
+  const p = norm(relPath)
+  if (WORKSPACE_INTERNAL_DIR_PREFIXES.some((pre) => p.startsWith(pre))) return true
+  if (BOOK_SYSTEM_FILES.has(p)) return true
+  return BOOK_SYSTEM_TOP_DIRS.has(p.split('/')[0] ?? '')
+}
+
 /** 规整路径：去前导 ./、反斜杠转正斜杠。 */
 function norm(p: string): string {
   return p.replace(/^\.\//, '').replace(/\\/g, '/')
@@ -97,6 +120,13 @@ export function roleOf(relPath: string): DocumentRole {
 
 /** 按 role + 路径上下文算 capabilities（W0-1 §2 + §9）。 */
 export function capabilitiesOf(role: DocumentRole, relPath?: string): Capabilities {
+  // P-1（第十四轮）：内部簿记/系统路径 fail-closed——save 预校验与本函数各能力消费点
+  // （create/move/copy/trash）统一被拒，杜绝以 工作区/.journal/<docId>.jsonl 或
+  // 项目/文档清单.jsonl 为 relPath 的 CRUD 请求覆写崩溃恢复账本/登记清单
+  // （resolveSafePath 只挡越根不挡内部簿记；files API 编辑白名单不经此层）。
+  if (relPath && isInternalBookPath(relPath)) {
+    return { ...ALL_TRUE, write: false, rename: false, move: false, copy: false, trash: false }
+  }
   switch (role) {
     case 'note':
       // 定稿/摘要（脚本产物）只读呈现；其他 note（笔记/自由区/未匹配）全开

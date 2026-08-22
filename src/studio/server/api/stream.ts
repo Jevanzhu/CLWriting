@@ -43,6 +43,44 @@ interface StreamCtx {
 const sseConnections = new Map<string, number>()
 const MAX_SSE_PER_BOOK = 5
 
+/** P-8（第十四轮）：SSE 写背压判死阈值——res.write() 返回 false 起（假死客户端 TCP
+ *  接收窗口关死），滞留 Node writable 队列的字节累计超此值即 destroy 断连（1MB ≈
+ *  数十条章节级事件；受 MAX_SSE_PER_BOOK 与事件量约束，正常客户端远达不到）。 */
+export const SSE_BACKPRESSURE_LIMIT = 1_000_000
+
+/** P-8：背压守卫所需的 res 最小面（结构化收窄——不用 Pick<ServerResponse,...>，
+ *  真实 ServerResponse.on 返回 this，假 res/单测桩返回 void 无法满足该签名）。 */
+interface SseWritable {
+  writableEnded: boolean
+  destroyed: boolean
+  write(chunk: string): boolean
+  on(event: 'drain', listener: () => void): unknown
+  destroy(): void
+}
+
+/**
+ * P-8（第十四轮）：SSE 安全写 + 背压判死。
+ * - 已断开（writableEnded / destroyed）静默丢弃（既有守卫语义不变）；
+ * - write() 返回 false 自此累计滞留字节、drain 事件复位、成功写复位；
+ * - 累计超 limit 判死 res.destroy()——假死连接不再让服务端内存无界缓冲（走既有
+ *   close 清理链：channel 计数 / 心跳清理 / iter.return）。导出供单测注入假 res。
+ */
+export function createSseWriter(res: SseWritable, limit: number = SSE_BACKPRESSURE_LIMIT): (chunk: string) => void {
+  let pendingBytes = 0
+  res.on('drain', () => {
+    pendingBytes = 0
+  })
+  return (chunk: string): void => {
+    if (res.writableEnded || res.destroyed) return
+    if (res.write(chunk) === false) {
+      pendingBytes += chunk.length
+      if (pendingBytes > limit) res.destroy()
+    } else {
+      pendingBytes = 0
+    }
+  }
+}
+
 // RB-SV-P2-1：per-book spawn 运行闸（与 /auto-write 的 self-heal 闸同模式）——
 // 双标签页时序窗口并发双 spawn 会互相覆写草稿回流。占位在首个 await 前同步完成
 // （比 auto-write 的「检查→await→二次检查」更严，无 TOCTOU 窗口），终态 finally 释放。
@@ -208,10 +246,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
     iter = driver.stream(session) as AsyncGenerator<DriverEvent>
-    // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）
-    const safeWrite = (chunk: string): void => {
-      if (!res.writableEnded && !res.destroyed) res.write(chunk)
-    }
+    // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）；
+    // P-8：换 createSseWriter，另覆盖写背压判死（假死客户端不再无界缓冲）
+    const safeWrite = createSseWriter(res)
     // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
     heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
     try {
