@@ -37,13 +37,27 @@ export interface SpillOutcome {
 /** 落盘回调：返回 locator（相对路径）；失败返回 null（best-effort） */
 export type SpillWriter = (fullText: string) => string | null
 
-/** 落盘到 工作区/spills/<sha256 前 16>.md（内容寻址幂等；目录不存在自动建） */
-export function writeSpillFile(bookRoot: string, text: string): string | null {
+/** 落盘到 工作区/spills/<sha256 前 16>.md（内容寻址幂等；目录不存在自动建）。
+ *  M-3（第十轮）：meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
+ *  spill 归属章号与基线新鲜度，防「转述错章号整章覆写」与「改写后被编辑仍静默覆盖」。
+ *  正文文件保持纯文本不变（内容寻址与模型直读语义不动）；sidecar 写失败随整次写入
+ *  失败返回 null（无 meta 的 spill 在 apply 侧一律拒绝，不留半保障状态）。 */
+export interface SpillMeta {
+  /** 产出语义（当前仅 rewrite 改写稿；chat 上下文 spill 不带 meta） */
+  kind: 'rewrite'
+  /** 改写目标章号 */
+  chapter: number
+  /** 改写时章正文 sha256（hex）——apply 前校验正文未被编辑（新鲜度） */
+  baseSha: string
+}
+
+export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
   try {
     const hash = createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
     const dir = join(bookRoot, '工作区', 'spills')
     // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
     atomicWriteFile(join(dir, `${hash}.md`), text)
+    if (meta) atomicWriteFile(join(dir, `${hash}.meta.json`), JSON.stringify(meta))
     // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
     pruneOldSpills(dir)
@@ -68,6 +82,24 @@ export function readSpillFile(bookRoot: string, locator: string): string | null 
   try {
     if (!existsSync(abs)) return null
     return readFileSync(abs, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/** M-3（第十轮）：读 spill 溯源 sidecar。locator 同款白名单；不存在/形状不符 → null
+ *  （apply 侧按「无溯源」拒绝，chat 上下文 spill 与手写文件天然走不进确认通道）。 */
+export function readSpillMeta(bookRoot: string, locator: string): SpillMeta | null {
+  if (!SPILL_LOCATOR_RE.test(locator)) return null
+  const abs = join(bookRoot, locator.replace(/\.md$/, '.meta.json'))
+  if (!isWithinRoot(bookRoot, abs)) return null
+  try {
+    const obj = JSON.parse(readFileSync(abs, 'utf-8')) as Record<string, unknown>
+    if (obj.kind !== 'rewrite') return null
+    const chapter = Number(obj.chapter)
+    const baseSha = String(obj.baseSha ?? '')
+    if (!Number.isInteger(chapter) || chapter < 1 || !/^[0-9a-f]{64}$/.test(baseSha)) return null
+    return { kind: 'rewrite', chapter, baseSha }
   } catch {
     return null
   }
@@ -112,13 +144,14 @@ export function spillIfLarge(
   }
 }
 
-/** L-P8（第八轮）：删除 30 天未访问的 spill 产物（best-effort，失败静默） */
+/** L-P8（第八轮）：删除 30 天未访问的 spill 产物（best-effort，失败静默）。
+ *  M-3：.meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
 const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
 function pruneOldSpills(dir: string): void {
   try {
     const now = Date.now()
     for (const name of readdirSync(dir)) {
-      if (!name.endsWith('.md')) continue
+      if (!name.endsWith('.md') && !name.endsWith('.meta.json')) continue
       const fp = join(dir, name)
       try {
         if (now - statSync(fp).mtimeMs > SPILL_TTL_MS) rmSync(fp, { force: true })

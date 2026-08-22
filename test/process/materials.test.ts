@@ -375,6 +375,39 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
   }
 })
 
+// 低-1（第十轮）：RAG 无命中降级分支是同函数三处 prepare 调用点里唯一漏传
+// writingChapter 的——L-P3「卷号按写作章推」只在另两分支生效，本分支卷首章的
+// 上卷摘要晚一章注入。空库（不建索引）走无命中路径，不烧 embed。
+test('低-1（第十轮）：RAG 无命中降级也传 writingChapter——卷首章上卷摘要不晚一章', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // volume_size=1：写第 2 章即卷 2 首章，本章就应注入第 1 卷摘要；快照口径
+    // （currentChapter ≤ 最后定稿章 1）会算 outlookVolume=1 → 晚一章。预置手写
+    // 卷摘要（selfHealVolumeSummary 文件存在即跳过，不触发生成）
+    const cfg = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 1 } }
+    mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+    writeFileSync(
+      join(root, '定稿', '摘要', '卷摘要', '1.md'),
+      '---\nvolume: 1\n---\n\n第一卷剧情回顾正文。',
+      'utf-8',
+    )
+    // 已配 RAG + key 但不建索引 → recall 空库返回 []（无命中降级分支）
+    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+
+    const r = await prepareMaterials(db, cfg, {
+      bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
+    })
+    expect(r.ragUsed).toBe(false)
+    expect(r.ragNote).toContain('无命中')
+    const sec = r.sections.find((s) => s.title === '第1卷摘要')
+    expect(sec).toBeTruthy()
+    expect(sec!.content).toContain('第一卷剧情回顾正文。')
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
 test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回（此前断链恒用缺省 20）', async () => {
   const { root, workDir, db } = makeBook()
   try {

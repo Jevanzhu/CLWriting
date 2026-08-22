@@ -237,6 +237,55 @@ describe('kk-P2-15：state 端点错误与降级分支', () => {
   })
 })
 
+// ── book.yaml 损坏：单书端点显式 500（第九轮 L-1 / 第十轮 低-2）────────
+
+describe('kk-P2-15：book.yaml 损坏 → 单书端点显式 500（真实错误文案）', () => {
+  // 损坏形态：有值键后跟更深缩进行——parseSections 唯一显式抛错的语法错误（ii 批 ff P2-2）
+  const BROKEN = 'kind: long\n  孤儿子行\n'
+
+  it('M-6（第十轮，回归第九轮 L-1）：GET /api/books/:name 对损坏 book.yaml → 500 IO（不代答默认身份）', async () => {
+    makeBook('坏身份', BROKEN)
+    const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏身份')}` })
+    expect(r.status).toBe(500)
+    expect(r.json.code).toBe('IO')
+    expect(r.json.error).toContain('book.yaml')
+  })
+
+  it('低-2（第十轮）：单书身份 500 文案含真实解析错误、不串成 [object Object]', async () => {
+    makeBook('坏文案', BROKEN)
+    const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏文案')}` })
+    expect(r.status).toBe(500)
+    expect(r.json.error).not.toContain('[object Object]')
+    // readBookConfig 错误分支的 ParseError {file,line,message}——须取 .message 展示
+    expect(r.json.error).toContain('解析失败')
+  })
+
+  it('低-2（第十轮）：GET /api/books/:name/config 同场景 500 文案不串成 [object Object]', async () => {
+    makeBook('坏配置', BROKEN)
+    const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏配置')}/config` })
+    expect(r.status).toBe(500)
+    expect(r.json.code).toBe('IO')
+    expect(r.json.error).not.toContain('[object Object]')
+    expect(r.json.error).toContain('解析失败')
+  })
+  it('低-3（第十轮）：书架列表对损坏 book.yaml 显式标 damaged，健康书无该字段', async () => {
+    makeBook('列表健康书', 'kind: long\nbook:\n  title: 健康书名\nhost: cc\n')
+    makeBook('列表坏书', 'kind: long\n  孤儿子行\n')
+    const r = await req({ method: 'GET', path: '/api/books' })
+    expect(r.status).toBe(200)
+    const books = r.json.books as Array<Record<string, unknown>>
+    const healthy = books.find((b) => b['name'] === '列表健康书')!
+    const damaged = books.find((b) => b['name'] === '列表坏书')!
+    // 健康书：正常展开 + 无损坏标记（既有字段语义不变）
+    expect(healthy['damaged']).toBeUndefined()
+    expect(healthy['title']).toBe('健康书名')
+    // 损坏书：显式标记，不再以默认骨架空 title 装作正常书（与单书端点 500 口径对齐）
+    expect(damaged['damaged']).toBe(true)
+    expect(damaged['title']).toBeUndefined()
+    expect(damaged['path']).toBeTruthy() // 登记原样保留（可定位/可删）
+  })
+})
+
 // ── ai-status 探测降级梯 ───────────────────────────────────
 
 describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {

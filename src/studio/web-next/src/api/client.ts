@@ -76,23 +76,47 @@ export async function apiJson<T>(
   let timer: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
   const controller = timeoutMs ? new AbortController() : undefined
+  // 低-6（第十轮）：外部 signal 的联动监听器引用——settle 后必须摘除，否则 once 监听器
+  // 在请求结束后仍挂在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
+  let unlinkExternalSignal: (() => void) | undefined
   if (controller) {
     timer = setTimeout(() => { timedOut = true; controller!.abort() }, timeoutMs)
     // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
     // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
     if (init?.signal?.aborted) controller.abort()
-    else init?.signal?.addEventListener('abort', () => controller!.abort(), { once: true })
+    else if (init?.signal) {
+      const external = init.signal
+      const onExternalAbort = () => controller!.abort()
+      external.addEventListener('abort', onExternalAbort, { once: true })
+      unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
+    }
   }
   try {
     const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })
-    const data = (await r.json().catch(() => ({}))) as T & {
-      error?: string
-      code?: string
+    // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
+    // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
+    // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案
+    // （否则裸 HTTP 5xx 被匹配成「AI 服务繁忙，请稍后重试」，掩盖真正原因）。
+    let body: T & { error?: string; code?: string }
+    let hasEnvelope = false
+    try {
+      const parsed = (await r.json()) as T & { error?: string; code?: string }
+      body = parsed
+      hasEnvelope =
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        (typeof parsed['error'] === 'string' || typeof parsed['code'] === 'string')
+    } catch {
+      body = {} as T & { error?: string; code?: string }
     }
     if (!r.ok) {
-      throw new ApiError(data.error ?? data.code ?? `HTTP ${r.status}`, r.status, data.code)
+      // 有信封 → 沿用服务端人话/机器码；无信封 → 基础设施故障，给可行动提示（dev 提示先起 dev:api）
+      const msg = hasEnvelope
+        ? body.error ?? body.code ?? `HTTP ${r.status}`
+        : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
+      throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }
-    return data
+    return body
   } catch (e) {
     // 超时 abort 抛友好错误（timedOut 区分超时 abort 与外部 signal abort）
     if (e instanceof DOMException && e.name === 'AbortError' && timedOut) {
@@ -101,5 +125,8 @@ export async function apiJson<T>(
     throw e
   } finally {
     if (timer) clearTimeout(timer)
+    // 低-6（第十轮）：settle（成功/失败/超时）后摘除外部 signal 监听器；外部 abort 触发
+    // 路径的 AbortError 语义不变（上面 timedOut 区分，不伪装成超时）
+    unlinkExternalSignal?.()
   }
 }

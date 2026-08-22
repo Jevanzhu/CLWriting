@@ -19,6 +19,15 @@ const TECH_PATTERNS: ReadonlyArray<{ test: RegExp; tip: string }> = [
 
 export function friendlyError(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e)
+  // dv-01：本地 API/网络层的裸 HTTP 状态串（如 dev Vite proxy 未起返回的「HTTP 502」）
+  // 不是 AI 提供方故障——先于 TECH_PATTERNS 返回中性文案，避免被 /502/ 误匹配成
+  // 「AI 服务繁忙」掩盖「本地服务没起」的真实原因（apiJson 已将空体 5xx 改报
+  // 「本地服务未连接…」，此处兜底其余裸 HTTP 形态）。
+  const httpStatus = /^HTTP\s*(\d{3})\b/.exec(raw)
+  if (httpStatus) {
+    if (import.meta.env.DEV) console.error('[error]', e)
+    return `请求失败（HTTP ${httpStatus[1]}），请稍后重试`
+  }
   for (const { test, tip } of TECH_PATTERNS) {
     if (test.test(raw)) {
       if (import.meta.env.DEV) console.error('[error]', e)

@@ -256,6 +256,46 @@ describe('P9 模型行', () => {
   })
 })
 
+describe('chat 档清档口径（第九轮 L-2 / 第十轮 低-1）', () => {
+  it('低-1（第十轮）：JSON 原语（5/true/[]/""）不误入清档分支 → 400 且 chat 档与 revision 不动', async () => {
+    // 先设 chat 档（供「未被误清」断言用）
+    const set = await req<{ ok: boolean; tiers: { chat: unknown }; revision: number }>({
+      method: 'PUT',
+      path: '/api/tiers/chat',
+      body: { model: 'test-model', effort: 'high' },
+    })
+    expect(set.status).toBe(200)
+    expect(set.json.tiers.chat).toBeTruthy()
+
+    // readJson 只把字面 null 归一为 {}——数字/布尔/数组/空串原样透出，
+    // 旧实现 `Object.keys(5).length === 0` 把原语当「空对象=清档」
+    for (const prim of [5, true, [], '']) {
+      const r = await req<{ error: string }>({ method: 'PUT', path: '/api/tiers/chat', body: prim })
+      expect(r.status).toBe(400)
+      expect(r.json.error).toBeTruthy()
+    }
+
+    // chat 档未被清、revision 未被静默 bump
+    const g = await req<{ tiers: { chat: unknown }; revision: number }>({ method: 'GET', path: '/api/providers' })
+    expect(g.json.tiers.chat).toBeTruthy()
+    expect(g.json.revision).toBe(set.json.revision)
+  })
+
+  it('M-6（第十轮，回归第九轮 L-2）：无 expectedRevision 的合法空对象 {} → 清档成功且 revision bump', async () => {
+    const g0 = await req<{ tiers: { chat: unknown }; revision: number }>({ method: 'GET', path: '/api/providers' })
+    expect(g0.json.tiers.chat).toBeTruthy() // 前例已设且未被误清
+    const clear = await req<{ ok: boolean; tiers: { chat: unknown }; revision: number }>({
+      method: 'PUT',
+      path: '/api/tiers/chat',
+      body: {},
+    })
+    expect(clear.status).toBe(200)
+    expect(clear.json.ok).toBe(true)
+    expect(clear.json.tiers.chat).toBeNull()
+    expect(clear.json.revision).toBe(g0.json.revision + 1)
+  })
+})
+
 describe('P10 档位超时 timeoutMs', () => {
   it('PUT /api/tiers 带 timeoutMs 落盘可回读；非正整数 → 400', async () => {
     const a = await req<{ provider: { id: string }; revision: number }>({

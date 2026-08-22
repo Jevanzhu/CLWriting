@@ -92,14 +92,24 @@ function parseEntry(obj: RawLine): ManifestEntry {
 }
 
 /** 幂等合并：同 id 后写覆盖（清单行序无语义）。 */
-/** 已定稿路径集合（V-P2-2 导出 / learn 收割 H-1 共用的单一判定）：
+/** 已定稿路径集合（V-P2-2 导出 / learn 收割 H-1 / overview 时间线共用的单一判定）：
  *  文档条目且有 finalizedRevision（曾定稿）→ 其 path 入集合。
- *  旧书无清单 / 清单无任何文档条目（损坏降级）→ null（无法判定，调用方保持全量，
- *  与历史行为一致）。路径为 manifest 口径的正斜杠相对路径。 */
+ *  旧书无清单 → null（无法判定，调用方保持全量，与历史行为一致）。
+ *  M-2（第十轮）：读失败（EACCES/EBUSY 瞬态）→ null 走全量兜底，不再与「零文档条目」
+ *  混同——readManifest 吞掉读失败返空清单，此前 docs=0 一律 null；清单在册可读但零
+ *  文档条目（脚手架新书）改返**空集**（判定成立：无一定稿，PL-2 同口径——草稿不再
+ *  混进导出/文风样本/候选池）。路径为 manifest 口径的正斜杠相对路径。 */
 export function finalizedPathSet(bookRoot: string): Set<string> | null {
-  const entries = [...readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.values()]
+  const fp = join(bookRoot, '项目', '文档清单.jsonl')
+  if (!existsSync(fp)) return null
+  try {
+    readFileSync(fp)
+  } catch {
+    return null
+  }
+  const entries = [...readManifest(fp).entries.values()]
   const docs = entries.filter((e) => e.nodeType === 'document')
-  if (docs.length === 0) return null
+  if (docs.length === 0) return new Set()
   const set = new Set<string>()
   for (const e of docs) if (e.finalizedRevision) set.add(e.path)
   return set

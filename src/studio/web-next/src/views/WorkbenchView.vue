@@ -218,8 +218,11 @@ async function onSaveDraft(): Promise<void> {
   const book = props.bookName
   try {
     const r = await saveDraft(book, chapter.value, wb.textOut)
-    draftSaved.value = { words: wb.textOut.length }
+    // 低-2（第十轮）：draftSaved 赋值移到切书守卫之后——原先守卫前就写徽标，存草稿
+    // 在途切书时 watch(bookName) 已清残留，晚到的赋值又把 A 书「已存 N 字」徽标
+    // 留在 B 书工作台（L-F1 同点收尾）
     if (props.bookName !== book) return // 已切书：草稿已落 A 书盘，不再动 B 界面
+    draftSaved.value = { words: wb.textOut.length }
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
     ws.openTab(r.docId)

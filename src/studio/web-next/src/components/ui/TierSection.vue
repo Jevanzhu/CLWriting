@@ -33,7 +33,9 @@ function msToMinInput(ms: number | undefined | null): string {
   const min = ms / 60000
   return Number.isInteger(min) ? String(min) : String(Math.round(min * 10) / 10)
 }
-/** P10：分钟输入 → ms（空/非法 = 清除该档超时，回落全局默认） */
+/** P10：分钟输入 → ms（空/非法 = 清除该档超时，回落全局默认）。
+ *  低-5（第十轮）：绑定 @change（失焦/回车才校验）——原来 @input 逐键触发，输入
+ *  小数/删改中间态（如 "0.5" 敲到 "0."）当场被当非法清空，几乎无法直接输入小数值 */
 function onTimeout(slot: TierSlot, ev: Event): void {
   const v = (ev.target as HTMLInputElement).value.trim()
   if (!v) {
@@ -88,7 +90,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
                 inputmode="decimal"
                 placeholder="默认"
                 class="tier-timeout-input"
-                @input="onTimeout(tierForm.creative, $event)"
+                @change="onTimeout(tierForm.creative, $event)"
               />
               <span class="tier-timeout-suffix">分</span>
             </label>
@@ -134,7 +136,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
                   placeholder="默认"
                   class="tier-timeout-input"
                   :disabled="!assistantEnabled"
-                  @input="onTimeout(tierForm.assistant, $event)"
+                  @change="onTimeout(tierForm.assistant, $event)"
                 />
                 <span class="tier-timeout-suffix">分</span>
               </label>
@@ -184,7 +186,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
                   placeholder="默认"
                   class="tier-timeout-input"
                   :disabled="!chatTierEnabled"
-                  @input="onTimeout(tierForm.chat, $event)"
+                  @change="onTimeout(tierForm.chat, $event)"
                 />
                 <span class="tier-timeout-suffix">分</span>
               </label>

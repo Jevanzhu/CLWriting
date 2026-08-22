@@ -507,4 +507,31 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(win.opts.width).toBe(1532) // min(1532, 1920-80) 默认
     expect(win.opts.height).toBe(1000) // min(1237, 1080-80) 小屏兜底
   })
+
+  // 低-8（第十轮）：fresh module（此前用例的 before-quit 已把 shutdownStarted 永久置位，
+  // 复用旧实例无法构造「退出窗口内 activate」的初始态，resetModules 重导）
+  it('低-8（第十轮）：before-quit 2s 退出窗口内 activate 不再触发重 bootstrap', async () => {
+    const windows0 = M.windows.length
+    const servers0 = M.serverStarts
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    expect(M.windows.length).toBe(windows0 + 1) // fresh 模块 bootstrap 开一主窗
+
+    // 关主窗（mainWindow = null；closed 回调同步跑并 app.quit）
+    M.windows[M.windows.length - 1]!.emit('closed')
+
+    // 进入 before-quit 优雅退出窗口（preventDefault + shutdownStarted 置位；
+    // 清理 promise 异步收尾，紧接的 activate 正落在 2s 窗口内）
+    const e = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e)
+    expect(e.preventDefault).toHaveBeenCalledTimes(1)
+
+    // 退出途中 dock 点击 activate：不得再起 server/开新窗
+    M.appOn['activate']!.at(-1)!()
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    expect(M.serverStarts).toBe(servers0 + 1) // 仅 fresh bootstrap 的那一次，无重入增量
+    expect(M.windows.length).toBe(windows0 + 1) // 无退出途新窗口
+  })
 })

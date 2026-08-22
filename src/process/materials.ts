@@ -203,7 +203,9 @@ export async function prepareMaterials(
   }
 
   if (hits.length === 0) {
-    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel)
+    // 低-1（第十轮）：writingChapter 与另两处调用点对齐——无命中降级也走 L-P3
+    // 「卷号按写作章推」口径，否则降级分支卷首章的上卷摘要晚一章注入
+    const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
     return {
       ...base,
       ragUsed: false,

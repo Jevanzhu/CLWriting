@@ -197,6 +197,31 @@ const RISK_THRESHOLDS: Record<string, number> = {
 /** 命中片段上下文半径（前后各 N 字） */
 const SNIPPET_RADIUS = 15
 
+/** 风险严重度排序（数值大者更坏），同标题合并时取最坏（fail-closed） */
+const RISK_ORDER: Record<ForeshadowTrail['risk'], number> = { 绿: 0, 黄: 1, 红: 2 }
+
+/**
+ * 低-5（第十轮）：同标题两条伏笔的足迹合并——命中取并集、首末取极值、风险取最坏。
+ * 迁移链 N3 只保证文件名不撞（编号兜底），fm 标题仍可重复；此前 Map 以标题为 key
+ * 直接 set，同名后一条把前一条的足迹整个覆盖（铜锁那条只剩钥匙的足迹）。
+ * key 仍用标题不改复合形状：prepare（伏笔提醒）/studio（foreshadows 端点）等存量
+ * 读方都是 get(标题)，合并保住「两条足迹都在」的同时旧读法零改动（读侧兼容）。
+ */
+function mergeTrails(a: ForeshadowTrail, b: ForeshadowTrail, latestChapter: number): ForeshadowTrail {
+  const hits = [...a.hits, ...b.hits].sort((x, y) => x.章号 - y.章号)
+  // null = 无埋设章号也无命中，不参与极值比较
+  const min = (x: number | null, y: number | null): number | null =>
+    x === null ? y : y === null ? x : Math.min(x, y)
+  const max = (x: number | null, y: number | null): number | null =>
+    x === null ? y : y === null ? x : Math.max(x, y)
+  const firstHit = min(a.firstHit, b.firstHit)
+  const lastHit = max(a.lastHit, b.lastHit)
+  // 悬置跨度按合并后的末次提及重算（最远提及决定悬置）
+  const staleSpan = lastHit !== null ? Math.max(0, latestChapter - lastHit) : 0
+  const risk = RISK_ORDER[a.risk] >= RISK_ORDER[b.risk] ? a.risk : b.risk
+  return { hits, firstHit, lastHit, staleSpan, risk }
+}
+
 /**
  * 扫描全书伏笔足迹（本地 grep，零 AI）。
  *
@@ -209,7 +234,7 @@ const SNIPPET_RADIUS = 15
  *
  * @param bookRoot 书仓库根
  * @param foreshadows 伏笔列表（来自 readForeshadows）
- * @returns Map<标题, 足迹>
+ * @returns Map<标题, 足迹>（同标题伏笔合并为一条足迹，见 mergeTrails——存量读方按标题 get 不变）
  */
 export function scanForeshadowTrails(
   bookRoot: string,
@@ -222,10 +247,15 @@ export function scanForeshadowTrails(
   const index = buildKeywordIndex(chapters, foreshadows)
 
   const result = new Map<string, ForeshadowTrail>()
+  // 低-5（第十轮）：同标题伏笔合并写入，不再互相覆盖
+  const setTrail = (title: string, trail: ForeshadowTrail): void => {
+    const prev = result.get(title)
+    result.set(title, prev ? mergeTrails(prev, trail, latestChapter) : trail)
+  }
   for (const f of foreshadows) {
     // 已回收/废弃 → 不算风险
     if (f.状态 === '已回收' || f.状态 === '已废弃') {
-      result.set(f.标题, {
+      setTrail(f.标题, {
         hits: [],
         firstHit: f.埋设章号,
         lastHit: f.回收章号 ?? f.埋设章号,
@@ -261,7 +291,7 @@ export function scanForeshadowTrails(
     const risk: '红' | '黄' | '绿' =
       staleSpan > threshold ? '红' : staleSpan > threshold * 0.7 ? '黄' : '绿'
 
-    result.set(f.标题, { hits, firstHit, lastHit, staleSpan, risk })
+    setTrail(f.标题, { hits, firstHit, lastHit, staleSpan, risk })
   }
   return result
 }

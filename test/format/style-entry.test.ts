@@ -3,7 +3,7 @@
  * readEntry/writeEntry 往返、类型兜底、极性推导、序号递增、addEntry 入库。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -126,6 +126,17 @@ describe('readEntries / nextEntrySeq / addEntry', () => {
     const banned = readEntries(join(root, ENTRIES_DIR), '禁词')
     expect(banned.entries).toHaveLength(1)
     expect(banned.entries[0]!.正文).toBe('深吸一口气')
+  })
+
+  // 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
+  // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个条目库读取抛穿，
+  // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
+  it('低-3（第十轮）：类型目录含已消失文件（悬空链接）不抛，其余条目照常读出', () => {
+    addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 正文: 'A' })
+    symlinkSync(join(root, ENTRIES_DIR, '样章', 'no-such.md'), join(root, ENTRIES_DIR, '样章', '战斗-002.md'))
+    const { entries, errors } = readEntries(join(root, ENTRIES_DIR))
+    expect(entries).toHaveLength(1)
+    expect(errors).toHaveLength(0)
   })
 
   it('序号同场景递增、异场景独立；addEntry 返回相对路径', () => {

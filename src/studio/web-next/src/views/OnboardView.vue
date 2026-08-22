@@ -6,6 +6,7 @@
 // 步骤面板 → OnboardStepPanel；本文件留 Hero 进度、书型过滤（isShort/isGrowthBook）
 // 与步骤状态机（active/phase/content 的 gen/save 编排）。
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { TriangleAlert } from 'lucide-vue-next'
 import { onboardAi, onboardSave, STEP_LABEL, STEP_PATH, type OnboardStep } from '../api/onboard'
 import { getConfig } from '../api/books'
@@ -18,8 +19,15 @@ import OnboardStepPanel from '../components/onboard/OnboardStepPanel.vue'
 import { friendlyError } from '../shared/error'
 
 const props = defineProps<{ bookName: string }>()
+const route = useRoute()
 const ui = useUiStore()
 const tree = useTreeStore()
+
+// M-4（第十轮）：路由活书名复检——OnboardView 挂 :key=bookName，切书时本实例被重建、
+// 死续体的 props 冻结在旧书（比 props 恒等），await 后只有比路由才能识别已切书
+function stillOn(book: string): boolean {
+  return String(route.params.name ?? '') === book
+}
 
 // ── 故事梗概（作者设想，AI 据其开书；localStorage 持久化在 OnboardPremise 卡内）──
 const storyPremise = ref('')
@@ -94,11 +102,15 @@ async function gen(): Promise<void> {
 
 async function save(): Promise<void> {
   if (!active.value) return
+  // M-4：入口捕获 + await 后复检——落盘在途切书后，死实例的 tree.load(旧书) 会把
+  // 旧书目录写进共享 tree store（新书工作台显示旧书章节树）
+  const book = props.bookName
   saving.value = true
   try {
-    await onboardSave(props.bookName, { step: active.value, content: content.value })
+    await onboardSave(book, { step: active.value, content: content.value })
+    if (!stillOn(book)) return
     ui.toast('已保存', 'success')
-    void tree.load(props.bookName)
+    void tree.load(book)
   } catch (e) {
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
@@ -108,15 +120,19 @@ async function save(): Promise<void> {
 }
 
 onMounted(async () => {
+  // M-4：同 save——config/tree 加载在途切书后死实例放弃（新实例自会加载）
+  const book = props.bookName
   try {
-    const config = await getConfig(props.bookName)
+    const config = await getConfig(book)
+    if (!stillOn(book)) return
     isShort.value = (config.kind ?? 'long') === 'short'
     const leadsEnabled = (config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
     isGrowthBook.value = leadsEnabled.includes('成长线')
   } catch {
     // config 读取失败 → 默认显示 realm（不阻断）
   }
-  await tree.load(props.bookName)
+  if (!stillOn(book)) return
+  await tree.load(book)
   const first = ALL_STEPS.value.find((s) => !isGenerated(s))
   if (first) selectStep(first)
 })

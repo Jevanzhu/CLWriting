@@ -290,18 +290,26 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
           const scoreEnv = readAnalysis(bookRoot, docId, 'score')
           if (scoreEnv?.payload) {
-            const p = scoreEnv.payload as { score: number; dims: Record<string, number> }
-            scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims })
+            // 低-5（第十轮）：形状守卫（对齐同函数 hooks 的 X-P3a 口径）——score 缺失/
+            // 非数字、dims 非对象时跳过该章，不让坏信封把 NaN/undefined 塞进趋势
+            const p = scoreEnv.payload as { score?: unknown; dims?: unknown }
+            if (typeof p.score === 'number' && typeof p.dims === 'object' && p.dims !== null && !Array.isArray(p.dims)) {
+              scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims as Record<string, number> })
+            }
           }
           const emotionEnv = readAnalysis(bookRoot, docId, 'emotion')
           if (emotionEnv?.payload) {
             // tool_use 后 payload 为 { segments: [...] }；兼容旧版裸数组
+            // 低-5（第十轮）：形状守卫（对齐 hooks 的 X-P3a 口径）——segments 非数组、
+            // 末段 emotion 非数字/label 非字符串时跳过该章，防 NaN 进趋势
             const raw = emotionEnv.payload
             const arr = Array.isArray(raw)
-              ? (raw as { emotion: number; label: string }[])
-              : ((raw as { segments?: { emotion: number; label: string }[] }).segments ?? [])
-            if (arr.length > 0) {
-              const last = arr[arr.length - 1]! // 末段值（章末情绪 = 下章起点）
+              ? (raw as { emotion: unknown; label: unknown }[])
+              : (Array.isArray((raw as { segments?: unknown }).segments)
+                ? ((raw as { segments: { emotion: unknown; label: unknown }[] }).segments)
+                : [])
+            const last = arr.length > 0 ? arr[arr.length - 1]! : undefined // 末段值（章末情绪 = 下章起点）
+            if (last && typeof last.emotion === 'number' && typeof last.label === 'string') {
               emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
             }
           }

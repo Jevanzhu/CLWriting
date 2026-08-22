@@ -131,7 +131,15 @@ export function readEntries(
     }
     for (const f of files.sort()) {
       const fp = join(dir, f)
-      if (!statSync(fp).isFile()) continue
+      // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+      // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整库读取
+      let isFile = false
+      try {
+        isFile = statSync(fp).isFile()
+      } catch {
+        continue
+      }
+      if (!isFile) continue
       const r = readEntry(fp, k)
       if (r.ok) entries.push(r.entry)
       else errors.push(r.error)

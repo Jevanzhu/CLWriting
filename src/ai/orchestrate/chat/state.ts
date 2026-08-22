@@ -64,6 +64,11 @@ export function getHistory(bookName: string): ChatMsg[] {
   }
   if (histories.size >= MAX_HISTORY_BOOKS) {
     // 删最旧（Map 保留插入顺序）
+    // 留账（第十轮 低-5）：LRU 逐出可命中「在途对话」的书（须 >8 本并发对话才触发，
+    // 桌面单用户不可达）——在途 runChat 持有 history 数组引用，本轮收尾 histories.set
+    // 会自愈重插，在途轮次不受影响；窗口在「逐出后～收尾写回前」的第二次 getHistory
+    //（如他处读史/续链重建）会拿到空历史，在途回合的尾部消息不进其视图。不修：
+    // 触发面窄（>8 本并发对话），修复需引入在途引用计数，收益不抵复杂度。
     const oldest = histories.keys().next().value
     if (oldest !== undefined) {
       histories.delete(oldest)

@@ -62,7 +62,10 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
   // L-S2（第八轮）：尾窗 500——长书几万事件不再全量出网；messages 仅作展示种子
   //（模型上下文由服务端从事件库重建，不经此端点）
   const params = new URLSearchParams({ limit: '500' })
-  if (branchId) params.set('branch', encodeURIComponent(branchId))
+  // 低-1（第十轮）：branchId 交给 URLSearchParams.toString() 统一编码——此前手编
+  // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
+  // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空
+  if (branchId) params.set('branch', branchId)
   return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`, undefined, 15_000)
 }
 

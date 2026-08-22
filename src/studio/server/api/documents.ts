@@ -315,6 +315,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
         // 章号：长篇/短篇统一用 章号
         const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
+        // 低-3（第十轮）：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
+        // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
+        // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
+        if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
+          replyError(res, 400, 'BAD_INPUT', '章号需为正整数')
+          return
+        }
         if (标题 === undefined && !Number.isFinite(numVal)) {
           replyError(res, 400, 'BAD_INPUT', 'meta 需要 标题 或 章号')
           return

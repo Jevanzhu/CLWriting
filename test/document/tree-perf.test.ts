@@ -94,13 +94,19 @@ describe('tree 大书性能（§9.3）', () => {
     const tBuild0 = performance.now()
     getBookTreeIndex(root) // 首次构建 + 入缓存
     const buildDt = performance.now() - tBuild0
-    const t0 = performance.now()
-    getBookTreeIndex(root) // 命中
-    const dt = performance.now() - t0
+    // 低-a（第十轮）：此前性能断言口径连续三次放松（命中下限 0.1ms→1ms）——单次命中
+    // 测量被 GC 暂停/JIT 去优化击中即 flaky，放宽只是续命；改 9 次命中取中位数，
+    // 对单次毛刺鲁棒，断言回到相对口径本身（命中 < 构建的 1%，不受机器/CI 快慢影响）
+    const samples: number[] = []
+    for (let i = 0; i < 9; i++) {
+      const t0 = performance.now()
+      getBookTreeIndex(root)
+      samples.push(performance.now() - t0)
+    }
+    samples.sort((a, b) => a - b)
+    const dt = samples[4]!
     // eslint-disable-next-line no-console
-    console.log(`  缓存命中: ${dt.toFixed(3)}ms (构建 ${buildDt.toFixed(1)}ms)`)
-    // 相对断言：命中耗时 < 构建耗时的 1%（不受机器/CI 快慢影响）。第九轮 M-2：下限从
-    // 0.1ms 放宽到 1ms——GC 暂停/JIT 去优化落在命中测量窗口内时 0.1ms 无余量，实测 flaky
+    console.log(`  缓存命中(9 次中位): ${dt.toFixed(3)}ms (构建 ${buildDt.toFixed(1)}ms)`)
     expect(dt).toBeLessThan(Math.max(1, buildDt * 0.01))
   })
 })

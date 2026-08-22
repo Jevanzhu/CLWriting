@@ -31,7 +31,9 @@ watch(
 
 function onSave(): void {
   const n = Number(noInput.value)
-  if (!Number.isFinite(n) || n < 1) return
+  // 低-3（第十轮）：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
+  // 从「章号 = 整数编号」特性中脱落（前端拒收 + 服务端 documents.ts 同点位 fail-closed）
+  if (!Number.isInteger(n) || n < 1) return
   emit('save', { 标题: titleInput.value.trim() || '未命名', num: n })
   emit('update:modelValue', false)
 }

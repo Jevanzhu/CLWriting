@@ -155,4 +155,31 @@ describe('log 模块（A4 批 0）', () => {
     expect(msgs).toContain('before-reinit')
     expect(msgs).toContain('after-reinit')
   })
+
+  // M-6（第十轮）：第九轮 L-6 回归——dayFile 在 flush 时取日期。入队时取的话，
+  // 23:59 入队、跨零点后才 flush 的行会写进前一天的 app-YYYYMMDD.jsonl（轮转
+  // 边界错位）；修后行归属 flush 时所在日的文件，不串天
+  it('M-6（第十轮）：第九轮 L-6——跨零点排队的日志行落次日文件（不串到前一天）', async () => {
+    vi.useFakeTimers()
+    try {
+      dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      // 23:59 入队（init 的 mkdir/清理队列先排空，保证日志行入队后队列首动作就是它的 flush）
+      vi.setSystemTime(new Date(2026, 7, 21, 23, 59, 0))
+      initLogging({ logsDir: dir, mirrorConsole: false })
+      await flushLogsForTest()
+      log.info('rot', '跨零点行')
+      // 模拟在途写/微任务延迟把 flush 拖过零点
+      vi.setSystemTime(new Date(2026, 7, 22, 0, 0, 30))
+      await flushLogsForTest()
+      // 行归属 flush 时的日期文件（次日）；前一天文件不出现——入队时取日期的旧行为会落前一天
+      const nextDay = 'app-20260822.jsonl'
+      const prevDay = 'app-20260821.jsonl'
+      expect(existsSync(join(dir, nextDay))).toBe(true)
+      expect(readFileSync(join(dir, nextDay), 'utf8')).toContain('跨零点行')
+      expect(existsSync(join(dir, prevDay))).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

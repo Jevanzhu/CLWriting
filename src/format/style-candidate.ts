@@ -125,7 +125,15 @@ export function readCandidates(candidatesDir: string): {
   }
   for (const f of files.sort()) {
     const fp = join(candidatesDir, f)
-    if (!statSync(fp).isFile()) continue
+    // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整箱读取
+    let isFile = false
+    try {
+      isFile = statSync(fp).isFile()
+    } catch {
+      continue
+    }
+    if (!isFile) continue
     const r = readCandidate(fp)
     if (r.ok) candidates.push(r.candidate)
     else errors.push(r.error)
@@ -315,8 +323,10 @@ export function persistCandidates(
   bookRoot: string,
   candidates: StyleCandidate[],
 ): { created: string[]; skipped: number } {
-  // 查重 key：SOH 分隔符（正文/类型不会含 → 防碰撞），避免 NUL 使文件被工具链当二进制
-  const key = (kind: string, text: string): string => `${kind}${text}`
+  // 查重 key：SOH 分隔符（正文/类型不会含 → 防碰撞），避免 NUL 使文件被工具链当二进制。
+  // 低-2（第十轮）：分隔符此前是源码里的裸 0x01 控制字节——多数查看器不可见，复审时
+  // 被误判为「实现没有分隔符」；改写成显式 \u0001 转义，运行时字符串逐字节不变
+  const key = (kind: string, text: string): string => `${kind}\u0001${text}`
   const existing = new Set<string>()
   for (const c of readCandidates(join(bookRoot, CANDIDATES_DIR)).candidates) {
     existing.add(key(c.类型, c.正文))

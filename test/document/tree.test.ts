@@ -209,3 +209,34 @@ test('低级项（第六轮）：同长改写后指纹不复用旧缓存（bigin
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('M-5（第十轮）：章号数值优先排序——混补零宽度（5-/003-/020-/099-/0100-）不再字典序错排', () => {
+  const root = mkdtempSync(join(tmpdir(), 'w2a-tree-m5-'))
+  try {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    // 五种命名口径混存：前端新建不补零（5-）/ 短篇·草稿管线 3 位（003-/020-）/
+    // 服务端长篇 4 位（0100-）；旧 localeCompare 字典序会排成 003 < 0100 < 020 < 05?? < 099（错序）
+    for (const f of ['0100-百.md', '5-手建.md', '020-y.md', '099-x.md', '003-三.md']) {
+      writeFileSync(join(root, '写作', '正文', f), '---\n章号: 1\n---\n正文', 'utf-8')
+    }
+    const body = findNode(scanBookTree(root), '写作/正文')!
+    expect(body.children.map((c) => c.name)).toEqual(['003-三', '5-手建', '020-y', '099-x', '0100-百'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('M-5（第十轮）：同章号不同补零宽度回落 path 字典序；非数字前缀文件不受影响', () => {
+  const root = mkdtempSync(join(tmpdir(), 'w2a-tree-m5b-'))
+  try {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    for (const f of ['5-手建.md', '005-x.md', '卷末记.md']) {
+      writeFileSync(join(root, '写作', '正文', f), '---\n章号: 1\n---\n正文', 'utf-8')
+    }
+    const body = findNode(scanBookTree(root), '写作/正文')!
+    // 5 与 005 数值同 → path 字典序（'0'<'5'，005 在前）；卷末记无数字前缀按字典序在数字后
+    expect(body.children.map((c) => c.name)).toEqual(['005-x', '5-手建', '卷末记'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

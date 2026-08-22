@@ -91,7 +91,15 @@ export function readSamplesByScene(
   }
   for (const f of files) {
     const fp = join(sceneDir, f)
-    if (!statSync(fp).isFile()) continue
+    // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整场景读取
+    let isFile = false
+    try {
+      isFile = statSync(fp).isFile()
+    } catch {
+      continue
+    }
+    if (!isFile) continue
     const r = readSample(fp)
     if (r.ok) samples.push(r.sample)
     else errors.push(r.error)

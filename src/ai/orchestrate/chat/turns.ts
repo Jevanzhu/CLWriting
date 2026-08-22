@@ -8,6 +8,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../../provider/types.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
@@ -18,6 +19,10 @@ import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } f
 import { isSpawnRunning } from '../spawn-registry.js'
 import { runCheckForDocument, type CheckOutcome } from '../../../check/run.js'
 import { resolveDraftPath } from '../../../format/draft.js'
+// 低-2（第十轮）：chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
+// studio/server/api/task-gate.ts（纯内存模块、零依赖），从 ai 层引它是共用同一
+// 闸表的最小改（闸表搬层需动 src/studio 多文件，本轮禁区）
+import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { sanitizeHistory } from '../../prompts/chat.js'
@@ -47,6 +52,10 @@ const READ_CHAPTER_TAIL_CHARS = 6_000
  *  M-2（第八轮）：互斥面补上 spawn 手动写稿——草稿互覆与章预算互覆同源，闸统一查
  *  isSelfHealRunning || isSpawnRunning。 */
 const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
+
+/** 低-2（第十轮）：与 studio /rewrite 端点共闸互斥的 chat 改写两件（task-gate 'rewrite' 动作）。
+ *  lead_update 不入——其端点对侧是 /lead-updates 的独立闸，非本缺陷面。 */
+const REWRITE_GATE_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection'])
 
 // ── 等确认 ────────────────────────────────────────
 
@@ -104,6 +113,22 @@ async function executeChatTool(
         // Z-P1-1：编排级中断信号下发工具层——嵌套 AI 生成（rewrite/lead_update）据此
         // 同步中止，不再跑到各自的总超时；本地工具（tree/search 等）忽略之
         signal: ctrl,
+      }
+      // 低-2（第十轮）：chat 侧改写与 studio /rewrite 端点（task-gate 'rewrite'，RB-SV-P2-2）
+      // 共闸互斥——此前两侧各自为政：AI 改写与端点改写并发时基于同一基线各产一份全文，
+      // 后写赢先写（端点 rewritten 由作者在编辑器保存、chat 侧 spill→apply_spill 落盘，
+      // 两条确认通道互不知晓对方已改基线）。拿不到闸 fail-closed 拒绝并说明在途原因；
+      // 闸在整个工具执行期持有，反向同样拦（chat 改写在途时端点重复点击同闸 409）。
+      if (REWRITE_GATE_TOOLS.has(call.name)) {
+        const release = acquireTaskGate(opts.bookName, 'rewrite')
+        if (!release) {
+          return { ok: false, summary: '本书正在改写中（编辑器改写请求在途），无法同时发起 AI 改写——请等本轮改写完成后再试。' }
+        }
+        try {
+          return await executor(tctx, input)
+        } finally {
+          release()
+        }
       }
       return await executor(tctx, input)
     }
@@ -173,11 +198,21 @@ async function executeChatTool(
         const chars = Array.from(body)
         if (chars.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
         const kept = READ_CHAPTER_HEAD_CHARS + READ_CHAPTER_TAIL_CHARS
+        // 低-4（第十轮）：截断口径如实化——本工具并不总能「取回全文」（上方上限），
+        // 通知如实写明截断 + 全文去处：spill 暂存存在时优先指它（上下文注入外置的
+        // 同一份全文，内容寻址同名——与 buildChatContext 的 writeSpillFile 同 hash 口径）；
+        // 无 spill（未经上下文注入直接读）只报草稿路径，不虚指。spill.ts 的「已省略」
+        // 通知行归 src/process（本轮禁区），契约描述（contract/chat.ts）已同步如实。
+        const spillHash = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 16)
+        const spillRel = `工作区/spills/${spillHash}.md`
+        const fullAt = existsSync(join(opts.bookRoot, spillRel))
+          ? `全文暂存 ${spillRel}（草稿文件 ${draftRel} 同为此全文）`
+          : `全文在草稿文件 ${draftRel}`
         return {
           ok: true,
           summary:
             chars.slice(0, READ_CHAPTER_HEAD_CHARS).join('') +
-            `\n\n（全章 ${chars.length} 字超出单次读取上限，已截断至 ${kept} 字（开头 + 结尾）。全文在 ${draftRel}。）\n\n` +
+            `\n\n（全章 ${chars.length} 字超出单次读取上限，已截断至 ${kept} 字（开头 + 结尾）。${fullAt}。）\n\n` +
             chars.slice(chars.length - READ_CHAPTER_TAIL_CHARS).join(''),
         }
       }

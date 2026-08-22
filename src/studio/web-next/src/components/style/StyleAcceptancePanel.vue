@@ -2,6 +2,7 @@
 // 文风验收卡（StyleView 拆分 P2-5 ④ 验收段）：机检重扫 + AI 语义分析双块。
 // 机检重扫零 AI；AI 语义分析耗 token 且完成时后端自动落源3候选。
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ClipboardCheck, RefreshCw, TriangleAlert } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
@@ -10,6 +11,7 @@ import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
 
 const props = defineProps<{ bookName: string }>()
+const route = useRoute()
 const style = useStyleStore()
 const ui = useUiStore()
 
@@ -31,12 +33,19 @@ const analyzing = ref(false)
 const aiResult = ref<StylePayload | null>(null)
 async function onAnalyze(): Promise<void> {
   if (analyzing.value) return
+  // M-4（第十轮）：书名入口捕获 + await 后复检——分析可达 120s，期间切书时 StyleView
+  // 挂 :key=bookName 整树重建，本死实例的 props 冻结在旧书（比 props 恒等），须比
+  // 路由活书名：放行则死实例的 style.load(旧书) 把 A 书数据写进共享 store，B 书文风页
+  // 从此显示 A 的数据、后续确认/忽略/收割全写向 A 书
+  const book = props.bookName
   analyzing.value = true
   try {
-    const r = await runStyleAnalysis(props.bookName)
+    const r = await runStyleAnalysis(book)
+    if (String(route.params.name ?? '') !== book) return
     aiResult.value = r.envelope.payload as StylePayload
     if (r.styleCandidates > 0) {
-      await style.load(props.bookName)
+      await style.load(book)
+      if (String(route.params.name ?? '') !== book) return
       ui.toast(`分析完成：口癖和建议已生成${r.styleCandidates}条候选`, 'success')
     } else {
       ui.toast('分析完成', 'success')

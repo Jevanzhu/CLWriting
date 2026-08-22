@@ -54,7 +54,11 @@ export default defineConfig({
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // 首次实测 2026-08-20：lines 89.45 / branches 82.89 / functions 95.9）
         'src/{!(studio),studio/!(web-next)}/**': { statements: 82, branches: 78, functions: 93, lines: 82 },
-        'src/studio/web-next/src/{api,composables,shared,stores}/**': { lines: 43, branches: 81 },
+        // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
+        // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
+        // −2pp 向下取整（2026-08-22 实测：lines 8.66 / branches 69.35），只防回退不追高
+        'src/studio/web-next/src/api/**': { lines: 6, branches: 67 },
+        'src/studio/web-next/src/{composables,shared,stores}/**': { lines: 43, branches: 81 },
       },
     },
   },

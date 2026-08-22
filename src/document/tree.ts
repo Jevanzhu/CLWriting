@@ -92,8 +92,16 @@ const ROOT_ORDER = ['写作', '大纲', '设定', '布线']
 /** 大纲区单例总纲：置顶展示（最高频入口，优先于目录/字母序）。 */
 const SYNOPSIS_TOP = '大纲/总纲.md'
 
+/** 章号提取：文件名前导数字（M-5，第十轮）。兼容存量多种补零宽度混名
+ *  （前端新建不补零 `5-x` / 前端复制 4 位 / 服务端长篇 4 位 / 短篇与草稿管线 3 位）；
+ *  非数字前缀文件（副本、设定类）返回 null。 */
+function chapterNoOf(name: string): number | null {
+  const m = /^(\d+)(?:[-—]|\s|$)/.exec(name)
+  return m ? Number(m[1]) : null
+}
+
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
- *  其余层级按 path localeCompare(zh-Hans-CN)（§6.2 卷字母序）；总纲例外置顶。 */
+ *  章文件按章号数值序（补零宽度不影响大小），其余按 path localeCompare（§6.2 卷字母序）；总纲例外置顶。 */
 function compareNode(a: TreeNode, b: TreeNode): number {
   // 总纲置顶须先于目录优先判断（总纲是文件，默认排在卷纲/章纲目录后）
   if (a.path === SYNOPSIS_TOP || b.path === SYNOPSIS_TOP) {
@@ -105,6 +113,14 @@ function compareNode(a: TreeNode, b: TreeNode): number {
   if (ar !== -1 || br !== -1) {
     if (ar !== -1 && br !== -1) return ar - br
     return ar !== -1 ? -1 : 1
+  }
+  // M-5（第十轮）：章号数值优先——localeCompare 纯字典序会把 `5-x` 排到 `020-y`
+  // 之后、`0100-y` 排到 `099-x` 之前，目录树实际错序；双方都是数字前缀文件时按
+  // 数值比较，数值同（如 `005-x` 与 `5-x` 并存）回落 path 字典序保持稳定
+  if (!a.isDirectory) {
+    const an = chapterNoOf(a.name)
+    const bn = chapterNoOf(b.name)
+    if (an !== null && bn !== null && an !== bn) return an - bn
   }
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
 }

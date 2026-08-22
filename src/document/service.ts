@@ -596,7 +596,14 @@ export class DocumentService {
       renameSync(oldSafe, newSafe)
     } catch (e) {
       // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
-      if (opId !== undefined) appendAborted(journalPath, opId, errMsg(e))
+      // 低-4（第十轮）：appendAborted 自身失败（journal 目录被删/磁盘满/权限）不再穿透——
+      // 此处已在失败善后路径上，留痕失败只降级（悬置 pending 由进门 healthCheck 收口），
+      // 必须保住 {ok:false} 契约，不能把调用方换成吃裸异常
+      if (opId !== undefined) {
+        try {
+          appendAborted(journalPath, opId, errMsg(e))
+        } catch { /* 留痕失败吞掉：journal 无 aborted 行 → 悬置 pending 待恢复链收口 */ }
+      }
       return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名失败：${errMsg(e)}` }
     }
 

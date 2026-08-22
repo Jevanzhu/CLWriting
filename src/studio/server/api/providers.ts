@@ -162,6 +162,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
     // 第九轮 L-2：readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
     // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
+    // 低-1（第十轮）：清档/解析两分支都以「body 是 JSON 对象」为前提——readJson 只归一
+    // 字面 null，数字/布尔/数组/字符串等原语原样透出，`Object.keys(原语).length === 0`
+    // 会把 5/true/[]/"" 误判成空对象静默清档（revision 还 bump）。原语一律 400 拒绝
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return replyError(res, 400, 'BAD_INPUT', 'body 需为 JSON 对象')
+    }
     if (body['clear'] === true || Object.keys(body).length === 0) {
       const s = loadProviders(ctx.userDataPath)
       const revErr = revisionError(body?.['expectedRevision'], s.revision)

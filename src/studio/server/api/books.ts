@@ -102,7 +102,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     const books = readBooks(ctx.workDir).map((b) => {
       const bookRoot = join(ctx.workDir!, b.path)
       try {
-        const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
+        const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+        // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
+        // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉
+        //（第九轮 L-1 只修了单书侧）。前端按 damaged 展示可后续轮次接线
+        if (!cfgResult.ok) return { ...b, damaged: true, createdAt: b.created_at }
+        const { config } = cfgResult
         // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
         // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
         // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
@@ -119,8 +124,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
           createdAt: b.created_at,
         }
       } catch {
-        // 书仓库损坏/缺 book.yaml：保留登记原样，摘要缺省（前端容错）
-        return b
+        // 书仓库损坏/缺 book.yaml：保留登记原样 + 显式损坏标记（前端容错）
+        return { ...b, damaged: true, createdAt: b.created_at }
       }
     })
     reply(res, 200, { books, workDir: true })
@@ -258,7 +263,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     try {
       clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
     } catch (e) {
-      console.warn(`[books] 删书清史失败（残留 db 文件将由下方清理兜底）：${e instanceof Error ? e.message : String(e)}`)
+      // 低-6（第十轮）：留痕走项目 logger——console 在打包态 mirrorConsole=false 无人看见
+      // 也不进 JSONL（诊断失明）；tag 与本文件 log.error 删除目录失败同源 'api'
+      log.warn('api', `删书清史失败（${name}，残留 db 文件将由下方清理兜底）`, e)
     }
     // 二轮复审（低级）：事件库**文件**一并删（<hash>.db + WAL/SHM 伴生）——clearChatHistory
     // 只清行，库文件本体滞留 userData 成永久孤儿（每书一库）；settle 已保证无人持有句柄，
@@ -460,8 +467,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       }
       // 第九轮 L-1：book.yaml 损坏/缺失时回落默认骨架会静默回传空 title——与
       // GET /api/books/:name/config 的 500 IO 口径对齐（读失败显式报错，不代答默认身份）
+      // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
+      // 「[object Object]」，取 .message 展示真实解析错误（与 state.ts 同场景口径）
       const cfgResult = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
-      if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error}`)
+      if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error.message}`)
       const { config } = cfgResult
       // 单书身份回显：保持 raw（与 GET /api/books/:name/config 同口径——身份 = 书文件里
       // 实际写的值；genre 未设 = undefined 由前端自行回落全局默认，服务端不代答）

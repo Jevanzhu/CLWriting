@@ -75,7 +75,12 @@ async function summarizeCheckpoint(
     systemPrompt: sys,
     promptText: instruction,
     ctrl: state.ctrl,
-    register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c),
+    // 低-1（第十轮）：补 owner='chat'——对齐第八轮 M-1 的 owner 分槽口径（轮循环
+    // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的
+    // 形态下，后书的摘要 register 在 '' 槽触发 P2-6「换新先 abort 旧」，掐断前书在途
+    // 压缩的 ctrl（摘要失败回落硬截断）。带 owner 后与本轮轮循环同槽同 ctrl（幂等
+    // no-op），跨 owner（self-heal/spawn）并发互不影响。
+    register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, 'chat'),
     onReset: () => emit(opts, { type: 'chat_reset' }),
     onRetry: (attempt, error) =>
       emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${error}），第 ${attempt + 1} 次重试中…` }),

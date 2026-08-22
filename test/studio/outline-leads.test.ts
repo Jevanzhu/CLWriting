@@ -8,7 +8,7 @@ import { test, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseOutlineLeads } from '../../src/studio/server/api/outline.js'
+import { parseOutlineLeads, volumeProgressOf } from '../../src/studio/server/api/outline.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
 
 function makeWiringBook(): string {
@@ -81,6 +81,57 @@ test('闭环：parseOutlineLeads 产出可直接写 fm → readOutlineLeads 读�
       'utf-8',
     )
     expect(readOutlineLeads(root, 1)).toEqual(['悬念-001'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── 低-4（第十轮）：卷长经 applyGlobalDefaults 生效值 ──────────────
+
+/** 造书 + 卷摘要（volumeN.md）：书级 volume_size 可选（未设时测 global 托底） */
+function makeVolumeBook(bookYamlExtra: string, userDataPath?: string): { root: string; ud: string | null } {
+  const root = mkdtempSync(join(tmpdir(), 'outline-vol-'))
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: 卷书\n${bookYamlExtra}host: cc\n`, 'utf-8')
+  mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
+  writeFileSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), '# 第 1 卷\n\n第一卷的进展摘要。\n', 'utf-8')
+  let ud: string | null = null
+  if (userDataPath) {
+    ud = mkdtempSync(join(tmpdir(), 'outline-vol-ud-'))
+    writeFileSync(join(ud, 'global.json'), userDataPath, 'utf-8')
+  }
+  return { root, ud }
+}
+
+test('低-4（第十轮）：书级未设 volume_size 时 global defaultVolumeSize 生效——章 6 落卷 2 → 注入卷 1 摘要', () => {
+  const { root, ud } = makeVolumeBook('', JSON.stringify({ defaultVolumeSize: 5 }))
+  try {
+    // 全局卷长 5（global.json 校验下限 5）：章 6 ∈ 卷 2 → 取卷 1 摘要；
+    // raw 读法（?? 50）会算成卷 0 → 整段省略
+    const p = volumeProgressOf(root, 6, ud)
+    expect(p.section).toContain('第 1 卷摘要')
+    expect(p.file).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    if (ud) rmSync(ud, { recursive: true, force: true })
+  }
+})
+
+test('低-4（第十轮）：书级 volume_size 覆盖优先——global 为 5、书级 2 时仍按书级算卷', () => {
+  const { root, ud } = makeVolumeBook('  volume_size: 2\n', JSON.stringify({ defaultVolumeSize: 5 }))
+  try {
+    const p = volumeProgressOf(root, 3, ud)
+    expect(p.section).toContain('第 1 卷摘要')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    if (ud) rmSync(ud, { recursive: true, force: true })
+  }
+})
+
+test('低-4（第十轮）：无 global 时回落硬编码 50——章 3 仍在卷 1 → 整段省略', () => {
+  const { root } = makeVolumeBook('')
+  try {
+    expect(volumeProgressOf(root, 3, null)).toEqual({ section: null, file: null })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

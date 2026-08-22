@@ -122,3 +122,31 @@ describe('hh-P1: 事件史清除补 task-gate 持闸（409）', () => {
     expect(ok.status).toBe(200)
   })
 })
+
+describe('M-6（第十轮，回归第九轮 M-1）：三审闸纳入清空端点', () => {
+  // 三审是分钟级长任务且无 abort 通道：在途清库/清空会「清不彻底」（任务收尾事件
+  // 复活到已清 session）。闸态经 __setReviewRunning 测试钩子置位（不起真实三审）
+  it('M-6（第十轮，回归第九轮 M-1）：audit 清空——三审在途 → 409 拒清；结束后 → 200 放行', async () => {
+    const name = '三审闸审计清空书'
+    await makeBook(name)
+    __setReviewRunning(name, true)
+    const busy = await req('DELETE', `/api/books/${encodeURIComponent(name)}/audit`)
+    expect(busy.status).toBe(409)
+    expect((busy.json as { error: string }).error).toContain('三审')
+    __setReviewRunning(name, false)
+    const ok = await req('DELETE', `/api/books/${encodeURIComponent(name)}/audit`)
+    expect(ok.status).toBe(200)
+  })
+
+  it('M-6（第十轮，回归第九轮 M-1）：chat/clear 清空——三审在途 → 409 拒清；结束后 → 200 放行', async () => {
+    const name = '三审闸对话清空书'
+    await makeBook(name)
+    __setReviewRunning(name, true)
+    const busy = await req('POST', `/api/books/${encodeURIComponent(name)}/chat/clear`)
+    expect(busy.status).toBe(409)
+    expect((busy.json as { error: string }).error).toContain('三审')
+    __setReviewRunning(name, false)
+    const ok = await req('POST', `/api/books/${encodeURIComponent(name)}/chat/clear`)
+    expect(ok.status).toBe(200)
+  })
+})

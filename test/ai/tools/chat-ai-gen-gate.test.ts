@@ -19,6 +19,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from 
 import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js'
 import { isSelfHealRunning } from '../../../src/ai/orchestrate/self-heal.js'
 import { isSpawnRunning } from '../../../src/ai/orchestrate/spawn-registry.js'
+import { acquireTaskGate, isTaskGateHeld } from '../../../src/studio/server/api/task-gate.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
 
 vi.mock('../../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
@@ -156,5 +157,61 @@ describe('M-1: AI 生成类 chat 工具与 self-heal 互斥', () => {
     } finally {
       vi.mocked(isSpawnRunning).mockReturnValue(false)
     }
+  })
+})
+
+// ── 低-2（第十轮）：chat 侧改写与 studio /rewrite 端点共闸互斥 ──
+// 修复背景：端点侧有 task-gate 'rewrite'（RB-SV-P2-2），chat 工具侧的
+// rewrite_chapter/rewrite_selection 不查不拿——AI 改写与编辑器端点改写并发时
+// 基于同一基线各产一份全文，后写赢先写（端点 rewritten 进编辑器、chat 侧
+// spill→apply_spill 落盘，两条确认通道互不知晓对方已改基线）。
+
+describe('低-2（第十轮）：chat 改写工具与 /rewrite 端点 task-gate 互斥', () => {
+  it('端点 rewrite 闸在途 → chat 侧 rewrite_chapter 被拒（fail-closed 给可读 summary）', { timeout: 15_000 }, async () => {
+    const release = acquireTaskGate('ai-gen-gate', 'rewrite')
+    expect(release).not.toBeNull()
+    try {
+      const events = await runConfirmedToolChat([
+        { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
+        { type: 'text', content: '知道了。' },
+      ])
+      const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+      expect(result?.summary).toContain('正在改写')
+      // 未发生嵌套改写：无 spill 产物
+      expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(false)
+    } finally {
+      release!()
+    }
+    // 释放后放行（闸不残留——同书名后续用例/端点不被误伤）
+    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+  })
+
+  it('chat 侧改写在途 → 持有同把闸（端点/并发 chat 改写此刻 acquire 为 null）', { timeout: 15_000 }, async () => {
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    fake.setScript([
+      { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
+      { type: 'text', content: '改写后的全文内容。', delayMs: 300 }, // 挂住在途窗口供闸断言
+      { type: 'text', content: '改完了。' },
+    ])
+    const chatPromise = runChat({
+      driver,
+      mainSession: { id: 's1', cwd: workDir, closed: false },
+      userDataPath: setup(),
+      bookRoot,
+      bookName: 'ai-gen-gate',
+      message: '执行工具',
+      confirmTimeoutMs: 5000,
+    })
+    await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
+    const pending = events.find((e) => e.type === 'chat_tool_pending') as { callId: string } | undefined
+    resolveChatConfirm('ai-gen-gate', pending!.callId, true)
+    // 确认放行 → 工具执行即拿闸；改写生成挂起期间闸被 chat 侧持有
+    await waitFor(() => isTaskGateHeld('ai-gen-gate', 'rewrite'))
+    expect(acquireTaskGate('ai-gen-gate', 'rewrite')).toBeNull() // 端点此刻重复点击会 409
+    await chatPromise
+    // 工具收尾释放闸（不泄漏——后续改写不被永久卡死）
+    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+    expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(true)
   })
 })

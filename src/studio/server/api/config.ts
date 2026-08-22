@@ -30,7 +30,9 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error}`)
+    // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
+    // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
+    if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error.message}`)
     reply(res, 200, { config: (cfgResult as { config: BookConfig }).config })
   },
   })

@@ -25,6 +25,7 @@ import { collectDocSignals } from '../../src/process/style-harvest.js'
 import { addEntry, readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
+import type { EntryKind } from '../../src/format/types.js'
 
 let root = ''
 
@@ -99,6 +100,19 @@ describe('候选读写往返', () => {
     writeFileSync(fp, raw, 'utf-8')
     expect(readCandidate(fp).ok).toBe(false)
     expect(readCandidates(join(root, '不存在')).candidates).toHaveLength(0)
+  })
+
+  // 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
+  // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个候选箱读取抛穿，
+  // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
+  it('低-3（第十轮）：候选目录含已消失文件（悬空链接）不抛，其余候选照常读出', () => {
+    const dir = join(root, CANDIDATES_DIR)
+    addCandidate(root, sampleCandidate) // 自建候选目录
+    symlinkSync(join(dir, 'no-such.md'), join(dir, '已消失.md'))
+    expect(() => readCandidates(dir)).not.toThrow()
+    const { candidates, errors } = readCandidates(dir)
+    expect(candidates).toHaveLength(1)
+    expect(errors).toHaveLength(0)
   })
 })
 
@@ -265,5 +279,19 @@ describe('persistCandidates 查重闸', () => {
 
     // 候选目录内文件数 = 1（只有最初那条）
     expect(readdirSync(join(root, CANDIDATES_DIR)).filter((f) => f.endsWith('.md'))).toHaveLength(1)
+  })
+
+  // 低-2（第十轮）：查重 key 注释称 SOH 分隔防碰撞而实现是裸拼接。现有类型词表
+  // （样章/手法/反例/禁词）等长恰好无碰撞，但词表演进出现前缀类型（如单字「样」）
+  // 时 `类型+正文` 直接拼接会假阳性跳过（'样'+'章手法' ≡ '样章'+'手法'）——
+  // 用前缀类型模拟该潜伏形状，SOH 分隔后两键必不相等
+  it('低-2（第十轮）：查重 key 有 SOH 分隔——前缀类型与「类型+正文」裸拼接不碰撞', () => {
+    const full: StyleCandidate = {
+      ...sampleCandidate, 类型: '样章', 正文: '手法', 章号: undefined, 相似度: undefined, AI版: undefined,
+    }
+    const prefix = { ...full, 类型: '样' as EntryKind, 正文: '章手法' }
+    const r = persistCandidates(root, [full, prefix])
+    expect(r.created).toHaveLength(2) // 无分隔符时两键同为「样章手法」→ 第二条被误跳过
+    expect(r.skipped).toBe(0)
   })
 })

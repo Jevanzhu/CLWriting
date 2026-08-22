@@ -21,6 +21,7 @@ import { buildSettingsContext } from '../../../process/settings-context.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf, splitFrontMatter } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
+import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
@@ -61,9 +62,10 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 
       const bookRoot = r.bookRoot
       const kind = readKind(bookRoot)
-      const prompt = buildOutlinePrompt(bookRoot, chapter, kind)
+      // 低-4（第十轮）：userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值
+      const prompt = buildOutlinePrompt(bookRoot, chapter, kind, ctx.userDataPath)
       // C3（批 3）：卷进展段注入时登记源文件（缺失 → files 空，promptMeta 可查「未注入」）
-      const progress = volumeProgressOf(bookRoot, chapter)
+      const progress = volumeProgressOf(bookRoot, chapter, ctx.userDataPath)
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
       const result = await runOutline(ctx.userDataPath, prompt, bookRoot, progress.file ? [progress.file] : [])
@@ -97,8 +99,14 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** 组 outline prompt:长篇(总纲+卷进展+前章+章细纲)/短篇(总纲+前章+章纲)分支 */
-export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'long' | 'short'): string {
+/** 组 outline prompt:长篇(总纲+卷进展+前章+章细纲)/短篇(总纲+前章+章纲)分支
+ *  低-4（第十轮）：userDataPath 透传 volumeProgressOf（global 默认卷长托底） */
+export function buildOutlinePrompt(
+  bookRoot: string,
+  chapter: number,
+  kind: 'long' | 'short',
+  userDataPath: string | null = null,
+): string {
   const synopsis = readSafe(join(bookRoot, '大纲', '总纲.md'))
 
   // 短篇:单章闭合,前章避重复主题/情绪,章纲要目标情绪+核心反转+开合骨架
@@ -144,7 +152,7 @@ export function buildOutlinePrompt(bookRoot: string, chapter: number, kind: 'lon
   // C3（批 3）：当前卷进展——写到几百章时中间视野不能只靠总纲恒量。来源 = 最近
   // 已完成卷（写作章所在卷的前一卷）的卷摘要（C2 按需生成的产物），≤800 字；
   // 缺失则整段省略（promptMeta.files 可查「本次未注入」）
-  const progress = volumeProgressOf(bookRoot, chapter)
+  const progress = volumeProgressOf(bookRoot, chapter, userDataPath)
   if (progress.section) parts.push(progress.section)
 
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
@@ -219,8 +227,16 @@ function readSafe(fp: string): string {
  * ≤800 字（slice 硬上限）；剥 fm 只注入正文；缺失 → { section: null, file: null }
  * （整段省略）。file 为相对书根路径（promptMeta.files 登记用）。
  */
-export function volumeProgressOf(bookRoot: string, chapter: number): { section: string | null; file: string | null } {
-  const volumeSize = readBookConfig(join(bookRoot, 'book.yaml')).config.book.volume_size ?? 50
+export function volumeProgressOf(
+  bookRoot: string,
+  chapter: number,
+  userDataPath: string | null = null,
+): { section: string | null; file: string | null } {
+  // 低-4（第十轮）：卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
+  // global.json defaultVolumeSize（与其他读配置口径对齐，见 state.ts/overview.ts 先例）；
+  // 此前 raw 读 + `?? 50`，全局非 50 且书级未设时会按错卷长注入卷摘要
+  const volumeSize =
+    applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, userDataPath).book.volume_size ?? 50
   const vol = Math.ceil(chapter / volumeSize) - 1
   if (vol < 1) return { section: null, file: null }
   const fp = join(bookRoot, '定稿', '摘要', '卷摘要', `${vol}.md`)

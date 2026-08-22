@@ -686,6 +686,7 @@ if (gotSingleInstanceLock) {
   // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
   // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
   // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）
+  // 留账（第十轮 M-6）：Electron main 无测试基建，runBootstrap 重试链路暂无回归测试
   let bootstrapping = false
   function runBootstrap(onError?: (e: unknown) => void): void {
     if (bootstrapping) return
@@ -724,6 +725,10 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('activate', () => {
+    // 低-8（第十轮）：退出途中不再重 bootstrap——before-quit 的 2s 优雅退出窗口内
+    // （shutdownStarted 已置位）macOS dock 点击仍会触发 activate，若只判
+    // mainWindow === null 会在退出半途再起 server/开窗（与 Z-P2-8 退出竞态同族）
+    if (shutdownStarted) return
     if (mainWindow === null) {
       runBootstrap((e) => log.error('desktop', '重启失败', e))
     }

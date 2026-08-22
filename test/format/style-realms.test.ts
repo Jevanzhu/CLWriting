@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
@@ -51,6 +51,23 @@ test('readSamplesByScene: 按场景取、容错', () => {
 test('readSamplesByScene: 场景目录不存在返回空', () => {
   const { samples } = readSamplesByScene(join(tmpdir(), '不存在-' + Date.now()), '战斗')
   expect(samples).toHaveLength(0)
+})
+
+// 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
+// （stat 跟随链接取目标，同样 ENOENT，与真实竞态同错误面）。此前裸 statSync 会把
+// 整个场景读取抛穿，对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
+test('低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出', () => {
+  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = join(root, '文风', '样章库')
+  mkdirSync(join(dir, '战斗'), { recursive: true })
+  writeSample(join(dir, '战斗', '战斗-001.md'), {
+    场景: '战斗', 来源: '作者原作', 正文: '战斗段一',
+  })
+  symlinkSync(join(dir, '战斗', 'no-such.md'), join(dir, '战斗', '战斗-002.md'))
+  const { samples, errors } = readSamplesByScene(dir, '战斗')
+  expect(samples).toHaveLength(1)
+  expect(errors).toHaveLength(0)
+  rmSync(root, { recursive: true, force: true })
 })
 
 test('parseSampleFileName', () => {

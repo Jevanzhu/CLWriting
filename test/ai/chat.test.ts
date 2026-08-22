@@ -10,6 +10,8 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } 
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory } from '../../src/ai/orchestrate/chat.js'
+import { chatTools } from '../../src/ai/contract/chat.js'
+import { writeSpillFile } from '../../src/process/spill.js'
 import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
@@ -624,6 +626,53 @@ describe('RB-AI-P2-5: read_chapter 整章无上限灌上下文', () => {
     expect(result).toBeTruthy()
     expect(result!.summary).not.toContain('已截断至')
     expect(result!.summary).toContain('林远踏入宗门') // fixture 原文
+  })
+})
+
+// ─── 低-4（第十轮）：read_chapter 截断口径如实化 ──────────
+// 修复背景：spill 通知（「已省略…调用 read_chapter 工具取回」）与工具契约描述
+// 都承诺「取回全文」，但 read_chapter 有 RB-AI-P2-5 的 2 万字上限——超长章中段
+// 不可达，承诺与现实矛盾。口径改为如实：截断通知写明截断 + 全文去处（优先
+// spill 暂存——上下文注入外置的同一份全文，内容寻址同名；无 spill 只报草稿路径）。
+
+describe('低-4（第十轮）：read_chapter 超长截断口径如实', () => {
+  it('超长正文截断通知带 spill 暂存路径（与上下文外置的全文同源）', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    const body = '长'.repeat(30_000)
+    writeFileSync(join(longRoot, '写作/正文', '0001-初入宗门.md'), '---\n章号: 1\n标题: 初入宗门\n---\n' + body, 'utf8')
+    // 模拟 buildChatContext 的上下文外置：同一 body 落 spill（内容寻址同名）
+    const locator = writeSpillFile(longRoot, body)!
+
+    fake.setScript([
+      { type: 'tool', name: 'read_chapter', input: { chapter: 1 } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'low4-trunc',
+      message: '读第 1 章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    expect(result!.summary).toContain('已截断至') // 截断如实写明（不再假装取回全文）
+    expect(result!.summary).toContain('工作区/spills/') // spill 暂存指引（全文以此为准）
+    expect(result!.summary).toContain(locator)
+    expect(result!.summary).toContain('写作/正文/0001-初入宗门.md') // 草稿路径仍告知
+  })
+
+  it('工具契约描述如实注明截断（不再承诺「完整正文」）', () => {
+    const def = chatTools.find((t) => t.name === 'read_chapter')
+    expect(def).toBeTruthy()
+    expect(def!.description).toContain('截断')
+    expect(def!.description).not.toContain('完整正文')
   })
 })
 

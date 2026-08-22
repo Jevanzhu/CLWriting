@@ -211,3 +211,71 @@ describe('POST /documents/:docId/infer-meta（AI 反推目标情绪/核心反转
     expect(j.meta.核心反转).toBeTruthy()
   })
 })
+
+// ── 低-5（第十轮）：analysis-overview 对坏信封 payload 的形状守卫 ──────────
+
+describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5）', () => {
+  it('score 非数字 / emotion 末段缺字段 → 该章不入趋势，好数据照常聚合', async () => {
+    const bookRoot = join(workDir, BOOK)
+    // 第二章 + 登记（章 1 坏 emotion / 章 2 坏 score，交叉验证互不拖累）
+    const docId2 = generateDocId()
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0002-次章.md'),
+      '---\n章号: 2\n标题: 次章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第二章正文。\n',
+      'utf8',
+    )
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, { id: docId2, nodeType: 'document', path: '写作/正文/0002-次章.md', parentId: null })
+    writeManifest(manifestPath, m)
+
+    // 直写分析信封（坏形状走真实 readAnalysis/isEnvelope 链路）
+    const env = (payload: unknown) => ({
+      generatedAt: new Date().toISOString(),
+      model: 'mock',
+      sourceHash: '0'.repeat(64),
+      payload,
+    })
+    const analysisDir = join(bookRoot, '项目', '分析')
+    mkdirSync(analysisDir, { recursive: true })
+    // 章 1：score 好、emotion 坏（末段 emotion 非数字）
+    writeFileSync(join(analysisDir, `${docId}.json`), JSON.stringify({
+      score: env({ score: 8, dims: { 爽点: 8 } }),
+      emotion: env({ segments: [{ emotion: 1, label: '起' }, { emotion: 'x', label: '伏' }] }),
+    }))
+    // 章 2：score 坏（score 缺失/非数字）、emotion 好
+    writeFileSync(join(analysisDir, `${docId2}.json`), JSON.stringify({
+      score: env({ dims: { 爽点: 8 } }),
+      emotion: env({ segments: [{ emotion: -1, label: '抑' }] }),
+    }))
+
+    const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/analysis-overview`)
+    expect(r.status).toBe(200)
+    const j = r.json as {
+      scoreTrend: { 章号: number; score: number }[]
+      emotionTrend: { 章号: number; emotion: number; label: string }[]
+    }
+    // 坏形状只跳过该章的该 kind——score 趋势只剩章 1，且值为数字（无 NaN 入趋势）
+    expect(j.scoreTrend).toHaveLength(1)
+    expect(j.scoreTrend[0]!.章号).toBe(1)
+    expect(typeof j.scoreTrend[0]!.score).toBe('number')
+    expect(j.emotionTrend).toHaveLength(1)
+    expect(j.emotionTrend[0]!.章号).toBe(2)
+    expect(j.emotionTrend[0]!.emotion).toBe(-1)
+    expect(j.emotionTrend[0]!.label).toBe('抑')
+  })
+
+  it('emotion segments 非数组（坏信封）→ 跳过该章不崩端点', async () => {
+    const bookRoot = join(workDir, BOOK)
+    const analysisDir = join(bookRoot, '项目', '分析')
+    // 只重写章 1 的信封为坏形状（segments 非数组）；章 2 的好信封留盘对照
+    writeFileSync(join(analysisDir, `${docId}.json`), JSON.stringify({
+      emotion: { generatedAt: new Date().toISOString(), model: 'mock', sourceHash: '0'.repeat(64), payload: { segments: 'oops' } },
+    }))
+    const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/analysis-overview`)
+    expect(r.status).toBe(200)
+    const j = r.json as { emotionTrend: { 章号: number }[] }
+    expect(j.emotionTrend.some((e) => e.章号 === 1)).toBe(false) // 坏形状章 1 被跳过
+    expect(j.emotionTrend.every((e) => e.章号 === 2)).toBe(true) // 好信封章 2 照常聚合
+  })
+})

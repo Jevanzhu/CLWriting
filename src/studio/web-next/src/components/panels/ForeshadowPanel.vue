@@ -94,8 +94,14 @@ async function create(): Promise<void> {
   let name = '新伏笔'
   let i = 2
   while (existing.has(name)) name = `新伏笔${i++}`
+  // 低-4（第十轮）：入口捕获 + await 后活源复检（FE-3 类收敛）——createDoc 在途切书后，
+  // 旧书续体继续 tree.load/openTab 会顶开 B 书工作台正开的伏笔标签（共享 store 被写入）。
+  // 本面板经 SidebarRight 常驻外壳挂载（非 keyed），props.bookName 即路由活书名（无滞后），
+  // 再比 doc store 内 live bookName 兜底（对齐 Book.vue 切书编排的权威书名）
+  const book = props.bookName
   try {
-    const r = await createDoc(props.bookName, { relPath: `设定/伏笔/${name}.md` })
+    const r = await createDoc(book, { relPath: `设定/伏笔/${name}.md` })
+    if (props.bookName !== book || doc.bookName !== book) return // 已切书：放弃后续写操作
     await tree.load(props.bookName)
     await load()
     const fresh = tree.byPath.get(r.path)

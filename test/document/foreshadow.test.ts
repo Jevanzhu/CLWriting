@@ -288,6 +288,56 @@ describe('migrateLegacyForeshadows', () => {
   })
 })
 
+// 低-5（第十轮）：同标题伏笔 trail 以标题为 Map key 互相覆盖——同名两条只留后一条
+// 的足迹（文件本身不撞：迁移链 N3 已给文件名带编号兜底，撞的是 fm 标题）。
+// 合并语义：命中取并集、首末取极值、风险取最坏（fail-closed）；key 仍用标题，
+// 保住存量读方（prepare 伏笔提醒 / studio foreshadows 端点的 get(标题)）不换形状
+describe('低-5（第十轮）：同标题伏笔 trail 不互相覆盖', () => {
+  /** 直接写指定文件名（fm 标题相同、文件名带编号——迁移链产出的同名形态） */
+  function writeNamedForeshadow(file: string, fm: Record<string, string>): void {
+    const dir = join(root, '设定', '伏笔')
+    mkdirSync(dir, { recursive: true })
+    const fmLines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join('\n')
+    writeFileSync(join(dir, file), `---\n${fmLines}\n---\n`, 'utf-8')
+  }
+
+  test('同标题两条伏笔足迹都在（合并保留，互不覆盖）', () => {
+    writeNamedForeshadow('伏笔-031-密室.md', { 标题: '密室', 重要性: '高', 关联词: '铜锁', 埋设章号: '1' })
+    writeNamedForeshadow('伏笔-052-密室.md', { 标题: '密室', 重要性: '中', 关联词: '钥匙', 埋设章号: '5' })
+    writeChapter(1, '埋', '门上的铜锁泛着绿光。')
+    writeChapter(5, '启', '她摸出了那把钥匙。')
+    writeChapter(50, '远', '剧情推进。')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const t = trails.get('密室')!
+    // 两条的命中都在（覆盖形态下只剩后一条的「钥匙」）
+    expect(t.hits.map((h) => h.命中词).sort()).toEqual(['钥匙', '铜锁'])
+    expect(t.firstHit).toBe(1) // 031 的埋设点
+    expect(t.lastHit).toBe(5) // 052 的末次提及
+    // 风险取最坏：031（高，悬置 49 章 → 红）不被 052（中，悬置 45 章 → 黄）盖成黄
+    expect(t.risk).toBe('红')
+  })
+
+  test('存量读侧兼容：单标题 key（get(标题)）照常可读，map 大小 = 唯一标题数', () => {
+    writeNamedForeshadow('伏笔-031-密室.md', { 标题: '密室', 重要性: '高', 关联词: '铜锁', 埋设章号: '1' })
+    writeNamedForeshadow('伏笔-052-密室.md', { 标题: '密室', 重要性: '中', 关联词: '钥匙', 埋设章号: '5' })
+    writeForeshadow('唯一线', { 重要性: '低', 关联词: '唯一词', 埋设章号: '2' })
+    writeChapter(1, '一', '铜锁出现。')
+    writeChapter(2, '二', '唯一词出现。')
+    writeChapter(5, '五', '钥匙出现。')
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    // 旧读法（prepare/studio 的 get(标题)）对同标题与唯一标题都能取到
+    expect(trails.get('密室')).toBeTruthy()
+    expect(trails.get('唯一线')!.firstHit).toBe(2)
+    expect(trails.size).toBe(2) // 唯一标题数：不加复合 key、不因合并丢条目
+    // 检索路径同读法：同标题两条都带足迹出现在结果里，且各带的是合并足迹（两条都在）
+    const hits = searchForeshadowTrails(root, '密室')
+    expect(hits).toHaveLength(2)
+    expect(hits.every((h) => h.足迹.hits.length === 2)).toBe(true)
+  })
+})
+
 describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
   test('按标题 / 关联词 / 命中片段检索，返回足迹（哪章埋了哪章收了）', () => {
     writeForeshadow('古剑', { 重要性: '高', 关联词: '锈剑', 埋设章号: '2' })

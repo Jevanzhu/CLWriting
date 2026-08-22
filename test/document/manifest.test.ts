@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readManifest, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook } from '../../src/document/manifest.js'
+import { readManifest, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet } from '../../src/document/manifest.js'
 
 describe('manifest', () => {
   let dir: string
@@ -108,6 +108,49 @@ describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefine
       expect(finalizedChapterSetOfBook(root)).toEqual(new Set([1]))
     } finally {
       chmodSync(fp, 0o644)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败≠零定稿、在册零文档≠无清单', () => {
+  it('无清单文件 → null（旧书全量兜底，历史行为不变）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    try {
+      expect(finalizedPathSet(root)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    const fp = join(root, '项目', '文档清单.jsonl')
+    try {
+      mkdirSync(join(root, '项目'), { recursive: true })
+      writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
+      chmodSync(fp, 0o000)
+      expect(finalizedPathSet(root)).toBeNull()
+      chmodSync(fp, 0o644)
+      // 恢复可读 → 真集合（在册定稿 1 章）
+      expect(finalizedPathSet(root)).toEqual(new Set(['写作/正文/001-开篇.md']))
+    } finally {
+      chmodSync(fp, 0o644)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('清单在册可读但零文档条目 → 空集（判定成立：无一定稿，草稿不得混进导出/候选池）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    const fp = join(root, '项目', '文档清单.jsonl')
+    try {
+      mkdirSync(join(root, '项目'), { recursive: true })
+      writeFileSync(fp, '{"version":1,"type":"header"}\n')
+      const set = finalizedPathSet(root)
+      expect(set).not.toBeNull()
+      expect(set!.size).toBe(0)
+      rmSync(root, { recursive: true, force: true })
+    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
