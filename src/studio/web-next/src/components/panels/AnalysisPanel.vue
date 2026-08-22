@@ -305,13 +305,9 @@ function gotoOverview(): void {
   cursor: not-allowed;
 }
 .spin {
-  animation: ap-spin 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
-@keyframes ap-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+
 .ap-card {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);

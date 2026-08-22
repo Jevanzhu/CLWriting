@@ -7,6 +7,9 @@ import { usePrefsStore } from './stores/prefs'
 import { useUiStore } from './stores/ui'
 import './styles/tokens.css'
 import './styles/base.css'
+// 设置域共享类（.val/.save-btn/.seg 药丸等）被设置域外组件消费（右栏面板、导出弹窗），
+// 全局装载使依赖显式化（原先靠 SettingsModal 被静态 import 间接生效）。
+import './components/ui/settings-shared.css'
 
 // 启动：boot 取 token → 加载全局偏好（.clwriting/global.json）→ 挂载应用。
 // top-level await：ESM 入口支持，确保渲染前 token + 偏好就位。

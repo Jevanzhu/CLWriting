@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { useRewriteStore } from '../stores/rewrite'
 
-export const AI_ACTIONS = [
+const AI_ACTIONS = [
   { key: 'expand', label: '扩写', instruction: '扩写选中段落，增加场景细节、感官描写和角色心理活动' },
   { key: 'condense', label: '缩写', instruction: '压缩选中段落，去掉冗余对话和描写，保留核心信息和情节走向' },
   { key: 'polish', label: '润色', instruction: '润色选中段落的文风和用词，提升文学性，不改变情节走向' },

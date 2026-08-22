@@ -29,7 +29,7 @@ export function extractChapterNo(name: string): number | null {
 }
 
 /** 正文根目录节点（v2：写作/正文）。 */
-export function writeRootIn(nodes: TreeNode[]): TreeNode | undefined {
+function writeRootIn(nodes: TreeNode[]): TreeNode | undefined {
   const writeGroup = nodes.find((n) => n.path === '写作')
   return writeGroup?.children.find((c) => c.path === '写作/正文')
 }

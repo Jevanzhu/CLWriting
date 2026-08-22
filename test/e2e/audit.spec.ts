@@ -92,13 +92,13 @@ test('审计：进书 → 审计视图 → 遮蔽差异双模式 → 两 tab 加
   await expect(page.locator('.diff-row.shadowed')).toHaveCount(0)
 
   // 切「人类可见（含遮蔽）」：全量 520 行，遮蔽行带「被遮蔽」标记
-  await page.locator('.seg button', { hasText: '人类可见' }).click()
+  await page.locator('.audit-seg button', { hasText: '人类可见' }).click()
   await expect(page.locator('.diff-row')).toHaveCount(TOTAL)
   await expect(page.locator('.diff-row.shadowed')).toHaveCount(Math.floor(TOTAL / 50))
   await expect(page.locator('.shadowed-mark').first()).toBeVisible()
 
   // 切回「模型可见」：遮蔽行随投影消失（差异切换真的换了数据源，非仅样式）
-  await page.locator('.seg button', { hasText: '模型可见' }).click()
+  await page.locator('.audit-seg button', { hasText: '模型可见' }).click()
   await expect(page.locator('.diff-row.shadowed')).toHaveCount(0)
 
   // ── 事件重放：首页 500 条截断 + 「加载更多」跨页补齐 ──

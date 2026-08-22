@@ -185,13 +185,9 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   cursor: not-allowed;
 }
 .spin {
-  animation: cw-spin 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
-@keyframes cw-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+
 .check-hint,
 .check-error {
   font-size: var(--font-size-s);

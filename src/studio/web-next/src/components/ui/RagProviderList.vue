@@ -85,10 +85,6 @@ const emit = defineEmits<{
 
 <style scoped>
 /* 共享控件语言在 styles/providers.css；这里只留区块骨架。 */
-.rag-provider-section {
-  display: grid;
-  gap: var(--size-4-2);
-}
 .provider-list {
   display: grid;
   gap: var(--size-4-2);

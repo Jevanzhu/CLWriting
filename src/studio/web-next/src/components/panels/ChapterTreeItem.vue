@@ -259,14 +259,15 @@ watch(
   color: var(--text-faint);
   flex-shrink: 0;
 }
-/* 树红点（行尾，独立于行首六态 dot） */
+/* 树红点（行尾，独立于行首六态 dot）。脉冲 3 圈后停在常亮：
+   无限脉冲会驱动整窗持续出帧（闲置 CPU 复燃），状态常亮已足够传达。 */
 .issue-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--text-error);
   flex-shrink: 0;
-  animation: issue-pulse 1.6s ease-in-out infinite;
+  animation: issue-pulse 1.6s ease-in-out 3;
 }
 @keyframes issue-pulse {
   0%, 100% { opacity: 1; }

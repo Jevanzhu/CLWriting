@@ -440,7 +440,7 @@ async function onTitleCommit(): Promise<void> {
   cursor: default;
 }
 .save-btn-spin {
-  animation: ai-btn-rot 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
 .conflict-btn {
   font-size: var(--font-size-xs);
@@ -489,9 +489,7 @@ async function onTitleCommit(): Promise<void> {
 .ai-btn-spin {
   color: var(--text-accent);
   margin: 0 4px;
-  animation: ai-btn-rot 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
-@keyframes ai-btn-rot {
-  to { transform: rotate(360deg); }
-}
+
 </style>

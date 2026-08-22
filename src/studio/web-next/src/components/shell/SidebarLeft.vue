@@ -95,19 +95,11 @@ async function onRefresh(): Promise<void> {
   background: var(--background-modifier-hover);
   color: var(--text-muted);
 }
-.left-tab.active {
-  background: var(--background-modifier-active-hover);
-  color: var(--text-accent);
-}
 /* 刷新文件树：仅树面板显示，与收起按钮同排 */
 .left-tab.refresh-tree .spin {
-  animation: sl-spin 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
-@keyframes sl-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+
 .left-body {
   flex: 1;
   min-height: 0;

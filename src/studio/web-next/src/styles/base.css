@@ -111,15 +111,137 @@ button:disabled {
     opacity: 1;
   }
 }
-/* D5 动效：柱状生长（RhythmView 字数柱进场；SVG rect scaleY from bottom）。
-   reduced-motion 由全局兜底归零（见文末 media query）。*/
-@keyframes clw-bar-grow {
+
+/* 全局动效家族（收敛自 13 个组件逐份复制的同名异体 keyframes；scoped 样式可直接
+   引用全局动画名，同 clw-appear 先例）。时长/缓动由各消费点自持，此处只定动画体。 */
+@keyframes clw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes clw-fade-up {
   from {
-    transform: scaleY(0);
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
-    transform: scaleY(1);
+    opacity: 1;
+    transform: none;
   }
+}
+@keyframes clw-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── 共享 UI 工具类（收敛自 style/overview/onboard 九个组件的逐份复制）── */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+.panel-head svg {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.head-note {
+  font-weight: 400;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+
+/* ── 环境氛围层（Shelf/Welcome/Library 全屏页共用）。静态光晕：无限呼吸动画会驱动
+   整窗持续出帧（实测闲置 GPU ~10% CPU），radial-gradient 本身已柔和，无需动画。── */
+.ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.75;
+}
+.glow-tr {
+  top: -18%;
+  right: -8%;
+  width: 50vw;
+  height: 50vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
+}
+.glow-bl {
+  bottom: -22%;
+  left: -12%;
+  width: 42vw;
+  height: 42vh;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
+}
+
+/* ── chat 章节速选菜单（ChatDock / ChatPanel 共用；ChatDock scoped 覆盖阴影深一档）── */
+.chapter-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  min-width: 100%;
+  border-radius: var(--radius-l);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: var(--shadow-s);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  animation: chapter-menu-in var(--dur-fast) var(--ease-out);
+}
+
+.chapter-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.chapter-menu-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.chapter-menu-item.active {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  font-weight: 600;
+}
+
+@keyframes chapter-menu-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* tooltip 已迁移到 TooltipHost.vue（全局 Teleport + fixed 定位，不受 overflow 裁切）。

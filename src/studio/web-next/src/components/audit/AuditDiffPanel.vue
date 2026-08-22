@@ -31,7 +31,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   <section class="sec">
     <h2 class="sec-title">
       遮蔽差异
-      <span class="seg">
+      <span class="audit-seg">
         <button :class="{ on: diffMode === 'model' }" @click="diffMode = 'model'">
           <Eye :size="13" /> 模型可见
         </button>
@@ -75,12 +75,13 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 }
 .empty { color: var(--text-muted); font-size: 0.82rem; padding: 8px; }
 
-.seg {
+/* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */
+.audit-seg {
   display: inline-flex;
   gap: 4px;
   margin-left: auto;
 }
-.seg button {
+.audit-seg button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -92,7 +93,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   cursor: pointer;
   font-size: 0.75rem;
 }
-.seg button.on {
+.audit-seg button.on {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border-color: transparent;

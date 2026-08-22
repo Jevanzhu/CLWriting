@@ -58,12 +58,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-3);
-  animation: fade-up 0.5s var(--ease-out) 120ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 120ms both;
 }
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
+
 .premise-head {
   display: flex;
   align-items: center;

@@ -473,9 +473,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 
 /* 动画 */
 .spin {
-  animation: spin 1s linear infinite;
+  animation: clw-spin 1s linear infinite;
 }
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+
 </style>

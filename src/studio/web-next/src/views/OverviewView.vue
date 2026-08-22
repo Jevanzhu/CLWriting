@@ -167,8 +167,6 @@ const fsStats = computed(() => {
   }
 })
 
-
-
 </script>
 
 <template>
@@ -338,19 +336,14 @@ const fsStats = computed(() => {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 18px 20px;
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
 }
-.panel-head {
-  display: flex; align-items: center; gap: 6px;
-  font-size: var(--font-size-s); font-weight: 600;
-  color: var(--text-muted); margin-bottom: 14px;
-}
-.panel-head svg { opacity: 0.5; flex-shrink: 0; }
+
 .head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
 .empty { font-size: var(--font-size-s); color: var(--text-faint); padding: var(--size-4-2) 0; }
 
 /* stagger */
-.hero { animation: fade-up 0.5s var(--ease-out) both; }
+.hero { animation: clw-fade-up 0.5s var(--ease-out) both; }
 .bento-2 .panel:nth-child(1) { animation-delay: 80ms; }
 .bento-2 .panel:nth-child(2) { animation-delay: 120ms; }
 
@@ -460,9 +453,7 @@ const fsStats = computed(() => {
 .style-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .style-tag { font-size: var(--font-size-xs); padding: 1px 8px; border-radius: 8px; background: color-mix(in srgb, var(--dv-warn) 12%, transparent); color: var(--dv-warn); }
 
-
 /* ══ 动画 ══ */
-@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ══ 杂项 ══ */
 .ov-placeholder { padding: 80px 0; text-align: center; color: var(--text-faint); font-size: var(--font-size-m); }

@@ -192,26 +192,9 @@ async function onRemove(path: string, text: string): Promise<void> {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 18px 20px;
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
 }
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 14px;
-}
-.panel-head svg {
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-.head-note {
-  font-weight: 400;
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
+
 .head-warn {
   font-size: var(--font-size-xs);
   font-weight: 400;
@@ -425,14 +408,4 @@ async function onRemove(path: string, text: string): Promise<void> {
   content: '◦ ';
 }
 
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 </style>

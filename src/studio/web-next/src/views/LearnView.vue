@@ -218,10 +218,7 @@ async function onCommit(): Promise<void> {
   background: var(--interactive-accent-hover);
 }
 .spin {
-  animation: cw-spin 0.9s linear infinite;
-}
-@keyframes cw-spin {
-  to { transform: rotate(360deg); }
+  animation: clw-spin 0.9s linear infinite;
 }
 
 /* 反馈条 */
@@ -316,6 +313,5 @@ async function onCommit(): Promise<void> {
   color: var(--text-muted);
   white-space: nowrap;
 }
-
 
 </style>

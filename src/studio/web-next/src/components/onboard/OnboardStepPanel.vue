@@ -104,28 +104,15 @@ function isGenerated(step: OnboardStep): boolean {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-s);
-  animation: fade-up var(--dur-fast) var(--ease-out) 60ms both;
-}
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) 60ms both;
 }
 
 /* panel-head（与总览页同模式：图标 + 标题，muted 色） */
 .panel-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
   margin-bottom: var(--size-4-4);
   padding: var(--size-4-4) var(--size-4-5) 0;
 }
-.panel-head svg {
-  opacity: 0.5;
-  flex-shrink: 0;
-}
+
 .ph-title {
   font-size: var(--font-size-l);
   font-weight: 700;
@@ -303,11 +290,8 @@ function isGenerated(step: OnboardStep): boolean {
 }
 
 .spin {
-  animation: cw-spin 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
   color: var(--text-accent);
-}
-@keyframes cw-spin {
-  to { transform: rotate(360deg); }
 }
 
 .err-msg {

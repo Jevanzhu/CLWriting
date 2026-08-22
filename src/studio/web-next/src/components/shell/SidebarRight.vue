@@ -184,21 +184,4 @@ const isReviewable = computed(() => {
   display: flex;
   flex-direction: column;
 }
-.side-section {
-  display: flex;
-  flex-direction: column;
-}
-.side-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--size-4-2);
-}
-.side-hint {
-  font-size: var(--font-size-s);
-  color: var(--text-faint);
-  line-height: 1.6;
-}
 </style>

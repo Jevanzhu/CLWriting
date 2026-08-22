@@ -265,11 +265,7 @@ function adoptPicked(): void {
   border-color: var(--interactive-accent);
 }
 .spin {
-  animation: models-editor-spin 0.8s linear infinite;
+  animation: clw-spin 0.8s linear infinite;
 }
-@keyframes models-editor-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+
 </style>

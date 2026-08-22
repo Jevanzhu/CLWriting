@@ -302,7 +302,6 @@
   padding-left: var(--size-4-8);
 }
 /* 卡片内非 setting-item 元素对齐 padding */
-.cfg-card .rag-save-row,
 .cfg-card .stats-hint {
   padding-left: var(--size-4-4);
   padding-right: var(--size-4-4);
@@ -569,11 +568,6 @@
 }
 
 /* ── RAG 显式保存行 ── */
-.rag-save-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--size-4-3) 0;
-}
 .save-btn {
   padding: 7px 18px;
   font-size: var(--font-size-s);

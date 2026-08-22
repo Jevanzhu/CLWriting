@@ -175,55 +175,7 @@ const {
   color: var(--text-accent);
 }
 /* 章节自定义下拉菜单（向上弹出，与 composer-box 同风格） */
-.chapter-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 10;
-  min-width: 100%;
-  border-radius: var(--radius-l);
-  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
-  background: color-mix(in srgb, var(--background-primary) 70%, transparent);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  box-shadow: var(--shadow-s);
-  padding: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  white-space: nowrap;
-  animation: chapter-menu-in var(--dur-fast) var(--ease-out);
-}
-@keyframes chapter-menu-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.chapter-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  padding: 7px 12px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-s);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.chapter-menu-item:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.chapter-menu-item.active {
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
-  font-weight: 600;
-}
+
 .chat-input {
   flex: 1;
   min-height: 56px;

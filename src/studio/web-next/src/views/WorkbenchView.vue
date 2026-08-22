@@ -390,21 +390,6 @@ async function onSaveDraft(): Promise<void> {
   color: var(--text-muted);
   white-space: nowrap;
 }
-.model-select {
-  flex: 1;
-  height: 30px;
-  font-size: var(--font-size-s);
-  padding: 0 var(--size-4-2);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  outline: none;
-  font-family: var(--font-monospace);
-}
-.model-select:focus {
-  border-color: var(--interactive-accent);
-}
 .tier-model {
   font-family: var(--font-monospace);
   font-size: var(--font-size-s);

@@ -131,39 +131,19 @@ async function switchTo(path: string): Promise<void> {
 }
 
 /* ══ 环境氛围层（呼吸光晕，让画面有生命感）══ */
-.ambient {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(72px);
-  will-change: opacity, transform;
-}
+
+/* 光晕静态（opacity 固定动画中值）：无限 opacity/scale 呼吸会驱动整窗持续出帧
+ * （实测闲置 GPU ~10% + renderer ~5% CPU），radial-gradient 本身已柔和，无动画必要 */
+
 .glow-tr {
-  top: -18%;
-  right: -8%;
+  /* Welcome 光晕比默认大一档 */
   width: 58vw;
   height: 58vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
-  animation: breathe 18s var(--ease-std) infinite;
 }
 .glow-bl {
-  bottom: -22%;
-  left: -12%;
+  /* Welcome 光晕比默认大一档 */
   width: 48vw;
   height: 48vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
-  animation: breathe 24s var(--ease-std) infinite reverse;
-}
-@keyframes breathe {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50%      { opacity: 1; transform: scale(1.1); }
 }
 
 /* titlebar drag 区 */
@@ -231,14 +211,14 @@ async function switchTo(path: string): Promise<void> {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  animation: fade-up 0.5s var(--ease-out) 80ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 80ms both;
 }
 .brand-tagline {
   margin: 0;
   font-size: var(--font-size-l);
   color: var(--text-muted);
   text-align: center;
-  animation: fade-up 0.5s var(--ease-out) 140ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 140ms both;
 }
 
 /* ══ 入口 ══ */
@@ -285,7 +265,7 @@ async function switchTo(path: string): Promise<void> {
   box-shadow:
     var(--shadow-m),
     0 0 0 1px color-mix(in srgb, var(--interactive-accent) 26%, transparent);
-  animation: fade-up 0.5s var(--ease-out) 200ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 200ms both;
 }
 /* 次入口：玻璃质感，透出环境光 */
 .entry:not(.primary) {
@@ -293,7 +273,7 @@ async function switchTo(path: string): Promise<void> {
   background: color-mix(in srgb, var(--background-primary) 72%, transparent);
   backdrop-filter: blur(10px);
   color: var(--text-normal);
-  animation: fade-up 0.5s var(--ease-out) 260ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 260ms both;
 }
 .entry.primary:hover {
   transform: translateY(-2px);
@@ -363,7 +343,7 @@ async function switchTo(path: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
-  animation: fade-up 0.5s var(--ease-out) 320ms both;
+  animation: clw-fade-up 0.5s var(--ease-out) 320ms both;
 }
 .recent-title {
   margin: 0;
@@ -436,10 +416,6 @@ async function switchTo(path: string): Promise<void> {
 }
 
 /* ══ 入场动画 ══ */
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
 
 /* 窄屏 */
 @media (max-width: 520px) {

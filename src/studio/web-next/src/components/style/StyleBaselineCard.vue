@@ -152,9 +152,9 @@ async function saveRules(): Promise<void> {
       </div>
       <div class="anchor-line">
         <span class="al-label">参考强度</span>
-        <div class="seg">
-          <button class="seg-btn" :class="{ on: injection === 'light' }" @click="onInjection('light')">轻</button>
-          <button class="seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>
+        <div class="sb-seg">
+          <button class="sb-seg-btn" :class="{ on: injection === 'light' }" @click="onInjection('light')">轻</button>
+          <button class="sb-seg-btn" :class="{ on: injection === 'heavy' }" @click="onInjection('heavy')">重</button>
         </div>
         <span class="al-faint">{{ injection === 'light' ? '每章带入1段样章参考' : '每章带入3段样章参考' }}</span>
         <button class="btn-ghost rules-toggle" @click="toggleRulesEdit">
@@ -187,31 +187,7 @@ async function saveRules(): Promise<void> {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 18px 20px;
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
-}
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 14px;
-}
-.panel-head svg {
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-.head-note {
-  font-weight: 400;
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.head-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
 }
 
 /* ══ 通用按钮 ══ */
@@ -285,13 +261,14 @@ async function saveRules(): Promise<void> {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
-.seg {
+/* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */
+.sb-seg {
   display: inline-flex;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   overflow: hidden;
 }
-.seg-btn {
+.sb-seg-btn {
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -299,7 +276,7 @@ async function saveRules(): Promise<void> {
   padding: 3px 14px;
   cursor: pointer;
 }
-.seg-btn.on {
+.sb-seg-btn.on {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
@@ -333,14 +310,4 @@ async function saveRules(): Promise<void> {
   gap: 8px;
 }
 
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 </style>

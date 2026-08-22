@@ -432,8 +432,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shelf-modal,
-  .create-modal {
+  .shelf-modal {
     animation: none;
   }
 }

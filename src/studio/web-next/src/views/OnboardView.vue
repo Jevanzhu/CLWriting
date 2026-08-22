@@ -213,12 +213,9 @@ onMounted(async () => {
   border-radius: var(--radius-l);
   padding: 22px 26px 16px;
   overflow: hidden;
-  animation: fade-up 0.5s var(--ease-out) both;
+  animation: clw-fade-up 0.5s var(--ease-out) both;
 }
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
+
 .hero-top {
   display: flex;
   justify-content: space-between;

@@ -58,12 +58,9 @@ function isGenerated(step: OnboardStep): boolean {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-s);
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
 }
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
+
 .rail-group {
   display: flex;
   flex-direction: column;

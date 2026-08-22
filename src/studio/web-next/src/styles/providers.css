@@ -308,10 +308,6 @@
 
 /* ── 旋转动画（整个面板一份；Teleport 弹窗外的组件各自保留本地定义） ── */
 .ai-service-panel .spin {
-  animation: clw-provider-spin 0.8s linear infinite;
+  animation: clw-spin 0.8s linear infinite;
 }
-@keyframes clw-provider-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+

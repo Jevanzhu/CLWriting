@@ -74,16 +74,10 @@ function distMax(g: DistGroup): number {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 18px 20px;
-  animation: fade-up var(--dur-fast) var(--ease-out) both;
+  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
 }
-.panel-head {
-  display: flex; align-items: center; gap: 6px;
-  font-size: var(--font-size-s); font-weight: 600;
-  color: var(--text-muted); margin-bottom: 14px;
-}
-.panel-head svg { opacity: 0.5; flex-shrink: 0; }
+
 .head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
-@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ══ 节奏分布 ══ */
 .dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }

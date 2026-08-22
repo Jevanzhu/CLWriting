@@ -170,13 +170,9 @@ function accept(): void {
   opacity: 0.88;
 }
 .spin {
-  animation: cw-spin 0.9s linear infinite;
+  animation: clw-spin 0.9s linear infinite;
 }
-@keyframes cw-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+
 .rw-hint,
 .rw-error {
   font-size: var(--font-size-s);

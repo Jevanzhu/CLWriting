@@ -49,7 +49,7 @@ const emit = defineEmits<{
   justify-content: center;
   background: rgba(0, 0, 0, 0.5);
   z-index: 300;
-  animation: fade-in var(--dur-fast) var(--ease-out);
+  animation: clw-fade-in var(--dur-fast) var(--ease-out);
 }
 .confirm-dialog {
   width: 380px;
@@ -142,8 +142,5 @@ const emit = defineEmits<{
 .btn.danger:hover:not(:disabled) {
   filter: brightness(1.1);
 }
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+
 </style>

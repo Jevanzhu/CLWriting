@@ -244,7 +244,6 @@ function openBook(name: string): void {
   --size-4-8: 27px;
   --size-4-10: 34px;
   --size-4-12: 41px;
-  --size-4-14: 48px;
   --size-4-16: 54px;
   /* BookCard 尺寸覆盖（全屏页用大卡片）*/
   --shelf-card-pad: var(--size-4-4);
@@ -274,7 +273,7 @@ function openBook(name: string): void {
   justify-content: space-between;
   gap: var(--size-4-4);
   margin-bottom: var(--size-4-7);
-  animation: fade-up 0.5s var(--ease-out) both;
+  animation: clw-fade-up 0.5s var(--ease-out) both;
 }
 /* 品牌徽标（与 Welcome/Library 同语言） */
 .head-mark {
@@ -476,44 +475,7 @@ function openBook(name: string): void {
   filter: brightness(1.1);
 }
 
-/* ══ 环境氛围层（与 Welcome 同语言）══ */
-.ambient {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(72px);
-  will-change: opacity, transform;
-}
-.glow-tr {
-  top: -18%;
-  right: -8%;
-  width: 50vw;
-  height: 50vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
-  animation: shelf-breathe 18s var(--ease-std) infinite;
-}
-.glow-bl {
-  bottom: -22%;
-  left: -12%;
-  width: 42vw;
-  height: 42vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
-  animation: shelf-breathe 24s var(--ease-std) infinite reverse;
-}
-@keyframes shelf-breathe {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50%      { opacity: 1; transform: scale(1.1); }
-}
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
+/* 光晕静态（opacity 固定动画中值）：无限 opacity/scale 呼吸会驱动整窗持续出帧
+ * （实测闲置 GPU ~10% + renderer ~5% CPU），radial-gradient 本身已柔和，无动画必要 */
 
 </style>
