@@ -1,6 +1,16 @@
-# Node
+# Node / 构建产物（dist 含 web-next 嵌套；dist-electron 为 electron-builder.yml output）
 node_modules/
 dist/
+dist-electron/
+
+# 日志（npm / vitest / playwright / electron 运行期产物）
+*.log
+npm-debug.log*
+
+# 环境变量（本地凭据不入库；如有模板文件用 !.env.example 反例外）
+.env
+.env.*
+!.env.example
 
 # macOS 元数据垃圾（SMB 挂载产生，绝不进 git）
 ._*
@@ -12,12 +22,10 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-.env
 tmp/
 .vitest-*/
 
 # 本地工作资料（方案、审阅、参考仓库）
-Dev
 Dev/
 
 # 编辑器 / 工具壳
@@ -39,4 +47,3 @@ Dev/
 CLAUDE.md
 AGENTS.md
 CHANGELOG.md
-dist-electron/
