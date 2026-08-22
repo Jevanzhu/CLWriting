@@ -222,6 +222,11 @@ export interface LlmCallData {
   /** D2（批 5）：调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
    *  旧事件无此键按无章归集） */
   chapter?: number
+  /** I7（第十一轮）：resolve 解析值随事件落库（铁律②「默认值显式 resolve」的重放口径）——
+   *  实际生效的档位 effort 与整体超时 timeoutMs（含 DEFAULT_TIMEOUT_MS 回落后的最终值）。
+   *  mock 快路 / 取 provider 失败路径未 resolve，无此两键（重放同样不依赖） */
+  effort?: string
+  timeoutMs?: number
 }
 
 /** llm/retry —— 重试记账（先落库后等待） */

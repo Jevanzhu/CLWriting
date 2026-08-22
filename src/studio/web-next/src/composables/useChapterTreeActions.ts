@@ -20,11 +20,13 @@ import {
   updateChapterMetaDoc,
   batchFinalizeDocs,
 } from '../api/documents'
-import { parseChapterFileName } from '../shared/words'
+import { parseChapterFileName, chapterFilePrefix } from '../shared/words'
 import {
   chapterTemplate,
   chapterOutlineTemplate,
   volumeOutlineTemplate,
+  synopsisTemplate,
+  worldviewTemplate,
   characterTemplate,
   itemTemplate,
   foreshadowTemplate,
@@ -224,7 +226,11 @@ export function useChapterTreeActions(deps: {
       return
     }
     try {
-      await createDoc(bookName, { relPath })
+      // M-8（第十一轮）：单例新建补初始模板——骨架模板删除后 createDoc 不传 content
+      // 落全空文件，新书总纲/世界观无处供给骨架（既有缺口，非删除批回归）
+      const template =
+        relPath === '大纲/总纲.md' ? synopsisTemplate() : relPath === '设定/世界观.md' ? worldviewTemplate() : undefined
+      await createDoc(bookName, { relPath, ...(template !== undefined ? { content: template } : {}) })
       await tree.load(bookName)
       const fresh = tree.byPath.get(relPath)
       if (fresh?.docId) {
@@ -405,8 +411,9 @@ export function useChapterTreeActions(deps: {
     // 同 meta：章号/标题从 name 提取（path 是完整相对路径）
     const parsed = parseChapterFileName(node.name)
     const title = parsed?.标题 ?? node.name
-    const no = String(nextChapterNo()).padStart(4, '0')
-    const relPath = `写作/正文/${no}-${title} 副本.md`
+    // M-4（第十一轮）：补零宽度走 chapterFilePrefix 单源（与服务端草稿新建/改名同口径）
+    const no = chapterFilePrefix(nextChapterNo(), 'chapter')
+    const relPath = `写作/正文/${no}${title} 副本.md`
     // L-F2（第八轮）：同 onCreateCommit——await 前捕获书名 + 守卫
     const book = deps.bookName()
     try {

@@ -32,8 +32,8 @@ test('草稿-1.md → 正文区（resolveDraftPath 推算路径）', () => {
   const r = migrateLayoutV3(tmp)
   expect(r.errors).toEqual([])
   expect(r.migrated).toBe(1)
-  // resolveDraftPath：无已有章 → 第一卷/001-开篇.md
-  expect(has('写作/正文/第一卷/001-开篇.md')).toBe(true)
+  // resolveDraftPath：无已有章 → 第一卷/0001-开篇.md（M-4·第十一轮：草稿新建 4 位补零单源）
+  expect(has('写作/正文/第一卷/0001-开篇.md')).toBe(true)
   expect(has('写作/草稿/草稿-1.md')).toBe(false)
 })
 

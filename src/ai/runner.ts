@@ -234,6 +234,12 @@ export async function runTask<T>(opts: {
   let chain: ChainRecorder | null = null
 
   /** P2：llm/call 事件（替代 trace 文件落盘；bookRoot + task 齐备才记；观测层静默） */
+  // I7（第十一轮）：resolve 解析值落 trace——实际生效的 effort 与 timeoutMs（含
+  // DEFAULT_TIMEOUT_MS 回落后的最终值）随 llm/call 落库，铁律②「默认值显式 resolve」
+  // 的重放口径补全（此前 trace 仅落 model，重放无法精确重建档位/超时）。mock 快路与
+  // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
+  let resolvedEffort: string | undefined
+  let resolvedTimeoutMs: number | undefined
   const trace = (p: {
     model: string
     attempt: number
@@ -259,6 +265,8 @@ export async function runTask<T>(opts: {
           ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? []) }
           : {}),
         ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
+        ...(resolvedEffort !== undefined ? { effort: resolvedEffort } : {}),
+        ...(resolvedTimeoutMs !== undefined ? { timeoutMs: resolvedTimeoutMs } : {}),
       }),
     )
   }
@@ -323,6 +331,8 @@ export async function runTask<T>(opts: {
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
   const tier = r.tier
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  resolvedEffort = tier.effort
+  resolvedTimeoutMs = timeoutMs
   let timedOut = false
   const totalTimer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)
 

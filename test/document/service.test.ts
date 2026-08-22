@@ -186,6 +186,35 @@ describe('DocumentService / 保存协议主路径', () => {
     }
   })
 
+  // ── M-2（第十一轮）：updateChapterMeta 两步非原子——rename 失败回写旧 fm ──
+
+  it('M-2: rename 撞目标已存在 → fm 回写旧值，不留「fm 章号≠文件名章号」孤儿态', async () => {
+    const original = '---\n章号: 1\n标题: 旧章\n---\n旧章正文一字不动'
+    const r0 = await svc.createDocument({ relPath: '写作/正文/0001-旧章.md', content: original })
+    if (!r0.ok) throw new Error('prereq')
+    const fp = join(bookRoot, '写作/正文/0001-旧章.md')
+    // 占住目标文件名 → doMoveOrRename 返回 ALREADY_EXISTS（rename 未发生，文件仍在原路径）
+    writeFileSync(join(bookRoot, '写作/正文/0002-新章.md'), '---\n章号: 2\n标题: 新章\n---\n占位')
+
+    const r = svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('ALREADY_EXISTS')
+    // 失败回写：原文件整体恢复原文（fm 章号 1 与文件名 0001 仍一致，按章号定位不再 miss）
+    expect(readFileSync(fp, 'utf-8')).toBe(original)
+  })
+
+  it('M-2: rename 成功路径不受回写影响（fm 新值 + 新文件名，行为不变）', async () => {
+    const r0 = await svc.createDocument({ relPath: '写作/正文/0001-旧章.md', content: '---\n章号: 1\n标题: 旧章\n---\n正文' })
+    if (!r0.ok) throw new Error('prereq')
+    const r = svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.path).toBe('写作/正文/0002-新章.md')
+      expect(readFileSync(join(bookRoot, r.path), 'utf-8')).toContain('章号: 2')
+      expect(readFileSync(join(bookRoot, r.path), 'utf-8')).toContain('标题: 新章')
+    }
+  })
+
   it('RB-KN-P2-2: journal 追加失败 → SaveResult 契约（ok:false WRITE_ERROR），不 reject 不落盘', async () => {
     // 占住 journal 文件路径（目录）→ appendPending 抛 EISDIR（模拟磁盘满/权限类故障）
     mkdirSync(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'), { recursive: true })

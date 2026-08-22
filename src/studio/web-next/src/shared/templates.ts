@@ -4,7 +4,9 @@
  * 设计（context-menu-new-file.md §5）：
  * - 前端组装（`createDoc` 已支持 content 参数），章号/标题在 inline 命名时已知，模板内联。
  * - 章节模板带完整 front matter（章号/标题/钩子/情绪），新建即通过 readChapter 解析，机检不误报。
- * - 章纲/卷纲/角色/物品/伏笔给可改骨架，字段留空待填（总纲/世界观走 createSingleton 固定路径，不在此）。
+ * - 章纲/卷纲/总纲/角色/物品/世界观/伏笔给可改骨架，字段留空待填（总纲/世界观为
+ *   createSingleton 单例固定路径专用——M-8·第十一轮恢复：骨架模板删除后新建落全空文件，
+ *   新书这两文件无处供给骨架）。
  */
 
 /** 正文章节：完整 front matter + 空白正文（对齐 #7 章节元数据 schema）。 */
@@ -59,6 +61,46 @@ export function volumeOutlineTemplate(卷号: number): string {
     '',
     '',
     '### 节奏点',
+    '',
+    '',
+  ].join('\n')
+}
+
+/** 总纲：全书大纲骨架（单例文件，固定 大纲/总纲.md，createSingleton 专用）。 */
+export function synopsisTemplate(): string {
+  return [
+    '# 总纲',
+    '',
+    '## 主题',
+    '',
+    '',
+    '## 主线',
+    '',
+    '',
+    '## 卷目',
+    '',
+    '',
+    '## 风格',
+    '',
+    '',
+  ].join('\n')
+}
+
+/** 世界观：地理/势力/规则/历史 骨架（单例文件，固定 设定/世界观.md，createSingleton 专用）。 */
+export function worldviewTemplate(): string {
+  return [
+    '# 世界观',
+    '',
+    '## 地理',
+    '',
+    '',
+    '## 势力',
+    '',
+    '',
+    '## 规则',
+    '',
+    '',
+    '## 历史',
     '',
     '',
   ].join('\n')

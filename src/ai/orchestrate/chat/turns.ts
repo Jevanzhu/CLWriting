@@ -67,7 +67,14 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
     // 确认若不监听 signal 会各空等满超时（默认 2 分钟），期间 running 锁被白占。
     // settle 后再触发一律 no-op（幂等：作者确认与 abort 可能先后到达同一确认）。
     let settled = false
-    const onAbort = (): void => finish(false)
+    const onAbort = (): void => {
+      // M-6（第十一轮）：deadline 定时器触发的 abort（chat.ts 先置 timedOut 再 abort）与
+      // 确认闸自身超时同归「超时」终局——不补记 confirmTimedOut 则工具结果误报
+      // 「作者取消了该操作」（P5-AI·第七轮只修了确认超时场景，deadline 场景漏）。
+      // 作者手动中断（timedOut 未置位）归因不变，仍报「作者取消」。
+      if (state.timedOut) (state.confirmTimedOut ??= new Set<string>()).add(callId)
+      finish(false)
+    }
     const finish = (ok: boolean): void => {
       if (settled) return
       settled = true
@@ -83,8 +90,11 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
     }, timeoutMs)
     state.pending.set(callId, finish)
     // abort 先于挂起到达（signal 已 aborted）→ 立即按取消处理，不等超时
-    if (state.ctrl.signal.aborted) finish(false)
-    else state.ctrl.signal.addEventListener('abort', onAbort)
+    if (state.ctrl.signal.aborted) {
+      // M-6（第十一轮）：此处也可能是 deadline 定时器先触发（非用户 abort）——同下 onAbort 口径
+      if (state.timedOut) (state.confirmTimedOut ??= new Set<string>()).add(callId)
+      finish(false)
+    } else state.ctrl.signal.addEventListener('abort', onAbort)
   })
 }
 
@@ -301,6 +311,24 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   const { opts, state, confirmTimeout, history, baseLen, recorder, sys, turnBranch, seqs } = deps
   const { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest } = deps.digests
 
+  /** M-1（第十一轮）：回合 commit 点 flush 异常收编 finishTurn——磁盘满/血缘校验越界时
+   *  recorder.flush() 抛错直穿 runAgentTurns（chat.ts 只有 try/finally 无 catch），既无
+   *  历史回滚也无 surface 遮蔽，已 push 消息留驻内存 histories 而事件未落库，下次对话
+   *  模型可见但不可回溯（restore 仅内存空才读库）——DB 故障路径破铁律①。三处 commit
+   *  点统一经本助手收编为失败出口（回滚 + 遮蔽 + chat_error，与六失败出口同口径），
+   *  返回 false 终止轮循环。 */
+  const flushTurnEvents = (): boolean => {
+    try {
+      seqs.commitPendingMsgSeqs(recorder.flush())
+      return true
+    } catch (e) {
+      finishTurn(opts, history, baseLen, recorder, {
+        error: `事件记录落库失败，本回合已回滚（检查磁盘/事件库后重发）：${e instanceof Error ? e.message : String(e)}`,
+      })
+      return false
+    }
+  }
+
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     if (state.ctrl.signal.aborted) {
       // P1-S4 回滚 + F1-P1 遮蔽在 finishTurn 内；CC-P2-2：deadline 定时器触发的 abort
@@ -417,7 +445,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
       seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
       recorder.add(turnEndEvent(turn, 'completed'))
-      seqs.commitPendingMsgSeqs(recorder.flush())
+      if (!flushTurnEvents()) return false
       emit(opts, {
         type: 'chat_done',
         ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
@@ -488,7 +516,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
     seqs.pendingMsgSeqs.push(resultIdxs)
     recorder.add(turnEndEvent(turn, 'completed'))
-    seqs.commitPendingMsgSeqs(recorder.flush())
+    if (!flushTurnEvents()) return false
   }
 
   // 轮数触顶——补固定收尾文案
@@ -503,7 +531,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   // CC-P2-1：触顶收尾记 turn 5 的终态（与上方 chat_turn emit 的 turn=MAX_AGENT_TURNS 同口径）——
   // 此前记 MAX_AGENT_TURNS-1 会把循环内已记 completed 的最后一轮再关一次，同轮双终态
   recorder.add(turnEndEvent(MAX_AGENT_TURNS, 'max-turns'))
-  seqs.commitPendingMsgSeqs(recorder.flush())
+  if (!flushTurnEvents()) return false
   emit(opts, { type: 'chat_done' })
   deps.markCompleted()
   // Z-P1-2：轮数触顶收尾也属正常完成——同口径激活新分支

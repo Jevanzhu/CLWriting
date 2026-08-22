@@ -35,7 +35,7 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
 import { sendChat, clearChatHistory } from '../../../src/studio/web-next/src/api/chat'
 import { interrupt } from '../../../src/studio/web-next/src/api/stream'
 import { getProviders, setChatTier, fetchModels } from '../../../src/studio/web-next/src/api/providers'
-import { deleteDoc } from '../../../src/studio/web-next/src/api/documents'
+import { deleteDoc, createDoc, copyDoc } from '../../../src/studio/web-next/src/api/documents'
 import { useChatComposer } from '../../../src/studio/web-next/src/composables/useChatComposer'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { useChatTier } from '../../../src/studio/web-next/src/composables/useChatTier'
@@ -322,5 +322,51 @@ describe('useChapterTreeActions · doDelete', () => {
     await p
     expect(deleteMock).toHaveBeenCalledWith('A书', 'legacy:abc123')
     expect(tree.load).toHaveBeenCalledWith('A书')
+  })
+})
+
+// ── M-8/M-4（第十一轮）：createSingleton 供模板 + doCopy 补零单源 ──────────
+describe('useChapterTreeActions · createSingleton / doCopy', () => {
+  const createMock = createDoc as ReturnType<typeof vi.fn>
+  const copyMock = copyDoc as ReturnType<typeof vi.fn>
+
+  it('M-8: 新建总纲 → createDoc 带骨架模板 content（不再落全空文件）', async () => {
+    createMock.mockResolvedValue({ path: '大纲/总纲.md' })
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    await actions.createSingleton('大纲/总纲.md', '总纲')
+    expect(createMock).toHaveBeenCalledWith('A书', {
+      relPath: '大纲/总纲.md',
+      content: expect.stringContaining('# 总纲'),
+    })
+  })
+
+  it('M-8: 新建世界观 → 世界观骨架模板', async () => {
+    createMock.mockResolvedValue({ path: '设定/世界观.md' })
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    await actions.createSingleton('设定/世界观.md', '世界观')
+    expect(createMock).toHaveBeenCalledWith('A书', {
+      relPath: '设定/世界观.md',
+      content: expect.stringContaining('# 世界观'),
+    })
+  })
+
+  it('M-4: doCopy 复制路径补零走单源（空树 → 0001-，长篇 4 位）', async () => {
+    copyMock.mockResolvedValue({ path: '写作/正文/0001-开篇 副本.md' })
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    tree.load = vi.fn()
+    const actions = useChapterTreeActions({ bookName: () => 'A书', openError: ref(null) })
+    await actions.doCopy({
+      path: '写作/正文/0001-开篇.md',
+      name: '0001-开篇.md',
+      docId: 'legacy:abc123',
+      isDirectory: false,
+      role: '',
+      children: [],
+    })
+    expect(copyMock).toHaveBeenCalledWith('A书', 'legacy:abc123', '写作/正文/0001-开篇 副本.md')
   })
 })

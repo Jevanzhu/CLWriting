@@ -1,6 +1,6 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -63,4 +63,31 @@ test('cache-control: assets 下内容 hash 产物 immutable，其余 no-cache（
   const spa = await fetch(`${baseUrl}/some/deep/route`)
   expect(spa.status).toBe(200)
   expect(spa.headers.get('cache-control')).toBe('no-cache')
+})
+
+// M-9（第十一轮）：canonical 双侧 realpath 判界——dist 被植入外指 symlink 不得读出
+test('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）', async () => {
+  const outside = mkdtempSync(join(tmpdir(), 'clwriting-static-out-'))
+  try {
+    writeFileSync(join(outside, 'secret.txt'), 'secret-content-should-not-leak')
+    // 字面前缀合法（dist 内）、stat 跟随 symlink 到 root 外——旧字符串前缀判界放行
+    symlinkSync(join(outside, 'secret.txt'), join(root, 'leak.txt'))
+
+    const res = await fetch(`${baseUrl}/leak.txt`)
+    expect(res.status).toBe(403)
+    const body = await res.text()
+    expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+    expect(body).not.toContain('secret')
+  } finally {
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('M-9: root 内部 symlink（合法用途）仍正常服务', async () => {
+  writeFileSync(join(root, 'real.js'), 'console.log("ok")')
+  symlinkSync(join(root, 'real.js'), join(root, 'alias.js'))
+
+  const res = await fetch(`${baseUrl}/alias.js`)
+  expect(res.status).toBe(200)
+  expect(await res.text()).toBe('console.log("ok")')
 })

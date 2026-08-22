@@ -36,7 +36,7 @@ import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
-import { countWords } from '../format/words.js'
+import { countWords, chapterFilePrefix } from '../format/words.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -471,7 +471,7 @@ export class DocumentService {
       const 章号 = map.get('章号')
       const numPrefix =
         typeof 章号 === 'number'
-          ? `${String(章号).padStart(3, '0')}-`
+          ? chapterFilePrefix(章号, 'piece')
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
       // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
       const safeTitle = 标题.trim() || '未命名'
@@ -479,6 +479,7 @@ export class DocumentService {
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (result.ok) this.syncRenamePieceList(path, newName)
+        else this.rollbackMetaOnRenameFail(abs, r)
         return result
       }
       return { ok: true, docId, path }
@@ -488,11 +489,29 @@ export class DocumentService {
     const 章号 = map.get('章号')
     const safeTitle = 标题.trim() || '未命名'
     const newName =
-      typeof 章号 === 'number' ? `${String(章号).padStart(4, '0')}-${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
+      typeof 章号 === 'number' ? `${chapterFilePrefix(章号, 'chapter')}${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
     if (basename(path) !== newName) {
-      return this.doMoveOrRename(docId, { kind: 'rename', newName })
+      const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
+      if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
+      return result
     }
     return { ok: true, docId, path }
+  }
+
+  /** M-2（第十一轮）：updateChapterMeta rename 失败回写旧 fm——两步非原子（先原子写 fm
+   *  新章号/标题，后 rename 文件名），rename 失败不回写会留「fm 章号≠文件名章号」孤儿态
+   *  （仅靠机检 fm-chapter-mismatch 报红兜底，按章号三口径定位会 miss）。按进入本方法时
+   *  读入的快照（r.fmRaw + r.body）原样回写，恢复 fm 与文件名一致；文件已不在原路径
+   *  （doMoveOrRename 的「清单更新失败」路径——文件已 rename，新 fm 与新文件名一致）不
+   *  回写，回写反而制造错配；回写自身失败维持 mismatch，机检兜底，不吞 rename 失败原因。 */
+  private rollbackMetaOnRenameFail(abs: string, original: { fmRaw: string; body: string }): void {
+    if (!existsSync(abs)) return
+    try {
+      atomicWriteFile(abs, joinFrontMatter(original.fmRaw, original.body), { fsync: true })
+      invalidateTreeIndex(this.bookRoot, true)
+    } catch {
+      // 回写失败维持现状：fm-chapter-mismatch 由机检兜底
+    }
   }
 
   /** 短篇章纲同步重命名（章纲/Old.md → 章纲/New.md）：

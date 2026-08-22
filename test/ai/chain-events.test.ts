@@ -77,6 +77,51 @@ describe('F1-P2 runTask 链事件', () => {
     expect(end).toMatchObject({ task: 'chat', layer: 'chat', reason: 'completed' })
   })
 
+  // I7（第十一轮）：resolve 解析值落 trace——llm/call 携带实际生效的 effort/timeoutMs
+  // （档位显式值 + DEFAULT_TIMEOUT_MS 回落后的最终值），重放可精确重建（铁律②补全）
+  it('I7: llm/call 携带 resolve 解析值 effort/timeoutMs（显式档位 + 默认回落）', async () => {
+    const ud = tempUserData()
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({
+        providers: [
+          {
+            id: 'prov-test',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'sk-test',
+            caps: { connected: true, streaming: true },
+          },
+        ],
+        currentId: 'prov-test',
+        currentModel: 'gpt-4o',
+        tiers: { creative: { model: 'gpt-4o', effort: 'high', timeoutMs: 1234 }, assistant: null, chat: null },
+      }),
+    )
+    const root = tempBookRoot()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      bookRoot: root,
+      task: 'chat',
+      run: () => Promise.resolve('ok'),
+    })
+    expect(out.ok).toBe(true)
+    const call = readChainEvents(ud, root).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+    expect(call['effort']).toBe('high')
+    expect(call['timeoutMs']).toBe(1234)
+
+    // 档位未声明 timeoutMs → DEFAULT_TIMEOUT_MS(600_000) 回落后的值同样落库（非隐式穿透）
+    const ud2 = tempUserData()
+    writeProviders(ud2)
+    const root2 = tempBookRoot()
+    await runTask<string>({ userDataPath: ud2, bookRoot: root2, task: 'chat', run: () => Promise.resolve('ok') })
+    const call2 = readChainEvents(ud2, root2).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+    expect(call2['timeoutMs']).toBe(600_000)
+    expect(typeof call2['effort']).toBe('string')
+  })
+
   it('重试成功（429 → 退避 → 成功）→ llm/retry + 两条 llm/call + step/end(completed)', async () => {
     const ud = tempUserData()
     writeProviders(ud)

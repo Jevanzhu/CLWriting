@@ -6,9 +6,10 @@
  * 走 Vite dev server（5173），proxy /api 到后端，不经此处理。
  */
 import { readFile, stat } from 'node:fs/promises'
-import { join, normalize, extname, sep } from 'node:path'
+import { join, normalize, extname, sep, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { replyError } from './http.js'
+import { resolveWithinRoot } from '../../fs/safe-path.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -54,7 +55,17 @@ export function createStaticHandler(rootDir: string) {
     try {
       const s = await stat(abs)
       const file = s.isDirectory() ? join(abs, 'index.html') : abs
-      const data = await readFile(file)
+      // M-9（第十一轮）：canonical 判界（双侧 realpath）——stat 跟随 symlink，字符串前缀
+      // 判界挡不住 dist 内被植入的外指 symlink（本地已可写前提下的任意文件读，低利用面）。
+      // 委托 fs/safe-path.resolveWithinRoot（与 books/files 等路径守卫同口径：最终响应文件
+      // 两侧 realpath 后重判界；目录 → index.html 后再验，防 symlink 落在 index.html 自身）。
+      // 越出 → 403；realpath 失败（断链 symlink 等）→ null 同判 403（fail-closed，不回落 SPA）
+      const safe = resolveWithinRoot(root, relative(root, file) || 'index.html')
+      if (!safe) {
+        replyError(res, 403, 'BAD_PATH', 'forbidden')
+        return
+      }
+      const data = await readFile(safe.abs)
       // vite 构建产物在 assets/ 下且文件名带内容 hash → 可长缓存 immutable；
       // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效（Y-P2-7）。
       // 用 URL 层 decodedPathname 判定（跨平台恒为 / 分隔，且穿越路径天然不命中）。

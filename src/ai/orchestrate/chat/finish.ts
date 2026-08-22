@@ -18,6 +18,7 @@ import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../p
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import type { ChatOpts } from '../chat.js'
 import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState } from './state.js'
+import { log } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
 
@@ -43,7 +44,14 @@ export function finishTurn(
 ): void {
   history.length = baseLen
   const spec = typeof reason === 'object' ? { mask: 'error' as const, message: reason.error } : CHAT_EXIT_SPEC[reason]
-  recorder.closeMaskingAll(spec.mask)
+  // M-1（第十一轮）：失败出口自身不得再抛——closeMaskingAll 内含 flush，同一 DB 故障
+  // （磁盘满/血缘校验越界）下随之抛错会直穿 runChatInner（只有 finally 无 catch），
+  // 遮蔽失败降级留痕（悬置 pending 事件由孤儿修复收口），回滚与 chat_error 文案必须送达
+  try {
+    recorder.closeMaskingAll(spec.mask)
+  } catch (e) {
+    log.warn('chat', `失败收尾遮蔽落库失败（终态 ${spec.mask}，本会话事件待修复后重放）：${e instanceof Error ? e.message : String(e)}`)
+  }
   emit(opts, { type: 'chat_error', error: spec.message })
 }
 

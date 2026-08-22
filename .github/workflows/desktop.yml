@@ -10,7 +10,9 @@ jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # M-3（第十一轮）：20→30——tag 门补 typecheck+test 前置步后（发布物验证门），
+    # mac 单腿跑全量 vitest + electron-builder 需要更宽的预算
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +30,15 @@ jobs:
       # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
       # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
       - run: npm --prefix src/studio/web-next ci
+      # M-3（第十一轮）：tag 发布门补 typecheck+test 前置——此前 tag v* 直接产 DMG，工作流
+      # 内无任何验证步（ci.yml 只监听分支 push），tag 若指未测提交即产出未验证发布物；
+      # rc.1 实操是先门禁绿再打 tag（流程弥补），此处把门焊进工作流本体
+      - name: 类型检查（tsc --noEmit 零错）
+        run: npm run typecheck
+      - name: 前端类型检查（vue-tsc）
+        run: npm --prefix src/studio/web-next run typecheck
+      - name: 单元测试（vitest run）
+        run: npm test
       # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）。
       # --publish never：electron-builder 26 在 tag 提交上会隐式尝试发 GitHub Release（缺
       # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布

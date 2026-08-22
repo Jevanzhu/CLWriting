@@ -8,6 +8,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { relative, join } from 'node:path'
 import { readFile, splitFrontMatter, parseFlat } from './frontmatter.js'
 import { readChapter, readChapterDir } from './chapters.js'
+import { chapterFilePrefix } from './words.js'
 import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
 
@@ -64,7 +65,10 @@ export function resolveDraftPath(
 
   // 2. 新章 → 生成正式文件路径（标题净化路径分隔符，防 AI 产出含 ../ 的标题越出 bookRoot）
   const title = extractTitleFromContent(content) ?? `第${chapter}章`
-  const fileName = `${String(chapter).padStart(3, '0')}-${title.replace(/[\\/\0]/g, '_')}.md`
+  // M-4（第十一轮）：补零走 chapterFilePrefix 单源（长篇 4 位）——原 3 位与 service 改名
+  // （4 位）写侧分裂，靠读侧 chapterNamePrefixes 三口径兜底；统一后新章与改名同口径，
+  // 存量 3 位文件读侧仍全口径兼容
+  const fileName = `${chapterFilePrefix(chapter, 'chapter')}${title.replace(/[\\/\0]/g, '_')}.md`
 
   // 推断卷目录（上一章所在卷 > 最新卷 > 第一卷）
   return { relPath: `写作/正文/${inferVolumeDir(bookRoot, chapter)}/${fileName}`, existed: false }

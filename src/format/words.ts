@@ -25,3 +25,14 @@ export function parseChapterFileName(
   if (!m) return null
   return { 章号: Number(m[1]!), 标题: m[2]! }
 }
+
+/**
+ * M-4（第十一轮）：章号补零宽度写侧单源——长篇 chapter 4 位 / 短篇 piece 3 位。
+ * 此前写侧三处分裂（draft 草稿新建 3 位 / service 改名 4 位 / 前端复制 4 位），读侧
+ * chapterNamePrefixes 三口径兜底掩盖风险：新增按名定位代码漏走单源即静默 miss。
+ * 写侧（草稿新建/改名/复制）一律经此取前缀；与读侧 variants（chapters.ts）同口径，
+ * 消费方含 web-next（零 Node 依赖，浏览器端可 import）。
+ */
+export function chapterFilePrefix(章号: number, kind: 'chapter' | 'piece'): string {
+  return `${String(章号).padStart(kind === 'chapter' ? 4 : 3, '0')}-`
+}

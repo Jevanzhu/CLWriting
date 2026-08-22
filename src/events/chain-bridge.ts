@@ -31,6 +31,9 @@ export function llmCallEvent(data: {
   errCode?: string
   promptMeta?: { chars: number; files: string[]; hash: string }
   chapter?: number
+  /** I7（第十一轮）：resolve 解析值（实际生效 effort/timeoutMs）——重放口径，见 LlmCallData */
+  effort?: string
+  timeoutMs?: number
 }): NewEvent {
   return { type: 'llm/call', data: { ...data } }
 }
