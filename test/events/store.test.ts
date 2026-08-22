@@ -63,6 +63,27 @@ describe('F1-P1 store 存取', () => {
     store.close()
   })
 
+  it('O-2（第十三轮）listEvents limit 限量通道：seq 升序取前 N；非法 limit 归全量', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvents(sid, [
+      { type: 'session/start', data: {} },
+      ...[1, 2, 3, 4].map((i) => ({ type: 'user/message' as const, data: { message: `m${i}` }, surfaceOp: 'append' as const })),
+    ])
+    // 书维度限量：取 seq 升序前 3
+    expect(store.listEvents('书A', undefined, 3).map((e) => e.seq)).toEqual([1, 2, 3])
+    // 会话维度限量
+    expect(store.listEvents('书A', sid, 2).map((e) => e.seq)).toEqual([1, 2])
+    // 非法 limit（0/负/NaN/Infinity）归全量——与 normalizeMaxMessages 同口径，绝不猜
+    for (const bad of [0, -3, NaN, Infinity]) {
+      expect(store.listEvents('书A', undefined, bad)).toHaveLength(5)
+    }
+    // 小数向下取整
+    expect(store.listEvents('书A', undefined, 2.5)).toHaveLength(2)
+    store.close()
+  })
+
   it('clearBook 清空本书事件与 session', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
@@ -146,6 +167,12 @@ function backdateEvents(ud: string, bookRoot: string, ms: number): void {
   db.close()
 }
 
+function backdateSessions(ud: string, bookRoot: string, ms: number): void {
+  const db = new DatabaseSync(join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db'))
+  db.prepare('UPDATE sessions SET updated_at = ?').run(Date.now() - ms)
+  db.close()
+}
+
 describe('F1-P1 启动修复', () => {
   it('陈旧孤儿 session（最后活动已过宽限期）重开库时补 session/end{interrupted}', () => {
     const ud = tmpRoot()
@@ -161,6 +188,25 @@ describe('F1-P1 启动修复', () => {
     const ends = evs.filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1)
     expect(ends[0]!.data['reason']).toBe('interrupted')
+    store2.close()
+  })
+
+  it('O-7（第十三轮）孤儿修复补 end 时同步 touch sessions.updated_at（不被 latestSession 当新会话选中恢复）', () => {
+    const ud = tmpRoot()
+    const t0 = Date.now()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.close()
+    // 事件与 sessions 双双回拨：修复前 updated_at 停留在创建时刻（t0-11min）
+    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
+    backdateSessions(ud, '/books/a', 11 * 60 * 1000)
+    const store2 = openSessionStore(ud, '/books/a')!;
+    const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
+    expect(ends).toHaveLength(1) // 修复生效
+    const row = store2.latestSession('书A')!
+    // 修复时刻（重开库的 now）≥ t0——修复前该值停在 t0-11min，孤儿会话仍以「最新」身份被恢复选中
+    expect(row.updated_at).toBeGreaterThanOrEqual(t0)
     store2.close()
   })
 

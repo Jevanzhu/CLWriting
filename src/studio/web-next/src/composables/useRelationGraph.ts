@@ -16,6 +16,7 @@ import { useTreeStore } from '../stores/tree'
 import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { friendlyError } from '../shared/error'
+import { CX, CY, W, H, computeRadialLayout } from '../shared/relation-layout'
 
 export interface SimNode {
   id: string
@@ -37,19 +38,9 @@ export interface SimNode {
 }
 export interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
 
-// 画布基准（实际可视区由 fitView 按内容包围盒定，节点少时不会空旷）
-const W = 820
-const H = 560
-/** 中心坐标（节点入场动画的放射起点） */
-export const CX = W / 2
-export const CY = H / 2
-/** 一环半径基准；每往外一环 +RING_STEP */
-const RING_R1 = 168
-const RING_STEP = 132
-/** 同环相邻节点的最小弧长（防重叠，含胶囊宽 + 间隙） */
-const MIN_ARC = 96
-/** 子节点挂在父节点角度两侧的扇区宽度 */
-const CHILD_SPREAD = Math.PI / 3
+// 画布基准与布局常量：O-9（第十三轮）移 shared/relation-layout（纯函数层，可单测）；
+// CX/CY 转发导出（RelationGraph.vue 消费）
+export { CX, CY } from '../shared/relation-layout'
 
 /** 图例只列本图真正出现的语义色，没有的关系类型不占位（债务另有一项，不参与统计）。 */
 const LEGEND = [
@@ -206,115 +197,12 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // ── 径向层次布局 ──────────────────────────────
   // 力导向对 5~10 个节点会退化成随机散点，且每次位置都不同；这里改用
   // 确定性的 BFS 分环，位置稳定且直接表达层次。
-
-  /** 中心：身份含「主角」优先，其次取度数最大（并列取先出现的）。 */
-  function pickCenter(ns: SimNode[]): SimNode {
-    const heroes = ns.filter((n) => /主角|主人公/.test(n.card?.身份 ?? ''))
-    const pool = heroes.length ? heroes : ns
-    return pool.reduce((a, b) => (b.degree > a.degree ? b : a))
-  }
-
-  /** 环半径：基准值与「同环节点不重叠」约束取大。 */
-  function ringRadius(ring: number, count: number): number {
-    const base = RING_R1 + (ring - 1) * RING_STEP
-    const needed = (count * MIN_ARC) / (2 * Math.PI)
-    return Math.max(base, needed)
-  }
+  // O-9（第十三轮）：算法本体抽 shared/relation-layout.ts 纯函数（可独立单测），
+  // 此处只留「数据 → 算法 → 视口贴合」的编排。
 
   function layoutRadial(): void {
-    const ns = nodes.value
-    if (!ns.length) return
-
-    // 邻接表
-    const adj = new Map<string, string[]>()
-    for (const n of ns) adj.set(n.id, [])
-    for (const e of edges.value) {
-      adj.get(e.from)?.push(e.to)
-      adj.get(e.to)?.push(e.from)
-    }
-
-    // BFS 分环 + 记父（父决定子挂在哪个扇区）
-    const center = pickCenter(ns)
-    for (const n of ns) n.isCenter = n === center
-    const ring = new Map<string, number>([[center.id, 0]])
-    const parent = new Map<string, string>()
-    const queue: string[] = [center.id]
-    while (queue.length) {
-      const cur = queue.shift()!
-      for (const nb of adj.get(cur) ?? []) {
-        if (ring.has(nb)) continue
-        ring.set(nb, ring.get(cur)! + 1)
-        parent.set(nb, cur)
-        queue.push(nb)
-      }
-    }
-    // 孤立角色（有卡但无任何关系）→ 最外环
-    const reachedMax = Math.max(0, ...ring.values())
-    const orphanRing = reachedMax + 1
-    for (const n of ns) if (!ring.has(n.id)) ring.set(n.id, orphanRing)
-
-    const byRing = new Map<number, SimNode[]>()
-    for (const n of ns) {
-      n.ring = ring.get(n.id)!
-      const list = byRing.get(n.ring)
-      if (list) list.push(n)
-      else byRing.set(n.ring, [n])
-    }
-
-    // 环 0：中心
-    center.angle = 0
-    center.homeX = CX
-    center.homeY = CY
-
-    // 环 1：均分整圈，起点正上方；同关系类型相邻 → 视觉自然成簇
-    const r1 = byRing.get(1) ?? []
-    r1.sort((a, b) => edgeTypeOf(center.id, a.id).localeCompare(edgeTypeOf(center.id, b.id), 'zh-Hans-CN'))
-    const rad1 = ringRadius(1, r1.length)
-    r1.forEach((n, i) => {
-      n.angle = -Math.PI / 2 + (i / r1.length) * Math.PI * 2
-      n.homeX = CX + rad1 * Math.cos(n.angle)
-      n.homeY = CY + rad1 * Math.sin(n.angle)
-    })
-
-    // 环 2+：挂在各自父节点的角度扇区内（血魔落在赵长老外侧）
-    const maxRing = Math.max(...byRing.keys())
-    for (let r = 2; r <= maxRing; r++) {
-      const list = byRing.get(r) ?? []
-      if (!list.length) continue
-      const rad = ringRadius(r, list.length)
-      const byParent = new Map<string, SimNode[]>()
-      for (const n of list) {
-        const p = parent.get(n.id) ?? '__orphan__'
-        const g = byParent.get(p)
-        if (g) g.push(n)
-        else byParent.set(p, [n])
-      }
-      for (const [pid, kids] of byParent) {
-        if (pid === '__orphan__') {
-          // 无父（孤立角色）：本环内均分
-          kids.forEach((n, i) => {
-            n.angle = -Math.PI / 2 + (i / kids.length) * Math.PI * 2
-            n.homeX = CX + rad * Math.cos(n.angle)
-            n.homeY = CY + rad * Math.sin(n.angle)
-          })
-          continue
-        }
-        const pa = nodes.value.find((x) => x.id === pid)?.angle ?? 0
-        kids.forEach((n, i) => {
-          n.angle = kids.length === 1
-            ? pa
-            : pa - CHILD_SPREAD / 2 + (i / (kids.length - 1)) * CHILD_SPREAD
-          n.homeX = CX + rad * Math.cos(n.angle)
-          n.homeY = CY + rad * Math.sin(n.angle)
-        })
-      }
-    }
-
-    // home* 是布局原位，x/y 是渲染位（拖拽后会偏离）——布局完成时两者对齐
-    for (const n of ns) {
-      n.x = n.homeX
-      n.y = n.homeY
-    }
+    if (!nodes.value.length) return
+    computeRadialLayout(nodes.value, edges.value, edgeTypeOf)
     fitView()
   }
 

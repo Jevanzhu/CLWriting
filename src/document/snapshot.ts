@@ -4,6 +4,13 @@
  * 真实实现已泛化为 version.ts（统一编辑快照 + 定稿版本，pinned 永久保留）。
  * 目录 `工作区/.版本/`（原 .snapshots 首次启动自动迁移）。本模块薄委托 version.ts，
  * 保持既有调用方（service.ts / draft.ts / snapshots API）零改动。
+ *
+ * O-12（第十三轮）退役登记：本层唯二非委托物是 readGlobalSnapshotPolicy（真实实现，
+ * 迁移时应挪 version.ts）与 LEGACY_SNAPSHOTS_DIR_NAME_ALIAS。迁移触点清单（5 文件）：
+ * src/document/service.ts / src/process/draft-pipeline.ts / src/studio/server/index.ts
+ * （migrateVersionsDir 直接已可用 version.js）/ src/studio/server/api/snapshots.ts /
+ * test/document/snapshot.test.ts——纯机械改名，零行为变更，随 rc 后重构批执行，
+ * 不在修复轮做（回归面 > 收益）。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'

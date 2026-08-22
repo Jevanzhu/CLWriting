@@ -6,6 +6,10 @@
  * - front matter 是中文 key、平铺、--- 包裹
  *
  * 这里手写一个支持「段（顶层 key:）+ 缩进子字段」的极简解析，覆盖 #9 第 2 节 schema。
+ *
+ * O-12（第十三轮）尺度登记：本文件 885 行属 schema 集中型（readBookConfig 及各段
+ * 读写的单一事实源），拆 core/typed-schema 两层是结构优化非缺陷——随 rc 后重构批评估，
+ * 拆分红线：readBookConfig 返回形状与 book.yaml 写入字节序不得变（fm 保形纪律同源）。
  */
 
 import { readFileSync, existsSync } from 'node:fs'

@@ -45,7 +45,9 @@ export interface SessionStore {
    *  events 一一对应。血缘推算不再依赖 lastSeq()+批内序号（多窗口并发写时可错链）。 */
   appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
   appendEvent(sessionId: string, ev: NewEvent): number
-  listEvents(book: string, sessionId?: string): ChatEvent[]
+  /** O-2（第十三轮）：可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
+   *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
+  listEvents(book: string, sessionId?: string, limit?: number): ChatEvent[]
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
   latestSession(book: string): SessionRow | null
@@ -104,12 +106,16 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
     `INSERT INTO events (session_id, type, data, replace_generation, created_at)
      VALUES (?, 'session/end', ?, 0, ?)`
   );
+  // O-7（第十三轮）：补 end 后同步 touch sessions.updated_at——否则孤儿会话仍以旧
+  // updated_at 被 latestSession 选中恢复（补了 end 却还被视为最新活跃会话）。
+  const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
   const now = Date.now()
   for (const o of orphans) {
     if (o.starts > o.ends && !skip.has(o.session_id)) {
       // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
       if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
       ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+      touch.run(now, o.session_id)
     }
   }
 }
@@ -282,16 +288,20 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     appendEvent(sessionId: string, ev: NewEvent): number {
       return this.appendEvents(sessionId, [ev])[0]!
     },
-    listEvents(book: string, sessionId?: string): ChatEvent[] {
+    listEvents(book: string, sessionId?: string, limit?: number): ChatEvent[] {
+      // O-2（第十三轮）：limit 可选限量（seq 升序前 N）；投影折叠调用方不传（全量语义不变）
+      const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
       if (sessionId) {
-        const rows = db.prepare('SELECT * FROM events WHERE session_id = ? ORDER BY seq ASC').all(sessionId) as unknown as Row[]
+        const rows = db.prepare(
+          `SELECT * FROM events WHERE session_id = ? ORDER BY seq ASC ${cap ? 'LIMIT ?' : ''}`
+        ).all(...(cap ? [sessionId, cap] : [sessionId])) as unknown as Row[]
         return rows.map(rowToEvent)
       }
       const rows = db.prepare(
         `SELECT * FROM events
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
-         ORDER BY seq ASC`
-      ).all(book) as unknown as Row[];
+         ORDER BY seq ASC ${cap ? 'LIMIT ?' : ''}`
+      ).all(...(cap ? [book, cap] : [book])) as unknown as Row[];
       return rows.map(rowToEvent)
     },
     workspaceSession(book: string): string {

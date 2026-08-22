@@ -61,17 +61,7 @@ export function evaluateRetry(
   }
 }
 
-/** 打回状态 → 人话（测试与调试输出用；生产提示走 state 卡人话） */
-export function formatRetryState(s: RetryState): string {
-  switch (s.state) {
-    case 'pass':
-      return '✅ 机检通过，进入审稿'
-    case 'retry':
-      return `🔄 第 ${s.attempt}/${s.maxAttempts} 次重写（红项打回）：\n${s.redFeedback}`
-    case 'escalate':
-      return `⚠️ 需作者介入：\n${s.redFeedback}`
-  }
-}
+// O-8（第十三轮）：formatRetryState（三态人话，生产无调用方、仅测试消费的准死代码）已删
 
 // ── A4（DSH-19）：连续相同红项 → 换策略提醒 ──────────
 

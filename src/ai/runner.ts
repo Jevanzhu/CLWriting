@@ -96,17 +96,11 @@ function extractStopReason(data: unknown): string {
   return 'end_turn'
 }
 
-/**
- * 解析当前供应商 provider（统一错误文案）。
- * `ok:false` 时 code 恒为 NO_USERDATA / NO_PROVIDER / NO_MODEL。
- */
-export function resolveProvider(
-  userDataPath: string | null,
-  tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
-): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
-  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
-  // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发；
-  // 同 path 重复注册无害）
+/** O-6（第十三轮）：降级回调已注册的 userDataPath——同 path 幂等跳过重复注册 */
+let degradedRegisteredPath: string | null = null
+
+/** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。 */
+function registerDegradedCallbacks(userDataPath: string): void {
   registerDegradedPersist((key) => {
     // AA-P3-5：W-P2-9 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
     // （load→改→save 的读改写窗口在多书并发 400 时可互相覆盖丢他键；标记命中即跳过，
@@ -129,6 +123,24 @@ export function resolveProvider(
     const s = loadProviders(userDataPath)
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
+}
+
+/**
+ * 解析当前供应商 provider（统一错误文案）。
+ * `ok:false` 时 code 恒为 NO_USERDATA / NO_PROVIDER / NO_MODEL。
+ */
+export function resolveProvider(
+  userDataPath: string | null,
+  tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
+): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
+  if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
+  // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
+  // O-6（第十三轮）：注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
+  // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册
+  if (degradedRegisteredPath !== userDataPath) {
+    degradedRegisteredPath = userDataPath
+    registerDegradedCallbacks(userDataPath)
+  }
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
   // ee-P1-1：loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
   // GCM 认证失败等场景会直接 throw——与下方 dd-P2 的 createProvider 同为取 provider 的
@@ -362,6 +374,17 @@ export async function runTask<T>(opts: {
     for (let attempt = 0; ; attempt++) {
       try {
         const data = await opts.run(r.provider, ctrl.signal, r.tier)
+        // O-5（第十三轮）：run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
+        // 定时器竞态）——按中断/超时口径收口，不把「成功」契约让给可能被截断的流；
+        // 此前靠调用方（self-heal 等）各自二次检查兜底，现收归 runTask 单点，调用方
+        // 幂等检查保留不动。中断路径入账口径随 X-P2-10（真实消耗按次入账）。
+        if (ctrl.signal.aborted) {
+          const abortedUsage = extractUsage(data)
+          recordUsageSafe(abortedUsage)
+          trace({ model: tier.model, attempt, stopReason: timedOut ? 'timeout' : 'aborted', usage: abortedUsage, ok: false, errCode: timedOut ? 'TIMEOUT_TOTAL' : 'ABORTED' })
+          stepReason = timedOut ? 'interrupted' : 'aborted'
+          return timeoutAbort()
+        }
         const usage = extractUsage(data)
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）

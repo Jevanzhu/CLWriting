@@ -1,6 +1,10 @@
 // API 客户端：启动从 /api/boot 取 token，写方法（非 GET）自动注入 x-studio-token；
 // 错误信封统一 {error, code?}（CC-P2-11）——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
 
+// O-10（第十三轮）显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
+//（主窗/书架/书库）各自 boot 独立取 token，互不共享；正确性依赖服务端多 token 并存
+// 兼容（boot 签发不吊销旧 token），若未来改为单 token 轮换吊旧，此模块需改为跨窗口
+// 共享存储，勿只改服务端。
 let token: string | null = null
 let initialBook: string | null = null
 

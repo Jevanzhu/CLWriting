@@ -132,6 +132,8 @@ export function layerForTask(task: string): LayerName {
  *  （此前每事件一个 BEGIN/COMMIT，llm/call+retry 高频观测路径每条一次提交）。
  *  退避等待等「先落库后等待」语义点由调用方显式 flush（runner.ts 重试 sleep 前）。 */
 const CHAIN_FLUSH_THRESHOLD = 32
+// O-1（第十三轮）：flush 失败保 buffer 下次重试的累积上限——观测事件越旧价值越低，超限丢最旧
+const CHAIN_BUFFER_MAX = 256
 
 export class ChainRecorder {
   private buffer: NewEvent[] = []
@@ -155,7 +157,12 @@ export class ChainRecorder {
     try {
       this.store.appendEvents(this.sessionId, evs)
     } catch {
-      // 观测层：写失败不炸业务流程（与 appendTrace 一致）
+      // 观测层：写失败不炸业务流程（与 appendTrace 一致）。O-1（第十三轮）：
+      // 失败不整批丢弃——换回 buffer 待下次 flush 重试；持续失败超上限时丢最旧防无限增长
+      this.buffer = [...evs, ...this.buffer]
+      if (this.buffer.length > CHAIN_BUFFER_MAX) {
+        this.buffer = this.buffer.slice(this.buffer.length - CHAIN_BUFFER_MAX)
+      }
     }
   }
 

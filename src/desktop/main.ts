@@ -39,6 +39,7 @@ import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
 import { shutdownStudio } from './graceful-shutdown.js' // RB-SV-P2-6：优雅退出
+import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { getFonts as getSystemFontList } from 'font-list'
 import {
   parseStore,
@@ -425,13 +426,18 @@ async function bootstrap(): Promise<void> {
 
 // ── IPC（供 preload 调用）──────────────────────────────
 
+// O-11（第十三轮）：IPC 响应回程窗口——handle 返回值需先送达渲染进程再 relaunch
+//（quit 链会销毁 webContents，响应晚到前端拿到 undefined）；100ms 为覆盖慢机往返的
+// 经验值（原两处裸魔数收编单源），改小前先在慢机实测。
+const RELAUNCH_DELAY_MS = 100
+
 function registerIpc(): void {
   // 弹选择器打开书库
   ipcMain.handle('desktop:open-library', async () => {
     const picked = await pickLibrary()
     if (!picked) return { ok: false as const, canceled: true as const }
     saveCurrent(picked)
-    setTimeout(relaunch, 100) // 延迟重启，让响应先回渲染进程
+    setTimeout(relaunch, RELAUNCH_DELAY_MS) // 延迟重启，让响应先回渲染进程
     return { ok: true as const }
   })
   // 切换到最近列表中的书库
@@ -440,7 +446,7 @@ function registerIpc(): void {
       return { ok: false as const, reason: '目录无效或不是书库' }
     }
     saveCurrent(path)
-    setTimeout(relaunch, 100)
+    setTimeout(relaunch, RELAUNCH_DELAY_MS)
     return { ok: true as const }
   })
   ipcMain.handle('desktop:get-recent', () => readStore().recent)
@@ -693,23 +699,19 @@ if (gotSingleInstanceLock) {
 
   // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
   // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
-  // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）
-  // 留账（第十轮 M-6）：Electron main 无测试基建，runBootstrap 重试链路暂无回归测试
-  let bootstrapping = false
+  // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）。
+  // O-4（第十三轮）：三段守卫语义抽 createBootstrapRunner 可测（Y-P2-7 重入挡 +
+  // 第九轮 L-3 重试关旧 server + 低-8 退出竞态直通），销第十轮 M-6 留账
+  const bootstrapRunner = createBootstrapRunner(
+    {
+      getMainWindow: () => mainWindow,
+      getStudioServer: () => studioServer,
+      setStudioServer: (s) => { studioServer = s as Server | null },
+    },
+    () => bootstrap(),
+  )
   function runBootstrap(onError?: (e: unknown) => void): void {
-    if (bootstrapping) return
-    // 第九轮 L-3：上次 bootstrap 若在 startServer 之后失败（如 loadURL 抛错），重试会再起
-    // 新 server 覆盖变量，旧 server 的端口/SSE 计数滞留至进程退出——重试前先关旧的
-    if (mainWindow === null && studioServer !== null) {
-      studioServer.close()
-      studioServer = null
-    }
-    bootstrapping = true
-    void bootstrap()
-      .catch((e) => onError?.(e))
-      .finally(() => {
-        bootstrapping = false
-      })
+    bootstrapRunner.runBootstrap(onError)
   }
 
   // 桌面应用：关窗即退出（停 server）
@@ -719,10 +721,9 @@ if (gotSingleInstanceLock) {
 
   // RB-SV-P2-6：优雅退出——先中断在途编排（self-heal/chat）+ close HTTP server，
   // 再真正退出；总超时 2s 兜底（清理卡死也强制退出）。清理只跑一次，二次 quit 直通。
-  let shutdownStarted = false
+  // O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次 quit 直通语义不变）
   app.on('before-quit', (e) => {
-    if (shutdownStarted) return
-    shutdownStarted = true
+    if (!bootstrapRunner.beginShutdown()) return
     e.preventDefault()
     void Promise.race([
       shutdownStudio(() => bootstrappedWorkDir ?? readStore().current, studioServer),
@@ -734,9 +735,9 @@ if (gotSingleInstanceLock) {
 
   app.on('activate', () => {
     // 低-8（第十轮）：退出途中不再重 bootstrap——before-quit 的 2s 优雅退出窗口内
-    // （shutdownStarted 已置位）macOS dock 点击仍会触发 activate，若只判
+    // （shuttingDown 已置位）macOS dock 点击仍会触发 activate，若只判
     // mainWindow === null 会在退出半途再起 server/开窗（与 Z-P2-8 退出竞态同族）
-    if (shutdownStarted) return
+    if (bootstrapRunner.shuttingDown) return
     if (mainWindow === null) {
       runBootstrap((e) => log.error('desktop', '重启失败', e))
     }

@@ -147,6 +147,54 @@ describe('F1-P2 ChainRecorder', () => {
     expect(calls.length).toBeLessThan(40) // 远少于每事件一事务
     for (const c of calls) expect(c.events.length).toBeLessThanOrEqual(32)
   })
+
+  it('O-1（第十三轮）flush 失败保 buffer 下次重试：恢复后整批不丢', () => {
+    // 第一次 appendEvents 抛错（库锁/磁盘满），第二次成功——失败批应换回 buffer 随下次 flush 重放
+    const calls: unknown[][] = []
+    let fail = true
+    const store = {
+      appendEvents: (_sid: string, events: unknown[]) => {
+        if (fail) throw new Error('disk full')
+        calls.push(events)
+        return events.map((_, i) => i + 1)
+      },
+      close: () => {},
+    } as never
+    const r = new ChainRecorder(store, 'ws-x')
+    r.add(stepStartEvent('chat', 'chat'))
+    r.flush() // 失败：静默但保留
+    expect(calls).toHaveLength(0)
+    fail = false
+    r.add(stepEndEvent('chat', 'chat', 'completed'))
+    r.close() // 恢复后 close flush：失败批 + 新事件一次落库
+    expect(calls).toHaveLength(1)
+    expect((calls[0]! as { type: string }[]).map((e) => e.type)).toEqual(['step/start', 'step/end'])
+  })
+
+  it('O-1（第十三轮）持续失败超上限丢最旧（256 上限防无限增长）', () => {
+    const badStore = { appendEvents: () => { throw new Error('disk full') }, close: () => {} } as never
+    const r = new ChainRecorder(badStore, 'ws-x')
+    for (let i = 0; i < 300; i++) {
+      r.add(llmRetryEvent({ attempt: i, delayMs: 1 }))
+      if (i % 32 === 31) r.flush() // 周期性触发失败 flush
+    }
+    r.flush()
+    // 300 条全部写失败：buffer 封顶 256，且保留的是最新段（attempt ≥ 44）
+    const ok = r.flush() // 上限路径不再抛、不再增长
+    expect(ok).toBeUndefined()
+    // 通过行为反推内部上限：再成功落一次库，总量 = buffer 现存条数
+    const calls: unknown[][] = []
+    const store = {
+      appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return [] },
+      close: () => {},
+    } as never
+    ;(r as unknown as { store: unknown }).store = store
+    r.close()
+    const total = calls.reduce((n, c) => n + (c as unknown[]).length, 0)
+    expect(total).toBe(256)
+    const last = (calls[calls.length - 1]! as { data: { attempt: number } }[])
+    expect(last[last.length - 1]!.data.attempt).toBe(299)
+  })
 })
 
 describe('F1-P3 血缘事件构造器', () => {

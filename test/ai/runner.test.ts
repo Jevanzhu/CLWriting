@@ -403,6 +403,49 @@ describe('ee-P1-2：整体超时与外部 ctrl 隔离', () => {
     expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
     expect(ctrl.signal.aborted).toBe(true)
   }, 10_000)
+
+  it('O-5（第十三轮）run 已 resolve 但 abort 恰在返回边界到达 → ABORTED 收口（成功契约不给可能截断的流）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud) // 不设 timeoutMs：走外部中断分支（timedOut=false → ABORTED）
+    const ctrl = new AbortController()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      ctrl,
+      // 模拟竞态：流正常 resolve，但外部中断恰在 await 返回边界到达
+      run: async () => {
+        ctrl.abort()
+        return 'possibly-truncated'
+      },
+    })
+    // 修复前：ok:true data='possibly-truncated'——成功契约让给了可能被截断的流
+    expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+  }, 10_000)
+})
+
+describe('O-6（第十三轮）降级回调注册幂等化', () => {
+  it('同 userDataPath 重复 resolveProvider 只注册一次；换 path 才重注册', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const store = await import('../../src/ai/provider/store.js')
+    const spyP = vi.spyOn(store, 'registerDegradedPersist').mockImplementation(() => {})
+    const spyL = vi.spyOn(store, 'registerDegradedLookup').mockImplementation(() => {})
+    try {
+      expect(resolveProvider(ud).ok).toBe(true) // 首次：注册
+      expect(resolveProvider(ud).ok).toBe(true) // 同 path：幂等跳过
+      expect(resolveProvider(ud).ok).toBe(true)
+      expect(spyP).toHaveBeenCalledTimes(1)
+      expect(spyL).toHaveBeenCalledTimes(1)
+      // 换 path（多 userData 场景）：重注册新闭包
+      const ud2 = tempUserData()
+      writeProviders(ud2)
+      expect(resolveProvider(ud2).ok).toBe(true)
+      expect(spyP).toHaveBeenCalledTimes(2)
+      expect(spyL).toHaveBeenCalledTimes(2)
+    } finally {
+      spyP.mockRestore()
+      spyL.mockRestore()
+    }
+  })
 })
 
 describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {

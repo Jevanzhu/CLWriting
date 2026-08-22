@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { evaluateRetry, formatRetryState, redSetKey, buildStrategyReminder } from '../../src/process/retry.js'
+import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../src/process/retry.js'
 import type { CheckReport } from '../../src/check/types.js'
 
 function redReport(msg = '命中禁词'): CheckReport {
@@ -56,13 +56,7 @@ test('evaluateRetry: 已重写 3 次仍红 → escalate（maxAttempts=3 恰好�
   }
 })
 
-test('formatRetryState: 三态人话', () => {
-  expect(formatRetryState({ state: 'pass' })).toContain('通过')
-  const retry = formatRetryState({ state: 'retry', attempt: 1, maxAttempts: 3, redFeedback: '修复x', redIssues: ['修复x'] })
-  expect(retry).toContain('重写')
-  const escalate = formatRetryState({ state: 'escalate', attempt: 3, redFeedback: '需作者', redIssues: ['需作者'] })
-  expect(escalate).toContain('作者介入')
-})
+// O-8（第十三轮）：formatRetryState 准死代码已删（生产提示走 state 卡人话）
 
 // ── A4（DSH-19）：红项 canonical key + 换策略提醒 ──
 

@@ -17,6 +17,11 @@ import { embed } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta } from '../format/types.js'
+import { log } from '../log/index.js'
+
+/** O-3（第十三轮）：召回块数告警阈值——超出 store.ts readAllChunks 量化注释的已知
+ *  可用区间（十万块）时 log.warn 留痕；不截断结果（召回正确性优先）。 */
+export const RAG_CHUNK_WARN_THRESHOLD = 100_000
 
 /** 一个分块（文本 + 在该章正文的偏移） */
 export interface TextChunk {
@@ -411,6 +416,8 @@ export async function recall(
   query: string,
   topK = 5,
   embedFn: typeof embed = embed,
+  /** O-3：块数告警阈值（测试注入用，默认 RAG_CHUNK_WARN_THRESHOLD） */
+  warnThreshold = RAG_CHUNK_WARN_THRESHOLD,
 ): Promise<RecallHit[]> {
   if (!config.enabled || !config.endpoint || !config.model) return []
 
@@ -431,6 +438,12 @@ export async function recall(
 
     chunks = readAllChunks(db)
     if (chunks.length === 0) return [] // 空库：无向量可召回，先判空不烧 API
+    // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
+    // 时告警——线性扫描仍可用但延迟已超交互预期，界值测试只锁 3.5 万块场景，超区间
+    // 先留痕再谈引索引（不截断：召回正确性优先，慢比缺好）
+    if (chunks.length >= warnThreshold) {
+      log.warn('rag', `召回块数 ${chunks.length} 超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引`)
+    }
 
     indexedDim = getRagMeta(db, 'embedding_dim')
     // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
