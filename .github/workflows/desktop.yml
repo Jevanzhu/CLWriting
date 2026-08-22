@@ -28,7 +28,9 @@ jobs:
       # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
       # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
       - run: npm --prefix src/studio/web-next ci
-      # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）
+      # build:desktop = build:all(tsup+web) + electron-builder（unsigned 首版）。
+      # --publish never：electron-builder 26 在 tag 提交上会隐式尝试发 GitHub Release（缺
+      # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布
       - run: npm run build:desktop
       - uses: actions/upload-artifact@v4
         with:

@@ -37,7 +37,7 @@
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:release": "npm run build:all && CLWRITING_E2E_RELEASE=1 playwright test test/e2e/release-smoke.spec.ts",
     "dev:electron": "npm run build:all && electron .",
-    "build:desktop": "npm run build:all && electron-builder",
+    "build:desktop": "npm run build:all && electron-builder --publish never",
     "build:desktop:dir": "npm run build:all && electron-builder --dir"
   },
   "devDependencies": {
