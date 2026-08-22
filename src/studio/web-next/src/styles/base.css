@@ -169,7 +169,6 @@ button:disabled {
 .glow {
   position: absolute;
   border-radius: 50%;
-  filter: blur(72px);
   opacity: 0.75;
 }
 .glow-tr {
