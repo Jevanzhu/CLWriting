@@ -20,6 +20,10 @@ declare global {
       onNavigate: (cb: (path: string) => void) => () => void
       /** 订阅系统菜单动作（菜单 click → actionKey 回调），返回退订函数 */
       onMenuAction: (cb: (key: string) => void) => () => void
+      /** 进入/退出窗口原生全屏（专注模式驱动） */
+      setFullScreen: (flag: boolean) => Promise<void>
+      /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false），返回退订函数 */
+      onFullScreenChange: (cb: (fullscreen: boolean) => void) => () => void
       /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null） */
       showContextMenu: (
         items: Array<{

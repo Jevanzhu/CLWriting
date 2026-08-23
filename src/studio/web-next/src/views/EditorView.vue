@@ -198,12 +198,12 @@ onUnmounted(() => {
 
 <template>
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
-  <div v-else class="editor-view">
-    <EditorDocHead v-model:title="titleModel" :doc-id="docId" :book-kind="bookKind" :word-count="wordCount" />
+  <div v-else class="editor-view" :class="{ 'editor-focus': ws.focusMode }">
+    <EditorDocHead v-if="!ws.focusMode" v-model:title="titleModel" :doc-id="docId" :book-kind="bookKind" :word-count="wordCount" />
     <div class="doc-body">
       <div class="doc-page">
-        <!-- 标题居中（只读展示，编辑入口在顶栏） -->
-        <div class="page-title-area">
+        <!-- 标题居中（只读展示，编辑入口在顶栏）；专注模式下隐藏 -->
+        <div v-if="!ws.focusMode" class="page-title-area">
           <span class="page-title">{{ isChapter ? (titleModel || '未命名') : entry.name }}</span>
         </div>
         <!-- 正文编辑器 -->
@@ -301,6 +301,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-s), var(--shadow-l);
   overflow: hidden;
   padding: var(--page-pad) 0;
+}
+/* 专注模式：纸张放大——用户页宽 +160px，88vw 封顶防窄窗溢出（修订批：原 720px 收窄
+ * 实物太窄，作者要求放大；仍纯 CSS 覆写，不写用户 pageWidth 偏好，退出即恢复） */
+.editor-focus .doc-page {
+  max-width: min(calc(var(--page-width, 1020px) + 160px), 88vw);
 }
 .crop {
   position: absolute;

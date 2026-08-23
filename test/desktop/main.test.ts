@@ -428,7 +428,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 })
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
-  it('注册面：10 handle + context-menu on', () => {
+  it('注册面：11 handle + context-menu on', () => {
     expect(Object.keys(M.ipcHandle).sort()).toEqual([
       'desktop:get-current',
       'desktop:get-recent',
@@ -439,10 +439,37 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       'desktop:open-library-dir',
       'desktop:open-library-window',
       'desktop:open-shelf',
+      'desktop:set-fullscreen',
       'desktop:show-in-folder',
       'desktop:switch-library',
     ].sort())
     expect(M.ipcOn['desktop:context-menu']).toBeTruthy()
+  })
+
+  it('set-fullscreen：按发起窗口 setFullScreen(flag===true)，非布尔收敛 false', () => {
+    const calls: boolean[] = []
+    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false } }
+    const win = {
+      webContents: wc,
+      isDestroyed(): boolean { return false },
+      setFullScreen(f: boolean): void { calls.push(f) },
+    }
+    M.windows.push(win as unknown as Record<string, any>)
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, true)
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, false)
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, 'yes')
+    expect(calls).toEqual([true, false, false])
+  })
+
+  it('专注全屏反向同步：enter/leave-full-screen → desktop:fullscreen-change 转发渲染层', () => {
+    const win = mainWin()
+    const n0 = win.webContents.sent.length
+    for (const fn of win.handlers['enter-full-screen'] ?? []) fn()
+    expect(win.webContents.sent[n0]?.[0]).toBe('desktop:fullscreen-change')
+    expect(win.webContents.sent[n0]?.[1]).toBe(true)
+    for (const fn of win.handlers['leave-full-screen'] ?? []) fn()
+    expect(win.webContents.sent[n0 + 1]?.[0]).toBe('desktop:fullscreen-change')
+    expect(win.webContents.sent[n0 + 1]?.[1]).toBe(false)
   })
 
   it('switch-library：非书库目录拒绝；合法目录持久化 current 并触发 relaunch', async () => {

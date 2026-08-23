@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
+import { setFullScreen } from '../shared/fullscreen'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观/伏笔（TabBar 下拉 → ChapterTreePanel 执行）。 */
 export type CreateKind =
@@ -210,8 +211,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function toggleRight(): void {
     rightOpen.value = !rightOpen.value
   }
+  /** 进入/退出专注模式（全入口单源：热键/菜单/退出按钮/全屏反向同步都走这里）。
+   *  真专注 = 隐藏 UI + 窗口全屏；全屏失败静默降级（隐藏态不受影响）。 */
+  function setFocus(on: boolean): void {
+    focusMode.value = on
+    setFullScreen(on)
+  }
   function toggleFocus(): void {
-    focusMode.value = !focusMode.value
+    setFocus(!focusMode.value)
   }
   function setLeftPanel(p: 'tree' | 'search' | 'trash'): void {
     leftPanel.value = p
@@ -251,6 +258,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setLeftWidth,
     toggleRight,
     toggleFocus,
+    setFocus,
     setLeftPanel,
     setRightTab,
     setActiveView,

@@ -18,6 +18,7 @@ import { useHotkeys } from '../../composables/useHotkeys'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTreeStore } from '../../stores/tree'
+import { onFullScreenChange } from '../../shared/fullscreen'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
 // flex 布局（非旧 web 的 overlay 浮层）；折叠走 width 过渡，专注模式覆盖折叠态。
@@ -82,14 +83,24 @@ function startResizeLeft(e: MouseEvent): void {
   document.body.style.userSelect = 'none'
   resizeCleanup = onUp
 }
+// 全屏反向同步：作者经系统手势（⌘⌃F/绿按钮）退出全屏 → 连带退出专注（专注隐了
+// Ribbon/TabBar，全屏也被系统退了却留在专注态会显得「卡住」）。进入全屏不反向
+// 开启专注——系统菜单「切换全屏」是独立功能，全屏 ≠ 专注。
+const stopFsWatch = onFullScreenChange((fs) => {
+  if (!fs && ws.focusMode) ws.setFocus(false)
+})
+
 // 兜底：拖拽中卸载时清理残留 document 监听（正常由 onUp 在 mouseup 清理）
-onUnmounted(() => resizeCleanup?.())
+onUnmounted(() => {
+  resizeCleanup?.()
+  stopFsWatch()
+})
 </script>
 
 <template>
-  <div class="ws-shell">
+  <div class="ws-shell" :class="{ 'ws-focus': ws.focusMode }">
     <div class="ws-body">
-      <Ribbon />
+      <Ribbon v-show="!ws.focusMode" />
       <div
         class="ws-side ws-left"
         :class="{ collapsed: !leftVisible, dragging: leftDragging }"
@@ -100,11 +111,23 @@ onUnmounted(() => resizeCleanup?.())
         <SidebarLeft :book-name="bookName" />
       </div>
       <main class="ws-main">
-        <TabBar :book-name="bookName" />
-        <ViewHeader v-if="ws.activeView !== 'editor'" :book-name="bookName" />
+        <!-- 专注模式：TabBar 隐藏后顶部拖拽区丢失，补一条透明拖拽条（macOS 窗口移动） -->
+        <div v-if="ws.focusMode" class="ws-focus-drag" aria-hidden="true" />
+        <TabBar v-show="!ws.focusMode" :book-name="bookName" />
+        <ViewHeader v-if="ws.activeView !== 'editor' && !ws.focusMode" :book-name="bookName" />
         <div class="ws-view">
           <slot />
         </div>
+        <!-- 专注退出按钮：沉浸态常驻右下角（半透明，hover 加深），防找不到出口 -->
+        <button
+          v-if="ws.focusMode"
+          class="ws-focus-exit"
+          type="button"
+          title="退出专注模式（Esc / ⌘⇧F）"
+          @click="ws.toggleFocus()"
+        >
+          退出专注
+        </button>
         <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock） -->
         <ChatDock
           v-if="prefs.chatEnabled && !ws.focusMode && ws.activeView !== 'workbench'"
@@ -116,7 +139,7 @@ onUnmounted(() => resizeCleanup?.())
         <SidebarRight :book-name="bookName" />
       </div>
     </div>
-    <StatusBar :book-name="bookName" />
+    <StatusBar v-show="!ws.focusMode" :book-name="bookName" />
     <ConfirmPrompt />
     <CommandPalette />
     <SettingsModal />
@@ -175,4 +198,31 @@ onUnmounted(() => resizeCleanup?.())
   flex: 1;
   overflow: auto;
 }
+/* ===== 专注模式（完全沉浸） ===== */
+/* 顶部拖拽条：TabBar/Ribbon 隐藏后唯一窗口拖拽区（透明，不拦截内容点击） */
+.ws-focus-drag {
+  flex-shrink: 0;
+  height: 28px;
+  -webkit-app-region: drag;
+}
+/* 退出按钮：右下角半透明常驻，hover 加深 */
+.ws-focus-exit {
+  position: absolute;
+  right: var(--size-4-4, 16px);
+  bottom: var(--size-4-4, 16px);
+  z-index: 5;
+  padding: 4px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm, 12px);
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity var(--dur-norm) var(--ease-out);
+}
+.ws-focus-exit:hover {
+  opacity: 1;
+}
+
 </style>

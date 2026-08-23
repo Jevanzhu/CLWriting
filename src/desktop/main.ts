@@ -440,6 +440,16 @@ async function bootstrap(): Promise<void> {
     // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
     app.quit()
   })
+  // 专注模式全屏反向同步：作者经系统手势（⌘⌃F/绿按钮）退出全屏时通知渲染层
+  //（渲染层据此连带退出专注模式）。只回发事实，不在主进程持有专注语义。
+  // 与 render-process-gone 同款：捕获局部 win，闭包不追迟来的 mainWindow 置空。
+  const fsWin = mainWindow
+  mainWindow.on('enter-full-screen', () => {
+    if (!fsWin.isDestroyed()) fsWin.webContents.send('desktop:fullscreen-change', true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    if (!fsWin.isDestroyed()) fsWin.webContents.send('desktop:fullscreen-change', false)
+  })
   // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     log.error('desktop', `preload 加载失败：${p}`, err)
@@ -599,6 +609,14 @@ function registerIpc(): void {
         setTimeout(() => sendOnce(null), 0)
       },
     })
+  })
+  // ── 专注模式全屏 ──
+  // 渲染层进入/退出专注时驱动原生全屏。不走 HTML5 Fullscreen API：菜单加速键路径
+  // 在渲染层无用户手势会被拒，setFullScreen 无此限制。作用于发起调用的窗口本体。
+  ipcMain.handle('desktop:set-fullscreen', (event, flag: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    win.setFullScreen(flag === true)
   })
 }
 

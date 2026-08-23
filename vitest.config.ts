@@ -15,6 +15,13 @@ const rootVueRuntimeDom = fileURLToPath(
 )
 const rootVueShared = fileURLToPath(new URL('./node_modules/@vue/shared', import.meta.url))
 
+// CodeMirror 家族安装在 web-next 嵌套 node_modules（根测试目录解析不到）——钉到
+// 实际位置，供 CmHost 真实扩展（打字机回归等）做单元测试；各包自身依赖从其真实
+// 路径向上解析即可，只钉测试直接 import 的入口。
+const cmBase = './src/studio/web-next/node_modules/'
+const cmState = fileURLToPath(new URL(`${cmBase}@codemirror/state`, import.meta.url))
+const cmView = fileURLToPath(new URL(`${cmBase}@codemirror/view`, import.meta.url))
+
 export default defineConfig({
   // vitest 需显式挂 plugin-vue 才能处理 .vue 文件。
   plugins: [vue()],
@@ -26,6 +33,8 @@ export default defineConfig({
       '@vue/runtime-core': rootVueRuntimeCore,
       '@vue/runtime-dom': rootVueRuntimeDom,
       '@vue/shared': rootVueShared,
+      '@codemirror/state': cmState,
+      '@codemirror/view': cmView,
     },
     dedupe: ['vue', '@vue/reactivity', '@vue/runtime-core', '@vue/runtime-dom', '@vue/shared'],
   },

@@ -15,6 +15,7 @@ import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codem
 import { autocompletion, startCompletion, completionKeymap, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
 import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
+import { typewriterExt, centerCursorLine } from './typewriter'
 import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
   EditorView,
@@ -141,16 +142,7 @@ function characterCompletion(context: CompletionContext): CompletionResult | nul
   }
 }
 
-// 打字机模式（专注时启用）：输入时当前行 scrollIntoView 居中（仅 docChanged，不干扰主动滚动查看）
-function typewriterExt(on: boolean): Extension {
-  if (!on) return []
-  return EditorView.updateListener.of((u) => {
-    if (!u.docChanged) return
-    const head = u.state.selection.main.head
-    const line = u.state.doc.lineAt(head)
-    u.view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
-  })
-}
+// 打字机滚动实现收编 editor/typewriter.ts 单源（含 CM6 更新中禁 dispatch 的根因注释与回归测试）
 const typewriterConf = new Compartment()
 // P1-9：mode/readonly 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
 const modeConf = new Compartment()
@@ -257,11 +249,7 @@ watch(
   (v) => {
     if (!view) return
     view.dispatch({ effects: typewriterConf.reconfigure(typewriterExt(v ?? false)) })
-    if (v) {
-      const head = view.state.selection.main.head
-      const line = view.state.doc.lineAt(head)
-      view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
-    }
+    if (v) centerCursorLine(view)
   },
 )
 

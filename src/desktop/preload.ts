@@ -60,6 +60,17 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
       ipcRenderer.removeListener('desktop:menu-action', handler)
     }
   },
+  /** 进入/退出窗口原生全屏（专注模式驱动；HTML5 Fullscreen API 无手势会被拒，走主进程无此限制）。 */
+  setFullScreen: (flag: boolean): Promise<void> =>
+    ipcRenderer.invoke('desktop:set-fullscreen', flag),
+  /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false）。返回退订函数。 */
+  onFullScreenChange: (cb: (fullscreen: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, fullscreen: boolean): void => cb(fullscreen)
+    ipcRenderer.on('desktop:fullscreen-change', handler)
+    return () => {
+      ipcRenderer.removeListener('desktop:fullscreen-change', handler)
+    }
+  },
   /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null。
    *  二轮复审（低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
    *  窗口级广播，残留监听会收到新菜单的选择串到旧回调（首条消息双投递） */

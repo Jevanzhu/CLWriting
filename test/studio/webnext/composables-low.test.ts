@@ -76,13 +76,20 @@ describe('useFocusTrap', () => {
 })
 
 describe('useHotkeys', () => {
-  /** useHotkeys 在 onMounted 注册监听 → 需组件上下文挂载 */
+  /** useHotkeys 在 onMounted 注册监听 → 需组件上下文挂载（用例结束统一卸载，
+   *  防 window 监听跨用例泄漏——旧监听器先跑并 preventDefault 后，
+   *  onKey 的 defaultPrevented 让渡会让新用例断言拿不到事件） */
+  const hotkeyCleanups: Array<() => void> = []
   function mountHotkeys(): void {
     const comp = { setup: () => useHotkeys(), render: () => h('div') }
     const holder = document.createElement('div')
     document.body.appendChild(holder)
     render(h(comp), holder)
+    hotkeyCleanups.push(() => render(null, holder))
   }
+  afterEach(() => {
+    while (hotkeyCleanups.length) hotkeyCleanups.pop()!()
+  })
 
   it('⌘S → 保存 activeDoc', async () => {
     const ws = (await import('../../../src/studio/web-next/src/stores/workspace')).useWorkspaceStore()
