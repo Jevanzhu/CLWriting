@@ -137,11 +137,12 @@ async function onTitleCommit(): Promise<void> {
     const pieceNum = e.role === 'piece-body'
       ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
       : undefined
-    await updateChapterMetaDoc(doc.bookName!, id, {
+    const book = doc.bookName! // Z-25：入口捕获（await 后 doc 缓存可能已随切书清空）
+    await updateChapterMetaDoc(book, id, {
       标题: newTitle,
       ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
-    await tree.load(doc.bookName!)
+    await tree.load(book)
     if (ws.activeDocId !== id) return // 已切文档：fm 已落盘，树已全量刷新，放弃对旧条目的回填
     const fresh = tree.byDocId.get(id)
     if (fresh) {

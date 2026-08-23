@@ -313,7 +313,10 @@ export interface BookConfig {
     model?: string // 旧版内联 embedding 模型名（存量兼容）
     candidate_depth?: number // A3（批 7）：召回惰性指纹校验的候选章上限（缺省 20；P4 拍板写死可覆盖）
   }
-  _raw?: Record<string, unknown> // 容错：未知顶层段保留
+  // Z-16（第五十八轮）注释如实化：此字段全库无生产填充（sectionsToConfig 从不设置）——
+  // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层，
+  // 非 parse→stringify 往返）；全量重生成（stringifyBookConfig）会丢弃未知段。勿依赖此字段。
+  _raw?: Record<string, unknown>
 }
 
 // ── 解析错误（#3 第 8 节，容错不崩）──────────────

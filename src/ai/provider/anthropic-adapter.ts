@@ -184,6 +184,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       let cacheReadFromStart: number | undefined // D4：message_start 的 cache 读量（message_delta 缺字段时兜底）
       let cacheWriteFromStart: number | undefined // D4：message_start 的 cache 写量（同上）
       let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
+      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
       // 按原始 req 计算与各 attempt toParams 上线值一致）
       const resolvedMaxTokens = resolveMaxTokens(conf, req)
@@ -192,7 +193,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
       }
 
       try {
@@ -206,6 +207,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
           try {
             stream = await c.messages.create(toParams(conf, attempt), { signal })
             markStructuredDegrade(plan, attempt, store)
+            // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带
+            // degraded（重放按事件重建会再 400 的口径缺口闭合）
+            degraded = attempt !== plan.attempts[0]
             break
           } catch (e) {
             if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {

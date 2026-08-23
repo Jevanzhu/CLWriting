@@ -54,7 +54,13 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
  * 防 `../` 经 join 后越出 workDir（此前防线只在 server 层，逻辑层新调用方会重踩）。
  */
 export function isInvalidBookName(name: string): boolean {
-  return name === '' || name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..'
+  if (name === '' || name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') return true
+  // Z-22（第五十八轮）：Windows 保留设备名（CON/NUL/COM1-9/LPT1-9 等）——win 上
+  // mkdir 对这些名字直接失败，提前以人话校验拒绝（mac 不受影响，为阶段 21 预铺）；
+  // 尾点/尾空格同拒（win 落盘时被剥引发读写名不一致）
+  const bare = name.replace(/\.+$/, '').replace(/\s+$/, '').toUpperCase()
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(bare)) return true
+  return /[.\s]$/.test(name)
 }
 
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/

@@ -366,9 +366,12 @@ export function useChapterTreeActions(deps: {
     renamePath.value = null
     const node = tree.byPath.get(path)
     if (!node?.docId) return
+    // Z-25（第五十八轮）：书名入口捕获——await 后再求 bookName() 会是 B 书，
+    // 对 B 书发起冗余全树重扫（git status + 字数统计，大书较重）
+    const book = deps.bookName()
     try {
-      await renameDoc(deps.bookName(), node.docId, `${name}.md`)
-      await tree.load(deps.bookName())
+      await renameDoc(book, node.docId, `${name}.md`)
+      await tree.load(book)
       // Y-29（第五十七轮）：doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
       // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
       const entry = doc.get(node.docId)
@@ -408,9 +411,11 @@ export function useChapterTreeActions(deps: {
 
   // --- 移动（菜单 + 拖拽共用）---
   async function doMove(docId: string, toDir: string): Promise<void> {
+    // Z-25：同 onRenameCommit——书名入口捕获
+    const book = deps.bookName()
     try {
-      await moveDoc(deps.bookName(), docId, toDir)
-      await tree.load(deps.bookName())
+      await moveDoc(book, docId, toDir)
+      await tree.load(book)
       // Y-29：同 onRenameCommit——doc 缓存 path 随移动回填
       const entry = doc.get(docId)
       if (entry) {

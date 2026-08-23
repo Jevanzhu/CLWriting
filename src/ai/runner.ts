@@ -121,6 +121,11 @@ function extractMaxTokens(data: unknown): number | undefined {
   return undefined
 }
 
+/** Z-12（第五十八轮）：run 回调壳是否带 degraded（适配器降级面成功 → gen 透传） */
+function extractDegraded(data: unknown): boolean {
+  return typeof data === 'object' && data !== null && (data as Record<string, unknown>)['degraded'] === true
+}
+
 /** O-6（第十三轮）：降级回调已注册的 userDataPath——同 path 幂等跳过重复注册 */
 let degradedRegisteredPath: string | null = null
 
@@ -446,7 +451,7 @@ export async function runTask<T>(opts: {
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
         recordUsageSafe(usage)
-        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true, maxTokens: extractMaxTokens(data) })
+        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true, maxTokens: extractMaxTokens(data), ...(extractDegraded(data) ? { degraded: true } : {}) })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
         return { ok: true, data, ctrl: external, usage, runId, model: tier.model }

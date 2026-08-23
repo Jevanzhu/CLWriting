@@ -38,18 +38,15 @@ async function analyzeTags(): Promise<void> {
   const book = props.bookName
   tagging.value = true
   try {
-    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回（与 MetaFormPanel.onSave 同口径）
-    const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
     const tags = await autotag(book, id)
     await updateDocMeta(book, id, tags)
     // M-6（第八轮）：守卫补书名项（对齐 MetaFormPanel.onSave 双条件）——legacy docId
     // 纯路径派生跨书同路径，只查 docId 时 B 书同路径条目会被 A 书正文 patch → autosave 覆盖
     if (docId.value !== id || props.bookName !== book) return
+    // Z-2（第五十八轮）：删旧正文回拼——refresh 的 dirty 分支（CC-P2-15）已完整承担
+    //「fm 取服务端、正文保留本地」；此前回拼用 T0 快照比对恒不等（60s AI 调用期间作者
+    // 打过字即触发），把分析开始时的旧正文 patch 回覆盖全部新键入（外部同步替换不可撤销）
     await doc.refresh(id)
-    const refreshed = doc.get(id)
-    if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(id, mergeFm(refreshed.content, localBody))
-    }
     ui.toast('标签分析完成', 'success')
   } catch (err) {
     ui.toast(friendlyError(err), 'error')
@@ -92,19 +89,14 @@ async function inferChapterMeta(): Promise<void> {
   const id = docId.value
   inferring.value = true
   try {
-    // 保护编辑区未保存的 body：记本地 body → 写 fm → refresh 拉磁盘 → 本地 body 拼回
     // 第五轮：bookName 入口捕获（同 analyzeTags 的跨书写坏面）
-    const localBody = entry.value ? stripFrontmatter(entry.value.content) : ''
     const book = props.bookName
     const meta = await inferMeta(book, id)
     await updateDocMeta(book, id, meta)
     // M-6（第八轮）：同上——双条件守卫
     if (docId.value !== id || props.bookName !== book) return
+    // Z-2：同 analyzeTags——删旧正文回拼，refresh dirty 分支已护正文
     await doc.refresh(id)
-    const refreshed = doc.get(id)
-    if (refreshed && localBody && stripFrontmatter(refreshed.content) !== localBody) {
-      doc.patch(id, mergeFm(refreshed.content, localBody))
-    }
     ui.toast('情绪/反转推断完成', 'success')
   } catch (err) {
     ui.toast(friendlyError(err), 'error')

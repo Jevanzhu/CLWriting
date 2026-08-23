@@ -89,7 +89,7 @@ describe('Y-32: learn.commit 代守卫', () => {
     })
     const s = useLearnStore()
     // 候选项 + 勾选
-    s.samples = [{ 场景: '战斗', 来源: '收割', 正文: '样A' }]
+    s.samples = [{ 场景: '战斗', 正文: '样A' } as never]
     s.toggleSample('样A')
     const p = s.commit('bookA')
     expect(s.committing).toBe(true)
@@ -103,7 +103,7 @@ describe('Y-32: learn.commit 代守卫', () => {
   it('正常路径：commit 完成后解锁（既有行为保持）', async () => {
     commitMock.mockResolvedValue({ sampleFiles: [], quoteFiles: [] })
     const s = useLearnStore()
-    s.samples = [{ 场景: '战斗', 来源: '收割', 正文: '样A' }]
+    s.samples = [{ 场景: '战斗', 正文: '样A' } as never]
     s.toggleSample('样A')
     await s.commit('bookA')
     expect(s.committing).toBe(false)

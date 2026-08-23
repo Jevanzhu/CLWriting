@@ -580,7 +580,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
     if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-    // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径）
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
     }
@@ -588,6 +587,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
     }
     const mainSession = await ensureSession(bookName, ctx.workDir!)
+    // Z-3（第五十八轮）：二次检查移到 ensureSession 之后（与 chat.send 完全同序）——
+    // 此前排在 await 之前（注释却宣称「await 后二次检查」），让出窗口内他标签页 /spawn
+    // 占闸启动写手，regenerate 续体无复查直接 sendChatMessage（内含嵌套生成工具）→
+    // 双写手互覆草稿/预算章块（R-9 互斥矩阵要防的场景）
+    if (isSelfHealRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
+    }
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+    }
     const driver = getDriver()
     const outcome = sendChatMessage({
       driver,

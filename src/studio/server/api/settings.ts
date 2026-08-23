@@ -99,12 +99,15 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       if (!force && existsSync(cachePath)) {
         return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
       }
-      const context = buildMineContext(bookRoot)
+      const mined = buildMineContext(bookRoot)
+      const context = mined.text
       if (!context.trim()) return replyError(res, 400, 'BAD_INPUT', '没有可梳理的材料（名册/角色卡/正文均空）')
       const out = await runSpec(RELATION_MINE_SPEC, {
         userDataPath: ctx.userDataPath,
         bookRoot,
         userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
+        // Z-1（第五十八轮）：聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
+        promptFiles: mined.files,
       })
       if (!out.ok) return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
@@ -203,17 +206,24 @@ function readRelationCache(bookRoot: string): {
 }
 
 /** 组关系梳理输入材料：名册 + 角色卡摘要 + 已写正文节选（防超长，正文截断）。 */
-function buildMineContext(bookRoot: string): string {
+/** Z-1（第五十八轮）：返回 {text, files}——files 为实际注入源的相对路径清单
+ *  （铁律①「模型可见⟺已记录」；角色卡按目录登记，与 rules 词表同口径） */
+function buildMineContext(bookRoot: string): { text: string; files: string[] } {
   const parts: string[] = []
+  const files: string[] = []
   // 名册
   const rosterPath = join(bookRoot, '设定', '名册.md')
   if (existsSync(rosterPath)) {
     const t = readFileSync(rosterPath, 'utf8').trim()
-    if (t) parts.push(`## 角色名册\n${t}`)
+    if (t) {
+      parts.push(`## 角色名册\n${t}`)
+      files.push('设定/名册.md')
+    }
   }
   // 角色卡摘要（姓名/身份/目标/关系 + 正文前 300 字）
   const chars = readCharacterCards(join(bookRoot, '设定', '角色'), bookRoot)
   if (chars.length) {
+    files.push('设定/角色')
     parts.push(
       '## 角色卡',
       chars
@@ -228,17 +238,18 @@ function buildMineContext(bookRoot: string): string {
   // 已写正文节选（正文目录，每章前 200 字，最多 8 章）
   const proseDir = join(bookRoot, '写作', '正文')
   if (existsSync(proseDir)) {
-    const files = listMdRecursive(proseDir).slice(0, 8)
-    if (files.length) {
-      const excerpts = files.map((f) => {
+    const mdFiles = listMdRecursive(proseDir).slice(0, 8)
+    if (mdFiles.length) {
+      const excerpts = mdFiles.map((f) => {
         const rel = relative(bookRoot, f).replace(/\\/g, '/') // P5-数据层（第七轮）：M-4 收口漏点（展示口径统一正斜杠）
         const t = readFileSync(f, 'utf8').replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+        files.push(rel)
         return `### ${rel}\n${t}`
       })
       parts.push('## 已写正文节选\n' + excerpts.join('\n\n'))
     }
   }
-  return parts.join('\n\n')
+  return { text: parts.join('\n\n'), files }
 }
 
 /** 递归列出 md 文件（排序稳定）。 */

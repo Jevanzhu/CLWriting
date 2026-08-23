@@ -45,7 +45,10 @@ async function run(): Promise<void> {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && ui.exportOpen) ui.closeExport()
+  if (e.key === 'Escape' && ui.exportOpen) {
+    ui.closeExport()
+    e.preventDefault() // Z-23：本层消费 Esc，防 useHotkeys 同键退专注双效
+  }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))

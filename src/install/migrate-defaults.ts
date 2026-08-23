@@ -105,8 +105,15 @@ function migrateBookYamlText(raw: string): string {
 // ── 文本操作（照 yaml.ts patchTopSection 的段区间口径）────────
 
 /** 顶层段区间 [start, end)：end = 下一个顶层 key 行（非缩进、非注释、非空行）之前 */
+/** Z-7（第五十八轮）：段定位 CRLF 容忍（同 yaml.ts matchesKeyLine 口径——本地
+ *  复制避免跨模块引私有；口径漂移由两处测试共同锁定） */
+function matchesKeyLineCRLF(line: string, key: string): boolean {
+  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
+  return bare === `${key}:` || bare.startsWith(`${key}: `)
+}
+
 function topSectionSpan(lines: string[], section: string): { start: number; end: number } | null {
-  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  const start = lines.findIndex((l) => matchesKeyLineCRLF(l, section))
   if (start === -1) return null
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {

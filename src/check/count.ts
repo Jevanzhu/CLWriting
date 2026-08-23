@@ -389,9 +389,14 @@ export function checkStyleMetrics(
     }
   }
 
-  // 对话提示语堆叠（"…地说/地道"，优先"他说"，#5 第 8 节示例）
-  const tagHits = body.match(new RegExp(`[${HANZI}]{2,}地(说|道)`, 'gu'))
-  if (tagHits) {
+  // 对话提示语堆叠（"…地说/道"，优先"他说"，#5 第 8 节示例）
+  // Z-17（第五十八轮）：X地道 收窄为后续跟引语标点（:：""「『）——「十分地道，」这类
+  // 词语误用（地道=名词「正宗」，非「说道」动词）不再计入；X地说 不受影响（无同形名词）
+  const tagHits = [
+    ...(body.match(new RegExp(`[${HANZI}]{2,}地说`, 'gu')) ?? []),
+    ...(body.match(new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u2018「『])`, 'gu')) ?? []),
+  ]
+  if (tagHits.length) {
     for (const t of new Set(tagHits)) {
       items.push({
         checkId: 'style-dialogue-tag',

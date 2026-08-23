@@ -478,7 +478,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // Z-P1-2：regenerate 成功才激活新分支（失败/中断的半截组已被遮蔽，激活会归因到幽灵组）
       if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
       // B1+B2：溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
-      await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state)
+      await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state, deps.promptFiles)
       return true
     }
 
@@ -561,6 +561,6 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   // Z-P1-2：轮数触顶收尾也属正常完成——同口径激活新分支
   if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
   // B1+B2：溢出 → checkpoint 压缩优先（同无工具完成路径）
-  await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state)
+  await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state, deps.promptFiles)
   return true
 }

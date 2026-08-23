@@ -193,9 +193,20 @@ export function parseFlat(
       // YAML 块标量语义本就是最小缩进决定内容基准
       const minIndent = indents.length > 0 ? Math.min(...indents) : 0
       const dedented = block.map((bl) => (bl === '' ? '' : bl.slice(minIndent)))
-      const value = folded
-        ? dedented.join(' ').replace(/  +/g, ' ').replace(/ +$/,'')
-        : dedented.join('\n').replace(/\n+$/, '')
+      // Z-20（第五十八轮）：folded 空行 = 段落边界（YAML 语义空行应为换行）——此前
+      // join(' ') 把多段值压平成一段；无空行时产出与旧行为一致
+      const foldSegs = (bls: string[]): string => {
+        const segs: string[] = []
+        let cur: string[] = []
+        for (const bl of bls) {
+          if (bl === '') {
+            if (cur.length) { segs.push(cur.join(' ').replace(/  +/g, ' ').replace(/ +$/, '')); cur = [] }
+          } else cur.push(bl)
+        }
+        if (cur.length) segs.push(cur.join(' ').replace(/  +/g, ' ').replace(/ +$/, ''))
+        return segs.join('\n')
+      }
+      const value = folded ? foldSegs(dedented) : dedented.join('\n').replace(/\n+$/, '')
       result.set(key, value)
       continue
     }

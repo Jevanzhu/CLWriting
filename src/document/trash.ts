@@ -98,11 +98,16 @@ function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
 
 /** 追加 trash 条目（DocumentService.trashDocument 用；同 id 替换，幂等）。 */
 export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
-  const entries = readTrashManifest(bookRoot)
-  const idx = entries.findIndex((e) => e.id === entry.id)
-  if (idx >= 0) entries[idx] = entry
-  else entries.push(entry)
-  writeTrashManifest(bookRoot, entries)
+  // Z-5（第五十八轮）：RMW 持锁（X-5 同型漏网）——GUI 与 CLI/他实例并发软删时，
+  // 裸「读全量→改→整文件重写」后写者吞掉先者条目（回收站 UI 失明）。锁文件
+  // <trash-manifest>.lock 独立于主清单锁，全程不与主清单锁嵌套（无获取序环路）。
+  withManifestLock(trashManifestPath(bookRoot), () => {
+    const entries = readTrashManifest(bookRoot)
+    const idx = entries.findIndex((e) => e.id === entry.id)
+    if (idx >= 0) entries[idx] = entry
+    else entries.push(entry)
+    writeTrashManifest(bookRoot, entries)
+  })
 }
 
 /** 列回收站。 */
@@ -177,7 +182,10 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   }
 
   try {
-    writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+    // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
+    withManifestLock(trashManifestPath(bookRoot), () => {
+      writeTrashManifest(bookRoot, readTrashManifest(bookRoot).filter((e) => e.id !== id))
+    })
   } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
   }
   invalidateTreeIndex(bookRoot, true)
@@ -203,7 +211,10 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   // 低级项（第六轮）：条目写回 best-effort——主文件已物理删除（不可逆动作已成），
   // manifest 写失败（磁盘满/权限）不应把整端点打成 500；残留条目只是多余展示，无害
   try {
-    writeTrashManifest(bookRoot, entries.filter((e) => e.id !== id))
+    // Z-5：RMW 持锁（同上）
+    withManifestLock(trashManifestPath(bookRoot), () => {
+      writeTrashManifest(bookRoot, readTrashManifest(bookRoot).filter((e) => e.id !== id))
+    })
   } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }
   return { ok: true, id }
 }

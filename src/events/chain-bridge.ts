@@ -40,6 +40,9 @@ export function llmCallEvent(data: {
   firstByteTimeoutMs?: number
   /** R-8（十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
   quirksVersion?: string
+  /** Z-12（第五十八轮）：成功建流用的是降级参数面（剥 structured/剥 tools）——重放按
+   *  事件重建需知（首发 400 剥面成功的历史，不带此标记重放会再 400） */
+  degraded?: boolean
 }): NewEvent {
   return { type: 'llm/call', data: { ...data } }
 }

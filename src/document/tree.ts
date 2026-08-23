@@ -192,7 +192,9 @@ function annotate(
   }
 }
 
-/** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body / 工作区草稿 draft。 */
+/** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body。
+ *  Z-15（第五十八轮）注释如实化：draft 从未计入（工作区/ 在树外）；且 roleOf 现产
+ *  只出 'chapter'（layout.ts 口径注记），'piece-body'/'draft' 为预留枚举位。 */
 function isCountedRole(role: DocumentRole): boolean {
   return role === 'chapter' || role === 'piece-body'
 }

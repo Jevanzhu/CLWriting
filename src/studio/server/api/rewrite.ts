@@ -44,8 +44,13 @@ async function runRewriter(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
+  chapter?: number,
+  promptFiles?: string[],
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
-  const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
+  // Z-1（第五十八轮）：正文注入源登记（铁律①——chat 侧 tools/rewrite.ts 已修，端点侧漏网）
+  // Z-4（第五十八轮）：chapter 透传 runSpec → runTask chapter 记账块——编辑器侧整章改写
+  // 与 chat 侧同受章预算三口径熔断（P3-8 口径，此前端点侧绕过）
+  const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, ...(chapter !== undefined ? { chapter } : {}), promptFiles })
   if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
   const { input, text } = out.data
   // tool_use 产出 → input.正文
@@ -110,7 +115,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       const prompt = append
         ? buildAppendPrompt(original, instruction)
         : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
-      const result = await runRewriter(ctx.userDataPath, prompt, bookRoot)
+      const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path])
       if (!result.ok) return replyError(res, 500, result.code, result.error)
       const produced = result.produced
       // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）

@@ -598,9 +598,17 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
  * @param section 顶层段名（如 'rag'）
  * @param body 段体行（不含段头行，如 '  enabled: true'）
  */
+/** Z-7（第五十八轮）：补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
+ *  （`book:\r`）两条件均不中会走追加分支在文件尾造重复段（解析取首个段 → 改动静默丢失）。
+ *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。 */
+function matchesKeyLine(line: string, key: string): boolean {
+  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
+  return bare === `${key}:` || bare.startsWith(`${key}: `)
+}
+
 export function patchTopSection(raw: string, section: string, body: string): string {
   const lines = raw.split('\n')
-  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  const start = lines.findIndex((l) => matchesKeyLine(l, section))
   if (start === -1) {
     // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）
     if (raw === '') return `${section}:\n${body}\n`
@@ -645,7 +653,7 @@ export function patchTopSection(raw: string, section: string, body: string): str
  */
 export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
   const lines = raw.split('\n')
-  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  const start = lines.findIndex((l) => matchesKeyLine(l, section))
   const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
   if (start === -1) {
     if (raw === '') return `${section}:\n${keyLine(2)}\n`
@@ -706,7 +714,7 @@ export function setSectionKeyBlock(
   blockLines: string[] = [],
 ): string {
   const lines = raw.split('\n')
-  const start = lines.findIndex((l) => l === `${section}:` || l.startsWith(`${section}: `))
+  const start = lines.findIndex((l) => matchesKeyLine(l, section))
   if (start === -1) {
     if (keyLine === null) return raw
     const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)]
@@ -758,7 +766,7 @@ export function setSectionKeyBlock(
 /** 顶层标量键（spec_version/kind/host）的替换/删除/插入（无缩进，含锚定插入） */
 function setTopScalarKey(raw: string, key: string, line: string | null): string {
   const lines = raw.split('\n')
-  const idx = lines.findIndex((l) => l === `${key}:` || l.startsWith(`${key}: `))
+  const idx = lines.findIndex((l) => matchesKeyLine(l, key))
   if (idx !== -1) {
     if (line === null) lines.splice(idx, 1)
     else lines[idx] = line
@@ -766,7 +774,7 @@ function setTopScalarKey(raw: string, key: string, line: string | null): string 
   }
   if (line === null) return raw
   // 插在 spec_version 行后（文件头惯例位置）；无则文件首行
-  const anchor = lines.findIndex((l) => l === 'spec_version:' || l.startsWith('spec_version: '))
+  const anchor = lines.findIndex((l) => matchesKeyLine(l, 'spec_version'))
   lines.splice(anchor === -1 ? 0 : anchor + 1, 0, line)
   return lines.join('\n')
 }

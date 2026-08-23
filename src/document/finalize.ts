@@ -54,10 +54,14 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   // 「回写成功才落基线」顺序在锁内原样保持（applyLeadUpdates/写版本为毫秒级文件 IO，
   // 远小于锁超时）。持锁段内的 return 即本函数返回值。
   return withManifestLock(manifestPath, (): FinalizeOutcome => {
+    // Z-14（第五十八轮）：锁内重算指纹——锁外计算到锁内读取之间他进程（GUI 保存/CLI
+    // 批量定稿）可落盘新内容，pinned 版本与基线指纹会记到不同稿。重算不一致时以新指纹
+    // 重走下方幂等/闸门判定（旧指纹作废；跨进程窗口极窄，重算后仍以锁内一致快照为准）。
+    const rev = existsSync(absPath) ? computeRevision(absPath) : currentRev
     // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
     const manifest = readManifest(manifestPath)
     const entry = manifest.entries.get(docId)
-    if (entry?.finalizedRevision === currentRev) {
+    if (entry?.finalizedRevision === rev) {
       return { ok: true, status: 'final', skipped: true }
     }
 
@@ -91,7 +95,7 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
       writeVersion(versionsDir, docId, content, {
         origin: 'finalize',
         reason: `定稿 ch:${String(chapterNo).padStart(4, '0')} ${title}`,
-        baseRevision: currentRev,
+        baseRevision: rev,
         words: countWords(split ? split.body : content),
         pinned: true,
       })
@@ -126,7 +130,7 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
       manifest.entries.set(docId, { id: docId, nodeType: 'document', path: relPath, parentId: null })
     }
     const next = manifest.entries.get(docId)!
-    next.finalizedRevision = currentRev
+    next.finalizedRevision = rev
     next.finalizedAt = new Date().toISOString()
     writeManifest(manifestPath, manifest)
 

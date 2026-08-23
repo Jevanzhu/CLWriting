@@ -15,6 +15,7 @@ import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codem
 import { autocompletion, startCompletion, completionKeymap, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
 import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useUiStore } from '../stores/ui'
 import { typewriterExt, centerCursorLine } from './typewriter'
 import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
@@ -308,7 +309,7 @@ async function clipboardCut(): Promise<void> {
   if (!view) return
   const sel = view.state.selection.main
   if (sel.from === sel.to) return
-  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { /* 权限 */ }
+  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { useUiStore().toast('剪贴板权限被拒绝，剪切未生效', 'error') /* Z-26：不再静默 */ }
   view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
   view.focus()
 }
@@ -317,7 +318,7 @@ async function clipboardCopy(): Promise<void> {
   if (!view) return
   const sel = view.state.selection.main
   if (sel.from === sel.to) return
-  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { /* 权限 */ }
+  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { useUiStore().toast('剪贴板权限被拒绝，复制未生效', 'error') /* Z-26：不再静默 */ }
   view.focus()
 }
 /** 粘贴：从剪贴板读取并替换选区 */
@@ -327,7 +328,7 @@ async function clipboardPaste(): Promise<void> {
     const text = await navigator.clipboard.readText()
     const sel = view.state.selection.main
     view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from + text.length }, scrollIntoView: true })
-  } catch { /* 权限 */ }
+  } catch { useUiStore().toast('剪贴板权限被拒绝，粘贴未生效', 'error') /* Z-26：不再静默 */ }
   view.focus()
 }
 /** 全选 */

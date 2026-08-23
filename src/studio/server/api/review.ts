@@ -171,6 +171,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             body,
             chapter: chapter.章号,
             outDir: built.packet.out_dir,
+            // Z-1（第五十八轮）：正文注入源登记（m.path = 三审直读的文档相对路径）
+            sourceFiles: [m.path],
             onProgress: emitProgress,
           })
           if (!loopResult.ok) return replyError(res, 500, 'LENS_FAIL', loopResult.error)
@@ -262,6 +264,8 @@ async function runLensSpawnLoop(opts: {
   body: string
   chapter: number
   outDir: string
+  /** Z-1（第五十八轮）：正文注入源（相对书根）——铁律①登记通道 */
+  sourceFiles?: string[]
   onProgress?: (lens: string, phase: 'start' | 'done') => void
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
   const lenses: string[] = []
@@ -273,7 +277,7 @@ async function runLensSpawnLoop(opts: {
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
-    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt })
+    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt, promptFiles: opts.sourceFiles })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
     const { input, text } = out.data
     // tool_use 产出 → input.issues；降级用 text

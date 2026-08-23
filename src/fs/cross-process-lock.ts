@@ -52,6 +52,8 @@ export interface CrossProcessLockOptions {
    *  轮询者，降低「双 contender 同拍判 stale、后到者删掉先到者新锁」概率；测试注入 0
    *  关掉。只睡一次（首轮判 stale 后），不叠加 acquireWithTimeout 的轮询间隔。 */
   staleTakeoverJitterMs?: number
+  /** Z-19：活 pid 超龄判 stale 的门槛（毫秒）——pid 复用防护；注入 0 关闭。 */
+  maxHeldMs?: number
 }
 
 /** open 'wx' 成功 → writeSync(pid) 之间存在微秒级窗口：对手 EEXIST 后读到空锁，
@@ -63,6 +65,10 @@ const STALE_GRACE_MS = 500
 /** X-4：stale 接管 jitter 上限缺省值（毫秒）。 */
 const STALE_TAKEOVER_JITTER_MS = 25
 
+/** Z-19：锁文件「活 pid 超龄」判 stale 的年龄门槛（毫秒）——本仓锁持有段为毫秒级，
+ *  10 分钟已极保守；注入 0 可关闭。 */
+const MAX_HELD_MS = 10 * 60_000
+
 /**
  * 锁状态判定（单次完整评估）：'held' = 活进程持有 / 年轻空锁（写 pid 在途），
  * 'stale' = 持有进程已死或超龄仍不可读，'gone' = 文件已不在（刚被释放——上层重试创建）。
@@ -71,9 +77,24 @@ function judgeStaleLock(
   lockPath: string,
   isAlive: (pid: number) => boolean,
   graceMs: number,
+  maxHeldMs?: number,
 ): 'held' | 'stale' | 'gone' {
   const holder = readHolderPid(lockPath)
-  if (holder !== null && isAlive(holder)) return 'held'
+  if (holder !== null && isAlive(holder)) {
+    // Z-19（第五十八轮）：活 pid + 超龄 → stale 接管（pid 复用防护）——本仓所有锁的
+    // 持有段都是文件 IO 级毫秒，超龄（缺省 10min，可注入）仍「活着」只可能是原持有者
+    // 已死、pid 被系统复用给长命进程（bootTime 已落盘但无跨进程查询 API，年龄是可用
+    // 判据）。残余风险如实记档：持锁进程被 SIGSTOP 挂起超龄的极端形态会被误接管。
+    if (maxHeldMs !== undefined && maxHeldMs > 0) {
+      try {
+        const age = Date.now() - Math.floor(statSync(lockPath).mtimeMs)
+        if (age > maxHeldMs) return 'stale'
+      } catch {
+        /* stat 失败（刚被释放）→ 交上层重试创建路径 */
+      }
+    }
+    return 'held'
+  }
   if (holder === null) {
     // 空锁/坏锁：写 pid 在途（年轻）按存活；超龄半写才 stale（见 STALE_GRACE_MS）
     let mtime = Number.NaN
@@ -99,6 +120,7 @@ export function tryAcquireCrossProcessLock(
   const isAlive = opts?.isProcessAlive ?? defaultIsProcessAlive
   const grace = opts?.staleGraceMs ?? STALE_GRACE_MS
   const jitterMax = opts?.staleTakeoverJitterMs ?? STALE_TAKEOVER_JITTER_MS
+  const maxHeld = opts?.maxHeldMs ?? MAX_HELD_MS
   mkdirSync(dirname(lockPath), { recursive: true })
   for (let attempt = 0; attempt < 2; attempt++) {
     let fd: number | undefined
@@ -114,7 +136,7 @@ export function tryAcquireCrossProcessLock(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
       if (code !== 'EEXIST') throw e // 非冲突类故障（权限/磁盘）上抛，由调用方定语义
-      const first = judgeStaleLock(lockPath, isAlive, grace)
+      const first = judgeStaleLock(lockPath, isAlive, grace, maxHeld)
       if (first === 'held') return null
       if (first === 'gone') continue // 刚被释放——下轮重试创建
       // X-4：接管前随机 jitter（去相关化并发轮询者——双 contender 同拍判 stale 时，
@@ -125,7 +147,7 @@ export function tryAcquireCrossProcessLock(
       // X-4：rmSync 前二次复核——判 stale 与删除之间，锁文件可能已被其他接管者清理并
       // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才删；判定翻转 → 放弃本轮重来
       // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
-      if (judgeStaleLock(lockPath, isAlive, grace) !== 'stale') continue
+      if (judgeStaleLock(lockPath, isAlive, grace, maxHeld) !== 'stale') continue
       // 持有进程已死（或超龄仍不可读——创建即崩溃的半写兜底）：接管清理重试
       rmSync(lockPath, { force: true })
     } finally {

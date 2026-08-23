@@ -64,7 +64,9 @@ watch(
 )
 
 function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') emit('close')
+  if (e.key !== 'Escape' || !props.visible) return // 菜单未开不消费——Esc 落到 useHotkeys
+  emit('close')
+  e.preventDefault() // Z-23（第五十八轮）：本层消费 Esc，防同键退专注双效
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))

@@ -206,13 +206,14 @@ export function createOpenAIResponsesProvider(
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
+      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
       // Q-13（第十五轮）：resolve 后终值随 done 透出（与 toParams 的 tokenCap 同链：
       // 调用方 cap → 模型行；无兜底不发 → undefined）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
       }
 
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
@@ -233,6 +234,8 @@ export function createOpenAIResponsesProvider(
               { signal },
             )
             markStructuredDegrade(plan, attempt, store)
+            // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
+            degraded = attempt !== plan.attempts[0]
 
             // 分块拼装中的 function call：item_id → { callId, name, args }
             // （P2 复审：声明在 attempt 循环内每次新建——mid-stream 400 降级续跑时，

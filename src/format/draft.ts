@@ -118,7 +118,7 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
 }
 
 /** 长篇卷目录推断：上一章卷 > 最新卷 > 第一卷。 */
-function inferVolumeDir(bookRoot: string, chapter: number): string {
+export function inferVolumeDir(bookRoot: string, chapter: number): string {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (existsSync(bodyDir)) {
     const { chapters } = readChapterDir(bodyDir)
@@ -127,13 +127,38 @@ function inferVolumeDir(bookRoot: string, chapter: number): string {
       const seg = slashRelative(bodyDir, prev._path).split('/')[0]
       if (seg && !seg.endsWith('.md')) return seg
     }
+    // Z-18（第五十八轮）：「第N卷」按数值序取末位——字典序会得「第十一卷 < 第四卷」
+    //（汉字码位），跳章回退时新章落错卷；非数字卷名回落中文 locale 字典序
+    const volNum = (name: string): number | null => {
+      const m = /^第([0-9一二三四五六七八九十百]+)卷$/.exec(name)
+      return m ? cnVolumeNum(m[1]!) : null
+    }
     const vols = readdirSync(bodyDir, { withFileTypes: true })
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
-      .sort()
+      .sort((a, b) => {
+        const na = volNum(a)
+        const nb = volNum(b)
+        if (na !== null && nb !== null) return na - nb
+        return a.localeCompare(b, 'zh-Hans-CN')
+      })
     if (vols.length > 0) return vols[vols.length - 1]!
   }
   return '第一卷'
+}
+
+/** Z-18：卷号中文数字/阿拉伯 → 数值（卷目录排序用；一~九十九覆盖现实卷数，
+ *  更大数值或混合形态返回 null 走字典序回落） */
+function cnVolumeNum(s: string): number | null {
+  if (/^\d+$/.test(s)) return Number(s)
+  const digits: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+  // 无「十」：纯个位（N）；有「十」：N十M / 十M / N十 / 十
+  if (!s.includes('十')) return s in digits ? digits[s]! : null
+  const parts = s.split('十')
+  if (parts.length !== 2 || parts[0] !== '' && !(parts[0]! in digits) || parts[1] !== '' && !(parts[1]! in digits)) return null
+  const tens = parts[0] === '' ? 1 : digits[parts[0]!]!
+  const ones = parts[1] === '' ? 0 : digits[parts[1]!]!
+  return tens * 10 + ones
 }
 
 /** 绝对路径 → 正斜杠相对路径（跨平台）。 */

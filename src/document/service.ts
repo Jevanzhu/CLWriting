@@ -245,7 +245,12 @@ export class DocumentService {
         reason: `文档已移动或重命名（现路径 ${registered}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
       })
     }
-    if (registered === null && readTrashManifest(this.bookRoot).some((t) => t.id === docId)) {
+    // Z-6（第五十八轮）：双条件复活守卫——doTrash 尾段（rename 后清单删除前）崩溃/写失败
+    // 会残留指向旧路径的清单条目，旧判定「registered === null 才查回收站」被残留绕过
+    //（expectedRevision=null 的保存按「文件不存在=新建」通过基线校验 → 旧路径复活已删文件，
+    // 且随后 restoreTrash 报 OCCUPIED 还原受阻）。改为：回收站认领该 docId 且
+    //（未登记 或 目标文件不在盘）即拒。
+    if (readTrashManifest(this.bookRoot).some((t) => t.id === docId) && (registered === null || !existsSync(absPath))) {
       return Promise.resolve({
         ok: false,
         code: 'REVISION_CONFLICT',
@@ -433,6 +438,11 @@ export class DocumentService {
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    // Z-13（第五十八轮）：能力校验补齐（与 save() 同防线）——定稿/摘要 等只读区
+    // 此前可经 PATCH op=meta 改写其 fm
+    if (!layoutOf(path).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
+    }
     const r = readDoc(abs)
     if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
     // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
@@ -546,6 +556,10 @@ export class DocumentService {
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    // Z-13（第五十八轮）：同 updateChapterMeta——能力校验补齐
+    if (!layoutOf(path).capabilities.write) {
+      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
+    }
     let raw: string
     try {
       raw = readFileSync(abs, 'utf-8')
@@ -810,7 +824,11 @@ export class DocumentService {
             writeManifest(this.manifestPath, m)
           })
         }
-      } catch { /* 主清单更新失败：树重建时会发现文件不存在自动清理 */
+      } catch {
+        // Z-6（第五十八轮）：注释如实化——并无「树重建自动清理」机制（removeEntry 零生产
+        // 调用方、buildTree 只读不修剪）。残留形态=清单条目指向已不存在路径：树不受影响
+        // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
+        // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
       }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }

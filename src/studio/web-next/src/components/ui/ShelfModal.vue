@@ -53,12 +53,15 @@ function openBook(name: string): void {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') {
-    if (confirmTarget.value) cancelDelete()
-    else if (showCreate.value) showCreate.value = false
-    else if (batchMode.value) exitBatch()
-    else if (ui.shelfOpen) ui.closeShelf()
-  }
+  if (e.key !== 'Escape') return
+  // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
+  // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效
+  let consumed = false
+  if (confirmTarget.value) { cancelDelete(); consumed = true }
+  else if (showCreate.value) { showCreate.value = false; consumed = true }
+  else if (batchMode.value) { exitBatch(); consumed = true }
+  else if (ui.shelfOpen) { ui.closeShelf(); consumed = true }
+  if (consumed) e.preventDefault() // Z-23（第五十八轮）
 }
 onMounted(() => {
   shelf.load()

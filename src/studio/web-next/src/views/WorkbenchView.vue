@@ -115,8 +115,12 @@ watch(
   async (r) => {
     if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
     if (!r.docId) return
+    // Z-24（第五十八轮）：书名入口捕获 + await 后守卫——tree.load 窗口内切书时，
+    // A 书的 openTab/toast 不得落 B 书界面（同文件 onSpawn/onAutoWrite 同款纪律）
+    const book = props.bookName
     try {
-      await tree.load(props.bookName)
+      await tree.load(book)
+      if (props.bookName !== book) return
       ws.openTab(r.docId)
       ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
     } catch {

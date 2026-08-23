@@ -273,6 +273,12 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
+  /** Z-8（第五十八轮）：存在未决冲突的脏文档（切书守卫用）——这些文档的本地修改从未
+   *  落盘（autosave 跳过 conflict 项），setBook 清缓存即不可恢复丢失，切书前须作者决断 */
+  function conflictedDirtyDocs(): string[] {
+    return [...docs.value.values()].filter((e) => e.conflict && e.dirty && !e.saving).map((e) => e.docId)
+  }
+
   /** 自动保存节拍（Q-9 从 EditorView 上移）：扫全部 dirty 且不在保存中、无冲突的文档
    *  批量落盘——此前节拍绑编辑器视图挂载，切到工作台/总览后 EditorView 卸载、dirty
    *  文档停止自动保存（丢失窗口超过 autosave 间隔）。 */
@@ -319,5 +325,5 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty, flushSyncOnUnload, autosaveTick }
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick }
 })

@@ -258,6 +258,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
+      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
       let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
@@ -266,7 +267,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
       }
 
       // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
@@ -285,6 +286,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               { signal },
             )
             markStructuredDegrade(plan, attempt, store)
+            // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
+            degraded = attempt !== plan.attempts[0]
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
             const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
             for await (const chunk of stream) {

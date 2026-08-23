@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import WorkspaceShell from '../components/shell/WorkspaceShell.vue'
 import EditorView from '../views/EditorView.vue'
 import WorkbenchView from '../views/WorkbenchView.vue'
@@ -24,6 +24,7 @@ import { useRewriteStore } from '../stores/rewrite'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
 import { usePrefsStore } from '../stores/prefs'
+import { useUiStore } from '../stores/ui'
 
 // 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
 // bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName/心跳/doc 缓存/tabs 跟随更新。
@@ -49,10 +50,35 @@ const workbench = useWorkbenchStore()
 const chat = useChatStore()
 const prefs = usePrefsStore()
 // 切书：同步 doc 缓存 + 载入持久化 tabs + 清空各 store 旧状态
+const router = useRouter()
+const ui = useUiStore()
 let bookGen = 0
+// Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
+let lastBook = ''
 watch(bookName, async (n) => {
   // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
   const gen = ++bookGen
+  // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
+  // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
+  // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
+  if (lastBook !== '' && n !== lastBook) {
+    const conflicted = doc.conflictedDirtyDocs()
+    if (conflicted.length > 0) {
+      const drop = await ui.ask({
+        title: `有 ${conflicted.length} 个文档存在未处理的修改冲突`,
+        message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
+        confirmText: '丢弃并切换',
+        cancelText: '留在本书',
+        danger: true,
+      })
+      if (gen !== bookGen) return
+      if (!drop) {
+        void router.replace(`/book/${encodeURIComponent(lastBook)}`)
+        return
+      }
+    }
+  }
+  lastBook = n
   // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
   // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
   // running 错误复位（状态卡显示可再「生成」→ 双 spawn 窗）。clear 只清旧书内存态，

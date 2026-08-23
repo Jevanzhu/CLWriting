@@ -71,6 +71,7 @@ async function summarizeCheckpoint(
   state: ChatRunState,
   toSummarize: ChatMsg[],
   priorSummary: string | null,
+  promptFiles: string[] = [],
 ): Promise<string | null> {
   const sanitized = sanitizeHistory(toSummarize)
   if (sanitized.length === 0) return null
@@ -84,6 +85,7 @@ async function summarizeCheckpoint(
     bookRoot: opts.bookRoot,
     systemPrompt: sys,
     promptText: instruction,
+    promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
     ctrl: state.ctrl,
     // 低-1（第十轮）：补 owner='chat'——对齐第八轮 M-1 的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的
@@ -127,6 +129,9 @@ export async function finalizeHistory(
   recorder: SessionRecorder,
   sys: string,
   state: ChatRunState,
+  /** Z-11（第五十八轮）：与轮循环同源的注入源清单——sys 同源（内嵌章正文预览），
+   *  摘要调用的 llm/call 此前 files 为空，章正文注入源在该次事件断链 */
+  promptFiles: string[] = [],
 ): Promise<void> {
   // 硬截断兜底（= F1-P1 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
   const trimAndClose = (): void => {
@@ -146,7 +151,7 @@ export async function finalizeHistory(
   }
 
   const outcome = await compactHistory(history, { keepTurns: MAX_HISTORY_TURNS }, (toSum, prior) =>
-    summarizeCheckpoint(opts, sys, state, toSum, prior),
+    summarizeCheckpoint(opts, sys, state, toSum, prior, promptFiles),
   )
   if (outcome.summarizedCount > 0) {
     // N-6（第十二轮）：先算后切——msgSeqs 与 msgSeqMap 是同一数组引用，close 的第二笔

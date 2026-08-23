@@ -107,6 +107,7 @@ function onKey(e: KeyboardEvent): void {
     }
   } else if (e.key === 'Escape') {
     ui.closePalette()
+    e.preventDefault() // Z-23：本层消费 Esc，防同键退专注双效
   }
 }
 function run(c: Cmd): void {

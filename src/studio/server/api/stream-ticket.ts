@@ -16,6 +16,9 @@ import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 
 const TICKET_TTL_MS = 60_000
+// Z-10（第五十八轮·登记）：模块级单例——同进程二次 startServer 不清空（旧实例的
+// 未过期 ticket 在新实例仍可消费）。生产形态（Electron child 单进程单 server）不触发；
+// server-main/e2e 同进程多实例形态按单实例假设使用。
 const tickets = new Map<string, number>()
 
 function pruneExpired(now: number): void {

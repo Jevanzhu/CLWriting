@@ -11,7 +11,7 @@
  * 信封落盘与展示解耦：AI 不可达时存量照常展示，仅「重新分析」置灰（无开关、置灰不隐藏）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
@@ -41,8 +41,10 @@ async function runAnalyst(
   kind: ContractKind,
   prompt: string,
   bookRoot?: string,
+  /** Z-1（第五十八轮）：正文/采样注入源（相对书根）——铁律①登记通道 */
+  promptFiles?: string[],
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
-  const out = await runSpec(analysisSpec(kind), { userDataPath, bookRoot, userPrompt: prompt })
+  const out = await runSpec(analysisSpec(kind), { userDataPath, bookRoot, userPrompt: prompt, promptFiles })
   if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
   if (out.data.input) return { ok: true, payload: out.data.input }
   return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }
@@ -125,7 +127,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
 
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
-        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot)
+        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path])
         if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload
 
@@ -174,7 +176,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           `## 正文\n${body}`,
         ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot)
+        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path])
         if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload as Record<string, unknown>
 
@@ -232,7 +234,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           `## 正文\n${body}`,
         ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot)
+        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path])
         if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
@@ -382,7 +384,11 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
         ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot)
+        // Z-1（第五十八轮）：全书采样注入源登记（相对书根；readChapterDir 的 _path 为绝对路径）
+        const styleSources = recent
+          .filter((ch) => ch._path)
+          .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
+        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources)
         if (!result.ok) return replyError(res, 500, result.code, result.error)
         const payload = result.payload
 

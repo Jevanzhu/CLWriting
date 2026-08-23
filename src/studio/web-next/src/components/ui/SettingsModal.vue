@@ -91,6 +91,9 @@ function onKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || !ui.settingsOpen) return
   if (ui.confirmState) return
   ui.closeSettings()
+  // Z-23（第五十八轮）：本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出
+  // 走 defaultPrevented 让渡口，同一按键不再双效（关弹层连带退专注）
+  e.preventDefault()
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))

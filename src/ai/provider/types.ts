@@ -214,7 +214,15 @@ export type GenEvent =
    * 事件透出，gen 层收集入 GenResult，最终落 llm/call（铁律②重放口径）。early-error
    * 路径无 done → 无值
    */
-  | { type: 'done'; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number }
+  | {
+      type: 'done'
+      usage: TokenUsage
+      stopReason: string
+      resolvedMaxTokens?: number
+      /** Z-12（第五十八轮）：本次成功建流用的是降级参数面（剥 structured/剥 tools）——
+       *  适配器降级循环实际发送的参数面与首发不同，不落事件则按事件重放会再 400 */
+      degraded?: boolean
+    }
   | {
       type: 'error'
       message: string

@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, HttpError, replyError } from '../http.js'
+import { readJson, reply, HttpError, replyError, replyHttpError } from '../http.js'
 import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
 import {
   loadProviders,
@@ -395,6 +395,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（P4 竞态）
       reply(res, 200, { ok: true, caps, details, revision: s2.revision })
     } catch (e) {
+      // Z-9（第五十八轮）：readJson rethrow 的 HttpError（400 坏 JSON / 413 超限）先透传——
+      // 此前落进本 catch-all 被包成 500 GEN_FAIL，内层「413 等透传」注释未成立
+      if (e instanceof HttpError) return replyHttpError(res, e)
       // P2-4：错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
       replyError(res, 500, 'GEN_FAIL', redactSecret(e instanceof Error ? e.message : String(e)))
     }

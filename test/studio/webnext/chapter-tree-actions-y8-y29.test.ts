@@ -28,8 +28,9 @@ const treeMock = {
   load: vi.fn(async () => {}),
   updateWordCount: vi.fn(),
 }
+interface DocEntryLike { path: string; dirty: boolean }
 const docMock = {
-  get: vi.fn((_id: string) => undefined),
+  get: vi.fn((_id: string): DocEntryLike | undefined => undefined),
   open: vi.fn(),
   refresh: vi.fn(async () => {}),
   save: vi.fn(async () => true),
@@ -73,7 +74,7 @@ describe('Y-8: onSaveMeta 后 refresh 打开中文档', () => {
   it('文档打开中 → meta 保存成功后调用 doc.refresh（对齐基线）并回填 path', async () => {
     metaMock.mockResolvedValue(undefined)
     const actions = setup({ path: '写作/正文/第一卷/0005-旧标题.md' })
-    actions.metaEditing.value = { docId: 'doc_1', bookName: '书A', 标题: '旧标题', num: 5 }
+    actions.metaEditing.value = { docId: 'doc_1', bookName: '书A', 标题: '旧标题', num: 5, isPiece: false }
     await actions.onSaveMeta({ 标题: '新标题', num: 5 })
     expect(docMock.refresh).toHaveBeenCalledWith('doc_1')
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-新标题.md')
@@ -82,7 +83,7 @@ describe('Y-8: onSaveMeta 后 refresh 打开中文档', () => {
   it('文档未打开 → 不 refresh（无基线可对齐）', async () => {
     metaMock.mockResolvedValue(undefined)
     const actions = setup() // doc.get → undefined
-    actions.metaEditing.value = { docId: 'doc_1', bookName: '书A', 标题: '旧', num: 5 }
+    actions.metaEditing.value = { docId: 'doc_1', bookName: '书A', 标题: '旧', num: 5, isPiece: false }
     await actions.onSaveMeta({ 标题: '新', num: 5 })
     expect(docMock.refresh).not.toHaveBeenCalled()
   })

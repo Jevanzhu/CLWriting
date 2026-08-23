@@ -136,12 +136,12 @@ export function readChapterDir(
       } else if (name.endsWith('.md')) {
         const hit = cache.get(fp)
         if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
-          chapters.push({ ...hit.chapter }) // 浅拷贝：调用方改字段不污染缓存
+          chapters.push(cloneChapter(hit.chapter)) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
         } else {
           const r = readChapter(fp)
           if (r.ok) {
             cache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, chapter: r.chapter })
-            chapters.push({ ...r.chapter })
+            chapters.push(cloneChapter(r.chapter))
           } else {
             errors.push(r.error)
             cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
@@ -199,6 +199,12 @@ function readChapterDirUncached(
 }
 
 /** CC-P1-3：章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
+/** Z-21（第五十八轮）：缓存章元数据克隆——浅拷贝之上再拷 _raw（嵌套对象与缓存共享
+ *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立） */
+function cloneChapter(c: ChapterMeta): ChapterMeta {
+  return { ...c, ...(c._raw !== undefined ? { _raw: { ...c._raw } } : {}) }
+}
+
 interface ChapterDirEntry {
   mtimeMs: number
   size: number

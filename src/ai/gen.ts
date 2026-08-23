@@ -53,6 +53,8 @@ export interface GenResult {
   /** 加密推理项（Responses 线缺口 11：reasoning_item 事件收集，chat.ts 组装回传用） */
   reasoningEncrypted?: string
   reasoningItemId?: string
+  /** Z-12（第五十八轮）：成功建流用的是降级参数面（done 事件透出）——落 llm/call 供重放 */
+  degraded?: boolean
 }
 
 /** B-2：chunk 超时默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
@@ -143,6 +145,7 @@ export async function generate(
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
   let resolvedMaxTokens: number | undefined // Q-13：done 事件透出的上线输出上限
+  let degraded = false // Z-12：成功建流是否用了降级参数面（done 事件透出）
 
   // RB-AI-P2-3：per-attempt abort——底层生成拿 attempt.signal（不再是外层 signal 本体）：
   // - 外层用户/编排 signal abort → 联动 attempt.abort()（行为不变：SDK 断开 + 「已中断」）；
@@ -178,6 +181,7 @@ export async function generate(
           usage = ev.usage
           stopReason = ev.stopReason
           if (ev.resolvedMaxTokens !== undefined) resolvedMaxTokens = ev.resolvedMaxTokens
+          if (ev.type === 'done' && ev.degraded) degraded = true
           break
         case 'error':
           throw new GenError(ev.message, ev.retryable, {
@@ -192,7 +196,7 @@ export async function generate(
     signal.removeEventListener('abort', onOuterAbort)
   }
 
-  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason, resolvedMaxTokens, reasoningEncrypted, reasoningItemId }
+  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason, resolvedMaxTokens, reasoningEncrypted, reasoningItemId, ...(degraded ? { degraded: true } : {}) }
 }
 
 /**
@@ -222,7 +226,7 @@ export async function generateTool(
   req: GenRequest,
   signal: AbortSignal,
   onText?: (delta: string) => void,
-): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number }> {
+): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number; degraded?: boolean }> {
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
   // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
   const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
@@ -261,5 +265,6 @@ export async function generateTool(
     stopReason: r.stopReason,
     // Q-13：透传给编排层（spec.run 回调聚合进 runTask 结果 → llm/call）
     resolvedMaxTokens: r.resolvedMaxTokens,
+    ...(r.degraded ? { degraded: true } : {}),
   }
 }
