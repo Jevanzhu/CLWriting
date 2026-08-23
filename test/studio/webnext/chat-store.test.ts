@@ -84,6 +84,21 @@ describe('W3: chat store 事件分派', () => {
     expect(chat.error).toBe('出错了')
   })
 
+  // R-7（第十六轮）：chat_error 收尾在途气泡（对齐 chat_done 口径）——末气泡 done + currentIdx 复位
+  it('R-7: chat_start → chat_turn → chat_error → 末气泡 done 且后续文本不错位追加', () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    chat.dispatch({ type: 'chat_text', text: '半截' })
+    chat.dispatch({ type: 'chat_error', error: '服务开小差' })
+    expect(chat.running).toBe(false)
+    expect(chat.messages).toHaveLength(1)
+    expect(chat.messages[0]!.done).toBe(true) // 修复前：气泡永久「生成中」
+    // currentIdx 已复位：错误后的迟到 chat_text 不再追加进已收尾气泡
+    chat.dispatch({ type: 'chat_text', text: '迟到文本' })
+    expect(chat.messages[0]!.content).toBe('半截')
+  })
+
   it('AA-P3-1: notice 事件 → notice 提示（队列丢弃可感知）', () => {
     const chat = useChatStore()
     chat.dispatch({ type: 'notice', message: '对话队列已满：已丢弃最旧的排队消息…' })

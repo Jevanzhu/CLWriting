@@ -36,9 +36,12 @@ const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
  */
 const SOURCE_SUBDIRS = ['布线', '写作', '定稿', join('大纲', '关系线')] as const
 
-/** 源树统计：mtime 基准 + 文件数 + 总字节（X-P2-1：三者合判，删文件/改配置也能检出） */
+/** 源树统计：mtime 基准 + 文件数 + 总字节（X-P2-1：三者合判，删文件/改配置也能检出；
+ *  R-13：min mtime 检出 mtime 倒退 + 同尺寸原位替换） */
 interface SourceStats {
   maxMtime: number
+  /** R-13（第十六轮）：源树最小 mtime——检出「同尺寸文件原位覆盖且 mtime 更早」的倒退改写 */
+  minMtime: number
   count: number
   size: number
 }
@@ -50,13 +53,15 @@ interface SourceStats {
  * book.yaml（非 .md）单独计入（leads.enabled 变更改变扫描范围）。
  */
 function walkSourceStats(bookRoot: string): SourceStats {
-  const stats: SourceStats = { maxMtime: 0, count: 0, size: 0 }
+  const stats: SourceStats = { maxMtime: 0, minMtime: Infinity, count: 0, size: 0 }
   const bump = (fp: string): void => {
     try {
       const st = statSync(fp)
       stats.count++
       stats.size += st.size
       if (st.mtimeMs > stats.maxMtime) stats.maxMtime = st.mtimeMs
+      // R-13：同步记 min——外部工具原位覆盖常回拨 mtime（保留源时间戳），倒退即视为有变
+      if (st.mtimeMs < stats.minMtime) stats.minMtime = st.mtimeMs
     } catch {
       /* stat 失败忽略 */
     }
@@ -105,14 +110,17 @@ function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResu
     const recorded = getMeta(db, 'source_max_mtime')
     const recordedCount = getMeta(db, 'source_file_count')
     const recordedSize = getMeta(db, 'source_total_size')
-    if (recorded === null || recordedCount === null || recordedSize === null) return null // 旧库无三元组基准 → 首次全量
+    const recordedMin = getMeta(db, 'source_min_mtime')
+    if (recorded === null || recordedCount === null || recordedSize === null || recordedMin === null) return null // 旧库无基准（含 R-13 前无 min）→ 首次全量
     const stats = walkSourceStats(bookRoot)
     if (
       stats.maxMtime > Number(recorded) ||
       stats.count !== Number(recordedCount) ||
-      stats.size !== Number(recordedSize)
+      stats.size !== Number(recordedSize) ||
+      // R-13：存在比基准更旧的文件（mtime 倒退 + 同尺寸原位替换，max/count/size 三元组全不报）
+      stats.minMtime < Number(recordedMin)
     ) {
-      return null // 源有变化（含删除/配置变更）→ 全量
+      return null // 源有变化（含删除/配置变更/mtime 倒退）→ 全量
     }
     // 无变化 → 从 meta 恢复结果
     const leadCount = Number(getMeta(db, 'lead_count') ?? '0')
@@ -257,6 +265,7 @@ export function rebuild(
     setMeta(db, 'source_max_mtime', String(sourceMaxMtime)) // W-P2-4 增量基准
     setMeta(db, 'source_file_count', String(sourceStats.count)) // X-P2-1 删除检测
     setMeta(db, 'source_total_size', String(sourceStats.size)) // X-P2-1 删除检测
+    setMeta(db, 'source_min_mtime', String(sourceStats.minMtime)) // R-13 mtime 倒退检测
     setMeta(db, 'lead_count', String(leadCount))
     setMeta(db, 'chapter_count', String(chapterCount))
     setMeta(db, 'summary_count', String(summaryCount))

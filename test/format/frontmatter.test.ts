@@ -6,6 +6,7 @@ import {
   parseValue,
   stringifyValue,
   splitFrontMatter,
+  bodyOf,
   parseFlat,
   stringifyFlat,
   joinFrontMatter,
@@ -242,4 +243,42 @@ test('Q-15: stringifyValue 含换行值 → 引号内 \\n 转义，parseValue �
   // 数组项含换行同链（splitInlineArray 逐项 unquote）
   const arrWire = stringifyValue(['甲', '乙\n丙'])
   expect(parseValue(arrWire)).toEqual(['甲', '乙\n丙'])
+})
+
+// ── R-11（第十六轮）：引号值反/转义对称（含反斜杠）──────────────────
+
+test('R-11: 含反斜杠值往返不腐化（C:\\new\\repo / a\\"b / 字面 \\n 三例）', () => {
+  const cases = ['C:\\new\\repo', 'a\\"b', '含字面\\n序列', '尾反斜杠\\']
+  for (const v of cases) {
+    const fm = new Map([['值', v]])
+    const s = stringifyFlat(fm)
+    expect(s).not.toMatch(/\n/) // 落盘一行
+    expect(parseFlat(s).get('值')).toBe(v) // 一次往返原样
+    // 反复往返（渐进腐化检测）
+    let cur = s
+    for (let i = 0; i < 5; i++) cur = stringifyFlat(parseFlat(cur))
+    expect(parseFlat(cur).get('值')).toBe(v)
+  }
+})
+
+test('R-11: unquote 单遍解码 \\\\" → \\，\\n 字面不再被误解成换行', () => {
+  expect(parseValue('"C:\\\\new\\\\repo"')).toBe('C:\\new\\repo')
+  expect(parseValue('"a\\\\\\"b"')).toBe('a\\"b')
+  expect(stringifyValue('C:\\new\\repo')).toBe('"C:\\\\new\\\\repo"')
+})
+
+// ── R-12（第十六轮）：fm 起始判定收紧（整行精确 ---）────────────────
+
+test('R-12: 正文首行为 ---- 或 --- 分隔（裸 md）→ 不当 fm 开，bodyOf 不误剥', () => {
+  const dashed = '----\n正文第一行\n----\n第二行'
+  expect(splitFrontMatter(dashed)).toBeNull()
+  expect(bodyOf(dashed)).toBe(dashed)
+  const sep = '--- 分隔\n正文第一行\n--- \n第二行'
+  expect(splitFrontMatter(sep)).toBeNull()
+  expect(bodyOf(sep)).toBe(sep)
+})
+
+test('R-12: 整行精确 ---（含 \r 尾）仍正常识别 fm', () => {
+  expect(splitFrontMatter('---\r\n标题: 甲\n---\r\n正文')).toEqual({ fmRaw: '标题: 甲', body: '正文' })
+  expect(splitFrontMatter('---\n标题: 甲\n---\n正文')).toEqual({ fmRaw: '标题: 甲', body: '正文' })
 })

@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readForeshadows, scanForeshadowTrails, searchForeshadowTrails } from '../../../document/foreshadow.js'
 
@@ -27,7 +27,10 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookRoot = r.bookRoot
     // F1-P3：?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
-    const q = new URL(_req.url ?? '', 'http://local').searchParams.get('q') ?? undefined
+    // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+    const url = parseRequestUrl(_req)
+    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+    const q = url.searchParams.get('q') ?? undefined
     if (q) {
       reply(res, 200, searchForeshadowTrails(bookRoot, q))
       return

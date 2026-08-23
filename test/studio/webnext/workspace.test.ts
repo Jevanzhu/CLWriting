@@ -34,6 +34,7 @@ vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
 }))
 
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
+import { getBookPrefs, putBookPrefs } from '../../../src/studio/web-next/src/api/prefs'
 
 const BOOK = 'test-book'
 
@@ -207,6 +208,25 @@ describe('workspace · 切书 debounce 竞态（ff 细节#11）', () => {
     ws.openTab('d9')
     await flush()
     expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd9' })
+  })
+})
+
+// R-6（第十六轮）：书级 prefs 拉取失败 → 不置 prefsLoaded、不挂持久化 watch、
+// 不做 localStorage 迁移写回——否则默认布局经 watch 覆盖服务端已存的 prefs.json
+describe('workspace · R-6 prefs 拉取失败不覆盖已存 prefs', () => {
+  it('getBookPrefs reject → openTab 变更不触发 putBookPrefs（下次进书可重试）', async () => {
+    vi.mocked(getBookPrefs).mockRejectedValueOnce(new Error('API 不可达'))
+    // 旧 localStorage 记录在场：拉取失败时不得被迁移写回（迁移只在 prefs.json 成功读到且为空时）
+    localStorage.setItem('clw2.workspace.r6book', JSON.stringify({ activeDocId: 'd-old' }))
+    const ws = useWorkspaceStore()
+    ws.setBook('r6book')
+    await flush()
+    vi.mocked(putBookPrefs).mockClear()
+
+    ws.openTab('d-new') // 默认布局下的变更（prefsLoaded 未置 → watch 不得写回）
+    await flush()
+    expect(putBookPrefs).not.toHaveBeenCalled() // 修复前：默认布局覆盖服务端 prefs.json
+    expect(bookPrefs.has('r6book')).toBe(false)
   })
 })
 

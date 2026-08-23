@@ -216,9 +216,13 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 
       // 合并写：保留 collected/lenses（若已三审），覆盖 verdict
+      // R-16（第十六轮）：读改写竞态防护——三审完成（同 docId 的 review run）恰在本端点
+      // 首次 readAnalysis 之后、writeAnalysis 之前落盘新 collected/lenses 时，旧读的
+      // payload 整体回写会把新三审结果静默写丢。口径：写前重读一次，以磁盘最新值为准
+      // 做浅合并，verdict 字段用本次裁决覆盖（裁决是作者最后动作，唯一允许覆写的字段）。
+      // 剩余窗口（重读→writeAnalysis 毫秒级）由 writeAnalysis 原子写兜底不产生半文件。
       const existing = readAnalysis(bookRoot, docId, 'review')
-      const payload = (existing?.payload as { collected?: unknown; lenses?: string[]; verdict?: unknown } | undefined) ?? {}
-      payload.verdict = { approved, at: new Date().toISOString() }
+      const verdict = { approved, at: new Date().toISOString() }
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
       // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
@@ -228,10 +232,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       } catch {
         return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
       }
+      // R-16：写前重读——三审若在首读与读稿之间完成，这里拿到的是新 collected/lenses
+      const latest = readAnalysis(bookRoot, docId, 'review') ?? existing
+      const latestPayload = (latest?.payload as { collected?: unknown; lenses?: string[] } | undefined) ?? {}
+      const payload = { ...latestPayload, verdict }
       writeAnalysis(bookRoot, docId, 'review', {
-        generatedAt: existing?.generatedAt ?? new Date().toISOString(),
+        generatedAt: latest?.generatedAt ?? existing?.generatedAt ?? new Date().toISOString(),
         model: 'author',
-        sourceHash: existing?.sourceHash ?? sourceHashOf(body),
+        sourceHash: latest?.sourceHash ?? existing?.sourceHash ?? sourceHashOf(body),
         payload,
       })
       reply(res, 200, { ok: true, verdict: payload.verdict })

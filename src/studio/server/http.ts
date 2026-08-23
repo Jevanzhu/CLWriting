@@ -66,6 +66,18 @@ export function urlPathOnly(url: string | undefined): string {
   return i === -1 ? url : url.slice(0, i)
 }
 
+/** R-19（第十六轮）：req.url → URL 的统一安全解析（Q-1/N-3 口径收编）。llhttp 接受
+ *  absolute-form 等畸形请求行（如 `GET http://[bad HTTP/1.1`），new URL 抛 TypeError
+ *  ——各 handler 此前六处裸调各管各。畸形 URL 返 null，调用方回 400 BAD_INPUT 信封
+ *  （与 static.ts Q-1 同款）。 */
+export function parseRequestUrl(req: IncomingMessage): URL | null {
+  try {
+    return new URL(req.url ?? '/', 'http://localhost')
+  } catch {
+    return null
+  }
+}
+
 export function checkToken(req: IncomingMessage, token: string): boolean {
   return safeTokenCompare(req.headers['x-studio-token'], token)
 }

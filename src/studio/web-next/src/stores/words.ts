@@ -37,7 +37,10 @@ export const useWordsStore = defineStore('words', () => {
       todayDelta.value = r.delta
       if (r.baseline === null) {
         baseline.value = tree.totalWords
+        // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
+        // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
         await postBaseline(name, baseline.value)
+        if (gen !== reqGen) return
       } else {
         baseline.value = r.baseline
       }

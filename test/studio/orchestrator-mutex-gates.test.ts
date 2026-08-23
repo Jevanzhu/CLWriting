@@ -144,4 +144,52 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
       __setSpawnRunning(BOOK, false)
     }
   })
+
+  // R-9（第十六轮）：chat 入口补 spawn/self-heal 反向互斥——互斥矩阵此前只补了
+  // spawn/auto-write 侧的 isChatRunning 检查，chat 侧反向缺失（写手在途时发对话 =
+  // 两路 runTask 互覆预算章块/草稿）。锁 chat.send 与 chat/regenerate 两入口。
+  it('R-9: self-heal 在途 → POST /chat 409（不进 sendChatMessage）', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValue(true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat`, { message: '你好' })
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('全自动写章')
+    } finally {
+      vi.mocked(isSelfHealRunning).mockReturnValue(false)
+    }
+  })
+
+  it('R-9: spawn 在途 → POST /chat 409（首闸即拦）', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat`, { message: '你好' })
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('手动写稿')
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
+  })
+
+  it('R-9: self-heal 在途 → POST /chat/regenerate 409（闸先于 body 校验）', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValue(true)
+    try {
+      // body 故意空缺 parentSeq/branchId——若闸缺失会落到 400 参数校验
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat/regenerate`, {})
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('全自动写章')
+    } finally {
+      vi.mocked(isSelfHealRunning).mockReturnValue(false)
+    }
+  })
+
+  it('R-9: spawn 在途 → POST /chat/regenerate 409', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat/regenerate`, { parentSeq: 1, branchId: 'b' })
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('手动写稿')
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
+  })
 })

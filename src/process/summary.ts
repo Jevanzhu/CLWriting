@@ -21,7 +21,7 @@
  */
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { walkMdFind } from '../fs/walk-md.js'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
@@ -146,7 +146,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
       userPrompt,
       bookRoot,
       ...(opts.budgetChapter !== undefined ? { chapter: opts.budgetChapter } : {}),
-      promptFiles: [chapterSummaryRelPath(chapter)],
+      // R-2（第十六轮）：登记真实注入源——模型实际读的是 draft.body（正文全文），
+      // 此前登记输出文件（定稿/摘要/章摘要/N.md）属溯源虚报；改为登记正文相对路径
+      promptFiles: [relative(bookRoot, bodyAbsPath).split(sep).join('/')],
     })
     if (!out.ok) return { ok: false, error: out.error }
 
@@ -416,7 +418,10 @@ export async function generateVolumeSummary(opts: {
       userDataPath: opts.userDataPath,
       userPrompt,
       bookRoot,
-      promptFiles: [volumeSummaryRelPath(volume)],
+      // R-2（第十六轮）：登记真实注入源——模型实际读的是章摘要链（chainText），
+      // 此前登记输出文件（定稿/摘要/卷摘要/N.md）属溯源虚报；改为登记实际注入的
+      // 章摘要文件列表（链内章号 → 章摘要路径，按注入序）
+      promptFiles: [...chain.keys()].sort((a, b) => a - b).map((ch) => chapterSummaryRelPath(ch)),
     })
     if (!out.ok) return { ok: false, error: out.error }
     let text = out.data.text.trim()

@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
@@ -153,7 +153,10 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
-      const refresh = new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh') === '1'
+      // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const refresh = url.searchParams.get('refresh') === '1'
       const index = getBookTreeIndex(r.bookRoot, refresh)
       reply(res, 200, {
         ok: true,
@@ -366,10 +369,16 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+      // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
+      // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
+      // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
+      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath)
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
-      if (result.ok) reply(res, 201, result)
-      else replyError(res, structStatus(result.code), result.code, result.reason)
+      if (result.ok) {
+        recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+        reply(res, 201, result)
+      } else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 

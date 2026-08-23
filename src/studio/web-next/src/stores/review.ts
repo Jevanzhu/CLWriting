@@ -70,6 +70,9 @@ export const useReviewStore = defineStore('review', () => {
 
   function clear(): void {
     opGen++ // 在途 run/loadEnvelope 全部失效（切书清空后旧结果不得回流）
+    // R-1（第十六轮）：clear 推代后在途 run 的 finally 查代不过 → loading 永久卡 true；
+    // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
+    loading.value = false
     collected.value = null
     envelope.value = null
     stale.value = false

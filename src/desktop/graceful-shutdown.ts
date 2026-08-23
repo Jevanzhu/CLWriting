@@ -40,24 +40,30 @@ export async function shutdownStudio(
   // 并行等待，总时长不叠加。
   // M-2：补 waitBackgroundTasks——定稿章摘要/账本草稿等无 abort 句柄的 fire-and-forget
   // 后台任务，退出前给它们一个有界的收尾窗口（超时放行，磁盘是原子写）
+  // R-20（第十六轮）：settle/close 兜底超时定时器 .unref()——不 unref 时它们是进程
+  // 事件循环的活跃句柄，close 已顺利完成后定时器仍挂满剩余时长才放行退出（无谓拖慢
+  // 退出）；unref 后无其他句柄时进程可即退，超时触发语义不变。
   const settleWait = Promise.all(
     names.map((n) =>
       Promise.race([
         Promise.all([waitChatSettled(n), waitSelfHealSettled(n), waitBackgroundTasks(n)]),
-        new Promise<void>((resolveP) => setTimeout(resolveP, opts.settleTimeoutMs ?? 1_500)),
+        new Promise<void>((resolveP) => setTimeout(resolveP, opts.settleTimeoutMs ?? 1_500).unref()),
       ]),
     ),
   )
   if (server) {
     await new Promise<void>((resolveP) => {
       let done = false
+      let timer: NodeJS.Timeout | undefined
       const fin = (): void => {
         if (done) return
         done = true
+        if (timer) clearTimeout(timer) // R-20：settle（close 回调）即清，不留挂满时长的空转定时器
         resolveP()
       }
       server.close(() => fin())
-      setTimeout(fin, opts.closeTimeoutMs ?? 1_500)
+      timer = setTimeout(fin, opts.closeTimeoutMs ?? 1_500)
+      timer.unref() // R-20：同上，不阻塞无其他句柄时的正常退出
     })
   }
   await settleWait

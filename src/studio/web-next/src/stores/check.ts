@@ -78,6 +78,9 @@ export const useCheckStore = defineStore('check', () => {
 
   function clear(): void {
     opGen++
+    // R-1（第十六轮）：clear 推代后在途 run 的 finally 查代不过 → loading 永久卡 true；
+    // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
+    loading.value = false
     report.value = null
     error.value = null
     hasRed.value = false

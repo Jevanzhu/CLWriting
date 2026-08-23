@@ -191,6 +191,12 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_error': {
         running.value = false
         error.value = str(ev['error']) ?? '未知错误'
+        // R-7（第十六轮）：收尾在途气泡（对齐 chat_done 口径）——异常中断时 currentIdx
+        // 指向的未完成 assistant 气泡置 done + 复位索引，防永久「生成中」+ 后续文本错位
+        if (currentIdx >= 0) {
+          messages.value[currentIdx]!.done = true
+        }
+        currentIdx = -1
         // G1：重新生成回合异常中断 → 复位防重入标志（防永久锁死，可再次触发）
         if (regenPending) {
           regenPending = false

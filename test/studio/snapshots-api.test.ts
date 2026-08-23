@@ -5,7 +5,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -219,6 +219,22 @@ describe('快照端点（单章版本回滚）', () => {
     expect(r.status).toBe(200)
     expect((r.json as { removed: number }).removed).toBe(0)
   })
+
+  // R-15（第十六轮）：walk 对 symlink 目录环的防护——version-stats 的 scanVersionsDir
+  // 此前 statSync 跟随 symlink，指向祖先目录的 symlink 造成无限递归（挂死端点/栈溢出）；
+  // 修复后 lstatSync 判定 + symlink 条目跳过（M-9 同族口径）。
+  it('R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）', async () => {
+    const vdir = join(workDir, BOOK, '工作区', '.版本')
+    mkdirSync(join(vdir, 'doc_loop'), { recursive: true })
+    writeFileSync(join(vdir, 'doc_loop', 'a.md'), '---\n来源: manual\n---\n环内容\n')
+    // symlink 指向祖先目录：修复前 statSync 跟随 → walk 无限递归
+    symlinkSync(vdir, join(vdir, 'doc_loop', 'loop'))
+    const r = await request('GET', api('/version-stats'))
+    expect(r.status).toBe(200)
+    expect((r.json as { snapshotCount: number }).snapshotCount).toBeGreaterThanOrEqual(1)
+    // 清理本用例的环构造，避免影响后续（同文件各用例共享书目录）
+    rmSync(join(vdir, 'doc_loop'), { recursive: true, force: true })
+  }, 10_000)
 })
 
 /** 当前磁盘内容的 revision（服务端乐观锁基线，按文件字节算）。 */

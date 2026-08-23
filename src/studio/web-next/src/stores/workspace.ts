@@ -83,12 +83,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     let prefs: BookPrefs = {}
     try {
       prefs = await getBookPrefs(bookName.value)
-    } catch { /* API 不可达用默认 */ }
+    } catch {
+      // R-6（第十六轮）：拉取失败直接放弃——不置 prefsLoaded、不 startPersistWatch（下次进书重试），
+      // 否则默认布局经持久化 watch 写回覆盖服务端已存的 prefs.json
+      return
+    }
 
     // 竞态守卫：await 期间若已切到其他书 → 丢弃本次结果，防 A 的 prefs 写入 C 的 slot
     if (gen !== bookGen) return
 
-    // 向后兼容：prefs.json 不存在时从旧 localStorage 迁移
+    // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移（R-6：拉取失败已提前 return，不会误迁移写回）
     if (Object.keys(prefs).length === 0) {
       try {
         const oldUi = localStorage.getItem('clw2.ui-prefs')

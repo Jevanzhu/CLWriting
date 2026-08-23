@@ -11,7 +11,8 @@
  */
 
 export interface BootstrapRunnerDeps {
-  /** 当前主窗口（null = 已关/未建，重试关旧 server 的判据） */
+  /** 当前主窗口（R-14（第十六轮）后不再是重试关旧 server 的判据——存在旧 server 即关；
+   *  字段保留兼容 main.ts 接线） */
   getMainWindow: () => unknown
   /** 内嵌 server（startServer 之后失败的滞留清理对象） */
   getStudioServer: () => { close: () => void } | null
@@ -38,7 +39,11 @@ export function createBootstrapRunner(
       if (bootstrapping) return
       if (shutdownStarted) return
       // 第九轮 L-3：上次失败若发生在 startServer 之后，旧 server 滞留——重试前先关
-      if (deps.getMainWindow() === null && deps.getStudioServer() !== null) {
+      // R-14（第十六轮）：条件改为「存在旧 server 即关」——原叠加 mainWindow === null 的
+      // 判据自相矛盾（getMainWindow 是「重试关旧 server 的判据」注释语义的残留）：重试
+      // 本就要重建 bootstrap（含新 server/新窗口），旧 server 无论窗口在否都已被新一次
+      // startServer 覆盖变量而泄漏端口/连接，不关才是不安全侧
+      if (deps.getStudioServer() !== null) {
         deps.getStudioServer()!.close()
         deps.setStudioServer(null)
       }

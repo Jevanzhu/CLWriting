@@ -9,6 +9,7 @@ import { relative, join } from 'node:path'
 import { readFile, splitFrontMatter, parseFlat } from './frontmatter.js'
 import { readChapter, readChapterDir } from './chapters.js'
 import { chapterFilePrefix } from './words.js'
+import { sanitizeChapterTitle } from './filename.js'
 import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
 
@@ -68,7 +69,10 @@ export function resolveDraftPath(
   // M-4（第十一轮）：补零走 chapterFilePrefix 单源（长篇 4 位）——原 3 位与 service 改名
   // （4 位）写侧分裂，靠读侧 chapterNamePrefixes 三口径兜底；统一后新章与改名同口径，
   // 存量 3 位文件读侧仍全口径兼容
-  const fileName = `${chapterFilePrefix(chapter, 'chapter')}${title.replace(/[\\/\0]/g, '_')}.md`
+  // R-10（第十六轮）：标题净化收口到 sanitizeChapterTitle（对齐导出侧 X-P2-4 口径：
+  // 剥控制字符/换行 + 替换非法文件名字符 + 码位+字节双封顶）——原先只替换 \\/\0，
+  // 超长 emoji 标题直接 ENAMETOOLONG、块标量多行标题把 \n 带进文件名
+  const fileName = `${chapterFilePrefix(chapter, 'chapter')}${sanitizeChapterTitle(title)}.md`
 
   // 推断卷目录（上一章所在卷 > 最新卷 > 第一卷）
   return { relPath: `写作/正文/${inferVolumeDir(bookRoot, chapter)}/${fileName}`, existed: false }

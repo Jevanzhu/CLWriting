@@ -12,6 +12,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 const BOOK = '伏笔事件书'
 let workDir = ''
@@ -177,5 +178,37 @@ describe('Z-P2-6 伏笔事件族接线', () => {
     const r = await request('DELETE', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs1`)
     expect(r.status).toBe(200)
     expect(foreshadowEvents().at(-1)).toEqual({ operation: 'clear', title: '古剑' })
+  })
+
+  // R-17（第十六轮）：copy 接伏笔差分事件——目标 relPath 落在 设定/伏笔/ 时，
+  // 此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta 接线（新伏笔条目
+  // 不落 foreshadow/change{create}，观测层丢事件）。
+  it('R-17: 复制模板进伏笔域（目标 = 设定/伏笔/）→ foreshadow/change{create}', async () => {
+    const bookRoot = join(workDir, BOOK)
+    // 源：设定/模板/ 下伏笔模板（不在伏笔域，标题「秘宝」此前不存在）
+    mkdirSync(join(bookRoot, '设定', '模板'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '设定', '模板', '秘宝模板.md'),
+      '---\n标题: 秘宝\n状态: 未回收\n重要性: 高\n关联词: 秘宝\n---\n\n藏宝图引出的秘宝。\n',
+      'utf-8',
+    )
+    const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+    upsertEntry(m, { id: 'doc_tpl', nodeType: 'document', path: '设定/模板/秘宝模板.md', parentId: null })
+    writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)
+
+    const before = foreshadowEvents().length
+    const r = await request('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_tpl/copy`, {
+      relPath: '设定/伏笔/秘宝.md',
+    })
+    expect(r.status).toBe(201)
+    // 修复前：copy 不接差分 → 不追加事件
+    expect(foreshadowEvents().length).toBe(before + 1)
+    expect(foreshadowEvents().at(-1)).toEqual({ operation: 'create', title: '秘宝' })
+    // 对照：非伏笔域目标 → 零事件
+    const c2 = await request('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_ch1/copy`, {
+      relPath: '写作/正文/0002-副本.md',
+    })
+    expect(c2.status).toBe(201)
+    expect(foreshadowEvents().length).toBe(before + 1)
   })
 })

@@ -41,7 +41,7 @@ import { migrateBookSession, bookHash } from '../../../events/store.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import { forgetRagBuildTask } from './rag.js'
-import { isSpawnRunning } from './stream.js'
+import { isSpawnRunning, forgetSseCount } from './stream.js'
 import { log } from '../../../log/index.js'
 
 interface BookCtx {
@@ -255,6 +255,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetService(bookAbs)
     // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
     forgetSession(name)
+    // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
+    forgetSseCount(name)
     invalidateTreeIndex(bookAbs, true)
     // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
     // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件。

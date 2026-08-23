@@ -43,6 +43,19 @@ interface StreamCtx {
 const sseConnections = new Map<string, number>()
 const MAX_SSE_PER_BOOK = 5
 
+/** R-18（第十六轮）：书级生命周期终态清 per-book SSE 计数——删书（books.delete）与
+ *  清空对话（chat.clear）此前不清理，残留计数让同名重建书被旧计数顶到 429 上限
+ *  （计数只在 req close 时递减，书删后连接早已散场无从归零）。命名对齐 books.ts
+ *  的 forgetSession/forgetService 族。 */
+export function forgetSseCount(bookName: string): void {
+  sseConnections.delete(bookName)
+}
+
+/** R-18：测试观测钩子（对齐 __setSpawnRunning 风格）——只读快照断言计数清理。 */
+export function __getSseConnections(): ReadonlyMap<string, number> {
+  return sseConnections
+}
+
 /** P-8（第十四轮）：SSE 写背压判死阈值——res.write() 返回 false 起（假死客户端 TCP
  *  接收窗口关死），滞留 Node writable 队列的字节累计超此值即 destroy 断连（1MB ≈
  *  数十条章节级事件；受 MAX_SSE_PER_BOOK 与事件量约束，正常客户端远达不到）。 */
@@ -474,8 +487,26 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
       if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
+      // R-9（第十六轮）：chat 入口补 spawn/self-heal 反向互斥——互斥矩阵（AI-1/M-2）
+      // 此前只补了 spawn/auto-write 侧的 isChatRunning 检查，chat 侧反向缺失：
+      // 写手在途时发对话（含 rewrite/write_chapter 嵌套生成工具），两路 runTask 以不同
+      // 章号交替记账互覆预算章块、写手互覆草稿。注：chat 自身 running 的 steer 入队
+      // 语义只针对 chat 自己，与这两闸不冲突（sendChatMessage 内原子判定）。
+      if (isSelfHealRunning(bookName)) {
+        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
+      }
+      if (isSpawnRunning(bookName)) {
+        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+      }
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
+      // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径）
+      if (isSelfHealRunning(bookName)) {
+        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
+      }
+      if (isSpawnRunning(bookName)) {
+        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+      }
       // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
       // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
       const driver = getDriver('cc')
@@ -520,6 +551,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
+    // R-9（第十六轮）：regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
+    if (isSelfHealRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
+    }
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+    }
     const body = await readJson(req)
     const rawParentSeq = Number(body['parentSeq'])
     if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
@@ -529,6 +567,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
     if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
+    // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径）
+    if (isSelfHealRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
+    }
+    if (isSpawnRunning(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+    }
     const mainSession = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver('cc')
     const outcome = sendChatMessage({
@@ -582,6 +627,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // F1-P1：清内存 + 清事件库
     clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot)
+    // R-18（第十六轮）：清空对话 = 本书对话上下文整体销毁 → per-book SSE 计数一并清理
+    forgetSseCount(bookName)
     reply(res, 200, { ok: true })
   },
   })

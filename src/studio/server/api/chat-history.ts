@@ -15,7 +15,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { openSessionStore, type SessionStore } from '../../../events/store.js'
 import { loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
@@ -85,9 +85,12 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       if (!ctx.userDataPath) return reply(res, 200, { messages: [], seqs: [], branchId: null })
 
       // GET query 自行解析（defineRoute 纪律：GET 无 body）；?branch= 缺省/空白 → 默认分支
-      const branch = new URL(req.url ?? '/', 'http://localhost').searchParams.get('branch')?.trim() || undefined
+      // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const branch = url.searchParams.get('branch')?.trim() || undefined
       // L-S2（第八轮）：?limit= 尾窗（正整数，上限 1000）——防长书全量投影出网
-      const rawLimit = Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit'))
+      const rawLimit = Number(url.searchParams.get('limit'))
       const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
       // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
       const store = openSessionStore(ctx.userDataPath, bookRoot)!

@@ -76,10 +76,27 @@ export function parseValue(raw: string): unknown {
 /** 去掉值两端可选的引号（作者可能写 `标题: "灭门真凶"`）。
  *  双引号包裹时反转义 \"（与 stringifyValue 的 replace(/"/g, '\\"') 对称，
  *  防含引号值每次保存多累积一个反斜杠 → 内容渐进腐化）。
- *  Q-15（第十五轮）：同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。 */
+ *  Q-15（第十五轮）：同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。
+ *  R-11（第十六轮）：反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
+ *  含字面反斜杠的值（如 C:\new\repo）往返渐进腐化（`\\n` 被二次误解成换行）。 */
 function unquote(s: string): string {
   if (s.startsWith('"') && s.endsWith('"')) {
-    return s.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+    const inner = s.slice(1, -1)
+    let out = ''
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i]!
+      // R-11：反斜杠后跟可转义字符 → 单遍解码（不回头重扫，保证与序列化端对称）
+      if (c === '\\' && i + 1 < inner.length) {
+        const n = inner[i + 1]!
+        if (n === '"' || n === '\\' || n === 'n' || n === 'r') {
+          out += n === 'n' ? '\n' : n === 'r' ? '\r' : n
+          i++
+          continue
+        }
+      }
+      out += c
+    }
+    return out
   }
   if (s.startsWith("'") && s.endsWith("'")) {
     return s.slice(1, -1)
@@ -103,8 +120,10 @@ export function stringifyValue(val: unknown): string {
   // Q-15（第十五轮）：补 \n\r——含换行值不引号则落盘直接劈断 yaml 行结构（回读静默
   // 丢键/错键）；引号内换行以 \n 转义承载（unquote 对称还原），主入口（config 标题）
   // 另有控制字符拒收防线
-  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,\n\r]/.test(s) || /^\s|\s$/.test(s)) {
-    return '"' + s.replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"'
+  // R-11（第十六轮）：值含反斜杠也须加引号（否则转义序列无处承载，与解析端不对称）
+  if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,\n\r\\]/.test(s) || /^\s|\s$/.test(s)) {
+    // R-11：先转义反斜杠再转其他——保证 `\\` / `\"` / `\n` / `\r` 与 unquote 单遍解码往返对称
+    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"'
   }
   return s
 }

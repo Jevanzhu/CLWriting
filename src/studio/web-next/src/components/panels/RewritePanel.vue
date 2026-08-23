@@ -40,8 +40,10 @@ async function runRewrite(): Promise<void> {
 }
 
 function accept(): void {
-  if (docId.value) rewrite.accept(props.bookName, docId.value)
-  instruction.value = ''
+  if (!docId.value) return
+  // R-21（第十六轮）：accept 返回 false（基线漂移拒绝）时不清空指令——作者撤销新编辑
+  // 后可直接重试，无需重输改写指令
+  if (rewrite.accept(props.bookName, docId.value)) instruction.value = ''
 }
 </script>
 

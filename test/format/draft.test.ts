@@ -161,3 +161,32 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     expect(r.existed).toBe(true)
   })
 })
+
+// ── R-10（第十六轮）：写章文件名净化上限 ──────────────────────────
+
+describe('resolveDraftPath R-10 文件名净化上限', () => {
+  it('超长 emoji 标题 → 文件名合法且有限长（码位/字节双封顶）', () => {
+    // 4 字节 emoji × 100 = 100 码位 / 400 字节——远超单段文件名安全预算
+    const content = `---\n标题: ${'🔥'.repeat(100)}\n---\n\n正文`
+    const { relPath } = resolveDraftPath(bookRoot, 1, content)
+    const name = relPath.split('/').pop()!
+    expect(Buffer.byteLength(name, 'utf8')).toBeLessThanOrEqual(255 - 52) // 留原子写 tmp 余量
+    expect(Array.from(name.replace(/\.md$/, '')).length).toBeLessThanOrEqual(64) // 前缀 4 位 + 标题 ≤60 码位
+  })
+
+  it('标题含换行等控制字符（块标量多行标题）→ 剥除，文件名单行合法', () => {
+    const content = '---\n标题: |\n  第一行\n  第二行\n---\n\n正文'
+    const { relPath } = resolveDraftPath(bookRoot, 2, content)
+    const name = relPath.split('/').pop()!
+    expect(name).not.toMatch(/[\n\r\t\u0000-\u001f]/)
+    expect(name).toContain('第一行')
+    expect(name.endsWith('.md')).toBe(true)
+  })
+
+  it('标题含非法文件名字符（:*?"<>|）→ 替换为下划线', () => {
+    const content = '---\n标题: 问?答:是\n---\n\n正文'
+    const { relPath } = resolveDraftPath(bookRoot, 3, content)
+    const name = relPath.split('/').pop()!
+    expect(name).not.toMatch(/[:*?"<>|]/)
+  })
+})

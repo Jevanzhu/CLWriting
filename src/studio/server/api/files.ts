@@ -14,7 +14,7 @@ import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { hashFile } from '../../../fs/hash.js'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 
@@ -45,7 +45,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
     handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const file = queryParams(req).get('file') ?? ''
+    // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
+    const q = queryParams(req)
+    if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+    const file = q.get('file') ?? ''
     const safe = editablePath(r.bookRoot, file)
     if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
     if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
@@ -62,7 +65,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const file = queryParams(req).get('file') ?? ''
+      // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
+      const q = queryParams(req)
+      if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const file = q.get('file') ?? ''
       // X-P2-14：路径寻址 PUT 不放行 写作/正文——正文保存必须走 /documents/:docId/content
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
       const safe = writablePath(r.bookRoot, file)
@@ -94,9 +100,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
 
 }
 
-/** 取 req URL 的 searchParams */
-function queryParams(req: IncomingMessage): URLSearchParams {
-  return new URL(req.url ?? '/', 'http://localhost').searchParams
+/** 取 req URL 的 searchParams
+ *  R-19（第十六轮）：改经 parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL 返 null，
+ *  调用方回 400 BAD_INPUT 信封。 */
+function queryParams(req: IncomingMessage): URLSearchParams | null {
+  return parseRequestUrl(req)?.searchParams ?? null
 }
 
 /** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+ W-P1-3 工作区确认文件白名单）。

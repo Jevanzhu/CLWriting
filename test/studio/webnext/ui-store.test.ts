@@ -139,6 +139,24 @@ describe('ui: AI 可达性探测', () => {
     vi.advanceTimersByTime(15000)
     expect(getAiStatusMock).toHaveBeenCalledTimes(2)
   })
+
+  // R-22（第十六轮）：后端可达但 available:false（AI 供应商未配置/未就绪）也走 5s 重试
+  it('available:false → 同样 5s 后重试（只有 available:true 停止）', async () => {
+    getAiStatusMock.mockResolvedValue({ available: false, driver: '' })
+    const ui = useUiStore()
+    await ui.probeAiStatus()
+    expect(ui.aiAvailable).toBe(false)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(getAiStatusMock).toHaveBeenCalledTimes(2) // 修复前：不重试，永久卡 false
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(getAiStatusMock).toHaveBeenCalledTimes(3) // 仍 false → 继续按 5s 重试
+    // 变 true 后停止
+    getAiStatusMock.mockResolvedValue({ available: true, driver: 'anthropic' })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(ui.aiAvailable).toBe(true)
+    vi.advanceTimersByTime(15000)
+    expect(getAiStatusMock).toHaveBeenCalledTimes(4) // 成功即停
+  })
 })
 
 // ── CC-P1-5：ask/prompt 并发覆盖结清 ────────────────────

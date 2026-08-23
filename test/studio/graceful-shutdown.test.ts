@@ -84,3 +84,35 @@ describe('RB-SV-P2-6 shutdownStudio', () => {
     conn.destroy()
   })
 })
+
+// R-20（第十六轮）：settle/close 兜底超时定时器必须 unref（close 先完成时定时器
+// 不得作为活跃句柄拖慢退出），且 close 先到即 clearTimeout。观测方式：包装
+// globalThis.setTimeout 给返回的 Timeout 挂 unref 探针，断言 shutdownStudio
+// 期间创建的全部兜底定时器都调了 unref。
+describe('RB-SV-P2-6 + R-20 定时器 unref', () => {
+  it('R-20: shutdownStudio 创建的兜底超时定时器全部 unref', async () => {
+    const probes: { unrefCalled: boolean }[] = []
+    const orig = globalThis.setTimeout.bind(globalThis)
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+      const t = orig(fn, ms, ...rest) as NodeJS.Timeout
+      const p = { unrefCalled: false }
+      probes.push(p)
+      const origUnref = t.unref.bind(t)
+      t.unref = () => {
+        p.unrefCalled = true
+        return origUnref()
+      }
+      return t
+    }) as typeof globalThis.setTimeout)
+    try {
+      const server = http.createServer((_req, res) => res.end('ok'))
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+      await shutdownStudio(() => workDir, server, { closeTimeoutMs: 1_500, settleTimeoutMs: 1_500 })
+    } finally {
+      spy.mockRestore()
+    }
+    // settle 超时（每书一个）+ close 兜底至少各一个被创建
+    expect(probes.length).toBeGreaterThanOrEqual(3)
+    for (const p of probes) expect(p.unrefCalled).toBe(true) // R-20：一个不漏
+  })
+})

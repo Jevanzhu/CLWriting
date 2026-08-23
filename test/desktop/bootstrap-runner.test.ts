@@ -56,37 +56,42 @@ describe('O-4 createBootstrapRunner', () => {
     expect(errors).toHaveLength(1) // 第二次成功：无新错误
   })
 
-  it('第九轮 L-3：窗口已关时滞留旧 server 进门即 close 并置 null（含上次失败后的重试）', async () => {
+  it('第九轮 L-3：滞留旧 server 进门即 close 并置 null（含上次失败后的重试）', async () => {
     const ctx = makeDeps()
     const { deps, state, closed, fakeServer } = ctx
     let fail = true
     const runner = createBootstrapRunner(deps, async () => {
       if (fail) throw new Error('bootstrap fail after startServer')
     })
-    // 第一次：startServer 之后失败（模拟）——滞留的 old server 在「下次进门」被清
+    // 第一次：startServer 之后失败（模拟）——滞留的 old server 在进门时即被清
     state.server = fakeServer('old')
-    state.mainWindow = { id: 1 } // 首次窗口在途：进门不关
-    runner.runBootstrap()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(closed).toEqual([])
-    // 崩溃后窗口已关、重试进门：先关旧再跑
-    fail = false
-    state.mainWindow = null
+    state.mainWindow = { id: 1 }
     runner.runBootstrap()
     expect(closed).toEqual(['old'])
     expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
+    // 崩溃后重试进门（再次滞留的旧 server 同样先关再跑）
+    fail = false
+    state.mainWindow = null
+    state.server = fakeServer('old2')
+    runner.runBootstrap()
+    expect(closed).toEqual(['old', 'old2'])
+    expect(state.server).toBeNull()
+    await new Promise((r) => setTimeout(r, 0))
   })
 
-  it('第九轮 L-3 边界：窗口仍在时不关 server（正常在途不误伤）', async () => {
+  // R-14（第十六轮）：重试关旧 server 的判据修正——原条件叠加 mainWindow === null 自相
+  // 矛盾（重试本就要重建 bootstrap，旧 server 无论窗口在否都会被新 startServer 覆盖变量
+  // 而泄漏端口/连接）；条件改为「存在旧 server 即关」。
+  it('R-14: 窗口仍在但存在旧 server → 进门即 close（不再要求 mainWindow === null）', async () => {
     const ctx = makeDeps()
     const { deps, state, closed, fakeServer } = ctx
     const runner = createBootstrapRunner(deps, async () => {})
     state.server = fakeServer('live')
-    state.mainWindow = { id: 1 }
+    state.mainWindow = { id: 1 } // 修复前：窗口在 → 不关旧 server（泄漏）
     runner.runBootstrap()
-    expect(closed).toEqual([])
-    expect(state.server).not.toBeNull()
+    expect(closed).toEqual(['live'])
+    expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
   })
 

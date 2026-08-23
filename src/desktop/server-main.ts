@@ -58,6 +58,9 @@ const exitNow = (): void => {
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     server.close(exitNow)
-    setTimeout(exitNow, 2_000)
+    // R-20（第十六轮）：兜底超时 unref + close 先到即清——server 顺利 close 后定时器
+    // 不再作为活跃句柄拖慢退出
+    const t = setTimeout(exitNow, 2_000)
+    t.unref()
   })
 }

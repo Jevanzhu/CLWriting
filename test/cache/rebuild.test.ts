@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
@@ -301,5 +301,52 @@ test('Q-18: source_max_mtime 与源树真实最大 mtime 精确相等（接受�
   }
   // 修复前 Math.ceil(maxMtime)+1：亚毫秒 mtime 被抬到下一整秒 +1ms（最长近 2ms 假接受窗）
   expect(Number(row.value)).toBe(maxMtime)
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── R-13（第十六轮）：mtime 倒退 + 同尺寸原位替换检出 ──────────────
+
+test('R-13: 同尺寸原位覆盖且 mtime 回拨（倒退）→ 增量基准须报变走全量', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  expect(rebuild(root, cachePath).chapterCount).toBe(1)
+
+  // 篡改一行留痕（增量路径信任 meta 不动数据行——篡改存活即跳过了全量）
+  const db = new DatabaseSync(cachePath)
+  db.exec("UPDATE chapters SET title='TAMPERED'")
+  db.close()
+
+  // 同尺寸原位覆盖（外部工具常见：保留源时间戳回拨 mtime）——
+  // max mtime 不抬、count/size 不变：修复前三元组全不报 → 恒增量跳过（吃旧账）
+  const chPath = join(root, '写作', '正文', '152-北境的雪.md')
+  const old = '---\n章号: 152\n标题: 北境的雪\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 转折\n---\n\n北境下雪了，林晚踏雪而行。\n'
+  const neu = '---\n章号: 152\n标题: 北境雪改\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 转折\n---\n\n北境下雪了，林晚踏雪而行。\n'
+  expect(Buffer.byteLength(neu)).toBe(Buffer.byteLength(old)) // 前提：同尺寸
+  writeFileSync(chPath, neu, 'utf-8')
+  const past = new Date(Date.now() - 86400_000)
+  utimesSync(chPath, past, past) // mtime 回拨到一天前（倒退）
+
+  rebuild(root, cachePath)
+  const db2 = new DatabaseSync(cachePath)
+  const t = db2.prepare('SELECT title FROM chapters WHERE number=152').get() as { title: string }
+  db2.close()
+  expect(t.title).toBe('北境雪改') // 全量重建 → 改动生效、篡改被修复
+
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('R-13: 源未变（含正常 mtime 前进被 min 覆盖）→ 仍走增量跳过', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  expect(rebuild(root, cachePath).chapterCount).toBe(1)
+  const db = new DatabaseSync(cachePath)
+  db.exec("UPDATE chapters SET title='TAMPERED'")
+  db.close()
+  // 源一动不动 → min 不低于基准 → 增量跳过（篡改留痕证明）
+  expect(rebuild(root, cachePath).chapterCount).toBe(1)
+  const db2 = new DatabaseSync(cachePath)
+  const t = db2.prepare('SELECT title FROM chapters WHERE number=152').get() as { title: string }
+  db2.close()
+  expect(t.title).toBe('TAMPERED')
   rmSync(root, { recursive: true, force: true })
 })

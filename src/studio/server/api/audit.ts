@@ -18,7 +18,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
@@ -191,7 +191,10 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
 
     // P3-13 + AA-P2-2：分页参数（limit/offset，默认每页 500 条截断；limit 夹取 1..500）——
     // 长书几万事件不再一次全量进响应，且客户端不可用超大 limit 打穿截断。
-    const q = new URL(req.url ?? '/', 'http://localhost').searchParams
+    // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+    const url = parseRequestUrl(req)
+    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+    const q = url.searchParams
     const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
 
     // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）

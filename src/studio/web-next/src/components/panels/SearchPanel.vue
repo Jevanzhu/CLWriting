@@ -63,6 +63,9 @@ watch(
     truncated.value = false
     err.value = null
     runGen++ // 在途搜索响应作废（gen 对不上即弃）
+    // R-1/R-24（第十六轮）：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
+    // 此处直接复位（迟到回填仍被查代挡住，不落结果）
+    loading.value = false
   },
 )
 

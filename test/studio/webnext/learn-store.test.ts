@@ -169,3 +169,25 @@ describe('learn: 切书竞态（M-3 reqGen 守卫）', () => {
     expect(s.loading).toBe(false)
   })
 })
+
+// R-1（第十六轮）：clear() 推代 + finally 查代把 loading 永久卡 true——收割按钮再不可触发
+describe('learn: R-1 clear 在途 harvest 不卡 loading', () => {
+  it('harvest 在途 → clear → 迟到响应 settle → loading 为 false（按钮可再触发）', async () => {
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => { releaseA = r })
+    learnMock.mockImplementationOnce(() =>
+      gate.then(() => ({ samples: [], quotes: [] })),
+    )
+    const s = useLearnStore()
+    const p = s.harvest('bookA')
+    expect(s.loading).toBe(true)
+
+    s.clear() // 切书：reqGen 推进
+    expect(s.loading).toBe(false) // 修复前：仍 true，且迟到的 finally 查代不过永不复位
+
+    releaseA()
+    await p
+    expect(s.loading).toBe(false)
+    expect(s.hasResult).toBe(false) // 迟到数据不落地
+  })
+})

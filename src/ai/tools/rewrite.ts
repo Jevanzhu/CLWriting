@@ -35,17 +35,21 @@ function chapterTargetWords(ctx: ToolContext): number | undefined {
  *  Z-P1-1：ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
  *  不再跑到 runTask 10 分钟总超时白烧 token（非 chat 调用点无 signal，行为不变）。
  *  P3-8：chapter 透传 runSpec → runTask 的 chapter 记账块——对话里 AI rewrite 的
- *  token 用量归集到本章预算账（与 write_chapter 同口径，章预算熔断不再被 rewrite 绕过）。 */
+ *  token 用量归集到本章预算账（与 write_chapter 同口径，章预算熔断不再被 rewrite 绕过）。
+ *  R-3（第十六轮）：prompt 注入整章正文——promptFiles 补登记该正文文件路径，
+ *  铁律「模型可见 ⟺ 已记录」在 rewrite 工具链闭合。 */
 async function runRewriter(
   ctx: ToolContext,
   prompt: string,
   chapter: number,
+  promptFiles: string[] = [],
 ): Promise<{ ok: true; produced: string } | { ok: false; error: string }> {
   const out = await runSpec(REWRITE_SPEC, {
     userDataPath: ctx.userDataPath,
     bookRoot: ctx.bookRoot,
     chapter,
     userPrompt: prompt,
+    promptFiles,
     signal: ctx.signal,
   })
   if (!out.ok) return { ok: false, error: out.error }
@@ -135,7 +139,9 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   if (body === null) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
   const kind = readKind(ctx.bookRoot)
   const prompt = buildRewritePrompt('whole', body, '', instruction, [], chapter, kind, undefined, chapterTargetWords(ctx))
-  const r = await runRewriter(ctx, prompt, chapter)
+  // R-3（第十六轮）：登记注入的整章正文路径（body 读自该章文件）
+  const { relPath: bodyRel } = resolveDraftPath(ctx.bookRoot, chapter)
+  const r = await runRewriter(ctx, prompt, chapter, [bodyRel])
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   const diff = lineDiff(body, r.produced)
   const changed = diff.filter((d) => d.type !== 'same').length
@@ -173,7 +179,9 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
   }
   const kind = readKind(ctx.bookRoot)
   const prompt = buildRewritePrompt('local', body, selectionRaw, instruction, [], chapter, kind)
-  const r = await runRewriter(ctx, prompt, chapter)
+  // R-3（第十六轮）：local 模式同样注入整章正文（选段定位用）——登记正文路径
+  const { relPath: bodyRel } = resolveDraftPath(ctx.bookRoot, chapter)
+  const r = await runRewriter(ctx, prompt, chapter, [bodyRel])
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   // 选段稿拼回全文（保留选区外首尾，替换跨度 = raw 选段全长——含首尾空白），spill/落盘
   // 均为整章维度——与端点 local 模式同语义

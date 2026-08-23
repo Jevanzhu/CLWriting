@@ -13,7 +13,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { readdirSync, statSync, existsSync } from 'node:fs'
+import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -52,7 +52,10 @@ function resolveDoc(
   return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.版本') }
 }
 
-/** 递归统计某目录下 .md 文件：数量 + 字节总量 + pinned（front matter 含「永久: true」）。 */
+/** 递归统计某目录下 .md 文件：数量 + 字节总量 + pinned（front matter 含「永久: true」）。
+ *  R-15（第十六轮）：symlink 环防护——lstatSync 判定（不跟随 symlink），symlink 条目
+ *  （目录/文件）按 M-9 同族口径跳过。原 statSync 跟随链接，指向祖先目录的 symlink
+ *  会让 walk 无限递归栈溢出挂死端点。 */
 function scanVersionsDir(
   dir: string,
 ): { count: number; bytes: number; pinnedCount: number } {
@@ -72,10 +75,12 @@ function scanVersionsDir(
       const p = join(d, n)
       let st
       try {
-        st = statSync(p)
+        st = lstatSync(p)
       } catch {
         continue
       }
+      // R-15：symlink 一律跳过（不跟随——防目录环，也防外指 symlink 逃逸统计面）
+      if (st.isSymbolicLink()) continue
       if (st.isDirectory()) {
         walk(p)
       } else if (n.endsWith('.md')) {

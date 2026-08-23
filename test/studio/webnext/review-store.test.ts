@@ -100,3 +100,22 @@ describe('review: clear', () => {
     expect(s.lastDocId).toBeNull()
   })
 })
+
+// R-1（第十六轮）：clear() 推代 + finally 查代把 loading 永久卡 true——三审按钮再不可触发
+describe('review: R-1 clear 在途 run 不卡 loading', () => {
+  it('run 在途 → clear → 迟到响应 settle → loading 为 false（按钮可再触发）', async () => {
+    let release!: (v: unknown) => void
+    reviewMock.mockReturnValue(new Promise((r) => { release = r }))
+    const s = useReviewStore()
+    const p = s.run('book1', 'doc_1')
+    expect(s.loading).toBe(true)
+
+    s.clear() // 切文档：opGen 推进
+    expect(s.loading).toBe(false) // 修复前：仍 true，且迟到的 finally 查代不过永不复位
+
+    release({ ok: true, lenses: [], collected: { ok: true, collected_lenses: [], missing_lenses: [] } })
+    await p
+    expect(s.loading).toBe(false)
+    expect(s.collected).toBeNull() // 迟到数据不落地
+  })
+})

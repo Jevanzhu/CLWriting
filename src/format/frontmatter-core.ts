@@ -11,8 +11,9 @@ export function splitFrontMatter(
 ): { fmRaw: string; body: string } | null {
   // 去 UTF-8 BOM：带 BOM 的文件 startsWith('---') 失败 → frontmatter 整段丢失（章号/枚举/机检 fm 项全失效）
   const src = content.replace(/^﻿/, '')
-  // 首行必须是 ---
-  if (!src.startsWith('---')) return null
+  // R-12（第十六轮）：起始判定收紧为整行精确 ---（容忍 \r 尾）——原先 startsWith('---')
+  // 把 `----`/`--- 分隔` 也当 fm 开，与闭合判定 /^---\r?$/ 不对称，裸 md 首行正文被误剥
+  if (!/^---\r?(?:\n|$)/.test(src)) return null
   const lines = src.split('\n')
   // 找闭合 ---
   let endIdx = -1

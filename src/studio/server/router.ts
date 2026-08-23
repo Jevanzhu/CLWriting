@@ -9,7 +9,7 @@
  * GUI 后端同构；端点不多，手写分发器比引框架干净。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { HttpError, replyError, replyHttpError, urlPathOnly } from './http.js'
+import { HttpError, replyError, replyHttpError, urlPathOnly, parseRequestUrl } from './http.js'
 import { log } from '../../log/index.js'
 
 type Handler = (
@@ -69,7 +69,15 @@ export async function dispatch(
   res: ServerResponse,
   routes: RouteTable = defaultRoutes,
 ): Promise<boolean> {
-  const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+  // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径，与各 handler 同源）——
+  // 畸形请求行（absolute-form 等）此前裸 new URL 抛 TypeError 落进外层 catch 变 500，
+  // 客户端请求问题应归 400 BAD_INPUT（与 static.ts Q-1 同款信封）
+  const parsed = parseRequestUrl(req)
+  if (!parsed) {
+    if (!res.headersSent) replyError(res, 400, 'BAD_INPUT', 'bad request')
+    return true
+  }
+  const { pathname } = parsed
   for (const r of routes) {
     if (r.method !== req.method) continue
     const m = r.regex.exec(pathname)

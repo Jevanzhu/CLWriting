@@ -8,7 +8,7 @@
  * → 解析过滤（存量编号 + 合法动词表）→ 写 工作区/账本推进.md（作者在编辑器确认/修改，
  * finalize 时回写布线履历并清空）。
  */
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -73,8 +73,13 @@ async function generateLeadUpdateDraftInner(
   if (!draft.ok) return { ok: false, code: 'not-found', error: draft.reason }
 
   const prompt = buildLeadUpdatePrompt(bookRoot, chapter, draft.body)
+  // R-3（第十六轮）：promptFiles 登记真实注入源——prune 后本章正文 + 细纲（若在）。
+  // 「进行中账本」段来自 布线/ 等目录聚合（多文件、按状态过滤），无逐文件实路径，
+  // 不虚报登记。铁律：模型可见 ⟺ 已记录。
+  const promptFiles = [relative(bookRoot, hit._path).split(sep).join('/')]
+  if (existsSync(join(bookRoot, '工作区', '细纲.md'))) promptFiles.push('工作区/细纲.md')
   // Z-P1-1：signal 桥接进 runSpec——调用方（self-heal/chat）中断时本生成同步中止
-  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal })
+  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal, promptFiles })
   if (!out.ok) return { ok: false, code: 'failed', error: out.error }
   const text = out.data.text.trim()
   if (!text) return { ok: false, code: 'failed', error: 'AI 产出为空' }

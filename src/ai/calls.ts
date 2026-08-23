@@ -2,7 +2,9 @@
  * 每章 AI 调用预算闸 + 任务维度计量（T5 泛化）。
  *
  * 记账存储在书库 .cache/ai-calls.json；超限阻断自动写章循环烧钱（Q2 甲）。
- * 无目录锁（当前无并行生成场景——文档 §八「不做的事」）；损坏时保守阻断。
+ * R-5（第十六轮）：同 bookRoot 写操作经 per-bookRoot 互斥队列串行化——定稿摘要后台
+ * 钩子（fire-and-forget）与 self-heal 连写已可并发写同书账本，「当前无并行生成场景」
+ * 不再成立。损坏时保守阻断。
  *
  * 数据结构（T5 泛化后）：
  *   chapter 块 — 预算闸专用，换章重置（仅 self-heal 记，通过 runTask chapter 参数）
@@ -157,6 +159,29 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
   atomicWriteFile(fp, JSON.stringify(rec, null, 2) + '\n', { fsync: true, mode: 0o600 })
 }
 
+// R-5（第十六轮复审）：ai-calls.json 读改写串行化（per-bookRoot 互斥队列）——
+// 定稿摘要后台钩子与 self-heal 连写并发写同书账本时，无锁的 load→mutate→write
+// 序列可能后写覆盖前写丢账。写操作排入 `chain = chain.then(doWrite)` 显式串行化；
+// 跨 bookRoot 各自独立链互不阻塞；读路径（checkAiCallBudget 等）保持快照语义不变。
+// 队列空闲时同步直行（doWrite 全同步 IO，JS 单线程内该段原子完成）——既有同步调用方
+// 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
+const writeChains = new Map<string, Promise<unknown>>()
+
+function serializedWrite(bookRoot: string, doWrite: () => void): void {
+  const prev = writeChains.get(bookRoot)
+  if (prev === undefined) {
+    // 空闲快路：同步原子完成
+    doWrite()
+    return
+  }
+  const next = prev.catch(() => {}).then(doWrite)
+  writeChains.set(bookRoot, next)
+  const cleanup = (): void => {
+    if (writeChains.get(bookRoot) === next) writeChains.delete(bookRoot)
+  }
+  void next.then(cleanup, cleanup)
+}
+
 /** 预算判定（D3 批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示
  *  （三条出路在文档 §五）；损坏 → 保守阻断（V-P2-10）。
  *  - tokens 口径 = input+output+cacheRead+cacheWrite 全口径累计（长上下文章正是拦截对象）；
@@ -290,6 +315,11 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
  * D3（批 5）：costUsd 由 runner 按价格表现算传入（未配价不传——cost 口径静默不生效）。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
+  // R-5（第十六轮）：整段读改写经 per-bookRoot 队列串行化（并发写不丢账）
+  serializedWrite(bookRoot, () => recordAiCallLocked(bookRoot, chapter, usage, costUsd))
+}
+
+function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
   const { rec, corrupt } = readRecord(bookRoot)
   // W-P2-8：损坏不重置——静默覆盖等于绕过 checkAiCallBudget 的保守阻断；
   // 只允许人工删除文件恢复计数（阻断提示里已写明出路）
@@ -332,6 +362,11 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
  * 由 runTask 末尾自动调用（有 bookRoot + task 时）。
  */
 export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
+  // R-5（第十六轮）：与 recordAiCall 同队列串行化（chapter/tasks 两块同文件，互斥同一链）
+  serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage))
+}
+
+function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage | null): void {
   const { rec, corrupt } = readRecord(bookRoot)
   // W-P2-8：与 recordAiCall 同口径——损坏不重置，保守阻断保持
   if (corrupt) {

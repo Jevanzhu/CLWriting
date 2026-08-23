@@ -202,3 +202,25 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     expect(JSON.parse(store.get('clw-fp:book1:doc_1')!)).toEqual(['r1'])
   })
 })
+
+// R-1（第十六轮）：clear() 推代 + finally 查代把 loading 永久卡 true——机检按钮再不可触发
+describe('check: R-1 clear 在途 run 不卡 loading', () => {
+  it('run 在途 → clear → 迟到响应 settle → loading 为 false（按钮可再触发）', async () => {
+    stubLocalStorage()
+    let release!: (v: { ok: boolean; hasRed: boolean; report: unknown }) => void
+    checkMock.mockReturnValue(
+      new Promise<{ ok: boolean; hasRed: boolean; report: unknown }>((r) => { release = r }),
+    )
+    const s = useCheckStore()
+    const p = s.run('book1', 'doc_1')
+    expect(s.loading).toBe(true)
+
+    s.clear() // 切文档：opGen 推进
+    expect(s.loading).toBe(false) // 修复前：此处仍 true，且迟到的 finally 查代不过永不复位
+
+    release({ ok: true, hasRed: true, report: { sections: [] } }) // 迟到成功响应
+    await p
+    expect(s.loading).toBe(false) // 不卡；数据也不落地
+    expect(s.report).toBeNull()
+  })
+})

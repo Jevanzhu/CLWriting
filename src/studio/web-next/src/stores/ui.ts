@@ -95,9 +95,17 @@ export const useUiStore = defineStore('ui', () => {
       const s = await getAiStatus()
       aiAvailable.value = s.available
       aiDriver.value = s.driver
-      if (probeTimer) {
+      // R-22（第十六轮）：available:false 也走 5s 重试（与网络异常同口径）——后端可达但
+      // AI 供应商未配置/未就绪是暂时态，只有 available:true 才停止探测
+      if (s.available && probeTimer) {
         clearTimeout(probeTimer)
         probeTimer = null
+      }
+      if (!s.available && !probeTimer) {
+        probeTimer = setTimeout(() => {
+          probeTimer = null
+          void probeAiStatus()
+        }, AI_PROBE_RETRY_MS)
       }
     } catch {
       aiAvailable.value = false

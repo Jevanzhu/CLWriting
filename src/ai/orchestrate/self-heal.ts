@@ -10,8 +10,8 @@
  * - 每轮重写前发 self_heal_reset：整章重写产出的是完整替换稿
  * - AbortSignal 贯穿到 provider（interrupt 时 abort 请求）
  */
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
@@ -381,7 +381,10 @@ async function prepareChapterMaterials(
   chapter: number,
 ): Promise<string[]> {
   if (!ctx.db) return []
-  const promptFiles = ['工作区/本章写作材料.md']
+  // R-4（第十六轮）：promptFiles 只登记备料成功后真实注入的文件——此前无条件含
+  // 工作区/本章写作材料.md，备料失败时（buildDraftPrompt 读不到材料 = prompt 无备料段）
+  // 登记却还在 = 溯源虚报。铁律：模型可见 ⟺ 已记录。
+  let promptFiles: string[] = []
   try {
     const r = await prepareMaterials(ctx.db, ctx.config, {
       bookRoot: ctx.bookRoot,
@@ -393,9 +396,17 @@ async function prepareChapterMaterials(
       chapter,
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), r.text, { fsync: true })
-    promptFiles.push(...r.injectedSummaryFiles)
+    promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
   } catch {
-    // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）
+    // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）。
+    // R-4（第十六轮）：清掉旧章残留材料（best-effort）——此前静默沿用旧材料文件，
+    // buildDraftPrompt 会把上一章的材料注入本章 prompt（模型可见却无本次出处）。
+    // 读不到材料文件 = prompt 无备料段，是设计内降级。
+    try {
+      rmSync(join(ctx.bookRoot, '工作区', '本章写作材料.md'), { force: true })
+    } catch {
+      // 清理失败（如权限/磁盘）忽略——降级路径不反向阻断写稿主线
+    }
   }
   return promptFiles
 }
@@ -472,6 +483,9 @@ async function draftFirstChapter(
   | { status: 'error'; error: string }
 > {
   // C-1：预算闸——超限不跑；config 由 orchestrate 解析一次传入（P3-6）
+  // 预算闸时序（第十六轮复审附带项，口径登记不修）：备料阶段（下方 prepareChapterMaterials）
+  // 内的近章摘要补漏 AI 调用发生在本次闸检查之后——其计入本章 calls_per_chapter
+  // （自愈路径 budgetChapter），下一次闸检查即收敛，不构成预算逃逸。
   const budget = checkAiCallBudget(ctx.bookRoot, chapter, ctx.config)
   if (!budget.ok) return { status: 'error', error: budget.reason }
   // GG-F1①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
@@ -569,7 +583,11 @@ async function rewriteOnce(
     // 字数区间与首稿链同口径（ctx.config 已是 applyGlobalDefaults 合并值）
     ctx.config.book.chapter_target_words,
   )
-  const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter)
+  // R-3（第十六轮）：整章重写注入 loop.current（= 首稿/上轮重写正文，来自 loop.draftPath
+  // 的章文件）——补登记该正文文件路径，铁律「模型可见 ⟺ 已记录」在 rewrite 链闭合
+  const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter, [
+    relative(ctx.bookRoot, loop.draftPath).split(sep).join('/'),
+  ])
   if (again.status === 'aborted') return { status: 'aborted' }
   if (again.status !== 'ok') return { status: 'error', error: again.error }
   loop.current = again.text

@@ -316,7 +316,21 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
 
     // 静态托管前端
-    if (serveStatic) return serveStatic(req, res)
+    // R-8（第十六轮）：静态分支补兜底 catch——对齐 /api 分支口径。createStaticHandler
+    // 是 async（返回 promise），对已销毁连接 writeHead 抛 ERR_STREAM_ALREADY_FINISHED
+    // 等异步异常此前变成 unhandledRejection（Node ≥15 默认 throw 即进程崩溃）；
+    // 若响应尚未结束则 500 IO_ERROR 收尾，重复写头由 headersSent/writableEnded 守卫。
+    if (serveStatic) {
+      try {
+        await serveStatic(req, res)
+      } catch (e) {
+        log.error('static', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
+        if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+          replyError(res, 500, 'IO_ERROR', '服务器内部错误')
+        }
+      }
+      return
+    }
     replyError(res, 404, 'NOT_FOUND', 'not found')
   })
 

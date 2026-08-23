@@ -12,7 +12,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readKind } from '../../../format/kind.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -74,7 +74,9 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const url = new URL(req.url ?? '/', 'http://localhost')
+    // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+    const url = parseRequestUrl(req)
+    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const chapter = Number(url.searchParams.get('chapter') ?? '1')
     if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
     const bookRoot = r.bookRoot
