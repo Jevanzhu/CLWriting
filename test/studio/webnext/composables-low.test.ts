@@ -167,6 +167,17 @@ describe('useHeartbeat', () => {
 })
 
 describe('useSse', () => {
+  // 鉴权契约②：doConnect 连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——
+  // 统一桩 404（服务端未就绪 → 回退 ?token= 旧通道，URL 断言口径不变），并在断言前
+  // 用 settle 泵完「换票 → fallback → new EventSource」微任务链。
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+  })
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    await nextTick()
+  }
+
   class MockES {
     static instances: MockES[] = []
     static readonly CLOSED = 2
@@ -192,6 +203,7 @@ describe('useSse', () => {
     const name = ref('书A')
     useSse(name)
     await nextTick()
+    await settle() // 换票（404 → 回退）后再开 EventSource
     expect(MockES.instances).toHaveLength(1)
     expect(MockES.instances[0]!.url).toContain('/api/books/%E4%B9%A6A/stream')
     expect(getToken).toHaveBeenCalled()
@@ -209,9 +221,11 @@ describe('useSse', () => {
     const name = ref('书A')
     useSse(name)
     await nextTick()
+    await settle()
     expect(MockES.instances).toHaveLength(1)
     name.value = '书B'
     await nextTick()
+    await settle() // 重连同样先换票再开连
     expect(MockES.instances).toHaveLength(2)
     expect(MockES.instances[0]!.closed).toBe(true)
     expect(MockES.instances[1]!.url).toContain('/api/books/%E4%B9%A6B/stream')
@@ -224,10 +238,12 @@ describe('useSse', () => {
     const name = ref('书A')
     useSse(name)
     await nextTick()
+    await settle()
     const es0 = MockES.instances[0]!
     // 6 次 error（>5 阈值）→ 接管重连
     for (let i = 0; i < 6; i++) es0.onerror?.()
     vi.advanceTimersByTime(2_100) // 首次退避 2s
+    await settle() // 退避重连的 doConnect 异步开连
     expect(MockES.instances.length).toBeGreaterThanOrEqual(2)
   })
 
@@ -258,6 +274,7 @@ describe('useSse', () => {
     const name = ref('书A')
     useSse(name)
     await nextTick()
+    await settle()
     const es0 = ClosedES.instances[0]!
 
     // 网络抖动（CONNECTING）前 5 次不接管（浏览器自连）
@@ -270,6 +287,7 @@ describe('useSse', () => {
     es0.onerror?.()
     expect(es0.closed).toBe(true)
     vi.advanceTimersByTime(2_000)
+    await settle() // 退避重连的 doConnect 异步开连
     expect(ClosedES.instances).toHaveLength(2)
   })
 })

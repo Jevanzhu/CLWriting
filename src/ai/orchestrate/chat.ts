@@ -251,6 +251,9 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
       sys: run.sys,
       turnBranch: run.turnBranch,
       digests: run.digests,
+      // T2-1：注入文件清单与章正文路径 → llm/call promptMeta.files / revision/ref.path
+      promptFiles: run.promptFiles,
+      revisionPath: run.revisionPath,
       seqs: run.seqs,
       markCompleted: () => {
         completedOk = true

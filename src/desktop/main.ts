@@ -89,6 +89,12 @@ if (!gotSingleInstanceLock) {
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
       const name = resolveInitialBook(workDir, ref)
       if (name) mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
+      else log.info('main', `second-instance 带 --book=${ref}，但书库内无此登记书——已忽略直达`) // P3：忽略留痕
+    } else if (ref) {
+      // P3（打包修复批）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
+      // 主窗不可用时原路径静默吞掉 --book——留痕含被忽略的值，双开排查不再靠猜
+      const why = !workDir ? '书库未就绪（bootstrap 未完成且无持久化 current）' : '主窗口不可用'
+      log.warn('main', `second-instance 带 --book=${ref}，但${why}——已忽略（聚焦现有窗口）`)
     }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
   })
@@ -123,8 +129,11 @@ const serverManager = createStudioServerManager({
   },
 })
 /** S-4（批 U1）：bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child
- *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork） */
-const legacyStopHandle = { close: () => { void serverManager.stopChild() } }
+ *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork）。
+ *  P3（打包修复批）：close 返回 stopChild 的 Promise——runner 等其落定再开跑新
+ *  bootstrap，不再 fire-and-forget；stopChild 自带 cancelPendingRestart（S-5），
+ *  挂起重启随关旧一并作废 */
+const legacyStopHandle = { close: () => serverManager.stopChild() }
 /** P5-服务端（第七轮）：bootstrap 实际采用的 workDir——before-quit 优雅退出回读用
  *  （readStore().current 可能为 null/失效而实际 workDir 由 findWorkDir 发现） */
 let bootstrappedWorkDir: string | null = null
@@ -734,7 +743,11 @@ if (gotSingleInstanceLock) {
   const bootstrapRunner = createBootstrapRunner(
     {
       getMainWindow: () => mainWindow,
-      getStudioServer: () => (serverManager.isRunning() ? legacyStopHandle : null),
+      // P3（打包修复批）：child 已崩但退避重启在途时 isRunning() 为 false——原判据
+      // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（S-5 语义旁路）；补
+      // hasPendingRestart() 使「重试前关旧」覆盖重启在途窗口
+      getStudioServer: () =>
+        serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null,
       setStudioServer: () => undefined, // child 生命周期归 serverManager 自持
     },
     () => bootstrap(),

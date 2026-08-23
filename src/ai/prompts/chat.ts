@@ -27,6 +27,13 @@ export interface ChatContext {
   currentChapter?: string
   /** 写作技巧包索引（DSH-18：一行一包的元信息目录；空库为 undefined 不注入） */
   skillsIndex?: string
+  /** T2-1：本次注入实际引用的文件清单（相对书根，spill 外置时为其 locator）——
+   *  经 runChat → runTask promptFiles 进 llm/call promptMeta.files，文件级「模型可见
+   *  ⟺ 已记录」的登记来源；无文件注入（未选章/章文件不存在）为空数组 */
+  files: string[]
+  /** T2-1：章正文注入的 revision/ref 登记路径——spill 外置时为 locator，否则为草稿
+   *  相对路径；未注入章正文时 undefined（登记侧据此不落 revision/ref 或落空 path） */
+  chapterFile?: string
 }
 
 /** 构建 system prompt（前段稳定 → 利于前缀缓存） */
@@ -83,10 +90,13 @@ export function buildChatContext(
 ): ChatContext {
   const settings = buildSettingsContext(bookRoot)
   let currentChapter: string | undefined
+  const files: string[] = []
+  let chapterFile: string | undefined
 
   if (chapter !== undefined && chapter >= 1) {
     // 尝试读取章节正文前 2000 字
-    const draftPath = join(bookRoot, resolveDraftPath(bookRoot, chapter).relPath)
+    const draftRel = resolveDraftPath(bookRoot, chapter).relPath
+    const draftPath = join(bookRoot, draftRel)
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')
@@ -95,11 +105,14 @@ export function buildChatContext(
       const body = bodyOf(raw)
       // B3：超长正文外置（工作区/spills/）+ 头尾预览 + read_chapter 取回指引，
       // 替代 slice(0,2000) 无通知硬切（可切半句、章尾不可见）
-      parts.push(
-        spillIfLarge(body, { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }, (full) =>
-          writeSpillFile(bookRoot, full),
-        ).preview,
+      const spilled = spillIfLarge(body, { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }, (full) =>
+        writeSpillFile(bookRoot, full),
       )
+      parts.push(spilled.preview)
+      // T2-1：章正文注入的文件级溯源——revision/ref 登记路径取实际注入源
+      //（外置成功记 spill locator，否则记草稿文件本身），同一路径并入 files 清单
+      chapterFile = spilled.locator ?? draftRel
+      files.push(chapterFile)
     }
     currentChapter = parts.join('\n')
   }
@@ -107,7 +120,7 @@ export function buildChatContext(
   // DSH-18 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
   const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
 
-  return { settings, currentChapter, skillsIndex: skillsIndex || undefined }
+  return { settings, currentChapter, skillsIndex: skillsIndex || undefined, files, chapterFile }
 }
 
 /**

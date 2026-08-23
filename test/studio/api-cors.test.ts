@@ -15,13 +15,14 @@ import { startServer } from '../../src/studio/server/index.js'
 let workDir = ''
 let server: http.Server | undefined
 let baseUrl = ''
+let token = ''
 
 /** 手动发 HTTP 请求(可设任意 Origin header,绕过 fetch forbidden header 限制) */
 function rawRequest(method: string, path: string, origin: string | null): Promise<{ status: number; acao: string | null }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: origin ? { origin } : {} },
+      { host: u.hostname, port: u.port, path, method, headers: { ...(origin ? { origin } : {}), 'x-studio-token': token } },
       (res) => {
         res.resume()
         res.on('end', () => resolve({ status: res.statusCode ?? 0, acao: res.headers['access-control-allow-origin'] ?? null }))
@@ -44,6 +45,9 @@ beforeAll(async () => {
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  // T2-3：GET 读端点要求 token（boot 取）；GET 行为断言（放行/ACAO）不受凭据影响
+  const r = await fetch(`${baseUrl}/api/boot`)
+  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {

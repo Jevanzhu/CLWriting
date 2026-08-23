@@ -230,23 +230,25 @@ describe('buildIndex + recall（桩 embed）', () => {
     }
   })
 
-  it('O-3（第十三轮）块数超阈值告警：超则 log.warn、未超静默；召回结果不截断', async () => {
+  it('O-3 块数超阈值：告警 + 硬截断到阈值（T2 批起超区间不再全表扫描）；未超静默', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
     // log.warn 直接 spy（log 是导出的对象字面量，属性可 spy）
     const logMod = await import('../../src/log/index.js')
     const spy = vi.spyOn(logMod.log, 'warn').mockImplementation(() => {})
     try {
-      // 未超阈值（注入 warnThreshold=10000，实际块数远小）：不告警
+      // 未超阈值（注入 warnThreshold=10000，实际块数远小）：不告警、不截断
       const hits1 = await recall(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed, 10_000)
-      expect(hits1.length).toBeGreaterThan(0)
+      expect(hits1.length).toBeGreaterThan(1) // 夹具 2 章各 1 块——截断可观测的前提
       expect(spy).not.toHaveBeenCalled()
-      // 超阈值（warnThreshold=1，任意库必超）：告警一条且仍返回结果（不截断）
+      // 超阈值（warnThreshold=1）：告警一条 + 硬截断到 1 块（结果至多 1 条）
       const hits2 = await recall(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed, 1)
       expect(spy).toHaveBeenCalledTimes(1)
       expect(spy.mock.calls[0]![0]).toBe('rag')
       expect(spy.mock.calls[0]![1]).toContain('超已知可用区间')
-      expect(hits2.length).toBe(hits1.length)
+      expect(spy.mock.calls[0]![1]).toContain('硬截断')
+      expect(hits2.length).toBeLessThanOrEqual(1)
+      expect(hits2.length).toBeLessThan(hits1.length)
     } finally {
       spy.mockRestore()
     }

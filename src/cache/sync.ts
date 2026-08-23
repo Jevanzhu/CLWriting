@@ -10,13 +10,17 @@ import type { Lead, LeadEntry, ChapterMeta } from '../format/types.js'
 
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
-/** 写入一个 Lead 到 leads 表 + lead_history 表 */
+/** 写入一个 Lead 到 leads 表 + lead_history 表
+ *  P3：写语句 .all() 改 .run()（node:sqlite 语义：写语句不该用查询接口）；
+ *  履历 DELETE+INSERT 包 SAVEPOINT 自包原子——不依赖外层 rebuild 事务
+ *  （rebuild 挂了 BEGIN 时嵌套 BEGIN 会抛错；SAVEPOINT 可嵌套，独立调用本函数
+ *  或在外层事务内调用均成立，中途失败回滚不留半截履历）。 */
 export function syncLead(db: DatabaseSync, lead: Lead): void {
   db.prepare(
     `INSERT OR REPLACE INTO leads
       (id, type, title, status, opened_at, cur_realm, parent_id, debtor, creditor, path)
      VALUES (@id, @type, @title, @status, @opened_at, @cur_realm, @parent_id, @debtor, @creditor, @path)`,
-  ).all({
+  ).run({
     // 中英映射（#4 第 6 节）
     id: lead.编号,
     type: lead.类型,
@@ -30,22 +34,30 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
     path: lead._path ?? '',
   })
 
-  // 履历：先删旧的再插（幂等）
-  db.prepare('DELETE FROM lead_history WHERE lead_id = ?').all(lead.编号)
-  const insertHistory = db.prepare(
-    `INSERT INTO lead_history (lead_id, seq, chapter, verb, evidence, backfill)
-     VALUES (@lead_id, @seq, @chapter, @verb, @evidence, @backfill)`,
-  )
-  lead.履历.forEach((entry: LeadEntry, i: number) => {
-    insertHistory.all({
-      lead_id: lead.编号,
-      seq: i + 1,
-      chapter: entry.章号,
-      verb: entry.动词,
-      evidence: entry.证据,
-      backfill: entry.回填 ? 1 : 0,
+  // 履历：先删旧的再插（幂等）——SAVEPOINT 自包事务
+  db.exec('SAVEPOINT sync_lead_history')
+  try {
+    db.prepare('DELETE FROM lead_history WHERE lead_id = ?').run(lead.编号)
+    const insertHistory = db.prepare(
+      `INSERT INTO lead_history (lead_id, seq, chapter, verb, evidence, backfill)
+       VALUES (@lead_id, @seq, @chapter, @verb, @evidence, @backfill)`,
+    )
+    lead.履历.forEach((entry: LeadEntry, i: number) => {
+      insertHistory.run({
+        lead_id: lead.编号,
+        seq: i + 1,
+        chapter: entry.章号,
+        verb: entry.动词,
+        evidence: entry.证据,
+        backfill: entry.回填 ? 1 : 0,
+      })
     })
-  })
+    db.exec('RELEASE sync_lead_history')
+  } catch (err) {
+    db.exec('ROLLBACK TO sync_lead_history')
+    db.exec('RELEASE sync_lead_history')
+    throw err
+  }
 }
 
 /** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性 */
@@ -91,7 +103,7 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
     `INSERT OR REPLACE INTO chapters
       (number, title, word_count, hook_type, hook_level, emotion, path)
      VALUES (@number, @title, @word_count, @hook_type, @hook_level, @emotion, @path)`,
-  ).all({
+  ).run({
     number: ch.章号,
     title: ch.标题,
     word_count: ch._wordCount ?? 0,
@@ -99,7 +111,7 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
     hook_level: ch.钩子强弱 ?? null,
     emotion: ch.情绪定位 ?? null,
     path: ch._path ?? '',
-  })
+  }) // P3：写语句用 .run()（.all() 是查询接口）
 }
 
 // ── 摘要入库（#4 第 3 节 summaries 表）────────────
@@ -112,7 +124,7 @@ export function syncSummary(
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`,
-  ).all(scope, ref, path)
+  ).run(scope, ref, path) // P3：写语句用 .run()
 }
 
 // ── meta（重建戳等）─────────────────────────────
@@ -120,7 +132,7 @@ export function syncSummary(
 export function setMeta(db: DatabaseSync, key: string, value: string): void {
   db.prepare(
     `INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`,
-  ).all(key, value)
+  ).run(key, value) // P3：写语句用 .run()
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

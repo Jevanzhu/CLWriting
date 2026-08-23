@@ -49,6 +49,8 @@ const M = vi.hoisted(() => ({
   windows: [] as Array<Record<string, any>>,
   focusedWin: null as null | Record<string, any>,
   logErrors: [] as unknown[],
+  logWarns: [] as unknown[], // P3（打包修复批）：second-instance --book 忽略留痕断言用
+  logInfos: [] as unknown[],
   // ── 阶段 22 批 U1：utilityProcess 假件捕获面 ──
   forkCalls: [] as Array<{ modulePath: string; args: string[]; options: Record<string, unknown> }>,
   forkChildren: [] as Array<Record<string, any>>,
@@ -290,8 +292,12 @@ vi.mock('../../src/log/index.js', () => ({
     error: (...a: unknown[]) => {
       M.logErrors.push(a)
     },
-    warn: () => undefined,
-    info: () => undefined,
+    warn: (...a: unknown[]) => {
+      M.logWarns.push(a)
+    },
+    info: (...a: unknown[]) => {
+      M.logInfos.push(a)
+    },
   },
 }))
 vi.mock('font-list', () => ({ getFonts: async () => ['Mock Sans'] }))
@@ -584,6 +590,40 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
     expect(sent[0]).toBe('desktop:navigate')
     expect(sent[1]).toBe(`/book/${encodeURIComponent('书A')}`)
     expect(win.focused).toBeGreaterThan(0)
+  })
+
+  // P3（打包修复批）：启动早期/书未登记时的 --book 忽略路径原为静默——必须留痕
+  it('second-instance --book 未匹配登记书：无导航 + info 留痕含书名（不再静默吞）', () => {
+    const h = M.appOn['second-instance']![0]!
+    const win = mainWin()
+    const n0 = win.webContents.sent.length
+    const infos0 = M.logInfos.length
+    h({}, ['electron', '--book', '不存在的书'])
+    expect(win.webContents.sent.length).toBe(n0) // 无导航（行为不变）
+    const line = M.logInfos[infos0] as unknown[]
+    expect(line![1]).toContain('不存在的书') // 留痕含被忽略的 --book 值
+    expect(String(line![1])).toContain('已忽略')
+  })
+
+  it('second-instance --book 但主窗不可用：warn 留痕含书名，无导航无聚焦', () => {
+    const h = M.appOn['second-instance']![0]!
+    const win = mainWin()
+    const n0 = win.webContents.sent.length
+    const f0 = win.focused
+    const warns0 = M.logWarns.length
+    win.close() // isDestroyed → 直达分支不可用（模拟启动早期窗口未建/已毁）
+    try {
+      h({}, ['electron', '--book', '书A'])
+      expect(win.webContents.sent.length).toBe(n0)
+      expect(win.focused).toBe(f0) // 窗口不可用：聚焦分支同样跳过
+      const line = M.logWarns[warns0] as unknown[]
+      expect(line![0]).toBe('main')
+      expect(String(line![1])).toContain('书A') // warn 含被忽略的 --book 值
+      expect(String(line![1])).toContain('已忽略')
+    } finally {
+      // 恢复窗口存活态（fake close 只置 closed 标记，可逆），避免影响后续用例
+      win.closed = false
+    }
   })
 })
 

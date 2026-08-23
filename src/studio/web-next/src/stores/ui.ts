@@ -120,6 +120,20 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  /** 全局兜底错误上报（main.ts 的 Vue errorHandler 调，也供其他全局兜底口复用）：
+   *  console.error 留痕（原行为）+ 经 toast 通道冒泡给作者——原先只 console.error，
+   *  渲染进程异常对作者完全静默。兜底路径自身不得再抛（errorHandler 内二次异常
+   *  会被 Vue 吞掉，故 toast 包 try/catch）。 */
+  function reportUnhandledError(err: unknown, info = ''): void {
+    console.error('[Vue Error]', err, info)
+    try {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast(`发生未处理错误：${msg}`, 'error')
+    } catch {
+      /* 兜底自身失败只能静默（toast 通道异常时不能再抛） */
+    }
+  }
+
   return {
     paletteOpen,
     settingsOpen,
@@ -141,5 +155,6 @@ export const useUiStore = defineStore('ui', () => {
     ask,
     resolveConfirm,
     toast,
+    reportUnhandledError,
   }
 })

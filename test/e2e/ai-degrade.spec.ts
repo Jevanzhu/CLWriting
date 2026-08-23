@@ -29,8 +29,10 @@ test.afterAll(async () => {
 })
 
 test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
-  // ① ai-status 报告不可达
-  const r = await page.request.get(`${BASE}/api/ai-status`)
+  // ① ai-status 报告不可达（T2-3：GET 读端点要求 token，boot 取）
+  const boot = await page.request.get(`${BASE}/api/boot`)
+  const token = (await boot.json()).token
+  const r = await page.request.get(`${BASE}/api/ai-status`, { headers: { 'x-studio-token': token } })
   expect(await r.json()).toMatchObject({ available: false })
 
   await page.goto(`${BASE}/`)

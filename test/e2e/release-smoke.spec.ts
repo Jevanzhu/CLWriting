@@ -63,8 +63,10 @@ test('编译产物 server 起服务：boot/书架/静态前端全链路', async 
   const bootJson = (await boot!.json()) as { token: string }
   expect(bootJson.token).toBeTruthy()
 
-  // 书架 API（双轨 fixture：至少一本书）
-  const booksRes = await fetch(`${BASE}/api/books`)
+  // 书架 API（双轨 fixture：至少一本书）——T2-3：GET 读端点要求 token（boot 已取得）
+  const booksRes = await fetch(`${BASE}/api/books`, {
+    headers: { 'x-studio-token': bootJson.token },
+  })
   expect(booksRes.ok).toBe(true)
   const books = (await booksRes.json()) as { books: { name: string }[]; workDir: boolean }
   expect(books.workDir).toBe(true)

@@ -168,3 +168,22 @@ describe('批 U2：runUtilityEntry 握手与 shutdown 指令', () => {
     expect(exitSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('P3：无 parentPort 探针区分（vitest 测试态 vs 误用直跑）', () => {
+  it('vitest 态留痕带 [vitest] 前缀且不退出——与误用直跑报错文本可区分', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/server-utility.js') // VITEST=true 环境下 import 即触发探针
+      const line = String(errSpy.mock.calls[0]?.[0])
+      expect(line).toContain('[server-utility][vitest]') // 专属前缀：日志里可与误用态区分
+      expect(line).toContain('测试态')
+      expect(line).not.toContain('缺少 process.parentPort') // 与误用直跑报错口径不重叠
+      expect(exitSpy).not.toHaveBeenCalled() // 测试态只留痕不退出（不杀 worker）
+    } finally {
+      errSpy.mockRestore()
+      exitSpy.mockRestore()
+    }
+  })
+})

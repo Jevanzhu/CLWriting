@@ -142,6 +142,9 @@ export interface StudioServerManager {
   shutdown(): Promise<void>
   /** 是否有已握手完成的 child 在跑 */
   isRunning(): boolean
+  /** 是否有崩溃退避后排程、尚未落地的挂起自动重启（P3：main 侧「关旧」判据补充——
+   *  child 已崩但重启在途时 isRunning() 为 false，仅凭它会漏关并漏取消挂起重启） */
+  hasPendingRestart(): boolean
 }
 
 /**
@@ -385,6 +388,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     },
     isRunning(): boolean {
       return active !== null
+    },
+    hasPendingRestart(): boolean {
+      return restartTimer !== null
     },
   }
 }

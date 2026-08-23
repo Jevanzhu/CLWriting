@@ -33,6 +33,13 @@ export interface PreparedChatRun {
   turnBranch: { parentSeq?: number; branchId?: string } | undefined
   /** P3 血缘：注入快照指纹（「模型可见 ⟺ 已记录」的登记依据） */
   digests: { settings: string; revision?: string; skills?: string }
+  /** T2-1：prompt 注入引用的文件清单（buildChatContext 产出）——turn 循环传 runTask
+   *  promptFiles，进 llm/call promptMeta.files（与写稿链 self-heal 同口径：记 hash+chars，
+   *  不落全文） */
+  promptFiles: string[]
+  /** T2-1：章正文注入路径（spill locator 或草稿相对路径；未注入 undefined）——
+   *  revision/ref 事件的 path 字段此前恒空串，文件级溯源断链 */
+  revisionPath: string | undefined
   seqs: ChatSeqLedger
 }
 
@@ -147,5 +154,5 @@ export function prepareChatRun(
   }
 
   emit(opts, { type: 'chat_start' })
-  return { history, sys, recorder, baseLen, turnBranch, digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest }, seqs }
+  return { history, sys, recorder, baseLen, turnBranch, digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest }, promptFiles: ctx.files, revisionPath: ctx.chapterFile, seqs }
 }

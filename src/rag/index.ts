@@ -20,7 +20,9 @@ import type { ChapterMeta } from '../format/types.js'
 import { log } from '../log/index.js'
 
 /** O-3（第十三轮）：召回块数告警阈值——超出 store.ts readAllChunks 量化注释的已知
- *  可用区间（十万块）时 log.warn 留痕；不截断结果（召回正确性优先）。 */
+ *  可用区间（十万块）时 log.warn 留痕。
+ *  T2 批：同时是硬截断上限——超区间全表余弦线性扫描延迟已超交互预期，截到上限
+ *  并告警（截断取读出序前缀，非按相似度——排序发生在截断之后）。 */
 export const RAG_CHUNK_WARN_THRESHOLD = 100_000
 
 /** 一个分块（文本 + 在该章正文的偏移） */
@@ -439,10 +441,12 @@ export async function recall(
     chunks = readAllChunks(db)
     if (chunks.length === 0) return [] // 空库：无向量可召回，先判空不烧 API
     // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
-    // 时告警——线性扫描仍可用但延迟已超交互预期，界值测试只锁 3.5 万块场景，超区间
-    // 先留痕再谈引索引（不截断：召回正确性优先，慢比缺好）
+    // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
+    // 无界膨胀（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
     if (chunks.length >= warnThreshold) {
-      log.warn('rag', `召回块数 ${chunks.length} 超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引`)
+      const truncated = chunks.length > warnThreshold
+      if (truncated) chunks = chunks.slice(0, warnThreshold)
+      log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
     }
 
     indexedDim = getRagMeta(db, 'embedding_dim')

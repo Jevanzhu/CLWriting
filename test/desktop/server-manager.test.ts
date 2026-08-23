@@ -667,6 +667,24 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
     await sleep(200) // 挂起重启已被作废
     expect(forkRecords.length).toBe(2)
   })
+
+  // P3（打包修复批）：child 已崩但退避重启在途——isRunning() 为 false 而
+  // hasPendingRestart() 为 true；stopChild（= legacyStopHandle.close 路径）须把
+  // 挂起重启一并作废（S-5），否则 main「关旧」判据漏检、重启落地成孤儿 fork
+  it('P3：挂起重启在途——hasPendingRestart 反映排程；stopChild 作废挂起重启', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [80, 80, 80] })
+    expect(manager.hasPendingRestart()).toBe(false) // 初始无排程
+    await bootAt(manager, forkRecords, 1)
+    expect(manager.hasPendingRestart()).toBe(false)
+    forkRecords[0]!.child.emit('exit', 1) // 崩溃：child 没了但重启已排程（80ms 后）
+    await flushMicrotasks(2)
+    expect(manager.isRunning()).toBe(false) // 原判据在此返 null → 漏关漏取消
+    expect(manager.hasPendingRestart()).toBe(true)
+    await manager.stopChild() // 无 active child：直通但必须取消挂起重启
+    expect(manager.hasPendingRestart()).toBe(false)
+    await sleep(200)
+    expect(forkRecords.length).toBe(1) // 重启未落地（无孤儿 fork）
+  })
 })
 
 afterAll(() => {

@@ -30,12 +30,13 @@ let userDataPath = ''
 let bookRoot = ''
 let server: http.Server | undefined
 let baseUrl = ''
+let token = ''
 
 function get(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
     const u = new URL(baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method: 'GET' },
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf-8')))
@@ -107,6 +108,9 @@ beforeAll(async () => {
   server = startServer({ port: 0, workDir, userDataPath })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  // T2-3：GET 读端点要求 token（boot 取）
+  const r = await fetch(`${baseUrl}/api/boot`)
+  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {

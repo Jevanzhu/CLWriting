@@ -56,7 +56,12 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
   await expect(cm).toContainText('mock 自动写章', { timeout: 10_000 })
 
   // 事件流记录了自愈终局（高级区不展开；借 store 无从期断言，验证磁盘已落盘）
-  const ok = await page.request.get(`${BASE}/api/books/长篇测试书/state`)
+  // T2-3：GET 读端点也要求 token（boot 取，与下方批量连写用例同通道）
+  const boot = await page.request.get(`${BASE}/api/boot`)
+  const token = (await boot.json()).token
+  const ok = await page.request.get(`${BASE}/api/books/长篇测试书/state`, {
+    headers: { 'x-studio-token': token },
+  })
   expect(ok.status()).toBe(200)
 })
 // ── P2-3：批量连写 ──────────────────────────────────────────────

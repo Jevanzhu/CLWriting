@@ -107,8 +107,29 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
     expect(r.status).not.toBe(403)
   })
 
-  it('GET 无 token → 200(token 只校验写端点)', async () => {
+  // T2-3：GET /api/* 读端点同样要求 token——此前只拦写，读端点可无凭据全量读取
+  it('GET 无 token → 403(T2-3 读端点闸)', async () => {
     const r = await rawRequest('GET', '/api/books', {})
+    expect(r.status).toBe(403)
+  })
+
+  it('GET 错 token → 403', async () => {
+    const r = await rawRequest('GET', '/api/books', { 'x-studio-token': 'wrong-token' })
+    expect(r.status).toBe(403)
+  })
+
+  it('GET 对 token(x-studio-token 头)→ 200', async () => {
+    const r = await rawRequest('GET', '/api/books', { 'x-studio-token': token })
+    expect(r.status).toBe(200)
+  })
+
+  it('GET 对 token(query token)→ 非 403(SSE 同款凭据通道)', async () => {
+    const r = await rawRequest('GET', `/api/books?token=${encodeURIComponent(token)}`, {})
+    expect(r.status).not.toBe(403)
+  })
+
+  it('GET /api/boot 免鉴权 → 200(bootstrap 通道豁免)', async () => {
+    const r = await rawRequest('GET', '/api/boot', {})
     expect(r.status).toBe(200)
   })
 

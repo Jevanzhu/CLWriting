@@ -115,7 +115,8 @@ function findInTree(nodes: unknown[], path: string): unknown | null {
 
 describe('W2A documents API', () => {
   it('GET /tree → 200 + 卷结构 + 卷纲关联 + 状态派生', async () => {
-    const r = await request('GET', treePath())
+    // T2-3：GET 读端点要求 token
+    const r = await request('GET', treePath(), { 'x-studio-token': token })
     expect(r.status).toBe(200)
     const j = r.json as { ok: boolean; nodes: unknown[]; revision: number }
     expect(j.ok).toBe(true)

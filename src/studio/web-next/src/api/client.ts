@@ -1,4 +1,4 @@
-// API 客户端：启动从 /api/boot 取 token，写方法（非 GET）自动注入 x-studio-token；
+// API 客户端：启动从 /api/boot 取 token，所有 /api/* 请求（boot 自身除外）自动注入 x-studio-token；
 // 错误信封统一 {error, code?}（CC-P2-11）——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
 
 // O-10（第十三轮）显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
@@ -76,7 +76,10 @@ export function rebootstrap(): Promise<void> {
   return rebootstrapPromise
 }
 
-/** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。init.signal 透传，调用方可用于取消。
+/** 带 token 注入的 fetch：所有 /api/* 请求（/api/boot 自身免鉴权除外）自动注入
+ *  x-studio-token。鉴权契约①（GET /api/* 同样要求 token）：原先仅写方法（非 GET）注入，
+ *  现统一为 GET/写全部注入——服务端逐步收口 GET 鉴权，提前带上头对旧服务端无害。
+ *  init.signal 透传，调用方可用于取消。
  *  E-2（第五十三轮）：boot 失败后 token 永久 null、写请求持续 401/403 只能刷新页面——
  *  收到 401/403 且 token 为 null（boot 未成功）时，触发一次防抖去重的 re-boot 重取 token，
  *  成功后重放原请求（同一请求最多重试一次，防死循环）；re-boot 失败或重放仍 401/403 则
@@ -89,7 +92,11 @@ export async function apiFetch(
 ): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
-  if (method !== 'GET' && token) headers.set('x-studio-token', token)
+  // 契约①：所有 /api/* 请求注入 token（boot 自身免鉴权——它就是取 token 的端点）；
+  // 非 /api/* 路径（静态资源等）不注入。
+  if (path.startsWith('/api/') && path !== '/api/boot' && token) {
+    headers.set('x-studio-token', token)
+  }
   const r = await fetch(path, { ...init, method, headers })
   if ((r.status === 401 || r.status === 403) && token === null && !_retried) {
     await rebootstrap()

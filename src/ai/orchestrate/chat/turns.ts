@@ -310,6 +310,10 @@ export interface TurnDeps {
   turnBranch: { parentSeq?: number; branchId?: string } | undefined
   /** P3 血缘：注入快照指纹（来自 restore 相位） */
   digests: { settings: string; revision?: string; skills?: string }
+  /** T2-1：prompt 注入文件清单（来自 restore 相位）——llm/call promptMeta.files 登记 */
+  promptFiles: string[]
+  /** T2-1：章正文注入路径（来自 restore 相位）——revision/ref 的 path 字段 */
+  revisionPath: string | undefined
   seqs: ChatSeqLedger
   /** chat_done 发出当口回调置 completedOk——此后 finalizeHistory 若抛异常，
    *  续链口径与拆分前一致（正常完成已广播，队列照常消费，不因收尾压缩失败丢弃） */
@@ -320,6 +324,7 @@ export interface TurnDeps {
 export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   const { opts, state, confirmTimeout, history, baseLen, recorder, sys, turnBranch, seqs } = deps
   const { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest } = deps.digests
+
 
   /** M-1（第十一轮）：回合 commit 点 flush 异常收编 finishTurn——磁盘满/血缘校验越界时
    *  recorder.flush() 抛错直穿 runAgentTurns（chat.ts 只有 try/finally 无 catch），既无
@@ -356,7 +361,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     const lineageIdx: number[] = []
     lineageIdx.push(recorder.add(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
     if (revisionDigest !== undefined) {
-      lineageIdx.push(recorder.add(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: '' })))
+      // T2-1：path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链
+      lineageIdx.push(recorder.add(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: deps.revisionPath ?? '' })))
     }
     // G2-2：技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
     if (skillsDigest !== undefined) {
@@ -386,6 +392,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
       // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义
       promptText: lastMessageFingerprint(history),
+      // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
+      //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
+      promptFiles: deps.promptFiles,
       ctrl: state.ctrl,
       // M-1（第八轮）：owner='chat'——self-heal/spawn 在途时 chat 纯问答允许并发，
       // registerCtrl 按编排分槽不再互相抢占（此前单槽「换新先 abort 旧」会掐断在途写稿）

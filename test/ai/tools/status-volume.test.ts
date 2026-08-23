@@ -6,7 +6,7 @@
  * 断链旧行为（第三参硬编码 50）= ceil(10/50)=1 卷。工具上下文 userDataPath
  * 与生产同形（chat 编排 executeChatTool 构造 ToolContext 时下发）。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -93,5 +93,18 @@ describe('chapter_status 卷号全局托底（GG-P2-6）', () => {
     expect(r.ok).toBe(true)
     expect(r.summary).toContain('已写到第 10 章')
     expect(r.summary).not.toContain('已写到第 11 章')
+  })
+})
+
+describe('T2 批 assembleStatus 第三参显式 resolve（chapter_status 调用点）', () => {
+  it('书级显式 volume_size=3 → 第 10 章按 3 分卷报「第 4 卷」（调用点不得缺省穿透）', () => {
+    // 书级键是三层链第一环：调用点显式 resolve 后仍须原样生效（防回归成硬编码/漏传）
+    const yamlPath = join(bookRoot, 'book.yaml')
+    const yaml = readFileSync(yamlPath, 'utf8')
+    // 在既有 book: 块内插入键（追加重复顶层键会被解析器丢弃）
+    writeFileSync(yamlPath, yaml.replace('book:\n', 'book:\n  volume_size: 3\n'), 'utf8')
+    const r = chapterStatus({ bookRoot, bookName: LONG_BOOK, userDataPath }, {})
+    expect(r.ok).toBe(true)
+    expect(r.summary).toContain('第 4 卷')
   })
 })

@@ -71,7 +71,7 @@ describe('review.ts', () => {
 
 describe('chat.ts', () => {
   it('chatSystem 注入设定 + 职责 + 规则', () => {
-    const s = chatSystem({ settings: '境界：练气/筑基/金丹' })
+    const s = chatSystem({ settings: '境界：练气/筑基/金丹', files: [] })
     expect(s).toContain('CLWriting 的写作助手')
     expect(s).toContain('境界：练气/筑基/金丹')
     expect(s).toContain('讨论伙伴')
@@ -80,7 +80,7 @@ describe('chat.ts', () => {
   })
 
   it('chatSystem 指定章节 → 注入章节段', () => {
-    const s = chatSystem({ settings: 'x', currentChapter: '第 3 章\n正文…' })
+    const s = chatSystem({ settings: 'x', currentChapter: '第 3 章\n正文…', files: [] })
     expect(s).toContain('作者指定讨论的章节')
     expect(s).toContain('第 3 章')
   })

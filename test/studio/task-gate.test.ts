@@ -7,12 +7,13 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { acquireTaskGate, isTaskGateHeld, heldTaskGatesFor } from '../../src/studio/server/api/task-gate.js'
+import { createHash } from 'node:crypto'
 
 const BOOK = '闸测试书'
 let workDir = ''
@@ -135,6 +136,70 @@ describe('heldTaskGatesFor（dd-P2：按书聚合持闸动作）', () => {
     expect(heldTaskGatesFor('带:冒号:书')).toEqual(['rag-build'])
     expect(heldTaskGatesFor('冒号:书')).toEqual([])
     r!()
+  })
+})
+
+// ── T2-4：跨进程文件锁 ────────────────────────────────
+// 复现锁文件名算法（sha256(key) 前 16 hex）——手写 lockfile 模拟「另一进程已持锁」
+const gateKey = (action: string, book: string): string => `${action}\u0000${book}`
+const lockName = (action: string, book: string): string =>
+  `${createHash('sha256').update(gateKey(action, book)).digest('hex').slice(0, 16)}.lock`
+
+describe('T2-4 task-gate 跨进程文件锁', () => {
+  let lockDir = ''
+  beforeAll(() => {
+    lockDir = mkdtempSync(join(tmpdir(), 'clwriting-gate-lock-'))
+  })
+  afterAll(() => {
+    if (lockDir) rmSync(lockDir, { recursive: true, force: true })
+  })
+
+  it('锁文件被存活进程持有 → acquire 返回 null（模拟另一进程持锁，本进程 Set 看不见）', () => {
+    // 手写 lockfile = 另一进程已 O_EXCL 创建（pid 取本进程——探测必活）
+    writeFileSync(join(lockDir, lockName('analyze', '跨进程书')), JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
+    const r = acquireTaskGate('跨进程书', 'analyze', { lockDir, isProcessAlive: () => true })
+    expect(r).toBeNull()
+    expect(isTaskGateHeld('跨进程书', 'analyze')).toBe(false) // 未误登进本进程 Set
+  })
+
+  it('锁文件持有进程已死（stale）→ 接管清理后占闸成功，写入自己的 pid', () => {
+    writeFileSync(join(lockDir, lockName('rewrite', '跨进程书')), JSON.stringify({ pid: 4194303, bootTime: 1 }))
+    const r = acquireTaskGate('跨进程书', 'rewrite', { lockDir, isProcessAlive: () => false })
+    expect(r).not.toBeNull()
+    const content = JSON.parse(readFileSync(join(lockDir, lockName('rewrite', '跨进程书')), 'utf-8')) as { pid: number }
+    expect(content.pid).toBe(process.pid)
+    r!()
+    // release 删锁文件：后续可再占
+    expect(existsSync(join(lockDir, lockName('rewrite', '跨进程书')))).toBe(false)
+  })
+
+  it('正常占闸创建锁文件，release 后删除', () => {
+    const r = acquireTaskGate('文件锁书', 'outline', { lockDir })
+    expect(r).not.toBeNull()
+    const p = join(lockDir, lockName('outline', '文件锁书'))
+    expect(existsSync(p)).toBe(true)
+    r!()
+    expect(existsSync(p)).toBe(false)
+  })
+
+  it('锁文件损坏（空文件）→ 视同 stale 可接管', () => {
+    writeFileSync(join(lockDir, lockName('autotag', '跨进程书')), '')
+    const r = acquireTaskGate('跨进程书', 'autotag', { lockDir, isProcessAlive: () => true })
+    expect(r).not.toBeNull()
+    r!()
+  })
+
+  it('端点接线：书库 lockfile 在位（存活持有者）→ outline 409；删除 → 走通', async () => {
+    // startServer 已把锁根注入 workDir/.clwriting/task-gate/——手写 BOOK 的 outline
+    // 锁文件（pid=本进程=存活），验证端点闸在进程外锁在位时也拒 409（双进程互斥）
+    const p = join(workDir, '.clwriting', 'task-gate', lockName('outline', BOOK))
+    mkdirSync(dirname(p), { recursive: true })
+    writeFileSync(p, JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
+    const busy = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    expect(busy.status).toBe(409)
+    rmSync(p, { force: true })
+    const ok = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    expect(ok.status).toBe(200)
   })
 })
 

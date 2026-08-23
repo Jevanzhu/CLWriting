@@ -36,7 +36,8 @@ export function writeGuiActive(bookRoot: string): void {
     rec.editing_workdir = true
   }
   try {
-    atomicWriteFile(guiActivePath(bookRoot), JSON.stringify(rec))
+    // T2-5：心跳续期是高频低价值写（丢一次下个心跳即补），显式关 fsync 换吞吐
+    atomicWriteFile(guiActivePath(bookRoot), JSON.stringify(rec), { fsync: false })
   } catch {
     // 工作区可能不存在（书未初始化）—— 心跳尽力而为
   }

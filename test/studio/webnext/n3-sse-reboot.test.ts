@@ -52,7 +52,16 @@ beforeEach(() => {
   mocks.rebootstrap.mockImplementation(async () => {})
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
+  // 鉴权契约②：连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——统一桩 404
+  // （服务端未就绪 → 回退 ?token= 旧通道，本文件断言口径「带 token 连接」不变）
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
 })
+
+/** 泵微任务链：让 doConnect 的「re-boot → 换票（404 回退）→ new EventSource」链走到位 */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+  await nextTick()
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -69,8 +78,7 @@ describe('N-3 · SSE token null 自愈', () => {
     useSse(ref('书A'))
     await nextTick()
     // rebootstrap 是 await 的——再让微任务队列走完
-    await Promise.resolve()
-    await nextTick()
+    await settle()
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(1)
     expect(MockES.instances).toHaveLength(1)
     expect(MockES.instances[0]!.url).toContain('token=T1')
@@ -80,6 +88,7 @@ describe('N-3 · SSE token null 自愈', () => {
     mocks.getToken.mockReturnValue('T0')
     useSse(ref('书A'))
     await nextTick()
+    await settle()
     expect(mocks.rebootstrap).not.toHaveBeenCalled()
     expect(MockES.instances).toHaveLength(1)
     expect(MockES.instances[0]!.url).toContain('token=T0')
@@ -90,20 +99,19 @@ describe('N-3 · SSE token null 自愈', () => {
     mocks.getToken.mockReturnValue(null)
     useSse(ref('书A'))
     await nextTick()
-    await Promise.resolve()
-    await nextTick()
+    await settle()
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(1)
     expect(MockES.instances).toHaveLength(1)
     expect(MockES.instances[0]!.url).not.toContain('token=')
+    expect(MockES.instances[0]!.url).not.toContain('ticket=')
 
-    // fail-closed（401，readyState=CLOSED）→ 2s 退避后重连 → 再次触发 re-boot
+    // fail-closed（401，readyState=CLOSED）→ 2s 退避后重连 → 再次走 re-boot 通道
     const es0 = MockES.instances[0]!
     es0.readyState = 2
     es0.onerror?.()
     expect(es0.closed).toBe(true)
     vi.advanceTimersByTime(2_000)
-    await Promise.resolve()
-    await nextTick()
+    await settle() // 重连的 doConnect 异步开连
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(2) // 每轮连接恰一次，节奏受退避封顶（无自造风暴）
     expect(MockES.instances).toHaveLength(2)
   })
@@ -125,8 +133,7 @@ describe('N-3 · SSE token null 自愈', () => {
     await nextTick()
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(2)
     pending.splice(0).forEach((f) => f()) // 两个 re-boot 均 settle
-    await Promise.resolve()
-    await nextTick()
+    await settle() // doConnect 继续：换票（404 回退）→ 开连
     // 旧 doConnect（书A）被代守卫拦下；书B 的 doConnect 正常开连
     const urls = MockES.instances.map((e) => decodeURIComponent(e.url))
     expect(urls).toHaveLength(1)

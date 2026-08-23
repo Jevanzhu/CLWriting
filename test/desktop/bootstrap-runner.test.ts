@@ -21,6 +21,16 @@ function makeDeps() {
       setStudioServer: (s: { close: () => void } | null) => { state.server = s },
     },
     fakeServer: (id: string): { close: () => void } => ({ close: () => closed.push(id) }),
+    // P3（打包修复批）：异步 close 假件——resolve 前标记「旧 server 未收口」
+    fakeAsyncServer: (id: string): { close: () => Promise<void> } => ({
+      close: () =>
+        new Promise<void>((resolve) => {
+          queueMicrotask(() => {
+            closed.push(id)
+            resolve()
+          })
+        }),
+    }),
   }
 }
 
@@ -105,5 +115,47 @@ describe('O-4 createBootstrapRunner', () => {
     runner.runBootstrap() // 退出途中 activate：直通
     await new Promise((r) => setTimeout(r, 0))
     expect(runs).toBe(0)
+  })
+
+  // P3（打包修复批）：close() 返回 Promise 时 runner 必须等其落定再开跑——原
+  // fire-and-forget 会在旧 server 未收口（端口/连接未清）时就 fork 新 child
+  it('P3：异步 close——bootstrap 等 close 落定后才开跑（不再 fire-and-forget）', async () => {
+    const ctx = makeDeps()
+    const { deps, state } = ctx
+    const order: string[] = []
+    state.server = {
+      close: () =>
+        new Promise<void>((resolve) => {
+          queueMicrotask(() => {
+            order.push('closed')
+            resolve()
+          })
+        }),
+    }
+    const runner = createBootstrapRunner(deps, async () => {
+      order.push('bootstrap')
+    })
+    runner.runBootstrap()
+    // close 已同步发起但未落定：bootstrap 不得先跑（微任务序：close resolve 先于 bootstrap）
+    expect(order).toEqual([])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(order).toEqual(['closed', 'bootstrap']) // 收口先于开跑
+    expect(state.server).toBeNull()
+  })
+
+  it('P3：异步 close 在途期间并发 runBootstrap 被重入门挡住（不双跑 bootstrap）', async () => {
+    const ctx = makeDeps()
+    const { deps, state } = ctx
+    let runs = 0
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    state.server = { close: () => gate }
+    const runner = createBootstrapRunner(deps, async () => { runs++ })
+    runner.runBootstrap()
+    runner.runBootstrap() // close 在途（bootstrapping 已占门）：被挡
+    expect(runs).toBe(0)
+    release()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(runs).toBe(1)
   })
 })

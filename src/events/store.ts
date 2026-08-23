@@ -90,8 +90,12 @@ const ORPHAN_GRACE_MS = 10 * 60 * 1000
  *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
  *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。
  *  RB-IF-P2-2：进程内 Set 看不见跨进程写方（dev-api/脚本与 app 并行开同库）——
- *  加宽限期，按会话最后事件的 created_at 判断；距今不足阈值/拿不到时间 → 保守不补。 */
-function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
+ *  加宽限期，按会话最后事件的 created_at 判断；距今不足阈值/拿不到时间 → 保守不补。
+ *  P3：单会话修复失败不再 throw 中断循环——catch 收集错误继续修其余孤儿（一个会话
+ *  的磁盘/库故障不该让全部崩溃残留永远补不上 end）；结尾汇总：部分失败 logger.warn
+ *  聚合（自愈类故障按本文件 warn 风格留诊断），全部失败才上抛（系统性故障让打开方
+ *  感知，与旧 throw 语义兼容）。导出供回归测试直接驱动。 */
+export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
   const stmt = db.prepare(
     `SELECT e.session_id,
             SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
@@ -110,10 +114,13 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
   // updated_at 被 latestSession 选中恢复（补了 end 却还被视为最新活跃会话）。
   const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
   const now = Date.now()
+  let attempted = 0
+  const errors: Array<{ session_id: string; err: unknown }> = []
   for (const o of orphans) {
     if (o.starts > o.ends && !skip.has(o.session_id)) {
       // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
       if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
+      attempted++
       // N-5（第五十四轮）：INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——
       // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
       // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
@@ -125,9 +132,18 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
         db.exec('COMMIT')
       } catch (err) {
         db.exec('ROLLBACK')
-        throw err
+        // P3：收集后继续修其余孤儿——单会话故障不中断整轮修复
+        errors.push({ session_id: o.session_id, err })
       }
     }
+  }
+  if (errors.length > 0) {
+    const summary = errors.map((e) => `${e.session_id}: ${e.err instanceof Error ? e.err.message : String(e.err)}`).join('；')
+    if (attempted > 0 && errors.length === attempted) {
+      // 全部失败 = 系统性故障（库损坏/磁盘满）——上抛让打开方感知（旧语义）
+      throw errors[0]!.err
+    }
+    log.warn('repair-orphan-sessions', `孤儿会话修复 ${errors.length}/${attempted} 个失败（其余已补齐）：${summary}`)
   }
 }
 

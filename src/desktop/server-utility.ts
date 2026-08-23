@@ -62,10 +62,17 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
 
 const parentPort = process.parentPort
 if (!parentPort) {
-  // 非 utility 进程态（误用 node 直跑等）——没有回传通道，stdout 留痕后退出
-  //（vitest import 本模块做单测时同样无 parentPort：只留痕不退出，避免杀 worker）
-  console.error('[server-utility] 缺少 process.parentPort：本入口仅供 Electron utilityProcess fork 使用')
-  if (process.env['VITEST'] !== 'true') process.exit(1)
+  // 无 parentPort 的两种形态分开留痕（P3：原共用一条消息，测试态 import 的预期探针
+  // 与误用直跑的报错在日志里不可区分）——vitest 探针带 [vitest] 前缀 + info 级语义，
+  // 误用直跑保持 error 口径不变：
+  if (process.env['VITEST'] === 'true') {
+    // vitest import 本模块做单测时同样无 parentPort：只留痕不退出，避免杀 worker
+    console.error('[server-utility][vitest] 测试态 import（无 process.parentPort，属预期）：本入口运行态仅供 Electron utilityProcess fork 使用')
+  } else {
+    // 非 utility 进程态（误用 node 直跑等）——没有回传通道，stdout 留痕后退出
+    console.error('[server-utility] 缺少 process.parentPort：本入口仅供 Electron utilityProcess fork 使用')
+    process.exit(1)
+  }
 } else {
   runUtilityEntry(parentPort, parseServerArgs(process.argv))
 }

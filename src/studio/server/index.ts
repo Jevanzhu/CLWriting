@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare, replyError, urlPathOnly } from './http.js'
+import { safeTokenCompare, replyError, urlPathOnly, parseRequestUrl } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -27,6 +27,7 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
+import { registerStreamTicketRoutes } from './api/stream-ticket.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
 import { registerReviewRoutes } from './api/review.js'
@@ -55,6 +56,8 @@ import { registerAuditRoutes } from './api/audit.js'
 import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerChatBranchesRoutes } from './api/chat-branches.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
+// T2-4：task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
+import { configureTaskGateLockRoot } from './api/task-gate.js'
 import { resetRouteSchemas } from './api/schema.js'
 // A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
@@ -112,6 +115,7 @@ function buildRoutes(
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     registerStreamRoutes({ workDir, userDataPath, studioToken: token })
+    registerStreamTicketRoutes() // T2 批：SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
     registerOutlineRoutes({ workDir, userDataPath })
     registerLeadUpdateRoutes({ workDir, userDataPath })
     registerReviewRoutes({ workDir, userDataPath })
@@ -240,6 +244,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add('http://localhost:5173')
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
+  // T2-4：本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
+  configureTaskGateLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink)
   // CC-P2-13：host 选项此前是陷阱——允许传任意监听地址，但下方 Host 白名单硬编码回环，
   // 传非回环 host 时全请求 403（参数存在即故障）。产品口径仅本机回环（本文件头注释），
@@ -299,6 +305,26 @@ export function startServer(opts: StudioServerOptions): http.Server {
       // boot-token 回归断言 error 含 'token'（RB-SV-P2-4 用例），文案保持该词根
       replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
       return
+    }
+    // T2-3：GET /api/* 读端点 token 闸。此前只拦写——本机任意进程/被 rebinding 的远端
+    // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
+    // 与写闸同源校验（x-studio-token 头，或 query token——SSE/EventSource 不能带头，
+    // 与 stream.ts 既有 query 凭据口径一致）、常量时间比较、失败 403 FORBIDDEN 同口径。
+    // 豁免清单：/api/boot（前端无 token 时的 bootstrap 通道，token 本身由它下发）；
+    // /api/books/:name/stream（SSE 端点自带双凭据闸：一次性 ticket 或 query token，
+    // 见 stream.ts——EventSource 不能带头，经此处放行后由其自身校验）；健康检查无独立
+    // 顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
+    if (req.method === 'GET' && req.url?.startsWith('/api/')) {
+      const path = urlPathOnly(req.url)
+      if (path !== '/api/boot' && !path.endsWith('/stream')) {
+        // R-19：畸形请求行（absolute-form 等）由 parseRequestUrl 统一兜为 null——
+        // 此处无 query token 可取，直接走 header 校验
+        const queryToken = parseRequestUrl(req)?.searchParams.get('token') ?? undefined
+        if (!safeTokenCompare(req.headers['x-studio-token'] ?? queryToken, studioToken)) {
+          replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
+          return
+        }
+      }
     }
 
     // API 优先

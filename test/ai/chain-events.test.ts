@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runTask } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { GenError } from '../../src/ai/gen.js'
@@ -309,3 +309,66 @@ describe('F1-P2 runTask 链事件', () => {
   }, 10_000)
 })
 
+
+describe('T2-2 建链失败审计留痕（mkChain 不再静默）', () => {
+  it('task 缺失（建链入参不齐）→ logger.warn 结构化留痕，本次调用零链路事件', async () => {
+    const logMod = await import('../../src/log/index.js')
+    const spy = vi.spyOn(logMod.log, 'warn').mockImplementation(() => {})
+    try {
+      const ud = tempUserData()
+      writeProviders(ud)
+      // task 不传：修复前整段调用零事件零日志（审计黑洞）
+      const out = await runTask<string>({ userDataPath: ud, bookRoot: tempBookRoot(), run: () => Promise.resolve('ok') })
+      expect(out.ok).toBe(true)
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy.mock.calls[0]![0]).toBe('runner')
+      const msg = JSON.parse(spy.mock.calls[0]![1]) as { msg: string; reason: string }
+      expect(msg.msg).toContain('链路事件录制器未建')
+      expect(msg.reason).toBe('missing-args')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('事件库打不开（userDataPath 无效）→ logger.warn 留痕', async () => {
+    const logMod = await import('../../src/log/index.js')
+    const spy = vi.spyOn(logMod.log, 'warn').mockImplementation(() => {})
+    try {
+      // userDataPath 指向不可建库的位置（文件占位目录路径）→ openSessionStore 失败
+      const ud = tempUserData()
+      writeFileSync(join(ud, 'blocker'), 'x')
+      writeProviders(ud)
+      await runTask<string>({
+        userDataPath: join(ud, 'blocker', 'sub'),
+        bookRoot: tempBookRoot(),
+        task: 'chat',
+        run: () => Promise.resolve('ok'),
+      })
+      // 无效 userDataPath → 后续 resolveProvider 也会失败（无 providers.json），
+      // 断言点在 warn 留痕而非调用成败
+      const warn = spy.mock.calls.find((c) => c[1]!.includes('链路事件录制器未建'))
+      expect(warn).toBeDefined()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe('T2 批 degradedPersistedKeys 生命周期', () => {
+  it('resolveProvider 换 userDataPath → 旧 path 的降级标记键被清理', async () => {
+    const runner = await import('../../src/ai/runner.js')
+    const udA = tempUserData()
+    const udB = tempUserData()
+    // 首注册 pathA（loadProviders 失败无妨——注册与清理发生在其之前）
+    expect(runner.resolveProvider(udA).ok).toBe(false)
+    const keys = runner.degradedPersistedKeysForTest() as Set<string>
+    keys.add(`${udA}\u0000model-x`)
+    keys.add('/他进程残留路径\u0000model-y')
+    // 换 pathB：A 的键与残留键一并清出，B 前缀保留
+    expect(runner.resolveProvider(udB).ok).toBe(false)
+    keys.add(`${udB}\u0000model-z`)
+    expect(keys.has(`${udA}\u0000model-x`)).toBe(false)
+    expect(keys.has('/他进程残留路径\u0000model-y')).toBe(false)
+    expect(keys.has(`${udB}\u0000model-z`)).toBe(true)
+  })
+})

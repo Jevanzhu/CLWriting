@@ -24,6 +24,7 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
+import { consumeStreamTicket } from './stream-ticket.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
@@ -223,8 +224,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
+    // T2 批：优先一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——
+    // token 不再进 URL（进程列表/代理日志信道收敛）。`?token=` 旧通道保留为兼容期
+    // 通道（e2e 及未升级客户端），两凭据任一过闸即放行。
+    const queryTicket = url.searchParams.get('ticket') ?? undefined
     const queryToken = url.searchParams.get('token') ?? undefined
-    if (!safeTokenCompare(queryToken, ctx.studioToken)) {
+    if (!consumeStreamTicket(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }

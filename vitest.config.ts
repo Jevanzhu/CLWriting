@@ -34,6 +34,9 @@ export default defineConfig({
     // 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
     exclude: ['**/node_modules/**', '**/._*'],
     environment: 'node',
+    // T2-3：GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
+    // x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
+    setupFiles: ['test/helpers/studio-token-setup.ts'],
     testTimeout: 30000,
     // U-P2-21 coverage 纳管；G4-1（2026-08-16）引入全局阈值门 = 基线 −2pp 向下取整（防回退不追高）。
     // 基线快照 2026-08-16：statements 84.43 / branches 80.96 / functions 95 / lines 84.43。

@@ -3,7 +3,9 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 export interface AtomicWriteOptions {
-  /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 false。 */
+  /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 true
+   *  （T2-5：数据安全优先——此前默认 false，崩溃/断电下 rename 元数据未落盘会丢
+   *  整个文件）。高频低价值写（诊断/心跳类）可显式传 false 关闭换吞吐。 */
   fsync?: boolean
   /** 新建文件权限位（RB-IF-P2-6：凭据类文件用 0o600——临时文件即按此 mode 创建后
    *  rename，目标文件全程不存在全局可读窗口；仅 POSIX 生效，Windows 忽略）。 */
@@ -12,11 +14,10 @@ export interface AtomicWriteOptions {
 
 /** 同目录临时文件 + rename，避免 JSON/manifest 中断后留下半截目标文件。
  *
- *  - `fsync: false`（默认）：行为与旧调用逐字不变（清单/配置等普通写入）。
- *  - `fsync: true`：额外 fsync 临时文件（内容落盘）+ 父目录（rename 元数据落盘），
- *    用于保存协议等防丢字场景（W0-1 §5.2）。Windows 等不支持 fsync 目录的平台，
- *    目录 fsync best-effort 忽略（文件内容已落盘，元数据靠 rename 原子性兜底）。
- *  - `mode`：临时文件创建时的权限位（rename 后即目标文件权限），默认与既有行为一致。 */
+ *  - `fsync: true`（默认，T2-5）：fsync 临时文件（内容落盘）+ 父目录（rename 元数据
+ *    落盘）——数据安全优先，防崩溃/断电丢整个文件。Windows 等不支持 fsync 目录的
+ *    平台，目录 fsync best-effort 忽略（文件内容已落盘，元数据靠 rename 原子性兜底）。
+ *  - `fsync: false`：显式关闭（高频低价值写——诊断日志/心跳类，丢一次无妨，换吞吐）。 */
 export function atomicWriteFile(
   filePath: string,
   data: string | Uint8Array,
@@ -25,7 +26,8 @@ export function atomicWriteFile(
   const dir = dirname(filePath)
   mkdirSync(dir, { recursive: true })
   const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
-  const doFsync = opts?.fsync === true
+  // T2-5：默认 true（数据安全优先）；仅显式 fsync:false 才走快速路径
+  const doFsync = opts?.fsync !== false
   try {
     if (doFsync) {
       // 显式 open + write + fsync + close：内容落盘后再 rename

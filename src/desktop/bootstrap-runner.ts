@@ -15,11 +15,13 @@ export interface BootstrapRunnerDeps {
    *  字段保留兼容 main.ts 接线） */
   getMainWindow: () => unknown
   /** 「重试前关旧 server」的清理对象。S-4（阶段 22 批 U1）拆分后语义换轨：main 接线
-   *  传 server-manager 的停旧 child 适配器（close() = kill + 等退出，下一次 start 先
-   *  等旧 child 退出再 fork）；server 生命周期归 manager 自持，setStudioServer 不再
-   *  落 main 状态量（接线传 no-op）。接口形状保持 { close } 以兼容既有测试口径。 */
-  getStudioServer: () => { close: () => void } | null
-  setStudioServer: (server: { close: () => void } | null) => void
+   *  传 server-manager 的停旧 child 适配器（close() = kill + 等退出，下一次 start 先等
+   *  旧 child 退出再 fork）；server 生命周期归 manager 自持，setStudioServer 不再
+   *  落 main 状态量（接线传 no-op）。接口形状保持 { close } 以兼容既有测试口径。
+   *  P3（打包修复批）：close 允许返回 Promise——runner 会等其落定再开跑新 bootstrap，
+   *  消除原 fire-and-forget（关旧未收口即 fork 新 child 的竞态缝）。 */
+  getStudioServer: () => { close: () => void | Promise<void> } | null
+  setStudioServer: (server: { close: () => void | Promise<void> } | null) => void
 }
 
 export interface BootstrapRunner {
@@ -41,21 +43,30 @@ export function createBootstrapRunner(
     runBootstrap(onError?: (e: unknown) => void): void {
       if (bootstrapping) return
       if (shutdownStarted) return
-      // 第九轮 L-3：上次失败若发生在 startServer 之后，旧 server 滞留——重试前先关
-      // R-14（第十六轮）：条件改为「存在旧 server 即关」——原叠加 mainWindow === null 的
-      // 判据自相矛盾（getMainWindow 是「重试关旧 server 的判据」注释语义的残留）：重试
-      // 本就要重建 bootstrap（含新 server/新窗口），旧 server 无论窗口在否都已被新一次
-      // startServer 覆盖变量而泄漏端口/连接，不关才是不安全侧
-      if (deps.getStudioServer() !== null) {
-        deps.getStudioServer()!.close()
-        deps.setStudioServer(null)
-      }
-      bootstrapping = true
-      void bootstrap()
-        .catch((e) => onError?.(e))
-        .finally(() => {
+      bootstrapping = true // 先占重入门再进异步体：关旧 server 的 await 期间并发调用同样被挡（Y-P2-7）
+      void (async () => {
+        try {
+          // 第九轮 L-3：上次失败若发生在 startServer 之后，旧 server 滞留——重试前先关
+          // R-14（第十六轮）：条件改为「存在旧 server 即关」——原叠加 mainWindow === null 的
+          // 判据自相矛盾（getMainWindow 是「重试关旧 server 的判据」注释语义的残留）：重试
+          // 本就要重建 bootstrap（含新 server/新窗口），旧 server 无论窗口在否都已被新一次
+          // startServer 覆盖变量而泄漏端口/连接，不关才是不安全侧
+          // P3（打包修复批）：close() 同步先调（兼容旧口径），若返回 Promise 则等其
+          // 落定再开跑——原 fire-and-forget 会在旧 server 未收口（端口/连接未清）时就
+          // fork 新 child，重开「重试前关旧」要堵的正是这个缝
+          const old = deps.getStudioServer()
+          if (old !== null) {
+            const closing = old.close()
+            deps.setStudioServer(null)
+            if (closing) await closing
+          }
+          await bootstrap()
+        } catch (e) {
+          onError?.(e)
+        } finally {
           bootstrapping = false
-        })
+        }
+      })()
     },
     beginShutdown(): boolean {
       if (shutdownStarted) return false

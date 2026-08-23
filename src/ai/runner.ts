@@ -26,9 +26,23 @@ import { log } from '../log/index.js'
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
  *  丢他键」的窗口越小）；失败不标记，下次 persistDegraded 自动重试。
- *  低级项（第六轮）留档不修：键空间 = userDataPath × 模型数（桌面单库个位数、测试进程
- *  tmp 目录数），非书维度、天然有界，不设生命周期清理。 */
+ *  T2 批（生命周期）：键随活跃 userDataPath 走——resolveProvider 换 path 时清掉他 path
+ *  的旧键（注册槽同口径重置，单库桌面/测试进程内键空间 = 模型数个位数，天然有界）。 */
 const degradedPersistedKeys = new Set<string>()
+
+/** T2 批：换 userDataPath 时清理他 path 的降级标记——旧 path 键留着只会让进程切回
+ *  旧库时误判「已写一次」跳过落盘（他进程/磁盘可能已改），键空间生命周期与注册槽对齐 */
+function pruneDegradedKeys(activePath: string): void {
+  const prefix = activePath + '\u0000'
+  for (const k of degradedPersistedKeys) {
+    if (!k.startsWith(prefix)) degradedPersistedKeys.delete(k)
+  }
+}
+
+/** 测试探针：暴露降级标记键集合的只读视图（验证换 path 清理生命周期；生产零调用） */
+export function degradedPersistedKeysForTest(): ReadonlySet<string> {
+  return degradedPersistedKeys
+}
 
 /** 未定位到应用数据目录（统一文案） */
 export const NO_USERDATA_MSG = '未定位到应用数据目录'
@@ -150,6 +164,7 @@ export function resolveProvider(
   // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册
   if (degradedRegisteredPath !== userDataPath) {
     degradedRegisteredPath = userDataPath
+    pruneDegradedKeys(userDataPath)
     registerDegradedCallbacks(userDataPath)
   }
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
@@ -195,24 +210,34 @@ export function resolveProvider(
  * @param opts.onReset    重试前回调——调用方在此推 reset 事件清前端缓冲（B-1：流式重试防重复产出）。
  */
 /**
- * P2：建链路事件录制器（userDataPath + bookRoot + task 齐备才建；失败静默 → null）。
+ * P2：建链路事件录制器（userDataPath + bookRoot + task 齐备才建）。
  * workspace 会话的 book 标识 = bookHash(bookRoot)（与对话会话的 bookName 隔离，互不干扰）。
+ * T2-2：建链失败（入参缺失/库打不开/构造抛错）整段调用零事件落库，是审计黑洞——
+ * 落事件本身需要事件库，库正是缺的，故口径为 logger.warn 结构化留痕（可回溯到日志），
+ * 不再静默返 null。
  */
 function mkChain(
   userDataPath: string | null,
   bookRoot: string | undefined,
   task: string | undefined,
 ): ChainRecorder | null {
-  if (!userDataPath || !bookRoot || !task) return null
+  if (!userDataPath || !bookRoot || !task) {
+    log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'missing-args', hasUserDataPath: !!userDataPath, hasBookRoot: !!bookRoot, task: task ?? null }))
+    return null
+  }
   let store: ReturnType<typeof openSessionStore> = null
   try {
     store = openSessionStore(userDataPath, bookRoot)
-    if (!store) return null
+    if (!store) {
+      log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-session-store-null', task }))
+      return null
+    }
     const sessionId = store.workspaceSession(bookHash(bookRoot))
     return new ChainRecorder(store, sessionId)
-  } catch {
+  } catch (e) {
     // 二轮复审（低级）：建链半途抛错先关库再降级——openSessionStore 是引用计数单例，
     // workspaceSession/ChainRecorder 构造抛错若不关，本次打开的引用滞留到进程结束
+    log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'chain-build-error', task, error: e instanceof Error ? e.message : String(e) }))
     store?.close()
     return null
   }

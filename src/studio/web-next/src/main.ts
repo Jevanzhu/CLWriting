@@ -23,8 +23,9 @@ await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS �
 useUiStore().probeAiStatus() // G4：后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
 const app = createApp(App)
-// 全局错误兜底：ErrorBoundary 漏网或 setup 外的异常最终在此记录，避免静默丢失
+// 全局错误兜底：ErrorBoundary 漏网或 setup 外的异常最终经 ui store 的上报通道
+// （console.error 留痕 + toast 冒泡，原先只 console.error 对作者完全静默）
 app.config.errorHandler = (err, _instance, info) => {
-  console.error('[Vue Error]', err, info)
+  useUiStore().reportUnhandledError(err, info)
 }
 app.use(pinia).use(router).mount('#app')

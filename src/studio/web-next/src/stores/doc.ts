@@ -44,6 +44,9 @@ export interface DocEntry {
   conflict: boolean
 }
 
+/** 卸载兜底同步落盘的总预算（ms）：串行同步 XHR 超预算即放弃余下文档（尽力而为）。 */
+const FLUSH_SYNC_BUDGET_MS = 2_000
+
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
   /** 加载中文档的防并发锁（同一 docId 不重复发起请求） */
@@ -272,12 +275,18 @@ export const useDocStore = defineStore('doc', () => {
 
   /** 卸载兜底（V-P1-2）：beforeunload 窗口内异步 fetch 不保证送达，改用同步 XHR 尽力落盘。
    *  只处理 dirty 且无冲突且不在保存中的文档；失败静默——最近 autosave/手动保存 + 服务端
-   *  .版本 快照仍是恢复底线。页面即将销毁，不回写 store 状态。 */
+   *  .版本 快照仍是恢复底线。页面即将销毁，不回写 store 状态。
+   *  总预算上限（FLUSH_SYNC_BUDGET_MS）：串行同步 XHR 每次都可能阻塞，多文档无限串行
+   *  会把页面卸载卡死在浏览器手里——超预算即放弃余下文档（尽力而为语义：同步 XHR 无法
+   *  中断在途单次请求，只能在请求之间检查；放弃的文档由 autosave 历史快照兜底）。 */
   function flushSyncOnUnload(): void {
     if (!bookName.value) return
     const token = getToken()
+    const deadline = Date.now() + FLUSH_SYNC_BUDGET_MS
     for (const e of docs.value.values()) {
       if (!e.dirty || e.saving || e.conflict) continue
+      // 预算耗尽：放弃余下文档（卸载路径尽力而为，不阻塞页面销毁）
+      if (Date.now() > deadline) break
       try {
         const xhr = new XMLHttpRequest()
         xhr.open(

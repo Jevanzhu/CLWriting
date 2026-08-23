@@ -26,14 +26,15 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     const cfg = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
     // GG-P2-6 全局托底：config 过 applyGlobalDefaults 后 book.volume_size 已是生效值
     // （书级未设回落 global.json → 硬编码，与 overview 喂 detectState 同一口径）；
-    // 第三参不传，assembleStatus 缺省即从该键收口——工具上下文 userDataPath 由 chat
-    // 编排传入（executeChatTool 构造 ToolContext），链路可达
+    // T2 批（参数显式 resolve）：第三参不再缺省穿透 assembleStatus 内部回落——
+    // 此处显式 resolve 出最终值（生效配置 → 硬编码 50），重放时可精确重建
     // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿），
     // 与判态/近况复述/备料同口径
+    const eff = applyGlobalDefaults(cfg.config, ctx.userDataPath)
     const snapshot = assembleStatus(
       db,
-      applyGlobalDefaults(cfg.config, ctx.userDataPath),
-      undefined,
+      eff,
+      eff.book.volume_size ?? 50,
       finalizedChapterSetOfBook(ctx.bookRoot),
     )
     return { ok: true, summary: formatStatus(snapshot) }

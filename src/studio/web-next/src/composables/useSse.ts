@@ -14,6 +14,31 @@ const FAST_RETRY_LIMIT = 5
 const BASE_BACKOFF_MS = 2_000
 const MAX_BACKOFF_MS = 60_000
 
+/** dev 直连 API 基址：dev 下不走 Vite proxy（proxy + 系统代理会 buffer SSE 断流，旧版踩坑），
+ *  直连本地 dev:api 端口。原为函数内硬编码 'http://127.0.0.1:7878'，提取为常量并支持
+ *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
+const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? 'http://127.0.0.1:7878'
+
+/** POST /api/stream-ticket 换取一次性短时效 SSE ticket（鉴权契约②）。
+ *  EventSource 不支持自定义 header，改由「POST 换 ticket → ?ticket= 拼 URL」两段式。
+ *  契约约定请求带 x-studio-token 头；响应 {ticket}。
+ *  过渡期兼容：服务端 ticket 端点未就绪（404）或请求异常时返回 null——调用方回退
+ *  ?token= 旧通道（e2e 依赖 SSE，服务端未上线前靠此回退保绿）。除 404 外的失败
+ *  （网络/5xx）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
+async function fetchStreamTicket(token: string): Promise<string | null> {
+  try {
+    const r = await fetch('/api/stream-ticket', {
+      method: 'POST',
+      headers: { 'x-studio-token': token },
+    })
+    if (!r.ok) return null
+    const data = (await r.json().catch(() => null)) as { ticket?: unknown } | null
+    return typeof data?.ticket === 'string' && data.ticket ? data.ticket : null
+  } catch {
+    return null
+  }
+}
+
 export function useSse(bookName: WatchSource<string>): void {
   const wb = useWorkbenchStore()
   // setup 内提前获取 chat store 实例：onmessage 回调不在组件上下文，
@@ -38,10 +63,21 @@ export function useSse(bookName: WatchSource<string>): void {
       // 等待期间已被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
       if (gen !== connectGen) return
     }
-    const base = import.meta.env.DEV ? 'http://127.0.0.1:7878' : ''
+    const base = import.meta.env.DEV ? DEV_API_BASE : ''
     const t = getToken()
-    const tokenQuery = t ? `?token=${encodeURIComponent(t)}` : ''
-    es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream${tokenQuery}`)
+    // 契约②：SSE 连接先换一次性 ticket（?ticket=）；ticket 端点未就绪（null）→
+    // 回退 ?token= 旧通道（过渡期兼容，服务端上线后自动切到 ticket）。
+    // ticket 一次性短时效：fail-closed 退避重连每轮 doConnect 都重取新 ticket。
+    let query = ''
+    if (t) {
+      const ticket = await fetchStreamTicket(t)
+      // 换 ticket 期间被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
+      if (gen !== connectGen) return
+      query = ticket
+        ? `?ticket=${encodeURIComponent(ticket)}`
+        : `?token=${encodeURIComponent(t)}`
+    }
+    es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream${query}`)
     es.onopen = () => {
       errorCount = 0
       backoffStep = 0
