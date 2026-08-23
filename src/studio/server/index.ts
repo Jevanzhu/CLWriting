@@ -133,11 +133,15 @@ export interface StudioServerOptions {
   /** 日志是否镜像 console（A4 批 0）——dev/CLI 态 true（看得见）；Electron 打包态
    *  console 输出到无人看见的地方，传 false 只落 JSONL。缺省 true。 */
   mirrorConsoleLog?: boolean
+  /** studio 会话 token（U-6 A，阶段 22 唯一红线豁免）：缺省 randomUUID() 行为不变；
+   *  Electron 拆分形态由 main 侧 server-manager 持久化注入（跨崩溃重启稳定——前端
+   *  token 仅挂载时取一次，换代即写/SSE/心跳永久 403）。协议语义零改动。 */
+  studioToken?: string
 }
 
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
-  const studioToken = randomUUID()
+  const studioToken = opts.studioToken ?? randomUUID()
   // A4（批 0）：结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
   // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
   initLogging({

@@ -1,16 +1,18 @@
 /**
- * Electron 主进程入口（桌面化 #electron）。
+ * Electron 主进程入口（桌面化 #electron；阶段 22 批 U1 起 studio server 拆分至 utilityProcess）。
  *
- * 起 studio server（复用 src/studio/server，127.0.0.1 随机端口）→ BrowserWindow loadURL。
- * 前端 Vue 零改造（fetch /api/...）；driver 复用（与 CLI/Web 同源：cc 驱动 spawn claude，provider 线走 HTTP）。
+ * fork server-utility 子进程承载 studio server（127.0.0.1 随机端口，ready 握手回传）
+ * → BrowserWindow loadURL。前端 Vue 零改造（fetch /api/...）；driver 复用（与 CLI/Web
+ * 同源：cc 驱动 spawn claude，provider 线走 HTTP）。main 瘦身为纯壳层：窗口/菜单/IPC/
+ * workDir 管理 + serverManager（fork/握手/停启）。
  *
  * 工作目录（书库）管理（批2 起）：
  * - 启动定位：userData 持久化的 current（合法则用）> findWorkDir(cwd) > 弹原生选择器。
  * - 切换书库 = 改持久化 current → app.relaunch() 进程重启
  *   （规避 server 路由模块级单例 + SSE 长连接泄漏，见 Dev/Plans/desktop-workdir-方案.md §2.1/§3.1）。
  *
- * 开发：npm run dev:electron（build:web + tsup + electron .）
- * 打包：electron-builder（dist/web + dist/desktop/{main,preload}.js 进 asar）
+ * 开发：npm run dev:electron（build:web + tsup + electron .；未打包非 HMR 同走拆分形态，U-4）
+ * 打包：electron-builder（dist/web + dist/desktop/{main,server-utility,preload} 进 asar）
  */
 import {
   app,
@@ -29,16 +31,13 @@ import {
 import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import type { Server } from 'node:http'
-import { startServer } from '../studio/server/index.js'
-import { setInitialBook } from '../studio/server/api/books.js'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
-import { shutdownStudio } from './graceful-shutdown.js' // RB-SV-P2-6：优雅退出
+import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { getFonts as getSystemFontList } from 'font-list'
 import {
@@ -95,18 +94,17 @@ if (!gotSingleInstanceLock) {
   })
 }
 
-/** 前端静态目录：打包后 asar 内 / 开发项目根 dist/web */
-function resolveStaticDir(): string {
-  return app.isPackaged
-    ? join(app.getAppPath(), 'dist', 'web') // 打包：app.asar/dist/web
-    : resolve(here, '..', '..', 'dist', 'web') // 开发：here=dist/desktop/ → 项目根/dist/web
-}
+/** 前端静态目录已随 server 拆分下沉 child（server-boot deriveStaticDir，批 U1）。 */
 
 let mainWindow: BrowserWindow | null = null
 let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
-let studioServer: Server | null = null // 内嵌 server（dev HMR 态为 null）
+/** 阶段 22 批 U1：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起） */
+const serverManager = createStudioServerManager()
+/** S-4（批 U1）：bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child
+ *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork） */
+const legacyStopHandle = { close: () => { void serverManager.stopChild() } }
 /** P5-服务端（第七轮）：bootstrap 实际采用的 workDir——before-quit 优雅退出回读用
  *  （readStore().current 可能为 null/失效而实际 workDir 由 findWorkDir 发现） */
 let bootstrappedWorkDir: string | null = null
@@ -238,18 +236,6 @@ async function openLibraryAction(): Promise<boolean> {
 
 // ── 窗口 ──────────────────────────────────────────────
 
-/** 等 server 监听，返回端口。 */
-function listenPort(server: ReturnType<typeof startServer>): Promise<number> {
-  return new Promise((resolveP, reject) => {
-    server.once('listening', () => {
-      const addr = server.address()
-      if (addr && typeof addr === 'object') resolveP(addr.port)
-      else reject(new Error('无法获取监听端口'))
-    })
-    server.once('error', reject)
-  })
-}
-
 /** ii 批：安全基线窗口工厂——主窗/书架/书库三处 BrowserWindow 的安全五件套
  *  （contextIsolation + sandbox + nodeIntegration:false + preload + hiddenInset 标题栏）
  *  与纵深防御监听（禁外部导航 + 禁弹新窗）原样重复 3 份，安全配置改一处漏两处是
@@ -351,24 +337,37 @@ async function bootstrap(): Promise<void> {
   const needsWelcome = !workDir
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
-  // 不起内嵌 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
+  // 不起 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
   const devUi = !!process.env.CLW_DEV_UI
   if (devUi) {
     appUrl = 'http://localhost:5173'
   } else {
-    // RB-SV-P2-4：--book 直进接线——argv/env 解析为登记书名，boot 下发前端直达工作区
-    //（dev HMR 态不起内嵌 server，boot 由独立 dev-api 提供，此项不生效）
+    // RB-SV-P2-4：--book 直进——argv 解析为登记书名仍在 main（书架登记表就在手边），
+    // 下沉为 --book 参数由 child 在 startServer 前调 setInitialBook（U-1 附带；
+    // dev HMR 态不起 server，boot 由独立 dev-api 提供，此项不生效）
+    let initialName: string | null = null
     if (workDir) {
       const ref = initialBookArg(process.argv)
-      if (ref) {
-        const name = resolveInitialBook(workDir, ref)
-        if (name) setInitialBook(name)
-      }
+      if (ref) initialName = resolveInitialBook(workDir, ref)
     }
-    const staticDir = resolveStaticDir()
-    const server = startServer({ port: 0, staticDir, workDir, userDataPath: app.getPath('userData'), mirrorConsoleLog: !app.isPackaged })
-    studioServer = server // RB-SV-P2-6：退出前 close 用
-    const port = await listenPort(server)
+    // 阶段 22 批 U1：fork server-utility 子进程 + ready 端口握手（时序等价拆分前的
+    // await listenPort——loadURL 仍发生在 server ready 之后，验收门 2）
+    let port: number
+    try {
+      port = await serverManager.start({
+        workDir,
+        userDataPath: app.getPath('userData'),
+        book: initialName,
+        mirrorConsole: !app.isPackaged,
+      })
+    } catch (e) {
+      // 时序 2（仅首次启动）：boot-error（如 EADDRINUSE）→ 原生错误对话框（复用
+      // server-main 拆分前中文口径）→ 上抛走 onError app.quit()
+      if (e instanceof ServerBootError) {
+        dialog.showErrorBox('CLWriting 服务启动失败', `${e.message}\n\n应用即将退出。`)
+      }
+      throw e
+    }
     appUrl = `http://127.0.0.1:${port}`
   }
 
@@ -698,15 +697,16 @@ if (gotSingleInstanceLock) {
   })
 
   // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
-  // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双内嵌 server）；
+  // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双 server child）；
   // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）。
   // O-4（第十三轮）：三段守卫语义抽 createBootstrapRunner 可测（Y-P2-7 重入挡 +
   // 第九轮 L-3 重试关旧 server + 低-8 退出竞态直通），销第十轮 M-6 留账
+  // S-4（批 U1）：deps 换轨——「重试前关旧 server」经 legacyStopHandle 停旧 child
   const bootstrapRunner = createBootstrapRunner(
     {
       getMainWindow: () => mainWindow,
-      getStudioServer: () => studioServer,
-      setStudioServer: (s) => { studioServer = s as Server | null },
+      getStudioServer: () => (serverManager.isRunning() ? legacyStopHandle : null),
+      setStudioServer: () => undefined, // child 生命周期归 serverManager 自持
     },
     () => bootstrap(),
   )
@@ -719,16 +719,14 @@ if (gotSingleInstanceLock) {
     app.quit()
   })
 
-  // RB-SV-P2-6：优雅退出——先中断在途编排（self-heal/chat）+ close HTTP server，
-  // 再真正退出；总超时 2s 兜底（清理卡死也强制退出）。清理只跑一次，二次 quit 直通。
-  // O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次 quit 直通语义不变）
+  // RB-SV-P2-6：优雅退出。O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次
+  // quit 直通）。批 U1 中间态：child 尚无 shutdown 指令（批 U2 下沉 shutdownStudio
+  //——在途编排 abort/session/end 落库随批恢复），当前为 kill + 等退出（2s 兜底在
+  // manager 内），child 随 app 退出由 Electron 运行时收编兜底。
   app.on('before-quit', (e) => {
     if (!bootstrapRunner.beginShutdown()) return
     e.preventDefault()
-    void Promise.race([
-      shutdownStudio(() => bootstrappedWorkDir ?? readStore().current, studioServer),
-      new Promise<void>((r) => setTimeout(r, 2_000)),
-    ]).finally(() => {
+    void serverManager.stopChild().finally(() => {
       app.quit()
     })
   })

@@ -54,11 +54,11 @@ function rawRequest(
 }
 
 /** 起一个 server（port 0），登记待清理。 */
-async function bootServer(opts: { devUi?: boolean } = {}): Promise<string> {
+async function bootServer(opts: { devUi?: boolean; studioToken?: string } = {}): Promise<string> {
   if (opts.devUi) process.env['CLW_DEV_UI'] = '1'
   else delete process.env['CLW_DEV_UI']
   delete process.env['CLW_DEV_CORS']
-  const s = startServer({ port: 0, workDir })
+  const s = startServer({ port: 0, workDir, studioToken: opts.studioToken })
   servers.push(s)
   await new Promise<void>((r) => s.once('listening', r))
   const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}`
@@ -136,6 +136,34 @@ describe('RB-SV-P1-1 /api/boot token 条件回传', () => {
     )
     expect(write.status).toBe(403)
     expect(String(write.json['error'])).toContain('token')
+  })
+})
+
+describe('U-6（阶段 22）：startServer 可选 studioToken 注入（唯一红线豁免——缺省行为不变）', () => {
+  it('注入 token → boot 恰回传该 token；写端点 token 闸按注入值校验', async () => {
+    const injected = '11111111-2222-4333-8444-555555555555'
+    const base = await bootServer({ studioToken: injected })
+    const boot = await rawRequest(base, 'GET', '/api/boot')
+    expect(boot.json['token']).toBe(injected)
+    // 同源 Origin + 错 token → 403 invalid token（闸值即注入值，非内部 randomUUID）
+    const wrong = await rawRequest(
+      base,
+      'POST',
+      `/api/books/${encodeURIComponent('测试书')}/outline`,
+      { origin: base, 'content-type': 'application/json', 'x-studio-token': 'wrong-token' },
+      JSON.stringify({ chapter: 1 }),
+    )
+    expect(wrong.status).toBe(403)
+    expect(String(wrong.json['error'])).toContain('token')
+    // 对注入 token 放行：同 token 重写等价口径（错误码差异留给路由层，这里只锁闸语义）
+    const right = await rawRequest(
+      base,
+      'POST',
+      `/api/books/${encodeURIComponent('测试书')}/outline`,
+      { origin: base, 'content-type': 'application/json', 'x-studio-token': injected },
+      JSON.stringify({ chapter: 1 }),
+    )
+    expect(right.status).not.toBe(403)
   })
 })
 

@@ -14,7 +14,10 @@ export interface BootstrapRunnerDeps {
   /** 当前主窗口（R-14（第十六轮）后不再是重试关旧 server 的判据——存在旧 server 即关；
    *  字段保留兼容 main.ts 接线） */
   getMainWindow: () => unknown
-  /** 内嵌 server（startServer 之后失败的滞留清理对象） */
+  /** 「重试前关旧 server」的清理对象。S-4（阶段 22 批 U1）拆分后语义换轨：main 接线
+   *  传 server-manager 的停旧 child 适配器（close() = kill + 等退出，下一次 start 先
+   *  等旧 child 退出再 fork）；server 生命周期归 manager 自持，setStudioServer 不再
+   *  落 main 状态量（接线传 no-op）。接口形状保持 { close } 以兼容既有测试口径。 */
   getStudioServer: () => { close: () => void } | null
   setStudioServer: (server: { close: () => void } | null) => void
 }

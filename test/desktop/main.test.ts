@@ -2,25 +2,28 @@
  * kk-P2-8：Electron 主进程 main.ts 自动化（此前 718 行 0% 覆盖、仅靠人工冒烟）。
  *
  * 手法：vi.mock('electron') 全面假件 + 动态 import main.ts，驱动真实生命周期
- * （whenReady → CSP 注册 → registerIpc → buildMenu → bootstrap 起假 server 开假窗口），
- * 对捕获面断言：
+ * （whenReady → CSP 注册 → registerIpc → buildMenu → bootstrap fork utility 假 child
+ * + ready 握手开假窗口），对捕获面断言：
  * - 安全五件套窗口配置（contextIsolation/sandbox/nodeIntegration:false/preload）
  *   + 纵深防御（will-navigate 阻断 / 弹新窗拒绝）+ render-process-gone 自愈
  * - 生产 CSP 注入（default-src 'self' 基线锁定）
- * - 内嵌 server 启动参数（workDir/userDataPath/staticDir/随机端口）与主窗 loadURL
+ * - utility fork 参数与握手（阶段 22 批 U1：--dir/--user-data/--port 0/--token/
+ *   serviceName 单列/env 缺省继承 + loadURL 用 ready 回传端口 = 时序等价锚点）；
+ *   welcome 态（--dir 缺省）、token 跨模块加载稳定（U-6）、boot-error → 原生
+ *   错误对话框 + 退出（时序 2）
  * - IPC 面：switch-library 校验与持久化、show-in-folder/open-book-dir 路径穿越守卫族、
  *   open-book 导航转发、context-menu 载荷校验与选择回传
  * - 原生菜单模板（生产无 devTools/reload；action click → menu-action 转发）
  * - second-instance --book 直进、window-state 越界丢弃、before-quit 优雅退出幂等、
  *   无单实例锁分支（quit 且不注册生命周期）
- * 灰盒边界：真实模块（workdir-store/install-books/initial-book/graceful-shutdown/
- * context-menu）真实跑；electron/startServer/日志/setInitialBook 为假件。
+ * 灰盒边界：真实模块（workdir-store/install-books/initial-book/server-manager/
+ * context-menu）真实跑（server-manager 的 fork 经 electron mock 的 utilityProcess
+ * 假件注入）；electron/日志为假件。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EventEmitter } from 'node:events'
 
 /** mock 状态与捕获面（vi.hoisted 保证 vi.mock 工厂可见） */
 const M = vi.hoisted(() => ({
@@ -43,10 +46,13 @@ const M = vi.hoisted(() => ({
   shell: { show: [] as string[], open: [] as string[] },
   windows: [] as Array<Record<string, any>>,
   focusedWin: null as null | Record<string, any>,
-  serverStarts: 0,
-  lastServerOpts: null as null | Record<string, unknown>,
-  initialBook: null as null | string,
   logErrors: [] as unknown[],
+  // ── 阶段 22 批 U1：utilityProcess 假件捕获面 ──
+  forkCalls: [] as Array<{ modulePath: string; args: string[]; options: Record<string, unknown> }>,
+  forkChildren: [] as Array<Record<string, any>>,
+  /** 'ready'（默认，自动回传 ready 45678）/ 'boot-error'（回传 EADDRINUSE 信封后退出） */
+  forkBehavior: 'ready' as 'ready' | 'boot-error',
+  errorBox: [] as Array<[string, string]>,
 }))
 
 vi.mock('electron', () => {
@@ -123,6 +129,43 @@ vi.mock('electron', () => {
       for (const fn of this.handlers[evt] ?? []) fn(...a)
     }
   }
+  /** utilityProcess 假件（批 U1）：记录 fork 调用面 + 可控行为的握手回传。
+   *  自带最小 pub-sub（mock 工厂不得引用外部绑定——vitest hoist TDZ）。 */
+  class FakeUtilityProc {
+    private handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
+    posted: unknown[] = []
+    killed = 0
+    pid = 4242
+    constructor(modulePath: string, args: string[], options: Record<string, unknown>) {
+      M.forkCalls.push({ modulePath, args, options })
+      M.forkChildren.push(this as unknown as Record<string, any>)
+      queueMicrotask(() => {
+        if (M.forkBehavior === 'boot-error') {
+          this.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: '端口 0 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口' })
+          this.emit('exit', 1)
+        } else {
+          this.emit('message', { type: 'ready', port: 45678 })
+        }
+      })
+    }
+    on(evt: string, fn: (...a: unknown[]) => void): void {
+      ;(this.handlers[evt] ??= []).push(fn)
+    }
+    once(evt: string, fn: (...a: unknown[]) => void): void {
+      this.on(evt, fn)
+    }
+    emit(evt: string, ...a: unknown[]): void {
+      for (const fn of [...(this.handlers[evt] ?? [])]) fn(...a)
+    }
+    postMessage(m: unknown): void {
+      this.posted.push(m)
+    }
+    kill(): boolean {
+      this.killed++
+      queueMicrotask(() => this.emit('exit', 0))
+      return true
+    }
+  }
   return {
     app: {
       setPath: (k: string, v: string) => {
@@ -181,6 +224,9 @@ vi.mock('electron', () => {
     dialog: {
       showOpenDialog: async () => M.dialogOpen,
       showMessageBox: async () => ({ response: M.msgResponse }),
+      showErrorBox: (title: string, msg: string) => {
+        M.errorBox.push([title, msg])
+      },
     },
     Menu: {
       buildFromTemplate: (t: Array<Record<string, unknown>>) => {
@@ -204,6 +250,12 @@ vi.mock('electron', () => {
         return ''
       },
     },
+    // 阶段 22 批 U1：utilityProcess 假件——server-manager 经此注入 fork；假 child
+    // 下一拍按 forkBehavior 回传握手消息（ready 45678 / boot-error EADDRINUSE 后退出）
+    utilityProcess: {
+      fork: (modulePath: string, args: string[], options: Record<string, unknown>) =>
+        new FakeUtilityProc(modulePath, args, options),
+    },
   }
 })
 
@@ -221,22 +273,7 @@ vi.mock('../../src/log/index.js', () => ({
   },
 }))
 vi.mock('font-list', () => ({ getFonts: async () => ['Mock Sans'] }))
-vi.mock('../../src/studio/server/api/books.js', () => ({
-  setInitialBook: (name: string) => {
-    M.initialBook = name
-  },
-}))
-vi.mock('../../src/studio/server/index.js', () => ({
-  startServer: (opts: Record<string, unknown>) => {
-    M.serverStarts++
-    M.lastServerOpts = opts
-    const s = new EventEmitter() as EventEmitter & { address: () => { port: number }; close: (cb: () => void) => void }
-    s.address = () => ({ port: 45678 })
-    s.close = (cb: () => void) => cb()
-    queueMicrotask(() => s.emit('listening'))
-    return s
-  },
-}))
+// 批 U1：main 不再直调 startServer/setInitialBook（下沉 child），mock 面随之删除
 
 const tmpDirs: string[] = []
 function mkTmp(prefix: string): string {
@@ -318,12 +355,28 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(csp).toContain("connect-src 'self'")
   })
 
-  it('内嵌 server 参数与主窗加载：workDir/userDataPath/staticDir/随机端口 → loadURL', () => {
-    expect(M.serverStarts).toBe(1)
-    expect(M.lastServerOpts!.workDir).toBe(libA)
-    expect(M.lastServerOpts!.userDataPath).toBe(M.userData)
-    expect(String(M.lastServerOpts!.staticDir)).toBe(join('/fake/app', 'dist', 'web'))
+  it('utility fork 参数与主窗加载（批 U1）：--dir/--user-data/--port 0/--token + serviceName → loadURL', () => {
+    expect(M.forkCalls.length).toBe(1)
+    const call = M.forkCalls[0]!
+    const dirVal = call.args[call.args.indexOf('--dir') + 1]
+    expect(dirVal).toBe(libA)
+    expect(call.args[call.args.indexOf('--user-data') + 1]).toBe(M.userData)
+    expect(call.args[call.args.indexOf('--port') + 1]).toBe('0')
+    expect(call.args[call.args.indexOf('--token') + 1]).toMatch(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/)
+    expect(call.args).not.toContain('--book')
+    expect(call.args).not.toContain('--mirror-console') // mock isPackaged=true
+    expect(call.options['serviceName']).toBe('studio-server')
+    // env 继承断言：不显式传 = utilityProcess 缺省继承 process.env（批 U2 注入 CLW_LOG_STDOUT 时口径随改）
+    expect(call.options['env']).toBeUndefined()
+    expect(String(call.modulePath)).toMatch(/server-utility\.js$/)
+    // 45678 只能来自 ready 消息回传——loadURL 用回传端口即「server ready 后才 loadURL」的时序锚点（验收门 2）
     expect(mainWin().loaded[0]).toBe('http://127.0.0.1:45678')
+  })
+
+  it('studioToken 持久化（U-6）：userData/studio-token.json 落盘且与 fork 传值一致', () => {
+    const stored = JSON.parse(readFileSync(join(M.userData, 'studio-token.json'), 'utf-8')) as { token: string }
+    const call = M.forkCalls[0]!
+    expect(stored.token).toBe(call.args[call.args.indexOf('--token') + 1])
   })
 
   it('window-state 恢复：合法 bounds → 主窗尺寸取存量值', () => {
@@ -551,7 +604,7 @@ describe('kk-P2-8：退出与边界分支', () => {
   // 复用旧实例无法构造「退出窗口内 activate」的初始态，resetModules 重导）
   it('低-8（第十轮）：before-quit 2s 退出窗口内 activate 不再触发重 bootstrap', async () => {
     const windows0 = M.windows.length
-    const servers0 = M.serverStarts
+    const forks0 = M.forkChildren.length
     vi.resetModules()
     await import('../../src/desktop/main.js')
     await new Promise((r) => setImmediate(r))
@@ -570,7 +623,46 @@ describe('kk-P2-8：退出与边界分支', () => {
     M.appOn['activate']!.at(-1)!()
     await new Promise((r) => setImmediate(r))
     await new Promise((r) => setImmediate(r))
-    expect(M.serverStarts).toBe(servers0 + 1) // 仅 fresh bootstrap 的那一次，无重入增量
+    expect(M.forkChildren.length).toBe(forks0 + 1) // 仅 fresh bootstrap 的那一次，无重入增量
     expect(M.windows.length).toBe(windows0 + 1) // 无退出途新窗口
+  })
+
+  it('welcome 态（批 U1/S-8）：无书库 → fork 不带 --dir，主窗加载 /welcome；token 跨模块加载稳定（U-6）', async () => {
+    const fork0 = M.forkChildren.length
+    const windows0 = M.windows.length
+    // 移除 current（cwd 即 repo 根，无 .clwriting → findWorkDir 也落空）
+    const backup = readFileSync(join(M.userData, 'workdir.json'), 'utf-8')
+    rmSync(join(M.userData, 'workdir.json'))
+    // 记住上一轮 token（studio-token.json 已在 userData）
+    const tokenBefore = (JSON.parse(readFileSync(join(M.userData, 'studio-token.json'), 'utf-8')) as { token: string }).token
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const call = M.forkCalls.at(-1)!
+    expect(call.args).not.toContain('--dir')
+    // 独立 main 加载（模拟 main 重启）复用持久化 token
+    expect(call.args[call.args.indexOf('--token') + 1]).toBe(tokenBefore)
+    expect(M.windows.length).toBe(windows0 + 1)
+    expect(M.windows.at(-1)!.loaded[0]).toBe('http://127.0.0.1:45678/welcome')
+    // 还原 current，避免影响后续 readStore
+    writeFileSync(join(M.userData, 'workdir.json'), backup)
+    expect(M.forkChildren.length).toBe(fork0 + 1)
+  })
+
+  it('时序 2（批 U1）：boot-error（EADDRINUSE）→ 原生错误对话框 + 退出，不开窗不 fork 增量外动作', async () => {
+    M.forkBehavior = 'boot-error'
+    const windows0 = M.windows.length
+    const quit0 = M.quitCalls
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    expect(M.errorBox.length).toBe(1)
+    expect(M.errorBox[0]![0]).toContain('启动失败')
+    expect(M.errorBox[0]![1]).toContain('EADDRINUSE')
+    expect(M.windows.length).toBe(windows0) // 启动失败不开窗
+    expect(M.quitCalls).toBeGreaterThan(quit0) // onError → app.quit
+    M.forkBehavior = 'ready'
   })
 })

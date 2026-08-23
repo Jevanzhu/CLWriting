@@ -9,7 +9,9 @@ rmSync('dist/desktop', { recursive: true, force: true })
 
 export default defineConfig([
   {
-    entry: ['src/desktop/main.ts', 'src/desktop/server-main.ts'],
+    // 阶段 22 批 U1：server-utility 为 utilityProcess 子进程入口（server-manager fork
+    // dist/desktop/server-utility.js；electron-builder files: dist 自动含）
+    entry: ['src/desktop/main.ts', 'src/desktop/server-main.ts', 'src/desktop/server-utility.ts'],
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
     format: ['esm'],
     target: 'node24',
