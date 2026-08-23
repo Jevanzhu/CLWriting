@@ -155,8 +155,10 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_tool_result': {
         const callId = str(ev['callId'])
         if (callId) {
+          // R-6（十五轮登记销账）：失败结果标 failed 对齐种子化路径同口径；
+          // cancelled 仅保留给「无 tool_result 回填」的兜底语义（异常中断 ≠ 工具执行失败）
           updateTool(callId, {
-            status: ev['ok'] === true ? 'ok' : 'cancelled',
+            status: ev['ok'] === true ? 'ok' : 'failed',
             ...(str(ev['summary']) ? { summary: str(ev['summary']) } : {}),
           })
         }

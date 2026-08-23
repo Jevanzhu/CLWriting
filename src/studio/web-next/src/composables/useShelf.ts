@@ -8,6 +8,7 @@ import { usePrefsStore } from '../stores/prefs'
 import { apiJson } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
+import { clearFalsePositiveMarks } from '../stores/check'
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
 export function formatWords(n?: number): string {
@@ -193,6 +194,8 @@ export function useShelf(options?: {
     try {
       for (const name of names) {
         await deleteBook(name)
+        // R-5（十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
+        clearFalsePositiveMarks(name)
       }
       confirmTarget.value = null
       // 删除完成后清选中 + 退出批量模式

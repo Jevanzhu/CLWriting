@@ -69,4 +69,39 @@ describe('readJson 分块解码（V-P1-1）', () => {
     const result = await chunkedReq([Buffer.from('')])
     expect(result).toEqual({})
   })
+
+  // ── R-1（十五轮登记销账）：413 排空是宽限不是义务接收，慢速发送方到点断连 ──
+
+  it('413 后宽限到点强制 destroy：不再写也不 end 的慢速方不再无限占用', async () => {
+    const stream = new PassThrough()
+    const req = stream as unknown as IncomingMessage
+    const pending = readJson(req, 1024, 60) // 注入小宽限保测试快
+    stream.write(Buffer.from(JSON.stringify({ content: 'x'.repeat(2048) })))
+    await expect(pending).rejects.toMatchObject({ status: 413 })
+    // 不再写数据也不 end——修复前排空态 socket 永远开着；修复后宽限到点 destroy
+    await new Promise<void>((resolve) => stream.once('close', resolve))
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it('413 后正常 end 落在宽限内 → close 清定时器不误伤', async () => {
+    const stream = new PassThrough()
+    // PassThrough autoDestroy 语义下正常 end 后 destroyed 亦为 true，无法区分——
+    // 改数 destroy 调用次数：定时器被清则宽限 destroy 根本不发生
+    let destroyCalls = 0
+    const origDestroy = stream.destroy.bind(stream)
+    stream.destroy = (err?: Error | undefined) => {
+      destroyCalls++
+      return origDestroy(err)
+    }
+    const req = stream as unknown as IncomingMessage
+    const pending = readJson(req, 1024, 80)
+    stream.write(Buffer.from(JSON.stringify({ content: 'x'.repeat(2048) })))
+    await expect(pending).rejects.toMatchObject({ status: 413 })
+    stream.end()
+    await new Promise((r) => stream.once('close', r))
+    // close 时的计数（autoDestroy 正常收口那一次，0 或 1 均可）
+    const atClose = destroyCalls
+    await new Promise((r) => setTimeout(r, 150)) // 越过宽限期
+    expect(destroyCalls).toBe(atClose) // 无新增 destroy = 定时器已被 close 清掉
+  })
 })

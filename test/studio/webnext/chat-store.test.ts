@@ -122,15 +122,16 @@ describe('W3: 工具卡片状态流转', () => {
     expect(tool.summary).toBe('写好了')
   })
 
-  it('pending → cancelled（ok=false 的 tool_result）', () => {
+  it('pending → failed（ok=false 的 tool_result；R-6 十五轮登记销账：对齐种子化路径口径）', () => {
     const chat = useChatStore()
     chat.dispatch({ type: 'chat_start' })
     chat.dispatch({ type: 'chat_turn', turn: 0 })
     chat.dispatch({ type: 'chat_tool_pending', callId: 'c2', name: 'write_chapter', input: { chapter: 1 } })
-    chat.dispatch({ type: 'chat_tool_result', callId: 'c2', summary: '已取消', ok: false })
+    chat.dispatch({ type: 'chat_tool_result', callId: 'c2', summary: '执行失败', ok: false })
 
     const tool = chat.messages[0]!.tools[0]!
-    expect(tool.status).toBe('cancelled')
+    // 工具确实执行了且失败 = failed；cancelled 仅保留给「无 tool_result 回填」的兜底
+    expect(tool.status).toBe('failed')
   })
 
   it('readonly 工具不走 pending，直接 tool → result', () => {

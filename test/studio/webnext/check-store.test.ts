@@ -11,18 +11,21 @@ vi.mock('../../../src/studio/web-next/src/api/check', () => ({
 }))
 
 import { runCheck, markFalsePositive } from '../../../src/studio/web-next/src/api/check'
-import { useCheckStore } from '../../../src/studio/web-next/src/stores/check'
+import { useCheckStore, clearFalsePositiveMarks } from '../../../src/studio/web-next/src/stores/check'
 
 const checkMock = runCheck as ReturnType<typeof vi.fn>
 const fpMock = markFalsePositive as ReturnType<typeof vi.fn>
 
-/** node 环境无 localStorage——Map 桩顶上（M-1 持久化路径可测） */
+/** node 环境无 localStorage——Map 桩顶上（M-1 持久化路径可测；
+ * R-5（十五轮登记销账）补 key/length：clearFalsePositiveMarks 前缀扫描要用） */
 function stubLocalStorage(): Map<string, string> {
   const store = new Map<string, string>()
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
+    get length() { return store.size },
+    key: (i: number) => [...store.keys()][i] ?? null,
   })
   return store
 }
@@ -222,5 +225,24 @@ describe('check: R-1 clear 在途 run 不卡 loading', () => {
     await p
     expect(s.loading).toBe(false) // 不卡；数据也不落地
     expect(s.report).toBeNull()
+  })
+})
+
+describe('check: R-5 删书清误报灰显键', () => {
+  it('clearFalsePositiveMarks 只清该书前缀键，他书与无关键不受影响', () => {
+    const store = stubLocalStorage()
+    store.set('clw-fp:书甲:doc_1', '["r1"]')
+    store.set('clw-fp:书甲:doc_2', '["w1","r2"]')
+    store.set('clw-fp:书乙:doc_1', '["r1"]') // checkId 跨书同名——必须不动
+    store.set('clw-fp:书甲子:doc_1', '["x"]') // 前缀陷阱：书甲的键不该匹配到书甲子
+    store.set('clw-other:key', '1')
+
+    clearFalsePositiveMarks('书甲')
+
+    expect(store.has('clw-fp:书甲:doc_1')).toBe(false)
+    expect(store.has('clw-fp:书甲:doc_2')).toBe(false)
+    expect(store.has('clw-fp:书乙:doc_1')).toBe(true)
+    expect(store.has('clw-fp:书甲子:doc_1')).toBe(true)
+    expect(store.has('clw-other:key')).toBe(true)
   })
 })

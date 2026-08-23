@@ -3,6 +3,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
+/** R-1（十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
+ * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
+export const PAYLOAD_GRACE_MS = 1500
+
 export class HttpError extends Error {
   /** 机器可判别错误码（信封 {code,error} 的 code；缺省 'ERROR' 兜底） */
   public code: string
@@ -86,6 +90,7 @@ export function checkToken(req: IncomingMessage, token: string): boolean {
 export function readJson(
   req: IncomingMessage,
   limitBytes = JSON_BODY_LIMIT_BYTES,
+  graceMs = PAYLOAD_GRACE_MS,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     // 缓冲按 Buffer 收集、一次性 concat 后再解码：逐 chunk toString 会把跨分块边界的
@@ -106,6 +111,12 @@ export function readJson(
         reject(new HttpError(413, '请求体过大', 'BAD_INPUT'))
         req.removeAllListeners('data')
         req.resume()
+        // R-1（十五轮登记销账）：排空只是让 413 响应先刷出的宽限，不是义务接收——
+        // 慢速发送方可长期 dribble 数据占住 socket/FD。宽限到点强制 destroy：本地
+        // 回环 413 亚毫秒级已送达，之后断连属预期收口；正常客户端到此早已 end
+        // （close 即清定时器，不误伤）。graceMs 可注入，测试用小值保快。
+        const grace = setTimeout(() => { req.destroy() }, graceMs)
+        req.on('close', () => clearTimeout(grace))
         return
       }
       chunks.push(c)

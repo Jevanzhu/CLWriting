@@ -136,6 +136,25 @@ describe('generateChapterSummary（C1 批 2）', () => {
     expect(readChapterSummaryBody(root, 1)).toBe('BOM 摘要正文。')
   })
 
+  it('R-11（十五轮登记销账）：硬截断按码位——边界处增补平面字符不切成半个代理对', async () => {
+    const root = makeBook(1)
+    const spec = SUMMARY_CHAPTER_SPEC as unknown as { mock: { kind: 'text'; text: string } }
+    const orig = spec.mock
+    try {
+      // 预算 3：码位截断得「ab𠮷…」；UTF-16 slice(0,3) 会在 𠮷（U+20BB7，两个码元）
+      // 中间切一刀，留下孤立高代理 \ud867 落盘
+      spec.mock = { kind: 'text', text: 'ab𠮷cd' }
+      const cfg = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, summary_chapter_max: 3 } }
+      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      expect(r.ok && !r.skipped).toBe(true)
+      const body = readChapterSummaryBody(root, 1)!
+      expect(body.endsWith('\u{20BB7}\u2026')).toBe(true)
+      expect(body).not.toContain('\u{D867}')
+    } finally {
+      spec.mock = orig
+    }
+  })
+
   it('手写摘要（无 fm）按 fresh 对待——作者产物优先，程序不覆盖', async () => {
     const root = makeBook(1)
     mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })

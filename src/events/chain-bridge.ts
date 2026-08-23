@@ -38,6 +38,8 @@ export function llmCallEvent(data: {
    *  透传；无兜底不发/early-error 无值）与首字节超时（env resolver，同 gen.generate 源） */
   maxTokens?: number
   firstByteTimeoutMs?: number
+  /** R-8（十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
+  quirksVersion?: string
 }): NewEvent {
   return { type: 'llm/call', data: { ...data } }
 }

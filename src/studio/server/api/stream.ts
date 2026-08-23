@@ -246,7 +246,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 挂在 notify 上无人唤醒，泄漏到 session dispose。已断开（计数已由 close 回调减）
     // 则直接放弃建流。
     if (clientGone) return
-    const driver = getDriver('cc')
+    const driver = getDriver()
 
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -337,7 +337,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         : []
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
-      const driver = getDriver('cc')
+      const driver = getDriver()
       launched = true
       // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
       // 终态（含失败/中断）释放并发闸
@@ -372,7 +372,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     abortSelfHeal(bookName)
     abortChat(bookName)
     const session = await ensureSession(bookName, ctx.workDir!)
-    const driver = getDriver('cc')
+    const driver = getDriver()
     if (driver.interrupt) driver.interrupt(session)
     reply(res, 200, { ok: true })
   },
@@ -432,7 +432,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
     }
-    const driver = getDriver('cc')
+    const driver = getDriver()
     // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
     // 生成期 isRunning() 真值（SSE sync 快照此前假空闲，前端可误触 /spawn 互相覆写草稿），
     // /interrupt 的 driver.interrupt() 也能直接 abort 在途请求（与 abortSelfHeal 双保险）。
@@ -509,7 +509,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
       // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
       // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
-      const driver = getDriver('cc')
+      const driver = getDriver()
       const outcome = sendChatMessage({
         driver,
         mainSession,
@@ -575,7 +575,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
     }
     const mainSession = await ensureSession(bookName, ctx.workDir!)
-    const driver = getDriver('cc')
+    const driver = getDriver()
     const outcome = sendChatMessage({
       driver,
       mainSession,

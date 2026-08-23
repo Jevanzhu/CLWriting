@@ -75,6 +75,17 @@ test('checkSimile: 未超阈通过', () => {
   expect(checkSimile('像雪花一样飘落。', 10).items).toHaveLength(0)
 })
 
+// R-9（十五轮登记销账）：前置排除改零宽 lookbehind——相邻明喻不再因前字符被上一
+// 命中消费而漏计（漏报不误报）
+test('checkSimile: 相邻明喻逐个计数（R-9 lookbehind）', () => {
+  // 「像刀像雪」两个明喻背靠背：修复前第二个「像」前字符「刀」已被吞 → 只计 1
+  const r1 = checkSimile('像刀像雪。', 1)
+  expect(r1.items).toHaveLength(1) // 计 2 > 阈 1 → 报黄（修复前计 1 ≤ 1 不报）
+  expect(r1.items[0]!.message).toContain('2')
+  // 对照：间隔一个非「像」字仍计 2（既有行为不变）
+  expect(checkSimile('剑像刀，光像雪。', 1).items).toHaveLength(1)
+})
+
 test('AA-P3-6 金测: 真实语料明喻计数——4 处明喻 + 非比喻「像」不误计（漏报/误报基线）', () => {
   const body = [
     '她坐在窗前，很像她母亲年轻时的样子。', // 很像 → 非比喻，不计

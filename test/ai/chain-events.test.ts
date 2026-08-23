@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { runTask } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { GenError } from '../../src/ai/gen.js'
+import { MODEL_QUIRKS_VERSION } from '../../src/ai/provider/model-quirks.js'
 
 const dirs: string[] = []
 function tempUserData(): string {
@@ -159,6 +160,24 @@ describe('F1-P2 runTask 链事件', () => {
     } finally {
       delete process.env['CLWRITING_FIRST_BYTE_TIMEOUT_MS']
     }
+  })
+
+  // R-8（十五轮登记销账）：model-quirks 参数表 contentVersion 落 llm/call——跨版本
+  // 重放漂移检测依据；常量注入，mock 快路同样携带
+  it('R-8: llm/call 携带 quirksVersion（与 MODEL_QUIRKS_VERSION 常量一致）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const root = tempBookRoot()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      bookRoot: root,
+      task: 'chat',
+      run: () => Promise.resolve('ok'),
+    })
+    expect(out.ok).toBe(true)
+    const call = readChainEvents(ud, root).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+    expect(call['quirksVersion']).toBe(MODEL_QUIRKS_VERSION)
+    expect(typeof call['quirksVersion']).toBe('string')
   })
 
   it('重试成功（429 → 退避 → 成功）→ llm/retry + 两条 llm/call + step/end(completed)', async () => {

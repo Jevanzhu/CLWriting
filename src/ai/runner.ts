@@ -13,6 +13,7 @@
 import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
 import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
+import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
@@ -295,6 +296,9 @@ export async function runTask<T>(opts: {
         ...(resolvedTimeoutMs !== undefined ? { timeoutMs: resolvedTimeoutMs } : {}),
         ...(p.maxTokens !== undefined ? { maxTokens: p.maxTokens } : {}),
         ...(resolvedFirstByteTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedFirstByteTimeoutMs } : {}),
+        // R-8（十五轮登记销账）：进程内参数表版本常量——mock 快路/失败路径同样携带
+        //（表版本与调用成败无关，重放漂移检测需要全量覆盖）
+        quirksVersion: MODEL_QUIRKS_VERSION,
       }),
     )
   }

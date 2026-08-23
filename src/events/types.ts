@@ -232,6 +232,10 @@ export interface LlmCallData {
    *  resolver 与 gen.generate 同源）。mock 快路 / 取 provider 失败路径无此两键 */
   maxTokens?: number
   firstByteTimeoutMs?: number
+  /** R-8（十五轮登记销账）：本进程 model-quirks 参数表的 contentVersion——effort→wire
+   *  翻译等表内容随版本演进，跨版本重放时据此检测漂移（旧事件无此键 = 表初版前）。
+   *  表内容任何变更必须同步 bump MODEL_QUIRKS_VERSION（见 model-quirks.ts 头注） */
+  quirksVersion?: string
 }
 
 /** llm/retry —— 重试记账（先落库后等待） */

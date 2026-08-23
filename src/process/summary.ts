@@ -38,6 +38,13 @@ import type { BookConfig } from '../format/types.js'
 import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 
+/** R-11（十五轮登记销账）：按码位截断（Array.from 迭代码点）——String.slice 按
+ *  UTF-16 码元，增补平面字符在边界处被切成半个代理对；章/卷摘要硬截断两处对齐
+ *  全库 code point 口径（P-7 estimateTokens / format/filename 同源）。 */
+function clipByCodePoints(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('')
+}
+
 /** 章摘要目录（相对书根） */
 export const CHAPTER_SUMMARY_DIR = join('定稿', '摘要', '章摘要')
 
@@ -154,7 +161,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
 
     // 硬截断到预算（确定性上限；模型超长不信任）
     let text = out.data.text.trim()
-    if (text.length > budget) text = text.slice(0, budget) + '…'
+    // R-11（十五轮登记销账）：截断按码位——slice 按 UTF-16 码元，增补平面字符（生僻
+    // 字/emoji）在边界处被切成半个代理对落盘；全库截断口径 code point（P-7/filename 同源）
+    if (text.length > budget) text = clipByCodePoints(text, budget) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
 
     const fp = chapterSummaryPath(bookRoot, chapter)
@@ -425,7 +434,8 @@ export async function generateVolumeSummary(opts: {
     })
     if (!out.ok) return { ok: false, error: out.error }
     let text = out.data.text.trim()
-    if (text.length > budget) text = text.slice(0, budget) + '…'
+    // R-11（十五轮登记销账）：同章摘要——码位截断，不切半个代理对
+    if (text.length > budget) text = clipByCodePoints(text, budget) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
     mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
     const fm = [

@@ -121,3 +121,19 @@ export const useCheckStore = defineStore('check', () => {
     flagging, flagged, flagError, flagFalsePositive,
   }
 })
+
+/** R-5（十五轮登记销账）：删书成功后清该书全部误报灰显键（`clw-fp:<书>:<文档>`）。
+ *  模块级导出（不依赖 store 实例）——useShelf 删除流程直接调用；同名重建书不继承
+ *  旧灰显态（checkId 是检查器级 id 跨书同名，残留会让新书的误报按钮被禁用）。 */
+export function clearFalsePositiveMarks(bookName: string): void {
+  const prefix = `clw-fp:${bookName}:`
+  try {
+    // 倒序扫描：removeItem 不影响未访问下标
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k !== null && k.startsWith(prefix)) localStorage.removeItem(k)
+    }
+  } catch {
+    /* 配额/隐私模式：清不到就算了（灰显态本就是 best-effort 展示层） */
+  }
+}

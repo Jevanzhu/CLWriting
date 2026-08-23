@@ -158,7 +158,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
   
         // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
         try {
-          const driver = getDriver('cc')
+          const driver = getDriver()
           const mainSession = await ensureSession(params['name']!, ctx.workDir!)
           const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
             if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })

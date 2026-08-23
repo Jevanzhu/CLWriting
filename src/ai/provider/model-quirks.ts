@@ -14,6 +14,12 @@ import { modelIdKeys } from './normalize.js'
 
 export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi' | 'unknown'
 
+/** R-8（十五轮登记销账）：参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
+ *  系列前缀判定等表内容影响上线参数与重放口径，表改不 bump 会造成跨版本重放漂移且
+ *  无从检测。**规则：本文件任何行为性变更（表项/前缀/翻译/兜底值）必须同步 bump 此
+ *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。 */
+export const MODEL_QUIRKS_VERSION = '2026-08-23.1'
+
 /** 单个键形态上的前缀判定（不做白名单，识别不出即 unknown → 保守省略） */
 function familyByPrefix(m: string): ModelFamily {
   if (/^(gpt-|o\d|chatgpt-)/i.test(m)) return 'gpt'

@@ -17,17 +17,19 @@ export type {
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()
 
-/** 取 driver:env CLWRITING_DRIVER=mock → mock(e2e);host='mock' → mock(开发/debug);其余 → cc(provider 直连) */
-export function getDriver(host: string): StudioDriver {
-  if (process.env.CLWRITING_DRIVER === 'mock') return mockDriver
-  return host === 'mock' ? mockDriver : ccDriver
+/** 取 driver：env CLWRITING_DRIVER=mock → mock（e2e / 前端开发调试）；其余 → cc（provider 直连）。
+ *  R-10（十五轮登记销账）：删 host 形参——全仓唯一实参 'cc'，host==='mock' 分支零调用面
+ *  （死参数假扩展）；选择只走 env（e2e global-setup 依赖此口径）。真多 host 时再加显式
+ *  参数并落配置 resolve，不预留空壳。 */
+export function getDriver(): StudioDriver {
+  return process.env.CLWRITING_DRIVER === 'mock' ? mockDriver : ccDriver
 }
 
 /** 取 / 建某书的 session(已存在且未关则复用) */
 export async function ensureSession(bookId: string, cwd: string): Promise<Session> {
   const existing = sessions.get(bookId)
   if (existing && !existing.closed) return existing
-  const driver = getDriver('cc')
+  const driver = getDriver()
   const session = await driver.startSession(cwd)
   // Q-2（第十五轮）：await 返回后重查——并发首建时两个调用方都在对方 set 之前 miss，
   // 各自 startSession 后 set 互相覆盖：被覆盖 session 的 channel/ctrl 表永久无人
@@ -47,7 +49,7 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
 export function forgetSession(bookId: string): void {
   const session = sessions.get(bookId)
   if (session) {
-    getDriver('cc').dispose(session)
+    getDriver().dispose(session)
     sessions.delete(bookId)
   }
 }
