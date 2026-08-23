@@ -22,6 +22,9 @@ export interface SettingsLayer {
   specificity: SettingsSpecificity
   /** 层正文（含调用方给的标题头） */
   text: string
+  /** Q-5（第十五轮）：该层正文实际引用的源文件（相对书根）——「模型可见⟺已记录」
+   *  的文件级溯源通道；assemble 整层丢弃（omitted）的层由调用方过滤后再收集 */
+  sources?: string[]
 }
 
 /** code point 量长度（与 prune.ts 同口径，Array.from 不劈 surrogate pair） */

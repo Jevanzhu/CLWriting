@@ -208,7 +208,13 @@ export type GenEvent =
    */
   | { type: 'reasoning_item'; encrypted: string; itemId?: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
-  | { type: 'done'; usage: TokenUsage; stopReason: string }
+  /**
+   * Q-13（第十五轮）：适配器 resolve 后实际上线的输出上限（req.maxTokens → 模型行 →
+   * quirks 表 → 协议兜底的终值；openai/responses 线无兜底不发时 undefined）——随 done
+   * 事件透出，gen 层收集入 GenResult，最终落 llm/call（铁律②重放口径）。early-error
+   * 路径无 done → 无值
+   */
+  | { type: 'done'; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number }
   | {
       type: 'error'
       message: string

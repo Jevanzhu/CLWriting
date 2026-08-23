@@ -284,7 +284,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         content: typeof body.content === 'string' ? body.content : undefined,
       })
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
-      reply(res, result.ok ? 201 : structStatus(result.code), result)
+      // Q-7（第十五轮）：失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
+      if (result.ok) reply(res, 201, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 
@@ -344,7 +346,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
-      reply(res, result.ok ? 200 : structStatus(result.code), result)
+      // Q-7（第十五轮）：同上——失败走 replyError 统一信封
+      if (result.ok) reply(res, 200, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 
@@ -363,7 +367,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
-      reply(res, result.ok ? 201 : structStatus(result.code), result)
+      // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
+      if (result.ok) reply(res, 201, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 
@@ -380,7 +386,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
       const result = await svc.trashDocument({ docId })
       if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
-      reply(res, result.ok ? 200 : structStatus(result.code), result)
+      // Q-7（第十五轮）：同上——失败走 replyError 统一信封
+      if (result.ok) reply(res, 200, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 
@@ -403,7 +411,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = restoreTrash(r.bookRoot, id)
-      reply(res, result.ok ? 200 : structStatus(result.code), result)
+      // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
+      if (result.ok) reply(res, 200, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 
@@ -415,7 +425,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
       const result = purgeTrash(r.bookRoot, id)
-      reply(res, result.ok ? 200 : structStatus(result.code), result)
+      // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
+      if (result.ok) reply(res, 200, result)
+      else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
 }

@@ -29,7 +29,19 @@ const MIME: Record<string, string> = {
 export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+    // Q-1（第十五轮）：URL 构造包 try/catch——llhttp 接受 absolute-form 请求行（如
+    // `GET http://[bad HTTP/1.1`），new URL 抛 TypeError 会变 async 回调的未捕获
+    // rejection（/api 分支在 index.ts 有 catch，静态分支此前裸奔 → Node ≥15 默认
+    // throw 即进程崩溃；红测试：raw socket 畸形请求行，修复前 ERR_INVALID_URL 裸抛）。
+    // 与下方 decodeURIComponent 守卫同款：畸形请求回 400，不炸服务。
+    let parsed: URL
+    try {
+      parsed = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      replyError(res, 400, 'BAD_INPUT', 'bad request')
+      return
+    }
+    const { pathname } = parsed
     // dd-P3：静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）

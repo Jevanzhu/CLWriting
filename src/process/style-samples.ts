@@ -6,7 +6,7 @@
  * 同语义手拣。总量由注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）。
  */
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { pickSampleEntries, sampleEntryText } from '../format/style-inject.js'
@@ -14,11 +14,24 @@ import type { StyleSample } from '../format/types.js'
 
 /** 选出至多 maxTotal 段文风样章注入文本；无库/无命中 → 空数组（调用方跳段） */
 export function pickStyleSamples(bookRoot: string, scenes: string[], maxTotal: number): string[] {
+  return pickStyleSamplesWithSources(bookRoot, scenes, maxTotal).map((s) => s.text)
+}
+
+/** Q-5（第十五轮）：同选取，附带源文件（相对书根；旧样章库无 _path 时 undefined）
+ *  ——draft 链收集进 promptFiles，「模型可见⟺已记录」文件级溯源 */
+export function pickStyleSamplesWithSources(
+  bookRoot: string,
+  scenes: string[],
+  maxTotal: number,
+): Array<{ text: string; path: string | undefined }> {
   if (maxTotal <= 0) return []
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   if (existsSync(entriesDir)) {
     const { entries } = readEntries(entriesDir)
-    return pickSampleEntries(entries, scenes, maxTotal).map(sampleEntryText)
+    return pickSampleEntries(entries, scenes, maxTotal).map((e) => ({
+      text: sampleEntryText(e),
+      path: e._path ? relative(bookRoot, e._path) : undefined,
+    }))
   }
   // 旧样章库：第一轮每场景各取 1（保证次场景有代表）；第二轮主场景补满到 maxTotal
   const sampleDir = join(bookRoot, '文风', '样章库')
@@ -31,7 +44,7 @@ export function pickStyleSamples(bookRoot: string, scenes: string[], maxTotal: n
     picked.push(perScene[0]![i]!)
   }
   return picked.slice(0, maxTotal).map((s) => {
-    if (!s.技法指令) return s.正文
-    return `技法指令：${s.技法指令}\n${s.正文}`
+    const text = !s.技法指令 ? s.正文 : `技法指令：${s.技法指令}\n${s.正文}`
+    return { text, path: s._path ? relative(bookRoot, s._path) : undefined }
   })
 }

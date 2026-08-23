@@ -143,11 +143,12 @@ async function onSpawn(): Promise<void> {
   try {
     // P0-3：先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
     // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
-    const { prompt: ctx } = await getDraftPrompt(book, chapter.value)
+    const { prompt: ctx, files } = await getDraftPrompt(book, chapter.value)
     const userText = prompt.value.trim()
     const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
     if (props.bookName !== book) return
-    await spawnRole(book, { role: 'writer', prompt: final })
+    // Q-5：注入源清单随 prompt 回传——服务端登记进 llm/call promptMeta.files（可见⟺已记录）
+    await spawnRole(book, { role: 'writer', prompt: final, ...(files?.length ? { files } : {}) })
     ui.toast('已开始生成', 'info')
   } catch (e) {
     err.value = friendlyError(e)

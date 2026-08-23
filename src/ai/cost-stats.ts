@@ -63,7 +63,10 @@ function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string)
       for (const e of events) {
         if (e.type !== 'llm/call') continue
         const d = e.data as unknown as LlmCallData
-        if (!d.ok) continue // 失败调用不折算成本（失败响应多无 usage，客观不可得）；calls 只数成功计费调用——失败/重试次数不在此口径（预算闸 .cache/ai-calls.json 侧为全口径）
+        // Q-12（第十五轮）：判跳改看 usage 而非 ok——失败调用可携真实 usage（O-5 边界中断
+        // 入账等），按 ok 剔除会让报表系统性低于预算闸口径/真实账单；失败且无 usage（多数
+        // 失败响应客观不可得）仍跳过。带 usage 的失败调用按真实消耗折算，与预算闸对齐
+        if (d.usage == null) continue
         out.push({
           task: d.task,
           model: d.model,

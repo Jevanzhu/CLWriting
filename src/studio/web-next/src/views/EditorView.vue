@@ -9,7 +9,6 @@ import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
-import { usePrefsStore } from '../stores/prefs'
 import { getConfig } from '../api/books'
 import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
@@ -26,7 +25,6 @@ const doc = useDocStore()
 const tree = useTreeStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
-const prefs = usePrefsStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
 const isReviewable = computed(() => {
@@ -186,25 +184,14 @@ watch(
   { immediate: true },
 )
 
-let timer: ReturnType<typeof setInterval> | null = null
-function tick(): void {
-  if (entry.value?.dirty && !entry.value.saving) {
-    void doc.save(entry.value.docId, 'autosave')
-  }
-}
-function startTimer(): void {
-  if (timer) clearInterval(timer)
-  timer = setInterval(tick, Math.max(5, prefs.effectiveAutosaveInterval) * 1000)
-}
+// Q-9（第十五轮）：自动保存定时器上移 Book.vue（切到工作台/总览等视图后本组件卸载，
+// 此前 dirty 文档随之停止自动保存）——此处只保留编辑器专属生命周期接线。
 onMounted(() => {
-  startTimer()
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
   // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
   tryConsumeInsert()
 })
-watch(() => prefs.effectiveAutosaveInterval, startTimer)
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
   ws.setEditorGetSelection(null)
 })
 </script>

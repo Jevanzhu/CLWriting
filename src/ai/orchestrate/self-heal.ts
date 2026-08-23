@@ -370,8 +370,10 @@ async function orchestrateBatch(
  * - ctx.db 为空（无布线书，.cache/index.db 不存在）→ 近况/账本段无数据源，维持接线前行为；
  * - best-effort：备料抛错不挡写稿（buildDraftPrompt 读不到新文件 = prompt 少「备料」段）。
  * config 用 ctx 合并值（已过 applyGlobalDefaults，P3-6 解析一次）；leadIds 按本章细纲声明。
- * C1（批 2）：返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）——
- * 调用方经 runSpec promptFiles → llm/call promptMeta.files 登记（可见⟺已记录）。
+ * C1（批 2）：返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）。
+ * Q-5（第十五轮）：调用方与 buildDraftPrompt 的注入源清单（细纲/章纲/设定层/样章）
+ * 合并去重后经 runSpec promptFiles → llm/call promptMeta.files 登记——此前只登记备料
+ * 两类，「可见⟺已记录」在设定/样章段断裂。
  */
 async function prepareChapterMaterials(
   opts: SelfHealOpts,
@@ -476,9 +478,13 @@ async function draftFirstChapter(
   // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
   // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
   // C1（批 2）：备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
-  const promptFiles = await prepareChapterMaterials(opts, ctx, chapter)
+  const materialFiles = await prepareChapterMaterials(opts, ctx, chapter)
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  const first = await runGenerate(opts, state, ctx.kind, buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config), chapter, promptFiles)
+  // Q-5（第十五轮）：draft prompt 自带注入源清单（细纲/章纲/设定层/样章）——与备料
+  // 清单合并去重（注入序）进 promptMeta.files，铁律①文件级溯源闭合
+  const draft = buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config)
+  const promptFiles = [...new Set([...materialFiles, ...draft.files])]
+  const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles)
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
   const firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })

@@ -98,6 +98,8 @@ async function runWriterSpawn(opts: {
   bookRoot: string
   prompt: string
   role: string
+  /** Q-5（第十五轮）：GET /draft-prompt 回传的注入源清单 → promptMeta.files 登记 */
+  promptFiles: string[]
 }): Promise<void> {
   const emit = (ev: DriverEvent): void => {
     opts.driver.emit?.(opts.mainSession, ev)
@@ -125,6 +127,8 @@ async function runWriterSpawn(opts: {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,
       userPrompt: opts.prompt,
+      // Q-5（第十五轮）：注入源清单随 prompt 透传 → llm/call promptMeta.files
+      promptFiles: opts.promptFiles,
       register: (ctrl) => {
         registered = ctrl
         opts.driver.registerCtrl?.(opts.mainSession, ctrl, 'spawn')
@@ -311,6 +315,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if (prompt.length > 100_000) {
         return replyError(res, 400, 'BAD_INPUT', 'prompt 过长（上限 10 万字符）')
       }
+      // Q-5（第十五轮）：GET /draft-prompt 回传的注入源清单——只作登记字符串（promptMeta.files）
+      // 不再读盘，服务端仍轻校验形状（串数组、条数/长度封顶）防事件库被灌垃圾
+      const promptFiles = Array.isArray(body['files'])
+        ? (body['files'] as unknown[])
+            .filter((f): f is string => typeof f === 'string' && f.length > 0 && f.length <= 200)
+            .slice(0, 64)
+        : []
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
       const driver = getDriver('cc')
@@ -324,6 +335,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         bookRoot: r.bookRoot,
         prompt,
         role,
+        promptFiles,
       })
         .catch((e) => emitSpawnError(driver, mainSession, e))
         .finally(() => releaseSpawnGate(bookName))

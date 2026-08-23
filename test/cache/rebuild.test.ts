@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
@@ -269,5 +269,37 @@ test('X-P2-1 关系线入基准：大纲/关系线 变更 → 全量（缓存状
   expect(lead!.状态).toBe('已收尾')
   expect(lead!.履历).toHaveLength(2)
 
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── Q-18（第十五轮）：增量基准存精确 maxMtime（非 ceil+1）──────────
+
+test('Q-18: source_max_mtime 与源树真实最大 mtime 精确相等（接受窗不再被 ceil+1 扩大）', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  rebuild(root, cachePath)
+  const db = new DatabaseSync(cachePath)
+  const row = db.prepare("SELECT value FROM meta WHERE key='source_max_mtime'").get() as { value: string }
+  db.close()
+  // 复刻 walkSourceStats 的源集（book.yaml + 布线/写作/定稿/大纲·关系线 下的 .md）
+  let maxMtime = 0
+  const bump = (fp: string): void => {
+    try {
+      const st = statSync(fp)
+      if (st.mtimeMs > maxMtime) maxMtime = st.mtimeMs
+    } catch { /* 同 walkSourceStats 容错 */ }
+  }
+  bump(join(root, 'book.yaml'))
+  const stack = ['布线', '写作', '定稿', join('大纲', '关系线')].map((d) => join(root, d)).filter((d) => existsSync(d))
+  while (stack.length > 0) {
+    const dir = stack.pop()!
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith('._')) continue
+      if (e.isDirectory()) stack.push(join(dir, e.name))
+      else if (e.isFile() && e.name.endsWith('.md')) bump(join(dir, e.name))
+    }
+  }
+  // 修复前 Math.ceil(maxMtime)+1：亚毫秒 mtime 被抬到下一整秒 +1ms（最长近 2ms 假接受窗）
+  expect(Number(row.value)).toBe(maxMtime)
   rmSync(root, { recursive: true, force: true })
 })

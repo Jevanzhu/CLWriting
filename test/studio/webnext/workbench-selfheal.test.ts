@@ -105,3 +105,45 @@ describe('workbench store 自愈闭环事件', () => {
     expect(wb.running).toBe(false)
   })
 })
+
+// Q-4（第十五轮）：断线重连的 sync 只回 running 布尔——批次在断连窗口内收尾
+// （self_heal_result 丢失）时，自愈状态机若残留「进行中」会永久卡「正在写稿…」
+//（M-12 只处理了 running 复位）。running=false 且自愈态残留 → 连带复位 + 中断提示。
+describe('Q-4：sync 快照复位残留自愈态', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('断线期间批次结束 → 重连 sync(running=false) 复位 healPhase/batchProgress 并提示', () => {
+    const wb = useWorkbenchStore()
+    // 自愈进行中（phase 残留 + 批量进度）
+    wb.dispatch({ type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+    wb.dispatch({ type: 'self_heal_phase', phase: 'drafting' })
+    wb.dispatch({ type: 'self_heal_batch', total: 3 })
+    wb.dispatch({ type: 'self_heal_phase', phase: 'chapter_start', chapter: 1, done: 0, total: 3 })
+    expect(wb.healPhase).toBe('chapter_start')
+
+    // 断连重连：服务端批次已收尾 → sync 只说 running=false
+    wb.dispatch({ type: 'sync', running: false })
+    expect(wb.running).toBe(false)
+    expect(wb.healPhase).toBeNull() // 修复前残留 'drafting' → 界面永久卡「正在写稿…」
+    expect(wb.healProgress).toBeNull()
+    expect(wb.batchProgress).toBeNull()
+    expect(wb.warning).toContain('连接中断')
+  })
+
+  it('对照：批次仍在跑的重连 sync(running=true) 不动自愈态', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+    wb.dispatch({ type: 'self_heal_phase', phase: 'checking' })
+    wb.dispatch({ type: 'sync', running: true })
+    expect(wb.healPhase).toBe('checking')
+    expect(wb.warning).toBeNull()
+  })
+
+  it('对照：空闲连接 sync(running=false) 无自愈残留 → 无提示', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'sync', running: false })
+    expect(wb.warning).toBeNull()
+  })
+})

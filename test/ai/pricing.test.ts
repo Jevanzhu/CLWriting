@@ -318,6 +318,57 @@ describe('D2 cost-stats 聚合', () => {
     expect(stats.unpricedModels).toEqual([]) // 当前 provider 有价 → 兜底可计价
   })
 
+  // Q-12（第十五轮）：判跳改看 usage——失败调用（边界中断等）可携真实 usage，
+  // 按 ok 剔除会让报表系统性低于预算闸口径/真实账单
+  it('Q-12: 失败调用带真实 usage → 计入聚合；失败且无 usage 仍跳过', () => {
+    const ud = tmpDir('clw-cost-ud3-')
+    const root = tmpDir('clw-cost-book3-')
+    const store: ProviderStore = {
+      providers: [
+        {
+          id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+          pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        },
+      ],
+      currentId: 'p1',
+      tiers: { creative: { model: 'model-x', effort: 'high' }, assistant: null, chat: null },
+      currentModel: 'model-x',
+      revision: 0,
+      modelCaps: {},
+    } as unknown as ProviderStore
+    saveProviders(ud, store)
+
+    const es = openSessionStore(ud, root)!
+    try {
+      const sessionId = es.createSession(bookHash(root))
+      es.appendEvents(sessionId, [
+        // O-5 边界中断形态：ok:false 但 usage 已到手
+        {
+          type: 'llm/call',
+          data: {
+            runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0,
+            stopReason: 'aborted', usage: { input: 1_000_000, output: 100_000 }, durationMs: 100, ok: false,
+            chapter: 7,
+          },
+        },
+        // 失败且无 usage（多数失败响应）——无从折算，仍跳过
+        {
+          type: 'llm/call',
+          data: { runId: 'r2', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'error', durationMs: 10, ok: false, chapter: 7 },
+        },
+      ])
+    } finally {
+      es.close()
+    }
+
+    const stats = aggregateCost(ud, root)
+    expect(stats.enabled).toBe(true)
+    // 带 usage 的失败调用按真实消耗折算（1M*3 + 0.1M*15 = 4.5）
+    expect(stats.total).toBeCloseTo(4.5, 8)
+    expect(stats.byTask['self-heal']!.calls).toBe(1)
+    expect(stats.byChapter['7']!.cost).toBeCloseTo(4.5, 8)
+  })
+
   it('全书无价格表 → enabled:false（不显示 0）', () => {
     const ud = tmpDir('clw-cost-ud2-')
     const root = tmpDir('clw-cost-book2-')

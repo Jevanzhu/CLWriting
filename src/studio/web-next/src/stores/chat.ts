@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { str } from './sse-guards'
 import {
   fetchChatHistory,
@@ -64,6 +64,10 @@ export const useChatStore = defineStore('chat', () => {
   let currentIdx = -1
   /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫） */
   let seedGen = 0
+  /** Q-8（第十五轮）：切书 clear 时该书在途回合被清（running 守卫跳过 seedHistory）→
+   *  记待补种书名，running 翻 false（chat_done/chat_error）后自动补种——在途回合
+   *  不再 UI 失明（服务端历史本就完好）。clear() 复位（每次切换重新登记，防跨书误种）。 */
+  let pendingReseed: string | null = null
   /** G1：当前激活分支（history 返回的实际采用分支；无分支语义/未拉取时 null） */
   const activeBranchId = ref<string | null>(null)
   /** G1：分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
@@ -292,7 +296,14 @@ export const useChatStore = defineStore('chat', () => {
    * branches 存列表、activeBranchId 用 history 返回的 branchId（两者解耦）。
    */
   async function seedHistory(bookName: string): Promise<void> {
-    if (!bookName || messages.value.length > 0 || running.value) return
+    if (!bookName) return
+    // Q-8：running 中种子化会吞掉在途回合的增量（clear 后 currentIdx=-1）——改为
+    // 登记 pendingReseed 等回合收尾后补种，不再直接放弃
+    if (running.value) {
+      pendingReseed = bookName
+      return
+    }
+    if (messages.value.length > 0) return
     const gen = ++seedGen
     let data: ChatHistoryResult
     try {
@@ -457,12 +468,23 @@ export const useChatStore = defineStore('chat', () => {
     notice.value = null
     currentIdx = -1
     seedGen++ // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
+    pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
     // G1：重置分支态 + 复位重新生成进行中标志（清空后旧分支/在途操作不得残留）
     activeBranchId.value = null
     branches.value = []
     regenPending = false
     regenBook = null
   }
+
+  // Q-8：在途回合收尾（running 翻 false）自动补种登记中的书——切书窗口内被 clear
+  // 掉的回合届时从服务端历史回填，不再失明。store 常驻（App 级），watch 不卸载。
+  watch(running, (v) => {
+    if (!v && pendingReseed) {
+      const b = pendingReseed
+      pendingReseed = null
+      void seedHistory(b)
+    }
+  })
 
   return {
     messages,

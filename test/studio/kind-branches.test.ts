@@ -10,6 +10,9 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildDraftPrompt } from '../../src/studio/server/api/draft.js'
+
+/** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——本文件断言全针对 prompt 文本 */
+const buildPrompt = (...args: Parameters<typeof buildDraftPrompt>): string => buildDraftPrompt(...args).prompt
 import { buildOutlinePrompt } from '../../src/studio/server/api/outline.js'
 import { lensToRole } from '../../src/studio/server/api/review.js'
 import { buildRewritePrompt } from '../../src/studio/server/api/rewrite.js'
@@ -38,9 +41,9 @@ afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
-describe('buildDraftPrompt(kind 分支)', () => {
+describe('buildPrompt(kind 分支)', () => {
   it('短篇:章 front matter + 8k-20k 字单章闭合', () => {
-    const p = buildDraftPrompt(root, 1, 'short')
+    const p = buildPrompt(root, 1, 'short')
     expect(p).toContain('短篇')
     // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
     expect(p).toContain('只输出第 1 章正文')
@@ -54,7 +57,7 @@ describe('buildDraftPrompt(kind 分支)', () => {
   })
 
   it('长篇:章 front matter + 2k-4k 字章尾留钩', () => {
-    const p = buildDraftPrompt(root, 5, 'long')
+    const p = buildPrompt(root, 5, 'long')
     expect(p).toContain('长篇')
     // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
     expect(p).toContain('只输出第 5 章正文')
@@ -66,17 +69,17 @@ describe('buildDraftPrompt(kind 分支)', () => {
   })
 
   it('短篇 prompt 注入本章细纲', () => {
-    expect(buildDraftPrompt(root, 1, 'short')).toContain('本章细纲')
+    expect(buildPrompt(root, 1, 'short')).toContain('本章细纲')
   })
 
   it('长篇 prompt 注入本章细纲 + 备料', () => {
-    const p = buildDraftPrompt(root, 1, 'long')
+    const p = buildPrompt(root, 1, 'long')
     expect(p).toContain('本章细纲')
     expect(p).toContain('备料')
   })
 
   it('Bug B 回归: 长篇注入本章章纲(情节依据) + 世界观(防跑题)', () => {
-    const p = buildDraftPrompt(root, 1, 'long')
+    const p = buildPrompt(root, 1, 'long')
     expect(p).toContain('本章章纲')
     expect(p).toContain('夜战') // 章纲内容
     expect(p).toContain('世界观')
@@ -85,13 +88,13 @@ describe('buildDraftPrompt(kind 分支)', () => {
   })
 
   it('Bug B 回归: 章纲不存在时不崩(空),世界观仍注入', () => {
-    const p = buildDraftPrompt(root, 99, 'long')
+    const p = buildPrompt(root, 99, 'long')
     expect(p).toContain('世界观')
     expect(p).toContain('清虚门')
   })
 
   it('Bug B 回归: 短篇也注入世界观(防跑题)', () => {
-    const p = buildDraftPrompt(root, 1, 'short')
+    const p = buildPrompt(root, 1, 'short')
     expect(p).toContain('世界观')
     expect(p).toContain('清虚门')
   })

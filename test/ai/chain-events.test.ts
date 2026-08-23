@@ -122,6 +122,45 @@ describe('F1-P2 runTask 链事件', () => {
     expect(typeof call2['effort']).toBe('string')
   })
 
+  // Q-13（第十五轮）：resolve 后终值补全——上线输出上限 maxTokens（适配器 done 事件透出
+  // 经编排层 T 透传）与首字节超时 firstByteTimeoutMs（env resolver，与 gen.generate 同源）
+  it('Q-13: llm/call 携带 maxTokens（run 透传）/ firstByteTimeoutMs（env 覆盖 + 默认回落）', async () => {
+    process.env['CLWRITING_FIRST_BYTE_TIMEOUT_MS'] = '45000'
+    try {
+      const ud = tempUserData()
+      writeProviders(ud)
+      const root = tempBookRoot()
+      const out = await runTask<{ stopReason: string; usage: { inputTokens: number; outputTokens: number }; resolvedMaxTokens?: number }>({
+        userDataPath: ud,
+        bookRoot: root,
+        task: 'chat',
+        run: () =>
+          Promise.resolve({
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 2 },
+            resolvedMaxTokens: 16384,
+          }),
+      })
+      expect(out.ok).toBe(true)
+      const call = readChainEvents(ud, root).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+      expect(call['maxTokens']).toBe(16384)
+      expect(call['firstByteTimeoutMs']).toBe(45_000)
+
+      // env 未设 → DEFAULT_FIRST_BYTE_TIMEOUT_MS(60s) 回落值落库（非隐式穿透）；
+      // run 返回无 resolvedMaxTokens（无兜底不发/纯文本编排）→ 键缺席
+      delete process.env['CLWRITING_FIRST_BYTE_TIMEOUT_MS']
+      const ud2 = tempUserData()
+      writeProviders(ud2)
+      const root2 = tempBookRoot()
+      await runTask<string>({ userDataPath: ud2, bookRoot: root2, task: 'chat', run: () => Promise.resolve('ok') })
+      const call2 = readChainEvents(ud2, root2).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+      expect(call2['firstByteTimeoutMs']).toBe(60_000)
+      expect('maxTokens' in call2).toBe(false)
+    } finally {
+      delete process.env['CLWRITING_FIRST_BYTE_TIMEOUT_MS']
+    }
+  })
+
   it('重试成功（429 → 退避 → 成功）→ llm/retry + 两条 llm/call + step/end(completed)', async () => {
     const ud = tempUserData()
     writeProviders(ud)

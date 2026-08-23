@@ -12,7 +12,7 @@
  */
 import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool } from './mock-tool.js'
-import { GenError } from './gen.js'
+import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
@@ -94,6 +94,16 @@ function extractStopReason(data: unknown): string {
     return String((data as Record<string, unknown>)['stopReason'])
   }
   return 'end_turn'
+}
+
+/** Q-13（第十五轮）：从 run 回调返回值提取适配器 resolve 后上线输出上限
+ *  （GenResult → 编排层 T 透传的 resolvedMaxTokens；无兜底不发/early-error → undefined） */
+function extractMaxTokens(data: unknown): number | undefined {
+  if (typeof data === 'object' && data !== null && 'resolvedMaxTokens' in data) {
+    const n = (data as Record<string, unknown>)['resolvedMaxTokens']
+    return typeof n === 'number' && Number.isFinite(n) ? n : undefined
+  }
+  return undefined
 }
 
 /** O-6（第十三轮）：降级回调已注册的 userDataPath——同 path 幂等跳过重复注册 */
@@ -252,6 +262,9 @@ export async function runTask<T>(opts: {
   // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
   let resolvedEffort: string | undefined
   let resolvedTimeoutMs: number | undefined
+  // Q-13（第十五轮）：首字节超时 resolve 值（gen.generate 同源 resolver——env 纯函数，
+  // 进程内确定性；mock 快路与取 provider 失败路径在 resolve 之前，undefined 不入事件）
+  let resolvedFirstByteTimeoutMs: number | undefined
   const trace = (p: {
     model: string
     attempt: number
@@ -259,6 +272,7 @@ export async function runTask<T>(opts: {
     usage: TokenUsage | null
     ok: boolean
     errCode?: string
+    maxTokens?: number
   }): void => {
     if (!bookRoot || !task) return
     chain?.add(
@@ -279,6 +293,8 @@ export async function runTask<T>(opts: {
         ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
         ...(resolvedEffort !== undefined ? { effort: resolvedEffort } : {}),
         ...(resolvedTimeoutMs !== undefined ? { timeoutMs: resolvedTimeoutMs } : {}),
+        ...(p.maxTokens !== undefined ? { maxTokens: p.maxTokens } : {}),
+        ...(resolvedFirstByteTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedFirstByteTimeoutMs } : {}),
       }),
     )
   }
@@ -354,6 +370,7 @@ export async function runTask<T>(opts: {
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
   resolvedEffort = tier.effort
   resolvedTimeoutMs = timeoutMs
+  resolvedFirstByteTimeoutMs = resolveFirstByteTimeoutMs()
   const totalTimer = setTimeout(() => {
     if (!abortCause) abortCause = 'total-timeout'
     ctrl.abort()
@@ -392,7 +409,7 @@ export async function runTask<T>(opts: {
         if (ctrl.signal.aborted) {
           const abortedUsage = extractUsage(data)
           recordUsageSafe(abortedUsage)
-          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: abortedUsage, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
+          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: abortedUsage, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL', maxTokens: extractMaxTokens(data) })
           stepReason = abortedByUser() ? 'aborted' : 'interrupted'
           return timeoutAbort()
         }
@@ -400,7 +417,7 @@ export async function runTask<T>(opts: {
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
         recordUsageSafe(usage)
-        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true })
+        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true, maxTokens: extractMaxTokens(data) })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
         return { ok: true, data, ctrl: external, usage, runId, model: tier.model }

@@ -75,7 +75,9 @@ async function summarizeCheckpoint(
   const sanitized = sanitizeHistory(toSummarize)
   if (sanitized.length === 0) return null
   const instruction = buildCheckpointInstruction(priorSummary ?? undefined)
-  const out = await runTask<string | null>({
+  // Q-13（第十五轮）：run 返回壳对象以透传 resolvedMaxTokens（runner 提取落 llm/call）——
+  // 摘要调用自带 clamp cap（P8），重放口径必须记 resolve 后终值
+  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
     task: 'chat',
@@ -105,12 +107,12 @@ async function summarizeCheckpoint(
         },
         signal,
       )
-      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return null
+      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens }
       const t = r.text.trim()
-      return t === '' ? null : t
+      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens }
     },
   })
-  return out.ok ? out.data : null
+  return out.ok ? out.data.text : null
 }
 
 /**

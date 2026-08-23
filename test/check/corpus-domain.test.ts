@@ -82,6 +82,18 @@ describe('B4 信息差词表派生（P6-①）', () => {
     expect(deriveLeakKeywords(makeBook(1))).toEqual([])
   })
 
+  // Q-14（第十五轮）：账本带 BOM/CRLF 毛边 → 仍收集（手写正则不处理 BOM 曾致
+  // fm 整段丢失、info-leak 机检静默失效）
+  it('Q-14: BOM + CRLF 账本 → leak_keywords 照常派生', () => {
+    const root = tmpDir('clw-leak-bom-')
+    mkdirSync(join(root, '布线', '悬念'), { recursive: true })
+    writeFileSync(
+      join(root, '布线', '悬念', '悬念-001-玉佩.md'),
+      '\ufeff---\r\n编号: 悬念-001\r\nleak_keywords: [玉佩旧案, 血脉之秘]\r\n---\r\n\r\n## 履历\r\n',
+    )
+    expect(deriveLeakKeywords(root)).toEqual(['玉佩旧案', '血脉之秘'])
+  })
+
   it('供给链三级回落：book.yaml checks.leak_keywords 未设时账本派生生效（经 runner 集成验证）', () => {
     // 供给链在 runner.ts：input > config > derive —— 单测层面验证派生函数 +
     // runAllChecks 集成在 harvest 端到端里覆盖；此处锚定派生输入形态

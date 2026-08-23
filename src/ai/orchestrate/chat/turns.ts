@@ -288,6 +288,16 @@ function formatCheckResult(outcome: CheckOutcome): { ok: boolean; summary: strin
 
 // ── 轮循环 ────────────────────────────────────────
 
+/** Q-11（第十五轮）：当轮末条消息指纹——多轮 agent 循环每轮实际发送的末条消息
+ *  （首轮 user 文本 / 工具轮 tool_result blocks），序列化后进 llm/call promptMeta 哈希。
+ *  此前恒用 opts.message（首轮 user 文本），同组多轮 hash 全同，「本次实际输入指纹」审计失义 */
+export function lastMessageFingerprint(history: ChatMsg[]): string {
+  const last = history[history.length - 1]
+  if (!last) return ''
+  return typeof last.content === 'string' ? last.content : JSON.stringify(last.content)
+}
+
+
 export interface TurnDeps {
   opts: ChatOpts
   state: ChatRunState
@@ -360,6 +370,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       stopReason: string
       usage: TokenUsage
       reasoning: string
+      /** Q-13（第十五轮）：resolve 后上线输出上限——runner 提取落 llm/call */
+      resolvedMaxTokens?: number
       /** Responses 线缺口 11：加密推理项随 reasoning 块入历史，下轮回传维持推理状态 */
       reasoningEncrypted?: string
       reasoningItemId?: string
@@ -371,7 +383,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // B-P2-2：trace hash 纳入 system prompt——chat 的 system prompt 稳定（设定+职责），
       // 不带则同 user 消息不同书 hash 冲突
       systemPrompt: sys,
-      promptText: opts.message,
+      // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
+      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义
+      promptText: lastMessageFingerprint(history),
       ctrl: state.ctrl,
       // M-1（第八轮）：owner='chat'——self-heal/spawn 在途时 chat 纯问答允许并发，
       // registerCtrl 按编排分槽不再互相抢占（此前单槽「换新先 abort 旧」会掐断在途写稿）
@@ -403,6 +417,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
           stopReason: r.stopReason,
           usage: r.usage,
           reasoning: r.reasoning,
+          resolvedMaxTokens: r.resolvedMaxTokens,
           reasoningEncrypted: r.reasoningEncrypted,
           reasoningItemId: r.reasoningItemId,
         }

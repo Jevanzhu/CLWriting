@@ -238,10 +238,36 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。 */
+  /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。
+   *  Q-3（第十五轮）：改循环冲排——原一次性快照在 await 窗口内定格，保存期间的新键入
+   *  （编辑器仍挂载旧书可继续输入）与「保存中收到的新击键」（快照排除 saving 项）都不在
+   *  快照内，setBook 清缓存即静默丢失。每轮重扫直至无待存；保存失败（save 返 false 且
+   *  仍 dirty）的文档本轮不再重试防死循环；冲突文档留作者决断。 */
   async function flushDirty(): Promise<void> {
-    const dirty = [...docs.value.values()].filter((e) => e.dirty && !e.saving && !e.conflict)
-    await Promise.all(dirty.map((e) => save(e.docId, 'autosave')))
+    const failed = new Set<string>()
+    for (;;) {
+      const dirty = [...docs.value.values()].filter(
+        (e) => e.dirty && !e.saving && !e.conflict && !failed.has(e.docId),
+      )
+      if (dirty.length === 0) return
+      await Promise.all(
+        dirty.map(async (e) => {
+          const ok = await save(e.docId, 'autosave')
+          // 保存未成（仍 dirty 且失败）→ 标记跳过；保存成功后再次置脏（窗口内新键入）
+          // 不标记——下轮重扫会再存，正是要救的编辑
+          if (!ok) failed.add(e.docId)
+        }),
+      )
+    }
+  }
+
+  /** 自动保存节拍（Q-9 从 EditorView 上移）：扫全部 dirty 且不在保存中、无冲突的文档
+   *  批量落盘——此前节拍绑编辑器视图挂载，切到工作台/总览后 EditorView 卸载、dirty
+   *  文档停止自动保存（丢失窗口超过 autosave 间隔）。 */
+  function autosaveTick(): void {
+    for (const e of docs.value.values()) {
+      if (e.dirty && !e.saving && !e.conflict) void save(e.docId, 'autosave')
+    }
   }
 
   /** 卸载兜底（V-P1-2）：beforeunload 窗口内异步 fetch 不保证送达，改用同步 XHR 尽力落盘。
@@ -275,5 +301,5 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty, flushSyncOnUnload }
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, flushDirty, flushSyncOnUnload, autosaveTick }
 })

@@ -118,6 +118,8 @@ export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
             return `- ${c.姓名}${meta ? `(${meta})` : ''}`
           })
           .join('\n'),
+      // Q-5：角色层源文件（CharacterCard.file 已是相对书根）
+      sources: chars.map((c) => c.file),
     })
   }
   const rr = readRealmDoc(join(bookRoot, '设定', '境界体系.md'))
@@ -128,6 +130,7 @@ export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
       text:
         '## 境界体系(成长线机检依据)\n\n' +
         rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
+      sources: ['设定/境界体系.md'],
     })
   }
   return layers

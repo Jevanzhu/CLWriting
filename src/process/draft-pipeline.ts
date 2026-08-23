@@ -6,7 +6,7 @@
  * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（C3：世界观/角色/境界共享
  *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 要求（长短篇 front matter 分支）
  */
-import { join, basename, dirname } from 'node:path'
+import { join, basename, dirname, relative } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -16,7 +16,7 @@ import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
-import { pickStyleSamples } from './style-samples.js'
+import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
 import { writeSnapshot } from '../document/snapshot.js'
@@ -147,11 +147,8 @@ function findChapterOutlinePath(bookRoot: string, chapter: number): string | nul
   return chapters.find((c) => c.章号 === chapter)?._path ?? null
 }
 
-/** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据 */
-function readChapterOutline(bookRoot: string, chapter: number): string {
-  const fp = findChapterOutlinePath(bookRoot, chapter)
-  return fp ? readSafe(fp) : ''
-}
+/** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据；
+ *  Q-5 后由 buildDraftPrompt 直接持路径（readSafe + relative 进 files 清单） */
 
 /**
  * front matter「场景」值 → 场景数组（水源①章纲/②正文共用的解析端）。
@@ -277,17 +274,22 @@ export const SETTINGS_BUDGET_CHARS = 6000
  * 按预算分配——超限先丢宽泛层再截断最具体层，in-band 声明指名省略/截断了什么。
  * 章纲不进预算（已单独注入，情节依据优先级最高）。
  */
-function buildSettingsInjection(bookRoot: string, worldView: string): string {
+function buildSettingsInjection(bookRoot: string, worldView: string): { text: string; sources: string[] } {
   const layers: SettingsLayer[] = []
   if (worldView) {
     layers.push({
       name: '世界观',
       specificity: 'project',
       text: `## 世界观(本书设定,保持设定一致)\n${worldView}`,
+      sources: ['设定/世界观.md'],
     })
   }
   layers.push(...buildSettingsLayers(bookRoot))
-  return assembleSettingsInjection(layers, { maxChars: SETTINGS_BUDGET_CHARS }).text
+  const assembled = assembleSettingsInjection(layers, { maxChars: SETTINGS_BUDGET_CHARS })
+  // Q-5：整层被预算丢弃（omitted）的层其源文件不再计为「模型可见」；截断层部分可见仍计
+  const omitted = new Set(assembled.omitted)
+  const sources = layers.filter((l) => !omitted.has(l.name)).flatMap((l) => l.sources ?? [])
+  return { text: assembled.text, sources }
 }
 
 /**
@@ -311,12 +313,27 @@ export function wordRange(kind: 'long' | 'short', target: number | undefined): s
  * 全空 → 仅「通用」场景条目候选。
  * （此前硬编码 ['战斗']：样章库场景与本章实际场景不符时永远选不中，注入静默空转——已除。）
  * 无库/无命中 → ''（跳段）。
+ * Q-5（第十五轮）：附带源文件清单（相对书根）——可见⟺已记录的文件级溯源。
  */
-function buildStyleSampleInjection(bookRoot: string, chapter: number, config: BookConfig | undefined): string {
+function buildStyleSampleInjection(
+  bookRoot: string,
+  chapter: number,
+  config: BookConfig | undefined,
+): { text: string; sources: string[] } {
   const maxTotal = (config?.style?.injection ?? 'light') === 'heavy' ? 3 : 1
-  const parts = pickStyleSamples(bookRoot, readChapterScenes(bookRoot, chapter), maxTotal)
-  if (parts.length === 0) return ''
-  return `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${parts.join('\n\n')}`
+  const picked = pickStyleSamplesWithSources(bookRoot, readChapterScenes(bookRoot, chapter), maxTotal)
+  if (picked.length === 0) return { text: '', sources: [] }
+  const sources = picked.map((s) => s.path).filter((p): p is string => p !== undefined)
+  return { text: `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${picked.map((s) => s.text).join('\n\n')}`, sources }
+}
+
+/** buildDraftPrompt 返回形状（Q-5：伴随 files——实际注入源文件清单，相对书根） */
+export interface DraftPrompt {
+  prompt: string
+  /** Q-5（第十五轮）：prompt 实际引用的源文件清单（相对书根、注入序去重；只列真实
+   *  入 prompt 的段——被预算丢弃的设定层不计）。消费链：self-heal → runSpec promptFiles、
+   *  GET /draft-prompt 回传前端、POST /spawn 回传透传——「模型可见⟺已记录」文件级溯源 */
+  files: string[]
 }
 
 /** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 文风样章(注入档) + 要求(方案 6.6,长短篇 front matter 分支)
@@ -327,15 +344,26 @@ export function buildDraftPrompt(
   chapter: number,
   kind: 'long' | 'short',
   config?: BookConfig,
-): string {
+): DraftPrompt {
   const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
-  const chapterOutline = readChapterOutline(bookRoot, chapter)
+  const chapterOutlinePath = findChapterOutlinePath(bookRoot, chapter)
+  const chapterOutline = chapterOutlinePath ? readSafe(chapterOutlinePath) : ''
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   const settingsInjection = buildSettingsInjection(bookRoot, worldView)
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config)
   const range = wordRange(kind, config?.book?.chapter_target_words)
+  // Q-5：注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
+  const files: string[] = []
+  const pushFile = (p: string | undefined): void => {
+    if (p && !files.includes(p)) files.push(p)
+  }
+  if (outline) pushFile('工作区/细纲.md')
+  if (chapterOutline) pushFile(chapterOutlinePath ? relative(bookRoot, chapterOutlinePath) : undefined)
+  if (materials) pushFile('工作区/本章写作材料.md')
+  if (settingsInjection.text) for (const p of settingsInjection.sources) pushFile(p)
+  if (styleSampleInjection.text) for (const p of styleSampleInjection.sources) pushFile(p)
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 章正文(短篇,${range},单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
@@ -343,15 +371,15 @@ export function buildDraftPrompt(
     if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
     if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
     if (materials) parts.push(`## 备料\n${materials}`)
-    if (settingsInjection) parts.push(settingsInjection)
-    if (styleSampleInjection) parts.push(styleSampleInjection)
+    if (settingsInjection.text) parts.push(settingsInjection.text)
+    if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
     parts.push(
       // CC-P2-22：短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
       // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
       // 守规稿进重写循环两头矛盾。五段名与机检提示文案同口径。
       `## 要求\n只输出第 ${chapter} 章正文（正文以 ## 标题分五段：## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵；段内纯叙事文本，仅段落与空行，禁加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
-    return parts.join('\n\n')
+    return { prompt: parts.join('\n\n'), files }
   }
   const parts: string[] = [
     `## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`,
@@ -359,10 +387,10 @@ export function buildDraftPrompt(
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
-  if (settingsInjection) parts.push(settingsInjection)
-  if (styleSampleInjection) parts.push(styleSampleInjection)
+  if (settingsInjection.text) parts.push(settingsInjection.text)
+  if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
-  return parts.join('\n\n')
+  return { prompt: parts.join('\n\n'), files }
 }

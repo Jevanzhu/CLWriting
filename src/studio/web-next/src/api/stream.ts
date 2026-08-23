@@ -20,10 +20,11 @@ export async function getState(name: string): Promise<BookState> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/state`)
 }
 
-// POST /spawn {role?, prompt?} —— 起角色生成（AI 阻塞）
+// POST /spawn {role?, prompt?, files?} —— 起角色生成（AI 阻塞）。
+// files：GET /draft-prompt 回传的注入源清单（Q-5 溯源——服务端登记进 promptMeta.files）
 export async function spawnRole(
   name: string,
-  body: { role?: string; prompt?: string },
+  body: { role?: string; prompt?: string; files?: string[] },
 ): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/spawn`, {
     method: 'POST',
@@ -73,8 +74,8 @@ export async function saveDraft(name: string, chapter: number, content: string):
   })
 }
 
-// GET /draft-prompt?chapter= → {prompt}
-export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string }> {
+// GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单，Q-5 随 spawn 回传）
+export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string; files?: string[] }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/draft-prompt?chapter=${chapter}`)
 }
 

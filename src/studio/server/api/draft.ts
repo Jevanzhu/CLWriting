@@ -80,7 +80,10 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     const bookRoot = r.bookRoot
     // P1 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
     const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath ?? null)
-    reply(res, 200, { prompt: buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config) })
+    // Q-5（第十五轮）：files = prompt 实际注入源清单——前端随 prompt 回传 POST /spawn
+    // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合
+    const d = buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config)
+    reply(res, 200, { prompt: d.prompt, files: d.files })
   },
   })
 }

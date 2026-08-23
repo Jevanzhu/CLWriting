@@ -143,16 +143,8 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
     const p = tree.parents.get(seq)
     if (p !== undefined && !keep.has(p)) queue.push(p)
   }
-  // 顶替槽：每个带组 parent 的 (P, 首个组根) 半开区间——槽内无分支消息是被顶替的原答案
-  const firstRootByParent = new Map<number, number>()
-  for (const seqs of tree.groups.values()) {
-    const root = seqs[0]!
-    const p = tree.parents.get(root)
-    if (p === undefined) continue
-    const cur = firstRootByParent.get(p)
-    if (cur === undefined || root < cur) firstRootByParent.set(p, root)
-  }
-  const slots = [...firstRootByParent]
+  // 顶替槽（Q-6 抽共享）：selectBranch 与 selectBranchTo 同口径过滤
+  const slots = supersededSlots(tree)
   // 线性兜底：槽外的「无分支」消息（普通对话消息/旧数据缺 parentSeq）都保留——
   // G1：分支后的普通续聊（seq > rootSeq、无 branchId）也在线性时间线上，
   // 只保 root 之前会把续聊丢出视图（刷新即消失），故不再按 seq 截断；
@@ -163,6 +155,21 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
     if (!superseded) keep.add(ev.seq)
   }
   return sortEvents(events).filter((e) => keep.has(e.seq))
+}
+
+/** 顶替槽（Z-P1-2 + Q-6 共享）：对每个有变体组的 parent P，(P, 首个组根) 半开区间内的
+ *  无分支消息是被 regenerate 顶替的原始回复——任何分支视图都须剔除（selectBranch 的
+ *  分支视图与 selectBranchTo 的重生成上下文同口径，否则重生成锚定在被否定的旧答案上）。 */
+function supersededSlots(tree: BranchTree): Array<[number, number]> {
+  const firstRootByParent = new Map<number, number>()
+  for (const seqs of tree.groups.values()) {
+    const root = seqs[0]!
+    const p = tree.parents.get(root)
+    if (p === undefined) continue
+    const cur = firstRootByParent.get(p)
+    if (cur === undefined || root < cur) firstRootByParent.set(p, root)
+  }
+  return [...firstRootByParent]
 }
 
 /**
@@ -178,9 +185,14 @@ export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEven
     cur = tree.parents.get(cur)
   }
   // 线性兜底：targetSeq 之前所有「无分支」消息（普通对话消息/旧数据缺 parentSeq）
+  // Q-6：同样过顶替槽——被 regenerate 顶替的原答案不得混入重生成上下文（与
+  // selectBranch / 进程内「截断到 user 再答」同口径）。
+  const slots = supersededSlots(tree)
   for (const ev of sortEvents(events)) {
     if (ev.seq >= targetSeq) break
-    if (ev.data['branchId'] === undefined) keep.add(ev.seq)
+    if (ev.data['branchId'] !== undefined) continue
+    const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
+    if (!superseded) keep.add(ev.seq)
   }
   return sortEvents(events).filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
 }

@@ -1,4 +1,5 @@
 import http from 'node:http'
+import net from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -33,6 +34,36 @@ test('static handler rejects malformed uri without killing server', async () => 
   // hh §八-12：静态层错误也走统一 JSON 信封 {code, error}
   expect(JSON.parse(await bad.text())).toEqual({ code: 'BAD_INPUT', error: 'bad request' })
 
+  const ok = await fetch(`${baseUrl}/`)
+  expect(ok.status).toBe(200)
+  expect(await ok.text()).toContain('<title>Studio</title>')
+})
+
+// Q-1（第十五轮）：absolute-form 畸形请求行——new URL 构造抛错路径。此前 static handler
+// 首语句裸调 new URL，async 回调 rejection 无兜底（/api 分支有 catch、静态分支没有）→
+// unhandledRejection（Node ≥15 默认 throw = 进程崩溃，至少请求挂死）。
+// 下方用例标题「rejects malformed uri」只覆盖 decodeURIComponent 守卫，未覆盖本路径。
+test('Q-1: 畸形 absolute-form 请求行（new URL 抛错路径）→ 400 信封且服务存活', async () => {
+  const address = server!.address() as AddressInfo
+  const raw = await new Promise<string>((resolve, reject) => {
+    const sock = net.connect(address.port, '127.0.0.1')
+    const timer = setTimeout(() => reject(new Error('2s 内无响应（疑似 handler 抛错未回应）')), 2_000)
+    sock.on('connect', () => {
+      sock.write(`GET http://[bad HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\n\r\n`)
+    })
+    sock.on('data', (d) => {
+      clearTimeout(timer)
+      resolve(d.toString('latin1'))
+      sock.destroy()
+    })
+    sock.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
+  })
+  expect(raw.startsWith('HTTP/1.1 400')).toBe(true)
+
+  // 对照：服务仍存活（修复前该请求把 handler 打挂，后续请求不受影响才是目标）
   const ok = await fetch(`${baseUrl}/`)
   expect(ok.status).toBe(200)
   expect(await ok.text()).toContain('<title>Studio</title>')

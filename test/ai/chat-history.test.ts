@@ -3,6 +3,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { getHistory, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
+import { lastMessageFingerprint } from '../../src/ai/orchestrate/chat/turns.js'
+import type { ContentBlock } from '../../src/ai/provider/types.js'
 import { compactionSuppressed, histories } from '../../src/ai/orchestrate/chat/state.js'
 
 const BOOKS = ['书1', '书2', '书3', '书4', '书5', '书6', '书7', '书8', '书9', '书A']
@@ -38,5 +40,27 @@ describe('X-P2-24 对话历史 LRU', () => {
     expect(compactionSuppressed.has('书9')).toBe(false)
     for (const b of [...BOOKS, '书9']) clearChatHistory(b)
     compactionSuppressed.clear()
+  })
+})
+
+// Q-11（第十五轮）：当轮末条消息指纹——轮循环 promptText 每轮取末条消息（文本原样 /
+// blocks 序列化），同组多轮 llm/call promptMeta hash 各异，「本次实际输入指纹」可审计
+describe('Q-11 lastMessageFingerprint', () => {
+  it('末条为文本 → 原文；末条为 blocks → JSON 序列化；空历史 → 空串', () => {
+    // 首轮：user 文本 → 原文即指纹
+    expect(lastMessageFingerprint([{ role: 'user', content: '帮我看看第 1 章' }])).toBe('帮我看看第 1 章')
+    // 工具轮：末条为 tool_result blocks → 确定性 JSON 序列化（含 isError）
+    const blocks: ContentBlock[] = [
+      { type: 'tool_result', toolUseId: 'tu-1', content: '全绿', isError: false },
+    ]
+    const fp = lastMessageFingerprint([
+      { role: 'user', content: '帮我看看第 1 章' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'check_chapter', input: { chapter: 1 } }] },
+      { role: 'user', content: blocks },
+    ])
+    expect(fp).toBe(JSON.stringify(blocks))
+    expect(fp).not.toContain('帮我看看第 1 章') // 不再恒等于首轮 user 文本
+    // 空历史防御：空串（不抛）
+    expect(lastMessageFingerprint([])).toBe('')
   })
 })

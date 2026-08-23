@@ -9,6 +9,7 @@
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { splitInlineArray } from '../format/frontmatter.js'
+import { splitFrontMatter } from '../format/frontmatter-core.js'
 
 /**
  * 扫描 布线/ 全部 md 账本的 front matter，收集 leak_keywords 数组值（去重、去空）。
@@ -42,7 +43,9 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
       } else if (e.isFile() && e.name.endsWith('.md')) {
         try {
           const raw = readFileSync(fp, 'utf8')
-          const fm = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1]
+          // Q-14（第十五轮）：改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，
+          // 带毛边的账本 fm 整段丢失 → info-leak 机检静默失效
+          const fm = splitFrontMatter(raw)?.fmRaw
           if (!fm) continue
           // 逐行解析（正则块匹配在缩进/行尾组合下反直觉，线扫确定性好推理）：
           // ① 单行数组：leak_keywords: [甲, 乙]

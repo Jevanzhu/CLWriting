@@ -6,6 +6,33 @@
 import { test, expect } from 'vitest'
 import { ccDriver, debugChannelCount } from '../../src/driver/cc.js'
 import { mockDriver, debugCounts } from '../../src/driver/mock.js'
+import { ensureSession, forgetSession } from '../../src/driver/index.js'
+
+// Q-2（第十五轮）：ensureSession 并发首建竞态——两调用方都在对方 set 前 miss，各自
+// startSession 后 set 互相覆盖：被覆盖 session 的 channel 永久无人 dispose（泄漏），
+// 且两调用方拿到不同 session（/interrupt 与 ctrl 登记分裂）。微任务 FIFO 保证
+// 「先 resolve 者先入表」确定成立，本用例确定性复现该时序。
+test('Q-2: ensureSession 并发首建——同一 book 两调用方拿到同一 session，输家 channel 即刻回收', async () => {
+  const bookId = 'q2-race-book'
+  const before = debugChannelCount()
+  try {
+    // 不 await 第一个：两次调用都在 map 为空时进入 await startSession（复现双 miss）
+    const pA = ensureSession(bookId, '/tmp')
+    const pB = ensureSession(bookId, '/tmp')
+    const [a, b] = await Promise.all([pA, pB])
+
+    // 修复前：a !== b（后 set 覆盖先 set），先建 channel 永久泄漏
+    expect(a).toBe(b)
+    expect(debugChannelCount()).toBe(before + 1) // 输家新建的 session 已 dispose，不残留
+
+    // 后续调用复用同一 session
+    const c = await ensureSession(bookId, '/tmp')
+    expect(c).toBe(a)
+  } finally {
+    forgetSession(bookId)
+  }
+  expect(debugChannelCount()).toBe(before)
+})
 
 test('cc driver：dispose 后迟到 emit / interrupt / stream 不复活 channel 条目', async () => {
   const before = debugChannelCount()

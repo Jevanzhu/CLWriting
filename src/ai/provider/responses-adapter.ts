@@ -206,10 +206,13 @@ export function createOpenAIResponsesProvider(
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
+      // Q-13（第十五轮）：resolve 后终值随 done 透出（与 toParams 的 tokenCap 同链：
+      // 调用方 cap → 模型行；无兜底不发 → undefined）
+      const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens }
       }
 
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /

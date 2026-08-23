@@ -29,6 +29,16 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
   if (existing && !existing.closed) return existing
   const driver = getDriver('cc')
   const session = await driver.startSession(cwd)
+  // Q-2（第十五轮）：await 返回后重查——并发首建时两个调用方都在对方 set 之前 miss，
+  // 各自 startSession 后 set 互相覆盖：被覆盖 session 的 channel/ctrl 表永久无人
+  // dispose（泄漏），且 spawn 登记在旧 session 上的 ctrl 让后续调用方拿到的 session
+  // 查不到（/interrupt 失效、SSE 快照假空闲）。先到者入表胜出，晚到者 dispose 自己
+  // 新建的再复用既有条目。
+  const winner = sessions.get(bookId)
+  if (winner && !winner.closed && winner !== session) {
+    driver.dispose(session)
+    return winner
+  }
   sessions.set(bookId, session)
   return session
 }

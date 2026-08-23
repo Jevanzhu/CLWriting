@@ -260,10 +260,13 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       let doneEmitted = false
       let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
+      // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
+      // openai 线无兜底不发 → undefined，与 toParams 上线值同源）
+      const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens }
       }
 
       // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors

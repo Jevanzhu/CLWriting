@@ -227,6 +227,11 @@ export interface LlmCallData {
    *  mock 快路 / 取 provider 失败路径未 resolve，无此两键（重放同样不依赖） */
   effort?: string
   timeoutMs?: number
+  /** Q-13（第十五轮）：resolve 后终值补全——上线输出上限 maxTokens（适配器 done 事件透出
+   *  经编排层透传；无兜底不发/early-error 无值）与首字节超时 firstByteTimeoutMs（env
+   *  resolver 与 gen.generate 同源）。mock 快路 / 取 provider 失败路径无此两键 */
+  maxTokens?: number
+  firstByteTimeoutMs?: number
 }
 
 /** llm/retry —— 重试记账（先落库后等待） */

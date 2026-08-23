@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { walkMdFind } from '../fs/walk-md.js'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
+import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readDraft } from '../format/draft.js'
 import { computeRevision } from '../document/revision.js'
 import { readManifest } from '../document/manifest.js'
@@ -61,9 +62,11 @@ export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPa
   const fp = chapterSummaryPath(bookRoot, chapter)
   if (!existsSync(fp)) return 'missing'
   const raw = readFileSync(fp, 'utf8')
-  const m = /^---\n([\s\S]*?)\n---/.exec(raw)
-  if (!m) return 'fresh' // 手写摘要（无 fm）：作者优先
-  const hashMatch = /^sourceHash:\s*(\S+)/m.exec(m[1]!)
+  // Q-14（第十五轮）：改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，
+  // 带 BOM 的摘要文件 fm 整段丢失 → 过期检测永久失灵
+  const split = splitFrontMatter(raw)
+  if (!split) return 'fresh' // 手写摘要（无 fm）：作者优先
+  const hashMatch = /^sourceHash:\s*(\S+)/m.exec(split.fmRaw)
   if (!hashMatch) return 'fresh' // 有 fm 无指纹：同样按作者产物对待
   return hashMatch[1] === computeRevision(bodyAbsPath) ? 'fresh' : 'stale'
 }
@@ -73,8 +76,9 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
   const fp = chapterSummaryPath(bookRoot, chapter)
   if (!existsSync(fp)) return null
   const raw = readFileSync(fp, 'utf8')
-  const m = /^---\n([\s\S]*?)\n---\n?/.exec(raw)
-  return (m ? raw.slice(m[0].length) : raw).trim()
+  // Q-14：同上走 frontmatter-core（剥 fm 口径与全库一致，BOM/CRLF 不再漏进注入正文）
+  const split = splitFrontMatter(raw)
+  return (split ? split.body : raw).trim()
 }
 
 /** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。

@@ -34,6 +34,10 @@ export function llmCallEvent(data: {
   /** I7（第十一轮）：resolve 解析值（实际生效 effort/timeoutMs）——重放口径，见 LlmCallData */
   effort?: string
   timeoutMs?: number
+  /** Q-13（第十五轮）：resolve 后终值——上线输出上限（适配器 done 事件透出，编排层
+   *  透传；无兜底不发/early-error 无值）与首字节超时（env resolver，同 gen.generate 源） */
+  maxTokens?: number
+  firstByteTimeoutMs?: number
 }): NewEvent {
   return { type: 'llm/call', data: { ...data } }
 }

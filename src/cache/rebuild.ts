@@ -166,9 +166,12 @@ export function rebuild(
   let leadCount = 0
   let chapterCount = 0
   let summaryCount = 0
-  // W-P2-4 + X-P2-1：本次重建的源树基准（mtime+1ms 缓冲防同毫秒写后漏检；count/size 防纯删除漏检），重建后写 meta
+  // W-P2-4 + X-P2-1：本次重建的源树基准（count/size 防纯删除漏检），重建后写 meta
   const sourceStats = walkSourceStats(bookRoot)
-  const sourceMaxMtime = Math.ceil(sourceStats.maxMtime) + 1
+  // Q-18（第十五轮）：存精确 maxMtime——此前 ceil+1 的「缓冲」方向反了：把增量跳过的
+  // 接受窗从精确 mtime 扩大到 ceil+1（同尺寸原位改写最长近 2ms 漏检）；JS number 的
+  // String 往返无损，精确比较即精确接受窗（同毫秒改写是 stat 粒度固有限制，不靠缓冲解决）
+  const sourceMaxMtime = sourceStats.maxMtime
 
   // 读 book.yaml → 决定启用哪些账本类（#9 第 5 节）
   const bookYamlPath = join(bookRoot, 'book.yaml')

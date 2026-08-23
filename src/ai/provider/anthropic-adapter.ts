@@ -81,6 +81,12 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
   return { role: m.role, content: blocks }
 }
 
+/** Q-13（第十五轮）：输出上限 resolve 单源——toParams 上线值与 done 事件透出值同源，
+ *  防两处各写一份漂移（anthropic 线全链兜底：调用方 cap → 模型行 → quirks 表 → 8192） */
+function resolveMaxTokens(conf: ProviderConf, req: GenRequest): number {
+  return req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? quirksFor(conf.model ?? '').maxOutputTokens ?? MAX_TOKENS
+}
+
 /** GenRequest → Anthropic MessageCreateParams */
 function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateParamsStreaming {
   // 表驱动参数翻译（表驱动重构 §6.1）
@@ -88,10 +94,9 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
 
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192
     // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192。
     // 阶段 14 §7.2 显式 resolve：调用方 cap（req.maxTokens）→ 模型行覆盖（用户声明）→ quirks 表 → 协议兜底。
-    max_tokens: req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? q.maxOutputTokens ?? MAX_TOKENS,
+    max_tokens: resolveMaxTokens(conf, req),
     messages: req.messages.map(toAnthropicMessage),
     stream: true,
     // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）
@@ -179,12 +184,15 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       let cacheReadFromStart: number | undefined // D4：message_start 的 cache 读量（message_delta 缺字段时兜底）
       let cacheWriteFromStart: number | undefined // D4：message_start 的 cache 写量（同上）
       let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
+      // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
+      // 按原始 req 计算与各 attempt toParams 上线值一致）
+      const resolvedMaxTokens = resolveMaxTokens(conf, req)
       // 去重：某些上游发重复 message_delta（cc-switch issue 记录的故障）
       // done 幂等，重复到达时忽略
       const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
         if (doneEmitted) return null
         doneEmitted = true
-        return { type: 'done', usage, stopReason }
+        return { type: 'done', usage, stopReason, resolvedMaxTokens }
       }
 
       try {

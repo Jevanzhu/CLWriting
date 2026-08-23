@@ -130,6 +130,20 @@ describe('GUI API 集成链(设定台 P2)', () => {
     expect(d.config.book.title).toBe('测试书')
   })
 
+  // Q-15（第十五轮）：含换行/控制字符的标题 400 拒收——落盘会破坏 book.yaml 行结构
+  // （回读静默丢键/错键），入口 fail-fast
+  it('PUT /api/books/:name/config 标题含换行/控制字符 → 400', async () => {
+    for (const bad of ['双行\n标题', '带\r回车', '带\t制表', '带\x00空字节']) {
+      const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+        body: JSON.stringify({ config: { spec_version: 1, book: { title: bad }, leads: { enabled: [] }, budget: {}, growth: {} } }),
+      })
+      expect(r.status).toBe(400)
+      expect(((await r.json()) as { error: string }).error).toContain('控制字符')
+    }
+  })
+
   it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
     const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
     expect(ok.ok).toBe(true)

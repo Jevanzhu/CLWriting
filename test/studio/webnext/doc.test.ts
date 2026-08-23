@@ -416,3 +416,37 @@ describe('P5-前端（第七轮）：save 在途切书 → 成功分支不写新
     expect(tree.updateWordCount).not.toHaveBeenCalled() // B 树不吃 A 书字数
   })
 })
+
+describe('Q-3（第十五轮）：flushDirty 循环冲排', () => {
+  it('flush await 窗口内的新键入不丢——第二轮重扫补存', async () => {
+    const doc = await openDoc('d-q3', '写作/正文/第1章.md', 'a')
+    doc.patch('d-q3', 'b')
+    let resolve1!: (v: SaveOk | PromiseLike<SaveOk>) => void
+    vi.mocked(saveContent)
+      .mockImplementationOnce(() => new Promise((r) => { resolve1 = r }))
+      .mockImplementationOnce(async () => ({ ok: true, revision: 'sha256:2', superseded: false }))
+
+    const flushing = doc.flushDirty()
+    // 第一轮保存在途（快照='b'）时模拟编辑器仍挂载旧书可继续键入（修复前：一次性
+    // 快照定格，这些击键不在集合内，setBook 清缓存即静默丢失）
+    doc.patch('d-q3', 'c')
+    resolve1({ ok: true, revision: 'sha256:1', superseded: false })
+    await flushing
+
+    expect(doc.get('d-q3')!.dirty).toBe(false) // 修复前残留 true（c 无保存路径）
+    expect(doc.get('d-q3')!.content).toBe('c')
+    expect(saveContent).toHaveBeenCalledTimes(2) // 第二轮补存 c
+  })
+
+  it('保存持续失败不无限重试（failed 集合挡死循环）', async () => {
+    const doc = await openDoc('d-q3f', '写作/正文/第1章.md', 'a')
+    doc.patch('d-q3f', 'b')
+    vi.mocked(saveContent).mockImplementation(async () => {
+      throw new ApiError('网络错误', 500, 'ERROR')
+    })
+    await doc.flushDirty()
+    // 失败文档只尝试一次（每轮重扫被 failed 集合排除），dirty 保留待作者决断
+    expect(saveContent).toHaveBeenCalledTimes(1)
+    expect(doc.get('d-q3f')!.dirty).toBe(true)
+  })
+})

@@ -122,6 +122,20 @@ describe('generateChapterSummary（C1 批 2）', () => {
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
   })
 
+  // Q-14（第十五轮）：带 BOM/CRLF 毛边的摘要文件 → fm 仍可提取（手写正则曾整段丢失，
+  // 过期检测永久失灵 + fm 漏进注入正文）
+  it('Q-14: BOM + CRLF 摘要 → sourceHash 过期判定与剥 fm 注入照常', async () => {
+    const root = makeBook(1)
+    const hash = computeRevision(bodyOf(root, 1))
+    mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
+    writeFileSync(chapterSummaryPath(root, 1), `\ufeff---\r\nchapter: 1\r\nsourceHash: ${hash}\r\n---\r\n\r\nBOM 摘要正文。\r\n`)
+    expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
+    appendFileSync(bodyOf(root, 1), '\n正文后改。\n')
+    expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('stale')
+    // 剥 fm 注入：正文不含 fm 键（BOM 不再漏进内容）
+    expect(readChapterSummaryBody(root, 1)).toBe('BOM 摘要正文。')
+  })
+
   it('手写摘要（无 fm）按 fresh 对待——作者产物优先，程序不覆盖', async () => {
     const root = makeBook(1)
     mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })

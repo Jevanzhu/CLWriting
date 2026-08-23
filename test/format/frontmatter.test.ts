@@ -201,3 +201,45 @@ test('X-P2-18: 数组逐项序列化——含逗号/引号/纯数字/空项往�
   // 序列化形态：含逗号项带引号（与解析端 K17 的引号跳过对称）
   expect(stringifyValue(['科幻', '悬疑,推理'])).toBe('[科幻, "悬疑,推理"]')
 })
+
+// ── Q-15/16/17（第十五轮）：格式族三修复回归 ──────────────────────
+
+// Q-16：闭合 --- 判零缩进——块标量值内的缩进 `  ---` 不再误判 fm 结束（往返不截断）
+test('Q-16: 块标量值含缩进 --- 行 → 往返无损（trim 判定曾把 `  ---` 当闭合）', () => {
+  const m = new Map<string, unknown>()
+  m.set('钩子', '第一段\n  ---\n第二段') // 块标量里出现缩进 --- 分隔线
+  m.set('标题', '正常值')
+  const file = joinFrontMatter(stringifyFlat(m), '正文')
+  // 写盘再读回（splitFrontMatter + parseFlat 全链）
+  const split = splitFrontMatter(file)
+  expect(split).not.toBeNull()
+  const back = parseFlat(split!.fmRaw)
+  // 值完整往返（块内 --- 行不截断 fm）；缩进按既有逐行 dedent 语义归一（非本次修复面）
+  expect(back.get('钩子')).toBe('第一段\n---\n第二段')
+  expect(back.get('标题')).toBe('正常值')
+  expect(split!.body).toBe('正文')
+})
+
+// Q-17：块标量 chomping 变体（`|-`/`|+`/`>-`）按块标量解析，不再当字面串漏块内容
+test('Q-17: `钩子: |-` / `>-` 变体 → 走块标量分支（值不含块内容混入的伪键）', () => {
+  const fm = ['钩子: |-', '  第一段', '  第二段', '标题: 收束'].join('\n')
+  const m = parseFlat(fm)
+  expect(m.get('钩子')).toBe('第一段\n第二段')
+  expect(m.get('标题')).toBe('收束')
+  expect(m.size).toBe(2) // 缩进块行不再被当成顶层伪键
+  const fmFolded = ['概要: >-', '  甲', '  乙'].join('\n')
+  expect(parseFlat(fmFolded).get('概要')).toBe('甲 乙')
+})
+
+// Q-15：含 \n 值强制引号 + \n 转义，unquote 对称还原（不劈断 yaml 行）
+test('Q-15: stringifyValue 含换行值 → 引号内 \\n 转义，parseValue 对称还原', () => {
+  const s = '第一行\n第二行'
+  const wire = stringifyValue(s)
+  expect(wire.startsWith('"')).toBe(true)
+  expect(wire).not.toMatch(/\n/) // 线上一行，行结构不破坏
+  expect(wire).toContain('\\n')
+  expect(parseValue(wire)).toBe(s)
+  // 数组项含换行同链（splitInlineArray 逐项 unquote）
+  const arrWire = stringifyValue(['甲', '乙\n丙'])
+  expect(parseValue(arrWire)).toEqual(['甲', '乙\n丙'])
+})

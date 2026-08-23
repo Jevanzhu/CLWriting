@@ -17,7 +17,10 @@ export function splitFrontMatter(
   // 找闭合 ---
   let endIdx = -1
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') {
+    // Q-16（第十五轮）：闭合 --- 判零缩进（容忍 \r 尾）——此前 trim() 会把块标量值内的
+    // 缩进 `  ---` 误判为 fm 结束，多行值写盘再读即截断损坏；零缩进与块缩进（≥1 空格）
+    // 天然错开，无需另判
+    if (/^---\r?$/.test(lines[i]!)) {
       endIdx = i
       break
     }

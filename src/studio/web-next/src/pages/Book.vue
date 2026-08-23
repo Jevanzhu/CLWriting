@@ -23,6 +23,7 @@ import { useStyleStore } from '../stores/style'
 import { useRewriteStore } from '../stores/rewrite'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
+import { usePrefsStore } from '../stores/prefs'
 
 // 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
 // bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName/心跳/doc 缓存/tabs 跟随更新。
@@ -46,6 +47,7 @@ const style = useStyleStore()
 const rewrite = useRewriteStore()
 const workbench = useWorkbenchStore()
 const chat = useChatStore()
+const prefs = usePrefsStore()
 // 切书：同步 doc 缓存 + 载入持久化 tabs + 清空各 store 旧状态
 let bookGen = 0
 watch(bookName, async (n) => {
@@ -84,6 +86,21 @@ function flushOnUnload(): void {
 }
 onMounted(() => window.addEventListener('beforeunload', flushOnUnload))
 onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
+
+// Q-9（第十五轮）：自动保存节拍上移 Book 层——此前绑 EditorView 挂载，切到工作台/
+// 总览等视图后编辑器卸载、interval 被清，store 里的 dirty 文档停止自动保存（丢失窗口
+// 超过 autosave 间隔）。扫描逻辑在 doc.autosaveTick（覆盖全部打开文档，非仅当前编辑器）。
+let autosaveTimer: ReturnType<typeof setInterval> | null = null
+function startAutosave(): void {
+  if (autosaveTimer) clearInterval(autosaveTimer)
+  autosaveTimer = setInterval(() => doc.autosaveTick(), Math.max(5, prefs.effectiveAutosaveInterval) * 1000)
+}
+onMounted(startAutosave)
+watch(() => prefs.effectiveAutosaveInterval, startAutosave)
+onUnmounted(() => {
+  if (autosaveTimer) clearInterval(autosaveTimer)
+  autosaveTimer = null
+})
 // RB-FE-P1-2：路由离开 /book（组件卸载，watch(bookName) 不再触发）也 flush 脏文档——
 // 选 onUnmounted 而非 onBeforeRouteLeave：覆盖一切卸载路径（路由跳转/程序化导航）。
 // flushDirty 内部逐文档 try/catch（save 永不 reject），fire-and-forget 安全，不阻塞卸载

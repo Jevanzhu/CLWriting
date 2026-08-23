@@ -50,6 +50,11 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     if (typeof config.book?.title !== 'string' || !config.book.title.trim()) {
       return replyError(res, 400, 'BAD_INPUT', 'config.book.title 必填且须为非空字符串')
     }
+    // Q-15（第十五轮）：拒含控制字符的标题——含换行标题落盘后 book.yaml 行结构破坏
+    // （回读静默丢键/错键）；yaml 层的引号转义是纵深防线，入口直接拒收最稳
+    if (/[\u0000-\u001f\u007f]/.test(config.book.title)) {
+      return replyError(res, 400, 'BAD_INPUT', 'config.book.title 不能包含换行等控制字符')
+    }
     try {
       const yamlPath = join(r.bookRoot, 'book.yaml')
       // kk-P1-5：文本级补丁写——此前 stringifyBookConfig 全量重生成会丢作者手写

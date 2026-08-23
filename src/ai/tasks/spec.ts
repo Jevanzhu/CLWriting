@@ -84,6 +84,8 @@ export interface SpecOutput {
   /** token 用量（V-P2-8：必须回传——runner 据此记 trace/任务账/前端计数；
    *  此前丢失导致真实链路 usage 全程为 0，只有 mock 路径有值） */
   usage?: TokenUsage
+  /** Q-13（第十五轮）：适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
+  resolvedMaxTokens?: number
 }
 
 /**
@@ -150,7 +152,7 @@ export async function runSpec(
             signal,
             opts.onText,
           )
-          return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage }
+          return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens }
         }
         // 文本型
         const r = await generate(
@@ -162,7 +164,7 @@ export async function runSpec(
         if (r.stopReason === 'max_tokens') {
           throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
         }
-        return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage }
+        return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens }
       },
     })
   } finally {

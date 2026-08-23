@@ -65,6 +65,19 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
     if (ev.type === 'sync') {
       running.value = ev['running'] === true
+      // Q-4（第十五轮）：sync 只回 running 布尔——断线重连时若批次已在断连窗口内
+      // 收尾（self_heal_result 丢失），healPhase/batchProgress 原样残留会让界面永久
+      // 卡「正在写稿…」（M-12 只处理了 running 复位）。running=false 且自愈态残留 →
+      // 连带复位 + 中断提示（终局未知，引导从文章树查看）。
+      if (
+        !running.value &&
+        (healPhase.value !== null || healProgress.value !== null || batchProgress.value !== null)
+      ) {
+        healPhase.value = null
+        healProgress.value = null
+        batchProgress.value = null
+        warning.value = '连接中断，写章结果未知——请从文章树查看最新草稿状态'
+      }
       return
     }
     const e = { ...ev, _ts: ts() } as SseEvent

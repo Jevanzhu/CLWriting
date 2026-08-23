@@ -162,5 +162,21 @@ describe('F1-P4 selectBranchTo（重新生成入口：恢复到指定 seq）', (
     // 3 无 parentSeq → 兜底保留 seq<3 无 branchId = 1,2
     expect(sel.map((e) => e.seq)).toEqual([1, 2, 3])
   })
+
+  // Q-6（第十五轮）：顶替槽在 targetSeq 之后时，selectBranchTo 兜底同样过滤被顶替
+  // 原答案——U1→A0（后被变体顶替）→b1→U2，对 U2 重生成不得把 A0 喂回模型。
+  it('Q-6: 顶替槽后的 targetSeq——被顶替原答案不混入重生成上下文', () => {
+    const evs = seqEvents([
+      userMessageEvent('q'), // 1
+      assistantMessageEvent('旧答案A0', undefined, undefined, undefined, { parentSeq: 1 }), // 2 无 branchId：被顶替的原回复
+      assistantMessageEvent('新变体b1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'v1' }), // 3
+      userMessageEvent('续聊U2', undefined, { parentSeq: 3 }), // 4 在变体分支上续聊
+      assistantMessageEvent('A2', undefined, undefined, undefined, { parentSeq: 4 }), // 5
+    ])
+    // 修复前：兜底全量保留 branchless（含 A0）→ [1,2,3,4]，重生成锚定在被否定旧答案上
+    expect(selectBranchTo(evs, 4).map((e) => e.seq)).toEqual([1, 3, 4])
+    // 对照：selectBranch 默认视图同口径（A0 剔除、变体与续聊保留）
+    expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 3, 4, 5])
+  })
 })
 
