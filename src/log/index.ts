@@ -11,6 +11,12 @@
  * - initLogging 后：{ts, level, tag, msg, err?} 逐行 JSONL 追加到
  *   <logsDir>/app-YYYYMMDD.jsonl（本地日期），进程内串行队列保证行序与调用序一致，
  *   调用方永不 await（诊断留痕不允许成为请求路径上的新阻塞源）；
+ * - stdout-only 模式（阶段 22 批 U2 / U-5 单写者，S-3 + 二轮 F-4）：env
+ *   CLW_LOG_STDOUT=1 时 initLogging 层短路——不设 logsDir、不 mkdir、不跑 7 天清理，
+ *   emit 直写 process.stdout 一行与落盘行同构的 JSON（child 进程专用：server-manager
+ *   fork 时经 options.env 注入，main 以 stdio:pipe 收行解析重发落盘——单写者，双进程
+ *   不再同写同一 logs 目录/双清同一轮转）；短路必须在本函数（startServer 内部会再
+ *   init 一次，入口层挡不住）；
  * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 console.error 该条，不抛出、
  *   不熔断后续写入——诊断通道不允许成为新故障源；
  * - 镜像开关由入口决定：dev / CLI / 测试镜像 console（看得见），Electron 打包态
@@ -29,11 +35,13 @@ interface LogState {
   logsDir: string | null
   /** 是否同时镜像 console（dev/CLI 态 true；打包态 false——console 无人看见）。 */
   mirrorConsole: boolean
+  /** stdout-only 模式（CLW_LOG_STDOUT=1）：emit 直写 stdout JSON 行，不落盘不镜像 */
+  stdoutOnly: boolean
   /** 串行写队列尾：每条日志链在上一条之后，行序 = 调用序。 */
   tail: Promise<void>
 }
 
-let state: LogState = { logsDir: null, mirrorConsole: true, tail: Promise.resolve() }
+let state: LogState = { logsDir: null, mirrorConsole: true, stdoutOnly: false, tail: Promise.resolve() }
 
 /** 错误对象 → 可 JSON 行序列化形状；非 Error 值收编为 message 字符串。 */
 function serializeErr(err: unknown): { name: string; message: string; stack?: string } {
@@ -91,11 +99,25 @@ async function cleanupOldLogs(logsDir: string): Promise<void> {
 /**
  * 初始化日志落盘。幂等：可重复调用（desktop main 早期 init 一次、startServer 再对齐一次）。
  * logsDir 传 null = 显式只镜像不落盘。轮转清理由本调用触发（启动期一次，不在写路径上做）。
+ * stdout-only（CLW_LOG_STDOUT=1）：本层短路——opts 全部忽略，不设 logsDir/不 mkdir/
+ * 不 cleanup（child 每次 fork 不再有文件系统副作用、不与 main 双清同一 logs 目录），
+ * 后续 emit 直写 stdout。
  */
 export function initLogging(opts: { logsDir: string | null; mirrorConsole?: boolean }): void {
+  if (process.env['CLW_LOG_STDOUT'] === '1') {
+    state = {
+      logsDir: null,
+      mirrorConsole: false,
+      stdoutOnly: true,
+      // 保留既有队列尾：init 前已排队的行仍按序处理完（stdout 模式下立即走新通道）
+      tail: state.tail,
+    }
+    return
+  }
   state = {
     logsDir: opts.logsDir,
     mirrorConsole: opts.mirrorConsole ?? true,
+    stdoutOnly: false,
     // 保留既有队列尾：init 前已排队的行仍按序落完，不会因换目录丢行
     tail: state.tail,
   }
@@ -117,6 +139,16 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
     msg,
     ...(err === undefined ? {} : { err: serializeErr(err) }),
   })
+  if (state.stdoutOnly) {
+    // child 专用通道：一行 JSON 直写 stdout（与落盘行同构），main 收行解析重发落盘。
+    // 不镜像 console（stdout 本身就是出口，镜像即双写）。
+    try {
+      process.stdout.write(line + '\n')
+    } catch {
+      /* stdout 已关闭（进程收尾期）：fail-open */
+    }
+    return
+  }
   const mirror = () => {
     if (!state.mirrorConsole) return
     if (level === 'error') console.error(`[${tag}] ${msg}`, ...(err === undefined ? [] : [err]))
@@ -150,7 +182,7 @@ export const log = {
 
 /** 测试钩子：重置为未初始化态（vitest 模块隔离下按需使用）。 */
 export function resetLoggingForTest(): void {
-  state = { logsDir: null, mirrorConsole: true, tail: Promise.resolve() }
+  state = { logsDir: null, mirrorConsole: true, stdoutOnly: false, tail: Promise.resolve() }
 }
 
 /** 测试钩子：等待串行队列排空（断言文件内容前调用）。 */

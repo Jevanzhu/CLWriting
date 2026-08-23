@@ -2,7 +2,7 @@
  * A4（批 0）结构化日志模块单测：队列串行 / 轮转清理 / err 序列化 /
  * 未初始化镜像 / 落盘失败降级（fail-open）。
  */
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -181,5 +181,46 @@ describe('log 模块（A4 批 0）', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('log stdout-only 模式（阶段 22 批 U2 / U-5 单写者，S-3 + 二轮 F-4）', () => {
+  afterEach(() => {
+    delete process.env['CLW_LOG_STDOUT']
+  })
+
+  it('CLW_LOG_STDOUT=1：init 短路忽略 opts；emit 直写 stdout 同构 JSON 行；不镜像 console 不落盘', () => {
+    dir = mkdtempSync(join(tmpdir(), 'clw-log-so-'))
+    process.env['CLW_LOG_STDOUT'] = '1'
+    const writes: string[] = []
+    vi.spyOn(process.stdout, 'write').mockImplementation(((c: string) => {
+      writes.push(c)
+      return true
+    }) as never)
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    // opts 传 mirrorConsole:true 也应被短路忽略（stdout 即出口，镜像即双写）
+    initLogging({ logsDir: dir, mirrorConsole: true })
+    log.info('server', '监听就绪')
+    log.error('http', '落库失败', new TypeError('disk full'))
+    expect(writes).toHaveLength(2)
+    const line1 = JSON.parse(writes[0]!.trim()) as Record<string, unknown>
+    expect(line1).toMatchObject({ level: 'info', tag: 'server', msg: '监听就绪' })
+    expect(typeof line1['ts']).toBe('string')
+    const line2 = JSON.parse(writes[1]!.trim()) as Record<string, unknown>
+    expect(line2['level']).toBe('error')
+    expect(line2['tag']).toBe('http')
+    // err 序列化形状与落盘行同构（main 侧 forwardLogLine 按 {name,message,stack} 重建）
+    expect(line2['err']).toMatchObject({ name: 'TypeError', message: 'disk full' })
+    expect(consoleSpy).not.toHaveBeenCalled()
+    // F-4：短路不 mkdir 不落盘——目录保持空
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it('init 短路不跑 7 天清理：超期旧文件保留（正常模式会删）', () => {
+    dir = mkdtempSync(join(tmpdir(), 'clw-log-so2-'))
+    writeFileSync(join(dir, 'app-20200101.jsonl'), '{"old":1}\n')
+    process.env['CLW_LOG_STDOUT'] = '1'
+    initLogging({ logsDir: dir, mirrorConsole: false })
+    expect(existsSync(join(dir, 'app-20200101.jsonl'))).toBe(true)
   })
 })

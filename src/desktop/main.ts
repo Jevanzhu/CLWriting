@@ -720,13 +720,13 @@ if (gotSingleInstanceLock) {
   })
 
   // RB-SV-P2-6：优雅退出。O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次
-  // quit 直通）。批 U1 中间态：child 尚无 shutdown 指令（批 U2 下沉 shutdownStudio
-  //——在途编排 abort/session/end 落库随批恢复），当前为 kill + 等退出（2s 兜底在
-  // manager 内），child 随 app 退出由 Electron 运行时收编兜底。
+  // quit 直通）。批 U2：before-quit 走 shutdown 指令——child 内 shutdownStudio（在途
+  // 编排 abort/session/end 落库）落定后 shutdown-done 回执退出；2s 总超时强杀兜底在
+  // manager 内（与拆分前 before-quit 口径一致）。
   app.on('before-quit', (e) => {
     if (!bootstrapRunner.beginShutdown()) return
     e.preventDefault()
-    void serverManager.stopChild().finally(() => {
+    void serverManager.shutdown().finally(() => {
       app.quit()
     })
   })

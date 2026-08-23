@@ -7,10 +7,11 @@
  * - 安全五件套窗口配置（contextIsolation/sandbox/nodeIntegration:false/preload）
  *   + 纵深防御（will-navigate 阻断 / 弹新窗拒绝）+ render-process-gone 自愈
  * - 生产 CSP 注入（default-src 'self' 基线锁定）
- * - utility fork 参数与握手（阶段 22 批 U1：--dir/--user-data/--port 0/--token/
- *   serviceName 单列/env 缺省继承 + loadURL 用 ready 回传端口 = 时序等价锚点）；
- *   welcome 态（--dir 缺省）、token 跨模块加载稳定（U-6）、boot-error → 原生
- *   错误对话框 + 退出（时序 2）
+ * - utility fork 参数与握手（阶段 22 批 U1/U2：--dir/--user-data/--port 0/--token/
+ *   serviceName 单列/stdio pipe + env 注入 CLW_LOG_STDOUT（单写者）+ loadURL 用
+ *   ready 回传端口 = 时序等价锚点）；welcome 态（--dir 缺省）、token 跨模块加载
+ *   稳定（U-6）、boot-error → 原生错误对话框 + 退出（时序 2）；before-quit 下发
+ *   shutdown 指令（时序 4，非裸 kill）
  * - IPC 面：switch-library 校验与持久化、show-in-folder/open-book-dir 路径穿越守卫族、
  *   open-book 导航转发、context-menu 载荷校验与选择回传
  * - 原生菜单模板（生产无 devTools/reload；action click → menu-action 转发）
@@ -136,6 +137,9 @@ vi.mock('electron', () => {
     posted: unknown[] = []
     killed = 0
     pid = 4242
+    /** 批 U2：stdio pipe 契约面（main 侧转发在 manager 单测覆盖，此处 null 跳过） */
+    stdout = null
+    stderr = null
     constructor(modulePath: string, args: string[], options: Record<string, unknown>) {
       M.forkCalls.push({ modulePath, args, options })
       M.forkChildren.push(this as unknown as Record<string, any>)
@@ -159,6 +163,13 @@ vi.mock('electron', () => {
     }
     postMessage(m: unknown): void {
       this.posted.push(m)
+      // 批 U2：模拟真实 child 收 shutdown 指令 → shutdownStudio 落定 → 回执 + exit(0)
+      if ((m as { type?: string })?.type === 'shutdown') {
+        queueMicrotask(() => {
+          this.emit('message', { type: 'shutdown-done' })
+          this.emit('exit', 0)
+        })
+      }
     }
     kill(): boolean {
       this.killed++
@@ -366,8 +377,9 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(call.args).not.toContain('--book')
     expect(call.args).not.toContain('--mirror-console') // mock isPackaged=true
     expect(call.options['serviceName']).toBe('studio-server')
-    // env 继承断言：不显式传 = utilityProcess 缺省继承 process.env（批 U2 注入 CLW_LOG_STDOUT 时口径随改）
-    expect(call.options['env']).toBeUndefined()
+    // 批 U2 单写者（§3.5）：stdio pipe 收行 + env 注入 CLW_LOG_STDOUT=1（展开拷贝继承）
+    expect(call.options['stdio']).toBe('pipe')
+    expect((call.options['env'] as Record<string, string | undefined>)['CLW_LOG_STDOUT']).toBe('1')
     expect(String(call.modulePath)).toMatch(/server-utility\.js$/)
     // 45678 只能来自 ready 消息回传——loadURL 用回传端口即「server ready 后才 loadURL」的时序锚点（验收门 2）
     expect(mainWin().loaded[0]).toBe('http://127.0.0.1:45678')
@@ -560,13 +572,17 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
 })
 
 describe('kk-P2-8：退出与边界分支', () => {
-  it('before-quit：preventDefault 优雅退出（幂等，二次直通）', async () => {
+  it('before-quit：preventDefault 优雅退出（幂等，二次直通）；退出走 shutdown 指令非裸 kill（批 U2）', async () => {
     const h = M.appOn['before-quit']![0]!
     const e1 = { preventDefault: vi.fn() }
     const q0 = M.quitCalls
     h(e1)
     expect(e1.preventDefault).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(M.quitCalls).toBe(q0 + 1)) // 清理完成后再 quit
+    // 首个 handler 归首个模块实例，其 active child 即第一个 fake：指令已下发且
+    // 优雅回执路径未触发 kill
+    expect(M.forkChildren[0]!['posted']).toContainEqual({ type: 'shutdown' })
+    expect(M.forkChildren[0]!['killed']).toBe(0)
     const e2 = { preventDefault: vi.fn() }
     h(e2) // shutdownStarted → 不再拦
     expect(e2.preventDefault).not.toHaveBeenCalled()
