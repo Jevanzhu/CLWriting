@@ -16,7 +16,7 @@
  *   err 透传重建 Error（F-3）、坏行/字段残缺原文兜底、跨 chunk 半行拼装、stderr 整行
  *   warn 进档
  */
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -434,6 +434,155 @@ describe('批 U2：forwardLogLine 解析口径（纯函数直测）', () => {
     const cap = mkLogCapture()
     forwardLogLine(JSON.stringify({ level: 'error', tag: 't', msg: 'm', err: { name: 'X' } }), cap.logger)
     expect(cap.lines[0]!.err).toBeUndefined()
+  })
+})
+
+describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  /** 起一个 child 并完成握手（fork 在 start 调用内同步发生，取件须在 start 之后） */
+  async function bootAt(
+    manager: ReturnType<typeof createStudioServerManager>,
+    forkRecords: ForkRecord[],
+    port: number,
+  ): Promise<void> {
+    const p = manager.start({ workDir: '/w', userDataPath: mkUserData() })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port })
+    await p
+  }
+
+  it('异常退出 → 自动重启：钉住原端口（S-1）+ 同 token + 原参数面复刻', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5000, 15000] })
+    await bootAt(manager, forkRecords, 45100)
+    const token1 = argValue(forkRecords[0]!.args, '--token')
+    // 模拟崩溃（非 kill——exit 事件直接到达）
+    forkRecords[0]!.child.emit('exit', 1)
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    const rec2 = forkRecords[1]!
+    expect(argValue(rec2.args, '--port')).toBe('45100') // 钉住原端口，非 '0'
+    expect(argValue(rec2.args, '--token')).toBe(token1) // 同一内存 token
+    expect(argValue(rec2.args, '--dir')).toBe('/w')
+    rec2.child.emit('message', { type: 'ready', port: 45100 })
+    await flushMicrotasks()
+    expect(manager.isRunning()).toBe(true)
+  })
+
+  it('S-5：shutdown / stopChild 主动停机后的 exit 不触发重启（封 fork 数锚定）', async () => {
+    // shutdown 路径
+    {
+      const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5000, 15000], killWaitMs: 20 })
+      await bootAt(manager, forkRecords, 1)
+      const child = forkRecords[0]!.child
+      const shutting = manager.shutdown()
+      await flushMicrotasks(1)
+      child.emit('message', { type: 'shutdown-done' })
+      child.emit('exit', 0)
+      await shutting
+      await sleep(40) // backoff[0]=0：若门失效，新 fork 早已出现
+      expect(forkRecords.length).toBe(1)
+    }
+    // stopChild 路径
+    {
+      const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5000, 15000] })
+      await bootAt(manager, forkRecords, 2)
+      await manager.stopChild() // kill → exit（主动）
+      await sleep(40)
+      expect(forkRecords.length).toBe(1)
+    }
+  })
+
+  it('退避序列 10/20/30ms 三次自动重启，第 4 次崩溃转封顶回调（quit 不再重启）', async () => {
+    let exhausted = 0
+    const { forkRecords, manager } = mkHarness({
+      backoffMs: [10, 20, 30],
+      onRestartExhausted: () => {
+        exhausted++
+        return 'quit'
+      },
+    })
+    await bootAt(manager, forkRecords, 1)
+    for (let i = 0; i < 4; i++) {
+      forkRecords[i]!.child.emit('exit', 1)
+      if (i < 3) {
+        await vi.waitFor(() => expect(forkRecords.length).toBe(i + 2), { timeout: 300 })
+        forkRecords[i + 1]!.child.emit('message', { type: 'ready', port: 1 })
+        await flushMicrotasks()
+      }
+    }
+    await vi.waitFor(() => expect(exhausted).toBe(1), { timeout: 300 })
+    await sleep(80) // 若封顶失效会继续 fork
+    expect(forkRecords.length).toBe(4) // 首启 1 + 自动重启 3，无第 5 次
+  })
+
+  it('封顶回调选 restart：计数清零立即开新周期', async () => {
+    let exhausted = 0
+    const { forkRecords, manager } = mkHarness({
+      backoffMs: [10, 20, 30],
+      onRestartExhausted: () => {
+        exhausted++
+        return 'restart'
+      },
+    })
+    await bootAt(manager, forkRecords, 1)
+    for (let i = 0; i < 4; i++) {
+      forkRecords[i]!.child.emit('exit', 1)
+      await vi.waitFor(() => expect(forkRecords.length).toBe(i + 2), { timeout: 300 })
+      forkRecords[i + 1]!.child.emit('message', { type: 'ready', port: 1 })
+      await flushMicrotasks()
+    }
+    expect(exhausted).toBe(1)
+    // 第 4 次崩溃后封顶 → restart 决断 → 新周期第 1 次重启（fork#5）
+    await vi.waitFor(() => expect(forkRecords.length).toBe(5), { timeout: 300 })
+  })
+
+  it('S-9：ready 后稳定过窗口计数清零——后续崩溃回退避第 1 档而非第 2 档', async () => {
+    // backoff[1]=2000ms：若计数未清零，第二次崩溃后的重启要等 2s（用例 300ms 内必超时）
+    const { forkRecords, manager } = mkHarness({ backoffMs: [10, 2000, 3000], stabilityResetMs: 40 })
+    await bootAt(manager, forkRecords, 1)
+    forkRecords[0]!.child.emit('exit', 1)
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 1 })
+    await flushMicrotasks()
+    await sleep(80) // 稳定窗口 40ms 已过（child 存活）
+    forkRecords[1]!.child.emit('exit', 1) // 计数已清零 → 仍按第 1 档 10ms 重启
+    await vi.waitFor(() => expect(forkRecords.length).toBe(3), { timeout: 300 })
+  })
+
+  it('退避等待窗口内 shutdown：挂起重启作废（退出途中不 fork 孤儿）', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [80, 80, 80] })
+    await bootAt(manager, forkRecords, 1)
+    forkRecords[0]!.child.emit('exit', 1)
+    await flushMicrotasks(2) // 排程已挂（80ms 后）
+    await manager.shutdown() // active 已空：置门 + 取消挂起重启直通
+    await sleep(200)
+    expect(forkRecords.length).toBe(1)
+  })
+
+  it('重启握手失败（boot-error/EADDRINUSE 残留）按退避继续', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [10, 20, 30] })
+    await bootAt(manager, forkRecords, 1)
+    forkRecords[0]!.child.emit('exit', 1)
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    // 重启轮握手失败：钉住端口可能仍被垂死进程占着（EADDRINUSE → boot-error）
+    forkRecords[1]!.child.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: 'x' })
+    await vi.waitFor(() => expect(forkRecords.length).toBe(3), { timeout: 300 }) // 按退避第 2 档继续
+    forkRecords[2]!.child.emit('message', { type: 'ready', port: 1 })
+    await flushMicrotasks()
+    expect(manager.isRunning()).toBe(true)
+  })
+
+  it('显式 start 换轮作废挂起重启；新一轮端口回 0（非钉住）', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [80, 80, 80] })
+    await bootAt(manager, forkRecords, 45555)
+    forkRecords[0]!.child.emit('exit', 1)
+    await flushMicrotasks(2) // 挂起 80ms 重启
+    const p2 = manager.start({ workDir: '/w2', userDataPath: mkUserData() })
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 9 })
+    await expect(p2).resolves.toBe(9)
+    expect(argValue(forkRecords[1]!.args, '--port')).toBe('0') // 显式 start 永远 OS 分配
+    expect(argValue(forkRecords[1]!.args, '--dir')).toBe('/w2')
+    await sleep(200) // 挂起重启已被作废
+    expect(forkRecords.length).toBe(2)
   })
 })
 

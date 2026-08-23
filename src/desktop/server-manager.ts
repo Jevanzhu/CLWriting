@@ -4,11 +4,16 @@
  * 批 U1：fork server-utility 入口 + parentPort 握手（ready 端口回传 / boot-error
  * 信封）+ studioToken 首启生成/原子持久化（U-6 A）/启动读入内存一次、fork 一律复用
  * 内存值（二轮 F-5）+ stopChild（kill + 等退出）。
- * 批 U2（本文件当前态）：shutdown 指令下发 + shutdown-done 回执/2s 总超时强杀 +
- * shutdownStarted 状态门（S-5：置位后 child exit 不再触发重启，批 U3 退避逻辑消费）
- * + stdio:pipe 日志单写者转发（§3.5：CLW_LOG_STDOUT=1 注入 + JSON 行解析按
- * level/tag/err 重发，err 透传 F-3，坏行原文兜底不套 JSON）。
- * 批 U3 增：exit 退避重启（钉住原端口 + 同一 token，消费 shutdownStarted 门）。
+ * 批 U2：shutdown 指令下发 + shutdown-done 回执/2s 总超时强杀 + shutdownStarted
+ * 状态门（S-5）+ stdio:pipe 日志单写者转发（§3.5：CLW_LOG_STDOUT=1 注入 + JSON 行
+ * 解析按 level/tag/err 重发，err 透传 F-3，坏行原文兜底）。
+ * 批 U3（本文件当前态）：崩溃退避自动重启——exit 非主动停机即排程重启（立即/5s/15s
+ * 三档，3 次自动重启后再崩走 onRestartExhausted 封顶回调（main 接原生对话框）；
+ * ready 后稳定 stabilityResetMs 计数清零（U-2/S-9——偶发单次崩溃不累计到 3 误弹）；
+ * 重启钉住最近一次成功端口 + 同一内存 token（S-1：前端恢复链只认一次 boot 的同源
+ * 端口，token 换代即永久 403）；重启期 EADDRINUSE 等握手失败按退避继续（§3.4 时序
+ * 3）；shutdown/stopChild/start 三面取消挂起重启（S-5：退出途中 fork 新 child 成孤儿
+ * 直接打挂验收门 4）。
  *
  * fork 以依赖注入暴露（测试换假件，不 mock electron 整模块）；入口路径按本模块
  * 产物位置派生（dist/desktop/server-utility.js，asar 内等价——R-6 同 server-main
@@ -32,6 +37,12 @@ const HANDSHAKE_TIMEOUT_MS = 30_000
 const KILL_WAIT_TIMEOUT_MS = 2_000
 /** shutdown 总超时：不等 shutdown-done 回执的兜底（与拆分前 before-quit 2s 同量级，§3.4 时序 4） */
 const SHUTDOWN_TOTAL_TIMEOUT_MS = 2_000
+/** 崩溃退避序列（第 1/2/3 次自动重启前的等待；U-2 建议立即/5s/15s） */
+const RESTART_BACKOFF_MS: readonly number[] = [0, 5_000, 15_000]
+/** 自动重启次数上限：第 3 次重启后的再崩溃不再自动重启，转 onRestartExhausted 决断 */
+const RESTART_MAX_ATTEMPTS = 3
+/** ready 后稳定窗口：child 存活过此窗口即清零重启计数（U-2/S-9 偶发单崩不累计） */
+const STABILITY_RESET_MS = 5 * 60_000
 
 /** 启动失败（boot-error 信封 / 握手超时 / 启动途中退出）——main 首启弹对话框口径 */
 export class ServerBootError extends Error {
@@ -80,6 +91,16 @@ export interface ServerManagerDeps {
   shutdownTotalMs?: number
   /** kill 后等退出的上限；测试注入缩短保快 */
   killWaitMs?: number
+  /** 退避序列（第 1/2/3 次重启前等待）；缺省 [0, 5000, 15000]，测试注入缩短保快 */
+  backoffMs?: readonly number[]
+  /** ready 后稳定窗口，届时重启计数清零（U-2/S-9）；缺省 5 分钟 */
+  stabilityResetMs?: number
+  /**
+   * 3 次自动重启耗尽后的用户决断（main 接原生对话框：重启服务/退出）：
+   * 'restart' = 计数清零立即人工重启；'quit' = 不再重启（main 侧自行 app.quit）。
+   * 缺省 'quit'——无接线不盲启（测试/降级态安全缺省）。
+   */
+  onRestartExhausted?: () => 'restart' | 'quit'
 }
 
 export interface StartStudioServerOptions {
@@ -101,9 +122,11 @@ interface ActiveChild {
 }
 
 export interface StudioServerManager {
-  /** fork + 握手，resolve 实际监听端口（ready 消息回传）。旧 child 在途时先停旧再 fork。 */
+  /** fork + 握手，resolve 实际监听端口（ready 消息回传）。旧 child 在途时先停旧再 fork；
+   *  显式 start 开新生命周期（退避计数清零、挂起重启作废）。 */
   start(opts: StartStudioServerOptions): Promise<number>
-  /** kill 当前 child 并等退出（bootstrap 重试清旧共用）；无 child 直通。 */
+  /** kill 当前 child 并等退出（bootstrap 重试清旧共用）；无 child 直通。主动停机：
+   *  取消挂起重启 + S-5 门置位（随后的 exit 不触发自动重启）。 */
   stopChild(): Promise<void>
   /**
    * 优雅停机（before-quit 收尾）：下发 shutdown 指令 → shutdownStudio 落定 →
@@ -151,44 +174,118 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   const logger = deps.logger ?? log
   const shutdownTotalMs = deps.shutdownTotalMs ?? SHUTDOWN_TOTAL_TIMEOUT_MS
   const killWaitMs = deps.killWaitMs ?? KILL_WAIT_TIMEOUT_MS
+  const backoffMs = deps.backoffMs ?? RESTART_BACKOFF_MS
+  const stabilityResetMs = deps.stabilityResetMs ?? STABILITY_RESET_MS
   let active: ActiveChild | null = null
   let starting: Promise<number> | null = null
   let tokenInMemory: string | null = null // F-5：启动读入一次，此后 fork 一律复用内存值
-  // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启
-  // （批 U3 退避逻辑消费）；每轮 start 复位——新一轮生命周期开始。
+  // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启；
+  // start/shutdown/stopChild 均取消挂起重启——退出/换轮途中 fork 新 child 即孤儿。
   let shutdownStarted = false
+  // 批 U3 退避状态：restartCount = 已排程的自动重启次数（ready 后稳定窗口到点清零）；
+  // lastOpts/pinnedPort 供内部重启复刻原 fork 面（钉住最近一次成功端口，S-1）。
+  let restartCount = 0
+  let restartTimer: NodeJS.Timeout | null = null
+  let lastOpts: StartStudioServerOptions | null = null
+  let pinnedPort: number | null = null
+
+  function cancelPendingRestart(): void {
+    if (restartTimer) {
+      clearTimeout(restartTimer)
+      restartTimer = null
+    }
+  }
+
+  /**
+   * fork + 握手 + 接线（start 与内部重启共用）。
+   * portArg：start 传 '0'（OS 分配）；重启传钉住端口字符串（S-1 前端恢复链同源）。
+   * 成功后登记 active/lastOpts/pinnedPort、挂持久 exit 监听（非主动停机 → 排程重启）、
+   * 起稳定窗口计时（S-9：本轮 child 存活过窗口才清零——回调时校验 active 身份，
+   * 迟到的旧 child exit 不会误清新一轮计数）。
+   */
+  async function launch(opts: StartStudioServerOptions, portArg: string): Promise<number> {
+    if (tokenInMemory === null) tokenInMemory = loadOrCreateStudioToken(opts.userDataPath)
+    const args: string[] = ['--user-data', opts.userDataPath, '--port', portArg, '--token', tokenInMemory]
+    if (opts.workDir) args.push('--dir', opts.workDir)
+    if (opts.book) args.push('--book', opts.book)
+    if (opts.mirrorConsole) args.push('--mirror-console')
+    // stdio:pipe + CLW_LOG_STDOUT=1（§3.5 单写者）：child 日志只走 stdout JSON 行，
+    // 由 main 收行重发落盘；env 展开拷贝，不污染 main 自身 process.env
+    const proc = forkImpl(entryModulePath(), args, {
+      serviceName: STUDIO_SERVICE_NAME,
+      stdio: 'pipe',
+      env: { ...process.env, CLW_LOG_STDOUT: '1' },
+    })
+    forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
+    const port = await handshake(proc)
+    // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
+    setTimeout(() => {
+      if (active?.proc === proc) restartCount = 0
+    }, stabilityResetMs).unref()
+    const exited = new Promise<void>((resolveExit) => {
+      proc.once('exit', () => {
+        const wasActive = active?.proc === proc
+        if (wasActive) active = null
+        resolveExit()
+        // S-5：非主动停机且确系当值 child 崩溃 → 排程重启（迟到旧 exit 不触发）
+        if (wasActive && !shutdownStarted) scheduleRestart()
+      })
+    })
+    active = { proc, port, exited }
+    lastOpts = opts
+    pinnedPort = port
+    return port
+  }
+
+  function scheduleRestart(): void {
+    if (shutdownStarted || restartTimer) return // 主动停机不重启 / 已有挂起重启不双排
+    if (restartCount >= RESTART_MAX_ATTEMPTS) {
+      logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
+      const choice = deps.onRestartExhausted?.() ?? 'quit'
+      if (choice === 'restart') {
+        restartCount = 0 // 人工重启计一次全新周期
+        scheduleRestart()
+      }
+      return
+    }
+    restartCount++
+    const waitMs = backoffMs[Math.min(restartCount - 1, backoffMs.length - 1)] ?? 0
+    logger.warn('server-manager', `studio server 子进程异常退出，${waitMs}ms 后自动重启（第 ${restartCount}/${RESTART_MAX_ATTEMPTS} 次）`)
+    restartTimer = setTimeout(() => {
+      restartTimer = null
+      void doRestart()
+    }, waitMs)
+    restartTimer.unref()
+  }
+
+  async function doRestart(): Promise<void> {
+    if (shutdownStarted) return // 等待窗口内被停机（S-5）
+    const opts = lastOpts
+    const port = pinnedPort
+    if (!opts || port === null) return
+    try {
+      const got = await launch(opts, String(port))
+      logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`)
+    } catch (e) {
+      // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
+      logger.error('server-manager', '自动重启握手失败，按退避序列继续', e)
+      scheduleRestart()
+    }
+  }
+
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
       if (starting) return starting // 并发 start 复用同一轮（bootstrap 重入防护之外的家底）
       starting = (async () => {
+        cancelPendingRestart() // 显式换轮作废挂起重启（与 stopChild 的取消面互补）
         // 重试/重启前清旧 child：等退出再 fork，避免端口/连接滞留（L-3 语义换轨，S-4）
         if (active) {
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
           await this.stopChild()
         }
         shutdownStarted = false
-        if (tokenInMemory === null) tokenInMemory = loadOrCreateStudioToken(opts.userDataPath)
-        const args: string[] = ['--user-data', opts.userDataPath, '--port', '0', '--token', tokenInMemory]
-        if (opts.workDir) args.push('--dir', opts.workDir)
-        if (opts.book) args.push('--book', opts.book)
-        if (opts.mirrorConsole) args.push('--mirror-console')
-        // stdio:pipe + CLW_LOG_STDOUT=1（§3.5 单写者）：child 日志只走 stdout JSON 行，
-        // 由 main 收行重发落盘；env 展开拷贝，不污染 main 自身 process.env
-        const proc = forkImpl(entryModulePath(), args, {
-          serviceName: STUDIO_SERVICE_NAME,
-          stdio: 'pipe',
-          env: { ...process.env, CLW_LOG_STDOUT: '1' },
-        })
-        forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
-        const port = await handshake(proc)
-        const exited = new Promise<void>((resolveExit) => {
-          proc.once('exit', () => {
-            if (active?.proc === proc) active = null
-            resolveExit()
-          })
-        })
-        active = { proc, port, exited }
-        return port
+        restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
+        return await launch(opts, '0')
       })()
       try {
         return await starting
@@ -198,6 +295,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     },
     async stopChild(): Promise<void> {
       const current = active
+      cancelPendingRestart()
       if (!current) return
       shutdownStarted = true // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
       current.proc.kill()
@@ -207,6 +305,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     async shutdown(): Promise<void> {
       if (shutdownStarted) return // 幂等：before-quit 可能多次触发
       shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
+      cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
       const current = active
       if (!current) return
       current.proc.postMessage({ type: 'shutdown' })

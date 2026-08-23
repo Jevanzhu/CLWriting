@@ -100,8 +100,28 @@ let mainWindow: BrowserWindow | null = null
 let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
-/** 阶段 22 批 U1：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起） */
-const serverManager = createStudioServerManager()
+/** 阶段 22 批 U1-U3：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
+ *  批 U3 起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（U-2：重启服务/退出） */
+const serverManager = createStudioServerManager({
+  onRestartExhausted: () => {
+    // 同步对话框：崩溃风暴路径上无在途状态可等，用户决断即收口
+    const choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CLWriting 服务异常',
+      message: '写作服务连续崩溃，自动重启已停止。',
+      detail: '可以选择重新启动服务，或退出应用。未保存内容在服务恢复后仍可从自动保存找回。',
+      buttons: ['重启服务', '退出应用'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (choice !== 0) {
+      app.quit()
+      return 'quit'
+    }
+    return 'restart'
+  },
+})
 /** S-4（批 U1）：bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child
  *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork） */
 const legacyStopHandle = { close: () => { void serverManager.stopChild() } }

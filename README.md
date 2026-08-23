@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-3078%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-3087%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -76,7 +76,7 @@ GET 读接口不校验令牌，这是有意的设计：令牌防的是远端网�
 ```bash
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 3078 单测
+npm test                   # 3087 单测
 npm run test:e2e           # Playwright e2e（mock 驱动，28 specs / 41 用例）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
@@ -86,11 +86,11 @@ npm run build:desktop      # electron-builder 打包 dmg
 npm run check:counts       # 核对 README 里的测试数和实际是否一致
 ```
 
-改完代码至少跑 `npm test`：340 个测试文件 / 3078 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。动了前端就再跑 `vue-tsc` 和 e2e。
+改完代码至少跑 `npm test`：340 个测试文件 / 3087 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。动了前端就再跑 `vue-tsc` 和 e2e。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（3078 单测）+ Playwright（28 specs / 41 用例）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（3087 单测）+ Playwright（28 specs / 41 用例）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；服务端不 spawn 任何 CLI 子进程，要用的内核模块直接 import；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删。
 

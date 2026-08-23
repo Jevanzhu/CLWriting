@@ -54,6 +54,9 @@ const M = vi.hoisted(() => ({
   /** 'ready'（默认，自动回传 ready 45678）/ 'boot-error'（回传 EADDRINUSE 信封后退出） */
   forkBehavior: 'ready' as 'ready' | 'boot-error',
   errorBox: [] as Array<[string, string]>,
+  // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
+  msgBoxSync: [] as Array<Record<string, unknown>>,
+  msgBoxSyncChoice: 1,
 }))
 
 vi.mock('electron', () => {
@@ -235,6 +238,10 @@ vi.mock('electron', () => {
     dialog: {
       showOpenDialog: async () => M.dialogOpen,
       showMessageBox: async () => ({ response: M.msgResponse }),
+      showMessageBoxSync: (o: Record<string, unknown>) => {
+        M.msgBoxSync.push(o)
+        return M.msgBoxSyncChoice
+      },
       showErrorBox: (title: string, msg: string) => {
         M.errorBox.push([title, msg])
       },
@@ -586,6 +593,33 @@ describe('kk-P2-8：退出与边界分支', () => {
     const e2 = { preventDefault: vi.fn() }
     h(e2) // shutdownStarted → 不再拦
     expect(e2.preventDefault).not.toHaveBeenCalled()
+  })
+
+  // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的
+  // 封顶对话框（onRestartExhausted → showMessageBoxSync「重启服务/退出应用」）
+  it('崩溃风暴（批 U3）：3 次自动重启后封顶 → 对话框选「退出应用」→ quit 且不再 fork', async () => {
+    vi.useFakeTimers()
+    try {
+      const forks0 = M.forkChildren.length
+      const quit0 = M.quitCalls
+      M.msgBoxSyncChoice = 1 // 退出应用
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首个 child ready 落定
+      expect(M.forkChildren.length).toBe(forks0 + 1)
+      // 4 轮崩溃：前 3 轮各触发一次自动重启（退避 0ms/5s/15s），第 4 轮转封顶
+      for (let i = 0; i < 4; i++) {
+        ;(M.forkChildren[M.forkChildren.length - 1] as unknown as { emit: (e: string, c: number) => void }).emit('exit', 1)
+        await vi.advanceTimersByTimeAsync(16_000) // 覆盖当轮最长退避 15s（稳定窗口 5min 远未到）
+      }
+      expect(M.forkChildren.length).toBe(forks0 + 4) // 首启 + 3 次重启，封顶后无第 5 次
+      expect(M.msgBoxSync.length).toBe(1)
+      expect((M.msgBoxSync[0] as { buttons?: string[] }).buttons).toEqual(['重启服务', '退出应用'])
+      expect((M.msgBoxSync[0] as { message?: string }).message).toContain('自动重启已停止')
+      expect(M.quitCalls).toBeGreaterThan(quit0) // 选退出 → app.quit
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('无单实例锁：立即 quit 且不注册生命周期（Z-P2-8）', async () => {
