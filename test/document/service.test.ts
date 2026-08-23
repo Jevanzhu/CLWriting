@@ -8,10 +8,6 @@ import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 import { computeRevision } from '../../src/document/revision.js'
 
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
 describe('DocumentService / 保存协议主路径', () => {
   let bookRoot: string
   let svc: DocumentService
@@ -329,7 +325,7 @@ describe('DocumentService / journal 与崩溃恢复', () => {
   })
 })
 
-describe('DocumentService / freeze + 串行', () => {
+describe('DocumentService / 串行', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
@@ -338,19 +334,6 @@ describe('DocumentService / freeze + 串行', () => {
     svc = new DocumentService({ bookRoot })
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
-
-  it('freeze 后 save 排队不执行，unfreeze 后落盘', async () => {
-    svc.freeze('doc_1')
-    const p = svc.save('doc_1', '写作/正文/0001.md', {
-      content: 'frozen', expectedRevision: null, operationId: 'op1', origin: 'manual',
-    })
-    await delay(15)
-    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(false)
-    svc.unfreeze('doc_1')
-    const r = await p
-    expect(r.ok).toBe(true)
-    expect(readFileSync(join(bookRoot, '写作/正文/0001.md'), 'utf-8')).toBe('frozen')
-  })
 
   it('同 doc 并发保存串行，内容最终为最后一次', async () => {
     const ps = ['一', '二', '三'].map((c, i) =>

@@ -10,7 +10,7 @@ import type { ChatMsg, ToolDef, TokenUsage } from '../provider/types.js'
 import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
 import { generate, generateTool, GenError } from '../gen.js'
-import { rulesToPrompt } from '../rules/index.js'
+import { rulesToPrompt, rulesPromptFiles } from '../rules/index.js'
 import { resolveBuiltinSystemPrompt } from '../prompts/resource.js'
 
 /** 任务生成模式 */
@@ -118,6 +118,9 @@ export async function runSpec(
   // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
   const base = resolveBuiltinSystemPrompt(opts.systemPromptOverride ?? spec.systemPrompt, opts.userDataPath ?? undefined) ?? ''
   const systemPrompt = base + rulesToPrompt(spec.name, opts.bookRoot)
+  // Y-2（第五十七轮）：rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
+  // AI味词表条目库与 rule-hits.json 为可变文件，仅入哈希不可重建，登记后事件可溯源）
+  const promptFiles = [...new Set([...(opts.promptFiles ?? []), ...rulesPromptFiles(spec.name, opts.bookRoot)])]
   const tool = opts.toolOverride ?? spec.tool
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]
@@ -137,7 +140,7 @@ export async function runSpec(
       // 精确重建）；chat 轮（turns.ts）与 checkpoint（finish.ts）已传，此处漏
       systemPrompt,
       promptText: opts.userPrompt,
-      promptFiles: opts.promptFiles,
+      promptFiles,
       ctrl: opts.ctrl ?? bridge?.ctrl,
       register: opts.register,
       onReset: opts.onReset,

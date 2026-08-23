@@ -19,11 +19,18 @@ import { assembleSettingsInjection, type SettingsLayer } from './settings-inject
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readManifest, type Manifest } from '../document/manifest.js'
+import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { invalidateTreeIndex } from '../document/tree.js'
 
-/** 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失） */
+/**
+ * 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）。
+ * Y-3（第五十七轮）：留底失败（可读但读不进 / 快照写失败等 IO 类）**上抛拒绝覆写**——
+ * 此前降级 return null 后 saveDraft 照常覆写，M1「作者手改不静默丢失」在 IO 抖动
+ * （跨进程 rename 撞窗 / win AV 短暂锁）下失守。null 仅保留「无需留底」两态：
+ * 文件不存在 / 内容相同。
+ */
 export function snapshotBeforeOverwrite(
   bookRoot: string,
   relPath: string,
@@ -33,12 +40,7 @@ export function snapshotBeforeOverwrite(
 ): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
-  let old: string
-  try {
-    old = readFileSync(absPath, 'utf8')
-  } catch {
-    return null
-  }
+  const old = readFileSync(absPath, 'utf8')
   if (old === newContent) return null
   // docId：清单反查（编辑器保存的快照同目录）→ 未登记按文件名派生
   let docId: string | undefined
@@ -50,11 +52,7 @@ export function snapshotBeforeOverwrite(
     }
   }
   if (!docId) docId = legacyId(relPath) // X-P2-2：与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
-  try {
-    return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, { force: true })
-  } catch {
-    return null
-  }
+  return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, { force: true })
 }
 
 /**
@@ -73,6 +71,14 @@ export function saveDraft(
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
+  // Y-3（第五十七轮）：回收站双认领守卫——目标文件在盘且回收站登记仍认领同一路径
+  // （restoreTrash 半途崩溃态：文件已 rename 回原位、trash 条目未清）时，此路径的
+  // 归属是歧义的（清单/快照/journal 按 docId 认路径，trash 条目也认它），覆写会加深
+  // 错乱——中止上抛交作者先在回收站决断。路径不存在的「删后重写」不拦：那是新文件，
+  // 旧内容仍在回收站可还原（故意重写不受阻）。
+  if (existsSync(absPath) && readTrashManifest(bookRoot).some((e) => e.originalPath === relPath)) {
+    throw new Error(`目标 ${relPath} 同时存在于磁盘与回收站登记（可能是恢复中断的残留），已中止写入——请先在回收站完成还原或清除`)
+  }
   // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）

@@ -81,9 +81,11 @@ export function rebootstrap(): Promise<void> {
  *  现统一为 GET/写全部注入——服务端逐步收口 GET 鉴权，提前带上头对旧服务端无害。
  *  init.signal 透传，调用方可用于取消。
  *  E-2（第五十三轮）：boot 失败后 token 永久 null、写请求持续 401/403 只能刷新页面——
- *  收到 401/403 且 token 为 null（boot 未成功）时，触发一次防抖去重的 re-boot 重取 token，
- *  成功后重放原请求（同一请求最多重试一次，防死循环）；re-boot 失败或重放仍 401/403 则
- *  原样透传错误。注意：init.body 须可重放（字符串/undefined；现有调用方均如此）。
+ *  收到 401/403 时触发一次防抖去重的 re-boot 重取 token，**token 变化**才重放原请求
+ *  （同一请求最多重试一次，防死循环）。Y-30（第五十七轮）拓宽：token 非空但失效
+ *  （dev 重启 dev:api 换 token）同走此通道，不再只覆盖 null 形态。re-boot 失败、
+ *  token 未变或重放仍 401/403 则原样透传错误。注意：init.body 须可重放（字符串/
+ *  undefined；现有调用方均如此）。
  *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
 export async function apiFetch(
   path: string,
@@ -98,10 +100,13 @@ export async function apiFetch(
     headers.set('x-studio-token', token)
   }
   const r = await fetch(path, { ...init, method, headers })
-  if ((r.status === 401 || r.status === 403) && token === null && !_retried) {
+  if ((r.status === 401 || r.status === 403) && !_retried) {
+    // Y-30（第五十七轮）：token 非空但失效（dev 重启 dev:api 换 token——生产靠持久化
+    // token 规避）同样走 re-boot 恢复通道；**token 变化才重放**——re-boot 拿回同一枚
+    // 说明 401/403 另有原因（Origin/权限类），透传不空转（同一请求最多重试一次）
+    const used = token
     await rebootstrap()
-    // re-boot 拿到 token 才值得重放；仍无 token 直接透传本次错误，不空转
-    if (token !== null) return apiFetch(path, init, true)
+    if (token !== null && token !== used) return apiFetch(path, init, true)
   }
   return r
 }

@@ -111,7 +111,16 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     const safeTitle = String(title).replace(/[/\\\0]/g, '_')
     // P2-BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
     const safeId = String(lead.编号).replace(/[/\\\0]/g, '_')
-    atomicWriteFile(join(newDir, `${safeId}-${safeTitle}.md`), fm)
+    const targetPath = join(newDir, `${safeId}-${safeTitle}.md`)
+    if (existsSync(targetPath)) {
+      // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态——目标已在，
+      // 视为已迁：不重写（作者可能已编辑新文件，无条件覆盖会吞掉修改），只补删旧源
+      rmSync(oldPath, { force: true })
+      result.migrated++
+      result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)
+      continue
+    }
+    atomicWriteFile(targetPath, fm)
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)

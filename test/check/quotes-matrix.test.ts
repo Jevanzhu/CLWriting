@@ -103,7 +103,10 @@ describe('引号矩阵 · extractEvidenceCore', () => {
     ['伏笔「这一剑藏了十年的杀意」尾', '这一剑藏了十年的杀意'],
     ['伏笔“弯引号里的长证据”尾', '弯引号里的长证据'],
     ['伏笔"ascii straight quote evidence"尾', 'ascii straight quote evidence'],
-    ['「短」', '「短」'.slice(0, 8)], // 引号内 <5 字 → slice 兜底
+    // Y-22（第五十七轮）：引号内 <5 字走 slice 兜底时先剥首尾引号——带引号 grep 正文
+    // 整组 miss（正文写无引号的同文时误报 lead-evidence-miss）
+    ['「短」', '短'],
+    ['“弯短”', '弯短'],
     ['无引号证据走前八字截断逻辑', '无引号证据走前八'],
   ])('%s → 提取 %j', (evidence, expected) => {
     expect(extractEvidenceCore(evidence)).toBe(expected)

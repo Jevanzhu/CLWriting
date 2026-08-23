@@ -85,6 +85,11 @@ function parseSections(text: string): RawSection[] {
       if (parent && parent.value === '' && item) {
         parent.listItems = [...(parent.listItems ?? []), item]
         if (!listNodes.includes(parent)) listNodes.push(parent)
+      } else {
+        // Y-26（第五十七轮）：无处挂靠的块列表项（顶层列表 / 父键已有标量值）此前
+        // 静默吞掉——同文件 leads.enabled 未知类有 warn 先例，补齐同款留痕防「配置
+        // 写了但不生效」无迹可查
+        log.warn('yaml', `book.yaml 块列表项无处挂靠被丢弃：${content.slice(0, 40)}`)
       }
       continue
     }
@@ -845,6 +850,9 @@ export function patchBookConfigText(raw: string, oldCfg: BookConfig, newCfg: Boo
     text = to === undefined ? setTopScalarKey(text, key, null) : setTopScalarKey(text, key, `${key}: ${renderScalar(to)}`)
   }
   top('spec_version', oldCfg.spec_version, newCfg.spec_version)
+  // Y-25（第五十七轮·登记说明）：short→long 时此处写显式 `kind: long`，与
+  // stringifyBookConfig「long 缺省不写」口径不一——文本补丁是单键外科替换，改成
+  // 删除行需重排注释邻接结构，风险大于收益；解析侧认 long（语义无损），维持显式写。
   top('kind', oldCfg.kind, newCfg.kind)
   top('host', oldCfg.host ?? 'cc', newCfg.host ?? 'cc')
 

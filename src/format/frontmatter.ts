@@ -25,7 +25,9 @@ export { splitFrontMatter, bodyOf }
 export function splitInlineArray(inner: string): string[] {
   const out: string[] = []
   let cur = ''
-  let inQuote = false
+  // Y-21（第五十七轮）：单引号纳入引号状态机——手写 `['悬疑,推理']` 此前在引号内
+  // 逗号处错切成两项（序列化端只产双引号，单引号是纯手写入口；unquote 本就双体系对称）
+  let inQuote: '"' | "'" | null = null
   for (let i = 0; i < inner.length; i++) {
     const c = inner[i]!
     if (c === '\\' && inQuote && i + 1 < inner.length) {
@@ -33,12 +35,12 @@ export function splitInlineArray(inner: string): string[] {
       i++
       continue
     }
-    if (c === '"') {
-      inQuote = !inQuote
+    if ((c === '"' || c === "'") && (inQuote === null || inQuote === c)) {
+      inQuote = inQuote === null ? c : null
       cur += c
       continue
     }
-    if (c === ',' && !inQuote) {
+    if (c === ',' && inQuote === null) {
       out.push(cur.trim())
       cur = ''
       continue
@@ -180,7 +182,10 @@ export function parseFlat(
         const indent = bl.length - bl.trimStart().length
         if (indent === 0) break // 回到平铺层（新 key）
         indents.push(indent)
-        block.push(bl)
+        // Y-6（第五十七轮）：剥 CRLF 行尾 \r——split('\n') 保留 \r 尾，块行原样入值会
+        // 让多行值每行尾嵌 \r（平铺值行有 trim 无此问题，仅块标量中招），写回后形成
+        // 混合行尾文件且值本体被污染
+        block.push(bl.endsWith('\r') ? bl.slice(0, -1) : bl)
         i++
       }
       // E-9d（第五十三轮）：以块内非空行**最小缩进**为基准去缩进——此前按每行自身

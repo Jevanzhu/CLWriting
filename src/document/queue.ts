@@ -4,7 +4,6 @@
  * - 每 docId 一条独立串行队列：同文档并发保存串行执行，结果不交错。
  * - requestToken：每 docId 单调递增；旧请求完成时若已有更新请求入队 → superseded=true，
  *   上游据此丢弃旧响应（旧响应不覆盖新文档状态）。
- * - freeze(docId) 暂停出队（当前执行中的跑完，队列剩余的等 unfreeze）。
  *
  * 只管调度，不碰保存语义——实际保存逻辑由调用方（service.ts）注入 run。
  * 泛型 R 是保存结果类型，queue 不关心其内部结构。
@@ -36,7 +35,6 @@ interface PendingItem<R> {
 interface DocQueue<R> {
   docId: string
   maxToken: number
-  frozen: boolean
   running: boolean
   pending: PendingItem<R>[]
 }
@@ -48,7 +46,7 @@ export class SaveQueue<R> {
   private dq(docId: string): DocQueue<R> {
     let q = this.docs.get(docId)
     if (!q) {
-      q = { docId, maxToken: 0, frozen: false, running: false, pending: [] }
+      q = { docId, maxToken: 0, running: false, pending: [] }
       this.docs.set(docId, q)
     }
     return q
@@ -64,25 +62,8 @@ export class SaveQueue<R> {
     })
   }
 
-  /** 暂停该 doc 出队（当前执行中的跑完，队列剩余等 unfreeze）。 */
-  freeze(docId: string): void {
-    this.dq(docId).frozen = true
-  }
-
-  /** 恢复该 doc 出队。 */
-  unfreeze(docId: string): void {
-    const q = this.dq(docId)
-    q.frozen = false
-    this.pump(q)
-  }
-
-  /** 是否冻结（测试 / 状态查询用）。 */
-  isFrozen(docId: string): boolean {
-    return this.dq(docId).frozen
-  }
-
   /** 在途/排队中的保存任务数（跨全部 docId）。执行中的项已 shift 出 pending、由
-   * running 单独计——删书/改名前 drain 探询用（第五轮）。 */
+   *  running 单独计——删书/改名前 drain 探询用（第五轮）。 */
   inFlight(): number {
     let n = 0
     for (const q of this.docs.values()) {
@@ -92,9 +73,9 @@ export class SaveQueue<R> {
     return n
   }
 
-  /** 派发：未在跑 + 未冻结 + 有待跑 → 取下一个执行。 */
+  /** 派发：未在跑 + 有待跑 → 取下一个执行。 */
   private pump(q: DocQueue<R>): void {
-    if (q.running || q.frozen || q.pending.length === 0) return
+    if (q.running || q.pending.length === 0) return
     const item = q.pending.shift()!
     q.running = true
     Promise.resolve()
@@ -115,10 +96,9 @@ export class SaveQueue<R> {
 
   /** P-3（第十四轮）：队列排空后回收 docId 条目——per-docId Map 原先永不删除，
    *  长会话多书下条目随历史 docId 无界累积（每条几十字节，纯卫生）。
-   *  仅在 未在跑 + 未冻结 + 无待跑 时删：冻结态的条目是 unfreeze 的状态载体，保留。
    *  maxToken 随条目重置无害——回收时该 docId 无未决 promise，superseded 比较不跨回收窗口。 */
   private afterPump(q: DocQueue<R>): void {
-    if (!q.running && !q.frozen && q.pending.length === 0) this.docs.delete(q.docId)
+    if (!q.running && q.pending.length === 0) this.docs.delete(q.docId)
     else this.pump(q)
   }
 

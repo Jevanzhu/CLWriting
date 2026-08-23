@@ -139,7 +139,7 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
     expect(pathCalls).toBe(6) // 各重放一次
   })
 
-  it('token 已存在时 401 → 不触发 re-boot，原样返回', async () => {
+  it('Y-30：token 已存在 401 → re-boot 一次；拿回同一枚（未变）→ 不重放原样返回', async () => {
     const c = await freshClient()
     let bootCalls = 0
     vi.stubGlobal(
@@ -156,6 +156,9 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
     expect(bootCalls).toBe(1)
     const r = await c.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
     expect(r.status).toBe(401)
-    expect(bootCalls).toBe(1) // 有 token 的 401 不走恢复通道
+    // Y-30（第五十七轮）：401 一律走一次防抖 re-boot（旧口径「有 token 不触发」废止——
+    // dev 重启换 token 的失效形态靠此通道恢复）；本例 re-boot 拿回同一枚 T4（401 另有
+    // 原因）→ token 未变不重放，原样透传不空转
+    expect(bootCalls).toBe(2)
   })
 })

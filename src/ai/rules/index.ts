@@ -77,6 +77,28 @@ function buildPreventionText(bookRoot: string): string {
 }
 
 /**
+ * Y-2（第五十七轮）：rulesToPrompt 注入段的源文件清单（相对书根）——铁律①
+ * 「模型可见⟺已记录」登记通道。动态源两个：条目库 AI味标签禁词（经
+ * loadAiFlavorRule 注入，空词表不入 prompt 不登记——Q-5「空段不登记」口径）
+ * 与 .cache/rule-hits.json（Top-N 预防指令，无命中不登记）。内置静态规则内容
+ * 编译进代码本身可考，无需文件登记。与 rulesToPrompt 同读同判，供 runSpec
+ * 并入 promptFiles（与 user prompt 材料同通道落 llm/call 事件）。
+ */
+export function rulesPromptFiles(task: string, bookRoot?: string): string[] {
+  if (!bookRoot) return []
+  const files: string[] = []
+  if (applicableRules(task, bookRoot).some((r) => r.id === 'ai-flavor-words')) {
+    if (loadAiFlavorRule(bookRoot).toPrompt({ bookRoot }) != null) {
+      files.push('文风/条目/禁词')
+    }
+  }
+  if (topRuleHits(bookRoot, 3).length > 0) {
+    files.push('.cache/rule-hits.json')
+  }
+  return files
+}
+
+/**
  * 跑全部适用规则 check() → 汇总违规项。
  * 违规项 message 可直接作为重写 prompt 条目（B2 多维反馈回流）。
  * chapter 仅供情节一致等按章定位的规则（A3），不传则跳过此类规则。

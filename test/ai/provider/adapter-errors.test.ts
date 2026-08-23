@@ -50,10 +50,12 @@ describe('makeToErrorEvent 五分支', () => {
     })
   })
 
-  it('APIConnectionError → NETWORK，message 脱敏', () => {
+  it('APIConnectionError → NETWORK 可重试（Y-14：布尔与决策表对齐），message 脱敏', () => {
     const e = new OpenAI.APIConnectionError({ message: 'fetch failed: https://gw.test/v1?api_key=sk-abcdefghijklmnopqrst' })
     const ev = openaiToErrorEvent(e)
-    expect(ev).toMatchObject({ type: 'error', retryable: false, code: 'NETWORK' })
+    // Y-14（第五十七轮）：retryable 改 true——failure.ts 决策表 NETWORK → 'retry'，
+    // 此前 false 全靠 code 兜住，布尔兜底分支（mode:'always'）会静默翻转不重试
+    expect(ev).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
     if (ev.type === 'error') {
       expect(ev.message).toContain('fetch failed')
       expect(ev.message).toContain('***REDACTED***')

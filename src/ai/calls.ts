@@ -76,6 +76,21 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
       // read 路径，与在途记账写（已排队的微任务）并发时可交错覆盖丢账。migratedRoots 为
       // 已完成迁移标记：入队写落地前的并发 read 命中标记即短路，不再重复入队（迁移写只写
       // 不读，本身无递归；标记防的是重复入队同一迁移写）。
+      // Y-1（第五十七轮）：**已在记账写锁内时不得嵌套 serializedWrite**——serializedWrite
+      // 空闲快路不设 writeChains，锁内 readRecord 再入快路会对自持的跨进程锁二次 acquire
+      // （持有 pid= 自己、判 held），Atomics.wait 同步自锁至超时 → 丢账 + 谎报「损坏」，
+      // 且排队路径的迁移写会用无账快照覆盖刚落盘的记账。锁内改为直接内联迁移：先迁移落盘，
+      // 记账叠加其上，两个窗口一并消灭。
+      if (inWriteSegment) {
+        try {
+          writeRecord(bookRoot, migrated)
+          migratedRoots.add(bookRoot)
+        } catch {
+          /* 内联迁移失败不置标记（下次重试）；同源 IO 故障会随后续记账 writeRecord
+           * 上抛（writeWithCrossProcessLock → 调用方降级留痕），不会静默吞掉 */
+        }
+        return { rec: migrated, corrupt: false }
+      }
       if (!migratedRoots.has(bookRoot)) {
         migratedRoots.add(bookRoot)
         // N-10（第五十四轮）：写失败时清除标记——此前标记入队即置位，IO 抛错后
@@ -197,6 +212,11 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 多进程（CLI+桌面）同书并发写已闭合。
 const writeChains = new Map<string, Promise<unknown>>()
 
+/** Y-1（第五十七轮）：当前是否处于某次记账写段（writeWithCrossProcessLock 的 doWrite）
+ *  执行中。readRecord 的旧格式迁移据此感知「已在锁内」——锁内迁移直接内联写，
+ *  不得嵌套 serializedWrite（见 readRecord Y-1 注）。 */
+let inWriteSegment = false
+
 /** J7（2026-08-23 落地）：跨进程互斥为真锁——serializedWrite 的每次写段在
  * bookRoot/.cache/ai-calls.lock 上做限时阻塞跨进程文件锁（O_EXCL + pid 存活探测
  * + 崩溃接管，见 fs/cross-process-lock.ts）。E-7 的「进程内前提」声明就此废止；
@@ -236,8 +256,10 @@ function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void 
     throw new Error(`ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`)
   }
   try {
+    inWriteSegment = true
     doWrite()
   } finally {
+    inWriteSegment = false
     release()
   }
 }

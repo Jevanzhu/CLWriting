@@ -417,13 +417,10 @@ function detectBookName(dir: string, fallback: string): string {
 
 /** 从 book.yaml 读 kind（缺省 long）。 */
 function detectBookKind(dir: string): 'long' | 'short' {
-  try {
-    const text = readFileSync(join(dir, 'book.yaml'), 'utf-8')
-    if (/kind:\s*short/.test(text)) return 'short'
-  } catch {
-    // 读失败当 long
-  }
-  return 'long'
+  // Y-20（第五十七轮）：与 detectBookName 同走 readBookConfig 解析口径——此前正则
+  // 直读文本，注释行（如 `# kind: short 预留`）会被误判 short 并写回登记
+  const r = readBookConfig(join(dir, 'book.yaml'))
+  return r.ok && r.config.kind === 'short' ? 'short' : 'long'
 }
 
 /** 从 book.yaml 文件 mtime 兜底 created_at（去 git：不再依赖 git log；无则 undefined）。 */

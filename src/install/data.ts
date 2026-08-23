@@ -19,7 +19,7 @@ export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['布局线', '设定线
 /**
  * 题材关键词 → 推荐扩展账本类（O3）。
  * 关键词匹配（genre 含任一关键词即命中），据母本账本总表反推。
- * 未命中的题材回落空数组（仅基础三类）。
+ * 未命中的题材回落空数组（仅基础两类）。
  */
 const GENRE_LEADS_MAP: readonly { keywords: readonly string[]; leads: readonly LeadType[] }[] = [
   // 玄幻/仙侠/末世/种田/历史 → 成长线 + 设定线（力量体系 + 世界观）
@@ -35,8 +35,8 @@ const GENRE_LEADS_MAP: readonly { keywords: readonly string[]; leads: readonly L
 /**
  * 按题材返回推荐的扩展账本类（O3）。
  * - 关键词匹配：genre 含某组任一关键词即推荐对应扩展类（可多组叠加）
- * - 去重 + 仅返回扩展类（基础三类恒启用、不在本表）
- * - 全未命中 → 空数组（仅基础三类）
+ * - 去重 + 仅返回扩展类（基础两类恒启用、不在本表）
+ * - 全未命中 → 空数组（仅基础两类）
  */
 export function matchGenreLeads(genre: string): LeadType[] {
   if (!genre) return []

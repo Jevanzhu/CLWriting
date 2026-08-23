@@ -252,7 +252,9 @@ export const useProviderStore = defineStore('provider', () => {
       s.set(id, { ok: false, error: errText(e) })
       testResults.value = s
     } finally {
-      testing.value = null
+      // Y-31（第五十七轮）：按 id 归属清空——A/B 连点时先完成者不得提前清掉
+      // 后跑者的行内 spinner/按钮态
+      if (testing.value === id) testing.value = null
     }
   }
 
@@ -338,7 +340,8 @@ export const useProviderStore = defineStore('provider', () => {
       m.set(id, { ok: false, error: errText(e) })
       ragTestResults.value = m
     } finally {
-      ragTesting.value = null
+      // Y-31：同 test——按 id 归属清空
+      if (ragTesting.value === id) ragTesting.value = null
     }
   }
 

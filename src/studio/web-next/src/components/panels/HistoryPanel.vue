@@ -87,6 +87,18 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
+  // Y-9（第五十七轮）：dirty 先存后恢复——restore 后的 refresh 走 dirty 分支（fm 取
+  // 服务端、正文保留本地），随后 autosave 会用本地旧正文把刚恢复的版本静默覆盖，toast
+  // 却报「已恢复」。先落盘：本地编辑进磁盘与「恢复前」留底（确认弹窗的承诺），恢复真正
+  // 生效；保存失败（冲突等）则中止恢复交作者决断。
+  if (cur.dirty) {
+    const saved = await doc.save(docId, 'manual')
+    if (props.bookName !== book || ws.activeDocId !== docId) return
+    if (!saved) {
+      ui.toast('有未保存的编辑且保存失败，请先处理（重载/覆盖）再恢复历史版本', 'error')
+      return
+    }
+  }
   const ok = await ui.ask({
     title: `恢复到 ${fmtTime(e.time)} 的版本`,
     message: `当前正文将被这个版本覆盖。当前内容会自动留一份底，恢复后仍可退回。`,

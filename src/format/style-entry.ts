@@ -11,6 +11,7 @@
 
 import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { sanitizeChapterTitle } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
@@ -168,8 +169,10 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
 export function addEntry(bookRoot: string, e: StyleEntry): string {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const seq = nextEntrySeq(entriesDir, e.类型, e.场景)
-  // 场景字段净化路径分隔符，防 frontmatter 篡改越出目录
-  const fileName = `${e.场景.replace(/[\\/]/g, '_')}-${String(seq).padStart(3, '0')}.md`
+  // 场景字段净化：Y-27（第五十七轮）改走 sanitizeChapterTitle 单源（控制字符/非法名
+  // + 码位 60/字节 120 双封顶）——此前仅替换路径分隔符，AI 或 fm 提供的超长场景名
+  // ENAMETOOLONG 抛穿入库
+  const fileName = `${sanitizeChapterTitle(e.场景)}-${String(seq).padStart(3, '0')}.md`
   const dir = join(entriesDir, e.类型)
   mkdirSync(dir, { recursive: true })
   writeEntry(join(dir, fileName), e)
@@ -183,8 +186,10 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
  */
 export function readBannedEntryWords(bookRoot: string): string[] {
   const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '禁词')
+  // Y-23（第五十七轮）：多行正文逐行拆词——手写条目正文常是说明性多行文本，
+  // 整段当一个词作 includes 永不命中（禁词漏报且无提示）
   return entries
     .filter((e) => !(e.标签?.includes('AI味')))
-    .map((e) => e.正文.trim())
+    .flatMap((e) => e.正文.split('\n').map((line) => line.trim()))
     .filter(Boolean)
 }

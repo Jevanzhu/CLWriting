@@ -16,7 +16,6 @@
  *   invalidateTreeIndex。结构性操作触发旧书建清单（W0-1 §4.2）。
  *
  * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
- * freeze(docId) 暂停该文档保存队列（定稿流程用，防 autosave 改文件使 confirm hash 失效）。
  * recover() 启动扫 journal，报 pending 无 settled/aborted（崩溃未结算）提示作者恢复。
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
@@ -201,16 +200,6 @@ export class DocumentService {
    *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。 */
   resolvePath(docId: string): string | null {
     return this.lookupPathByDocId(docId)
-  }
-
-  /** 冻结该文档保存队列（定稿流程用，已入队的跑完）。 */
-  freeze(docId: string): void {
-    this.queue.freeze(docId)
-  }
-
-  /** 解冻。 */
-  unfreeze(docId: string): void {
-    this.queue.unfreeze(docId)
   }
 
   /** 在途/排队中的保存任务数（跨全部 docId；删书/改名前 drain 探询用，第五轮）。 */

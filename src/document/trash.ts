@@ -20,6 +20,7 @@ import { resolveWithinRoot } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
+import { log } from '../log/index.js'
 
 /** 回收站条目。 */
 export interface TrashEntry {
@@ -118,6 +119,13 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
 
+  // Y-18（第五十七轮）：trashedPath 必须落在 工作区/.trash/ 内——trash-manifest 是
+  // 可篡改数据面，此前的「不出书仓库」校验挡不住书内横向搬文件（trashedPath 填正文
+  // 路径 + originalPath 填目标 → restore 把正文 rename 走）。fail-closed 拒绝整条。
+  if (!entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`)) {
+    return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
+  }
+
   const origAbs = safePathWithin(bookRoot, entry.originalPath)
   const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
   if (!origAbs || !trashAbs) {
@@ -160,7 +168,12 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
       mkdirSync(dirname(manifestPath), { recursive: true })
       writeManifest(manifestPath, m)
     })
-  } catch { /* 主清单写失败不阻断恢复——树重建时自动补录 */
+  } catch (e) {
+    // Y-17（第五十七轮）：主清单写失败不阻断恢复（文件已回原位），但 docId 身份断链
+    // 并无自动补录——树扫盘的兜底登记只认 legacy: 前缀（adoptLegacyDoc），doc_ 正式
+    // ID 无法凭 docId 反查路径。此处 warn 留痕（不再静默）：版本目录 工作区/.版本/<docId>/
+    // 与 journal 仍以原 docId 可考，可按 path 对账手工补录清单行。
+    log.warn('trash', `恢复 ${id} 后清单登记失败（文件已回 ${entry.originalPath}）：${errMsg(e)}——docId 身份断链，需手工补录`, e instanceof Error ? e : undefined)
   }
 
   try {
@@ -176,6 +189,10 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   const entries = readTrashManifest(bookRoot)
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
+  // Y-18：与 restoreTrash 同款 .trash 前缀校验（防篡改清单借 purge 删书内任意文件）
+  if (!entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`)) {
+    return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
+  }
   try {
     const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
     if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }

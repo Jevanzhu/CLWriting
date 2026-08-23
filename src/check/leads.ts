@@ -256,8 +256,11 @@ export function extractEvidenceCore(evidence: string): string {
   // 截断片段致 lead-evidence-miss 误报）
   const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN}"]([^${QUOTE_CLOSE}"]{4,})[${QUOTE_CLOSE}"]`))
   if (quoted?.[1]) return quoted[1]
-  // 否则取前 8 个字符（够 grep）
-  return evidence.slice(0, 8)
+  // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
+  // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
+  // （正文写无引号的「雪落」时误报 lead-evidence-miss）
+  const stripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN}"]|[${QUOTE_CLOSE}"]$`, 'g'), '')
+  return (stripped || evidence).slice(0, 8)
 }
 
 /**

@@ -95,7 +95,9 @@ export const useLearnStore = defineStore('learn', () => {
       if (gen !== reqGen) return
       commitMessage.value = '收录失败：' + friendlyError(e)
     } finally {
-      committing.value = false
+      // Y-32（第五十七轮）：finally 查代——A 书 commit 在途切书后，迟到的 finally 不得
+      // 提前解锁 B 书新一次 commit 的按钮（可重复提交同批勾选）；clear() 复位缺项同补
+      if (gen === reqGen) committing.value = false
     }
   }
 
@@ -110,6 +112,8 @@ export const useLearnStore = defineStore('learn', () => {
     // R-1（第十六轮）：clear 推代后在途 harvest 的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
     loading.value = false
+    // Y-32：committing 同复位（R-1 修复族漏网项——否则切书后按钮卡禁用到旧 finally）
+    committing.value = false
     samples.value = []
     quotes.value = []
     pickedSamples.value = new Set()

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { SaveQueue } from '../../src/document/queue.js'
 
 /** 手动控制的 Promise（精确编排串行/并发时序）。 */
@@ -76,28 +76,6 @@ describe('SaveQueue', () => {
     expect(r.superseded).toBe(false)
   })
 
-  it('freeze 暂停出队，unfreeze 恢复', async () => {
-    const q = new SaveQueue<string>()
-    const d1 = deferred<string>()
-    const d2 = deferred<string>()
-    const p1 = q.enqueue({ docId: 'd', run: () => d1.promise })
-    // req1 在跑时冻结
-    q.freeze('d')
-    expect(q.isFrozen('d')).toBe(true)
-    const run2 = vi.fn(() => d2.promise)
-    const p2 = q.enqueue({ docId: 'd', run: run2 })
-    // req1 完成后，因冻结 req2 不应执行
-    d1.resolve('r1')
-    await p1
-    await new Promise((r) => setTimeout(r, 10))
-    expect(run2).not.toHaveBeenCalled()
-    // 解冻后 req2 恢复执行
-    q.unfreeze('d')
-    d2.resolve('r2')
-    const r2 = await p2
-    expect(r2.result).toBe('r2')
-  })
-
   it('run 抛错：reject 且不阻断后续请求', async () => {
     const q = new SaveQueue<string>()
     const p1 = q.enqueue({ docId: 'd', run: async () => {
@@ -139,18 +117,5 @@ describe('SaveQueue / P-3（第十四轮）条目回收', () => {
     await p1
     await new Promise((r) => setTimeout(r, 5))
     expect(q.queuedDocCount()).toBe(0)
-  })
-
-  it('冻结态条目不回收（unfreeze 状态载体），解冻排空后回收', async () => {
-    const q = new SaveQueue<string>()
-    q.freeze('d')
-    expect(q.queuedDocCount()).toBe(1)
-    await new Promise((r) => setTimeout(r, 5))
-    expect(q.queuedDocCount()).toBe(1) // 冻结空队列：条目保留
-    q.unfreeze('d')
-    await q.enqueue({ docId: 'd', run: async () => 'x' })
-    await new Promise((r) => setTimeout(r, 5))
-    expect(q.queuedDocCount()).toBe(0)
-    expect(q.isFrozen('d')).toBe(false)
   })
 })

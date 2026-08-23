@@ -8,7 +8,7 @@
  * （resolveWithinRoot），供 trash.ts / files.ts / service.ts / desktop 等各
  * safePath 变体统一引用，确保防护行为一致（fail-closed）。
  */
-import { relative, isAbsolute, resolve } from 'node:path'
+import { relative, isAbsolute, resolve, dirname, basename, join } from 'node:path'
 import { existsSync, realpathSync } from 'node:fs'
 
 export interface ResolvedWithinRoot {
@@ -52,7 +52,29 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
       return null // realpath 失败（EACCES/ELOOP/断链）→ 拒绝（fail-closed）
     }
   }
-  return { abs, rel: rel.replace(/\\/g, '/') }
+  // Y-5（第五十七轮）：目标不存在时词法 resolve 不消解中间目录的 symlink——
+  // `linkdir/new.md`（linkdir 指向书外、new.md 不存在）会放行，调用方在书外创建
+  // 文件。取最近存在的祖先做双侧 realpath 校验（剩余后缀经 resolve 已无 .. 段）；
+  // 校验通过仍返回**词法**结果——与既有新建场景契约一致（返回值随 realpath 走会在
+  // macOS /var→/private/var 等根链路 symlink 下漂移，破坏调用方路径对账）。
+  let anchor = abs
+  const suffix: string[] = []
+  while (!existsSync(anchor)) {
+    const parent = dirname(anchor)
+    if (parent === anchor) break // 走到根仍未存在——交由下方 realpath 失败拒
+    suffix.unshift(basename(anchor))
+    anchor = parent
+  }
+  try {
+    const realRoot = realpathSync(root)
+    const realAnchor = realpathSync(anchor)
+    const realAbs = suffix.length > 0 ? join(realAnchor, ...suffix) : realAnchor
+    const realRel = relative(realRoot, realAbs)
+    if (realRel === '' || ESCAPE_SEGMENT_RE.test(realRel) || isAbsolute(realRel)) return null
+    return { abs, rel: rel.replace(/\\/g, '/') }
+  } catch {
+    return null
+  }
 }
 
 /**

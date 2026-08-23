@@ -497,6 +497,18 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(Array.isArray(M.ipcHandle['desktop:get-recent']!(null))).toBe(true)
   })
 
+  it('Y-11（第五十七轮）：get-current 走 currentWorkDir——bootstrap 实际值优先于 store 回读', () => {
+    // harness 的 bootstrap 已完成（bootstrappedWorkDir = libA）；改写 store.current 为
+    // 另一目录后，get-current 应仍返回 bootstrap 实际值（修复前裸读 store 会返回 libB，
+    // 与实际运行书库不一致——书库管理窗口展示口径失真）
+    writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: '/tmp/别处书库', recent: [] }))
+    try {
+      expect(M.ipcHandle['desktop:get-current']!(null)).toBe(libA)
+    } finally {
+      writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
+    }
+  })
+
   it('show-in-folder 穿越守卫：.. 逃逸 / NUL / 未登记书 全拒；合法路径 realpath 放行', () => {
     const h = M.ipcHandle['desktop:show-in-folder']!
     const n0 = M.shell.show.length

@@ -211,6 +211,10 @@ export function useChapterTreeActions(deps: {
       if (entry) {
         const fresh = tree.byDocId.get(e.docId)
         if (fresh) entry.path = fresh.path
+        // Y-8（第五十七轮）：服务端 op=meta 写 fm + rename → revision 已变，打开中的
+        // 文档不 refresh 重对齐基线的话，下一次 autosave/⌘S 必收 REVISION_CONFLICT
+        //（重载丢本地编辑 / 覆盖静默回退标题章号）——对齐 EditorDocHead 的 refresh 口径
+        await doc.refresh(e.docId)
       }
     } catch (err) {
       deps.openError.value = friendlyError(err)
@@ -365,6 +369,13 @@ export function useChapterTreeActions(deps: {
     try {
       await renameDoc(deps.bookName(), node.docId, `${name}.md`)
       await tree.load(deps.bookName())
+      // Y-29（第五十七轮）：doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
+      // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
+      const entry = doc.get(node.docId)
+      if (entry) {
+        const fresh = tree.byDocId.get(node.docId)
+        if (fresh) entry.path = fresh.path
+      }
     } catch (e) {
       deps.openError.value = friendlyError(e)
     }
@@ -400,6 +411,12 @@ export function useChapterTreeActions(deps: {
     try {
       await moveDoc(deps.bookName(), docId, toDir)
       await tree.load(deps.bookName())
+      // Y-29：同 onRenameCommit——doc 缓存 path 随移动回填
+      const entry = doc.get(docId)
+      if (entry) {
+        const fresh = tree.byDocId.get(docId)
+        if (fresh) entry.path = fresh.path
+      }
     } catch (e) {
       deps.openError.value = friendlyError(e)
     }

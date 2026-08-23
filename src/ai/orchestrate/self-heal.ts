@@ -38,7 +38,6 @@ import { tryMockTool } from '../mock-tool.js'
 import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
 import { checkAiCallBudget } from '../calls.js'
-import { resolveTier } from '../provider/store.js'
 import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { chapterToolName, assembleChapter } from '../contract/index.js'
 import { collectRuleViolations } from '../rules/index.js'
@@ -805,7 +804,10 @@ async function runGenerate(
   const u = out.data.usage
   if (u) {
     state.usage.outputTokens += u.outputTokens
-    const model = resolveTier(opts.userDataPath, 'creative').model
+    // Y-15（第五十七轮）：计价用请求时刻的模型（TaskOk.model = resolve 时快照的 tier.model），
+    // 不再二次 resolveTier 取当下档位——生成期间作者换档/改价时 done 事件与 ai-calls
+    // 账本（runTask 同口径）计价漂移；mock 快路 model=null → 查价跳过（与 usage=null 同后果）
+    const model = out.model
     const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
     if (pricing) {
       state.usage.cost += computeCallCost(pricing, {

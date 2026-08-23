@@ -24,6 +24,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
+import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
 import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -31,7 +32,7 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, type Manifest } from '../document/manifest.js'
+import { readManifest, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLock, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -238,6 +239,12 @@ function healthCheck(bookRoot: string): HealthIssue[] {
 
   // ② 网盘副本扫描（纯 fs，不依赖 git）
   const cloudCopies = scanCloudCopies(bookRoot)
+  // Y-24（第五十七轮）：顺手清扫 atomicWriteFile 崩溃残留 tmp（`.name.pid.uuid.tmp`，
+  // 5 分钟年龄门槛防误删他进程在途写）——不产 issue，纯卫生，留痕即可
+  const sweptTmp = sweepAbandonedTmpFiles(bookRoot)
+  if (sweptTmp > 0) {
+    log.info('state', `已清扫 ${sweptTmp} 个崩溃残留的临时文件（atomicWrite 半途崩溃遗留）`)
+  }
   if (cloudCopies.length > 0) {
     issues.push({
       kind: 'cloudCopy',
@@ -266,12 +273,17 @@ function healMovePending(bookRoot: string, docId: string, p: JournalMovePending)
     if (newExists && !oldExists) {
       const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
       if (existsSync(manifestPath)) {
-        const m = readManifest(manifestPath)
-        const entry = m.entries.get(docId)
-        if (entry && entry.path !== p.newPath) {
-          entry.path = p.newPath
-          writeManifest(manifestPath, m)
-        }
+        // Y-4（第五十七轮）：RMW 持清单锁（X-5 单源漏网点）——悬置 pending 自愈与
+        // 他进程清单写（CLI batch-finalize / GUI 保存）并发时，裸 read→write 会用
+        // 陈旧镜像整文件重写吞掉刚落的 finalizedRevision（定稿防线失守）
+        withManifestLock(manifestPath, () => {
+          const m = readManifest(manifestPath)
+          const entry = m.entries.get(docId)
+          if (entry && entry.path !== p.newPath) {
+            entry.path = p.newPath
+            writeManifest(manifestPath, m)
+          }
+        })
       }
       appendSettled(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, computeRevision(newAbs))
       return true

@@ -318,6 +318,9 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
 
 /** 打开独立书架窗口（工作区时管理/切换/建书；单例，重复调用聚焦已存在窗口）。*/
 function openShelfWindow(): void {
+  // Y-12（第五十七轮）：appUrl 就绪守卫——fork+握手期间（打包冷启动可达秒级）原生
+  // 菜单已可点，loadURL 无 scheme 相对路径会以 ERR_INVALID_URL 开出加载失败白窗
+  if (!appUrl) return
   if (shelfWindow && !shelfWindow.isDestroyed()) {
     shelfWindow.focus()
     return
@@ -338,6 +341,8 @@ function openShelfWindow(): void {
 
 /** 打开独立书库管理窗口（切换/最近/新建书库；单例聚焦）。*/
 function openLibraryWindow(): void {
+  // Y-12：同 openShelfWindow 的 appUrl 就绪守卫
+  if (!appUrl) return
   if (libraryWindow && !libraryWindow.isDestroyed()) {
     libraryWindow.focus()
     return
@@ -520,7 +525,10 @@ function registerIpc(): void {
     return { ok: true as const }
   })
   ipcMain.handle('desktop:get-recent', () => readStore().recent)
-  ipcMain.handle('desktop:get-current', () => readStore().current)
+  // Y-11（第五十七轮）：M-3 第五入口漏网——改走 currentWorkDir()（bootstrap 实际值
+  // 优先），否则 store.current 为 null/失效而 bootstrap 跑在 findWorkDir 发现的书库上时，
+  // 书库管理窗口拿到与实际运行不一致的展示口径
+  ipcMain.handle('desktop:get-current', () => currentWorkDir())
   // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
   ipcMain.handle('desktop:show-in-folder', (_e, bookName: unknown, relPath: unknown) => {
     if (typeof bookName !== 'string' || typeof relPath !== 'string') return

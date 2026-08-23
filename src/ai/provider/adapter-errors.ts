@@ -52,8 +52,11 @@ export function makeToErrorEvent(ctors: {
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
     // 连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError（A5）
+    // Y-14（第五十七轮）：retryable 布尔与 failure.ts 决策表对齐（NETWORK → 'retry'）——
+    // 此前 false 全靠 code 决策表兜住实际重试，若落到布尔兜底分支（mode:'always'）
+    // 连接类错误的可重试性会静默翻转
     if (e instanceof APIConnectionError) {
-      return { type: 'error', message: redactSecret(e.message), retryable: false, code: 'NETWORK' }
+      return { type: 'error', message: redactSecret(e.message), retryable: true, code: 'NETWORK' }
     }
     if (e instanceof APIError) {
       const retryable = e.status === 429 || (e.status ?? 0) >= 500

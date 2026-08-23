@@ -106,15 +106,14 @@ describe('W1 / superseded 传播', () => {
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
 
   it('同 doc 连续保存，旧请求完成时标记 superseded=true', async () => {
-    // freeze 制造排队时序：两个都入队后 unfreeze，保证第一个 run 时第二个已入队
-    svc.freeze('doc_s')
+    // Y-16 后 freeze 已删：save() 入队前全同步，背靠背两次入队天然保证
+    // 第一个 run（微任务启动）完成前第二个已入队（maxToken=2）
     const p1 = svc.save('doc_s', '素材/s.md', {
       content: '一', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
     const p2 = svc.save('doc_s', '素材/s.md', {
       content: '二', expectedRevision: null, operationId: 'op2', origin: 'manual',
     })
-    svc.unfreeze('doc_s')
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.ok).toBe(true)
     if (r1.ok) expect(r1.superseded).toBe(true) // 完成时 op2 已入队（maxToken=2）

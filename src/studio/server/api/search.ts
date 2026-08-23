@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { searchBook } from '../../../process/book-search.js'
 
@@ -25,7 +25,10 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const url = new URL(req.url ?? '/', 'http://localhost')
+    // Y-10（第五十七轮）：R-19 parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
+    //（此前 api 层唯一残留的裸 new URL，属口径漂移死分叉）
+    const url = parseRequestUrl(req)
+    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const q = (url.searchParams.get('q') ?? '').trim()
     const scope = url.searchParams.get('scope') ?? undefined
     const bookRoot = r.bookRoot

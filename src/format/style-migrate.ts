@@ -172,6 +172,22 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
 
   const write = makeWriter(bookRoot, result)
 
+  // Y-7（第五十七轮）：样章/金句续跑查重（对齐禁词源 RB-KN-P2-4——修一处漏两处的
+  // 口径不一）：条目写盘成功与旧源 rmSync 之间崩溃后，续跑对同一旧文件再拆再写会产出
+  // 同内容双份、重复占据注入预算。键 = 场景 + 正文；命中 = 上次已迁，跳写并照删旧源。
+  const seenSample = new Set<string>(
+    readEntries(entriesDir, '样章').entries
+      .map((e) => `${e.场景}\u0001${e.正文.trim()}`)
+      .filter((k) => !k.endsWith('\u0001')),
+  )
+  const dupOrWrite = (e: StyleEntry): boolean => {
+    const key = `${e.场景}\u0001${e.正文.trim()}`
+    if (e.正文.trim() && seenSample.has(key)) return false
+    seenSample.add(key)
+    write(e)
+    return true
+  }
+
   // ── 1. 样章库搬移：文风/样章库/<场景>/*.md → 条目/样章/ ──
   const sampleDir = join(styleDir, '样章库')
   if (existsSync(sampleDir)) {
@@ -185,7 +201,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
       const sceneDir = join(sampleDir, scene)
       const { samples, errors } = readSamplesByScene(sampleDir, scene)
       for (const s of samples) {
-        write({
+        dupOrWrite({
           类型: '样章',
           场景: s.场景,
           来源: SAMPLE_SOURCE_MAP[s.来源] ?? '导入',
@@ -218,16 +234,15 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     for (const f of files) {
       const fp = join(quoteDir, f)
       const scene = f.slice(0, -3)
-      for (const q of parseQuoteEntries(readFileSync(fp, 'utf-8'))) {
-        write({
+      for (const q of parseQuoteEntries(readFileSync(fp, 'utf8'))) {
+        if (dupOrWrite({
           类型: '样章',
           场景: scene,
           来源: '收割',
           标签: ['金句'],
           ...(q.出处 ? { 出处: q.出处 } : {}),
           正文: q.正文,
-        })
-        quoteCount++
+        })) quoteCount++
       }
       rmSync(fp, { force: true })
     }
@@ -235,16 +250,15 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   }
   const quoteFile = join(styleDir, '金句库.md')
   if (existsSync(quoteFile)) {
-    for (const q of parseQuoteEntries(readFileSync(quoteFile, 'utf-8'))) {
-      write({
+    for (const q of parseQuoteEntries(readFileSync(quoteFile, 'utf8'))) {
+      if (dupOrWrite({
         类型: '样章',
         场景: '通用',
         来源: '导入',
         标签: ['金句'],
         ...(q.出处 ? { 出处: q.出处 } : {}),
         正文: q.正文,
-      })
-      quoteCount++
+      })) quoteCount++
     }
     rmSync(quoteFile, { force: true })
   }
