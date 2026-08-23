@@ -16,7 +16,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
-import { isSpawnRunning, __setSpawnRunning } from '../../src/studio/server/api/stream.js'
+import { isSpawnRunning, __setSpawnRunning, registerStreamRoutes } from '../../src/studio/server/api/stream.js'
+import { createRouteTable, withRouteTable, dispatch } from '../../src/studio/server/router.js'
+import { resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 
 const BOOK = '对话测试书'
 let workDir = ''
@@ -224,6 +226,63 @@ describe('RB-SV-P2-1 /spawn 并发闸', () => {
     expect(isSpawnRunning(BOOK)).toBe(false)
     const ok = await req({ method: 'POST', path: bp('/spawn'), body: { prompt: '写一段' } })
     expect(ok.status).toBe(200)
+  })
+})
+
+// ── E-5（第五十三轮）：SSE 端点畸形 URL → 400 而非 500 ──
+// 口径对齐 R-19（第十六轮）parseRequestUrl。说明：绝对畸形请求行（`GET http://[bad`）
+// 不以 /api/ 开头，在 index.ts 即落入静态分支，不经 SSE handler——故 E-5 的回归在
+// dispatch 层与 stream handler 层分别直接验证：任一层遇畸形 URL 均回 400 BAD_INPUT
+// 信封，而非 handler 内抛 TypeError 变 500。
+
+describe('E-5 SSE 端点畸形 URL 回 400', () => {
+  /** 构造捕获型假 res（记录状态码与响应体）。 */
+  function fakeRes() {
+    const r = {
+      statusCode: 0,
+      headersSent: false,
+      body: '',
+      headers: {} as Record<string, unknown>,
+      setHeader(k: string, v: unknown) { r.headers[k] = v },
+      writeHead(code: number, h: Record<string, unknown>) { r.statusCode = code; Object.assign(r.headers, h ?? {}) },
+      end(chunk?: unknown) { if (chunk) r.body += String(chunk) },
+    }
+    return r
+  }
+
+  it('dispatch 层：畸形 absolute-form req.url → 400 BAD_INPUT 信封（非 500）', async () => {
+    const routes = createRouteTable()
+    resetRouteSchemas()
+    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token }))
+    const res = fakeRes()
+    const matched = await dispatch(
+      { method: 'GET', url: 'http://[bad/api/books/x/stream', headers: {} } as unknown as import('node:http').IncomingMessage,
+      res as unknown as import('node:http').ServerResponse,
+      routes,
+    )
+    expect(matched).toBe(true)
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ code: 'BAD_INPUT', error: 'bad request' })
+  })
+
+  it('stream handler 层：畸形 req.url → 400 BAD_INPUT 而非抛 TypeError（修复前裸 new URL 抛错 → 500）', async () => {
+    const routes = createRouteTable()
+    resetRouteSchemas()
+    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token }))
+    // 从路由表取出 SSE 路由，直接调 handler（绕过 dispatch 的前置 parse，
+    // 专验 E-5 修复点：handler 自身对畸形 URL 的兜底）
+    const streamRoute = routes.find((r) => r.method === 'GET' && r.regex.test('/api/books/x/stream'))
+    expect(streamRoute).toBeDefined()
+    const res = fakeRes()
+    await expect(
+      streamRoute!.handler(
+        { method: 'GET', url: 'http://[bad', headers: {} } as unknown as import('node:http').IncomingMessage,
+        res as unknown as import('node:http').ServerResponse,
+        { name: BOOK },
+      ),
+    ).resolves.toBeUndefined()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({ code: 'BAD_INPUT', error: 'bad request' })
   })
 })
 

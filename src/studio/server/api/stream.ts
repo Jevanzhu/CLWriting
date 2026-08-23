@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
@@ -215,7 +215,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程 GET /boot 即可拿
     // token，此处不承诺防本机进程；token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的
     // 客户端，配合 Host/Origin 校验（server/index.ts）防远端网页窃听创作内容。
-    const queryToken = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? undefined
+    // E-5（第五十三轮）：SSE 端点改用 R-19（第十六轮）parseRequestUrl 统一解析
+    // （Q-1/N-3 口径）——畸形 URL（如 `GET http://[bad`）原在 handler 内抛
+    // TypeError 经 dispatch 变 500，现与六处 API 裸调同款回 400 BAD_INPUT。
+    const url = parseRequestUrl(req)
+    if (!url) {
+      replyError(res, 400, 'BAD_INPUT', 'bad request')
+      return
+    }
+    const queryToken = url.searchParams.get('token') ?? undefined
     if (!safeTokenCompare(queryToken, ctx.studioToken)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return

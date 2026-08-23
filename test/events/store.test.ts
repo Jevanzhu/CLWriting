@@ -210,6 +210,37 @@ describe('F1-P1 启动修复', () => {
     store2.close()
   })
 
+  it('N-5（第五十四轮）: 补 end 的第二步（touch）失败时整体回滚——不留「补了 end 但 updated_at 未刷」半态', () => {
+    // 用 BEFORE UPDATE 触发器 RAISE(ABORT) 模拟第二步抛错：修复事务内
+    // INSERT（补 end）成功后 UPDATE 触发 ABORT → ROLLBACK，INSERT 一并回滚
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.close()
+    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
+    backdateSessions(ud, '/books/a', 11 * 60 * 1000)
+    const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
+    const before = new DatabaseSync(dbPath)
+    before.exec("CREATE TRIGGER mock_touch_fail BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'mock touch fail'); END")
+    const updatedAtBefore = (before.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }).updated_at
+    before.close()
+    // 重开库触发修复：touch 抛错 → 事务回滚 → 开库抛出（不静默半态）
+    expect(() => openSessionStore(ud, '/books/a')).toThrow('mock touch fail')
+    // 半态校验：end 未补（INSERT 已回滚），updated_at 未刷
+    const probe = new DatabaseSync(dbPath)
+    const ends = probe.prepare("SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND type = 'session/end'").get(sid) as { n: number }
+    const updatedAtAfter = (probe.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }).updated_at
+    probe.exec('DROP TRIGGER mock_touch_fail')
+    probe.close()
+    expect(ends.n).toBe(0)
+    expect(updatedAtAfter).toBe(updatedAtBefore)
+    // 撤除模拟故障后重开：修复正常补齐（两步同事务原子上线）
+    const store2 = openSessionStore(ud, '/books/a')!;
+    expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
+    store2.close()
+  })
+
   it('RB-IF-P2-2: 新近活跃的孤儿（伪孤儿，跨进程进行中）不补虚假 end', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;

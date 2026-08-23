@@ -37,3 +37,33 @@ export function bodyOf(raw: string): string {
   const s = splitFrontMatter(raw)
   return s ? s.body : raw
 }
+
+/**
+ * 剥值行内注释（单一实现）：`#` 且前面是空白（或行首）即注释起点，引号内 `#` 不剥；
+ * `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。
+ * N-4（第五十四轮）：原 frontmatter.ts stripInlineComment（E-3，第五十三轮）与
+ * yaml.ts stripComment（ii 批）是同算法双份维护——防循环 import 的顾虑已随
+ * frontmatter-core.ts 拆出而不成立（core 零依赖，二者均无环），下沉至此共享，
+ * 语义逐字不变（引号感知 / # 前空白或行首判定 / URL 字面 # 保留）。
+ */
+export function stripInlineComment(s: string): string {
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (quote === '"') {
+      if (c === '\\') i++ // 跳过转义字符
+      else if (c === '"') quote = null
+      continue
+    }
+    if (quote === "'") {
+      if (c === "'") quote = null
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      continue
+    }
+    if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
+  }
+  return s
+}

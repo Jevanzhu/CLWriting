@@ -14,7 +14,7 @@
  */
 
 import type { ParseError } from './types.js'
-import { splitFrontMatter, bodyOf } from './frontmatter-core.js'
+import { splitFrontMatter, bodyOf, stripInlineComment } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
 
@@ -131,6 +131,12 @@ export function stringifyValue(val: unknown): string {
 // ── front matter 提取/包裹 ──────────────────────
 // splitFrontMatter 定义已移至 frontmatter-core.ts，文件顶部 re-export
 
+// E-3（第五十三轮）：剥平铺值行内注释，防注释尾巴进值——`标题: 值 # 备注` 不再把
+// 注释尾巴读进值。此前仅 yaml.ts（book.yaml）剥而 parseFlat（章 front matter）不剥，
+// 双 fm 解析口径不一。N-4（第五十四轮）：实现下沉 frontmatter-core.ts（与 yaml.ts
+// stripComment 同一函数，防循环 import 顾虑已随 core 拆出不成立），语义逐字不变。
+// 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
+
 /** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
 export function parseFlat(
   fmRaw: string,
@@ -151,7 +157,8 @@ export function parseFlat(
       continue
     }
     const key = line.slice(0, colonIdx).trim()
-    const valRaw = line.slice(colonIdx + 1).trim()
+    // E-3：值解析前剥行内注释（口径对齐 yaml.ts stripComment），防注释尾巴进值
+    const valRaw = stripInlineComment(line.slice(colonIdx + 1).trim())
     // 块标量：key: |（literal，保留换行）或 key: >（folded，换行转空格）
     // Q-17（第十五轮）：精确匹配放宽为 chomping 变体（`|-`/`|+`/`>-`/`>+`）——手写
     // `钩子: |-` 此前不中块标量分支，值成字面串且缩进块内容混入 fm 伪键；变体统一按
@@ -161,6 +168,7 @@ export function parseFlat(
     if (blockMatch) {
       const folded = blockMatch[1] === '>'
       const block: string[] = []
+      const indents: number[] = [] // E-9d：记录非空行缩进，供最小缩进去缩进
       i++
       while (i < lines.length) {
         const bl = lines[i]!
@@ -171,12 +179,18 @@ export function parseFlat(
         }
         const indent = bl.length - bl.trimStart().length
         if (indent === 0) break // 回到平铺层（新 key）
-        block.push(bl.slice(indent))
+        indents.push(indent)
+        block.push(bl)
         i++
       }
+      // E-9d（第五十三轮）：以块内非空行**最小缩进**为基准去缩进——此前按每行自身
+      // 缩进 slice，块内后续行比首行浅（但仍 >0）时保留多余空白，多行值往返失真；
+      // YAML 块标量语义本就是最小缩进决定内容基准
+      const minIndent = indents.length > 0 ? Math.min(...indents) : 0
+      const dedented = block.map((bl) => (bl === '' ? '' : bl.slice(minIndent)))
       const value = folded
-        ? block.join(' ').replace(/  +/g, ' ').replace(/ +$/,'')
-        : block.join('\n').replace(/\n+$/, '')
+        ? dedented.join(' ').replace(/  +/g, ' ').replace(/ +$/,'')
+        : dedented.join('\n').replace(/\n+$/, '')
       result.set(key, value)
       continue
     }

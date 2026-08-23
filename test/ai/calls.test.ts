@@ -3,11 +3,11 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { recordAiCall, checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
+import { recordAiCall, checkAiCallBudget, recordTaskUsage, AI_CALLS_MUTEX_SCOPE_NOTE } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 const dirs: string[] = []
@@ -148,7 +148,74 @@ describe('旧格式迁移（T5）', () => {
   })
 })
 
-// ── V-P2-10：记账文件损坏 → 预算闸保守阻断（与头注释承诺一致，此前静默放行归零）──
+// ── E-4（第五十三轮）：旧格式迁移写必须走 serializedWrite 互斥队列，迁移后紧接的记账写不丢迁移结果 ──
+// E-7（第五十三轮）：互斥范围声明性登记（进程内语义，跨进程依赖 J7，未落地）
+
+describe('E-4/E-7：迁移写互斥 + 互斥范围声明', () => {
+  it('E-4: 旧格式触发迁移后紧接记账写 → 迁移结果与记账写共存（不交错覆盖）', async () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    const old = { chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }
+    writeFileSync(join(root, '.cache', 'ai-calls.json'), JSON.stringify(old) + '\n')
+
+    // read 路径触发迁移（E-4：经 serializedWrite 互斥队列）
+    const b = checkAiCallBudget(root, 5, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(2)
+
+    // 迁移在途/刚完成时紧接的记账写不得覆盖迁移结果（同书同队列串行）
+    recordAiCall(root, 5, { inputTokens: 10, outputTokens: 5 })
+    // 排空微任务队列（在途段为微任务执行）
+    await new Promise((r) => setTimeout(r, 0))
+
+    const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+    expect(rec.chapter).toEqual({ num: 5, used: 3, inputTokens: 110, outputTokens: 205 })
+    expect(rec.tasks).toEqual({})
+  })
+
+  it('E-4: 迁移后再读不再重复触发迁移写（已完成标记短路）', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n',
+    )
+    checkAiCallBudget(root, 5, CONFIG) // 首读触发迁移
+    recordAiCall(root, 5, null) // 记账写
+    const b = checkAiCallBudget(root, 5, { budget: { calls_per_chapter: 10 } } as unknown as BookConfig) // 再读：新格式直读，不再迁移
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(3)
+  })
+
+  it('N-10: 迁移写 IO 失败 → 完成标记未置位，下次 read 可重试（文件不永留旧格式）', () => {
+    const root = tempBook()
+    const fp = join(root, '.cache', 'ai-calls.json')
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    const old = JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n'
+    writeFileSync(fp, old)
+    // 收走 .cache 写权限后读 → 触发迁移写且 IO 必败；此前标记入队即置位且不清，
+    // 迁移永不重试、文件永留旧格式（N-10 修复：失败清标记）
+    chmodSync(join(root, '.cache'), 0o500)
+    try {
+      checkAiCallBudget(root, 5, CONFIG)
+    } finally {
+      chmodSync(join(root, '.cache'), 0o755)
+    }
+    expect(readFileSync(fp, 'utf8')).toBe(old) // 迁移写确实失败（文件仍是旧格式）
+    // 恢复写权限后再读 → 迁移可重试并落地新格式
+    const b = checkAiCallBudget(root, 5, CONFIG)
+    expect(b.ok).toBe(true)
+    if (b.ok) expect(b.used).toBe(2)
+    const rec = JSON.parse(readFileSync(fp, 'utf8'))
+    expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
+    expect(rec.tasks).toEqual({})
+  })
+
+  it('E-7: 互斥范围声明已登记（进程内语义 + J7 依赖）', () => {
+    expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('进程内')
+    expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('J7')
+  })
+})
 
 describe('ai-calls.json 损坏保守阻断（V-P2-10）', () => {
   it('JSON 损坏 → ok=false + 人话提示（不再当无记录放行）', () => {

@@ -38,11 +38,37 @@ import type { BookConfig } from '../format/types.js'
 import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 
+// N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
+// applyGlobalDefaults 全局默认链内（书级不设即 undefined），此值即实际生效的最终回落，
+// 与 format/yaml.ts 脚手架默认（200/500）同源；提取具名常量保证「默认值显式 resolve」
+// 可回溯（重放时可精确重建最终值）。
+/** 章摘要字数上限最终回落（书级 summary_chapter_max 未设时生效；200，与 yaml 脚手架缺省一致） */
+export const SUMMARY_CHAPTER_MAX_FALLBACK = 200
+/** 卷摘要字数上限最终回落（书级 summary_volume_max 未设时生效；500，与 yaml 脚手架缺省一致） */
+export const SUMMARY_VOLUME_MAX_FALLBACK = 500
+
 /** R-11（十五轮登记销账）：按码位截断（Array.from 迭代码点）——String.slice 按
  *  UTF-16 码元，增补平面字符在边界处被切成半个代理对；章/卷摘要硬截断两处对齐
  *  全库 code point 口径（P-7 estimateTokens / format/filename 同源）。 */
 function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
+}
+
+/** N-14（第五十四轮）：码位计数——自增计数器逐码点数，替代 `[...text].length`
+ *  全量展开数组只为取个数的写法（截断路径每次落盘都过这里）；口径严格不变：
+ *  代理对（高低各一码元）算一个码位，孤立代理项各算一个，与展开结果一致。 */
+function codePointLength(text: string): number {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    // 高代理项后随低代理项 → 成对算一个码位，跳过低代理项
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const d = text.charCodeAt(i + 1)
+      if (d >= 0xdc00 && d <= 0xdfff) i++
+    }
+    n++
+  }
+  return n
 }
 
 /** 章摘要目录（相对书根） */
@@ -134,7 +160,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
   if (inFlight.has(key)) return { ok: false, error: `第 ${chapter} 章摘要生成已在途` }
   inFlight.add(key)
   try {
-    const budget = opts.config.budget.summary_chapter_max ?? 200
+    const budget = opts.config.budget.summary_chapter_max ?? SUMMARY_CHAPTER_MAX_FALLBACK
     const draft = readDraft(bodyAbsPath)
     if (!draft.ok) return { ok: false, error: `读正文失败：${draft.reason}` }
     // 第五轮：指纹在读取时点取——AI 生成窗口（数十秒）内正文若被再改并再次定稿（H2），
@@ -163,7 +189,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     let text = out.data.text.trim()
     // R-11（十五轮登记销账）：截断按码位——slice 按 UTF-16 码元，增补平面字符（生僻
     // 字/emoji）在边界处被切成半个代理对落盘；全库截断口径 code point（P-7/filename 同源）
-    if (text.length > budget) text = clipByCodePoints(text, budget) + '…'
+    // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
+    // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
+    if (codePointLength(text) > budget) text = clipByCodePoints(text, budget) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
 
     const fp = chapterSummaryPath(bookRoot, chapter)
@@ -394,7 +422,7 @@ export async function generateVolumeSummary(opts: {
 }): Promise<GenerateSummaryResult> {
   const { bookRoot, config, volume } = opts
   const volumeSize = config.book.volume_size ?? 50
-  const budget = config.budget.summary_volume_max ?? 500
+  const budget = config.budget.summary_volume_max ?? SUMMARY_VOLUME_MAX_FALLBACK
   const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
   if (!chain || chain.size === 0) {
     log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
@@ -435,7 +463,9 @@ export async function generateVolumeSummary(opts: {
     if (!out.ok) return { ok: false, error: out.error }
     let text = out.data.text.trim()
     // R-11（十五轮登记销账）：同章摘要——码位截断，不切半个代理对
-    if (text.length > budget) text = clipByCodePoints(text, budget) + '…'
+    // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
+    // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
+    if (codePointLength(text) > budget) text = clipByCodePoints(text, budget) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
     mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
     const fm = [

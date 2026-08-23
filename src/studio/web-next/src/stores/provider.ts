@@ -94,11 +94,16 @@ export const useProviderStore = defineStore('provider', () => {
   /** 对话档有效推理等级 */
   const chatActiveEffort = computed<EffortLevel>(() => (tiers.value.chat?.effort as EffortLevel) || (tiers.value.creative.effort as EffortLevel) || 'low')
 
+  /** refresh 操作代（N-12，第五十四轮，与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据 */
+  let refreshGen = 0
+
   /** 刷新 AI 提供方 + 档位 + revision（RAG 单独 refreshRag）。 */
   async function refresh(): Promise<void> {
+    const gen = ++refreshGen
     loading.value = true
     try {
       const d = await getProviders()
+      if (gen !== refreshGen) return // 后发 refresh 已生效：旧响应不回填
       providers.value = d.providers
       currentId.value = d.currentId
       currentModel.value = d.currentModel
@@ -111,7 +116,7 @@ export const useProviderStore = defineStore('provider', () => {
     } catch {
       /* 设置页加载失败静默（面板显示空 + 可重试） */
     } finally {
-      loading.value = false
+      if (gen === refreshGen) loading.value = false
     }
   }
 

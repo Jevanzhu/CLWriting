@@ -491,3 +491,55 @@ test('第五轮: 分章目录整目录重建——改章标题/删章后旧文�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── E-9f（第五十三轮）：#% 截断收紧——正文合法字面 #% 不再误删 ──────
+
+test('exportBook: 行中带空白的字面 #% 保留；行首/紧贴正文的批注仍滤净', () => {
+  const root = makeLongBook('字面保留')
+  writeLongChapter(root, 1, '字面测试', '达标线 #%=95% 才放行\n正文甲#%贴附批注\n#% 整行批注\n正常正文')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-字面保留.md'), 'utf-8')
+    // 反例：# 前是空白的行中字面序列保留（非批注形态）
+    expect(merged).toContain('#%=95%')
+    expect(merged).toContain('达标线')
+    // 正例：贴附批注尾巴截掉、整行批注剔除
+    expect(merged).toContain('正文甲')
+    expect(merged).not.toContain('贴附批注')
+    expect(merged).not.toContain('整行批注')
+    expect(merged).toContain('正常正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── N-6（第五十四轮）：fenced 代码块内 #% 不剥 ─────────────────
+
+test('exportBook: fenced 代码块（``` 围栏）内的 #% 原样保留；块外批注仍滤净', () => {
+  const root = makeLongBook('围栏保留')
+  const body = [
+    '正文开头',
+    '```python',
+    '#% 代码内标记不剥',
+    'x = "达标 #%=95%"',
+    '```',
+    '#% 整行批注',
+    '正文乙#%贴附批注',
+    '收尾正文',
+  ].join('\n')
+  writeLongChapter(root, 1, '围栏测试', body)
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-围栏保留.md'), 'utf-8')
+    // 围栏内 #% 是代码字面量：原样保留
+    expect(merged).toContain('代码内标记不剥')
+    expect(merged).toContain('#%=95%')
+    // 围栏外批注形态仍剥
+    expect(merged).not.toContain('整行批注')
+    expect(merged).not.toContain('贴附批注')
+    expect(merged).toContain('正文开头')
+    expect(merged).toContain('收尾正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

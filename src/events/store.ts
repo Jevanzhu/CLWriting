@@ -114,8 +114,19 @@ function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void
     if (o.starts > o.ends && !skip.has(o.session_id)) {
       // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
       if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
-      ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
-      touch.run(now, o.session_id)
+      // N-5（第五十四轮）：INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——
+      // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
+      // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
+      // 失败回滚不影响已成功补齐的其他孤儿。
+      db.exec('BEGIN')
+      try {
+        ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+        touch.run(now, o.session_id)
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
     }
   }
 }

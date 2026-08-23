@@ -1,5 +1,5 @@
 import { ref, onUnmounted, watch } from 'vue'
-import { apiFetch } from '../api/client'
+import { apiFetch, getToken } from '../api/client'
 
 // 协作心跳：进书后每 20s POST /heartbeat 续期；卸载（onUnmounted）DELETE 清除（单写者互斥）。
 // 切书不发 DELETE（依赖服务端过期回收）——L-F5（第八轮）注释校准：原「切书 DELETE」与实现不符。
@@ -32,12 +32,18 @@ export function useHeartbeat(getBookName: () => string | null): void {
       clearInterval(timer)
       timer = null
     }
+    // E-6a（第五十三轮）：停止心跳时把全局在线信号复位回初始「在线/未知」态——
+    // 否则退书前最后一次 beat 失败的假阴性会挂到下次进书（StatusBar 误显离线），
+    // 且退书后不再探测，无机会自愈。下次进书 start() 的首次 beat 会立即校正。
+    online.value = true
   }
 
   async function leave(): Promise<void> {
     stop()
     const name = getBookName()
-    if (name) {
+    // E-6b（第五十三轮）：token null（boot 未成功）时跳过 DELETE——必 401 徒劳且会
+    // 误触发 apiFetch 的 re-boot（E-2）；本地直接放弃清除，让服务端过期回收心跳。
+    if (name && getToken()) {
       try {
         await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, { method: 'DELETE' })
       } catch {

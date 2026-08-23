@@ -54,4 +54,23 @@ describe('shelf: 加载书架', () => {
     expect(s.error).not.toBeNull()
     expect(s.loading).toBe(false)
   })
+
+  // N-12（第五十四轮）：并发两次 load，先发的慢响应迟到不回填——后发者生效
+  it('N-12: 并发两次 load → 后发者生效（慢响应迟到不回填旧数据）', async () => {
+    let resolveSlow!: (v: { books: { name: string; kind: string }[]; workDir: boolean; hint?: string }) => void
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveSlow = r
+        }),
+    )
+    listMock.mockResolvedValueOnce({ books: [{ name: '新书', kind: 'long' }], workDir: true })
+    const s = useShelfStore()
+    const p1 = s.load()
+    const p2 = s.load() // 后发：先返回
+    resolveSlow({ books: [{ name: '旧书', kind: 'long' }], workDir: true }) // 先发的慢响应迟到
+    await Promise.all([p1, p2])
+    expect(s.books.map((b) => b.name)).toEqual(['新书'])
+    expect(s.loading).toBe(false)
+  })
 })

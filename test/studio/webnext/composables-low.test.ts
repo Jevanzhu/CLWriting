@@ -12,6 +12,7 @@ import { ref, nextTick, h, render } from 'vue'
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   apiFetch: vi.fn(),
   getToken: vi.fn(() => 'token-123'),
+  rebootstrap: vi.fn(async () => {}),
 }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),

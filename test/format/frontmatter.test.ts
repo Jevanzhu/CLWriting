@@ -15,6 +15,7 @@ import {
   parseRealmSystems,
   stringifyRealmSystems,
 } from '../../src/format/frontmatter.js'
+import { readBookConfig } from '../../src/format/yaml.js'
 
 // ── 值类型推断 ──────────────────────────────────
 
@@ -215,8 +216,9 @@ test('Q-16: 块标量值含缩进 --- 行 → 往返无损（trim 判定曾把 `
   const split = splitFrontMatter(file)
   expect(split).not.toBeNull()
   const back = parseFlat(split!.fmRaw)
-  // 值完整往返（块内 --- 行不截断 fm）；缩进按既有逐行 dedent 语义归一（非本次修复面）
-  expect(back.get('钩子')).toBe('第一段\n---\n第二段')
+  // 值完整往返（块内 --- 行不截断 fm）；E-9d（第五十三轮）后缩进按块内最小缩进
+  // dedent——相对缩进保留，`  ---` 不再被逐行 dedent 抹平
+  expect(back.get('钩子')).toBe('第一段\n  ---\n第二段')
   expect(back.get('标题')).toBe('正常值')
   expect(split!.body).toBe('正文')
 })
@@ -281,4 +283,66 @@ test('R-12: 正文首行为 ---- 或 --- 分隔（裸 md）→ 不当 fm 开，b
 test('R-12: 整行精确 ---（含 \r 尾）仍正常识别 fm', () => {
   expect(splitFrontMatter('---\r\n标题: 甲\n---\r\n正文')).toEqual({ fmRaw: '标题: 甲', body: '正文' })
   expect(splitFrontMatter('---\n标题: 甲\n---\n正文')).toEqual({ fmRaw: '标题: 甲', body: '正文' })
+})
+
+// ── E-3（第五十三轮）：parseFlat 行内注释口径对齐 yaml.ts stripComment ──────
+
+test('E-3: parseFlat 剥行内注释——`标题: 值 # 备注` 注释尾巴不进值', () => {
+  const fm = parseFlat('标题: 灭门真凶 # 备注尾巴\n章号: 3')
+  expect(fm.get('标题')).toBe('灭门真凶')
+  expect(fm.get('章号')).toBe(3)
+})
+
+test('E-3: 引号内 # 不剥；# 前无空白视为字面值（对齐 yaml.ts 语义）', () => {
+  expect(parseFlat('标题: "含 # 号 # 注"').get('标题')).toBe('含 # 号 # 注')
+  expect(parseFlat("标题: 'a # b' # 注").get('标题')).toBe('a # b')
+  // # 前无空白 → 字面（http://x#y 同理，与 yaml.ts stripComment 同口径）
+  expect(parseFlat('链接: http://x#y').get('链接')).toBe('http://x#y')
+})
+
+test('E-3: 读改写往返不炸（注释丢失与 yaml.ts 读改写口径一致，属预期）', () => {
+  const s = stringifyFlat(parseFlat('标题: 甲 # 注\n章号: 1'))
+  expect(s).toBe('标题: 甲\n章号: 1')
+  expect(parseFlat(s).get('标题')).toBe('甲')
+})
+
+// N-4（第五十四轮）：双入口行为一致——parseFlat（章 fm）与 readBookConfig（book.yaml）
+// 共用 frontmatter-core.ts stripInlineComment 后，同一值串在两侧剥注释结果必须一致
+test('N-4: 双入口（parseFlat / readBookConfig）行内注释剥除行为一致', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'n4-双入口-'))
+  try {
+    const values = [
+      '甲 # 注',        // 常规行内注释
+      '"含 # 号 # 注"', // 引号内 # 不剥
+      'http://x#y',     // # 前无空白 → 字面保留
+      "'a # b' # 注",   // 单引号内不剥，引号外剥
+    ]
+    for (const v of values) {
+      const fmVal = parseFlat(`标题: ${v}`).get('标题')
+      const fp = join(dir, 'book.yaml')
+      writeFileSync(fp, `book:\n  title: ${v}\n`, 'utf8')
+      const r = readBookConfig(fp)
+      expect(r.ok).toBe(true)
+      const yamlVal = r.ok ? r.config.book.title : undefined
+      expect(fmVal).toBe(yamlVal)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ── E-9d（第五十三轮）：块标量按块内最小缩进去缩进 ──────────────────
+
+test('E-9d: 按块内最小缩进去缩进，保留相对缩进，多行值往返不失真', () => {
+  // 首行深(4)、后续行浅(2)：以最小缩进 2 为基准 → 保留「第一行」比「第二行」深 2 格的相对缩进
+  const fmRaw = '钩子: |-\n    第一行\n  第二行'
+  expect(parseFlat(fmRaw).get('钩子')).toBe('  第一行\n第二行')
+  // 关键回归：相对缩进不丢——旧逻辑按每行自身缩进 slice，嵌套行的相对缩进被抹平，
+  // 序列化（2 空格基准）再解析后回不到原值
+  const v = '首行\n  嵌套行'
+  expect(parseFlat(stringifyFlat(parseFlat('钩子: |\n  首行\n    嵌套行'))).get('钩子')).toBe(v)
+})
+
+test('E-9d: 首行缩进即最小缩进时行为不变（正常手写块）', () => {
+  expect(parseFlat('钩子: |\n  a\n  b').get('钩子')).toBe('a\nb')
 })

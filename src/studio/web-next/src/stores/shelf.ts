@@ -10,18 +10,24 @@ export const useShelfStore = defineStore('shelf', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  /** 操作代（N-12，第五十四轮，与 check store 同款）：并发 load 慢响应迟到不回填旧数据 */
+  let opGen = 0
+
   async function load(): Promise<void> {
+    const gen = ++opGen
     loading.value = true
     error.value = null
     try {
       const r = await listBooks()
+      if (gen !== opGen) return // 后发 load 已生效：旧响应不回填
       books.value = r.books
       workDirMissing.value = !r.workDir
       hint.value = r.hint ?? null
     } catch (e) {
+      if (gen !== opGen) return
       error.value = friendlyError(e)
     } finally {
-      loading.value = false
+      if (gen === opGen) loading.value = false
     }
   }
 

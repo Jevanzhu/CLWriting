@@ -206,36 +206,45 @@ function isLibraryDir(dir: string): boolean {
 /**
  * 弹原生目录选择器选书库。批2：仅接受含 .clwriting/ 的目录；非书库提示后重选或取消。
  * 批3 将扩展：非书库目录二次确认 → 引导建书。
- * @returns 校验通过的目录绝对路径；取消返回 null
+ * E-9c（第五十三轮）：「重新选择」原为无上限递归——反复选非书库目录会无限弹窗；
+ * 改循环 + 次数封顶（10 次），超限记 error 日志后返回 null 退出（由调用方按取消处理）。
+ * @returns 校验通过的目录绝对路径；取消/超限返回 null
  */
+const PICK_LIBRARY_MAX_ATTEMPTS = 10 // E-9c：目录选择循环封顶
 async function pickLibrary(): Promise<string | null> {
-  const parent = mainWindow ?? undefined
-  const openOpts: OpenDialogOptions = {
-    title: '选择 CLWriting 书库目录',
-    properties: ['openDirectory', 'createDirectory'],
+  // E-9c：递归改循环 + 封顶——超限退出并报错，不再无限弹窗
+  for (let attempt = 1; attempt <= PICK_LIBRARY_MAX_ATTEMPTS; attempt++) {
+    const parent = mainWindow ?? undefined
+    const openOpts: OpenDialogOptions = {
+      title: '选择 CLWriting 书库目录',
+      properties: ['openDirectory', 'createDirectory'],
+    }
+    const result = parent
+      ? await dialog.showOpenDialog(parent, openOpts)
+      : await dialog.showOpenDialog(openOpts)
+    const dir = result.canceled ? null : result.filePaths[0]
+    if (!dir) return null
+    if (isLibraryDir(dir)) return dir
+    // 非书库目录 —— 决策②：二次确认是否在此新建书库
+    const msgOpts: MessageBoxOptions = {
+      type: 'question',
+      title: '在此新建书库？',
+      message: `「${basename(dir)}」还不是书库目录`,
+      detail: '确认后在此新建 CLWriting 书库：重启后书架为空，建第一本书时会自动建立 .clwriting/ 等结构。',
+      buttons: ['在此新建', '重新选择', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+    }
+    const choice = parent
+      ? await dialog.showMessageBox(parent, msgOpts)
+      : await dialog.showMessageBox(msgOpts)
+    if (choice.response === 0) return dir // 确认在此新建（待建空目录，由调用方持久化 + 重启）
+    if (choice.response === 1) continue // 重新选择（E-9c：回到循环顶，受封顶约束）
+    return null // 取消
   }
-  const result = parent
-    ? await dialog.showOpenDialog(parent, openOpts)
-    : await dialog.showOpenDialog(openOpts)
-  const dir = result.canceled ? null : result.filePaths[0]
-  if (!dir) return null
-  if (isLibraryDir(dir)) return dir
-  // 非书库目录 —— 决策②：二次确认是否在此新建书库
-  const msgOpts: MessageBoxOptions = {
-    type: 'question',
-    title: '在此新建书库？',
-    message: `「${basename(dir)}」还不是书库目录`,
-    detail: '确认后在此新建 CLWriting 书库：重启后书架为空，建第一本书时会自动建立 .clwriting/ 等结构。',
-    buttons: ['在此新建', '重新选择', '取消'],
-    defaultId: 0,
-    cancelId: 2,
-  }
-  const choice = parent
-    ? await dialog.showMessageBox(parent, msgOpts)
-    : await dialog.showMessageBox(msgOpts)
-  if (choice.response === 0) return dir // 确认在此新建（待建空目录，由调用方持久化 + 重启）
-  if (choice.response === 1) return pickLibrary() // 重新选择
-  return null // 取消
+  // E-9c：封顶退出——留痕报错后按取消收口，不无限弹窗困住用户
+  log.error('main', `书库目录选择连续 ${PICK_LIBRARY_MAX_ATTEMPTS} 次未选定有效目录，已退出选择流程`)
+  return null
 }
 
 /** 重启进程以应用新 workDir（规避 server 路由单例，见方案 §3.1）。 */
@@ -741,7 +750,8 @@ if (gotSingleInstanceLock) {
 
   // RB-SV-P2-6：优雅退出。O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次
   // quit 直通）。批 U2：before-quit 走 shutdown 指令——child 内 shutdownStudio（在途
-  // 编排 abort/session/end 落库）落定后 shutdown-done 回执退出；2s 总超时强杀兜底在
+  // 编排 abort/session/end 落库）落定后 shutdown-done 回执退出；3.5s 总超时（E-1，
+  // 见 server-manager SHUTDOWN_TOTAL_TIMEOUT_MS）强杀兜底在
   // manager 内（与拆分前 before-quit 口径一致）。
   app.on('before-quit', (e) => {
     if (!bootstrapRunner.beginShutdown()) return
@@ -752,7 +762,7 @@ if (gotSingleInstanceLock) {
   })
 
   app.on('activate', () => {
-    // 低-8（第十轮）：退出途中不再重 bootstrap——before-quit 的 2s 优雅退出窗口内
+    // 低-8（第十轮）：退出途中不再重 bootstrap——before-quit 的 3.5s 优雅退出窗口内
     // （shuttingDown 已置位）macOS dock 点击仍会触发 activate，若只判
     // mainWindow === null 会在退出半途再起 server/开窗（与 Z-P2-8 退出竞态同族）
     if (bootstrapRunner.shuttingDown) return

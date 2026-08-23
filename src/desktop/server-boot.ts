@@ -7,8 +7,10 @@
  *
  * 纯函数 + 依赖注入（startServer/setInitialBook 可换假件），两入口等价性由
  * test/desktop/server-boot.test.ts 锚定。行为红线：缺省值与拆分前逐字不变——
- * --token/--book/--dir/--mirror-console 缺省时 startServer 收到 undefined，
- * 走其内部缺省（randomUUID / 不设初始书 / welcome 态 / mirrorConsoleLog=true）。
+ * --book/--dir/--mirror-console 缺省时 startServer 收到 undefined，
+ * 走其内部缺省（不设初始书 / welcome 态 / mirrorConsoleLog=true）。
+ * token 例外（E-9b，第五十三轮）：不经 argv（本机 ps 可见），只经 env
+ * CLW_STUDIO_TOKEN 注入；缺省走 startServer 内部 randomUUID 不变。
  */
 import type http from 'node:http'
 import { fileURLToPath } from 'node:url'
@@ -25,7 +27,7 @@ export interface ParsedServerArgs {
   userDataPath: string | null
   /** --book；null = 不设初始书 */
   book: string | null
-  /** --token；null = 每次随机生成（缺省行为不变，U-6 注入态由 server-manager 恒传） */
+  /** token（E-9b：只经 env CLW_STUDIO_TOKEN 注入，不经 argv——ps 可见）；null = 每次随机生成（缺省行为不变） */
   token: string | null
   /** --mirror-console 标志；null = 未传 */
   mirrorConsole: boolean | null
@@ -36,8 +38,23 @@ function argValue(argv: string[], flag: string): string | null {
   return i !== -1 && i + 1 < argv.length ? (argv[i + 1] ?? null) : null
 }
 
-/** 解析 --dir/--user-data/--port/--token/--book/--mirror-console；未识别参数忽略。 */
-export function parseServerArgs(argv: string[], opts?: { portDefault?: number }): ParsedServerArgs {
+/**
+ * 解析 --dir/--user-data/--port/--book/--mirror-console；未识别参数忽略。
+ * token 不在 argv 面（E-9b，第五十三轮：argv 本机 ps 可见）——只从 opts.env 的
+ * CLW_STUDIO_TOKEN 读（缺省 process.env，两入口零改动）；测试经 opts.env 注入
+ * 隔离宿主环境。
+ * N-8（第五十四轮）：argv 仍出现 --token（已被 env 注入取代）时经 opts.warn 打
+ * warn（缺省 console.warn）——不报错不退出，防外部脚本不知情静默拿到随机 token。
+ */
+export function parseServerArgs(
+  argv: string[],
+  opts?: { portDefault?: number; env?: Record<string, string | undefined>; warn?: (msg: string) => void },
+): ParsedServerArgs {
+  const env = opts?.env ?? process.env
+  const warn = opts?.warn ?? ((msg: string) => console.warn(msg))
+  if (argv.includes('--token')) {
+    warn('--token 已废弃：token 现经 env CLW_STUDIO_TOKEN 注入，argv 上的 --token 将被忽略（本次以 env/随机 token 为准）')
+  }
   const portRaw = argValue(argv, '--port')
   const port = portRaw !== null ? Number(portRaw) : NaN
   return {
@@ -45,7 +62,7 @@ export function parseServerArgs(argv: string[], opts?: { portDefault?: number })
     workDir: argValue(argv, '--dir'),
     userDataPath: argValue(argv, '--user-data'),
     book: argValue(argv, '--book'),
-    token: argValue(argv, '--token'),
+    token: env['CLW_STUDIO_TOKEN'] || null,
     mirrorConsole: argv.includes('--mirror-console') ? true : null,
   }
 }

@@ -19,6 +19,8 @@ import {
   afterFinalizeGenerateSummaryBatch,
   readChapterSummaryBody,
   effectiveConfig,
+  SUMMARY_CHAPTER_MAX_FALLBACK,
+  SUMMARY_VOLUME_MAX_FALLBACK,
 } from '../../src/process/summary.js'
 import { SUMMARY_CHAPTER_SPEC } from '../../src/ai/tasks/specs.js'
 import { waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
@@ -150,6 +152,48 @@ describe('generateChapterSummary（C1 批 2）', () => {
       const body = readChapterSummaryBody(root, 1)!
       expect(body.endsWith('\u{20BB7}\u2026')).toBe(true)
       expect(body).not.toContain('\u{D867}')
+    } finally {
+      spec.mock = orig
+    }
+  })
+
+  it('E-9e（第五十三轮）：预算比较按码位——码位数未超预算时不因 UTF-16 length 偏大误截断', async () => {
+    const root = makeBook(1)
+    const spec = SUMMARY_CHAPTER_SPEC as unknown as { mock: { kind: 'text'; text: string } }
+    const orig = spec.mock
+    try {
+      // 「ab𠮷cd」= 5 码位但 6 个 UTF-16 码元：旧口径 length(6) > 预算(5) 会多此一举
+      // 追加省略号；码位口径 5 ≤ 5 不截断
+      spec.mock = { kind: 'text', text: 'ab\u{20BB7}cd' }
+      const cfg = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, summary_chapter_max: 5 } }
+      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      expect(r.ok && !r.skipped).toBe(true)
+      const body = readChapterSummaryBody(root, 1)!
+      expect(body).toBe('ab\u{20BB7}cd')
+    } finally {
+      spec.mock = orig
+    }
+  })
+
+  // N-7（第五十四轮）：预算兜底显式 resolve——书级未设 summary_chapter_max 时走具名
+  // 具名回落常量（不再内联硬编码 200），且回落值与 yaml 脚手架缺省同源一致
+  it('N-7: 书级未设 summary_chapter_max → 按具名回落常量截断（与 yaml 脚手架缺省同源）', async () => {
+    expect(SUMMARY_CHAPTER_MAX_FALLBACK).toBe(200)
+    expect(SUMMARY_VOLUME_MAX_FALLBACK).toBe(500)
+    expect(DEFAULT_CONFIG.budget.summary_chapter_max).toBe(SUMMARY_CHAPTER_MAX_FALLBACK)
+    expect(DEFAULT_CONFIG.budget.summary_volume_max).toBe(SUMMARY_VOLUME_MAX_FALLBACK)
+
+    const root = makeBook(1)
+    const spec = SUMMARY_CHAPTER_SPEC as unknown as { mock: { kind: 'text'; text: string } }
+    const orig = spec.mock
+    try {
+      // 产出超回落预算（200）→ 硬截断到 200 + 省略号
+      spec.mock = { kind: 'text', text: '字'.repeat(SUMMARY_CHAPTER_MAX_FALLBACK + 50) }
+      const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { calls_per_chapter: 3 } } // 摘要预算未设
+      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      expect(r.ok && !r.skipped).toBe(true)
+      const body = readChapterSummaryBody(root, 1)!
+      expect([...body].length).toBe(SUMMARY_CHAPTER_MAX_FALLBACK + 1) // 200 + '…'
     } finally {
       spec.mock = orig
     }

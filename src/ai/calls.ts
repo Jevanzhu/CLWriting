@@ -71,7 +71,24 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
     // 旧格式检测：raw.chapter 是 number（而非 object）→ 迁移写回
     if (typeof raw['chapter'] === 'number') {
       const migrated = migrateOldFormat(raw as unknown as OldFormat)
-      writeRecord(bookRoot, migrated)
+      // E-4（第五十三轮）：迁移写改走 serializedWrite 互斥队列——此前裸 writeRecord 发生在
+      // read 路径，与在途记账写（已排队的微任务）并发时可交错覆盖丢账。migratedRoots 为
+      // 已完成迁移标记：入队写落地前的并发 read 命中标记即短路，不再重复入队（迁移写只写
+      // 不读，本身无递归；标记防的是重复入队同一迁移写）。
+      if (!migratedRoots.has(bookRoot)) {
+        migratedRoots.add(bookRoot)
+        // N-10（第五十四轮）：写失败时清除标记——此前标记入队即置位，IO 抛错后
+        // 迁移永不重试且文件永留旧格式；清除后下次 read 重新入队可重试（排队窗口内
+        // 并发 read 仍靠先置位的标记去重，不重复入队）。
+        serializedWrite(bookRoot, () => {
+          try {
+            writeRecord(bookRoot, migrated)
+          } catch (err) {
+            migratedRoots.delete(bookRoot)
+            throw err
+          }
+        })
+      }
       return { rec: migrated, corrupt: false }
     }
     // 新格式
@@ -151,6 +168,9 @@ function migrateOldFormat(old: OldFormat): CallRecord {
   }
 }
 
+/** E-4（第五十三轮）：旧格式迁移已完成的书库标记（防迁移写落地前并发 read 重复入队） */
+const migratedRoots = new Set<string>()
+
 /** 原子写记录（atomicWriteFile + fsync；mode 0600 随临时文件创建即生效——
  *  CC-P2-3：此前先默认权限写再补 chmodSync，既有短暂全局可读窗口，且裸调用无防护、
  *  成功路径同步抛错可反转 GEN_FAIL；mode 选项两问同解，chmodSync 删除） */
@@ -165,7 +185,17 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 跨 bookRoot 各自独立链互不阻塞；读路径（checkAiCallBudget 等）保持快照语义不变。
 // 队列空闲时同步直行（doWrite 全同步 IO，JS 单线程内该段原子完成）——既有同步调用方
 // 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
+// E-7（第五十三轮）：本互斥为进程内语义——多进程（CLI+桌面）同书并发时失效，
+// 跨进程正确性依赖批次 J7 跨进程文件锁（当前未落地，见 AI_CALLS_MUTEX_SCOPE_NOTE）。
 const writeChains = new Map<string, Promise<unknown>>()
+
+/**
+ * E-7（第五十三轮，声明性收口）：本互斥为**进程内语义**（依赖 JS 单线程内 IO 原子）——
+ * 同进程内成立；多进程（CLI 与桌面）同时操作同一书库时不成立。跨进程同书并发的正确性
+ * 依赖批次 J7 跨进程文件锁（当前未落地）——在 J7 落地前，避免 CLI 与桌面同时操作同一书库。
+ */
+export const AI_CALLS_MUTEX_SCOPE_NOTE =
+  'ai-calls.json 互斥为进程内语义：跨进程（CLI+桌面）同书并发依赖 J7 跨进程文件锁（未落地），避免多进程同时操作同一书库'
 
 function serializedWrite(bookRoot: string, doWrite: () => void): void {
   const prev = writeChains.get(bookRoot)

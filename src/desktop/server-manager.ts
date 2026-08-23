@@ -4,7 +4,7 @@
  * 批 U1：fork server-utility 入口 + parentPort 握手（ready 端口回传 / boot-error
  * 信封）+ studioToken 首启生成/原子持久化（U-6 A）/启动读入内存一次、fork 一律复用
  * 内存值（二轮 F-5）+ stopChild（kill + 等退出）。
- * 批 U2：shutdown 指令下发 + shutdown-done 回执/2s 总超时强杀 + shutdownStarted
+ * 批 U2：shutdown 指令下发 + shutdown-done 回执/3.5s 总超时强杀（E-1 覆盖 child 最坏预算）+ shutdownStarted
  * 状态门（S-5）+ stdio:pipe 日志单写者转发（§3.5：CLW_LOG_STDOUT=1 注入 + JSON 行
  * 解析按 level/tag/err 重发，err 透传 F-3，坏行原文兜底）。
  * 批 U3（本文件当前态）：崩溃退避自动重启——exit 非主动停机即排程重启（立即/5s/15s
@@ -35,8 +35,14 @@ export const STUDIO_SERVICE_NAME = 'studio-server'
 const HANDSHAKE_TIMEOUT_MS = 30_000
 /** stopChild 等 child 退出的上限：kill 后仍不退（SIGTERM 被吞）则放行，防退出链挂死 */
 const KILL_WAIT_TIMEOUT_MS = 2_000
-/** shutdown 总超时：不等 shutdown-done 回执的兜底（与拆分前 before-quit 2s 同量级，§3.4 时序 4） */
-const SHUTDOWN_TOTAL_TIMEOUT_MS = 2_000
+/**
+ * shutdown 总超时：不等 shutdown-done 回执的兜底（与拆分前 before-quit 2s 同量级，§3.4 时序 4）。
+ * E-1（第五十三轮）：child 侧 graceful-shutdown 最坏预算 = close 1.5s + settle 1.5s 串行
+ * ≈3s——原 2s 会在收尾窗口内强杀，打断 session/end 落库；提到 3.5s 覆盖 child 最坏
+ * 预算（改动面最小、语义直白：main 兜底必须 ≥ child 自身兜底之和，否则兜底变打断）。
+ * 测试经 shutdownTotalMs 注入缩短，不依赖本值保快。
+ */
+export const SHUTDOWN_TOTAL_TIMEOUT_MS = 3_500
 /** 崩溃退避序列（第 1/2/3 次自动重启前的等待；U-2 建议立即/5s/15s） */
 const RESTART_BACKOFF_MS: readonly number[] = [0, 5_000, 15_000]
 /** 自动重启次数上限：第 3 次重启后的再崩溃不再自动重启，转 onRestartExhausted 决断 */
@@ -130,7 +136,7 @@ export interface StudioServerManager {
   stopChild(): Promise<void>
   /**
    * 优雅停机（before-quit 收尾）：下发 shutdown 指令 → shutdownStudio 落定 →
-   * shutdown-done 回执 / 2s 总超时 / exit 三路先到为准；窗口内未退则 kill 兜底。
+   * shutdown-done 回执 / 总超时（3.5s，E-1）/ exit 三路先到为准；窗口内未退则 kill 兜底。
    * 幂等；与 stopChild 同属主动停机——均置 shutdownStarted（S-5，批 U3 重启门消费）。
    */
   shutdown(): Promise<void>
@@ -178,6 +184,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   const stabilityResetMs = deps.stabilityResetMs ?? STABILITY_RESET_MS
   let active: ActiveChild | null = null
   let starting: Promise<number> | null = null
+  // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
+  // 一致性，不一致 fail-closed 直接 reject（不静默吞没后到调用方的配置）
+  let startingOpts: StartStudioServerOptions | null = null
   let tokenInMemory: string | null = null // F-5：启动读入一次，此后 fork 一律复用内存值
   // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启；
   // start/shutdown/stopChild 均取消挂起重启——退出/换轮途中 fork 新 child 即孤儿。
@@ -205,16 +214,25 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
    */
   async function launch(opts: StartStudioServerOptions, portArg: string): Promise<number> {
     if (tokenInMemory === null) tokenInMemory = loadOrCreateStudioToken(opts.userDataPath)
-    const args: string[] = ['--user-data', opts.userDataPath, '--port', portArg, '--token', tokenInMemory]
+    // E-9b（第五十三轮）：token 不经 argv（本机 ps 可见）——改经 env CLW_STUDIO_TOKEN
+    // 注入（server-boot parseServerArgs 读取侧同步切 env），argv 面不再出现 token。
+    const args: string[] = ['--user-data', opts.userDataPath, '--port', portArg]
     if (opts.workDir) args.push('--dir', opts.workDir)
     if (opts.book) args.push('--book', opts.book)
     if (opts.mirrorConsole) args.push('--mirror-console')
     // stdio:pipe + CLW_LOG_STDOUT=1（§3.5 单写者）：child 日志只走 stdout JSON 行，
     // 由 main 收行重发落盘；env 展开拷贝，不污染 main 自身 process.env
+    // N-1（第五十四轮）：宿主 process.env 残留的 CLW_STUDIO_TOKEN 先在拷贝上显式
+    // delete 再注入受控值——不依赖对象字面量后键覆盖的隐式顺序，防旧值穿透（仅动
+    // 拷贝，process.env 本身不动）
+    const childEnv: Record<string, string | undefined> = { ...process.env }
+    delete childEnv['CLW_STUDIO_TOKEN']
+    childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
+    childEnv['CLW_LOG_STDOUT'] = '1'
     const proc = forkImpl(entryModulePath(), args, {
       serviceName: STUDIO_SERVICE_NAME,
       stdio: 'pipe',
-      env: { ...process.env, CLW_LOG_STDOUT: '1' },
+      env: childEnv,
     })
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
     const port = await handshake(proc)
@@ -275,7 +293,28 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
 
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
-      if (starting) return starting // 并发 start 复用同一轮（bootstrap 重入防护之外的家底）
+      if (starting) {
+        // E-9a（第五十三轮）：并发 start 复用同一轮前校验关键 opts 一致（dir/user-data/
+        // book/mirror-console）——不一致 fail-closed reject，不静默拿前者配置吞没后到调用方
+        const s = startingOpts
+        if (
+          s &&
+          (s.workDir !== opts.workDir ||
+            s.userDataPath !== opts.userDataPath ||
+            (s.book ?? null) !== (opts.book ?? null) ||
+            Boolean(s.mirrorConsole) !== Boolean(opts.mirrorConsole))
+        ) {
+          // N-9（第五十四轮）：非 HTTP 层错误不入错误码词表（http.ts 禁止自创同义码
+          // 口径对齐）——统一 Error 形态 + logger.warn 留痕，reject 不再挂自创码
+          const mismatch = new Error(
+            `并发 start 参数与在途启动不一致（workDir=${JSON.stringify(opts.workDir)}），拒绝复用在途轮——请等在途 start 完成后再以新参数 start`,
+          )
+          logger.warn('server-manager', '并发 start 参数与在途启动不一致，已拒绝复用（fail-closed）', mismatch)
+          return Promise.reject(mismatch)
+        }
+        return starting // 并发 start 复用同一轮（bootstrap 重入防护之外的家底）
+      }
+      startingOpts = opts
       starting = (async () => {
         cancelPendingRestart() // 显式换轮作废挂起重启（与 stopChild 的取消面互补）
         // 重试/重启前清旧 child：等退出再 fork，避免端口/连接滞留（L-3 语义换轨，S-4）
@@ -291,6 +330,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         return await starting
       } finally {
         starting = null
+        startingOpts = null
       }
     },
     async stopChild(): Promise<void> {
@@ -338,7 +378,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         logger.warn('server-manager', 'shutdown 超时未回执，已强杀兜底')
       }
       if (active?.proc === current.proc) {
-        // 超时未退 / 回执后滞留：强杀兜底，与拆分前 before-quit 2s 超时同口径（§3.4 时序 4）
+        // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
         current.proc.kill()
         await Promise.race([current.exited, delay(killWaitMs)])
       }

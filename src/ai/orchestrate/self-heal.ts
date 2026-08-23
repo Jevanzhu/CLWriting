@@ -692,9 +692,12 @@ async function runChapter(
       const st = evaluateRetry(outcome.report, loop.attempt, ctx.maxAttempts)
       recordRetryAttempt(ctx.chain, st, ctx.maxAttempts, loop.attempt)
       if (st.state === 'pass') return exitPass(opts, state, ctx, loop, term, chapterNo)
-      if (st.state === 'escalate') return exitEscalateBlocked(term, loop, redMessages(outcome), redMessages(outcome).join('；'))
+      // E-9g（第五十三轮）：redMessages(outcome) 原连算三次（escalate 两处 + reds 赋值），
+      // 提取为单次计算复用——纯性能修，行为不变
+      const redMsgs = redMessages(outcome)
+      if (st.state === 'escalate') return exitEscalateBlocked(term, loop, redMsgs, redMsgs.join('；'))
       redIssues = st.redIssues
-      reds = redMessages(outcome)
+      reds = redMsgs
     } else {
       if (outcome.code !== 'NOT_CHAPTER') return exitCheckCrash(term, loop, outcome.error)
       reds = [`草稿格式不合规：${outcome.error}`]

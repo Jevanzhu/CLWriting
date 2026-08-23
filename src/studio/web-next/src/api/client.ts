@@ -62,12 +62,41 @@ export function getToken(): string | null {
   return token
 }
 
-/** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。init.signal 透传，调用方可用于取消。*/
-export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+/** E-2（第五十三轮）：re-boot 的防抖/并发去重——多请求同时 401/403 时只触发一次 boot；
+ *  settle 后置空，下次失败可再次尝试（不永久放弃恢复通道）。 */
+let rebootstrapPromise: Promise<void> | null = null
+/** N-3（第五十四轮）导出给 SSE 层复用：token null 时 EventSource 连接前也走此防抖通道
+ *  re-boot（勿在 SSE 层另造重试风暴——去重/退避语义单源在此）。 */
+export function rebootstrap(): Promise<void> {
+  if (!rebootstrapPromise) {
+    rebootstrapPromise = boot().finally(() => {
+      rebootstrapPromise = null
+    })
+  }
+  return rebootstrapPromise
+}
+
+/** 带 token 注入的 fetch：写方法（非 GET）自动注入 x-studio-token。init.signal 透传，调用方可用于取消。
+ *  E-2（第五十三轮）：boot 失败后 token 永久 null、写请求持续 401/403 只能刷新页面——
+ *  收到 401/403 且 token 为 null（boot 未成功）时，触发一次防抖去重的 re-boot 重取 token，
+ *  成功后重放原请求（同一请求最多重试一次，防死循环）；re-boot 失败或重放仍 401/403 则
+ *  原样透传错误。注意：init.body 须可重放（字符串/undefined；现有调用方均如此）。
+ *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+  _retried = false,
+): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
   if (method !== 'GET' && token) headers.set('x-studio-token', token)
-  return fetch(path, { ...init, method, headers })
+  const r = await fetch(path, { ...init, method, headers })
+  if ((r.status === 401 || r.status === 403) && token === null && !_retried) {
+    await rebootstrap()
+    // re-boot 拿到 token 才值得重放；仍无 token 直接透传本次错误，不空转
+    if (token !== null) return apiFetch(path, init, true)
+  }
+  return r
 }
 
 /** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（error > code > HTTP 状态）。

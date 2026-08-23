@@ -2,8 +2,9 @@
  * 阶段 22 批 U1：server-boot 共享核心回归（server-main 与 server-utility 两入口
  * 单一真相源的等价性锚定，U-3）。
  *
- * - 参数解析：--dir 缺省 = welcome 态（S-8）/ --token/--book/--user-data/--port/
- *   --mirror-console 三态语义（缺省透传 undefined 走 startServer 内部缺省）
+ * - 参数解析：--dir 缺省 = welcome 态（S-8）/ --book/--user-data/--port/
+ *   --mirror-console 三态语义（缺省透传 undefined 走 startServer 内部缺省）；
+ *   token 只经 env CLW_STUDIO_TOKEN（E-9b：不经 argv——本机 ps 可见）
  * - bootServerFromArgs：--book → setInitialBook 先于 startServer（U-1 调用序铁律）
  * - listening → onReady(实际端口)；error → onBootError（信封化回调接线）
  * - describeBootError：EADDRINUSE 中文信封（server-main 拆分前口径原样保留）
@@ -30,15 +31,18 @@ function fakeServer(port = 45678): http.Server {
 
 describe('批 U1：parseServerArgs', () => {
   it('全参数解析', () => {
-    const p = parseServerArgs([
-      'node', 'x.js',
-      '--dir', '/books/lib',
-      '--user-data', '/ud',
-      '--port', '8123',
-      '--token', 'tkn-1',
-      '--book', '书A',
-      '--mirror-console',
-    ])
+    const p = parseServerArgs(
+      [
+        'node', 'x.js',
+        '--dir', '/books/lib',
+        '--user-data', '/ud',
+        '--port', '8123',
+        '--book', '书A',
+        '--mirror-console',
+      ],
+      // E-9b：token 只经 env 注入（隔离宿主环境，不走 process.env 缺省）
+      { env: { CLW_STUDIO_TOKEN: 'tkn-1' } },
+    )
     expect(p).toEqual({
       port: 8123,
       workDir: '/books/lib',
@@ -50,8 +54,32 @@ describe('批 U1：parseServerArgs', () => {
   })
 
   it('缺省：port 0 / 其余 null / mirrorConsole null（welcome 态，S-8）', () => {
-    const p = parseServerArgs(['node', 'x.js'])
+    const p = parseServerArgs(['node', 'x.js'], { env: {} })
     expect(p).toEqual({ port: 0, workDir: null, userDataPath: null, book: null, token: null, mirrorConsole: null })
+  })
+
+  it('E-9b：token 彻底切 env——argv 残留 --token 也不解析（本机 ps 可见面收敛）', () => {
+    // argv 带旧 --token：不再被识别（未识别参数忽略），token 仍只看 env
+    const p = parseServerArgs(['x', '--token', 'argv-tkn'], { env: {} })
+    expect(p.token).toBeNull()
+    expect(parseServerArgs(['x'], { env: { CLW_STUDIO_TOKEN: 'env-tkn' } }).token).toBe('env-tkn')
+    // env 空串按未提供处理（?? null），不把 '' 透传给 startServer
+    expect(parseServerArgs(['x'], { env: { CLW_STUDIO_TOKEN: '' } }).token).toBeNull()
+  })
+
+  // N-8（第五十四轮）：argv 残留 --token 打 warn（不报错不退出）——外部脚本（如
+  // release-smoke 直跑 server-main）不会静默拿到随机 token
+  it('N-8：argv 出现 --token → warn 一次（可注入捕获件），解析仍正常不抛错', () => {
+    const warn = vi.fn()
+    const p = parseServerArgs(['x', '--token', 'argv-tkn', '--port', '9'], { env: { CLW_STUDIO_TOKEN: 'tkn' }, warn })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]![0]).toContain('--token')
+    expect(p.token).toBe('tkn') // token 仍以 env 为准，argv 值被忽略
+    expect(p.port).toBe(9) // 其余解析不受影响，不报错不退出
+    // 无 --token 时零 warn
+    const warn2 = vi.fn()
+    parseServerArgs(['x', '--port', '9'], { env: {}, warn: warn2 })
+    expect(warn2).not.toHaveBeenCalled()
   })
 
   it('portDefault：未传 --port 时回落入口自定义缺省（server-main 7878）', () => {
@@ -91,7 +119,7 @@ describe('批 U1：bootServerFromArgs（依赖注入假件）', () => {
     expect(setInitialBook).not.toHaveBeenCalled()
   })
 
-  it('--token 注入 / 缺省 undefined 走 startServer 内部 randomUUID（U-6 等价口径）', () => {
+  it('token 注入 / 缺省 undefined 走 startServer 内部 randomUUID（U-6 等价口径；E-9b 后注入面为 env）', () => {
     const startServer = vi.fn((_opts: StudioServerOptions) => fakeServer())
     bootServerFromArgs(
       { port: 0, workDir: null, userDataPath: null, book: null, token: 'tkn-fixed', mirrorConsole: null },

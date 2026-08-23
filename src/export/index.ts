@@ -66,16 +66,35 @@ interface ExportUnit {
  */
 
 /** 净化正文：去首尾空白 + 过滤 #% 作者批注（W0 §6 过渡期，导出不泄漏定稿批注）。
- *  P3-14：行首整行批注与**行中**批注尾巴（`正文#%批注`）一并截掉——此前只滤
- *  行首 `#%`，行中批注会泄漏进导出；截断后行尾空白收敛，整行批注变空行则剔除，
- *  原空行保留（markdown 分段）。 */
+ *  P3-14：行首整行批注与行中批注尾巴一并截掉；截断后行尾空白收敛，整行批注变空行
+ *  则剔除，原空行保留（markdown 分段）。
+ *  E-9f（第五十三轮）：`#%` 截断收紧为确属内部批注形态才剥——①行首（含缩进后）；
+ *  ②紧贴正文（`#` 前是非空白字符，即 AI 习惯的 `正文#%批注` 贴附写法）。
+ *  `#` 前是空白的行中字面 `#%`（如 `达标线 #%=95%`）保留——无法与批注完全区分，
+ *  保守只剥上述两种标记形态，正文合法字面序列不再误删。
+ *  N-6（第五十四轮）：markdown fenced 代码块（``` 围栏）内的 `#%` 是代码字面量
+ *  （注释语法/字符串常量常见），围栏内整段跳过剥除——行级状态机跟踪 ``` 开闭。
+ *  只处理 ``` fenced：~~~ 围栏与缩进代码块不扩大识别范围（定稿正文惯例 ```）。
+ *  权衡登记：`正文 #% 批注`（# 前带空白的贴附写法）与正文字面 `#%` 无法区分，
+ *  维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。 */
 function purifyBody(body: string): string {
+  let inFence = false
   return body
     .split('\n')
     .map((line) => {
+      // N-6：fenced 代码块围栏行翻转状态；块内行原样保留（#% 是代码字面量非批注）
+      if (line.trimStart().startsWith('```')) {
+        inFence = !inFence
+        return { keep: true, out: line }
+      }
+      if (inFence) return { keep: true, out: line }
       if (line.trim() === '') return { keep: true, out: line } // 原空行保留（分段）
+      // E-9f：仅内部标记形态才作为批注起点——①`#%` 前只有空白（含行首）；
+      // ②紧贴正文（前一个字符非空白，即 `正文#%批注` 贴附写法）。
+      // `#` 前是空白但前面有正文的行中字面量保留。
       const i = line.indexOf('#%')
-      const out = i === -1 ? line : line.slice(0, i).replace(/\s+$/, '')
+      const isMarker = i !== -1 && (line.slice(0, i).trim() === '' || !/\s/.test(line[i - 1]!))
+      const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '')
       return { keep: out.trim() !== '', out }
     })
     .filter((r) => r.keep)

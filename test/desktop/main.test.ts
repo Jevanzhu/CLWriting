@@ -43,6 +43,7 @@ const M = vi.hoisted(() => ({
   menuBuilt: 0,
   popupCb: null as null | (() => void),
   dialogOpen: { canceled: true, filePaths: [] as string[] },
+  dialogOpenCalls: 0, // E-9c：pickLibrary 循环封顶断言用
   msgResponse: 2,
   shell: { show: [] as string[], open: [] as string[] },
   windows: [] as Array<Record<string, any>>,
@@ -236,7 +237,10 @@ vi.mock('electron', () => {
       },
     },
     dialog: {
-      showOpenDialog: async () => M.dialogOpen,
+      showOpenDialog: async () => {
+        M.dialogOpenCalls++ // E-9c：计数（pickLibrary 封顶锚定）
+        return M.dialogOpen
+      },
       showMessageBox: async () => ({ response: M.msgResponse }),
       showMessageBoxSync: (o: Record<string, unknown>) => {
         M.msgBoxSync.push(o)
@@ -373,14 +377,18 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(csp).toContain("connect-src 'self'")
   })
 
-  it('utility fork 参数与主窗加载（批 U1）：--dir/--user-data/--port 0/--token + serviceName → loadURL', () => {
+  it('utility fork 参数与主窗加载（批 U1）：--dir/--user-data/--port 0/token 经 env（E-9b）+ serviceName → loadURL', () => {
     expect(M.forkCalls.length).toBe(1)
     const call = M.forkCalls[0]!
     const dirVal = call.args[call.args.indexOf('--dir') + 1]
     expect(dirVal).toBe(libA)
     expect(call.args[call.args.indexOf('--user-data') + 1]).toBe(M.userData)
     expect(call.args[call.args.indexOf('--port') + 1]).toBe('0')
-    expect(call.args[call.args.indexOf('--token') + 1]).toMatch(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/)
+    // E-9b：token 不经 argv（ps 可见）——argv 面无 --token，只经 env CLW_STUDIO_TOKEN 注入
+    expect(call.args).not.toContain('--token')
+    expect((call.options['env'] as Record<string, string | undefined>)['CLW_STUDIO_TOKEN']).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/,
+    )
     expect(call.args).not.toContain('--book')
     expect(call.args).not.toContain('--mirror-console') // mock isPackaged=true
     expect(call.options['serviceName']).toBe('studio-server')
@@ -395,7 +403,8 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
   it('studioToken 持久化（U-6）：userData/studio-token.json 落盘且与 fork 传值一致', () => {
     const stored = JSON.parse(readFileSync(join(M.userData, 'studio-token.json'), 'utf-8')) as { token: string }
     const call = M.forkCalls[0]!
-    expect(stored.token).toBe(call.args[call.args.indexOf('--token') + 1])
+    // E-9b：token 注入面 = fork env CLW_STUDIO_TOKEN（argv 无 --token）
+    expect(stored.token).toBe((call.options['env'] as Record<string, string | undefined>)['CLW_STUDIO_TOKEN'])
   })
 
   it('window-state 恢复：合法 bounds → 主窗尺寸取存量值', () => {
@@ -691,13 +700,31 @@ describe('kk-P2-8：退出与边界分支', () => {
     await new Promise((r) => setImmediate(r))
     const call = M.forkCalls.at(-1)!
     expect(call.args).not.toContain('--dir')
-    // 独立 main 加载（模拟 main 重启）复用持久化 token
-    expect(call.args[call.args.indexOf('--token') + 1]).toBe(tokenBefore)
+    // 独立 main 加载（模拟 main 重启）复用持久化 token（E-9b：经 env 注入）
+    expect((call.options['env'] as Record<string, string | undefined>)['CLW_STUDIO_TOKEN']).toBe(tokenBefore)
     expect(M.windows.length).toBe(windows0 + 1)
     expect(M.windows.at(-1)!.loaded[0]).toBe('http://127.0.0.1:45678/welcome')
     // 还原 current，避免影响后续 readStore
     writeFileSync(join(M.userData, 'workdir.json'), backup)
     expect(M.forkChildren.length).toBe(fork0 + 1)
+  })
+
+  it('E-9c：反复选非书库目录 + 重新选择 → 循环 10 次封顶后退出（记 error 日志，不无限弹窗）', async () => {
+    // pickLibrary 由 open-library IPC/菜单触发（bootstrap welcome 态不经选择器）
+    // 每轮都选非书库目录，且二次确认恒选「重新选择」（response=1）
+    const notLib = mkTmp('e9c-notlib-')
+    M.dialogOpen = { canceled: false, filePaths: [notLib] }
+    M.msgResponse = 1
+    const calls0 = M.dialogOpenCalls
+    const err0 = M.logErrors.length
+    const r = await M.ipcHandle['desktop:open-library']!(null)
+    // 恰好 10 次（封顶退出，不无限弹窗）；封顶按取消收口 → { canceled: true }
+    expect(M.dialogOpenCalls - calls0).toBe(10)
+    expect(r).toEqual({ ok: false, canceled: true })
+    expect(M.logErrors.length).toBeGreaterThan(err0) // 封顶退出已记 error 留痕
+    // 还原现场，避免影响后续用例
+    M.dialogOpen = { canceled: true, filePaths: [] }
+    M.msgResponse = 2
   })
 
   it('时序 2（批 U1）：boot-error（EADDRINUSE）→ 原生错误对话框 + 退出，不开窗不 fork 增量外动作', async () => {

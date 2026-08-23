@@ -45,7 +45,8 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
     },
   })
   // main → child：shutdown 指令（before-quit 下发）——执行 shutdownStudio 全流程后
-  // 回执退出；main 侧另有 2s 总超时 + kill 兜底，不等本回执也安全（§3.4 时序 4）
+  // 回执退出；main 侧另有总超时（E-1：3.5s，覆盖本流程 close+settle 最坏预算）+ kill
+  // 兜底，不等本回执也安全（§3.4 时序 4）
   parentPort.on('message', (event: { data?: unknown }) => {
     const msg = event.data as { type?: string } | undefined
     if (msg?.type !== 'shutdown') return

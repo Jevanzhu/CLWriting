@@ -1,7 +1,7 @@
 import { watch, onUnmounted, type WatchSource } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
-import { getToken } from '../api/client'
+import { getToken, rebootstrap } from '../api/client'
 
 /**
  * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑），
@@ -24,8 +24,20 @@ export function useSse(bookName: WatchSource<string>): void {
   let backoffStep = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let currentName = ''
+  /** 连接代：disconnect/重连会推进——悬挂中的 doConnect（await re-bootstrap 期间被接管）据此放弃 */
+  let connectGen = 0
 
-  function doConnect(): void {
+  async function doConnect(): Promise<void> {
+    const gen = connectGen
+    // N-3（第五十四轮）：token null（boot 失败）时 SSE 连接不带 token 必 401 fail-closed，
+    // 退避循环自身无法自愈（只能靠别的写请求触发 E-2）——连接前复用 client 的 re-bootstrap
+    // 通道（promise 去重防风暴），settle 后再连；re-boot 失败 token 仍 null 则照常连接，
+    // 由 fail-closed 退避节奏再次走到这里重试（节奏封顶 60s，不额外造重试风暴）。
+    if (getToken() === null) {
+      await rebootstrap()
+      // 等待期间已被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
+      if (gen !== connectGen) return
+    }
     const base = import.meta.env.DEV ? 'http://127.0.0.1:7878' : ''
     const t = getToken()
     const tokenQuery = t ? `?token=${encodeURIComponent(t)}` : ''
@@ -76,6 +88,7 @@ export function useSse(bookName: WatchSource<string>): void {
   }
 
   function disconnect(): void {
+    connectGen++ // 推代：悬挂中的 doConnect（await re-bootstrap 期间）放弃开连
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null

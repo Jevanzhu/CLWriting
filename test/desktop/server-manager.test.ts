@@ -1,7 +1,8 @@
 /**
  * 阶段 22 批 U1/U2：server-manager 回归（注入假 fork 驱动，不 mock electron 整模块）。
  *
- * - fork 参数与 options：--dir/--user-data/--port 0/--token/--book/--mirror-console、
+ * - fork 参数与 options：--dir/--user-data/--port 0/--book/--mirror-console、
+ *   token 经 env CLW_STUDIO_TOKEN 注入（E-9b：不经 argv——本机 ps 可见）、
  *   serviceName 单列名（S-12）、stdio pipe + env 注入 CLW_LOG_STDOUT=1（批 U2 单写者）
  * - 握手：ready 端口回传（每 fork 一轮，S-5）/ boot-error 信封 reject / 启动途中
  *   exit reject / ready 前不 resolve（时序锚定）
@@ -26,6 +27,7 @@ import {
   createStudioServerManager,
   forwardLogLine,
   ServerBootError,
+  SHUTDOWN_TOTAL_TIMEOUT_MS,
   STUDIO_SERVICE_NAME,
 } from '../../src/desktop/server-manager.js'
 import type { LogLike, ServerManagerDeps } from '../../src/desktop/server-manager.js'
@@ -113,8 +115,17 @@ function argValue(args: string[], flag: string): string {
   return args[i + 1] as string
 }
 
+/** E-9b：token 只经 env CLW_STUDIO_TOKEN 注入——fork 记录 env 侧取值（断言用） */
+function envToken(rec: ForkRecord): string {
+  const env = rec.options['env'] as Record<string, string | undefined>
+  expect(env['CLW_STUDIO_TOKEN'], 'fork env 应含 CLW_STUDIO_TOKEN').toBeTruthy()
+  return env['CLW_STUDIO_TOKEN'] as string
+}
+
+const UUID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
+
 describe('批 U1：fork 参数与握手', () => {
-  it('start → fork 参数（--dir/--user-data/--port 0/--token uuid）+ serviceName + stdio pipe + env 注入 CLW_LOG_STDOUT；ready 端口回传', async () => {
+  it('start → fork 参数（--dir/--user-data/--port 0/token 经 env）+ serviceName + stdio pipe + env 注入 CLW_LOG_STDOUT；ready 端口回传', async () => {
     const { forkRecords, manager } = mkHarness()
     const ud = mkUserData()
     const pending = manager.start({ workDir: '/books/lib', userDataPath: ud })
@@ -122,7 +133,9 @@ describe('批 U1：fork 参数与握手', () => {
     expect(argValue(rec.args, '--dir')).toBe('/books/lib')
     expect(argValue(rec.args, '--user-data')).toBe(ud)
     expect(argValue(rec.args, '--port')).toBe('0')
-    expect(argValue(rec.args, '--token')).toMatch(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/)
+    // E-9b：token 不经 argv（ps 可见）——argv 面无 --token，只经 env CLW_STUDIO_TOKEN 注入
+    expect(rec.args).not.toContain('--token')
+    expect(envToken(rec)).toMatch(UUID_RE)
     expect(rec.options['serviceName']).toBe(STUDIO_SERVICE_NAME)
     // 批 U2 单写者（§3.5）：pipe 收行 + CLW_LOG_STDOUT=1 让 child 日志只走 stdout；
     // env 是展开拷贝（继承 process.env），不污染 main 自身
@@ -199,7 +212,7 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
     const ud = mkUserData()
     const h1 = mkHarness()
     const p1 = h1.manager.start({ workDir: null, userDataPath: ud })
-    const token1 = argValue(h1.forkRecords[0]!.args, '--token')
+    const token1 = envToken(h1.forkRecords[0]!)
     h1.forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
     await p1
     await h1.manager.stopChild()
@@ -208,7 +221,7 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
     // 新 manager（模拟 main 重启后 fork）：读同一文件复用同一 token
     const h2 = mkHarness()
     const p2 = h2.manager.start({ workDir: null, userDataPath: ud })
-    expect(argValue(h2.forkRecords[0]!.args, '--token')).toBe(token1)
+    expect(envToken(h2.forkRecords[0]!)).toBe(token1)
     h2.forkRecords[0]!.child.emit('message', { type: 'ready', port: 2 })
     await p2
     await h2.manager.stopChild()
@@ -218,14 +231,14 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
     const ud = mkUserData()
     const { forkRecords, manager } = mkHarness()
     const p1 = manager.start({ workDir: null, userDataPath: ud })
-    const token1 = argValue(forkRecords[0]!.args, '--token')
+    const token1 = envToken(forkRecords[0]!)
     forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
     await p1
     await manager.stopChild()
     // 会话中途文件损坏/被改 → 重启 child 仍用内存值（前端 token 不失效）
     writeFileSync(join(ud, 'studio-token.json'), JSON.stringify({ token: 'tampered' }))
     const p2 = manager.start({ workDir: null, userDataPath: ud })
-    expect(argValue(forkRecords[1]!.args, '--token')).toBe(token1)
+    expect(envToken(forkRecords[1]!)).toBe(token1)
     forkRecords[1]!.child.emit('message', { type: 'ready', port: 2 })
     await p2
     await manager.stopChild()
@@ -236,11 +249,33 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
     writeFileSync(join(ud, 'studio-token.json'), 'not-json{')
     const { forkRecords, manager } = mkHarness()
     const p = manager.start({ workDir: null, userDataPath: ud })
-    const token = argValue(forkRecords[0]!.args, '--token')
+    const token = envToken(forkRecords[0]!)
     forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
     await p
     await manager.stopChild()
     expect(JSON.parse(readFileSync(join(ud, 'studio-token.json'), 'utf-8')).token).toBe(token)
+  })
+
+  // N-1（第五十四轮）：宿主 process.env 残留 CLW_STUDIO_TOKEN 不得穿透覆盖注入值——
+  // fork env 拷贝上显式 delete 后再注入受控值（process.env 本身不动）
+  it('N-1：宿主残留同名 env → child 收到的是注入 token（残留值不穿透、process.env 不动）', async () => {
+    vi.stubEnv('CLW_STUDIO_TOKEN', 'stale-host-residue')
+    try {
+      const { forkRecords, manager } = mkHarness()
+      const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+      const token = envToken(forkRecords[0]!)
+      expect(token).not.toBe('stale-host-residue') // 残留值不穿透
+      expect(token).toMatch(UUID_RE) // 注入的是受控生成/持久化值
+      const env = forkRecords[0]!.options['env'] as Record<string, string | undefined>
+      expect(env['CLW_STUDIO_TOKEN']).toBe(token) // child env 侧即受控值
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
+      await p
+      await manager.stopChild()
+      // 只动拷贝：宿主 process.env 的残留值原样保留
+      expect(process.env['CLW_STUDIO_TOKEN']).toBe('stale-host-residue')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 
@@ -286,6 +321,54 @@ describe('批 U1：并发 start 防护', () => {
     await expect(p2).resolves.toBe(33)
     expect(forkRecords.length).toBe(1)
     await manager.stopChild()
+  })
+
+  // E-9a（第五十三轮）：并发 start opts 不同不得静默复用前者配置——fail-closed reject
+  // N-9（第五十四轮）：reject 改统一 Error 形态（非 HTTP 层不入错误码词表）+ warn 留痕
+  it('E-9a：在途 start 期间以不同 opts 再调 → 拒绝 + warn 留痕（不静默吞没、不自创错误码）', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger })
+    const ud = mkUserData()
+    const p1 = manager.start({ workDir: null, userDataPath: ud })
+    // workDir 不同：后到调用方若被复用会拿到 welcome 态配置——必须 reject
+    const p2 = manager.start({ workDir: '/other', userDataPath: ud })
+    await expect(p2).rejects.toThrow(/不一致/)
+    await expect(p2).rejects.not.toBeInstanceOf(ServerBootError) // 统一 Error，非 ServerBootError 信封
+    // 拒绝必须留痕（reject 不静默）：warn 一条且携带原始 Error
+    expect(cap.lines.filter((l) => l.level === 'warn' && l.msg.includes('不一致'))).toHaveLength(1)
+    expect((cap.lines[0]!.err as Error).message).toContain('/other')
+    // userDataPath / book 不同同理（任一关键 opts 不一致即拒绝）
+    await expect(manager.start({ workDir: null, userDataPath: '/ud2' })).rejects.toThrow(/不一致/)
+    await expect(manager.start({ workDir: null, userDataPath: ud, book: '书A' })).rejects.toThrow(/不一致/)
+    // 在途轮不受影响：单一 fork、正常握手收口
+    expect(forkRecords.length).toBe(1)
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 44 })
+    await expect(p1).resolves.toBe(44)
+    await manager.stopChild()
+    // 在途轮 settle 后 start 恢复正常（不因曾 mismatch 拒绝后续调用）
+    const p3 = manager.start({ workDir: '/other', userDataPath: ud })
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 55 })
+    await expect(p3).resolves.toBe(55)
+    await manager.stopChild()
+  })
+
+  it('E-9a：book null vs undefined 视为一致（可选字段缺省不触发误拒）', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const ud = mkUserData()
+    const p1 = manager.start({ workDir: null, userDataPath: ud })
+    const p2 = manager.start({ workDir: null, userDataPath: ud, book: null, mirrorConsole: false })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 3 })
+    await expect(p1).resolves.toBe(3)
+    await expect(p2).resolves.toBe(3)
+    expect(forkRecords.length).toBe(1)
+    await manager.stopChild()
+  })
+})
+
+describe('E-1：shutdown 总超时覆盖 child 最坏预算', () => {
+  it('缺省总超时 ≥ 3.5s（child 侧 close 1.5s + settle 1.5s 串行 ≈3s，main 兜底不得在收尾窗口内强杀）', () => {
+    // 缺省值锚定：回归到 2s 之类会重新出现「超时强杀打断 session/end 落库」
+    expect(SHUTDOWN_TOTAL_TIMEOUT_MS).toBeGreaterThanOrEqual(3_500)
   })
 })
 
@@ -454,13 +537,13 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   it('异常退出 → 自动重启：钉住原端口（S-1）+ 同 token + 原参数面复刻', async () => {
     const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5000, 15000] })
     await bootAt(manager, forkRecords, 45100)
-    const token1 = argValue(forkRecords[0]!.args, '--token')
+    const token1 = envToken(forkRecords[0]!)
     // 模拟崩溃（非 kill——exit 事件直接到达）
     forkRecords[0]!.child.emit('exit', 1)
     await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
     const rec2 = forkRecords[1]!
     expect(argValue(rec2.args, '--port')).toBe('45100') // 钉住原端口，非 '0'
-    expect(argValue(rec2.args, '--token')).toBe(token1) // 同一内存 token
+    expect(envToken(rec2)).toBe(token1) // 同一内存 token
     expect(argValue(rec2.args, '--dir')).toBe('/w')
     rec2.child.emit('message', { type: 'ready', port: 45100 })
     await flushMicrotasks()

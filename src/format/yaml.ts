@@ -16,6 +16,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
+import { stripInlineComment } from './frontmatter-core.js'
 import { LEAD_TYPES } from './leads.js'
 import { log } from '../log/index.js'
 
@@ -119,30 +120,11 @@ function parseSections(text: string): RawSection[] {
   return roots
 }
 
-/** ii 批：剥行内注释——`#` 且前面是空白（或行首）即注释起点，引号内不算。
- *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。
- *  此前值原样保留 `# 备注`，标题/端点等字符串值全带注释尾巴。 */
-function stripComment(s: string): string {
-  let quote: '"' | "'" | null = null
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i]!
-    if (quote === '"') {
-      if (c === '\\') i++ // 跳过转义字符
-      else if (c === '"') quote = null
-      continue
-    }
-    if (quote === "'") {
-      if (c === "'") quote = null
-      continue
-    }
-    if (c === '"' || c === "'") {
-      quote = c
-      continue
-    }
-    if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
-  }
-  return s
-}
+/** 剥行内注释（原 stripComment）。N-4（第五十四轮）：实现下沉 frontmatter-core.ts
+ *  stripInlineComment（与 frontmatter.ts 共用同一函数——经 core 无循环 import），
+ *  语义逐字不变：`#` 且前面是空白（或行首）即注释起点，引号内不算；
+ *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。 */
+const stripComment = stripInlineComment
 
 /** 段树 → BookConfig（#9 第 2 节）。
  *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
